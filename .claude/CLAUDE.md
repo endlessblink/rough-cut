@@ -1,0 +1,187 @@
+# Rough Cut — Project Constitution
+
+## What This Is
+
+Rough Cut is a desktop screen recording and editing studio built with Electron + React + TypeScript + PixiJS. It combines Screen Studio-style recording, a multi-channel timeline editor, programmable motion graphics, and AI-powered editing features.
+
+## Tech Stack
+
+- Runtime: Electron (main + renderer processes)
+- UI: React 18+ with TypeScript (strict mode)
+- Preview Rendering: PixiJS (GPU-accelerated compositor)
+- Export Rendering: Custom frame-by-frame pipeline into FFmpeg
+- State Management: TBD — Zustand + zundo + immer is the current recommendation, but not locked in until the first store slice proves the pattern
+- Monorepo: Turborepo + pnpm workspaces
+- Bundler: Vite (renderer), tsc (packages)
+- Testing: Vitest
+- Linting: ESLint + Prettier
+- Validation: Zod (project model schemas)
+
+## Architecture Principles (MUST follow)
+
+1. **The project document is the single source of truth.** Every subsystem reads from or writes to the declarative ProjectDocument. No subsystem communicates with another directly — they go through the project model.
+
+2. **UI does NOT own rendering logic.** Rendering logic (compositing, effects, frame decoding) lives outside React. The PreviewCompositor is a standalone class that subscribes to the store. A thin `PreviewCanvas` adapter component may host the canvas element and manage the compositor lifecycle, but it must not contain rendering logic itself.
+
+3. **Preview and Export are fundamentally different pipelines.** Preview (PixiJS, real-time, renderer process) is optimized for interactive feedback — it may skip frames, use draft quality, and run at display refresh rate. Export (frame-by-frame, headless, main process) is optimized for correctness — it renders every frame at full quality, deterministically. They share the same EffectDefinition registry and keyframe interpolation math, but their rendering implementations are independent. Never try to reuse the preview renderer for export or vice versa.
+
+4. **Frame-based, not time-based.** All internal temporal positions are integer frame numbers. Frame rate is a project-level constant. Conversion to seconds/milliseconds happens only at the display layer. This prevents floating-point drift and rounding bugs.
+
+5. **The project document is inert data.** No methods, no classes, no circular references. It must serialize to/from JSON. This enables trivial undo/redo, save/load, IPC transport, and testing.
+
+6. **Recording produces assets + metadata, not clips.** The capture system writes media files and creates Asset entries with probed metadata (duration, resolution, codec, frame count). Timeline clips are a separate authoring concern — the UI creates Clip entries on tracks by referencing assets. Capture never touches timeline logic; the timeline never touches capture logic.
+
+7. **Effects are data, not code.** An EffectInstance in the project model is a bag of params keyed by effectType. Rendering logic lives in the EffectDefinition registry, never in the save file.
+
+8. **Main process owns all I/O.** File system operations, FFmpeg spawning, recording, AI workers — all in main. The renderer is a pure UI + preview layer.
+
+9. **Every effect is serializable and testable.** If you can't JSON.stringify() an effect's params and test its output in Vitest without a DOM, the design is wrong.
+
+10. **Clean abstractions over quick hacks.** Prefer correct architecture even if it takes longer. This codebase must support years of growth.
+
+## Package Boundaries (MUST enforce)
+
+```
+@rough-cut/project-model    -> ZERO dependencies. Types, schemas, factories, schema versioning + migrations.
+@rough-cut/timeline-engine  -> Depends only on project-model. Pure functions.
+@rough-cut/effect-registry  -> Depends only on project-model. Effect defs + interpolation.
+@rough-cut/preview-renderer -> Depends on project-model, effect-registry, pixi.js
+@rough-cut/export-renderer  -> Depends on project-model, effect-registry. NO PixiJS.
+@rough-cut/store            -> Depends on project-model, timeline-engine. State lib TBD.
+@rough-cut/ipc              -> Depends on project-model, electron.
+@rough-cut/ai-bridge        -> Depends on project-model only.
+@rough-cut/ui               -> Tab shell + shared components. Each tab owns its own submodules.
+apps/desktop                -> Electron shell. Wires everything together.
+```
+
+**Hard rules:**
+
+- `project-model` depends on NOTHING.
+- `preview-renderer` and `export-renderer` NEVER depend on each other.
+- `ui` NEVER imports from `preview-renderer` directly (use store + PreviewCanvas wrapper).
+- Capture runs exclusively in main process.
+- `store` NEVER imports from `ui`.
+- No circular dependencies between packages (enforce in CI).
+
+## Coding Conventions
+
+### TypeScript
+
+- Strict mode, no `any` (use `unknown` + type narrowing).
+- Prefer interfaces for public API contracts, types for unions/intersections.
+- All project model types defined in `@rough-cut/project-model`.
+- Export types separately from runtime code.
+- Use branded types for IDs: `type ClipId = string & { readonly __brand: 'ClipId' }`.
+
+### React
+
+- Functional components only.
+- Prefer composition over prop drilling.
+- Use Zustand selectors, not full-store subscriptions.
+- No business logic in components — delegate to store actions.
+- Timeline components must use virtualization (only render visible clips).
+
+### State Management
+
+- All mutations go through store actions (implementation TBD — Zustand recommended, not locked).
+- Never mutate state directly — use immutable update patterns.
+- Separate transport state (playhead, 30-60Hz) from project state (undo-able, lower frequency).
+- Group compound mutations for undo/redo (e.g., drag produces one undo step).
+- The store must be accessible outside React (for PreviewCompositor, IPC handlers).
+
+### File Naming
+
+- Components: `PascalCase.tsx` (e.g., `ClipInspector.tsx`)
+- Logic modules: `kebab-case.ts` (e.g., `clip-operations.ts`)
+- Test files: `*.test.ts` or `*.test.tsx` colocated with source
+- Types-only files: `types.ts`
+
+### IPC
+
+- All IPC goes through the typed contract in `@rough-cut/ipc`.
+- No raw `ipcRenderer.send()` or `ipcMain.on()` calls.
+- Main-to-renderer events use typed event emitters.
+- Large data (frames, buffers) use SharedArrayBuffer, not JSON serialization.
+
+### Testing
+
+- `timeline-engine`: extensive unit tests, property-based tests.
+- `effect-registry`: unit tests for interpolation, golden-image tests for effects.
+- `store`: unit tests for actions and selectors.
+- `ui`: component tests with React Testing Library.
+- `export`: integration tests verifying FFmpeg output with ffprobe.
+- No testing of desktopCapturer in CI (mock-based only).
+
+## What NOT To Do
+
+- Don't put rendering logic in React components (thin canvas adapter is OK).
+- Don't let AI-bridge mutate clips directly — AI writes metadata (marks, labels, suggested cuts) into the project model; mutations go through store/timeline-engine.
+- Don't use time-based (ms) values in the project model.
+- Don't add methods to project model types (keep them plain objects).
+- Don't import PixiJS outside of `preview-renderer` package.
+- Don't send video frame data over standard Electron IPC (use SharedArrayBuffer).
+- Don't use `any` type.
+- Don't write effects that can't be serialized to JSON.
+- Don't use class inheritance for effects (use the registry pattern).
+- Don't add runtime dependencies to `project-model`.
+- Don't mix capture logic with timeline logic.
+- Don't skip the effect registry and hardcode effect logic in renderers.
+
+## App Workspaces (Tabs)
+
+The app is organized into 5 workspaces, each a top-level tab:
+
+| Tab | Purpose | Primary Model Concern |
+|-----|---------|----------------------|
+| **Record** | Capture screen, webcam, audio | Creates Assets |
+| **Edit** | Timeline editing, clip arrangement | Reads/writes Composition (tracks, clips) |
+| **Motion** | Animated templates, keyframes | Reads/writes MotionPresets, clip keyframes |
+| **AI** | AI-powered suggestions | Creates AIAnnotations, proposes edits |
+| **Export** | Render final output | Reads entire ProjectDocument, writes output |
+
+`@rough-cut/ui` owns the tab shell (AppShell, TabBar, shared layout). Each tab owns its own submodule directory (`components/record/`, `components/edit/`, etc.) with tab-specific components, hooks, and local state.
+
+## Project Model Quick Reference
+
+```
+ProjectDocument
++-- version: number                    ← schema version for migrations
++-- settings: { resolution, frameRate, backgroundColor, sampleRate }
++-- assets: Asset[] (media registry -- video, audio, image, recording)
++-- composition: Composition
+|   +-- tracks: Track[] (video | audio, each with clips)
+|   |   +-- clips: Clip[] (assetId, timeline in/out, source in/out, transform, effects, keyframes)
+|   +-- transitions: Transition[] (between clips, with type, params, easing)
++-- motionPresets: MotionPreset[] (reusable animation templates)
++-- exportSettings: ExportSettings
+```
+
+All temporal values in frames. All IDs are UUIDs.
+
+### Schema Versioning
+
+The project model includes a `version` field from day one. The `@rough-cut/project-model` package exports:
+- `CURRENT_SCHEMA_VERSION: number` — incremented on any breaking schema change
+- `migrate(doc: unknown): ProjectDocument` — runs the migration chain to bring any older version to current
+- Each migration is a pure function: `(v: N) => (v: N+1)`, tested independently
+- Project load always runs through the migration pipeline before validation
+
+## Commands
+
+```bash
+# Workspace-wide
+pnpm install                              # Install all dependencies
+pnpm build                                # Build all packages (via Turborepo)
+pnpm test                                 # Run all tests
+pnpm lint                                 # Lint all packages
+pnpm format                               # Format all packages (Prettier)
+pnpm typecheck                            # Type-check all packages
+pnpm dev                                  # Start Electron in dev mode
+
+# Per-package (scoped)
+pnpm -F @rough-cut/project-model test     # Test a specific package
+pnpm -F @rough-cut/timeline-engine test   # Test timeline engine
+pnpm -F @rough-cut/effect-registry build  # Build effect registry
+pnpm -F @rough-cut/ui lint                # Lint UI package
+pnpm -F @rough-cut/store typecheck        # Type-check store
+```
