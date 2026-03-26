@@ -199,9 +199,9 @@ export class PreviewCompositor {
 
     const { clipId, transform, effects } = layer;
 
-    // Compute display size — use 20% of frame as placeholder rect size
-    const rectW = Math.round(frameWidth * 0.2);
-    const rectH = Math.round(frameHeight * 0.2);
+    // Compute display size — use 80% of frame as placeholder rect size, centered
+    const rectW = Math.round(frameWidth * 0.8);
+    const rectH = Math.round(frameHeight * 0.8);
 
     let cached = this.layerCache.get(clipId);
 
@@ -229,8 +229,10 @@ export class PreviewCompositor {
 
     const { container, rect, label } = cached;
 
-    // Apply transform
-    container.position.set(transform.x, transform.y);
+    // Center the placeholder in the frame, then apply transform offsets
+    const centerX = (frameWidth - rectW) / 2;
+    const centerY = (frameHeight - rectH) / 2;
+    container.position.set(centerX + transform.x, centerY + transform.y);
     container.scale.set(transform.scaleX, transform.scaleY);
     container.pivot.set(transform.anchorX * rectW, transform.anchorY * rectH);
     container.rotation = (transform.rotation * Math.PI) / 180;

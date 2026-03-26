@@ -67,6 +67,11 @@ export function useCompositor(containerRef: React.RefObject<HTMLDivElement | nul
         if (!host.contains(canvas)) {
           host.appendChild(canvas);
         }
+        // Fit canvas into the preview card via CSS (Pixi keeps internal resolution)
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.objectFit = 'contain';
+        canvas.style.display = 'block';
         setIsReady(true);
       }
     };
