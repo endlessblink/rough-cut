@@ -14,7 +14,7 @@ import { EditRightPanel } from './EditRightPanel.js';
 import { EditTimelineShell } from './EditTimelineShell.js';
 import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
-import { VerticalWorkspaceSplit } from '../../ui/index.js';
+// VerticalWorkspaceSplit no longer needed — timeline is a full-width sibling
 import { useUiStore, uiStore } from '../../hooks/use-ui-store.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
 
@@ -184,7 +184,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
     <EditScreenLayout>
       <AppHeader activeTab={activeTab} onTabChange={onTabChange} captureSummary={captureSummary} />
 
-      {/* Main row: left column with splitter + sidebar */}
+      {/* Preview + Sidebar row */}
       <div
         style={{
           flex: '1 1 auto',
@@ -199,42 +199,9 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
           background: 'linear-gradient(to bottom, #111111, #050505)',
         }}
       >
-        {/* Left column: preview + timeline in a vertical splitter */}
+        {/* Preview — fills remaining space */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <VerticalWorkspaceSplit
-            initialRatio={0.6}
-            top={<EditPreviewStage previewRef={previewRef} />}
-            bottom={
-              <EditTimelineShell
-                canUndo={canUndo}
-                canRedo={canRedo}
-                canSplit={canSplit}
-                canDelete={canDelete}
-                snapEnabled={snapEnabled}
-                onUndo={handleUndo}
-                onRedo={handleRedo}
-                onSplit={handleSplit}
-                onDelete={handleDelete}
-                onToggleSnap={() => setSnapEnabled((prev) => !prev)}
-                pixelsPerFrame={pixelsPerFrame}
-                onZoomChange={setPixelsPerFrame}
-                playheadFrame={playheadFrame}
-              >
-                <TimelineStrip
-                  tracks={tracks}
-                  assets={assets}
-                  playheadFrame={playheadFrame}
-                  selectedClipId={selectedClipId}
-                  pixelsPerFrame={pixelsPerFrame}
-                  snapEnabled={snapEnabled}
-                  onSelectClip={handleSelectClip}
-                  onScrub={handleScrub}
-                  onTrimLeft={handleTrimLeft}
-                  onTrimRight={handleTrimRight}
-                />
-              </EditTimelineShell>
-            }
-          />
+          <EditPreviewStage previewRef={previewRef} />
         </div>
 
         {/* Sidebar toggle + panel */}
@@ -267,6 +234,38 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
             />
           )}
         </div>
+      </div>
+
+      {/* Timeline — full width, below the sidebar row */}
+      <div style={{ flexShrink: 0, height: 220, padding: '0 24px', background: '#050505' }}>
+        <EditTimelineShell
+          canUndo={canUndo}
+          canRedo={canRedo}
+          canSplit={canSplit}
+          canDelete={canDelete}
+          snapEnabled={snapEnabled}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          onSplit={handleSplit}
+          onDelete={handleDelete}
+          onToggleSnap={() => setSnapEnabled((prev) => !prev)}
+          pixelsPerFrame={pixelsPerFrame}
+          onZoomChange={setPixelsPerFrame}
+          playheadFrame={playheadFrame}
+        >
+          <TimelineStrip
+            tracks={tracks}
+            assets={assets}
+            playheadFrame={playheadFrame}
+            selectedClipId={selectedClipId}
+            pixelsPerFrame={pixelsPerFrame}
+            snapEnabled={snapEnabled}
+            onSelectClip={handleSelectClip}
+            onScrub={handleScrub}
+            onTrimLeft={handleTrimLeft}
+            onTrimRight={handleTrimRight}
+          />
+        </EditTimelineShell>
       </div>
     </EditScreenLayout>
   );
