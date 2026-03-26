@@ -1,14 +1,40 @@
-import { useEffect, useCallback } from 'react';
+/**
+ * RecordTab: Presentation-focused timeline.
+ * Responsible for: zoom keyframes, cursor styling, highlights, shortcut titles,
+ * background/look presets. No clip edits (no cutting, trimming, reordering, track management).
+ */
+import { useState, useEffect, useCallback } from 'react';
 import type { RecordingResult } from '../../env.js';
+import { useProjectStore, useTransportStore, transportStore } from '../../hooks/use-stores.js';
 import { useRecordState } from './record-state.js';
-import { SourcePicker } from './SourcePicker.js';
-import { RecordControls } from './RecordControls.js';
+import { useRecording } from './use-recording.js';
+import { RecordScreenLayout } from './RecordScreenLayout.js';
+import { HeaderBar } from './HeaderBar.js';
+import type { AppView } from './HeaderBar.js';
+import { MainStage } from './MainStage.js';
+import { ModeSelectorRow } from './ModeSelectorRow.js';
+import type { RecordMode } from './ModeSelectorRow.js';
+import { PreviewStage } from './PreviewStage.js';
+import { PreviewCard } from './PreviewCard.js';
+import { RecordRightPanel } from './RecordRightPanel.js';
+import { RecordTimelineShell } from './RecordTimelineShell.js';
+import { BottomBar } from './BottomBar.js';
+import type { RecordState } from './BottomBar.js';
+import { SourcePickerPopup } from './SourcePickerPopup.js';
 
 interface RecordTabProps {
   onAssetCreated: (result: RecordingResult) => void;
+  activeTab: AppView;
+  onTabChange: (tab: AppView) => void;
 }
 
-export function RecordTab({ onAssetCreated }: RecordTabProps) {
+export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabProps) {
+  const [recordMode, setRecordMode] = useState<RecordMode>('fullscreen');
+  const [isSourcePickerOpen, setIsSourcePickerOpen] = useState(false);
+  const [isMicMuted, setIsMicMuted] = useState(false);
+  const [isSystemAudioEnabled, setIsSystemAudioEnabled] = useState(true);
+  const [isCameraEnabled, setIsCameraEnabled] = useState(false);
+
   const {
     state,
     setSources,
@@ -21,6 +47,23 @@ export function RecordTab({ onAssetCreated }: RecordTabProps) {
 
   const { sources, selectedSourceId, status, error, elapsedMs } = state;
 
+  // Project + transport state for timeline
+  const durationFrames = useProjectStore((s) => s.project.composition.duration);
+  const projectFps = useProjectStore((s) => s.project.settings.frameRate);
+  const currentFrame = useTransportStore((s) => s.playheadFrame);
+
+  const handleTimelineScrub = useCallback((frame: number) => {
+    transportStore.getState().setPlayheadFrame(frame);
+  }, []);
+
+  const recording = useRecording({
+    selectedSourceId,
+    onStatusChange: setStatus,
+    onError: setError,
+    onElapsedChange: setElapsedMs,
+    onAssetCreated,
+  });
+
   const loadSources = useCallback(async () => {
     setStatus('loading-sources');
     try {
@@ -31,71 +74,87 @@ export function RecordTab({ onAssetCreated }: RecordTabProps) {
     }
   }, [setSources, setStatus, setError]);
 
-  // Load sources on mount
   useEffect(() => {
     void loadSources();
   }, [loadSources]);
 
+  const selectedSourceName = sources.find((s) => s.id === selectedSourceId)?.name ?? null;
+
+  const recordState: RecordState =
+    status === 'recording' ? 'recording' : status === 'countdown' ? 'countdown' : 'idle';
+
+  const elapsedSeconds = Math.floor(elapsedMs / 1000);
+
+  const handleClickRecord = useCallback(() => {
+    if (status === 'recording') {
+      recording.stopRecording();
+    } else if (status !== 'stopping' && status !== 'loading-sources') {
+      void recording.startRecording();
+    }
+  }, [status, recording]);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Header */}
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #333' }}>
+    <RecordScreenLayout>
+      <HeaderBar activeTab={activeTab} onTabChange={onTabChange} />
+
+      <MainStage>
+        <ModeSelectorRow mode={recordMode} onChange={setRecordMode} />
+
+        {/* Two-column: preview (dominant) + right panel */}
         <div
           style={{
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'stretch',
+            gap: 16,
+            marginTop: 8,
+            flex: 1,
+            minHeight: 0,
+          }}
+        >
+          <PreviewStage>
+            <PreviewCard
+              hasActiveSource={Boolean(selectedSourceId)}
+              onChooseSource={() => setIsSourcePickerOpen(true)}
+            />
+          </PreviewStage>
+
+          <RecordRightPanel />
+        </div>
+
+        <RecordTimelineShell
+          durationFrames={durationFrames}
+          currentFrame={currentFrame}
+          fps={projectFps}
+          onScrub={handleTimelineScrub}
+        />
+      </MainStage>
+
+      {/* Error banner — rendered between main stage and bottom bar */}
+      {error && (
+        <div
+          style={{
+            padding: '8px 24px',
+            background: '#3b1111',
+            color: '#fca5a5',
+            fontSize: 13,
+            borderTop: '1px solid #7f1d1d',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
           }}
         >
-          <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Record</h2>
-          <button
-            onClick={loadSources}
-            style={{
-              ...smallBtnStyle,
-              opacity: status === 'loading-sources' ? 0.5 : 1,
-            }}
-            disabled={status === 'loading-sources' || status === 'recording'}
-          >
-            Refresh Sources
-          </button>
-        </div>
-        {status === 'loading-sources' && (
-          <div style={{ color: '#888', fontSize: 12, marginTop: 4 }}>
-            Loading capture sources...
-          </div>
-        )}
-      </div>
-
-      {/* Source picker */}
-      <div style={{ flex: 1, overflow: 'auto' }}>
-        <SourcePicker
-          sources={sources}
-          selectedSourceId={selectedSourceId}
-          onSelect={selectSource}
-        />
-      </div>
-
-      {/* Error display */}
-      {error && (
-        <div
-          style={{
-            padding: '8px 16px',
-            background: '#3b1111',
-            color: '#fca5a5',
-            fontSize: 13,
-            borderTop: '1px solid #7f1d1d',
-          }}
-        >
-          {error}
+          <span>{error}</span>
           <button
             onClick={reset}
             style={{
-              marginLeft: 12,
               background: 'none',
               border: 'none',
               color: '#fca5a5',
               cursor: 'pointer',
+              fontSize: 13,
               textDecoration: 'underline',
+              padding: 0,
             }}
           >
             Dismiss
@@ -103,28 +162,38 @@ export function RecordTab({ onAssetCreated }: RecordTabProps) {
         </div>
       )}
 
-      {/* Record controls */}
-      <div style={{ borderTop: '1px solid #333', background: '#1a1a1a' }}>
-        <RecordControls
+      <BottomBar
+        sourceName={selectedSourceName}
+        onOpenSourcePicker={() => setIsSourcePickerOpen(true)}
+        micName="Default"
+        isMicMuted={isMicMuted}
+        onToggleMicMute={() => setIsMicMuted((m) => !m)}
+        hasSystemAudio={true}
+        isSystemAudioEnabled={isSystemAudioEnabled}
+        onToggleSystemAudio={() => setIsSystemAudioEnabled((e) => !e)}
+        hasCamera={false}
+        isCameraEnabled={isCameraEnabled}
+        onToggleCamera={() => setIsCameraEnabled((c) => !c)}
+        recordState={recordState}
+        onClickRecord={handleClickRecord}
+        elapsedSeconds={elapsedSeconds}
+        resolutionLabel="1920×1080"
+        fpsLabel="60 fps"
+      />
+
+      {isSourcePickerOpen && (
+        <SourcePickerPopup
+          sources={sources}
           selectedSourceId={selectedSourceId}
-          status={status}
-          elapsedMs={elapsedMs}
-          setStatus={setStatus}
-          setError={setError}
-          setElapsedMs={setElapsedMs}
-          onAssetCreated={onAssetCreated}
+          onSelect={(id) => {
+            selectSource(id);
+            setIsSourcePickerOpen(false);
+          }}
+          onClose={() => setIsSourcePickerOpen(false)}
+          onRefresh={loadSources}
+          isLoading={status === 'loading-sources'}
         />
-      </div>
-    </div>
+      )}
+    </RecordScreenLayout>
   );
 }
-
-const smallBtnStyle: React.CSSProperties = {
-  padding: '3px 10px',
-  background: '#333',
-  color: '#ccc',
-  border: 'none',
-  borderRadius: 3,
-  cursor: 'pointer',
-  fontSize: 12,
-};

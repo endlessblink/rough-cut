@@ -153,6 +153,13 @@ When integrating any external subsystem (preview compositor, export pipeline, re
 
 **Rule**: No store action should directly call into an external subsystem unless that subsystem has explicitly signaled readiness. Store updates may arrive before UI readiness — the bridge must queue or no-op until ready.
 
+## Timeline UX Rules
+
+- The same underlying timeline engine (`@rough-cut/timeline-engine`) is used in both Record and Edit views.
+- On Record, the timeline is used only for presentation events (zoom keyframes, cursor highlights, shortcut titles, background/look presets) — no structural edits.
+- On Edit, the timeline exposes full clip/track editing tools (clip CRUD, splitting, trimming, reordering, track management). Presentation events from Record are also editable here.
+- Never expose structural editing operations (cut, split, trim, track management) in the Record view.
+
 ## What NOT To Do
 
 - Don't put rendering logic in React components (thin canvas adapter is OK).

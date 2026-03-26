@@ -5,15 +5,16 @@ import { createProject, createAsset } from '@rough-cut/project-model';
 import type { RecordingResult } from './env.js';
 import { RecordTab } from './features/record/RecordTab.js';
 import { EditTab } from './features/edit/EditTab.js';
+import type { AppView } from './features/record/HeaderBar.js';
 import { projectStore, transportStore } from './hooks/use-stores.js';
 
-type TabId = 'record' | 'edit' | 'motion' | 'ai' | 'export';
+type TabId = AppView;
 const TABS: { id: TabId; label: string }[] = [
+  { id: 'projects', label: 'Projects' },
   { id: 'record', label: 'Record' },
   { id: 'edit', label: 'Edit' },
-  { id: 'motion', label: 'Motion' },
-  { id: 'ai', label: 'AI' },
   { id: 'export', label: 'Export' },
+  { id: 'aiMotion', label: 'AI Motion' },
 ];
 
 export function App() {
@@ -123,19 +124,27 @@ export function App() {
   }, []);
 
   // --- Tab content ---
+  // Record and Edit tabs own their own full-viewport layouts.
+  // All other tabs use the classic sidebar + preview canvas split.
   function renderTabContent() {
     switch (activeTab) {
-      case 'record':
-        return <RecordTab onAssetCreated={handleRecordingComplete} />;
-      case 'edit':
-        return <EditTab />;
-      case 'motion':
-        return <TabPlaceholder name="Motion" />;
-      case 'ai':
-        return <TabPlaceholder name="AI" />;
+      case 'projects':
+        return <TabPlaceholder name="Projects" />;
       case 'export':
         return <TabPlaceholder name="Export" />;
+      case 'aiMotion':
+        return <TabPlaceholder name="AI Motion" />;
     }
+  }
+
+  // Record tab takes over the entire viewport — no chrome wrapper
+  if (activeTab === 'record') {
+    return <RecordTab onAssetCreated={handleRecordingComplete} activeTab={activeTab} onTabChange={(tab) => setActiveTab(tab)} />;
+  }
+
+  // Edit tab takes over the entire viewport — no chrome wrapper
+  if (activeTab === 'edit') {
+    return <EditTab activeTab={activeTab} onTabChange={(tab) => setActiveTab(tab)} />;
   }
 
   return (
@@ -185,7 +194,7 @@ export function App() {
         ))}
       </div>
 
-      {/* Main content area */}
+      {/* Main content area: sidebar + preview canvas split */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Tab panel (left side) */}
         <div style={{ width: 360, minWidth: 280, borderRight: '1px solid #333', overflow: 'hidden' }}>

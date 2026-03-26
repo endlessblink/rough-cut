@@ -1,10 +1,26 @@
+/**
+ * EditTab: Structural timeline.
+ * Responsible for: clip/track operations (add, remove, cut, split, trim, reorder,
+ * move between tracks, manage A/V channels). Can also adjust presentation events
+ * created in the Record view.
+ */
 import { useState, useCallback, useEffect } from 'react';
 import { useProjectStore, useTransportStore, projectStore, transportStore } from '../../hooks/use-stores.js';
-import { AssetListPanel } from './AssetListPanel.js';
 import { TimelineStrip } from './TimelineStrip.js';
 import { EditToolbar } from './EditToolbar.js';
+import { EditScreenLayout } from './EditScreenLayout.js';
+import { EditPreviewStage } from './EditPreviewStage.js';
+import { EditRightPanel } from './EditRightPanel.js';
+import { EditTimelineShell } from './EditTimelineShell.js';
+import { HeaderBar } from '../record/HeaderBar.js';
+import type { AppView } from '../record/HeaderBar.js';
 
-export function EditTab() {
+interface EditTabProps {
+  activeTab: AppView;
+  onTabChange: (tab: AppView) => void;
+}
+
+export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const tracks = useProjectStore((s) => s.project.composition.tracks);
   const assets = useProjectStore((s) => s.project.assets);
   const playheadFrame = useTransportStore((s) => s.playheadFrame);
@@ -145,102 +161,67 @@ export function EditTab() {
   }, [handleSplit, handleDelete, handleUndo, handleRedo]);
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-      }}
-    >
-      {/* Top region: asset list + preview placeholder + inspector stub */}
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {/* Left: Asset list */}
-        <div
-          style={{
-            width: 240,
-            minWidth: 200,
-            borderRight: '1px solid #333',
-            overflow: 'hidden',
-          }}
-        >
-          <AssetListPanel />
-        </div>
+    <EditScreenLayout>
+      <HeaderBar activeTab={activeTab} onTabChange={onTabChange} />
 
-        {/* Center: preview message area */}
+      <div
+        style={{
+          flex: '1 1 auto',
+          display: 'flex',
+          flexDirection: 'column',
+          padding: '16px 24px 12px',
+          minHeight: 0,
+        }}
+      >
+        {/* Top: preview + inspector */}
         <div
           style={{
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'stretch',
+            gap: 16,
             flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: '#0d0d0d',
-            color: '#555',
-            fontSize: 13,
-            userSelect: 'none',
+            maxWidth: 1140,
+            margin: '0 auto',
+            width: '100%',
+            minHeight: 0,
           }}
         >
-          Preview active above
+          <EditPreviewStage />
+          <EditRightPanel />
         </div>
 
-        {/* Right: inspector stub */}
-        <div
-          style={{
-            width: 200,
-            minWidth: 160,
-            borderLeft: '1px solid #333',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#444',
-            fontSize: 12,
-            background: '#151515',
-            userSelect: 'none',
-          }}
-        >
-          {selectedClipId ? (
-            <div style={{ padding: 12, textAlign: 'center' }}>
-              <div style={{ color: '#888', marginBottom: 4, fontWeight: 600 }}>Inspector</div>
-              <div style={{ fontSize: 10, color: '#666', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                {selectedClipId}
-              </div>
-            </div>
-          ) : (
-            <span>Select a clip to inspect</span>
-          )}
-        </div>
+        {/* Timeline area */}
+        <EditTimelineShell>
+          <EditToolbar
+            canUndo={canUndo}
+            canRedo={canRedo}
+            canSplit={canSplit}
+            canDelete={canDelete}
+            snapEnabled={snapEnabled}
+            pixelsPerFrame={pixelsPerFrame}
+            playheadFrame={playheadFrame}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onSplit={handleSplit}
+            onDelete={handleDelete}
+            onToggleSnap={() => setSnapEnabled((prev) => !prev)}
+            onZoomChange={setPixelsPerFrame}
+          />
+          <TimelineStrip
+            tracks={tracks}
+            assets={assets}
+            playheadFrame={playheadFrame}
+            selectedClipId={selectedClipId}
+            pixelsPerFrame={pixelsPerFrame}
+            snapEnabled={snapEnabled}
+            onSelectClip={handleSelectClip}
+            onScrub={handleScrub}
+            onTrimLeft={handleTrimLeft}
+            onTrimRight={handleTrimRight}
+          />
+        </EditTimelineShell>
       </div>
-
-      {/* Toolbar */}
-      <EditToolbar
-        canUndo={canUndo}
-        canRedo={canRedo}
-        canSplit={canSplit}
-        canDelete={canDelete}
-        snapEnabled={snapEnabled}
-        pixelsPerFrame={pixelsPerFrame}
-        playheadFrame={playheadFrame}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        onSplit={handleSplit}
-        onDelete={handleDelete}
-        onToggleSnap={() => setSnapEnabled((prev) => !prev)}
-        onZoomChange={setPixelsPerFrame}
-      />
-
-      {/* Bottom: Timeline strip */}
-      <TimelineStrip
-        tracks={tracks}
-        assets={assets}
-        playheadFrame={playheadFrame}
-        selectedClipId={selectedClipId}
-        pixelsPerFrame={pixelsPerFrame}
-        snapEnabled={snapEnabled}
-        onSelectClip={handleSelectClip}
-        onScrub={handleScrub}
-        onTrimLeft={handleTrimLeft}
-        onTrimRight={handleTrimRight}
-      />
-    </div>
+    </EditScreenLayout>
   );
 }

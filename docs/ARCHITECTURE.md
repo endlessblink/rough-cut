@@ -247,13 +247,22 @@ The app is organized into 5 workspaces, each a top-level tab:
 
 | Tab | Purpose | Primary Model Concern |
 |-----|---------|----------------------|
-| **Record** | Capture screen, webcam, audio | Creates Assets (via capture → IPC) |
-| **Edit** | Timeline editing, clip arrangement | Reads/writes Composition (tracks, clips) |
+| **Record** | Capture + presentation layer | Creates Assets; presentation-only timeline (zoom keyframes, cursor styling, highlights, shortcut titles, background/look presets) |
+| **Edit** | Structural editing layer | Reads/writes Composition (clip CRUD, splitting, trimming, track management, A/V channels); can also adjust presentation events |
 | **Motion** | Animated templates, keyframes | Reads/writes MotionPresets, clip keyframes |
 | **AI** | AI-powered suggestions | Creates AIAnnotations (metadata only — never directly mutates clips) |
 | **Export** | Render final output | Reads entire ProjectDocument, drives export pipeline |
 
 `@rough-cut/ui` owns the tab shell (AppShell, TabBar, shared layout). Each tab owns its own submodule directory with tab-specific components, hooks, and local state.
+
+### Record vs Edit: Shared Timeline, Different Responsibilities
+
+Record and Edit both show a preview and a shared timeline, but they serve different purposes:
+
+- **Record view** is a single-take presentation layer. The timeline is used only for presentation events — zoom keyframes, cursor highlights, shortcut titles, and background/look presets. There are no structural edits (no cutting, trimming, reordering, or track management).
+- **Edit view** is the project structural layer. The timeline exposes full clip and track editing tools — adding/removing clips, cutting/splitting, trimming, moving clips between tracks, and managing A/V channels. Presentation events created in Record are also editable here.
+
+Both views share the same underlying `@rough-cut/timeline-engine` and project model. The difference is which operations the UI surface exposes.
 
 ---
 
