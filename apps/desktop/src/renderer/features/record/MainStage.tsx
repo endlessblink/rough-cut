@@ -13,7 +13,6 @@ export function MainStage({ children }: MainStageProps) {
         flexDirection: 'column',
         minHeight: 0,
         background: 'linear-gradient(to bottom, #111111, #050505)',
-        border: '3px solid red', /* DEBUG: MainStage */
       }}
     >
       {children}

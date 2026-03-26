@@ -9,3 +9,4 @@ export { RcToggleButton } from './RcToggleButton.js';
 export { ControlLabel } from './ControlLabel.js';
 export * from './tokens.js';
 export { VerticalWorkspaceSplit } from './VerticalWorkspaceSplit.js';
+export { WorkspaceRow } from './WorkspaceRow.js';

@@ -51,10 +51,10 @@ export function VerticalWorkspaceSplit({
   return (
     <div
       ref={containerRef}
-      style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
+      style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden' }}
     >
       {/* Top pane */}
-      <div style={{ flex: ratio, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: ratio, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {top}
       </div>
 
@@ -86,7 +86,7 @@ export function VerticalWorkspaceSplit({
       </div>
 
       {/* Bottom pane */}
-      <div style={{ flex: 1 - ratio, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1 - ratio, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {bottom}
       </div>
     </div>

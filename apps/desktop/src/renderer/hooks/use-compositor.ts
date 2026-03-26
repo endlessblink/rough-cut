@@ -49,6 +49,7 @@ function attachCanvasToHost(host: HTMLDivElement): void {
   }
   // Fit canvas into the preview card via CSS
   canvas.style.width = '100%';
+  canvas.style.maxWidth = '100%';
   canvas.style.height = '100%';
   canvas.style.objectFit = 'contain';
   canvas.style.display = 'block';

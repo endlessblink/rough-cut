@@ -17,7 +17,7 @@ export function PreviewStage({ children }: PreviewStageProps) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        minHeight: 420,
+        minHeight: 0,
       }}
     >
       <div style={{ width: '100%', maxWidth: 1040 }}>{children}</div>
