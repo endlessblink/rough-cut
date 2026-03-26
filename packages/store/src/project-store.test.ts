@@ -382,6 +382,29 @@ describe('projectStore', () => {
     });
   });
 
+  describe('updateSettings', () => {
+    it('updates resolution', () => {
+      const store = createProjectStore();
+      store.getState().updateSettings({ resolution: { width: 1080, height: 1920 } });
+      expect(store.getState().project.settings.resolution).toEqual({ width: 1080, height: 1920 });
+    });
+
+    it('preserves other settings when patching', () => {
+      const store = createProjectStore();
+      const originalFps = store.getState().project.settings.frameRate;
+      store.getState().updateSettings({ resolution: { width: 1080, height: 1080 } });
+      expect(store.getState().project.settings.frameRate).toBe(originalFps);
+    });
+
+    it('is undoable', () => {
+      const store = createProjectStore();
+      const originalResolution = { ...store.getState().project.settings.resolution };
+      store.getState().updateSettings({ resolution: { width: 1080, height: 1920 } });
+      store.temporal.getState().undo();
+      expect(store.getState().project.settings.resolution).toEqual(originalResolution);
+    });
+  });
+
   describe('undo/redo', () => {
     it('undo: after mutation, undo() restores previous state', () => {
       const originalName = store.getState().project.name;

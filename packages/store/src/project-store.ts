@@ -2,6 +2,7 @@ import { createStore } from 'zustand/vanilla';
 import { temporal } from 'zundo';
 import type {
   ProjectDocument,
+  ProjectSettings,
   Clip,
   Asset,
   ClipId,
@@ -59,6 +60,9 @@ export interface ProjectActions {
   setTrackLocked: (trackId: TrackId, locked: boolean) => void;
   setTrackVisible: (trackId: TrackId, visible: boolean) => void;
   setTrackVolume: (trackId: TrackId, volume: number) => void;
+
+  // Settings actions
+  updateSettings: (patch: Partial<ProjectSettings>) => void;
 
   // Clip property editing (for inspector)
   updateClipField: (clipId: ClipId, patch: Partial<Pick<Clip, 'name' | 'enabled'>>) => void;
@@ -218,6 +222,13 @@ export function createProjectStore() {
 
         deleteClip: (trackId: TrackId, clipId: ClipId) => {
           get().removeClip(trackId, clipId);
+        },
+
+        updateSettings: (patch) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            settings: { ...doc.settings, ...patch },
+          }));
         },
 
         updateClipField: (clipId: ClipId, patch: Partial<Pick<Clip, 'name' | 'enabled'>>) => {

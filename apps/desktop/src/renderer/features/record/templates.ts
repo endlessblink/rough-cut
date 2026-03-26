@@ -13,6 +13,19 @@ export interface LayoutTemplate {
   screenLayout: 'full-screen' | 'pip' | 'split' | 'presentation';
 }
 
+/** Map aspect ratio string to a canonical resolution */
+export function resolutionForAspectRatio(
+  ratio: LayoutTemplate['aspectRatio'],
+): { width: number; height: number } {
+  switch (ratio) {
+    case '16:9': return { width: 1920, height: 1080 };
+    case '9:16': return { width: 1080, height: 1920 };
+    case '1:1':  return { width: 1080, height: 1080 };
+    case '4:3':  return { width: 1440, height: 1080 };
+    default:     return { width: 1920, height: 1080 };
+  }
+}
+
 export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
   {
     id: 'screen-only-16x9',

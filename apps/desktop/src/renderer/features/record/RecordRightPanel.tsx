@@ -14,6 +14,8 @@ import { RecordZoomPanel } from './RecordZoomPanel.js';
 import { RecordCursorPanel } from './RecordCursorPanel.js';
 import { RecordTemplatesPanel } from './RecordTemplatesPanel.js';
 import type { LayoutTemplate } from './templates.js';
+import { resolutionForAspectRatio } from './templates.js';
+import { projectStore } from '../../hooks/use-stores.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -127,7 +129,8 @@ export function RecordRightPanel({
 
   const handleSelectTemplate = useCallback((template: LayoutTemplate) => {
     setSelectedTemplateId(template.id);
-    // TODO: apply template to project state
+    const resolution = resolutionForAspectRatio(template.aspectRatio);
+    projectStore.getState().updateSettings({ resolution });
   }, []);
 
   const categories: InspectorCategory[] = [
