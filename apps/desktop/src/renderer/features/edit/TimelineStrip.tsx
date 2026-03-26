@@ -1,5 +1,6 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { Track, Asset } from '@rough-cut/project-model';
+import { snapToNearestEdge } from '@rough-cut/timeline-engine';
 import { ClipBlock } from './ClipBlock.js';
 
 interface TimelineStripProps {
@@ -7,14 +8,18 @@ interface TimelineStripProps {
   assets: readonly Asset[];
   playheadFrame: number;
   selectedClipId: string | null;
+  pixelsPerFrame: number;
+  snapEnabled: boolean;
   onSelectClip: (clipId: string) => void;
   onScrub: (frame: number) => void;
+  onTrimLeft?: (clipId: string, newTimelineIn: number) => void;
+  onTrimRight?: (clipId: string, newTimelineOut: number) => void;
 }
 
 const TRACK_HEIGHT = 36;
 const RULER_HEIGHT = 24;
 const LABEL_WIDTH = 48;
-const PIXELS_PER_FRAME = 3;
+const SNAP_THRESHOLD = 5;
 
 /** Frame interval for ruler tick marks (every N frames). */
 function rulerInterval(totalFrames: number): number {
@@ -29,10 +34,15 @@ export function TimelineStrip({
   assets,
   playheadFrame,
   selectedClipId,
+  pixelsPerFrame,
+  snapEnabled,
   onSelectClip,
   onScrub,
+  onTrimLeft,
+  onTrimRight,
 }: TimelineStripProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [snapIndicator, setSnapIndicator] = useState<number | null>(null);
 
   // Compute total timeline width from the maximum extent across all tracks
   const maxFrame = Math.max(
@@ -42,7 +52,7 @@ export function TimelineStrip({
     playheadFrame + 1,
     30, // minimum visible width
   );
-  const totalWidth = maxFrame * PIXELS_PER_FRAME;
+  const totalWidth = maxFrame * pixelsPerFrame;
 
   const assetMap = new Map(assets.map((a) => [a.id, a]));
 
@@ -52,16 +62,43 @@ export function TimelineStrip({
       const rect = containerRef.current.getBoundingClientRect();
       const scrollLeft = containerRef.current.scrollLeft;
       const x = clientX - rect.left + scrollLeft - LABEL_WIDTH;
-      return Math.max(0, Math.round(x / PIXELS_PER_FRAME));
+      return Math.max(0, Math.round(x / pixelsPerFrame));
     },
-    [],
+    [pixelsPerFrame],
+  );
+
+  const applySnap = useCallback(
+    (frame: number, excludeClipId?: string) => {
+      if (!snapEnabled) return frame;
+      const result = snapToNearestEdge(
+        frame,
+        tracks as Track[],
+        SNAP_THRESHOLD,
+        excludeClipId as import('@rough-cut/project-model').ClipId | undefined,
+      );
+      if (result.snapped && result.snapTarget !== undefined) {
+        setSnapIndicator(result.snapTarget);
+        setTimeout(() => setSnapIndicator(null), 300);
+      }
+      return result.frame;
+    },
+    [snapEnabled, tracks],
   );
 
   const handleRulerClick = useCallback(
     (e: React.MouseEvent) => {
-      onScrub(frameFromMouseX(e.clientX));
+      const raw = frameFromMouseX(e.clientX);
+      onScrub(applySnap(raw));
     },
-    [onScrub, frameFromMouseX],
+    [onScrub, frameFromMouseX, applySnap],
+  );
+
+  const handleTrackAreaClick = useCallback(
+    (e: React.MouseEvent) => {
+      const raw = frameFromMouseX(e.clientX);
+      onScrub(applySnap(raw));
+    },
+    [onScrub, frameFromMouseX, applySnap],
   );
 
   const interval = rulerInterval(maxFrame);
@@ -74,7 +111,7 @@ export function TimelineStrip({
         key={f}
         style={{
           position: 'absolute',
-          left: f * PIXELS_PER_FRAME,
+          left: f * pixelsPerFrame,
           fontSize: 9,
           color: '#666',
           userSelect: 'none',
@@ -150,9 +187,7 @@ export function TimelineStrip({
               flex: 1,
               minWidth: totalWidth,
             }}
-            onClick={(e) => {
-              onScrub(frameFromMouseX(e.clientX));
-            }}
+            onClick={handleTrackAreaClick}
           >
             {track.clips.map((clip) => {
               const asset = assetMap.get(clip.assetId);
@@ -164,10 +199,12 @@ export function TimelineStrip({
                   key={clip.id}
                   clip={clip}
                   trackType={track.type}
-                  pixelsPerFrame={PIXELS_PER_FRAME}
+                  pixelsPerFrame={pixelsPerFrame}
                   isSelected={clip.id === selectedClipId}
                   label={label}
                   onClick={onSelectClip}
+                  onTrimLeft={onTrimLeft}
+                  onTrimRight={onTrimRight}
                 />
               );
             })}
@@ -179,7 +216,7 @@ export function TimelineStrip({
       <div
         style={{
           position: 'absolute',
-          left: LABEL_WIDTH + playheadFrame * PIXELS_PER_FRAME,
+          left: LABEL_WIDTH + playheadFrame * pixelsPerFrame,
           top: 0,
           bottom: 0,
           width: 1,
@@ -188,6 +225,23 @@ export function TimelineStrip({
           zIndex: 10,
         }}
       />
+
+      {/* Snap indicator line */}
+      {snapIndicator !== null && (
+        <div
+          style={{
+            position: 'absolute',
+            left: LABEL_WIDTH + snapIndicator * pixelsPerFrame,
+            top: 0,
+            bottom: 0,
+            width: 1,
+            background: '#22d3ee',
+            pointerEvents: 'none',
+            zIndex: 11,
+            opacity: 0.8,
+          }}
+        />
+      )}
     </div>
   );
 }

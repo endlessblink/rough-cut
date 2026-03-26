@@ -14,6 +14,10 @@ import {
   removeClipFromTrack,
   moveClip as moveClipOp,
   moveClipToTrack as moveClipToTrackOp,
+  splitClip,
+  trimClipLeft,
+  trimClipRight,
+  replaceClipOnTrack,
 } from '@rough-cut/timeline-engine';
 
 export interface ProjectState {
@@ -40,6 +44,12 @@ export interface ProjectActions {
   // Asset actions
   addAsset: (asset: Asset) => void;
   removeAsset: (assetId: AssetId) => void;
+
+  // Edit actions
+  splitClipAtFrame: (trackId: TrackId, clipId: ClipId, frame: number) => void;
+  trimClipLeftEdge: (trackId: TrackId, clipId: ClipId, newTimelineIn: number) => void;
+  trimClipRightEdge: (trackId: TrackId, clipId: ClipId, newTimelineOut: number) => void;
+  deleteClip: (trackId: TrackId, clipId: ClipId) => void;
 
   // Track actions
   setTrackName: (trackId: TrackId, name: string) => void;
@@ -132,6 +142,65 @@ export function createProjectStore() {
               },
             };
           });
+        },
+
+        splitClipAtFrame: (trackId: TrackId, clipId: ClipId, frame: number) => {
+          const track = get().project.composition.tracks.find((t) => t.id === trackId);
+          if (!track) return;
+          const clip = track.clips.find((c) => c.id === clipId);
+          if (!clip) return;
+          const result = splitClip(clip, frame);
+          if (!result) return;
+          const [left, right] = result;
+          get().updateProject((doc) => ({
+            ...doc,
+            composition: {
+              ...doc.composition,
+              tracks: doc.composition.tracks.map((t) =>
+                t.id === trackId ? replaceClipOnTrack(t, clipId, left, right) : t,
+              ),
+            },
+          }));
+        },
+
+        trimClipLeftEdge: (trackId: TrackId, clipId: ClipId, newTimelineIn: number) => {
+          const track = get().project.composition.tracks.find((t) => t.id === trackId);
+          if (!track) return;
+          const clip = track.clips.find((c) => c.id === clipId);
+          if (!clip) return;
+          const trimmed = trimClipLeft(clip, newTimelineIn);
+          if (!trimmed) return;
+          get().updateProject((doc) => ({
+            ...doc,
+            composition: {
+              ...doc.composition,
+              tracks: doc.composition.tracks.map((t) =>
+                t.id === trackId ? replaceClipOnTrack(t, clipId, trimmed) : t,
+              ),
+            },
+          }));
+        },
+
+        trimClipRightEdge: (trackId: TrackId, clipId: ClipId, newTimelineOut: number) => {
+          const track = get().project.composition.tracks.find((t) => t.id === trackId);
+          if (!track) return;
+          const clip = track.clips.find((c) => c.id === clipId);
+          if (!clip) return;
+          const trimmed = trimClipRight(clip, newTimelineOut);
+          if (!trimmed) return;
+          get().updateProject((doc) => ({
+            ...doc,
+            composition: {
+              ...doc.composition,
+              tracks: doc.composition.tracks.map((t) =>
+                t.id === trackId ? replaceClipOnTrack(t, clipId, trimmed) : t,
+              ),
+            },
+          }));
+        },
+
+        deleteClip: (trackId: TrackId, clipId: ClipId) => {
+          get().removeClip(trackId, clipId);
         },
 
         addAsset: (asset: Asset) => {
