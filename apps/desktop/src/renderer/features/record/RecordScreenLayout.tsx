@@ -14,7 +14,6 @@ export function RecordScreenLayout({ children }: RecordScreenLayoutProps) {
         background: '#0d0d0d',
         color: '#e8e8e8',
         overflow: 'hidden',
-        border: '3px solid lime', /* DEBUG: RecordScreenLayout */
       }}
     >
       {children}

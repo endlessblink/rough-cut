@@ -6,11 +6,14 @@
  * Delegates layout to InspectorShell; each category panel lives in
  * its own component (RecordZoomPanel, RecordCursorPanel).
  */
+import { useState, useCallback } from 'react';
 import type { ZoomMarker, CursorPresentation } from '@rough-cut/project-model';
 import { InspectorShell, RECORD_PANEL_WIDTH } from '../../ui/index.js';
 import type { InspectorCategory } from '../../ui/index.js';
 import { RecordZoomPanel } from './RecordZoomPanel.js';
 import { RecordCursorPanel } from './RecordCursorPanel.js';
+import { RecordTemplatesPanel } from './RecordTemplatesPanel.js';
+import type { LayoutTemplate } from './templates.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -83,6 +86,18 @@ function TitleIcon() {
   );
 }
 
+function TemplatesIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      {/* 2×2 grid of squares */}
+      <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  );
+}
+
 // ─── Placeholder panel ────────────────────────────────────────────────────────
 
 function PlaceholderText() {
@@ -108,7 +123,25 @@ export function RecordRightPanel({
   onCursorChange,
   onCursorReset,
 }: RecordRightPanelProps) {
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>('screen-only-16x9');
+
+  const handleSelectTemplate = useCallback((template: LayoutTemplate) => {
+    setSelectedTemplateId(template.id);
+    // TODO: apply template to project state
+  }, []);
+
   const categories: InspectorCategory[] = [
+    {
+      id: 'templates',
+      label: 'Templates',
+      icon: <TemplatesIcon />,
+      panel: (
+        <RecordTemplatesPanel
+          selectedTemplateId={selectedTemplateId}
+          onSelectTemplate={handleSelectTemplate}
+        />
+      ),
+    },
     {
       id: 'zoom',
       label: 'Zoom',
