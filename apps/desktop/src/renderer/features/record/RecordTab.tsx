@@ -3,7 +3,7 @@
  * Responsible for: zoom keyframes, cursor styling, highlights, shortcut titles,
  * background/look presets. No clip edits (no cutting, trimming, reordering, track management).
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { RecordingResult } from '../../env.js';
 import { useProjectStore, useTransportStore, transportStore, projectStore } from '../../hooks/use-stores.js';
 import { createDefaultZoomPresentation, createDefaultCursorPresentation } from '@rough-cut/project-model';
@@ -69,8 +69,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
 
   // Recording asset detection + compositor
   const hasRecordingAsset = useProjectStore((s) => s.project.assets.some((a) => a.type === 'recording'));
-  const previewHostRef = useRef<HTMLDivElement>(null);
-  useCompositor(previewHostRef);
+  const { previewRef } = useCompositor();
 
   // UI state
   const isRightSidebarCollapsed = useUiStore((s) => s.isRightSidebarCollapsed);
@@ -184,7 +183,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
                     hasRecordingAsset={hasRecordingAsset}
                     onChooseSource={() => setIsSourcePickerOpen(true)}
                   >
-                    <div ref={previewHostRef} style={{ width: '100%', height: '100%' }} />
+                    <div ref={previewRef} style={{ width: '100%', height: '100%' }} />
                   </PreviewCard>
                 </PreviewStage>
               }

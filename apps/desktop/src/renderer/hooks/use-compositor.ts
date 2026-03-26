@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { PreviewCompositor } from '@rough-cut/preview-renderer';
 import { projectStore, transportStore } from './use-stores.js';
 
@@ -6,10 +6,8 @@ import { projectStore, transportStore } from './use-stores.js';
 let sharedCompositor: PreviewCompositor | null = null;
 let sharedCanvas: HTMLCanvasElement | null = null;
 let initPromise: Promise<void> | null = null;
-let projectUnsub: (() => void) | null = null;
-let transportUnsub: (() => void) | null = null;
 
-function ensureCompositor(): PreviewCompositor {
+function ensureCompositor(): void {
   if (!sharedCompositor) {
     sharedCompositor = new PreviewCompositor(
       { width: 640, height: 360 },
@@ -21,12 +19,12 @@ function ensureCompositor(): PreviewCompositor {
       sharedCanvas = canvas;
 
       // Wire project store -> compositor
-      projectUnsub = projectStore.subscribe((state) => {
+      projectStore.subscribe((state) => {
         sharedCompositor?.setProject(state.project);
       });
 
       // Wire transport store -> compositor
-      transportUnsub = transportStore.subscribe((state) => {
+      transportStore.subscribe((state) => {
         sharedCompositor?.seekTo(state.playheadFrame);
       });
 
@@ -35,59 +33,68 @@ function ensureCompositor(): PreviewCompositor {
       sharedCompositor?.setProject(currentState.project);
     });
   }
-  return sharedCompositor;
+}
+
+function attachCanvasToHost(host: HTMLDivElement): void {
+  const canvas = sharedCanvas;
+  if (!canvas) return;
+
+  // Remove from any previous parent
+  if (canvas.parentElement && canvas.parentElement !== host) {
+    canvas.parentElement.removeChild(canvas);
+  }
+  // Attach to this host
+  if (!host.contains(canvas)) {
+    host.appendChild(canvas);
+  }
+  // Fit canvas into the preview card via CSS
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  canvas.style.objectFit = 'contain';
+  canvas.style.display = 'block';
 }
 
 /**
- * Hook that manages the shared PreviewCompositor and mounts its canvas
- * into the provided container ref. Each view calls this independently;
- * the compositor is a singleton that persists across tab switches.
+ * Hook that manages the shared PreviewCompositor and returns a callback ref
+ * to attach to a container div. When the div appears in the DOM (e.g. after
+ * a conditional render), the canvas is immediately attached.
+ *
+ * Usage:
+ *   const { previewRef, isReady } = useCompositor();
+ *   return <div ref={previewRef} style={{ width: '100%', height: '100%' }} />;
  */
-export function useCompositor(containerRef: React.RefObject<HTMLDivElement | null>) {
+export function useCompositor(): {
+  previewRef: (node: HTMLDivElement | null) => void;
+  isReady: boolean;
+} {
   const [isReady, setIsReady] = useState(false);
 
+  // Ensure compositor singleton exists
   useEffect(() => {
     ensureCompositor();
-    let mounted = true;
+  }, []);
 
-    const attach = async () => {
-      // Wait for init to complete
-      if (initPromise) await initPromise;
-      if (!mounted) return;
-
-      const canvas = sharedCanvas;
-      const host = containerRef.current;
-
-      if (canvas && host) {
-        // Remove from any previous parent
-        if (canvas.parentElement && canvas.parentElement !== host) {
-          canvas.parentElement.removeChild(canvas);
+  // Callback ref — called when the div mounts/unmounts
+  const previewRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) {
+      // Div appeared in the DOM — attach canvas
+      const tryAttach = async () => {
+        if (initPromise) await initPromise;
+        if (sharedCanvas) {
+          attachCanvasToHost(node);
+          setIsReady(true);
         }
-        // Attach to this view's host
-        if (!host.contains(canvas)) {
-          host.appendChild(canvas);
-        }
-        // Fit canvas into the preview card via CSS (Pixi keeps internal resolution)
-        canvas.style.width = '100%';
-        canvas.style.height = '100%';
-        canvas.style.objectFit = 'contain';
-        canvas.style.display = 'block';
-        setIsReady(true);
-      }
-    };
-
-    void attach();
-
-    return () => {
-      mounted = false;
-      // On unmount, remove canvas from this container (but don't destroy compositor)
+      };
+      void tryAttach();
+    } else {
+      // Div removed from DOM — detach canvas (don't destroy)
       const canvas = sharedCanvas;
-      const host = containerRef.current;
-      if (canvas && host && host.contains(canvas)) {
-        host.removeChild(canvas);
+      if (canvas?.parentElement) {
+        canvas.parentElement.removeChild(canvas);
       }
-    };
-  }, [containerRef]);
+      setIsReady(false);
+    }
+  }, []);
 
-  return { isReady, compositor: sharedCompositor };
+  return { previewRef, isReady };
 }

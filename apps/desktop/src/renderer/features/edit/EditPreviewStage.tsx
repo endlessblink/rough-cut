@@ -1,7 +1,7 @@
 import React from 'react';
 
 interface EditPreviewStageProps {
-  previewHostRef?: React.RefObject<HTMLDivElement | null>;
+  previewRef?: (node: HTMLDivElement | null) => void;
   children?: React.ReactNode;
 }
 
@@ -40,9 +40,9 @@ function EditPreviewCard() {
 
 /**
  * EditPreviewStage: centers the preview card within the left column.
- * The card itself owns all visual framing. This only handles centering + max-width.
+ * When previewRef is provided, mounts the compositor canvas instead of placeholder.
  */
-export function EditPreviewStage({ previewHostRef, children }: EditPreviewStageProps) {
+export function EditPreviewStage({ previewRef, children }: EditPreviewStageProps) {
   return (
     <section
       style={{
@@ -55,9 +55,9 @@ export function EditPreviewStage({ previewHostRef, children }: EditPreviewStageP
     >
       <div style={{ width: '100%', maxWidth: 1040 }}>
         {children ?? (
-          previewHostRef ? (
+          previewRef ? (
             <div
-              ref={previewHostRef}
+              ref={previewRef}
               style={{
                 aspectRatio: '16 / 9',
                 width: '100%',
