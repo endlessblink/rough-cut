@@ -32,6 +32,7 @@ export function WorkspaceRow({
 
   return (
     <div
+      data-testid="workspace-row"
       style={{
         /* Fill remaining vertical space */
         flex: '1 1 0%',
@@ -67,6 +68,7 @@ export function WorkspaceRow({
 
       {/* Sidebar: toggle + inspector panel */}
       <div
+        data-testid="record-inspector"
         style={{
           display: 'flex',
           flexDirection: 'row',

@@ -253,6 +253,7 @@ function AppViewTabs({ activeTab, onTabChange }: AppViewTabsProps) {
               transition: 'background-color 120ms ease-out, color 120ms ease-out',
               fontFamily: 'inherit',
               userSelect: 'none',
+              outline: 'none',
             }}
           >
             {label}

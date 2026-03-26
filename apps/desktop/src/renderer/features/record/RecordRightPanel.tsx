@@ -2,20 +2,15 @@
  * RecordRightPanel: Presentation controls for the Record view.
  * Zoom presets, highlight keyframes, cursor styling, title overlays.
  * No structural editing — this is the presentation inspector.
+ *
+ * Delegates layout to InspectorShell; each category panel lives in
+ * its own component (RecordZoomPanel, RecordCursorPanel).
  */
-import React, { useState, useCallback } from 'react';
-import type { ZoomMarker, CursorPresentation, CursorStyle, ClickEffect } from '@rough-cut/project-model';
-import {
-  InspectorCard,
-  PillRadioRow,
-  RcSlider,
-  RcSelect,
-  RcToggleButton,
-  ControlLabel,
-  RECORD_PANEL_WIDTH,
-  CARD_GAP,
-} from '../../ui/index.js';
-import type { PillOption } from '../../ui/index.js';
+import type { ZoomMarker, CursorPresentation } from '@rough-cut/project-model';
+import { InspectorShell, RECORD_PANEL_WIDTH } from '../../ui/index.js';
+import type { InspectorCategory } from '../../ui/index.js';
+import { RecordZoomPanel } from './RecordZoomPanel.js';
+import { RecordCursorPanel } from './RecordCursorPanel.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,172 +29,71 @@ export interface RecordRightPanelProps {
   onCursorReset: () => void;
 }
 
-// ─── intensityLabel ──────────────────────────────────────────────────────────
+// ─── Inline SVG Icons ─────────────────────────────────────────────────────────
 
-function intensityLabel(value: number): string {
-  if (value <= 0.1) return 'Off';
-  if (value <= 0.3) return 'Low';
-  if (value <= 0.6) return 'Medium';
-  if (value <= 0.8) return 'High';
-  return 'Max';
-}
-
-// ─── ZoomIntensitySlider ────────────────────────────────────────────────────
-
-function ZoomIntensitySlider({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-}) {
+function ZoomIcon() {
   return (
-    <div>
-      <ControlLabel label="Auto zoom intensity" value={intensityLabel(value)} />
-      <RcSlider min={0} max={100} step={1} value={value * 100} onChange={(v) => onChange(v / 100)} />
-    </div>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      {/* Magnifying glass with + */}
+      <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.5" />
+      <line x1="9.7" y1="9.7" x2="13.5" y2="13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="4.5" y1="6.5" x2="8.5" y2="6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="6.5" y1="4.5" x2="6.5" y2="8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
   );
 }
 
-// ─── ZoomMarkersLane ────────────────────────────────────────────────────────
-
-function ZoomMarkersLane({
-  durationFrames,
-  markers,
-  currentFrame,
-  onAddMarker,
-  onSelectMarker,
-}: {
-  durationFrames: number;
-  markers: readonly ZoomMarker[];
-  currentFrame: number;
-  onAddMarker: (frame: number) => void;
-  onSelectMarker: (id: string) => void;
-}) {
-  const handleClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (durationFrames <= 0) return;
-      const rect = e.currentTarget.getBoundingClientRect();
-      const ratio = (e.clientX - rect.left) / rect.width;
-      const frame = Math.round(durationFrames * ratio);
-      onAddMarker(frame);
-    },
-    [durationFrames, onAddMarker],
-  );
-
-  const playheadPct = durationFrames > 0 ? (currentFrame / durationFrames) * 100 : 0;
-
+function CursorIcon() {
   return (
-    <div
-      onClick={handleClick}
-      style={{
-        position: 'relative',
-        height: 28,
-        width: '100%',
-        borderRadius: 6,
-        background: 'rgba(255,255,255,0.05)',
-        cursor: 'crosshair',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Empty state */}
-      {markers.length === 0 && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 10,
-            color: 'rgba(255,255,255,0.30)',
-            userSelect: 'none',
-            pointerEvents: 'none',
-          }}
-        >
-          Click to add zoom
-        </div>
-      )}
-
-      {/* Playhead */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          bottom: 0,
-          left: `${playheadPct}%`,
-          width: 1,
-          background: '#ff6b5a',
-          pointerEvents: 'none',
-          zIndex: 2,
-        }}
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      {/* Arrow pointer */}
+      <path
+        d="M3 2L3 12L6 9.5L8.5 14L10 13.2L7.5 8.2L11.5 8L3 2Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+        fill="none"
       />
-
-      {/* Markers */}
-      {markers.map((m) => {
-        const left = durationFrames > 0 ? (m.startFrame / durationFrames) * 100 : 0;
-        const width = durationFrames > 0 ? ((m.endFrame - m.startFrame) / durationFrames) * 100 : 1.5;
-
-        return (
-          <MarkerPill
-            key={m.id}
-            left={left}
-            width={Math.max(width, 1.5)}
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelectMarker(m.id);
-            }}
-          />
-        );
-      })}
-    </div>
+    </svg>
   );
 }
 
-function MarkerPill({
-  left,
-  width,
-  onClick,
-}: {
-  left: number;
-  width: number;
-  onClick: (e: React.MouseEvent) => void;
-}) {
-  const [hovered, setHovered] = useState(false);
-
+function HighlightIcon() {
   return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        position: 'absolute',
-        top: 3,
-        height: 22,
-        left: `${left}%`,
-        width: `${width}%`,
-        minWidth: 4,
-        borderRadius: 3,
-        background: hovered ? 'rgba(255,107,90,1)' : 'rgba(255,107,90,0.70)',
-        border: 'none',
-        cursor: 'pointer',
-        padding: 0,
-        transition: 'background 80ms ease',
-        zIndex: 1,
-      }}
-    />
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      {/* Sparkle / star */}
+      <path
+        d="M8 2L9 6.5L13.5 8L9 9.5L8 14L7 9.5L2.5 8L7 6.5L8 2Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
   );
 }
 
-// ─── Cursor style options ─────────────────────────────────────────────────────
+function TitleIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      {/* Text / T icon */}
+      <line x1="3" y1="4" x2="13" y2="4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="8" y1="4" x2="8" y2="13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
 
-const CURSOR_STYLE_OPTIONS: PillOption<CursorStyle>[] = [
-  { id: 'subtle', label: 'Subtle' },
-  { id: 'default', label: 'Default' },
-  { id: 'spotlight', label: 'Spotlight' },
-];
+// ─── Placeholder panel ────────────────────────────────────────────────────────
 
-// ─── RecordRightPanel ──────────────────────────────────────────────────────────
+function PlaceholderText() {
+  return (
+    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.40)', userSelect: 'none' }}>
+      Coming soon
+    </span>
+  );
+}
+
+// ─── RecordRightPanel ─────────────────────────────────────────────────────────
 
 export function RecordRightPanel({
   durationFrames,
@@ -214,97 +108,49 @@ export function RecordRightPanel({
   onCursorChange,
   onCursorReset,
 }: RecordRightPanelProps) {
-  return (
-    <aside
-      style={{
-        flex: `0 0 ${RECORD_PANEL_WIDTH}px`,
-        maxWidth: RECORD_PANEL_WIDTH,
-        borderRadius: 14,
-        background:
-          'radial-gradient(circle at 0% 0%, rgba(255,255,255,0.05) 0%, rgba(8,8,8,1) 50%, #050505 100%)',
-        boxShadow: '0 24px 60px rgba(0,0,0,0.85)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        padding: '12px 14px 10px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: CARD_GAP,
-        overflowX: 'hidden',
-        overflowY: 'auto',
-      }}
-    >
-      {/* Zoom card — wired */}
-      <InspectorCard title="Zoom" onReset={onResetZoomMarkers} flex={1} minHeight={140}>
-        <ZoomIntensitySlider value={zoomIntensity} onChange={onZoomIntensityChange} />
-
-        <div style={{ marginTop: 6 }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              fontSize: 11,
-              color: 'rgba(255,255,255,0.55)',
-              marginBottom: 4,
-            }}
-          >
-            <span>Zoom markers</span>
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.40)' }}>
-              {zoomMarkers.length > 0
-                ? `${zoomMarkers.length} marker${zoomMarkers.length > 1 ? 's' : ''}`
-                : ''}
-            </span>
-          </div>
-          <ZoomMarkersLane
-            durationFrames={durationFrames}
-            markers={zoomMarkers}
-            currentFrame={currentFrame}
-            onAddMarker={onAddZoomMarker}
-            onSelectMarker={onSelectZoomMarker}
-          />
-        </div>
-      </InspectorCard>
-
-      {/* Cursor card — wired */}
-      <InspectorCard title="Cursor" onReset={onCursorReset} minHeight={140}>
-        <div>
-          <ControlLabel label="Cursor style" />
-          <PillRadioRow
-            value={cursor.style}
-            options={CURSOR_STYLE_OPTIONS}
-            onChange={(style) => onCursorChange({ style })}
-          />
-        </div>
-        <div>
-          <ControlLabel label="Click effect" />
-          <RcSelect
-            value={cursor.clickEffect}
-            onChange={(v) => onCursorChange({ clickEffect: v as ClickEffect })}
-          >
-            <option value="none">None</option>
-            <option value="ripple">Ripple</option>
-            <option value="ring">Highlight ring</option>
-          </RcSelect>
-        </div>
-        <div>
-          <ControlLabel label="Cursor size" value={`${cursor.sizePercent}%`} />
-          <RcSlider
-            min={50}
-            max={150}
-            step={5}
-            value={cursor.sizePercent}
-            onChange={(v) => onCursorChange({ sizePercent: v })}
-          />
-        </div>
-        <RcToggleButton
-          label="Click sound"
-          value={cursor.clickSoundEnabled}
-          onChange={(v) => onCursorChange({ clickSoundEnabled: v })}
+  const categories: InspectorCategory[] = [
+    {
+      id: 'zoom',
+      label: 'Zoom',
+      icon: <ZoomIcon />,
+      onReset: onResetZoomMarkers,
+      panel: (
+        <RecordZoomPanel
+          durationFrames={durationFrames}
+          currentFrame={currentFrame}
+          zoomMarkers={zoomMarkers}
+          zoomIntensity={zoomIntensity}
+          onZoomIntensityChange={onZoomIntensityChange}
+          onAddZoomMarker={onAddZoomMarker}
+          onSelectZoomMarker={onSelectZoomMarker}
         />
-      </InspectorCard>
+      ),
+    },
+    {
+      id: 'cursor',
+      label: 'Cursor',
+      icon: <CursorIcon />,
+      onReset: onCursorReset,
+      panel: (
+        <RecordCursorPanel
+          cursor={cursor}
+          onCursorChange={onCursorChange}
+        />
+      ),
+    },
+    {
+      id: 'highlights',
+      label: 'Highlights',
+      icon: <HighlightIcon />,
+      panel: <PlaceholderText />,
+    },
+    {
+      id: 'titles',
+      label: 'Titles',
+      icon: <TitleIcon />,
+      panel: <PlaceholderText />,
+    },
+  ];
 
-      {/* Remaining sections — placeholders */}
-      <InspectorCard title="Highlights" flex={1} minHeight={96} />
-      <InspectorCard title="Titles" minHeight={72} />
-    </aside>
-  );
+  return <InspectorShell width={RECORD_PANEL_WIDTH} categories={categories} />;
 }

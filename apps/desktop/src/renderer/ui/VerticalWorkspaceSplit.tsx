@@ -51,6 +51,7 @@ export function VerticalWorkspaceSplit({
   return (
     <div
       ref={containerRef}
+      data-testid="vertical-split"
       style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden' }}
     >
       {/* Top pane */}

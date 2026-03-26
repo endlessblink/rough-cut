@@ -378,6 +378,7 @@ export function RecordTimelineShell({
 }: RecordTimelineShellProps) {
   return (
     <div
+      data-testid="record-timeline"
       style={{
         flex: 1,
         minWidth: 0,
