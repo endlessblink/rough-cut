@@ -19,6 +19,11 @@ import type {
   AssetType,
   TrackType,
   EasingType,
+  ZoomMarkerId,
+  ZoomMarker,
+  ZoomPresentation,
+  CursorPresentation,
+  RecordingPresentation,
 } from './types.js';
 import {
   CURRENT_SCHEMA_VERSION,
@@ -45,6 +50,9 @@ function effectId(): EffectId {
 }
 function presetId(): PresetId {
   return generateId() as PresetId;
+}
+function zoomMarkerId(): ZoomMarkerId {
+  return generateId() as ZoomMarkerId;
 }
 
 // Suppress unused-variable lint — these generators are public API surface
@@ -141,6 +149,44 @@ export function createAsset(
     duration: 0,
     metadata: {},
     ...overrides,
+  };
+}
+
+export function createZoomMarker(
+  startFrame: number,
+  endFrame: number,
+  overrides?: Partial<ZoomMarker>,
+): ZoomMarker {
+  return {
+    id: zoomMarkerId(),
+    startFrame,
+    endFrame,
+    kind: 'manual',
+    strength: 1,
+    ...overrides,
+  };
+}
+
+export function createDefaultZoomPresentation(): ZoomPresentation {
+  return {
+    autoIntensity: 0.5,
+    markers: [],
+  };
+}
+
+export function createDefaultCursorPresentation(): CursorPresentation {
+  return {
+    style: 'default',
+    clickEffect: 'none',
+    sizePercent: 100,
+    clickSoundEnabled: false,
+  };
+}
+
+export function createDefaultRecordingPresentation(): RecordingPresentation {
+  return {
+    zoom: createDefaultZoomPresentation(),
+    cursor: createDefaultCursorPresentation(),
   };
 }
 

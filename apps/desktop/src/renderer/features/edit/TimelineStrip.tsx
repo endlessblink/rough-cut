@@ -113,7 +113,7 @@ export function TimelineStrip({
           position: 'absolute',
           left: f * pixelsPerFrame,
           fontSize: 9,
-          color: '#666',
+          color: 'rgba(255,255,255,0.45)',
           userSelect: 'none',
           top: 4,
         }}
@@ -129,8 +129,8 @@ export function TimelineStrip({
       style={{
         overflowX: 'auto',
         overflowY: 'hidden',
-        background: '#111',
-        borderTop: '1px solid #333',
+        background: 'rgba(10,10,10,0.98)',
+        borderTop: 'none',
         position: 'relative',
         flex: 'none',
       }}
@@ -143,8 +143,9 @@ export function TimelineStrip({
           position: 'relative',
           marginLeft: LABEL_WIDTH,
           width: totalWidth,
-          borderBottom: '1px solid #333',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
           cursor: 'crosshair',
+          background: 'rgba(15,15,15,0.98)',
         }}
       >
         {ticks}
@@ -157,7 +158,7 @@ export function TimelineStrip({
           style={{
             display: 'flex',
             height: TRACK_HEIGHT,
-            borderBottom: '1px solid #222',
+            borderBottom: '1px solid rgba(255,255,255,0.04)',
           }}
         >
           {/* Track label */}
@@ -169,9 +170,9 @@ export function TimelineStrip({
               alignItems: 'center',
               justifyContent: 'center',
               fontSize: 10,
-              color: '#888',
-              background: '#151515',
-              borderRight: '1px solid #333',
+              color: 'rgba(255,255,255,0.50)',
+              background: 'rgba(0,0,0,0.6)',
+              borderRight: '1px solid rgba(255,255,255,0.06)',
               userSelect: 'none',
             }}
           >
@@ -186,6 +187,9 @@ export function TimelineStrip({
               position: 'relative',
               flex: 1,
               minWidth: totalWidth,
+              backgroundImage:
+                'linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px)',
+              backgroundSize: '40px 100%',
             }}
             onClick={handleTrackAreaClick}
           >
@@ -219,8 +223,8 @@ export function TimelineStrip({
           left: LABEL_WIDTH + playheadFrame * pixelsPerFrame,
           top: 0,
           bottom: 0,
-          width: 1,
-          background: '#ef4444',
+          width: 2,
+          background: '#ff7043',
           pointerEvents: 'none',
           zIndex: 10,
         }}
@@ -235,7 +239,7 @@ export function TimelineStrip({
             top: 0,
             bottom: 0,
             width: 1,
-            background: '#22d3ee',
+            background: '#5ac8fa',
             pointerEvents: 'none',
             zIndex: 11,
             opacity: 0.8,

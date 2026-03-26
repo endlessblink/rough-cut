@@ -11,7 +11,6 @@ function EditPreviewCard() {
     <div
       style={{
         aspectRatio: '16 / 9',
-        maxWidth: 960,
         width: '100%',
         borderRadius: 18,
         background: '#050505',
@@ -38,24 +37,24 @@ function EditPreviewCard() {
 
 // ─── EditPreviewStage ─────────────────────────────────────────────────────────
 
+/**
+ * EditPreviewStage: centers the preview card within the left column.
+ * The card itself owns all visual framing. This only handles centering + max-width.
+ */
 export function EditPreviewStage({ children }: EditPreviewStageProps) {
   return (
-    <div
+    <section
       style={{
         flex: 1,
         display: 'flex',
-        justifyContent: 'center',
         alignItems: 'center',
-        minHeight: 420,
-        padding: '24px 32px',
-        borderRadius: 18,
-        background: 'radial-gradient(circle at 20% 0%, #202020 0%, #050505 60%)',
-        boxShadow: '0 32px 80px rgba(0,0,0,0.75)',
+        justifyContent: 'center',
+        minHeight: 0,
       }}
     >
-      <div style={{ width: '100%', maxWidth: 960 }}>
+      <div style={{ width: '100%', maxWidth: 1040 }}>
         {children ?? <EditPreviewCard />}
       </div>
-    </div>
+    </section>
   );
 }

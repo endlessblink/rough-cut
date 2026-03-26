@@ -5,7 +5,9 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import type { RecordingResult } from '../../env.js';
-import { useProjectStore, useTransportStore, transportStore } from '../../hooks/use-stores.js';
+import { useProjectStore, useTransportStore, transportStore, projectStore } from '../../hooks/use-stores.js';
+import { createDefaultZoomPresentation, createDefaultCursorPresentation } from '@rough-cut/project-model';
+import type { CursorPresentation } from '@rough-cut/project-model';
 import { useRecordState } from './record-state.js';
 import { useRecording } from './use-recording.js';
 import { RecordScreenLayout } from './RecordScreenLayout.js';
@@ -52,9 +54,51 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
   const currentFrame = useTransportStore((s) => s.playheadFrame);
 
+  // Get the first recording asset's presentation (or defaults)
+  const activeRecordingAsset = useProjectStore((s) =>
+    s.project.assets.find((a) => a.type === 'recording'),
+  );
+  const activeRecordingId = activeRecordingAsset?.id ?? null;
+  const zoomPresentation = activeRecordingAsset?.presentation?.zoom ?? createDefaultZoomPresentation();
+  const cursorPresentation = activeRecordingAsset?.presentation?.cursor ?? createDefaultCursorPresentation();
+
   const handleTimelineScrub = useCallback((frame: number) => {
     transportStore.getState().setPlayheadFrame(frame);
   }, []);
+
+  const handleZoomIntensityChange = useCallback((value: number) => {
+    if (!activeRecordingId) return;
+    projectStore.getState().setRecordingAutoZoomIntensity(activeRecordingId, value);
+  }, [activeRecordingId]);
+
+  const handleAddZoomMarker = useCallback((frame: number) => {
+    if (!activeRecordingId) return;
+    const defaultDuration = Math.round(projectFps * 2);
+    projectStore.getState().addRecordingZoomMarker(
+      activeRecordingId,
+      frame,
+      Math.min(frame + defaultDuration, durationFrames),
+    );
+  }, [activeRecordingId, projectFps, durationFrames]);
+
+  const handleSelectZoomMarker = useCallback((_id: string) => {
+    // TODO: select marker for editing
+  }, []);
+
+  const handleResetZoom = useCallback(() => {
+    if (!activeRecordingId) return;
+    projectStore.getState().resetRecordingZoom(activeRecordingId);
+  }, [activeRecordingId]);
+
+  const handleCursorChange = useCallback((patch: Partial<CursorPresentation>) => {
+    if (!activeRecordingId) return;
+    projectStore.getState().updateRecordingCursor(activeRecordingId, patch);
+  }, [activeRecordingId]);
+
+  const handleCursorReset = useCallback(() => {
+    if (!activeRecordingId) return;
+    projectStore.getState().resetRecordingCursor(activeRecordingId);
+  }, [activeRecordingId]);
 
   const recording = useRecording({
     selectedSourceId,
@@ -100,12 +144,11 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
       <MainStage>
         <ModeSelectorRow mode={recordMode} onChange={setRecordMode} />
 
-        {/* Two-column: preview (dominant) + right panel */}
+        {/* Main row: preview + right panel */}
         <div
           style={{
             display: 'flex',
             flexDirection: 'row',
-            alignItems: 'stretch',
             gap: 16,
             marginTop: 8,
             flex: 1,
@@ -119,16 +162,30 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
             />
           </PreviewStage>
 
-          <RecordRightPanel />
+          <RecordRightPanel
+            durationFrames={durationFrames}
+            currentFrame={currentFrame}
+            fps={projectFps}
+            zoomMarkers={zoomPresentation.markers}
+            zoomIntensity={zoomPresentation.autoIntensity}
+            onZoomIntensityChange={handleZoomIntensityChange}
+            onAddZoomMarker={handleAddZoomMarker}
+            onSelectZoomMarker={handleSelectZoomMarker}
+            onResetZoomMarkers={handleResetZoom}
+            cursor={cursorPresentation}
+            onCursorChange={handleCursorChange}
+            onCursorReset={handleCursorReset}
+          />
         </div>
-
-        <RecordTimelineShell
-          durationFrames={durationFrames}
-          currentFrame={currentFrame}
-          fps={projectFps}
-          onScrub={handleTimelineScrub}
-        />
       </MainStage>
+
+      {/* Full-width mini timeline */}
+      <RecordTimelineShell
+        durationFrames={durationFrames}
+        currentFrame={currentFrame}
+        fps={projectFps}
+        onScrub={handleTimelineScrub}
+      />
 
       {/* Error banner — rendered between main stage and bottom bar */}
       {error && (

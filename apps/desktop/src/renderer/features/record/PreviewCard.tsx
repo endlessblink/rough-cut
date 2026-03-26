@@ -169,7 +169,7 @@ export function PreviewCard({ hasActiveSource = false, onChooseSource, children 
         alignItems: 'stretch',
         justifyContent: 'center',
         width: '100%',
-        maxWidth: 960,
+        maxWidth: 1040,
         aspectRatio: '16 / 9',
         background: '#050505',
         borderRadius: 18,

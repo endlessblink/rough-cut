@@ -6,31 +6,18 @@ interface MainStageProps {
 
 export function MainStage({ children }: MainStageProps) {
   return (
-    /* Outer: fills remaining space, centers the content column */
     <div
       style={{
         flex: '1 1 auto',
         display: 'flex',
-        justifyContent: 'center',
-        padding: '20px 24px 18px',
+        flexDirection: 'column',
+        padding: '12px 24px 8px',
         minHeight: 0,
         overflow: 'hidden',
+        background: 'linear-gradient(to bottom, #111111, #050505)',
       }}
     >
-      {/* Inner: max-width column, vertical stack */}
-      <div
-        style={{
-          width: '100%',
-          maxWidth: 1140,
-          display: 'flex',
-          flexDirection: 'column',
-          margin: '0 auto',
-          flex: 1,
-          minHeight: 0,
-        }}
-      >
-        {children}
-      </div>
+      {children}
     </div>
   );
 }

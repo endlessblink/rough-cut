@@ -36,6 +36,37 @@ export interface ProjectSettings {
   readonly sampleRate: SampleRate;
 }
 
+export type ZoomMarkerId = string & { readonly __brand: 'ZoomMarkerId' };
+
+export interface ZoomMarker {
+  readonly id: ZoomMarkerId;
+  readonly startFrame: Frame;
+  readonly endFrame: Frame;
+  readonly kind: 'auto' | 'manual';
+  readonly strength: number; // 0–1
+}
+
+export interface ZoomPresentation {
+  readonly autoIntensity: number; // 0–1
+  readonly markers: readonly ZoomMarker[];
+}
+
+export type CursorStyle = 'subtle' | 'default' | 'spotlight';
+export type ClickEffect = 'none' | 'ripple' | 'ring';
+
+export interface CursorPresentation {
+  readonly style: CursorStyle;
+  readonly clickEffect: ClickEffect;
+  readonly sizePercent: number; // 50–150
+  readonly clickSoundEnabled: boolean;
+}
+
+export interface RecordingPresentation {
+  readonly zoom: ZoomPresentation;
+  readonly cursor: CursorPresentation;
+  // highlights, titles to be added later
+}
+
 export interface Asset {
   readonly id: AssetId;
   readonly type: AssetType;
@@ -43,6 +74,7 @@ export interface Asset {
   readonly duration: Frame;
   readonly metadata: Record<string, unknown>;
   readonly thumbnailPath?: string;
+  readonly presentation?: RecordingPresentation;
 }
 
 export interface ClipTransform {

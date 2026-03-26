@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import type { Clip, TrackType } from '@rough-cut/project-model';
 
 interface ClipBlockProps {
@@ -12,12 +12,16 @@ interface ClipBlockProps {
   onTrimRight?: (clipId: string, newTimelineOut: number) => void;
 }
 
-const TRACK_COLORS: Record<TrackType, string> = {
-  video: '#2563eb',
-  audio: '#16a34a',
+const TRACK_COLORS: Record<TrackType, { bg: string; border: string }> = {
+  video: {
+    bg: 'linear-gradient(to right, rgba(108,191,255,0.85), rgba(27,97,189,0.85))',
+    border: '1px solid rgba(0,0,0,0.6)',
+  },
+  audio: {
+    bg: 'linear-gradient(to right, rgba(255,189,110,0.85), rgba(221,128,42,0.85))',
+    border: '1px solid rgba(0,0,0,0.6)',
+  },
 };
-
-const SELECTED_BORDER = '#f59e0b';
 
 const HANDLE_STYLE: React.CSSProperties = {
   position: 'absolute',
@@ -28,7 +32,7 @@ const HANDLE_STYLE: React.CSSProperties = {
   zIndex: 2,
   opacity: 0,
   transition: 'opacity 0.15s',
-  background: 'rgba(255,255,255,0.35)',
+  background: 'rgba(255,255,255,0.5)',
 };
 
 export function ClipBlock({
@@ -41,9 +45,11 @@ export function ClipBlock({
   onTrimLeft,
   onTrimRight,
 }: ClipBlockProps) {
+  const [hovered, setHovered] = useState(false);
+
   const left = clip.timelineIn * pixelsPerFrame;
   const width = Math.max((clip.timelineOut - clip.timelineIn) * pixelsPerFrame, 2);
-  const bg = TRACK_COLORS[trackType];
+  const colors = TRACK_COLORS[trackType];
 
   const handleTrimLeftMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -105,22 +111,29 @@ export function ClipBlock({
       }}
       title={label}
       className="clip-block"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         position: 'absolute',
         left,
-        top: 2,
-        bottom: 2,
+        top: 5,
+        bottom: 5,
         width,
-        background: bg,
-        border: isSelected ? `2px solid ${SELECTED_BORDER}` : '1px solid rgba(255,255,255,0.15)',
-        borderRadius: 3,
+        background: colors.bg,
+        border: isSelected ? '2px solid #ffcc66' : colors.border,
+        borderRadius: 4,
         cursor: 'pointer',
         overflow: 'hidden',
         display: 'flex',
         alignItems: 'center',
         paddingLeft: 4,
         boxSizing: 'border-box',
-        boxShadow: isSelected ? `0 0 6px ${SELECTED_BORDER}` : 'none',
+        boxShadow: isSelected
+          ? '0 0 0 1px #ffffff'
+          : hovered
+            ? 'inset 0 0 0 100px rgba(255,255,255,0.06)'
+            : 'none',
+        transition: 'box-shadow 0.1s',
       }}
     >
       {/* Left trim handle */}
@@ -140,6 +153,7 @@ export function ClipBlock({
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           userSelect: 'none',
+          textShadow: '0 1px 2px rgba(0,0,0,0.6)',
         }}
       >
         {label}

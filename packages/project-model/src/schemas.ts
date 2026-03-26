@@ -45,6 +45,42 @@ export const ProjectSettingsSchema = z.object({
 
 // --- Asset ---
 
+// --- ZoomMarker ---
+
+export const ZoomMarkerSchema = z.object({
+  id: z.string().min(1),
+  startFrame: nonNegativeInt,
+  endFrame: nonNegativeInt,
+  kind: z.enum(['auto', 'manual']),
+  strength: unit,
+});
+
+// --- ZoomPresentation ---
+
+export const ZoomPresentationSchema = z.object({
+  autoIntensity: unit,
+  markers: z.array(ZoomMarkerSchema),
+});
+
+// --- CursorPresentation ---
+
+export const CursorStyleSchema = z.enum(['subtle', 'default', 'spotlight']);
+export const ClickEffectSchema = z.enum(['none', 'ripple', 'ring']);
+
+export const CursorPresentationSchema = z.object({
+  style: CursorStyleSchema,
+  clickEffect: ClickEffectSchema,
+  sizePercent: z.number().min(50).max(150),
+  clickSoundEnabled: z.boolean(),
+});
+
+// --- RecordingPresentation ---
+
+export const RecordingPresentationSchema = z.object({
+  zoom: ZoomPresentationSchema,
+  cursor: CursorPresentationSchema,
+});
+
 export const AssetSchema = z.object({
   id: z.string().min(1),
   type: AssetTypeSchema,
@@ -52,6 +88,7 @@ export const AssetSchema = z.object({
   duration: nonNegativeInt,
   metadata: z.record(z.unknown()),
   thumbnailPath: z.string().optional(),
+  presentation: RecordingPresentationSchema.optional(),
 });
 
 // --- Tangent ---

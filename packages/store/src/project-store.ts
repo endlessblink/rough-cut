@@ -7,8 +7,11 @@ import type {
   ClipId,
   TrackId,
   AssetId,
+  ZoomMarker,
+  ZoomMarkerId,
+  CursorPresentation,
 } from '@rough-cut/project-model';
-import { createProject } from '@rough-cut/project-model';
+import { createProject, createZoomMarker, createDefaultRecordingPresentation, createDefaultCursorPresentation } from '@rough-cut/project-model';
 import {
   addClipToTrack,
   removeClipFromTrack,
@@ -56,6 +59,17 @@ export interface ProjectActions {
   setTrackLocked: (trackId: TrackId, locked: boolean) => void;
   setTrackVisible: (trackId: TrackId, visible: boolean) => void;
   setTrackVolume: (trackId: TrackId, volume: number) => void;
+
+  // Recording presentation — zoom
+  setRecordingAutoZoomIntensity: (assetId: AssetId, value: number) => void;
+  addRecordingZoomMarker: (assetId: AssetId, startFrame: number, endFrame: number) => void;
+  updateRecordingZoomMarker: (assetId: AssetId, markerId: ZoomMarkerId, patch: Partial<ZoomMarker>) => void;
+  removeRecordingZoomMarker: (assetId: AssetId, markerId: ZoomMarkerId) => void;
+  resetRecordingZoom: (assetId: AssetId) => void;
+
+  // Recording presentation — cursor
+  updateRecordingCursor: (assetId: AssetId, patch: Partial<CursorPresentation>) => void;
+  resetRecordingCursor: (assetId: AssetId) => void;
 }
 
 export type ProjectStore = ProjectState & ProjectActions;
@@ -262,6 +276,141 @@ export function createProjectStore() {
                 t.id === trackId ? { ...t, volume: Math.min(1, Math.max(0, volume)) } : t,
               ),
             },
+          }));
+        },
+
+        // --- Recording presentation — zoom ---
+
+        setRecordingAutoZoomIntensity: (assetId: AssetId, value: number) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  zoom: { ...pres.zoom, autoIntensity: Math.min(1, Math.max(0, value)) },
+                },
+              };
+            }),
+          }));
+        },
+
+        addRecordingZoomMarker: (assetId: AssetId, startFrame: number, endFrame: number) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              const marker = createZoomMarker(startFrame, endFrame);
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  zoom: {
+                    ...pres.zoom,
+                    markers: [...pres.zoom.markers, marker],
+                  },
+                },
+              };
+            }),
+          }));
+        },
+
+        updateRecordingZoomMarker: (assetId: AssetId, markerId: ZoomMarkerId, patch: Partial<ZoomMarker>) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  zoom: {
+                    ...pres.zoom,
+                    markers: pres.zoom.markers.map((m) =>
+                      m.id === markerId ? { ...m, ...patch } : m,
+                    ),
+                  },
+                },
+              };
+            }),
+          }));
+        },
+
+        removeRecordingZoomMarker: (assetId: AssetId, markerId: ZoomMarkerId) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  zoom: {
+                    ...pres.zoom,
+                    markers: pres.zoom.markers.filter((m) => m.id !== markerId),
+                  },
+                },
+              };
+            }),
+          }));
+        },
+
+        resetRecordingZoom: (assetId: AssetId) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  zoom: createDefaultRecordingPresentation().zoom,
+                },
+              };
+            }),
+          }));
+        },
+
+        // --- Recording presentation — cursor ---
+
+        updateRecordingCursor: (assetId: AssetId, patch: Partial<CursorPresentation>) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  cursor: { ...pres.cursor, ...patch },
+                },
+              };
+            }),
+          }));
+        },
+
+        resetRecordingCursor: (assetId: AssetId) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  cursor: createDefaultCursorPresentation(),
+                },
+              };
+            }),
           }));
         },
       }),
