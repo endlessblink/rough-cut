@@ -13,6 +13,7 @@ import { useRecording } from './use-recording.js';
 import { RecordScreenLayout } from './RecordScreenLayout.js';
 import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
+import { VerticalWorkspaceSplit } from '../../ui/index.js';
 import { MainStage } from './MainStage.js';
 import { ModeSelectorRow } from './ModeSelectorRow.js';
 import type { RecordMode } from './ModeSelectorRow.js';
@@ -23,6 +24,7 @@ import { RecordTimelineShell } from './RecordTimelineShell.js';
 import { BottomBar } from './BottomBar.js';
 import type { RecordState } from './BottomBar.js';
 import { SourcePickerPopup } from './SourcePickerPopup.js';
+import { useUiStore, uiStore } from '../../hooks/use-ui-store.js';
 
 interface RecordTabProps {
   onAssetCreated: (result: RecordingResult) => void;
@@ -63,6 +65,9 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const activeRecordingId = activeRecordingAsset?.id ?? null;
   const zoomPresentation = activeRecordingAsset?.presentation?.zoom ?? createDefaultZoomPresentation();
   const cursorPresentation = activeRecordingAsset?.presentation?.cursor ?? createDefaultCursorPresentation();
+
+  // UI state
+  const isRightSidebarCollapsed = useUiStore((s) => s.isRightSidebarCollapsed);
 
   const handleTimelineScrub = useCallback((frame: number) => {
     transportStore.getState().setPlayheadFrame(frame);
@@ -151,48 +156,81 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
       <MainStage>
         <ModeSelectorRow mode={recordMode} onChange={setRecordMode} />
 
-        {/* Main row: preview + right panel */}
+        {/* Main row: left column with splitter + sidebar */}
         <div
           style={{
             display: 'flex',
             flexDirection: 'row',
-            gap: 16,
+            gap: isRightSidebarCollapsed ? 0 : 16,
             marginTop: 8,
             flex: 1,
             minHeight: 0,
           }}
         >
-          <PreviewStage>
-            <PreviewCard
-              hasActiveSource={Boolean(selectedSourceId)}
-              onChooseSource={() => setIsSourcePickerOpen(true)}
+          {/* Left column: preview + timeline in a vertical splitter */}
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+            <VerticalWorkspaceSplit
+              initialRatio={0.7}
+              top={
+                <PreviewStage>
+                  <PreviewCard
+                    hasActiveSource={Boolean(selectedSourceId)}
+                    onChooseSource={() => setIsSourcePickerOpen(true)}
+                  />
+                </PreviewStage>
+              }
+              bottom={
+                <RecordTimelineShell
+                  durationFrames={durationFrames}
+                  currentFrame={currentFrame}
+                  fps={projectFps}
+                  onScrub={handleTimelineScrub}
+                />
+              }
             />
-          </PreviewStage>
+          </div>
 
-          <RecordRightPanel
-            durationFrames={durationFrames}
-            currentFrame={currentFrame}
-            fps={projectFps}
-            zoomMarkers={zoomPresentation.markers}
-            zoomIntensity={zoomPresentation.autoIntensity}
-            onZoomIntensityChange={handleZoomIntensityChange}
-            onAddZoomMarker={handleAddZoomMarker}
-            onSelectZoomMarker={handleSelectZoomMarker}
-            onResetZoomMarkers={handleResetZoom}
-            cursor={cursorPresentation}
-            onCursorChange={handleCursorChange}
-            onCursorReset={handleCursorReset}
-          />
+          {/* Sidebar toggle + panel */}
+          <div style={{ display: 'flex', flexDirection: 'row' }}>
+            {/* Toggle handle */}
+            <button
+              onClick={() => uiStore.getState().toggleRightSidebar()}
+              style={{
+                width: 12,
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+                flexShrink: 0,
+              }}
+            >
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', userSelect: 'none' }}>
+                {isRightSidebarCollapsed ? '◀' : '▶'}
+              </span>
+            </button>
+
+            {!isRightSidebarCollapsed && (
+              <RecordRightPanel
+                durationFrames={durationFrames}
+                currentFrame={currentFrame}
+                fps={projectFps}
+                zoomMarkers={zoomPresentation.markers}
+                zoomIntensity={zoomPresentation.autoIntensity}
+                onZoomIntensityChange={handleZoomIntensityChange}
+                onAddZoomMarker={handleAddZoomMarker}
+                onSelectZoomMarker={handleSelectZoomMarker}
+                onResetZoomMarkers={handleResetZoom}
+                cursor={cursorPresentation}
+                onCursorChange={handleCursorChange}
+                onCursorReset={handleCursorReset}
+              />
+            )}
+          </div>
         </div>
       </MainStage>
-
-      {/* Full-width mini timeline */}
-      <RecordTimelineShell
-        durationFrames={durationFrames}
-        currentFrame={currentFrame}
-        fps={projectFps}
-        onScrub={handleTimelineScrub}
-      />
 
       {/* Error banner — rendered between main stage and bottom bar */}
       {error && (

@@ -238,7 +238,8 @@ export function RecordTimelineShell({
     <div
       style={{
         width: '100%',
-        height: 120,
+        flex: 1,
+        minHeight: 120,
         display: 'flex',
         flexDirection: 'column',
         borderRadius: 12,

@@ -136,7 +136,8 @@ export function EditTimelineShell({
     <div
       style={{
         width: '100%',
-        height: 180,
+        flex: 1,
+        minHeight: 120,
         display: 'flex',
         flexDirection: 'column',
         borderRadius: 12,

@@ -14,6 +14,8 @@ import { EditRightPanel } from './EditRightPanel.js';
 import { EditTimelineShell } from './EditTimelineShell.js';
 import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
+import { VerticalWorkspaceSplit } from '../../ui/index.js';
+import { useUiStore, uiStore } from '../../hooks/use-ui-store.js';
 
 interface EditTabProps {
   activeTab: AppView;
@@ -31,6 +33,9 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   // Undo/redo availability
   const canUndo = useProjectStore(() => projectStore.temporal.getState().pastStates.length > 0);
   const canRedo = useProjectStore(() => projectStore.temporal.getState().futureStates.length > 0);
+
+  // UI state
+  const isRightSidebarCollapsed = useUiStore((s) => s.isRightSidebarCollapsed);
 
   // Find which track contains the selected clip
   const findTrackForClip = useCallback(
@@ -175,55 +180,87 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
     <EditScreenLayout>
       <AppHeader activeTab={activeTab} onTabChange={onTabChange} captureSummary={captureSummary} />
 
-      {/* Main row: preview + inspector */}
+      {/* Main row: left column with splitter + sidebar */}
       <div
         style={{
           flex: '1 1 auto',
           display: 'flex',
           flexDirection: 'row',
-          gap: 16,
+          gap: isRightSidebarCollapsed ? 0 : 16,
           padding: '12px 24px 8px',
           minHeight: 0,
           background: 'linear-gradient(to bottom, #111111, #050505)',
         }}
       >
-        <EditPreviewStage />
-        <EditRightPanel
-          selectedClip={selectedClip}
-          fps={projectFps}
-          onUpdateClip={handleUpdateClipField}
-        />
-      </div>
+        {/* Left column: preview + timeline in a vertical splitter */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <VerticalWorkspaceSplit
+            initialRatio={0.6}
+            top={<EditPreviewStage />}
+            bottom={
+              <EditTimelineShell
+                canUndo={canUndo}
+                canRedo={canRedo}
+                canSplit={canSplit}
+                canDelete={canDelete}
+                snapEnabled={snapEnabled}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+                onSplit={handleSplit}
+                onDelete={handleDelete}
+                onToggleSnap={() => setSnapEnabled((prev) => !prev)}
+                pixelsPerFrame={pixelsPerFrame}
+                onZoomChange={setPixelsPerFrame}
+                playheadFrame={playheadFrame}
+              >
+                <TimelineStrip
+                  tracks={tracks}
+                  assets={assets}
+                  playheadFrame={playheadFrame}
+                  selectedClipId={selectedClipId}
+                  pixelsPerFrame={pixelsPerFrame}
+                  snapEnabled={snapEnabled}
+                  onSelectClip={handleSelectClip}
+                  onScrub={handleScrub}
+                  onTrimLeft={handleTrimLeft}
+                  onTrimRight={handleTrimRight}
+                />
+              </EditTimelineShell>
+            }
+          />
+        </div>
 
-      {/* Full-width timeline */}
-      <EditTimelineShell
-        canUndo={canUndo}
-        canRedo={canRedo}
-        canSplit={canSplit}
-        canDelete={canDelete}
-        snapEnabled={snapEnabled}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        onSplit={handleSplit}
-        onDelete={handleDelete}
-        onToggleSnap={() => setSnapEnabled((prev) => !prev)}
-        pixelsPerFrame={pixelsPerFrame}
-        onZoomChange={setPixelsPerFrame}
-        playheadFrame={playheadFrame}
-      >
-        <TimelineStrip
-          tracks={tracks}
-          assets={assets}
-          playheadFrame={playheadFrame}
-          selectedClipId={selectedClipId}
-          pixelsPerFrame={pixelsPerFrame}
-          snapEnabled={snapEnabled}
-          onSelectClip={handleSelectClip}
-          onScrub={handleScrub}
-          onTrimLeft={handleTrimLeft}
-          onTrimRight={handleTrimRight}
-        />
-      </EditTimelineShell>
+        {/* Sidebar toggle + panel */}
+        <div style={{ display: 'flex', flexDirection: 'row' }}>
+          {/* Toggle handle */}
+          <button
+            onClick={() => uiStore.getState().toggleRightSidebar()}
+            style={{
+              width: 12,
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', userSelect: 'none' }}>
+              {isRightSidebarCollapsed ? '◀' : '▶'}
+            </span>
+          </button>
+
+          {!isRightSidebarCollapsed && (
+            <EditRightPanel
+              selectedClip={selectedClip}
+              fps={projectFps}
+              onUpdateClip={handleUpdateClipField}
+            />
+          )}
+        </div>
+      </div>
     </EditScreenLayout>
   );
 }
