@@ -183,15 +183,16 @@ export class PreviewCompositor {
       }
     }
 
-    // Apply camera transform from zoom presentation
-    if (frame.cameraTransform && this.layerContainer) {
-      const { scale, offsetX, offsetY } = frame.cameraTransform;
-      this.layerContainer.scale.set(scale);
-      this.layerContainer.position.set(
-        (this.config.width / 2) * (1 - scale) + offsetX,
-        (this.config.height / 2) * (1 - scale) + offsetY,
-      );
-    }
+    // Camera transform temporarily neutralized — verify basic framing first.
+    // TODO: Re-enable once placeholder centering and stage sizing are confirmed.
+    // if (frame.cameraTransform && this.layerContainer) {
+    //   const { scale, offsetX, offsetY } = frame.cameraTransform;
+    //   this.layerContainer.scale.set(scale);
+    //   this.layerContainer.position.set(
+    //     (this.config.width / 2) * (1 - scale) + offsetX,
+    //     (this.config.height / 2) * (1 - scale) + offsetY,
+    //   );
+    // }
   }
 
   private renderLayer(layer: RenderLayer, frameWidth: number, frameHeight: number): void {
@@ -229,10 +230,8 @@ export class PreviewCompositor {
 
     const { container, rect, label } = cached;
 
-    // Center the placeholder in the frame, then apply transform offsets
-    const centerX = (frameWidth - rectW) / 2;
-    const centerY = (frameHeight - rectH) / 2;
-    container.position.set(centerX + transform.x, centerY + transform.y);
+    // Position at frame center (pivot is already at rect center via anchorX/Y)
+    container.position.set(frameWidth / 2 + transform.x, frameHeight / 2 + transform.y);
     container.scale.set(transform.scaleX, transform.scaleY);
     container.pivot.set(transform.anchorX * rectW, transform.anchorY * rectH);
     container.rotation = (transform.rotation * Math.PI) / 180;
