@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { PreviewCompositor } from '@rough-cut/preview-renderer';
 import type { ProjectDocument } from '@rough-cut/project-model';
-import { createProject, createAsset } from '@rough-cut/project-model';
+import { createProject, createAsset, createClip } from '@rough-cut/project-model';
 import type { RecordingResult } from './env.js';
 import { RecordTab } from './features/record/RecordTab.js';
 import { EditTab } from './features/edit/EditTab.js';
@@ -122,6 +122,26 @@ export function App() {
     });
     console.log('[recording] renderer: addAsset, id:', asset.id, 'durationFrames:', asset.duration, 'filePath:', asset.filePath);
     projectStore.getState().addAsset(asset);
+
+    // Also create a clip on the first video track referencing this asset
+    const store = projectStore.getState();
+    const videoTrack = store.project.composition.tracks.find((t) => t.type === 'video');
+    if (videoTrack) {
+      // Place clip at the end of existing content on this track
+      const trackEnd = videoTrack.clips.reduce((max, c) => Math.max(max, c.timelineOut), 0);
+      const clip = createClip(asset.id, videoTrack.id, {
+        timelineIn: trackEnd,
+        timelineOut: trackEnd + result.durationFrames,
+        sourceIn: 0,
+        sourceOut: result.durationFrames,
+      });
+      store.addClip(videoTrack.id, clip);
+      console.log('[recording] renderer: addClip, clipId:', clip.id, 'trackId:', videoTrack.id, 'timelineIn:', trackEnd, 'timelineOut:', trackEnd + result.durationFrames);
+    }
+
+    // Verify store state
+    const updatedAssets = projectStore.getState().project.assets;
+    console.log('[recording] renderer: store now has', updatedAssets.length, 'assets');
   }, []);
 
   // --- Tab content ---
