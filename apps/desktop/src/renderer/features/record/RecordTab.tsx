@@ -13,7 +13,7 @@ import { useRecording } from './use-recording.js';
 import { RecordScreenLayout } from './RecordScreenLayout.js';
 import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
-import { VerticalWorkspaceSplit, WorkspaceRow, RECORD_PANEL_WIDTH } from '../../ui/index.js';
+import { WorkspaceRow, RECORD_PANEL_WIDTH } from '../../ui/index.js';
 import { ModeSelectorRow } from './ModeSelectorRow.js';
 import type { RecordMode } from './ModeSelectorRow.js';
 import { PreviewStage } from './PreviewStage.js';
@@ -162,33 +162,19 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         <ModeSelectorRow mode={recordMode} onChange={setRecordMode} />
       </div>
 
+      {/* Preview + Inspector row */}
       <WorkspaceRow
         sidebarWidth={RECORD_PANEL_WIDTH}
         main={
-          <VerticalWorkspaceSplit
-            initialRatio={0.7}
-            top={
-              <PreviewStage>
-                <PreviewCard
-                  hasActiveSource={Boolean(selectedSourceId)}
-                  hasRecordingAsset={hasRecordingAsset}
-                  onChooseSource={() => setIsSourcePickerOpen(true)}
-                >
-                  <div ref={previewRef} style={{ width: '100%', height: '100%' }} />
-                </PreviewCard>
-              </PreviewStage>
-            }
-            bottom={
-              <RecordTimelineShell
-                tracks={tracks}
-                assets={assets}
-                durationFrames={durationFrames}
-                currentFrame={currentFrame}
-                fps={projectFps}
-                onScrub={handleTimelineScrub}
-              />
-            }
-          />
+          <PreviewStage>
+            <PreviewCard
+              hasActiveSource={Boolean(selectedSourceId)}
+              hasRecordingAsset={hasRecordingAsset}
+              onChooseSource={() => setIsSourcePickerOpen(true)}
+            >
+              <div ref={previewRef} style={{ width: '100%', height: '100%' }} />
+            </PreviewCard>
+          </PreviewStage>
         }
         inspector={
           <RecordRightPanel
@@ -207,6 +193,18 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
           />
         }
       />
+
+      {/* Timeline — full width, outside the inspector row */}
+      <div style={{ flexShrink: 0, height: 180, padding: '0 24px', background: '#050505' }}>
+        <RecordTimelineShell
+          tracks={tracks}
+          assets={assets}
+          durationFrames={durationFrames}
+          currentFrame={currentFrame}
+          fps={projectFps}
+          onScrub={handleTimelineScrub}
+        />
+      </div>
 
       {/* Error banner — rendered between main stage and bottom bar */}
       {error && (
