@@ -1,14 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { createProjectStore, createTransportStore } from '@rough-cut/store';
 import { PreviewCompositor } from '@rough-cut/preview-renderer';
 import type { ProjectDocument } from '@rough-cut/project-model';
 import { createProject, createAsset } from '@rough-cut/project-model';
 import type { RecordingResult } from './env.js';
 import { RecordTab } from './features/record/RecordTab.js';
-
-// Singleton stores for the app lifetime
-const projectStore = createProjectStore();
-const transportStore = createTransportStore();
+import { EditTab } from './features/edit/EditTab.js';
+import { projectStore, transportStore } from './hooks/use-stores.js';
 
 type TabId = 'record' | 'edit' | 'motion' | 'ai' | 'export';
 const TABS: { id: TabId; label: string }[] = [
@@ -118,7 +115,7 @@ export function App() {
       case 'record':
         return <RecordTab onAssetCreated={handleRecordingComplete} />;
       case 'edit':
-        return <TabPlaceholder name="Edit" />;
+        return <EditTab />;
       case 'motion':
         return <TabPlaceholder name="Motion" />;
       case 'ai':

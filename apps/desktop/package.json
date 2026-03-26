@@ -18,6 +18,7 @@
     "@rough-cut/preview-renderer": "workspace:*",
     "@rough-cut/effect-registry": "workspace:*",
     "@rough-cut/export-renderer": "workspace:*",
+    "@rough-cut/timeline-engine": "workspace:*",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"
   },

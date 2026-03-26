@@ -38,6 +38,9 @@ importers:
       '@rough-cut/store':
         specifier: workspace:*
         version: link:../../packages/store
+      '@rough-cut/timeline-engine':
+        specifier: workspace:*
+        version: link:../../packages/timeline-engine
       react:
         specifier: ^18.3.0
         version: 18.3.1
