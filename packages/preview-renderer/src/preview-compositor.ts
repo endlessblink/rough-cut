@@ -1,5 +1,5 @@
-import { Application, Graphics, Text, Container, TextStyle } from 'pixi.js';
-import type { ProjectDocument } from '@rough-cut/project-model';
+import { Application, Graphics, Text, Container, TextStyle, Sprite, Texture, VideoSource } from 'pixi.js';
+import type { ProjectDocument, Asset } from '@rough-cut/project-model';
 import { resolveFrame } from '@rough-cut/frame-resolver';
 import { registerBuiltinEffects } from '@rough-cut/effect-registry';
 import type { RenderFrame, RenderLayer } from '@rough-cut/frame-resolver';
@@ -24,20 +24,22 @@ interface LayerCache {
   container: Container;
   rect: Graphics;
   label: Text;
+  videoSprite?: Sprite;
+}
+
+interface VideoCache {
+  video: HTMLVideoElement;
+  texture: Texture | null;
+  loaded: boolean;
+  lastSeekTime: number;
 }
 
 /**
  * PreviewCompositor — renders RenderFrames to a PixiJS canvas.
  *
- * Usage:
- *   const compositor = new PreviewCompositor({ width: 1920, height: 1080 });
- *   await compositor.init();
- *   compositor.setProject(projectDocument);
- *   compositor.seekTo(42); // renders frame 42
- *   // Later: compositor.dispose();
- *
- * This class is NOT a React component. A thin <PreviewCanvas> adapter
- * in @rough-cut/ui will mount the compositor's canvas element.
+ * Supports two rendering modes per layer:
+ * - Video-backed: uses HTMLVideoElement + PixiJS Texture for real frame preview
+ * - Placeholder: colored rectangles with clip IDs (fallback)
  */
 export class PreviewCompositor {
   private app: Application | null = null;
@@ -51,6 +53,9 @@ export class PreviewCompositor {
 
   // Layer cache — reuse PixiJS objects to avoid GC pressure at 60fps
   private layerCache: Map<string, LayerCache> = new Map();
+
+  // Video element cache — one per asset, reused across frames
+  private videoCache: Map<string, VideoCache> = new Map();
 
   constructor(config: CompositorConfig = {}, events: CompositorEvents = {}) {
     this.config = {
@@ -112,7 +117,6 @@ export class PreviewCompositor {
       this.app.renderer.resize(width, height);
       this.renderCurrentFrame();
     }
-    // If not initialized yet, renderCurrentFrame will be called when init() finishes
   }
 
   /** Seek to a specific frame and render it */
@@ -142,6 +146,13 @@ export class PreviewCompositor {
   dispose(): void {
     this.setState('disposed');
     this.layerCache.clear();
+    // Clean up video elements
+    for (const vc of this.videoCache.values()) {
+      vc.video.pause();
+      vc.video.src = '';
+      vc.texture?.destroy();
+    }
+    this.videoCache.clear();
     this.layerContainer?.destroy({ children: true });
     this.layerContainer = null;
     this.app?.destroy();
@@ -195,14 +206,87 @@ export class PreviewCompositor {
     // }
   }
 
+  /** Find asset by ID from the current project */
+  private findAsset(assetId: string): Asset | undefined {
+    return this.project?.assets.find((a) => a.id === assetId);
+  }
+
+  /** Get or create a video element + texture for an asset */
+  private getOrCreateVideo(assetId: string, filePath: string): VideoCache {
+    let vc = this.videoCache.get(assetId);
+    if (vc) return vc;
+
+    const video = document.createElement('video');
+    video.src = `file://${filePath}`;
+    video.crossOrigin = 'anonymous';
+    video.preload = 'auto';
+    video.muted = true; // mute to allow autoplay
+    video.playsInline = true;
+
+    vc = {
+      video,
+      texture: null,
+      loaded: false,
+      lastSeekTime: -1,
+    };
+
+    // Once metadata is loaded, create the PixiJS texture
+    video.addEventListener('loadeddata', () => {
+      if (!vc) return;
+      try {
+        const videoSource = new VideoSource({ resource: video, autoPlay: false });
+        vc.texture = new Texture({ source: videoSource });
+        vc.loaded = true;
+        // Re-render to show the video frame
+        this.renderCurrentFrame();
+      } catch {
+        // VideoSource creation failed — stay on placeholder
+        vc.loaded = false;
+      }
+    }, { once: true });
+
+    video.addEventListener('error', () => {
+      // Video load failed — stay on placeholder
+      if (vc) vc.loaded = false;
+    }, { once: true });
+
+    this.videoCache.set(assetId, vc);
+    return vc;
+  }
+
   private renderLayer(layer: RenderLayer, frameWidth: number, frameHeight: number): void {
     if (!this.layerContainer) return;
 
-    const { clipId, transform, effects } = layer;
+    const { clipId, assetId, sourceFrame, transform, effects } = layer;
 
-    // Compute display size — use 80% of frame as placeholder rect size, centered
-    const rectW = Math.round(frameWidth * 0.8);
-    const rectH = Math.round(frameHeight * 0.8);
+    // Try to resolve the asset for video rendering
+    const asset = this.findAsset(assetId);
+    const fps = this.project?.settings.frameRate ?? 30;
+
+    // Check if this asset has a video file we can display
+    const isVideoAsset = asset && (asset.type === 'recording' || asset.type === 'video') && asset.filePath;
+    let videoCache: VideoCache | null = null;
+
+    if (isVideoAsset && asset.filePath) {
+      videoCache = this.getOrCreateVideo(assetId, asset.filePath);
+
+      // Seek the video to the correct source frame time
+      if (videoCache.loaded && videoCache.video.readyState >= 2) {
+        const targetTime = sourceFrame / fps;
+        // Only seek if we're not already at the right time (avoid unnecessary seeks)
+        if (Math.abs(videoCache.video.currentTime - targetTime) > 0.02) {
+          videoCache.video.currentTime = targetTime;
+          videoCache.lastSeekTime = targetTime;
+        }
+        // Update the texture source to reflect the current frame
+        if (videoCache.texture?.source) {
+          (videoCache.texture.source as VideoSource).update();
+        }
+      }
+    }
+
+    // Decide: render video sprite or placeholder
+    const useVideo = videoCache?.loaded && videoCache.texture;
 
     let cached = this.layerCache.get(clipId);
 
@@ -217,7 +301,6 @@ export class PreviewCompositor {
         wordWrap: false,
       });
       const label = new Text({ text: clipId, style: labelStyle });
-
       label.anchor.set(0.5, 0.5);
 
       container.addChild(rect);
@@ -230,18 +313,69 @@ export class PreviewCompositor {
 
     const { container, rect, label } = cached;
 
-    // Position at frame center (pivot is already at rect center via anchorX/Y)
-    container.position.set(frameWidth / 2 + transform.x, frameHeight / 2 + transform.y);
-    container.scale.set(transform.scaleX, transform.scaleY);
-    container.pivot.set(transform.anchorX * rectW, transform.anchorY * rectH);
+    if (useVideo && videoCache?.texture) {
+      // ── Video-backed rendering ──
+      // Hide placeholder rect and label
+      rect.visible = false;
+      label.visible = false;
+
+      // Create or update video sprite
+      if (!cached.videoSprite) {
+        const sprite = new Sprite(videoCache.texture);
+        container.addChild(sprite);
+        cached.videoSprite = sprite;
+      } else {
+        cached.videoSprite.texture = videoCache.texture;
+      }
+
+      const sprite = cached.videoSprite;
+      sprite.visible = true;
+
+      // Scale sprite to fill the frame
+      sprite.width = frameWidth;
+      sprite.height = frameHeight;
+
+      // Position container at origin (sprite fills frame)
+      container.position.set(transform.x, transform.y);
+      container.scale.set(transform.scaleX, transform.scaleY);
+      container.pivot.set(transform.anchorX * frameWidth, transform.anchorY * frameHeight);
+    } else {
+      // ── Placeholder rendering ──
+      rect.visible = true;
+      label.visible = true;
+      if (cached.videoSprite) cached.videoSprite.visible = false;
+
+      const rectW = Math.round(frameWidth * 0.8);
+      const rectH = Math.round(frameHeight * 0.8);
+
+      // Center the placeholder in the frame
+      const centerX = (frameWidth - rectW) / 2;
+      const centerY = (frameHeight - rectH) / 2;
+      container.position.set(centerX + transform.x, centerY + transform.y);
+      container.scale.set(transform.scaleX, transform.scaleY);
+      container.pivot.set(transform.anchorX * rectW, transform.anchorY * rectH);
+
+      // Redraw the colored rectangle
+      const color = colorForClipId(clipId);
+      rect.clear();
+      rect
+        .rect(0, 0, rectW, rectH)
+        .fill({ color, alpha: 0.85 })
+        .stroke({ color: 0xffffff, width: 2, alpha: 0.5 });
+
+      // Update label text and position to center of rect
+      label.text = clipId;
+      label.position.set(rectW / 2, rectH / 2);
+    }
+
     container.rotation = (transform.rotation * Math.PI) / 180;
     container.alpha = Math.max(0, Math.min(1, transform.opacity));
 
-    // Apply z-order: higher trackIndex = rendered on top
+    // Apply z-order
     container.zIndex = layer.trackIndex;
     this.layerContainer.sortableChildren = true;
 
-    // Determine opacity from effects (e.g. a hypothetical opacity effect)
+    // Determine opacity from effects
     let effectOpacity = 1;
     for (const effect of effects) {
       if (effect.enabled && effect.effectType === 'opacity') {
@@ -250,17 +384,5 @@ export class PreviewCompositor {
       }
     }
     container.alpha = Math.max(0, Math.min(1, transform.opacity * effectOpacity));
-
-    // Redraw the colored rectangle
-    const color = colorForClipId(clipId);
-    rect.clear();
-    rect
-      .rect(0, 0, rectW, rectH)
-      .fill({ color, alpha: 0.85 })
-      .stroke({ color: 0xffffff, width: 2, alpha: 0.5 });
-
-    // Update label text and position to center of rect
-    label.text = clipId;
-    label.position.set(rectW / 2, rectH / 2);
   }
 }
