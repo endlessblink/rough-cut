@@ -120,6 +120,7 @@ export function App() {
         fileSize: result.fileSize,
       },
     });
+    console.log('[recording] renderer: addAsset, id:', asset.id, 'durationFrames:', asset.duration, 'filePath:', asset.filePath);
     projectStore.getState().addAsset(asset);
   }, []);
 

@@ -32,6 +32,7 @@ export function useRecording({
     if (!selectedSourceId) return;
 
     try {
+      console.log('[recording] renderer: startRecording, sourceId:', selectedSourceId);
       onStatusChange('recording');
       chunksRef.current = [];
 
@@ -56,9 +57,11 @@ export function useRecording({
       };
 
       recorder.onstop = async () => {
+        console.log('[recording] renderer: recorder stopped, chunks:', chunksRef.current.length);
         onStatusChange('stopping');
 
         const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+        console.log('[recording] renderer: blob size:', blob.size);
         const buffer = await blob.arrayBuffer();
 
         const videoTrack = stream.getVideoTracks()[0];
@@ -72,6 +75,7 @@ export function useRecording({
             height: settings.height ?? 1080,
             durationMs,
           });
+          console.log('[recording] renderer: asset created, filePath:', result.filePath, 'durationFrames:', result.durationFrames);
           onAssetCreated(result);
           onStatusChange('ready');
         } catch (err) {
@@ -90,6 +94,7 @@ export function useRecording({
         onElapsedChange(performance.now() - startTimeRef.current);
       }, 100);
     } catch (err) {
+      console.error('[recording] renderer: error:', err);
       onError(err instanceof Error ? err.message : String(err));
     }
   }, [selectedSourceId, onStatusChange, onError, onElapsedChange, onAssetCreated]);

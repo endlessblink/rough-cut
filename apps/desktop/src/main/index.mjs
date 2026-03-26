@@ -120,7 +120,10 @@ function registerIpcHandlers() {
 
   // Recording: Save finished recording blob to disk and probe metadata
   ipcMain.handle(IPC_CHANNELS.RECORDING_STOP, async (_e, { buffer, metadata }) => {
-    return saveRecording(buffer, metadata.projectDir, metadata);
+    console.log('[recording] main: save recording, buffer size:', buffer?.byteLength ?? 0, 'metadata:', JSON.stringify(metadata));
+    const result = await saveRecording(buffer, metadata.projectDir, metadata);
+    console.log('[recording] main: saved, filePath:', result.filePath, 'durationFrames:', result.durationFrames);
+    return result;
   });
 
   // App: Version
