@@ -71,7 +71,6 @@ export function App() {
         fileSize: result.fileSize,
       },
     });
-    console.log('[recording] renderer: addAsset, id:', asset.id, 'durationFrames:', asset.duration, 'filePath:', asset.filePath);
     projectStore.getState().addAsset(asset);
 
     // Also create a clip on the first video track referencing this asset
@@ -87,12 +86,7 @@ export function App() {
         sourceOut: result.durationFrames,
       });
       store.addClip(videoTrack.id, clip);
-      console.log('[recording] renderer: addClip, clipId:', clip.id, 'trackId:', videoTrack.id, 'timelineIn:', trackEnd, 'timelineOut:', trackEnd + result.durationFrames);
     }
-
-    // Verify store state
-    const updatedAssets = projectStore.getState().project.assets;
-    console.log('[recording] renderer: store now has', updatedAssets.length, 'assets');
   }, []);
 
   // --- Tab content ---

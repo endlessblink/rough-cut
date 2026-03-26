@@ -57,6 +57,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
   const resolution = useProjectStore((s) => s.project.settings.resolution);
   const currentFrame = useTransportStore((s) => s.playheadFrame);
+  const tracks = useProjectStore((s) => s.project.composition.tracks);
+  const assets = useProjectStore((s) => s.project.assets);
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
 
   // Get the first recording asset's presentation (or defaults)
@@ -189,6 +191,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
               }
               bottom={
                 <RecordTimelineShell
+                  tracks={tracks}
+                  assets={assets}
                   durationFrames={durationFrames}
                   currentFrame={currentFrame}
                   fps={projectFps}
