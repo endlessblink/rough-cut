@@ -1,7 +1,7 @@
 /**
- * RecordTemplatesPanel — single-column list of selectable layout template cards.
- * Each card shows a schematic preview whose shape reflects the actual aspect ratio,
- * template name, and aspect ratio badge.
+ * RecordTemplatesPanel — compact 2-column grid of layout template thumbnails.
+ * Inspired by Focusee's schematic icon approach: small visual thumbnails
+ * whose shape reflects the actual aspect ratio, with a tiny label below.
  */
 import type { LayoutTemplate } from './templates.js';
 import { LAYOUT_TEMPLATES } from './templates.js';
@@ -13,173 +13,133 @@ export interface RecordTemplatesPanelProps {
   onSelectTemplate: (template: LayoutTemplate) => void;
 }
 
-// ─── Schematic preview ────────────────────────────────────────────────────────
+// ─── Colors ───────────────────────────────────────────────────────────────────
 
-const SCREEN_COLOR = 'rgba(90,160,250,0.35)';
-const CAMERA_COLOR = 'rgba(255,107,90,0.5)';
-const PREVIEW_BG = 'rgba(0,0,0,0.4)';
+const SCREEN_COLOR = 'rgba(90,160,250,0.4)';
+const CAMERA_COLOR = 'rgba(255,107,90,0.55)';
+const FRAME_BG = 'rgba(0,0,0,0.5)';
+const FRAME_BORDER = 'rgba(255,255,255,0.06)';
 
-/** Map aspect ratio string to a numeric ratio for the preview shape */
-function aspectToNumber(ar: string): number {
-  switch (ar) {
-    case '16:9': return 16 / 9;
-    case '9:16': return 9 / 16;
-    case '1:1': return 1;
-    case '4:3': return 4 / 3;
-    default: return 16 / 9;
-  }
-}
+// ─── Aspect-ratio-aware schematic ─────────────────────────────────────────────
 
-interface SchematicProps {
-  template: LayoutTemplate;
-}
+/** Fixed height for the schematic area; the frame inside adapts to aspect ratio */
+const SCHEMATIC_HEIGHT = 44;
 
-function TemplateSchematic({ template }: SchematicProps) {
+function TemplateSchematic({ template }: { template: LayoutTemplate }) {
   const { screenLayout, cameraPosition, aspectRatio } = template;
-  const ratio = aspectToNumber(aspectRatio);
 
-  // The preview area is always the full card width.
-  // Height is determined by the aspect ratio, with a max height cap.
-  const isVertical = ratio < 1;
-  const previewHeight = isVertical ? 72 : 44;
+  // Compute frame dimensions that fit inside the schematic area
+  // while preserving the template's aspect ratio
+  const maxW = 68; // max width available inside the card
+  const maxH = SCHEMATIC_HEIGHT - 4; // 2px margin top+bottom
+  let frameW: number;
+  let frameH: number;
 
-  const containerStyle: React.CSSProperties = {
-    position: 'relative',
-    width: '100%',
-    height: previewHeight,
-    background: PREVIEW_BG,
-    borderRadius: 4,
-    overflow: 'hidden',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+  switch (aspectRatio) {
+    case '9:16':
+      frameH = maxH;
+      frameW = Math.round(frameH * (9 / 16));
+      break;
+    case '1:1':
+      frameH = maxH;
+      frameW = frameH;
+      break;
+    case '4:3':
+      frameW = maxW;
+      frameH = Math.round(frameW * (3 / 4));
+      break;
+    case '16:9':
+    default:
+      frameW = maxW;
+      frameH = Math.round(frameW * (9 / 16));
+      break;
+  }
+
+  // Camera overlay size relative to frame
+  const camW = Math.round(frameW * 0.28);
+  const camH = Math.round(frameH * 0.28);
+  const camInset = 2;
+
+  const cornerStyles: Record<string, React.CSSProperties> = {
+    'corner-br': { bottom: camInset, right: camInset },
+    'corner-bl': { bottom: camInset, left: camInset },
+    'corner-tr': { top: camInset, right: camInset },
+    'corner-tl': { top: camInset, left: camInset },
+    'center': { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
   };
 
-  // For vertical aspect ratios, draw the content area as a tall centered rectangle
-  // For horizontal, draw it spanning the full width
-  const innerWidth = isVertical ? `${Math.round(ratio * 100)}%` : undefined;
+  const camStyle = cornerStyles[cameraPosition] ?? cornerStyles['corner-br'];
 
-  // ── full-screen: just a filled screen block ──────────────────────────────
-  if (screenLayout === 'full-screen') {
-    return (
-      <div style={containerStyle}>
-        <div
-          style={{
-            position: 'absolute',
-            top: 3,
-            bottom: 3,
-            left: isVertical ? '50%' : 3,
-            right: isVertical ? undefined : 3,
-            width: isVertical ? innerWidth : undefined,
-            transform: isVertical ? 'translateX(-50%)' : undefined,
-            background: SCREEN_COLOR,
-            borderRadius: 2,
-          }}
-        />
+  return (
+    <div
+      style={{
+        width: '100%',
+        height: SCHEMATIC_HEIGHT,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {/* Aspect-ratio frame */}
+      <div
+        style={{
+          position: 'relative',
+          width: frameW,
+          height: frameH,
+          background: FRAME_BG,
+          border: `1px solid ${FRAME_BORDER}`,
+          borderRadius: 3,
+          overflow: 'hidden',
+        }}
+      >
+        {/* Screen area */}
+        {screenLayout === 'split' ? (
+          // Split: screen top half, camera bottom half
+          <>
+            <div style={{ position: 'absolute', top: 1, left: 1, right: 1, height: '46%', background: SCREEN_COLOR, borderRadius: 1 }} />
+            <div style={{ position: 'absolute', bottom: 1, left: 1, right: 1, height: '46%', background: CAMERA_COLOR, borderRadius: 1 }} />
+          </>
+        ) : screenLayout === 'presentation' ? (
+          // Presentation: camera left 60%, screen right 35%
+          <>
+            <div style={{ position: 'absolute', top: 1, left: 1, bottom: 1, width: '58%', background: CAMERA_COLOR, borderRadius: 1 }} />
+            <div style={{ position: 'absolute', top: 1, right: 1, bottom: 1, width: '34%', background: SCREEN_COLOR, borderRadius: 1 }} />
+          </>
+        ) : (
+          // Full-screen or PIP: screen fills the frame
+          <>
+            <div style={{ position: 'absolute', inset: 1, background: SCREEN_COLOR, borderRadius: 1 }} />
+            {/* Camera overlay (only for pip with a visible camera) */}
+            {cameraPosition !== 'none' && cameraPosition !== 'hidden' && screenLayout === 'pip' && (
+              <div
+                style={{
+                  position: 'absolute',
+                  width: camW,
+                  height: camH,
+                  background: CAMERA_COLOR,
+                  borderRadius: 2,
+                  ...camStyle,
+                }}
+              />
+            )}
+          </>
+        )}
       </div>
-    );
-  }
-
-  // ── pip: screen fills the frame + small camera corner overlay ────────────
-  if (screenLayout === 'pip') {
-    const camSize = isVertical ? { width: 14, height: 14 } : { width: 18, height: 14 };
-    const cornerMap: Record<string, React.CSSProperties> = {
-      'corner-br': { bottom: 6, right: isVertical ? '22%' : 6 },
-      'corner-bl': { bottom: 6, left: isVertical ? '22%' : 6 },
-      'corner-tr': { top: 6, right: isVertical ? '22%' : 6 },
-      'corner-tl': { top: 6, left: isVertical ? '22%' : 6 },
-    };
-    const camStyle = cornerMap[cameraPosition] ?? { bottom: 6, right: 6 };
-
-    return (
-      <div style={containerStyle}>
-        <div
-          style={{
-            position: 'absolute',
-            top: 3,
-            bottom: 3,
-            left: isVertical ? '50%' : 3,
-            right: isVertical ? undefined : 3,
-            width: isVertical ? innerWidth : undefined,
-            transform: isVertical ? 'translateX(-50%)' : undefined,
-            background: SCREEN_COLOR,
-            borderRadius: 2,
-          }}
-        />
-        <div
-          style={{
-            position: 'absolute',
-            ...camSize,
-            background: CAMERA_COLOR,
-            borderRadius: 2,
-            ...camStyle,
-          }}
-        />
-      </div>
-    );
-  }
-
-  // ── split: screen top + camera bottom (vertical layouts) ─────────────────
-  if (screenLayout === 'split') {
-    return (
-      <div style={containerStyle}>
-        {/* Centered tall frame */}
-        <div
-          style={{
-            position: 'absolute',
-            top: 3,
-            bottom: 3,
-            left: '50%',
-            width: innerWidth ?? '56%',
-            transform: 'translateX(-50%)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 2,
-          }}
-        >
-          <div style={{ flex: 1, background: SCREEN_COLOR, borderRadius: 2 }} />
-          <div style={{ flex: 1, background: CAMERA_COLOR, borderRadius: 2 }} />
-        </div>
-      </div>
-    );
-  }
-
-  // ── presentation: camera main + screen inset ─────────────────────────────
-  if (screenLayout === 'presentation') {
-    return (
-      <div style={containerStyle}>
-        <div
-          style={{
-            position: 'absolute',
-            top: 3, left: 3, bottom: 3, right: '35%',
-            background: CAMERA_COLOR,
-            borderRadius: 2,
-          }}
-        />
-        <div
-          style={{
-            position: 'absolute',
-            top: 3, right: 3, bottom: 3, width: '28%',
-            background: SCREEN_COLOR,
-            borderRadius: 2,
-          }}
-        />
-      </div>
-    );
-  }
-
-  return <div style={containerStyle} />;
+    </div>
+  );
 }
 
 // ─── Template card ────────────────────────────────────────────────────────────
 
-interface TemplateCardProps {
+function TemplateCard({
+  template,
+  selected,
+  onSelect,
+}: {
   template: LayoutTemplate;
   selected: boolean;
-  onSelect: (template: LayoutTemplate) => void;
-}
-
-function TemplateCard({ template, selected, onSelect }: TemplateCardProps) {
+  onSelect: (t: LayoutTemplate) => void;
+}) {
   return (
     <button
       type="button"
@@ -189,70 +149,41 @@ function TemplateCard({ template, selected, onSelect }: TemplateCardProps) {
         all: 'unset',
         display: 'flex',
         flexDirection: 'column',
-        gap: 5,
-        padding: 8,
-        background: selected ? 'rgba(255,107,90,0.06)' : 'rgba(255,255,255,0.03)',
+        alignItems: 'center',
+        gap: 3,
+        padding: 4,
+        background: selected ? 'rgba(255,107,90,0.08)' : 'transparent',
         border: selected
-          ? '1px solid #ff6b5a'
-          : '1px solid rgba(255,255,255,0.06)',
-        borderRadius: 8,
+          ? '1px solid rgba(255,107,90,0.6)'
+          : '1px solid transparent',
+        borderRadius: 6,
         cursor: 'pointer',
         boxSizing: 'border-box',
-        width: '100%',
-        transition: 'background 120ms ease, border-color 120ms ease',
+        transition: 'background 100ms ease, border-color 100ms ease',
       }}
       onMouseEnter={(e) => {
-        if (!selected) {
-          (e.currentTarget as HTMLButtonElement).style.background =
-            'rgba(255,255,255,0.06)';
-        }
+        if (!selected) e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
       }}
       onMouseLeave={(e) => {
-        if (!selected) {
-          (e.currentTarget as HTMLButtonElement).style.background =
-            'rgba(255,255,255,0.03)';
-        }
+        if (!selected) e.currentTarget.style.background = 'transparent';
       }}
     >
       <TemplateSchematic template={template} />
-
-      {/* Name + badge row */}
-      <div
+      <span
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 4,
+          fontSize: 9,
+          fontWeight: 500,
+          color: selected ? 'rgba(255,107,90,0.9)' : 'rgba(255,255,255,0.50)',
+          textAlign: 'center',
+          lineHeight: 1.2,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          maxWidth: '100%',
         }}
       >
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 600,
-            color: selected ? '#ff6b5a' : 'rgba(255,255,255,0.85)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            lineHeight: 1.3,
-          }}
-        >
-          {template.name}
-        </span>
-        <span
-          style={{
-            fontSize: 9,
-            fontWeight: 500,
-            color: 'rgba(255,255,255,0.40)',
-            background: 'rgba(255,255,255,0.07)',
-            borderRadius: 3,
-            padding: '1px 4px',
-            flexShrink: 0,
-            letterSpacing: '0.02em',
-          }}
-        >
-          {template.aspectRatio}
-        </span>
-      </div>
+        {template.name}
+      </span>
     </button>
   );
 }
@@ -266,9 +197,9 @@ export function RecordTemplatesPanel({
   return (
     <div
       style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: 4,
         width: '100%',
       }}
     >
