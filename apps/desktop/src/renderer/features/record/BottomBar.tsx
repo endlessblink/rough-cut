@@ -325,14 +325,14 @@ function RecordButton({
       onMouseDown={() => setPressed(true)}
       onMouseUp={() => setPressed(false)}
       style={{
-        height: 40,
-        minWidth: 140,
-        borderRadius: 999,
+        height: 30,
+        minWidth: 80,
+        borderRadius: 8,
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
         gap: 8,
-        fontSize: 14,
+        fontSize: 12,
         fontWeight: 600,
         border: 'none',
         cursor: recordState === 'countdown' ? 'default' : 'pointer',
@@ -341,7 +341,9 @@ function RecordButton({
         background: bg,
         color,
         transition: 'background 120ms ease',
-        padding: '0 20px',
+        padding: '0 14px',
+        letterSpacing: '0.04em',
+        flexShrink: 0,
       }}
     >
       {label}
@@ -426,25 +428,18 @@ export function BottomBar({
   return (
     <div
       style={{
-        height: 72,
-        minHeight: 72,
-        flexShrink: 0,
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 24px',
-        background: '#0d0d0d',
-        borderTop: '1px solid rgba(255,255,255,0.06)',
-        zIndex: 5,
+        flex: 1,
+        gap: 8,
       }}
     >
-      {/* Left group */}
+      {/* Left group — device pills */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
-          flex: 1,
+          gap: 6,
         }}
       >
         <SourcePill sourceName={sourceName} onClick={onOpenSourcePicker} />
@@ -457,12 +452,11 @@ export function BottomBar({
         )}
       </div>
 
-      {/* Center group */}
+      {/* Center group — record button */}
       <div
         style={{
-          flex: '0 0 auto',
           display: 'flex',
-          justifyContent: 'center',
+          alignItems: 'center',
         }}
       >
         <RecordButton
@@ -472,14 +466,13 @@ export function BottomBar({
         />
       </div>
 
-      {/* Right group */}
+      {/* Right group — status, pushed to end */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 12,
-          flex: 1,
-          justifyContent: 'flex-end',
+          marginLeft: 'auto',
         }}
       >
         <CaptureStatus

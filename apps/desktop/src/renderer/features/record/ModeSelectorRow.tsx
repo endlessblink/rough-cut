@@ -36,10 +36,10 @@ function RegionIcon() {
 
 // ─── Mode config ──────────────────────────────────────────────────────────────
 
-const MODES: { id: RecordMode; label: string; minWidth: number; icon: React.ReactNode }[] = [
-  { id: 'fullscreen', label: 'Full Screen', minWidth: 104, icon: <FullScreenIcon /> },
-  { id: 'window', label: 'Window', minWidth: 80, icon: <WindowIcon /> },
-  { id: 'region', label: 'Region', minWidth: 80, icon: <RegionIcon /> },
+const MODES: { id: RecordMode; label: string; icon: React.ReactNode }[] = [
+  { id: 'fullscreen', label: 'Full Screen', icon: <FullScreenIcon /> },
+  { id: 'window', label: 'Window', icon: <WindowIcon /> },
+  { id: 'region', label: 'Region', icon: <RegionIcon /> },
 ];
 
 // ─── ModeSelectorRow ──────────────────────────────────────────────────────────
@@ -53,39 +53,34 @@ export function ModeSelectorRow({ mode, onChange }: ModeSelectorRowProps) {
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 8,
-        height: 40,
+        gap: 1,
+        height: 32,
         flexShrink: 0,
-        paddingLeft: 32,
+        background: 'rgba(255,255,255,0.04)',
+        borderRadius: 8,
+        padding: 2,
       }}
     >
-      {MODES.map(({ id, label, minWidth, icon }) => {
+      {MODES.map(({ id, label, icon }) => {
         const isActive = mode === id;
         const isHovered = hoveredMode === id;
         const isPressed = pressedMode === id;
 
         let background: string;
-        let border: string;
         let color: string;
 
         if (isPressed) {
-          background = 'rgba(255,255,255,0.16)';
-          border = isActive
-            ? '1px solid rgba(255,255,255,0.30)'
-            : '1px solid rgba(255,255,255,0.18)';
-          color = isActive ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.84)';
+          background = isActive ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.08)';
+          color = isActive ? 'rgba(255,255,255,1)' : 'rgba(255,255,255,0.84)';
         } else if (isActive) {
-          background = 'rgba(255,255,255,0.14)';
-          border = '1px solid rgba(255,255,255,0.30)';
-          color = 'rgba(255,255,255,0.96)';
+          background = 'rgba(255,255,255,0.12)';
+          color = 'rgba(255,255,255,1)';
         } else if (isHovered) {
           background = 'rgba(255,255,255,0.06)';
-          border = '1px solid rgba(255,255,255,0.18)';
-          color = 'rgba(255,255,255,0.84)';
+          color = 'rgba(255,255,255,0.80)';
         } else {
-          background = 'rgba(255,255,255,0.02)';
-          border = '1px solid rgba(255,255,255,0.10)';
-          color = 'rgba(255,255,255,0.60)';
+          background = 'transparent';
+          color = 'rgba(255,255,255,0.52)';
         }
 
         return (
@@ -97,10 +92,9 @@ export function ModeSelectorRow({ mode, onChange }: ModeSelectorRowProps) {
             onMouseDown={() => setPressedMode(id)}
             onMouseUp={() => setPressedMode(null)}
             style={{
-              height: 32,
-              minWidth,
+              height: 28,
               padding: '0 12px',
-              borderRadius: 999,
+              borderRadius: 6,
               fontSize: 12,
               fontWeight: 500,
               letterSpacing: '0.02em',
@@ -109,12 +103,13 @@ export function ModeSelectorRow({ mode, onChange }: ModeSelectorRowProps) {
               gap: 6,
               cursor: 'pointer',
               background,
-              border,
+              border: 'none',
               color,
-              transition: 'background-color 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out',
+              transition: 'background 120ms ease-out, color 120ms ease-out',
               fontFamily: 'inherit',
               userSelect: 'none',
               boxSizing: 'border-box',
+              flexShrink: 0,
             }}
           >
             {icon}

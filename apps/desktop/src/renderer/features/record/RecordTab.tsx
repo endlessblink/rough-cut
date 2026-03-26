@@ -157,29 +157,41 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         deviceStatus="Mic: Default"
       />
 
-      {/* Mode selector — own padded row */}
-      <div style={{ padding: '12px 24px 0', flexShrink: 0, background: 'linear-gradient(to bottom, #111111, #0e0e0e)' }}>
+      {/* Unified recording toolbar */}
+      <div
+        style={{
+          height: 48,
+          minHeight: 48,
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 24px',
+          gap: 16,
+          background: '#0e0e0e',
+          borderBottom: '1px solid rgba(255,255,255,0.04)',
+        }}
+      >
         <ModeSelectorRow mode={recordMode} onChange={setRecordMode} />
+        <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
+        <BottomBar
+          sourceName={selectedSourceName}
+          onOpenSourcePicker={() => setIsSourcePickerOpen(true)}
+          micName="Default"
+          isMicMuted={isMicMuted}
+          onToggleMicMute={() => setIsMicMuted((m) => !m)}
+          hasSystemAudio={true}
+          isSystemAudioEnabled={isSystemAudioEnabled}
+          onToggleSystemAudio={() => setIsSystemAudioEnabled((e) => !e)}
+          hasCamera={false}
+          isCameraEnabled={isCameraEnabled}
+          onToggleCamera={() => setIsCameraEnabled((c) => !c)}
+          recordState={recordState}
+          onClickRecord={handleClickRecord}
+          elapsedSeconds={elapsedSeconds}
+          resolutionLabel="1920×1080"
+          fpsLabel="60 fps"
+        />
       </div>
-
-      <BottomBar
-        sourceName={selectedSourceName}
-        onOpenSourcePicker={() => setIsSourcePickerOpen(true)}
-        micName="Default"
-        isMicMuted={isMicMuted}
-        onToggleMicMute={() => setIsMicMuted((m) => !m)}
-        hasSystemAudio={true}
-        isSystemAudioEnabled={isSystemAudioEnabled}
-        onToggleSystemAudio={() => setIsSystemAudioEnabled((e) => !e)}
-        hasCamera={false}
-        isCameraEnabled={isCameraEnabled}
-        onToggleCamera={() => setIsCameraEnabled((c) => !c)}
-        recordState={recordState}
-        onClickRecord={handleClickRecord}
-        elapsedSeconds={elapsedSeconds}
-        resolutionLabel="1920×1080"
-        fpsLabel="60 fps"
-      />
 
       {/* Preview + Inspector row */}
       <WorkspaceRow
@@ -245,8 +257,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         </div>
       )}
 
-      {/* Timeline — full width, flex-fills to bottom */}
-      <div style={{ flex: '1 1 0%', minHeight: 120, padding: '0 24px 8px', background: '#050505', display: 'flex', flexDirection: 'column' }}>
+      {/* Timeline — full width, compact fixed height */}
+      <div style={{ flexShrink: 0, height: 180, padding: '0 24px', marginBottom: 8, background: '#050505' }}>
         <RecordTimelineShell
           tracks={tracks}
           assets={assets}

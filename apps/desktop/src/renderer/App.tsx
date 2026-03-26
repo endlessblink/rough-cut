@@ -5,6 +5,7 @@ import type { RecordingResult } from './env.js';
 import { RecordTab } from './features/record/RecordTab.js';
 import { EditTab } from './features/edit/EditTab.js';
 import { ExportTab } from './features/export/ExportTab.js';
+import { ProjectsTab } from './features/projects/ProjectsTab.js';
 import type { AppView } from './ui/index.js';
 import { projectStore, transportStore } from './hooks/use-stores.js';
 
@@ -19,7 +20,7 @@ const TABS: { id: TabId; label: string }[] = [
 
 export function App() {
   const [projectName, setProjectName] = useState('Untitled Project');
-  const [activeTab, setActiveTab] = useState<TabId>('record');
+  const [activeTab, setActiveTab] = useState<TabId>('projects');
 
   // Initialize with a default project on mount
   useEffect(() => {
@@ -37,12 +38,14 @@ export function App() {
   }, []);
 
   // --- Flow 1: Open project ---
-  const handleOpen = useCallback(async () => {
+  const handleOpen = useCallback(async (): Promise<boolean> => {
     const data = await window.roughcut.projectOpen();
     if (data) {
       projectStore.getState().setProject(data as ProjectDocument);
       transportStore.getState().seekToFrame(0);
+      return true;
     }
+    return false;
   }, []);
 
   // New project
@@ -95,11 +98,21 @@ export function App() {
   // All other tabs use the classic sidebar + placeholder split.
   function renderTabContent() {
     switch (activeTab) {
-      case 'projects':
-        return <TabPlaceholder name="Projects" />;
       case 'aiMotion':
         return <TabPlaceholder name="AI Motion" />;
     }
+  }
+
+  // Projects tab takes over the entire viewport — no chrome wrapper
+  if (activeTab === 'projects') {
+    return (
+      <ProjectsTab
+        activeTab={activeTab}
+        onTabChange={(tab) => setActiveTab(tab)}
+        onNewProject={handleNew}
+        onOpenProject={handleOpen}
+      />
+    );
   }
 
   // Record tab takes over the entire viewport — no chrome wrapper
