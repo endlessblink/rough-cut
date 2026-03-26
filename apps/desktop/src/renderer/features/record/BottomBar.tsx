@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -87,31 +87,36 @@ function CameraIcon({ off }: { off: boolean }) {
   );
 }
 
-// ─── SourcePill ───────────────────────────────────────────────────────────────
+// ─── DeviceSegmentedControl ──────────────────────────────────────────────────
 
-function SourcePill({
-  sourceName,
-  onClick,
-}: {
-  sourceName: string | null;
+interface DeviceSegmentProps {
+  icon: React.ReactNode;
+  label: string;
+  active?: boolean;
+  accent?: string;
   onClick: () => void;
-}) {
+}
+
+function DeviceSegment({ icon, label, active = true, accent, onClick }: DeviceSegmentProps) {
   const [hovered, setHovered] = useState(false);
   const [pressed, setPressed] = useState(false);
 
-  const bg = pressed
-    ? 'rgba(255,255,255,0.16)'
-    : hovered
-      ? 'rgba(255,255,255,0.10)'
-      : sourceName
-        ? 'rgba(255,255,255,0.06)'
-        : 'rgba(255,255,255,0.03)';
+  let background: string;
+  let color: string;
 
-  const border = hovered
-    ? '1px solid rgba(255,255,255,0.20)'
-    : '1px solid rgba(255,255,255,0.12)';
-
-  const color = sourceName ? 'rgba(255,255,255,0.86)' : 'rgba(255,255,255,0.66)';
+  if (pressed) {
+    background = 'rgba(255,255,255,0.14)';
+    color = accent ?? 'rgba(255,255,255,0.96)';
+  } else if (hovered) {
+    background = 'rgba(255,255,255,0.06)';
+    color = accent ?? 'rgba(255,255,255,0.80)';
+  } else if (active) {
+    background = 'rgba(255,255,255,0.08)';
+    color = accent ?? 'rgba(255,255,255,0.80)';
+  } else {
+    background = 'transparent';
+    color = accent ?? 'rgba(255,255,255,0.40)';
+  }
 
   return (
     <button
@@ -122,165 +127,27 @@ function SourcePill({
       onMouseUp={() => setPressed(false)}
       style={{
         height: 28,
-        padding: '0 12px',
-        borderRadius: 999,
+        padding: '0 10px',
+        borderRadius: 6,
+        fontSize: 12,
+        fontWeight: 500,
+        letterSpacing: '0.02em',
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 6,
-        background: bg,
-        border,
+        gap: 5,
+        cursor: 'pointer',
+        background,
+        border: 'none',
         color,
-        fontSize: 12,
-        fontWeight: 400,
+        transition: 'background 150ms ease-out, color 150ms ease-out',
         fontFamily: 'inherit',
-        cursor: 'pointer',
-        transition: 'background 100ms ease, border-color 100ms ease',
         userSelect: 'none',
-      }}
-    >
-      <MonitorIcon />
-      {`Source: ${sourceName ?? 'None'}`}
-    </button>
-  );
-}
-
-// ─── MicChip ─────────────────────────────────────────────────────────────────
-
-function MicChip({
-  micName,
-  isMuted,
-  onClick,
-}: {
-  micName: string | null;
-  isMuted: boolean;
-  onClick: () => void;
-}) {
-  const [hovered, setHovered] = useState(false);
-
-  const bg = isMuted
-    ? hovered ? 'rgba(255,99,71,0.14)' : 'rgba(255,99,71,0.08)'
-    : hovered ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)';
-
-  const iconColor = isMuted ? '#ff746b' : 'rgba(255,255,255,0.86)';
-  const textColor = (isMuted || !micName) ? '#ff746b' : 'rgba(255,255,255,0.80)';
-
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        height: 28,
-        padding: '0 10px',
-        borderRadius: 999,
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        background: bg,
-        border: '1px solid rgba(255,255,255,0.14)',
-        color: iconColor,
-        fontSize: 12,
-        fontFamily: 'inherit',
-        cursor: 'pointer',
-        transition: 'background 100ms ease',
-        userSelect: 'none',
-      }}
-    >
-      <MicIcon muted={isMuted} />
-      <span style={{ color: textColor }}>
-        {`Mic: ${micName ?? 'None'}`}
-      </span>
-    </button>
-  );
-}
-
-// ─── SystemAudioChip ──────────────────────────────────────────────────────────
-
-function SystemAudioChip({
-  isEnabled,
-  onClick,
-}: {
-  isEnabled: boolean;
-  onClick: () => void;
-}) {
-  const [hovered, setHovered] = useState(false);
-
-  const bg = isEnabled
-    ? hovered ? 'rgba(90,200,250,0.20)' : 'rgba(90,200,250,0.14)'
-    : hovered ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)';
-
-  const textColor = isEnabled ? 'rgba(255,255,255,0.90)' : 'rgba(255,255,255,0.60)';
-  const iconColor = isEnabled ? 'rgba(90,200,250,0.90)' : 'rgba(255,255,255,0.50)';
-
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        height: 28,
-        padding: '0 10px',
-        borderRadius: 999,
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        background: bg,
-        border: '1px solid rgba(255,255,255,0.14)',
-        color: iconColor,
-        fontSize: 12,
-        fontFamily: 'inherit',
-        cursor: 'pointer',
-        transition: 'background 100ms ease',
-        userSelect: 'none',
-      }}
-    >
-      <SpeakerIcon />
-      <span style={{ color: textColor }}>
-        {isEnabled ? 'System audio' : 'System audio off'}
-      </span>
-    </button>
-  );
-}
-
-// ─── CameraToggle ─────────────────────────────────────────────────────────────
-
-function CameraToggle({
-  isEnabled,
-  onClick,
-}: {
-  isEnabled: boolean;
-  onClick: () => void;
-}) {
-  const [hovered, setHovered] = useState(false);
-
-  const bg = isEnabled
-    ? hovered ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.14)'
-    : hovered ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)';
-
-  const iconColor = isEnabled ? 'rgba(255,255,255,0.90)' : 'rgba(255,255,255,0.50)';
-
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        width: 28,
-        height: 28,
-        borderRadius: 999,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: bg,
-        border: '1px solid rgba(255,255,255,0.14)',
-        color: iconColor,
-        cursor: 'pointer',
-        transition: 'background 100ms ease',
-        padding: 0,
         flexShrink: 0,
+        outline: 'none',
       }}
     >
-      <CameraIcon off={!isEnabled} />
+      {icon}
+      <span style={{ color }}>{label}</span>
     </button>
   );
 }
@@ -302,19 +169,23 @@ function RecordButton({
   let label: string;
   let bg: string;
   let color: string;
+  let border: string;
 
   if (recordState === 'countdown') {
     label = `Starting in ${countdownSeconds ?? 0}...`;
-    bg = '#ffb74d';
-    color = '#000';
+    bg = 'transparent';
+    color = '#ffb74d';
+    border = '1px solid #ffb74d';
   } else if (recordState === 'recording') {
     label = '\u25A0 Stop';
-    bg = pressed ? '#e8e8e8' : hovered ? '#ffffff' : '#f5f5f5';
-    color = '#111';
+    bg = pressed ? 'rgba(255,255,255,0.10)' : hovered ? 'rgba(255,255,255,0.06)' : 'transparent';
+    color = '#f5f5f5';
+    border = '1px solid rgba(255,255,255,0.40)';
   } else {
     label = '\u25CF REC';
-    bg = pressed ? '#e34a4f' : hovered ? '#ff7075' : '#ff5a5f';
-    color = '#000';
+    bg = pressed ? 'rgba(255,90,95,0.12)' : hovered ? 'rgba(255,90,95,0.08)' : 'transparent';
+    color = '#ff5a5f';
+    border = `1px solid ${pressed ? '#ff5a5f' : hovered ? 'rgba(255,90,95,0.60)' : 'rgba(255,90,95,0.40)'}`;
   }
 
   return (
@@ -334,16 +205,17 @@ function RecordButton({
         gap: 8,
         fontSize: 12,
         fontWeight: 600,
-        border: 'none',
+        border,
         cursor: recordState === 'countdown' ? 'default' : 'pointer',
         fontFamily: 'inherit',
         userSelect: 'none',
         background: bg,
         color,
-        transition: 'background 120ms ease',
+        transition: 'background 150ms ease, border-color 150ms ease',
         padding: '0 14px',
         letterSpacing: '0.04em',
         flexShrink: 0,
+        outline: 'none',
       }}
     >
       {label}
@@ -434,21 +306,47 @@ export function BottomBar({
         gap: 8,
       }}
     >
-      {/* Left group — device pills */}
+      {/* Device controls — segmented control */}
       <div
         style={{
-          display: 'flex',
+          display: 'inline-flex',
           alignItems: 'center',
-          gap: 6,
+          gap: 1,
+          height: 32,
+          flexShrink: 0,
+          background: 'rgba(255,255,255,0.04)',
+          borderRadius: 8,
+          padding: 2,
         }}
       >
-        <SourcePill sourceName={sourceName} onClick={onOpenSourcePicker} />
-        <MicChip micName={micName} isMuted={isMicMuted} onClick={onToggleMicMute} />
+        <DeviceSegment
+          icon={<MonitorIcon />}
+          label={sourceName ? `Source: ${sourceName}` : 'Source: None'}
+          active={Boolean(sourceName)}
+          onClick={onOpenSourcePicker}
+        />
+        <DeviceSegment
+          icon={<MicIcon muted={isMicMuted} />}
+          label={`Mic: ${micName ?? 'None'}`}
+          active={!isMicMuted}
+          accent={isMicMuted ? '#ff746b' : undefined}
+          onClick={onToggleMicMute}
+        />
         {hasSystemAudio && (
-          <SystemAudioChip isEnabled={isSystemAudioEnabled} onClick={onToggleSystemAudio} />
+          <DeviceSegment
+            icon={<SpeakerIcon />}
+            label={isSystemAudioEnabled ? 'System audio' : 'Audio off'}
+            active={isSystemAudioEnabled}
+            onClick={onToggleSystemAudio}
+          />
         )}
         {hasCamera && (
-          <CameraToggle isEnabled={isCameraEnabled} onClick={onToggleCamera} />
+          <DeviceSegment
+            icon={<CameraIcon off={!isCameraEnabled} />}
+            label={isCameraEnabled ? 'Camera' : 'Camera off'}
+            active={isCameraEnabled}
+            onClick={onToggleCamera}
+          />
         )}
       </div>
 
