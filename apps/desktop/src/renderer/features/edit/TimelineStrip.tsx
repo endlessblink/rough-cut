@@ -155,7 +155,8 @@ export function TimelineStrip({
         background: 'rgba(10,10,10,0.98)',
         borderTop: 'none',
         position: 'relative',
-        flex: 'none',
+        flex: '1 1 0',
+        minWidth: 0,
       }}
     >
       {/* Ruler */}

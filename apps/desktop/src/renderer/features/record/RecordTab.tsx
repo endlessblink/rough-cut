@@ -161,21 +161,27 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
       />
 
       <MainStage>
-        <ModeSelectorRow mode={recordMode} onChange={setRecordMode} />
+        <div style={{ padding: '12px 24px 0' }}>
+          <ModeSelectorRow mode={recordMode} onChange={setRecordMode} />
+        </div>
 
         {/* Main row: left column with splitter + sidebar */}
         <div
           style={{
+            flex: '1 1 auto',
             display: 'flex',
             flexDirection: 'row',
+            alignItems: 'stretch',
             gap: isRightSidebarCollapsed ? 0 : 16,
-            marginTop: 8,
-            flex: 1,
+            padding: '8px 24px 8px',
             minHeight: 0,
+            width: '100%',
+            boxSizing: 'border-box' as const,
+            border: '3px solid blue', /* DEBUG: main row */
           }}
         >
           {/* Left column: preview + timeline in a vertical splitter */}
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', border: '3px solid yellow' /* DEBUG: left column */ }}>
             <VerticalWorkspaceSplit
               initialRatio={0.7}
               top={
@@ -203,7 +209,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
           </div>
 
           {/* Sidebar toggle + panel */}
-          <div style={{ display: 'flex', flexDirection: 'row' }}>
+          <div style={{ display: 'flex', flexDirection: 'row', flexShrink: 0, border: '3px solid magenta' /* DEBUG: sidebar wrapper */ }}>
             {/* Toggle handle */}
             <button
               onClick={() => uiStore.getState().toggleRightSidebar()}

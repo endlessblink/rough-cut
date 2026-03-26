@@ -11,10 +11,9 @@ export function MainStage({ children }: MainStageProps) {
         flex: '1 1 auto',
         display: 'flex',
         flexDirection: 'column',
-        padding: '12px 24px 8px',
         minHeight: 0,
-        overflow: 'hidden',
         background: 'linear-gradient(to bottom, #111111, #050505)',
+        border: '3px solid red', /* DEBUG: MainStage */
       }}
     >
       {children}

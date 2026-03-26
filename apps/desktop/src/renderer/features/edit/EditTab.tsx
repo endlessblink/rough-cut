@@ -190,9 +190,12 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
           flex: '1 1 auto',
           display: 'flex',
           flexDirection: 'row',
+          alignItems: 'stretch',
           gap: isRightSidebarCollapsed ? 0 : 16,
           padding: '12px 24px 8px',
           minHeight: 0,
+          width: '100%',
+          boxSizing: 'border-box' as const,
           background: 'linear-gradient(to bottom, #111111, #050505)',
         }}
       >
@@ -235,7 +238,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
         </div>
 
         {/* Sidebar toggle + panel */}
-        <div style={{ display: 'flex', flexDirection: 'row' }}>
+        <div style={{ display: 'flex', flexDirection: 'row', flexShrink: 0 }}>
           {/* Toggle handle */}
           <button
             onClick={() => uiStore.getState().toggleRightSidebar()}
