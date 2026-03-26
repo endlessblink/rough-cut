@@ -188,6 +188,32 @@ function TemplateCard({
   );
 }
 
+// ─── Category grouping ────────────────────────────────────────────────────────
+
+const ASPECT_GROUPS: { label: string; ratios: string[] }[] = [
+  { label: 'Landscape', ratios: ['16:9', '4:3'] },
+  { label: 'Portrait', ratios: ['9:16'] },
+  { label: 'Square', ratios: ['1:1'] },
+];
+
+function CategoryHeader({ label }: { label: string }) {
+  return (
+    <div
+      style={{
+        fontSize: 9,
+        fontWeight: 600,
+        letterSpacing: '0.08em',
+        textTransform: 'uppercase',
+        color: 'rgba(255,255,255,0.30)',
+        padding: '8px 2px 4px',
+        userSelect: 'none',
+      }}
+    >
+      {label}
+    </div>
+  );
+}
+
 // ─── RecordTemplatesPanel ─────────────────────────────────────────────────────
 
 export function RecordTemplatesPanel({
@@ -195,22 +221,34 @@ export function RecordTemplatesPanel({
   onSelectTemplate,
 }: RecordTemplatesPanelProps) {
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: 4,
-        width: '100%',
-      }}
-    >
-      {LAYOUT_TEMPLATES.map((template) => (
-        <TemplateCard
-          key={template.id}
-          template={template}
-          selected={template.id === selectedTemplateId}
-          onSelect={onSelectTemplate}
-        />
-      ))}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%' }}>
+      {ASPECT_GROUPS.map((group) => {
+        const templates = LAYOUT_TEMPLATES.filter((t) =>
+          group.ratios.includes(t.aspectRatio),
+        );
+        if (templates.length === 0) return null;
+        return (
+          <div key={group.label}>
+            <CategoryHeader label={group.label} />
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 4,
+              }}
+            >
+              {templates.map((template) => (
+                <TemplateCard
+                  key={template.id}
+                  template={template}
+                  selected={template.id === selectedTemplateId}
+                  onSelect={onSelectTemplate}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
