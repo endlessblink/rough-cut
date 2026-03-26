@@ -60,6 +60,9 @@ export interface ProjectActions {
   setTrackVisible: (trackId: TrackId, visible: boolean) => void;
   setTrackVolume: (trackId: TrackId, volume: number) => void;
 
+  // Clip property editing (for inspector)
+  updateClipField: (clipId: ClipId, patch: Partial<Pick<Clip, 'name' | 'enabled'>>) => void;
+
   // Recording presentation — zoom
   setRecordingAutoZoomIntensity: (assetId: AssetId, value: number) => void;
   addRecordingZoomMarker: (assetId: AssetId, startFrame: number, endFrame: number) => void;
@@ -215,6 +218,21 @@ export function createProjectStore() {
 
         deleteClip: (trackId: TrackId, clipId: ClipId) => {
           get().removeClip(trackId, clipId);
+        },
+
+        updateClipField: (clipId: ClipId, patch: Partial<Pick<Clip, 'name' | 'enabled'>>) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            composition: {
+              ...doc.composition,
+              tracks: doc.composition.tracks.map((t) => ({
+                ...t,
+                clips: t.clips.map((c) =>
+                  c.id === clipId ? { ...c, ...patch } : c,
+                ),
+              })),
+            },
+          }));
         },
 
         addAsset: (asset: Asset) => {

@@ -5,7 +5,7 @@ import { createProject, createAsset } from '@rough-cut/project-model';
 import type { RecordingResult } from './env.js';
 import { RecordTab } from './features/record/RecordTab.js';
 import { EditTab } from './features/edit/EditTab.js';
-import type { AppView } from './features/record/HeaderBar.js';
+import type { AppView } from './ui/index.js';
 import { projectStore, transportStore } from './hooks/use-stores.js';
 
 type TabId = AppView;
@@ -13,8 +13,8 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'projects', label: 'Projects' },
   { id: 'record', label: 'Record' },
   { id: 'edit', label: 'Edit' },
-  { id: 'export', label: 'Export' },
   { id: 'aiMotion', label: 'AI Motion' },
+  { id: 'export', label: 'Export' },
 ];
 
 export function App() {

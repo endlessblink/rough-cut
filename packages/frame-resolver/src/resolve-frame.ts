@@ -1,4 +1,4 @@
-import type { ProjectDocument, Clip, Track, Transition } from '@rough-cut/project-model';
+import type { ProjectDocument, Clip, Track, Transition, ZoomPresentation, CursorPresentation } from '@rough-cut/project-model';
 import { selectActiveClipsAtFrame } from '@rough-cut/timeline-engine';
 import { evaluateKeyframeTracks, getDefaultParams } from '@rough-cut/effect-registry';
 import type {
@@ -7,7 +7,77 @@ import type {
   ResolvedTransform,
   ResolvedEffect,
   ActiveTransition,
+  CameraTransform,
+  ResolvedCursorPresentation,
 } from './types.js';
+
+const DEFAULT_CAMERA_TRANSFORM: CameraTransform = {
+  scale: 1,
+  offsetX: 0,
+  offsetY: 0,
+};
+
+const DEFAULT_CURSOR_PRESENTATION: ResolvedCursorPresentation = {
+  style: 'default',
+  clickEffect: 'none',
+  sizePercent: 100,
+  clickSoundEnabled: false,
+};
+
+const DEFAULT_AUTO_ZOOM_SCALE = 1.08;
+const MANUAL_MARKER_SCALE = 1.2;
+
+/**
+ * Resolve camera transform from zoom presentation for a given frame.
+ * If a manual marker covers this frame, use its strength.
+ * Otherwise, apply auto-intensity as a subtle base zoom.
+ */
+function resolveCameraTransformForFrame(
+  zoom: ZoomPresentation | undefined,
+  frame: number,
+): CameraTransform {
+  if (!zoom) return DEFAULT_CAMERA_TRANSFORM;
+
+  // Check for active manual/auto marker at this frame
+  const marker = zoom.markers.find(
+    (m) => frame >= m.startFrame && frame < m.endFrame,
+  );
+
+  if (marker) {
+    const strength = marker.strength ?? 1;
+    const scale = 1 + (MANUAL_MARKER_SCALE - 1) * strength;
+    return { ...DEFAULT_CAMERA_TRANSFORM, scale };
+  }
+
+  // No marker — apply auto intensity as subtle base zoom
+  const t = zoom.autoIntensity;
+  const scale = 1 + (DEFAULT_AUTO_ZOOM_SCALE - 1) * t;
+  return { ...DEFAULT_CAMERA_TRANSFORM, scale };
+}
+
+/**
+ * Resolve cursor presentation from recording settings.
+ * Returns defaults if cursor settings are missing.
+ */
+function resolveCursorPresentation(
+  cursor: CursorPresentation | undefined,
+): ResolvedCursorPresentation {
+  if (!cursor) return DEFAULT_CURSOR_PRESENTATION;
+  return {
+    style: cursor.style,
+    clickEffect: cursor.clickEffect,
+    sizePercent: cursor.sizePercent,
+    clickSoundEnabled: cursor.clickSoundEnabled,
+  };
+}
+
+/**
+ * Find the first recording asset in the project.
+ * Used to derive presentation settings for the active recording.
+ */
+function findActiveRecordingAsset(project: ProjectDocument) {
+  return project.assets.find((a) => a.type === 'recording');
+}
 
 /**
  * Resolve a complete render description for a single frame.
@@ -30,6 +100,12 @@ export function resolveFrame(project: ProjectDocument, frame: number): RenderFra
   // 3. Find active transitions
   const transitions = resolveTransitions(composition.transitions, tracks, frame);
 
+  // 4. Resolve recording presentation (zoom + cursor)
+  const activeRecording = findActiveRecordingAsset(project);
+  const presentation = activeRecording?.presentation;
+  const cameraTransform = resolveCameraTransformForFrame(presentation?.zoom, frame);
+  const cursor = resolveCursorPresentation(presentation?.cursor);
+
   return {
     frame,
     width: settings.resolution.width,
@@ -37,6 +113,8 @@ export function resolveFrame(project: ProjectDocument, frame: number): RenderFra
     backgroundColor: settings.backgroundColor,
     layers,
     transitions,
+    cameraTransform,
+    cursor,
   };
 }
 

@@ -182,6 +182,16 @@ export class PreviewCompositor {
         this.layerCache.delete(clipId);
       }
     }
+
+    // Apply camera transform from zoom presentation
+    if (frame.cameraTransform && this.layerContainer) {
+      const { scale, offsetX, offsetY } = frame.cameraTransform;
+      this.layerContainer.scale.set(scale);
+      this.layerContainer.position.set(
+        (this.config.width / 2) * (1 - scale) + offsetX,
+        (this.config.height / 2) * (1 - scale) + offsetY,
+      );
+    }
   }
 
   private renderLayer(layer: RenderLayer, frameWidth: number, frameHeight: number): void {

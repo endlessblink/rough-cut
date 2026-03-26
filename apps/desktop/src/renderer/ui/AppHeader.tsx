@@ -2,11 +2,12 @@ import { useState, useRef, useEffect } from 'react';
 
 export type AppView = 'projects' | 'record' | 'edit' | 'export' | 'aiMotion';
 
-export interface HeaderBarProps {
-  projectName?: string;
-  onProjectNameChange?: (name: string) => void;
+export interface AppHeaderProps {
   activeTab: AppView;
   onTabChange: (tab: AppView) => void;
+  projectName?: string;
+  onProjectNameChange?: (name: string) => void;
+  // Right side — all optional so Edit/Projects can omit them
   captureSummary?: string;
   deviceStatus?: string;
   onSettingsClick?: () => void;
@@ -372,17 +373,17 @@ function IconButtonSettings({ onClick }: { onClick?: () => void }) {
   );
 }
 
-// ─── HeaderBar ────────────────────────────────────────────────────────────────
+// ─── AppHeader ────────────────────────────────────────────────────────────────
 
-export function HeaderBar({
+export function AppHeader({
   projectName = 'Untitled Project',
   onProjectNameChange,
   activeTab,
   onTabChange,
-  captureSummary = '1920×1080 · 60 fps',
-  deviceStatus = 'Mic: Default',
+  captureSummary,
+  deviceStatus,
   onSettingsClick,
-}: HeaderBarProps) {
+}: AppHeaderProps) {
   return (
     <div
       style={{
@@ -422,10 +423,10 @@ export function HeaderBar({
 
       {/* Right cluster */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <CaptureSummary value={captureSummary} />
-        <Divider />
-        <DeviceStatus value={deviceStatus} />
-        <IconButtonSettings onClick={onSettingsClick} />
+        {captureSummary !== undefined && <CaptureSummary value={captureSummary} />}
+        {(captureSummary !== undefined || deviceStatus !== undefined) && <Divider />}
+        {deviceStatus !== undefined && <DeviceStatus value={deviceStatus} />}
+        {onSettingsClick !== undefined && <IconButtonSettings onClick={onSettingsClick} />}
       </div>
     </div>
   );

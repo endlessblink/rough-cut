@@ -1,91 +1,22 @@
 import React from 'react';
-
-// ─── PanelSection ──────────────────────────────────────────────────────────────
-
-interface PanelSectionProps {
-  title: string;
-  flex?: number;
-  minHeight?: number;
-  children?: React.ReactNode;
-}
-
-function PanelSection({ title, flex, minHeight = 48, children }: PanelSectionProps) {
-  return (
-    <section
-      style={{
-        borderRadius: 10,
-        background: 'rgba(0,0,0,0.75)',
-        border: '1px solid rgba(255,255,255,0.06)',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight,
-        flex: flex ?? 'none',
-      }}
-    >
-      {/* Header */}
-      <div
-        style={{
-          height: 28,
-          minHeight: 28,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 10px',
-          background: 'rgba(0,0,0,0.9)',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          flexShrink: 0,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 500,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            color: 'rgba(255,255,255,0.68)',
-            userSelect: 'none',
-          }}
-        >
-          {title}
-        </span>
-      </div>
-
-      {/* Body */}
-      <div
-        style={{
-          padding: '8px 10px 10px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 6,
-          flex: 1,
-        }}
-      >
-        {children ?? (
-          <span
-            style={{
-              fontSize: 11,
-              color: 'rgba(255,255,255,0.36)',
-              userSelect: 'none',
-            }}
-          >
-            Coming soon
-          </span>
-        )}
-      </div>
-    </section>
-  );
-}
+import type { Clip, ClipId } from '@rough-cut/project-model';
+import { InspectorCard, EDIT_PANEL_WIDTH, CARD_GAP } from '../../ui/index.js';
+import { ClipInspectorCard } from './ClipInspectorCard.js';
 
 // ─── EditRightPanel ────────────────────────────────────────────────────────────
 
-export function EditRightPanel() {
+interface EditRightPanelProps {
+  selectedClip: Clip | null;
+  fps: number;
+  onUpdateClip: (clipId: ClipId, patch: { name?: string; enabled?: boolean }) => void;
+}
+
+export function EditRightPanel({ selectedClip, fps, onUpdateClip }: EditRightPanelProps) {
   return (
     <aside
       style={{
-        flex: '0 0 280px',
-        maxWidth: 280,
-        minHeight: 420,
+        flex: `0 0 ${EDIT_PANEL_WIDTH}px`,
+        maxWidth: EDIT_PANEL_WIDTH,
         borderRadius: 14,
         background:
           'radial-gradient(circle at 0% 0%, rgba(255,255,255,0.05) 0%, rgba(8,8,8,1) 50%, #050505 100%)',
@@ -94,35 +25,16 @@ export function EditRightPanel() {
         padding: '12px 12px 10px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 10,
-        overflow: 'hidden',
+        gap: CARD_GAP,
+        overflowX: 'hidden',
+        overflowY: 'auto',
       }}
     >
-      <PanelSection title="Clip" flex={1} minHeight={80}>
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.36)', userSelect: 'none' }}>
-          Selected clip name, in/out, speed
-        </span>
-      </PanelSection>
-      <PanelSection title="Layout" minHeight={72}>
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.36)', userSelect: 'none' }}>
-          Background, camera placement presets
-        </span>
-      </PanelSection>
-      <PanelSection title="Motion" minHeight={72}>
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.36)', userSelect: 'none' }}>
-          Zoom style, pan smoothing, cursor emphasis
-        </span>
-      </PanelSection>
-      <PanelSection title="Captions &amp; Titles" minHeight={72}>
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.36)', userSelect: 'none' }}>
-          Toggle captions, title presets
-        </span>
-      </PanelSection>
-      <PanelSection title="Audio" minHeight={72}>
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.36)', userSelect: 'none' }}>
-          Volume, ducking, basic EQ
-        </span>
-      </PanelSection>
+      <ClipInspectorCard clip={selectedClip} fps={fps} onUpdateClip={onUpdateClip} />
+      <InspectorCard title="Layout" minHeight={72} />
+      <InspectorCard title="Motion" minHeight={72} />
+      <InspectorCard title="Captions &amp; Titles" minHeight={72} />
+      <InspectorCard title="Audio" minHeight={72} />
     </aside>
   );
 }

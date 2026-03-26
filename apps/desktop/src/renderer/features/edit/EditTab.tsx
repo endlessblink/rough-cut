@@ -5,14 +5,15 @@
  * created in the Record view.
  */
 import { useState, useCallback, useEffect } from 'react';
+import type { ClipId } from '@rough-cut/project-model';
 import { useProjectStore, useTransportStore, projectStore, transportStore } from '../../hooks/use-stores.js';
 import { TimelineStrip } from './TimelineStrip.js';
 import { EditScreenLayout } from './EditScreenLayout.js';
 import { EditPreviewStage } from './EditPreviewStage.js';
 import { EditRightPanel } from './EditRightPanel.js';
 import { EditTimelineShell } from './EditTimelineShell.js';
-import { HeaderBar } from '../record/HeaderBar.js';
-import type { AppView } from '../record/HeaderBar.js';
+import { AppHeader } from '../../ui/index.js';
+import type { AppView } from '../../ui/index.js';
 
 interface EditTabProps {
   activeTab: AppView;
@@ -99,6 +100,17 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
     [findTrackForClip],
   );
 
+  const projectFps = useProjectStore((s) => s.project.settings.frameRate);
+  const resolution = useProjectStore((s) => s.project.settings.resolution);
+  const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
+
+  const handleUpdateClipField = useCallback(
+    (clipId: ClipId, patch: { name?: string; enabled?: boolean }) => {
+      projectStore.getState().updateClipField(clipId, patch);
+    },
+    [],
+  );
+
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -161,7 +173,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
 
   return (
     <EditScreenLayout>
-      <HeaderBar activeTab={activeTab} onTabChange={onTabChange} />
+      <AppHeader activeTab={activeTab} onTabChange={onTabChange} captureSummary={captureSummary} />
 
       {/* Main row: preview + inspector */}
       <div
@@ -176,7 +188,11 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
         }}
       >
         <EditPreviewStage />
-        <EditRightPanel />
+        <EditRightPanel
+          selectedClip={selectedClip}
+          fps={projectFps}
+          onUpdateClip={handleUpdateClipField}
+        />
       </div>
 
       {/* Full-width timeline */}

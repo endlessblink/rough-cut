@@ -221,6 +221,104 @@ describe('resolveFrame', () => {
     expect(result.layers).toHaveLength(0);
   });
 
+  describe('recording presentation', () => {
+    it('no recording asset → default camera transform and cursor', () => {
+      const project = projectWith([]);
+      const result = resolveFrame(project, 0);
+
+      expect(result.cameraTransform).toEqual({ scale: 1, offsetX: 0, offsetY: 0 });
+      expect(result.cursor).toEqual({
+        style: 'default',
+        clickEffect: 'none',
+        sizePercent: 100,
+        clickSoundEnabled: false,
+      });
+    });
+
+    it('recording with auto zoom intensity → scale reflects intensity', () => {
+      const asset = createAsset('recording', '/test.webm', {
+        presentation: {
+          zoom: { autoIntensity: 1, markers: [] },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+        },
+      });
+      const project = createProject({ assets: [asset] });
+      const result = resolveFrame(project, 0);
+
+      // autoIntensity=1 → scale = 1 + (1.08 - 1) * 1 = 1.08
+      expect(result.cameraTransform.scale).toBeCloseTo(1.08, 2);
+    });
+
+    it('recording with zero auto intensity → scale = 1', () => {
+      const asset = createAsset('recording', '/test.webm', {
+        presentation: {
+          zoom: { autoIntensity: 0, markers: [] },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+        },
+      });
+      const project = createProject({ assets: [asset] });
+      const result = resolveFrame(project, 0);
+
+      expect(result.cameraTransform.scale).toBeCloseTo(1, 2);
+    });
+
+    it('recording with zoom marker at frame → scale from marker strength', () => {
+      const asset = createAsset('recording', '/test.webm', {
+        presentation: {
+          zoom: {
+            autoIntensity: 0.5,
+            markers: [
+              { id: 'zm-1' as import('@rough-cut/project-model').ZoomMarkerId, startFrame: 10, endFrame: 50, kind: 'manual' as const, strength: 0.5 },
+            ],
+          },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+        },
+      });
+      const project = createProject({ assets: [asset] });
+
+      // Frame 20 is inside the marker (10–50)
+      const result = resolveFrame(project, 20);
+      // strength=0.5 → scale = 1 + (1.2 - 1) * 0.5 = 1.10
+      expect(result.cameraTransform.scale).toBeCloseTo(1.10, 2);
+    });
+
+    it('frame outside zoom marker → falls back to auto intensity', () => {
+      const asset = createAsset('recording', '/test.webm', {
+        presentation: {
+          zoom: {
+            autoIntensity: 0.5,
+            markers: [
+              { id: 'zm-1' as import('@rough-cut/project-model').ZoomMarkerId, startFrame: 10, endFrame: 50, kind: 'manual' as const, strength: 1 },
+            ],
+          },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+        },
+      });
+      const project = createProject({ assets: [asset] });
+
+      // Frame 60 is outside the marker
+      const result = resolveFrame(project, 60);
+      // autoIntensity=0.5 → scale = 1 + (1.08 - 1) * 0.5 = 1.04
+      expect(result.cameraTransform.scale).toBeCloseTo(1.04, 2);
+    });
+
+    it('recording with cursor settings → reflected in resolved cursor', () => {
+      const asset = createAsset('recording', '/test.webm', {
+        presentation: {
+          zoom: { autoIntensity: 0.5, markers: [] },
+          cursor: { style: 'spotlight', clickEffect: 'ripple', sizePercent: 120, clickSoundEnabled: true },
+        },
+      });
+      const project = createProject({ assets: [asset] });
+      const result = resolveFrame(project, 0);
+
+      expect(result.cursor.style).toBe('spotlight');
+      expect(result.cursor.clickEffect).toBe('ripple');
+      expect(result.cursor.sizePercent).toBe(120);
+      expect(result.cursor.clickSoundEnabled).toBe(true);
+    });
+  });
+
   it('transition — two clips with transition, resolve at midpoint → progress ≈ 0.5', () => {
     const trackId = 'track-main' as TrackId;
     const clipA = createClip(makeAssetId(), trackId, {

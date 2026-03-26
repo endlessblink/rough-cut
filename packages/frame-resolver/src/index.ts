@@ -5,4 +5,6 @@ export type {
   ResolvedTransform,
   ResolvedEffect,
   ActiveTransition,
+  CameraTransform,
+  ResolvedCursorPresentation,
 } from './types.js';

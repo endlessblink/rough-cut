@@ -145,6 +145,8 @@ export const ClipSchema = z.object({
   id: z.string().min(1),
   assetId: z.string().min(1),
   trackId: z.string().min(1),
+  name: z.string().optional(),
+  enabled: z.boolean(),
   timelineIn: nonNegativeInt,
   timelineOut: nonNegativeInt,
   sourceIn: nonNegativeInt,

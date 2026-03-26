@@ -112,6 +112,7 @@ export function createClip(
     id: clipId(),
     assetId: assetIdValue,
     trackId: trackIdValue,
+    enabled: true,
     timelineIn: 0,
     timelineOut: 0,
     sourceIn: 0,

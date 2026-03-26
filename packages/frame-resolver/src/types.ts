@@ -1,4 +1,4 @@
-import type { ClipId, TrackId, AssetId } from '@rough-cut/project-model';
+import type { ClipId, TrackId, AssetId, CursorStyle, ClickEffect } from '@rough-cut/project-model';
 import type { ResolvedParams } from '@rough-cut/effect-registry';
 
 /**
@@ -61,6 +61,30 @@ export interface ActiveTransition {
 }
 
 /**
+ * Camera transform derived from zoom presentation.
+ * Applied to the recording layer in the renderer.
+ */
+export interface CameraTransform {
+  /** Zoom scale factor. 1 = no zoom. */
+  scale: number;
+  /** Horizontal offset in normalized units. 0 = centered. */
+  offsetX: number;
+  /** Vertical offset in normalized units. 0 = centered. */
+  offsetY: number;
+}
+
+/**
+ * Resolved cursor presentation for the current frame.
+ * The renderer uses this to style the cursor overlay.
+ */
+export interface ResolvedCursorPresentation {
+  style: CursorStyle;
+  clickEffect: ClickEffect;
+  sizePercent: number;
+  clickSoundEnabled: boolean;
+}
+
+/**
  * Complete render description for a single frame.
  * Both preview and export renderers consume this.
  */
@@ -76,4 +100,8 @@ export interface RenderFrame {
   layers: RenderLayer[];
   /** Active transitions at this frame */
   transitions: ActiveTransition[];
+  /** Camera transform from zoom presentation (recording-level) */
+  cameraTransform: CameraTransform;
+  /** Cursor presentation settings (recording-level) */
+  cursor: ResolvedCursorPresentation;
 }

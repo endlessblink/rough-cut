@@ -5,6 +5,17 @@
  */
 import React, { useState, useCallback } from 'react';
 import type { ZoomMarker, CursorPresentation, CursorStyle, ClickEffect } from '@rough-cut/project-model';
+import {
+  InspectorCard,
+  PillRadioRow,
+  RcSlider,
+  RcSelect,
+  RcToggleButton,
+  ControlLabel,
+  RECORD_PANEL_WIDTH,
+  CARD_GAP,
+} from '../../ui/index.js';
+import type { PillOption } from '../../ui/index.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -23,78 +34,7 @@ export interface RecordRightPanelProps {
   onCursorReset: () => void;
 }
 
-// ─── PanelSection ──────────────────────────────────────────────────────────────
-
-interface PanelSectionProps {
-  title: string;
-  rightAction?: React.ReactNode;
-  flex?: number;
-  minHeight?: number;
-  children?: React.ReactNode;
-}
-
-function PanelSection({ title, rightAction, flex, minHeight = 48, children }: PanelSectionProps) {
-  return (
-    <section
-      style={{
-        borderRadius: 10,
-        background: 'rgba(0,0,0,0.75)',
-        border: '1px solid rgba(255,255,255,0.06)',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight,
-        flex: flex ?? 'none',
-      }}
-    >
-      <div
-        style={{
-          height: 28,
-          minHeight: 28,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 10px',
-          background: 'rgba(0,0,0,0.9)',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          flexShrink: 0,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 500,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            color: 'rgba(255,255,255,0.68)',
-            userSelect: 'none',
-          }}
-        >
-          {title}
-        </span>
-        {rightAction}
-      </div>
-
-      <div
-        style={{
-          padding: '8px 10px 10px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 6,
-          flex: 1,
-        }}
-      >
-        {children ?? (
-          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.36)', userSelect: 'none' }}>
-            Coming soon
-          </span>
-        )}
-      </div>
-    </section>
-  );
-}
-
-// ─── ZoomIntensitySlider ────────────────────────────────────────────────────
+// ─── intensityLabel ──────────────────────────────────────────────────────────
 
 function intensityLabel(value: number): string {
   if (value <= 0.1) return 'Off';
@@ -104,6 +44,8 @@ function intensityLabel(value: number): string {
   return 'Max';
 }
 
+// ─── ZoomIntensitySlider ────────────────────────────────────────────────────
+
 function ZoomIntensitySlider({
   value,
   onChange,
@@ -111,37 +53,10 @@ function ZoomIntensitySlider({
   value: number;
   onChange: (v: number) => void;
 }) {
-  const label = intensityLabel(value);
-
   return (
     <div>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          fontSize: 11,
-          color: 'rgba(255,255,255,0.55)',
-          marginBottom: 4,
-        }}
-      >
-        <span>Auto zoom intensity</span>
-        <span style={{ color: 'rgba(255,255,255,0.72)' }}>{label}</span>
-      </div>
-      <input
-        type="range"
-        min={0}
-        max={100}
-        step={1}
-        value={value * 100}
-        onChange={(e) => onChange(Number(e.target.value) / 100)}
-        style={{
-          width: '100%',
-          height: 4,
-          accentColor: '#ff6b5a',
-          cursor: 'pointer',
-        }}
-      />
+      <ControlLabel label="Auto zoom intensity" value={intensityLabel(value)} />
+      <RcSlider min={0} max={100} step={1} value={value * 100} onChange={(v) => onChange(v / 100)} />
     </div>
   );
 }
@@ -276,227 +191,13 @@ function MarkerPill({
   );
 }
 
-// ─── CursorStyleSelector ────────────────────────────────────────────────────
+// ─── Cursor style options ─────────────────────────────────────────────────────
 
-const CURSOR_STYLES: { id: CursorStyle; label: string }[] = [
+const CURSOR_STYLE_OPTIONS: PillOption<CursorStyle>[] = [
   { id: 'subtle', label: 'Subtle' },
   { id: 'default', label: 'Default' },
   { id: 'spotlight', label: 'Spotlight' },
 ];
-
-function CursorStyleSelector({
-  value,
-  onChange,
-}: {
-  value: CursorStyle;
-  onChange: (v: CursorStyle) => void;
-}) {
-  const [hoveredId, setHoveredId] = useState<CursorStyle | null>(null);
-
-  return (
-    <div>
-      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginBottom: 4 }}>
-        Cursor style
-      </div>
-      <div style={{ display: 'flex', gap: 6 }}>
-        {CURSOR_STYLES.map((opt) => {
-          const active = value === opt.id;
-          const hovered = hoveredId === opt.id;
-
-          return (
-            <button
-              key={opt.id}
-              onClick={() => onChange(opt.id)}
-              onMouseEnter={() => setHoveredId(opt.id)}
-              onMouseLeave={() => setHoveredId(null)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '4px 10px',
-                borderRadius: 999,
-                fontSize: 11,
-                fontWeight: active ? 600 : 400,
-                fontFamily: 'inherit',
-                border: 'none',
-                cursor: 'pointer',
-                userSelect: 'none',
-                background: active
-                  ? 'rgba(255,255,255,0.92)'
-                  : hovered
-                    ? 'rgba(255,255,255,0.10)'
-                    : 'rgba(255,255,255,0.05)',
-                color: active ? '#000' : 'rgba(255,255,255,0.60)',
-                transition: 'background 100ms ease, color 100ms ease',
-              }}
-            >
-              <span
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: '50%',
-                  background: active ? 'rgba(0,0,0,0.50)' : 'rgba(255,255,255,0.40)',
-                  flexShrink: 0,
-                }}
-              />
-              {opt.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ─── ClickEffectSelector ────────────────────────────────────────────────────
-
-const CLICK_EFFECTS: { id: ClickEffect; label: string }[] = [
-  { id: 'none', label: 'None' },
-  { id: 'ripple', label: 'Ripple' },
-  { id: 'ring', label: 'Highlight ring' },
-];
-
-function ClickEffectSelector({
-  value,
-  onChange,
-}: {
-  value: ClickEffect;
-  onChange: (v: ClickEffect) => void;
-}) {
-  return (
-    <div>
-      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginBottom: 4 }}>
-        Click effect
-      </div>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as ClickEffect)}
-        style={{
-          height: 28,
-          width: '100%',
-          borderRadius: 6,
-          border: '1px solid rgba(255,255,255,0.10)',
-          background: 'rgba(0,0,0,0.60)',
-          padding: '0 8px',
-          fontSize: 11,
-          color: 'rgba(255,255,255,0.80)',
-          fontFamily: 'inherit',
-          cursor: 'pointer',
-          outline: 'none',
-        }}
-      >
-        {CLICK_EFFECTS.map((opt) => (
-          <option key={opt.id} value={opt.id}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-// ─── CursorSizeSlider ────────────────────────────────────────────────────────
-
-function CursorSizeSlider({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          fontSize: 11,
-          color: 'rgba(255,255,255,0.55)',
-          marginBottom: 4,
-        }}
-      >
-        <span>Cursor size</span>
-        <span style={{ color: 'rgba(255,255,255,0.72)' }}>{value}%</span>
-      </div>
-      <input
-        type="range"
-        min={50}
-        max={150}
-        step={5}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        style={{ width: '100%', height: 4, accentColor: '#ff6b5a', cursor: 'pointer' }}
-      />
-    </div>
-  );
-}
-
-// ─── ClickSoundToggle ────────────────────────────────────────────────────────
-
-function ClickSoundToggle({
-  enabled,
-  onChange,
-}: {
-  enabled: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  const [hovered, setHovered] = useState(false);
-
-  return (
-    <button
-      onClick={() => onChange(!enabled)}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        height: 28,
-        width: '100%',
-        borderRadius: 6,
-        padding: '0 8px',
-        border: 'none',
-        cursor: 'pointer',
-        fontFamily: 'inherit',
-        background: enabled
-          ? hovered ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.10)'
-          : hovered ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.05)',
-        transition: 'background 100ms ease',
-      }}
-    >
-      <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.60)' }}>Click sound</span>
-      <span style={{ fontSize: 11, color: enabled ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.50)' }}>
-        {enabled ? 'On' : 'Off'}
-      </span>
-    </button>
-  );
-}
-
-// ─── CursorResetButton ───────────────────────────────────────────────────────
-
-function CursorResetButton({ onClick }: { onClick: () => void }) {
-  const [hovered, setHovered] = useState(false);
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        background: 'none',
-        border: 'none',
-        padding: 0,
-        fontSize: 11,
-        color: hovered ? 'rgba(255,255,255,0.80)' : 'rgba(255,255,255,0.50)',
-        cursor: 'pointer',
-        fontFamily: 'inherit',
-        transition: 'color 100ms ease',
-      }}
-    >
-      Reset
-    </button>
-  );
-}
 
 // ─── RecordRightPanel ──────────────────────────────────────────────────────────
 
@@ -513,51 +214,26 @@ export function RecordRightPanel({
   onCursorChange,
   onCursorReset,
 }: RecordRightPanelProps) {
-  const [resetHovered, setResetHovered] = useState(false);
-
   return (
     <aside
       style={{
-        flex: '0 0 260px',
-        maxWidth: 260,
+        flex: `0 0 ${RECORD_PANEL_WIDTH}px`,
+        maxWidth: RECORD_PANEL_WIDTH,
         borderRadius: 14,
         background:
           'radial-gradient(circle at 0% 0%, rgba(255,255,255,0.05) 0%, rgba(8,8,8,1) 50%, #050505 100%)',
         boxShadow: '0 24px 60px rgba(0,0,0,0.85)',
         border: '1px solid rgba(255,255,255,0.08)',
-        padding: '12px 12px 10px',
+        padding: '12px 14px 10px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 10,
-        overflow: 'hidden',
+        gap: CARD_GAP,
+        overflowX: 'hidden',
         overflowY: 'auto',
       }}
     >
       {/* Zoom card — wired */}
-      <PanelSection
-        title="Zoom"
-        rightAction={
-          <button
-            onClick={onResetZoomMarkers}
-            onMouseEnter={() => setResetHovered(true)}
-            onMouseLeave={() => setResetHovered(false)}
-            style={{
-              background: 'none',
-              border: 'none',
-              padding: 0,
-              fontSize: 11,
-              color: resetHovered ? 'rgba(255,255,255,0.80)' : 'rgba(255,255,255,0.50)',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              transition: 'color 100ms ease',
-            }}
-          >
-            Reset
-          </button>
-        }
-        flex={1}
-        minHeight={140}
-      >
+      <InspectorCard title="Zoom" onReset={onResetZoomMarkers} flex={1} minHeight={140}>
         <ZoomIntensitySlider value={zoomIntensity} onChange={onZoomIntensityChange} />
 
         <div style={{ marginTop: 6 }}>
@@ -573,7 +249,9 @@ export function RecordRightPanel({
           >
             <span>Zoom markers</span>
             <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.40)' }}>
-              {zoomMarkers.length > 0 ? `${zoomMarkers.length} marker${zoomMarkers.length > 1 ? 's' : ''}` : ''}
+              {zoomMarkers.length > 0
+                ? `${zoomMarkers.length} marker${zoomMarkers.length > 1 ? 's' : ''}`
+                : ''}
             </span>
           </div>
           <ZoomMarkersLane
@@ -584,39 +262,49 @@ export function RecordRightPanel({
             onSelectMarker={onSelectZoomMarker}
           />
         </div>
-      </PanelSection>
+      </InspectorCard>
 
       {/* Cursor card — wired */}
-      <PanelSection
-        title="Cursor"
-        rightAction={
-          <CursorResetButton
-            onClick={onCursorReset}
+      <InspectorCard title="Cursor" onReset={onCursorReset} minHeight={140}>
+        <div>
+          <ControlLabel label="Cursor style" />
+          <PillRadioRow
+            value={cursor.style}
+            options={CURSOR_STYLE_OPTIONS}
+            onChange={(style) => onCursorChange({ style })}
           />
-        }
-        minHeight={140}
-      >
-        <CursorStyleSelector
-          value={cursor.style}
-          onChange={(style) => onCursorChange({ style })}
+        </div>
+        <div>
+          <ControlLabel label="Click effect" />
+          <RcSelect
+            value={cursor.clickEffect}
+            onChange={(v) => onCursorChange({ clickEffect: v as ClickEffect })}
+          >
+            <option value="none">None</option>
+            <option value="ripple">Ripple</option>
+            <option value="ring">Highlight ring</option>
+          </RcSelect>
+        </div>
+        <div>
+          <ControlLabel label="Cursor size" value={`${cursor.sizePercent}%`} />
+          <RcSlider
+            min={50}
+            max={150}
+            step={5}
+            value={cursor.sizePercent}
+            onChange={(v) => onCursorChange({ sizePercent: v })}
+          />
+        </div>
+        <RcToggleButton
+          label="Click sound"
+          value={cursor.clickSoundEnabled}
+          onChange={(v) => onCursorChange({ clickSoundEnabled: v })}
         />
-        <ClickEffectSelector
-          value={cursor.clickEffect}
-          onChange={(clickEffect) => onCursorChange({ clickEffect })}
-        />
-        <CursorSizeSlider
-          value={cursor.sizePercent}
-          onChange={(sizePercent) => onCursorChange({ sizePercent })}
-        />
-        <ClickSoundToggle
-          enabled={cursor.clickSoundEnabled}
-          onChange={(clickSoundEnabled) => onCursorChange({ clickSoundEnabled })}
-        />
-      </PanelSection>
+      </InspectorCard>
 
       {/* Remaining sections — placeholders */}
-      <PanelSection title="Highlights" flex={1} minHeight={96} />
-      <PanelSection title="Titles" minHeight={72} />
+      <InspectorCard title="Highlights" flex={1} minHeight={96} />
+      <InspectorCard title="Titles" minHeight={72} />
     </aside>
   );
 }

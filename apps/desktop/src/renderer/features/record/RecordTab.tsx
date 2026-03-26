@@ -11,8 +11,8 @@ import type { CursorPresentation } from '@rough-cut/project-model';
 import { useRecordState } from './record-state.js';
 import { useRecording } from './use-recording.js';
 import { RecordScreenLayout } from './RecordScreenLayout.js';
-import { HeaderBar } from './HeaderBar.js';
-import type { AppView } from './HeaderBar.js';
+import { AppHeader } from '../../ui/index.js';
+import type { AppView } from '../../ui/index.js';
 import { MainStage } from './MainStage.js';
 import { ModeSelectorRow } from './ModeSelectorRow.js';
 import type { RecordMode } from './ModeSelectorRow.js';
@@ -52,7 +52,9 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   // Project + transport state for timeline
   const durationFrames = useProjectStore((s) => s.project.composition.duration);
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
+  const resolution = useProjectStore((s) => s.project.settings.resolution);
   const currentFrame = useTransportStore((s) => s.playheadFrame);
+  const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
 
   // Get the first recording asset's presentation (or defaults)
   const activeRecordingAsset = useProjectStore((s) =>
@@ -139,7 +141,12 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
 
   return (
     <RecordScreenLayout>
-      <HeaderBar activeTab={activeTab} onTabChange={onTabChange} />
+      <AppHeader
+        activeTab={activeTab}
+        onTabChange={onTabChange}
+        captureSummary={captureSummary}
+        deviceStatus="Mic: Default"
+      />
 
       <MainStage>
         <ModeSelectorRow mode={recordMode} onChange={setRecordMode} />

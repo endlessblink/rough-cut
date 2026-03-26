@@ -119,6 +119,8 @@ export interface Clip {
   readonly id: ClipId;
   readonly assetId: AssetId;
   readonly trackId: TrackId;
+  readonly name?: string;
+  readonly enabled: boolean;
   readonly timelineIn: Frame;
   readonly timelineOut: Frame;
   readonly sourceIn: Frame;
