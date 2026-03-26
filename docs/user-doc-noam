@@ -1,0 +1,68 @@
+Keep Claude referencing these docs by making them its “constitution” and repeating that in every important session.
+
+## 1. Put everything in stable, obvious paths
+You already did most of this. Just ensure:
+
+- `.claude/CLAUDE.md`  
+- `docs/ARCHITECTURE.md`  
+- `docs/MVP_SPEC.md`  
+- `docs/RISKS_AND_PLAN.md` (or similar)  
+- `docs/SPIKES_PHASE0.md` (or similar)
+
+Claude Code can then open them easily by name. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/42211092/7fbdd48c-cc57-4d53-bbfd-d27cd2d890d2/MVP_SPEC.md)
+
+## 2. Start each major session with an explicit instruction
+In Claude Code, begin with something like:
+
+```text
+Before doing anything else, read and obey these docs:
+
+- .claude/CLAUDE.md
+- docs/ARCHITECTURE.md
+- docs/MVP_SPEC.md
+- docs/RISKS_AND_PLAN.md
+- docs/SPIKES_PHASE0.md
+
+They are the project constitution. If any future request conflicts with them,
+you must warn me and prefer the docs over my ad‑hoc request.
+
+For this session, your job is: [planning / implementing slice X / running spike Y].
+Do not modify these docs unless I explicitly ask.
+```
+
+This tells Claude to treat them as hard constraints, not just context.
+
+## 3. When you narrow scope, re-point it
+For a specific task, remind it of **which subset** applies:
+
+```text
+For this task, the relevant docs are:
+
+- .claude/CLAUDE.md
+- docs/ARCHITECTURE.md
+- docs/MVP_SPEC.md (Record + Edit sections)
+- docs/SPIKES_PHASE0.md (Spike 1)
+
+Re-summarize in your own words the constraints that affect this task,
+then propose a plan, then implement.
+```
+
+Having Claude restate the constraints makes it less likely to drift.
+
+## 4. Enforce “warn on conflict”
+Always include a line like:
+
+```text
+If my request ever conflicts with these docs, stop and explain the conflict
+instead of silently following my request.
+```
+
+That makes the spec the source of truth, not your latest message.
+
+## 5. Use fresh sessions for big context shifts
+For big milestones (e.g., after spikes, before Phase 1), open a new Claude Code session and re-attach the same core docs as the starting message, with a short “what changed” note. This keeps context clean instead of relying on long chat history. [code.claude](https://code.claude.com/docs/en/best-practices)
+
+If you want, I can draft a ready-to-paste “master prompt” for new Claude Code sessions that bakes all of this in.
+
+If my request ever conflicts with these docs, stop and explain the conflict
+instead of silently following my request.

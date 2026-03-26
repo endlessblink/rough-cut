@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+.DS_Store
+
+# Spike artifacts (generated, not committed)
+spikes/*/node_modules/
+spikes/*/dist/
+spikes/frame-decode/test-media/
+spikes/recording/samples/
+spikes/timeline-state/node_modules/
+results/

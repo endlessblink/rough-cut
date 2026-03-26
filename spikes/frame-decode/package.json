@@ -1,0 +1,22 @@
+{
+  "name": "spike-frame-decode",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate-media": "node scripts/generate-test-media.mjs",
+    "bench:html5": "electron src/html5-video/index.mjs",
+    "bench:webcodecs": "electron src/webcodecs/index.mjs",
+    "bench:ffmpeg-cli": "node src/ffmpeg-cli/bench.mjs",
+    "bench:ffmpeg-napi": "node src/ffmpeg-napi/bench.mjs",
+    "bench:all": "npm run bench:html5 && npm run bench:webcodecs && npm run bench:ffmpeg-cli && npm run bench:ffmpeg-napi",
+    "report": "node scripts/compile-results.mjs"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "mp4box": "^0.5.2"
+  },
+  "optionalDependencies": {
+    "beamcoder": "^0.9.0"
+  }
+}

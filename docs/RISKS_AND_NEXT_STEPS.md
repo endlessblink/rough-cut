@@ -18,6 +18,8 @@ HTML5 `<video>` does NOT guarantee frame-accurate seeking. `video.currentTime` s
 - **Mitigation**: Build a custom frame decoder using FFmpeg via N-API native addon or the WebCodecs API. Use HTML5 video only as a fallback for draft preview. Pre-decode and cache frames at the edges of visible clips.
 - **Spike required**: Can we extract an arbitrary frame from a recorded video within 16ms using Node.js + FFmpeg? Budget 2-3 days. This result determines the entire preview and rendering architecture.
 
+> **Status (2026-03-26)**: SUBSTANTIALLY MITIGATED. Spike 1 confirmed FFmpeg CLI is too slow for preview (~130ms/spawn). Decision: WebCodecs for preview, FFmpeg persistent process for export. WebCodecs benchmark pending but expected to meet targets.
+
 ---
 
 #### 2. Cross-Platform Recording Differences
@@ -29,6 +31,8 @@ Recording behavior is meaningfully different across all three target platforms.
 - **Linux**: PipeWire/Wayland forces an XDG Desktop Portal picker dialog every time. Programmatic window selection is not possible. X11 works but is being deprecated.
 - **Mitigation**: Abstract all capture behind a `CaptureBackend` interface from day one. Defer macOS system audio to v1.1 or document the BlackHole requirement clearly. Accept the Wayland portal picker as a known limitation.
 - **Spike required**: Test `desktopCapturer` on all three platforms. Budget 1-2 days per platform.
+
+> **Status (2026-03-26)**: PARTIALLY MITIGATED. Linux/X11 confirmed working (desktopCapturer, PipeWire system audio, webcam, mic). Wayland portal picker limitation accepted. macOS and Windows pending testing.
 
 ---
 
@@ -74,6 +78,8 @@ Multiple simultaneous workloads compete for memory: screen recording buffer, web
 Every playhead movement (30-60Hz during playback) has the potential to trigger re-renders across all Zustand store subscribers.
 
 - **Mitigation**: Separate transport state (playhead position, playing/paused) from project state. Transport state must NOT flow through the main state management system — it needs its own low-latency path. Use the Command Pattern for undo/redo rather than full state snapshots.
+
+> **Status (2026-03-26)**: FULLY MITIGATED. Spike 3 confirmed selector performance at <0.01ms for 5000 clips. Split Zustand stores (transport + project) validated. zundo undo/redo acceptable for 1000+ clips.
 
 ---
 

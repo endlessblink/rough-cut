@@ -1,0 +1,22 @@
+{
+  "name": "spike-recording",
+  "version": "0.0.0",
+  "private": true,
+  "main": "src/main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "test:sources": "electron . --test=sources",
+    "test:screen-30": "electron . --test=screen-30",
+    "test:screen-60": "electron . --test=screen-60",
+    "test:window": "electron . --test=window",
+    "test:webcam": "electron . --test=webcam",
+    "test:mic": "electron . --test=mic",
+    "test:system-audio": "electron . --test=system-audio",
+    "test:record-30s": "electron . --test=record-30s",
+    "validate": "node scripts/validate-recordings.mjs",
+    "report": "node scripts/compile-matrix.mjs"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

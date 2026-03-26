@@ -1,5 +1,33 @@
 # Rough Cut — Project Constitution
 
+
+You are working on the Rough Cut project (desktop screen recording + editor).
+
+Before doing anything else in this session, read and obey these docs:
+
+- .claude/CLAUDE.md
+- docs/ARCHITECTURE.md
+- docs/MVP_SPEC.md
+- docs/RISKS_AND_PLAN.md
+- docs/SPIKES_PHASE0.md
+
+These files are the project constitution and the ultimate source of truth.
+
+Rules for this and all future tasks in this repo:
+- Always base your decisions on these docs.
+- If my request ever conflicts with these docs, STOP and explain the conflict
+  instead of silently following my request. Propose options that keep the docs
+  and my request in sync.
+- For any significant task (planning, spikes, new feature, refactor):
+  1) Re‑summarize the relevant constraints from these docs in your own words.
+  2) Propose a short plan.
+  3) Only then write or modify code.
+- Do NOT modify the docs above unless I explicitly ask.
+
+For this session, your job is:
+[describe clearly: e.g. “design and scaffold the three Phase 0 spikes” /
+“implement the minimal Record tab vertical slice” / “refine the timeline engine API”].
+
 ## What This Is
 
 Rough Cut is a desktop screen recording and editing studio built with Electron + React + TypeScript + PixiJS. It combines Screen Studio-style recording, a multi-channel timeline editor, programmable motion graphics, and AI-powered editing features.

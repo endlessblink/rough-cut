@@ -19,7 +19,7 @@ Zustand stores own the project model and UI state. Stores are modular -- one per
 
 ### Tab Structure
 
-The app has 5 top-level tabs: **Record**, **Edit**, **Motion**, **AI**, **Export**. Each tab is a workspace optimized for a specific phase of the workflow. Tabs share the project model and can read each other's data, but each tab owns its own UI state.
+The app has 5 top-level tabs: **Record**, **Edit**, **Motion**, **AI**, **Export**. Each tab is a different *view* over the same shared project model — they are surfaces, not mini-apps. All tabs read from and write to the same `ProjectDocument`. A clip created in Record appears in Edit; an effect added in Edit is visible in Motion; an AI annotation applied in AI becomes a standard effect in Edit; Export reads the entire model to render final output. Each tab owns its own UI state (panel sizes, selection, local controls) but never its own copy of project data.
 
 ---
 
@@ -27,6 +27,7 @@ The app has 5 top-level tabs: **Record**, **Edit**, **Motion**, **AI**, **Export
 
 ```
 Project
+  schemaVersion: number          // incremented on breaking changes; migrate() pipeline brings old docs to current
   metadata: { name, createdAt, modifiedAt }
   settings: { fps: number, resolution: { width, height }, background: BackgroundConfig }
   compositions: Composition[]
@@ -714,6 +715,7 @@ The user has finished editing and wants to render their project to a final MP4 f
 - May render the current frame being exported as a live thumbnail in the job progress display (optional -- the export pipeline could also provide this via an off-screen canvas or buffer).
 
 **Export pipeline (frame-by-frame + FFmpeg):**
+- The export renderer is headless and deterministic. It may use Canvas2D or a small headless WebGL context — the only requirement is that given the same project model, it produces the exact same output every time. It is architecturally independent from the PixiJS preview renderer.
 - This is the export pipeline's primary domain. The process:
   1. **Initialize**: Read the full project model. Determine total frame count from the active composition's duration. Set up an FFmpeg process with the configured codec, resolution, FPS, and quality parameters. FFmpeg receives raw frames via stdin pipe (rgba or yuv420p).
   2. **Frame loop**: For each frame `f` from 0 to `totalFrames - 1`:

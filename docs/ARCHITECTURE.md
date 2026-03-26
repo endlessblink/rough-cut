@@ -344,12 +344,17 @@ ProjectDocument + ExportSettings
           Progress reported via IPC
 ```
 
-### Frame Decoding Strategy
+### Frame Decoding Strategy — Spike-Validated
 
-| Context | Strategy | Details |
-|---------|----------|---------|
-| **Preview** | HTML `<video>` elements | Pooled (one per active clip), seek + draw to PixiJS texture. LRU cache holds ~120 decoded frames. Random access via `video.currentTime`. |
-| **Export** | FFmpeg sequential decode | FFmpeg extracts frames in order. A pre-decode buffer of N frames runs ahead of the render loop to prevent stalls. |
+> **Spike 1 validated**: FFmpeg CLI per-frame spawn is ~130-180ms (unusable for preview). Persistent FFmpeg sequential decode is ~57ms/frame (fine for export). WebCodecs is the only viable preview decoder.
+
+| Context | Decoder | Details |
+|---------|---------|---------|
+| **Preview** | WebCodecs `VideoDecoder` in renderer | Container demux via `mp4box.js`. Hardware-accelerated. Frame-accurate — we control exactly which chunks to decode. No FFmpeg per-frame spawning in the UI path. |
+| **Export** | Persistent FFmpeg child process in main | Sequential decode + encode. ~57ms/frame for 1080p is acceptable for offline rendering. No HTML5 `<video>` in the export path. |
+| **Fallback (scrubbing)** | FFmpeg fast-seek or `<video>` keyframe snap | If WebCodecs is unavailable for a given codec, use keyframe-snapped draft mode for scrubbing only. Export always uses frame-accurate FFmpeg. |
+
+**Not used**: HTML5 `<video>` element seeking — architecturally wrong for a video editor (seeks to nearest keyframe, can be off by 60+ frames with typical GOP sizes).
 
 ### Built-in Effects (v1)
 
@@ -429,24 +434,41 @@ A transition blends `clipA` and `clipB` over a duration. The blending function r
 - **Swappable capture backend.** The `CaptureSession` delegates to a `CaptureBackend` interface. The default backend uses Electron's `desktopCapturer`, but this can be swapped for platform-specific solutions (e.g., native screen capture APIs) without changing the orchestration logic.
 - **Post-capture FFmpeg probe.** Instead of trusting MediaRecorder metadata (which can be unreliable), the system runs `ffprobe` on the finalized file to extract accurate duration, resolution, frame count, and codec information. This metadata populates the Asset entry.
 
+### Platform Status (Spike-Validated)
+
+| Platform | Status | Notes |
+|----------|--------|-------|
+| **Linux (X11)** | ✅ First-class | `desktopCapturer` works programmatically. System audio via PipeWire/PulseAudio monitor sources. Webcam + mic confirmed. |
+| **Linux (Wayland)** | ⚠️ Limited | Portal picker required (no programmatic source selection). Accepted limitation for v1. |
+| **macOS** | ❓ Pending spike | TCC permissions, system audio (requires BlackHole/virtual device). |
+| **Windows** | ❓ Pending spike | DXGI, WASAPI loopback for system audio. |
+
+**Architecture decision**: Linux (X11) is the primary supported Linux mode for v1. Wayland runs via portal with UX limitations. `CaptureBackend` must support different strategies per platform.
+
 ---
 
 ## 6. State Management
 
-> **Note:** Zustand is the current recommendation but not locked in. The first store slice implementation will validate the choice. The architectural requirements below apply regardless of library.
+> **Zustand confirmed via spike (2026-03-26).** Split-store architecture: a **transport store** (playhead, isPlaying, playbackRate) is kept separate from the **project store** (clips, tracks, effects, assets). This prevents every playhead tick from invalidating timeline selectors. `selectActiveClipsAtFrame` measured at <0.005ms for 100 clips and <0.01ms for 5000 clips — well under the 1ms budget. zundo confirmed for undo/redo (analytical: <1ms push, <5ms restore).
 
-### Store Architecture (Zustand recommended)
+### Store Architecture
 
 ```
-useProjectStore (Zustand)
+useTransportStore (Zustand — separate store, 30-60Hz updates)
+├── playhead: number (current frame)
+├── isPlaying: boolean
+└── playbackRate: number
+
+useProjectStore (Zustand — project mutations, undo-able)
 ├── project       ─── ProjectDocument metadata (name, settings)
 ├── assets        ─── Asset[] management (add, remove, update)
 ├── composition   ─── Tracks, clips, transitions (all timeline data)
-├── playback      ─── currentFrame, isPlaying, playbackRate
 ├── selection     ─── selectedClipIds, selectedTrackId, selectedKeyframes
 ├── ui            ─── activeTab, panelSizes, inspectorState
 └── history       ─── undo/redo (via zundo/temporal)
 ```
+
+> **Spike 3 validated**: Split-store architecture confirmed. `selectActiveClipsAtFrame` runs in <0.005ms for 100 clips, <0.01ms for 5000 clips — no interval tree needed. zundo snapshot-based undo is acceptable for 1000+ clips (~100KB per snapshot). React clip components subscribe ONLY to `useProjectStore`; playhead/transport UI subscribes ONLY to `useTransportStore`.
 
 ### Middleware Stack
 
@@ -469,11 +491,13 @@ selectSelectedClips(): Clip[]
 
 ### Access Patterns
 
-| Consumer | How it accesses the store |
-|----------|--------------------------|
-| React components | `useProjectStore(selector)` — reactive, re-renders on selected state change |
-| PreviewCompositor | `store.subscribe(selector, callback)` — outside React, direct subscription |
-| IPC handlers | `store.getState()` / `store.setState()` — imperative access from main process bridge |
+| Consumer | Store | How |
+|----------|-------|-----|
+| Clip components | `useProjectStore` only | `useProjectStore(s => s.composition.tracks)` — never re-renders from playhead |
+| Playhead indicator | `useTransportStore` only | `useTransportStore(s => s.playhead)` — updates at 60Hz |
+| PreviewCompositor | Both | `transportStore.subscribe()` for frame, `projectStore.subscribe()` for content changes |
+| Effect inspector | Both | `useTransportStore(s => s.playhead)` for current values, `useProjectStore` for effect data |
+| IPC handlers | `useProjectStore` | `projectStore.getState()` / `projectStore.setState()` |
 
 ### Undo/Redo Strategy
 
@@ -704,7 +728,7 @@ rough-cut/
 | ADR | Decision | Status | Rationale |
 |-----|----------|--------|-----------|
 | **ADR-001** | Frame-based timeline (not time-based) | Accepted | Integer arithmetic prevents floating-point drift. Snapping and alignment are trivial. Convert to seconds only at display and export boundaries. |
-| **ADR-002** | Zustand over Redux | Accepted | Less ceremony for a media app where performance matters. First-class subscriptions outside React (preview compositor). `zundo` provides undo/redo with minimal configuration. Immer middleware gives immutable updates with mutable syntax. |
+| **ADR-002** | Zustand over Redux, split-store architecture | Accepted — validated by spike | Less ceremony for a media app where performance matters. First-class subscriptions outside React (preview compositor). `zundo` provides undo/redo with minimal configuration. Immer middleware gives immutable updates with mutable syntax. **Spike (2026-03-26) confirmed:** transport store (playhead/isPlaying) split from project store prevents high-frequency playback ticks from invalidating timeline selectors. `selectActiveClipsAtFrame` runs in <0.005ms for 100 clips, <0.01ms for 5000 clips. |
 | **ADR-003** | Separate preview and export renderers | Accepted | Preview needs 60fps interactivity (PixiJS/WebGL in renderer process). Export needs frame-accurate offline rendering (headless Canvas in main process). Coupling them would compromise both: the preview would block on heavy frames, and the export would inherit browser rendering quirks. |
 | **ADR-004** | Effect registry pattern (not class hierarchy) | Accepted | Open for extension without modification. Third-party effects register the same way as built-ins. No class inheritance to manage. Effect definitions are plain objects — easy to test, easy to serialize metadata. |
 | **ADR-005** | Recording produces assets, not clips | Accepted | Clean separation of capture and editing. Recording writes files and creates asset entries. The user (or automation) then places those assets as clips on the timeline. This prevents the recording system from needing to understand timeline logic. |
@@ -712,4 +736,4 @@ rough-cut/
 
 ---
 
-*Last updated: 2026-03-25*
+*Last updated: 2026-03-26*

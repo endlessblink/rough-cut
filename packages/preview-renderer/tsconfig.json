@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/*.test.ts"],
+  "references": [
+    { "path": "../project-model" },
+    { "path": "../frame-resolver" },
+    { "path": "../effect-registry" }
+  ]
+}

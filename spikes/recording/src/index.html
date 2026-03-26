@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Spike 2: Recording Test</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 20px; background: #1a1a1a; color: #e0e0e0; }
+    h1 { font-size: 18px; }
+    h2 { font-size: 14px; margin-top: 24px; border-bottom: 1px solid #333; padding-bottom: 4px; }
+    button { padding: 8px 16px; margin: 4px; cursor: pointer; background: #2563eb; color: white; border: none; border-radius: 4px; }
+    button:hover { background: #1d4ed8; }
+    button:disabled { background: #555; cursor: not-allowed; }
+    .source-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+    .source-card { border: 1px solid #333; padding: 8px; border-radius: 4px; cursor: pointer; max-width: 200px; }
+    .source-card img { width: 100%; border-radius: 2px; }
+    .source-card.selected { border-color: #2563eb; background: #1e3a5f; }
+    #log { font-family: monospace; font-size: 12px; background: #111; padding: 12px; border-radius: 4px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; margin-top: 16px; }
+    video { max-width: 400px; border-radius: 4px; background: black; }
+    .row { display: flex; gap: 16px; align-items: flex-start; }
+    .status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+    .status.pass { background: #166534; }
+    .status.fail { background: #991b1b; }
+    .status.unknown { background: #555; }
+  </style>
+</head>
+<body>
+  <h1>Rough Cut — Spike 2: Per-Platform Recording</h1>
+  <p>Platform: <strong id="platform"></strong> | Electron: <strong id="electron-version"></strong></p>
+
+  <h2>1. Source Enumeration</h2>
+  <button id="btn-sources">List Sources</button>
+  <div id="sources" class="source-grid"></div>
+
+  <h2>2. Screen Capture</h2>
+  <div class="row">
+    <div>
+      <button id="btn-screen-30">Capture 30fps (5s)</button>
+      <button id="btn-screen-60">Capture 60fps (5s)</button>
+      <video id="preview" autoplay muted></video>
+    </div>
+  </div>
+
+  <h2>3. Webcam</h2>
+  <button id="btn-webcam">Open Webcam</button>
+  <video id="webcam-preview" autoplay muted style="max-width:320px"></video>
+
+  <h2>4. Microphone</h2>
+  <button id="btn-mic">Test Mic</button>
+  <span id="mic-status"></span>
+
+  <h2>5. System Audio</h2>
+  <button id="btn-sysaudio">Test System Audio</button>
+  <span id="sysaudio-status"></span>
+
+  <h2>6. Full Recording</h2>
+  <button id="btn-record">Record 30s (all sources)</button>
+  <button id="btn-stop" disabled>Stop</button>
+  <span id="record-status"></span>
+
+  <h2>Log</h2>
+  <div id="log"></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
