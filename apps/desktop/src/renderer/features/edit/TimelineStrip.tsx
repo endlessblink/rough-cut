@@ -9,6 +9,11 @@ export interface TimelineInteractionConfig {
   canSnap: boolean;
 }
 
+export interface ExportRange {
+  inFrame: number;
+  outFrame: number;
+}
+
 interface TimelineStripProps {
   tracks: readonly Track[];
   assets: readonly Asset[];
@@ -21,6 +26,8 @@ interface TimelineStripProps {
   onScrub: (frame: number) => void;
   onTrimLeft?: (clipId: string, newTimelineIn: number) => void;
   onTrimRight?: (clipId: string, newTimelineOut: number) => void;
+  exportRange?: ExportRange;
+  onChangeExportRange?: (range: ExportRange) => void;
 }
 
 const TRACK_HEIGHT = 36;
@@ -54,6 +61,8 @@ export function TimelineStrip({
   onScrub,
   onTrimLeft,
   onTrimRight,
+  exportRange,
+  onChangeExportRange,
 }: TimelineStripProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [snapIndicator, setSnapIndicator] = useState<number | null>(null);
@@ -260,6 +269,126 @@ export function TimelineStrip({
           }}
         />
       )}
+
+      {/* Export range overlay — dims areas outside the range */}
+      {exportRange && (() => {
+        const inX = LABEL_WIDTH + exportRange.inFrame * pixelsPerFrame;
+        const outX = LABEL_WIDTH + exportRange.outFrame * pixelsPerFrame;
+        const fullWidth = LABEL_WIDTH + maxFrame * pixelsPerFrame;
+
+        return (
+          <>
+            {/* Left dim zone */}
+            {inX > LABEL_WIDTH && (
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                left: LABEL_WIDTH,
+                width: inX - LABEL_WIDTH,
+                background: 'rgba(0,0,0,0.55)',
+                pointerEvents: 'none',
+                zIndex: 8,
+              }} />
+            )}
+            {/* Right dim zone */}
+            {outX < fullWidth && (
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                left: outX,
+                width: fullWidth - outX,
+                background: 'rgba(0,0,0,0.55)',
+                pointerEvents: 'none',
+                zIndex: 8,
+              }} />
+            )}
+            {/* In handle */}
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const startX = e.clientX;
+                const startFrame = exportRange.inFrame;
+                const handleMove = (ev: MouseEvent) => {
+                  const dx = ev.clientX - startX;
+                  const deltaFrames = Math.round(dx / pixelsPerFrame);
+                  const newIn = Math.max(0, Math.min(exportRange.outFrame - 1, startFrame + deltaFrames));
+                  onChangeExportRange?.({ ...exportRange, inFrame: newIn });
+                };
+                const handleUp = () => {
+                  window.removeEventListener('mousemove', handleMove);
+                  window.removeEventListener('mouseup', handleUp);
+                };
+                window.addEventListener('mousemove', handleMove);
+                window.addEventListener('mouseup', handleUp);
+              }}
+              style={{
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                left: inX - 3,
+                width: 6,
+                cursor: 'ew-resize',
+                zIndex: 9,
+                background: 'transparent',
+              }}
+            >
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                left: 2,
+                width: 2,
+                background: '#ffcc66',
+                borderRadius: 1,
+              }} />
+            </div>
+            {/* Out handle */}
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const startX = e.clientX;
+                const startFrame = exportRange.outFrame;
+                const handleMove = (ev: MouseEvent) => {
+                  const dx = ev.clientX - startX;
+                  const deltaFrames = Math.round(dx / pixelsPerFrame);
+                  const newOut = Math.max(exportRange.inFrame + 1, startFrame + deltaFrames);
+                  onChangeExportRange?.({ ...exportRange, outFrame: newOut });
+                };
+                const handleUp = () => {
+                  window.removeEventListener('mousemove', handleMove);
+                  window.removeEventListener('mouseup', handleUp);
+                };
+                window.addEventListener('mousemove', handleMove);
+                window.addEventListener('mouseup', handleUp);
+              }}
+              style={{
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                left: outX - 3,
+                width: 6,
+                cursor: 'ew-resize',
+                zIndex: 9,
+                background: 'transparent',
+              }}
+            >
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                left: 2,
+                width: 2,
+                background: '#ffcc66',
+                borderRadius: 1,
+              }} />
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }

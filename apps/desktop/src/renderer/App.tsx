@@ -4,6 +4,7 @@ import { createProject, createAsset, createClip } from '@rough-cut/project-model
 import type { RecordingResult } from './env.js';
 import { RecordTab } from './features/record/RecordTab.js';
 import { EditTab } from './features/edit/EditTab.js';
+import { ExportTab } from './features/export/ExportTab.js';
 import type { AppView } from './ui/index.js';
 import { projectStore, transportStore } from './hooks/use-stores.js';
 
@@ -96,8 +97,6 @@ export function App() {
     switch (activeTab) {
       case 'projects':
         return <TabPlaceholder name="Projects" />;
-      case 'export':
-        return <TabPlaceholder name="Export" />;
       case 'aiMotion':
         return <TabPlaceholder name="AI Motion" />;
     }
@@ -111,6 +110,11 @@ export function App() {
   // Edit tab takes over the entire viewport — no chrome wrapper
   if (activeTab === 'edit') {
     return <EditTab activeTab={activeTab} onTabChange={(tab) => setActiveTab(tab)} />;
+  }
+
+  // Export tab takes over the entire viewport — no chrome wrapper
+  if (activeTab === 'export') {
+    return <ExportTab activeTab={activeTab} onTabChange={(tab) => setActiveTab(tab)} />;
   }
 
   return (
