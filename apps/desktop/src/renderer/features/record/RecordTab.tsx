@@ -3,7 +3,7 @@
  * Responsible for: zoom keyframes, cursor styling, highlights, shortcut titles,
  * background/look presets. No clip edits (no cutting, trimming, reordering, track management).
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { RecordingResult } from '../../env.js';
 import { useProjectStore, useTransportStore, transportStore, projectStore } from '../../hooks/use-stores.js';
 import { createDefaultZoomPresentation, createDefaultCursorPresentation } from '@rough-cut/project-model';
@@ -25,6 +25,7 @@ import { BottomBar } from './BottomBar.js';
 import type { RecordState } from './BottomBar.js';
 import { SourcePickerPopup } from './SourcePickerPopup.js';
 import { useUiStore, uiStore } from '../../hooks/use-ui-store.js';
+import { useCompositor } from '../../hooks/use-compositor.js';
 
 interface RecordTabProps {
   onAssetCreated: (result: RecordingResult) => void;
@@ -65,6 +66,11 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const activeRecordingId = activeRecordingAsset?.id ?? null;
   const zoomPresentation = activeRecordingAsset?.presentation?.zoom ?? createDefaultZoomPresentation();
   const cursorPresentation = activeRecordingAsset?.presentation?.cursor ?? createDefaultCursorPresentation();
+
+  // Recording asset detection + compositor
+  const hasRecordingAsset = useProjectStore((s) => s.project.assets.some((a) => a.type === 'recording'));
+  const previewHostRef = useRef<HTMLDivElement>(null);
+  useCompositor(previewHostRef);
 
   // UI state
   const isRightSidebarCollapsed = useUiStore((s) => s.isRightSidebarCollapsed);
@@ -175,8 +181,11 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
                 <PreviewStage>
                   <PreviewCard
                     hasActiveSource={Boolean(selectedSourceId)}
+                    hasRecordingAsset={hasRecordingAsset}
                     onChooseSource={() => setIsSourcePickerOpen(true)}
-                  />
+                  >
+                    <div ref={previewHostRef} style={{ width: '100%', height: '100%' }} />
+                  </PreviewCard>
                 </PreviewStage>
               }
               bottom={

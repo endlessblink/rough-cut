@@ -4,7 +4,7 @@
  * move between tracks, manage A/V channels). Can also adjust presentation events
  * created in the Record view.
  */
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { ClipId } from '@rough-cut/project-model';
 import { useProjectStore, useTransportStore, projectStore, transportStore } from '../../hooks/use-stores.js';
 import { TimelineStrip } from './TimelineStrip.js';
@@ -16,6 +16,7 @@ import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
 import { VerticalWorkspaceSplit } from '../../ui/index.js';
 import { useUiStore, uiStore } from '../../hooks/use-ui-store.js';
+import { useCompositor } from '../../hooks/use-compositor.js';
 
 interface EditTabProps {
   activeTab: AppView;
@@ -33,6 +34,10 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   // Undo/redo availability
   const canUndo = useProjectStore(() => projectStore.temporal.getState().pastStates.length > 0);
   const canRedo = useProjectStore(() => projectStore.temporal.getState().futureStates.length > 0);
+
+  // Compositor preview host
+  const previewHostRef = useRef<HTMLDivElement>(null);
+  useCompositor(previewHostRef);
 
   // UI state
   const isRightSidebarCollapsed = useUiStore((s) => s.isRightSidebarCollapsed);
@@ -196,7 +201,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <VerticalWorkspaceSplit
             initialRatio={0.6}
-            top={<EditPreviewStage />}
+            top={<EditPreviewStage previewHostRef={previewHostRef} />}
             bottom={
               <EditTimelineShell
                 canUndo={canUndo}

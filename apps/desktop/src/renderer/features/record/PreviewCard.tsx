@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 interface PreviewCardProps {
   hasActiveSource?: boolean;
+  hasRecordingAsset?: boolean;
   onChooseSource?: () => void;
   children?: React.ReactNode;
 }
@@ -160,7 +161,7 @@ function PreviewCardInner({ children }: { children: React.ReactNode }) {
 
 // ─── PreviewCard ────────────────────────────────────────────────────────────
 
-export function PreviewCard({ hasActiveSource = false, onChooseSource, children }: PreviewCardProps) {
+export function PreviewCard({ hasActiveSource = false, hasRecordingAsset = false, onChooseSource, children }: PreviewCardProps) {
   return (
     <div
       style={{
@@ -178,7 +179,7 @@ export function PreviewCard({ hasActiveSource = false, onChooseSource, children 
       }}
     >
       <PreviewCardInner>
-        {hasActiveSource && children ? children : <PreviewEmptyState onChooseSource={onChooseSource} />}
+        {(hasActiveSource || hasRecordingAsset) && children ? children : <PreviewEmptyState onChooseSource={onChooseSource} />}
       </PreviewCardInner>
     </div>
   );

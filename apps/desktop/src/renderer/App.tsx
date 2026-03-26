@@ -1,5 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { PreviewCompositor } from '@rough-cut/preview-renderer';
+import React, { useEffect, useState, useCallback } from 'react';
 import type { ProjectDocument } from '@rough-cut/project-model';
 import { createProject, createAsset, createClip } from '@rough-cut/project-model';
 import type { RecordingResult } from './env.js';
@@ -18,63 +17,21 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 export function App() {
-  const canvasContainerRef = useRef<HTMLDivElement>(null);
-  const compositorRef = useRef<PreviewCompositor | null>(null);
   const [projectName, setProjectName] = useState('Untitled Project');
-  const [currentFrame, setCurrentFrame] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [isReady, setIsReady] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('record');
 
-  // --- Flow 2: Mount preview compositor ---
+  // Initialize with a default project on mount
   useEffect(() => {
-    let unsubProject: (() => void) | undefined;
-    let unsubTransport: (() => void) | undefined;
-    let disposed = false;
-
-    const compositor = new PreviewCompositor(
-      { width: 640, height: 360 },
-      { onFrameRendered: (f) => setCurrentFrame(f) },
-    );
-    compositorRef.current = compositor;
-
-    // Wait for init to finish before wiring stores
-    compositor.init().then((canvas) => {
-      if (disposed) return;
-      if (canvasContainerRef.current) {
-        canvasContainerRef.current.appendChild(canvas);
-        setIsReady(true);
-      }
-
-      // Wire project store -> compositor (only after init)
-      unsubProject = projectStore.subscribe((state) => {
-        compositor.setProject(state.project);
-        setProjectName(state.project.name);
-        setDuration(state.project.composition.duration);
-      });
-
-      // Wire transport store -> compositor
-      unsubTransport = transportStore.subscribe((state) => {
-        compositor.seekTo(state.playheadFrame);
-        setCurrentFrame(state.playheadFrame);
-      });
-
-      // Apply current project state now that compositor is ready
-      const currentState = projectStore.getState();
-      compositor.setProject(currentState.project);
-      setProjectName(currentState.project.name);
-      setDuration(currentState.project.composition.duration);
-    });
-
-    // Initialize with a default project (store update is fine — compositor just buffers it)
     const defaultProject = createProject();
     projectStore.getState().setProject(defaultProject);
 
+    // Keep projectName in sync with store
+    const unsub = projectStore.subscribe((state) => {
+      setProjectName(state.project.name);
+    });
+
     return () => {
-      disposed = true;
-      unsubProject?.();
-      unsubTransport?.();
-      compositor.dispose();
+      unsub();
     };
   }, []);
 
@@ -93,12 +50,6 @@ export function App() {
     const project = createProject();
     projectStore.getState().setProject(project);
     transportStore.getState().seekToFrame(0);
-  }, []);
-
-  // --- Flow 3: Scrub transport ---
-  const handleScrub = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const frame = parseInt(e.target.value, 10);
-    transportStore.getState().setPlayheadFrame(frame);
   }, []);
 
   // --- Flow 4: Trigger export ---
@@ -146,7 +97,7 @@ export function App() {
 
   // --- Tab content ---
   // Record and Edit tabs own their own full-viewport layouts.
-  // All other tabs use the classic sidebar + preview canvas split.
+  // All other tabs use the classic sidebar + placeholder split.
   function renderTabContent() {
     switch (activeTab) {
       case 'projects':
@@ -215,49 +166,9 @@ export function App() {
         ))}
       </div>
 
-      {/* Main content area: sidebar + preview canvas split */}
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {/* Tab panel (left side) */}
-        <div style={{ width: 360, minWidth: 280, borderRight: '1px solid #333', overflow: 'hidden' }}>
-          {renderTabContent()}
-        </div>
-
-        {/* Preview canvas (right side) */}
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: '#0a0a0a',
-          position: 'relative',
-        }}>
-          <div ref={canvasContainerRef} style={{ borderRadius: 4, overflow: 'hidden' }} />
-          {!isReady && (
-            <span style={{ color: '#555', position: 'absolute' }}>Initializing preview...</span>
-          )}
-        </div>
-      </div>
-
-      {/* Transport bar */}
-      <div style={{
-        padding: '8px 16px',
-        background: '#1a1a1a',
-        borderTop: '1px solid #333',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-      }}>
-        <span style={{ fontFamily: 'monospace', fontSize: 13, minWidth: 140 }}>
-          Frame: {currentFrame} / {duration}
-        </span>
-        <input
-          type="range"
-          min={0}
-          max={Math.max(duration - 1, 0)}
-          value={currentFrame}
-          onChange={handleScrub}
-          style={{ flex: 1 }}
-        />
+      {/* Main content area */}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
+        {renderTabContent()}
       </div>
     </div>
   );

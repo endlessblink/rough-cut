@@ -1,6 +1,7 @@
 import React from 'react';
 
 interface EditPreviewStageProps {
+  previewHostRef?: React.RefObject<HTMLDivElement | null>;
   children?: React.ReactNode;
 }
 
@@ -41,7 +42,7 @@ function EditPreviewCard() {
  * EditPreviewStage: centers the preview card within the left column.
  * The card itself owns all visual framing. This only handles centering + max-width.
  */
-export function EditPreviewStage({ children }: EditPreviewStageProps) {
+export function EditPreviewStage({ previewHostRef, children }: EditPreviewStageProps) {
   return (
     <section
       style={{
@@ -53,7 +54,23 @@ export function EditPreviewStage({ children }: EditPreviewStageProps) {
       }}
     >
       <div style={{ width: '100%', maxWidth: 1040 }}>
-        {children ?? <EditPreviewCard />}
+        {children ?? (
+          previewHostRef ? (
+            <div
+              ref={previewHostRef}
+              style={{
+                aspectRatio: '16 / 9',
+                width: '100%',
+                borderRadius: 18,
+                background: '#050505',
+                boxShadow: '0 18px 60px rgba(0,0,0,0.80)',
+                overflow: 'hidden',
+              }}
+            />
+          ) : (
+            <EditPreviewCard />
+          )
+        )}
       </div>
     </section>
   );
