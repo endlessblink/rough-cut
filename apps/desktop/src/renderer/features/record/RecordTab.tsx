@@ -162,6 +162,25 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         <ModeSelectorRow mode={recordMode} onChange={setRecordMode} />
       </div>
 
+      <BottomBar
+        sourceName={selectedSourceName}
+        onOpenSourcePicker={() => setIsSourcePickerOpen(true)}
+        micName="Default"
+        isMicMuted={isMicMuted}
+        onToggleMicMute={() => setIsMicMuted((m) => !m)}
+        hasSystemAudio={true}
+        isSystemAudioEnabled={isSystemAudioEnabled}
+        onToggleSystemAudio={() => setIsSystemAudioEnabled((e) => !e)}
+        hasCamera={false}
+        isCameraEnabled={isCameraEnabled}
+        onToggleCamera={() => setIsCameraEnabled((c) => !c)}
+        recordState={recordState}
+        onClickRecord={handleClickRecord}
+        elapsedSeconds={elapsedSeconds}
+        resolutionLabel="1920×1080"
+        fpsLabel="60 fps"
+      />
+
       {/* Preview + Inspector row */}
       <WorkspaceRow
         sidebarWidth={RECORD_PANEL_WIDTH}
@@ -194,19 +213,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         }
       />
 
-      {/* Timeline — full width, outside the inspector row */}
-      <div style={{ flexShrink: 0, height: 180, padding: '0 24px', background: '#050505' }}>
-        <RecordTimelineShell
-          tracks={tracks}
-          assets={assets}
-          durationFrames={durationFrames}
-          currentFrame={currentFrame}
-          fps={projectFps}
-          onScrub={handleTimelineScrub}
-        />
-      </div>
-
-      {/* Error banner — rendered between main stage and bottom bar */}
+      {/* Error banner */}
       {error && (
         <div
           style={{
@@ -238,24 +245,17 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         </div>
       )}
 
-      <BottomBar
-        sourceName={selectedSourceName}
-        onOpenSourcePicker={() => setIsSourcePickerOpen(true)}
-        micName="Default"
-        isMicMuted={isMicMuted}
-        onToggleMicMute={() => setIsMicMuted((m) => !m)}
-        hasSystemAudio={true}
-        isSystemAudioEnabled={isSystemAudioEnabled}
-        onToggleSystemAudio={() => setIsSystemAudioEnabled((e) => !e)}
-        hasCamera={false}
-        isCameraEnabled={isCameraEnabled}
-        onToggleCamera={() => setIsCameraEnabled((c) => !c)}
-        recordState={recordState}
-        onClickRecord={handleClickRecord}
-        elapsedSeconds={elapsedSeconds}
-        resolutionLabel="1920×1080"
-        fpsLabel="60 fps"
-      />
+      {/* Timeline — full width, flex-fills to bottom */}
+      <div style={{ flex: '1 1 0%', minHeight: 120, padding: '0 24px 8px', background: '#050505', display: 'flex', flexDirection: 'column' }}>
+        <RecordTimelineShell
+          tracks={tracks}
+          assets={assets}
+          durationFrames={durationFrames}
+          currentFrame={currentFrame}
+          fps={projectFps}
+          onScrub={handleTimelineScrub}
+        />
+      </div>
 
       {isSourcePickerOpen && (
         <SourcePickerPopup
