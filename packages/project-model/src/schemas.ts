@@ -34,6 +34,16 @@ export const ResolutionSchema = z.object({
   height: positiveEvenInt,
 });
 
+// --- BackgroundConfig ---
+
+export const BackgroundConfigSchema = z.object({
+  type: z.enum(['solid', 'gradient']),
+  color: z.string(),
+  gradientStart: z.string().optional(),
+  gradientEnd: z.string().optional(),
+  gradientAngle: z.number().min(0).max(360).optional(),
+});
+
 // --- Project Settings ---
 
 export const ProjectSettingsSchema = z.object({
@@ -41,6 +51,7 @@ export const ProjectSettingsSchema = z.object({
   frameRate: FrameRateSchema,
   backgroundColor: hexColor,
   sampleRate: SampleRateSchema,
+  backgroundConfig: BackgroundConfigSchema.optional(),
 });
 
 // --- Asset ---

@@ -13,6 +13,7 @@ import type { InspectorCategory } from '../../ui/index.js';
 import { RecordZoomPanel } from './RecordZoomPanel.js';
 import { RecordCursorPanel } from './RecordCursorPanel.js';
 import { RecordTemplatesPanel } from './RecordTemplatesPanel.js';
+import { RecordBackgroundPanel } from './RecordBackgroundPanel.js';
 import type { LayoutTemplate } from './templates.js';
 import { resolutionForAspectRatio } from './templates.js';
 import { projectStore } from '../../hooks/use-stores.js';
@@ -100,6 +101,16 @@ function TemplatesIcon() {
   );
 }
 
+function BackgroundIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      {/* Rectangle with inner padding lines */}
+      <rect x="1.5" y="1.5" width="13" height="13" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="4" y="4" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1" strokeDasharray="1.5 1" />
+    </svg>
+  );
+}
+
 // ─── Placeholder panel ────────────────────────────────────────────────────────
 
 function PlaceholderText() {
@@ -133,6 +144,17 @@ export function RecordRightPanel({
     projectStore.getState().updateSettings({ resolution });
   }, []);
 
+  const [bgColor, setBgColor] = useState('#000000');
+  const [bgPadding, setBgPadding] = useState(40);
+  const [bgCornerRadius, setBgCornerRadius] = useState(12);
+  const [bgShadowEnabled, setBgShadowEnabled] = useState(true);
+  const [bgShadowBlur, setBgShadowBlur] = useState(20);
+
+  const handleBgColorChange = useCallback((color: string) => {
+    setBgColor(color);
+    projectStore.getState().updateSettings({ backgroundColor: color });
+  }, []);
+
   const categories: InspectorCategory[] = [
     {
       id: 'templates',
@@ -142,6 +164,33 @@ export function RecordRightPanel({
         <RecordTemplatesPanel
           selectedTemplateId={selectedTemplateId}
           onSelectTemplate={handleSelectTemplate}
+        />
+      ),
+    },
+    {
+      id: 'background',
+      label: 'Background',
+      icon: <BackgroundIcon />,
+      onReset: () => {
+        setBgColor('#000000');
+        setBgPadding(40);
+        setBgCornerRadius(12);
+        setBgShadowEnabled(true);
+        setBgShadowBlur(20);
+        projectStore.getState().updateSettings({ backgroundColor: '#000000' });
+      },
+      panel: (
+        <RecordBackgroundPanel
+          backgroundColor={bgColor}
+          onBackgroundColorChange={handleBgColorChange}
+          padding={bgPadding}
+          onPaddingChange={setBgPadding}
+          cornerRadius={bgCornerRadius}
+          onCornerRadiusChange={setBgCornerRadius}
+          shadowEnabled={bgShadowEnabled}
+          onShadowEnabledChange={setBgShadowEnabled}
+          shadowBlur={bgShadowBlur}
+          onShadowBlurChange={setBgShadowBlur}
         />
       ),
     },

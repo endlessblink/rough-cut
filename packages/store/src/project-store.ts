@@ -11,6 +11,7 @@ import type {
   ZoomMarker,
   ZoomMarkerId,
   CursorPresentation,
+  EffectInstance,
 } from '@rough-cut/project-model';
 import { createProject, createZoomMarker, createDefaultRecordingPresentation, createDefaultCursorPresentation } from '@rough-cut/project-model';
 import {
@@ -77,6 +78,11 @@ export interface ProjectActions {
   // Recording presentation — cursor
   updateRecordingCursor: (assetId: AssetId, patch: Partial<CursorPresentation>) => void;
   resetRecordingCursor: (assetId: AssetId) => void;
+
+  // Clip effect actions
+  addClipEffect: (trackId: TrackId, clipId: ClipId, effect: EffectInstance) => void;
+  updateClipEffect: (trackId: TrackId, clipId: ClipId, effectIndex: number, patch: Partial<EffectInstance>) => void;
+  removeClipEffect: (trackId: TrackId, clipId: ClipId, effectIndex: number) => void;
 }
 
 export type ProjectStore = ProjectState & ProjectActions;
@@ -440,6 +446,79 @@ export function createProjectStore() {
                 },
               };
             }),
+          }));
+        },
+
+        // --- Clip effect actions ---
+
+        addClipEffect: (trackId: TrackId, clipId: ClipId, effect: EffectInstance) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            composition: {
+              ...doc.composition,
+              tracks: doc.composition.tracks.map((track) =>
+                track.id === trackId
+                  ? {
+                      ...track,
+                      clips: track.clips.map((clip) =>
+                        clip.id === clipId
+                          ? { ...clip, effects: [...clip.effects, effect] }
+                          : clip,
+                      ),
+                    }
+                  : track,
+              ),
+            },
+          }));
+        },
+
+        updateClipEffect: (trackId: TrackId, clipId: ClipId, effectIndex: number, patch: Partial<EffectInstance>) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            composition: {
+              ...doc.composition,
+              tracks: doc.composition.tracks.map((track) =>
+                track.id === trackId
+                  ? {
+                      ...track,
+                      clips: track.clips.map((clip) =>
+                        clip.id === clipId
+                          ? {
+                              ...clip,
+                              effects: clip.effects.map((effect, idx) =>
+                                idx === effectIndex ? { ...effect, ...patch } : effect,
+                              ),
+                            }
+                          : clip,
+                      ),
+                    }
+                  : track,
+              ),
+            },
+          }));
+        },
+
+        removeClipEffect: (trackId: TrackId, clipId: ClipId, effectIndex: number) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            composition: {
+              ...doc.composition,
+              tracks: doc.composition.tracks.map((track) =>
+                track.id === trackId
+                  ? {
+                      ...track,
+                      clips: track.clips.map((clip) =>
+                        clip.id === clipId
+                          ? {
+                              ...clip,
+                              effects: clip.effects.filter((_, idx) => idx !== effectIndex),
+                            }
+                          : clip,
+                      ),
+                    }
+                  : track,
+              ),
+            },
           }));
         },
       }),

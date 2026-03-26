@@ -29,11 +29,20 @@ export interface Resolution {
   readonly height: number;
 }
 
+export interface BackgroundConfig {
+  readonly type: 'solid' | 'gradient';
+  readonly color: string;
+  readonly gradientStart?: string;
+  readonly gradientEnd?: string;
+  readonly gradientAngle?: number;
+}
+
 export interface ProjectSettings {
   readonly resolution: Resolution;
   readonly frameRate: FrameRate;
   readonly backgroundColor: string;
   readonly sampleRate: SampleRate;
+  readonly backgroundConfig?: BackgroundConfig;
 }
 
 export type ZoomMarkerId = string & { readonly __brand: 'ZoomMarkerId' };

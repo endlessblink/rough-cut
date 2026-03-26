@@ -6,6 +6,7 @@ import {
   createTrack,
   createClip,
   createAsset,
+  createEffectInstance,
 } from '@rough-cut/project-model';
 import type { StoreApi } from 'zustand/vanilla';
 import type { ProjectStore } from './project-store.js';
@@ -379,6 +380,111 @@ describe('projectStore', () => {
         .getState()
         .project.composition.tracks.find((t) => t.id === track.id);
       expect(updatedTrack?.clips).toHaveLength(1);
+    });
+  });
+
+  describe('clip effect actions', () => {
+    it('addClipEffect: effect is appended to the clip', () => {
+      const track = store.getState().project.composition.tracks[0];
+      if (!track) throw new Error('No track found');
+      const clip = createClip(
+        'asset-1' as ReturnType<typeof createClip>['assetId'],
+        track.id,
+        { timelineIn: 0, timelineOut: 30 },
+      );
+      store.getState().addClip(track.id, clip);
+
+      const effect = createEffectInstance('shadow', { params: { blur: 20 } });
+      store.getState().addClipEffect(track.id, clip.id, effect);
+
+      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
+      expect(updatedClip?.effects).toHaveLength(1);
+      expect(updatedClip?.effects[0]?.effectType).toBe('shadow');
+    });
+
+    it('removeClipEffect: effect is removed by index', () => {
+      const track = store.getState().project.composition.tracks[0];
+      if (!track) throw new Error('No track found');
+      const clip = createClip(
+        'asset-1' as ReturnType<typeof createClip>['assetId'],
+        track.id,
+        { timelineIn: 0, timelineOut: 30 },
+      );
+      store.getState().addClip(track.id, clip);
+
+      const effect1 = createEffectInstance('shadow');
+      const effect2 = createEffectInstance('round-corners');
+      store.getState().addClipEffect(track.id, clip.id, effect1);
+      store.getState().addClipEffect(track.id, clip.id, effect2);
+
+      // Remove first effect (index 0)
+      store.getState().removeClipEffect(track.id, clip.id, 0);
+
+      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
+      expect(updatedClip?.effects).toHaveLength(1);
+      expect(updatedClip?.effects[0]?.effectType).toBe('round-corners');
+    });
+
+    it('addClipEffect: is undoable', () => {
+      const track = store.getState().project.composition.tracks[0];
+      if (!track) throw new Error('No track found');
+      const clip = createClip(
+        'asset-1' as ReturnType<typeof createClip>['assetId'],
+        track.id,
+        { timelineIn: 0, timelineOut: 30 },
+      );
+      store.getState().addClip(track.id, clip);
+
+      const effect = createEffectInstance('shadow');
+      store.getState().addClipEffect(track.id, clip.id, effect);
+
+      store.temporal.getState().undo();
+
+      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
+      expect(updatedClip?.effects).toHaveLength(0);
+    });
+
+    it('removeClipEffect: is undoable', () => {
+      const track = store.getState().project.composition.tracks[0];
+      if (!track) throw new Error('No track found');
+      const clip = createClip(
+        'asset-1' as ReturnType<typeof createClip>['assetId'],
+        track.id,
+        { timelineIn: 0, timelineOut: 30 },
+      );
+      store.getState().addClip(track.id, clip);
+
+      const effect = createEffectInstance('shadow');
+      store.getState().addClipEffect(track.id, clip.id, effect);
+      store.getState().removeClipEffect(track.id, clip.id, 0);
+
+      store.temporal.getState().undo();
+
+      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
+      expect(updatedClip?.effects).toHaveLength(1);
+    });
+
+    it('updateClipEffect: updates effect params by index', () => {
+      const track = store.getState().project.composition.tracks[0];
+      if (!track) throw new Error('No track found');
+      const clip = createClip(
+        'asset-1' as ReturnType<typeof createClip>['assetId'],
+        track.id,
+        { timelineIn: 0, timelineOut: 30 },
+      );
+      store.getState().addClip(track.id, clip);
+
+      const effect = createEffectInstance('shadow', { params: { blur: 10 } });
+      store.getState().addClipEffect(track.id, clip.id, effect);
+      store.getState().updateClipEffect(track.id, clip.id, 0, { params: { blur: 30 } });
+
+      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
+      expect(updatedClip?.effects[0]?.params).toEqual({ blur: 30 });
     });
   });
 

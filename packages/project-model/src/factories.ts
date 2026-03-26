@@ -24,6 +24,7 @@ import type {
   ZoomPresentation,
   CursorPresentation,
   RecordingPresentation,
+  BackgroundConfig,
 } from './types.js';
 import {
   CURRENT_SCHEMA_VERSION,
@@ -188,6 +189,13 @@ export function createDefaultRecordingPresentation(): RecordingPresentation {
   return {
     zoom: createDefaultZoomPresentation(),
     cursor: createDefaultCursorPresentation(),
+  };
+}
+
+export function createDefaultBackgroundConfig(): BackgroundConfig {
+  return {
+    type: 'solid',
+    color: '#000000',
   };
 }
 
