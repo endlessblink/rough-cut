@@ -3,14 +3,21 @@ import type { Track, Asset } from '@rough-cut/project-model';
 import { snapToNearestEdge } from '@rough-cut/timeline-engine';
 import { ClipBlock } from './ClipBlock.js';
 
+export interface TimelineInteractionConfig {
+  canTrim: boolean;
+  canSelect: boolean;
+  canSnap: boolean;
+}
+
 interface TimelineStripProps {
   tracks: readonly Track[];
   assets: readonly Asset[];
   playheadFrame: number;
-  selectedClipId: string | null;
+  selectedClipId?: string | null;
   pixelsPerFrame: number;
-  snapEnabled: boolean;
-  onSelectClip: (clipId: string) => void;
+  snapEnabled?: boolean;
+  interaction?: TimelineInteractionConfig;
+  onSelectClip?: (clipId: string) => void;
   onScrub: (frame: number) => void;
   onTrimLeft?: (clipId: string, newTimelineIn: number) => void;
   onTrimRight?: (clipId: string, newTimelineOut: number) => void;
@@ -29,13 +36,20 @@ function rulerInterval(totalFrames: number): number {
   return 150;
 }
 
+const DEFAULT_INTERACTION: TimelineInteractionConfig = {
+  canTrim: true,
+  canSelect: true,
+  canSnap: true,
+};
+
 export function TimelineStrip({
   tracks,
   assets,
   playheadFrame,
-  selectedClipId,
+  selectedClipId = null,
   pixelsPerFrame,
-  snapEnabled,
+  snapEnabled = false,
+  interaction = DEFAULT_INTERACTION,
   onSelectClip,
   onScrub,
   onTrimLeft,
@@ -69,7 +83,7 @@ export function TimelineStrip({
 
   const applySnap = useCallback(
     (frame: number, excludeClipId?: string) => {
-      if (!snapEnabled) return frame;
+      if (!snapEnabled || !interaction.canSnap) return frame;
       const result = snapToNearestEdge(
         frame,
         tracks as Track[],
@@ -204,11 +218,11 @@ export function TimelineStrip({
                   clip={clip}
                   trackType={track.type}
                   pixelsPerFrame={pixelsPerFrame}
-                  isSelected={clip.id === selectedClipId}
+                  isSelected={interaction.canSelect ? clip.id === selectedClipId : false}
                   label={label}
-                  onClick={onSelectClip}
-                  onTrimLeft={onTrimLeft}
-                  onTrimRight={onTrimRight}
+                  onClick={interaction.canSelect ? onSelectClip : undefined}
+                  onTrimLeft={interaction.canTrim ? onTrimLeft : undefined}
+                  onTrimRight={interaction.canTrim ? onTrimRight : undefined}
                 />
               );
             })}
