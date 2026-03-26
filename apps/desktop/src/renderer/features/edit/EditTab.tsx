@@ -237,7 +237,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
       </div>
 
       {/* Timeline — full width, below the sidebar row */}
-      <div style={{ flexShrink: 0, height: 220, padding: '0 24px', background: '#050505' }}>
+      <div style={{ flex: '1 1 0%', minHeight: 120, padding: '0 24px 8px', background: '#050505', display: 'flex', flexDirection: 'column' }}>
         <EditTimelineShell
           canUndo={canUndo}
           canRedo={canRedo}
