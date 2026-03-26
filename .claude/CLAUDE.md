@@ -140,6 +140,19 @@ apps/desktop                -> Electron shell. Wires everything together.
 - `export`: integration tests verifying FFmpeg output with ffprobe.
 - No testing of desktopCapturer in CI (mock-based only).
 
+## Lifecycle Seam Checklist
+
+When integrating any external subsystem (preview compositor, export pipeline, recording session, AI worker):
+
+1. **Create in a mount effect**, store in a ref.
+2. **Expose an explicit `ready` flag** — never infer readiness from mount order.
+3. **Buffer incoming state until ready** — `setProject()` before `init()` must not crash.
+4. **Flush buffered state once initialized** — apply pending project/frame after init completes.
+5. **Wire store subscriptions only after readiness** — not during initial mount.
+6. **Handle teardown cleanly** — dispose on unmount, ignore late callbacks via a `disposed` flag.
+
+**Rule**: No store action should directly call into an external subsystem unless that subsystem has explicitly signaled readiness. Store updates may arrive before UI readiness — the bridge must queue or no-op until ready.
+
 ## What NOT To Do
 
 - Don't put rendering logic in React components (thin canvas adapter is OK).

@@ -5,7 +5,7 @@
   "type": "module",
   "main": "src/main/index.mjs",
   "scripts": {
-    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev": "concurrently \"vite --host 127.0.0.1 --port 7544\" \"wait-on http://127.0.0.1:7544 && electron --no-sandbox .\"",
     "dev:vite": "vite",
     "dev:electron": "electron .",
     "build": "vite build",

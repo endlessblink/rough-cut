@@ -47,6 +47,7 @@ export class PreviewCompositor {
   private config: Required<CompositorConfig>;
   private events: CompositorEvents;
   private layerContainer: Container | null = null;
+  private initialized = false;
 
   // Layer cache — reuse PixiJS objects to avoid GC pressure at 60fps
   private layerCache: Map<string, LayerCache> = new Map();
@@ -85,7 +86,13 @@ export class PreviewCompositor {
     this.layerContainer = new Container();
     this.app.stage.addChild(this.layerContainer);
 
+    this.initialized = true;
     this.setState('idle');
+
+    // If setProject was called before init finished, render now
+    if (this.project) {
+      this.renderCurrentFrame();
+    }
 
     return this.app.canvas as HTMLCanvasElement;
   }
@@ -99,13 +106,13 @@ export class PreviewCompositor {
   setProject(project: ProjectDocument): void {
     this.project = project;
 
-    // Sync resolution from project settings
-    if (this.app) {
+    // Only touch the renderer if init() has completed
+    if (this.initialized && this.app?.renderer) {
       const { width, height } = project.settings.resolution;
       this.app.renderer.resize(width, height);
+      this.renderCurrentFrame();
     }
-
-    this.renderCurrentFrame();
+    // If not initialized yet, renderCurrentFrame will be called when init() finishes
   }
 
   /** Seek to a specific frame and render it */
@@ -148,7 +155,7 @@ export class PreviewCompositor {
 
   /** Render the current frame using resolveFrame + PixiJS */
   private renderCurrentFrame(): void {
-    if (!this.app || !this.project) return;
+    if (!this.initialized || !this.app || !this.project) return;
 
     const renderFrame = resolveFrame(this.project, this.currentFrame);
     this.renderRenderFrame(renderFrame);

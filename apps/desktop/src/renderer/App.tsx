@@ -27,39 +27,52 @@ export function App() {
 
   // --- Flow 2: Mount preview compositor ---
   useEffect(() => {
+    let unsubProject: (() => void) | undefined;
+    let unsubTransport: (() => void) | undefined;
+    let disposed = false;
+
     const compositor = new PreviewCompositor(
       { width: 640, height: 360 },
       { onFrameRendered: (f) => setCurrentFrame(f) },
     );
     compositorRef.current = compositor;
 
+    // Wait for init to finish before wiring stores
     compositor.init().then((canvas) => {
+      if (disposed) return;
       if (canvasContainerRef.current) {
         canvasContainerRef.current.appendChild(canvas);
         setIsReady(true);
       }
+
+      // Wire project store -> compositor (only after init)
+      unsubProject = projectStore.subscribe((state) => {
+        compositor.setProject(state.project);
+        setProjectName(state.project.name);
+        setDuration(state.project.composition.duration);
+      });
+
+      // Wire transport store -> compositor
+      unsubTransport = transportStore.subscribe((state) => {
+        compositor.seekTo(state.playheadFrame);
+        setCurrentFrame(state.playheadFrame);
+      });
+
+      // Apply current project state now that compositor is ready
+      const currentState = projectStore.getState();
+      compositor.setProject(currentState.project);
+      setProjectName(currentState.project.name);
+      setDuration(currentState.project.composition.duration);
     });
 
-    // Wire project store -> compositor
-    const unsubProject = projectStore.subscribe((state) => {
-      compositor.setProject(state.project);
-      setProjectName(state.project.name);
-      setDuration(state.project.composition.duration);
-    });
-
-    // Wire transport store -> compositor (Flow 3: scrub)
-    const unsubTransport = transportStore.subscribe((state) => {
-      compositor.seekTo(state.playheadFrame);
-      setCurrentFrame(state.playheadFrame);
-    });
-
-    // Initialize with a default project
+    // Initialize with a default project (store update is fine — compositor just buffers it)
     const defaultProject = createProject();
     projectStore.getState().setProject(defaultProject);
 
     return () => {
-      unsubProject();
-      unsubTransport();
+      disposed = true;
+      unsubProject?.();
+      unsubTransport?.();
       compositor.dispose();
     };
   }, []);
