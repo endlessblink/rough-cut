@@ -71,9 +71,11 @@ export interface CursorPresentation {
 }
 
 export type CameraShape = 'circle' | 'rounded' | 'square';
+export type CameraPosition = 'corner-br' | 'corner-bl' | 'corner-tr' | 'corner-tl' | 'center';
 
 export interface CameraPresentation {
   readonly shape: CameraShape;
+  readonly position: CameraPosition;
   readonly roundness: number;
   readonly size: number;
   readonly visible: boolean;

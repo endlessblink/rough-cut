@@ -2,8 +2,8 @@
  * RecordCameraPanel — camera shape, roundness, size, and visibility controls.
  * Extracted from RecordRightPanel for use inside InspectorShell.
  */
-import type { CameraPresentation, CameraShape } from '@rough-cut/project-model';
-import { ControlLabel, PillRadioRow, RcSlider, RcToggleButton } from '../../ui/index.js';
+import type { CameraPresentation, CameraShape, CameraPosition } from '@rough-cut/project-model';
+import { ControlLabel, PillRadioRow, RcSlider, RcSelect, RcToggleButton } from '../../ui/index.js';
 import type { PillOption } from '../../ui/index.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -13,13 +13,21 @@ export interface RecordCameraPanelProps {
   onCameraChange: (patch: Partial<CameraPresentation>) => void;
 }
 
-// ─── Shape options ────────────────────────────────────────────────────────────
+// ─── Options ──────────────────────────────────────────────────────────────────
 
 const SHAPE_OPTIONS: PillOption<CameraShape>[] = [
   { id: 'circle', label: 'Circle' },
   { id: 'rounded', label: 'Rounded' },
   { id: 'square', label: 'Square' },
 ];
+
+const POSITION_LABELS: Record<CameraPosition, string> = {
+  'corner-br': 'Bottom Right',
+  'corner-bl': 'Bottom Left',
+  'corner-tr': 'Top Right',
+  'corner-tl': 'Top Left',
+  'center': 'Center',
+};
 
 // ─── RecordCameraPanel ────────────────────────────────────────────────────────
 
@@ -55,6 +63,18 @@ export function RecordCameraPanel({ camera, onCameraChange }: RecordCameraPanelP
               />
             </div>
           )}
+
+          <div>
+            <ControlLabel label="Position" />
+            <RcSelect
+              value={camera.position}
+              onChange={(v) => onCameraChange({ position: v as CameraPosition })}
+            >
+              {(Object.entries(POSITION_LABELS) as [CameraPosition, string][]).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </RcSelect>
+          </div>
 
           <div>
             <ControlLabel label="Size" value={`${camera.size}%`} />

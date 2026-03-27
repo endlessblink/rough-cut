@@ -13,6 +13,8 @@ export interface LayoutTemplate {
   screenLayout: 'full-screen' | 'pip' | 'split' | 'presentation';
 }
 
+import type { CameraPosition, CameraPresentation } from '@rough-cut/project-model';
+
 /** Map aspect ratio string to a canonical resolution */
 export function resolutionForAspectRatio(
   ratio: LayoutTemplate['aspectRatio'],
@@ -24,6 +26,19 @@ export function resolutionForAspectRatio(
     case '4:3':  return { width: 1440, height: 1080 };
     default:     return { width: 1920, height: 1080 };
   }
+}
+
+/** Map a template's camera position to a CameraPresentation patch */
+export function cameraForTemplate(
+  template: LayoutTemplate,
+): Partial<CameraPresentation> {
+  if (template.cameraPosition === 'none' || template.cameraPosition === 'hidden') {
+    return { visible: false };
+  }
+  return {
+    visible: true,
+    position: template.cameraPosition as CameraPosition,
+  };
 }
 
 export const LAYOUT_TEMPLATES: LayoutTemplate[] = [

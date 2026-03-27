@@ -88,9 +88,11 @@ export const CursorPresentationSchema = z.object({
 // --- CameraPresentation ---
 
 export const CameraShapeSchema = z.enum(['circle', 'rounded', 'square']);
+export const CameraPositionSchema = z.enum(['corner-br', 'corner-bl', 'corner-tr', 'corner-tl', 'center']);
 
 export const CameraPresentationSchema = z.object({
   shape: CameraShapeSchema,
+  position: CameraPositionSchema,
   roundness: z.number().min(0).max(100),
   size: z.number().min(50).max(200),
   visible: z.boolean(),

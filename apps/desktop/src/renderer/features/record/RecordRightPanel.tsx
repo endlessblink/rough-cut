@@ -16,7 +16,7 @@ import { RecordCameraPanel } from './RecordCameraPanel.js';
 import { RecordTemplatesPanel } from './RecordTemplatesPanel.js';
 import { RecordBackgroundPanel } from './RecordBackgroundPanel.js';
 import type { LayoutTemplate } from './templates.js';
-import { resolutionForAspectRatio } from './templates.js';
+import { resolutionForAspectRatio, cameraForTemplate } from './templates.js';
 import { projectStore } from '../../hooks/use-stores.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -174,9 +174,13 @@ export function RecordRightPanel({
 
   const handleSelectTemplate = useCallback((template: LayoutTemplate) => {
     setSelectedTemplateId(template.id);
+    // Apply resolution
     const resolution = resolutionForAspectRatio(template.aspectRatio);
     projectStore.getState().updateSettings({ resolution });
-  }, []);
+    // Apply camera position/visibility
+    const cameraPatch = cameraForTemplate(template);
+    onCameraChange(cameraPatch);
+  }, [onCameraChange]);
 
   const handleBgColorChange = useCallback((color: string) => {
     onBackgroundChange({ bgColor: color });

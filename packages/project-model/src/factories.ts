@@ -187,7 +187,7 @@ export function createDefaultCursorPresentation(): CursorPresentation {
 }
 
 export function createDefaultCameraPresentation(): CameraPresentation {
-  return { shape: 'rounded', roundness: 50, size: 100, visible: true };
+  return { shape: 'rounded', position: 'corner-br', roundness: 50, size: 100, visible: true };
 }
 
 export function createDefaultRecordingPresentation(): RecordingPresentation {
