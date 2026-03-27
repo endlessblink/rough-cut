@@ -328,6 +328,46 @@ RecordScreenLayout (100vh, overflow: hidden)
 5. **Spotlight** — only Focusee, nice-to-have
 6. **Saved presets** — both have it, quality-of-life feature
 
+### Background/Wallpaper Selector — Visual Design Reference (from Recordly/Screen Studio)
+
+The background picker UI follows a specific pattern used by Screen Studio and Recordly:
+
+**Tab switcher:**
+- 3-tab pill-style toggle: Gradient / Color / Image
+- Active tab: accent-colored background (we use #ff6b5a)
+- Container: rounded border, subtle dark background
+- Height ~28px, grid layout (3 equal columns)
+
+**Tile grid (shared by gradients and colors):**
+- 6-column grid (we use 6; Recordly uses 8 but their panel is wider)
+- Square aspect ratio tiles (`aspect-ratio: 1`)
+- Rounded corners (8px)
+- Gap: 3px between tiles
+- Selected tile: accent border (2px solid #ff6b5a) + subtle scale(1.05) + glow shadow
+- Unselected: thin border (1px solid rgba(255,255,255,0.08))
+- No checkmarks — selection indicated purely by border color
+
+**Gradient presets:**
+- 24 CSS `linear-gradient` strings, pre-rendered as tile backgrounds
+- Organized in rows: dark/moody → cool blues → vibrant → soft/warm
+- All 135deg angle for consistency
+- Source: curated from uiGradients (MIT license)
+
+**Solid colors:**
+- Same tile grid, 24 dark color presets
+- Includes dark blacks, navy blues, deep purples, forest greens
+
+**Image section:**
+- Dashed border drop zone with upload icon
+- Support for user image upload (stores as project asset, main process handles I/O)
+- Wallpaper images can be AI-generated or sourced from Unsplash (free commercial license)
+
+**Framing controls (below the grid):**
+- Padding slider (0-200px, step 5)
+- Corner radius slider (0-40px)
+- Shadow toggle + blur slider (0-50px when enabled)
+- All use ControlLabel + RcSlider pattern
+
 ## Design Tokens (from tokens.ts)
 ```
 RECORD_PANEL_WIDTH = 260

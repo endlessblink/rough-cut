@@ -1,6 +1,11 @@
 /**
- * RecordBackgroundPanel — background fill (gradients, solid colors, image),
+ * RecordBackgroundPanel — background fill (gradients, solid colors, image upload),
  * padding, corner radius, and shadow controls.
+ *
+ * UI pattern matches Screen Studio / Recordly:
+ * - 3-tab switcher with pill-style active indicator
+ * - 8-column grid of square thumbnails
+ * - Selected item indicated by accent border
  *
  * Gradient presets curated from uiGradients (MIT license).
  */
@@ -28,48 +33,52 @@ export interface RecordBackgroundPanelProps {
 
 // ─── Gradient presets (curated from uiGradients, MIT license) ─────────────────
 
-interface GradientPreset {
-  name: string;
-  css: string;
-}
-
-const GRADIENT_PRESETS: GradientPreset[] = [
-  // Dark & moody
-  { name: 'Midnight', css: 'linear-gradient(135deg, #0f0c29, #302b63, #24243e)' },
-  { name: 'Deep Space', css: 'linear-gradient(135deg, #000000, #434343)' },
-  { name: 'Royal', css: 'linear-gradient(135deg, #536976, #292E49)' },
-  { name: 'Abyss', css: 'linear-gradient(135deg, #000C40, #607D8B)' },
-  // Cool blues
-  { name: 'Ocean', css: 'linear-gradient(135deg, #2E3192, #1BFFFF)' },
-  { name: 'Omolon', css: 'linear-gradient(135deg, #091E3A, #2F80ED, #2D9EE0)' },
-  { name: 'Frost', css: 'linear-gradient(135deg, #000428, #004e92)' },
-  { name: 'Bluelagoo', css: 'linear-gradient(135deg, #0052D4, #4364F7, #6FB1FC)' },
-  // Vibrant
-  { name: 'Lunada', css: 'linear-gradient(135deg, #5433FF, #20BDFF, #A5FECB)' },
-  { name: 'Ibtesam', css: 'linear-gradient(135deg, #00F5A0, #00D9F5)' },
-  { name: 'Sunset', css: 'linear-gradient(135deg, #fc4a1a, #f7b733)' },
-  { name: 'Purple', css: 'linear-gradient(135deg, #c84e89, #F15F79)' },
-  // Soft & warm
-  { name: 'Breeze', css: 'linear-gradient(135deg, #fbed96, #abecd6)' },
-  { name: 'Mango', css: 'linear-gradient(135deg, #ffe259, #ffa751)' },
-  { name: 'Peach', css: 'linear-gradient(135deg, #9796f0, #fbc7d4)' },
-  { name: 'Windy', css: 'linear-gradient(135deg, #acb6e5, #86fde8)' },
+const GRADIENTS: string[] = [
+  // Row 1: Dark & moody
+  'linear-gradient(135deg, #0f0c29, #302b63, #24243e)',
+  'linear-gradient(135deg, #000000, #434343)',
+  'linear-gradient(135deg, #536976, #292E49)',
+  'linear-gradient(135deg, #000C40, #607D8B)',
+  'linear-gradient(135deg, #1a1a2e, #16213e, #0f3460)',
+  'linear-gradient(135deg, #141E30, #243B55)',
+  'linear-gradient(135deg, #0F2027, #203A43, #2C5364)',
+  'linear-gradient(135deg, #232526, #414345)',
+  // Row 2: Cool blues & teals
+  'linear-gradient(135deg, #2E3192, #1BFFFF)',
+  'linear-gradient(135deg, #091E3A, #2F80ED, #2D9EE0)',
+  'linear-gradient(135deg, #000428, #004e92)',
+  'linear-gradient(135deg, #0052D4, #4364F7, #6FB1FC)',
+  'linear-gradient(135deg, #00c6ff, #0072ff)',
+  'linear-gradient(135deg, #076585, #fff)',
+  'linear-gradient(135deg, #00F5A0, #00D9F5)',
+  'linear-gradient(135deg, #43cea2, #185a9d)',
+  // Row 3: Vibrant & warm
+  'linear-gradient(135deg, #5433FF, #20BDFF, #A5FECB)',
+  'linear-gradient(135deg, #c84e89, #F15F79)',
+  'linear-gradient(135deg, #fc4a1a, #f7b733)',
+  'linear-gradient(135deg, #ffe259, #ffa751)',
+  'linear-gradient(135deg, #9796f0, #fbc7d4)',
+  'linear-gradient(135deg, #acb6e5, #86fde8)',
+  'linear-gradient(135deg, #fbed96, #abecd6)',
+  'linear-gradient(135deg, #a8c0ff, #3f2b96)',
 ];
 
 // ─── Solid color presets ──────────────────────────────────────────────────────
 
-const SOLID_COLORS = [
-  '#000000', '#0a0a0a', '#1a1a1a', '#2d2d2d',
+const COLORS: string[] = [
+  '#000000', '#0a0a0a', '#111111', '#1a1a1a',
   '#0f0c29', '#1a1a2e', '#16213e', '#0f3460',
   '#1b2430', '#2c3333', '#161a30', '#533483',
-  '#1e3a5f', '#3c1053', '#1a472a', '#4a1942',
+  '#1e3a5f', '#3c1053', '#1a472a', '#2d2d2d',
+  '#4a1942', '#0d1b2a', '#1b263b', '#415a77',
+  '#2b2d42', '#3d405b', '#283618', '#606c38',
 ];
 
 const ACCENT = '#ff6b5a';
 
-// ─── Section tab switcher ─────────────────────────────────────────────────────
+// ─── Tab switcher (pill-style, matches Screen Studio) ─────────────────────────
 
-function SectionTabs({
+function TabSwitcher({
   active,
   onChange,
 }: {
@@ -85,11 +94,14 @@ function SectionTabs({
   return (
     <div
       style={{
-        display: 'flex',
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr 1fr',
+        height: 28,
+        borderRadius: 8,
+        border: '1px solid rgba(255,255,255,0.08)',
+        background: 'rgba(255,255,255,0.03)',
+        padding: 3,
         gap: 2,
-        background: 'rgba(255,255,255,0.04)',
-        borderRadius: 6,
-        padding: 2,
       }}
     >
       {tabs.map(({ id, label }) => (
@@ -97,19 +109,16 @@ function SectionTabs({
           key={id}
           onClick={() => onChange(id)}
           style={{
-            flex: 1,
-            height: 24,
             border: 'none',
-            borderRadius: 4,
-            fontSize: 9,
+            borderRadius: 6,
+            fontSize: 10,
             fontWeight: 600,
             fontFamily: 'inherit',
-            letterSpacing: '0.03em',
             cursor: 'pointer',
-            background: active === id ? 'rgba(255,255,255,0.12)' : 'transparent',
-            color: active === id ? 'rgba(255,255,255,0.90)' : 'rgba(255,255,255,0.40)',
-            transition: 'background 100ms, color 100ms',
             padding: 0,
+            background: active === id ? ACCENT : 'transparent',
+            color: active === id ? '#fff' : 'rgba(255,255,255,0.45)',
+            transition: 'background 150ms, color 150ms',
           }}
         >
           {label}
@@ -119,43 +128,48 @@ function SectionTabs({
   );
 }
 
-// ─── Gradient grid ────────────────────────────────────────────────────────────
+// ─── Tile grid (shared by gradients and colors) ───────────────────────────────
 
-function GradientGrid({
+function TileGrid({
+  items,
   selected,
   onSelect,
+  type,
 }: {
+  items: string[];
   selected: string | null;
-  onSelect: (css: string) => void;
+  onSelect: (value: string) => void;
+  type: 'gradient' | 'color';
 }) {
   return (
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
-        gap: 4,
-        marginTop: 6,
+        gridTemplateColumns: 'repeat(6, 1fr)',
+        gap: 3,
+        marginTop: 8,
       }}
     >
-      {GRADIENT_PRESETS.map((g) => {
-        const isSelected = selected === g.css;
+      {items.map((value, i) => {
+        const isSelected = selected === value;
         return (
           <button
-            key={g.name}
-            onClick={() => onSelect(g.css)}
-            title={g.name}
+            key={`${type}-${i}`}
+            onClick={() => onSelect(value)}
             style={{
               width: '100%',
               aspectRatio: '1',
-              borderRadius: 6,
-              background: g.css,
+              borderRadius: 8,
+              background: value,
               border: isSelected
                 ? `2px solid ${ACCENT}`
-                : '2px solid transparent',
+                : '1px solid rgba(255,255,255,0.08)',
               cursor: 'pointer',
               padding: 0,
               outline: 'none',
-              transition: 'border-color 100ms',
+              transition: 'border-color 120ms, transform 80ms',
+              transform: isSelected ? 'scale(1.05)' : 'scale(1)',
+              boxShadow: isSelected ? `0 0 8px ${ACCENT}40` : 'none',
             }}
           />
         );
@@ -164,80 +178,33 @@ function GradientGrid({
   );
 }
 
-// ─── Color grid ───────────────────────────────────────────────────────────────
-
-function ColorGrid({
-  selected,
-  onSelect,
-}: {
-  selected: string;
-  onSelect: (color: string) => void;
-}) {
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
-        gap: 4,
-        marginTop: 6,
-      }}
-    >
-      {SOLID_COLORS.map((color) => {
-        const isSelected = selected === color;
-        return (
-          <button
-            key={color}
-            onClick={() => onSelect(color)}
-            title={color}
-            style={{
-              width: '100%',
-              aspectRatio: '1',
-              borderRadius: 6,
-              background: color,
-              border: isSelected
-                ? `2px solid ${ACCENT}`
-                : '2px solid rgba(255,255,255,0.08)',
-              cursor: 'pointer',
-              padding: 0,
-              outline: 'none',
-              transition: 'border-color 100ms',
-            }}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── Image placeholder ────────────────────────────────────────────────────────
+// ─── Image upload placeholder ─────────────────────────────────────────────────
 
 function ImageSection() {
   return (
     <div
       style={{
-        marginTop: 6,
+        marginTop: 8,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 8,
-        padding: '16px 8px',
-        borderRadius: 6,
-        border: '1px dashed rgba(255,255,255,0.12)',
+        gap: 6,
+        padding: '20px 8px',
+        borderRadius: 8,
+        border: '1px dashed rgba(255,255,255,0.10)',
         background: 'rgba(255,255,255,0.02)',
       }}
     >
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <rect x="2" y="4" width="16" height="12" rx="2" stroke="rgba(255,255,255,0.30)" strokeWidth="1.2" />
-        <circle cx="7" cy="9" r="1.5" stroke="rgba(255,255,255,0.30)" strokeWidth="1" />
-        <path d="M2 14l4-3 3 2 4-4 5 5" stroke="rgba(255,255,255,0.30)" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <rect x="3" y="5" width="18" height="14" rx="2" stroke="rgba(255,255,255,0.25)" strokeWidth="1.5" />
+        <circle cx="8.5" cy="10.5" r="1.5" stroke="rgba(255,255,255,0.25)" strokeWidth="1" />
+        <path d="M3 16l5-4 3 2.5 4-4 6 5.5" stroke="rgba(255,255,255,0.25)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
-      <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', textAlign: 'center' }}>
-        Drop an image or click to upload
+      <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', textAlign: 'center', lineHeight: 1.4 }}>
+        Drop image or click to upload
       </span>
-      <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.20)' }}>
-        Coming soon
-      </span>
+      <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.18)' }}>Coming soon</span>
     </div>
   );
 }
@@ -264,39 +231,35 @@ export function RecordBackgroundPanel({
 
   const handleModeChange = (newMode: BackgroundMode) => {
     setMode(newMode);
-    // Clear gradient when switching to color mode
     if (newMode === 'color' && backgroundGradient) {
       onBackgroundGradientChange(null);
     }
   };
 
-  const handleGradientSelect = (css: string) => {
-    onBackgroundGradientChange(css);
-  };
-
-  const handleColorSelect = (color: string) => {
-    onBackgroundGradientChange(null);
-    onBackgroundColorChange(color);
-  };
-
   return (
     <>
-      {/* Background fill section */}
+      {/* Background fill */}
       <div>
-        <ControlLabel label="Background" />
-        <SectionTabs active={mode} onChange={handleModeChange} />
+        <TabSwitcher active={mode} onChange={handleModeChange} />
 
         {mode === 'gradient' && (
-          <GradientGrid
+          <TileGrid
+            items={GRADIENTS}
             selected={backgroundGradient}
-            onSelect={handleGradientSelect}
+            onSelect={onBackgroundGradientChange}
+            type="gradient"
           />
         )}
 
         {mode === 'color' && (
-          <ColorGrid
+          <TileGrid
+            items={COLORS}
             selected={backgroundColor}
-            onSelect={handleColorSelect}
+            onSelect={(color) => {
+              onBackgroundGradientChange(null);
+              onBackgroundColorChange(color);
+            }}
+            type="color"
           />
         )}
 
