@@ -25,6 +25,10 @@ export interface RecordBackgroundPanelProps {
   onPaddingChange: (value: number) => void;
   cornerRadius: number;
   onCornerRadiusChange: (value: number) => void;
+  inset: number;
+  onInsetChange: (value: number) => void;
+  insetColor: string;
+  onInsetColorChange: (color: string) => void;
   shadowEnabled: boolean;
   onShadowEnabledChange: (enabled: boolean) => void;
   shadowBlur: number;
@@ -220,6 +224,10 @@ export function RecordBackgroundPanel({
   onPaddingChange,
   cornerRadius,
   onCornerRadiusChange,
+  inset,
+  onInsetChange,
+  insetColor,
+  onInsetColorChange,
   shadowEnabled,
   onShadowEnabledChange,
   shadowBlur,
@@ -275,6 +283,30 @@ export function RecordBackgroundPanel({
       <div>
         <ControlLabel label="Corner radius" value={`${cornerRadius}px`} />
         <RcSlider min={0} max={40} step={1} value={cornerRadius} onChange={onCornerRadiusChange} />
+      </div>
+
+      <div>
+        <ControlLabel label="Inset" value={inset > 0 ? `${inset}px` : 'Off'} />
+        <RcSlider min={0} max={20} step={1} value={inset} onChange={onInsetChange} />
+        {inset > 0 && (
+          <div style={{ display: 'flex', gap: 3, marginTop: 6 }}>
+            {['#ffffff', '#000000', '#1a1a2e', '#ff6b5a'].map((c) => (
+              <button
+                key={c}
+                onClick={() => onInsetColorChange(c)}
+                style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: 4,
+                  background: c,
+                  border: insetColor === c ? `2px solid ${ACCENT}` : '1px solid rgba(255,255,255,0.12)',
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <RcToggleButton label="Shadow" value={shadowEnabled} onChange={onShadowEnabledChange} />

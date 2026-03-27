@@ -26,6 +26,8 @@ export interface BackgroundConfig {
   bgGradient: string | null;
   bgPadding: number;
   bgCornerRadius: number;
+  bgInset: number;
+  bgInsetColor: string;
   bgShadowEnabled: boolean;
   bgShadowBlur: number;
 }
@@ -216,6 +218,10 @@ export function RecordRightPanel({
           onPaddingChange={(v) => onBackgroundChange({ bgPadding: v })}
           cornerRadius={background.bgCornerRadius}
           onCornerRadiusChange={(v) => onBackgroundChange({ bgCornerRadius: v })}
+          inset={background.bgInset}
+          onInsetChange={(v) => onBackgroundChange({ bgInset: v })}
+          insetColor={background.bgInsetColor}
+          onInsetColorChange={(v) => onBackgroundChange({ bgInsetColor: v })}
           shadowEnabled={background.bgShadowEnabled}
           onShadowEnabledChange={(v) => onBackgroundChange({ bgShadowEnabled: v })}
           shadowBlur={background.bgShadowBlur}

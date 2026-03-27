@@ -33,6 +33,8 @@ const DEFAULT_BACKGROUND: BackgroundConfig = {
   bgGradient: null,
   bgPadding: 40,
   bgCornerRadius: 12,
+  bgInset: 0,
+  bgInsetColor: '#ffffff',
   bgShadowEnabled: true,
   bgShadowBlur: 20,
 };
