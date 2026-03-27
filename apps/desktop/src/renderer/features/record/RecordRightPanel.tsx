@@ -7,11 +7,12 @@
  * its own component (RecordZoomPanel, RecordCursorPanel).
  */
 import { useState, useCallback } from 'react';
-import type { ZoomMarker, CursorPresentation } from '@rough-cut/project-model';
+import type { ZoomMarker, CursorPresentation, CameraPresentation } from '@rough-cut/project-model';
 import { InspectorShell, RECORD_PANEL_WIDTH } from '../../ui/index.js';
 import type { InspectorCategory } from '../../ui/index.js';
 import { RecordZoomPanel } from './RecordZoomPanel.js';
 import { RecordCursorPanel } from './RecordCursorPanel.js';
+import { RecordCameraPanel } from './RecordCameraPanel.js';
 import { RecordTemplatesPanel } from './RecordTemplatesPanel.js';
 import { RecordBackgroundPanel } from './RecordBackgroundPanel.js';
 import type { LayoutTemplate } from './templates.js';
@@ -19,6 +20,15 @@ import { resolutionForAspectRatio } from './templates.js';
 import { projectStore } from '../../hooks/use-stores.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface BackgroundConfig {
+  bgColor: string;
+  bgGradient: string | null;
+  bgPadding: number;
+  bgCornerRadius: number;
+  bgShadowEnabled: boolean;
+  bgShadowBlur: number;
+}
 
 export interface RecordRightPanelProps {
   durationFrames: number;
@@ -33,6 +43,13 @@ export interface RecordRightPanelProps {
   cursor: CursorPresentation;
   onCursorChange: (patch: Partial<CursorPresentation>) => void;
   onCursorReset: () => void;
+  camera: CameraPresentation;
+  onCameraChange: (patch: Partial<CameraPresentation>) => void;
+  onCameraReset: () => void;
+  /** Background/canvas config — lifted to RecordTab so LivePreviewVideo can consume it */
+  background: BackgroundConfig;
+  onBackgroundChange: (patch: Partial<BackgroundConfig>) => void;
+  onBackgroundReset: () => void;
 }
 
 // ─── Inline SVG Icons ─────────────────────────────────────────────────────────
@@ -101,6 +118,15 @@ function TemplatesIcon() {
   );
 }
 
+function CameraIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect x="1" y="4" width="10" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M11 7l3.5-2v6L11 9" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function BackgroundIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -135,6 +161,12 @@ export function RecordRightPanel({
   cursor,
   onCursorChange,
   onCursorReset,
+  camera,
+  onCameraChange,
+  onCameraReset,
+  background,
+  onBackgroundChange,
+  onBackgroundReset,
 }: RecordRightPanelProps) {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>('screen-only-16x9');
 
@@ -144,22 +176,15 @@ export function RecordRightPanel({
     projectStore.getState().updateSettings({ resolution });
   }, []);
 
-  const [bgColor, setBgColor] = useState('#000000');
-  const [bgGradient, setBgGradient] = useState<string | null>(null);
-  const [bgPadding, setBgPadding] = useState(40);
-  const [bgCornerRadius, setBgCornerRadius] = useState(12);
-  const [bgShadowEnabled, setBgShadowEnabled] = useState(true);
-  const [bgShadowBlur, setBgShadowBlur] = useState(20);
-
   const handleBgColorChange = useCallback((color: string) => {
-    setBgColor(color);
+    onBackgroundChange({ bgColor: color });
     projectStore.getState().updateSettings({ backgroundColor: color });
-  }, []);
+  }, [onBackgroundChange]);
 
   const handleBgGradientChange = useCallback((gradient: string | null) => {
-    setBgGradient(gradient);
+    onBackgroundChange({ bgGradient: gradient });
     // TODO: store gradient in project settings when BackgroundConfig supports it
-  }, []);
+  }, [onBackgroundChange]);
 
   const categories: InspectorCategory[] = [
     {
@@ -178,30 +203,32 @@ export function RecordRightPanel({
       label: 'Background',
       icon: <BackgroundIcon />,
       onReset: () => {
-        setBgColor('#000000');
-        setBgGradient(null);
-        setBgPadding(40);
-        setBgCornerRadius(12);
-        setBgShadowEnabled(true);
-        setBgShadowBlur(20);
+        onBackgroundReset();
         projectStore.getState().updateSettings({ backgroundColor: '#000000' });
       },
       panel: (
         <RecordBackgroundPanel
-          backgroundColor={bgColor}
+          backgroundColor={background.bgColor}
           onBackgroundColorChange={handleBgColorChange}
-          backgroundGradient={bgGradient}
+          backgroundGradient={background.bgGradient}
           onBackgroundGradientChange={handleBgGradientChange}
-          padding={bgPadding}
-          onPaddingChange={setBgPadding}
-          cornerRadius={bgCornerRadius}
-          onCornerRadiusChange={setBgCornerRadius}
-          shadowEnabled={bgShadowEnabled}
-          onShadowEnabledChange={setBgShadowEnabled}
-          shadowBlur={bgShadowBlur}
-          onShadowBlurChange={setBgShadowBlur}
+          padding={background.bgPadding}
+          onPaddingChange={(v) => onBackgroundChange({ bgPadding: v })}
+          cornerRadius={background.bgCornerRadius}
+          onCornerRadiusChange={(v) => onBackgroundChange({ bgCornerRadius: v })}
+          shadowEnabled={background.bgShadowEnabled}
+          onShadowEnabledChange={(v) => onBackgroundChange({ bgShadowEnabled: v })}
+          shadowBlur={background.bgShadowBlur}
+          onShadowBlurChange={(v) => onBackgroundChange({ bgShadowBlur: v })}
         />
       ),
+    },
+    {
+      id: 'camera',
+      label: 'Camera',
+      icon: <CameraIcon />,
+      onReset: onCameraReset,
+      panel: <RecordCameraPanel camera={camera} onCameraChange={onCameraChange} />,
     },
     {
       id: 'zoom',

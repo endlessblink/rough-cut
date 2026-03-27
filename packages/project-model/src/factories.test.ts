@@ -7,8 +7,9 @@ import {
   createEffectInstance,
   createKeyframeTrack,
   createKeyframe,
+  createDefaultCameraPresentation,
 } from './factories.js';
-import { validateProject } from './schemas.js';
+import { validateProject, CameraPresentationSchema } from './schemas.js';
 import type { AssetId, TrackId } from './types.js';
 
 describe('factories', () => {
@@ -126,6 +127,21 @@ describe('factories', () => {
     it('accepts easing overrides', () => {
       const kf = createKeyframe(0, 0, { easing: 'ease-in' });
       expect(kf.easing).toBe('ease-in');
+    });
+  });
+
+  describe('createDefaultCameraPresentation', () => {
+    it('returns expected defaults', () => {
+      const camera = createDefaultCameraPresentation();
+      expect(camera.shape).toBe('rounded');
+      expect(camera.roundness).toBe(50);
+      expect(camera.size).toBe(100);
+      expect(camera.visible).toBe(true);
+    });
+
+    it('passes CameraPresentationSchema validation', () => {
+      const camera = createDefaultCameraPresentation();
+      expect(() => CameraPresentationSchema.parse(camera)).not.toThrow();
     });
   });
 

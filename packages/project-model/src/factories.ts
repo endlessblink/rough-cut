@@ -23,6 +23,7 @@ import type {
   ZoomMarker,
   ZoomPresentation,
   CursorPresentation,
+  CameraPresentation,
   RecordingPresentation,
   BackgroundConfig,
 } from './types.js';
@@ -185,10 +186,15 @@ export function createDefaultCursorPresentation(): CursorPresentation {
   };
 }
 
+export function createDefaultCameraPresentation(): CameraPresentation {
+  return { shape: 'rounded', roundness: 50, size: 100, visible: true };
+}
+
 export function createDefaultRecordingPresentation(): RecordingPresentation {
   return {
     zoom: createDefaultZoomPresentation(),
     cursor: createDefaultCursorPresentation(),
+    camera: createDefaultCameraPresentation(),
   };
 }
 

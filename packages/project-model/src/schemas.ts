@@ -85,11 +85,23 @@ export const CursorPresentationSchema = z.object({
   clickSoundEnabled: z.boolean(),
 });
 
+// --- CameraPresentation ---
+
+export const CameraShapeSchema = z.enum(['circle', 'rounded', 'square']);
+
+export const CameraPresentationSchema = z.object({
+  shape: CameraShapeSchema,
+  roundness: z.number().min(0).max(100),
+  size: z.number().min(50).max(200),
+  visible: z.boolean(),
+});
+
 // --- RecordingPresentation ---
 
 export const RecordingPresentationSchema = z.object({
   zoom: ZoomPresentationSchema,
   cursor: CursorPresentationSchema,
+  camera: CameraPresentationSchema,
 });
 
 export const AssetSchema = z.object({

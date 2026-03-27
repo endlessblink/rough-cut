@@ -7,6 +7,7 @@ import {
   createClip,
   createAsset,
   createEffectInstance,
+  createDefaultCameraPresentation,
 } from '@rough-cut/project-model';
 import type { StoreApi } from 'zustand/vanilla';
 import type { ProjectStore } from './project-store.js';
@@ -485,6 +486,47 @@ describe('projectStore', () => {
       const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
       const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
       expect(updatedClip?.effects[0]?.params).toEqual({ blur: 30 });
+    });
+  });
+
+  describe('updateCameraPresentation', () => {
+    it('updates camera shape on an asset', () => {
+      const asset = createAsset('recording', '/path/to/recording.mp4');
+      store.getState().addAsset(asset);
+
+      store.getState().updateCameraPresentation(asset.id, { shape: 'circle' });
+
+      const updated = store.getState().project.assets.find((a) => a.id === asset.id);
+      expect(updated?.presentation?.camera.shape).toBe('circle');
+    });
+
+    it('partial patch preserves other camera fields', () => {
+      const asset = createAsset('recording', '/path/to/recording.mp4');
+      store.getState().addAsset(asset);
+
+      store.getState().updateCameraPresentation(asset.id, { size: 150 });
+
+      const updated = store.getState().project.assets.find((a) => a.id === asset.id);
+      const defaults = createDefaultCameraPresentation();
+      expect(updated?.presentation?.camera.size).toBe(150);
+      expect(updated?.presentation?.camera.shape).toBe(defaults.shape);
+      expect(updated?.presentation?.camera.visible).toBe(defaults.visible);
+    });
+
+    it('is undoable', () => {
+      const asset = createAsset('recording', '/path/to/recording.mp4');
+      store.getState().addAsset(asset);
+
+      store.getState().updateCameraPresentation(asset.id, { shape: 'square' });
+      expect(
+        store.getState().project.assets.find((a) => a.id === asset.id)?.presentation?.camera.shape,
+      ).toBe('square');
+
+      store.temporal.getState().undo();
+
+      const afterUndo = store.getState().project.assets.find((a) => a.id === asset.id);
+      // After undo, camera should be back to default (rounded) or absent
+      expect(afterUndo?.presentation?.camera.shape).not.toBe('square');
     });
   });
 

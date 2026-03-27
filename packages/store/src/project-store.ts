@@ -11,9 +11,10 @@ import type {
   ZoomMarker,
   ZoomMarkerId,
   CursorPresentation,
+  CameraPresentation,
   EffectInstance,
 } from '@rough-cut/project-model';
-import { createProject, createZoomMarker, createDefaultRecordingPresentation, createDefaultCursorPresentation } from '@rough-cut/project-model';
+import { createProject, createZoomMarker, createDefaultRecordingPresentation, createDefaultCursorPresentation, createDefaultCameraPresentation } from '@rough-cut/project-model';
 import {
   addClipToTrack,
   removeClipFromTrack,
@@ -30,6 +31,8 @@ export interface ProjectState {
   project: ProjectDocument;
   /** Whether the project has unsaved changes */
   isDirty: boolean;
+  /** Absolute path to the .roughcut file on disk, null if the project has never been saved */
+  projectFilePath: string | null;
 }
 
 export interface ProjectActions {
@@ -39,6 +42,8 @@ export interface ProjectActions {
   updateProject: (fn: (draft: ProjectDocument) => ProjectDocument) => void;
   /** Mark as saved (resets isDirty) */
   markSaved: () => void;
+  /** Set the absolute path to the .roughcut file (null = unsaved) */
+  setProjectFilePath: (path: string | null) => void;
 
   // Clip actions
   addClip: (trackId: TrackId, clip: Clip) => void;
@@ -79,6 +84,10 @@ export interface ProjectActions {
   updateRecordingCursor: (assetId: AssetId, patch: Partial<CursorPresentation>) => void;
   resetRecordingCursor: (assetId: AssetId) => void;
 
+  // Recording presentation — camera
+  updateCameraPresentation: (assetId: AssetId, patch: Partial<CameraPresentation>) => void;
+  resetCameraPresentation: (assetId: AssetId) => void;
+
   // Clip effect actions
   addClipEffect: (trackId: TrackId, clipId: ClipId, effect: EffectInstance) => void;
   updateClipEffect: (trackId: TrackId, clipId: ClipId, effectIndex: number, patch: Partial<EffectInstance>) => void;
@@ -93,9 +102,10 @@ export function createProjectStore() {
       (set, get) => ({
         project: createProject(),
         isDirty: false,
+        projectFilePath: null,
 
         setProject: (project: ProjectDocument) => {
-          set({ project, isDirty: true });
+          set({ project, isDirty: true, projectFilePath: null });
         },
 
         updateProject: (fn: (draft: ProjectDocument) => ProjectDocument) => {
@@ -104,6 +114,10 @@ export function createProjectStore() {
 
         markSaved: () => {
           set({ isDirty: false });
+        },
+
+        setProjectFilePath: (path) => {
+          set({ projectFilePath: path });
         },
 
         addClip: (trackId: TrackId, clip: Clip) => {
@@ -443,6 +457,45 @@ export function createProjectStore() {
                 presentation: {
                   ...pres,
                   cursor: createDefaultCursorPresentation(),
+                },
+              };
+            }),
+          }));
+        },
+
+        // --- Recording presentation — camera ---
+
+        updateCameraPresentation: (assetId: AssetId, patch: Partial<CameraPresentation>) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) =>
+              a.id === assetId
+                ? {
+                    ...a,
+                    presentation: {
+                      ...(a.presentation ?? createDefaultRecordingPresentation()),
+                      camera: {
+                        ...(a.presentation ?? createDefaultRecordingPresentation()).camera,
+                        ...patch,
+                      },
+                    },
+                  }
+                : a,
+            ),
+          }));
+        },
+
+        resetCameraPresentation: (assetId: AssetId) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  camera: createDefaultCameraPresentation(),
                 },
               };
             }),

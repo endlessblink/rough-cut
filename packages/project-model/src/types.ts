@@ -70,9 +70,19 @@ export interface CursorPresentation {
   readonly clickSoundEnabled: boolean;
 }
 
+export type CameraShape = 'circle' | 'rounded' | 'square';
+
+export interface CameraPresentation {
+  readonly shape: CameraShape;
+  readonly roundness: number;
+  readonly size: number;
+  readonly visible: boolean;
+}
+
 export interface RecordingPresentation {
   readonly zoom: ZoomPresentation;
   readonly cursor: CursorPresentation;
+  readonly camera: CameraPresentation;
   // highlights, titles to be added later
 }
 
