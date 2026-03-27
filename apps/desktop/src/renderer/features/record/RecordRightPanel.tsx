@@ -145,6 +145,7 @@ export function RecordRightPanel({
   }, []);
 
   const [bgColor, setBgColor] = useState('#000000');
+  const [bgGradient, setBgGradient] = useState<string | null>(null);
   const [bgPadding, setBgPadding] = useState(40);
   const [bgCornerRadius, setBgCornerRadius] = useState(12);
   const [bgShadowEnabled, setBgShadowEnabled] = useState(true);
@@ -153,6 +154,11 @@ export function RecordRightPanel({
   const handleBgColorChange = useCallback((color: string) => {
     setBgColor(color);
     projectStore.getState().updateSettings({ backgroundColor: color });
+  }, []);
+
+  const handleBgGradientChange = useCallback((gradient: string | null) => {
+    setBgGradient(gradient);
+    // TODO: store gradient in project settings when BackgroundConfig supports it
   }, []);
 
   const categories: InspectorCategory[] = [
@@ -173,6 +179,7 @@ export function RecordRightPanel({
       icon: <BackgroundIcon />,
       onReset: () => {
         setBgColor('#000000');
+        setBgGradient(null);
         setBgPadding(40);
         setBgCornerRadius(12);
         setBgShadowEnabled(true);
@@ -183,6 +190,8 @@ export function RecordRightPanel({
         <RecordBackgroundPanel
           backgroundColor={bgColor}
           onBackgroundColorChange={handleBgColorChange}
+          backgroundGradient={bgGradient}
+          onBackgroundGradientChange={handleBgGradientChange}
           padding={bgPadding}
           onPaddingChange={setBgPadding}
           cornerRadius={bgCornerRadius}
