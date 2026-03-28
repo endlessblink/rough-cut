@@ -251,8 +251,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
           recordState={recordState}
           onClickRecord={handleClickRecord}
           elapsedSeconds={elapsedSeconds}
-          resolutionLabel="1920×1080"
-          fpsLabel="60 fps"
+          resolutionLabel={`${resolution.width}×${resolution.height}`}
+          fpsLabel={`${projectFps} fps`}
         />
       </div>
 
@@ -265,6 +265,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
               hasActiveSource={Boolean(selectedSourceId) || hasRecordingAsset}
               hasRecordingAsset={hasRecordingAsset}
               onChooseSource={() => setIsSourcePickerOpen(true)}
+              aspectRatio={`${resolution.width} / ${resolution.height}`}
             >
               {selectedSourceId ? (
                 // Live preview: show the capture stream directly

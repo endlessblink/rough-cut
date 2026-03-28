@@ -4,6 +4,8 @@ interface PreviewCardProps {
   hasActiveSource?: boolean;
   hasRecordingAsset?: boolean;
   onChooseSource?: () => void;
+  /** Aspect ratio string e.g. '16 / 9', '9 / 16', '1 / 1'. Defaults to '16 / 9'. */
+  aspectRatio?: string;
   children?: React.ReactNode;
 }
 
@@ -126,7 +128,7 @@ function PreviewEmptyState({ onChooseSource }: PreviewEmptyStateProps) {
 // Children (<video> or compositor <canvas>) are DIRECT children and must use
 // position: absolute; inset: 0 to fill the card. No wrapper divs.
 
-export function PreviewCard({ hasActiveSource = false, hasRecordingAsset = false, onChooseSource, children }: PreviewCardProps) {
+export function PreviewCard({ hasActiveSource = false, hasRecordingAsset = false, onChooseSource, aspectRatio = '16 / 9', children }: PreviewCardProps) {
   const showContent = (hasActiveSource || hasRecordingAsset) && children;
 
   return (
@@ -135,7 +137,7 @@ export function PreviewCard({ hasActiveSource = false, hasRecordingAsset = false
         position: 'relative',
         width: '100%',
         maxWidth: 1040,
-        aspectRatio: '16 / 9',
+        aspectRatio,
         background: '#050505',
         borderRadius: 18,
         boxShadow: '0 18px 60px rgba(0,0,0,0.80)',
