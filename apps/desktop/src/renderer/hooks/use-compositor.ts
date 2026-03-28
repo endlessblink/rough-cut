@@ -2,12 +2,24 @@ import { useCallback, useState } from 'react';
 import { PreviewCompositor, PlaybackController } from '@rough-cut/preview-renderer';
 import { projectStore, transportStore } from './use-stores.js';
 
-// Module-level singleton — survives tab switches
+// Module-level singletons — survive tab switches
 let sharedCompositor: PreviewCompositor | null = null;
 let sharedCanvas: HTMLCanvasElement | null = null;
 let initPromise: Promise<void> | null = null;
+let playbackController: PlaybackController | null = null;
+
+/** Ensure PlaybackController exists — independent of compositor init */
+function ensurePlayback(): void {
+  if (!playbackController) {
+    console.log('[ensurePlayback] Creating PlaybackController');
+    playbackController = new PlaybackController(transportStore, projectStore);
+  }
+}
 
 function ensureCompositor(): void {
+  // Always create playback controller (doesn't need PixiJS)
+  ensurePlayback();
+
   if (!sharedCompositor) {
     const { width, height } = projectStore.getState().project.settings.resolution;
     sharedCompositor = new PreviewCompositor(
@@ -28,9 +40,6 @@ function ensureCompositor(): void {
       transportStore.subscribe((state) => {
         sharedCompositor?.seekTo(state.playheadFrame);
       });
-
-      // Wire playback clock to transport store
-      new PlaybackController(transportStore, projectStore);
 
       // Apply current state
       const currentState = projectStore.getState();

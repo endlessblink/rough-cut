@@ -1,61 +1,34 @@
 import React, { useState } from 'react';
 
+// ─── Props ────────────────────────────────────────────────────────────────────
+
 interface PreviewCardProps {
   hasActiveSource?: boolean;
-  hasRecordingAsset?: boolean;
   onChooseSource?: () => void;
-  /** Aspect ratio string e.g. '16 / 9', '9 / 16', '1 / 1'. Defaults to '16 / 9'. */
+  /** CSS aspect-ratio value, e.g. '16 / 9', '9 / 16', '1 / 1' */
   aspectRatio?: string;
+  /** Background solid color (hex) */
+  bgColor?: string;
+  /** Background CSS gradient string (takes priority over bgColor) */
+  bgGradient?: string | null;
+  /** Padding between background edge and video content (px) */
+  bgPadding?: number;
+  /** Corner radius on the video content (px) */
+  bgCornerRadius?: number;
+  /** Whether to show a drop shadow on the video content */
+  bgShadowEnabled?: boolean;
+  /** Shadow blur radius (px) */
+  bgShadowBlur?: number;
+  /** Inset border width around video content (px) */
+  bgInset?: number;
+  /** Inset border color (hex) */
+  bgInsetColor?: string;
   children?: React.ReactNode;
 }
 
-// ─── EmptyIcon ──────────────────────────────────────────────────────────────
+// ─── Empty state ──────────────────────────────────────────────────────────────
 
-function EmptyIcon() {
-  return (
-    <div
-      style={{
-        width: 48,
-        height: 48,
-        borderRadius: 8,
-        border: '1px solid rgba(255,255,255,0.10)',
-        background: 'rgba(255,255,255,0.02)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-        <rect
-          x="2"
-          y="4"
-          width="20"
-          height="14"
-          rx="2"
-          stroke="rgba(255,255,255,0.60)"
-          strokeWidth="1.5"
-        />
-        <line
-          x1="8"
-          y1="21"
-          x2="16"
-          y2="21"
-          stroke="rgba(255,255,255,0.60)"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-      </svg>
-    </div>
-  );
-}
-
-// ─── PreviewEmptyState ──────────────────────────────────────────────────────
-
-interface PreviewEmptyStateProps {
-  onChooseSource?: () => void;
-}
-
-function PreviewEmptyState({ onChooseSource }: PreviewEmptyStateProps) {
+function PreviewEmptyState({ onChooseSource }: { onChooseSource?: () => void }) {
   const [btnHovered, setBtnHovered] = useState(false);
 
   return (
@@ -71,24 +44,23 @@ function PreviewEmptyState({ onChooseSource }: PreviewEmptyStateProps) {
         userSelect: 'none',
       }}
     >
-      <EmptyIcon />
-      <span
+      <div
         style={{
-          fontSize: 14,
-          fontWeight: 500,
-          color: 'rgba(255,255,255,0.88)',
+          width: 48, height: 48, borderRadius: 8,
+          border: '1px solid rgba(255,255,255,0.10)',
+          background: 'rgba(255,255,255,0.02)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
       >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <rect x="2" y="4" width="20" height="14" rx="2" stroke="rgba(255,255,255,0.60)" strokeWidth="1.5" />
+          <line x1="8" y1="21" x2="16" y2="21" stroke="rgba(255,255,255,0.60)" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </div>
+      <span style={{ fontSize: 14, fontWeight: 500, color: 'rgba(255,255,255,0.88)' }}>
         Select a source to preview
       </span>
-      <span
-        style={{
-          fontSize: 12,
-          fontWeight: 400,
-          lineHeight: 1.5,
-          color: 'rgba(255,255,255,0.60)',
-        }}
-      >
+      <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.60)', lineHeight: 1.5 }}>
         Choose a screen or window to start recording.
       </span>
       {onChooseSource && (
@@ -97,21 +69,11 @@ function PreviewEmptyState({ onChooseSource }: PreviewEmptyStateProps) {
           onMouseEnter={() => setBtnHovered(true)}
           onMouseLeave={() => setBtnHovered(false)}
           style={{
-            marginTop: 6,
-            height: 32,
-            padding: '0 16px',
-            borderRadius: 999,
-            fontSize: 12,
-            fontWeight: 500,
-            border: btnHovered
-              ? '1px solid rgba(255,255,255,0.32)'
-              : '1px solid rgba(255,255,255,0.20)',
-            background: btnHovered
-              ? 'rgba(255,255,255,0.10)'
-              : 'rgba(255,255,255,0.06)',
+            marginTop: 6, height: 32, padding: '0 16px', borderRadius: 999,
+            fontSize: 12, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer',
+            border: btnHovered ? '1px solid rgba(255,255,255,0.32)' : '1px solid rgba(255,255,255,0.20)',
+            background: btnHovered ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.06)',
             color: 'rgba(255,255,255,0.88)',
-            cursor: 'pointer',
-            fontFamily: 'inherit',
             transition: 'background 120ms ease, border-color 120ms ease',
           }}
         >
@@ -122,14 +84,44 @@ function PreviewEmptyState({ onChooseSource }: PreviewEmptyStateProps) {
   );
 }
 
-// ─── PreviewCard ────────────────────────────────────────────────────────────
+// ─── PreviewCard ──────────────────────────────────────────────────────────────
 //
-// Simple positioned box with aspect-ratio: 16/9.
-// Children (<video> or compositor <canvas>) are DIRECT children and must use
-// position: absolute; inset: 0 to fill the card. No wrapper divs.
+// 3-layer architecture (matches Recordly/Screen Studio):
+//
+//   Layer 1: Background    — CSS gradient or solid color, fills entire card
+//   Layer 2: Content frame — padded, rounded, shadowed container for video
+//   Layer 3: Children      — <video> or <canvas>, fills the content frame
+//
+// When no source is selected, shows the empty state with a dark background.
 
-export function PreviewCard({ hasActiveSource = false, hasRecordingAsset = false, onChooseSource, aspectRatio = '16 / 9', children }: PreviewCardProps) {
-  const showContent = (hasActiveSource || hasRecordingAsset) && children;
+export function PreviewCard({
+  hasActiveSource = false,
+  onChooseSource,
+  aspectRatio = '16 / 9',
+  bgColor = '#050505',
+  bgGradient = null,
+  bgPadding = 0,
+  bgCornerRadius = 0,
+  bgShadowEnabled = false,
+  bgShadowBlur = 20,
+  bgInset = 0,
+  bgInsetColor = '#ffffff',
+  children,
+}: PreviewCardProps) {
+  const showContent = hasActiveSource && children;
+
+  // Background: gradient takes priority over solid color
+  const backgroundStyle = bgGradient ?? bgColor;
+
+  // Shadow on the content frame
+  const contentShadow = bgShadowEnabled
+    ? `0 ${Math.round(bgShadowBlur * 0.3)}px ${bgShadowBlur}px rgba(0,0,0,0.6)`
+    : 'none';
+
+  // Inset border on the content frame
+  const contentBorder = bgInset > 0
+    ? `${bgInset}px solid ${bgInsetColor}`
+    : 'none';
 
   return (
     <div
@@ -138,45 +130,51 @@ export function PreviewCard({ hasActiveSource = false, hasRecordingAsset = false
         width: '100%',
         maxWidth: 1040,
         aspectRatio,
-        background: '#050505',
         borderRadius: 18,
-        boxShadow: '0 18px 60px rgba(0,0,0,0.80)',
         overflow: 'hidden',
+        // When showing content, use the configured background; otherwise dark
+        background: showContent ? backgroundStyle : '#050505',
+        boxShadow: '0 18px 60px rgba(0,0,0,0.80)',
+        transition: 'aspect-ratio 300ms ease, background 200ms ease',
       }}
     >
       {showContent ? (
-        // Children render as DIRECT children — no wrapper divs
-        children
+        // ── Active preview: background + content frame + children ──
+        <div
+          style={{
+            position: 'absolute',
+            inset: bgPadding,
+            borderRadius: bgCornerRadius,
+            overflow: 'hidden',
+            boxShadow: contentShadow,
+            border: contentBorder,
+            transition: 'inset 200ms ease, border-radius 200ms ease, box-shadow 200ms ease',
+          }}
+        >
+          {/* Children (video/canvas) fill the content frame */}
+          {children}
+        </div>
       ) : (
+        // ── Empty state ──
         <>
-          {/* Vignette overlay */}
           <div
             style={{
-              position: 'absolute',
-              inset: 0,
-              background:
-                'radial-gradient(circle at 50% 0%, rgba(255,255,255,0.04) 0%, rgba(0,0,0,0.85) 55%, #000000 100%)',
+              position: 'absolute', inset: 0,
+              background: 'radial-gradient(circle at 50% 0%, rgba(255,255,255,0.04) 0%, rgba(0,0,0,0.85) 55%, #000 100%)',
               pointerEvents: 'none',
             }}
           />
-          {/* Faint inner border */}
           <div
             style={{
-              position: 'absolute',
-              inset: 0,
+              position: 'absolute', inset: 0,
               boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.03)',
-              borderRadius: 18,
-              pointerEvents: 'none',
+              borderRadius: 18, pointerEvents: 'none',
             }}
           />
-          {/* Empty state */}
           <div
             style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
           >
             <PreviewEmptyState onChooseSource={onChooseSource} />

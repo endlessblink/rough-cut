@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol, net, screen } from 'electron';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -27,6 +27,39 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false, // needed for preload to access electron modules
     },
+  });
+
+  // Configure window.open() from renderer to create floating panel windows
+  // This allows ReactDOM.createPortal to render into child windows (same process)
+  mainWindow.webContents.setWindowOpenHandler(({ url, features }) => {
+    // Position the panel bottom-center of the current display
+    const display = screen.getDisplayMatching(mainWindow.getBounds());
+    const { width: dw, height: dh, x: dx, y: dy } = display.workArea;
+    const panelWidth = 500;
+    const panelHeight = 460;
+
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        width: panelWidth,
+        height: panelHeight,
+        x: dx + Math.round((dw - panelWidth) / 2),
+        y: dy + dh - panelHeight - 80,
+        frame: false,
+        transparent: true,
+        alwaysOnTop: true,
+        resizable: false,
+        skipTaskbar: true,
+        hasShadow: true,
+        roundedCorners: true,
+        webPreferences: {
+          preload: join(__dirname, '..', 'preload', 'index.mjs'),
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: false,
+        },
+      },
+    };
   });
 
   // In dev, load from Vite dev server
