@@ -27,13 +27,13 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 
 | Area | Done | Remaining |
 |------|------|-----------|
-| Record Tab | 11 | 6 |
+| Record Tab | 12 | 5 |
 | Edit Tab | 8 | 11 |
 | Motion Tab | 0 | 7 |
 | AI Tab | 0 | 10 |
 | Export Tab | 4 | 10 |
 | Cross-Cutting | 2 | 6 |
-| **Total** | **25** | **50** |
+| **Total** | **26** | **49** |
 
 ---
 
@@ -61,6 +61,7 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 |----|-------|----------|--------|--------------|
 | TASK-012 | Record: Enable audio capture (mic + system audio) | P0 | TODO | TASK-010 |
 | TASK-013 | Record: PixiJS live preview (replace `<video>` with compositor) | P0 | TODO | TASK-007, TASK-011 |
+| ~~BUG-001~~ | Fix: Compositor canvas sizing + video sprite positioning | P0 | DONE | TASK-007 |
 | TASK-014 | Record: Webcam PiP (render in compositor with shape/position) | P0 | TODO | TASK-013 |
 | TASK-015 | Record: Serialize recording effects to clips (bg, corners, shadow → Effect entries) | P0 | TODO | TASK-011 |
 | TASK-016 | Record: Create separate Assets for webcam + audio on stop | P0 | TODO | TASK-012, TASK-014 |
@@ -165,3 +166,4 @@ Recent projects list with filtering, new/open project flows. IPC integration for
 - ~~TASK-009~~ Electron app shell + IPC bridge
 - ~~TASK-010~~ Capture service (desktopCapturer)
 - ~~TASK-011~~ Record tab UI + inspector panels
+- ~~BUG-001~~ Fix: Compositor canvas sizing + video sprite positioning

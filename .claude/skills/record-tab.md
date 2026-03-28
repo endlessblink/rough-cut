@@ -139,12 +139,19 @@ PreviewCard (outer div)
   overflow: hidden
   border-radius: 18px
   │
-  ├── <video> OR <canvas>      ← DIRECT child, no wrapper divs
+  ├── <video>                  ← DIRECT child, no wrapper divs
   │     position: absolute
   │     inset: 0
   │     width: 100%
   │     height: 100%
-  │     object-fit: contain
+  │     object-fit: contain    ← works on <video>, NOT on <canvas>
+  │
+  ├── <canvas> (compositor)    ← DIRECT child via useCompositor callback ref
+  │     position: absolute
+  │     inset: 0
+  │     width: 100%
+  │     height: 100%
+  │     (no object-fit — canvas ignores it; CSS stretches to fill host)
   │
   ├── overlay div (vignette)   ← sibling, higher z-index, pointer-events: none
   └── overlay div (border)     ← sibling, higher z-index, pointer-events: none
@@ -270,6 +277,12 @@ function useLivePreview(sourceId: string | null) {
 3. **Using callback ref instead of useEffect for srcObject**: Callback refs fire synchronously during render. `srcObject` assignment and `.play()` should happen in an effect with proper cleanup.
 
 4. **Not verifying which component renders**: Before debugging CSS, ALWAYS confirm the target component is in the DOM (add `border: 3px solid red` or check via DevTools/Playwright).
+
+5. **PixiJS `autoDensity` overwrites canvas CSS**: With `autoDensity: true`, PixiJS sets `canvas.style.width/height` on every `renderer.resize()` call, overwriting any CSS you set. Use `autoDensity: false` + `resolution: 1` and manage CSS yourself.
+
+6. **useCompositor timing race**: `ensureCompositor()` must run synchronously in the hook body (NOT in `useEffect`). The callback ref fires during React's commit phase (before effects). If `initPromise` is null when the ref fires, `attachCanvasToHost` never runs and the canvas is never attached to the DOM.
+
+7. **PixiJS sprite anchor vs position**: Default `anchorX/Y: 0.5` sets the container pivot to the center of the sprite. If `container.position` isn't also set to the center of the frame, the sprite will be offset. Correct: `position.set(anchorX * frameWidth + x, anchorY * frameHeight + y)`.
 
 ## IPC Channels
 

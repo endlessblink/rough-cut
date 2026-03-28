@@ -157,6 +157,35 @@ From the project constitution:
 └─────────────────────────────────────────────────┘
 ```
 
+## Canvas Mounting — useCompositor Hook
+
+The compositor canvas is mounted into the DOM via `useCompositor()` hook (`apps/desktop/src/renderer/hooks/use-compositor.ts`). This hook manages a module-level singleton compositor that survives tab switches.
+
+### Critical Implementation Details
+
+1. **Singleton pattern**: `sharedCompositor`, `sharedCanvas`, and `initPromise` are module-level variables. `ensureCompositor()` is idempotent — only creates the compositor once.
+
+2. **Timing**: `ensureCompositor()` MUST run synchronously in the hook body, not in `useEffect`. React's callback ref fires during commit (before effects). If `initPromise` is null when the ref fires, the canvas never gets attached.
+
+3. **Canvas CSS**: PixiJS `autoDensity` must be `false` with `resolution: 1`. Otherwise PixiJS overwrites `canvas.style.width/height` on every `renderer.resize()`. The canvas uses `position: absolute; inset: 0; width: 100%; height: 100%` to fill its host.
+
+4. **Host requirements**: The host div must have `position: relative` (or `absolute` with `inset: 0`) and `aspect-ratio: 16/9` matching the project resolution. Both `EditPreviewStage.tsx` and `RecordTab.tsx` follow this pattern.
+
+5. **setProject guard**: `PreviewCompositor.setProject()` only calls `renderer.resize()` when the resolution actually changes, preventing CSS overwrite on every store update.
+
+### Video Sprite Positioning
+
+With default anchor `(0.5, 0.5)`, the container position must compensate for the pivot:
+```ts
+container.position.set(
+  transform.anchorX * frameWidth + transform.x,
+  transform.anchorY * frameHeight + transform.y,
+);
+container.pivot.set(transform.anchorX * frameWidth, transform.anchorY * frameHeight);
+```
+
+Without the position compensation, the sprite's center aligns with the stage corner, rendering only one quadrant visible.
+
 ## PixiJS Filter Pipeline
 
 Filters attach via `.filters` array on any Container/Sprite. Applied in array order. Each filter renders to a temporary framebuffer, then passes to next filter (ping-pong).
@@ -222,6 +251,8 @@ apps/desktop/src/renderer/
 - **Dispose PixiJS resources on unmount** — textures, filters, render targets
 - **Buffer state until compositor is ready** — setProject() before init() must not crash
 - **All PixiJS imports stay in preview-renderer package** — never leak to other packages
+- **PixiJS `autoDensity` must be `false`** — otherwise PixiJS overwrites canvas CSS on every resize, breaking the host-based sizing
+- **`ensureCompositor()` must be synchronous** — never in useEffect; callback refs fire before effects
 
 ## What NOT to Do
 
