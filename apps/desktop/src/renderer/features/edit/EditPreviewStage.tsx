@@ -59,6 +59,7 @@ export function EditPreviewStage({ previewRef, children }: EditPreviewStageProps
             <div
               ref={previewRef}
               style={{
+                position: 'relative',
                 aspectRatio: '16 / 9',
                 width: '100%',
                 borderRadius: 18,

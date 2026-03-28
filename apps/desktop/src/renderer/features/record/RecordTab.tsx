@@ -186,9 +186,10 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     if (status === 'recording') {
       void window.roughcut.recordingSessionStop();
     } else if (status !== 'stopping' && status !== 'loading-sources' && status !== 'countdown') {
+      if (!selectedSourceId) return; // Can't record without a source
       void window.roughcut.recordingSessionStart();
     }
-  }, [status]);
+  }, [status, selectedSourceId]);
 
   useEffect(() => {
     const unsubCountdown = window.roughcut.onSessionCountdownTick((seconds) => {
@@ -264,7 +265,6 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
               hasActiveSource={Boolean(selectedSourceId) || hasRecordingAsset}
               hasRecordingAsset={hasRecordingAsset}
               onChooseSource={() => setIsSourcePickerOpen(true)}
-              background={background}
             >
               {selectedSourceId ? (
                 // Live preview: show the capture stream directly

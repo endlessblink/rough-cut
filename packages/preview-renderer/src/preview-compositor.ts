@@ -77,7 +77,8 @@ export class PreviewCompositor {
       height: this.config.height,
       background: this.config.backgroundColor,
       antialias: true,
-      autoDensity: true,
+      autoDensity: false,
+      resolution: 1,
     };
 
     if (this.config.canvas) {
@@ -114,7 +115,14 @@ export class PreviewCompositor {
     // Only touch the renderer if init() has completed
     if (this.initialized && this.app?.renderer) {
       const { width, height } = project.settings.resolution;
-      this.app.renderer.resize(width, height);
+      // Only resize when resolution actually changes — renderer.resize()
+      // overwrites canvas CSS dimensions (autoDensity), breaking our
+      // manual object-fit:contain sizing in use-compositor.ts
+      if (width !== this.config.width || height !== this.config.height) {
+        this.config.width = width;
+        this.config.height = height;
+        this.app.renderer.resize(width, height);
+      }
       this.renderCurrentFrame();
     }
   }
@@ -335,8 +343,12 @@ export class PreviewCompositor {
       sprite.width = frameWidth;
       sprite.height = frameHeight;
 
-      // Position container at origin (sprite fills frame)
-      container.position.set(transform.x, transform.y);
+      // Position: anchor point in the frame + user offset.
+      // pivot places the anchor point of the sprite at the container's position.
+      container.position.set(
+        transform.anchorX * frameWidth + transform.x,
+        transform.anchorY * frameHeight + transform.y,
+      );
       container.scale.set(transform.scaleX, transform.scaleY);
       container.pivot.set(transform.anchorX * frameWidth, transform.anchorY * frameHeight);
     } else {
@@ -351,7 +363,10 @@ export class PreviewCompositor {
       // Center the placeholder in the frame
       const centerX = (frameWidth - rectW) / 2;
       const centerY = (frameHeight - rectH) / 2;
-      container.position.set(centerX + transform.x, centerY + transform.y);
+      container.position.set(
+        centerX + transform.anchorX * rectW + transform.x,
+        centerY + transform.anchorY * rectH + transform.y,
+      );
       container.scale.set(transform.scaleX, transform.scaleY);
       container.pivot.set(transform.anchorX * rectW, transform.anchorY * rectH);
 
