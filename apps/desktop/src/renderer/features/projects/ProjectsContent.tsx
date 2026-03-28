@@ -1,12 +1,27 @@
 import { ProjectsHero } from './ProjectsHero.js';
+import { StorageSection } from './StorageSection.js';
 import { RecentProjectsSection } from './RecentProjectsSection.js';
+import type { RecentProjectEntry } from './types.js';
 
 interface ProjectsContentProps {
   onNewProject: () => void;
   onOpenProject: () => void;
+  recentProjects: RecentProjectEntry[];
+  isLoading: boolean;
+  onOpenPath: (filePath: string) => void;
+  onRemove: (filePath: string) => void;
+  onRefresh: () => void;
 }
 
-export function ProjectsContent({ onNewProject, onOpenProject }: ProjectsContentProps) {
+export function ProjectsContent({
+  onNewProject,
+  onOpenProject,
+  recentProjects,
+  isLoading,
+  onOpenPath,
+  onRemove,
+  onRefresh,
+}: ProjectsContentProps) {
   return (
     <div
       style={{
@@ -30,7 +45,14 @@ export function ProjectsContent({ onNewProject, onOpenProject }: ProjectsContent
         }}
       >
         <ProjectsHero onNewProject={onNewProject} onOpenProject={onOpenProject} />
-        <RecentProjectsSection />
+        <StorageSection />
+        <RecentProjectsSection
+          projects={recentProjects}
+          isLoading={isLoading}
+          onOpen={onOpenPath}
+          onRemove={onRemove}
+          onRefresh={onRefresh}
+        />
       </div>
     </div>
   );

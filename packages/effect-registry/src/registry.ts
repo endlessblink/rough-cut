@@ -4,7 +4,7 @@ const registry = new Map<string, EffectDefinition>();
 
 export function registerEffect(effect: EffectDefinition): void {
   if (registry.has(effect.type)) {
-    throw new Error(`Effect type "${effect.type}" is already registered.`);
+    return; // Already registered — idempotent for HMR and React strict mode re-mounts
   }
   registry.set(effect.type, effect);
 }

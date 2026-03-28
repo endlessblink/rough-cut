@@ -538,9 +538,9 @@ Day 10: Spike Review Meeting
 
 **Decision**: WebCodecs `VideoDecoder` for preview (renderer process, hardware-accelerated, frame-accurate). Persistent FFmpeg child process for export (main process, sequential decode). No per-frame FFmpeg CLI spawning in the UI path.
 
-**Remaining**: WebCodecs benchmark not yet run — expected <5-15ms/frame. If it underperforms, fallback is FFmpeg persistent process with 2-frame lookahead cache.
+**Remaining**: None. Both `preview-renderer` (PixiJS) and `export-renderer` (Canvas + FFmpeg) packages are implemented and follow this architecture. The `frame-resolver` package handles shared frame resolution logic.
 
-**Risk status**: Frame-accurate decoding risk is substantially retired. The architecture cleanly separates preview (WebCodecs in renderer) from export (FFmpeg in main), which aligns with the two-pipeline design.
+**Risk status**: Fully retired. Architecture implemented in production code.
 
 ### Spike 2: Per-Platform Recording — PARTIALLY RESOLVED (Linux only)
 
@@ -558,9 +558,9 @@ Day 10: Spike Review Meeting
 
 **Decision**: Use split Zustand stores — `useTransportStore` for playhead/isPlaying/playbackRate (30-60Hz updates), `useProjectStore` for ProjectDocument slices + undo/redo via zundo. All React clip components subscribe only to `useProjectStore`; preview/playhead UI subscribes only to `useTransportStore`.
 
-**Remaining**: None. This spike is fully resolved. Manual browser verification would further confirm, but the architectural analysis is definitive.
+**Remaining**: None. Fully implemented in the `@rough-cut/store` package with split stores and zundo undo/redo.
 
-**Risk status**: Timeline state performance risk is fully retired. Zustand + split stores + zundo is the confirmed stack.
+**Risk status**: Fully retired. Production store is built on this architecture.
 
 ## Exit Criteria for Phase 0
 

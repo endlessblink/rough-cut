@@ -1,9 +1,13 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol, net } from 'electron';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, writeFile } from 'node:fs/promises';
+import { existsSync, mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { getSources, saveRecording } from './recording/capture-service.mjs';
+import { initSessionManager } from './recording/recording-session-manager.mjs';
+import { getRecentProjects, addRecentProject, removeRecentProject, clearRecentProjects, getRecordingLocation, setRecordingLocation, getFavoriteLocations, addFavoriteLocation, removeFavoriteLocation } from './recent-projects-service.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -37,7 +41,7 @@ function createWindow() {
 
 // Register IPC handlers
 function registerIpcHandlers() {
-  // Project: Open -- native file dialog, read JSON, return parsed document
+  // Project: Open -- native file dialog, read JSON, return parsed document + filePath
   ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN, async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
       filters: [{ name: 'Rough Cut Project', extensions: ['roughcut'] }],
@@ -45,15 +49,34 @@ function registerIpcHandlers() {
     });
     if (result.canceled || !result.filePaths[0]) return null;
 
-    const content = await readFile(result.filePaths[0], 'utf-8');
+    const filePath = result.filePaths[0];
+    const content = await readFile(filePath, 'utf-8');
     const data = JSON.parse(content);
     // Return the raw data -- the renderer will validate via the project-model package
-    return data;
+    addRecentProject({
+      filePath,
+      name: data.name ?? filePath.split('/').pop().replace(/\.roughcut$/, ''),
+      modifiedAt: new Date().toISOString(),
+      resolution: data.settings?.resolution
+        ? `${data.settings.resolution.width}x${data.settings.resolution.height}`
+        : undefined,
+      assetCount: Array.isArray(data.assets) ? data.assets.length : undefined,
+    });
+    return { project: data, filePath };
   });
 
   // Project: Save
   ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, async (_e, { project, filePath }) => {
     await writeFile(filePath, JSON.stringify(project, null, 2), 'utf-8');
+    addRecentProject({
+      filePath,
+      name: project.name ?? filePath.split('/').pop().replace(/\.roughcut$/, ''),
+      modifiedAt: new Date().toISOString(),
+      resolution: project.settings?.resolution
+        ? `${project.settings.resolution.width}x${project.settings.resolution.height}`
+        : undefined,
+      assetCount: Array.isArray(project.assets) ? project.assets.length : undefined,
+    });
     return true;
   });
 
@@ -64,6 +87,15 @@ function registerIpcHandlers() {
     });
     if (result.canceled || !result.filePath) return null;
     await writeFile(result.filePath, JSON.stringify(project, null, 2), 'utf-8');
+    addRecentProject({
+      filePath: result.filePath,
+      name: project.name ?? result.filePath.split('/').pop().replace(/\.roughcut$/, ''),
+      modifiedAt: new Date().toISOString(),
+      resolution: project.settings?.resolution
+        ? `${project.settings.resolution.width}x${project.settings.resolution.height}`
+        : undefined,
+      assetCount: Array.isArray(project.assets) ? project.assets.length : undefined,
+    });
     return result.filePath;
   });
 
@@ -125,13 +157,199 @@ function registerIpcHandlers() {
     return result;
   });
 
+  // Recent Projects: Get (stale entries pruned automatically)
+  ipcMain.handle(IPC_CHANNELS.RECENT_PROJECTS_GET, async () => {
+    return getRecentProjects();
+  });
+
+  // Recent Projects: Remove by file path
+  ipcMain.handle(IPC_CHANNELS.RECENT_PROJECTS_REMOVE, async (_e, { filePath }) => {
+    removeRecentProject(filePath);
+  });
+
+  // Recent Projects: Clear all
+  ipcMain.handle(IPC_CHANNELS.RECENT_PROJECTS_CLEAR, async () => {
+    clearRecentProjects();
+  });
+
+  // Project: Open by known file path (no dialog)
+  ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, async (_e, { filePath }) => {
+    const content = await readFile(filePath, 'utf-8');
+    return JSON.parse(content);
+  });
+
   // App: Version
   ipcMain.handle(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion());
+
+  // Project: Auto-save — saves silently after recording completes.
+  // If filePath is provided, overwrites that file; otherwise resolves a path in ~/Documents/Rough Cut/.
+  ipcMain.handle(IPC_CHANNELS.PROJECT_AUTO_SAVE, async (_e, { project, filePath }) => {
+    try {
+      if (!filePath) {
+        const safeName = (project.name || 'Untitled Project').replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'Untitled Project';
+        // Use configured recording location, fall back to ~/Documents/Rough Cut
+        const configuredLocation = getRecordingLocation();
+        // Validate configured location exists and is usable
+        let defaultDir;
+        if (configuredLocation && existsSync(configuredLocation)) {
+          defaultDir = configuredLocation;
+        } else {
+          // Fall back to ~/Documents/Rough Cut
+          defaultDir = join(homedir(), 'Documents', 'Rough Cut');
+        }
+        if (!existsSync(defaultDir)) {
+          mkdirSync(defaultDir, { recursive: true });
+        }
+        filePath = join(defaultDir, `${safeName}.roughcut`);
+
+        if (existsSync(filePath)) {
+          // Check if the file belongs to the same project (by id); if so, overwrite is correct.
+          try {
+            const existing = JSON.parse(await readFile(filePath, 'utf-8'));
+            if (existing.id !== project.id) {
+              let i = 2;
+              while (existsSync(join(defaultDir, `${safeName} ${i}.roughcut`))) {
+                i++;
+              }
+              filePath = join(defaultDir, `${safeName} ${i}.roughcut`);
+            }
+          } catch {
+            // Unreadable file — use a numbered suffix to avoid collision.
+            let i = 2;
+            while (existsSync(join(defaultDir, `${safeName} ${i}.roughcut`))) {
+              i++;
+            }
+            filePath = join(defaultDir, `${safeName} ${i}.roughcut`);
+          }
+        }
+      }
+
+      await writeFile(filePath, JSON.stringify(project, null, 2), 'utf-8');
+
+      addRecentProject({
+        filePath,
+        name: project.name ?? filePath.split('/').pop().replace(/\.roughcut$/, ''),
+        modifiedAt: new Date().toISOString(),
+        resolution: project.settings?.resolution
+          ? `${project.settings.resolution.width}x${project.settings.resolution.height}`
+          : undefined,
+        assetCount: Array.isArray(project.assets) ? project.assets.length : undefined,
+      });
+
+      return filePath;
+    } catch (err) {
+      console.error('[auto-save] Failed:', err);
+      throw err;  // Re-throw so the renderer .catch() fires
+    }
+  });
+
+  // Storage: Get recording location
+  ipcMain.handle(IPC_CHANNELS.STORAGE_GET_RECORDING_LOCATION, () => {
+    return getRecordingLocation();
+  });
+
+  // Storage: Set recording location
+  ipcMain.handle(IPC_CHANNELS.STORAGE_SET_RECORDING_LOCATION, (_e, { path }) => {
+    setRecordingLocation(path);
+  });
+
+  // Storage: Pick directory via native dialog
+  ipcMain.handle(IPC_CHANNELS.STORAGE_PICK_DIRECTORY, async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    return result.filePaths[0];
+  });
+
+  // Storage: Get mounted volumes (Linux — reads /proc/mounts)
+  ipcMain.handle(IPC_CHANNELS.STORAGE_GET_MOUNTED_VOLUMES, async () => {
+    try {
+      const content = await readFile('/proc/mounts', 'utf-8');
+      const volumes = [];
+
+      // Filesystem types that represent real disk partitions
+      const REAL_FS_TYPES = new Set([
+        'ext4', 'ext3', 'ext2', 'btrfs', 'xfs', 'ntfs', 'ntfs3',
+        'vfat', 'fat32', 'exfat', 'fuseblk', 'nfs', 'nfs4', 'cifs', 'f2fs',
+      ]);
+
+      for (const line of content.split('\n')) {
+        const parts = line.split(' ');
+        if (parts.length < 3) continue;
+
+        const mountPoint = parts[1];
+        const fsType = parts[2];
+
+        // Only include real filesystem types
+        if (!REAL_FS_TYPES.has(fsType)) continue;
+
+        // Exclude Docker-related paths
+        if (mountPoint.includes('/docker/') || mountPoint.includes('overlay2')) continue;
+
+        // Exclude paths with long hex segments (40+ hex chars = Docker/snap hashes)
+        if (/\/[0-9a-f]{32,}/.test(mountPoint)) continue;
+
+        // Only include user-relevant mount points
+        if (
+          mountPoint === '/' ||
+          mountPoint.startsWith('/media/') ||
+          mountPoint.startsWith('/mnt/') ||
+          mountPoint === '/home'
+        ) {
+          const name = mountPoint === '/'
+            ? 'System'
+            : mountPoint === '/home'
+              ? 'Home'
+              : mountPoint.split('/').pop();
+
+          volumes.push({ path: mountPoint, name });
+        }
+      }
+
+      // Deduplicate by path
+      const seen = new Set();
+      return volumes.filter(v => {
+        if (seen.has(v.path)) return false;
+        seen.add(v.path);
+        return true;
+      });
+    } catch {
+      // Fallback for non-Linux
+      return [{ path: '/', name: 'System' }];
+    }
+  });
+
+  // Storage: Favorites CRUD
+  ipcMain.handle(IPC_CHANNELS.STORAGE_GET_FAVORITES, () => {
+    return getFavoriteLocations();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.STORAGE_ADD_FAVORITE, (_e, { path }) => {
+    addFavoriteLocation(path);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.STORAGE_REMOVE_FAVORITE, (_e, { path }) => {
+    removeFavoriteLocation(path);
+  });
 }
 
+// Register media:// as a privileged scheme (must happen before app.whenReady)
+// stream: true enables range requests for video seeking
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'media', privileges: { stream: true, bypassCSP: true } },
+]);
+
 app.whenReady().then(() => {
+  // Handle media:// URLs by serving local files with range request support
+  protocol.handle('media', (req) => {
+    const filePath = decodeURIComponent(req.url.replace('media://', ''));
+    return net.fetch(`file://${filePath}`);
+  });
+
   registerIpcHandlers();
   createWindow();
+  initSessionManager(mainWindow);
 });
 
 app.on('window-all-closed', () => {

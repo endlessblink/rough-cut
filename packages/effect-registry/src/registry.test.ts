@@ -43,9 +43,10 @@ describe('effect registry', () => {
     expect(getEffect('nonexistent')).toBeUndefined();
   });
 
-  it('throws on duplicate registration', () => {
+  it('silently ignores duplicate registration', () => {
     registerEffect(mockBlurEffect);
-    expect(() => registerEffect(mockBlurEffect)).toThrow('test-blur');
+    registerEffect(mockBlurEffect); // Should not throw
+    expect(getAllEffects()).toHaveLength(1);
   });
 
   it('getAllEffects returns all registered effects', () => {

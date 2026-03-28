@@ -198,11 +198,12 @@ Each package has a clear owner, a narrow public API, and explicit dependencies. 
 | `@rough-cut/project-model` | TypeScript types, Zod schemas, validators, factory functions, schema versioning + migrations | Types, schemas, `createProject()`, `createClip()`, `validateProject()`, `migrate()`, `CURRENT_SCHEMA_VERSION` | **None** (zero deps) |
 | `@rough-cut/timeline-engine` | Pure timeline operations (no side effects) | `placeClip()`, `trimClip()`, `splitClip()`, `resolveOverlaps()`, `snapToGrid()` | project-model |
 | `@rough-cut/effect-registry` | Effect definitions, parameter interpolation | `registerEffect()`, `getEffect()`, `interpolateParam()`, `evaluateKeyframes()` | project-model |
-| `@rough-cut/preview-renderer` | PixiJS compositor for live preview | `PreviewCompositor`: `setProject()`, `seekTo()`, `play()`, `pause()`, `resize()` | project-model, effect-registry, pixi.js |
-| `@rough-cut/export-renderer` | Headless frame-by-frame renderer for final output | `ExportPipeline`: `start()`, `abort()`, `onProgress()` | project-model, effect-registry |
-| `@rough-cut/capture` | Recording orchestration (main process only) | `CaptureSession`: `start()`, `stop()`, `pause()`, events | Electron (main only) |
+| `@rough-cut/frame-resolver` | Resolves which clips are active at a given frame, computes transforms and effect params | `resolveFrame()`, `resolveRenderState()` | project-model, timeline-engine, effect-registry |
+| `@rough-cut/preview-renderer` | PixiJS compositor for live preview | `PreviewCompositor`: `setProject()`, `seekTo()`, `play()`, `pause()`, `resize()` | frame-resolver, pixi.js |
+| `@rough-cut/export-renderer` | Headless frame-by-frame renderer for final output | `ExportPipeline`: `start()`, `abort()`, `onProgress()` | frame-resolver |
+| `@rough-cut/capture` | Recording orchestration (main process only) _(implemented as `apps/desktop/src/main/recording/capture-service.mjs`)_ | `CaptureSession`: `start()`, `stop()`, `pause()`, events | Electron (main only) |
 | `@rough-cut/store` | Zustand slices, undo/redo, selectors | Store slices, actions, selectors, `useProjectStore()` | project-model, timeline-engine, zustand |
-| `@rough-cut/ipc` | Typed IPC contract, bridge setup | `IpcContract` type, `createMainHandler()`, `createRendererClient()` | electron |
+| `@rough-cut/ipc` | Typed IPC contract, bridge setup _(implemented as `apps/desktop/src/shared/ipc-channels.mjs` + preload script)_ | `IpcContract` type, `createMainHandler()`, `createRendererClient()` | electron |
 | `@rough-cut/ai-bridge` | AI provider abstraction. **AI writes only metadata** (marks, labels, suggested cuts) into the project model — it never directly mutates clips. All clip mutations go through store/timeline-engine. | `AiProvider` interface, `suggestCuts()`, `generateCaptions()` | project-model |
 | `@rough-cut/ui` | Tab shell (AppShell, TabBar, shared layout) + per-tab submodules (`components/record/`, `components/edit/`, etc.). Each tab owns its own components, hooks, and local state. | React components | store, preview-renderer |
 
@@ -217,16 +218,23 @@ Each package has a clear owner, a narrow public API, and explicit dependencies. 
               │              │              │
     ┌─────────▼──────┐ ┌────▼─────────┐ ┌──▼──────────┐
     │ timeline-engine│ │effect-registry│ │  ai-bridge   │
-    └─────────┬──────┘ └────┬────┬────┘ └─────────────┘
-              │             │    │
-              │    ┌────────┘    └────────┐
-              │    │                      │
-    ┌─────────▼────▼─────┐  ┌────────────▼───────────┐
+    └─────────┬──────┘ └────┬─────────┘ └─────────────┘
+              │             │
+              └──────┬──────┘
+                     │
+          ┌──────────▼──────────┐
+          │   frame-resolver    │  ← resolves active clips, transforms, effect params
+          └──────────┬──────────┘
+                     │
+          ┌──────────┴──────────────────┐
+          │                             │
+    ┌─────▼──────────────┐  ┌───────────▼────────────┐
     │  preview-renderer   │  │    export-renderer      │
+    │  (+ pixi.js)        │  │    (main process)       │
     └─────────┬──────────┘  └────────────────────────┘
-              │                        (main process)
+
     ┌─────────▼──────────┐
-    │       store         │ ← also depends on timeline-engine
+    │       store         │ ← depends on project-model, timeline-engine
     └─────────┬──────────┘
               │
     ┌─────────▼──────────┐
@@ -236,10 +244,11 @@ Each package has a clear owner, a narrow public API, and explicit dependencies. 
 
 1. **`project-model`** depends on NOTHING. It is the foundation.
 2. **`timeline-engine`** and **`effect-registry`** depend only on `project-model`. They contain pure logic — fully testable without any runtime.
-3. **`preview-renderer`** and **`export-renderer`** both depend on `effect-registry` but NEVER on each other.
-4. **`ui`** NEVER imports from `preview-renderer` directly. A thin `PreviewCanvas` adapter component may host the canvas element and manage the compositor lifecycle, but rendering logic stays in `preview-renderer`.
-5. **`capture`** runs exclusively in the main process. It is never imported by renderer code.
-6. **`store`** NEVER imports from `ui`. Data flows one way: store → ui.
+3. **`frame-resolver`** depends on `project-model`, `timeline-engine`, and `effect-registry`. It is the single point where clip resolution and effect param evaluation are combined into a per-frame render state.
+4. **`preview-renderer`** and **`export-renderer`** both depend on `frame-resolver` but NEVER on each other, and NEVER directly on `effect-registry`.
+5. **`ui`** NEVER imports from `preview-renderer` directly. A thin `PreviewCanvas` adapter component may host the canvas element and manage the compositor lifecycle, but rendering logic stays in `preview-renderer`.
+6. **`capture`** runs exclusively in the main process. It is never imported by renderer code.
+7. **`store`** NEVER imports from `ui`. Data flows one way: store → ui.
 
 ### App Workspaces (Tabs)
 

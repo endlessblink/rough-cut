@@ -9,6 +9,17 @@ import { ProjectsTab } from './features/projects/ProjectsTab.js';
 import type { AppView } from './ui/index.js';
 import { projectStore, transportStore } from './hooks/use-stores.js';
 
+function generateProjectName(): string {
+  const d = new Date();
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const month = months[d.getMonth()];
+  const day = d.getDate();
+  const year = d.getFullYear();
+  const hours = d.getHours().toString().padStart(2, '0');
+  const minutes = d.getMinutes().toString().padStart(2, '0');
+  return `Recording ${month} ${day}, ${year} - ${hours}:${minutes}`;
+}
+
 type TabId = AppView;
 const TABS: { id: TabId; label: string }[] = [
   { id: 'projects', label: 'Projects' },
@@ -24,7 +35,7 @@ export function App() {
 
   // Initialize with a default project on mount
   useEffect(() => {
-    const defaultProject = createProject();
+    const defaultProject = createProject({ name: generateProjectName() });
     projectStore.getState().setProject(defaultProject);
 
     // Keep projectName in sync with store
@@ -39,9 +50,10 @@ export function App() {
 
   // --- Flow 1: Open project ---
   const handleOpen = useCallback(async (): Promise<boolean> => {
-    const data = await window.roughcut.projectOpen();
-    if (data) {
-      projectStore.getState().setProject(data as ProjectDocument);
+    const result = await window.roughcut.projectOpen();
+    if (result) {
+      projectStore.getState().setProject(result.project as ProjectDocument);
+      projectStore.getState().setProjectFilePath(result.filePath);
       transportStore.getState().seekToFrame(0);
       return true;
     }
@@ -51,8 +63,9 @@ export function App() {
   // New project
   const handleNew = useCallback(async () => {
     await window.roughcut.projectNew();
-    const project = createProject();
+    const project = createProject({ name: generateProjectName() });
     projectStore.getState().setProject(project);
+    projectStore.getState().setProjectFilePath(null);
     transportStore.getState().seekToFrame(0);
   }, []);
 
@@ -90,7 +103,29 @@ export function App() {
         sourceOut: result.durationFrames,
       });
       store.addClip(videoTrack.id, clip);
+
+      // Update composition duration so all timelines (Record, Export) render clips
+      const newDuration = Math.max(
+        projectStore.getState().project.composition.duration,
+        trackEnd + result.durationFrames,
+      );
+      projectStore.getState().updateProject((p) => ({
+        ...p,
+        composition: { ...p.composition, duration: newDuration },
+      }));
     }
+
+    // Auto-save silently after recording — fire and forget, never blocks the UI
+    const currentPath = projectStore.getState().projectFilePath;
+    const updatedProject = projectStore.getState().project;
+    window.roughcut.projectAutoSave(updatedProject, currentPath ?? undefined)
+      .then((savedPath) => {
+        projectStore.getState().setProjectFilePath(savedPath);
+        projectStore.getState().markSaved();
+      })
+      .catch((err) => {
+        console.error('[auto-save] Failed to save after recording:', err);
+      });
   }, []);
 
   // --- Tab content ---

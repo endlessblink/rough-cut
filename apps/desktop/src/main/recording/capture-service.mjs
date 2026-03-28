@@ -43,7 +43,8 @@ function parseFps(fpsStr) {
  * @returns {Promise<{filePath: string, durationFrames: number, width: number, height: number, fps: number, codec: string, fileSize: number}>}
  */
 export async function saveRecording(buffer, projectDir, metadata) {
-  // Ensure recordings directory exists
+  // When projectDir is undefined (unsaved project), recordings go to /tmp.
+  // Future: "consolidate media" feature will move /tmp files to project dir on save.
   const recordingsDir = join(projectDir || '/tmp/rough-cut', 'recordings');
   if (!existsSync(recordingsDir)) mkdirSync(recordingsDir, { recursive: true });
 

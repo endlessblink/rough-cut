@@ -1,6 +1,23 @@
 import type { ProjectDocument, ExportSettings } from '@rough-cut/project-model';
 import type { ExportProgress, ExportResult } from '@rough-cut/export-renderer';
 
+// ---- Storage types ----
+
+export interface MountedVolume {
+  path: string;
+  name: string;
+}
+
+// ---- Recent Projects types ----
+
+export interface RecentProjectEntry {
+  filePath: string;
+  name: string;
+  modifiedAt: string;
+  resolution?: string;
+  assetCount?: number;
+}
+
 // ---- Recording types ----
 
 export interface CaptureSource {
@@ -31,10 +48,11 @@ export interface RecordingResult {
 /** Type declaration for the preload API exposed on window.roughcut */
 export interface RoughCutAPI {
   // Project I/O
-  projectOpen(): Promise<ProjectDocument | null>;
+  projectOpen(): Promise<{ project: ProjectDocument; filePath: string } | null>;
   projectSave(project: ProjectDocument, filePath: string): Promise<boolean>;
   projectSaveAs(project: ProjectDocument): Promise<string | null>;
   projectNew(): Promise<null>;
+  projectOpenPath(filePath: string): Promise<ProjectDocument>;
 
   // Export
   exportStart(project: ProjectDocument, settings: ExportSettings, outputPath: string): Promise<void>;
@@ -46,8 +64,33 @@ export interface RoughCutAPI {
   recordingGetSources(): Promise<CaptureSource[]>;
   recordingSaveRecording(buffer: ArrayBuffer, metadata: RecordingMetadata): Promise<RecordingResult>;
 
+  // Recording Session (floating toolbar flow)
+  recordingSessionStart(): Promise<void>;
+  recordingSessionStop(): Promise<void>;
+  onSessionCountdownTick(callback: (seconds: number) => void): () => void;
+  onSessionStatusChanged(callback: (status: string) => void): () => void;
+  onSessionElapsed(callback: (ms: number) => void): () => void;
+  notifyToolbarReady(): void;
+
+  // Recent Projects
+  recentProjectsGet(): Promise<RecentProjectEntry[]>;
+  recentProjectsRemove(filePath: string): Promise<void>;
+  recentProjectsClear(): Promise<void>;
+
   // App
   getVersion(): Promise<string>;
+
+  // Auto-save
+  projectAutoSave(project: ProjectDocument, filePath?: string): Promise<string>;
+
+  // Storage
+  storageGetRecordingLocation(): Promise<string>;
+  storageSetRecordingLocation(path: string): Promise<void>;
+  storagePickDirectory(): Promise<string | null>;
+  storageGetMountedVolumes(): Promise<MountedVolume[]>;
+  storageGetFavorites(): Promise<string[]>;
+  storageAddFavorite(path: string): Promise<void>;
+  storageRemoveFavorite(path: string): Promise<void>;
 }
 
 declare global {

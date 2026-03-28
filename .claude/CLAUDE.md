@@ -1,5 +1,10 @@
 # Rough Cut — Project Constitution
 
+## MANDATORY: Visual Verification Before Claiming "Fixed"
+
+**No agent or instance may claim that a bug is fixed, a feature works, or a UI change is correct without visually verifying it first.** This means launching the app (`pnpm dev`), navigating to the relevant screen, and confirming the fix with your own eyes (via Playwright MCP screenshot, or by asking the user to confirm). Reading code alone is NOT sufficient — if you can't see it, you can't call it done.
+
+---
 
 You are working on the Rough Cut project (desktop screen recording + editor).
 
@@ -8,8 +13,11 @@ Before doing anything else in this session, read and obey these docs:
 - .claude/CLAUDE.md
 - docs/ARCHITECTURE.md
 - docs/MVP_SPEC.md
-- docs/RISKS_AND_PLAN.md
-- docs/SPIKES_PHASE0.md
+- docs/RISKS_AND_NEXT_STEPS.md
+- docs/SPIKE_PLAN.md
+- docs/INVARIANTS.md
+- docs/IMPLEMENTATION_PLAN.md
+- docs/MASTER_PLAN.md
 
 These files are the project constitution and the ultimate source of truth.
 

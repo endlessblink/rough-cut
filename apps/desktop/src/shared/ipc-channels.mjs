@@ -5,6 +5,12 @@ export const IPC_CHANNELS = {
   PROJECT_SAVE: 'project:save',
   PROJECT_SAVE_AS: 'project:save-as',
   PROJECT_NEW: 'project:new',
+  PROJECT_OPEN_PATH: 'project:open-path',
+
+  // Recent Projects
+  RECENT_PROJECTS_GET: 'recent-projects:get',
+  RECENT_PROJECTS_REMOVE: 'recent-projects:remove',
+  RECENT_PROJECTS_CLEAR: 'recent-projects:clear',
 
   // Export
   EXPORT_START: 'export:start',
@@ -18,6 +24,26 @@ export const IPC_CHANNELS = {
   RECORDING_STOP: 'recording:stop',
   RECORDING_STATUS: 'recording:status',
 
+  // Recording Session (floating toolbar flow)
+  RECORDING_SESSION_START: 'recording-session:start',
+  RECORDING_SESSION_STOP: 'recording-session:stop',
+  RECORDING_SESSION_STATUS_CHANGED: 'recording-session:status-changed',
+  RECORDING_SESSION_COUNTDOWN_TICK: 'recording-session:countdown-tick',
+  RECORDING_SESSION_ELAPSED: 'recording-session:elapsed',
+  RECORDING_SESSION_TOOLBAR_READY: 'recording-session:toolbar-ready',
+
   // App
   APP_GET_VERSION: 'app:get-version',
+
+  // Auto-save
+  PROJECT_AUTO_SAVE: 'project:auto-save',
+
+  // Storage settings
+  STORAGE_GET_RECORDING_LOCATION: 'storage:get-recording-location',
+  STORAGE_SET_RECORDING_LOCATION: 'storage:set-recording-location',
+  STORAGE_PICK_DIRECTORY: 'storage:pick-directory',
+  STORAGE_GET_MOUNTED_VOLUMES: 'storage:get-mounted-volumes',
+  STORAGE_GET_FAVORITES: 'storage:get-favorites',
+  STORAGE_ADD_FAVORITE: 'storage:add-favorite',
+  STORAGE_REMOVE_FAVORITE: 'storage:remove-favorite',
 };

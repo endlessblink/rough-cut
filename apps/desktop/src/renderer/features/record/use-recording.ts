@@ -1,9 +1,14 @@
 import { useRef, useCallback, useEffect } from 'react';
 import type { RecordingResult } from '../../env.js';
 import type { RecordingStatus } from './record-state.js';
+import { projectStore } from '../../hooks/use-stores.js';
 
 interface UseRecordingOptions {
   selectedSourceId: string | null;
+  /** External MediaStream managed by useLivePreview. When provided, recording
+   * reuses this stream instead of calling getUserMedia again. The caller owns
+   * the stream lifecycle — useRecording will NOT stop its tracks on recording end. */
+  stream?: MediaStream | null;
   onStatusChange: (status: RecordingStatus) => void;
   onError: (error: string) => void;
   onElapsedChange: (ms: number) => void;
@@ -17,6 +22,7 @@ interface UseRecordingResult {
 
 export function useRecording({
   selectedSourceId,
+  stream: externalStream,
   onStatusChange,
   onError,
   onElapsedChange,
@@ -26,7 +32,8 @@ export function useRecording({
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
-  const streamRef = useRef<MediaStream | null>(null);
+  // Only used when we own the stream (no external stream provided)
+  const ownedStreamRef = useRef<MediaStream | null>(null);
 
   const startRecording = useCallback(async () => {
     if (!selectedSourceId) return;
@@ -35,17 +42,22 @@ export function useRecording({
       onStatusChange('recording');
       chunksRef.current = [];
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: selectedSourceId,
-          },
-        } as unknown as MediaTrackConstraints,
-      });
-
-      streamRef.current = stream;
+      // Use the external live-preview stream if available; otherwise acquire our own
+      let stream: MediaStream;
+      if (externalStream) {
+        stream = externalStream;
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: selectedSourceId,
+            },
+          } as unknown as MediaTrackConstraints,
+        });
+        ownedStreamRef.current = stream;
+      }
 
       const recorder = new MediaRecorder(stream, {
         mimeType: 'video/webm;codecs=vp8',
@@ -66,11 +78,17 @@ export function useRecording({
         const durationMs = performance.now() - startTimeRef.current;
 
         try {
+          const filePath = projectStore.getState().projectFilePath;
+          const projectDir = filePath
+            ? filePath.substring(0, filePath.lastIndexOf('/'))
+            : undefined;
+
           const result = await window.roughcut.recordingSaveRecording(buffer, {
             fps: settings.frameRate ?? 30,
             width: settings.width ?? 1920,
             height: settings.height ?? 1080,
             durationMs,
+            projectDir,
           });
           onAssetCreated(result);
           onStatusChange('ready');
@@ -78,8 +96,12 @@ export function useRecording({
           onError(err instanceof Error ? err.message : String(err));
         }
 
-        stream.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
+        // Only stop tracks if we own the stream (external stream lifecycle
+        // is managed by useLivePreview)
+        if (!externalStream && ownedStreamRef.current) {
+          ownedStreamRef.current.getTracks().forEach((t) => t.stop());
+          ownedStreamRef.current = null;
+        }
       };
 
       mediaRecorderRef.current = recorder;
@@ -93,7 +115,7 @@ export function useRecording({
       console.error('[recording] renderer: error:', err);
       onError(err instanceof Error ? err.message : String(err));
     }
-  }, [selectedSourceId, onStatusChange, onError, onElapsedChange, onAssetCreated]);
+  }, [selectedSourceId, externalStream, onStatusChange, onError, onElapsedChange, onAssetCreated]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current?.state === 'recording') {
@@ -108,7 +130,9 @@ export function useRecording({
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      if (ownedStreamRef.current) {
+        ownedStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
     };
   }, []);
 

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Track, Asset } from '@rough-cut/project-model';
 import { snapToNearestEdge } from '@rough-cut/timeline-engine';
 import { ClipBlock } from './ClipBlock.js';
@@ -65,15 +65,49 @@ export function TimelineStrip({
   onChangeExportRange,
 }: TimelineStripProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const lastMouseXRef = useRef(0);
+  const prevPpfRef = useRef(pixelsPerFrame);
   const [snapIndicator, setSnapIndicator] = useState<number | null>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setContainerWidth(entry.contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Cursor-anchored zoom: keep the frame under the mouse fixed when pixelsPerFrame changes.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || prevPpfRef.current === pixelsPerFrame) return;
+
+    const rect = el.getBoundingClientRect();
+    const mouseRelX = lastMouseXRef.current - rect.left;
+
+    if (mouseRelX >= 0 && mouseRelX <= rect.width) {
+      const frameUnderCursor = (el.scrollLeft + mouseRelX - LABEL_WIDTH) / prevPpfRef.current;
+      el.scrollLeft = frameUnderCursor * pixelsPerFrame - (mouseRelX - LABEL_WIDTH);
+    }
+
+    prevPpfRef.current = pixelsPerFrame;
+  }, [pixelsPerFrame]);
 
   // Compute total timeline width from the maximum extent across all tracks
+  const visibleFrames = containerWidth > 0
+    ? Math.ceil((containerWidth - LABEL_WIDTH) / pixelsPerFrame)
+    : 30;
+
   const maxFrame = Math.max(
     ...tracks.map((t) =>
       t.clips.reduce((mx, c) => Math.max(mx, c.timelineOut), 0),
     ),
     playheadFrame + 1,
-    30, // minimum visible width
+    visibleFrames,
   );
   const totalWidth = maxFrame * pixelsPerFrame;
 
@@ -149,6 +183,7 @@ export function TimelineStrip({
   return (
     <div
       ref={containerRef}
+      onMouseMove={(e) => { lastMouseXRef.current = e.clientX; }}
       style={{
         overflowX: 'auto',
         overflowY: 'hidden',

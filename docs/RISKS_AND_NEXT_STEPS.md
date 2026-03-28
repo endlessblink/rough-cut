@@ -18,7 +18,7 @@ HTML5 `<video>` does NOT guarantee frame-accurate seeking. `video.currentTime` s
 - **Mitigation**: Build a custom frame decoder using FFmpeg via N-API native addon or the WebCodecs API. Use HTML5 video only as a fallback for draft preview. Pre-decode and cache frames at the edges of visible clips.
 - **Spike required**: Can we extract an arbitrary frame from a recorded video within 16ms using Node.js + FFmpeg? Budget 2-3 days. This result determines the entire preview and rendering architecture.
 
-> **Status (2026-03-26)**: SUBSTANTIALLY MITIGATED. Spike 1 confirmed FFmpeg CLI is too slow for preview (~130ms/spawn). Decision: WebCodecs for preview, FFmpeg persistent process for export. WebCodecs benchmark pending but expected to meet targets.
+> **Status (2026-03-27)**: RESOLVED. Architecture fully implemented: WebCodecs for preview (preview-renderer package), FFmpeg persistent process for export (export-renderer package). Both packages exist and are functional.
 
 ---
 
@@ -43,6 +43,8 @@ GPU context contention between PixiJS (WebGL) and HTML5 video decoding is a real
 - **Impact**: Preview is the primary editing interface. Stuttering makes the app feel broken regardless of how correct the output is.
 - **Mitigation**: Implement two-tier preview — draft quality during scrubbing, full quality when paused. Use `OffscreenCanvas` in a Web Worker to offload compositing. Profile on the weakest target hardware (integrated GPU laptop) as early as Phase 2.
 
+> **Status (2026-03-27)**: PARTIALLY MITIGATED. PixiJS preview compositor implemented in preview-renderer package. Two-tier preview not yet implemented. Performance profiling pending.
+
 ---
 
 ### High
@@ -52,6 +54,8 @@ GPU context contention between PixiJS (WebGL) and HTML5 video decoding is a real
 PixiJS is a game engine, not a video compositor. Known limitations include no native video timeline concept, limited blend modes (WebGL only), no color space management (sRGB only), no bicubic or Lanczos filtering, and historical premultiplied alpha bugs.
 
 - **Mitigation**: Treat PixiJS as preview-only. Limit v1 effects to what PixiJS handles reliably. Write a compatibility layer so PixiJS can be swapped for a purpose-built compositor in a future version without rewriting callers.
+
+> **Status (2026-03-27)**: MITIGATED. preview-renderer wraps PixiJS behind a clean PreviewCompositor interface. Swap path exists.
 
 ---
 
@@ -185,6 +189,8 @@ These features need specific measurable targets agreed upon before implementatio
 ---
 
 ## Next Implementation Steps (Ordered)
+
+> **Note (2026-03-27):** For current phase status, see `docs/IMPLEMENTATION_PLAN.md`. The phases below are the original plan; actual progress has reached Phase 3-4.
 
 ### Phase 0: Proof-of-Concept Spikes (1-2 weeks)
 

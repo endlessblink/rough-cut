@@ -8,8 +8,8 @@ describe('builtin effects', () => {
     registerBuiltinEffects();
   });
 
-  it('registers exactly 3 effects', () => {
-    expect(getAllEffects()).toHaveLength(3);
+  it('registers exactly 5 effects', () => {
+    expect(getAllEffects()).toHaveLength(5);
   });
 
   it('gaussian-blur is registered', () => {

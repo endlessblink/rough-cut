@@ -81,7 +81,25 @@ Phase 6: Integration + Polish
 
 ---
 
+## Progress Summary (2026-03-27)
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 0: Spikes | **COMPLETE** | All three spikes executed; findings incorporated |
+| Phase 1: Foundation | **COMPLETE** | All 7 packages built: project-model, timeline-engine, effect-registry, frame-resolver, preview-renderer, export-renderer, store |
+| Phase 2: Core Rendering | **~80% COMPLETE** | Both renderers exist, frame-resolver works; vertical slice parity test not yet done |
+| Phase 3: Electron Shell + Record Tab | **~70% COMPLETE** | App shell, capture service, Record tab UI with inspector panels built; some integration gaps remain |
+| Phase 4: Edit Tab | **~40% COMPLETE** | Timeline UI, clip inspector, asset list exist; transitions, full DnD, audio waveforms, undo UX not yet complete |
+| Phase 5: Motion + AI + Export Tabs | **NOT STARTED** | Export tab has a basic range selector stub only |
+| Phase 6: Integration + Polish | **NOT STARTED** | — |
+
+**Current milestone**: Approaching D2 ("It records") — the record-to-asset pipeline is functional but the full vertical slice through to preview needs completion.
+
+---
+
 ## Phase 0: Spikes
+
+> **Status (2026-03-27):** COMPLETE
 
 **Goal**: Validate the three highest-risk architecture assumptions before writing production code. Each spike produces a written report with findings, measurements, and architectural recommendations. Spike results directly inform implementation decisions in Phases 1-3.
 
@@ -146,6 +164,8 @@ Phase 6: Integration + Polish
 ---
 
 ## Phase 1: Foundation
+
+> **Status (2026-03-27):** COMPLETE — all 7 packages built (project-model, timeline-engine, effect-registry, frame-resolver, preview-renderer, export-renderer, store)
 
 **Goal**: Build the packages that everything else depends on. At the end of this phase, the data model, timeline logic, effect system, and state management are fully implemented and tested -- but there is no UI and no rendering.
 
@@ -327,6 +347,8 @@ This is the most critical package. Every other package depends on it. It must be
 
 ## Phase 2: Core Rendering
 
+> **Status (2026-03-27):** ~80% COMPLETE — both renderers exist, frame-resolver works; vertical slice parity test (2.3) not yet done
+
 **Goal**: Prove the rendering architecture works end-to-end. At the end of this phase, a hardcoded project document renders correctly in both the PixiJS preview and the FFmpeg export pipeline, and the two outputs match visually. This is the first "it works" moment.
 
 **Entry criteria**: Phase 1 complete (1.2 and 1.4 are hard requirements; 1.5 is needed for preview-store integration).
@@ -442,6 +464,8 @@ This is the most critical package. Every other package depends on it. It must be
 ---
 
 ## Phase 3: Electron Shell + Record Tab
+
+> **Status (2026-03-27):** ~70% COMPLETE — app shell, capture service, and Record tab UI with inspector panels built; record-to-asset-to-preview vertical slice (3.5) not yet complete
 
 **Goal**: First user-visible milestone. The app opens as a native desktop window, the user can record their screen, and the recording appears as an asset with a live preview. This is Demo D2.
 
@@ -604,6 +628,8 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 ---
 
 ## Phase 4: Edit Tab
+
+> **Status (2026-03-27):** ~40% COMPLETE — timeline UI, clip inspector, and asset list exist; transitions (4.6), full DnD, audio waveforms, and undo UX (4.5) not yet complete
 
 **Goal**: Build the core editor -- the product's reason for being. At the end of this phase, a user can record their screen, edit the recording on a timeline with effects and transitions, and preview the result. This is Demo D3.
 
@@ -813,6 +839,8 @@ This is Demo D3. Walk through the full editing workflow:
 ---
 
 ## Phase 5: Motion + AI + Export Tabs
+
+> **Status (2026-03-27):** NOT STARTED — Export tab has a basic range selector stub only; Motion and AI tracks not begun
 
 **Goal**: Complete the remaining three tabs. At the end of this phase, all 5 tabs are functional. This is Demo D4.
 
@@ -1083,6 +1111,8 @@ Track 5C (Export):  5C.1 ──▶ 5C.2 ──▶ 5C.3
 ---
 
 ## Phase 6: Integration + Polish
+
+> **Status (2026-03-27):** NOT STARTED
 
 **Goal**: Cross-cutting concerns, edge cases, performance, and final quality pass. This phase hardens the product for release.
 

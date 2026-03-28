@@ -25,6 +25,7 @@ import type { BackgroundConfig } from './RecordRightPanel.js';
 import { RecordTimelineShell } from './RecordTimelineShell.js';
 import { BottomBar } from './BottomBar.js';
 import type { RecordState } from './BottomBar.js';
+import { CountdownOverlay } from './CountdownOverlay.js';
 import { SourcePickerPopup } from './SourcePickerPopup.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
 
@@ -48,6 +49,7 @@ interface RecordTabProps {
 export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabProps) {
   const [recordMode, setRecordMode] = useState<RecordMode>('fullscreen');
   const [isSourcePickerOpen, setIsSourcePickerOpen] = useState(false);
+  const [countdownSeconds, setCountdownSeconds] = useState(0);
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isSystemAudioEnabled, setIsSystemAudioEnabled] = useState(true);
   const [isCameraEnabled, setIsCameraEnabled] = useState(false);
@@ -182,11 +184,31 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
 
   const handleClickRecord = useCallback(() => {
     if (status === 'recording') {
-      recording.stopRecording();
-    } else if (status !== 'stopping' && status !== 'loading-sources') {
-      void recording.startRecording();
+      void window.roughcut.recordingSessionStop();
+    } else if (status !== 'stopping' && status !== 'loading-sources' && status !== 'countdown') {
+      void window.roughcut.recordingSessionStart();
     }
-  }, [status, recording]);
+  }, [status]);
+
+  useEffect(() => {
+    const unsubCountdown = window.roughcut.onSessionCountdownTick((seconds) => {
+      setCountdownSeconds(seconds);
+      setStatus('countdown');
+    });
+
+    const unsubStatus = window.roughcut.onSessionStatusChanged((sessionStatus) => {
+      if (sessionStatus === 'recording') {
+        void recording.startRecording();
+      } else if (sessionStatus === 'stopping') {
+        recording.stopRecording();
+      }
+    });
+
+    return () => {
+      unsubCountdown();
+      unsubStatus();
+    };
+  }, [recording, setStatus]);
 
   return (
     <RecordScreenLayout>
@@ -335,6 +357,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
           isLoading={status === 'loading-sources'}
         />
       )}
+
+      <CountdownOverlay secondsRemaining={countdownSeconds} visible={status === 'countdown'} />
     </RecordScreenLayout>
   );
 }

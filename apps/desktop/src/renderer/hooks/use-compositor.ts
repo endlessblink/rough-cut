@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { PreviewCompositor } from '@rough-cut/preview-renderer';
+import { PreviewCompositor, PlaybackController } from '@rough-cut/preview-renderer';
 import { projectStore, transportStore } from './use-stores.js';
 
 // Module-level singleton — survives tab switches
@@ -9,8 +9,9 @@ let initPromise: Promise<void> | null = null;
 
 function ensureCompositor(): void {
   if (!sharedCompositor) {
+    const { width, height } = projectStore.getState().project.settings.resolution;
     sharedCompositor = new PreviewCompositor(
-      { width: 640, height: 360 },
+      { width: width || 1920, height: height || 1080 },
       {},
     );
 
@@ -28,6 +29,9 @@ function ensureCompositor(): void {
         sharedCompositor?.seekTo(state.playheadFrame);
       });
 
+      // Wire playback clock to transport store
+      new PlaybackController(transportStore, projectStore);
+
       // Apply current state
       const currentState = projectStore.getState();
       sharedCompositor?.setProject(currentState.project);
@@ -39,20 +43,29 @@ function attachCanvasToHost(host: HTMLDivElement): void {
   const canvas = sharedCanvas;
   if (!canvas) return;
 
-  // Remove from any previous parent
-  if (canvas.parentElement && canvas.parentElement !== host) {
+  // Remove from any previous parent (unwrap if needed)
+  if (canvas.parentElement && canvas.parentElement !== host && !host.contains(canvas)) {
     canvas.parentElement.removeChild(canvas);
   }
-  // Attach to this host
+
+  // Attach to host — scale canvas to fit via CSS while preserving aspect ratio
   if (!host.contains(canvas)) {
     host.appendChild(canvas);
   }
-  // Fit canvas into the preview card via CSS
+
+  // The PixiJS canvas has a fixed internal resolution (e.g., 1920x1080).
+  // Use object-fit:contain so the browser scales it down to fit the
+  // available space without cropping.
   canvas.style.width = '100%';
-  canvas.style.maxWidth = '100%';
   canvas.style.height = '100%';
   canvas.style.objectFit = 'contain';
   canvas.style.display = 'block';
+
+  // Ensure the host constrains the canvas properly
+  host.style.overflow = 'hidden';
+  host.style.display = 'flex';
+  host.style.alignItems = 'center';
+  host.style.justifyContent = 'center';
 }
 
 /**
