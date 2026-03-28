@@ -1,0 +1,92 @@
+[     709ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:7544/favicon.ico:0
+[  276807ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[  277808ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[  554609ms] Error: Effect type "gaussian-blur" is already registered.
+    at registerEffect (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/packages/effect-registry/dist/registry.js:4:15)
+    at registerBuiltinEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/packages/effect-registry/dist/effects/index.js:9:5)
+    at new PreviewCompositor (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/packages/preview-renderer/dist/preview-compositor.js:46:9)
+    at ensureCompositor (http://127.0.0.1:7544/hooks/use-compositor.ts?t=1774549580499:9:24)
+    at http://127.0.0.1:7544/hooks/use-compositor.ts?t=1774549580499:44:5
+    at commitHookEffectListMount (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=a4036591:16963:34)
+    at commitPassiveMountOnFiber (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=a4036591:18206:19)
+    at commitPassiveMountEffects_complete (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=a4036591:18179:17)
+    at commitPassiveMountEffects_begin (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=a4036591:18169:15)
+    at commitPassiveMountEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=a4036591:18159:11)
+[  554610ms] [ERROR] The above error occurred in the <RecordTab> component:
+
+    at RecordTab (http://127.0.0.1:7544/features/record/RecordTab.tsx?t=1774549580499:35:29)
+    at App (http://127.0.0.1:7544/App.tsx:33:41)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=a4036591:14079
+[  554613ms] Error: Effect type "gaussian-blur" is already registered.
+    at registerEffect (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/packages/effect-registry/dist/registry.js:4:15)
+    at registerBuiltinEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/packages/effect-registry/dist/effects/index.js:9:5)
+    at new PreviewCompositor (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/packages/preview-renderer/dist/preview-compositor.js:46:9)
+    at ensureCompositor (http://127.0.0.1:7544/hooks/use-compositor.ts?t=1774549580499:9:24)
+    at http://127.0.0.1:7544/hooks/use-compositor.ts?t=1774549580499:44:5
+    at commitHookEffectListMount (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=a4036591:16963:34)
+    at commitPassiveMountOnFiber (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=a4036591:18206:19)
+    at commitPassiveMountEffects_complete (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=a4036591:18179:17)
+    at commitPassiveMountEffects_begin (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=a4036591:18169:15)
+    at commitPassiveMountEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=a4036591:18159:11)
+[  567971ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[  568972ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[  569973ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[  570974ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[  571975ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[ 1417040ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[ 1418042ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[ 1419042ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[ 1642317ms] [ERROR] Warning: %s a style property during rerender (%s) when a conflicting property is set (%s) can lead to styling bugs. To avoid this, don't mix shorthand and non-shorthand properties for the same value; instead, replace the shorthand with separate values.%s Removing flexShrink flex 
+    at div
+    at RecordTimelineShell (http://127.0.0.1:7544/features/record/RecordTimelineShell.tsx?t=1774550668208:458:3)
+    at div
+    at div
+    at VerticalWorkspaceSplit (http://127.0.0.1:7544/ui/VerticalWorkspaceSplit.tsx:20:3)
+    at div
+    at div
+    at div
+    at RecordScreenLayout (http://127.0.0.1:7544/features/record/RecordScreenLayout.tsx:17:38)
+    at RecordTab (http://127.0.0.1:7544/features/record/RecordTab.tsx?t=1774550625590:35:29)
+    at App (http://127.0.0.1:7544/App.tsx:33:41) @ http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:520
+[ 1887016ms] ReferenceError: useUiStore is not defined
+    at RecordTab (http://127.0.0.1:7544/features/record/RecordTab.tsx?t=1774550912895:66:35)
+    at renderWithHooks (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:11596:26)
+    at mountIndeterminateComponent (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:14974:21)
+    at beginWork (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:15962:22)
+    at HTMLUnknownElement.callCallback2 (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:3680:22)
+    at Object.invokeGuardedCallbackDev (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:3705:24)
+    at invokeGuardedCallback (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:3739:39)
+    at beginWork$1 (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:19818:15)
+    at performUnitOfWork (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:19251:20)
+    at workLoopSync (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:19190:13)
+[ 1887021ms] ReferenceError: useUiStore is not defined
+    at RecordTab (http://127.0.0.1:7544/features/record/RecordTab.tsx?t=1774550912895:66:35)
+    at renderWithHooks (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:11596:26)
+    at mountIndeterminateComponent (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:14974:21)
+    at beginWork (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:15962:22)
+    at HTMLUnknownElement.callCallback2 (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:3680:22)
+    at Object.invokeGuardedCallbackDev (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:3705:24)
+    at invokeGuardedCallback (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:3739:39)
+    at beginWork$1 (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:19818:15)
+    at performUnitOfWork (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:19251:20)
+    at workLoopSync (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:19190:13)
+[ 1887018ms] [ERROR] The above error occurred in the <RecordTab> component:
+
+    at RecordTab (http://127.0.0.1:7544/features/record/RecordTab.tsx?t=1774550912895:34:29)
+    at App (http://127.0.0.1:7544/App.tsx:33:41)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:14079
+[ 1887022ms] ReferenceError: useUiStore is not defined
+    at RecordTab (http://127.0.0.1:7544/features/record/RecordTab.tsx?t=1774550912895:66:35)
+    at renderWithHooks (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:11596:26)
+    at mountIndeterminateComponent (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:14974:21)
+    at beginWork (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:15962:22)
+    at beginWork$1 (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:19806:22)
+    at performUnitOfWork (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:19251:20)
+    at workLoopSync (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:19190:13)
+    at renderRootSync (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:19169:15)
+    at recoverFromConcurrentError (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:18786:28)
+    at performSyncWorkOnRoot (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=dd894a45:18932:28)

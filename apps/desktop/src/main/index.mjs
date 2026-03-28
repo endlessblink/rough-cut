@@ -33,7 +33,7 @@ function createWindow() {
   if (!app.isPackaged) {
     mainWindow.maximize();
     mainWindow.loadURL('http://127.0.0.1:7544');
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    // mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     mainWindow.loadFile(join(__dirname, '../../dist/renderer/index.html'));
   }

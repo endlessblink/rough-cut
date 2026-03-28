@@ -17,8 +17,9 @@ interface ProjectStoreApi {
     project?: {
       settings?: { frameRate?: number };
       composition?: {
+        duration?: number;
         tracks?: ReadonlyArray<{
-          clips?: ReadonlyArray<{ timelineIn?: number; durationFrames?: number }>;
+          clips?: ReadonlyArray<{ timelineOut?: number }>;
         }>;
       };
     };
@@ -68,11 +69,18 @@ export class PlaybackController {
 
   private getCompositionDuration(): number {
     const project = this.projectStore.getState().project;
-    if (!project?.composition?.tracks) return Infinity;
+    if (!project?.composition) return Infinity;
+    // Prefer the explicit composition duration if set
+    if (project.composition.duration && project.composition.duration > 0) {
+      return project.composition.duration;
+    }
+    // Fallback: compute from clip extents
+    const tracks = project.composition.tracks;
+    if (!tracks) return Infinity;
     let maxFrame = 0;
-    for (const track of project.composition.tracks) {
+    for (const track of tracks) {
       for (const clip of track.clips ?? []) {
-        const clipEnd = (clip.timelineIn ?? 0) + (clip.durationFrames ?? 0);
+        const clipEnd = clip.timelineOut ?? 0;
         if (clipEnd > maxFrame) maxFrame = clipEnd;
       }
     }

@@ -166,6 +166,27 @@ RecordScreenLayout (100vh, overflow: hidden)
 - `VerticalWorkspaceSplit` panes need `minWidth: 0, overflow: hidden`
 - Never add `width: 100%` + `flexShrink: 0` on the same element inside a flex container
 
+## Architecture: Preview Rendering (Layered Hybrid — from Recordly/Screen Studio research)
+
+The preview uses a **3-layer hybrid approach** — NOT everything in PixiJS:
+
+1. **Background layer** (CSS div) — gradient, wallpaper, solid color via CSS `background`. Independent of video.
+2. **Video layer** (PixiJS canvas or `<video>`) — screen recording frames. PixiJS handles zoom transforms, motion blur. Canvas sits INSIDE a CSS wrapper that applies padding, border-radius, shadow, inset.
+3. **Overlay layer** (HTML divs) — captions, webcam bubble, annotations. Absolutely positioned over video.
+
+**Critical:** Background, padding, shadow, rounded corners are ALL CSS on wrapper divs. PixiJS only handles video content + zoom transforms. This is how Recordly and Screen Studio work.
+
+**PreviewCard architecture:**
+```
+PreviewCard (outer, CSS aspectRatio from resolution)
+  ├── Background div (position: absolute, inset: 0, background: gradient/color)
+  │     └── Content frame div (inset: padding, borderRadius, boxShadow, border: inset)
+  │           └── children (<video> or <canvas>, position: absolute, inset: 0)
+  └── Empty state (when no source)
+```
+
+Source: [Recordly VideoPlayback.tsx](https://github.com/webadderall/Recordly/blob/main/src/components/video-editor/VideoPlayback.tsx) — AGPL-3.0, reference only, do not copy code.
+
 ## Architecture: Effect Pipeline
 
 ### Adding a new effect type
