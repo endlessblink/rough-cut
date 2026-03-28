@@ -140,17 +140,27 @@ function TrackLanes({
     return map;
   }, [assets]);
 
+  // Compute effective duration from actual clip extents (like Edit tab does),
+  // falling back to the passed durationFrames prop
+  const effectiveDuration = useMemo(() => {
+    const maxClipEnd = tracks.reduce(
+      (max, t) => t.clips.reduce((mx, c) => Math.max(mx, c.timelineOut), max),
+      0,
+    );
+    return Math.max(maxClipEnd, durationFrames);
+  }, [tracks, durationFrames]);
+
   const frameFromClientX = useCallback(
     (clientX: number): number => {
       const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect || durationFrames <= 0) return 0;
+      if (!rect || effectiveDuration <= 0) return 0;
       // clip area starts after label column
       const clipAreaLeft = rect.left + LABEL_WIDTH;
       const clipAreaWidth = rect.width - LABEL_WIDTH;
       const x = Math.min(Math.max(clientX - clipAreaLeft, 0), clipAreaWidth);
-      return Math.round((x / clipAreaWidth) * durationFrames);
+      return Math.round((x / clipAreaWidth) * effectiveDuration);
     },
-    [durationFrames],
+    [effectiveDuration],
   );
 
   const handleMouseDown = useCallback(
@@ -176,7 +186,7 @@ function TrackLanes({
     [frameFromClientX, onScrub],
   );
 
-  const playheadPct = durationFrames > 0 ? (currentFrame / durationFrames) * 100 : 0;
+  const playheadPct = effectiveDuration > 0 ? (currentFrame / effectiveDuration) * 100 : 0;
 
   // Count video/audio tracks separately for labels
   let vIdx = 0;
@@ -256,10 +266,10 @@ function TrackLanes({
               {track.clips.map((clip) => {
                 const asset = assetMap.get(clip.assetId);
                 const clipDuration = clip.timelineOut - clip.timelineIn;
-                if (durationFrames <= 0 || clipDuration <= 0) return null;
+                if (effectiveDuration <= 0 || clipDuration <= 0) return null;
 
-                const leftPct = (clip.timelineIn / durationFrames) * 100;
-                const widthPct = (clipDuration / durationFrames) * 100;
+                const leftPct = (clip.timelineIn / effectiveDuration) * 100;
+                const widthPct = (clipDuration / effectiveDuration) * 100;
 
                 const bgGradient = isVideo
                   ? 'linear-gradient(to right, rgba(108,191,255,0.85), rgba(27,97,189,0.85))'
@@ -327,7 +337,7 @@ function TrackLanes({
       )}
 
       {/* Playhead line */}
-      {durationFrames > 0 && (
+      {effectiveDuration > 0 && (
         <div
           style={{
             position: 'absolute',
@@ -345,7 +355,7 @@ function TrackLanes({
       )}
 
       {/* Playhead handle (at top) */}
-      {durationFrames > 0 && (
+      {effectiveDuration > 0 && (
         <div
           style={{
             position: 'absolute',
