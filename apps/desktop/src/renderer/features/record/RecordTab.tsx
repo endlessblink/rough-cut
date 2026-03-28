@@ -211,6 +211,19 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     };
   }, [recording, setStatus]);
 
+  // Space bar toggles playback (review mode) — skip during active recording
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !e.repeat) {
+        if (status === 'recording' || status === 'countdown' || status === 'stopping') return;
+        e.preventDefault();
+        transportStore.getState().togglePlay();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [status]);
+
   return (
     <RecordScreenLayout>
       <AppHeader
