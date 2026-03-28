@@ -1,9 +1,21 @@
 import React, { useState } from 'react';
 
+interface PreviewCardBackground {
+  bgColor: string;
+  bgGradient: string | null;
+  bgPadding: number;
+  bgCornerRadius: number;
+  bgInset: number;
+  bgInsetColor: string;
+  bgShadowEnabled: boolean;
+  bgShadowBlur: number;
+}
+
 interface PreviewCardProps {
   hasActiveSource?: boolean;
   hasRecordingAsset?: boolean;
   onChooseSource?: () => void;
+  background?: PreviewCardBackground;
   children?: React.ReactNode;
 }
 
@@ -128,6 +140,7 @@ function PreviewCardInner({ children }: { children: React.ReactNode }) {
       style={{
         position: 'relative',
         flex: 1,
+        width: '100%',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -154,33 +167,97 @@ function PreviewCardInner({ children }: { children: React.ReactNode }) {
         }}
       />
       {/* Content */}
-      <div style={{ position: 'relative', zIndex: 1 }}>{children}</div>
+      <div style={{ position: 'absolute', inset: 0, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{children}</div>
     </div>
   );
 }
 
 // ─── PreviewCard ────────────────────────────────────────────────────────────
 
-export function PreviewCard({ hasActiveSource = false, hasRecordingAsset = false, onChooseSource, children }: PreviewCardProps) {
+export function PreviewCard({ hasActiveSource = false, hasRecordingAsset = false, onChooseSource, background, children }: PreviewCardProps) {
+  const showContent = (hasActiveSource || hasRecordingAsset) && children;
+  const bg = background;
+
+  // Compute outer card background (gradient takes priority over solid color)
+  const cardBackground = bg?.bgGradient ?? bg?.bgColor ?? '#050505';
+
+  // Compute inner content styling from background config
+  const contentPadding = bg ? bg.bgPadding : 0;
+  const contentRadius = bg ? bg.bgCornerRadius : 0;
+  const contentShadow = bg?.bgShadowEnabled
+    ? `0 ${Math.round(bg.bgShadowBlur * 0.3)}px ${bg.bgShadowBlur}px rgba(0,0,0,0.6)`
+    : 'none';
+  const contentBorder = bg && bg.bgInset > 0
+    ? `${bg.bgInset}px solid ${bg.bgInsetColor}`
+    : 'none';
+
   return (
     <div
       style={{
         position: 'relative',
-        display: 'flex',
-        alignItems: 'stretch',
-        justifyContent: 'center',
         width: '100%',
         maxWidth: 1040,
         aspectRatio: '16 / 9',
-        background: '#050505',
+        background: showContent ? cardBackground : '#050505',
         borderRadius: 18,
         boxShadow: '0 18px 60px rgba(0,0,0,0.80)',
         overflow: 'hidden',
       }}
     >
-      <PreviewCardInner>
-        {(hasActiveSource || hasRecordingAsset) && children ? children : <PreviewEmptyState onChooseSource={onChooseSource} />}
-      </PreviewCardInner>
+      {/* Content layer */}
+      {showContent ? (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            padding: contentPadding,
+            display: 'flex',
+            alignItems: 'stretch',
+            justifyContent: 'center',
+          }}
+        >
+          <div
+            style={{
+              position: 'relative',
+              flex: 1,
+              borderRadius: contentRadius,
+              overflow: 'hidden',
+              boxShadow: contentShadow,
+              border: contentBorder,
+            }}
+          >
+            {children}
+          </div>
+        </div>
+      ) : (
+        <PreviewCardInner>
+          <PreviewEmptyState onChooseSource={onChooseSource} />
+        </PreviewCardInner>
+      )}
+
+      {/* Vignette overlay */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 2,
+          background:
+            'radial-gradient(circle at 50% 0%, rgba(255,255,255,0.04) 0%, rgba(0,0,0,0.85) 55%, #000000 100%)',
+          pointerEvents: 'none',
+          opacity: showContent ? 0 : 1,
+        }}
+      />
+      {/* Faint inner border */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 3,
+          boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.03)',
+          borderRadius: 18,
+          pointerEvents: 'none',
+        }}
+      />
     </div>
   );
 }

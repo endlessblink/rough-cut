@@ -194,16 +194,15 @@ export class PreviewCompositor {
       }
     }
 
-    // Camera transform temporarily neutralized — verify basic framing first.
-    // TODO: Re-enable once placeholder centering and stage sizing are confirmed.
-    // if (frame.cameraTransform && this.layerContainer) {
-    //   const { scale, offsetX, offsetY } = frame.cameraTransform;
-    //   this.layerContainer.scale.set(scale);
-    //   this.layerContainer.position.set(
-    //     (this.config.width / 2) * (1 - scale) + offsetX,
-    //     (this.config.height / 2) * (1 - scale) + offsetY,
-    //   );
-    // }
+    // Apply camera transform from zoom presentation
+    if (frame.cameraTransform && this.layerContainer) {
+      const { scale, offsetX, offsetY } = frame.cameraTransform;
+      this.layerContainer.scale.set(scale);
+      this.layerContainer.position.set(
+        (this.config.width / 2) * (1 - scale) + offsetX,
+        (this.config.height / 2) * (1 - scale) + offsetY,
+      );
+    }
   }
 
   /** Find asset by ID from the current project */
@@ -217,7 +216,7 @@ export class PreviewCompositor {
     if (vc) return vc;
 
     const video = document.createElement('video');
-    video.src = `file://${filePath}`;
+    video.src = `media://${filePath}`;
     video.crossOrigin = 'anonymous';
     video.preload = 'auto';
     video.muted = true; // mute to allow autoplay
@@ -246,6 +245,7 @@ export class PreviewCompositor {
     }, { once: true });
 
     video.addEventListener('error', () => {
+      console.warn(`[compositor] Failed to load video: ${filePath}`, video.error);
       // Video load failed — stay on placeholder
       if (vc) vc.loaded = false;
     }, { once: true });

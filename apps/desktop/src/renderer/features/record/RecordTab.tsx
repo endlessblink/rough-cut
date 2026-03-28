@@ -98,7 +98,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   }, []);
 
   // Live preview stream — acquired when a source is selected, independent of recording
-  const { stream: liveStream, videoRef: liveVideoRef } = useLivePreview(selectedSourceId);
+  const { stream: liveStream } = useLivePreview(selectedSourceId);
 
   // UI state
 
@@ -239,24 +239,18 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         main={
           <PreviewStage>
             <PreviewCard
-              hasActiveSource={Boolean(selectedSourceId)}
+              hasActiveSource={Boolean(selectedSourceId) || hasRecordingAsset}
               hasRecordingAsset={hasRecordingAsset}
               onChooseSource={() => setIsSourcePickerOpen(true)}
+              background={background}
             >
-              {hasRecordingAsset ? (
+              {selectedSourceId ? (
+                // Live preview: show the capture stream directly
+                <LivePreviewVideo stream={liveStream} />
+              ) : hasRecordingAsset ? (
                 // Review mode: show the compositor canvas
-                <div ref={previewRef} style={{ width: '100%', height: '100%' }} />
-              ) : (
-                // Live preview: show the stream with background styling
-                <LivePreviewVideo
-                  videoRef={liveVideoRef}
-                  background={background.bgGradient ?? background.bgColor}
-                  padding={background.bgPadding}
-                  cornerRadius={background.bgCornerRadius}
-                  shadowEnabled={background.bgShadowEnabled}
-                  shadowBlur={background.bgShadowBlur}
-                />
-              )}
+                <div ref={previewRef} style={{ position: 'absolute', inset: 0 }} />
+              ) : null}
             </PreviewCard>
           </PreviewStage>
         }
