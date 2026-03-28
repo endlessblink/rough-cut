@@ -4,12 +4,14 @@
  * Orchestrates the full recording session flow in the Electron main process:
  *   idle → countdown → recording → stopping → idle
  *
+ * The floating toolbar is now owned by the renderer via window.open() +
+ * React Portal — this module no longer creates or manages any BrowserWindow
+ * beyond the main app window.
+ *
  * Responsibilities:
  *  - IPC registration for session start/stop
  *  - 3-second countdown with per-tick notifications to renderer
- *  - Floating toolbar window creation and readiness handshake
- *  - Hiding/restoring the main window around the session
- *  - Elapsed-time heartbeat to the toolbar
+ *  - Elapsed-time heartbeat to main window (React Portal reads it via preload)
  *  - Global shortcut (Ctrl+Shift+Esc / Cmd+Shift+Esc) to stop recording
  *  - System tray icon with "Stop Recording" menu item
  *  - Clean teardown on app quit
@@ -20,22 +22,11 @@
  *   initSessionManager(mainWindow);
  */
 
-import {
-  BrowserWindow,
-  ipcMain,
-  globalShortcut,
-  screen,
-  Tray,
-  Menu,
-  nativeImage,
-  app,
-} from 'electron';
-import { join, dirname } from 'node:path';
+import { ipcMain, globalShortcut, Tray, Menu, nativeImage, app } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../../shared/ipc-channels.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 // ---------------------------------------------------------------------------
 // State
@@ -44,11 +35,8 @@ const __dirname = dirname(__filename);
 /** @type {'idle' | 'countdown' | 'recording' | 'stopping'} */
 let state = 'idle';
 
-/** @type {BrowserWindow | null} */
+/** @type {import('electron').BrowserWindow | null} */
 let mainWindow = null;
-
-/** @type {BrowserWindow | null} */
-let toolbarWindow = null;
 
 /** @type {Tray | null} */
 let tray = null;
@@ -61,7 +49,6 @@ let recordingStartMs = 0;
 
 // ---------------------------------------------------------------------------
 // Tiny inline red-circle icon for the tray (8×8 px, base64 PNG)
-// Generated via: canvas 8x8 filled red circle
 // ---------------------------------------------------------------------------
 const RED_CIRCLE_DATA_URL =
   'data:image/png;base64,' +
@@ -74,7 +61,7 @@ const RED_CIRCLE_DATA_URL =
 
 /**
  * Safe webContents.send — no-ops if the window has been destroyed.
- * @param {BrowserWindow | null} win
+ * @param {import('electron').BrowserWindow | null} win
  * @param {string} channel
  * @param {...unknown} args
  */
@@ -98,71 +85,6 @@ function formatElapsed(ms) {
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-/**
- * Compute bottom-center position for the toolbar on the display that contains mainWindow.
- * @returns {{ x: number, y: number }}
- */
-function getToolbarPosition() {
-  const TOOLBAR_WIDTH = 300;
-  const TOOLBAR_HEIGHT = 48;
-  const BOTTOM_OFFSET = 80;
-
-  const bounds = mainWindow?.getBounds() ?? { x: 0, y: 0, width: 0, height: 0 };
-  const display = screen.getDisplayMatching(bounds);
-  const { x: wa_x, y: wa_y, width: wa_w, height: wa_h } = display.workArea;
-
-  const x = Math.round(wa_x + (wa_w - TOOLBAR_WIDTH) / 2);
-  const y = Math.round(wa_y + wa_h - TOOLBAR_HEIGHT - BOTTOM_OFFSET);
-  return { x, y };
-}
-
-// ---------------------------------------------------------------------------
-// Toolbar window
-// ---------------------------------------------------------------------------
-
-/**
- * Create the floating recording toolbar window and return it.
- * The caller is responsible for waiting on RECORDING_SESSION_TOOLBAR_READY.
- * @returns {BrowserWindow}
- */
-function createToolbarWindow() {
-  const { x, y } = getToolbarPosition();
-
-  const win = new BrowserWindow({
-    width: 300,
-    height: 48,
-    x,
-    y,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    resizable: false,
-    skipTaskbar: true,
-    hasShadow: true,
-    webPreferences: {
-      preload: join(__dirname, '..', 'preload', 'index.mjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-    },
-  });
-
-  // Best-effort content protection — known broken on macOS 14+
-  try {
-    win.setContentProtection(true);
-  } catch (err) {
-    console.warn('[session-manager] setContentProtection failed (non-fatal):', err?.message ?? err);
-  }
-
-  if (!app.isPackaged) {
-    win.loadURL('http://127.0.0.1:7544/toolbar.html');
-  } else {
-    win.loadFile(join(__dirname, '../../dist/renderer/toolbar.html'));
-  }
-
-  return win;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,9 +160,8 @@ function runCountdown() {
  *  1. Guard: only when idle
  *  2. Run countdown (state = 'countdown')
  *  3. Transition to 'recording'
- *  4. Create toolbar window, wait for TOOLBAR_READY signal
- *  5. Hide main window
- *  6. Start elapsed timer + global shortcut + tray
+ *  4. Start elapsed timer → mainWindow.webContents
+ *  5. Register global shortcut + create tray
  */
 async function startSession() {
   if (state !== 'idle') {
@@ -266,30 +187,11 @@ async function startSession() {
 
     safeSend(mainWindow, IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'recording');
 
-    // Create toolbar and wait for it to signal readiness
-    toolbarWindow = createToolbarWindow();
-
-    await new Promise((resolve) => {
-      ipcMain.once(IPC_CHANNELS.RECORDING_SESSION_TOOLBAR_READY, () => {
-        resolve();
-      });
-
-      // Failsafe: if toolbar never reports ready within 5 s, proceed anyway
-      setTimeout(() => {
-        console.warn('[session-manager] Toolbar readiness timeout — proceeding without it.');
-        resolve();
-      }, 5000);
-    });
-
-    // Hide main window behind the toolbar
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.hide();
-    }
-
-    // Elapsed heartbeat → toolbar
+    // Elapsed heartbeat → mainWindow (React Portal reads it via the preload bridge
+    // since the portal is rendered in the same renderer process)
     elapsedTimer = setInterval(() => {
       const elapsedMs = Date.now() - recordingStartMs;
-      safeSend(toolbarWindow, IPC_CHANNELS.RECORDING_SESSION_ELAPSED, elapsedMs);
+      safeSend(mainWindow, IPC_CHANNELS.RECORDING_SESSION_ELAPSED, elapsedMs);
       updateTrayTooltip();
     }, 100);
 
@@ -320,9 +222,8 @@ async function startSession() {
  *  1. Guard: only when recording
  *  2. Transition to 'stopping'
  *  3. Signal renderer (triggers MediaRecorder.stop())
- *  4. Tear down elapsed timer, shortcut, tray, toolbar
- *  5. Restore main window
- *  6. Transition back to 'idle'
+ *  4. Tear down elapsed timer, shortcut, tray
+ *  5. Transition back to 'idle'
  */
 async function stopSession() {
   if (state !== 'recording') {
@@ -337,21 +238,11 @@ async function stopSession() {
 
   _cleanup();
 
-  // Restore main window
-  try {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  } catch (err) {
-    console.error('[session-manager] Failed to restore main window:', err?.message ?? err);
-  }
-
   state = 'idle';
 }
 
 /**
- * Tear down all transient session resources (timer, shortcut, tray, toolbar).
+ * Tear down all transient session resources (timer, shortcut, tray).
  * Safe to call from any state — all steps are individually guarded.
  */
 function _cleanup() {
@@ -377,16 +268,6 @@ function _cleanup() {
     }
     tray = null;
   }
-
-  // Destroy toolbar window
-  if (toolbarWindow) {
-    try {
-      if (!toolbarWindow.isDestroyed()) toolbarWindow.destroy();
-    } catch (err) {
-      console.warn('[session-manager] toolbarWindow.destroy() failed:', err?.message ?? err);
-    }
-    toolbarWindow = null;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -397,7 +278,7 @@ function _cleanup() {
  * Initialize the session manager.
  * Must be called once after the main BrowserWindow is created.
  *
- * @param {BrowserWindow} win  The application's main window.
+ * @param {import('electron').BrowserWindow} win  The application's main window.
  */
 export function initSessionManager(win) {
   mainWindow = win;
