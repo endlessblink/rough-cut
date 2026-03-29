@@ -1,18 +1,67 @@
 /**
  * Layout templates for the Record view.
- * Each template describes a camera position, screen layout, and aspect ratio.
- * Templates control aspect ratio + camera only — background is independent.
+ *
+ * Each template defines normalized rects for screen and camera regions
+ * within the preview frame. This matches the Focusee/Screen Studio pattern
+ * where templates control spatial layout of two media sources.
+ *
+ * NormalizedRect uses 0–1 coordinates. toCssRect() converts to CSS percentages.
  */
 
-import type { CameraPosition, CameraPresentation } from '@rough-cut/project-model';
+import type { CSSProperties } from 'react';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export type NormalizedRect = {
+  x: number;  // 0–1: left edge
+  y: number;  // 0–1: top edge
+  w: number;  // 0–1: width
+  h: number;  // 0–1: height
+};
+
+export type LayoutKind =
+  | 'FULL_SCREEN'
+  | 'PIP'
+  | 'SPLIT_VERTICAL'
+  | 'SPLIT_HORIZONTAL'
+  | 'CAMERA_ONLY';
 
 export interface LayoutTemplate {
   id: string;
-  name: string;
+  label: string;
   description: string;
+  kind: LayoutKind;
   aspectRatio: '16:9' | '9:16' | '1:1' | '4:3';
-  cameraPosition: 'none' | 'corner-br' | 'corner-bl' | 'corner-tr' | 'corner-tl' | 'center' | 'hidden';
-  screenLayout: 'full-screen' | 'pip' | 'split' | 'presentation';
+  screenRect: NormalizedRect | null;
+  cameraRect: NormalizedRect | null;
+  zOrder: 'screen-above' | 'camera-above';
+}
+
+export type InstanceLayout = {
+  templateId: string;
+  screenRect?: NormalizedRect;
+  cameraRect?: NormalizedRect;
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Resolve a region rect: user override wins, then template base, then null */
+export function resolveRect(
+  base: NormalizedRect | null,
+  override?: NormalizedRect,
+): NormalizedRect | null {
+  return override ?? base ?? null;
+}
+
+/** Convert a NormalizedRect to CSS absolute positioning with percentages */
+export function toCssRect(r: NormalizedRect): CSSProperties {
+  return {
+    position: 'absolute',
+    left: `${r.x * 100}%`,
+    top: `${r.y * 100}%`,
+    width: `${r.w * 100}%`,
+    height: `${r.h * 100}%`,
+  };
 }
 
 /** Map aspect ratio string to a canonical resolution */
@@ -28,82 +77,90 @@ export function resolutionForAspectRatio(
   }
 }
 
-/** Map a template's camera position to a CameraPresentation patch */
-export function cameraForTemplate(
-  template: LayoutTemplate,
-): Partial<CameraPresentation> {
-  if (template.cameraPosition === 'none' || template.cameraPosition === 'hidden') {
-    return { visible: false };
-  }
-  return {
-    visible: true,
-    position: template.cameraPosition as CameraPosition,
-  };
-}
+// ─── Presets ──────────────────────────────────────────────────────────────────
 
 export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
+  // ── Landscape (16:9) ──
   {
     id: 'screen-only-16x9',
-    name: 'Screen Only',
+    label: 'Screen Only',
     description: 'Full screen capture, no camera',
+    kind: 'FULL_SCREEN',
     aspectRatio: '16:9',
-    cameraPosition: 'none',
-    screenLayout: 'full-screen',
+    screenRect: { x: 0, y: 0, w: 1, h: 1 },
+    cameraRect: null,
+    zOrder: 'screen-above',
   },
   {
     id: 'screen-cam-br-16x9',
-    name: 'Screen + Camera',
+    label: 'Screen + Camera',
     description: 'Screen with camera in bottom-right',
+    kind: 'PIP',
     aspectRatio: '16:9',
-    cameraPosition: 'corner-br',
-    screenLayout: 'pip',
+    screenRect: { x: 0, y: 0, w: 1, h: 1 },
+    cameraRect: { x: 0.72, y: 0.70, w: 0.24, h: 0.26 },
+    zOrder: 'camera-above',
   },
   {
     id: 'screen-cam-bl-16x9',
-    name: 'Screen + Camera (Left)',
+    label: 'Screen + Camera (Left)',
     description: 'Screen with camera in bottom-left',
+    kind: 'PIP',
     aspectRatio: '16:9',
-    cameraPosition: 'corner-bl',
-    screenLayout: 'pip',
+    screenRect: { x: 0, y: 0, w: 1, h: 1 },
+    cameraRect: { x: 0.04, y: 0.70, w: 0.24, h: 0.26 },
+    zOrder: 'camera-above',
   },
   {
     id: 'presentation-16x9',
-    name: 'Presentation',
-    description: 'Slides with speaker overlay',
+    label: 'Presentation',
+    description: 'Camera left, screen right (side-by-side)',
+    kind: 'SPLIT_HORIZONTAL',
     aspectRatio: '16:9',
-    cameraPosition: 'corner-tr',
-    screenLayout: 'presentation',
+    screenRect: { x: 0.38, y: 0, w: 0.62, h: 1 },
+    cameraRect: { x: 0.02, y: 0.1, w: 0.34, h: 0.8 },
+    zOrder: 'camera-above',
   },
   {
     id: 'tutorial-16x9',
-    name: 'Tutorial',
-    description: 'Screen recording with face cam',
+    label: 'Tutorial',
+    description: 'Screen with camera in bottom-right',
+    kind: 'PIP',
     aspectRatio: '16:9',
-    cameraPosition: 'corner-br',
-    screenLayout: 'pip',
+    screenRect: { x: 0, y: 0, w: 1, h: 1 },
+    cameraRect: { x: 0.72, y: 0.70, w: 0.24, h: 0.26 },
+    zOrder: 'camera-above',
   },
+  {
+    id: 'standard-4x3',
+    label: 'Standard (4:3)',
+    description: 'Standard 4:3 screen capture',
+    kind: 'FULL_SCREEN',
+    aspectRatio: '4:3',
+    screenRect: { x: 0, y: 0, w: 1, h: 1 },
+    cameraRect: null,
+    zOrder: 'screen-above',
+  },
+  // ── Portrait (9:16) ──
   {
     id: 'social-vertical',
-    name: 'Social Vertical',
-    description: 'Vertical format for social media',
+    label: 'Social Vertical',
+    description: 'Screen top, camera bottom (vertical split)',
+    kind: 'SPLIT_VERTICAL',
     aspectRatio: '9:16',
-    cameraPosition: 'center',
-    screenLayout: 'split',
+    screenRect: { x: 0, y: 0, w: 1, h: 0.5 },
+    cameraRect: { x: 0, y: 0.52, w: 1, h: 0.48 },
+    zOrder: 'camera-above',
   },
+  // ── Square (1:1) ──
   {
     id: 'talking-head',
-    name: 'Talking Head',
-    description: 'Camera-focused square format',
+    label: 'Talking Head',
+    description: 'Camera top, screen bottom (square)',
+    kind: 'SPLIT_VERTICAL',
     aspectRatio: '1:1',
-    cameraPosition: 'center',
-    screenLayout: 'full-screen',
-  },
-  {
-    id: 'minimal-4x3',
-    name: 'Classic',
-    description: 'Traditional 4:3 screen capture',
-    aspectRatio: '4:3',
-    cameraPosition: 'none',
-    screenLayout: 'full-screen',
+    screenRect: { x: 0, y: 0.52, w: 1, h: 0.48 },
+    cameraRect: { x: 0, y: 0, w: 1, h: 0.50 },
+    zOrder: 'camera-above',
   },
 ];

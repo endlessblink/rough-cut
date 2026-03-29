@@ -1,10 +1,10 @@
 /**
  * RecordTemplatesPanel — compact 2-column grid of layout template thumbnails.
- * Inspired by Focusee's schematic icon approach: small visual thumbnails
- * whose shape reflects the actual aspect ratio, with a tiny label below.
+ * Thumbnails render from the same NormalizedRect data as the live preview,
+ * so what you see in the thumbnail is exactly what you get in the preview.
  */
 import type { LayoutTemplate } from './templates.js';
-import { LAYOUT_TEMPLATES } from './templates.js';
+import { LAYOUT_TEMPLATES, toCssRect } from './templates.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,14 +22,12 @@ const FRAME_BORDER = 'rgba(255,255,255,0.06)';
 
 // ─── Aspect-ratio-aware schematic ─────────────────────────────────────────────
 
-/** Fixed height for the schematic area; the frame inside adapts to aspect ratio */
 const SCHEMATIC_HEIGHT = 44;
 
 function TemplateSchematic({ template }: { template: LayoutTemplate }) {
-  const { screenLayout, cameraPosition, aspectRatio } = template;
+  const { aspectRatio } = template;
 
-  // Compute frame dimensions that fit inside the schematic area
-  // while preserving the template's aspect ratio
+  // Compute frame dimensions preserving aspect ratio within schematic area
   const maxW = 68;
   const maxH = SCHEMATIC_HEIGHT - 4;
   let frameW: number;
@@ -55,21 +53,6 @@ function TemplateSchematic({ template }: { template: LayoutTemplate }) {
       break;
   }
 
-  // Camera overlay size relative to frame
-  const camW = Math.round(frameW * 0.28);
-  const camH = Math.round(frameH * 0.28);
-  const camInset = 2;
-
-  const cornerStyles: Record<string, React.CSSProperties> = {
-    'corner-br': { bottom: camInset, right: camInset },
-    'corner-bl': { bottom: camInset, left: camInset },
-    'corner-tr': { top: camInset, right: camInset },
-    'corner-tl': { top: camInset, left: camInset },
-    'center': { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
-  };
-
-  const camStyle = cornerStyles[cameraPosition] ?? cornerStyles['corner-br'];
-
   return (
     <div
       style={{
@@ -80,6 +63,7 @@ function TemplateSchematic({ template }: { template: LayoutTemplate }) {
         justifyContent: 'center',
       }}
     >
+      {/* Aspect-ratio frame */}
       <div
         style={{
           position: 'relative',
@@ -91,32 +75,27 @@ function TemplateSchematic({ template }: { template: LayoutTemplate }) {
           overflow: 'hidden',
         }}
       >
-        {screenLayout === 'split' ? (
-          <>
-            <div style={{ position: 'absolute', top: 1, left: 1, right: 1, height: '46%', background: SCREEN_COLOR, borderRadius: 1 }} />
-            <div style={{ position: 'absolute', bottom: 1, left: 1, right: 1, height: '46%', background: CAMERA_COLOR, borderRadius: 1 }} />
-          </>
-        ) : screenLayout === 'presentation' ? (
-          <>
-            <div style={{ position: 'absolute', top: 1, left: 1, bottom: 1, width: '58%', background: CAMERA_COLOR, borderRadius: 1 }} />
-            <div style={{ position: 'absolute', top: 1, right: 1, bottom: 1, width: '34%', background: SCREEN_COLOR, borderRadius: 1 }} />
-          </>
-        ) : (
-          <>
-            <div style={{ position: 'absolute', inset: 1, background: SCREEN_COLOR, borderRadius: 1 }} />
-            {cameraPosition !== 'none' && cameraPosition !== 'hidden' && screenLayout === 'pip' && (
-              <div
-                style={{
-                  position: 'absolute',
-                  width: camW,
-                  height: camH,
-                  background: CAMERA_COLOR,
-                  borderRadius: 2,
-                  ...camStyle,
-                }}
-              />
-            )}
-          </>
+        {/* Screen region — rendered from normalized rect */}
+        {template.screenRect && (
+          <div
+            style={{
+              ...toCssRect(template.screenRect),
+              background: SCREEN_COLOR,
+              borderRadius: template.kind === 'SPLIT_HORIZONTAL' || template.kind === 'SPLIT_VERTICAL' ? 1 : 0,
+            }}
+          />
+        )}
+
+        {/* Camera region — rendered from normalized rect */}
+        {template.cameraRect && (
+          <div
+            style={{
+              ...toCssRect(template.cameraRect),
+              background: CAMERA_COLOR,
+              borderRadius: template.kind === 'PIP' ? '50%' : 1,
+              zIndex: template.zOrder === 'camera-above' ? 2 : 1,
+            }}
+          />
         )}
       </div>
     </div>
@@ -176,7 +155,7 @@ function TemplateCard({
           maxWidth: '100%',
         }}
       >
-        {template.name}
+        {template.label}
       </span>
     </button>
   );
