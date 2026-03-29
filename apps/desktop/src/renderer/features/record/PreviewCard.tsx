@@ -499,8 +499,9 @@ export function PreviewCard({
     content: React.ReactNode | undefined,
   ) => {
     const isCircle = kind === 'camera' && layout.kind === 'PIP';
+    const isCropActive = cropModeActive && kind === 'screen';
     const isHovered = hoveredRegion === kind;
-    const canInteract = !!onRegionChange;
+    const canInteract = !!onRegionChange && !isCropActive;
     const activeDrag = dragRef.current;
     const isBeingDragged = isDragging && activeDrag?.region === kind;
 
@@ -525,6 +526,7 @@ export function PreviewCard({
       >
         {/* MediaFrame — maintains content's native aspect ratio, carries shadow/radius */}
         <div
+          ref={kind === 'screen' ? screenFrameRef : undefined}
           onPointerDown={canInteract ? (e) => handlePointerDown(kind, rect, e) : undefined}
           style={{
             position: 'relative',
