@@ -32,6 +32,15 @@ export const IPC_CHANNELS = {
   RECORDING_SESSION_ELAPSED: 'recording-session:elapsed',
   RECORDING_SESSION_TOOLBAR_READY: 'recording-session:toolbar-ready',
 
+  // Recording Panel (self-contained floating window)
+  PANEL_OPEN: 'panel:open',
+  PANEL_CLOSE: 'panel:close',
+  PANEL_SET_SOURCE: 'panel:set-source',
+  PANEL_START_RECORDING: 'panel:start-recording',
+  PANEL_STOP_RECORDING: 'panel:stop-recording',
+  PANEL_SAVE_RECORDING: 'panel:save-recording',
+  RECORDING_ASSET_READY: 'recording:asset-ready',
+
   // App
   APP_GET_VERSION: 'app:get-version',
 

@@ -149,6 +149,47 @@ const api = {
   /** Remove a path from favorites. */
   storageRemoveFavorite: (path) =>
     ipcRenderer.invoke(IPC_CHANNELS.STORAGE_REMOVE_FAVORITE, { path }),
+
+  // ---- Recording Panel ----
+
+  /** Open the floating recording panel window. */
+  openRecordingPanel: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.PANEL_OPEN),
+
+  /** Close the floating recording panel window. */
+  closeRecordingPanel: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.PANEL_CLOSE),
+
+  /** Tell main process which source the panel selected. */
+  panelSetSource: (sourceId) =>
+    ipcRenderer.send(IPC_CHANNELS.PANEL_SET_SOURCE, { sourceId }),
+
+  /** Start recording (triggers countdown in session manager). */
+  panelStartRecording: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.PANEL_START_RECORDING),
+
+  /** Stop recording. */
+  panelStopRecording: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.PANEL_STOP_RECORDING),
+
+  /** Notify session manager that recording is paused. */
+  panelPause: () =>
+    ipcRenderer.send('panel:pause'),
+
+  /** Notify session manager that recording is resumed. */
+  panelResume: () =>
+    ipcRenderer.send('panel:resume'),
+
+  /** Send recording buffer to main for saving. */
+  panelSaveRecording: (buffer, metadata) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PANEL_SAVE_RECORDING, { buffer, metadata }),
+
+  /** Subscribe to recording asset ready events (main window). Returns unsubscribe. */
+  onRecordingAssetReady: (callback) => {
+    const handler = (_event, result) => callback(result);
+    ipcRenderer.on(IPC_CHANNELS.RECORDING_ASSET_READY, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.RECORDING_ASSET_READY, handler);
+  },
 };
 
 contextBridge.exposeInMainWorld('roughcut', api);

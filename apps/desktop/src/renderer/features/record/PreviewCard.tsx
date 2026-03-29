@@ -113,6 +113,8 @@ export function PreviewCard({
   // Background: gradient takes priority over solid color
   const backgroundStyle = bgGradient ?? bgColor;
 
+
+
   // Shadow on the content frame
   const contentShadow = bgShadowEnabled
     ? `0 ${Math.round(bgShadowBlur * 0.3)}px ${bgShadowBlur}px rgba(0,0,0,0.6)`
@@ -132,55 +134,39 @@ export function PreviewCard({
         aspectRatio,
         borderRadius: 18,
         overflow: 'hidden',
-        // When showing content, use the configured background; otherwise dark
-        background: showContent ? backgroundStyle : '#050505',
+        background: backgroundStyle,
         boxShadow: '0 18px 60px rgba(0,0,0,0.80)',
         transition: 'aspect-ratio 300ms ease, background 200ms ease',
       }}
     >
-      {showContent ? (
-        // ── Active preview: background + content frame + children ──
-        <div
-          style={{
-            position: 'absolute',
-            inset: bgPadding,
-            borderRadius: bgCornerRadius,
-            overflow: 'hidden',
-            boxShadow: contentShadow,
-            border: contentBorder,
-            transition: 'inset 200ms ease, border-radius 200ms ease, box-shadow 200ms ease',
-          }}
-        >
-          {/* Children (video/canvas) fill the content frame */}
-          {children}
-        </div>
-      ) : (
-        // ── Empty state ──
-        <>
+      <div
+        style={{
+          position: 'absolute',
+          inset: bgPadding,
+          borderRadius: bgCornerRadius,
+          overflow: 'hidden',
+          boxShadow: contentShadow,
+          border: contentBorder,
+          background: showContent ? 'transparent' : 'rgba(5,5,5,0.88)',
+          transition: 'inset 200ms ease, border-radius 200ms ease, box-shadow 200ms ease, background 200ms ease',
+        }}
+      >
+        {showContent ? (
+          children
+        ) : (
           <div
             style={{
-              position: 'absolute', inset: 0,
-              background: 'radial-gradient(circle at 50% 0%, rgba(255,255,255,0.04) 0%, rgba(0,0,0,0.85) 55%, #000 100%)',
-              pointerEvents: 'none',
-            }}
-          />
-          <div
-            style={{
-              position: 'absolute', inset: 0,
-              boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.03)',
-              borderRadius: 18, pointerEvents: 'none',
-            }}
-          />
-          <div
-            style={{
-              position: 'absolute', inset: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
             <PreviewEmptyState onChooseSource={onChooseSource} />
           </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 }

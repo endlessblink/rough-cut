@@ -1,5 +1,5 @@
 import { desktopCapturer } from 'electron';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { mkdirSync, existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { execSync } from 'node:child_process';
@@ -81,6 +81,20 @@ export async function saveRecording(buffer, projectDir, metadata) {
   const durationMs = probedMeta.durationMs || metadata.durationMs || 0;
   const durationFrames = Math.round((durationMs / 1000) * fps);
 
+  // Generate thumbnail — extract a frame at 2 seconds (best-effort)
+  let thumbnailPath = null;
+  try {
+    const thumbFilename = filename.replace('.webm', '-thumb.jpg');
+    thumbnailPath = join(recordingsDir, thumbFilename);
+    const seekTime = durationMs > 2000 ? '2' : '0';
+    execSync(
+      `ffmpeg -y -ss ${seekTime} -i "${filePath}" -frames:v 1 -q:v 5 -vf scale=640:-1 "${thumbnailPath}"`,
+      { timeout: 10000, stdio: 'pipe' },
+    );
+  } catch {
+    thumbnailPath = null;
+  }
+
   return {
     filePath,
     durationFrames,
@@ -89,5 +103,6 @@ export async function saveRecording(buffer, projectDir, metadata) {
     fps,
     codec: probedMeta.codec,
     fileSize: Buffer.from(buffer).byteLength,
+    thumbnailPath,
   };
 }

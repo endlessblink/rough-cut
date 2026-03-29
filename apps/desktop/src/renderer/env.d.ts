@@ -16,6 +16,7 @@ export interface RecentProjectEntry {
   modifiedAt: string;
   resolution?: string;
   assetCount?: number;
+  thumbnailPath?: string;
 }
 
 // ---- Recording types ----
@@ -43,6 +44,7 @@ export interface RecordingResult {
   fps: number;
   codec: string;
   fileSize: number;
+  thumbnailPath?: string;
 }
 
 /** Type declaration for the preload API exposed on window.roughcut */
@@ -91,6 +93,17 @@ export interface RoughCutAPI {
   storageGetFavorites(): Promise<string[]>;
   storageAddFavorite(path: string): Promise<void>;
   storageRemoveFavorite(path: string): Promise<void>;
+
+  // Recording Panel (self-contained floating window)
+  openRecordingPanel(): Promise<void>;
+  closeRecordingPanel(): Promise<void>;
+  panelSetSource(sourceId: string): void;
+  panelStartRecording(): Promise<void>;
+  panelStopRecording(): Promise<void>;
+  panelPause(): void;
+  panelResume(): void;
+  panelSaveRecording(buffer: ArrayBuffer, metadata: RecordingMetadata): Promise<RecordingResult>;
+  onRecordingAssetReady(callback: (result: RecordingResult) => void): () => void;
 }
 
 declare global {

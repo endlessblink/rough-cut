@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { CaptureSource } from '../../env.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
 import { formatElapsed } from './format-elapsed.js';
@@ -124,9 +124,10 @@ interface VideoPreviewProps {
   videoRef: (node: HTMLVideoElement | null) => void;
   countdownSeconds: number;
   isCountingDown: boolean;
+  cameraStream: MediaStream | null;
 }
 
-function VideoPreview({ stream, videoRef, countdownSeconds, isCountingDown }: VideoPreviewProps) {
+function VideoPreview({ stream, videoRef, countdownSeconds, isCountingDown, cameraStream }: VideoPreviewProps) {
   const internalVideoRef = useRef<HTMLVideoElement | null>(null);
 
   // Merge external callback ref with internal ref
@@ -135,6 +136,14 @@ function VideoPreview({ stream, videoRef, countdownSeconds, isCountingDown }: Vi
     videoRef(node);
     // Ensure autoplay when node appears with an existing stream
     if (node && stream) {
+      void node.play().catch(() => {});
+    }
+  };
+
+  // Attach camera stream to the overlay video element via ref callback
+  const setCameraRef = (node: HTMLVideoElement | null) => {
+    if (node) {
+      node.srcObject = cameraStream;
       void node.play().catch(() => {});
     }
   };
@@ -194,6 +203,27 @@ function VideoPreview({ stream, videoRef, countdownSeconds, isCountingDown }: Vi
             </span>
           </div>
         </>
+      )}
+
+      {/* Webcam overlay — bottom-right circular pip */}
+      {cameraStream && (
+        <video
+          ref={setCameraRef}
+          autoPlay
+          muted
+          playsInline
+          style={{
+            position: 'absolute',
+            bottom: 8,
+            right: 8,
+            width: 80,
+            height: 80,
+            borderRadius: '50%',
+            objectFit: 'cover',
+            border: '2px solid rgba(255,255,255,0.3)',
+            pointerEvents: 'none',
+          }}
+        />
       )}
 
       {/* Countdown rendered absolutely over the preview, not the whole panel */}
@@ -367,10 +397,20 @@ function SourceSelectorRow({ sources, selectedSourceId, onSelectSource }: Source
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-function DeviceControls() {
+interface DeviceControlsProps {
+  onCameraChange: (enabled: boolean) => void;
+}
+
+function DeviceControls({ onCameraChange }: DeviceControlsProps) {
   const [micEnabled, setMicEnabled] = useState(true);
   const [sysAudioEnabled, setSysAudioEnabled] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
+
+  const handleCameraToggle = () => {
+    const next = !cameraEnabled;
+    setCameraEnabled(next);
+    onCameraChange(next);
+  };
 
   return (
     <div
@@ -384,13 +424,14 @@ function DeviceControls() {
         flexShrink: 0,
       }}
     >
-      {/* Mic toggle */}
+      {/* Mic toggle — with active indicator dot */}
       <DeviceToggleButton
         label="Microphone"
         icon={<MicIcon size={13} color={micEnabled ? C.text : C.textSecondary} />}
         active={micEnabled}
         text="Mic"
         onToggle={() => setMicEnabled((v) => !v)}
+        showActiveDot={micEnabled}
       />
 
       {/* System audio toggle */}
@@ -408,7 +449,7 @@ function DeviceControls() {
         icon={<CameraIcon size={13} color={cameraEnabled ? C.text : C.textSecondary} />}
         active={cameraEnabled}
         text="Camera"
-        onToggle={() => setCameraEnabled((v) => !v)}
+        onToggle={handleCameraToggle}
       />
     </div>
   );
@@ -420,9 +461,10 @@ interface DeviceToggleButtonProps {
   active: boolean;
   text: string;
   onToggle: () => void;
+  showActiveDot?: boolean;
 }
 
-function DeviceToggleButton({ label, icon, active, text, onToggle }: DeviceToggleButtonProps) {
+function DeviceToggleButton({ label, icon, active, text, onToggle, showActiveDot = false }: DeviceToggleButtonProps) {
   const [hovered, setHovered] = useState(false);
 
   const bg = active
@@ -430,10 +472,10 @@ function DeviceToggleButton({ label, icon, active, text, onToggle }: DeviceToggl
       ? C.inputHover
       : C.input
     : hovered
-      ? 'rgba(255,255,255,0.04)'
-      : 'transparent';
+      ? 'rgba(255,255,255,0.08)'
+      : 'rgba(255,255,255,0.03)';
 
-  const borderColor = active ? C.borderLight : C.border;
+  const borderColor = active ? C.borderLight : 'rgba(255,255,255,0.12)';
 
   return (
     <button
@@ -456,7 +498,8 @@ function DeviceToggleButton({ label, icon, active, text, onToggle }: DeviceToggl
         outline: 'none',
         padding: '0 8px',
         transition: 'background 120ms ease-out, border-color 120ms ease-out',
-        opacity: active ? 1 : 0.55,
+        opacity: active ? 1 : 0.85,
+        position: 'relative',
       }}
     >
       {icon}
@@ -470,6 +513,29 @@ function DeviceToggleButton({ label, icon, active, text, onToggle }: DeviceToggl
       >
         {text}
       </span>
+      {/* Pulsing green dot when mic is active */}
+      {showActiveDot && (
+        <>
+          <style>{`
+            @keyframes rc-mic-pulse {
+              0%, 100% { opacity: 1; transform: scale(1); }
+              50%       { opacity: 0.55; transform: scale(1.35); }
+            }
+          `}</style>
+          <span
+            aria-hidden="true"
+            style={{
+              display: 'inline-block',
+              width: 5,
+              height: 5,
+              borderRadius: '50%',
+              background: '#4ade80',
+              animation: 'rc-mic-pulse 1.6s ease-in-out infinite',
+              flexShrink: 0,
+            }}
+          />
+        </>
+      )}
     </button>
   );
 }
@@ -481,6 +547,8 @@ interface RecordingControlsProps {
   elapsedSeconds: number;
   onStartRecording: () => void;
   onStopRecording: () => void;
+  paused: boolean;
+  onTogglePause: () => void;
 }
 
 function RecordingControls({
@@ -488,6 +556,8 @@ function RecordingControls({
   elapsedSeconds,
   onStartRecording,
   onStopRecording,
+  paused,
+  onTogglePause,
 }: RecordingControlsProps) {
   return (
     <div
@@ -514,6 +584,8 @@ function RecordingControls({
         <RecordingRow
           elapsedSeconds={elapsedSeconds}
           onStop={onStopRecording}
+          paused={paused}
+          onTogglePause={onTogglePause}
         />
       )}
 
@@ -662,9 +734,13 @@ function SpinnerDot() {
 function RecordingRow({
   elapsedSeconds,
   onStop,
+  paused,
+  onTogglePause,
 }: {
   elapsedSeconds: number;
   onStop: () => void;
+  paused: boolean;
+  onTogglePause: () => void;
 }) {
   return (
     <div
@@ -675,8 +751,8 @@ function RecordingRow({
         gap: 8,
       }}
     >
-      {/* Pause button (placeholder — wired later) */}
-      <PauseButton />
+      {/* Pause / Resume button */}
+      <PauseButton paused={paused} onTogglePause={onTogglePause} />
 
       {/* Elapsed timer — centered via flex-grow spacers */}
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -741,38 +817,46 @@ function PulsingDot() {
   );
 }
 
-function PauseButton() {
+function PauseButton({ paused, onTogglePause }: { paused: boolean; onTogglePause: () => void }) {
   const [hovered, setHovered] = useState(false);
+
+  const borderColor = paused ? C.accent : hovered ? C.borderLight : C.border;
 
   return (
     <button
-      aria-label="Pause recording"
-      title="Pause (coming soon)"
-      disabled
+      aria-label={paused ? 'Resume recording' : 'Pause recording'}
+      onClick={onTogglePause}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         width: 36,
         height: 36,
         borderRadius: R.button,
-        border: `1px solid ${C.border}`,
+        border: `1px solid ${borderColor}`,
         background: hovered ? C.inputHover : C.input,
-        cursor: 'not-allowed',
+        cursor: 'pointer',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         outline: 'none',
         padding: 0,
-        opacity: 0.45,
+        opacity: 1,
         flexShrink: 0,
-        transition: 'background 120ms ease-out',
+        transition: 'background 120ms ease-out, border-color 120ms ease-out',
       }}
     >
-      {/* Pause icon — two vertical bars */}
-      <svg width="10" height="12" viewBox="0 0 10 12" fill={C.text} aria-hidden="true">
-        <rect x="0" y="0" width="3.5" height="12" rx="1" />
-        <rect x="6.5" y="0" width="3.5" height="12" rx="1" />
-      </svg>
+      {paused ? (
+        /* Play icon — triangle */
+        <svg width="11" height="13" viewBox="0 0 11 13" fill={C.text} aria-hidden="true">
+          <polygon points="1,0 11,6.5 1,13" />
+        </svg>
+      ) : (
+        /* Pause icon — two vertical bars */
+        <svg width="10" height="12" viewBox="0 0 10 12" fill={C.text} aria-hidden="true">
+          <rect x="0" y="0" width="3.5" height="12" rx="1" />
+          <rect x="6.5" y="0" width="3.5" height="12" rx="1" />
+        </svg>
+      )}
     </button>
   );
 }
@@ -865,6 +949,45 @@ export function RecordingPanel({
 }: RecordingPanelProps) {
   const isCountingDown = status === 'countdown';
 
+  // Pause state — reset whenever a fresh recording starts
+  const [isPaused, setIsPaused] = useState(false);
+  useEffect(() => {
+    if (status === 'recording') {
+      setIsPaused(false);
+    }
+  }, [status]);
+
+  // Camera state
+  const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+
+  useEffect(() => {
+    if (!cameraEnabled) {
+      setCameraStream((prev) => {
+        prev?.getTracks().forEach((t) => t.stop());
+        return null;
+      });
+      return;
+    }
+    let active = true;
+    navigator.mediaDevices
+      .getUserMedia({ video: true, audio: false })
+      .then((s) => {
+        if (active) setCameraStream(s);
+        else s.getTracks().forEach((t) => t.stop());
+      })
+      .catch(() => {
+        if (active) setCameraStream(null);
+      });
+    return () => {
+      active = false;
+      setCameraStream((prev) => {
+        prev?.getTracks().forEach((t) => t.stop());
+        return null;
+      });
+    };
+  }, [cameraEnabled]);
+
   return (
     <div
       style={{
@@ -893,6 +1016,7 @@ export function RecordingPanel({
         videoRef={videoRef}
         countdownSeconds={countdownSeconds}
         isCountingDown={isCountingDown}
+        cameraStream={cameraStream}
       />
 
       {/* Spacing below preview */}
@@ -910,7 +1034,7 @@ export function RecordingPanel({
       <Divider />
 
       {/* 4. Device controls */}
-      <DeviceControls />
+      <DeviceControls onCameraChange={setCameraEnabled} />
 
       <Divider />
 
@@ -920,6 +1044,8 @@ export function RecordingPanel({
         elapsedSeconds={elapsedSeconds}
         onStartRecording={onStartRecording}
         onStopRecording={onStopRecording}
+        paused={isPaused}
+        onTogglePause={() => setIsPaused((p) => !p)}
       />
     </div>
   );

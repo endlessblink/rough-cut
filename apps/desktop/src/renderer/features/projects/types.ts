@@ -4,4 +4,5 @@ export interface RecentProjectEntry {
   modifiedAt: string;
   resolution?: string;
   assetCount?: number;
+  thumbnailPath?: string;
 }

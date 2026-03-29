@@ -30,8 +30,8 @@ function TemplateSchematic({ template }: { template: LayoutTemplate }) {
 
   // Compute frame dimensions that fit inside the schematic area
   // while preserving the template's aspect ratio
-  const maxW = 68; // max width available inside the card
-  const maxH = SCHEMATIC_HEIGHT - 4; // 2px margin top+bottom
+  const maxW = 68;
+  const maxH = SCHEMATIC_HEIGHT - 4;
   let frameW: number;
   let frameH: number;
 
@@ -80,7 +80,6 @@ function TemplateSchematic({ template }: { template: LayoutTemplate }) {
         justifyContent: 'center',
       }}
     >
-      {/* Aspect-ratio frame */}
       <div
         style={{
           position: 'relative',
@@ -92,24 +91,19 @@ function TemplateSchematic({ template }: { template: LayoutTemplate }) {
           overflow: 'hidden',
         }}
       >
-        {/* Screen area */}
         {screenLayout === 'split' ? (
-          // Split: screen top half, camera bottom half
           <>
             <div style={{ position: 'absolute', top: 1, left: 1, right: 1, height: '46%', background: SCREEN_COLOR, borderRadius: 1 }} />
             <div style={{ position: 'absolute', bottom: 1, left: 1, right: 1, height: '46%', background: CAMERA_COLOR, borderRadius: 1 }} />
           </>
         ) : screenLayout === 'presentation' ? (
-          // Presentation: camera left 60%, screen right 35%
           <>
             <div style={{ position: 'absolute', top: 1, left: 1, bottom: 1, width: '58%', background: CAMERA_COLOR, borderRadius: 1 }} />
             <div style={{ position: 'absolute', top: 1, right: 1, bottom: 1, width: '34%', background: SCREEN_COLOR, borderRadius: 1 }} />
           </>
         ) : (
-          // Full-screen or PIP: screen fills the frame
           <>
             <div style={{ position: 'absolute', inset: 1, background: SCREEN_COLOR, borderRadius: 1 }} />
-            {/* Camera overlay (only for pip with a visible camera) */}
             {cameraPosition !== 'none' && cameraPosition !== 'hidden' && screenLayout === 'pip' && (
               <div
                 style={{

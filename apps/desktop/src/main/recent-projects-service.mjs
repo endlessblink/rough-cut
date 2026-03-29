@@ -14,6 +14,7 @@ const schema = {
         modifiedAt: { type: 'string' },
         resolution: { type: 'string' },
         assetCount: { type: 'number' },
+        thumbnailPath: { type: 'string' },
       },
       required: ['filePath', 'name', 'modifiedAt'],
     },
@@ -51,11 +52,11 @@ export function getRecentProjects() {
  * Trims the list to MAX_RECENT entries.
  * @param {{ filePath: string, name: string, modifiedAt: string, resolution?: string, assetCount?: number }} entry
  */
-export function addRecentProject({ filePath, name, modifiedAt, resolution, assetCount }) {
+export function addRecentProject({ filePath, name, modifiedAt, resolution, assetCount, thumbnailPath }) {
   const all = store.get('recentProjects');
   const filtered = all.filter((e) => e.filePath !== filePath);
   const updated = [
-    { filePath, name, modifiedAt, ...(resolution !== undefined && { resolution }), ...(assetCount !== undefined && { assetCount }) },
+    { filePath, name, modifiedAt, ...(resolution !== undefined && { resolution }), ...(assetCount !== undefined && { assetCount }), ...(thumbnailPath !== undefined && { thumbnailPath }) },
     ...filtered,
   ].slice(0, MAX_RECENT);
   store.set('recentProjects', updated);

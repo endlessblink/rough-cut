@@ -11,7 +11,6 @@ let playbackController: PlaybackController | null = null;
 /** Ensure PlaybackController exists — independent of compositor init */
 function ensurePlayback(): void {
   if (!playbackController) {
-    console.log('[ensurePlayback] Creating PlaybackController');
     playbackController = new PlaybackController(transportStore, projectStore);
   }
 }

@@ -6,15 +6,15 @@
  * Delegates layout to InspectorShell; each category panel lives in
  * its own component (RecordZoomPanel, RecordCursorPanel).
  */
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import type { ZoomMarker, CursorPresentation, CameraPresentation } from '@rough-cut/project-model';
 import { InspectorShell, RECORD_PANEL_WIDTH } from '../../ui/index.js';
 import type { InspectorCategory } from '../../ui/index.js';
 import { RecordZoomPanel } from './RecordZoomPanel.js';
 import { RecordCursorPanel } from './RecordCursorPanel.js';
 import { RecordCameraPanel } from './RecordCameraPanel.js';
-import { RecordTemplatesPanel } from './RecordTemplatesPanel.js';
 import { RecordBackgroundPanel } from './RecordBackgroundPanel.js';
+import { RecordTemplatesPanel } from './RecordTemplatesPanel.js';
 import type { LayoutTemplate } from './templates.js';
 import { resolutionForAspectRatio, cameraForTemplate } from './templates.js';
 import { projectStore } from '../../hooks/use-stores.js';
@@ -174,23 +174,11 @@ export function RecordRightPanel({
 
   const handleSelectTemplate = useCallback((template: LayoutTemplate) => {
     setSelectedTemplateId(template.id);
-    // Apply resolution
     const resolution = resolutionForAspectRatio(template.aspectRatio);
     projectStore.getState().updateSettings({ resolution });
-    // Apply camera position/visibility
     const cameraPatch = cameraForTemplate(template);
     onCameraChange(cameraPatch);
   }, [onCameraChange]);
-
-  const handleBgColorChange = useCallback((color: string) => {
-    onBackgroundChange({ bgColor: color });
-    projectStore.getState().updateSettings({ backgroundColor: color });
-  }, [onBackgroundChange]);
-
-  const handleBgGradientChange = useCallback((gradient: string | null) => {
-    onBackgroundChange({ bgGradient: gradient });
-    // TODO: store gradient in project settings when BackgroundConfig supports it
-  }, [onBackgroundChange]);
 
   const categories: InspectorCategory[] = [
     {
@@ -208,16 +196,13 @@ export function RecordRightPanel({
       id: 'background',
       label: 'Background',
       icon: <BackgroundIcon />,
-      onReset: () => {
-        onBackgroundReset();
-        projectStore.getState().updateSettings({ backgroundColor: '#000000' });
-      },
+      onReset: onBackgroundReset,
       panel: (
         <RecordBackgroundPanel
           backgroundColor={background.bgColor}
-          onBackgroundColorChange={handleBgColorChange}
+          onBackgroundColorChange={(color) => onBackgroundChange({ bgColor: color })}
           backgroundGradient={background.bgGradient}
-          onBackgroundGradientChange={handleBgGradientChange}
+          onBackgroundGradientChange={(gradient) => onBackgroundChange({ bgGradient: gradient })}
           padding={background.bgPadding}
           onPaddingChange={(v) => onBackgroundChange({ bgPadding: v })}
           cornerRadius={background.bgCornerRadius}

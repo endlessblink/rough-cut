@@ -45,21 +45,14 @@ export class PlaybackController {
 
     let prevIsPlaying = false;
 
-    console.log('[PlaybackController] Created, fps:', fps);
-
     this.unsubscribe = this.transportStore.subscribe((state) => {
       const { isPlaying } = state;
 
       if (isPlaying && !prevIsPlaying) {
-        // Started playing — sync fps and kick off the clock from current playhead
         const currentFps = this.getFps();
-        const duration = this.getCompositionDuration();
-        console.log('[PlaybackController] Play started, fps:', currentFps, 'from frame:', state.playheadFrame, 'duration:', duration);
         this.clock.setFps(currentFps);
         this.clock.start(state.playheadFrame);
       } else if (!isPlaying && prevIsPlaying) {
-        // Stopped playing
-        console.log('[PlaybackController] Play stopped');
         this.clock.stop();
       }
 

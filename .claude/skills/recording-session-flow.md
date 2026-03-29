@@ -85,30 +85,41 @@ From the project constitution:
 
 5. **UI does NOT own rendering logic** (§2) — The toolbar renderer has no PixiJS, no compositor. It's plain React rendering simple controls.
 
-## Architecture
+## Architecture (Self-Contained Panel)
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  Main Process                                        │
-│                                                      │
-│  RecordingSessionManager                             │
-│  ├── Creates/destroys floating toolbar BrowserWindow │
-│  ├── Hides/restores main BrowserWindow               │
-│  ├── Owns MediaRecorder lifecycle (or delegates)     │
-│  ├── Handles IPC from toolbar renderer               │
-│  └── Triggers post-recording flow                    │
-│                                                      │
-│  capture-service.mjs (existing)                      │
-│  ├── getSources()                                    │
-│  └── saveRecording()                                 │
-└──────────────────────────────────────────────────────┘
-         ↕ IPC
-┌─────────────────────────┐  ┌──────────────────────────┐
-│  Main Window (hidden)   │  │  Floating Toolbar Window  │
-│  Record Tab config UI   │  │  Minimal React app        │
-│  (covered by record-tab │  │  Timer + Stop/Pause/etc   │
-│   skill)                │  │  Frameless, always-on-top  │
-└─────────────────────────┘  └──────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│  MAIN PROCESS                                    │
+│                                                  │
+│  session.setDisplayMediaRequestHandler()         │
+│    → intercepts getDisplayMedia() from panel     │
+│    → uses selectedSourceId from main state       │
+│    → supplies source + loopback audio            │
+│                                                  │
+│  RecordingSessionManager                         │
+│    → creates/destroys panel BrowserWindow        │
+│    → countdown timer (ticks to panel)            │
+│    → elapsed timer (to panel)                    │
+│    → tray icon + global shortcut                 │
+│    → routes recording result to main window      │
+│                                                  │
+│  capture-service.mjs                             │
+│    → saveRecording() + ffprobe (existing)         │
+└─────────────────────────────────────────────────┘
+         ↕ IPC                    ↕ IPC
+┌──────────────────┐    ┌─────────────────────────┐
+│  MAIN WINDOW     │    │  PANEL WINDOW (500x460) │
+│  (stays visible) │    │  Own renderer process   │
+│                  │    │                         │
+│  Record tab REC  │    │  getDisplayMedia()      │
+│  → opens panel   │    │  → live <video> preview │
+│                  │    │  MediaRecorder           │
+│  Receives asset  │    │  → chunks → blob → IPC  │
+│  via IPC on done │    │                         │
+│  → addAsset()    │    │  Source selector        │
+│  → addClip()     │    │  Device controls        │
+│                  │    │  REC / Pause / Stop      │
+└──────────────────┘    └─────────────────────────┘
 ```
 
 ## File Map (planned)
@@ -143,6 +154,37 @@ apps/desktop/src/shared/
 7. **Pause/Resume** — MediaRecorder.pause()/resume() support
 8. **Action sheet** — Optional post-recording choice UI
 9. **Tray icon** — System tray indicator during recording
+
+## Lessons Learned (Validated the Hard Way)
+
+### React Portals Do NOT Work for Live Video in Electron
+
+**Attempted**: `window.open()` + `ReactDOM.createPortal()` to render React components into a child BrowserWindow, sharing the same renderer process and MediaStream.
+
+**Result**: GPU texture conflicts (SharedImageManager::ProduceSkia errors), video flickering every ~300ms, and status state not propagating correctly. The child window's GPU context fights with the parent's.
+
+**Root cause**: Even though `window.open()` creates a window in the same renderer process, the two windows have separate GPU compositing surfaces. Live video textures (`<video>` with `srcObject`) cannot be reliably rendered across these surfaces.
+
+**Rule**: Never use React Portals for cross-window live video in Electron. Use a self-contained BrowserWindow with its own stream acquisition instead.
+
+### Self-Contained Panel Window Is the Correct Architecture
+
+The panel is its own BrowserWindow with its own renderer process. It acquires its own MediaStream via `getDisplayMedia()` (intercepted by `session.setDisplayMediaRequestHandler` in main process). It runs its own MediaRecorder. Communication is via IPC only.
+
+This is what Loom does (confirmed by their engineering blog post). Each UI element (camera bubble, controls bar, main app) is a separate BrowserWindow.
+
+### `setDisplayMediaRequestHandler` Replaces chromeMediaSourceId
+
+The old `desktopCapturer.getSources()` → pass ID via IPC → `getUserMedia({ chromeMediaSourceId })` pattern has:
+- 10-second ID expiry
+- webContents binding (ID only works in the window that requested it)
+- Error 263 when ID is stale
+
+The new pattern: main process registers `session.setDisplayMediaRequestHandler`, panel renderer calls standard `getDisplayMedia()`. Main intercepts and supplies the source directly. Zero ID passing, zero expiry, zero cross-window issues.
+
+### Vite Multi-Page Paths Must Be Absolute
+
+`rollupOptions.input` paths MUST use `resolve(__dirname, 'src/renderer/panel.html')` — absolute, anchored to the config file directory. Relative paths or paths relative to `root` fail silently or cause Rollup resolution errors.
 
 ## Platform Limitations (Validated)
 

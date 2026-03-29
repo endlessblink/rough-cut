@@ -4,10 +4,7 @@
  * background/look presets. No clip edits (no cutting, trimming, reordering, track management).
  */
 import { useState, useEffect, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import type { RecordingResult } from '../../env.js';
-import { usePortalWindow } from '../../hooks/use-portal-window.js';
-import { RecordingPanel } from './RecordingPanel.js';
 import { useProjectStore, useTransportStore, transportStore, projectStore } from '../../hooks/use-stores.js';
 import { createDefaultZoomPresentation, createDefaultCursorPresentation, createDefaultCameraPresentation } from '@rough-cut/project-model';
 import type { CursorPresentation, CameraPresentation } from '@rough-cut/project-model';
@@ -33,8 +30,8 @@ import { SourcePickerPopup } from './SourcePickerPopup.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
 
 const DEFAULT_BACKGROUND: BackgroundConfig = {
-  bgColor: '#000000',
-  bgGradient: null,
+  bgColor: '#4a1942',
+  bgGradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
   bgPadding: 40,
   bgCornerRadius: 12,
   bgInset: 0,
@@ -56,14 +53,6 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isSystemAudioEnabled, setIsSystemAudioEnabled] = useState(true);
   const [isCameraEnabled, setIsCameraEnabled] = useState(false);
-  const [isPanelOpen, setIsPanelOpen] = useState(false);
-
-  // Floating recording panel via React Portal (Screen Studio pattern)
-  const { portalContainer, closeWindow: closePanelWindow } = usePortalWindow(isPanelOpen, {
-    width: 500,
-    height: 460,
-    title: 'Rough Cut — Recording',
-  });
 
   const {
     state,
@@ -197,10 +186,10 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     if (status === 'recording') {
       void window.roughcut.recordingSessionStop();
     } else if (status !== 'stopping' && status !== 'loading-sources' && status !== 'countdown') {
-      if (!selectedSourceId) return; // Can't record without a source
-      void window.roughcut.recordingSessionStart();
+      // Open the floating recording panel — recording starts from there
+      void window.roughcut.openRecordingPanel();
     }
-  }, [status, selectedSourceId]);
+  }, [status]);
 
   useEffect(() => {
     const unsubCountdown = window.roughcut.onSessionCountdownTick((seconds) => {
@@ -221,22 +210,6 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
       unsubStatus();
     };
   }, [recording, setStatus]);
-
-  // Space bar toggles playback (review mode) — skip during active recording
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && !e.repeat) {
-        if (status === 'recording' || status === 'countdown' || status === 'stopping') return;
-        e.preventDefault();
-        const before = transportStore.getState().isPlaying;
-        transportStore.getState().togglePlay();
-        const after = transportStore.getState().isPlaying;
-        console.log('[RecordTab] Space pressed, isPlaying:', before, '->', after, 'playheadFrame:', transportStore.getState().playheadFrame);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [status]);
 
   return (
     <RecordScreenLayout>
@@ -262,29 +235,6 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         }}
       >
         <ModeSelectorRow mode={recordMode} onChange={setRecordMode} />
-        <button
-          onClick={() => setIsPanelOpen((o) => !o)}
-          title={isPanelOpen ? 'Close floating panel' : 'Open floating recording panel'}
-          style={{
-            background: isPanelOpen ? 'rgba(255,90,95,0.15)' : 'rgba(255,255,255,0.06)',
-            border: isPanelOpen ? '1px solid rgba(255,90,95,0.3)' : '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 6,
-            padding: '4px 10px',
-            color: isPanelOpen ? '#ff5a5f' : '#aaa',
-            fontSize: 12,
-            cursor: 'pointer',
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-          }}
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <rect x="1" y="1" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.2" />
-            <path d="M7 1v4h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-          </svg>
-          {isPanelOpen ? 'Close Panel' : 'Pop Out'}
-        </button>
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
         <BottomBar
           sourceName={selectedSourceName}
@@ -313,9 +263,16 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
           <PreviewStage>
             <PreviewCard
               hasActiveSource={Boolean(selectedSourceId) || hasRecordingAsset}
-              hasRecordingAsset={hasRecordingAsset}
               onChooseSource={() => setIsSourcePickerOpen(true)}
               aspectRatio={`${resolution.width} / ${resolution.height}`}
+              bgColor={background.bgColor}
+              bgGradient={background.bgGradient}
+              bgPadding={background.bgPadding}
+              bgCornerRadius={background.bgCornerRadius}
+              bgShadowEnabled={background.bgShadowEnabled}
+              bgShadowBlur={background.bgShadowBlur}
+              bgInset={background.bgInset}
+              bgInsetColor={background.bgInsetColor}
             >
               {selectedSourceId ? (
                 // Live preview: show the capture stream directly
@@ -410,36 +367,6 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
       )}
 
       <CountdownOverlay secondsRemaining={countdownSeconds} visible={status === 'countdown'} />
-
-      {/* Floating recording panel (React Portal into child BrowserWindow) */}
-      {portalContainer && createPortal(
-        <RecordingPanel
-          sources={sources}
-          selectedSourceId={selectedSourceId}
-          onSelectSource={selectSource}
-          stream={liveStream}
-          videoRef={(node) => {
-            // Attach stream to the portal's video element
-            if (node && liveStream) {
-              node.srcObject = liveStream;
-            }
-          }}
-          status={status}
-          countdownSeconds={countdownSeconds}
-          elapsedSeconds={elapsedSeconds}
-          onStartRecording={handleClickRecord}
-          onStopRecording={() => {
-            if (status === 'recording') {
-              void window.roughcut.recordingSessionStop();
-            }
-          }}
-          onClose={() => {
-            setIsPanelOpen(false);
-            closePanelWindow();
-          }}
-        />,
-        portalContainer,
-      )}
     </RecordScreenLayout>
   );
 }

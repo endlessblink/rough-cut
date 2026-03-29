@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net, screen } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol, net, session, desktopCapturer } from 'electron';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -29,39 +29,6 @@ function createWindow() {
     },
   });
 
-  // Configure window.open() from renderer to create floating panel windows
-  // This allows ReactDOM.createPortal to render into child windows (same process)
-  mainWindow.webContents.setWindowOpenHandler(({ url, features }) => {
-    // Position the panel bottom-center of the current display
-    const display = screen.getDisplayMatching(mainWindow.getBounds());
-    const { width: dw, height: dh, x: dx, y: dy } = display.workArea;
-    const panelWidth = 500;
-    const panelHeight = 460;
-
-    return {
-      action: 'allow',
-      overrideBrowserWindowOptions: {
-        width: panelWidth,
-        height: panelHeight,
-        x: dx + Math.round((dw - panelWidth) / 2),
-        y: dy + dh - panelHeight - 80,
-        frame: false,
-        transparent: true,
-        alwaysOnTop: true,
-        resizable: false,
-        skipTaskbar: true,
-        hasShadow: true,
-        roundedCorners: true,
-        webPreferences: {
-          preload: join(__dirname, '..', 'preload', 'index.mjs'),
-          contextIsolation: true,
-          nodeIntegration: false,
-          sandbox: false,
-        },
-      },
-    };
-  });
-
   // In dev, load from Vite dev server
   if (!app.isPackaged) {
     mainWindow.maximize();
@@ -86,6 +53,7 @@ function registerIpcHandlers() {
     const content = await readFile(filePath, 'utf-8');
     const data = JSON.parse(content);
     // Return the raw data -- the renderer will validate via the project-model package
+    const firstThumb = Array.isArray(data.assets) ? data.assets.find((a) => a.thumbnailPath) : null;
     addRecentProject({
       filePath,
       name: data.name ?? filePath.split('/').pop().replace(/\.roughcut$/, ''),
@@ -94,6 +62,7 @@ function registerIpcHandlers() {
         ? `${data.settings.resolution.width}x${data.settings.resolution.height}`
         : undefined,
       assetCount: Array.isArray(data.assets) ? data.assets.length : undefined,
+      thumbnailPath: firstThumb?.thumbnailPath,
     });
     return { project: data, filePath };
   });
@@ -101,6 +70,7 @@ function registerIpcHandlers() {
   // Project: Save
   ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, async (_e, { project, filePath }) => {
     await writeFile(filePath, JSON.stringify(project, null, 2), 'utf-8');
+    const firstThumb = Array.isArray(project.assets) ? project.assets.find((a) => a.thumbnailPath) : null;
     addRecentProject({
       filePath,
       name: project.name ?? filePath.split('/').pop().replace(/\.roughcut$/, ''),
@@ -109,6 +79,7 @@ function registerIpcHandlers() {
         ? `${project.settings.resolution.width}x${project.settings.resolution.height}`
         : undefined,
       assetCount: Array.isArray(project.assets) ? project.assets.length : undefined,
+      thumbnailPath: firstThumb?.thumbnailPath,
     });
     return true;
   });
@@ -120,6 +91,7 @@ function registerIpcHandlers() {
     });
     if (result.canceled || !result.filePath) return null;
     await writeFile(result.filePath, JSON.stringify(project, null, 2), 'utf-8');
+    const firstThumb = Array.isArray(project.assets) ? project.assets.find((a) => a.thumbnailPath) : null;
     addRecentProject({
       filePath: result.filePath,
       name: project.name ?? result.filePath.split('/').pop().replace(/\.roughcut$/, ''),
@@ -128,6 +100,7 @@ function registerIpcHandlers() {
         ? `${project.settings.resolution.width}x${project.settings.resolution.height}`
         : undefined,
       assetCount: Array.isArray(project.assets) ? project.assets.length : undefined,
+      thumbnailPath: firstThumb?.thumbnailPath,
     });
     return result.filePath;
   });
@@ -259,6 +232,7 @@ function registerIpcHandlers() {
 
       await writeFile(filePath, JSON.stringify(project, null, 2), 'utf-8');
 
+      const firstThumb = Array.isArray(project.assets) ? project.assets.find((a) => a.thumbnailPath) : null;
       addRecentProject({
         filePath,
         name: project.name ?? filePath.split('/').pop().replace(/\.roughcut$/, ''),
@@ -267,6 +241,7 @@ function registerIpcHandlers() {
           ? `${project.settings.resolution.width}x${project.settings.resolution.height}`
           : undefined,
         assetCount: Array.isArray(project.assets) ? project.assets.length : undefined,
+        thumbnailPath: firstThumb?.thumbnailPath,
       });
 
       return filePath;
@@ -367,6 +342,12 @@ function registerIpcHandlers() {
   });
 }
 
+// macOS audio loopback support (ScreenCaptureKit)
+app.commandLine.appendSwitch(
+  'enable-features',
+  'MacLoopbackAudioForScreenShare,MacSckSystemAudioLoopbackOverride'
+);
+
 // Register media:// as a privileged scheme (must happen before app.whenReady)
 // stream: true enables range requests for video seeking
 protocol.registerSchemesAsPrivileged([
@@ -378,6 +359,28 @@ app.whenReady().then(() => {
   protocol.handle('media', (req) => {
     const filePath = decodeURIComponent(req.url.replace('media://', ''));
     return net.fetch(`file://${filePath}`);
+  });
+
+  // Store selected source ID — updated via IPC from panel window
+  let selectedSourceId = null;
+
+  ipcMain.on(IPC_CHANNELS.PANEL_SET_SOURCE, (_e, { sourceId }) => {
+    selectedSourceId = sourceId;
+  });
+
+  // Intercept getDisplayMedia() from any renderer (panel window uses this)
+  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+    try {
+      const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+      const source = selectedSourceId
+        ? sources.find(s => s.id === selectedSourceId) ?? sources[0]
+        : sources[0];
+      if (!source) { callback(undefined); return; }
+      callback({ video: source, audio: 'loopback' });
+    } catch (err) {
+      console.error('[display-media-handler] Error:', err);
+      callback(undefined); // MUST call or getDisplayMedia hangs forever
+    }
   });
 
   registerIpcHandlers();

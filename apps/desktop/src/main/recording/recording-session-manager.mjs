@@ -1,19 +1,19 @@
 /**
  * RecordingSessionManager
  *
- * Orchestrates the full recording session flow in the Electron main process:
- *   idle → countdown → recording → stopping → idle
+ * Orchestrates the full recording session flow in the Electron main process
+ * using a self-contained panel BrowserWindow.
  *
- * The floating toolbar is now owned by the renderer via window.open() +
- * React Portal — this module no longer creates or manages any BrowserWindow
- * beyond the main app window.
+ * State machine: idle → panel-open → countdown → recording → stopping → idle
  *
  * Responsibilities:
- *  - IPC registration for session start/stop
- *  - 3-second countdown with per-tick notifications to renderer
- *  - Elapsed-time heartbeat to main window (React Portal reads it via preload)
- *  - Global shortcut (Ctrl+Shift+Esc / Cmd+Shift+Esc) to stop recording
+ *  - Create / destroy the panel BrowserWindow
+ *  - Run a 3-second countdown, sending ticks to panelWindow
+ *  - Run an elapsed-time heartbeat (100 ms) to panelWindow
+ *  - Global shortcut (CmdOrCtrl+Shift+Escape) to stop recording
  *  - System tray icon with "Stop Recording" menu item
+ *  - Route recording results from the panel back to mainWindow
+ *  - Handle panel closed externally
  *  - Clean teardown on app quit
  *
  * Usage (in main/index.mjs):
@@ -22,27 +22,58 @@
  *   initSessionManager(mainWindow);
  */
 
-import { ipcMain, globalShortcut, Tray, Menu, nativeImage, app } from 'electron';
+import {
+  BrowserWindow,
+  ipcMain,
+  globalShortcut,
+  screen,
+  Tray,
+  Menu,
+  nativeImage,
+  app,
+} from 'electron';
+import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../../shared/ipc-channels.mjs';
+import { saveRecording } from './capture-service.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
-/** @type {'idle' | 'countdown' | 'recording' | 'stopping'} */
+/**
+ * @typedef {'idle' | 'panel-open' | 'countdown' | 'recording' | 'stopping'} SessionState
+ */
+
+/** @type {SessionState} */
 let state = 'idle';
 
 /** @type {import('electron').BrowserWindow | null} */
 let mainWindow = null;
+
+/** @type {import('electron').BrowserWindow | null} */
+let panelWindow = null;
 
 /** @type {Tray | null} */
 let tray = null;
 
 /** @type {ReturnType<typeof setInterval> | null} */
 let elapsedTimer = null;
+
+/** @type {ReturnType<typeof setInterval> | null} */
+let countdownTimer = null;
+
+/** Whether the recording is currently paused. */
+let isPaused = false;
+
+/** Accumulated paused time in ms (subtracted from elapsed). */
+let totalPausedMs = 0;
+
+/** Timestamp when current pause started. */
+let pauseStartMs = 0;
 
 /** Millisecond timestamp when recording phase started. */
 let recordingStartMs = 0;
@@ -87,12 +118,27 @@ function formatElapsed(ms) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+/**
+ * Guard a state transition — logs and returns false if the current state is
+ * not in the set of allowed states.
+ * @param {string} fnName
+ * @param {SessionState[]} allowed
+ * @returns {boolean}
+ */
+function guardState(fnName, allowed) {
+  if (!allowed.includes(state)) {
+    console.warn(`[session-manager] ${fnName}() ignored — current state: ${state}`);
+    return false;
+  }
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Tray
 // ---------------------------------------------------------------------------
 
 /**
- * Create the system tray icon.
+ * Create the system tray icon with a "Stop Recording" context menu.
  * @returns {Tray}
  */
 function createTray() {
@@ -104,8 +150,8 @@ function createTray() {
     {
       label: 'Stop Recording',
       click: () => {
-        stopSession().catch((err) =>
-          console.error('[session-manager] stopSession from tray failed:', err),
+        stopRecording().catch((err) =>
+          console.error('[session-manager] stopRecording from tray failed:', err),
         );
       },
     },
@@ -115,7 +161,7 @@ function createTray() {
 }
 
 /**
- * Update the tray tooltip with current elapsed time (called every 100 ms).
+ * Update the tray tooltip with the current elapsed time (called every 100 ms).
  */
 function updateTrayTooltip() {
   if (!tray || tray.isDestroyed()) return;
@@ -128,55 +174,165 @@ function updateTrayTooltip() {
 }
 
 // ---------------------------------------------------------------------------
-// Session lifecycle
+// Panel window
 // ---------------------------------------------------------------------------
 
 /**
- * Run the 3-second countdown, sending a tick per second to the renderer.
- * Resolves once the final tick has been sent.
- * @returns {Promise<void>}
+ * Compute the bottom-center position for the panel on the same display as
+ * mainWindow, with a small margin from the bottom edge.
+ * @param {{width: number, height: number}} panelSize
+ * @returns {{x: number, y: number}}
  */
-function runCountdown() {
-  return new Promise((resolve) => {
-    let secondsLeft = 3;
-    safeSend(mainWindow, IPC_CHANNELS.RECORDING_SESSION_COUNTDOWN_TICK, secondsLeft);
+function getPanelPosition(panelSize) {
+  try {
+    const bounds = mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : null;
+    const display = bounds
+      ? screen.getDisplayMatching(bounds)
+      : screen.getPrimaryDisplay();
+    const { x: dx, y: dy, width: dw, height: dh } = display.workArea;
+    const x = Math.round(dx + (dw - panelSize.width) / 2);
+    const y = Math.round(dy + dh - panelSize.height - 32); // 32 px margin from bottom
+    return { x, y };
+  } catch (err) {
+    console.warn('[session-manager] getPanelPosition failed, using defaults:', err?.message ?? err);
+    return { x: 100, y: 100 };
+  }
+}
 
-    const interval = setInterval(() => {
-      secondsLeft -= 1;
-      if (secondsLeft <= 0) {
-        clearInterval(interval);
-        resolve();
-      } else {
-        safeSend(mainWindow, IPC_CHANNELS.RECORDING_SESSION_COUNTDOWN_TICK, secondsLeft);
-      }
-    }, 1000);
+// ---------------------------------------------------------------------------
+// Public API — Panel lifecycle
+// ---------------------------------------------------------------------------
+
+/**
+ * Create the panel BrowserWindow and transition to `panel-open`.
+ * No-ops if a panel is already open.
+ */
+export function openPanel() {
+  console.info('[session-manager] openPanel() called, state:', state);
+  if (!guardState('openPanel', ['idle'])) return;
+
+  const PANEL_W = 500;
+  const PANEL_H = 460;
+  const { x, y } = getPanelPosition({ width: PANEL_W, height: PANEL_H });
+
+  const preloadPath = join(__dirname, '..', '..', 'preload', 'index.mjs');
+  console.info('[session-manager] Creating panel window, preload:', preloadPath);
+
+  panelWindow = new BrowserWindow({
+    x,
+    y,
+    width: PANEL_W,
+    height: PANEL_H,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    skipTaskbar: true,
+    hasShadow: true,
+    show: false,
+    roundedCorners: true,
+    webPreferences: {
+      preload: preloadPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      backgroundThrottling: false,
+    },
   });
+
+  // Load panel renderer
+  const panelUrl = !app.isPackaged
+    ? 'http://127.0.0.1:7544/panel.html'
+    : join(__dirname, '../../../dist/renderer/panel.html');
+
+  console.info('[session-manager] Loading panel from:', panelUrl);
+
+  if (!app.isPackaged) {
+    panelWindow.loadURL(panelUrl);
+  } else {
+    panelWindow.loadFile(panelUrl);
+  }
+
+  panelWindow.webContents.on('did-fail-load', (_e, code, desc) => {
+    console.error('[session-manager] Panel failed to load:', code, desc);
+  });
+
+  panelWindow.webContents.on('did-finish-load', () => {
+    console.info('[session-manager] Panel finished loading.');
+  });
+
+  panelWindow.once('ready-to-show', () => {
+    console.info('[session-manager] Panel ready to show.');
+    if (panelWindow && !panelWindow.isDestroyed()) {
+      panelWindow.show();
+    }
+  });
+
+  // If the panel is closed externally (user clicks X or OS closes it), clean up.
+  panelWindow.on('closed', () => {
+    console.info('[session-manager] Panel closed externally — cleaning up.');
+    panelWindow = null;
+    _cleanup();
+    state = 'idle';
+  });
+
+  state = 'panel-open';
+  console.info('[session-manager] Panel opened.');
 }
 
 /**
- * Begin a recording session.
+ * Destroy the panel BrowserWindow and transition to `idle`.
+ * No-ops if no panel is open.
+ */
+export function closePanel() {
+  if (!guardState('closePanel', ['panel-open', 'countdown', 'recording', 'stopping'])) return;
+
+  _cleanup();
+  _destroyPanel();
+  state = 'idle';
+  console.info('[session-manager] Panel closed.');
+}
+
+/**
+ * Destroy the panel window reference.  Safe to call if already null/destroyed.
+ */
+function _destroyPanel() {
+  if (panelWindow) {
+    try {
+      if (!panelWindow.isDestroyed()) panelWindow.destroy();
+    } catch (err) {
+      console.warn('[session-manager] panelWindow.destroy() failed:', err?.message ?? err);
+    }
+    panelWindow = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API — Recording lifecycle
+// ---------------------------------------------------------------------------
+
+/**
+ * Begin the countdown, then signal the panel renderer to start its own
+ * MediaRecorder.
  *
  * Flow:
- *  1. Guard: only when idle
- *  2. Run countdown (state = 'countdown')
+ *  1. Guard: only when panel-open
+ *  2. Run 3-second countdown — send ticks to panelWindow
  *  3. Transition to 'recording'
- *  4. Start elapsed timer → mainWindow.webContents
- *  5. Register global shortcut + create tray
+ *  4. Send `status-changed: 'recording'` to panelWindow
+ *  5. Start elapsed timer (100 ms) → panelWindow
+ *  6. Register global shortcut + create tray
  */
-async function startSession() {
-  if (state !== 'idle') {
-    console.warn(`[session-manager] startSession() ignored — current state: ${state}`);
-    return;
-  }
+export async function startRecording() {
+  if (!guardState('startRecording', ['panel-open'])) return;
 
   try {
-    // --- Countdown ---
     state = 'countdown';
 
-    await runCountdown();
+    await _runCountdown();
 
+    // Check if state was externally changed during countdown (e.g. panel closed)
     if (state !== 'countdown') {
-      // Session was aborted externally during countdown
       console.warn('[session-manager] Session aborted during countdown — bailing out.');
       return;
     }
@@ -185,21 +341,27 @@ async function startSession() {
     state = 'recording';
     recordingStartMs = Date.now();
 
-    safeSend(mainWindow, IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'recording');
+    safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'recording');
 
-    // Elapsed heartbeat → mainWindow (React Portal reads it via the preload bridge
-    // since the portal is rendered in the same renderer process)
+    // Reset pause tracking
+    isPaused = false;
+    totalPausedMs = 0;
+    pauseStartMs = 0;
+
+    // Elapsed heartbeat → panelWindow (accounts for paused time)
     elapsedTimer = setInterval(() => {
-      const elapsedMs = Date.now() - recordingStartMs;
-      safeSend(mainWindow, IPC_CHANNELS.RECORDING_SESSION_ELAPSED, elapsedMs);
+      if (isPaused) return; // Don't update elapsed while paused
+      const currentPausedMs = totalPausedMs;
+      const elapsedMs = Date.now() - recordingStartMs - currentPausedMs;
+      safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_ELAPSED, elapsedMs);
       updateTrayTooltip();
     }, 100);
 
     // Global shortcut to stop recording
     try {
       globalShortcut.register('CommandOrControl+Shift+Escape', () => {
-        stopSession().catch((err) =>
-          console.error('[session-manager] stopSession from shortcut failed:', err),
+        stopRecording().catch((err) =>
+          console.error('[session-manager] stopRecording from shortcut failed:', err),
         );
       });
     } catch (err) {
@@ -208,44 +370,83 @@ async function startSession() {
 
     // Tray icon
     tray = createTray();
+
+    console.info('[session-manager] Recording started.');
   } catch (err) {
-    console.error('[session-manager] startSession() threw unexpectedly:', err);
-    // Attempt best-effort cleanup so app doesn't get stuck
+    console.error('[session-manager] startRecording() threw unexpectedly:', err);
     _cleanup();
+    state = 'panel-open';
   }
 }
 
 /**
- * Stop the active recording session.
+ * Signal the panel renderer to stop its MediaRecorder.
  *
  * Flow:
  *  1. Guard: only when recording
  *  2. Transition to 'stopping'
- *  3. Signal renderer (triggers MediaRecorder.stop())
+ *  3. Send `status-changed: 'stopping'` to panelWindow
+ *     (panel renderer stops MediaRecorder and will call PANEL_SAVE_RECORDING)
  *  4. Tear down elapsed timer, shortcut, tray
- *  5. Transition back to 'idle'
+ *     (final cleanup to idle happens after PANEL_SAVE_RECORDING resolves)
  */
-async function stopSession() {
-  if (state !== 'recording') {
-    console.warn(`[session-manager] stopSession() ignored — current state: ${state}`);
-    return;
-  }
+export async function stopRecording() {
+  if (!guardState('stopRecording', ['recording'])) return;
 
   state = 'stopping';
 
-  // Tell renderer to stop MediaRecorder — it will handle the data and save
-  safeSend(mainWindow, IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'stopping');
+  // Tell panel renderer to stop MediaRecorder
+  safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'stopping');
 
+  // Clear timers / shortcut / tray immediately
   _cleanup();
 
-  state = 'idle';
+  console.info('[session-manager] Stop signal sent to panel renderer.');
 }
 
+// ---------------------------------------------------------------------------
+// Countdown (internal)
+// ---------------------------------------------------------------------------
+
 /**
- * Tear down all transient session resources (timer, shortcut, tray).
+ * Run the 3-second countdown.  Sends a tick per second to panelWindow.
+ * Resolves once the final tick has been sent (after the 1-second pause for "1").
+ * @returns {Promise<void>}
+ */
+function _runCountdown() {
+  return new Promise((resolve) => {
+    let secondsLeft = 3;
+    safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_COUNTDOWN_TICK, secondsLeft);
+
+    countdownTimer = setInterval(() => {
+      secondsLeft -= 1;
+      if (secondsLeft <= 0) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+        resolve();
+      } else {
+        safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_COUNTDOWN_TICK, secondsLeft);
+      }
+    }, 1000);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Cleanup (internal)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tear down all transient session resources: countdown timer, elapsed timer,
+ * global shortcut, and tray.
  * Safe to call from any state — all steps are individually guarded.
  */
 function _cleanup() {
+  // Clear countdown timer
+  if (countdownTimer !== null) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
+
   // Clear elapsed timer
   if (elapsedTimer !== null) {
     clearInterval(elapsedTimer);
@@ -271,42 +472,113 @@ function _cleanup() {
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// Public API — init
 // ---------------------------------------------------------------------------
 
 /**
  * Initialize the session manager.
  * Must be called once after the main BrowserWindow is created.
  *
+ * Registers all IPC handlers for the panel recording flow.
+ *
  * @param {import('electron').BrowserWindow} win  The application's main window.
  */
 export function initSessionManager(win) {
   mainWindow = win;
 
-  // IPC: renderer → main: start a new session
+  // ---- Panel lifecycle ----
+
+  ipcMain.handle(IPC_CHANNELS.PANEL_OPEN, () => {
+    openPanel();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PANEL_CLOSE, () => {
+    closePanel();
+  });
+
+  // ---- Recording lifecycle ----
+
+  ipcMain.handle(IPC_CHANNELS.PANEL_START_RECORDING, async () => {
+    await startRecording();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PANEL_STOP_RECORDING, async () => {
+    await stopRecording();
+  });
+
+  // Pause/resume elapsed timer when panel pauses/resumes MediaRecorder
+  ipcMain.on('panel:pause', () => {
+    if (state === 'recording' && !isPaused) {
+      isPaused = true;
+      pauseStartMs = Date.now();
+      console.info('[session-manager] Recording paused');
+    }
+  });
+
+  ipcMain.on('panel:resume', () => {
+    if (state === 'recording' && isPaused) {
+      totalPausedMs += Date.now() - pauseStartMs;
+      isPaused = false;
+      console.info('[session-manager] Recording resumed, total paused:', totalPausedMs, 'ms');
+    }
+  });
+
+  /**
+   * Called by the panel renderer once it has assembled the recording blob.
+   * Saves the file via capture-service, then routes the result to mainWindow.
+   */
+  ipcMain.handle(IPC_CHANNELS.PANEL_SAVE_RECORDING, async (_event, { buffer, metadata }) => {
+    try {
+      // projectDir is not tracked here — capture-service falls back to /tmp
+      const projectDir = null;
+      const result = await saveRecording(Buffer.from(buffer), projectDir, metadata);
+
+      // Route result to the main renderer so it can create an Asset entry
+      safeSend(mainWindow, IPC_CHANNELS.RECORDING_ASSET_READY, result);
+
+      // Tear down panel and return to idle
+      _destroyPanel();
+      state = 'idle';
+
+      console.info('[session-manager] Recording saved, transitioned to idle.');
+      return result;
+    } catch (err) {
+      console.error('[session-manager] PANEL_SAVE_RECORDING failed:', err);
+      _destroyPanel();
+      state = 'idle';
+      throw err;
+    }
+  });
+
+  // ---- Legacy session handlers (keep for backward compat) ----
+
   ipcMain.handle(IPC_CHANNELS.RECORDING_SESSION_START, async () => {
-    await startSession();
+    // Legacy path: open panel then immediately start recording
+    openPanel();
+    // Give the panel a tick to load before starting the countdown
+    await new Promise((r) => setTimeout(r, 200));
+    await startRecording();
   });
 
-  // IPC: renderer → main: stop the active session
   ipcMain.handle(IPC_CHANNELS.RECORDING_SESSION_STOP, async () => {
-    await stopSession();
+    await stopRecording();
   });
 
-  // Safety net: if the app is quitting while a session is active, clean up
+  // ---- Safety net ----
+
   app.on('before-quit', () => {
     if (state === 'recording') {
       console.info('[session-manager] App quitting mid-recording — stopping session.');
-      stopSession().catch((err) =>
-        console.error('[session-manager] stopSession on quit failed:', err),
+      stopRecording().catch((err) =>
+        console.error('[session-manager] stopRecording on quit failed:', err),
       );
     } else if (state === 'countdown') {
       // Abort countdown gracefully
-      state = 'idle';
       _cleanup();
+      state = 'idle';
     }
+
+    // Destroy panel window if still open
+    _destroyPanel();
   });
 }
-
-// Expose internals for testing / integration use
-export { startSession, stopSession };

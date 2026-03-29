@@ -81,6 +81,26 @@ export function ProjectCard({ project, isSelected = false, onOpen, onRemove }: P
           overflow: 'hidden',
         }}
       >
+        {/* Actual thumbnail if available */}
+        {project.thumbnailPath && (
+          <img
+            src={`media://${project.thumbnailPath}`}
+            alt=""
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              zIndex: 2,
+            }}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        )}
+
         {/* Subtle radial teal tint at center */}
         <div
           style={{

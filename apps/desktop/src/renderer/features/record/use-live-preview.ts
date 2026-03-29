@@ -36,6 +36,10 @@ export function useLivePreview(selectedSourceId: string | null) {
             mandatory: {
               chromeMediaSource: 'desktop',
               chromeMediaSourceId: selectedSourceId,
+              maxWidth: 3840,
+              maxHeight: 2160,
+              maxFrameRate: 60,
+              minFrameRate: 15,
             },
           } as unknown as MediaTrackConstraints,
         });

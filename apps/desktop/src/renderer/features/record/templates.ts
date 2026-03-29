@@ -1,8 +1,10 @@
 /**
  * Layout templates for the Record view.
  * Each template describes a camera position, screen layout, and aspect ratio.
- * These are UI-only presets — no project state integration yet.
+ * Templates control aspect ratio + camera only — background is independent.
  */
+
+import type { CameraPosition, CameraPresentation } from '@rough-cut/project-model';
 
 export interface LayoutTemplate {
   id: string;
@@ -12,8 +14,6 @@ export interface LayoutTemplate {
   cameraPosition: 'none' | 'corner-br' | 'corner-bl' | 'corner-tr' | 'corner-tl' | 'center' | 'hidden';
   screenLayout: 'full-screen' | 'pip' | 'split' | 'presentation';
 }
-
-import type { CameraPosition, CameraPresentation } from '@rough-cut/project-model';
 
 /** Map aspect ratio string to a canonical resolution */
 export function resolutionForAspectRatio(

@@ -80,6 +80,7 @@ export function App() {
   const handleRecordingComplete = useCallback((result: RecordingResult) => {
     const asset = createAsset('recording', result.filePath, {
       duration: result.durationFrames,
+      thumbnailPath: result.thumbnailPath,
       metadata: {
         width: result.width,
         height: result.height,
