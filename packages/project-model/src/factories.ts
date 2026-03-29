@@ -24,6 +24,7 @@ import type {
   ZoomPresentation,
   CursorPresentation,
   CameraPresentation,
+  RegionCrop,
   RecordingPresentation,
   BackgroundConfig,
 } from './types.js';
@@ -188,6 +189,11 @@ export function createDefaultCursorPresentation(): CursorPresentation {
 
 export function createDefaultCameraPresentation(): CameraPresentation {
   return { shape: 'rounded', position: 'corner-br', roundness: 50, size: 100, visible: true };
+}
+
+/** Creates a default (disabled) crop covering the full source. */
+export function createDefaultRegionCrop(sourceW = 1920, sourceH = 1080): RegionCrop {
+  return { enabled: false, x: 0, y: 0, width: sourceW, height: sourceH, aspectRatio: 'free' };
 }
 
 export function createDefaultRecordingPresentation(): RecordingPresentation {

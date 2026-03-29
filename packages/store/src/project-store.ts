@@ -12,9 +12,10 @@ import type {
   ZoomMarkerId,
   CursorPresentation,
   CameraPresentation,
+  RegionCrop,
   EffectInstance,
 } from '@rough-cut/project-model';
-import { createProject, createZoomMarker, createDefaultRecordingPresentation, createDefaultCursorPresentation, createDefaultCameraPresentation } from '@rough-cut/project-model';
+import { createProject, createZoomMarker, createDefaultRecordingPresentation, createDefaultCursorPresentation, createDefaultCameraPresentation, createDefaultRegionCrop } from '@rough-cut/project-model';
 import {
   addClipToTrack,
   removeClipFromTrack,
@@ -87,6 +88,12 @@ export interface ProjectActions {
   // Recording presentation — camera
   updateCameraPresentation: (assetId: AssetId, patch: Partial<CameraPresentation>) => void;
   resetCameraPresentation: (assetId: AssetId) => void;
+
+  // Recording presentation — crop
+  updateScreenCrop: (assetId: AssetId, patch: Partial<RegionCrop>) => void;
+  resetScreenCrop: (assetId: AssetId) => void;
+  updateCameraCrop: (assetId: AssetId, patch: Partial<RegionCrop>) => void;
+  resetCameraCrop: (assetId: AssetId) => void;
 
   // Clip effect actions
   addClipEffect: (trackId: TrackId, clipId: ClipId, effect: EffectInstance) => void;
@@ -497,6 +504,76 @@ export function createProjectStore() {
                   ...pres,
                   camera: createDefaultCameraPresentation(),
                 },
+              };
+            }),
+          }));
+        },
+
+        // --- Recording presentation — crop ---
+
+        updateScreenCrop: (assetId: AssetId, patch: Partial<RegionCrop>) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) =>
+              a.id === assetId
+                ? {
+                    ...a,
+                    presentation: {
+                      ...(a.presentation ?? createDefaultRecordingPresentation()),
+                      screenCrop: {
+                        ...((a.presentation ?? createDefaultRecordingPresentation()).screenCrop ?? createDefaultRegionCrop()),
+                        ...patch,
+                      },
+                    },
+                  }
+                : a,
+            ),
+          }));
+        },
+
+        resetScreenCrop: (assetId: AssetId) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              return {
+                ...a,
+                presentation: { ...pres, screenCrop: undefined },
+              };
+            }),
+          }));
+        },
+
+        updateCameraCrop: (assetId: AssetId, patch: Partial<RegionCrop>) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) =>
+              a.id === assetId
+                ? {
+                    ...a,
+                    presentation: {
+                      ...(a.presentation ?? createDefaultRecordingPresentation()),
+                      cameraCrop: {
+                        ...((a.presentation ?? createDefaultRecordingPresentation()).cameraCrop ?? createDefaultRegionCrop()),
+                        ...patch,
+                      },
+                    },
+                  }
+                : a,
+            ),
+          }));
+        },
+
+        resetCameraCrop: (assetId: AssetId) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              return {
+                ...a,
+                presentation: { ...pres, cameraCrop: undefined },
               };
             }),
           }));

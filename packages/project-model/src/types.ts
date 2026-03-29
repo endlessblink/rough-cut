@@ -81,10 +81,24 @@ export interface CameraPresentation {
   readonly visible: boolean;
 }
 
+export type CropAspectRatio = 'free' | '16:9' | '9:16' | '1:1' | '4:3';
+
+/** Static crop viewport into source content. Coordinates are in source pixels. */
+export interface RegionCrop {
+  readonly enabled: boolean;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly aspectRatio: CropAspectRatio;
+}
+
 export interface RecordingPresentation {
   readonly zoom: ZoomPresentation;
   readonly cursor: CursorPresentation;
   readonly camera: CameraPresentation;
+  readonly screenCrop?: RegionCrop;
+  readonly cameraCrop?: RegionCrop;
   // highlights, titles to be added later
 }
 
