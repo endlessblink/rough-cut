@@ -6,21 +6,26 @@ interface PreviewStageProps {
 
 /**
  * PreviewStage: centers the preview card within the left column.
- * The card itself owns all visual framing (corners, shadow, vignette).
- * This component only handles flex centering + max-width constraint.
+ *
+ * Uses the flex + min-width:0 + min-height:0 pattern so that aspect-ratio
+ * children are constrained by both axes — landscape fills width, portrait
+ * fills height, square fills whichever is tighter. No overflow.
  */
 export function PreviewStage({ children }: PreviewStageProps) {
   return (
     <section
       style={{
-        flex: 1,
+        flex: '1 1 auto',
+        minWidth: 0,
+        minHeight: 0,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        minHeight: 0,
+        padding: 24,
+        overflow: 'hidden',
       }}
     >
-      <div style={{ width: '100%', maxWidth: 1040 }}>{children}</div>
+      {children}
     </section>
   );
 }

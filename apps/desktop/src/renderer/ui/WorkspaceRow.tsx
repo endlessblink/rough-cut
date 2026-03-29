@@ -58,6 +58,7 @@ export function WorkspaceRow({
         style={{
           flex: '1 1 0%',
           minWidth: 0,
+          minHeight: 0,
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',

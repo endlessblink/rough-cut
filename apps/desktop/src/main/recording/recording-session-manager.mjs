@@ -529,8 +529,15 @@ export function initSessionManager(win) {
    */
   ipcMain.handle(IPC_CHANNELS.PANEL_SAVE_RECORDING, async (_event, { buffer, metadata }) => {
     try {
-      // projectDir is not tracked here — capture-service falls back to /tmp
-      const projectDir = null;
+      // Use the recording location from app settings, or fall back to /tmp
+      let projectDir = null;
+      try {
+        const { getRecordingLocation } = await import('../recent-projects-service.mjs');
+        const configuredDir = getRecordingLocation();
+        if (configuredDir) projectDir = configuredDir;
+      } catch { /* ignore — fall back to /tmp */ }
+
+      console.info('[session-manager] Saving recording to:', projectDir ?? '/tmp/rough-cut/recordings/');
       const result = await saveRecording(Buffer.from(buffer), projectDir, metadata);
 
       // Route result to the main renderer so it can create an Asset entry

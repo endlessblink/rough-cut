@@ -7,16 +7,17 @@
  * its own component (RecordZoomPanel, RecordCursorPanel).
  */
 import { useCallback, useState } from 'react';
-import type { ZoomMarker, CursorPresentation, CameraPresentation } from '@rough-cut/project-model';
+import type { ZoomMarker, CursorPresentation, CameraPresentation, RegionCrop } from '@rough-cut/project-model';
 import { InspectorShell, RECORD_PANEL_WIDTH } from '../../ui/index.js';
 import type { InspectorCategory } from '../../ui/index.js';
 import { RecordZoomPanel } from './RecordZoomPanel.js';
 import { RecordCursorPanel } from './RecordCursorPanel.js';
 import { RecordCameraPanel } from './RecordCameraPanel.js';
 import { RecordBackgroundPanel } from './RecordBackgroundPanel.js';
+import { RecordCropPanel } from './RecordCropPanel.js';
 import { RecordTemplatesPanel } from './RecordTemplatesPanel.js';
 import type { LayoutTemplate } from './templates.js';
-import { resolutionForAspectRatio, cameraForTemplate } from './templates.js';
+import { LAYOUT_TEMPLATES, resolutionForAspectRatio } from './templates.js';
 import { projectStore } from '../../hooks/use-stores.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -52,6 +53,15 @@ export interface RecordRightPanelProps {
   background: BackgroundConfig;
   onBackgroundChange: (patch: Partial<BackgroundConfig>) => void;
   onBackgroundReset: () => void;
+  /** Crop */
+  screenCrop: RegionCrop;
+  onScreenCropChange: (patch: Partial<RegionCrop>) => void;
+  onScreenCropReset: () => void;
+  sourceWidth: number;
+  sourceHeight: number;
+  /** Active template + callback for template changes */
+  selectedTemplateId: string;
+  onTemplateChange: (template: LayoutTemplate) => void;
 }
 
 // ─── Inline SVG Icons ─────────────────────────────────────────────────────────
@@ -129,6 +139,15 @@ function CameraIcon() {
   );
 }
 
+function CropIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M4 1v11h11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M12 15V4H1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function BackgroundIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -169,16 +188,19 @@ export function RecordRightPanel({
   background,
   onBackgroundChange,
   onBackgroundReset,
+  screenCrop,
+  onScreenCropChange,
+  onScreenCropReset,
+  sourceWidth,
+  sourceHeight,
+  selectedTemplateId,
+  onTemplateChange,
 }: RecordRightPanelProps) {
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>('screen-only-16x9');
-
   const handleSelectTemplate = useCallback((template: LayoutTemplate) => {
-    setSelectedTemplateId(template.id);
     const resolution = resolutionForAspectRatio(template.aspectRatio);
     projectStore.getState().updateSettings({ resolution });
-    const cameraPatch = cameraForTemplate(template);
-    onCameraChange(cameraPatch);
-  }, [onCameraChange]);
+    onTemplateChange(template);
+  }, [onTemplateChange]);
 
   const categories: InspectorCategory[] = [
     {
@@ -224,6 +246,21 @@ export function RecordRightPanel({
       icon: <CameraIcon />,
       onReset: onCameraReset,
       panel: <RecordCameraPanel camera={camera} onCameraChange={onCameraChange} />,
+    },
+    {
+      id: 'crop',
+      label: 'Crop',
+      icon: <CropIcon />,
+      onReset: onScreenCropReset,
+      panel: (
+        <RecordCropPanel
+          screenCrop={screenCrop}
+          onScreenCropChange={onScreenCropChange}
+          onScreenCropReset={onScreenCropReset}
+          sourceWidth={sourceWidth}
+          sourceHeight={sourceHeight}
+        />
+      ),
     },
     {
       id: 'zoom',

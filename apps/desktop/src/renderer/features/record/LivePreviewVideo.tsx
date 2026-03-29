@@ -35,7 +35,7 @@ export function LivePreviewVideo({ stream }: LivePreviewVideoProps) {
         width: '100%',
         height: '100%',
         objectFit: 'contain',
-        backgroundColor: 'black',
+        backgroundColor: 'transparent',
       }}
     />
   );

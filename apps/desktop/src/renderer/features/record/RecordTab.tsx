@@ -6,8 +6,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { RecordingResult } from '../../env.js';
 import { useProjectStore, useTransportStore, transportStore, projectStore } from '../../hooks/use-stores.js';
-import { createDefaultZoomPresentation, createDefaultCursorPresentation, createDefaultCameraPresentation } from '@rough-cut/project-model';
-import type { CursorPresentation, CameraPresentation } from '@rough-cut/project-model';
+import { createDefaultZoomPresentation, createDefaultCursorPresentation, createDefaultCameraPresentation, createDefaultRegionCrop } from '@rough-cut/project-model';
+import type { CursorPresentation, CameraPresentation, RegionCrop } from '@rough-cut/project-model';
 import { useRecordState } from './record-state.js';
 import { useRecording } from './use-recording.js';
 import { useLivePreview } from './use-live-preview.js';
@@ -28,6 +28,8 @@ import type { RecordState } from './BottomBar.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
 import { SourcePickerPopup } from './SourcePickerPopup.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
+import { LAYOUT_TEMPLATES } from './templates.js';
+import type { LayoutTemplate, NormalizedRect, InstanceLayout } from './templates.js';
 
 const DEFAULT_BACKGROUND: BackgroundConfig = {
   bgColor: '#4a1942',
@@ -53,6 +55,10 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isSystemAudioEnabled, setIsSystemAudioEnabled] = useState(true);
   const [isCameraEnabled, setIsCameraEnabled] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- LAYOUT_TEMPLATES is a non-empty static array
+  const defaultTemplate = LAYOUT_TEMPLATES[0]!;
+  const [activeTemplate, setActiveTemplate] = useState<LayoutTemplate>(defaultTemplate);
+  const [instanceLayout, setInstanceLayout] = useState<InstanceLayout>({ templateId: defaultTemplate.id });
 
   const {
     state,
@@ -83,6 +89,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const zoomPresentation = activeRecordingAsset?.presentation?.zoom ?? createDefaultZoomPresentation();
   const cursorPresentation = activeRecordingAsset?.presentation?.cursor ?? createDefaultCursorPresentation();
   const cameraPresentation = activeRecordingAsset?.presentation?.camera ?? createDefaultCameraPresentation();
+  const screenCrop = activeRecordingAsset?.presentation?.screenCrop ?? createDefaultRegionCrop(resolution.width, resolution.height);
 
   // Recording asset detection + compositor
   const hasRecordingAsset = useProjectStore((s) => s.project.assets.some((a) => a.type === 'recording'));
@@ -97,6 +104,18 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
 
   const handleBackgroundReset = useCallback(() => {
     setBackground(DEFAULT_BACKGROUND);
+  }, []);
+
+  const handleTemplateChange = useCallback((template: LayoutTemplate) => {
+    setActiveTemplate(template);
+    setInstanceLayout({ templateId: template.id });
+  }, []);
+
+  const handleRegionChange = useCallback((region: 'screen' | 'camera', rect: NormalizedRect) => {
+    setInstanceLayout((prev) => ({
+      ...prev,
+      [region === 'screen' ? 'screenRect' : 'cameraRect']: rect,
+    }));
   }, []);
 
   // Live preview stream — acquired when a source is selected, independent of recording
@@ -150,6 +169,16 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const handleCameraReset = useCallback(() => {
     if (!activeRecordingId) return;
     projectStore.getState().resetCameraPresentation(activeRecordingId);
+  }, [activeRecordingId]);
+
+  const handleScreenCropChange = useCallback((patch: Partial<RegionCrop>) => {
+    if (!activeRecordingId) return;
+    projectStore.getState().updateScreenCrop(activeRecordingId, patch);
+  }, [activeRecordingId]);
+
+  const handleScreenCropReset = useCallback(() => {
+    if (!activeRecordingId) return;
+    projectStore.getState().resetScreenCrop(activeRecordingId);
   }, [activeRecordingId]);
 
   const recording = useRecording({
@@ -262,9 +291,19 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         main={
           <PreviewStage>
             <PreviewCard
-              hasActiveSource={Boolean(selectedSourceId) || hasRecordingAsset}
+              layout={activeTemplate}
+              instanceLayout={instanceLayout}
+              onRegionChange={handleRegionChange}
+              screenAspectRatio={`${resolution.width} / ${resolution.height}`}
+              screenNode={
+                selectedSourceId
+                  ? <LivePreviewVideo stream={liveStream} />
+                  : hasRecordingAsset
+                    ? <div ref={previewRef} style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', background: 'transparent', overflow: 'hidden' }} />
+                    : undefined
+              }
+              cameraNode={undefined}
               onChooseSource={() => setIsSourcePickerOpen(true)}
-              aspectRatio={`${resolution.width} / ${resolution.height}`}
               bgColor={background.bgColor}
               bgGradient={background.bgGradient}
               bgPadding={background.bgPadding}
@@ -273,15 +312,10 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
               bgShadowBlur={background.bgShadowBlur}
               bgInset={background.bgInset}
               bgInsetColor={background.bgInsetColor}
-            >
-              {selectedSourceId ? (
-                // Live preview: show the capture stream directly
-                <LivePreviewVideo stream={liveStream} />
-              ) : hasRecordingAsset ? (
-                // Review mode: show the compositor canvas
-                <div ref={previewRef} style={{ position: 'absolute', inset: 0 }} />
-              ) : null}
-            </PreviewCard>
+              screenCrop={screenCrop}
+              sourceWidth={resolution.width}
+              sourceHeight={resolution.height}
+            />
           </PreviewStage>
         }
         inspector={
@@ -304,6 +338,13 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
             background={background}
             onBackgroundChange={handleBackgroundChange}
             onBackgroundReset={handleBackgroundReset}
+            screenCrop={screenCrop}
+            onScreenCropChange={handleScreenCropChange}
+            onScreenCropReset={handleScreenCropReset}
+            sourceWidth={resolution.width}
+            sourceHeight={resolution.height}
+            selectedTemplateId={activeTemplate.id}
+            onTemplateChange={handleTemplateChange}
           />
         }
       />

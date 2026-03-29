@@ -129,6 +129,15 @@ export function App() {
       });
   }, []);
 
+  // --- Listen for recordings from the floating panel window ---
+  useEffect(() => {
+    const unsub = window.roughcut.onRecordingAssetReady((result) => {
+      console.info('[App] Recording asset received from panel:', result.filePath);
+      handleRecordingComplete(result);
+    });
+    return unsub;
+  }, [handleRecordingComplete]);
+
   // --- Tab content ---
   // Record and Edit tabs own their own full-viewport layouts.
   // All other tabs use the classic sidebar + placeholder split.
