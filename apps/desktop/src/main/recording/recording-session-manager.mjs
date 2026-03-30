@@ -36,6 +36,8 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../../shared/ipc-channels.mjs';
 import { saveRecording } from './capture-service.mjs';
+import { CursorRecorder } from './cursor-recorder.mjs';
+import { hideCursor, showCursor } from './cursor-hide.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -77,6 +79,12 @@ let pauseStartMs = 0;
 
 /** Millisecond timestamp when recording phase started. */
 let recordingStartMs = 0;
+
+/** @type {CursorRecorder} */
+const cursorRecorder = new CursorRecorder();
+
+/** @type {{ eventsPath: string, eventCount: number } | null} */
+let lastCursorResult = null;
 
 // ---------------------------------------------------------------------------
 // Tiny inline red-circle icon for the tray (8×8 px, base64 PNG)

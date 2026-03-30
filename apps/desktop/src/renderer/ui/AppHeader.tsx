@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 
-export type AppView = 'projects' | 'record' | 'edit' | 'export' | 'aiMotion';
+export type AppView = 'projects' | 'record' | 'edit' | 'motion' | 'ai' | 'export';
 
 export interface AppHeaderProps {
   activeTab: AppView;
@@ -185,7 +185,8 @@ const APP_VIEW_TABS: { id: AppView; label: string }[] = [
   { id: 'projects', label: 'Projects' },
   { id: 'record', label: 'Record' },
   { id: 'edit', label: 'Edit' },
-  { id: 'aiMotion', label: 'AI Motion' },
+  { id: 'motion', label: 'Motion' },
+  { id: 'ai', label: 'AI' },
   { id: 'export', label: 'Export' },
 ];
 
@@ -229,7 +230,7 @@ function AppViewTabs({ activeTab, onTabChange }: AppViewTabsProps) {
           color = 'rgba(255,255,255,0.56)';
         }
 
-        const padding = id === 'aiMotion' ? '0 14px' : '0 12px';
+        const padding = '0 12px';
 
         return (
           <button

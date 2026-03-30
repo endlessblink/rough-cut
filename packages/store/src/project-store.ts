@@ -14,6 +14,9 @@ import type {
   CameraPresentation,
   RegionCrop,
   EffectInstance,
+  AIAnnotationId,
+  AnnotationStatus,
+  CaptionSegment,
 } from '@rough-cut/project-model';
 import { createProject, createZoomMarker, createDefaultRecordingPresentation, createDefaultCursorPresentation, createDefaultCameraPresentation, createDefaultRegionCrop } from '@rough-cut/project-model';
 import {
@@ -103,6 +106,14 @@ export interface ProjectActions {
   addClipEffect: (trackId: TrackId, clipId: ClipId, effect: EffectInstance) => void;
   updateClipEffect: (trackId: TrackId, clipId: ClipId, effectIndex: number, patch: Partial<EffectInstance>) => void;
   removeClipEffect: (trackId: TrackId, clipId: ClipId, effectIndex: number) => void;
+
+  // AI annotation actions
+  addCaptionSegments: (segments: CaptionSegment[]) => void;
+  updateAnnotationStatus: (id: AIAnnotationId, status: AnnotationStatus) => void;
+  updateCaptionText: (id: AIAnnotationId, text: string) => void;
+  acceptAllCaptions: () => void;
+  rejectAllCaptions: () => void;
+  clearCaptions: () => void;
 }
 
 export type ProjectStore = ProjectState & ProjectActions;
@@ -659,6 +670,76 @@ export function createProjectStore() {
                     }
                   : track,
               ),
+            },
+          }));
+        },
+
+        // ── AI annotation actions ──
+
+        addCaptionSegments: (segments: CaptionSegment[]) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            aiAnnotations: {
+              ...doc.aiAnnotations,
+              captionSegments: [...doc.aiAnnotations.captionSegments, ...segments],
+            },
+          }));
+        },
+
+        updateAnnotationStatus: (id: AIAnnotationId, status: AnnotationStatus) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            aiAnnotations: {
+              ...doc.aiAnnotations,
+              captionSegments: doc.aiAnnotations.captionSegments.map((seg) =>
+                seg.id === id ? { ...seg, status } : seg,
+              ),
+            },
+          }));
+        },
+
+        updateCaptionText: (id: AIAnnotationId, text: string) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            aiAnnotations: {
+              ...doc.aiAnnotations,
+              captionSegments: doc.aiAnnotations.captionSegments.map((seg) =>
+                seg.id === id ? { ...seg, text } : seg,
+              ),
+            },
+          }));
+        },
+
+        acceptAllCaptions: () => {
+          get().updateProject((doc) => ({
+            ...doc,
+            aiAnnotations: {
+              ...doc.aiAnnotations,
+              captionSegments: doc.aiAnnotations.captionSegments.map((seg) =>
+                seg.status === 'pending' ? { ...seg, status: 'accepted' as const } : seg,
+              ),
+            },
+          }));
+        },
+
+        rejectAllCaptions: () => {
+          get().updateProject((doc) => ({
+            ...doc,
+            aiAnnotations: {
+              ...doc.aiAnnotations,
+              captionSegments: doc.aiAnnotations.captionSegments.map((seg) =>
+                seg.status === 'pending' ? { ...seg, status: 'rejected' as const } : seg,
+              ),
+            },
+          }));
+        },
+
+        clearCaptions: () => {
+          get().updateProject((doc) => ({
+            ...doc,
+            aiAnnotations: {
+              ...doc.aiAnnotations,
+              captionSegments: [],
             },
           }));
         },

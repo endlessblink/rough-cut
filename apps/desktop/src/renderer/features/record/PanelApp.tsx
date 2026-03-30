@@ -1155,6 +1155,7 @@ export function PanelApp() {
     recorder.start(1000); // 1-second chunks
 
     // Start camera recorder if camera stream is active
+    console.info('[PanelApp] Camera stream at record start:', cameraStream ? 'ACTIVE' : 'NULL', 'cameraEnabled:', cameraEnabled);
     if (cameraStream) {
       const camRecorder = new MediaRecorder(cameraStream, { mimeType });
       camRecorder.ondataavailable = (e) => {

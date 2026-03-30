@@ -6,6 +6,7 @@ import { RecordTab } from './features/record/RecordTab.js';
 import { EditTab } from './features/edit/EditTab.js';
 import { ExportTab } from './features/export/ExportTab.js';
 import { ProjectsTab } from './features/projects/ProjectsTab.js';
+import { AITab } from './features/ai/AITab.js';
 import type { AppView } from './ui/index.js';
 import { projectStore, transportStore } from './hooks/use-stores.js';
 
@@ -25,7 +26,8 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'projects', label: 'Projects' },
   { id: 'record', label: 'Record' },
   { id: 'edit', label: 'Edit' },
-  { id: 'aiMotion', label: 'AI Motion' },
+  { id: 'motion', label: 'Motion' },
+  { id: 'ai', label: 'AI' },
   { id: 'export', label: 'Export' },
 ];
 
@@ -158,8 +160,8 @@ export function App() {
   // All other tabs use the classic sidebar + placeholder split.
   function renderTabContent() {
     switch (activeTab) {
-      case 'aiMotion':
-        return <TabPlaceholder name="AI Motion" />;
+      case 'motion':
+        return <TabPlaceholder name="Motion" />;
     }
   }
 
@@ -188,6 +190,11 @@ export function App() {
   // Export tab takes over the entire viewport — no chrome wrapper
   if (activeTab === 'export') {
     return <ExportTab activeTab={activeTab} onTabChange={(tab) => setActiveTab(tab)} />;
+  }
+
+  // AI tab takes over the entire viewport — no chrome wrapper
+  if (activeTab === 'ai') {
+    return <AITab activeTab={activeTab} onTabChange={(tab) => setActiveTab(tab)} />;
   }
 
   return (
