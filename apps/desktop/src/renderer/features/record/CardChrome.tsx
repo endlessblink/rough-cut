@@ -140,7 +140,7 @@ export function CardChrome({
               right: padH,
               bottom: padV,
               left: padH,
-              overflow: 'hidden',
+              overflow: 'visible',
             }}
           >
             {children}
