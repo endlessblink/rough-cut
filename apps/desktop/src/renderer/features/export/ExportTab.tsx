@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { useProjectStore, useTransportStore, transportStore } from '../../hooks/use-stores.js';
 import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
-import { useCompositor } from '../../hooks/use-compositor.js';
+import { RecordingPlaybackVideo } from '../record/RecordingPlaybackVideo.js';
 import { TimelineStrip } from '../edit/TimelineStrip.js';
 import type { ExportRange } from '../edit/TimelineStrip.js';
 
@@ -20,14 +20,18 @@ const READ_ONLY = {
 export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const tracks = useProjectStore((s) => s.project.composition.tracks);
   const assets = useProjectStore((s) => s.project.assets);
+  const activeRecordingAsset = useProjectStore((s) => {
+    const preferred = s.activeAssetId
+      ? s.project.assets.find((a) => a.id === s.activeAssetId)
+      : null;
+    return preferred ?? s.project.assets.find((a) => a.type === 'recording') ?? null;
+  });
   const durationFrames = useProjectStore((s) => s.project.composition.duration);
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
   const resolution = useProjectStore((s) => s.project.settings.resolution);
   const currentFrame = useTransportStore((s) => s.playheadFrame);
 
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
-
-  const { previewRef } = useCompositor();
 
   const [exportRange, setExportRange] = useState<ExportRange>({
     inFrame: 0,
@@ -39,7 +43,7 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0d0d0d', color: '#e8e8e8', overflow: 'hidden' }}>
+    <div data-testid="export-tab-root" style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0d0d0d', color: '#e8e8e8', overflow: 'hidden' }}>
       <AppHeader activeTab={activeTab} onTabChange={onTabChange} captureSummary={captureSummary} />
 
       {/* Main content */}
@@ -47,22 +51,32 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
         {/* Left: preview */}
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0 }}>
           <div style={{ width: '100%', maxWidth: 1040 }}>
-            <div
-              ref={previewRef}
-              style={{
-                aspectRatio: '16 / 9',
-                width: '100%',
-                borderRadius: 18,
-                background: '#050505',
-                boxShadow: '0 18px 60px rgba(0,0,0,0.80)',
-                overflow: 'hidden',
-              }}
-            />
+            <div style={{
+              position: 'relative',
+              aspectRatio: '16 / 9',
+              width: '100%',
+              borderRadius: 18,
+              background: '#050505',
+              boxShadow: '0 18px 60px rgba(0,0,0,0.80)',
+              overflow: 'hidden',
+            }}>
+              {activeRecordingAsset?.filePath ? (
+                <RecordingPlaybackVideo
+                  filePath={activeRecordingAsset.filePath}
+                  fps={projectFps}
+                  assetId={activeRecordingAsset.id}
+                />
+              ) : (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>No recording</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Right: export settings panel */}
-        <aside style={{
+        <aside data-testid="export-settings" style={{
           flex: '0 0 280px',
           maxWidth: 280,
           borderRadius: 14,
@@ -114,6 +128,7 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
 
           {/* Export button */}
           <button
+            data-testid="btn-export"
             style={{
               height: 40,
               borderRadius: 999,

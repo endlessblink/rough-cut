@@ -234,6 +234,7 @@ function AppViewTabs({ activeTab, onTabChange }: AppViewTabsProps) {
         return (
           <button
             key={id}
+            data-testid={`tab-${id}`}
             onClick={() => onTabChange(id)}
             onMouseEnter={() => setHoveredTab(id)}
             onMouseLeave={() => { setHoveredTab(null); setPressedTab(null); }}
@@ -387,6 +388,7 @@ export function AppHeader({
 }: AppHeaderProps) {
   return (
     <div
+      data-testid="app-header"
       style={{
         height: 56,
         minHeight: 56,

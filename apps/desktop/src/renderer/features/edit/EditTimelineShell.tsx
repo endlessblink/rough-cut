@@ -37,16 +37,18 @@ interface ToolButtonProps {
   label: string;
   title?: string;
   disabled?: boolean;
+  testId?: string;
   onClick: () => void;
 }
 
-function TimelineToolButton({ label, title, disabled = false, onClick }: ToolButtonProps) {
+function TimelineToolButton({ label, title, disabled = false, testId, onClick }: ToolButtonProps) {
   const [hovered, setHovered] = useState(false);
 
   return (
     <button
       title={title}
       disabled={disabled}
+      data-testid={testId}
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -134,6 +136,7 @@ export function EditTimelineShell({
 }: EditTimelineShellProps) {
   return (
     <div
+      data-testid="edit-timeline"
       style={{
         width: '100%',
         flex: 1,
@@ -164,10 +167,10 @@ export function EditTimelineShell({
       >
         {/* Left: tool buttons + divider + snap */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <TimelineToolButton label="Undo" title="Undo (Ctrl+Z)" disabled={!canUndo} onClick={onUndo} />
-          <TimelineToolButton label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!canRedo} onClick={onRedo} />
-          <TimelineToolButton label="Split" title="Split at playhead (S)" disabled={!canSplit} onClick={onSplit} />
-          <TimelineToolButton label="Delete" title="Delete clip (Delete)" disabled={!canDelete} onClick={onDelete} />
+          <TimelineToolButton label="Undo" title="Undo (Ctrl+Z)" disabled={!canUndo} testId="btn-undo" onClick={onUndo} />
+          <TimelineToolButton label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!canRedo} testId="btn-redo" onClick={onRedo} />
+          <TimelineToolButton label="Split" title="Split at playhead (S)" disabled={!canSplit} testId="btn-split" onClick={onSplit} />
+          <TimelineToolButton label="Delete" title="Delete clip (Delete)" disabled={!canDelete} testId="btn-delete" onClick={onDelete} />
 
           {/* Divider */}
           <div

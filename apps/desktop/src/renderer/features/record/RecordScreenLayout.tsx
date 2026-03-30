@@ -7,6 +7,7 @@ interface RecordScreenLayoutProps {
 export function RecordScreenLayout({ children }: RecordScreenLayoutProps) {
   return (
     <div
+      data-testid="record-tab-root"
       style={{
         display: 'flex',
         flexDirection: 'column',

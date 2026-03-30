@@ -179,6 +179,7 @@ function RecordButton({
 
   return (
     <button
+      data-testid="btn-record"
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); setPressed(false); }}

@@ -71,6 +71,7 @@ export function ProjectsHero({ onNewProject, onOpenProject }: ProjectsHeroProps)
       >
         {/* New Project — primary */}
         <button
+          data-testid="btn-new-project"
           onClick={onNewProject}
           onMouseEnter={() => setNewHovered(true)}
           onMouseLeave={() => { setNewHovered(false); setNewPressed(false); }}

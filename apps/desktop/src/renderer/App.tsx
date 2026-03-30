@@ -250,7 +250,7 @@ export function App() {
 
 function TabPlaceholder({ name }: { name: string }) {
   return (
-    <div style={{
+    <div data-testid={`${name.toLowerCase().replace(/ /g, '')}-tab-root`} style={{
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',

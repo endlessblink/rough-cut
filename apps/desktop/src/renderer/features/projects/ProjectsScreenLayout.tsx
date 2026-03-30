@@ -7,6 +7,7 @@ interface ProjectsScreenLayoutProps {
 export function ProjectsScreenLayout({ children }: ProjectsScreenLayoutProps) {
   return (
     <div
+      data-testid="projects-tab-root"
       style={{
         display: 'flex',
         flexDirection: 'column',

@@ -7,6 +7,7 @@ interface EditScreenLayoutProps {
 export function EditScreenLayout({ children }: EditScreenLayoutProps) {
   return (
     <div
+      data-testid="edit-tab-root"
       style={{
         display: 'flex',
         flexDirection: 'column',

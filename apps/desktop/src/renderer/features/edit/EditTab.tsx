@@ -16,7 +16,7 @@ import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
 // VerticalWorkspaceSplit no longer needed — timeline is a full-width sibling
 import { useUiStore, uiStore } from '../../hooks/use-ui-store.js';
-import { useCompositor } from '../../hooks/use-compositor.js';
+import { RecordingPlaybackVideo } from '../record/RecordingPlaybackVideo.js';
 
 interface EditTabProps {
   activeTab: AppView;
@@ -32,12 +32,17 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const [pixelsPerFrame, setPixelsPerFrame] = useState(3);
   const [snapEnabled, setSnapEnabled] = useState(true);
 
+  // Active recording asset — same logic as RecordTab
+  const activeRecordingAsset = useProjectStore((s) => {
+    const preferred = s.activeAssetId
+      ? s.project.assets.find((a) => a.id === s.activeAssetId)
+      : null;
+    return preferred ?? s.project.assets.find((a) => a.type === 'recording') ?? null;
+  });
+
   // Undo/redo availability
   const canUndo = useProjectStore(() => projectStore.temporal.getState().pastStates.length > 0);
   const canRedo = useProjectStore(() => projectStore.temporal.getState().futureStates.length > 0);
-
-  // Compositor preview host
-  const { previewRef } = useCompositor();
 
   // UI state
   const isRightSidebarCollapsed = useUiStore((s) => s.isRightSidebarCollapsed);
@@ -202,7 +207,29 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
       >
         {/* Preview — fills remaining space */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <EditPreviewStage previewRef={previewRef} />
+          <EditPreviewStage>
+            <div style={{
+              position: 'relative',
+              aspectRatio: '16 / 9',
+              width: '100%',
+              borderRadius: 18,
+              background: '#050505',
+              boxShadow: '0 18px 60px rgba(0,0,0,0.80)',
+              overflow: 'hidden',
+            }}>
+              {activeRecordingAsset?.filePath ? (
+                <RecordingPlaybackVideo
+                  filePath={activeRecordingAsset.filePath}
+                  fps={projectFps}
+                  assetId={activeRecordingAsset.id}
+                />
+              ) : (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>No recording</span>
+                </div>
+              )}
+            </div>
+          </EditPreviewStage>
         </div>
 
         {/* Sidebar toggle + panel */}
