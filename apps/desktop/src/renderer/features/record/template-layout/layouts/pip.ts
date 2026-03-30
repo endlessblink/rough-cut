@@ -1,14 +1,13 @@
 import type { Rect, TemplateLayoutResult } from '../types.js';
 
-// Camera occupies 24% of canvas width and 26% of canvas height
+// Camera occupies 24% of canvas width; height derived from sourceAspect
 const CAMERA_W_FRAC = 0.24;
-const CAMERA_H_FRAC = 0.26;
 // 4% margin from the bottom-right edges
 const MARGIN_FRAC = 0.04;
 
 /**
- * PIP (Picture-in-Picture) layout: screen fills the entire canvas,
- * camera is a small overlay in the bottom-right corner.
+ * PIP (Picture-in-Picture) layout: screen fills the canvas (maintaining sourceAspect,
+ * centered), camera is a small overlay in the bottom-right corner.
  *
  * +--------------------+
  * |                    |
@@ -17,14 +16,25 @@ const MARGIN_FRAC = 0.04;
  * |               |cam| |
  * +--------------------+
  */
-export function layoutPip(canvas: Rect): TemplateLayoutResult {
+export function layoutPip(canvas: Rect, sourceAspect: number): TemplateLayoutResult {
+  // Screen: fill canvas, maintain aspect, center
+  let sw = canvas.width;
+  let sh = sw / sourceAspect;
+  if (sh > canvas.height) {
+    sh = canvas.height;
+    sw = sh * sourceAspect;
+  }
+  const sx = canvas.x + (canvas.width - sw) / 2;
+  const sy = canvas.y + (canvas.height - sh) / 2;
+
+  // Camera: 24% of canvas width, height derived from sourceAspect, bottom-right
   const cameraWidth = canvas.width * CAMERA_W_FRAC;
-  const cameraHeight = canvas.height * CAMERA_H_FRAC;
+  const cameraHeight = cameraWidth / sourceAspect;
   const marginX = canvas.width * MARGIN_FRAC;
   const marginY = canvas.height * MARGIN_FRAC;
 
   return {
-    screenFrame: { ...canvas },
+    screenFrame: { x: sx, y: sy, width: sw, height: sh },
     cameraFrame: {
       x: canvas.x + canvas.width - cameraWidth - marginX,
       y: canvas.y + canvas.height - cameraHeight - marginY,

@@ -48,19 +48,15 @@ function CameraPlaceholderIcon() {
 
 // ─── MediaFrame ───────────────────────────────────────────────────────────────
 //
-// Single-responsibility component: absolutely positions one frame and fits
-// media inside it according to fitMode. No drag, resize, crop, or layout logic.
+// Single-responsibility component: absolutely positions one frame and fills
+// media inside it. Layout functions guarantee that frame rects already match
+// the source aspect ratio, so only 'fill' mode is needed.
 //
-// fitMode behaviour:
-//   fill    — children stretch to fill the entire frame (no aspect-ratio enforcement)
-//   contain — children letterboxed/pillarboxed, preserving mediaAspect
-//   cover   — children fill frame completely, overflowing and clipped to frame
+// The FitMode prop is kept for API compatibility but only 'fill' is implemented.
 
 export function MediaFrame({
   frame,
-  fitMode,
   children,
-  mediaAspect,
   borderRadius = 0,
   shadow,
   zIndex,
@@ -123,78 +119,12 @@ export function MediaFrame({
     );
   }
 
-  // ─── Fill mode ────────────────────────────────────────────────────────────
-
-  if (fitMode === 'fill') {
-    return (
-      <div style={frameStyle}>
-        <div style={{ position: 'absolute', inset: 0 }}>
-          {children}
-        </div>
-      </div>
-    );
-  }
-
-  // ─── Contain mode ─────────────────────────────────────────────────────────
-  // Letterbox/pillarbox: media preserves aspect ratio, dark bars fill unused space.
-
-  if (fitMode === 'contain') {
-    return (
-      <div style={{ ...frameStyle, background: 'rgba(0,0,0,0.85)' }}>
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <div
-            style={{
-              position: 'relative',
-              maxWidth: '100%',
-              maxHeight: '100%',
-              aspectRatio: mediaAspect !== undefined ? String(mediaAspect) : undefined,
-              overflow: 'hidden',
-            }}
-          >
-            <div style={{ position: 'absolute', inset: 0 }}>
-              {children}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ─── Cover mode ───────────────────────────────────────────────────────────
-  // Media fills the frame completely, cropping overflow. Frame's overflow:hidden clips it.
+  // ─── Fill mode (only mode) ────────────────────────────────────────────────
 
   return (
     <div style={frameStyle}>
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <div
-          style={{
-            position: 'relative',
-            minWidth: '100%',
-            minHeight: '100%',
-            aspectRatio: mediaAspect !== undefined ? String(mediaAspect) : undefined,
-            flexShrink: 0,
-          }}
-        >
-          <div style={{ position: 'absolute', inset: 0 }}>
-            {children}
-          </div>
-        </div>
+      <div style={{ position: 'absolute', inset: 0 }}>
+        {children}
       </div>
     </div>
   );

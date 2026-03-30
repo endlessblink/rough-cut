@@ -1,58 +1,53 @@
 import type { Rect, TemplateLayoutResult } from '../types.js';
 
-const PADDING_FRAC = 0.06;       // 6% inset on all four sides
-const CAMERA_H_FRAC = 0.11;      // camera band = 11% of inner height
-const GAP_FRAC = 0.02;           // gap between screen frame and camera band = 2% of inner height
-const SCREEN_W_FRAC = 0.24;      // narrow portrait column = 24% of inner width
+const GAP_FRAC = 0.02; // gap between screen and camera = 2% of canvas height
 
 /**
  * SOCIAL_VERTICAL layout: designed for 9:16 portrait canvases.
  *
- * A uniform 6% padding creates an inner area. Inside that inner area:
- *   - Camera band sits at the bottom (full inner width, 11% of inner height).
- *   - A 2% gap separates the camera from the screen frame.
- *   - Screen frame is a narrow centered column (24% of inner width) occupying
- *     all remaining height above the gap.
+ * Both screen and camera frames use the full canvas width;
+ * heights are derived from sourceAspect. Stack is centered vertically.
  *
- * +--------------------+  ← 6% padding (top)
- * |     +------+       |
- * |     |      |       |  ← screen frame (narrow column, centered)
- * |     |screen|       |
- * |     +------+       |
- * |    (2% gap)        |
+ * +--------------------+
  * | +----------------+ |
- * | |    camera      | |  ← camera band (full inner width)
+ * | |    screen      | |  ← full width, height = width / sourceAspect
  * | +----------------+ |
- * +--------------------+  ← 6% padding (bottom)
+ * |    (gap)           |
+ * | +----------------+ |
+ * | |    camera      | |  ← full width, height = width / sourceAspect
+ * | +----------------+ |
+ * +--------------------+
  */
-export function layoutSocialVertical(canvas: Rect): TemplateLayoutResult {
-  const padX = canvas.width * PADDING_FRAC;
-  const padY = canvas.height * PADDING_FRAC;
+export function layoutSocialVertical(canvas: Rect, sourceAspect: number): TemplateLayoutResult {
+  const gap = canvas.height * GAP_FRAC;
 
-  const innerX = canvas.x + padX;
-  const innerY = canvas.y + padY;
-  const innerWidth = canvas.width - padX * 2;
-  const innerHeight = canvas.height - padY * 2;
+  // Both frames span the full canvas width
+  let frameWidth = canvas.width;
+  let frameHeight = frameWidth / sourceAspect;
+  const totalStack = frameHeight * 2 + gap;
 
-  const cameraHeight = innerHeight * CAMERA_H_FRAC;
-  const gapHeight = innerHeight * GAP_FRAC;
-  const screenAreaHeight = innerHeight - cameraHeight - gapHeight;
+  // If the two frames overflow, shrink width to fit
+  if (totalStack > canvas.height) {
+    frameHeight = (canvas.height - gap) / 2;
+    frameWidth = frameHeight * sourceAspect;
+  }
 
-  const screenWidth = innerWidth * SCREEN_W_FRAC;
-  const screenX = innerX + (innerWidth - screenWidth) / 2;
+  const totalH = frameHeight * 2 + gap;
+  const startX = canvas.x + (canvas.width - frameWidth) / 2;
+  const startY = canvas.y + (canvas.height - totalH) / 2;
 
   return {
     screenFrame: {
-      x: screenX,
-      y: innerY,
-      width: screenWidth,
-      height: Math.max(0, screenAreaHeight),
+      x: startX,
+      y: startY,
+      width: frameWidth,
+      height: frameHeight,
     },
     cameraFrame: {
-      x: innerX,
-      y: innerY + screenAreaHeight + gapHeight,
-      width: innerWidth,
-      height: cameraHeight,
+      x: startX,
+      y: startY + frameHeight + gap,
+      width: frameWidth,
+      height: frameHeight,
     },
   };
 }

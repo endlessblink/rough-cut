@@ -12,7 +12,7 @@ export type { Rect, TemplateLayoutResult, FitMode, MediaSlot } from './types.js'
 
 export { fitContain, fitCover } from './media-fit.js';
 
-export { getLayoutRects } from './layout-registry.js';
+export { getLayoutRects, getCardAspect } from './layout-registry.js';
 
 // Individual layout functions — useful for tests or direct use
 export { layoutScreenOnly } from './layouts/screen-only.js';

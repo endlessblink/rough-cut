@@ -6,6 +6,18 @@
 
 ---
 
+## MANDATORY: Source Aspect Ratio Is Sacred
+
+Every media frame rect produced by the layout system MUST match the source recording's aspect ratio. If the source is 16:9, every frame is 16:9. The layout controls WHERE and HOW BIG the frame is, never its SHAPE.
+
+- Frame height is ALWAYS `width / sourceAspect` — no exceptions
+- NEVER use `object-fit: contain` or `object-fit: cover` on video/canvas elements
+- NEVER add letterboxing, pillarboxing, or dark-background gap-filling
+- If a frame doesn't match the source, the LAYOUT function is wrong
+- Templates arrange 16:9 blocks. They do not reshape them.
+
+---
+
 You are working on the Rough Cut project (desktop screen recording + editor).
 
 Before doing anything else in this session, read and obey these docs:

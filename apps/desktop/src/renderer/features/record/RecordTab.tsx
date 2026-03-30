@@ -32,6 +32,7 @@ import { useCompositor } from '../../hooks/use-compositor.js';
 import { LAYOUT_TEMPLATES } from './templates.js';
 import type { LayoutTemplate } from './templates.js';
 import type { Rect } from './template-layout/types.js';
+import { getCardAspect } from './template-layout/index.js';
 
 const DEFAULT_BACKGROUND: BackgroundConfig = {
   bgColor: '#4a1942',
@@ -319,7 +320,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
                   selectedSourceId
                     ? <LivePreviewVideo stream={liveStream} />
                     : hasRecordingAsset
-                      ? <div ref={previewRef} style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', background: 'transparent', overflow: 'hidden' }} />
+                      ? <div ref={previewRef} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }} />
                       : undefined
                 }
                 cameraContent={undefined}

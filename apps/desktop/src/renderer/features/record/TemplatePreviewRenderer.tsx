@@ -17,8 +17,8 @@
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import type { LayoutTemplate } from './templates.js';
-import type { Rect, FitMode } from './template-layout/types.js';
-import { getLayoutRects } from './template-layout/layout-registry.js';
+import type { Rect } from './template-layout/types.js';
+import { getLayoutRects } from './template-layout/index.js';
 import { DebugOverlay, DEBUG_COLORS } from './template-layout/DebugOverlay.js';
 import { useDebugToggle } from './template-layout/useDebugToggle.js';
 import { MediaFrame } from './MediaFrame.js';
@@ -68,13 +68,6 @@ function resolveZIndices(zOrder: LayoutTemplate['zOrder']): {
   return zOrder === 'screen-above'
     ? { screenZ: 2, cameraZ: 1 }
     : { screenZ: 1, cameraZ: 2 };
-}
-
-// ─── fitMode helpers ──────────────────────────────────────────────────────────
-
-function screenFitMode(kind: LayoutTemplate['kind']): FitMode {
-  if (kind === 'SOCIAL_VERTICAL') return 'contain';
-  return 'fill';
 }
 
 // ─── SelectionOverlay ─────────────────────────────────────────────────────────
@@ -187,7 +180,7 @@ export function TemplatePreviewRenderer({
 
   const canvasRect: Rect = { x: 0, y: 0, width: containerW, height: containerH };
 
-  const computed = getLayoutRects(template.kind, canvasRect);
+  const computed = getLayoutRects(template.kind, canvasRect, screenAspect ?? 16 / 9);
 
   const screenRect = screenRectOverride ?? computed.screenFrame;
   const cameraRect = cameraRectOverride ?? computed.cameraFrame;
@@ -280,7 +273,7 @@ export function TemplatePreviewRenderer({
       {screenRect && (
         <MediaFrame
           frame={screenRect}
-          fitMode={screenFitMode(template.kind)}
+          fitMode="fill"
           mediaAspect={screenAspect}
           borderRadius={screenCornerRadius}
           shadow={screenShadow}
@@ -307,7 +300,7 @@ export function TemplatePreviewRenderer({
         </MediaFrame>
       )}
 
-      {/* Interaction overlays */}
+      {/* Interaction overlays — frame rects already match source aspect ratio */}
       {interactionEnabled && (
         <>
           {screenRect && (

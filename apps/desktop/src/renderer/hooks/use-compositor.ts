@@ -60,37 +60,14 @@ function attachCanvasToHost(host: HTMLDivElement): void {
     host.appendChild(canvas);
   }
 
-  // Contain-fit: compute largest rect that fits host while keeping native aspect.
-  // Host must use display:grid + place-items:center. Gaps show gradient (transparent bg).
+  // Fill the host frame — use object-fit so the canvas scales correctly
+  // regardless of native resolution vs frame aspect ratio.
   canvas.style.position = '';
   canvas.style.inset = '';
   canvas.style.display = 'block';
-
-  const nativeW = canvas.width || 1920;
-  const nativeH = canvas.height || 1080;
-  const nativeAspect = nativeW / nativeH;
-
-  const fitCanvas = () => {
-    const hostW = host.clientWidth;
-    const hostH = host.clientHeight;
-    if (hostW === 0 || hostH === 0) return;
-    const hostAspect = hostW / hostH;
-    let drawW: number, drawH: number;
-    if (hostAspect > nativeAspect) {
-      drawH = hostH;
-      drawW = hostH * nativeAspect;
-    } else {
-      drawW = hostW;
-      drawH = hostW / nativeAspect;
-    }
-    canvas.style.width = `${Math.round(drawW)}px`;
-    canvas.style.height = `${Math.round(drawH)}px`;
-  };
-
-  fitCanvas();
-  const ro = new ResizeObserver(fitCanvas);
-  ro.observe(host);
-  (host as any).__canvasResizeObserver = ro;
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  canvas.style.objectFit = 'fill';
 }
 
 /**
