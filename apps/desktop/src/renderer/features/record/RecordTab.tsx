@@ -3,7 +3,7 @@
  * Responsible for: zoom keyframes, cursor styling, highlights, shortcut titles,
  * background/look presets. No clip edits (no cutting, trimming, reordering, track management).
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { RecordingResult } from '../../env.js';
 import { useProjectStore, useTransportStore, transportStore, projectStore } from '../../hooks/use-stores.js';
 import { createDefaultZoomPresentation, createDefaultCursorPresentation, createDefaultCameraPresentation, createDefaultRegionCrop } from '@rough-cut/project-model';
@@ -87,10 +87,13 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const assets = useProjectStore((s) => s.project.assets);
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
 
-  // Get the first recording asset's presentation (or defaults)
-  const activeRecordingAsset = useProjectStore((s) =>
-    s.project.assets.find((a) => a.type === 'recording'),
-  );
+  // Get the active recording asset — use activeAssetId if set, otherwise fall back to first
+  const activeRecordingAsset = useProjectStore((s) => {
+    const preferred = s.activeAssetId
+      ? s.project.assets.find((a) => a.id === s.activeAssetId)
+      : null;
+    return preferred ?? s.project.assets.find((a) => a.type === 'recording') ?? null;
+  });
   const activeRecordingId = activeRecordingAsset?.id ?? null;
   const zoomPresentation = activeRecordingAsset?.presentation?.zoom ?? createDefaultZoomPresentation();
   const cursorPresentation = activeRecordingAsset?.presentation?.cursor ?? createDefaultCursorPresentation();
@@ -101,6 +104,58 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   // Recording asset detection + compositor
   const hasRecordingAsset = useProjectStore((s) => s.project.assets.some((a) => a.type === 'recording'));
   const { previewRef } = useCompositor();
+
+  // Camera playback — find the camera asset linked to the active recording
+  const cameraAsset = useProjectStore((s) => {
+    if (!activeRecordingAsset?.cameraAssetId) return null;
+    return s.project.assets.find((a) => a.id === activeRecordingAsset.cameraAssetId) ?? null;
+  });
+
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Create / update the camera <video> element when cameraAsset changes
+  useEffect(() => {
+    if (!cameraAsset) {
+      cameraVideoRef.current = null;
+      return;
+    }
+    const video = document.createElement('video');
+    video.src = `media://${cameraAsset.filePath}`;
+    video.muted = true;
+    video.loop = true;
+    video.playsInline = true;
+    video.autoplay = true;
+    video.style.width = '100%';
+    video.style.height = '100%';
+    video.style.objectFit = 'cover';
+    video.style.borderRadius = '50%';
+    void video.play().catch(() => {});
+    cameraVideoRef.current = video;
+
+    return () => {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      cameraVideoRef.current = null;
+    };
+  }, [cameraAsset]);
+
+  // Wrap the camera video in a React node for TemplatePreviewRenderer
+  const cameraNode = useMemo(() => {
+    if (!cameraAsset) return undefined;
+    return (
+      <div
+        ref={(el) => {
+          if (el && cameraVideoRef.current && !el.contains(cameraVideoRef.current)) {
+            el.innerHTML = '';
+            el.appendChild(cameraVideoRef.current);
+          }
+        }}
+        style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: '50%' }}
+      />
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraAsset?.id]);
 
   // Background/canvas config (lifted from RecordRightPanel so LivePreviewVideo can consume it)
   const [background, setBackground] = useState<BackgroundConfig>(DEFAULT_BACKGROUND);
@@ -325,11 +380,11 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
                       ? <div ref={previewRef} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }} />
                       : undefined
                 }
-                cameraContent={undefined}
+                cameraContent={cameraNode}
                 screenAspect={16 / 9}
                 screenCornerRadius={background.bgCornerRadius}
                 screenShadow={background.bgShadowEnabled
-                  ? `0 ${Math.round(background.bgShadowBlur * 0.3)}px ${background.bgShadowBlur}px rgba(0,0,0,0.6)`
+                  ? `0 ${Math.round(background.bgShadowBlur * 0.2)}px ${background.bgShadowBlur}px rgba(0,0,0,${background.bgShadowOpacity ?? 0.25})`
                   : undefined}
                 interactionEnabled={true}
                 onRegionChange={handleRegionChange}

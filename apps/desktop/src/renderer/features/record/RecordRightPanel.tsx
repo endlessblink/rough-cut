@@ -31,6 +31,7 @@ export interface BackgroundConfig {
   bgInsetColor: string;
   bgShadowEnabled: boolean;
   bgShadowBlur: number;
+  bgShadowOpacity?: number;
 }
 
 export interface RecordRightPanelProps {
@@ -242,6 +243,8 @@ export function RecordRightPanel({
           onShadowEnabledChange={(v) => onBackgroundChange({ bgShadowEnabled: v })}
           shadowBlur={background.bgShadowBlur}
           onShadowBlurChange={(v) => onBackgroundChange({ bgShadowBlur: v })}
+          shadowOpacity={background.bgShadowOpacity ?? 0.25}
+          onShadowOpacityChange={(v) => onBackgroundChange({ bgShadowOpacity: v })}
         />
       ),
     },

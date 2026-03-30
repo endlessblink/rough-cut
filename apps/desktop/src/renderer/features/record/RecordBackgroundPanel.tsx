@@ -33,6 +33,8 @@ export interface RecordBackgroundPanelProps {
   onShadowEnabledChange: (enabled: boolean) => void;
   shadowBlur: number;
   onShadowBlurChange: (value: number) => void;
+  shadowOpacity: number;
+  onShadowOpacityChange: (value: number) => void;
 }
 
 // ─── Gradient presets (curated from uiGradients, MIT license) ─────────────────
@@ -232,6 +234,8 @@ export function RecordBackgroundPanel({
   onShadowEnabledChange,
   shadowBlur,
   onShadowBlurChange,
+  shadowOpacity,
+  onShadowOpacityChange,
 }: RecordBackgroundPanelProps) {
   const [mode, setMode] = useState<BackgroundMode>(
     backgroundGradient ? 'gradient' : 'color',
@@ -315,6 +319,8 @@ export function RecordBackgroundPanel({
         <div>
           <ControlLabel label="Shadow blur" value={`${shadowBlur}px`} />
           <RcSlider min={0} max={50} step={1} value={shadowBlur} onChange={onShadowBlurChange} />
+          <ControlLabel label="Shadow opacity" value={`${Math.round(shadowOpacity * 100)}%`} />
+          <RcSlider min={0} max={1} step={0.05} value={shadowOpacity} onChange={onShadowOpacityChange} />
         </div>
       )}
     </>
