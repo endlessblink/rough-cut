@@ -19,7 +19,8 @@ import { WorkspaceRow, RECORD_PANEL_WIDTH } from '../../ui/index.js';
 import { ModeSelectorRow } from './ModeSelectorRow.js';
 import type { RecordMode } from './ModeSelectorRow.js';
 import { PreviewStage } from './PreviewStage.js';
-import { PreviewCard } from './PreviewCard.js';
+import { CardChrome } from './CardChrome.js';
+import { TemplatePreviewRenderer } from './TemplatePreviewRenderer.js';
 import { RecordRightPanel } from './RecordRightPanel.js';
 import type { BackgroundConfig } from './RecordRightPanel.js';
 import { RecordTimelineShell } from './RecordTimelineShell.js';
@@ -29,7 +30,8 @@ import { CountdownOverlay } from './CountdownOverlay.js';
 import { SourcePickerPopup } from './SourcePickerPopup.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
 import { LAYOUT_TEMPLATES } from './templates.js';
-import type { LayoutTemplate, NormalizedRect, InstanceLayout } from './templates.js';
+import type { LayoutTemplate } from './templates.js';
+import type { Rect } from './template-layout/types.js';
 
 const DEFAULT_BACKGROUND: BackgroundConfig = {
   bgColor: '#4a1942',
@@ -58,7 +60,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- LAYOUT_TEMPLATES is a non-empty static array
   const defaultTemplate = LAYOUT_TEMPLATES[0]!;
   const [activeTemplate, setActiveTemplate] = useState<LayoutTemplate>(defaultTemplate);
-  const [instanceLayout, setInstanceLayout] = useState<InstanceLayout>({ templateId: defaultTemplate.id });
+  const [screenRectOverride, setScreenRectOverride] = useState<Rect | undefined>();
+  const [cameraRectOverride, setCameraRectOverride] = useState<Rect | undefined>();
   const [cropModeActive, setCropModeActive] = useState(false);
 
   const {
@@ -115,14 +118,13 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
 
   const handleTemplateChange = useCallback((template: LayoutTemplate) => {
     setActiveTemplate(template);
-    setInstanceLayout({ templateId: template.id });
+    setScreenRectOverride(undefined);
+    setCameraRectOverride(undefined);
   }, []);
 
-  const handleRegionChange = useCallback((region: 'screen' | 'camera', rect: NormalizedRect) => {
-    setInstanceLayout((prev) => ({
-      ...prev,
-      [region === 'screen' ? 'screenRect' : 'cameraRect']: rect,
-    }));
+  const handleRegionChange = useCallback((region: 'screen' | 'camera', rect: Rect) => {
+    if (region === 'screen') setScreenRectOverride(rect);
+    else setCameraRectOverride(rect);
   }, []);
 
   // Live preview stream — acquired when a source is selected, independent of recording
@@ -300,20 +302,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         sidebarWidth={RECORD_PANEL_WIDTH}
         main={
           <PreviewStage>
-            <PreviewCard
-              layout={activeTemplate}
-              instanceLayout={instanceLayout}
-              onRegionChange={handleRegionChange}
-              screenAspectRatio={`${resolution.width} / ${resolution.height}`}
-              screenNode={
-                selectedSourceId
-                  ? <LivePreviewVideo stream={liveStream} />
-                  : hasRecordingAsset
-                    ? <div ref={previewRef} style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', background: 'transparent', overflow: 'hidden' }} />
-                    : undefined
-              }
-              cameraNode={undefined}
-              onChooseSource={() => setIsSourcePickerOpen(true)}
+            <CardChrome
+              aspectRatio={activeTemplate.aspectRatio}
               bgColor={background.bgColor}
               bgGradient={background.bgGradient}
               bgPadding={background.bgPadding}
@@ -322,13 +312,28 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
               bgShadowBlur={background.bgShadowBlur}
               bgInset={background.bgInset}
               bgInsetColor={background.bgInsetColor}
-              screenCrop={screenCrop}
-              sourceWidth={resolution.width}
-              sourceHeight={resolution.height}
-              cropModeActive={cropModeActive}
-              onCropModeChange={setCropModeActive}
-              onScreenCropChange={handleScreenCropChange}
-            />
+            >
+              <TemplatePreviewRenderer
+                template={activeTemplate}
+                screenContent={
+                  selectedSourceId
+                    ? <LivePreviewVideo stream={liveStream} />
+                    : hasRecordingAsset
+                      ? <div ref={previewRef} style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', background: 'transparent', overflow: 'hidden' }} />
+                      : undefined
+                }
+                cameraContent={undefined}
+                screenAspect={resolution.width / resolution.height}
+                screenCornerRadius={background.bgCornerRadius}
+                screenShadow={background.bgShadowEnabled
+                  ? `0 ${Math.round(background.bgShadowBlur * 0.3)}px ${background.bgShadowBlur}px rgba(0,0,0,0.6)`
+                  : undefined}
+                interactionEnabled={true}
+                onRegionChange={handleRegionChange}
+                screenRectOverride={screenRectOverride}
+                cameraRectOverride={cameraRectOverride}
+              />
+            </CardChrome>
           </PreviewStage>
         }
         inspector={
