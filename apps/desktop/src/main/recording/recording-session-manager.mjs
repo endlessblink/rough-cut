@@ -527,7 +527,7 @@ export function initSessionManager(win) {
    * Called by the panel renderer once it has assembled the recording blob.
    * Saves the file via capture-service, then routes the result to mainWindow.
    */
-  ipcMain.handle(IPC_CHANNELS.PANEL_SAVE_RECORDING, async (_event, { buffer, metadata }) => {
+  ipcMain.handle(IPC_CHANNELS.PANEL_SAVE_RECORDING, async (_event, { buffer, metadata, cameraBuffer }) => {
     try {
       // Use the recording location from app settings, or fall back to /tmp
       let projectDir = null;
@@ -538,7 +538,8 @@ export function initSessionManager(win) {
       } catch { /* ignore — fall back to /tmp */ }
 
       console.info('[session-manager] Saving recording to:', projectDir ?? '/tmp/rough-cut/recordings/');
-      const result = await saveRecording(Buffer.from(buffer), projectDir, metadata);
+      const camBuf = cameraBuffer ? Buffer.from(cameraBuffer) : null;
+      const result = await saveRecording(Buffer.from(buffer), projectDir, metadata, camBuf);
 
       // Route result to the main renderer so it can create an Asset entry
       safeSend(mainWindow, IPC_CHANNELS.RECORDING_ASSET_READY, result);

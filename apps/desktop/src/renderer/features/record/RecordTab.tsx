@@ -335,6 +335,12 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
                 onRegionChange={handleRegionChange}
                 screenRectOverride={screenRectOverride}
                 cameraRectOverride={cameraRectOverride}
+                screenCrop={screenCrop}
+                cropModeActive={cropModeActive}
+                onCropModeChange={setCropModeActive}
+                onScreenCropChange={handleScreenCropChange}
+                sourceWidth={resolution.width}
+                sourceHeight={resolution.height}
               />
             </CardChrome>
           </PreviewStage>

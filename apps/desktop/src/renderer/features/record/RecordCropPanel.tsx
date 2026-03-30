@@ -1,6 +1,6 @@
 /**
  * RecordCropPanel — per-region static crop controls.
- * Enable/disable crop, choose aspect ratio presets, adjust x/y/w/h numerically.
+ * Toggle crop, choose aspect ratio, edit visually, reset.
  */
 import type { RegionCrop, CropAspectRatio } from '@rough-cut/project-model';
 import { ControlLabel, PillRadioRow, RcToggleButton } from '../../ui/index.js';
@@ -38,51 +38,6 @@ function aspectToNumber(a: CropAspectRatio): number | null {
   }
 }
 
-// ─── Inline number input ────────────────────────────────────────────────────
-
-function CropNumberInput({
-  label,
-  value,
-  min,
-  max,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', width: 14, textAlign: 'right' }}>
-        {label}
-      </span>
-      <input
-        type="number"
-        value={Math.round(value)}
-        min={min}
-        max={max}
-        onChange={(e) => {
-          const n = parseInt(e.target.value, 10);
-          if (!isNaN(n)) onChange(Math.max(min, Math.min(max, n)));
-        }}
-        style={{
-          width: 60,
-          padding: '3px 6px',
-          background: 'rgba(255,255,255,0.06)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          borderRadius: 4,
-          color: '#ccc',
-          fontSize: 11,
-          fontFamily: 'monospace',
-          outline: 'none',
-        }}
-      />
-    </div>
-  );
-}
-
 // ─── RecordCropPanel ────────────────────────────────────────────────────────
 
 export function RecordCropPanel({
@@ -96,7 +51,6 @@ export function RecordCropPanel({
 }: RecordCropPanelProps) {
   const handleToggle = (enabled: boolean) => {
     if (enabled) {
-      // Enable with 10% inset so the crop edges are visible and handles reachable
       const insetX = Math.round(sourceWidth * 0.1);
       const insetY = Math.round(sourceHeight * 0.1);
       onScreenCropChange({
@@ -107,6 +61,7 @@ export function RecordCropPanel({
         height: sourceHeight - insetY * 2,
       });
     } else {
+      onCropModeChange(false);
       onScreenCropChange({ enabled: false });
     }
   };
@@ -114,7 +69,6 @@ export function RecordCropPanel({
   const handleAspectChange = (aspect: CropAspectRatio) => {
     onScreenCropChange({ aspectRatio: aspect });
 
-    // Recompute crop dimensions to match new aspect ratio, centered
     const ratio = aspectToNumber(aspect);
     if (ratio) {
       const currentCenterX = screenCrop.x + screenCrop.width / 2;
@@ -123,7 +77,6 @@ export function RecordCropPanel({
       let newW: number;
       let newH: number;
 
-      // Fit inside current crop, maintaining center
       if (screenCrop.width / screenCrop.height > ratio) {
         newH = screenCrop.height;
         newW = newH * ratio;
@@ -137,22 +90,6 @@ export function RecordCropPanel({
 
       onScreenCropChange({ width: Math.round(newW), height: Math.round(newH), x: Math.round(newX), y: Math.round(newY) });
     }
-  };
-
-  const handleDimensionChange = (key: 'x' | 'y' | 'width' | 'height', value: number) => {
-    const patch: Partial<RegionCrop> = { [key]: value };
-
-    // If aspect ratio is locked, adjust the other dimension
-    const ratio = aspectToNumber(screenCrop.aspectRatio);
-    if (ratio) {
-      if (key === 'width') {
-        patch.height = Math.round(value / ratio);
-      } else if (key === 'height') {
-        patch.width = Math.round(value * ratio);
-      }
-    }
-
-    onScreenCropChange(patch);
   };
 
   return (
@@ -191,15 +128,8 @@ export function RecordCropPanel({
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 4 }}>
-            <CropNumberInput label="X" value={screenCrop.x} min={0} max={sourceWidth - 1} onChange={(v) => handleDimensionChange('x', v)} />
-            <CropNumberInput label="Y" value={screenCrop.y} min={0} max={sourceHeight - 1} onChange={(v) => handleDimensionChange('y', v)} />
-            <CropNumberInput label="W" value={screenCrop.width} min={10} max={sourceWidth} onChange={(v) => handleDimensionChange('width', v)} />
-            <CropNumberInput label="H" value={screenCrop.height} min={10} max={sourceHeight} onChange={(v) => handleDimensionChange('height', v)} />
-          </div>
-
           <button
-            onClick={onScreenCropReset}
+            onClick={() => { onCropModeChange(false); onScreenCropReset(); }}
             style={{
               marginTop: 6,
               padding: '4px 10px',

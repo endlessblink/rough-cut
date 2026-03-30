@@ -32,9 +32,9 @@ export interface RegionDragResult {
   /** Which region is currently hovered */
   hoveredRegion: 'screen' | 'camera' | null;
   /** Call this to start a move drag on a region */
-  startMove: (region: 'screen' | 'camera', currentRect: Rect, e: React.PointerEvent) => void;
+  startMove: (region: 'screen' | 'camera', currentRect: Rect, e: React.PointerEvent, sourceAspect?: number) => void;
   /** Call this to start a resize drag on a region edge */
-  startResize: (region: 'screen' | 'camera', currentRect: Rect, edge: Edge, e: React.PointerEvent) => void;
+  startResize: (region: 'screen' | 'camera', currentRect: Rect, edge: Edge, e: React.PointerEvent, sourceAspect?: number) => void;
   /** Set which region is hovered (for showing handles) */
   setHoveredRegion: (region: 'screen' | 'camera' | null) => void;
 }
@@ -49,6 +49,7 @@ interface DragState {
   mode: 'move' | 'resize';
   edge?: Edge;
   moved: boolean;
+  sourceAspect?: number;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -123,10 +124,37 @@ export function HandleDot() {
 
 // ─── Pixel-space math helpers ─────────────────────────────────────────────────
 
-function clampRect(r: Rect, containerW: number, containerH: number): Rect {
+function clampRect(r: Rect, containerW: number, containerH: number, aspect?: number): Rect {
   let { x, y, width, height } = r;
+
+  // Clamp to container bounds
   width  = Math.max(MIN_SIZE, Math.min(width,  containerW));
   height = Math.max(MIN_SIZE, Math.min(height, containerH));
+
+  // If we have a locked aspect ratio, restore it after clamping
+  if (aspect != null) {
+    // Fit within both constraints while maintaining aspect
+    const maxW = Math.min(width, containerW);
+    const maxH = Math.min(height, containerH);
+    // Use whichever constraint is tighter
+    if (maxW / aspect <= maxH) {
+      width = maxW;
+      height = width / aspect;
+    } else {
+      height = maxH;
+      width = height * aspect;
+    }
+    // Enforce minimum (aspect-locked)
+    if (width < MIN_SIZE) {
+      width = MIN_SIZE;
+      height = width / aspect;
+    }
+    if (height < MIN_SIZE) {
+      height = MIN_SIZE;
+      width = height * aspect;
+    }
+  }
+
   x = Math.max(0, Math.min(x, containerW - width));
   y = Math.max(0, Math.min(y, containerH - height));
   return { x, y, width, height };
@@ -139,8 +167,9 @@ function applyResize(
   dy: number,
   containerW: number,
   containerH: number,
+  sourceAspect?: number,
 ): Rect {
-  const aspect = original.width / original.height;
+  const aspect = sourceAspect ?? (original.width / original.height);
   let { x, y, width, height } = original;
 
   // Corner handles: aspect-ratio-locked resize.
@@ -182,7 +211,7 @@ function applyResize(
       if (edge.includes('n')) y = original.y + original.height - height;
     }
 
-    return clampRect({ x, y, width, height }, containerW, containerH);
+    return clampRect({ x, y, width, height }, containerW, containerH, aspect);
   }
 
   // Edge handles: single-axis resize, aspect-locked.
@@ -217,7 +246,7 @@ function applyResize(
     width  = height * aspect;
   }
 
-  return clampRect({ x, y, width, height }, containerW, containerH);
+  return clampRect({ x, y, width, height }, containerW, containerH, aspect);
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -275,7 +304,7 @@ export function useRegionDragResize({
           containerH,
         ));
       } else if (drag.mode === 'resize' && drag.edge) {
-        cb(drag.region, applyResize(drag.originalRect, drag.edge, dx, dy, containerW, containerH));
+        cb(drag.region, applyResize(drag.originalRect, drag.edge, dx, dy, containerW, containerH, drag.sourceAspect));
       }
     };
 
@@ -294,7 +323,7 @@ export function useRegionDragResize({
   }, [getContainerSize, enabled]);
 
   const startMove = useCallback(
-    (region: 'screen' | 'camera', currentRect: Rect, e: React.PointerEvent) => {
+    (region: 'screen' | 'camera', currentRect: Rect, e: React.PointerEvent, sourceAspect?: number) => {
       if (!onRegionChangeRef.current || !enabled) return;
       e.preventDefault();
       dragRef.current = {
@@ -304,13 +333,14 @@ export function useRegionDragResize({
         originalRect: { ...currentRect },
         mode: 'move',
         moved: false,
+        sourceAspect,
       };
     },
     [enabled],
   );
 
   const startResize = useCallback(
-    (region: 'screen' | 'camera', currentRect: Rect, edge: Edge, e: React.PointerEvent) => {
+    (region: 'screen' | 'camera', currentRect: Rect, edge: Edge, e: React.PointerEvent, sourceAspect?: number) => {
       if (!onRegionChangeRef.current || !enabled) return;
       e.preventDefault();
       e.stopPropagation();
@@ -322,6 +352,7 @@ export function useRegionDragResize({
         mode: 'resize',
         edge,
         moved: false,
+        sourceAspect,
       };
       // Resize starts immediately (no threshold) so set dragging right away
       setIsDragging(true);

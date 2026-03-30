@@ -59,20 +59,38 @@ export function ProjectsTab({
 
   // User picked a recording and chose Recorder or Editor
   function handleOpenRecording(assetId: string, destination: 'record' | 'edit') {
-    if (!selectedProject) return;
+    if (!selectedProject) {
+      console.error('[ProjectsTab] handleOpenRecording: no selectedProject!');
+      return;
+    }
     const { project, filePath } = selectedProject;
+
+    console.info('[ProjectsTab] handleOpenRecording:', {
+      assetId,
+      destination,
+      projectName: project.name,
+      filePath,
+      assetCount: project.assets.length,
+      clipCount: project.composition.tracks.flatMap(t => t.clips).length,
+    });
 
     // Load project into store
     projectStore.getState().setProject(project);
     projectStore.getState().setProjectFilePath(filePath);
+
+    // Verify it was set
+    const storeProject = projectStore.getState().project;
+    console.info('[ProjectsTab] Store project after set:', storeProject.name, 'assets:', storeProject.assets.length);
 
     // Find the clip that references this asset and seek to it
     const clip = project.composition.tracks
       .flatMap((t) => t.clips)
       .find((c) => c.assetId === assetId);
     if (clip) {
+      console.info('[ProjectsTab] Seeking to clip:', clip.timelineIn, 'for asset:', assetId);
       transportStore.getState().seekToFrame(clip.timelineIn);
     } else {
+      console.warn('[ProjectsTab] No clip found for asset:', assetId, '— seeking to 0');
       transportStore.getState().seekToFrame(0);
     }
 

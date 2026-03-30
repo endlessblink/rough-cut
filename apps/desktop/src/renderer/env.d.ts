@@ -45,6 +45,7 @@ export interface RecordingResult {
   codec: string;
   fileSize: number;
   thumbnailPath?: string;
+  cameraFilePath?: string;
 }
 
 /** Type declaration for the preload API exposed on window.roughcut */
@@ -102,7 +103,7 @@ export interface RoughCutAPI {
   panelStopRecording(): Promise<void>;
   panelPause(): void;
   panelResume(): void;
-  panelSaveRecording(buffer: ArrayBuffer, metadata: RecordingMetadata): Promise<RecordingResult>;
+  panelSaveRecording(buffer: ArrayBuffer, metadata: RecordingMetadata, cameraBuffer?: ArrayBuffer): Promise<RecordingResult>;
   onRecordingAssetReady(callback: (result: RecordingResult) => void): () => void;
 }
 

@@ -977,6 +977,8 @@ export function PanelApp() {
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
+  const cameraRecorderRef = useRef<MediaRecorder | null>(null);
+  const cameraChunksRef = useRef<BlobPart[]>([]);
   // Capture elapsed at the moment stop is triggered (recorder.onstop fires async)
   const elapsedMsAtStop = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);

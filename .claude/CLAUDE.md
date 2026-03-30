@@ -16,6 +16,31 @@ Every media frame rect produced by the layout system MUST match the source recor
 - If a frame doesn't match the source, the LAYOUT function is wrong
 - Templates arrange 16:9 blocks. They do not reshape them.
 
+## MANDATORY: Template Layout Architecture Rules
+
+These rules govern the preview rendering system and must never be violated:
+
+### Card vs Frame distinction
+- **Card shape** = determined by the TEMPLATE aspect ratio (16:9, 9:16, 1:1, 4:3)
+- **Frame shapes inside** = determined by the SOURCE recording (always 16:9 for screen recordings)
+- Example: Social Vertical = 9:16 card containing two 16:9 frames stacked vertically
+
+### Each video gets its own outline
+- Selection borders and resize handles render INSIDE each MediaFrame, directly on the video edges
+- NEVER create a shared outline around multiple videos or the entire card inner area
+- CardChrome's inner padded div must be invisible (no border, no shadow, no borderRadius)
+
+### PixiJS compositor rules
+- Compositor canvas is always created at source resolution (1920x1080), NOT project.settings.resolution
+- Canvas CSS uses `!important` to prevent PixiJS `renderer.resize()` from overwriting fill styles
+- The canvas must fill its host frame: `position:absolute; inset:0; width:100%; height:100%`
+- After `renderer.resize()`, PixiJS overwrites inline styles — CSS `!important` is the only reliable defense
+
+### Layout functions
+- All layout functions accept `sourceAspect` parameter and produce frames where `height = width / sourceAspect`
+- Layout functions never know about media fitting — they produce correctly-shaped rects
+- `getLayoutRects(kind, canvas, sourceAspect)` is the only entry point
+
 ---
 
 You are working on the Rough Cut project (desktop screen recording + editor).

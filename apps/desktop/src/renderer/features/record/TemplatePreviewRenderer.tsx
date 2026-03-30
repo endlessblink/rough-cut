@@ -248,8 +248,8 @@ export function TemplatePreviewRenderer({
         overflow: 'hidden',
       }}
     >
-      {/* Screen frame */}
-      {screenRect && !cropModeActive && (
+      {/* Screen frame — always visible, even during crop mode */}
+      {screenRect && (
         <MediaFrame
           frame={screenRect}
           fitMode="fill"

@@ -110,6 +110,7 @@ export interface Asset {
   readonly metadata: Record<string, unknown>;
   readonly thumbnailPath?: string;
   readonly presentation?: RecordingPresentation;
+  readonly cameraAssetId?: string;
 }
 
 export interface ClipTransform {

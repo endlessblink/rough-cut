@@ -40,9 +40,10 @@ function parseFps(fpsStr) {
  * @param {string} projectDir   Project directory (recordings saved in a sub-folder)
  * @param {{fps: number, width: number, height: number, durationMs: number}} metadata
  *   Fallback metadata from the renderer (used when ffprobe is unavailable).
- * @returns {Promise<{filePath: string, durationFrames: number, width: number, height: number, fps: number, codec: string, fileSize: number}>}
+ * @param {ArrayBuffer|null} [cameraBuffer]  Optional camera recording bytes
+ * @returns {Promise<{filePath: string, durationFrames: number, width: number, height: number, fps: number, codec: string, fileSize: number, cameraFilePath?: string}>}
  */
-export async function saveRecording(buffer, projectDir, metadata) {
+export async function saveRecording(buffer, projectDir, metadata, cameraBuffer) {
   // When projectDir is undefined (unsaved project), recordings go to /tmp.
   // Future: "consolidate media" feature will move /tmp files to project dir on save.
   const recordingsDir = join(projectDir || '/tmp/rough-cut', 'recordings');
@@ -95,6 +96,15 @@ export async function saveRecording(buffer, projectDir, metadata) {
     thumbnailPath = null;
   }
 
+  // Save camera recording if provided
+  let cameraFilePath = null;
+  if (cameraBuffer && cameraBuffer.byteLength > 0) {
+    const cameraFilename = `recording-${timestamp}-camera.webm`;
+    cameraFilePath = join(recordingsDir, cameraFilename);
+    await writeFile(cameraFilePath, Buffer.from(cameraBuffer));
+    console.info('[capture-service] Camera recording saved:', cameraFilePath);
+  }
+
   return {
     filePath,
     durationFrames,
@@ -104,5 +114,6 @@ export async function saveRecording(buffer, projectDir, metadata) {
     codec: probedMeta.codec,
     fileSize: Buffer.from(buffer).byteLength,
     thumbnailPath,
+    ...(cameraFilePath ? { cameraFilePath } : {}),
   };
 }

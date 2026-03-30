@@ -180,9 +180,9 @@ const api = {
   panelResume: () =>
     ipcRenderer.send('panel:resume'),
 
-  /** Send recording buffer to main for saving. */
-  panelSaveRecording: (buffer, metadata) =>
-    ipcRenderer.invoke(IPC_CHANNELS.PANEL_SAVE_RECORDING, { buffer, metadata }),
+  /** Send recording buffer to main for saving. Optionally includes camera buffer. */
+  panelSaveRecording: (buffer, metadata, cameraBuffer) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PANEL_SAVE_RECORDING, { buffer, metadata, cameraBuffer }),
 
   /** Subscribe to recording asset ready events (main window). Returns unsubscribe. */
   onRecordingAssetReady: (callback) => {
