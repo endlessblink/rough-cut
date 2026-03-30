@@ -251,6 +251,32 @@ export const ExportSettingsSchema = z.object({
   frameRate: z.number().positive(),
 });
 
+// --- AI Annotations ---
+
+export const AnnotationStatusSchema = z.enum(['pending', 'accepted', 'rejected']);
+
+export const TranscriptWordSchema = z.object({
+  word: z.string(),
+  startFrame: nonNegativeInt,
+  endFrame: nonNegativeInt,
+  confidence: unit,
+});
+
+export const CaptionSegmentSchema = z.object({
+  id: z.string().min(1),
+  assetId: z.string().min(1),
+  status: AnnotationStatusSchema,
+  confidence: unit,
+  startFrame: nonNegativeInt,
+  endFrame: nonNegativeInt,
+  text: z.string(),
+  words: z.array(TranscriptWordSchema),
+});
+
+export const AIAnnotationsSchema = z.object({
+  captionSegments: z.array(CaptionSegmentSchema),
+});
+
 // --- ProjectDocument ---
 
 export const ProjectDocumentSchema = z.object({
@@ -264,6 +290,7 @@ export const ProjectDocumentSchema = z.object({
   composition: CompositionSchema,
   motionPresets: z.array(MotionPresetSchema),
   exportSettings: ExportSettingsSchema,
+  aiAnnotations: AIAnnotationsSchema,
 });
 
 /**

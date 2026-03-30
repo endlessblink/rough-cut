@@ -27,6 +27,10 @@ import type {
   RegionCrop,
   RecordingPresentation,
   BackgroundConfig,
+  AIAnnotationId,
+  AIAnnotations,
+  CaptionSegment,
+  TranscriptWord,
 } from './types.js';
 import {
   CURRENT_SCHEMA_VERSION,
@@ -56,6 +60,9 @@ function presetId(): PresetId {
 }
 function zoomMarkerId(): ZoomMarkerId {
   return generateId() as ZoomMarkerId;
+}
+function aiAnnotationId(): AIAnnotationId {
+  return generateId() as AIAnnotationId;
 }
 
 // Suppress unused-variable lint — these generators are public API surface
@@ -214,6 +221,42 @@ export function createDefaultBackgroundConfig(): BackgroundConfig {
   };
 }
 
+export function createTranscriptWord(
+  word: string,
+  startFrame: number,
+  endFrame: number,
+  confidence = 1,
+): TranscriptWord {
+  return { word, startFrame, endFrame, confidence };
+}
+
+export function createCaptionSegment(
+  assetIdValue: AssetId,
+  startFrame: number,
+  endFrame: number,
+  text: string,
+  words: readonly TranscriptWord[] = [],
+  overrides?: Partial<CaptionSegment>,
+): CaptionSegment {
+  return {
+    id: aiAnnotationId(),
+    assetId: assetIdValue,
+    status: 'pending',
+    confidence: 1,
+    startFrame,
+    endFrame,
+    text,
+    words,
+    ...overrides,
+  };
+}
+
+export function createDefaultAIAnnotations(): AIAnnotations {
+  return {
+    captionSegments: [],
+  };
+}
+
 export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocument {
   const now = new Date().toISOString();
   return {
@@ -247,6 +290,7 @@ export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocu
       resolution: { ...DEFAULT_RESOLUTION },
       frameRate: DEFAULT_FRAME_RATE,
     },
+    aiAnnotations: createDefaultAIAnnotations(),
     ...overrides,
   };
 }

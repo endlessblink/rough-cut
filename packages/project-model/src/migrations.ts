@@ -44,6 +44,17 @@ const migrations: readonly Migration[] = [
       return { ...doc, version: 2, assets: migratedAssets };
     },
   },
+  {
+    fromVersion: 2,
+    toVersion: 3,
+    migrate: (doc) => {
+      return {
+        ...doc,
+        version: 3,
+        aiAnnotations: doc['aiAnnotations'] ?? { captionSegments: [] },
+      };
+    },
+  },
 ];
 
 /**

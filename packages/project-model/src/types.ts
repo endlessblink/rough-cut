@@ -122,6 +122,33 @@ export interface RecordingPresentation {
   // highlights, titles to be added later
 }
 
+// --- AI Annotations ---
+
+export type AIAnnotationId = string & { readonly __brand: 'AIAnnotationId' };
+export type AnnotationStatus = 'pending' | 'accepted' | 'rejected';
+
+export interface TranscriptWord {
+  readonly word: string;
+  readonly startFrame: Frame;
+  readonly endFrame: Frame;
+  readonly confidence: number;
+}
+
+export interface CaptionSegment {
+  readonly id: AIAnnotationId;
+  readonly assetId: AssetId;
+  readonly status: AnnotationStatus;
+  readonly confidence: number;
+  readonly startFrame: Frame;
+  readonly endFrame: Frame;
+  readonly text: string;
+  readonly words: readonly TranscriptWord[];
+}
+
+export interface AIAnnotations {
+  readonly captionSegments: readonly CaptionSegment[];
+}
+
 export interface Asset {
   readonly id: AssetId;
   readonly type: AssetType;
@@ -239,4 +266,5 @@ export interface ProjectDocument {
   readonly composition: Composition;
   readonly motionPresets: readonly MotionPreset[];
   readonly exportSettings: ExportSettings;
+  readonly aiAnnotations: AIAnnotations;
 }
