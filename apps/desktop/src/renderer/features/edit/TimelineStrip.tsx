@@ -26,6 +26,7 @@ interface TimelineStripProps {
   onScrub: (frame: number) => void;
   onTrimLeft?: (clipId: string, newTimelineIn: number) => void;
   onTrimRight?: (clipId: string, newTimelineOut: number) => void;
+  onMove?: (clipId: string, newTimelineIn: number) => void;
   exportRange?: ExportRange;
   onChangeExportRange?: (range: ExportRange) => void;
 }
@@ -61,6 +62,7 @@ export function TimelineStrip({
   onScrub,
   onTrimLeft,
   onTrimRight,
+  onMove,
   exportRange,
   onChangeExportRange,
 }: TimelineStripProps) {
@@ -271,6 +273,7 @@ export function TimelineStrip({
                   onClick={interaction.canSelect ? onSelectClip : undefined}
                   onTrimLeft={interaction.canTrim ? onTrimLeft : undefined}
                   onTrimRight={interaction.canTrim ? onTrimRight : undefined}
+                  onMove={interaction.canTrim ? onMove : undefined}
                 />
               );
             })}

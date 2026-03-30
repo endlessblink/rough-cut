@@ -109,6 +109,15 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
     [findTrackForClip],
   );
 
+  const handleMoveClip = useCallback(
+    (clipId: string, newTimelineIn: number) => {
+      const track = findTrackForClip(clipId);
+      if (!track) return;
+      projectStore.getState().moveClip(track.id, clipId as ClipId, newTimelineIn);
+    },
+    [findTrackForClip],
+  );
+
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
   const resolution = useProjectStore((s) => s.project.settings.resolution);
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
@@ -278,6 +287,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
             onScrub={handleScrub}
             onTrimLeft={handleTrimLeft}
             onTrimRight={handleTrimRight}
+            onMove={handleMoveClip}
           />
         </EditTimelineShell>
       </div>
