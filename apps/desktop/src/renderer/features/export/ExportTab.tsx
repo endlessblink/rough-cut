@@ -3,7 +3,7 @@ import { useProjectStore, useTransportStore, transportStore } from '../../hooks/
 import { usePlaybackLoop } from '../../hooks/use-playback-loop.js';
 import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
-import { TimelinePlaybackVideo } from '../../components/TimelinePlaybackVideo.js';
+import { RecordingPlaybackVideo } from '../record/RecordingPlaybackVideo.js';
 import { TimelineStrip } from '../edit/TimelineStrip.js';
 import type { ExportRange } from '../edit/TimelineStrip.js';
 
@@ -28,6 +28,12 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const resolution = useProjectStore((s) => s.project.settings.resolution);
   const currentFrame = useTransportStore((s) => s.playheadFrame);
   const isPlaying = useTransportStore((s) => s.isPlaying);
+  const activeRecordingAsset = useProjectStore((s) => {
+    const preferred = s.activeAssetId
+      ? s.project.assets.find((a) => a.id === s.activeAssetId)
+      : null;
+    return preferred ?? s.project.assets.find((a) => a.type === 'recording') ?? null;
+  });
 
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
   usePlaybackLoop(projectFps, durationFrames);
@@ -59,7 +65,17 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
               boxShadow: '0 18px 60px rgba(0,0,0,0.80)',
               overflow: 'hidden',
             }}>
-              <TimelinePlaybackVideo />
+              {activeRecordingAsset?.filePath ? (
+                <RecordingPlaybackVideo
+                  filePath={activeRecordingAsset.filePath}
+                  fps={projectFps}
+                  assetId={activeRecordingAsset.id}
+                />
+              ) : (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>No recording</span>
+                </div>
+              )}
             </div>
           </div>
         </div>

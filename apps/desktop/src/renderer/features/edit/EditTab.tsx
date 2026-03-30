@@ -17,7 +17,7 @@ import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
 // VerticalWorkspaceSplit no longer needed — timeline is a full-width sibling
 import { useUiStore, uiStore } from '../../hooks/use-ui-store.js';
-import { TimelinePlaybackVideo } from '../../components/TimelinePlaybackVideo.js';
+import { RecordingPlaybackVideo } from '../record/RecordingPlaybackVideo.js';
 
 interface EditTabProps {
   activeTab: AppView;
@@ -33,6 +33,14 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [pixelsPerFrame, setPixelsPerFrame] = useState(3);
   const [snapEnabled, setSnapEnabled] = useState(true);
+
+  // Active recording asset — same logic as RecordTab
+  const activeRecordingAsset = useProjectStore((s) => {
+    const preferred = s.activeAssetId
+      ? s.project.assets.find((a) => a.id === s.activeAssetId)
+      : null;
+    return preferred ?? s.project.assets.find((a) => a.type === 'recording') ?? null;
+  });
 
   // Undo/redo availability
   const canUndo = useProjectStore(() => projectStore.temporal.getState().pastStates.length > 0);
@@ -222,7 +230,17 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
               boxShadow: '0 18px 60px rgba(0,0,0,0.80)',
               overflow: 'hidden',
             }}>
-              <TimelinePlaybackVideo />
+              {activeRecordingAsset?.filePath ? (
+                <RecordingPlaybackVideo
+                  filePath={activeRecordingAsset.filePath}
+                  fps={projectFps}
+                  assetId={activeRecordingAsset.id}
+                />
+              ) : (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>No recording</span>
+                </div>
+              )}
             </div>
           </EditPreviewStage>
         </div>
