@@ -1,6 +1,6 @@
 import { desktopCapturer } from 'electron';
 import { join, dirname } from 'node:path';
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, renameSync, unlinkSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { execSync } from 'node:child_process';
 
@@ -34,6 +34,31 @@ function parseFps(fpsStr) {
 }
 
 /**
+ * Remux a WebM file through FFmpeg to add seek cues and duration metadata.
+ * MediaRecorder WebM files lack Cues elements, making browser seeks fail.
+ * This is a fast copy operation (no re-encoding).
+ * @param {string} filePath  Path to the WebM file to remux in-place
+ */
+function remuxForSeeking(filePath) {
+  const tmpPath = filePath + '.remux.webm';
+  try {
+    execSync(
+      `ffmpeg -y -i "${filePath}" -c copy "${tmpPath}"`,
+      { timeout: 30000, stdio: 'pipe' },
+    );
+    // Atomic replace: delete original, rename temp
+    unlinkSync(filePath);
+    renameSync(tmpPath, filePath);
+    console.info('[capture-service] Remuxed for seeking:', filePath);
+  } catch (err) {
+    // Remux failed — original file is still intact and playable (just not seekable)
+    console.warn('[capture-service] Remux for seeking failed (original preserved):', err?.message ?? err);
+    // Clean up temp file if it exists
+    try { unlinkSync(tmpPath); } catch { /* ignore */ }
+  }
+}
+
+/**
  * Save a recording buffer to disk, probe with ffprobe, and return metadata.
  *
  * @param {ArrayBuffer} buffer  Raw webm bytes from the renderer MediaRecorder
@@ -56,6 +81,7 @@ export async function saveRecording(buffer, projectDir, metadata, cameraBuffer) 
 
   // Write buffer to disk
   await writeFile(filePath, Buffer.from(buffer));
+  remuxForSeeking(filePath);
 
   // Probe with ffprobe for accurate metadata (best-effort)
   let probedMeta = { durationMs: 0, width: 0, height: 0, fps: 0, codec: 'unknown' };
@@ -102,6 +128,7 @@ export async function saveRecording(buffer, projectDir, metadata, cameraBuffer) 
     const cameraFilename = `recording-${timestamp}-camera.webm`;
     cameraFilePath = join(recordingsDir, cameraFilename);
     await writeFile(cameraFilePath, Buffer.from(cameraBuffer));
+    remuxForSeeking(cameraFilePath);
     console.info('[capture-service] Camera recording saved:', cameraFilePath);
   }
 

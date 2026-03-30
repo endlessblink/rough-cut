@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useRef } from 'react';
+import type { RegionCrop } from '@rough-cut/project-model';
 import type { Rect, FitMode } from './template-layout/types.js';
 import {
   ALL_EDGES,
@@ -44,6 +45,13 @@ export interface MediaFrameProps {
   onDoubleClick?: (e: React.MouseEvent) => void;
   /** Resize handle handler */
   onResizeStart?: (edge: Edge, e: React.PointerEvent) => void;
+  /** Active crop rect (applied as zoom transform when not in crop edit mode) */
+  crop?: RegionCrop;
+  /** Whether crop editing mode is active (suppresses zoom transform) */
+  cropModeActive?: boolean;
+  /** Source resolution for crop math */
+  sourceWidth?: number;
+  sourceHeight?: number;
 }
 
 // ─── Placeholder icons ────────────────────────────────────────────────────────
@@ -91,7 +99,12 @@ export function MediaFrame({
   onPointerDown,
   onDoubleClick,
   onResizeStart,
+  crop,
+  cropModeActive = false,
+  sourceWidth = 1920,
+  sourceHeight = 1080,
 }: MediaFrameProps) {
+  const frameRef = useRef<HTMLDivElement>(null);
   // Circular frames override borderRadius to '50%'
   const resolvedRadius = circular ? '50%' : borderRadius;
 
@@ -188,17 +201,39 @@ export function MediaFrame({
     );
   }
 
+  // ─── Crop transform ────────────────────────────────────────────────────────
+  // When crop is enabled and we're NOT in crop edit mode, zoom into the cropped area.
+
+  const applyCrop = crop?.enabled && !cropModeActive;
+  let contentStyle: React.CSSProperties = { position: 'absolute', inset: 0 };
+
+  if (applyCrop && crop) {
+    const viewW = frame.width;
+    const viewH = frame.height;
+    const scale = Math.max(viewW / crop.width, viewH / crop.height);
+    const tx = -crop.x;
+    const ty = -crop.y;
+    contentStyle = {
+      position: 'absolute',
+      inset: 0,
+      transformOrigin: '0 0',
+      transform: `scale(${scale}) translate(${tx}px, ${ty}px)`,
+      willChange: 'transform',
+    };
+  }
+
   // ─── Fill mode (only mode) ────────────────────────────────────────────────
 
   return (
     <div
+      ref={frameRef}
       style={frameStyle}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
     >
-      <div style={{ position: 'absolute', inset: 0 }}>
+      <div style={contentStyle}>
         {children}
       </div>
 

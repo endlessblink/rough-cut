@@ -150,19 +150,7 @@ export function RecordTimelineShell({
       (max, t) => t.clips.reduce((mx, c) => Math.max(mx, c.timelineOut), max),
       0,
     );
-    const eff = Math.max(maxClipEnd, durationFrames);
-    console.log('[RecordTimeline] effectiveDuration:', { maxClipEnd, durationFrames, effective: eff });
-    console.log('[RecordTimeline] tracks:', tracks.map((t) => ({
-      id: t.id, name: t.name, type: t.type, index: t.index,
-      clips: t.clips.map((c) => ({
-        id: c.id, assetId: c.assetId,
-        timelineIn: c.timelineIn, timelineOut: c.timelineOut,
-        sourceIn: c.sourceIn, sourceOut: c.sourceOut,
-      })),
-    })));
-    console.log('[RecordTimeline] assets:', assets.map((a) => ({ id: a.id, type: a.type, duration: a.duration, filePath: a.filePath })));
-    console.log('[RecordTimeline] activeAssetId:', activeAssetId);
-    return eff;
+    return Math.max(maxClipEnd, durationFrames);
   }, [tracks, durationFrames]);
 
   /* ── play/pause state ──────────────────────────────────────────────────── */

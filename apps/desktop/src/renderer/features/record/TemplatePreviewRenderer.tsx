@@ -267,6 +267,10 @@ export function TemplatePreviewRenderer({
           onPointerDown={handleScreenPointerDown}
           onDoubleClick={handleScreenDoubleClick}
           onResizeStart={handleScreenResizeStart}
+          crop={screenCrop}
+          cropModeActive={cropModeActive}
+          sourceWidth={sourceWidth}
+          sourceHeight={sourceHeight}
         >
           {screenContent}
         </MediaFrame>

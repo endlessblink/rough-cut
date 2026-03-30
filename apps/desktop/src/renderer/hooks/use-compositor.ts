@@ -28,14 +28,11 @@ function ensureCompositor(): void {
     );
 
     // Initialize and wire store subscriptions (once)
-    console.log('[useCompositor] Initializing shared compositor...');
     initPromise = sharedCompositor.init().then((canvas) => {
       sharedCanvas = canvas;
-      console.log('[useCompositor] Compositor initialized, canvas:', { width: canvas.width, height: canvas.height });
 
       // Wire project store -> compositor
       projectStore.subscribe((state) => {
-        console.log('[useCompositor] Project store changed → setProject. Assets:', state.project.assets.length, 'Tracks:', state.project.composition.tracks.length, 'Duration:', state.project.composition.duration);
         sharedCompositor?.setProject(state.project);
       });
 
@@ -46,7 +43,6 @@ function ensureCompositor(): void {
 
       // Apply current state
       const currentState = projectStore.getState();
-      console.log('[useCompositor] Applying initial project state. Assets:', currentState.project.assets.length, 'Tracks:', currentState.project.composition.tracks.length);
       sharedCompositor?.setProject(currentState.project);
     });
   }

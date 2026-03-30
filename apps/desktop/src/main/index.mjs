@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, protocol, net, session, desktopCap
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, writeFile } from 'node:fs/promises';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync, createReadStream } from 'node:fs';
 import { homedir } from 'node:os';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { getSources, saveRecording } from './recording/capture-service.mjs';
@@ -360,10 +360,52 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 app.whenReady().then(() => {
-  // Handle media:// URLs by serving local files with range request support
+  // Handle media:// URLs by serving local files with range request support.
+  // Uses createReadStream to support HTTP 206 Partial Content for video seeking.
   protocol.handle('media', (req) => {
     const filePath = decodeURIComponent(req.url.replace('media://', ''));
-    return net.fetch(`file://${filePath}`);
+
+    if (!existsSync(filePath)) {
+      return new Response('Not Found', { status: 404 });
+    }
+
+    const stat = statSync(filePath);
+    const total = stat.size;
+    const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+    const mimeTypes = { webm: 'video/webm', mp4: 'video/mp4', mkv: 'video/x-matroska', jpg: 'image/jpeg', png: 'image/png' };
+    const contentType = mimeTypes[ext] ?? 'application/octet-stream';
+    const rangeHeader = req.headers.get('range');
+
+    if (rangeHeader) {
+      // Parse Range: bytes=START-END
+      const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+      if (match) {
+        const start = parseInt(match[1], 10);
+        const end = match[2] ? parseInt(match[2], 10) : total - 1;
+        const chunkSize = end - start + 1;
+        const stream = createReadStream(filePath, { start, end });
+        return new Response(stream, {
+          status: 206,
+          headers: {
+            'Content-Range': `bytes ${start}-${end}/${total}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': String(chunkSize),
+            'Content-Type': contentType,
+          },
+        });
+      }
+    }
+
+    // No range request — serve the full file
+    const stream = createReadStream(filePath);
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        'Accept-Ranges': 'bytes',
+        'Content-Length': String(total),
+        'Content-Type': contentType,
+      },
+    });
   });
 
   // Store selected source ID — updated via IPC from panel window

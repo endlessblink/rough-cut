@@ -4,7 +4,7 @@
  * to recording-local time using the clip's timelineIn offset.
  */
 import { useRef, useEffect, useCallback } from 'react';
-import { useTransportStore, transportStore, useProjectStore } from '../../hooks/use-stores.js';
+import { transportStore, useProjectStore } from '../../hooks/use-stores.js';
 
 interface RecordingPlaybackVideoProps {
   filePath: string;

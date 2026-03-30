@@ -252,22 +252,6 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     if (!screenCrop.enabled) setCropModeActive(false);
   }, [screenCrop.enabled]);
 
-  // Debug logging
-  useEffect(() => {
-    console.log('[RecordTab] State snapshot:', {
-      hasRecordingAsset,
-      activeRecordingId,
-      activeRecordingAsset: activeRecordingAsset ? { id: activeRecordingAsset.id, type: activeRecordingAsset.type, duration: activeRecordingAsset.duration, filePath: activeRecordingAsset.filePath } : null,
-      selectedSourceId,
-      status,
-      durationFrames,
-      currentFrame,
-      trackCount: tracks.length,
-      assetCount: assets.length,
-      resolution,
-    });
-  }, [hasRecordingAsset, activeRecordingId, activeRecordingAsset, selectedSourceId, status, durationFrames, currentFrame, tracks.length, assets.length]);
-
   const recording = useRecording({
     selectedSourceId,
     stream: liveStream,
