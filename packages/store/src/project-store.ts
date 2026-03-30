@@ -225,7 +225,8 @@ export function createProjectStore() {
           if (!track) return;
           const clip = track.clips.find((c) => c.id === clipId);
           if (!clip) return;
-          const trimmed = trimClipLeft(clip, newTimelineIn);
+          const asset = get().project.assets.find((a) => a.id === clip.assetId);
+          const trimmed = trimClipLeft(clip, newTimelineIn, asset?.duration);
           if (!trimmed) return;
           get().updateProject((doc) => ({
             ...doc,
@@ -243,7 +244,8 @@ export function createProjectStore() {
           if (!track) return;
           const clip = track.clips.find((c) => c.id === clipId);
           if (!clip) return;
-          const trimmed = trimClipRight(clip, newTimelineOut);
+          const asset = get().project.assets.find((a) => a.id === clip.assetId);
+          const trimmed = trimClipRight(clip, newTimelineOut, asset?.duration);
           if (!trimmed) return;
           get().updateProject((doc) => ({
             ...doc,

@@ -35,37 +35,47 @@ export function splitClip(clip: Clip, frame: number): [Clip, Clip] | null {
 
 /**
  * Trim a clip from the left (move sourceIn and timelineIn forward).
- * Returns a new clip or null if the trim would reduce duration to 0.
+ * Returns a new clip or null if the trim would reduce duration to 0 or push sourceIn below 0.
  */
-export function trimClipLeft(clip: Clip, newTimelineIn: number): Clip | null {
+export function trimClipLeft(clip: Clip, newTimelineIn: number, _sourceDuration?: number): Clip | null {
   if (newTimelineIn >= clip.timelineOut) {
     return null;
   }
 
   const delta = newTimelineIn - clip.timelineIn;
+  const newSourceIn = clip.sourceIn + delta;
+
+  // Clamp: sourceIn can't go below 0
+  if (newSourceIn < 0) return null;
 
   return {
     ...clip,
     timelineIn: newTimelineIn,
-    sourceIn: clip.sourceIn + delta,
+    sourceIn: newSourceIn,
   };
 }
 
 /**
  * Trim a clip from the right (move timelineOut backward).
- * Returns a new clip or null if the trim would reduce duration to 0.
+ * Returns a new clip or null if the trim would reduce duration to 0 or push sourceOut past the source.
  */
-export function trimClipRight(clip: Clip, newTimelineOut: number): Clip | null {
+export function trimClipRight(clip: Clip, newTimelineOut: number, sourceDuration?: number): Clip | null {
   if (newTimelineOut <= clip.timelineIn) {
     return null;
   }
 
   const delta = clip.timelineOut - newTimelineOut;
+  const newSourceOut = clip.sourceOut - delta;
+
+  // Clamp: sourceOut can't exceed source duration (if known)
+  if (sourceDuration !== undefined && newSourceOut > sourceDuration) return null;
+  // Clamp: sourceOut can't go below 0
+  if (newSourceOut < 0) return null;
 
   return {
     ...clip,
     timelineOut: newTimelineOut,
-    sourceOut: clip.sourceOut - delta,
+    sourceOut: newSourceOut,
   };
 }
 

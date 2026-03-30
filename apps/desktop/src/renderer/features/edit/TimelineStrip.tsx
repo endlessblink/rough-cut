@@ -267,6 +267,7 @@ export function TimelineStrip({
                   pixelsPerFrame={pixelsPerFrame}
                   isSelected={interaction.canSelect ? clip.id === selectedClipId : false}
                   label={label}
+                  assetDuration={asset?.duration}
                   onClick={interaction.canSelect ? onSelectClip : undefined}
                   onTrimLeft={interaction.canTrim ? onTrimLeft : undefined}
                   onTrimRight={interaction.canTrim ? onTrimRight : undefined}

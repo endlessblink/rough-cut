@@ -7,6 +7,8 @@ interface ClipBlockProps {
   pixelsPerFrame: number;
   isSelected: boolean;
   label: string;
+  /** Duration of the source asset in frames — used to clamp trim handles */
+  assetDuration?: number;
   onClick: (clipId: string) => void;
   onTrimLeft?: (clipId: string, newTimelineIn: number) => void;
   onTrimRight?: (clipId: string, newTimelineOut: number) => void;
@@ -41,6 +43,7 @@ export function ClipBlock({
   pixelsPerFrame,
   isSelected,
   label,
+  assetDuration,
   onClick,
   onTrimLeft,
   onTrimRight,
@@ -58,11 +61,13 @@ export function ClipBlock({
       e.preventDefault();
       const startX = e.clientX;
       const startFrame = clip.timelineIn;
+      // Earliest timeline position where sourceIn would still be >= 0
+      const minTimelineIn = clip.timelineIn - clip.sourceIn;
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
         const dx = moveEvent.clientX - startX;
         const deltaFrames = Math.round(dx / pixelsPerFrame);
-        const newFrame = startFrame + deltaFrames;
+        const newFrame = Math.max(minTimelineIn, startFrame + deltaFrames);
         onTrimLeft(clip.id, newFrame);
       };
 
@@ -74,7 +79,7 @@ export function ClipBlock({
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
     },
-    [clip.id, clip.timelineIn, pixelsPerFrame, onTrimLeft],
+    [clip.id, clip.timelineIn, clip.sourceIn, pixelsPerFrame, onTrimLeft],
   );
 
   const handleTrimRightMouseDown = useCallback(
@@ -84,11 +89,16 @@ export function ClipBlock({
       e.preventDefault();
       const startX = e.clientX;
       const startFrame = clip.timelineOut;
+      // Latest timeline position where sourceOut would still be <= assetDuration
+      const maxTimelineOut = assetDuration !== undefined
+        ? clip.timelineIn + (assetDuration - clip.sourceIn)
+        : undefined;
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
         const dx = moveEvent.clientX - startX;
         const deltaFrames = Math.round(dx / pixelsPerFrame);
-        const newFrame = startFrame + deltaFrames;
+        let newFrame = startFrame + deltaFrames;
+        if (maxTimelineOut !== undefined) newFrame = Math.min(maxTimelineOut, newFrame);
         onTrimRight(clip.id, newFrame);
       };
 
@@ -100,7 +110,7 @@ export function ClipBlock({
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
     },
-    [clip.id, clip.timelineOut, pixelsPerFrame, onTrimRight],
+    [clip.id, clip.timelineIn, clip.timelineOut, clip.sourceIn, assetDuration, pixelsPerFrame, onTrimRight],
   );
 
   return (
