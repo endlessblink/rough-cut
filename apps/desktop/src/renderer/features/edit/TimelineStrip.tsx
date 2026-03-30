@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Track, Asset } from '@rough-cut/project-model';
 import { snapToNearestEdge } from '@rough-cut/timeline-engine';
 import { ClipBlock } from './ClipBlock.js';
@@ -70,6 +70,7 @@ export function TimelineStrip({
   const lastMouseXRef = useRef(0);
   const prevPpfRef = useRef(pixelsPerFrame);
   const [snapIndicator, setSnapIndicator] = useState<number | null>(null);
+  const [dragSnapFrame, setDragSnapFrame] = useState<number | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
   useEffect(() => {
@@ -115,7 +116,15 @@ export function TimelineStrip({
 
   const assetMap = new Map(assets.map((a) => [a.id, a]));
 
-
+  const allClipEdges = useMemo(() => {
+    const edges: number[] = [];
+    for (const track of tracks) {
+      for (const clip of track.clips) {
+        edges.push(clip.timelineIn, clip.timelineOut);
+      }
+    }
+    return edges;
+  }, [tracks]);
 
   const frameFromMouseX = useCallback(
     (clientX: number) => {
@@ -270,6 +279,10 @@ export function TimelineStrip({
                   isSelected={interaction.canSelect ? clip.id === selectedClipId : false}
                   label={label}
                   assetDuration={asset?.duration}
+                  snapEnabled={snapEnabled && interaction.canSnap}
+                  allClipEdges={allClipEdges}
+                  playheadFrame={playheadFrame}
+                  onSnapWhileDragging={setDragSnapFrame}
                   onClick={interaction.canSelect ? onSelectClip : undefined}
                   onTrimLeft={interaction.canTrim ? onTrimLeft : undefined}
                   onTrimRight={interaction.canTrim ? onTrimRight : undefined}
@@ -301,6 +314,23 @@ export function TimelineStrip({
           style={{
             position: 'absolute',
             left: LABEL_WIDTH + snapIndicator * pixelsPerFrame,
+            top: 0,
+            bottom: 0,
+            width: 1,
+            background: '#5ac8fa',
+            pointerEvents: 'none',
+            zIndex: 11,
+            opacity: 0.8,
+          }}
+        />
+      )}
+
+      {/* Drag snap line — visible while dragging a clip near a snap target */}
+      {dragSnapFrame !== null && (
+        <div
+          style={{
+            position: 'absolute',
+            left: LABEL_WIDTH + dragSnapFrame * pixelsPerFrame,
             top: 0,
             bottom: 0,
             width: 1,

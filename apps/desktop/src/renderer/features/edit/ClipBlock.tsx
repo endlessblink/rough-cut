@@ -9,6 +9,10 @@ interface ClipBlockProps {
   label: string;
   /** Duration of the source asset in frames — used to clamp trim handles */
   assetDuration?: number;
+  snapEnabled?: boolean;
+  allClipEdges?: number[];
+  playheadFrame?: number;
+  onSnapWhileDragging?: (snapFrame: number | null) => void;
   onClick: (clipId: string) => void;
   onTrimLeft?: (clipId: string, newTimelineIn: number) => void;
   onTrimRight?: (clipId: string, newTimelineOut: number) => void;
@@ -47,6 +51,10 @@ export function ClipBlock({
   isSelected,
   label,
   assetDuration,
+  snapEnabled,
+  allClipEdges,
+  playheadFrame,
+  onSnapWhileDragging,
   onClick,
   onTrimLeft,
   onTrimRight,
@@ -131,6 +139,8 @@ export function ClipBlock({
       const startX = e.clientX;
       let dragging = false;
       let currentOffset = 0;
+      let snappedIn = clip.timelineIn;
+      const clipDuration = clip.timelineOut - clip.timelineIn;
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
         const dx = moveEvent.clientX - startX;
@@ -141,7 +151,41 @@ export function ClipBlock({
         }
         if (dragging) {
           currentOffset = dx;
-          setDragOffset(dx);
+          const rawDeltaFrames = dx / pixelsPerFrame;
+          const newTimelineIn = clip.timelineIn + rawDeltaFrames;
+          const newTimelineOut = newTimelineIn + clipDuration;
+
+          let snapTarget: number | null = null;
+
+          if (snapEnabled) {
+            const SNAP_THRESHOLD_FRAMES = Math.ceil(5 / pixelsPerFrame);
+            const targets = [...(allClipEdges ?? [])];
+            if (playheadFrame !== undefined) targets.push(playheadFrame);
+
+            for (const target of targets) {
+              if (Math.abs(newTimelineIn - target) <= SNAP_THRESHOLD_FRAMES) {
+                snappedIn = target;
+                snapTarget = target;
+                break;
+              }
+              if (Math.abs(newTimelineOut - target) <= SNAP_THRESHOLD_FRAMES) {
+                snappedIn = target - clipDuration;
+                snapTarget = target;
+                break;
+              }
+            }
+
+            if (snapTarget === null) {
+              snappedIn = newTimelineIn;
+            }
+          } else {
+            snappedIn = newTimelineIn;
+          }
+
+          onSnapWhileDragging?.(snapTarget);
+
+          const snappedOffset = (snappedIn - clip.timelineIn) * pixelsPerFrame;
+          setDragOffset(snapEnabled ? snappedOffset : currentOffset);
         }
       };
 
@@ -149,9 +193,9 @@ export function ClipBlock({
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
         if (dragging) {
-          const deltaFrames = Math.round(currentOffset / pixelsPerFrame);
-          const newTimelineIn = Math.max(0, clip.timelineIn + deltaFrames);
-          onMove(clip.id, newTimelineIn);
+          onSnapWhileDragging?.(null);
+          const finalTimelineIn = Math.max(0, Math.round(snappedIn));
+          onMove(clip.id, finalTimelineIn);
           setIsDragging(false);
           setDragOffset(0);
           onDragEnd?.();
@@ -161,7 +205,7 @@ export function ClipBlock({
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
     },
-    [clip.id, clip.timelineIn, pixelsPerFrame, onMove, onDragStart, onDragEnd],
+    [clip.id, clip.timelineIn, clip.timelineOut, pixelsPerFrame, snapEnabled, allClipEdges, playheadFrame, onSnapWhileDragging, onMove, onDragStart, onDragEnd],
   );
 
   return (
