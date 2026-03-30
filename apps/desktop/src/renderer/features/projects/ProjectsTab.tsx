@@ -62,15 +62,45 @@ export function ProjectsTab({
     if (!selectedProject) return;
     const { project, filePath } = selectedProject;
 
-    // Find the clip that references this asset and seek FIRST
-    const clip = project.composition.tracks
-      .flatMap((t) => t.clips)
-      .find((c) => c.assetId === assetId);
-    const targetFrame = clip ? clip.timelineIn : 0;
-    transportStore.getState().seekToFrame(targetFrame);
+    // Build a clean timeline with ONLY the selected recording.
+    // Clear all clips from all tracks, then place one clip at frame 0 on V1.
+    const selectedAsset = project.assets.find((a) => a.id === assetId);
+    const clipDuration = selectedAsset?.duration ?? 0;
+    const firstVideoTrack = project.composition.tracks.find((t) => t.type === 'video');
 
-    // Load project into store
-    projectStore.getState().setProject(project);
+    const cleanTracks = project.composition.tracks.map((track) => {
+      // Clear every track
+      if (!firstVideoTrack || track.id !== firstVideoTrack.id) {
+        return { ...track, clips: [] };
+      }
+      // First video track: one clip for the selected recording
+      const existingClip = track.clips.find((c) => c.assetId === assetId);
+      const clipId = existingClip?.id ?? `clip-${Date.now()}`;
+      return {
+        ...track,
+        clips: clipDuration > 0 ? [{
+          ...(existingClip ?? { id: clipId, assetId, trackId: track.id, name: '', enabled: true, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0, anchorY: 0, opacity: 1 }, effects: [], keyframes: [] }),
+          timelineIn: 0,
+          timelineOut: clipDuration,
+          sourceIn: 0,
+          sourceOut: clipDuration,
+        }] : [],
+      };
+    });
+
+    const cleanProject = {
+      ...project,
+      composition: {
+        ...project.composition,
+        tracks: cleanTracks,
+        duration: clipDuration > 0 ? clipDuration : project.composition.duration,
+      },
+    };
+
+    transportStore.getState().seekToFrame(0);
+
+    // Load clean project into store
+    projectStore.getState().setProject(cleanProject as ProjectDocument);
     projectStore.getState().setProjectFilePath(filePath);
     projectStore.getState().setActiveAssetId(assetId);
 

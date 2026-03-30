@@ -17,7 +17,7 @@ import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
 // VerticalWorkspaceSplit no longer needed — timeline is a full-width sibling
 import { useUiStore, uiStore } from '../../hooks/use-ui-store.js';
-import { RecordingPlaybackVideo } from '../record/RecordingPlaybackVideo.js';
+import { TimelinePlaybackVideo } from '../../components/TimelinePlaybackVideo.js';
 
 interface EditTabProps {
   activeTab: AppView;
@@ -26,20 +26,13 @@ interface EditTabProps {
 
 export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const projectName = useProjectStore((s) => s.project.name);
+  const updateProject = useProjectStore((s) => s.updateProject);
   const tracks = useProjectStore((s) => s.project.composition.tracks);
   const assets = useProjectStore((s) => s.project.assets);
   const playheadFrame = useTransportStore((s) => s.playheadFrame);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [pixelsPerFrame, setPixelsPerFrame] = useState(3);
   const [snapEnabled, setSnapEnabled] = useState(true);
-
-  // Active recording asset — same logic as RecordTab
-  const activeRecordingAsset = useProjectStore((s) => {
-    const preferred = s.activeAssetId
-      ? s.project.assets.find((a) => a.id === s.activeAssetId)
-      : null;
-    return preferred ?? s.project.assets.find((a) => a.type === 'recording') ?? null;
-  });
 
   // Undo/redo availability
   const canUndo = useProjectStore(() => projectStore.temporal.getState().pastStates.length > 0);
@@ -191,7 +184,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
 
   return (
     <EditScreenLayout>
-      <AppHeader activeTab={activeTab} onTabChange={onTabChange} projectName={projectName} captureSummary={captureSummary} />
+      <AppHeader activeTab={activeTab} onTabChange={onTabChange} projectName={projectName} onProjectNameChange={(name) => updateProject((doc) => ({ ...doc, name }))} captureSummary={captureSummary} />
 
       {/* Preview + Sidebar row */}
       <div
@@ -220,17 +213,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
               boxShadow: '0 18px 60px rgba(0,0,0,0.80)',
               overflow: 'hidden',
             }}>
-              {activeRecordingAsset?.filePath ? (
-                <RecordingPlaybackVideo
-                  filePath={activeRecordingAsset.filePath}
-                  fps={projectFps}
-                  assetId={activeRecordingAsset.id}
-                />
-              ) : (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>No recording</span>
-                </div>
-              )}
+              <TimelinePlaybackVideo />
             </div>
           </EditPreviewStage>
         </div>

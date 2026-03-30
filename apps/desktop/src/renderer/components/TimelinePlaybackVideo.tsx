@@ -22,6 +22,7 @@ export function TimelinePlaybackVideo() {
   const tracks = useProjectStore((s) => s.project.composition.tracks);
   const assets = useProjectStore((s) => s.project.assets);
   const fps = useProjectStore((s) => s.project.settings.frameRate);
+  const activeAssetId = useProjectStore((s) => s.activeAssetId);
 
   // Build asset lookup map
   const assetMap = useMemo(() => {
@@ -30,27 +31,34 @@ export function TimelinePlaybackVideo() {
     return map;
   }, [assets]);
 
-  // Find the active clip at a given frame
+  // Find the active clip at a given frame.
+  // When multiple clips overlap, prefer the one matching activeAssetId.
   const findActiveClipAtFrame = useCallback(
     (frame: number): ActiveClipInfo | null => {
+      let fallback: ActiveClipInfo | null = null;
       for (const track of tracks) {
         if (track.type !== 'video') continue;
         for (const clip of track.clips) {
           if (frame >= clip.timelineIn && frame < clip.timelineOut) {
             const asset = assetMap.get(clip.assetId);
             if (asset?.filePath) {
-              return { clip, asset };
+              // Prefer the clip matching the active recording
+              if (activeAssetId && clip.assetId === activeAssetId) {
+                return { clip, asset };
+              }
+              if (!fallback) fallback = { clip, asset };
             }
           }
         }
       }
-      return null;
+      return fallback;
     },
-    [tracks, assetMap],
+    [tracks, assetMap, activeAssetId],
   );
 
   // Track the current video src to trigger re-renders when clip changes
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const videoSrcRef = useRef<string | null>(null);
 
   // Convert playhead frame to video-local time for the given clip
   const frameToVideoTime = useCallback(
@@ -85,7 +93,10 @@ export function TimelinePlaybackVideo() {
 
       if (!info) {
         // No active clip at this frame — blank
-        if (videoSrc !== null) setVideoSrc(null);
+        if (videoSrcRef.current !== null) {
+          videoSrcRef.current = null;
+          setVideoSrc(null);
+        }
         return;
       }
 
@@ -94,6 +105,7 @@ export function TimelinePlaybackVideo() {
       // If clip changed, update the video source
       if (info.clip.id !== prevClipId) {
         readyRef.current = false;
+        videoSrcRef.current = newSrc;
         setVideoSrc(newSrc);
       }
 
@@ -106,7 +118,7 @@ export function TimelinePlaybackVideo() {
       }
     });
     return unsub;
-  }, [findActiveClipAtFrame, frameToVideoTime, videoSrc]);
+  }, [findActiveClipAtFrame, frameToVideoTime]);
 
   // Play/pause sync — only react to isPlaying transitions
   useEffect(() => {

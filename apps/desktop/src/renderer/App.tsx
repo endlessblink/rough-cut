@@ -107,26 +107,23 @@ export function App() {
     });
     projectStore.getState().addAsset(asset);
 
-    // Also create a clip on the first video track referencing this asset
-    // Guard: skip clip creation if duration is zero (ffprobe failure)
+    // Create a clip at frame 0 for this recording (each recording is independent)
     const clipDuration = result.durationFrames > 0 ? result.durationFrames : 0;
     const store = projectStore.getState();
     const videoTrack = store.project.composition.tracks.find((t) => t.type === 'video');
     if (videoTrack && clipDuration > 0) {
-      // Place clip at the end of existing content on this track
-      const trackEnd = videoTrack.clips.reduce((max, c) => Math.max(max, c.timelineOut), 0);
       const clip = createClip(asset.id, videoTrack.id, {
-        timelineIn: trackEnd,
-        timelineOut: trackEnd + clipDuration,
+        timelineIn: 0,
+        timelineOut: clipDuration,
         sourceIn: 0,
         sourceOut: clipDuration,
       });
       store.addClip(videoTrack.id, clip);
 
-      // Update composition duration so all timelines (Record, Export) render clips
+      // Update composition duration
       const newDuration = Math.max(
         projectStore.getState().project.composition.duration,
-        trackEnd + result.durationFrames,
+        clipDuration,
       );
       projectStore.getState().updateProject((p) => ({
         ...p,

@@ -3,7 +3,7 @@ import { useProjectStore, useTransportStore, transportStore } from '../../hooks/
 import { usePlaybackLoop } from '../../hooks/use-playback-loop.js';
 import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
-import { RecordingPlaybackVideo } from '../record/RecordingPlaybackVideo.js';
+import { TimelinePlaybackVideo } from '../../components/TimelinePlaybackVideo.js';
 import { TimelineStrip } from '../edit/TimelineStrip.js';
 import type { ExportRange } from '../edit/TimelineStrip.js';
 
@@ -19,14 +19,10 @@ const READ_ONLY = {
 } as const;
 
 export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
+  const projectName = useProjectStore((s) => s.project.name);
+  const updateProject = useProjectStore((s) => s.updateProject);
   const tracks = useProjectStore((s) => s.project.composition.tracks);
   const assets = useProjectStore((s) => s.project.assets);
-  const activeRecordingAsset = useProjectStore((s) => {
-    const preferred = s.activeAssetId
-      ? s.project.assets.find((a) => a.id === s.activeAssetId)
-      : null;
-    return preferred ?? s.project.assets.find((a) => a.type === 'recording') ?? null;
-  });
   const durationFrames = useProjectStore((s) => s.project.composition.duration);
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
   const resolution = useProjectStore((s) => s.project.settings.resolution);
@@ -47,7 +43,7 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
 
   return (
     <div data-testid="export-tab-root" style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0d0d0d', color: '#e8e8e8', overflow: 'hidden' }}>
-      <AppHeader activeTab={activeTab} onTabChange={onTabChange} captureSummary={captureSummary} />
+      <AppHeader activeTab={activeTab} onTabChange={onTabChange} projectName={projectName} onProjectNameChange={(name) => updateProject((doc) => ({ ...doc, name }))} captureSummary={captureSummary} />
 
       {/* Main content */}
       <div style={{ flex: '1 1 auto', display: 'flex', flexDirection: 'row', gap: 16, padding: '12px 24px 8px', minHeight: 0, background: 'linear-gradient(to bottom, #111111, #050505)' }}>
@@ -63,17 +59,7 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
               boxShadow: '0 18px 60px rgba(0,0,0,0.80)',
               overflow: 'hidden',
             }}>
-              {activeRecordingAsset?.filePath ? (
-                <RecordingPlaybackVideo
-                  filePath={activeRecordingAsset.filePath}
-                  fps={projectFps}
-                  assetId={activeRecordingAsset.id}
-                />
-              ) : (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>No recording</span>
-                </div>
-              )}
+              <TimelinePlaybackVideo />
             </div>
           </div>
         </div>
