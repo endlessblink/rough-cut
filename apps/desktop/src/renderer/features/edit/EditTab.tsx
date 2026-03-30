@@ -7,6 +7,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { ClipId } from '@rough-cut/project-model';
 import { useProjectStore, useTransportStore, projectStore, transportStore } from '../../hooks/use-stores.js';
+import { usePlaybackLoop } from '../../hooks/use-playback-loop.js';
 import { TimelineStrip } from './TimelineStrip.js';
 import { EditScreenLayout } from './EditScreenLayout.js';
 import { EditPreviewStage } from './EditPreviewStage.js';
@@ -118,6 +119,8 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
   const resolution = useProjectStore((s) => s.project.settings.resolution);
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
+  const durationFrames = useProjectStore((s) => s.project.composition.duration);
+  usePlaybackLoop(projectFps, durationFrames);
 
   const handleUpdateClipField = useCallback(
     (clipId: ClipId, patch: { name?: string; enabled?: boolean }) => {

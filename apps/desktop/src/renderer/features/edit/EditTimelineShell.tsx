@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTransportStore, transportStore } from '../../hooks/use-stores.js';
 
 interface EditTimelineShellProps {
   // Tool actions
@@ -134,6 +135,8 @@ export function EditTimelineShell({
   fps = 30,
   children,
 }: EditTimelineShellProps) {
+  const isPlaying = useTransportStore((s) => s.isPlaying);
+
   return (
     <div
       data-testid="edit-timeline"
@@ -167,6 +170,29 @@ export function EditTimelineShell({
       >
         {/* Left: tool buttons + divider + snap */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            onClick={() => transportStore.getState().togglePlay()}
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: 4,
+              border: 'none',
+              background: isPlaying ? 'rgba(255,112,67,0.20)' : 'rgba(255,255,255,0.06)',
+              color: isPlaying ? '#ff7043' : 'rgba(255,255,255,0.70)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 10,
+              padding: 0,
+            }}
+            title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+          >
+            {isPlaying ? '\u23F8' : '\u25B6'}
+          </button>
+
+          <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
+
           <TimelineToolButton label="Undo" title="Undo (Ctrl+Z)" disabled={!canUndo} testId="btn-undo" onClick={onUndo} />
           <TimelineToolButton label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!canRedo} testId="btn-redo" onClick={onRedo} />
           <TimelineToolButton label="Split" title="Split at playhead (S)" disabled={!canSplit} testId="btn-split" onClick={onSplit} />

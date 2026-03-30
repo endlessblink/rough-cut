@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useProjectStore, useTransportStore, transportStore } from '../../hooks/use-stores.js';
+import { usePlaybackLoop } from '../../hooks/use-playback-loop.js';
 import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
 import { RecordingPlaybackVideo } from '../record/RecordingPlaybackVideo.js';
@@ -30,8 +31,10 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
   const resolution = useProjectStore((s) => s.project.settings.resolution);
   const currentFrame = useTransportStore((s) => s.playheadFrame);
+  const isPlaying = useTransportStore((s) => s.isPlaying);
 
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
+  usePlaybackLoop(projectFps, durationFrames);
 
   const [exportRange, setExportRange] = useState<ExportRange>({
     inFrame: 0,
@@ -171,9 +174,31 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
           borderBottom: '1px solid rgba(255,255,255,0.06)',
           flexShrink: 0,
         }}>
-          <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.72)', userSelect: 'none' }}>
-            Export Timeline
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              onClick={() => transportStore.getState().togglePlay()}
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: 4,
+                border: 'none',
+                background: isPlaying ? 'rgba(255,112,67,0.20)' : 'rgba(255,255,255,0.06)',
+                color: isPlaying ? '#ff7043' : 'rgba(255,255,255,0.70)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 10,
+                padding: 0,
+              }}
+              title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+            >
+              {isPlaying ? '\u23F8' : '\u25B6'}
+            </button>
+            <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.72)', userSelect: 'none' }}>
+              Export Timeline
+            </span>
+          </div>
           <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.50)' }}>
             Drag handles to set export range
           </span>
