@@ -208,11 +208,11 @@ export function MediaFrame({
   let contentStyle: React.CSSProperties = { position: 'absolute', inset: 0 };
 
   if (applyCrop && crop) {
-    const viewW = frame.width;
-    const viewH = frame.height;
-    const scale = Math.max(viewW / crop.width, viewH / crop.height);
-    const tx = -crop.x;
-    const ty = -crop.y;
+    // scale: how much to zoom (source full width / crop width)
+    const scale = sourceWidth / crop.width;
+    // translate: move crop's top-left to frame origin, in frame-pixel pre-scale space
+    const tx = -(crop.x / sourceWidth) * frame.width;
+    const ty = -(crop.y / sourceHeight) * frame.height;
     contentStyle = {
       position: 'absolute',
       inset: 0,

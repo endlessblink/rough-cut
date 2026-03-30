@@ -5,7 +5,7 @@
  * All coordinates are in source pixel space; CSS percentages map them to the viewport.
  */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import type { RegionCrop, CropAspectRatio } from '@rough-cut/project-model';
+import type { RegionCrop } from '@rough-cut/project-model';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -65,18 +65,6 @@ function CropHandleDot() {
   );
 }
 
-// ─── Aspect ratio helper ────────────────────────────────────────────────────
-
-function aspectToNumber(a: CropAspectRatio): number | null {
-  switch (a) {
-    case '16:9': return 16 / 9;
-    case '9:16': return 9 / 16;
-    case '1:1':  return 1;
-    case '4:3':  return 4 / 3;
-    default:     return null;
-  }
-}
-
 // ─── Clamping ───────────────────────────────────────────────────────────────
 
 function clampCrop(
@@ -87,60 +75,78 @@ function clampCrop(
   h = Math.max(MIN_CROP_PX, Math.min(h, srcH));
   x = Math.max(0, Math.min(x, srcW - w));
   y = Math.max(0, Math.min(y, srcH - h));
-  return { x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) };
+  return { x, y, width: w, height: h };
 }
 
-// ─── Resize logic (source-pixel space, aspect-locked) ───────────────────────
+function roundCrop(c: { x: number; y: number; width: number; height: number }) {
+  return { x: Math.round(c.x), y: Math.round(c.y), width: Math.round(c.width), height: Math.round(c.height) };
+}
+
+// ─── Resize logic ───────────────────────────────────────────────────────────
+// Always locks to the crop box's current aspect ratio during drag.
+// Uses a single diagonal metric: project the mouse delta onto the
+// corner→center diagonal. This gives a smooth, predictable 1-axis feel.
 
 function applyCropResize(
   orig: { x: number; y: number; width: number; height: number },
   edge: Edge,
   dX: number,
   dY: number,
-  ratio: number | null,
   srcW: number,
   srcH: number,
 ): { x: number; y: number; width: number; height: number } {
+  const ratio = orig.width / orig.height;
   let { x, y, width: w, height: h } = orig;
 
-  if (ratio && edge.length === 2) {
-    // Corner: aspect-locked, dominant axis drives
-    const absDx = Math.abs(dX);
-    const absDy = Math.abs(dY);
-    const useX = absDx >= absDy;
-    let dw: number, dh: number;
-    if (useX) {
-      dw = edge.includes('e') ? dX : -dX;
-      dh = dw / ratio;
-    } else {
-      dh = edge.includes('s') ? dY : -dY;
-      dw = dh * ratio;
-    }
-    w += dw;
-    h += dh;
+  // For corners: use the diagonal projection (smooth single-axis feel)
+  if (edge.length === 2) {
+    // Determine the sign of growth for each axis based on which corner
+    const sx = edge.includes('e') ? 1 : -1;
+    const sy = edge.includes('s') ? 1 : -1;
+
+    // Project mouse delta onto the diagonal direction
+    const diag = (sx * dX + sy * dY) / 2;
+    const dw = diag;
+    const dh = diag / ratio;
+
+    w = orig.width + dw;
+    h = orig.height + dh;
+
+    // Anchor opposite corner
     if (edge.includes('w')) x = orig.x + orig.width - w;
     if (edge.includes('n')) y = orig.y + orig.height - h;
-    if (w < MIN_CROP_PX) { w = MIN_CROP_PX; h = w / ratio; if (edge.includes('w')) x = orig.x + orig.width - w; if (edge.includes('n')) y = orig.y + orig.height - h; }
-    if (h < MIN_CROP_PX) { h = MIN_CROP_PX; w = h * ratio; if (edge.includes('w')) x = orig.x + orig.width - w; if (edge.includes('n')) y = orig.y + orig.height - h; }
-    return clampCrop(x, y, w, h, srcW, srcH);
-  }
 
-  if (ratio) {
-    // Edge: single axis, derive other
-    if (edge === 'e') { w += dX; h = w / ratio; }
-    else if (edge === 'w') { w -= dX; h = w / ratio; x = orig.x + orig.width - w; y = orig.y + (orig.height - h) / 2; }
-    else if (edge === 's') { h += dY; w = h * ratio; x = orig.x + (orig.width - w) / 2; }
-    else if (edge === 'n') { h -= dY; w = h * ratio; y = orig.y + orig.height - h; x = orig.x + (orig.width - w) / 2; }
+    // Minimum size
     if (w < MIN_CROP_PX) { w = MIN_CROP_PX; h = w / ratio; }
     if (h < MIN_CROP_PX) { h = MIN_CROP_PX; w = h * ratio; }
+    if (edge.includes('w')) x = orig.x + orig.width - w;
+    if (edge.includes('n')) y = orig.y + orig.height - h;
+
     return clampCrop(x, y, w, h, srcW, srcH);
   }
 
-  // Free aspect: simple edge resize
-  if (edge.includes('e')) w += dX;
-  if (edge.includes('w')) { x += dX; w -= dX; }
-  if (edge.includes('s')) h += dY;
-  if (edge.includes('n')) { y += dY; h -= dY; }
+  // For edges: single axis drives, other follows to maintain ratio
+  if (edge === 'e') {
+    w = orig.width + dX;
+    h = w / ratio;
+  } else if (edge === 'w') {
+    w = orig.width - dX;
+    h = w / ratio;
+    x = orig.x + orig.width - w;
+  } else if (edge === 's') {
+    h = orig.height + dY;
+    w = h * ratio;
+    x = orig.x + (orig.width - w) / 2;
+  } else if (edge === 'n') {
+    h = orig.height - dY;
+    w = h * ratio;
+    y = orig.y + orig.height - h;
+    x = orig.x + (orig.width - w) / 2;
+  }
+
+  if (w < MIN_CROP_PX) { w = MIN_CROP_PX; h = w / ratio; }
+  if (h < MIN_CROP_PX) { h = MIN_CROP_PX; w = h * ratio; }
+
   return clampCrop(x, y, w, h, srcW, srcH);
 }
 
@@ -230,17 +236,15 @@ export function CropOverlay({
           sourceWidth,
           sourceHeight,
         );
-        cb(result);
+        cb(roundCrop(result));
       } else if (drag.mode === 'resize' && drag.edge) {
-        const ratio = aspectToNumber(currentCrop.aspectRatio);
         const result = applyCropResize(
           drag.originalCrop,
           drag.edge,
           dSrcX, dSrcY,
-          ratio,
           sourceWidth, sourceHeight,
         );
-        cb(result);
+        cb(roundCrop(result));
       }
     };
 
