@@ -115,13 +115,15 @@ export class PreviewCompositor {
     // Only touch the renderer if init() has completed
     if (this.initialized && this.app?.renderer) {
       const { width, height } = project.settings.resolution;
-      // Only resize when resolution actually changes — renderer.resize()
-      // overwrites canvas CSS dimensions (autoDensity), breaking our
-      // manual object-fit:contain sizing in use-compositor.ts
       if (width !== this.config.width || height !== this.config.height) {
         this.config.width = width;
         this.config.height = height;
         this.app.renderer.resize(width, height);
+        // Re-apply fill CSS — renderer.resize() with autoDensity overwrites inline styles
+        const canvas = this.app.canvas as HTMLCanvasElement;
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.objectFit = 'fill';
       }
       this.renderCurrentFrame();
     }

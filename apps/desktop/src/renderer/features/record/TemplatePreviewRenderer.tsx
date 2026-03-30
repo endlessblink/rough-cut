@@ -22,13 +22,7 @@ import { getLayoutRects } from './template-layout/index.js';
 import { DebugOverlay, DEBUG_COLORS } from './template-layout/DebugOverlay.js';
 import { useDebugToggle } from './template-layout/useDebugToggle.js';
 import { MediaFrame } from './MediaFrame.js';
-import {
-  useRegionDragResize,
-  ALL_EDGES,
-  CORNER_EDGES,
-  getHandleStyle,
-  HandleDot,
-} from './useRegionDragResize.js';
+import { useRegionDragResize } from './useRegionDragResize.js';
 import type { Edge } from './useRegionDragResize.js';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -68,72 +62,6 @@ function resolveZIndices(zOrder: LayoutTemplate['zOrder']): {
   return zOrder === 'screen-above'
     ? { screenZ: 2, cameraZ: 1 }
     : { screenZ: 1, cameraZ: 2 };
-}
-
-// ─── SelectionOverlay ─────────────────────────────────────────────────────────
-//
-// Renders the hover-selection border + resize handle dots for one region.
-
-interface SelectionOverlayProps {
-  region: 'screen' | 'camera';
-  rect: Rect;
-  circular: boolean;
-  isHovered: boolean;
-  isDragging: boolean;
-  onPointerEnter: () => void;
-  onPointerLeave: () => void;
-  onPointerDown: (e: React.PointerEvent) => void;
-  onResizeStart: (edge: Edge, e: React.PointerEvent) => void;
-}
-
-function SelectionOverlay({
-  region,
-  rect,
-  circular,
-  isHovered,
-  isDragging,
-  onPointerEnter,
-  onPointerLeave,
-  onPointerDown,
-  onResizeStart,
-}: SelectionOverlayProps) {
-  const edges = circular ? CORNER_EDGES : ALL_EDGES;
-  const showHandles = isHovered && !isDragging;
-
-  return (
-    <div
-      onPointerEnter={onPointerEnter}
-      onPointerLeave={onPointerLeave}
-      onPointerDown={onPointerDown}
-      style={{
-        position: 'absolute',
-        left: rect.x,
-        top: rect.y,
-        width: rect.width,
-        height: rect.height,
-        borderRadius: circular ? '50%' : undefined,
-        border: isHovered ? '2px solid rgba(90,160,250,0.6)' : '2px solid transparent',
-        boxSizing: 'border-box',
-        cursor: isDragging ? 'grabbing' : 'grab',
-        zIndex: 20,
-        pointerEvents: 'auto',
-      }}
-      aria-label={`${region} region`}
-    >
-      {showHandles &&
-        edges.map((edge) => (
-          <div
-            key={edge}
-            style={getHandleStyle(edge)}
-            onPointerDown={(e) => {
-              onResizeStart(edge, e);
-            }}
-          >
-            <HandleDot />
-          </div>
-        ))}
-    </div>
-  );
 }
 
 // ─── TemplatePreviewRenderer ──────────────────────────────────────────────────
@@ -280,6 +208,13 @@ export function TemplatePreviewRenderer({
           zIndex={screenZ}
           label="Screen"
           transition={frameTransition}
+          interactive={interactionEnabled}
+          isHovered={hoveredRegion === 'screen'}
+          isDragging={isDragging && hoveredRegion === 'screen'}
+          onPointerEnter={() => setHoveredRegion('screen')}
+          onPointerLeave={() => { if (!isDragging) setHoveredRegion(null); }}
+          onPointerDown={handleScreenPointerDown}
+          onResizeStart={handleScreenResizeStart}
         >
           {screenContent}
         </MediaFrame>
@@ -295,42 +230,16 @@ export function TemplatePreviewRenderer({
           circular={isCircularCamera}
           label="Camera"
           transition={frameTransition}
+          interactive={interactionEnabled}
+          isHovered={hoveredRegion === 'camera'}
+          isDragging={isDragging && hoveredRegion === 'camera'}
+          onPointerEnter={() => setHoveredRegion('camera')}
+          onPointerLeave={() => { if (!isDragging) setHoveredRegion(null); }}
+          onPointerDown={handleCameraPointerDown}
+          onResizeStart={handleCameraResizeStart}
         >
           {cameraContent}
         </MediaFrame>
-      )}
-
-      {/* Interaction overlays — frame rects already match source aspect ratio */}
-      {interactionEnabled && (
-        <>
-          {screenRect && (
-            <SelectionOverlay
-              region="screen"
-              rect={screenRect}
-              circular={false}
-              isHovered={hoveredRegion === 'screen'}
-              isDragging={isDragging && hoveredRegion === 'screen'}
-              onPointerEnter={() => setHoveredRegion('screen')}
-              onPointerLeave={() => { if (!isDragging) setHoveredRegion(null); }}
-              onPointerDown={handleScreenPointerDown}
-              onResizeStart={handleScreenResizeStart}
-            />
-          )}
-
-          {cameraRect && (
-            <SelectionOverlay
-              region="camera"
-              rect={cameraRect}
-              circular={isCircularCamera}
-              isHovered={hoveredRegion === 'camera'}
-              isDragging={isDragging && hoveredRegion === 'camera'}
-              onPointerEnter={() => setHoveredRegion('camera')}
-              onPointerLeave={() => { if (!isDragging) setHoveredRegion(null); }}
-              onPointerDown={handleCameraPointerDown}
-              onResizeStart={handleCameraResizeStart}
-            />
-          )}
-        </>
       )}
 
       {/* Debug overlay — always last child so it renders on top */}

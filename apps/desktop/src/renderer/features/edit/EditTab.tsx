@@ -24,6 +24,7 @@ interface EditTabProps {
 }
 
 export function EditTab({ activeTab, onTabChange }: EditTabProps) {
+  const projectName = useProjectStore((s) => s.project.name);
   const tracks = useProjectStore((s) => s.project.composition.tracks);
   const assets = useProjectStore((s) => s.project.assets);
   const playheadFrame = useTransportStore((s) => s.playheadFrame);
@@ -182,7 +183,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
 
   return (
     <EditScreenLayout>
-      <AppHeader activeTab={activeTab} onTabChange={onTabChange} captureSummary={captureSummary} />
+      <AppHeader activeTab={activeTab} onTabChange={onTabChange} projectName={projectName} captureSummary={captureSummary} />
 
       {/* Preview + Sidebar row */}
       <div

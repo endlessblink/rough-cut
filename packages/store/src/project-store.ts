@@ -112,7 +112,7 @@ export function createProjectStore() {
         projectFilePath: null,
 
         setProject: (project: ProjectDocument) => {
-          set({ project, isDirty: true, projectFilePath: null });
+          set({ project, isDirty: true });
         },
 
         updateProject: (fn: (draft: ProjectDocument) => ProjectDocument) => {

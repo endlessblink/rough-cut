@@ -20,9 +20,10 @@ function ensureCompositor(): void {
   ensurePlayback();
 
   if (!sharedCompositor) {
-    const { width, height } = projectStore.getState().project.settings.resolution;
+    // Always create at 16:9 (1920x1080) — the source recording resolution.
+    // Project resolution changes with templates but the compositor must stay at source aspect.
     sharedCompositor = new PreviewCompositor(
-      { width: width || 1920, height: height || 1080 },
+      { width: 1920, height: 1080 },
       {},
     );
 

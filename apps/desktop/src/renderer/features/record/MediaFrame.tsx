@@ -1,5 +1,12 @@
 import React from 'react';
 import type { Rect, FitMode } from './template-layout/types.js';
+import {
+  ALL_EDGES,
+  CORNER_EDGES,
+  getHandleStyle,
+  HandleDot,
+} from './useRegionDragResize.js';
+import type { Edge } from './useRegionDragResize.js';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +31,18 @@ export interface MediaFrameProps {
   label?: string;
   /** CSS transition (set to 'none' during drag) */
   transition?: string;
+  /** Whether this frame is interactive (shows selection on hover) */
+  interactive?: boolean;
+  /** Whether currently hovered */
+  isHovered?: boolean;
+  /** Whether currently being dragged */
+  isDragging?: boolean;
+  /** Pointer event handlers */
+  onPointerEnter?: () => void;
+  onPointerLeave?: () => void;
+  onPointerDown?: (e: React.PointerEvent) => void;
+  /** Resize handle handler */
+  onResizeStart?: (edge: Edge, e: React.PointerEvent) => void;
 }
 
 // ─── Placeholder icons ────────────────────────────────────────────────────────
@@ -63,9 +82,23 @@ export function MediaFrame({
   circular = false,
   label,
   transition = 'all 300ms ease',
+  interactive = false,
+  isHovered = false,
+  isDragging = false,
+  onPointerEnter,
+  onPointerLeave,
+  onPointerDown,
+  onResizeStart,
 }: MediaFrameProps) {
   // Circular frames override borderRadius to '50%'
   const resolvedRadius = circular ? '50%' : borderRadius;
+
+  const edges = circular ? CORNER_EDGES : ALL_EDGES;
+  const showHandles = interactive && isHovered && !isDragging;
+  const showBorder = interactive && (isHovered || isDragging);
+
+  // Cursor reflects drag state
+  const cursor = interactive ? (isDragging ? 'grabbing' : 'grab') : undefined;
 
   // ─── Outer frame div ──────────────────────────────────────────────────────
 
@@ -80,6 +113,7 @@ export function MediaFrame({
     boxShadow: shadow,
     zIndex,
     transition,
+    cursor,
   };
 
   // ─── Placeholder ──────────────────────────────────────────────────────────
@@ -91,7 +125,12 @@ export function MediaFrame({
     const accentBorder = isCamera ? 'rgba(255,107,90,0.15)' : 'rgba(90,160,250,0.15)';
 
     return (
-      <div style={frameStyle}>
+      <div
+        style={frameStyle}
+        onPointerEnter={onPointerEnter}
+        onPointerLeave={onPointerLeave}
+        onPointerDown={onPointerDown}
+      >
         <div
           style={{
             position: 'absolute',
@@ -115,6 +154,33 @@ export function MediaFrame({
             </span>
           )}
         </div>
+
+        {/* Selection border */}
+        {showBorder && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              border: '2px solid rgba(90,160,250,0.6)',
+              boxSizing: 'border-box',
+              borderRadius: resolvedRadius,
+              pointerEvents: 'none',
+              zIndex: 9,
+            }}
+          />
+        )}
+
+        {/* Resize handles */}
+        {showHandles && onResizeStart &&
+          edges.map((edge) => (
+            <div
+              key={edge}
+              style={getHandleStyle(edge)}
+              onPointerDown={(e) => onResizeStart(edge, e)}
+            >
+              <HandleDot />
+            </div>
+          ))}
       </div>
     );
   }
@@ -122,10 +188,42 @@ export function MediaFrame({
   // ─── Fill mode (only mode) ────────────────────────────────────────────────
 
   return (
-    <div style={frameStyle}>
+    <div
+      style={frameStyle}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+      onPointerDown={onPointerDown}
+    >
       <div style={{ position: 'absolute', inset: 0 }}>
         {children}
       </div>
+
+      {/* Selection border — inside the frame, on top of content */}
+      {showBorder && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            border: '2px solid rgba(90,160,250,0.6)',
+            boxSizing: 'border-box',
+            borderRadius: resolvedRadius,
+            pointerEvents: 'none',
+            zIndex: 9,
+          }}
+        />
+      )}
+
+      {/* Resize handles */}
+      {showHandles && onResizeStart &&
+        edges.map((edge) => (
+          <div
+            key={edge}
+            style={getHandleStyle(edge)}
+            onPointerDown={(e) => onResizeStart(edge, e)}
+          >
+            <HandleDot />
+          </div>
+        ))}
     </div>
   );
 }

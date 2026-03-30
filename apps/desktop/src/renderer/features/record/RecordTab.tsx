@@ -78,6 +78,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const { sources, selectedSourceId, status, error, elapsedMs } = state;
 
   // Project + transport state for timeline
+  const projectName = useProjectStore((s) => s.project.name);
   const durationFrames = useProjectStore((s) => s.project.composition.duration);
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
   const resolution = useProjectStore((s) => s.project.settings.resolution);
@@ -258,6 +259,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
       <AppHeader
         activeTab={activeTab}
         onTabChange={onTabChange}
+        projectName={projectName}
         captureSummary={captureSummary}
         deviceStatus="Mic: Default"
       />
@@ -324,7 +326,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
                       : undefined
                 }
                 cameraContent={undefined}
-                screenAspect={resolution.width / resolution.height}
+                screenAspect={16 / 9}
                 screenCornerRadius={background.bgCornerRadius}
                 screenShadow={background.bgShadowEnabled
                   ? `0 ${Math.round(background.bgShadowBlur * 0.3)}px ${background.bgShadowBlur}px rgba(0,0,0,0.6)`
