@@ -1,5 +1,5 @@
 import { Application, Graphics, Text, Container, TextStyle, Sprite, Texture, VideoSource } from 'pixi.js';
-import type { ProjectDocument, Asset } from '@rough-cut/project-model';
+import type { ProjectDocument, Asset, RegionCrop } from '@rough-cut/project-model';
 import { resolveFrame } from '@rough-cut/frame-resolver';
 import { registerBuiltinEffects } from '@rough-cut/effect-registry';
 import type { RenderFrame, RenderLayer } from '@rough-cut/frame-resolver';
@@ -210,7 +210,7 @@ export class PreviewCompositor {
     // compositor always renders at source recording resolution (1920×1080).
     for (const layer of frame.layers) {
       activeClipIds.add(layer.clipId);
-      this.renderLayer(layer, this.config.width, this.config.height);
+      this.renderLayer(layer, this.config.width, this.config.height, frame.screenCrop);
     }
 
     // Remove cached objects for layers no longer active
@@ -279,7 +279,7 @@ export class PreviewCompositor {
     return vc;
   }
 
-  private renderLayer(layer: RenderLayer, frameWidth: number, frameHeight: number): void {
+  private renderLayer(layer: RenderLayer, frameWidth: number, frameHeight: number, screenCrop?: RegionCrop): void {
     if (!this.layerContainer) return;
 
     const { clipId, assetId, sourceFrame, transform, effects } = layer;
@@ -356,9 +356,23 @@ export class PreviewCompositor {
       const sprite = cached.videoSprite;
       sprite.visible = true;
 
-      // Scale sprite to fill the frame
-      sprite.width = frameWidth;
-      sprite.height = frameHeight;
+      if (screenCrop) {
+        // Crop: scale sprite up so the crop region fills the frame,
+        // then offset so the crop top-left aligns with the frame origin.
+        const sourceW = videoCache.video.videoWidth || frameWidth;
+        const sourceH = videoCache.video.videoHeight || frameHeight;
+        const cropScale = sourceW / screenCrop.width;
+        sprite.width = frameWidth * cropScale;
+        sprite.height = frameHeight * cropScale;
+        sprite.x = -(screenCrop.x / sourceW) * sprite.width;
+        sprite.y = -(screenCrop.y / sourceH) * sprite.height;
+      } else {
+        // No crop: fill the frame
+        sprite.width = frameWidth;
+        sprite.height = frameHeight;
+        sprite.x = 0;
+        sprite.y = 0;
+      }
 
       // Position: anchor point in the frame + user offset.
       // pivot places the anchor point of the sprite at the container's position.

@@ -240,12 +240,23 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   }, [activeRecordingId]);
 
   const handleScreenCropChange = useCallback((patch: Partial<RegionCrop>) => {
-    setScreenCrop((prev) => ({ ...prev, ...patch }));
-  }, []);
+    setScreenCrop((prev) => {
+      const next = { ...prev, ...patch };
+      // Sync to store so Edit/Export can read it
+      if (activeRecordingId) {
+        projectStore.getState().updateScreenCrop(activeRecordingId, next);
+      }
+      return next;
+    });
+  }, [activeRecordingId]);
 
   const handleScreenCropReset = useCallback(() => {
-    setScreenCrop(createDefaultRegionCrop(resolution.width, resolution.height));
-  }, [resolution.width, resolution.height]);
+    const def = createDefaultRegionCrop(resolution.width, resolution.height);
+    setScreenCrop(def);
+    if (activeRecordingId) {
+      projectStore.getState().resetScreenCrop(activeRecordingId);
+    }
+  }, [resolution.width, resolution.height, activeRecordingId]);
 
   // Auto-disable crop mode when crop is turned off
   useEffect(() => {

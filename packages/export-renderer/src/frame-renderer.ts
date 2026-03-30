@@ -1,4 +1,5 @@
 import { createCanvas, type Canvas, type CanvasRenderingContext2D } from 'canvas';
+import type { RegionCrop } from '@rough-cut/project-model';
 import type { RenderFrame, RenderLayer, ResolvedEffect } from '@rough-cut/frame-resolver';
 
 // Palette of colors for clip visualisation — cycles by trackIndex
@@ -51,7 +52,7 @@ export function renderFrameToBuffer(
 
   // Render each layer (z-ordered: index 0 = bottom)
   for (const layer of layers) {
-    renderLayer(ctx, layer, width, height);
+    renderLayer(ctx, layer, width, height, renderFrame.screenCrop);
   }
 
   // Extract raw RGBA buffer — exactly width*height*4 bytes
@@ -68,6 +69,7 @@ function renderLayer(
   layer: RenderLayer,
   canvasWidth: number,
   canvasHeight: number,
+  _screenCrop?: RegionCrop,
 ): void {
   const { transform, effects, clipId, trackIndex } = layer;
 

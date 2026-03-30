@@ -105,6 +105,7 @@ export function resolveFrame(project: ProjectDocument, frame: number): RenderFra
   const presentation = activeRecording?.presentation;
   const cameraTransform = resolveCameraTransformForFrame(presentation?.zoom, frame);
   const cursor = resolveCursorPresentation(presentation?.cursor);
+  const screenCrop = presentation?.screenCrop?.enabled ? presentation.screenCrop : undefined;
 
   return {
     frame,
@@ -115,6 +116,7 @@ export function resolveFrame(project: ProjectDocument, frame: number): RenderFra
     transitions,
     cameraTransform,
     cursor,
+    screenCrop,
   };
 }
 
