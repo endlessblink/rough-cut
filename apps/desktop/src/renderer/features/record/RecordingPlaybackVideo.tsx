@@ -16,16 +16,17 @@ export function RecordingPlaybackVideo({ filePath, fps, assetId }: RecordingPlay
   const videoRef = useRef<HTMLVideoElement>(null);
   const readyRef = useRef(false);
 
-  // Find the clip range so we can map project frames → video time and hide outside
-  const clipRange = useProjectStore((s) => {
+  // Find the clip range so we can map project frames → video time and hide outside.
+  // Return a stable string to avoid infinite re-render (Zustand uses Object.is).
+  const clipRangeKey = useProjectStore((s) => {
     for (const track of s.project.composition.tracks) {
       for (const clip of track.clips) {
-        if (clip.assetId === assetId) return { timelineIn: clip.timelineIn, timelineOut: clip.timelineOut };
+        if (clip.assetId === assetId) return `${clip.timelineIn}:${clip.timelineOut}`;
       }
     }
-    return { timelineIn: 0, timelineOut: 0 };
+    return '0:0';
   });
-  const clipTimelineIn = clipRange.timelineIn;
+  const [clipTimelineIn, clipTimelineOut] = clipRangeKey.split(':').map(Number) as [number, number];
 
   // Convert project-level frame to video-local time
   const frameToVideoTime = useCallback(
@@ -62,9 +63,9 @@ export function RecordingPlaybackVideo({ filePath, fps, assetId }: RecordingPlay
       const video = videoRef.current;
       if (!video || !readyRef.current || state.isPlaying) return;
       // Hide when playhead is outside the clip's range
-      const inRange = clipRange.timelineOut > 0
-        && state.playheadFrame >= clipRange.timelineIn
-        && state.playheadFrame < clipRange.timelineOut;
+      const inRange = clipTimelineOut > 0
+        && state.playheadFrame >= clipTimelineIn
+        && state.playheadFrame < clipTimelineOut;
       video.style.visibility = inRange ? 'visible' : 'hidden';
       if (!inRange) return;
       const targetTime = frameToVideoTime(state.playheadFrame);
@@ -73,7 +74,7 @@ export function RecordingPlaybackVideo({ filePath, fps, assetId }: RecordingPlay
       }
     });
     return unsub;
-  }, [frameToVideoTime, clipRange.timelineIn, clipRange.timelineOut]);
+  }, [frameToVideoTime, clipTimelineIn, clipTimelineOut]);
 
   // Play/pause sync
   useEffect(() => {
