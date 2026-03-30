@@ -59,6 +59,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const defaultTemplate = LAYOUT_TEMPLATES[0]!;
   const [activeTemplate, setActiveTemplate] = useState<LayoutTemplate>(defaultTemplate);
   const [instanceLayout, setInstanceLayout] = useState<InstanceLayout>({ templateId: defaultTemplate.id });
+  const [cropModeActive, setCropModeActive] = useState(false);
 
   const {
     state,
@@ -89,7 +90,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const zoomPresentation = activeRecordingAsset?.presentation?.zoom ?? createDefaultZoomPresentation();
   const cursorPresentation = activeRecordingAsset?.presentation?.cursor ?? createDefaultCursorPresentation();
   const cameraPresentation = activeRecordingAsset?.presentation?.camera ?? createDefaultCameraPresentation();
-  const screenCrop = activeRecordingAsset?.presentation?.screenCrop ?? createDefaultRegionCrop(resolution.width, resolution.height);
+  // screenCrop from store is read but we use local state for immediate responsiveness
+  // (store crop requires an active recording asset which may not exist yet)
 
   // Recording asset detection + compositor
   const hasRecordingAsset = useProjectStore((s) => s.project.assets.some((a) => a.type === 'recording'));
@@ -97,6 +99,11 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
 
   // Background/canvas config (lifted from RecordRightPanel so LivePreviewVideo can consume it)
   const [background, setBackground] = useState<BackgroundConfig>(DEFAULT_BACKGROUND);
+
+  // Crop state — local like background, works without a recording asset
+  const [screenCrop, setScreenCrop] = useState<RegionCrop>(
+    () => createDefaultRegionCrop(resolution.width, resolution.height),
+  );
 
   const handleBackgroundChange = useCallback((patch: Partial<BackgroundConfig>) => {
     setBackground((prev) => ({ ...prev, ...patch }));
@@ -172,14 +179,17 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   }, [activeRecordingId]);
 
   const handleScreenCropChange = useCallback((patch: Partial<RegionCrop>) => {
-    if (!activeRecordingId) return;
-    projectStore.getState().updateScreenCrop(activeRecordingId, patch);
-  }, [activeRecordingId]);
+    setScreenCrop((prev) => ({ ...prev, ...patch }));
+  }, []);
 
   const handleScreenCropReset = useCallback(() => {
-    if (!activeRecordingId) return;
-    projectStore.getState().resetScreenCrop(activeRecordingId);
-  }, [activeRecordingId]);
+    setScreenCrop(createDefaultRegionCrop(resolution.width, resolution.height));
+  }, [resolution.width, resolution.height]);
+
+  // Auto-disable crop mode when crop is turned off
+  useEffect(() => {
+    if (!screenCrop.enabled) setCropModeActive(false);
+  }, [screenCrop.enabled]);
 
   const recording = useRecording({
     selectedSourceId,
@@ -315,6 +325,9 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
               screenCrop={screenCrop}
               sourceWidth={resolution.width}
               sourceHeight={resolution.height}
+              cropModeActive={cropModeActive}
+              onCropModeChange={setCropModeActive}
+              onScreenCropChange={handleScreenCropChange}
             />
           </PreviewStage>
         }
@@ -343,6 +356,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
             onScreenCropReset={handleScreenCropReset}
             sourceWidth={resolution.width}
             sourceHeight={resolution.height}
+            cropModeActive={cropModeActive}
+            onCropModeChange={setCropModeActive}
             selectedTemplateId={activeTemplate.id}
             onTemplateChange={handleTemplateChange}
           />

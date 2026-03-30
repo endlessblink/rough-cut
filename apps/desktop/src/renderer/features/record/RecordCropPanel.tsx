@@ -14,6 +14,8 @@ export interface RecordCropPanelProps {
   onScreenCropReset: () => void;
   sourceWidth: number;
   sourceHeight: number;
+  cropModeActive: boolean;
+  onCropModeChange: (active: boolean) => void;
 }
 
 // ─── Options ──────────────────────────────────────────────────────────────────
@@ -89,11 +91,21 @@ export function RecordCropPanel({
   onScreenCropReset,
   sourceWidth,
   sourceHeight,
+  cropModeActive,
+  onCropModeChange,
 }: RecordCropPanelProps) {
   const handleToggle = (enabled: boolean) => {
     if (enabled) {
-      // Enable with full-source crop
-      onScreenCropChange({ enabled: true, x: 0, y: 0, width: sourceWidth, height: sourceHeight });
+      // Enable with 10% inset so the crop edges are visible and handles reachable
+      const insetX = Math.round(sourceWidth * 0.1);
+      const insetY = Math.round(sourceHeight * 0.1);
+      onScreenCropChange({
+        enabled: true,
+        x: insetX,
+        y: insetY,
+        width: sourceWidth - insetX * 2,
+        height: sourceHeight - insetY * 2,
+      });
     } else {
       onScreenCropChange({ enabled: false });
     }
@@ -153,6 +165,23 @@ export function RecordCropPanel({
 
       {screenCrop.enabled && (
         <>
+          <button
+            onClick={() => onCropModeChange(!cropModeActive)}
+            style={{
+              padding: '6px 12px',
+              background: cropModeActive ? 'rgba(90,160,250,0.2)' : 'rgba(255,255,255,0.06)',
+              border: `1px solid ${cropModeActive ? 'rgba(90,160,250,0.5)' : 'rgba(255,255,255,0.1)'}`,
+              borderRadius: 6,
+              color: cropModeActive ? 'rgba(90,160,250,1)' : 'rgba(255,255,255,0.7)',
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: 'pointer',
+              width: '100%',
+            }}
+          >
+            {cropModeActive ? 'Done editing' : 'Edit crop visually'}
+          </button>
+
           <div>
             <ControlLabel label="Aspect ratio" />
             <PillRadioRow

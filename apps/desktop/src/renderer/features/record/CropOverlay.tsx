@@ -163,6 +163,8 @@ export interface CropOverlayProps {
   sourceHeight: number;
   onCropChange: (patch: Partial<RegionCrop>) => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
+  /** Called when user clicks outside the crop box (dark mask area) */
+  onExit?: () => void;
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -173,6 +175,7 @@ export function CropOverlay({
   sourceHeight,
   onCropChange,
   containerRef,
+  onExit,
 }: CropOverlayProps) {
   const dragRef = useRef<CropDragState | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -287,29 +290,29 @@ export function CropOverlay({
 
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none' }}>
-      {/* 4-strip dark mask */}
+      {/* 4-strip dark mask — clicking any strip exits crop mode */}
       {/* Top */}
-      <div style={{
+      <div onClick={onExit} style={{
         position: 'absolute', top: 0, left: 0, right: 0,
         height: `${pctTop}%`,
-        background: maskColor, pointerEvents: 'auto',
+        background: maskColor, pointerEvents: 'auto', cursor: 'pointer',
       }} />
       {/* Bottom */}
-      <div style={{
+      <div onClick={onExit} style={{
         position: 'absolute', left: 0, right: 0, bottom: 0,
         top: `${pctTop + pctHeight}%`,
-        background: maskColor, pointerEvents: 'auto',
+        background: maskColor, pointerEvents: 'auto', cursor: 'pointer',
       }} />
       {/* Left */}
-      <div style={{
+      <div onClick={onExit} style={{
         position: 'absolute', left: 0,
         top: `${pctTop}%`,
         width: `${pctLeft}%`,
         height: `${pctHeight}%`,
-        background: maskColor, pointerEvents: 'auto',
+        background: maskColor, pointerEvents: 'auto', cursor: 'pointer',
       }} />
       {/* Right */}
-      <div style={{
+      <div onClick={onExit} style={{
         position: 'absolute', right: 0,
         top: `${pctTop}%`,
         left: `${pctLeft + pctWidth}%`,

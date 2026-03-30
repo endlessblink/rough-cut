@@ -59,6 +59,9 @@ export interface RecordRightPanelProps {
   onScreenCropReset: () => void;
   sourceWidth: number;
   sourceHeight: number;
+  /** Crop mode */
+  cropModeActive: boolean;
+  onCropModeChange: (active: boolean) => void;
   /** Active template + callback for template changes */
   selectedTemplateId: string;
   onTemplateChange: (template: LayoutTemplate) => void;
@@ -193,6 +196,8 @@ export function RecordRightPanel({
   onScreenCropReset,
   sourceWidth,
   sourceHeight,
+  cropModeActive,
+  onCropModeChange,
   selectedTemplateId,
   onTemplateChange,
 }: RecordRightPanelProps) {
@@ -259,6 +264,8 @@ export function RecordRightPanel({
           onScreenCropReset={onScreenCropReset}
           sourceWidth={sourceWidth}
           sourceHeight={sourceHeight}
+          cropModeActive={cropModeActive}
+          onCropModeChange={onCropModeChange}
         />
       ),
     },

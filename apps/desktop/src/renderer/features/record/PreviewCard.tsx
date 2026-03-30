@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import type { RegionCrop } from '@rough-cut/project-model';
 import type { LayoutTemplate, NormalizedRect, InstanceLayout } from './templates.js';
-import { toCssRect, resolveRect } from './templates.js';
+import { toCssRect, resolveRect, computeLayoutRects } from './templates.js';
 import { CropOverlay } from './CropOverlay.js';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -50,6 +50,8 @@ interface PreviewCardProps {
   cropModeActive?: boolean;
   /** Called when crop overlay changes the crop rect */
   onScreenCropChange?: (patch: Partial<RegionCrop>) => void;
+  /** Toggle crop mode on/off */
+  onCropModeChange?: (active: boolean) => void;
 }
 
 // ─── Drag/resize state types ─────────────────────────────────────────────────
@@ -349,13 +351,20 @@ export function PreviewCard({
   sourceHeight = 1080,
   cropModeActive = false,
   onScreenCropChange,
+  onCropModeChange,
 }: PreviewCardProps) {
   const { zOrder, aspectRatio } = layout;
   const hasAnyContent = Boolean(screenNode) || Boolean(cameraNode);
 
-  // Resolve rects: user override wins over template base
-  const screenRect = resolveRect(layout.screenRect, instanceLayout?.screenRect);
-  const cameraRect = resolveRect(layout.cameraRect, instanceLayout?.cameraRect);
+  // Compute rects dynamically from recording aspect + card aspect
+  const [rW, rH] = layout.aspectRatio.split(':').map(Number);
+  const cardAspect = rW / rH;
+  const screenAspect = sourceWidth / sourceHeight;
+  const computed = computeLayoutRects(layout.kind, cardAspect, screenAspect, layout);
+
+  // User override wins over computed rects
+  const screenRect = instanceLayout?.screenRect ?? computed.screenRect;
+  const cameraRect = instanceLayout?.cameraRect ?? computed.cameraRect;
 
   // Ref to the content frame div (Layer 2) for pixel-to-normalized conversion
   const contentFrameRef = useRef<HTMLDivElement>(null);
@@ -375,10 +384,8 @@ export function PreviewCard({
 
   // Aspect-ratio-preserving padding: different px for horizontal vs vertical
   // so the padded area keeps the same ratio as the card. Prevents sub-pixel gaps.
-  const [ratioW, ratioH] = aspectRatio.split(':').map(Number);
-  const cardAspect = ratioW / ratioH;
-  const padH = bgPadding; // horizontal padding (left/right)
-  const padV = Math.round(bgPadding / cardAspect); // vertical padding (top/bottom) — preserves ratio
+  const padH = bgPadding;
+  const padV = Math.round(bgPadding / cardAspect);
 
   // Background: gradient takes priority over solid color
   const background = bgGradient ?? bgColor;
@@ -396,6 +403,16 @@ export function PreviewCard({
   // Z-index for layering
   const screenZ = zOrder === 'screen-above' ? 2 : 1;
   const cameraZ = zOrder === 'camera-above' ? 2 : 1;
+
+  // ─── Escape key exits crop mode ──────────────────────────────────────────
+  useEffect(() => {
+    if (!cropModeActive || !onCropModeChange) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onCropModeChange(false); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [cropModeActive, onCropModeChange]);
 
   // ─── Drag/resize handlers ────────────────────────────────────────────────
   // Uses document-level listeners so pointer tracking works even when the
@@ -499,43 +516,50 @@ export function PreviewCard({
     content: React.ReactNode | undefined,
   ) => {
     const isCircle = kind === 'camera' && layout.kind === 'PIP';
+    const isSocialVertScreen = layout.kind === 'SOCIAL_VERTICAL' && kind === 'screen';
     const isCropActive = cropModeActive && kind === 'screen';
     const isHovered = hoveredRegion === kind;
     const canInteract = !!onRegionChange && !isCropActive;
     const activeDrag = dragRef.current;
     const isBeingDragged = isDragging && activeDrag?.region === kind;
 
-    // Each region's content maintains its own native aspect ratio
-    const contentAspect = kind === 'screen' ? screenAspectRatio : (isCircle ? '1' : cameraAspectRatio);
+    // Social Vertical screen: frame fills the rect (template-driven shape),
+    // media is contain-fit inside. All other regions: frame preserves source AR.
+    const contentAspect = isSocialVertScreen
+      ? undefined
+      : (kind === 'screen' ? screenAspectRatio : (isCircle ? '1' : cameraAspectRatio));
     const frameRadius = kind === 'screen' ? bgCornerRadius : (isCircle ? '50%' : 4);
 
+    // Flow layouts (stacked/split) don't use absolute positioning
+    const useAbsoluteRect = layout.kind === 'PIP' || layout.kind === 'FULL_SCREEN' || layout.kind === 'CAMERA_ONLY' || layout.kind === 'SOCIAL_VERTICAL';
+
     return (
-      /* RegionBox — bounding box from NormalizedRect, flex-centers the MediaFrame */
       <div
         key={kind}
         onMouseEnter={() => setHoveredRegion(kind)}
         onMouseLeave={() => { if (!isDragging) setHoveredRegion(null); }}
         style={{
-          ...toCssRect(rect),
+          ...(useAbsoluteRect ? toCssRect(rect) : { position: 'relative' as const, width: '100%', height: '100%' }),
           zIndex,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          overflow: 'visible',
+          overflow: 'hidden',
         }}
       >
         {/* MediaFrame — maintains content's native aspect ratio, carries shadow/radius */}
         <div
           ref={kind === 'screen' ? screenFrameRef : undefined}
           onPointerDown={canInteract ? (e) => handlePointerDown(kind, rect, e) : undefined}
+          onDoubleClick={kind === 'screen' && screenCrop?.enabled && onCropModeChange && !cropModeActive
+            ? (e) => { e.stopPropagation(); onCropModeChange(true); }
+            : undefined}
           style={{
             position: 'relative',
-            width: '100%',
-            height: 'auto',
-            maxWidth: '100%',
-            maxHeight: '100%',
-            flex: '0 1 auto',
-            aspectRatio: contentAspect,
+            ...(isSocialVertScreen
+              ? { width: '100%', height: '100%' }
+              : { width: '100%', height: 'auto', maxWidth: '100%', maxHeight: '100%', flex: '0 1 auto', aspectRatio: contentAspect }
+            ),
             borderRadius: frameRadius,
             boxShadow: kind === 'screen' ? shadow : 'none',
             border: kind === 'screen' ? border : 'none',
@@ -544,12 +568,34 @@ export function PreviewCard({
             transition: isDragging ? 'none' : 'all 300ms ease',
           }}
         >
-          {/* MediaViewport — clips content, applies crop transform */}
+          {/* MediaViewport — clips content, applies crop transform (suppressed during crop mode) */}
           {content ? (
-            (() => {
+            isSocialVertScreen ? (
+              /* Social Vertical: template-driven frame, media contained inside */
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'rgba(0,0,0,0.85)',
+                borderRadius: 'inherit',
+              }}>
+                <div style={{
+                  position: 'relative',
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  width: '100%',
+                  aspectRatio: screenAspectRatio,
+                  overflow: 'hidden',
+                }}>
+                  {content}
+                </div>
+              </div>
+            ) : (() => {
               const crop = kind === 'screen' ? screenCrop : cameraCrop;
-              if (crop?.enabled) {
-                const mediaFrameEl = contentFrameRef.current;
+              if (crop?.enabled && !isCropActive) {
+                const mediaFrameEl = screenFrameRef.current ?? contentFrameRef.current;
                 const viewW = mediaFrameEl?.clientWidth ?? sourceWidth;
                 const viewH = mediaFrameEl?.clientHeight ?? sourceHeight;
                 const t = computeCropTransform(viewW, viewH, crop);
@@ -571,6 +617,18 @@ export function PreviewCard({
             <RegionPlaceholder
               kind={kind}
               onChooseSource={kind === 'screen' ? onChooseSource : undefined}
+            />
+          )}
+
+          {/* Crop overlay — visual crop editor */}
+          {isCropActive && screenCrop?.enabled && onScreenCropChange && (
+            <CropOverlay
+              crop={screenCrop}
+              sourceWidth={sourceWidth}
+              sourceHeight={sourceHeight}
+              onCropChange={onScreenCropChange}
+              containerRef={screenFrameRef}
+              onExit={onCropModeChange ? () => onCropModeChange(false) : undefined}
             />
           )}
 
@@ -609,7 +667,7 @@ export function PreviewCard({
         position: 'relative',
         width: '100%',
         height: 'auto',
-        maxWidth: 1040,
+        maxWidth: '100%',
         maxHeight: '100%',
         flex: '0 1 auto',
         aspectRatio: cssAspectRatio,
@@ -620,7 +678,7 @@ export function PreviewCard({
         transition: 'aspect-ratio 300ms ease, background 200ms ease',
       }}
     >
-      {/* Padded area — regions live inside, flex-centered */}
+      {/* Padded area */}
       <div
         ref={contentFrameRef}
         style={{
@@ -630,22 +688,81 @@ export function PreviewCard({
           bottom: padV,
           left: padH,
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          flexDirection: layout.kind === 'SPLIT_HORIZONTAL' ? 'row' : 'column',
+          gap: layout.kind === 'PIP' || layout.kind === 'FULL_SCREEN' || layout.kind === 'CAMERA_ONLY' || layout.kind === 'SOCIAL_VERTICAL' ? 0 : 8,
+          ...(layout.kind === 'PIP' ? { position: 'absolute' as const } : {}),
         }}
       >
-        {/* Screen region — carries shadow, border-radius, border directly */}
-        {screenRect && renderRegion('screen', screenRect, screenZ, screenNode)}
+        {layout.kind === 'FULL_SCREEN' && screenRect && (
+          /* Screen fills entire padded area */
+          renderRegion('screen', screenRect, screenZ, screenNode)
+        )}
 
-        {/* Camera region */}
-        {cameraRect && renderRegion('camera', cameraRect, cameraZ, cameraNode)}
+        {layout.kind === 'CAMERA_ONLY' && cameraRect && (
+          renderRegion('camera', cameraRect, cameraZ, cameraNode)
+        )}
+
+        {layout.kind === 'SOCIAL_VERTICAL' && screenRect && cameraRect && (
+          <>
+            {/* Screen: absolute-positioned from computed rect */}
+            {renderRegion('screen', screenRect, screenZ, screenNode)}
+            {/* Camera: absolute-positioned from computed rect */}
+            {renderRegion('camera', cameraRect, cameraZ, cameraNode)}
+          </>
+        )}
+
+        {layout.kind === 'SPLIT_VERTICAL' && (
+          <>
+            {/* Screen: fills width, height from aspect-ratio */}
+            {screenRect && (
+              <div style={{ width: '100%', flex: '0 0 auto' }}>
+                {renderRegion('screen', screenRect, screenZ, screenNode)}
+              </div>
+            )}
+            {/* Camera: takes remaining space */}
+            {cameraRect && (
+              <div style={{ flex: '1 1 0', minHeight: 0 }}>
+                {renderRegion('camera', cameraRect, cameraZ, cameraNode)}
+              </div>
+            )}
+          </>
+        )}
+
+        {layout.kind === 'SPLIT_HORIZONTAL' && (
+          <>
+            {/* Camera on left */}
+            {cameraRect && (
+              <div style={{ width: `${(cameraRect.w) * 100}%`, flex: '0 0 auto' }}>
+                {renderRegion('camera', cameraRect, cameraZ, cameraNode)}
+              </div>
+            )}
+            {/* Screen on right: takes remaining space */}
+            {screenRect && (
+              <div style={{ flex: '1 1 0', minWidth: 0 }}>
+                {renderRegion('screen', screenRect, screenZ, screenNode)}
+              </div>
+            )}
+          </>
+        )}
+
+        {layout.kind === 'PIP' && (
+          <>
+            {/* Screen fills the padded area */}
+            {screenRect && renderRegion('screen', screenRect, screenZ, screenNode)}
+            {/* Camera floats as overlay — uses absolute positioning from rect */}
+            {cameraRect && (
+              <div style={{ ...toCssRect(cameraRect), zIndex: cameraZ, position: 'absolute' }}>
+                {renderRegion('camera', cameraRect, cameraZ, cameraNode)}
+              </div>
+            )}
+          </>
+        )}
 
         {/* Empty state */}
         {!screenRect && !cameraRect && (
           <div
             style={{
-              position: 'absolute',
-              inset: 0,
+              flex: 1,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
