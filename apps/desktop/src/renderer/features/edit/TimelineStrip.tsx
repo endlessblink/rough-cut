@@ -27,6 +27,7 @@ interface TimelineStripProps {
   onTrimLeft?: (clipId: string, newTimelineIn: number) => void;
   onTrimRight?: (clipId: string, newTimelineOut: number) => void;
   onMove?: (clipId: string, newTimelineIn: number) => void;
+  onMoveClip?: (clipId: string, newTimelineIn: number, fromTrackId: string, toTrackId: string) => void;
   exportRange?: ExportRange;
   onChangeExportRange?: (range: ExportRange) => void;
 }
@@ -63,6 +64,7 @@ export function TimelineStrip({
   onTrimLeft,
   onTrimRight,
   onMove,
+  onMoveClip,
   exportRange,
   onChangeExportRange,
 }: TimelineStripProps) {
@@ -72,6 +74,7 @@ export function TimelineStrip({
   const [snapIndicator, setSnapIndicator] = useState<number | null>(null);
   const [dragSnapFrame, setDragSnapFrame] = useState<number | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+  const [dragTargetTrackId, setDragTargetTrackId] = useState<string | null>(null);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -155,6 +158,56 @@ export function TimelineStrip({
     [snapEnabled, tracks],
   );
 
+  const resolveTrackAtY = useCallback(
+    (clientY: number): string | null => {
+      const container = containerRef.current;
+      if (!container) return null;
+      const rect = container.getBoundingClientRect();
+      const relY = clientY - rect.top - RULER_HEIGHT + container.scrollTop;
+      const trackIndex = Math.floor(relY / TRACK_HEIGHT);
+      if (trackIndex >= 0 && trackIndex < tracks.length) {
+        return tracks[trackIndex].id;
+      }
+      return null;
+    },
+    [tracks],
+  );
+
+  const handleClipDrop = useCallback(
+    (clipId: string, newTimelineIn: number, clientY: number) => {
+      setDragTargetTrackId(null);
+      // Find the source track
+      let fromTrackId: string | null = null;
+      for (const track of tracks) {
+        if (track.clips.some((c) => c.id === clipId)) {
+          fromTrackId = track.id;
+          break;
+        }
+      }
+      if (!fromTrackId) return;
+
+      const toTrackId = resolveTrackAtY(clientY) ?? fromTrackId;
+
+      if (onMoveClip) {
+        onMoveClip(clipId, newTimelineIn, fromTrackId, toTrackId);
+      } else if (onMove) {
+        onMove(clipId, newTimelineIn);
+      }
+    },
+    [tracks, resolveTrackAtY, onMoveClip, onMove],
+  );
+
+  const handleDragYChange = useCallback(
+    (clientY: number | null) => {
+      if (clientY === null) {
+        setDragTargetTrackId(null);
+        return;
+      }
+      setDragTargetTrackId(resolveTrackAtY(clientY));
+    },
+    [resolveTrackAtY],
+  );
+
   const handleRulerClick = useCallback(
     (e: React.MouseEvent) => {
       const raw = frameFromMouseX(e.clientX);
@@ -231,6 +284,7 @@ export function TimelineStrip({
             display: 'flex',
             height: TRACK_HEIGHT,
             borderBottom: '1px solid rgba(255,255,255,0.04)',
+            background: dragTargetTrackId === track.id ? 'rgba(90,200,250,0.08)' : undefined,
           }}
         >
           {/* Track label */}
@@ -286,7 +340,8 @@ export function TimelineStrip({
                   onClick={interaction.canSelect ? onSelectClip : undefined}
                   onTrimLeft={interaction.canTrim ? onTrimLeft : undefined}
                   onTrimRight={interaction.canTrim ? onTrimRight : undefined}
-                  onMove={interaction.canTrim ? onMove : undefined}
+                  onDrop={interaction.canTrim ? handleClipDrop : undefined}
+                  onDragYChange={interaction.canTrim ? handleDragYChange : undefined}
                 />
               );
             })}

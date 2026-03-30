@@ -5,7 +5,7 @@
  * created in the Record view.
  */
 import { useState, useCallback, useEffect } from 'react';
-import type { ClipId } from '@rough-cut/project-model';
+import type { ClipId, TrackId } from '@rough-cut/project-model';
 import { useProjectStore, useTransportStore, projectStore, transportStore } from '../../hooks/use-stores.js';
 import { usePlaybackLoop } from '../../hooks/use-playback-loop.js';
 import { TimelineStrip } from './TimelineStrip.js';
@@ -118,12 +118,17 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   );
 
   const handleMoveClip = useCallback(
-    (clipId: string, newTimelineIn: number) => {
-      const track = findTrackForClip(clipId);
-      if (!track) return;
-      projectStore.getState().moveClip(track.id, clipId as ClipId, newTimelineIn);
+    (clipId: string, newTimelineIn: number, fromTrackId: string, toTrackId: string) => {
+      if (fromTrackId === toTrackId) {
+        // Same track — just move horizontally
+        projectStore.getState().moveClip(fromTrackId as TrackId, clipId as ClipId, newTimelineIn);
+      } else {
+        // Cross-track: move to new track, then set position
+        projectStore.getState().moveClipToTrack(clipId as ClipId, fromTrackId as TrackId, toTrackId as TrackId);
+        projectStore.getState().moveClip(toTrackId as TrackId, clipId as ClipId, newTimelineIn);
+      }
     },
-    [findTrackForClip],
+    [],
   );
 
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
@@ -305,7 +310,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
             onScrub={handleScrub}
             onTrimLeft={handleTrimLeft}
             onTrimRight={handleTrimRight}
-            onMove={handleMoveClip}
+            onMoveClip={handleMoveClip}
           />
         </EditTimelineShell>
       </div>

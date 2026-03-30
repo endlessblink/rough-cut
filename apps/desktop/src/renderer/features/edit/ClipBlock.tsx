@@ -16,7 +16,8 @@ interface ClipBlockProps {
   onClick: (clipId: string) => void;
   onTrimLeft?: (clipId: string, newTimelineIn: number) => void;
   onTrimRight?: (clipId: string, newTimelineOut: number) => void;
-  onMove?: (clipId: string, newTimelineIn: number) => void;
+  onDrop?: (clipId: string, newTimelineIn: number, clientY: number) => void;
+  onDragYChange?: (clientY: number | null) => void;
   onDragStart?: (clipId: string) => void;
   onDragEnd?: () => void;
 }
@@ -58,13 +59,15 @@ export function ClipBlock({
   onClick,
   onTrimLeft,
   onTrimRight,
-  onMove,
+  onDrop,
+  onDragYChange,
   onDragStart,
   onDragEnd,
 }: ClipBlockProps) {
   const [hovered, setHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
+  const [dragYOffset, setDragYOffset] = useState(0);
 
   const left = clip.timelineIn * pixelsPerFrame;
   const width = Math.max((clip.timelineOut - clip.timelineIn) * pixelsPerFrame, 2);
@@ -131,25 +134,29 @@ export function ClipBlock({
 
   const handleDragMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      if (!onMove) return;
+      if (!onDrop) return;
       // Don't start drag from trim handles
       if ((e.target as HTMLElement).classList.contains('trim-handle')) return;
 
       e.preventDefault();
       const startX = e.clientX;
+      const startY = e.clientY;
       let dragging = false;
       let currentOffset = 0;
       let snappedIn = clip.timelineIn;
+      let lastClientY = startY;
       const clipDuration = clip.timelineOut - clip.timelineIn;
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
         const dx = moveEvent.clientX - startX;
-        if (!dragging && Math.abs(dx) > 3) {
+        const dy = moveEvent.clientY - startY;
+        if (!dragging && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
           dragging = true;
           setIsDragging(true);
           onDragStart?.(clip.id);
         }
         if (dragging) {
+          lastClientY = moveEvent.clientY;
           currentOffset = dx;
           const rawDeltaFrames = dx / pixelsPerFrame;
           const newTimelineIn = clip.timelineIn + rawDeltaFrames;
@@ -183,9 +190,11 @@ export function ClipBlock({
           }
 
           onSnapWhileDragging?.(snapTarget);
+          onDragYChange?.(moveEvent.clientY);
 
           const snappedOffset = (snappedIn - clip.timelineIn) * pixelsPerFrame;
           setDragOffset(snapEnabled ? snappedOffset : currentOffset);
+          setDragYOffset(dy);
         }
       };
 
@@ -194,10 +203,12 @@ export function ClipBlock({
         document.removeEventListener('mouseup', handleMouseUp);
         if (dragging) {
           onSnapWhileDragging?.(null);
+          onDragYChange?.(null);
           const finalTimelineIn = Math.max(0, Math.round(snappedIn));
-          onMove(clip.id, finalTimelineIn);
+          onDrop(clip.id, finalTimelineIn, lastClientY);
           setIsDragging(false);
           setDragOffset(0);
+          setDragYOffset(0);
           onDragEnd?.();
         }
       };
@@ -205,7 +216,7 @@ export function ClipBlock({
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
     },
-    [clip.id, clip.timelineIn, clip.timelineOut, pixelsPerFrame, snapEnabled, allClipEdges, playheadFrame, onSnapWhileDragging, onMove, onDragStart, onDragEnd],
+    [clip.id, clip.timelineIn, clip.timelineOut, pixelsPerFrame, snapEnabled, allClipEdges, playheadFrame, onSnapWhileDragging, onDrop, onDragYChange, onDragStart, onDragEnd],
   );
 
   return (
@@ -240,7 +251,7 @@ export function ClipBlock({
             ? 'inset 0 0 0 100px rgba(255,255,255,0.06)'
             : 'none',
         transition: isDragging ? 'none' : 'box-shadow 0.1s',
-        transform: isDragging ? `translateX(${dragOffset}px)` : undefined,
+        transform: isDragging ? `translate(${dragOffset}px, ${dragYOffset}px)` : undefined,
         opacity: isDragging ? 0.5 : undefined,
         zIndex: isDragging ? 100 : undefined,
       }}
