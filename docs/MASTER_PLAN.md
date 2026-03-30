@@ -140,16 +140,16 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | TASK-069 | Performance profiling + optimization | P3 | TODO | TASK-020 |
 | TASK-070 | Accessibility basics (keyboard nav, screen reader) | P3 | TODO | - |
 | TASK-071 | Project save/load with relative paths | P1 | TODO | TASK-053 |
-| TASK-072 | Recent projects workflow | P2 | IN PROGRESS | TASK-071 |
+| ~~TASK-072~~ | ~~Recent projects workflow~~ | P2 | ✅ **DONE** (2026-03-30) | TASK-071 |
 
 ---
 
 ## Active Work
 
-### TASK-072: Recent Projects Workflow
-**Priority:** P2 | **Status:** IN PROGRESS
+### ~~TASK-072: Recent Projects Workflow~~
+**Priority:** P2 | **Status:** ✅ DONE (2026-03-30)
 
-Recent projects list with filtering, new/open project flows. IPC integration for project management between main and renderer. Partially built — uncommitted changes exist.
+Recent projects list with filtering, new/open project flows. IPC integration for project management between main and renderer. Fixed `setProject` to preserve `projectFilePath` so loaded projects maintain their save location.
 
 ---
 
