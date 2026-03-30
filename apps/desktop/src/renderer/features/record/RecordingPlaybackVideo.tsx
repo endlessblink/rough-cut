@@ -16,15 +16,16 @@ export function RecordingPlaybackVideo({ filePath, fps, assetId }: RecordingPlay
   const videoRef = useRef<HTMLVideoElement>(null);
   const readyRef = useRef(false);
 
-  // Find the clip offset so we can map project frames → video time
-  const clipTimelineIn = useProjectStore((s) => {
+  // Find the clip range so we can map project frames → video time and hide outside
+  const clipRange = useProjectStore((s) => {
     for (const track of s.project.composition.tracks) {
       for (const clip of track.clips) {
-        if (clip.assetId === assetId) return clip.timelineIn;
+        if (clip.assetId === assetId) return { timelineIn: clip.timelineIn, timelineOut: clip.timelineOut };
       }
     }
-    return 0;
+    return { timelineIn: 0, timelineOut: 0 };
   });
+  const clipTimelineIn = clipRange.timelineIn;
 
   // Convert project-level frame to video-local time
   const frameToVideoTime = useCallback(
@@ -60,13 +61,19 @@ export function RecordingPlaybackVideo({ filePath, fps, assetId }: RecordingPlay
     const unsub = transportStore.subscribe((state) => {
       const video = videoRef.current;
       if (!video || !readyRef.current || state.isPlaying) return;
+      // Hide when playhead is outside the clip's range
+      const inRange = clipRange.timelineOut > 0
+        && state.playheadFrame >= clipRange.timelineIn
+        && state.playheadFrame < clipRange.timelineOut;
+      video.style.visibility = inRange ? 'visible' : 'hidden';
+      if (!inRange) return;
       const targetTime = frameToVideoTime(state.playheadFrame);
       if (Math.abs(video.currentTime - targetTime) > 0.03) {
         video.currentTime = targetTime;
       }
     });
     return unsub;
-  }, [frameToVideoTime]);
+  }, [frameToVideoTime, clipRange.timelineIn, clipRange.timelineOut]);
 
   // Play/pause sync
   useEffect(() => {
