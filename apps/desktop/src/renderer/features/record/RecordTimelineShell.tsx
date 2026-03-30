@@ -22,6 +22,8 @@ interface RecordTimelineShellProps {
   currentFrame: number;
   fps: number;
   onScrub: (frame: number) => void;
+  /** When set, highlight clips matching this asset and dim others */
+  activeAssetId?: string | null;
 }
 
 /* ── Constants ─────────────────────────────────────────────────────────────── */
@@ -133,6 +135,7 @@ export function RecordTimelineShell({
   currentFrame,
   fps,
   onScrub,
+  activeAssetId,
 }: RecordTimelineShellProps) {
   /* ── derived data ──────────────────────────────────────────────────────── */
 
@@ -147,7 +150,19 @@ export function RecordTimelineShell({
       (max, t) => t.clips.reduce((mx, c) => Math.max(mx, c.timelineOut), max),
       0,
     );
-    return Math.max(maxClipEnd, durationFrames);
+    const eff = Math.max(maxClipEnd, durationFrames);
+    console.log('[RecordTimeline] effectiveDuration:', { maxClipEnd, durationFrames, effective: eff });
+    console.log('[RecordTimeline] tracks:', tracks.map((t) => ({
+      id: t.id, name: t.name, type: t.type, index: t.index,
+      clips: t.clips.map((c) => ({
+        id: c.id, assetId: c.assetId,
+        timelineIn: c.timelineIn, timelineOut: c.timelineOut,
+        sourceIn: c.sourceIn, sourceOut: c.sourceOut,
+      })),
+    })));
+    console.log('[RecordTimeline] assets:', assets.map((a) => ({ id: a.id, type: a.type, duration: a.duration, filePath: a.filePath })));
+    console.log('[RecordTimeline] activeAssetId:', activeAssetId);
+    return eff;
   }, [tracks, durationFrames]);
 
   /* ── play/pause state ──────────────────────────────────────────────────── */
@@ -490,9 +505,11 @@ export function RecordTimelineShell({
 
                     const leftPct = frameToPct(clip.timelineIn, effectiveDuration);
                     const widthPct = frameToPct(dur, effectiveDuration);
+                    const isActive = !activeAssetId || clip.assetId === activeAssetId;
+                    const dimOpacity = isActive ? 0.85 : 0.25;
                     const bg = isVideo
-                      ? 'linear-gradient(to right, rgba(108,191,255,0.85), rgba(27,97,189,0.85))'
-                      : 'linear-gradient(to right, rgba(255,189,110,0.85), rgba(221,128,42,0.85))';
+                      ? `linear-gradient(to right, rgba(108,191,255,${dimOpacity}), rgba(27,97,189,${dimOpacity}))`
+                      : `linear-gradient(to right, rgba(255,189,110,${dimOpacity}), rgba(221,128,42,${dimOpacity}))`;
                     const label = asset
                       ? asset.filePath.split('/').pop() ?? asset.filePath
                       : clip.name ?? clip.id;

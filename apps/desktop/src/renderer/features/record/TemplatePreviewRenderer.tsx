@@ -148,33 +148,33 @@ export function TemplatePreviewRenderer({
   const handleScreenPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (!interactionEnabled || !screenRect) return;
-      startMove('screen', screenRect, e);
+      startMove('screen', screenRect, e, screenAspect);
     },
-    [interactionEnabled, screenRect, startMove],
+    [interactionEnabled, screenRect, startMove, screenAspect],
   );
 
   const handleCameraPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (!interactionEnabled || !cameraRect) return;
-      startMove('camera', cameraRect, e);
+      startMove('camera', cameraRect, e, cameraAspect);
     },
-    [interactionEnabled, cameraRect, startMove],
+    [interactionEnabled, cameraRect, startMove, cameraAspect],
   );
 
   const handleScreenResizeStart = useCallback(
     (edge: Edge, e: React.PointerEvent) => {
       if (!interactionEnabled || !screenRect) return;
-      startResize('screen', screenRect, edge, e);
+      startResize('screen', screenRect, edge, e, screenAspect);
     },
-    [interactionEnabled, screenRect, startResize],
+    [interactionEnabled, screenRect, startResize, screenAspect],
   );
 
   const handleCameraResizeStart = useCallback(
     (edge: Edge, e: React.PointerEvent) => {
       if (!interactionEnabled || !cameraRect) return;
-      startResize('camera', cameraRect, edge, e);
+      startResize('camera', cameraRect, edge, e, cameraAspect);
     },
-    [interactionEnabled, cameraRect, startResize],
+    [interactionEnabled, cameraRect, startResize, cameraAspect],
   );
 
   const handleScreenDoubleClick = useCallback((e: React.MouseEvent) => {

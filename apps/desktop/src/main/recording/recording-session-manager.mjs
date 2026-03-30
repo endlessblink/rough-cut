@@ -240,6 +240,9 @@ export function openPanel() {
     },
   });
 
+  // Exclude panel from screen capture so it never appears in recordings.
+  panelWindow.setContentProtection(true);
+
   // Load panel renderer
   const panelUrl = !app.isPackaged
     ? 'http://127.0.0.1:7544/panel.html'
@@ -273,6 +276,10 @@ export function openPanel() {
     console.info('[session-manager] Panel closed externally — cleaning up.');
     panelWindow = null;
     _cleanup();
+    // Restore main window in case recording was active when panel was closed.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+    }
     state = 'idle';
   });
 
@@ -289,6 +296,10 @@ export function closePanel() {
 
   _cleanup();
   _destroyPanel();
+  // Restore main window in case recording was active.
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+  }
   state = 'idle';
   console.info('[session-manager] Panel closed.');
 }
@@ -340,6 +351,12 @@ export async function startRecording() {
     // --- Recording phase ---
     state = 'recording';
     recordingStartMs = Date.now();
+
+    // Hide main window so it cannot appear in the recording (belt-and-suspenders
+    // for platforms where setContentProtection is unreliable).
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.hide();
+    }
 
     safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'recording');
 
@@ -400,6 +417,11 @@ export async function stopRecording() {
 
   // Clear timers / shortcut / tray immediately
   _cleanup();
+
+  // Restore main window
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+  }
 
   console.info('[session-manager] Stop signal sent to panel renderer.');
 }

@@ -59,46 +59,50 @@ export function ProjectsTab({
 
   // User picked a recording and chose Recorder or Editor
   function handleOpenRecording(assetId: string, destination: 'record' | 'edit') {
-    if (!selectedProject) {
-      console.error('[ProjectsTab] handleOpenRecording: no selectedProject!');
-      return;
-    }
+    if (!selectedProject) return;
     const { project, filePath } = selectedProject;
 
-    console.info('[ProjectsTab] handleOpenRecording:', {
-      assetId,
-      destination,
-      projectName: project.name,
-      filePath,
-      assetCount: project.assets.length,
-      clipCount: project.composition.tracks.flatMap(t => t.clips).length,
-    });
+    // Find the clip that references this asset and seek FIRST
+    const clip = project.composition.tracks
+      .flatMap((t) => t.clips)
+      .find((c) => c.assetId === assetId);
+    const targetFrame = clip ? clip.timelineIn : 0;
+    transportStore.getState().seekToFrame(targetFrame);
 
     // Load project into store
     projectStore.getState().setProject(project);
     projectStore.getState().setProjectFilePath(filePath);
-
-    // Verify it was set
-    const storeProject = projectStore.getState().project;
-    console.info('[ProjectsTab] Store project after set:', storeProject.name, 'assets:', storeProject.assets.length);
-
-    // Find the clip that references this asset and seek to it
-    const clip = project.composition.tracks
-      .flatMap((t) => t.clips)
-      .find((c) => c.assetId === assetId);
-    if (clip) {
-      console.info('[ProjectsTab] Seeking to clip:', clip.timelineIn, 'for asset:', assetId);
-      transportStore.getState().seekToFrame(clip.timelineIn);
-    } else {
-      console.warn('[ProjectsTab] No clip found for asset:', assetId, '— seeking to 0');
-      transportStore.getState().seekToFrame(0);
-    }
+    projectStore.getState().setActiveAssetId(assetId);
 
     onTabChange(destination);
   }
 
   function handleBackToProjects() {
     setSelectedProject(null);
+  }
+
+  // Delete a recording from the project, save, and refresh the detail view
+  async function handleDeleteRecording(assetId: string) {
+    if (!selectedProject) return;
+    const { project, filePath } = selectedProject;
+
+    // Remove asset and any clips referencing it
+    const updatedAssets = project.assets.filter((a) => a.id !== assetId);
+    const updatedTracks = project.composition.tracks.map((track) => ({
+      ...track,
+      clips: track.clips.filter((c) => c.assetId !== assetId),
+    }));
+    const updatedProject = {
+      ...project,
+      assets: updatedAssets,
+      composition: { ...project.composition, tracks: updatedTracks },
+    };
+
+    // Save the updated project to disk
+    await window.roughcut.projectSave(updatedProject as ProjectDocument, filePath);
+
+    // Update local state to re-render the detail view
+    setSelectedProject({ project: updatedProject as ProjectDocument, filePath });
   }
 
   async function handleRemove(filePath: string) {
@@ -123,6 +127,7 @@ export function ProjectsTab({
           filePath={selectedProject.filePath}
           onBack={handleBackToProjects}
           onOpenRecording={handleOpenRecording}
+          onDeleteRecording={handleDeleteRecording}
         />
       ) : (
         <ProjectsContent

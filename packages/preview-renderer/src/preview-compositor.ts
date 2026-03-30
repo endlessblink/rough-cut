@@ -57,6 +57,9 @@ export class PreviewCompositor {
   // Video element cache — one per asset, reused across frames
   private videoCache: Map<string, VideoCache> = new Map();
 
+  // Debug: track layer count changes
+  private _lastLayerCount = -1;
+
   constructor(config: CompositorConfig = {}, events: CompositorEvents = {}) {
     this.config = {
       canvas: config.canvas ?? (undefined as unknown as HTMLCanvasElement),
@@ -110,7 +113,27 @@ export class PreviewCompositor {
 
   /** Set the project document. Call whenever the project changes. */
   setProject(project: ProjectDocument): void {
+    const prevProjectId = (this.project as unknown as { id?: string })?.id;
+    const newProjectId = (project as unknown as { id?: string })?.id;
+
     this.project = project;
+
+    // When switching to a different project, clear stale video/layer caches
+    if (prevProjectId && newProjectId && prevProjectId !== newProjectId) {
+      for (const vc of this.videoCache.values()) {
+        vc.video.pause();
+        vc.video.src = '';
+        vc.texture?.destroy();
+      }
+      this.videoCache.clear();
+      if (this.layerContainer) {
+        for (const [, cached] of this.layerCache) {
+          this.layerContainer.removeChild(cached.container);
+          cached.container.destroy({ children: true });
+        }
+        this.layerCache.clear();
+      }
+    }
 
     // Only touch the renderer if init() has completed
     if (this.initialized && this.app?.renderer) {
@@ -176,6 +199,20 @@ export class PreviewCompositor {
     if (!this.initialized || !this.app || !this.project) return;
 
     const renderFrame = resolveFrame(this.project, this.currentFrame);
+
+    // Throttled logging — only log every 30 frames or when layers change
+    if (this.currentFrame % 30 === 0 || renderFrame.layers.length !== this._lastLayerCount) {
+      console.log('[Compositor] renderCurrentFrame:', {
+        frame: this.currentFrame,
+        layerCount: renderFrame.layers.length,
+        layers: renderFrame.layers.map((l) => ({
+          clipId: l.clipId, assetId: l.assetId, sourceFrame: l.sourceFrame, trackIndex: l.trackIndex,
+        })),
+        resolution: `${renderFrame.width}x${renderFrame.height}`,
+      });
+      this._lastLayerCount = renderFrame.layers.length;
+    }
+
     this.renderRenderFrame(renderFrame);
     this.events.onFrameRendered?.(this.currentFrame);
   }
@@ -237,22 +274,26 @@ export class PreviewCompositor {
     };
 
     // Once metadata is loaded, create the PixiJS texture
+    console.log('[Compositor] Creating video element for asset:', { assetId, filePath, src: video.src });
+
     video.addEventListener('loadeddata', () => {
       if (!vc) return;
       try {
         const videoSource = new VideoSource({ resource: video, autoPlay: false });
         vc.texture = new Texture({ source: videoSource });
         vc.loaded = true;
+        console.log('[Compositor] Video loaded successfully:', { assetId, filePath, videoWidth: video.videoWidth, videoHeight: video.videoHeight, duration: video.duration });
         // Re-render to show the video frame
         this.renderCurrentFrame();
-      } catch {
+      } catch (err) {
         // VideoSource creation failed — stay on placeholder
+        console.error('[Compositor] VideoSource creation failed:', { assetId, filePath, error: err });
         vc.loaded = false;
       }
     }, { once: true });
 
     video.addEventListener('error', () => {
-      console.warn(`[compositor] Failed to load video: ${filePath}`, video.error);
+      console.warn(`[Compositor] Failed to load video: ${filePath}`, video.error);
       // Video load failed — stay on placeholder
       if (vc) vc.loaded = false;
     }, { once: true });

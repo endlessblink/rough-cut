@@ -1098,11 +1098,13 @@ export function PanelApp() {
     }
 
     chunksRef.current = [];
+    cameraChunksRef.current = [];
 
     const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
       ? 'video/webm;codecs=vp9'
       : 'video/webm;codecs=vp8';
 
+    // Screen recorder
     const recorder = new MediaRecorder(currentStream, { mimeType });
 
     recorder.ondataavailable = (e) => {
@@ -1111,6 +1113,16 @@ export function PanelApp() {
 
     recorder.onstop = async () => {
       setStatus('stopping');
+
+      // Wait for camera recorder to finish if active
+      const cameraRecorder = cameraRecorderRef.current;
+      if (cameraRecorder && cameraRecorder.state !== 'inactive') {
+        await new Promise<void>((resolve) => {
+          cameraRecorder.onstop = () => resolve();
+          cameraRecorder.stop();
+        });
+      }
+
       const blob = new Blob(chunksRef.current, { type: 'video/webm' });
       const buffer = await blob.arrayBuffer();
       const settings = currentStream.getVideoTracks()[0]?.getSettings();
@@ -1122,8 +1134,16 @@ export function PanelApp() {
         durationMs: elapsedMsAtStop.current,
       };
 
+      // Build camera buffer if we have camera chunks
+      let cameraBuffer: ArrayBuffer | undefined;
+      if (cameraChunksRef.current.length > 0) {
+        const cameraBlob = new Blob(cameraChunksRef.current, { type: 'video/webm' });
+        cameraBuffer = await cameraBlob.arrayBuffer();
+        console.info('[PanelApp] Camera recording size:', cameraBuffer.byteLength);
+      }
+
       try {
-        await window.roughcut.panelSaveRecording(buffer, metadata);
+        await window.roughcut.panelSaveRecording(buffer, metadata, cameraBuffer);
         // Main process will close the panel after save completes
       } catch (err) {
         console.error('[PanelApp] Failed to save recording:', err);
@@ -1133,10 +1153,22 @@ export function PanelApp() {
 
     recorderRef.current = recorder;
     recorder.start(1000); // 1-second chunks
+
+    // Start camera recorder if camera stream is active
+    if (cameraStream) {
+      const camRecorder = new MediaRecorder(cameraStream, { mimeType });
+      camRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) cameraChunksRef.current.push(e.data);
+      };
+      cameraRecorderRef.current = camRecorder;
+      camRecorder.start(1000);
+      console.info('[PanelApp] Camera MediaRecorder started');
+    }
   };
 
   const stopMediaRecorder = () => {
     elapsedMsAtStop.current = elapsedMs;
+    // Stop screen recorder — its onstop handler will also stop camera recorder
     if (recorderRef.current?.state === 'recording' || recorderRef.current?.state === 'paused') {
       recorderRef.current.stop();
     }
@@ -1158,12 +1190,18 @@ export function PanelApp() {
 
     if (recorder.state === 'recording') {
       recorder.pause();
+      if (cameraRecorderRef.current?.state === 'recording') {
+        cameraRecorderRef.current.pause();
+      }
       setStatus('paused');
       // Tell session manager to pause the elapsed timer
       window.roughcut.panelPause();
       console.info('[PanelApp] MediaRecorder paused');
     } else if (recorder.state === 'paused') {
       recorder.resume();
+      if (cameraRecorderRef.current?.state === 'paused') {
+        cameraRecorderRef.current.resume();
+      }
       setStatus('recording');
       // Tell session manager to resume the elapsed timer
       window.roughcut.panelResume();

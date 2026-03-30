@@ -29,6 +29,11 @@ function createWindow() {
     },
   });
 
+  // Exclude main window from screen capture — Rough Cut's own UI should never
+  // appear in recordings.  On macOS this sets NSWindow.sharingType = none;
+  // on Linux it is a harmless no-op.
+  mainWindow.setContentProtection(true);
+
   // In dev, load from Vite dev server
   if (!app.isPackaged) {
     mainWindow.maximize();

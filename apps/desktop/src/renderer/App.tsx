@@ -78,6 +78,34 @@ export function App() {
 
   // --- Recording integration ---
   const handleRecordingComplete = useCallback((result: RecordingResult) => {
+    console.group('[App] handleRecordingComplete');
+    console.log('[App] RecordingResult:', {
+      filePath: result.filePath,
+      durationFrames: result.durationFrames,
+      width: result.width,
+      height: result.height,
+      fps: result.fps,
+      codec: result.codec,
+      fileSize: result.fileSize,
+      cameraFilePath: result.cameraFilePath,
+    });
+
+    // If a camera file was saved alongside the screen recording, create a camera asset first
+    let cameraAssetId: string | undefined;
+    if (result.cameraFilePath) {
+      const cameraAsset = createAsset('video', result.cameraFilePath, {
+        duration: result.durationFrames,
+        metadata: {
+          isCamera: true,
+          width: 640,
+          height: 480,
+        },
+      });
+      projectStore.getState().addAsset(cameraAsset);
+      cameraAssetId = cameraAsset.id;
+      console.log('[App] Camera asset created:', cameraAsset.id);
+    }
+
     const asset = createAsset('recording', result.filePath, {
       duration: result.durationFrames,
       thumbnailPath: result.thumbnailPath,
@@ -88,33 +116,59 @@ export function App() {
         codec: result.codec,
         fileSize: result.fileSize,
       },
+      ...(cameraAssetId ? { cameraAssetId } : {}),
     });
     projectStore.getState().addAsset(asset);
+    console.log('[App] Recording asset created:', { id: asset.id, type: asset.type, duration: asset.duration, filePath: asset.filePath });
 
     // Also create a clip on the first video track referencing this asset
+    // Guard: skip clip creation if duration is zero (ffprobe failure)
+    const clipDuration = result.durationFrames > 0 ? result.durationFrames : 0;
+    console.log('[App] clipDuration:', clipDuration);
     const store = projectStore.getState();
     const videoTrack = store.project.composition.tracks.find((t) => t.type === 'video');
-    if (videoTrack) {
+    console.log('[App] Target video track:', videoTrack ? { id: videoTrack.id, name: videoTrack.name, index: videoTrack.index, clipCount: videoTrack.clips.length } : 'NONE');
+    if (videoTrack && clipDuration > 0) {
       // Place clip at the end of existing content on this track
       const trackEnd = videoTrack.clips.reduce((max, c) => Math.max(max, c.timelineOut), 0);
       const clip = createClip(asset.id, videoTrack.id, {
         timelineIn: trackEnd,
-        timelineOut: trackEnd + result.durationFrames,
+        timelineOut: trackEnd + clipDuration,
         sourceIn: 0,
-        sourceOut: result.durationFrames,
+        sourceOut: clipDuration,
       });
+      console.log('[App] Clip created:', { id: clip.id, assetId: clip.assetId, trackId: clip.trackId, timelineIn: clip.timelineIn, timelineOut: clip.timelineOut, sourceIn: clip.sourceIn, sourceOut: clip.sourceOut });
       store.addClip(videoTrack.id, clip);
 
       // Update composition duration so all timelines (Record, Export) render clips
-      const newDuration = Math.max(
-        projectStore.getState().project.composition.duration,
-        trackEnd + result.durationFrames,
-      );
+      const prevDuration = projectStore.getState().project.composition.duration;
+      const newDuration = Math.max(prevDuration, trackEnd + result.durationFrames);
+      console.log('[App] Composition duration:', { prevDuration, trackEnd, resultDurationFrames: result.durationFrames, newDuration });
       projectStore.getState().updateProject((p) => ({
         ...p,
         composition: { ...p.composition, duration: newDuration },
       }));
+    } else {
+      console.warn('[App] Skipped clip creation:', { videoTrack: !!videoTrack, clipDuration });
     }
+
+    // Log final project state for debugging
+    const finalProject = projectStore.getState().project;
+    console.log('[App] Final project state after recording:', {
+      assetCount: finalProject.assets.length,
+      assets: finalProject.assets.map((a) => ({ id: a.id, type: a.type, duration: a.duration, filePath: a.filePath })),
+      trackCount: finalProject.composition.tracks.length,
+      tracks: finalProject.composition.tracks.map((t) => ({
+        id: t.id,
+        name: t.name,
+        type: t.type,
+        index: t.index,
+        clipCount: t.clips.length,
+        clips: t.clips.map((c) => ({ id: c.id, assetId: c.assetId, timelineIn: c.timelineIn, timelineOut: c.timelineOut, sourceIn: c.sourceIn, sourceOut: c.sourceOut })),
+      })),
+      compositionDuration: finalProject.composition.duration,
+    });
+    console.groupEnd();
 
     // Auto-save silently after recording — fire and forget, never blocks the UI
     const currentPath = projectStore.getState().projectFilePath;

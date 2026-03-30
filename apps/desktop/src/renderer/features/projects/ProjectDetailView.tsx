@@ -17,6 +17,8 @@ interface ProjectDetailViewProps {
   onBack: () => void;
   /** Called when user picks a recording and chooses where to open it */
   onOpenRecording: (assetId: string, destination: 'record' | 'edit') => void;
+  /** Called when user deletes a recording */
+  onDeleteRecording: (assetId: string) => void;
 }
 
 function framesToDuration(frames: number, fps: number): string {
@@ -158,6 +160,7 @@ export function ProjectDetailView({
   filePath,
   onBack,
   onOpenRecording,
+  onDeleteRecording,
 }: ProjectDetailViewProps) {
   const recordings = project.assets.filter((a) => a.type === 'recording');
   const fps = project.settings.frameRate || 30;
@@ -233,6 +236,7 @@ export function ProjectDetailView({
                 asset={asset}
                 fps={fps}
                 onSelect={() => setPopupAsset(asset)}
+                onDelete={() => onDeleteRecording(asset.id)}
               />
             ))}
           </div>
@@ -261,12 +265,15 @@ function RecordingCard({
   asset,
   fps,
   onSelect,
+  onDelete,
 }: {
   asset: Asset;
   fps: number;
   onSelect: () => void;
+  onDelete: () => void;
 }) {
   const [isHovered, setIsHovered] = useState(false);
+  const [deleteHovered, setDeleteHovered] = useState(false);
   const name = getRecordingName(asset.filePath);
   const duration = framesToDuration(asset.duration, fps);
   const fileSize = asset.metadata?.fileSize ? formatFileSize(asset.metadata.fileSize as number) : '';
@@ -339,6 +346,37 @@ function RecordingCard({
           <div style={{ width: 6, height: 6, borderRadius: '50%', background: TEAL, boxShadow: `0 0 6px ${TEAL}` }} />
           <span style={{ fontSize: 12, fontWeight: 500, color: TEXT_PRIMARY }}>{duration}</span>
         </div>
+
+        {/* Delete button */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          onMouseEnter={() => setDeleteHovered(true)}
+          onMouseLeave={() => setDeleteHovered(false)}
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            width: 28,
+            height: 28,
+            borderRadius: 8,
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 4,
+            opacity: isHovered ? 1 : 0,
+            pointerEvents: isHovered ? 'auto' : 'none',
+            background: deleteHovered ? 'rgba(220,38,38,0.82)' : 'rgba(0,0,0,0.5)',
+            transition: 'opacity 150ms ease, background 120ms ease',
+            fontFamily: 'inherit',
+            padding: 0,
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round">
+            <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+          </svg>
+        </button>
       </div>
 
       {/* Info */}

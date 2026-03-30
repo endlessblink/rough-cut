@@ -113,6 +113,28 @@ export function TimelineStrip({
 
   const assetMap = new Map(assets.map((a) => [a.id, a]));
 
+  // Debug logging — log once when tracks/assets change
+  useEffect(() => {
+    console.log('[EditTimeline] TimelineStrip render data:', {
+      trackCount: tracks.length,
+      tracks: tracks.map((t) => ({
+        id: t.id, name: t.name, type: t.type, index: t.index,
+        clips: t.clips.map((c) => ({
+          id: c.id, assetId: c.assetId,
+          timelineIn: c.timelineIn, timelineOut: c.timelineOut,
+          sourceIn: c.sourceIn, sourceOut: c.sourceOut,
+          duration: c.timelineOut - c.timelineIn,
+        })),
+      })),
+      assetCount: assets.length,
+      assets: assets.map((a) => ({ id: a.id, type: a.type, duration: a.duration, filePath: a.filePath })),
+      playheadFrame,
+      pixelsPerFrame,
+      maxFrame,
+      totalWidth,
+    });
+  }, [tracks, assets]);
+
   const frameFromMouseX = useCallback(
     (clientX: number) => {
       if (!containerRef.current) return 0;

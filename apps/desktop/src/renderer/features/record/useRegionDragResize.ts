@@ -124,39 +124,19 @@ export function HandleDot() {
 
 // ─── Pixel-space math helpers ─────────────────────────────────────────────────
 
-function clampRect(r: Rect, containerW: number, containerH: number, aspect?: number): Rect {
+function clampRect(r: Rect, aspect?: number): Rect {
   let { x, y, width, height } = r;
 
-  // Clamp to container bounds
-  width  = Math.max(MIN_SIZE, Math.min(width,  containerW));
-  height = Math.max(MIN_SIZE, Math.min(height, containerH));
-
-  // If we have a locked aspect ratio, restore it after clamping
+  // Enforce minimum size (aspect-locked if aspect provided)
   if (aspect != null) {
-    // Fit within both constraints while maintaining aspect
-    const maxW = Math.min(width, containerW);
-    const maxH = Math.min(height, containerH);
-    // Use whichever constraint is tighter
-    if (maxW / aspect <= maxH) {
-      width = maxW;
-      height = width / aspect;
-    } else {
-      height = maxH;
-      width = height * aspect;
-    }
-    // Enforce minimum (aspect-locked)
-    if (width < MIN_SIZE) {
-      width = MIN_SIZE;
-      height = width / aspect;
-    }
-    if (height < MIN_SIZE) {
-      height = MIN_SIZE;
-      width = height * aspect;
-    }
+    if (width < MIN_SIZE) { width = MIN_SIZE; height = width / aspect; }
+    if (height < MIN_SIZE) { height = MIN_SIZE; width = height * aspect; }
+  } else {
+    width = Math.max(MIN_SIZE, width);
+    height = Math.max(MIN_SIZE, height);
   }
 
-  x = Math.max(0, Math.min(x, containerW - width));
-  y = Math.max(0, Math.min(y, containerH - height));
+  // No position clamping — frames can extend beyond container edges
   return { x, y, width, height };
 }
 
@@ -165,8 +145,6 @@ function applyResize(
   edge: Edge,
   dx: number,
   dy: number,
-  containerW: number,
-  containerH: number,
   sourceAspect?: number,
 ): Rect {
   const aspect = sourceAspect ?? (original.width / original.height);
@@ -211,7 +189,7 @@ function applyResize(
       if (edge.includes('n')) y = original.y + original.height - height;
     }
 
-    return clampRect({ x, y, width, height }, containerW, containerH, aspect);
+    return clampRect({ x, y, width, height }, aspect);
   }
 
   // Edge handles: single-axis resize, aspect-locked.
@@ -246,7 +224,7 @@ function applyResize(
     width  = height * aspect;
   }
 
-  return clampRect({ x, y, width, height }, containerW, containerH, aspect);
+  return clampRect({ x, y, width, height }, aspect);
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -267,12 +245,6 @@ export function useRegionDragResize({
   const onRegionChangeRef = useRef(onRegionChange);
   onRegionChangeRef.current = onRegionChange;
 
-  const getContainerSize = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return { w: 1, h: 1 };
-    return { w: el.clientWidth, h: el.clientHeight };
-  }, [containerRef]);
-
   // Document-level pointer listeners — active for the lifetime of the component.
   // The move handler only does work when dragRef.current is set.
   useEffect(() => {
@@ -290,21 +262,15 @@ export function useRegionDragResize({
         setIsDragging(true);
       }
 
-      const { w: containerW, h: containerH } = getContainerSize();
-
       if (drag.mode === 'move') {
-        cb(drag.region, clampRect(
-          {
-            x: drag.originalRect.x + dx,
-            y: drag.originalRect.y + dy,
-            width:  drag.originalRect.width,
-            height: drag.originalRect.height,
-          },
-          containerW,
-          containerH,
-        ));
+        cb(drag.region, clampRect({
+          x: drag.originalRect.x + dx,
+          y: drag.originalRect.y + dy,
+          width:  drag.originalRect.width,
+          height: drag.originalRect.height,
+        }));
       } else if (drag.mode === 'resize' && drag.edge) {
-        cb(drag.region, applyResize(drag.originalRect, drag.edge, dx, dy, containerW, containerH, drag.sourceAspect));
+        cb(drag.region, applyResize(drag.originalRect, drag.edge, dx, dy, drag.sourceAspect));
       }
     };
 
@@ -320,7 +286,7 @@ export function useRegionDragResize({
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
     };
-  }, [getContainerSize, enabled]);
+  }, [enabled]);
 
   const startMove = useCallback(
     (region: 'screen' | 'camera', currentRect: Rect, e: React.PointerEvent, sourceAspect?: number) => {

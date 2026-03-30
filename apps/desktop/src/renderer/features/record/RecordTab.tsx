@@ -29,6 +29,7 @@ import type { RecordState } from './BottomBar.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
 import { SourcePickerPopup } from './SourcePickerPopup.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
+import { RecordingPlaybackVideo } from './RecordingPlaybackVideo.js';
 import { LAYOUT_TEMPLATES } from './templates.js';
 import type { LayoutTemplate } from './templates.js';
 import type { Rect } from './template-layout/types.js';
@@ -95,6 +96,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     return preferred ?? s.project.assets.find((a) => a.type === 'recording') ?? null;
   });
   const activeRecordingId = activeRecordingAsset?.id ?? null;
+
   const zoomPresentation = activeRecordingAsset?.presentation?.zoom ?? createDefaultZoomPresentation();
   const cursorPresentation = activeRecordingAsset?.presentation?.cursor ?? createDefaultCursorPresentation();
   const cameraPresentation = activeRecordingAsset?.presentation?.camera ?? createDefaultCameraPresentation();
@@ -250,6 +252,22 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     if (!screenCrop.enabled) setCropModeActive(false);
   }, [screenCrop.enabled]);
 
+  // Debug logging
+  useEffect(() => {
+    console.log('[RecordTab] State snapshot:', {
+      hasRecordingAsset,
+      activeRecordingId,
+      activeRecordingAsset: activeRecordingAsset ? { id: activeRecordingAsset.id, type: activeRecordingAsset.type, duration: activeRecordingAsset.duration, filePath: activeRecordingAsset.filePath } : null,
+      selectedSourceId,
+      status,
+      durationFrames,
+      currentFrame,
+      trackCount: tracks.length,
+      assetCount: assets.length,
+      resolution,
+    });
+  }, [hasRecordingAsset, activeRecordingId, activeRecordingAsset, selectedSourceId, status, durationFrames, currentFrame, tracks.length, assets.length]);
+
   const recording = useRecording({
     selectedSourceId,
     stream: liveStream,
@@ -376,8 +394,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
                 screenContent={
                   selectedSourceId
                     ? <LivePreviewVideo stream={liveStream} />
-                    : hasRecordingAsset
-                      ? <div ref={previewRef} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }} />
+                    : activeRecordingAsset?.filePath
+                      ? <RecordingPlaybackVideo filePath={activeRecordingAsset.filePath} fps={projectFps} assetId={activeRecordingAsset.id} />
                       : undefined
                 }
                 cameraContent={cameraNode}
@@ -474,6 +492,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
           currentFrame={currentFrame}
           fps={projectFps}
           onScrub={handleTimelineScrub}
+          activeAssetId={activeRecordingId}
         />
       </div>
 

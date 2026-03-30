@@ -34,6 +34,8 @@ export interface ProjectState {
   isDirty: boolean;
   /** Absolute path to the .roughcut file on disk, null if the project has never been saved */
   projectFilePath: string | null;
+  /** The currently selected recording asset ID (for Record tab focus) */
+  activeAssetId: string | null;
 }
 
 export interface ProjectActions {
@@ -41,6 +43,8 @@ export interface ProjectActions {
   setProject: (project: ProjectDocument) => void;
   /** Functional update of the project */
   updateProject: (fn: (draft: ProjectDocument) => ProjectDocument) => void;
+  /** Set the active recording asset ID */
+  setActiveAssetId: (id: string | null) => void;
   /** Mark as saved (resets isDirty) */
   markSaved: () => void;
   /** Set the absolute path to the .roughcut file (null = unsaved) */
@@ -110,6 +114,11 @@ export function createProjectStore() {
         project: createProject(),
         isDirty: false,
         projectFilePath: null,
+        activeAssetId: null,
+
+        setActiveAssetId: (id) => {
+          set({ activeAssetId: id });
+        },
 
         setProject: (project: ProjectDocument) => {
           set({ project, isDirty: true });
