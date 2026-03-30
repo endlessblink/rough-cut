@@ -140,9 +140,6 @@ export function CardChrome({
               right: padH,
               bottom: padV,
               left: padH,
-              borderRadius: bgCornerRadius,
-              boxShadow: shadow,
-              border,
               overflow: 'hidden',
             }}
           >

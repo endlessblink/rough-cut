@@ -24,6 +24,8 @@ import { useDebugToggle } from './template-layout/useDebugToggle.js';
 import { MediaFrame } from './MediaFrame.js';
 import { useRegionDragResize } from './useRegionDragResize.js';
 import type { Edge } from './useRegionDragResize.js';
+import type { RegionCrop } from '@rough-cut/project-model';
+import { CropOverlay } from './CropOverlay.js';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -51,6 +53,17 @@ export interface TemplatePreviewRendererProps {
   cameraRectOverride?: Rect;
   /** Force the debug overlay on (Ctrl+Shift+D also toggles it) */
   showDebugOverlay?: boolean;
+  /** Screen crop state */
+  screenCrop?: RegionCrop;
+  /** Whether crop editing mode is active */
+  cropModeActive?: boolean;
+  /** Toggle crop mode */
+  onCropModeChange?: (active: boolean) => void;
+  /** Update crop rect */
+  onScreenCropChange?: (patch: Partial<RegionCrop>) => void;
+  /** Source resolution for crop math */
+  sourceWidth?: number;
+  sourceHeight?: number;
 }
 
 // ─── z-index helpers ──────────────────────────────────────────────────────────
@@ -79,6 +92,12 @@ export function TemplatePreviewRenderer({
   screenRectOverride,
   cameraRectOverride,
   showDebugOverlay = false,
+  screenCrop,
+  cropModeActive = false,
+  onCropModeChange,
+  onScreenCropChange,
+  sourceWidth = 1920,
+  sourceHeight = 1080,
 }: TemplatePreviewRendererProps) {
   // ── Container measurement ────────────────────────────────────────────────
 
@@ -158,9 +177,41 @@ export function TemplatePreviewRenderer({
     [interactionEnabled, cameraRect, startResize],
   );
 
+  const handleScreenDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (!onCropModeChange || !onScreenCropChange) return;
+    e.stopPropagation();
+    // Auto-enable crop with 10% inset if not enabled
+    if (!screenCrop?.enabled) {
+      const insetX = Math.round(sourceWidth * 0.1);
+      const insetY = Math.round(sourceHeight * 0.1);
+      onScreenCropChange({
+        enabled: true,
+        x: insetX,
+        y: insetY,
+        width: sourceWidth - insetX * 2,
+        height: sourceHeight - insetY * 2,
+      });
+    }
+    onCropModeChange(true);
+  }, [onCropModeChange, onScreenCropChange, screenCrop?.enabled, sourceWidth, sourceHeight]);
+
   // ── Debug overlay ─────────────────────────────────────────────────────────
 
   const [debugVisible] = useDebugToggle(showDebugOverlay);
+
+  // Escape exits crop mode
+  useEffect(() => {
+    if (!cropModeActive || !onCropModeChange) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCropModeChange(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [cropModeActive, onCropModeChange]);
+
+  // ── Crop overlay ref ──────────────────────────────────────────────────────
+
+  const screenCropWrapperRef = useRef<HTMLDivElement>(null);
 
   const debugRects = [
     { rect: canvasRect, label: 'canvas', color: DEBUG_COLORS.canvas },
@@ -198,7 +249,7 @@ export function TemplatePreviewRenderer({
       }}
     >
       {/* Screen frame */}
-      {screenRect && (
+      {screenRect && !cropModeActive && (
         <MediaFrame
           frame={screenRect}
           fitMode="fill"
@@ -214,6 +265,7 @@ export function TemplatePreviewRenderer({
           onPointerEnter={() => setHoveredRegion('screen')}
           onPointerLeave={() => { if (!isDragging) setHoveredRegion(null); }}
           onPointerDown={handleScreenPointerDown}
+          onDoubleClick={handleScreenDoubleClick}
           onResizeStart={handleScreenResizeStart}
         >
           {screenContent}
@@ -240,6 +292,31 @@ export function TemplatePreviewRenderer({
         >
           {cameraContent}
         </MediaFrame>
+      )}
+
+      {/* Crop overlay — positioned at screen frame */}
+      {cropModeActive && screenCrop?.enabled && screenRect && onScreenCropChange && (
+        <div
+          ref={screenCropWrapperRef}
+          style={{
+            position: 'absolute',
+            left: screenRect.x,
+            top: screenRect.y,
+            width: screenRect.width,
+            height: screenRect.height,
+            zIndex: 30,
+            overflow: 'visible',
+          }}
+        >
+          <CropOverlay
+            crop={screenCrop}
+            sourceWidth={sourceWidth}
+            sourceHeight={sourceHeight}
+            onCropChange={onScreenCropChange}
+            containerRef={screenCropWrapperRef}
+            onExit={onCropModeChange ? () => onCropModeChange(false) : undefined}
+          />
+        </div>
       )}
 
       {/* Debug overlay — always last child so it renders on top */}

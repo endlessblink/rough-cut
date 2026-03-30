@@ -41,6 +41,7 @@ export interface MediaFrameProps {
   onPointerEnter?: () => void;
   onPointerLeave?: () => void;
   onPointerDown?: (e: React.PointerEvent) => void;
+  onDoubleClick?: (e: React.MouseEvent) => void;
   /** Resize handle handler */
   onResizeStart?: (edge: Edge, e: React.PointerEvent) => void;
 }
@@ -88,6 +89,7 @@ export function MediaFrame({
   onPointerEnter,
   onPointerLeave,
   onPointerDown,
+  onDoubleClick,
   onResizeStart,
 }: MediaFrameProps) {
   // Circular frames override borderRadius to '50%'
@@ -130,6 +132,7 @@ export function MediaFrame({
         onPointerEnter={onPointerEnter}
         onPointerLeave={onPointerLeave}
         onPointerDown={onPointerDown}
+        onDoubleClick={onDoubleClick}
       >
         <div
           style={{
@@ -193,6 +196,7 @@ export function MediaFrame({
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       onPointerDown={onPointerDown}
+      onDoubleClick={onDoubleClick}
     >
       <div style={{ position: 'absolute', inset: 0 }}>
         {children}

@@ -119,11 +119,8 @@ export class PreviewCompositor {
         this.config.width = width;
         this.config.height = height;
         this.app.renderer.resize(width, height);
-        // Re-apply fill CSS — renderer.resize() with autoDensity overwrites inline styles
-        const canvas = this.app.canvas as HTMLCanvasElement;
-        canvas.style.width = '100%';
-        canvas.style.height = '100%';
-        canvas.style.objectFit = 'fill';
+        // CSS !important in use-compositor.ts handles display sizing —
+        // PixiJS can't override it, so no manual restore needed here.
       }
       this.renderCurrentFrame();
     }

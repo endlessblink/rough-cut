@@ -61,14 +61,9 @@ function attachCanvasToHost(host: HTMLDivElement): void {
     host.appendChild(canvas);
   }
 
-  // Fill the host frame — use object-fit so the canvas scales correctly
-  // regardless of native resolution vs frame aspect ratio.
-  canvas.style.position = '';
-  canvas.style.inset = '';
-  canvas.style.display = 'block';
-  canvas.style.width = '100%';
-  canvas.style.height = '100%';
-  canvas.style.objectFit = 'fill';
+  // Force canvas to fill host via CSS !important — PixiJS renderer.resize()
+  // overwrites inline styles, but !important in a style attribute wins.
+  canvas.style.cssText = 'position:absolute !important;inset:0 !important;width:100% !important;height:100% !important;display:block !important;';
 }
 
 /**
