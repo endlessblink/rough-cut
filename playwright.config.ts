@@ -11,4 +11,10 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
+  webServer: {
+    command: 'pnpm -F @rough-cut/desktop dev:vite',
+    url: 'http://127.0.0.1:7544',
+    reuseExistingServer: true,
+    timeout: 30_000,
+  },
 });

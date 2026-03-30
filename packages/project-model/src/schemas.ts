@@ -58,12 +58,20 @@ export const ProjectSettingsSchema = z.object({
 
 // --- ZoomMarker ---
 
+export const ZoomFocalPointSchema = z.object({
+  x: unit,
+  y: unit,
+});
+
 export const ZoomMarkerSchema = z.object({
   id: z.string().min(1),
   startFrame: nonNegativeInt,
   endFrame: nonNegativeInt,
   kind: z.enum(['auto', 'manual']),
   strength: unit,
+  focalPoint: ZoomFocalPointSchema,
+  zoomInDuration: nonNegativeInt,
+  zoomOutDuration: nonNegativeInt,
 });
 
 // --- ZoomPresentation ---
@@ -83,6 +91,16 @@ export const CursorPresentationSchema = z.object({
   clickEffect: ClickEffectSchema,
   sizePercent: z.number().min(50).max(150),
   clickSoundEnabled: z.boolean(),
+});
+
+export const CursorEventTypeSchema = z.enum(['move', 'down', 'up', 'scroll']);
+
+export const CursorEventSchema = z.object({
+  frame: nonNegativeInt,
+  x: z.number(),
+  y: z.number(),
+  type: CursorEventTypeSchema,
+  button: z.union([z.literal(0), z.literal(1), z.literal(2)]),
 });
 
 // --- CameraPresentation ---

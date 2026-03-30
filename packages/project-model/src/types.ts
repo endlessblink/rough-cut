@@ -13,6 +13,10 @@ export type PresetId = string & { readonly __brand: 'PresetId' };
  */
 export type Frame = number;
 
+// Cursor event types for recording sidecar data
+export type CursorEventType = 'move' | 'down' | 'up' | 'scroll';
+export type MouseButton = 0 | 1 | 2; // left | middle | right
+
 // Union types
 export type EasingType = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'cubic-bezier';
 export type AssetType = 'video' | 'audio' | 'image' | 'recording';
@@ -47,12 +51,20 @@ export interface ProjectSettings {
 
 export type ZoomMarkerId = string & { readonly __brand: 'ZoomMarkerId' };
 
+export interface ZoomFocalPoint {
+  readonly x: number; // normalized 0–1 within source frame
+  readonly y: number; // normalized 0–1
+}
+
 export interface ZoomMarker {
   readonly id: ZoomMarkerId;
   readonly startFrame: Frame;
   readonly endFrame: Frame;
   readonly kind: 'auto' | 'manual';
   readonly strength: number; // 0–1
+  readonly focalPoint: ZoomFocalPoint;
+  readonly zoomInDuration: Frame;
+  readonly zoomOutDuration: Frame;
 }
 
 export interface ZoomPresentation {
@@ -68,6 +80,14 @@ export interface CursorPresentation {
   readonly clickEffect: ClickEffect;
   readonly sizePercent: number; // 50–150
   readonly clickSoundEnabled: boolean;
+}
+
+export interface CursorEvent {
+  readonly frame: Frame;
+  readonly x: number;
+  readonly y: number;
+  readonly type: CursorEventType;
+  readonly button: MouseButton;
 }
 
 export type CameraShape = 'circle' | 'rounded' | 'square';

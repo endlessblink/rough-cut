@@ -4,6 +4,7 @@
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test",
+    "test:e2e": "xvfb-run --auto-servernum playwright test",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
@@ -15,7 +16,8 @@
     "playwright": "^1.58.2",
     "prettier": "^3.4.0",
     "turbo": "^2.4.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "uiohook-napi": "^1.5.5"
   },
   "packageManager": "pnpm@9.15.0",
   "engines": {

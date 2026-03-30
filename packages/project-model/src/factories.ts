@@ -167,6 +167,9 @@ export function createZoomMarker(
     endFrame,
     kind: 'manual',
     strength: 1,
+    focalPoint: { x: 0.5, y: 0.5 },
+    zoomInDuration: 9,  // ~0.3s at 30fps
+    zoomOutDuration: 9,
     ...overrides,
   };
 }

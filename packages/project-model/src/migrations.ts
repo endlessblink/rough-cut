@@ -14,12 +14,36 @@ export interface Migration {
 
 /**
  * Registry of all migrations, ordered by fromVersion.
- * v1 is the current (and first) version, so the registry starts empty.
- * When v2 is added, a migration from 1 -> 2 will be registered here.
  */
 const migrations: readonly Migration[] = [
-  // Example for future:
-  // { fromVersion: 1, toVersion: 2, migrate: (doc) => ({ ...doc, version: 2, newField: 'default' }) },
+  {
+    fromVersion: 1,
+    toVersion: 2,
+    migrate: (doc) => {
+      const assets = (doc['assets'] as Array<Record<string, unknown>>) ?? [];
+      const migratedAssets = assets.map((asset) => {
+        const pres = asset['presentation'] as Record<string, unknown> | undefined;
+        if (!pres) return asset;
+        const zoom = pres['zoom'] as Record<string, unknown> | undefined;
+        if (!zoom) return asset;
+        const markers = (zoom['markers'] as Array<Record<string, unknown>>) ?? [];
+        const migratedMarkers = markers.map((m) => ({
+          ...m,
+          focalPoint: m['focalPoint'] ?? { x: 0.5, y: 0.5 },
+          zoomInDuration: m['zoomInDuration'] ?? 9,
+          zoomOutDuration: m['zoomOutDuration'] ?? 9,
+        }));
+        return {
+          ...asset,
+          presentation: {
+            ...pres,
+            zoom: { ...zoom, markers: migratedMarkers },
+          },
+        };
+      });
+      return { ...doc, version: 2, assets: migratedAssets };
+    },
+  },
 ];
 
 /**

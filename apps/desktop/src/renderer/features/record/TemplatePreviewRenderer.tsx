@@ -178,22 +178,10 @@ export function TemplatePreviewRenderer({
   );
 
   const handleScreenDoubleClick = useCallback((e: React.MouseEvent) => {
-    if (!onCropModeChange || !onScreenCropChange) return;
+    if (!onCropModeChange || !screenCrop?.enabled) return;
     e.stopPropagation();
-    // Auto-enable crop with 10% inset if not enabled
-    if (!screenCrop?.enabled) {
-      const insetX = Math.round(sourceWidth * 0.1);
-      const insetY = Math.round(sourceHeight * 0.1);
-      onScreenCropChange({
-        enabled: true,
-        x: insetX,
-        y: insetY,
-        width: sourceWidth - insetX * 2,
-        height: sourceHeight - insetY * 2,
-      });
-    }
     onCropModeChange(true);
-  }, [onCropModeChange, onScreenCropChange, screenCrop?.enabled, sourceWidth, sourceHeight]);
+  }, [onCropModeChange, screenCrop?.enabled]);
 
   // ── Debug overlay ─────────────────────────────────────────────────────────
 

@@ -30,7 +30,7 @@ import { CountdownOverlay } from './CountdownOverlay.js';
 import { SourcePickerPopup } from './SourcePickerPopup.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
 import { RecordingPlaybackVideo } from './RecordingPlaybackVideo.js';
-import { LAYOUT_TEMPLATES } from './templates.js';
+import { LAYOUT_TEMPLATES, resolutionForAspectRatio } from './templates.js';
 import type { LayoutTemplate } from './templates.js';
 import type { Rect } from './template-layout/types.js';
 import { getCardAspect } from './template-layout/index.js';
@@ -65,6 +65,16 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const [screenRectOverride, setScreenRectOverride] = useState<Rect | undefined>();
   const [cameraRectOverride, setCameraRectOverride] = useState<Rect | undefined>();
   const [cropModeActive, setCropModeActive] = useState(false);
+
+  // Sync resolution with default template on mount — prevents stale resolution
+  // from a previously selected template (e.g. 1:1 "Talking Head" → 1080×1080)
+  useEffect(() => {
+    const expected = resolutionForAspectRatio(activeTemplate.aspectRatio);
+    const current = projectStore.getState().project.settings.resolution;
+    if (current.width !== expected.width || current.height !== expected.height) {
+      projectStore.getState().updateSettings({ resolution: expected });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const {
     state,
@@ -180,6 +190,11 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     setActiveTemplate(template);
     setScreenRectOverride(undefined);
     setCameraRectOverride(undefined);
+    setCropModeActive(false);
+    setScreenCrop(createDefaultRegionCrop(
+      resolutionForAspectRatio(template.aspectRatio).width,
+      resolutionForAspectRatio(template.aspectRatio).height,
+    ));
   }, []);
 
   const handleRegionChange = useCallback((region: 'screen' | 'camera', rect: Rect) => {
