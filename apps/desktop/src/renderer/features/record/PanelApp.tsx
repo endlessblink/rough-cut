@@ -367,36 +367,6 @@ function VideoPreview({ stream, countdownSeconds, isCountingDown, cameraStream }
     if (node && cameraStream) {
       node.srcObject = cameraStream;
       void node.play().catch(() => {});
-      const track = cameraStream.getVideoTracks()[0];
-      const trackSettings = track?.getSettings();
-      console.info(`[VideoPreview] Camera ref attached | track: ${track?.id?.slice(0,8)} ${trackSettings?.width}x${trackSettings?.height}@${trackSettings?.frameRate}`);
-      // Log actual video dimensions once decoder produces first frame
-      node.addEventListener('loadedmetadata', () => {
-        const srcStream = node.srcObject as MediaStream | null;
-        const srcTrack = srcStream?.getVideoTracks()[0];
-        const srcSettings = srcTrack?.getSettings();
-        console.info(`[VideoPreview] Camera loadedmetadata | videoEl: ${node.videoWidth}x${node.videoHeight} | srcTrack: ${srcTrack?.id?.slice(0,8)} ${srcSettings?.width}x${srcSettings?.height} | match=${track?.id === srcTrack?.id}`);
-      }, { once: true });
-
-      // Measure actual frame paint rate
-      let cancelled = false;
-      let frameCount = 0;
-      let start = performance.now();
-      const onFrame = () => {
-        if (cancelled) return;
-        frameCount++;
-        const now = performance.now();
-        if (now - start >= 2000) {
-          const fps = (frameCount / ((now - start) / 1000)).toFixed(1);
-          console.info(`[VideoPreview] Camera PAINTED: ${fps} fps | video: ${node.videoWidth}x${node.videoHeight} srcObject=${node.srcObject ? 'yes' : 'NONE'}`);
-          frameCount = 0;
-          start = now;
-        }
-        node.requestVideoFrameCallback(onFrame);
-      };
-      if ('requestVideoFrameCallback' in node) {
-        node.requestVideoFrameCallback(onFrame);
-      }
     }
   }, [cameraStream]);
 

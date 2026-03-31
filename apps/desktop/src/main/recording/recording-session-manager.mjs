@@ -767,10 +767,11 @@ export function initSessionManager(win, sourceInfoGetter) {
       if (ffmpegHandle && existsSync(ffmpegHandle.outputPath)) {
         console.info('[session-manager] Using FFmpeg x11grab output (no cursor):', ffmpegHandle.outputPath);
         result = await saveRecordingFromFile(ffmpegHandle.outputPath, projectDir, metadata);
-        // Still save camera if present
+        // Save camera recording if present (MediaRecorder path — no FFmpeg for camera)
         if (camBuf) {
-          const { saveRecording: saveCam } = await import('./capture-service.mjs');
-          // Camera uses the MediaRecorder path — no FFmpeg capture for camera
+          const { saveCameraRecording } = await import('./capture-service.mjs');
+          const cameraPath = await saveCameraRecording(camBuf, ffmpegHandle.outputPath);
+          result.cameraFilePath = cameraPath;
         }
         ffmpegHandle = null;
       } else {

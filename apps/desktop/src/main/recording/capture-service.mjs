@@ -1,6 +1,6 @@
 import { desktopCapturer } from 'electron';
-import { join, dirname } from 'node:path';
-import { mkdirSync, existsSync, renameSync, unlinkSync } from 'node:fs';
+import { join, dirname, basename } from 'node:path';
+import { mkdirSync, existsSync, renameSync, unlinkSync, copyFileSync, statSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { execSync } from 'node:child_process';
 
@@ -142,5 +142,103 @@ export async function saveRecording(buffer, projectDir, metadata, cameraBuffer) 
     fileSize: Buffer.from(buffer).byteLength,
     thumbnailPath,
     ...(cameraFilePath ? { cameraFilePath } : {}),
+  };
+}
+
+/**
+ * Save a camera recording buffer alongside an existing screen recording.
+ * Derives the filename from the screen recording path and remuxes for seeking.
+ *
+ * @param {Buffer} camBuf  Camera recording bytes
+ * @param {string} screenFilePath  Path to the screen recording (used to derive filename)
+ * @returns {Promise<string>}  Path to the saved camera file
+ */
+export async function saveCameraRecording(camBuf, screenFilePath) {
+  const recordingsDir = dirname(screenFilePath);
+  const timestamp = basename(screenFilePath).replace(/^recording-/, '').replace(/\.webm$/, '');
+  const cameraPath = join(recordingsDir, `recording-${timestamp}-camera.webm`);
+  await writeFile(cameraPath, camBuf);
+  remuxForSeeking(cameraPath);
+  console.info('[capture-service] Camera recording saved:', cameraPath, camBuf.byteLength, 'bytes');
+  return cameraPath;
+}
+
+/**
+ * Save a recording from an already-written file on disk (e.g. from FFmpeg x11grab).
+ * Moves/copies it to the project recordings dir, probes with ffprobe, generates thumbnail.
+ *
+ * @param {string} srcFilePath  Path to the existing video file
+ * @param {string} projectDir   Project directory (recordings saved in a sub-folder)
+ * @param {{fps: number, width: number, height: number, durationMs: number}} metadata
+ * @returns {Promise<{filePath: string, durationFrames: number, width: number, height: number, fps: number, codec: string, fileSize: number, thumbnailPath: string | null}>}
+ */
+export async function saveRecordingFromFile(srcFilePath, projectDir, metadata) {
+  const recordingsDir = join(projectDir || '/tmp/rough-cut', 'recordings');
+  if (!existsSync(recordingsDir)) mkdirSync(recordingsDir, { recursive: true });
+
+  // Move or copy the file to the recordings dir
+  const filename = basename(srcFilePath);
+  const destPath = join(recordingsDir, filename);
+  if (srcFilePath !== destPath) {
+    try {
+      renameSync(srcFilePath, destPath);
+    } catch {
+      // Cross-device move — fall back to copy + delete
+      copyFileSync(srcFilePath, destPath);
+      try { unlinkSync(srcFilePath); } catch { /* ignore */ }
+    }
+  }
+
+  // Probe with ffprobe
+  let probedMeta = { durationMs: 0, width: 0, height: 0, fps: 0, codec: 'unknown' };
+  try {
+    const probeResult = execSync(
+      `ffprobe -v quiet -print_format json -show_format -show_streams "${destPath}"`,
+      { encoding: 'utf-8' },
+    );
+    const info = JSON.parse(probeResult);
+    const videoStream = info.streams?.find((s) => s.codec_type === 'video');
+    probedMeta = {
+      durationMs: parseFloat(info.format?.duration || '0') * 1000,
+      width: videoStream ? parseInt(videoStream.width, 10) : 0,
+      height: videoStream ? parseInt(videoStream.height, 10) : 0,
+      fps: videoStream?.r_frame_rate ? parseFps(videoStream.r_frame_rate) : 30,
+      codec: videoStream?.codec_name || 'unknown',
+    };
+  } catch {
+    console.warn('[capture-service] ffprobe failed on FFmpeg output — using fallback metadata');
+  }
+
+  const fps = metadata.fps || probedMeta.fps || 30;
+  const durationMs = probedMeta.durationMs || metadata.durationMs || 0;
+  const durationFrames = Math.round((durationMs / 1000) * fps);
+
+  // Generate thumbnail
+  let thumbnailPath = null;
+  try {
+    const thumbFilename = filename.replace(/\.\w+$/, '-thumb.jpg');
+    thumbnailPath = join(recordingsDir, thumbFilename);
+    const seekTime = durationMs > 2000 ? '2' : '0';
+    execSync(
+      `ffmpeg -y -ss ${seekTime} -i "${destPath}" -frames:v 1 -q:v 5 -vf scale=640:-1 "${thumbnailPath}"`,
+      { timeout: 10000, stdio: 'pipe' },
+    );
+  } catch {
+    thumbnailPath = null;
+  }
+
+  const fileSize = existsSync(destPath) ? statSync(destPath).size : 0;
+
+  console.info('[capture-service] FFmpeg recording saved:', destPath, `(${durationFrames} frames, ${probedMeta.width}x${probedMeta.height})`);
+
+  return {
+    filePath: destPath,
+    durationFrames,
+    width: probedMeta.width || metadata.width || 1920,
+    height: probedMeta.height || metadata.height || 1080,
+    fps,
+    codec: probedMeta.codec,
+    fileSize,
+    thumbnailPath,
   };
 }

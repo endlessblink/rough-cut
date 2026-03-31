@@ -101,43 +101,17 @@ export function useCanvasComposite(
   // rAF draw loop.
   useEffect(() => {
     let disposed = false;
-    let _drawCount = 0;
-    let _newScreenFrames = 0;
-    let _newCamFrames = 0;
-    let _fpsStart = performance.now();
-    let _lastScreenTime = -1;
-    let _lastCamTime = -1;
-    let _rafCount = 0;
 
     const draw = (now: number) => {
       if (disposed) return;
       rafRef.current = requestAnimationFrame(draw);
-      _rafCount++;
 
       // Cap at ~30 fps.
       if (now - lastFrameTimeRef.current < FRAME_INTERVAL_MS) return;
       lastFrameTimeRef.current = now;
 
-      // Track actual new frames vs stale redraws
       const sv = screenVideoRef.current;
       const cv = cameraVideoRef.current;
-      if (sv && sv.currentTime !== _lastScreenTime) { _newScreenFrames++; _lastScreenTime = sv.currentTime; }
-      if (cv && cv.currentTime !== _lastCamTime) { _newCamFrames++; _lastCamTime = cv.currentTime; }
-
-      _drawCount++;
-      if (now - _fpsStart >= 2000) {
-        const elapsed = (now - _fpsStart) / 1000;
-        const drawFps = (_drawCount / elapsed).toFixed(1);
-        const screenFps = (_newScreenFrames / elapsed).toFixed(1);
-        const camFps = (_newCamFrames / elapsed).toFixed(1);
-        const rafFps = (_rafCount / elapsed).toFixed(0);
-        console.info(`[CanvasComposite] draw=${drawFps}fps (rAF=${rafFps}) | screen: NEW=${screenFps}fps ready=${sv?.readyState} ${sv?.videoWidth}x${sv?.videoHeight} | camera: NEW=${camFps}fps ready=${cv?.readyState} ${cv?.videoWidth}x${cv?.videoHeight}`);
-        _drawCount = 0;
-        _newScreenFrames = 0;
-        _newCamFrames = 0;
-        _rafCount = 0;
-        _fpsStart = now;
-      }
 
       const canvas = canvasRef.current;
       if (!canvas) return;

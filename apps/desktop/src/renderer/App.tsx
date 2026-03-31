@@ -81,6 +81,22 @@ export function App() {
 
   // --- Recording integration ---
   const handleRecordingComplete = useCallback((result: RecordingResult) => {
+    // Auto-save the current project before replacing it — fire and forget
+    const currentPath = projectStore.getState().projectFilePath;
+    const currentProject = projectStore.getState().project;
+    if (currentPath && projectStore.getState().isDirty) {
+      window.roughcut.projectAutoSave(currentProject, currentPath).catch((err) => {
+        console.error('[auto-save] Failed to save previous project:', err);
+      });
+    }
+
+    // Create and load a fresh project for this recording
+    const freshProject = createProject({ name: generateProjectName() });
+    projectStore.getState().setProject(freshProject);
+    projectStore.getState().setProjectFilePath(null);
+    projectStore.getState().setActiveAssetId(null);
+    transportStore.getState().seekToFrame(0);
+
     // If a camera file was saved alongside the screen recording, create a camera asset first
     let cameraAssetId: string | undefined;
     console.log('[App] Recording result cameraFilePath:', result.cameraFilePath ?? 'NONE');
@@ -127,6 +143,34 @@ export function App() {
       });
       store.addClip(videoTrack.id, clip);
 
+      // Add camera clip on a higher video track (renders on top of screen as PiP)
+      if (cameraAssetId) {
+        const allVideoTracks = store.project.composition.tracks
+          .filter((t) => t.type === 'video')
+          .sort((a, b) => b.index - a.index);
+        // Use a different video track (higher z-index) so camera renders on top
+        const cameraTrack = allVideoTracks.find((t) => t.id !== videoTrack.id) ?? videoTrack;
+        const cameraClip = createClip(cameraAssetId, cameraTrack.id, {
+          timelineIn: 0,
+          timelineOut: clipDuration,
+          sourceIn: 0,
+          sourceOut: clipDuration,
+          // PiP: bottom-right corner, 20% size
+          transform: {
+            x: 0.78,
+            y: 0.78,
+            scaleX: 0.2,
+            scaleY: 0.2,
+            rotation: 0,
+            anchorX: 0.5,
+            anchorY: 0.5,
+            opacity: 1,
+          },
+        });
+        store.addClip(cameraTrack.id, cameraClip);
+        console.log('[App] Camera clip created on track:', cameraTrack.name, cameraClip.id);
+      }
+
       // Update composition duration
       const newDuration = Math.max(
         projectStore.getState().project.composition.duration,
@@ -138,10 +182,10 @@ export function App() {
       }));
     }
 
-    // Auto-save silently after recording — fire and forget, never blocks the UI
-    const currentPath = projectStore.getState().projectFilePath;
+    // Auto-save the new project silently — fire and forget
+    const newPath = projectStore.getState().projectFilePath;
     const updatedProject = projectStore.getState().project;
-    window.roughcut.projectAutoSave(updatedProject, currentPath ?? undefined)
+    window.roughcut.projectAutoSave(updatedProject, newPath ?? undefined)
       .then((savedPath) => {
         projectStore.getState().setProjectFilePath(savedPath);
         projectStore.getState().markSaved();
@@ -149,6 +193,9 @@ export function App() {
       .catch((err) => {
         console.error('[auto-save] Failed to save after recording:', err);
       });
+
+    // Set active asset so Record tab focuses on this recording
+    projectStore.getState().setActiveAssetId(asset.id);
   }, []);
 
   // --- Listen for recordings from the floating panel window ---
@@ -156,6 +203,7 @@ export function App() {
     const unsub = window.roughcut.onRecordingAssetReady((result) => {
       console.info('[App] Recording asset received from panel:', result.filePath);
       handleRecordingComplete(result);
+      setActiveTab('record');
     });
     return unsub;
   }, [handleRecordingComplete]);
