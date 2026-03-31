@@ -11,6 +11,7 @@ import type { CursorPresentation, CameraPresentation, RegionCrop } from '@rough-
 import { useRecordState } from './record-state.js';
 import { useRecording } from './use-recording.js';
 import { useLivePreview } from './use-live-preview.js';
+import { useCameraSync } from './use-camera-sync.js';
 import { LivePreviewVideo } from './LivePreviewVideo.js';
 import { RecordScreenLayout } from './RecordScreenLayout.js';
 import { AppHeader } from '../../ui/index.js';
@@ -133,6 +134,9 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const hasRecordingAsset = useProjectStore((s) => s.project.assets.some((a) => a.type === 'recording'));
   const { previewRef } = useCompositor();
 
+  // Sync camera video to transport playhead (pause/play/seek together)
+  useCameraSync(cameraVideoRef.current, projectFps);
+
   // Camera playback — find the camera asset linked to the active recording
   const cameraAsset = useProjectStore((s) => {
     if (!activeRecordingAsset?.cameraAssetId) return null;
@@ -152,14 +156,11 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     const video = document.createElement('video');
     video.src = `media://${cameraAsset.filePath}`;
     video.muted = true;
-    video.loop = true;
     video.playsInline = true;
-    video.autoplay = true;
+    // No autoplay/loop — useCameraSync controls playback
     video.style.width = '100%';
     video.style.height = '100%';
     video.style.objectFit = 'cover';
-    video.style.borderRadius = '50%';
-    void video.play().catch(() => {});
     cameraVideoRef.current = video;
 
     return () => {

@@ -515,7 +515,7 @@ export function PreviewCard({
     zIndex: number,
     content: React.ReactNode | undefined,
   ) => {
-    const isCircle = kind === 'camera' && layout.kind === 'PIP';
+    const isCircle = kind === 'camera' && layout.cameraShape === 'circle';
     const isSocialVertScreen = layout.kind === 'SOCIAL_VERTICAL' && kind === 'screen';
     const isCropActive = cropModeActive && kind === 'screen';
     const isHovered = hoveredRegion === kind;
@@ -558,7 +558,9 @@ export function PreviewCard({
             position: 'relative',
             ...(isSocialVertScreen
               ? { width: '100%', height: '100%' }
-              : { width: '100%', height: 'auto', maxWidth: '100%', maxHeight: '100%', flex: '0 1 auto', aspectRatio: contentAspect }
+              : isCircle
+                ? { width: 'auto', height: '100%', maxWidth: '100%', aspectRatio: '1', flex: '0 0 auto' }
+                : { width: '100%', height: 'auto', maxWidth: '100%', maxHeight: '100%', flex: '0 1 auto', aspectRatio: contentAspect }
             ),
             borderRadius: frameRadius,
             boxShadow: kind === 'screen' ? shadow : 'none',

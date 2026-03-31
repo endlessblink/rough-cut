@@ -368,8 +368,18 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { stream: true, bypassCSP: true } },
 ]);
 
-// Enable PipeWire camera support on Linux (must be before app.ready)
-app.commandLine.appendSwitch('enable-features', 'WebRtcPipeWireCamera');
+// Enable PipeWire camera + hardware video decode on Linux (must be before app.ready)
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch(
+    'enable-features',
+    'WebRtcPipeWireCamera,AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL',
+  );
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
+  app.commandLine.appendSwitch('enable-gpu-rasterization');
+  app.commandLine.appendSwitch('enable-zero-copy');
+} else {
+  app.commandLine.appendSwitch('enable-features', 'WebRtcPipeWireCamera');
+}
 
 app.whenReady().then(() => {
   // Permission CHECK handler (synchronous pre-flight — getUserMedia needs this)

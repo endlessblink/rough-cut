@@ -36,6 +36,8 @@ export interface LayoutTemplate {
   screenRect: NormalizedRect | null;
   cameraRect: NormalizedRect | null;
   zOrder: 'screen-above' | 'camera-above';
+  /** Camera shape for this template: circle for PIP, rectangle for splits */
+  cameraShape: 'circle' | 'rectangle';
 }
 
 export type InstanceLayout = {
@@ -201,6 +203,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     screenRect: { x: 0, y: 0, w: 1, h: 1 },
     cameraRect: null,
     zOrder: 'screen-above',
+    cameraShape: 'rectangle',
   },
   {
     id: 'screen-cam-br-16x9',
@@ -211,6 +214,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     screenRect: { x: 0, y: 0, w: 1, h: 1 },
     cameraRect: { x: 0.72, y: 0.70, w: 0.24, h: 0.26 },
     zOrder: 'camera-above',
+    cameraShape: 'circle',
   },
   {
     id: 'screen-cam-bl-16x9',
@@ -221,6 +225,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     screenRect: { x: 0, y: 0, w: 1, h: 1 },
     cameraRect: { x: 0.04, y: 0.70, w: 0.24, h: 0.26 },
     zOrder: 'camera-above',
+    cameraShape: 'circle',
   },
   {
     id: 'presentation-16x9',
@@ -231,6 +236,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     screenRect: { x: 0.38, y: 0, w: 0.62, h: 1 },
     cameraRect: { x: 0.02, y: 0.1, w: 0.34, h: 0.8 },
     zOrder: 'camera-above',
+    cameraShape: 'rectangle',
   },
   {
     id: 'tutorial-16x9',
@@ -241,6 +247,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     screenRect: { x: 0, y: 0, w: 1, h: 1 },
     cameraRect: { x: 0.72, y: 0.70, w: 0.24, h: 0.26 },
     zOrder: 'camera-above',
+    cameraShape: 'circle',
   },
   {
     id: 'standard-4x3',
@@ -251,6 +258,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     screenRect: { x: 0, y: 0, w: 1, h: 1 },
     cameraRect: null,
     zOrder: 'screen-above',
+    cameraShape: 'rectangle',
   },
   // ── Portrait (9:16) ──
   {
@@ -262,6 +270,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     screenRect: { x: 0, y: 0, w: 1, h: 0.5 },
     cameraRect: { x: 0, y: 0.52, w: 1, h: 0.48 },
     zOrder: 'camera-above',
+    cameraShape: 'rectangle',
   },
   // ── Square (1:1) ──
   {
@@ -273,5 +282,6 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     screenRect: { x: 0, y: 0.52, w: 1, h: 0.48 },
     cameraRect: { x: 0, y: 0, w: 1, h: 0.50 },
     zOrder: 'camera-above',
+    cameraShape: 'rectangle',
   },
 ];
