@@ -16,6 +16,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { CaptureSource, RecordingMetadata } from '../../env.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
 import { formatElapsed } from './format-elapsed.js';
+import { useCanvasComposite } from './use-canvas-composite.js';
 
 // ─── Design tokens ─────────────────────────────────────────────────────────
 
@@ -350,32 +351,7 @@ interface VideoPreviewProps {
 }
 
 function VideoPreview({ stream, countdownSeconds, isCountingDown, cameraStream }: VideoPreviewProps) {
-  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
-  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
-
-  // Attach screen stream
-  useEffect(() => {
-    const el = screenVideoRef.current;
-    if (!el) return;
-    if (stream) {
-      el.srcObject = stream;
-      void el.play().catch(() => {});
-    } else {
-      el.srcObject = null;
-    }
-  }, [stream]);
-
-  // Attach camera stream
-  useEffect(() => {
-    const el = cameraVideoRef.current;
-    if (!el) return;
-    if (cameraStream) {
-      el.srcObject = cameraStream;
-      void el.play().catch(() => {});
-    } else {
-      el.srcObject = null;
-    }
-  }, [cameraStream]);
+  const { canvasRef } = useCanvasComposite(stream, cameraStream);
 
   return (
     <div
@@ -389,69 +365,42 @@ function VideoPreview({ stream, countdownSeconds, isCountingDown, cameraStream }
         margin: '0 10px',
       }}
     >
-      {stream ? (
-        <video
-          ref={screenVideoRef}
-          autoPlay
-          muted
-          playsInline
+      {/* Single composited canvas — replaces the two separate video elements */}
+      <canvas
+        ref={canvasRef}
+        width={640}
+        height={360}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          // canvas has no native letterbox — the hook already letterboxes into 640×360
+          objectFit: 'fill',
+          borderRadius: R.inner,
+          // Hide the canvas (show placeholder instead) when there's no screen stream
+          display: stream ? 'block' : 'none',
+        }}
+      />
+
+      {/* Placeholder shown when no source is selected */}
+      {!stream && (
+        <div
           style={{
             position: 'absolute',
             inset: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'contain',
-            borderRadius: R.inner,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
           }}
-        />
-      ) : (
-        <>
-          {/* Hidden video so screenVideoRef stays populated */}
-          <video
-            ref={screenVideoRef}
-            autoPlay
-            muted
-            playsInline
-            style={{ display: 'none' }}
-          />
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-            }}
-          >
-            <MonitorIcon size={40} color={C.textSecondary} />
-            <span style={{ fontSize: 12, color: C.textSecondary }}>
-              Select a source to preview
-            </span>
-          </div>
-        </>
-      )}
-
-      {/* Camera PiP overlay */}
-      {cameraStream && (
-        <video
-          ref={cameraVideoRef}
-          autoPlay
-          muted
-          playsInline
-          style={{
-            position: 'absolute',
-            bottom: 8,
-            right: 8,
-            width: 80,
-            height: 80,
-            borderRadius: '50%',
-            objectFit: 'cover',
-            border: '2px solid rgba(255,255,255,0.3)',
-            pointerEvents: 'none',
-          }}
-        />
+        >
+          <MonitorIcon size={40} color={C.textSecondary} />
+          <span style={{ fontSize: 12, color: C.textSecondary }}>
+            Select a source to preview
+          </span>
+        </div>
       )}
 
       {/* Countdown overlay (absolute, within preview bounds) */}
@@ -1143,7 +1092,7 @@ export function PanelApp() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [micEnabled, setMicEnabled] = useState(true);
   const [sysAudioEnabled, setSysAudioEnabled] = useState(false);
-  const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [cameraEnabled, setCameraEnabled] = useState(true);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
 
   // Microphone stream for audio level monitoring (separate from screen capture stream)
