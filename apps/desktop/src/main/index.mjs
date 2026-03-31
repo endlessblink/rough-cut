@@ -368,11 +368,15 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { stream: true, bypassCSP: true } },
 ]);
 
-// Enable PipeWire camera + hardware video decode on Linux (must be before app.ready)
+// Enable hardware video decode on Linux (must be before app.ready)
+// NOTE: WebRtcPipeWireCamera REMOVED — PipeWire ignores getUserMedia resolution
+// constraints, always delivers native camera resolution (1080p) which caps at
+// 5fps YUYV over USB. Without PipeWire, V4L2 direct access honors constraints
+// and can deliver 640x480 YUYV at 30fps.
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch(
     'enable-features',
-    'WebRtcPipeWireCamera,AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL',
+    'AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL',
   );
   app.commandLine.appendSwitch('ignore-gpu-blocklist');
   app.commandLine.appendSwitch('enable-gpu-rasterization');

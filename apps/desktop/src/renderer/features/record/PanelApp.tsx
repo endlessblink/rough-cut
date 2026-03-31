@@ -16,7 +16,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { CaptureSource, RecordingMetadata } from '../../env.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
 import { formatElapsed } from './format-elapsed.js';
-import { useCanvasComposite } from './use-canvas-composite.js';
 
 // ─── Design tokens ─────────────────────────────────────────────────────────
 
@@ -351,7 +350,55 @@ interface VideoPreviewProps {
 }
 
 function VideoPreview({ stream, countdownSeconds, isCountingDown, cameraStream }: VideoPreviewProps) {
-  const { canvasRef } = useCanvasComposite(stream, cameraStream);
+  const screenVideoRef = useRef<HTMLVideoElement>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Attach streams via ref callbacks — avoids StrictMode ref/effect ordering bugs
+  const setScreenRef = useCallback((node: HTMLVideoElement | null) => {
+    screenVideoRef.current = node;
+    if (node && stream) {
+      node.srcObject = stream;
+      void node.play().catch(() => {});
+    }
+  }, [stream]);
+
+  const setCameraRef = useCallback((node: HTMLVideoElement | null) => {
+    cameraVideoRef.current = node;
+    if (node && cameraStream) {
+      node.srcObject = cameraStream;
+      void node.play().catch(() => {});
+      const track = cameraStream.getVideoTracks()[0];
+      const trackSettings = track?.getSettings();
+      console.info(`[VideoPreview] Camera ref attached | track: ${track?.id?.slice(0,8)} ${trackSettings?.width}x${trackSettings?.height}@${trackSettings?.frameRate}`);
+      // Log actual video dimensions once decoder produces first frame
+      node.addEventListener('loadedmetadata', () => {
+        const srcStream = node.srcObject as MediaStream | null;
+        const srcTrack = srcStream?.getVideoTracks()[0];
+        const srcSettings = srcTrack?.getSettings();
+        console.info(`[VideoPreview] Camera loadedmetadata | videoEl: ${node.videoWidth}x${node.videoHeight} | srcTrack: ${srcTrack?.id?.slice(0,8)} ${srcSettings?.width}x${srcSettings?.height} | match=${track?.id === srcTrack?.id}`);
+      }, { once: true });
+
+      // Measure actual frame paint rate
+      let cancelled = false;
+      let frameCount = 0;
+      let start = performance.now();
+      const onFrame = () => {
+        if (cancelled) return;
+        frameCount++;
+        const now = performance.now();
+        if (now - start >= 2000) {
+          const fps = (frameCount / ((now - start) / 1000)).toFixed(1);
+          console.info(`[VideoPreview] Camera PAINTED: ${fps} fps | video: ${node.videoWidth}x${node.videoHeight} srcObject=${node.srcObject ? 'yes' : 'NONE'}`);
+          frameCount = 0;
+          start = now;
+        }
+        node.requestVideoFrameCallback(onFrame);
+      };
+      if ('requestVideoFrameCallback' in node) {
+        node.requestVideoFrameCallback(onFrame);
+      }
+    }
+  }, [cameraStream]);
 
   return (
     <div
@@ -365,23 +412,41 @@ function VideoPreview({ stream, countdownSeconds, isCountingDown, cameraStream }
         margin: '0 10px',
       }}
     >
-      {/* Single composited canvas — replaces the two separate video elements */}
-      <canvas
-        ref={canvasRef}
-        width={640}
-        height={360}
+      {/* Screen preview — GPU-accelerated decode + display via native <video> */}
+      <video
+        ref={setScreenRef}
+        muted
+        playsInline
         style={{
           position: 'absolute',
           inset: 0,
           width: '100%',
           height: '100%',
-          // canvas has no native letterbox — the hook already letterboxes into 640×360
-          objectFit: 'fill',
+          objectFit: 'contain',
           borderRadius: R.inner,
-          // Hide the canvas (show placeholder instead) when there's no screen stream
           display: stream ? 'block' : 'none',
         }}
       />
+
+      {/* Camera PiP — circular overlay, GPU-composited via CSS */}
+      {cameraStream && (
+        <video
+          ref={setCameraRef}
+          muted
+          playsInline
+          style={{
+            position: 'absolute',
+            bottom: 8,
+            right: 8,
+            width: 80,
+            height: 80,
+            borderRadius: '50%',
+            objectFit: 'cover',
+            border: '2px solid rgba(255,255,255,0.3)',
+            zIndex: 2,
+          }}
+        />
+      )}
 
       {/* Placeholder shown when no source is selected */}
       {!stream && (
@@ -1196,9 +1261,13 @@ export function PanelApp() {
     let active = true;
     console.info('[PanelApp] Requesting camera via getUserMedia...');
     navigator.mediaDevices
-      .getUserMedia({ video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 15 } }, audio: false })
+      .getUserMedia({ video: { width: { exact: 640 }, height: { exact: 480 }, frameRate: { ideal: 30 } }, audio: false })
       .then((s) => {
-        console.info('[PanelApp] Camera stream acquired:', s.getVideoTracks().length, 'video tracks');
+        const track = s.getVideoTracks()[0];
+        if (track) {
+          const settings = track.getSettings();
+          console.info(`[PanelApp] Camera stream: ${settings.width}x${settings.height} @ ${settings.frameRate}fps`);
+        }
         if (active) setCameraStream(s);
         else s.getTracks().forEach((t) => t.stop());
       })
@@ -1238,9 +1307,18 @@ export function PanelApp() {
       // getDisplayMedia() is intercepted by main process via setDisplayMediaRequestHandler
       // which uses the selectedSourceId we set above via panelSetSource
       const s = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
+        video: {
+          frameRate: { ideal: 15, max: 20 }, // Low fps for preview — FFmpeg handles full-quality recording
+        },
         audio: true, // system audio via loopback
       });
+      // Try to reduce framerate after acquisition — saves decode work for preview
+      const videoTrack = s.getVideoTracks()[0];
+      if (videoTrack) {
+        void videoTrack.applyConstraints({ frameRate: { ideal: 15, max: 20 } }).catch(() => {});
+        const settings = videoTrack.getSettings();
+        console.info('[PanelApp] Screen track:', settings.width, 'x', settings.height, '@', settings.frameRate, 'fps');
+      }
       streamRef.current = s;
       setStream(s);
       setStatus('ready');

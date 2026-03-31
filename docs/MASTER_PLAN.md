@@ -64,6 +64,7 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | ~~BUG-001~~ | Fix: Compositor canvas sizing + video sprite positioning | P0 | DONE | TASK-007 |
 | ~~BUG-002~~ | Fix: Compositor resizing to template resolution + debug logging cleanup | P0 | ✅ **DONE** (2026-03-30) | BUG-001 |
 | ~~BUG-003~~ | Fix: Video playback + timeline sync across all tabs | P0 | ✅ **DONE** (2026-03-30) | BUG-002 |
+| BUG-004 | No icon shown in dock/taskbar during recording — blank space | P2 | PLANNED | TASK-010 |
 | TASK-014 | Record: Webcam PiP (render in compositor with shape/position) | P0 | TODO | TASK-013 |
 | TASK-015 | Record: Serialize recording effects to clips (bg, corners, shadow → Effect entries) | P0 | TODO | TASK-011 |
 | TASK-016 | Record: Create separate Assets for webcam + audio on stop | P0 | TODO | TASK-012, TASK-014 |
@@ -115,6 +116,8 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | TASK-047 | AI: "Apply Accepted to Timeline" (captions → subtitle effects, zooms → keyframes) | P3 | TODO | TASK-045 |
 | TASK-048 | AI: Background worker/utilityProcess for analysis | P3 | TODO | TASK-040 |
 | TASK-049 | AI: Cloud provider option (API key config) | P3 | TODO | TASK-040 |
+| TASK-073 | AI: Auto-Edit — transcription-based editing via AI (API-first) | P3 | TODO | TASK-042, TASK-040 |
+| TASK-074 | AI: Silence Removal — detect and cut silent segments automatically | P3 | TODO | TASK-042, TASK-040 |
 
 ### Tier 5: Polish & Cross-Cutting
 
