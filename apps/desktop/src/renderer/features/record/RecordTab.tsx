@@ -134,18 +134,17 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const hasRecordingAsset = useProjectStore((s) => s.project.assets.some((a) => a.type === 'recording'));
   const { previewRef } = useCompositor();
 
-  // Sync camera video to transport playhead (pause/play/seek together)
-  useCameraSync(cameraVideoRef.current, projectFps);
-
   // Camera playback — find the camera asset linked to the active recording
   const cameraAsset = useProjectStore((s) => {
     if (!activeRecordingAsset?.cameraAssetId) return null;
     return s.project.assets.find((a) => a.id === activeRecordingAsset.cameraAssetId) ?? null;
   });
 
-  console.log('[RecordTab] activeRecording cameraAssetId:', activeRecordingAsset?.cameraAssetId ?? 'NONE', 'cameraAsset:', cameraAsset ? cameraAsset.filePath : 'NULL');
 
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Sync camera video to transport playhead (pause/play/seek together)
+  useCameraSync(cameraVideoRef.current, projectFps);
 
   // Create / update the camera <video> element when cameraAsset changes
   useEffect(() => {

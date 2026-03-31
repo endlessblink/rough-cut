@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net, session, desktopCapturer } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol, net, session, desktopCapturer, screen } from 'electron';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -469,7 +469,27 @@ app.whenReady().then(() => {
 
   registerIpcHandlers();
   createWindow();
-  initSessionManager(mainWindow);
+
+  // Pass source info getter so the session manager can use FFmpeg x11grab
+  initSessionManager(mainWindow, () => {
+    if (!selectedSourceId) return null;
+    // Parse Electron source ID (e.g. 'screen:0:0') for x11grab display string
+    const isScreen = selectedSourceId.startsWith('screen:');
+    if (!isScreen) return null; // window capture — FFmpeg x11grab can't target a specific window
+
+    // Get the display bounds for the selected screen
+    const displays = screen.getAllDisplays();
+    const screenIndex = parseInt(selectedSourceId.split(':')[1] ?? '0', 10);
+    const display = displays[screenIndex] ?? displays[0];
+    if (!display) return null;
+
+    return {
+      sourceId: selectedSourceId,
+      display: `${process.env.DISPLAY || ':0'}.0+${display.bounds.x},${display.bounds.y}`,
+      width: display.bounds.width,
+      height: display.bounds.height,
+    };
+  });
 });
 
 app.on('window-all-closed', () => {

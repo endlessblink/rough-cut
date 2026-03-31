@@ -33,13 +33,12 @@ import {
   app,
 } from 'electron';
 import { join, dirname } from 'node:path';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../../shared/ipc-channels.mjs';
-import { saveRecording } from './capture-service.mjs';
+import { saveRecording, saveRecordingFromFile } from './capture-service.mjs';
 import { CursorRecorder } from './cursor-recorder.mjs';
-// import { hideCursor, showCursor } from './cursor-hide.mjs';
-// Disabled: XFixesHideCursor hides cursor globally (user can't see it).
-// The system cursor stays in recordings; the custom overlay renders on top during playback.
+import { isFfmpegCaptureAvailable, startFfmpegCapture } from './ffmpeg-capture.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -91,6 +90,12 @@ const cursorRecorder = new CursorRecorder();
 
 /** @type {{ eventsPath: string, eventCount: number } | null} */
 let lastCursorResult = null;
+
+/** @type {import('./ffmpeg-capture.mjs').FfmpegCaptureHandle | null} */
+let ffmpegHandle = null;
+
+/** @type {(() => { sourceId: string, display: string, width: number, height: number } | null) | null} */
+let getSourceInfo = null;
 
 // ---------------------------------------------------------------------------
 // Tiny inline red-circle icon for the tray (8×8 px, base64 PNG)
@@ -308,7 +313,8 @@ export function openPanel() {
     width: PANEL_W,
     height: PANEL_H,
     frame: false,
-    transparent: true,
+    transparent: false,
+    backgroundColor: '#1a1a1a',
     alwaysOnTop: true,
     resizable: false,
     skipTaskbar: true,
@@ -465,18 +471,59 @@ export async function startRecording() {
       console.warn('[session-manager] CursorRecorder failed to start:', err?.message ?? err);
     }
 
+    // Start FFmpeg x11grab capture (cursor-free) on Linux/X11
+    ffmpegHandle = null;
+    if (isFfmpegCaptureAvailable() && getSourceInfo) {
+      const sourceInfo = getSourceInfo();
+      if (sourceInfo) {
+        const ffmpegPath = join(recordingsDir, `recording-${cursorTimestamp}.webm`);
+        try {
+          ffmpegHandle = startFfmpegCapture({
+            outputPath: ffmpegPath,
+            fps: 30,
+            display: sourceInfo.display,
+            width: sourceInfo.width,
+            height: sourceInfo.height,
+          });
+          console.info('[session-manager] FFmpeg x11grab started →', ffmpegPath);
+        } catch (err) {
+          console.warn('[session-manager] FFmpeg capture failed to start:', err?.message ?? err);
+          ffmpegHandle = null;
+        }
+      } else {
+        console.info('[session-manager] No source info — skipping FFmpeg capture (window capture?)');
+      }
+    }
+
     // Hide main window so it cannot appear in the recording.
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.hide();
       console.info('[session-manager] Main window hidden.');
     }
 
-    // Shrink panel to mini-controller (340×56 pill bar).
-    // On macOS/Windows setContentProtection keeps it out of the capture.
-    // On Linux content-protection is a no-op — the pill will appear in the
-    // recording, but a tiny bar is far less intrusive than the full app window.
-    resizePanel('mini');
-    console.info('[session-manager] Panel resized to mini-controller.');
+    // On macOS/Windows: shrink to mini-controller (content-protected, invisible
+    // to capture).  On Linux: setContentProtection is a no-op, so hide the
+    // panel entirely and rely on tray + global shortcut + notification.
+    if (IS_LINUX) {
+      if (panelWindow && !panelWindow.isDestroyed()) {
+        panelWindow.hide();
+        console.info('[session-manager] Panel hidden (Linux — no content protection).');
+      }
+      // Show a persistent notification so the user knows how to stop
+      const { Notification } = await import('electron');
+      if (Notification.isSupported()) {
+        const n = new Notification({
+          title: 'Rough Cut — Recording',
+          body: 'Press Ctrl+Shift+Esc to stop. Right-click tray icon to pause.',
+          silent: true,
+        });
+        n.show();
+        console.info('[session-manager] Recording notification shown.');
+      }
+    } else {
+      resizePanel('mini');
+      console.info('[session-manager] Panel resized to mini-controller.');
+    }
 
     safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'recording');
     console.info('[session-manager] Sent recording status to panel.');
@@ -534,6 +581,13 @@ export async function stopRecording() {
   console.info('[session-manager] stopRecording() — transitioning to stopping.');
   state = 'stopping';
 
+  // On Linux the panel was hidden — show it so the renderer can process
+  // MediaRecorder.stop() and assemble the recording blob.
+  if (IS_LINUX && panelWindow && !panelWindow.isDestroyed()) {
+    panelWindow.showInactive();
+    console.info('[session-manager] Panel restored for MediaRecorder teardown.');
+  }
+
   // Tell panel renderer to stop MediaRecorder
   safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'stopping');
 
@@ -544,6 +598,17 @@ export async function stopRecording() {
   lastCursorResult = cursorRecorder.stop();
   if (lastCursorResult) {
     console.info('[session-manager] Cursor data:', lastCursorResult.eventCount, 'events →', lastCursorResult.eventsPath);
+  }
+
+  // Stop FFmpeg capture (wait for clean flush)
+  if (ffmpegHandle) {
+    try {
+      await ffmpegHandle.stop();
+      console.info('[session-manager] FFmpeg capture stopped →', ffmpegHandle.outputPath);
+    } catch (err) {
+      console.warn('[session-manager] FFmpeg stop failed:', err?.message ?? err);
+      ffmpegHandle = null;
+    }
   }
 
   // Restore main window
@@ -634,8 +699,9 @@ function _cleanup() {
  *
  * @param {import('electron').BrowserWindow} win  The application's main window.
  */
-export function initSessionManager(win) {
+export function initSessionManager(win, sourceInfoGetter) {
   mainWindow = win;
+  getSourceInfo = sourceInfoGetter || null;
 
   // ---- Panel lifecycle ----
 
@@ -695,7 +761,22 @@ export function initSessionManager(win) {
       console.info('[session-manager] Saving recording to:', projectDir ?? '/tmp/rough-cut/recordings/');
       console.info('[session-manager] Camera buffer received:', cameraBuffer ? `${cameraBuffer.byteLength} bytes` : 'NONE');
       const camBuf = cameraBuffer ? Buffer.from(cameraBuffer) : null;
-      const result = await saveRecording(Buffer.from(buffer), projectDir, metadata, camBuf);
+
+      // Use FFmpeg x11grab output (cursor-free) if available, otherwise MediaRecorder buffer
+      let result;
+      if (ffmpegHandle && existsSync(ffmpegHandle.outputPath)) {
+        console.info('[session-manager] Using FFmpeg x11grab output (no cursor):', ffmpegHandle.outputPath);
+        result = await saveRecordingFromFile(ffmpegHandle.outputPath, projectDir, metadata);
+        // Still save camera if present
+        if (camBuf) {
+          const { saveRecording: saveCam } = await import('./capture-service.mjs');
+          // Camera uses the MediaRecorder path — no FFmpeg capture for camera
+        }
+        ffmpegHandle = null;
+      } else {
+        console.info('[session-manager] Using MediaRecorder buffer (FFmpeg not available)');
+        result = await saveRecording(Buffer.from(buffer), projectDir, metadata, camBuf);
+      }
 
       // Attach cursor events path to result
       console.info('[session-manager] lastCursorResult:', lastCursorResult ? `${lastCursorResult.eventCount} events at ${lastCursorResult.eventsPath}` : 'NULL');
