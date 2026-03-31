@@ -107,6 +107,18 @@ export function ProjectsTab({
     onTabChange(destination);
   }
 
+  function handleNewRecording() {
+    if (!selectedProject) return;
+    const { project, filePath } = selectedProject;
+
+    // Load the FULL project into store (not a stripped version)
+    transportStore.getState().seekToFrame(0);
+    projectStore.getState().setProject(project as ProjectDocument);
+    projectStore.getState().setProjectFilePath(filePath);
+
+    onTabChange('record');
+  }
+
   function handleBackToProjects() {
     setSelectedProject(null);
   }
@@ -158,6 +170,7 @@ export function ProjectsTab({
           onBack={handleBackToProjects}
           onOpenRecording={handleOpenRecording}
           onDeleteRecording={handleDeleteRecording}
+          onNewRecording={handleNewRecording}
         />
       ) : (
         <ProjectsContent

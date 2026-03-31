@@ -20,7 +20,7 @@ export const EasingTypeSchema = z.enum([
   'cubic-bezier',
 ]);
 
-export const AssetTypeSchema = z.enum(['video', 'audio', 'image', 'recording']);
+export const AssetTypeSchema = z.enum(['video', 'audio', 'image', 'recording', 'motion']);
 export const TrackTypeSchema = z.enum(['video', 'audio']);
 export const ExportFormatSchema = z.enum(['mp4', 'webm', 'gif']);
 export const ExportCodecSchema = z.enum(['h264', 'h265', 'vp9']);
@@ -277,6 +277,17 @@ export const AIAnnotationsSchema = z.object({
   captionSegments: z.array(CaptionSegmentSchema),
 });
 
+// --- Motion Compositions ---
+
+export const MotionCompositionSchema = z.object({
+  id: z.string().min(1),
+  templateId: z.string().min(1),
+  name: z.string().min(1),
+  durationFrames: nonNegativeInt,
+  props: z.record(z.unknown()),
+  createdAt: z.string().datetime(),
+});
+
 // --- ProjectDocument ---
 
 export const ProjectDocumentSchema = z.object({
@@ -291,6 +302,7 @@ export const ProjectDocumentSchema = z.object({
   motionPresets: z.array(MotionPresetSchema),
   exportSettings: ExportSettingsSchema,
   aiAnnotations: AIAnnotationsSchema,
+  motionCompositions: z.array(MotionCompositionSchema),
 });
 
 /**

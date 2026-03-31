@@ -114,6 +114,12 @@ const api = {
   getVersion: () =>
     ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
 
+  // ---- File system ----
+
+  /** Read a text file from disk (used for cursor event sidecar loading). Returns string or null. */
+  readTextFile: (filePath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.READ_TEXT_FILE, filePath),
+
   // ---- Auto-save ----
 
   /** Auto-save project. If filePath is provided, saves there (overwrite); otherwise creates in ~/Documents/Rough Cut/. Returns the resolved file path. */
@@ -189,6 +195,39 @@ const api = {
     const handler = (_event, result) => callback(result);
     ipcRenderer.on(IPC_CHANNELS.RECORDING_ASSET_READY, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.RECORDING_ASSET_READY, handler);
+  },
+
+  // ---- AI Analysis ----
+
+  /** Get API key for a provider. */
+  aiGetApiKey: (provider) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AI_GET_API_KEY, { provider }),
+
+  /** Set API key for a provider. */
+  aiSetApiKey: (provider, apiKey) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AI_SET_API_KEY, { provider, apiKey }),
+
+  /** Get provider config. */
+  aiGetProviderConfig: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.AI_GET_PROVIDER_CONFIG),
+
+  /** Set provider config. */
+  aiSetProviderConfig: (provider) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AI_SET_PROVIDER_CONFIG, { provider }),
+
+  /** Analyze assets for captions. Returns CaptionSegment[]. */
+  aiAnalyzeCaptions: (assets, fps) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AI_ANALYZE_CAPTIONS, { assets, fps }),
+
+  /** Cancel running analysis. */
+  aiCancelAnalysis: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.AI_CANCEL_ANALYSIS),
+
+  /** Subscribe to analysis progress events. Returns unsubscribe function. */
+  onAIProgress: (callback) => {
+    const handler = (_event, progress) => callback(progress);
+    ipcRenderer.on(IPC_CHANNELS.AI_ANALYSIS_PROGRESS, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.AI_ANALYSIS_PROGRESS, handler);
   },
 };
 

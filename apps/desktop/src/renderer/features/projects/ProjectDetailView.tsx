@@ -19,6 +19,8 @@ interface ProjectDetailViewProps {
   onOpenRecording: (assetId: string, destination: 'record' | 'edit') => void;
   /** Called when user deletes a recording */
   onDeleteRecording: (assetId: string) => void;
+  /** Called when user wants to add a new recording to this project */
+  onNewRecording: () => void;
 }
 
 function framesToDuration(frames: number, fps: number): string {
@@ -161,10 +163,12 @@ export function ProjectDetailView({
   onBack,
   onOpenRecording,
   onDeleteRecording,
+  onNewRecording,
 }: ProjectDetailViewProps) {
   const recordings = project.assets.filter((a) => a.type === 'recording');
   const fps = project.settings.frameRate || 30;
   const [hoveredBack, setHoveredBack] = useState(false);
+  const [hoveredNewRec, setHoveredNewRec] = useState(false);
   const [popupAsset, setPopupAsset] = useState<Asset | null>(null);
 
   return (
@@ -215,12 +219,58 @@ export function ProjectDetailView({
               <span>{fps} fps</span>
             </div>
           </div>
+
+          {/* New Recording button */}
+          <div>
+            <button
+              onClick={onNewRecording}
+              onMouseEnter={() => setHoveredNewRec(true)}
+              onMouseLeave={() => setHoveredNewRec(false)}
+              style={{
+                height: 36,
+                borderRadius: 10,
+                border: 'none',
+                background: hoveredNewRec ? '#5ee0d4' : TEAL,
+                color: '#000',
+                fontSize: 14,
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                padding: '8px 20px',
+                cursor: 'pointer',
+                transition: 'background 120ms ease',
+              }}
+            >
+              New Recording
+            </button>
+          </div>
         </div>
 
         {/* Recordings grid */}
         {recordings.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '80px 0', color: TEXT_MUTED, fontSize: 14 }}>
-            No recordings in this project
+          <div style={{ textAlign: 'center', padding: '80px 0' }}>
+            <div style={{ color: TEXT_MUTED, fontSize: 14, marginBottom: 16 }}>
+              No recordings in this project
+            </div>
+            <button
+              onClick={onNewRecording}
+              onMouseEnter={() => setHoveredNewRec(true)}
+              onMouseLeave={() => setHoveredNewRec(false)}
+              style={{
+                height: 36,
+                borderRadius: 10,
+                border: 'none',
+                background: hoveredNewRec ? '#5ee0d4' : TEAL,
+                color: '#000',
+                fontSize: 14,
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                padding: '8px 20px',
+                cursor: 'pointer',
+                transition: 'background 120ms ease',
+              }}
+            >
+              New Recording
+            </button>
           </div>
         ) : (
           <div

@@ -12,10 +12,20 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { Rect } from './template-layout/types.js';
+import type { SnapLine } from './snap-guides.js';
+import { buildSnapTargets, computeSnap } from './snap-guides.js';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
 export type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+export interface SnapConfig {
+  containerWidth: number;
+  containerHeight: number;
+  screenRect: Rect | null;
+  cameraRect: Rect | null;
+  threshold?: number; // default 5px
+}
 
 export interface RegionDragConfig {
   /** Ref to the container element for coordinate conversion */
@@ -24,6 +34,8 @@ export interface RegionDragConfig {
   onRegionChange?: (region: 'screen' | 'camera', rect: Rect) => void;
   /** Whether interaction is enabled (default: true) */
   enabled?: boolean;
+  /** Snap configuration — enables magnetic snap guides during move */
+  snapConfig?: SnapConfig;
 }
 
 export interface RegionDragResult {
@@ -37,6 +49,8 @@ export interface RegionDragResult {
   startResize: (region: 'screen' | 'camera', currentRect: Rect, edge: Edge, e: React.PointerEvent, sourceAspect?: number) => void;
   /** Set which region is hovered (for showing handles) */
   setHoveredRegion: (region: 'screen' | 'camera' | null) => void;
+  /** Active snap guide lines (ref to avoid re-renders during drag) */
+  activeGuidesRef: React.RefObject<SnapLine[]>;
 }
 
 // ─── Internal drag state ──────────────────────────────────────────────────────
@@ -233,6 +247,7 @@ export function useRegionDragResize({
   containerRef,
   onRegionChange,
   enabled = true,
+  snapConfig,
 }: RegionDragConfig): RegionDragResult {
   // Mutable drag state stored in ref — avoids re-renders on every pointer pixel
   const dragRef = useRef<DragState | null>(null);
@@ -241,9 +256,16 @@ export function useRegionDragResize({
   const [isDragging, setIsDragging] = useState(false);
   const [hoveredRegion, setHoveredRegion] = useState<'screen' | 'camera' | null>(null);
 
+  // Active snap guides — ref to avoid re-renders during drag
+  const activeGuidesRef = useRef<SnapLine[]>([]);
+
   // Keep callback ref stable so the effect doesn't need to re-subscribe
   const onRegionChangeRef = useRef(onRegionChange);
   onRegionChangeRef.current = onRegionChange;
+
+  // Snap config ref — same pattern as onRegionChangeRef
+  const snapConfigRef = useRef(snapConfig);
+  snapConfigRef.current = snapConfig;
 
   // Document-level pointer listeners — active for the lifetime of the component.
   // The move handler only does work when dragRef.current is set.
@@ -263,12 +285,26 @@ export function useRegionDragResize({
       }
 
       if (drag.mode === 'move') {
-        cb(drag.region, clampRect({
+        let rect = clampRect({
           x: drag.originalRect.x + dx,
           y: drag.originalRect.y + dy,
           width:  drag.originalRect.width,
           height: drag.originalRect.height,
-        }));
+        });
+
+        // Apply snap guides (unless modifier key held)
+        const sc = snapConfigRef.current;
+        if (sc && !(e.ctrlKey || e.metaKey)) {
+          const otherRect = drag.region === 'screen' ? sc.cameraRect : sc.screenRect;
+          const targets = buildSnapTargets(sc.containerWidth, sc.containerHeight, otherRect);
+          const snap = computeSnap(rect, targets, sc.threshold ?? 5);
+          rect = { ...rect, x: rect.x + snap.x.delta, y: rect.y + snap.y.delta };
+          activeGuidesRef.current = [...snap.x.guides, ...snap.y.guides];
+        } else {
+          activeGuidesRef.current = [];
+        }
+
+        cb(drag.region, rect);
       } else if (drag.mode === 'resize' && drag.edge) {
         cb(drag.region, applyResize(drag.originalRect, drag.edge, dx, dy, drag.sourceAspect));
       }
@@ -277,6 +313,7 @@ export function useRegionDragResize({
     const onUp = () => {
       if (!dragRef.current) return;
       dragRef.current = null;
+      activeGuidesRef.current = [];
       setIsDragging(false);
     };
 
@@ -332,5 +369,6 @@ export function useRegionDragResize({
     startMove,
     startResize,
     setHoveredRegion,
+    activeGuidesRef,
   };
 }

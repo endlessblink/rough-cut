@@ -28,6 +28,7 @@ interface TimelineStripProps {
   onTrimRight?: (clipId: string, newTimelineOut: number) => void;
   onMove?: (clipId: string, newTimelineIn: number) => void;
   onMoveClip?: (clipId: string, newTimelineIn: number, fromTrackId: string, toTrackId: string) => void;
+  onZoomChange?: (newPixelsPerFrame: number) => void;
   exportRange?: ExportRange;
   onChangeExportRange?: (range: ExportRange) => void;
 }
@@ -65,6 +66,7 @@ export function TimelineStrip({
   onTrimRight,
   onMove,
   onMoveClip,
+  onZoomChange,
   exportRange,
   onChangeExportRange,
 }: TimelineStripProps) {
@@ -102,6 +104,25 @@ export function TimelineStrip({
 
     prevPpfRef.current = pixelsPerFrame;
   }, [pixelsPerFrame]);
+
+  // Ctrl+scroll zoom: use non-passive listener so preventDefault() works
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !onZoomChange) return;
+
+    const handler = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const zoomDelta = e.deltaY > 0 ? -1 : 1;
+      const newPpf = Math.max(1, Math.min(20, pixelsPerFrame + zoomDelta));
+      if (newPpf !== pixelsPerFrame) {
+        onZoomChange(newPpf);
+      }
+    };
+
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, [pixelsPerFrame, onZoomChange]);
 
   // Compute total timeline width from the maximum extent across all tracks
   const visibleFrames = containerWidth > 0

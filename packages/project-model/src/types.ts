@@ -19,7 +19,7 @@ export type MouseButton = 0 | 1 | 2; // left | middle | right
 
 // Union types
 export type EasingType = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'cubic-bezier';
-export type AssetType = 'video' | 'audio' | 'image' | 'recording';
+export type AssetType = 'video' | 'audio' | 'image' | 'recording' | 'motion';
 export type TrackType = 'video' | 'audio';
 export type ExportFormat = 'mp4' | 'webm' | 'gif';
 export type ExportCodec = 'h264' | 'h265' | 'vp9';
@@ -149,6 +149,19 @@ export interface AIAnnotations {
   readonly captionSegments: readonly CaptionSegment[];
 }
 
+// --- Motion Compositions ---
+
+export type MotionCompositionId = string & { readonly __brand: 'MotionCompositionId' };
+
+export interface MotionComposition {
+  readonly id: MotionCompositionId;
+  readonly templateId: string;
+  readonly name: string;
+  readonly durationFrames: Frame;
+  readonly props: Record<string, unknown>;
+  readonly createdAt: string;
+}
+
 export interface Asset {
   readonly id: AssetId;
   readonly type: AssetType;
@@ -267,4 +280,5 @@ export interface ProjectDocument {
   readonly motionPresets: readonly MotionPreset[];
   readonly exportSettings: ExportSettings;
   readonly aiAnnotations: AIAnnotations;
+  readonly motionCompositions: readonly MotionComposition[];
 }

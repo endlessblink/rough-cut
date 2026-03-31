@@ -19,6 +19,8 @@ import { RecordTemplatesPanel } from './RecordTemplatesPanel.js';
 import type { LayoutTemplate } from './templates.js';
 import { LAYOUT_TEMPLATES, resolutionForAspectRatio } from './templates.js';
 import { projectStore } from '../../hooks/use-stores.js';
+import { AlignmentToolbar } from './AlignmentToolbar.js';
+import type { Alignment } from './snap-guides.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,6 +68,9 @@ export interface RecordRightPanelProps {
   /** Active template + callback for template changes */
   selectedTemplateId: string;
   onTemplateChange: (template: LayoutTemplate) => void;
+  /** Alignment */
+  selectedRegion: 'screen' | 'camera' | null;
+  onAlign: (alignment: Alignment) => void;
 }
 
 // ─── Inline SVG Icons ─────────────────────────────────────────────────────────
@@ -152,6 +157,17 @@ function CropIcon() {
   );
 }
 
+function AlignIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      {/* Horizontal + vertical alignment lines with a rect */}
+      <line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeDasharray="1.5 1.5" />
+      <line x1="8" y1="2" x2="8" y2="14" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeDasharray="1.5 1.5" />
+      <rect x="5" y="5" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  );
+}
+
 function BackgroundIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -201,6 +217,8 @@ export function RecordRightPanel({
   onCropModeChange,
   selectedTemplateId,
   onTemplateChange,
+  selectedRegion,
+  onAlign,
 }: RecordRightPanelProps) {
   const handleSelectTemplate = useCallback((template: LayoutTemplate) => {
     const resolution = resolutionForAspectRatio(template.aspectRatio);
@@ -217,6 +235,17 @@ export function RecordRightPanel({
         <RecordTemplatesPanel
           selectedTemplateId={selectedTemplateId}
           onSelectTemplate={handleSelectTemplate}
+        />
+      ),
+    },
+    {
+      id: 'align',
+      label: 'Align',
+      icon: <AlignIcon />,
+      panel: (
+        <AlignmentToolbar
+          disabled={!selectedRegion}
+          onAlign={onAlign}
         />
       ),
     },

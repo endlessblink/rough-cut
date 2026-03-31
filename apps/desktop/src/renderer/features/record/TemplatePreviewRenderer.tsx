@@ -26,6 +26,8 @@ import { useRegionDragResize } from './useRegionDragResize.js';
 import type { Edge } from './useRegionDragResize.js';
 import type { RegionCrop } from '@rough-cut/project-model';
 import { CropOverlay } from './CropOverlay.js';
+import { alignRect } from './snap-guides.js';
+import type { Alignment } from './snap-guides.js';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -64,6 +66,14 @@ export interface TemplatePreviewRendererProps {
   /** Source resolution for crop math */
   sourceWidth?: number;
   sourceHeight?: number;
+  /** Imperative alignment ref — parent writes a callback that triggers alignment */
+  alignRef?: React.MutableRefObject<((a: Alignment) => void) | null>;
+  /** Called when the hovered region changes (for alignment toolbar enable/disable) */
+  onHoveredRegionChange?: (region: 'screen' | 'camera' | null) => void;
+  /** Called when a region is clicked (for sticky selection) */
+  onRegionClick?: (region: 'screen' | 'camera' | null) => void;
+  /** Currently selected region (sticky, set by click) */
+  selectedRegion?: 'screen' | 'camera' | null;
 }
 
 // ─── z-index helpers ──────────────────────────────────────────────────────────
@@ -98,6 +108,10 @@ export function TemplatePreviewRenderer({
   onScreenCropChange,
   sourceWidth = 1920,
   sourceHeight = 1080,
+  alignRef,
+  onHoveredRegionChange,
+  onRegionClick,
+  selectedRegion,
 }: TemplatePreviewRendererProps) {
   // ── Container measurement ────────────────────────────────────────────────
 
@@ -138,27 +152,37 @@ export function TemplatePreviewRenderer({
 
   // ── Drag/resize ───────────────────────────────────────────────────────────
 
-  const { isDragging, hoveredRegion, startMove, startResize, setHoveredRegion } =
+  const { isDragging, hoveredRegion, startMove, startResize, setHoveredRegion, activeGuidesRef } =
     useRegionDragResize({
       containerRef,
       onRegionChange,
       enabled: interactionEnabled,
+      snapConfig: interactionEnabled
+        ? {
+            containerWidth: containerW,
+            containerHeight: containerH,
+            screenRect: screenRect ?? null,
+            cameraRect: cameraRect ?? null,
+          }
+        : undefined,
     });
 
   const handleScreenPointerDown = useCallback(
     (e: React.PointerEvent) => {
+      onRegionClick?.('screen');
       if (!interactionEnabled || !screenRect) return;
       startMove('screen', screenRect, e, screenAspect);
     },
-    [interactionEnabled, screenRect, startMove, screenAspect],
+    [interactionEnabled, screenRect, startMove, screenAspect, onRegionClick],
   );
 
   const handleCameraPointerDown = useCallback(
     (e: React.PointerEvent) => {
+      onRegionClick?.('camera');
       if (!interactionEnabled || !cameraRect) return;
       startMove('camera', cameraRect, e, cameraAspect);
     },
-    [interactionEnabled, cameraRect, startMove, cameraAspect],
+    [interactionEnabled, cameraRect, startMove, cameraAspect, onRegionClick],
   );
 
   const handleScreenResizeStart = useCallback(
@@ -196,6 +220,46 @@ export function TemplatePreviewRenderer({
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [cropModeActive, onCropModeChange]);
+
+  // ── Notify parent when hovered region changes ─────────────────────────────
+
+  useEffect(() => {
+    onHoveredRegionChange?.(hoveredRegion);
+  }, [hoveredRegion, onHoveredRegionChange]);
+
+  // ── Imperative alignment ref ─────────────────────────────────────────────
+
+  // Keep a stable ref to hoveredRegion so alignRef callback reads latest value
+  const hoveredRegionRef = useRef(hoveredRegion);
+  hoveredRegionRef.current = hoveredRegion;
+
+  // Keep a stable ref to selectedRegion so alignRef callback reads latest value
+  const selectedRegionRef = useRef(selectedRegion);
+  selectedRegionRef.current = selectedRegion;
+
+  useEffect(() => {
+    if (!alignRef) return;
+    alignRef.current = (alignment: Alignment) => {
+      const region = selectedRegionRef.current ?? hoveredRegionRef.current;
+      if (!region || !onRegionChange) return;
+
+      const currentRect = region === 'screen' ? screenRect : cameraRect;
+      if (!currentRect) return;
+
+      const container: Rect = { x: 0, y: 0, width: containerW, height: containerH };
+      const aligned = alignRect(currentRect, container, alignment);
+      onRegionChange(region, aligned);
+    };
+    return () => {
+      if (alignRef) alignRef.current = null;
+    };
+  }, [alignRef, onRegionChange, screenRect, cameraRect, containerW, containerH]);
+
+  // ── Snap guide rendering state (force re-render on drag frame) ───────────
+
+  // We need to re-read activeGuidesRef during drag. The isDragging state
+  // already triggers re-renders; we read the ref inside render.
+  const guides = (isDragging ? activeGuidesRef.current : null) ?? [];
 
   // ── Crop overlay ref ──────────────────────────────────────────────────────
 
@@ -235,6 +299,9 @@ export function TemplatePreviewRenderer({
         height: '100%',
         overflow: 'visible',
       }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onRegionClick?.(null);
+      }}
     >
       {/* Screen frame — always visible, even during crop mode */}
       {screenRect && (
@@ -249,6 +316,7 @@ export function TemplatePreviewRenderer({
           transition={frameTransition}
           interactive={interactionEnabled}
           isHovered={hoveredRegion === 'screen'}
+          isSelected={selectedRegion === 'screen'}
           isDragging={isDragging && hoveredRegion === 'screen'}
           onPointerEnter={() => setHoveredRegion('screen')}
           onPointerLeave={() => { if (!isDragging) setHoveredRegion(null); }}
@@ -276,6 +344,7 @@ export function TemplatePreviewRenderer({
           transition={frameTransition}
           interactive={interactionEnabled}
           isHovered={hoveredRegion === 'camera'}
+          isSelected={selectedRegion === 'camera'}
           isDragging={isDragging && hoveredRegion === 'camera'}
           onPointerEnter={() => setHoveredRegion('camera')}
           onPointerLeave={() => { if (!isDragging) setHoveredRegion(null); }}
@@ -309,6 +378,39 @@ export function TemplatePreviewRenderer({
             onExit={onCropModeChange ? () => onCropModeChange(false) : undefined}
           />
         </div>
+      )}
+
+      {/* Snap guide lines */}
+      {guides.map((guide, i) =>
+        guide.axis === 'x' ? (
+          <div
+            key={`snap-${i}`}
+            style={{
+              position: 'absolute',
+              left: guide.position,
+              top: 0,
+              width: 0,
+              height: '100%',
+              borderLeft: '1px dashed rgba(59,130,246,0.8)',
+              pointerEvents: 'none',
+              zIndex: 20,
+            }}
+          />
+        ) : (
+          <div
+            key={`snap-${i}`}
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: guide.position,
+              width: '100%',
+              height: 0,
+              borderTop: '1px dashed rgba(59,130,246,0.8)',
+              pointerEvents: 'none',
+              zIndex: 20,
+            }}
+          />
+        ),
       )}
 
       {/* Debug overlay — always last child so it renders on top */}

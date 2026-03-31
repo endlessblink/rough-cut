@@ -37,10 +37,16 @@ import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../../shared/ipc-channels.mjs';
 import { saveRecording } from './capture-service.mjs';
 import { CursorRecorder } from './cursor-recorder.mjs';
-import { hideCursor, showCursor } from './cursor-hide.mjs';
+// import { hideCursor, showCursor } from './cursor-hide.mjs';
+// Disabled: XFixesHideCursor hides cursor globally (user can't see it).
+// The system cursor stays in recordings; the custom overlay renders on top during playback.
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+const IS_LINUX = process.platform === 'linux';
+const PANEL_SETUP = { width: 500, height: 460 };
+const PANEL_MINI  = { width: 340, height: 56 };
 
 // ---------------------------------------------------------------------------
 // State
@@ -146,15 +152,32 @@ function guardState(fnName, allowed) {
 // ---------------------------------------------------------------------------
 
 /**
- * Create the system tray icon with a "Stop Recording" context menu.
+ * Create the system tray icon with Pause/Resume and Stop Recording menu items.
+ * On Linux the tray is the PRIMARY recording control (no visible mini-controller).
  * @returns {Tray}
  */
 function createTray() {
   const icon = nativeImage.createFromDataURL(RED_CIRCLE_DATA_URL);
   const t = new Tray(icon);
   t.setToolTip('Recording — 00:00');
+  _rebuildTrayMenu(t);
+  return t;
+}
 
+/**
+ * Rebuild the tray context menu to reflect the current pause state.
+ * @param {Tray} t
+ */
+function _rebuildTrayMenu(t) {
+  if (!t || t.isDestroyed()) return;
   const contextMenu = Menu.buildFromTemplate([
+    {
+      label: isPaused ? 'Resume Recording' : 'Pause Recording',
+      click: () => {
+        _togglePauseFromTray();
+      },
+    },
+    { type: 'separator' },
     {
       label: 'Stop Recording',
       click: () => {
@@ -165,7 +188,26 @@ function createTray() {
     },
   ]);
   t.setContextMenu(contextMenu);
-  return t;
+}
+
+/**
+ * Toggle pause/resume from the tray — mirrors the panel's pause/resume IPC
+ * so recording can be controlled entirely from the tray on Linux.
+ */
+function _togglePauseFromTray() {
+  if (state !== 'recording') return;
+  if (!isPaused) {
+    isPaused = true;
+    pauseStartMs = Date.now();
+    safeSend(panelWindow, 'panel:tray-pause', null);
+    console.info('[session-manager] Paused from tray');
+  } else {
+    totalPausedMs += Date.now() - pauseStartMs;
+    isPaused = false;
+    safeSend(panelWindow, 'panel:tray-resume', null);
+    console.info('[session-manager] Resumed from tray, total paused:', totalPausedMs, 'ms');
+  }
+  if (tray) _rebuildTrayMenu(tray);
 }
 
 /**
@@ -174,8 +216,10 @@ function createTray() {
 function updateTrayTooltip() {
   if (!tray || tray.isDestroyed()) return;
   try {
-    const elapsed = formatElapsed(Date.now() - recordingStartMs);
-    tray.setToolTip(`Recording — ${elapsed}`);
+    const elapsedMs = Date.now() - recordingStartMs - totalPausedMs;
+    const elapsed = formatElapsed(elapsedMs);
+    const label = isPaused ? 'Paused' : 'Recording';
+    tray.setToolTip(`${label} — ${elapsed}`);
   } catch {
     // Tray may have been destroyed concurrently — ignore
   }
@@ -205,6 +249,38 @@ function getPanelPosition(panelSize) {
     console.warn('[session-manager] getPanelPosition failed, using defaults:', err?.message ?? err);
     return { x: 100, y: 100 };
   }
+}
+
+/**
+ * Compute the top-center position for the mini controller on the primary display.
+ * @param {{width: number, height: number}} panelSize
+ * @returns {{x: number, y: number}}
+ */
+function getMiniPosition(panelSize) {
+  try {
+    const display = screen.getPrimaryDisplay();
+    const { x: dx, y: dy, width: dw } = display.workArea;
+    const x = Math.round(dx + (dw - panelSize.width) / 2);
+    const y = dy + 16;
+    return { x, y };
+  } catch (err) {
+    console.warn('[session-manager] getMiniPosition failed:', err?.message ?? err);
+    return { x: 100, y: 16 };
+  }
+}
+
+/**
+ * Resize the panel window to either 'mini' or 'setup' mode.
+ * @param {'mini' | 'setup'} mode
+ */
+function resizePanel(mode) {
+  if (!panelWindow || panelWindow.isDestroyed()) return;
+  const size = mode === 'mini' ? PANEL_MINI : PANEL_SETUP;
+  const pos = mode === 'mini'
+    ? getMiniPosition(size)
+    : getPanelPosition(size);
+  panelWindow.setBounds({ ...pos, ...size });
+  console.info(`[session-manager] Panel resized to ${mode} mode`);
 }
 
 // ---------------------------------------------------------------------------
@@ -263,6 +339,12 @@ export function openPanel() {
   } else {
     panelWindow.loadFile(panelUrl);
   }
+
+  // Pipe panel renderer console logs to main process terminal
+  panelWindow.webContents.on('console-message', (_e, level, message) => {
+    const prefix = ['[panel:LOG]', '[panel:WARN]', '[panel:ERR]'][level] ?? '[panel]';
+    console.info(prefix, message);
+  });
 
   panelWindow.webContents.on('did-fail-load', (_e, code, desc) => {
     console.error('[session-manager] Panel failed to load:', code, desc);
@@ -359,14 +441,45 @@ export async function startRecording() {
     // --- Recording phase ---
     state = 'recording';
     recordingStartMs = Date.now();
+    console.info('[session-manager] Recording phase started. Platform:', process.platform, 'Content protection:', IS_LINUX ? 'UNAVAILABLE' : 'enabled');
 
-    // Hide main window so it cannot appear in the recording (belt-and-suspenders
-    // for platforms where setContentProtection is unreliable).
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.hide();
+    // Start cursor recording — writes .cursor.ndjson alongside the video
+    const recordingsDir = await (async () => {
+      try {
+        const { getRecordingLocation } = await import('../recent-projects-service.mjs');
+        const loc = getRecordingLocation();
+        console.info('[session-manager] Recording location:', loc || '(default /tmp)');
+        return loc || '/tmp/rough-cut/recordings';
+      } catch (e) {
+        console.warn('[session-manager] getRecordingLocation failed:', e?.message);
+        return '/tmp/rough-cut/recordings';
+      }
+    })();
+    const cursorTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const cursorPath = join(recordingsDir, `recording-${cursorTimestamp}.cursor.ndjson`);
+    console.info('[session-manager] Cursor sidecar path:', cursorPath);
+    try {
+      const fps = 30;
+      cursorRecorder.start(fps, cursorPath);
+    } catch (err) {
+      console.warn('[session-manager] CursorRecorder failed to start:', err?.message ?? err);
     }
 
+    // Hide main window so it cannot appear in the recording.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.hide();
+      console.info('[session-manager] Main window hidden.');
+    }
+
+    // Shrink panel to mini-controller (340×56 pill bar).
+    // On macOS/Windows setContentProtection keeps it out of the capture.
+    // On Linux content-protection is a no-op — the pill will appear in the
+    // recording, but a tiny bar is far less intrusive than the full app window.
+    resizePanel('mini');
+    console.info('[session-manager] Panel resized to mini-controller.');
+
     safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'recording');
+    console.info('[session-manager] Sent recording status to panel.');
 
     // Reset pause tracking
     isPaused = false;
@@ -418,6 +531,7 @@ export async function startRecording() {
 export async function stopRecording() {
   if (!guardState('stopRecording', ['recording'])) return;
 
+  console.info('[session-manager] stopRecording() — transitioning to stopping.');
   state = 'stopping';
 
   // Tell panel renderer to stop MediaRecorder
@@ -426,9 +540,16 @@ export async function stopRecording() {
   // Clear timers / shortcut / tray immediately
   _cleanup();
 
+  // Stop cursor recording
+  lastCursorResult = cursorRecorder.stop();
+  if (lastCursorResult) {
+    console.info('[session-manager] Cursor data:', lastCursorResult.eventCount, 'events →', lastCursorResult.eventsPath);
+  }
+
   // Restore main window
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show();
+    console.info('[session-manager] Main window restored.');
   }
 
   console.info('[session-manager] Stop signal sent to panel renderer.');
@@ -526,6 +647,10 @@ export function initSessionManager(win) {
     closePanel();
   });
 
+  ipcMain.handle(IPC_CHANNELS.PANEL_RESIZE, (_event, { mode }) => {
+    resizePanel(mode);
+  });
+
   // ---- Recording lifecycle ----
 
   ipcMain.handle(IPC_CHANNELS.PANEL_START_RECORDING, async () => {
@@ -568,8 +693,17 @@ export function initSessionManager(win) {
       } catch { /* ignore — fall back to /tmp */ }
 
       console.info('[session-manager] Saving recording to:', projectDir ?? '/tmp/rough-cut/recordings/');
+      console.info('[session-manager] Camera buffer received:', cameraBuffer ? `${cameraBuffer.byteLength} bytes` : 'NONE');
       const camBuf = cameraBuffer ? Buffer.from(cameraBuffer) : null;
       const result = await saveRecording(Buffer.from(buffer), projectDir, metadata, camBuf);
+
+      // Attach cursor events path to result
+      console.info('[session-manager] lastCursorResult:', lastCursorResult ? `${lastCursorResult.eventCount} events at ${lastCursorResult.eventsPath}` : 'NULL');
+      if (lastCursorResult) {
+        result.cursorEventsPath = lastCursorResult.eventsPath;
+        lastCursorResult = null;
+      }
+      console.info('[session-manager] Final result keys:', Object.keys(result), 'cursorEventsPath:', result.cursorEventsPath ?? 'NOT SET');
 
       // Route result to the main renderer so it can create an Asset entry
       safeSend(mainWindow, IPC_CHANNELS.RECORDING_ASSET_READY, result);

@@ -35,6 +35,7 @@ export const IPC_CHANNELS = {
   // Recording Panel (self-contained floating window)
   PANEL_OPEN: 'panel:open',
   PANEL_CLOSE: 'panel:close',
+  PANEL_RESIZE: 'panel:resize',
   PANEL_SET_SOURCE: 'panel:set-source',
   PANEL_START_RECORDING: 'panel:start-recording',
   PANEL_STOP_RECORDING: 'panel:stop-recording',
@@ -55,4 +56,16 @@ export const IPC_CHANNELS = {
   STORAGE_GET_FAVORITES: 'storage:get-favorites',
   STORAGE_ADD_FAVORITE: 'storage:add-favorite',
   STORAGE_REMOVE_FAVORITE: 'storage:remove-favorite',
+
+  // AI Analysis
+  AI_ANALYZE_CAPTIONS: 'ai:analyze-captions',
+  AI_ANALYSIS_PROGRESS: 'ai:analysis-progress',
+  AI_CANCEL_ANALYSIS: 'ai:cancel-analysis',
+  AI_SET_API_KEY: 'ai:set-api-key',
+  AI_GET_API_KEY: 'ai:get-api-key',
+  AI_GET_PROVIDER_CONFIG: 'ai:get-provider-config',
+  AI_SET_PROVIDER_CONFIG: 'ai:set-provider-config',
+
+  // File system
+  READ_TEXT_FILE: 'fs:read-text-file',
 };

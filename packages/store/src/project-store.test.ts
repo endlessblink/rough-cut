@@ -530,6 +530,68 @@ describe('projectStore', () => {
     });
   });
 
+  describe('updateClipTransform', () => {
+    it('patches transform fields on the matching clip', () => {
+      const track = store.getState().project.composition.tracks[0];
+      if (!track) throw new Error('No track found');
+      const clip = createClip(
+        'asset-1' as ReturnType<typeof createClip>['assetId'],
+        track.id,
+        { timelineIn: 0, timelineOut: 30 },
+      );
+      store.getState().addClip(track.id, clip);
+
+      store.getState().updateClipTransform(clip.id, { opacity: 0.5, rotation: 45 });
+
+      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
+      expect(updatedClip?.transform.opacity).toBe(0.5);
+      expect(updatedClip?.transform.rotation).toBe(45);
+    });
+
+    it('preserves untouched transform fields', () => {
+      const track = store.getState().project.composition.tracks[0];
+      if (!track) throw new Error('No track found');
+      const clip = createClip(
+        'asset-1' as ReturnType<typeof createClip>['assetId'],
+        track.id,
+        { timelineIn: 0, timelineOut: 30 },
+      );
+      store.getState().addClip(track.id, clip);
+      const originalTransform = { ...clip.transform };
+
+      store.getState().updateClipTransform(clip.id, { opacity: 0.5 });
+
+      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
+      expect(updatedClip?.transform.opacity).toBe(0.5);
+      expect(updatedClip?.transform.x).toBe(originalTransform.x);
+      expect(updatedClip?.transform.y).toBe(originalTransform.y);
+      expect(updatedClip?.transform.scaleX).toBe(originalTransform.scaleX);
+      expect(updatedClip?.transform.scaleY).toBe(originalTransform.scaleY);
+      expect(updatedClip?.transform.rotation).toBe(originalTransform.rotation);
+    });
+
+    it('is undoable', () => {
+      const track = store.getState().project.composition.tracks[0];
+      if (!track) throw new Error('No track found');
+      const clip = createClip(
+        'asset-1' as ReturnType<typeof createClip>['assetId'],
+        track.id,
+        { timelineIn: 0, timelineOut: 30 },
+      );
+      store.getState().addClip(track.id, clip);
+      const originalOpacity = clip.transform.opacity;
+
+      store.getState().updateClipTransform(clip.id, { opacity: 0.25 });
+      store.temporal.getState().undo();
+
+      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
+      expect(updatedClip?.transform.opacity).toBe(originalOpacity);
+    });
+  });
+
   describe('updateSettings', () => {
     it('updates resolution', () => {
       const store = createProjectStore();

@@ -8,6 +8,12 @@ import { mkdirSync, existsSync } from 'node:fs';
  * @typedef {{ frame: number, x: number, y: number, type: 'move' | 'down' | 'up' | 'scroll', button: number }} CursorEvent
  */
 
+// uIOhook is a process-level singleton. Once started, we keep it running
+// for the lifetime of the app. Stopping and restarting it can fail because
+// the native thread doesn't cleanly reinitialize. Instead, we always listen
+// for events and gate recording via the #recording flag.
+let uiohookStarted = false;
+
 export class CursorRecorder {
   /** @type {CursorEvent[]} */
   #events = [];
@@ -22,44 +28,40 @@ export class CursorRecorder {
   /** @type {number} */
   #lastMoveFrame = -1;
 
-  // Bound handlers (so we can remove them)
-  #onMove = /** @param {import('uiohook-napi').UiohookMouseEvent} e */ (e) => {
-    const frame = this.#currentFrame();
-    // Deduplicate: skip if same frame as last move
-    if (frame === this.#lastMoveFrame) return;
-    this.#lastMoveFrame = frame;
-    this.#events.push({ frame, x: e.x, y: e.y, type: 'move', button: 0 });
-  };
-
-  #onDown = /** @param {import('uiohook-napi').UiohookMouseEvent} e */ (e) => {
-    this.#events.push({
-      frame: this.#currentFrame(),
-      x: e.x,
-      y: e.y,
-      type: 'down',
-      button: e.button ?? 0,
+  constructor() {
+    // Register listeners once — they check #recording internally
+    uIOhook.on('mousemove', /** @param {import('uiohook-napi').UiohookMouseEvent} e */ (e) => {
+      if (!this.#recording) return;
+      const frame = this.#currentFrame();
+      if (frame === this.#lastMoveFrame) return;
+      this.#lastMoveFrame = frame;
+      this.#events.push({ frame, x: e.x, y: e.y, type: 'move', button: 0 });
     });
-  };
 
-  #onUp = /** @param {import('uiohook-napi').UiohookMouseEvent} e */ (e) => {
-    this.#events.push({
-      frame: this.#currentFrame(),
-      x: e.x,
-      y: e.y,
-      type: 'up',
-      button: e.button ?? 0,
+    uIOhook.on('mousedown', /** @param {import('uiohook-napi').UiohookMouseEvent} e */ (e) => {
+      if (!this.#recording) return;
+      this.#events.push({
+        frame: this.#currentFrame(),
+        x: e.x, y: e.y, type: 'down', button: e.button ?? 0,
+      });
     });
-  };
 
-  #onWheel = /** @param {import('uiohook-napi').UiohookWheelEvent} e */ (e) => {
-    this.#events.push({
-      frame: this.#currentFrame(),
-      x: e.x,
-      y: e.y,
-      type: 'scroll',
-      button: 0,
+    uIOhook.on('mouseup', /** @param {import('uiohook-napi').UiohookMouseEvent} e */ (e) => {
+      if (!this.#recording) return;
+      this.#events.push({
+        frame: this.#currentFrame(),
+        x: e.x, y: e.y, type: 'up', button: e.button ?? 0,
+      });
     });
-  };
+
+    uIOhook.on('wheel', /** @param {import('uiohook-napi').UiohookWheelEvent} e */ (e) => {
+      if (!this.#recording) return;
+      this.#events.push({
+        frame: this.#currentFrame(),
+        x: e.x, y: e.y, type: 'scroll', button: 0,
+      });
+    });
+  }
 
   #currentFrame() {
     if (!this.#startTime) return 0;
@@ -73,7 +75,8 @@ export class CursorRecorder {
    */
   start(frameRate, outputPath) {
     if (this.#recording) {
-      throw new Error('CursorRecorder: already recording');
+      console.warn('CursorRecorder: already recording, stopping previous session');
+      this.stop();
     }
 
     this.#events = [];
@@ -83,39 +86,29 @@ export class CursorRecorder {
     this.#lastMoveFrame = -1;
     this.#recording = true;
 
-    uIOhook.on('mousemove', this.#onMove);
-    uIOhook.on('mousedown', this.#onDown);
-    uIOhook.on('mouseup', this.#onUp);
-    uIOhook.on('wheel', this.#onWheel);
-
-    try {
-      uIOhook.start();
-    } catch (err) {
-      console.error('CursorRecorder: failed to start uIOhook —', err.message);
-      this.#recording = false;
-      throw err;
+    // Start uIOhook once — never stop it
+    if (!uiohookStarted) {
+      try {
+        uIOhook.start();
+        uiohookStarted = true;
+        console.log('CursorRecorder: uIOhook started (will stay running)');
+      } catch (err) {
+        console.error('CursorRecorder: failed to start uIOhook —', err.message);
+        this.#recording = false;
+        throw err;
+      }
     }
 
-    console.log(`CursorRecorder: started (${frameRate}fps → ${outputPath})`);
+    console.log(`CursorRecorder: recording started (${frameRate}fps → ${outputPath})`);
   }
 
   /**
    * Stop capturing and write the sidecar file.
+   * Does NOT stop uIOhook — it stays running for future recordings.
    * @returns {{ eventsPath: string, eventCount: number } | null}
    */
   stop() {
     if (!this.#recording) return null;
-
-    uIOhook.off('mousemove', this.#onMove);
-    uIOhook.off('mousedown', this.#onDown);
-    uIOhook.off('mouseup', this.#onUp);
-    uIOhook.off('wheel', this.#onWheel);
-
-    try {
-      uIOhook.stop();
-    } catch {
-      // uIOhook may throw if already stopped; ignore
-    }
 
     this.#recording = false;
 

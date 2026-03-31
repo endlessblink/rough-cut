@@ -69,18 +69,25 @@ export function TimelinePlaybackVideo() {
     [fps],
   );
 
-  // Mark ready when video metadata loads
+  // Mark ready when video metadata loads; auto-play if transport is playing
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     readyRef.current = false;
     function onLoaded() {
       readyRef.current = true;
+      // If transport is playing and we just loaded a new clip, start playing
+      const state = transportStore.getState();
+      if (state.isPlaying && activeClipRef.current) {
+        const targetTime = frameToVideoTime(state.playheadFrame, activeClipRef.current.clip);
+        video!.currentTime = targetTime;
+        video!.play().catch(() => {});
+      }
     }
     video.addEventListener('loadedmetadata', onLoaded);
     if (video.readyState >= 1) readyRef.current = true;
     return () => video.removeEventListener('loadedmetadata', onLoaded);
-  }, [videoSrc]);
+  }, [videoSrc, frameToVideoTime]);
 
   // Subscribe to transport store for scrub + clip resolution
   useEffect(() => {
@@ -140,22 +147,6 @@ export function TimelinePlaybackVideo() {
     });
     return unsub;
   }, [frameToVideoTime]);
-
-  // During playback, feed video time back to transport store
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    function onTimeUpdate() {
-      if (!video || !transportStore.getState().isPlaying) return;
-      const info = activeClipRef.current;
-      if (!info) return;
-      const sourceFrame = Math.round(video.currentTime * fps);
-      const projectFrame = sourceFrame - info.clip.sourceIn + info.clip.timelineIn;
-      transportStore.getState().setPlayheadFrame(projectFrame);
-    }
-    video.addEventListener('timeupdate', onTimeUpdate);
-    return () => video.removeEventListener('timeupdate', onTimeUpdate);
-  }, [fps, videoSrc]);
 
   // Resolve initial clip on mount
   useEffect(() => {

@@ -1,11 +1,12 @@
-import React from 'react';
-import type { Clip, ClipId } from '@rough-cut/project-model';
-import { InspectorCard, ControlLabel, RcToggleButton } from '../../ui/index.js';
+import React, { useState } from 'react';
+import type { Clip, ClipId, ClipTransform } from '@rough-cut/project-model';
+import { InspectorCard, ControlLabel, RcToggleButton, RcSlider } from '../../ui/index.js';
 
 interface ClipInspectorCardProps {
   clip: Clip | null;
   fps: number;
   onUpdateClip: (clipId: ClipId, patch: { name?: string; enabled?: boolean }) => void;
+  onUpdateTransform?: (clipId: ClipId, patch: Partial<ClipTransform>) => void;
 }
 
 function formatTimecode(frame: number, fps: number): string {
@@ -21,7 +22,20 @@ function formatDuration(frames: number, fps: number): string {
   return `${seconds.toFixed(2)}s`;
 }
 
-export function ClipInspectorCard({ clip, fps, onUpdateClip }: ClipInspectorCardProps) {
+const DEFAULT_TRANSFORM: ClipTransform = {
+  x: 0,
+  y: 0,
+  scaleX: 1,
+  scaleY: 1,
+  rotation: 0,
+  anchorX: 0.5,
+  anchorY: 0.5,
+  opacity: 1,
+};
+
+export function ClipInspectorCard({ clip, fps, onUpdateClip, onUpdateTransform }: ClipInspectorCardProps) {
+  const [lockAspect, setLockAspect] = useState(true);
+
   if (!clip) {
     return (
       <InspectorCard title="Clip" flex={1} minHeight={80}>
@@ -35,7 +49,12 @@ export function ClipInspectorCard({ clip, fps, onUpdateClip }: ClipInspectorCard
   const durationFrames = clip.timelineOut - clip.timelineIn;
 
   return (
-    <InspectorCard title="Clip" flex={1} minHeight={80}>
+    <InspectorCard
+      title="Clip"
+      flex={1}
+      minHeight={80}
+      onReset={onUpdateTransform ? () => onUpdateTransform(clip.id, { ...DEFAULT_TRANSFORM }) : undefined}
+    >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {/* Name */}
         <div>
@@ -82,6 +101,43 @@ export function ClipInspectorCard({ clip, fps, onUpdateClip }: ClipInspectorCard
           value={clip.enabled}
           onChange={(v) => onUpdateClip(clip.id, { enabled: v })}
         />
+
+        {/* Divider */}
+        <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '4px 0' }} />
+
+        {/* Transform */}
+        <RcSlider label="Position X" value={clip.transform.x} min={-1920} max={1920} step={1} onChange={(v) => onUpdateTransform?.(clip.id, { x: v })} />
+        <RcSlider label="Position Y" value={clip.transform.y} min={-1080} max={1080} step={1} onChange={(v) => onUpdateTransform?.(clip.id, { y: v })} />
+        <RcSlider label="Scale X" value={clip.transform.scaleX} min={0} max={4} step={0.01} onChange={(v) => {
+          const patch: Partial<ClipTransform> = { scaleX: v };
+          if (lockAspect) patch.scaleY = v;
+          onUpdateTransform?.(clip.id, patch);
+        }} />
+        {/* Lock aspect toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            onClick={() => setLockAspect(!lockAspect)}
+            title={lockAspect ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
+            style={{
+              fontSize: 11,
+              color: lockAspect ? 'rgba(255,255,255,0.80)' : 'rgba(255,255,255,0.35)',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 0,
+              userSelect: 'none',
+            }}
+          >
+            {lockAspect ? '\u2194 Linked' : 'Independent'}
+          </button>
+        </div>
+        <RcSlider label="Scale Y" value={clip.transform.scaleY} min={0} max={4} step={0.01} onChange={(v) => {
+          const patch: Partial<ClipTransform> = { scaleY: v };
+          if (lockAspect) patch.scaleX = v;
+          onUpdateTransform?.(clip.id, patch);
+        }} />
+        <RcSlider label="Rotation" value={clip.transform.rotation} min={-360} max={360} step={1} onChange={(v) => onUpdateTransform?.(clip.id, { rotation: v })} />
+        <RcSlider label="Opacity" value={clip.transform.opacity} min={0} max={1} step={0.01} onChange={(v) => onUpdateTransform?.(clip.id, { opacity: v })} />
       </div>
     </InspectorCard>
   );

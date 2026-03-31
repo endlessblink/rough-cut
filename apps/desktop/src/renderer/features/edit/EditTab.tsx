@@ -4,10 +4,11 @@
  * move between tracks, manage A/V channels). Can also adjust presentation events
  * created in the Record view.
  */
-import { useState, useCallback, useEffect } from 'react';
-import type { ClipId, TrackId } from '@rough-cut/project-model';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import type { ClipId, TrackId, ClipTransform, EffectInstance, AIAnnotationId } from '@rough-cut/project-model';
 import { useProjectStore, useTransportStore, projectStore, transportStore } from '../../hooks/use-stores.js';
 import { usePlaybackLoop } from '../../hooks/use-playback-loop.js';
+import { useCompositor } from '../../hooks/use-compositor.js';
 import { TimelineStrip } from './TimelineStrip.js';
 import { EditScreenLayout } from './EditScreenLayout.js';
 import { EditPreviewStage } from './EditPreviewStage.js';
@@ -17,7 +18,6 @@ import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
 // VerticalWorkspaceSplit no longer needed — timeline is a full-width sibling
 import { useUiStore, uiStore } from '../../hooks/use-ui-store.js';
-import { RecordingPlaybackVideo } from '../record/RecordingPlaybackVideo.js';
 
 interface EditTabProps {
   activeTab: AppView;
@@ -34,13 +34,8 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const [pixelsPerFrame, setPixelsPerFrame] = useState(3);
   const [snapEnabled, setSnapEnabled] = useState(true);
 
-  // Active recording asset — same logic as RecordTab
-  const activeRecordingAsset = useProjectStore((s) => {
-    const preferred = s.activeAssetId
-      ? s.project.assets.find((a) => a.id === s.activeAssetId)
-      : null;
-    return preferred ?? s.project.assets.find((a) => a.type === 'recording') ?? null;
-  });
+  // PixiJS compositor — renders clips with transforms and effects
+  const { previewRef } = useCompositor();
 
   // Undo/redo availability
   const canUndo = useProjectStore(() => projectStore.temporal.getState().pastStates.length > 0);
@@ -91,6 +86,48 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
     setSelectedClipId(null);
   }, [selectedClipId, selectedClipTrack]);
 
+  const handleUpdateTransform = useCallback(
+    (clipId: ClipId, patch: Partial<ClipTransform>) => {
+      projectStore.getState().updateClipTransform(clipId, patch);
+    },
+    [],
+  );
+
+  const handleAddEffect = useCallback(
+    (trackId: TrackId, clipId: ClipId, effect: EffectInstance) => {
+      projectStore.getState().addClipEffect(trackId, clipId, effect);
+    },
+    [],
+  );
+
+  const handleUpdateEffect = useCallback(
+    (trackId: TrackId, clipId: ClipId, effectIndex: number, patch: Partial<EffectInstance>) => {
+      projectStore.getState().updateClipEffect(trackId, clipId, effectIndex, patch);
+    },
+    [],
+  );
+
+  const handleRemoveEffect = useCallback(
+    (trackId: TrackId, clipId: ClipId, effectIndex: number) => {
+      projectStore.getState().removeClipEffect(trackId, clipId, effectIndex);
+    },
+    [],
+  );
+
+  const handleSetTrackVolume = useCallback(
+    (trackId: TrackId, volume: number) => {
+      projectStore.getState().setTrackVolume(trackId, volume);
+    },
+    [],
+  );
+
+  const handleUpdateCaptionText = useCallback(
+    (id: AIAnnotationId, text: string) => {
+      projectStore.getState().updateCaptionText(id, text);
+    },
+    [],
+  );
+
   const handleUndo = useCallback(() => {
     projectStore.temporal.getState().undo();
   }, []);
@@ -119,23 +156,52 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
 
   const handleMoveClip = useCallback(
     (clipId: string, newTimelineIn: number, fromTrackId: string, toTrackId: string) => {
-      if (fromTrackId === toTrackId) {
-        // Same track — just move horizontally
-        projectStore.getState().moveClip(fromTrackId as TrackId, clipId as ClipId, newTimelineIn);
-      } else {
-        // Cross-track: move to new track, then set position
-        projectStore.getState().moveClipToTrack(clipId as ClipId, fromTrackId as TrackId, toTrackId as TrackId);
-        projectStore.getState().moveClip(toTrackId as TrackId, clipId as ClipId, newTimelineIn);
-      }
+      projectStore.getState().moveClipWithOverwrite(
+        clipId as ClipId,
+        fromTrackId as TrackId,
+        toTrackId as TrackId,
+        newTimelineIn,
+      );
     },
     [],
   );
+
+  const trackVolume = selectedClipTrack?.volume ?? 1;
+
+  const allCaptionSegments = useProjectStore((s) => s.project.aiAnnotations.captionSegments);
+  const captionSegments = useMemo(() => {
+    if (!selectedClip) return [];
+    return allCaptionSegments.filter(
+      (seg) => seg.startFrame < selectedClip.timelineOut && seg.endFrame > selectedClip.timelineIn,
+    );
+  }, [allCaptionSegments, selectedClip]);
 
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
   const resolution = useProjectStore((s) => s.project.settings.resolution);
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
   const durationFrames = useProjectStore((s) => s.project.composition.duration);
   usePlaybackLoop(projectFps, durationFrames);
+
+  // Zoom-to-fit: calculate ppf so all clips fit in the visible width
+  const handleZoomToFit = useCallback(() => {
+    const maxFrame = Math.max(
+      ...tracks.map((t) => t.clips.reduce((mx, c) => Math.max(mx, c.timelineOut), 0)),
+      1, // avoid divide by zero
+    );
+    const estimatedWidth = window.innerWidth - 200; // rough estimate minus sidebar/labels
+    const newPpf = Math.max(1, Math.min(20, Math.floor(estimatedWidth / maxFrame)));
+    setPixelsPerFrame(newPpf);
+  }, [tracks]);
+
+  // Auto zoom-to-fit on initial project load
+  const initialFitDoneRef = useRef(false);
+
+  useEffect(() => {
+    if (tracks.length > 0 && tracks.some((t) => t.clips.length > 0) && !initialFitDoneRef.current) {
+      initialFitDoneRef.current = true;
+      handleZoomToFit();
+    }
+  }, [tracks, handleZoomToFit]);
 
   const handleUpdateClipField = useCallback(
     (clipId: ClipId, patch: { name?: string; enabled?: boolean }) => {
@@ -179,7 +245,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
         case '=':
         case '+':
           e.preventDefault();
-          setPixelsPerFrame((prev) => Math.min(10, prev + 1));
+          setPixelsPerFrame((prev) => Math.min(20, prev + 1));
           break;
         case '-':
           e.preventDefault();
@@ -223,31 +289,9 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
           background: 'linear-gradient(to bottom, #111111, #050505)',
         }}
       >
-        {/* Preview — fills remaining space */}
+        {/* Preview — fills remaining space, uses PixiJS compositor */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <EditPreviewStage>
-            <div style={{
-              position: 'relative',
-              aspectRatio: '16 / 9',
-              width: '100%',
-              borderRadius: 18,
-              background: '#050505',
-              boxShadow: '0 18px 60px rgba(0,0,0,0.80)',
-              overflow: 'hidden',
-            }}>
-              {activeRecordingAsset?.filePath ? (
-                <RecordingPlaybackVideo
-                  filePath={activeRecordingAsset.filePath}
-                  fps={projectFps}
-                  assetId={activeRecordingAsset.id}
-                />
-              ) : (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>No recording</span>
-                </div>
-              )}
-            </div>
-          </EditPreviewStage>
+          <EditPreviewStage previewRef={previewRef} />
         </div>
 
         {/* Sidebar toggle + panel */}
@@ -277,6 +321,15 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
               selectedClip={selectedClip}
               fps={projectFps}
               onUpdateClip={handleUpdateClipField}
+              onUpdateTransform={handleUpdateTransform}
+              trackId={(selectedClipTrack?.id as TrackId) ?? null}
+              onAddEffect={handleAddEffect}
+              onUpdateEffect={handleUpdateEffect}
+              onRemoveEffect={handleRemoveEffect}
+              trackVolume={trackVolume}
+              onSetTrackVolume={handleSetTrackVolume}
+              captionSegments={captionSegments}
+              onUpdateCaptionText={handleUpdateCaptionText}
             />
           )}
         </div>
@@ -297,6 +350,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
           onToggleSnap={() => setSnapEnabled((prev) => !prev)}
           pixelsPerFrame={pixelsPerFrame}
           onZoomChange={setPixelsPerFrame}
+          onZoomToFit={handleZoomToFit}
           playheadFrame={playheadFrame}
         >
           <TimelineStrip
@@ -311,6 +365,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
             onTrimLeft={handleTrimLeft}
             onTrimRight={handleTrimRight}
             onMoveClip={handleMoveClip}
+            onZoomChange={setPixelsPerFrame}
           />
         </EditTimelineShell>
       </div>

@@ -34,6 +34,7 @@ import { LAYOUT_TEMPLATES, resolutionForAspectRatio } from './templates.js';
 import type { LayoutTemplate } from './templates.js';
 import type { Rect } from './template-layout/types.js';
 import { getCardAspect } from './template-layout/index.js';
+import type { Alignment } from './snap-guides.js';
 
 const DEFAULT_BACKGROUND: BackgroundConfig = {
   bgColor: '#4a1942',
@@ -65,6 +66,20 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const [screenRectOverride, setScreenRectOverride] = useState<Rect | undefined>();
   const [cameraRectOverride, setCameraRectOverride] = useState<Rect | undefined>();
   const [cropModeActive, setCropModeActive] = useState(false);
+  const [selectedRegion, setSelectedRegion] = useState<'screen' | 'camera' | null>(null);
+  const alignRef = useRef<((a: Alignment) => void) | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedRegion(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
+  const handleAlign = useCallback((alignment: Alignment) => {
+    alignRef.current?.(alignment);
+  }, []);
 
   // Sync resolution with default template on mount — prevents stale resolution
   // from a previously selected template (e.g. 1:1 "Talking Head" → 1080×1080)
@@ -123,6 +138,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     if (!activeRecordingAsset?.cameraAssetId) return null;
     return s.project.assets.find((a) => a.id === activeRecordingAsset.cameraAssetId) ?? null;
   });
+
+  console.log('[RecordTab] activeRecording cameraAssetId:', activeRecordingAsset?.cameraAssetId ?? 'NONE', 'cameraAsset:', cameraAsset ? cameraAsset.filePath : 'NULL');
 
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -426,6 +443,9 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
                 onScreenCropChange={handleScreenCropChange}
                 sourceWidth={resolution.width}
                 sourceHeight={resolution.height}
+                alignRef={alignRef}
+                onRegionClick={setSelectedRegion}
+                selectedRegion={selectedRegion}
               />
             </CardChrome>
           </PreviewStage>
@@ -459,6 +479,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
             onCropModeChange={setCropModeActive}
             selectedTemplateId={activeTemplate.id}
             onTemplateChange={handleTemplateChange}
+            selectedRegion={selectedRegion}
+            onAlign={handleAlign}
           />
         }
       />

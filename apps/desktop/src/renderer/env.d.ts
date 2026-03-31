@@ -105,6 +105,29 @@ export interface RoughCutAPI {
   panelResume(): void;
   panelSaveRecording(buffer: ArrayBuffer, metadata: RecordingMetadata, cameraBuffer?: ArrayBuffer): Promise<RecordingResult>;
   onRecordingAssetReady(callback: (result: RecordingResult) => void): () => void;
+
+  // AI Analysis
+  aiGetApiKey(provider: string): Promise<string>;
+  aiSetApiKey(provider: string, apiKey: string): Promise<boolean>;
+  aiGetProviderConfig(): Promise<{ provider: string }>;
+  aiSetProviderConfig(provider: string): Promise<boolean>;
+  aiAnalyzeCaptions(assets: Array<{ id: string; filePath: string }>, fps: number): Promise<Array<{
+    id: string;
+    assetId: string;
+    status: 'pending' | 'accepted' | 'rejected';
+    confidence: number;
+    startFrame: number;
+    endFrame: number;
+    text: string;
+    words: Array<{
+      word: string;
+      startFrame: number;
+      endFrame: number;
+      confidence: number;
+    }>;
+  }>>;
+  aiCancelAnalysis(): Promise<boolean>;
+  onAIProgress(callback: (progress: { assetId: string | null; stage: string; percent: number }) => void): () => void;
 }
 
 declare global {

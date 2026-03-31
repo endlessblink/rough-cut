@@ -1,4 +1,4 @@
-import { Application, Graphics, Text, Container, TextStyle, Sprite, Texture, VideoSource } from 'pixi.js';
+import { Application, Graphics, Text, Container, TextStyle, Sprite, Texture, VideoSource, BlurFilter, Filter } from 'pixi.js';
 import type { ProjectDocument, Asset, RegionCrop } from '@rough-cut/project-model';
 import { resolveFrame } from '@rough-cut/frame-resolver';
 import { registerBuiltinEffects } from '@rough-cut/effect-registry';
@@ -25,6 +25,7 @@ interface LayerCache {
   rect: Graphics;
   label: Text;
   videoSprite?: Sprite;
+  roundCornersMask?: Graphics;
 }
 
 interface VideoCache {
@@ -415,20 +416,65 @@ export class PreviewCompositor {
     }
 
     container.rotation = (transform.rotation * Math.PI) / 180;
-    container.alpha = Math.max(0, Math.min(1, transform.opacity));
 
     // Apply z-order
     container.zIndex = layer.trackIndex;
-    this.layerContainer.sortableChildren = true;
+    this.layerContainer!.sortableChildren = true;
 
-    // Determine opacity from effects
+    // ── Effect rendering ──────────────────────────────────────────────
+    // Clear previous effects before rebuilding
+    container.filters = null;
+    if (cached.roundCornersMask) {
+      container.mask = null;
+      container.removeChild(cached.roundCornersMask);
+      cached.roundCornersMask.destroy();
+      cached.roundCornersMask = undefined;
+    }
+
+    const filters: Filter[] = [];
     let effectOpacity = 1;
+
     for (const effect of effects) {
-      if (effect.enabled && effect.effectType === 'opacity') {
-        const v = effect.params['opacity'];
-        if (typeof v === 'number') effectOpacity = v;
+      if (!effect.enabled) continue;
+
+      switch (effect.effectType) {
+        case 'gaussian-blur': {
+          const radius = (effect.params['radius'] as number) ?? 5;
+          const qualityStr = (effect.params['quality'] as string) ?? 'medium';
+          const quality = qualityStr === 'low' ? 2 : qualityStr === 'high' ? 8 : 4;
+          filters.push(new BlurFilter({ strength: radius, quality }));
+          break;
+        }
+        case 'round-corners': {
+          const cornerRadius = (effect.params['radius'] as number) ?? 12;
+          // Apply rounded-corner mask to the content sprite or placeholder rect
+          const maskTarget = cached.videoSprite?.visible ? cached.videoSprite : rect;
+          const maskW = maskTarget.width;
+          const maskH = maskTarget.height;
+          if (maskW > 0 && maskH > 0) {
+            const mask = new Graphics();
+            mask.roundRect(0, 0, maskW, maskH, cornerRadius).fill({ color: 0xffffff });
+            // Position mask at the same local position as the sprite/rect
+            mask.position.set(maskTarget.x, maskTarget.y);
+            container.addChild(mask);
+            container.mask = mask;
+            cached.roundCornersMask = mask;
+          }
+          break;
+        }
+        case 'opacity': {
+          const v = effect.params['opacity'];
+          if (typeof v === 'number') effectOpacity = v;
+          break;
+        }
+        // 'shadow' — requires @pixi/filter-drop-shadow (not installed).
+        // Skip silently until the dependency is added.
+        default:
+          break;
       }
     }
+
+    container.filters = filters.length > 0 ? filters : null;
     container.alpha = Math.max(0, Math.min(1, transform.opacity * effectOpacity));
   }
 }

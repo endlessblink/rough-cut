@@ -36,6 +36,8 @@ export interface MediaFrameProps {
   interactive?: boolean;
   /** Whether currently hovered */
   isHovered?: boolean;
+  /** Whether currently selected (sticky, persists after cursor leaves) */
+  isSelected?: boolean;
   /** Whether currently being dragged */
   isDragging?: boolean;
   /** Pointer event handlers */
@@ -93,6 +95,7 @@ export function MediaFrame({
   transition = 'all 300ms ease',
   interactive = false,
   isHovered = false,
+  isSelected = false,
   isDragging = false,
   onPointerEnter,
   onPointerLeave,
@@ -110,7 +113,7 @@ export function MediaFrame({
 
   const edges = circular ? CORNER_EDGES : ALL_EDGES;
   const showHandles = interactive && isHovered && !isDragging;
-  const showBorder = interactive && (isHovered || isDragging);
+  const showBorder = interactive && (isHovered || isDragging || isSelected);
 
   // Cursor reflects drag state
   const cursor = interactive ? (isDragging ? 'grabbing' : 'grab') : undefined;
@@ -177,7 +180,7 @@ export function MediaFrame({
             style={{
               position: 'absolute',
               inset: 0,
-              border: '2px solid rgba(90,160,250,0.6)',
+              border: `2px solid ${isSelected && !isHovered ? 'rgba(45,212,191,0.7)' : 'rgba(90,160,250,0.6)'}`,
               boxSizing: 'border-box',
               borderRadius: resolvedRadius,
               pointerEvents: 'none',

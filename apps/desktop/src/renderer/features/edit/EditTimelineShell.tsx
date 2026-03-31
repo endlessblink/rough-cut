@@ -17,6 +17,7 @@ interface EditTimelineShellProps {
   // Zoom
   pixelsPerFrame: number;
   onZoomChange: (value: number) => void;
+  onZoomToFit?: () => void;
 
   // Timecode
   playheadFrame: number;
@@ -131,6 +132,7 @@ export function EditTimelineShell({
   onToggleSnap,
   pixelsPerFrame,
   onZoomChange,
+  onZoomToFit,
   playheadFrame,
   fps = 30,
   children,
@@ -214,6 +216,9 @@ export function EditTimelineShell({
 
         {/* Right: zoom + timecode */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {onZoomToFit && (
+            <TimelineToolButton label="Fit" title="Zoom to fit all clips" onClick={onZoomToFit} />
+          )}
           <span
             style={{
               fontSize: 10,
@@ -226,7 +231,7 @@ export function EditTimelineShell({
           <input
             type="range"
             min={1}
-            max={10}
+            max={20}
             step={1}
             value={pixelsPerFrame}
             onChange={(e) => onZoomChange(Number(e.target.value))}

@@ -19,9 +19,9 @@ describe('factories', () => {
       expect(() => validateProject(project)).not.toThrow();
     });
 
-    it('has schema version 2', () => {
+    it('has schema version 3', () => {
       const project = createProject();
-      expect(project.version).toBe(2);
+      expect(project.version).toBe(3);
     });
 
     it('has 2 video + 2 audio tracks by default', () => {

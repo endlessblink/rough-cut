@@ -12,6 +12,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@remotion/core": "1.0.0-y.46",
+    "@remotion/player": "^4.0.441",
     "@rough-cut/effect-registry": "workspace:*",
     "@rough-cut/export-renderer": "workspace:*",
     "@rough-cut/frame-resolver": "workspace:*",
@@ -21,7 +23,8 @@
     "@rough-cut/timeline-engine": "workspace:*",
     "electron-store": "^11.0.2",
     "react": "^18.3.0",
-    "react-dom": "^18.3.0"
+    "react-dom": "^18.3.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",

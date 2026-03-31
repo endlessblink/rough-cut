@@ -31,6 +31,8 @@ import type {
   AIAnnotations,
   CaptionSegment,
   TranscriptWord,
+  MotionCompositionId,
+  MotionComposition,
 } from './types.js';
 import {
   CURRENT_SCHEMA_VERSION,
@@ -63,6 +65,9 @@ function zoomMarkerId(): ZoomMarkerId {
 }
 function aiAnnotationId(): AIAnnotationId {
   return generateId() as AIAnnotationId;
+}
+function motionCompositionId(): MotionCompositionId {
+  return generateId() as MotionCompositionId;
 }
 
 // Suppress unused-variable lint — these generators are public API surface
@@ -257,6 +262,24 @@ export function createDefaultAIAnnotations(): AIAnnotations {
   };
 }
 
+export function createMotionComposition(
+  templateId: string,
+  name: string,
+  durationFrames: number,
+  props: Record<string, unknown> = {},
+  overrides?: Partial<MotionComposition>,
+): MotionComposition {
+  return {
+    id: motionCompositionId(),
+    templateId,
+    name,
+    durationFrames,
+    props,
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
 export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocument {
   const now = new Date().toISOString();
   return {
@@ -291,6 +314,7 @@ export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocu
       frameRate: DEFAULT_FRAME_RATE,
     },
     aiAnnotations: createDefaultAIAnnotations(),
+    motionCompositions: [],
     ...overrides,
   };
 }

@@ -7,6 +7,7 @@ import { EditTab } from './features/edit/EditTab.js';
 import { ExportTab } from './features/export/ExportTab.js';
 import { ProjectsTab } from './features/projects/ProjectsTab.js';
 import { AITab } from './features/ai/AITab.js';
+import { MotionTab } from './features/motion/MotionTab.js';
 import type { AppView } from './ui/index.js';
 import { projectStore, transportStore } from './hooks/use-stores.js';
 
@@ -82,6 +83,7 @@ export function App() {
   const handleRecordingComplete = useCallback((result: RecordingResult) => {
     // If a camera file was saved alongside the screen recording, create a camera asset first
     let cameraAssetId: string | undefined;
+    console.log('[App] Recording result cameraFilePath:', result.cameraFilePath ?? 'NONE');
     if (result.cameraFilePath) {
       const cameraAsset = createAsset('video', result.cameraFilePath, {
         duration: result.durationFrames,
@@ -93,6 +95,7 @@ export function App() {
       });
       projectStore.getState().addAsset(cameraAsset);
       cameraAssetId = cameraAsset.id;
+      console.log('[App] Camera asset created:', cameraAssetId, 'path:', result.cameraFilePath);
     }
 
     const asset = createAsset('recording', result.filePath, {
@@ -104,9 +107,11 @@ export function App() {
         fps: result.fps,
         codec: result.codec,
         fileSize: result.fileSize,
+        cursorEventsPath: result.cursorEventsPath || null,
       },
       ...(cameraAssetId ? { cameraAssetId } : {}),
     });
+    console.log('[App] Recording asset before addAsset:', { id: asset.id, cameraAssetId: (asset as any).cameraAssetId, hasCameraId: 'cameraAssetId' in asset });
     projectStore.getState().addAsset(asset);
 
     // Create a clip at frame 0 for this recording (each recording is independent)
@@ -155,16 +160,6 @@ export function App() {
     return unsub;
   }, [handleRecordingComplete]);
 
-  // --- Tab content ---
-  // Record and Edit tabs own their own full-viewport layouts.
-  // All other tabs use the classic sidebar + placeholder split.
-  function renderTabContent() {
-    switch (activeTab) {
-      case 'motion':
-        return <TabPlaceholder name="Motion" />;
-    }
-  }
-
   // Projects tab takes over the entire viewport — no chrome wrapper
   if (activeTab === 'projects') {
     return (
@@ -190,6 +185,11 @@ export function App() {
   // Export tab takes over the entire viewport — no chrome wrapper
   if (activeTab === 'export') {
     return <ExportTab activeTab={activeTab} onTabChange={(tab) => setActiveTab(tab)} />;
+  }
+
+  // Motion tab takes over the entire viewport — no chrome wrapper
+  if (activeTab === 'motion') {
+    return <MotionTab activeTab={activeTab} onTabChange={(tab) => setActiveTab(tab)} />;
   }
 
   // AI tab takes over the entire viewport — no chrome wrapper

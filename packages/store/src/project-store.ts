@@ -4,6 +4,7 @@ import type {
   ProjectDocument,
   ProjectSettings,
   Clip,
+  ClipTransform,
   Asset,
   ClipId,
   TrackId,
@@ -28,6 +29,7 @@ import {
   trimClipLeft,
   trimClipRight,
   replaceClipOnTrack,
+  resolveOverlaps,
 } from '@rough-cut/timeline-engine';
 
 export interface ProjectState {
@@ -58,6 +60,7 @@ export interface ProjectActions {
   removeClip: (trackId: TrackId, clipId: ClipId) => void;
   moveClip: (trackId: TrackId, clipId: ClipId, newTimelineIn: number) => void;
   moveClipToTrack: (clipId: ClipId, fromTrackId: TrackId, toTrackId: TrackId) => void;
+  moveClipWithOverwrite: (clipId: ClipId, fromTrackId: TrackId, toTrackId: TrackId, newTimelineIn: number) => void;
 
   // Asset actions
   addAsset: (asset: Asset) => void;
@@ -80,6 +83,7 @@ export interface ProjectActions {
 
   // Clip property editing (for inspector)
   updateClipField: (clipId: ClipId, patch: Partial<Pick<Clip, 'name' | 'enabled'>>) => void;
+  updateClipTransform: (clipId: ClipId, patch: Partial<ClipTransform>) => void;
 
   // Recording presentation — zoom
   setRecordingAutoZoomIntensity: (assetId: AssetId, value: number) => void;
@@ -212,6 +216,44 @@ export function createProjectStore() {
           });
         },
 
+        moveClipWithOverwrite: (clipId: ClipId, fromTrackId: TrackId, toTrackId: TrackId, newTimelineIn: number) => {
+          get().updateProject((doc) => {
+            const fromTrack = doc.composition.tracks.find((t) => t.id === fromTrackId);
+            if (!fromTrack) return doc;
+            const clip = fromTrack.clips.find((c) => c.id === clipId);
+            if (!clip) return doc;
+
+            const duration = clip.timelineOut - clip.timelineIn;
+            const movedClip: Clip = {
+              ...clip,
+              trackId: toTrackId,
+              timelineIn: newTimelineIn,
+              timelineOut: newTimelineIn + duration,
+            };
+
+            const targetTrack = doc.composition.tracks.find((t) => t.id === toTrackId);
+            if (!targetTrack) return doc;
+            const otherClips = targetTrack.clips.filter((c) => c.id !== clipId);
+            const resolvedClips = resolveOverlaps(otherClips, newTimelineIn, newTimelineIn + duration);
+
+            return {
+              ...doc,
+              composition: {
+                ...doc.composition,
+                tracks: doc.composition.tracks.map((t) => {
+                  if (t.id === fromTrackId && fromTrackId !== toTrackId) {
+                    return { ...t, clips: t.clips.filter((c) => c.id !== clipId) };
+                  }
+                  if (t.id === toTrackId) {
+                    return { ...t, clips: [...resolvedClips, movedClip] };
+                  }
+                  return t;
+                }),
+              },
+            };
+          });
+        },
+
         splitClipAtFrame: (trackId: TrackId, clipId: ClipId, frame: number) => {
           const track = get().project.composition.tracks.find((t) => t.id === trackId);
           if (!track) return;
@@ -289,6 +331,21 @@ export function createProjectStore() {
                 ...t,
                 clips: t.clips.map((c) =>
                   c.id === clipId ? { ...c, ...patch } : c,
+                ),
+              })),
+            },
+          }));
+        },
+
+        updateClipTransform: (clipId: ClipId, patch: Partial<ClipTransform>) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            composition: {
+              ...doc.composition,
+              tracks: doc.composition.tracks.map((t) => ({
+                ...t,
+                clips: t.clips.map((c) =>
+                  c.id === clipId ? { ...c, transform: { ...c.transform, ...patch } } : c,
                 ),
               })),
             },

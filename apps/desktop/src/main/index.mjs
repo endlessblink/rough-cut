@@ -8,6 +8,7 @@ import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { getSources, saveRecording } from './recording/capture-service.mjs';
 import { initSessionManager } from './recording/recording-session-manager.mjs';
 import { getRecentProjects, addRecentProject, removeRecentProject, clearRecentProjects, getRecordingLocation, setRecordingLocation, getFavoriteLocations, addFavoriteLocation, removeFavoriteLocation } from './recent-projects-service.mjs';
+import { registerAIHandlers } from './ai/ai-service.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -192,6 +193,12 @@ function registerIpcHandlers() {
   // App: Version
   ipcMain.handle(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion());
 
+  // File system: read a text file (used for cursor event sidecar loading)
+  ipcMain.handle(IPC_CHANNELS.READ_TEXT_FILE, async (_e, filePath) => {
+    if (!filePath || !existsSync(filePath)) return null;
+    return readFile(filePath, 'utf-8');
+  });
+
   // Project: Auto-save — saves silently after recording completes.
   // If filePath is provided, overwrites that file; otherwise resolves a path in ~/Documents/Rough Cut/.
   ipcMain.handle(IPC_CHANNELS.PROJECT_AUTO_SAVE, async (_e, { project, filePath }) => {
@@ -345,6 +352,8 @@ function registerIpcHandlers() {
   ipcMain.handle(IPC_CHANNELS.STORAGE_REMOVE_FAVORITE, (_e, { path }) => {
     removeFavoriteLocation(path);
   });
+
+  registerAIHandlers(mainWindow);
 }
 
 // macOS audio loopback support (ScreenCaptureKit)
@@ -359,7 +368,25 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { stream: true, bypassCSP: true } },
 ]);
 
+// Enable PipeWire camera support on Linux (must be before app.ready)
+app.commandLine.appendSwitch('enable-features', 'WebRtcPipeWireCamera');
+
 app.whenReady().then(() => {
+  // Permission CHECK handler (synchronous pre-flight — getUserMedia needs this)
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission, _requestingOrigin, details) => {
+    if (permission === 'media') return true;
+    return false;
+  });
+
+  // Permission REQUEST handler (async — approves the actual request)
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    if (permission === 'media') {
+      callback(true);
+    } else {
+      callback(false);
+    }
+  });
+
   // Handle media:// URLs by serving local files with range request support.
   // Uses createReadStream to support HTTP 206 Partial Content for video seeking.
   protocol.handle('media', (req) => {

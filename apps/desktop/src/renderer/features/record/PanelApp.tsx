@@ -921,6 +921,216 @@ function StopButton({ onStop }: { onStop: () => void }) {
   );
 }
 
+// ─── MiniPauseButton ────────────────────────────────────────────────────────
+
+function MiniPauseButton({ paused, onTogglePause }: { paused: boolean; onTogglePause: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  const borderColor = paused ? C.accent : hovered ? C.borderLight : C.border;
+
+  return (
+    <button
+      aria-label={paused ? 'Resume recording' : 'Pause recording'}
+      onClick={onTogglePause}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: R.button,
+        border: `1px solid ${borderColor}`,
+        background: hovered ? C.inputHover : C.input,
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        outline: 'none',
+        padding: 0,
+        flexShrink: 0,
+        transition: 'background 120ms ease-out, border-color 120ms ease-out',
+      }}
+    >
+      {paused ? (
+        <svg width="9" height="11" viewBox="0 0 11 13" fill={C.text} aria-hidden="true">
+          <polygon points="1,0 11,6.5 1,13" />
+        </svg>
+      ) : (
+        <svg width="8" height="10" viewBox="0 0 10 12" fill={C.text} aria-hidden="true">
+          <rect x="0" y="0" width="3.5" height="12" rx="1" />
+          <rect x="6.5" y="0" width="3.5" height="12" rx="1" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+// ─── MiniStopButton ──────────────────────────────────────────────────────────
+
+function MiniStopButton({ onStop }: { onStop: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+
+  const bg = pressed
+    ? 'rgba(255,90,95,0.25)'
+    : hovered ? 'rgba(255,90,95,0.15)' : C.input;
+  const borderColor = hovered ? 'rgba(255,90,95,0.5)' : C.border;
+
+  return (
+    <button
+      aria-label="Stop recording"
+      onClick={onStop}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => { setHovered(false); setPressed(false); }}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: R.button,
+        border: `1px solid ${borderColor}`,
+        background: bg,
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        outline: 'none',
+        padding: 0,
+        flexShrink: 0,
+        transition: 'background 120ms ease-out, border-color 120ms ease-out',
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          display: 'inline-block',
+          width: 10,
+          height: 10,
+          borderRadius: 2,
+          background: C.accent,
+          flexShrink: 0,
+        }}
+      />
+    </button>
+  );
+}
+
+// ─── MiniController (pill bar during recording) ───────────────────────────
+
+function MiniController({
+  elapsedMs,
+  paused,
+  onStop,
+  onTogglePause,
+}: {
+  elapsedMs: number;
+  paused: boolean;
+  onStop: () => void;
+  onTogglePause: () => void;
+}) {
+  const elapsedSeconds = Math.floor(elapsedMs / 1000);
+
+  return (
+    <div
+      style={{
+        width: 340,
+        height: 56,
+        background: C.bg,
+        borderRadius: 28,
+        border: `1px solid ${C.border}`,
+        boxShadow: '0 4px 24px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3)',
+        display: 'flex',
+        alignItems: 'center',
+        paddingLeft: 20,
+        paddingRight: 12,
+        gap: 12,
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+        color: C.text,
+        userSelect: 'none',
+        WebkitAppRegion: 'drag',
+      } as React.CSSProperties}
+    >
+      {/* Recording indicator */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        {paused ? (
+          <span
+            aria-hidden="true"
+            style={{
+              display: 'inline-block',
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: '#eab308',
+              flexShrink: 0,
+            }}
+          />
+        ) : (
+          <PulsingDot />
+        )}
+      </div>
+
+      {/* Timer */}
+      <span
+        style={{
+          fontFamily: '"SF Mono", "Fira Mono", "Consolas", monospace',
+          fontSize: 15,
+          fontWeight: 600,
+          color: C.text,
+          letterSpacing: '0.04em',
+          fontVariantNumeric: 'tabular-nums',
+          flexShrink: 0,
+        }}
+      >
+        {formatElapsed(elapsedSeconds)}
+      </span>
+
+      {/* Paused label */}
+      {paused && (
+        <span style={{ fontSize: 11, color: '#eab308', fontWeight: 500, flexShrink: 0 }}>
+          Paused
+        </span>
+      )}
+
+      {/* Spacer */}
+      <div style={{ flex: 1 }} />
+
+      {/* Controls */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, WebkitAppRegion: 'no-drag', flexShrink: 0 } as React.CSSProperties}>
+        <MiniPauseButton paused={paused} onTogglePause={onTogglePause} />
+        <MiniStopButton onStop={onStop} />
+      </div>
+    </div>
+  );
+}
+
+// ─── MiniSavingIndicator ─────────────────────────────────────────────────────
+
+function MiniSavingIndicator() {
+  return (
+    <div
+      style={{
+        width: 340,
+        height: 56,
+        background: C.bg,
+        borderRadius: 28,
+        border: `1px solid ${C.border}`,
+        boxShadow: '0 4px 24px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+        color: C.textSecondary,
+        fontSize: 13,
+        fontWeight: 500,
+        userSelect: 'none',
+        WebkitAppRegion: 'drag',
+      } as React.CSSProperties}
+    >
+      <SpinnerDot />
+      Saving…
+    </div>
+  );
+}
+
 // ─── PanelApp ───────────────────────────────────────────────────────────────
 
 export function PanelApp() {
@@ -1035,13 +1245,16 @@ export function PanelApp() {
       return;
     }
     let active = true;
+    console.info('[PanelApp] Requesting camera via getUserMedia...');
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: false })
       .then((s) => {
+        console.info('[PanelApp] Camera stream acquired:', s.getVideoTracks().length, 'video tracks');
         if (active) setCameraStream(s);
         else s.getTracks().forEach((t) => t.stop());
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error('[PanelApp] Camera getUserMedia FAILED:', err?.name, err?.message, err);
         if (active) setCameraStream(null);
       });
     return () => {
@@ -1090,6 +1303,14 @@ export function PanelApp() {
   };
 
   // ── MediaRecorder helpers ────────────────────────────────────────────────
+  // Store latest camera stream in a ref so the IPC callback (which uses [] deps)
+  // always sees the current value instead of the stale closure from first render.
+  const cameraStreamRef = useRef(cameraStream);
+  cameraStreamRef.current = cameraStream;
+
+  const cameraEnabledRef = useRef(cameraEnabled);
+  cameraEnabledRef.current = cameraEnabled;
+
   const startMediaRecorder = () => {
     const currentStream = streamRef.current;
     if (!currentStream) {
@@ -1154,10 +1375,11 @@ export function PanelApp() {
     recorderRef.current = recorder;
     recorder.start(1000); // 1-second chunks
 
-    // Start camera recorder if camera stream is active
-    console.info('[PanelApp] Camera stream at record start:', cameraStream ? 'ACTIVE' : 'NULL', 'cameraEnabled:', cameraEnabled);
-    if (cameraStream) {
-      const camRecorder = new MediaRecorder(cameraStream, { mimeType });
+    // Start camera recorder if camera stream is active (use ref to avoid stale closure)
+    const currentCameraStream = cameraStreamRef.current;
+    console.info('[PanelApp] Camera stream at record start:', currentCameraStream ? 'ACTIVE' : 'NULL', 'cameraEnabled:', cameraEnabledRef.current);
+    if (currentCameraStream) {
+      const camRecorder = new MediaRecorder(currentCameraStream, { mimeType });
       camRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) cameraChunksRef.current.push(e.data);
       };
@@ -1217,6 +1439,23 @@ export function PanelApp() {
   // ─── Render ──────────────────────────────────────────────────────────────
   const canRecord = status === 'ready' && stream !== null;
 
+  // ─── Mini-controller during recording ─────────────────────────────────
+  if (status === 'recording' || status === 'paused') {
+    return (
+      <MiniController
+        elapsedMs={elapsedMs}
+        paused={status === 'paused'}
+        onStop={handleStopRecording}
+        onTogglePause={handleTogglePause}
+      />
+    );
+  }
+
+  if (status === 'stopping') {
+    return <MiniSavingIndicator />;
+  }
+
+  // ─── Full setup panel ─────────────────────────────────────────────────
   return (
     <div
       style={{

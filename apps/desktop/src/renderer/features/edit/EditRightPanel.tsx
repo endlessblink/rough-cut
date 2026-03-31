@@ -1,7 +1,10 @@
 import React from 'react';
-import type { Clip, ClipId } from '@rough-cut/project-model';
+import type { Clip, ClipId, TrackId, ClipTransform, EffectInstance, CaptionSegment, AIAnnotationId } from '@rough-cut/project-model';
 import { InspectorCard, EDIT_PANEL_WIDTH, CARD_GAP } from '../../ui/index.js';
 import { ClipInspectorCard } from './ClipInspectorCard.js';
+import { EffectsCard } from './EffectsCard.js';
+import { AudioCard } from './AudioCard.js';
+import { CaptionsCard } from './CaptionsCard.js';
 
 // ─── EditRightPanel ────────────────────────────────────────────────────────────
 
@@ -9,9 +12,34 @@ interface EditRightPanelProps {
   selectedClip: Clip | null;
   fps: number;
   onUpdateClip: (clipId: ClipId, patch: { name?: string; enabled?: boolean }) => void;
+  onUpdateTransform: (clipId: ClipId, patch: Partial<ClipTransform>) => void;
+  // Effects
+  trackId: TrackId | null;
+  onAddEffect: (trackId: TrackId, clipId: ClipId, effect: EffectInstance) => void;
+  onUpdateEffect: (trackId: TrackId, clipId: ClipId, effectIndex: number, patch: Partial<EffectInstance>) => void;
+  onRemoveEffect: (trackId: TrackId, clipId: ClipId, effectIndex: number) => void;
+  // Audio
+  trackVolume: number;
+  onSetTrackVolume: (trackId: TrackId, volume: number) => void;
+  // Captions
+  captionSegments: readonly CaptionSegment[];
+  onUpdateCaptionText: (id: AIAnnotationId, text: string) => void;
 }
 
-export function EditRightPanel({ selectedClip, fps, onUpdateClip }: EditRightPanelProps) {
+export function EditRightPanel({
+  selectedClip,
+  fps,
+  onUpdateClip,
+  onUpdateTransform,
+  trackId,
+  onAddEffect,
+  onUpdateEffect,
+  onRemoveEffect,
+  trackVolume,
+  onSetTrackVolume,
+  captionSegments,
+  onUpdateCaptionText,
+}: EditRightPanelProps) {
   return (
     <aside
       style={{
@@ -30,11 +58,32 @@ export function EditRightPanel({ selectedClip, fps, onUpdateClip }: EditRightPan
         overflowY: 'auto',
       }}
     >
-      <ClipInspectorCard clip={selectedClip} fps={fps} onUpdateClip={onUpdateClip} />
-      <InspectorCard title="Layout" minHeight={72} />
-      <InspectorCard title="Motion" minHeight={72} />
-      <InspectorCard title="Captions &amp; Titles" minHeight={72} />
-      <InspectorCard title="Audio" minHeight={72} />
+      <ClipInspectorCard
+        clip={selectedClip}
+        fps={fps}
+        onUpdateClip={onUpdateClip}
+        onUpdateTransform={onUpdateTransform}
+      />
+
+      {selectedClip && trackId && (
+        <EffectsCard
+          clip={selectedClip}
+          trackId={trackId}
+          onAddEffect={onAddEffect}
+          onUpdateEffect={onUpdateEffect}
+          onRemoveEffect={onRemoveEffect}
+        />
+      )}
+
+      <InspectorCard title="Motion" minHeight={48}>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.40)', userSelect: 'none' }}>
+          Motion presets coming soon.
+        </div>
+      </InspectorCard>
+
+      <AudioCard trackId={trackId} trackVolume={trackVolume} onSetTrackVolume={onSetTrackVolume} />
+
+      <CaptionsCard captionSegments={captionSegments} fps={fps} onUpdateCaptionText={onUpdateCaptionText} />
     </aside>
   );
 }
