@@ -8,6 +8,11 @@ let sharedCanvas: HTMLCanvasElement | null = null;
 let initPromise: Promise<void> | null = null;
 let playbackController: PlaybackController | null = null;
 
+/** Get the current video playback time from the compositor (-1 if unavailable) */
+export function getVideoCurrentTime(): number {
+  return sharedCompositor?.getVideoCurrentTime() ?? -1;
+}
+
 /** Ensure PlaybackController exists — independent of compositor init */
 function ensurePlayback(): void {
   if (!playbackController) {
@@ -36,9 +41,35 @@ function ensureCompositor(): void {
         sharedCompositor?.setProject(state.project);
       });
 
-      // Wire transport store -> compositor
+      // Wire transport store -> compositor: play/pause transitions
+      let wasPlaying = false;
       transportStore.subscribe((state) => {
-        sharedCompositor?.seekTo(state.playheadFrame);
+        const nowPlaying = state.isPlaying;
+        if (nowPlaying && !wasPlaying) {
+          wasPlaying = true;
+          sharedCompositor?.play();
+        } else if (!nowPlaying && wasPlaying) {
+          wasPlaying = false;
+          sharedCompositor?.pause();
+        }
+      });
+
+      // Wire transport store -> compositor: seek only when paused
+      transportStore.subscribe((state) => {
+        if (!state.isPlaying) {
+          sharedCompositor?.seekTo(state.playheadFrame);
+        }
+      });
+
+      // Start playback ticker to sync video.currentTime -> store playhead
+      sharedCompositor!.startPlaybackTicker((timeSec) => {
+        const fps = projectStore.getState().project.settings.frameRate;
+        const frame = Math.round(timeSec * fps);
+        const current = transportStore.getState().playheadFrame;
+        // Only update if frame actually changed (avoids store churn)
+        if (frame !== current) {
+          transportStore.getState().setPlayheadFrame(frame);
+        }
       });
 
       // Apply current state

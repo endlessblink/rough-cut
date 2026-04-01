@@ -51,6 +51,8 @@ export class PreviewCompositor {
   private events: CompositorEvents;
   private layerContainer: Container | null = null;
   private initialized = false;
+  private _playing = false;
+  private _playbackTickerBound: ((ticker: any) => void) | null = null;
 
   // Layer cache — reuse PixiJS objects to avoid GC pressure at 60fps
   private layerCache: Map<string, LayerCache> = new Map();
@@ -144,10 +146,82 @@ export class PreviewCompositor {
     }
   }
 
+  /** Start native video playback — HTMLVideoElement.play() drives timing */
+  play(): void {
+    this._playing = true;
+    const fps = this.project?.settings.frameRate ?? 30;
+    for (const vc of this.videoCache.values()) {
+      if (vc.loaded && vc.video.readyState >= 2) {
+        vc.video.currentTime = this.currentFrame / fps;
+        vc.video.play().catch(() => {});
+        if (vc.texture?.source) {
+          (vc.texture.source as VideoSource).autoUpdate = true;
+        }
+      }
+    }
+  }
+
+  /** Pause native video playback — return to frame-accurate seeking mode */
+  pause(): void {
+    this._playing = false;
+    for (const vc of this.videoCache.values()) {
+      vc.video.pause();
+      if (vc.texture?.source) {
+        (vc.texture.source as VideoSource).autoUpdate = false;
+      }
+    }
+  }
+
+  /** Get the current playback time from the first loaded video element */
+  getVideoCurrentTime(): number {
+    for (const vc of this.videoCache.values()) {
+      if (vc.loaded && vc.video.readyState >= 2) {
+        return vc.video.currentTime;
+      }
+    }
+    return -1;
+  }
+
+  /** Check if native video playback is active */
+  isPlayingNative(): boolean {
+    return this._playing;
+  }
+
+  /**
+   * Start a PixiJS ticker that reads video.currentTime during playback
+   * and syncs the UI playhead via the provided callback.
+   */
+  startPlaybackTicker(onTimeSync: (timeSec: number) => void): void {
+    if (!this.app || this._playbackTickerBound) return;
+    this._playbackTickerBound = () => {
+      if (!this._playing) return;
+      const timeSec = this.getVideoCurrentTime();
+      if (timeSec < 0) return;
+      const fps = this.project?.settings.frameRate ?? 30;
+      this.currentFrame = Math.round(timeSec * fps);
+      // Re-render for zoom/transform updates (but renderCurrentFrame won't seek video)
+      this.renderCurrentFrame();
+      // Sync playhead UI
+      onTimeSync(timeSec);
+    };
+    this.app.ticker.add(this._playbackTickerBound);
+  }
+
+  /** Stop the playback ticker */
+  stopPlaybackTicker(): void {
+    if (this.app && this._playbackTickerBound) {
+      this.app.ticker.remove(this._playbackTickerBound);
+      this._playbackTickerBound = null;
+    }
+  }
+
   /** Seek to a specific frame and render it */
   seekTo(frame: number): void {
     this.currentFrame = frame;
-    this.renderCurrentFrame();
+    if (!this._playing) {
+      this.renderCurrentFrame();
+    }
+    // During playback: currentFrame is updated but rendering is driven by the ticker
   }
 
   /** Get current frame number */
@@ -169,6 +243,8 @@ export class PreviewCompositor {
 
   /** Clean up PixiJS resources */
   dispose(): void {
+    this.stopPlaybackTicker();
+    this.pause();
     this.setState('disposed');
     this.layerCache.clear();
     // Clean up video elements
@@ -265,6 +341,12 @@ export class PreviewCompositor {
         const videoSource = new VideoSource({ resource: video, autoPlay: false });
         vc.texture = new Texture({ source: videoSource });
         vc.loaded = true;
+        // If playback is active, auto-start this newly loaded video
+        if (this._playing) {
+          vc.video.currentTime = this.currentFrame / (this.project?.settings.frameRate ?? 30);
+          vc.video.play().catch(() => {});
+          videoSource.autoUpdate = true;
+        }
         this.renderCurrentFrame();
       } catch {
         vc.loaded = false;
@@ -296,18 +378,21 @@ export class PreviewCompositor {
     if (isVideoAsset && asset.filePath) {
       videoCache = this.getOrCreateVideo(assetId, asset.filePath);
 
-      // Seek the video to the correct source frame time
+      // Seek the video to the correct source frame time (only when NOT in native playback)
       if (videoCache.loaded && videoCache.video.readyState >= 2) {
-        const targetTime = sourceFrame / fps;
-        // Only seek if we're not already at the right time (avoid unnecessary seeks)
-        if (Math.abs(videoCache.video.currentTime - targetTime) > 0.02) {
-          videoCache.video.currentTime = targetTime;
-          videoCache.lastSeekTime = targetTime;
+        if (!this._playing) {
+          const targetTime = sourceFrame / fps;
+          // Only seek if we're not already at the right time (avoid unnecessary seeks)
+          if (Math.abs(videoCache.video.currentTime - targetTime) > 0.02) {
+            videoCache.video.currentTime = targetTime;
+            videoCache.lastSeekTime = targetTime;
+          }
+          // Update the texture source to reflect the current frame
+          if (videoCache.texture?.source) {
+            (videoCache.texture.source as VideoSource).update();
+          }
         }
-        // Update the texture source to reflect the current frame
-        if (videoCache.texture?.source) {
-          (videoCache.texture.source as VideoSource).update();
-        }
+        // During playback: autoUpdate handles texture upload, no seeking needed
       }
     }
 

@@ -8,6 +8,7 @@
  */
 import { useRef, useEffect } from 'react';
 import { transportStore } from './use-stores.js';
+import { getVideoCurrentTime } from './use-compositor.js';
 
 export function usePlaybackLoop(fps: number, durationFrames: number): void {
   const rafIdRef = useRef(0);
@@ -37,7 +38,18 @@ export function usePlaybackLoop(fps: number, durationFrames: number): void {
 
           if (delta >= interval) {
             lastTimestampRef.current = timestamp - (delta % interval);
-            frameRef.current += 1;
+
+            const videoTime = getVideoCurrentTime();
+            if (videoTime >= 0) {
+              // Compositor is driving playback — read from video
+              const frame = Math.round(videoTime * fpsRef.current);
+              if (frame !== frameRef.current) {
+                frameRef.current = frame;
+              }
+            } else {
+              // No compositor video — use frame increment (RecordTab fallback)
+              frameRef.current += 1;
+            }
 
             if (frameRef.current >= durationRef.current) {
               // End of timeline — stop and reset

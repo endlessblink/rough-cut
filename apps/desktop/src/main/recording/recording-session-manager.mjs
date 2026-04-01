@@ -765,6 +765,13 @@ export function initSessionManager(win, sourceInfoGetter) {
       // Use FFmpeg x11grab output (cursor-free) if available, otherwise MediaRecorder buffer
       let result;
       if (ffmpegHandle && existsSync(ffmpegHandle.outputPath)) {
+        // Wait for FFmpeg to finish writing before probing the file
+        try {
+          await ffmpegHandle.stop();
+          console.info('[session-manager] FFmpeg flushed before save:', ffmpegHandle.outputPath);
+        } catch (err) {
+          console.warn('[session-manager] FFmpeg stop in save handler:', err?.message ?? err);
+        }
         console.info('[session-manager] Using FFmpeg x11grab output (no cursor):', ffmpegHandle.outputPath);
         result = await saveRecordingFromFile(ffmpegHandle.outputPath, projectDir, metadata);
         // Save camera recording if present (MediaRecorder path — no FFmpeg for camera)

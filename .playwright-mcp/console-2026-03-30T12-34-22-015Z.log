@@ -1,0 +1,151 @@
+[     359ms] TypeError: Cannot read properties of undefined (reading 'storageGetRecordingLocation')
+    at http://127.0.0.1:7544/features/projects/StorageSection.tsx:305:25
+    at commitHookEffectListMount (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:16963:34)
+    at commitPassiveMountOnFiber (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18206:19)
+    at commitPassiveMountEffects_complete (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18179:17)
+    at commitPassiveMountEffects_begin (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18169:15)
+    at commitPassiveMountEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18159:11)
+    at flushPassiveEffectsImpl (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19543:11)
+    at flushPassiveEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19500:22)
+    at http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19381:17
+    at workLoop (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:197:42)
+[     361ms] TypeError: Cannot read properties of undefined (reading 'recentProjectsGet')
+    at http://127.0.0.1:7544/features/projects/ProjectsTab.tsx:37:21
+    at commitHookEffectListMount (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:16963:34)
+    at commitPassiveMountOnFiber (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18206:19)
+    at commitPassiveMountEffects_complete (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18179:17)
+    at commitPassiveMountEffects_begin (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18169:15)
+    at commitPassiveMountEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18159:11)
+    at flushPassiveEffectsImpl (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19543:11)
+    at flushPassiveEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19500:22)
+    at http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19381:17
+    at workLoop (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:197:42)
+[     361ms] TypeError: Cannot read properties of undefined (reading 'onRecordingAssetReady')
+    at http://127.0.0.1:7544/App.tsx:136:35
+    at commitHookEffectListMount (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:16963:34)
+    at commitPassiveMountOnFiber (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18206:19)
+    at commitPassiveMountEffects_complete (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18179:17)
+    at commitPassiveMountEffects_begin (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18169:15)
+    at commitPassiveMountEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18159:11)
+    at flushPassiveEffectsImpl (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19543:11)
+    at flushPassiveEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19500:22)
+    at http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19381:17
+    at workLoop (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:197:42)
+[     361ms] [ERROR] The above error occurred in the <StorageSection> component:
+
+    at StorageSection (http://127.0.0.1:7544/features/projects/StorageSection.tsx:297:53)
+    at div
+    at div
+    at ProjectsContent (http://127.0.0.1:7544/features/projects/ProjectsContent.tsx:21:3)
+    at div
+    at ProjectsScreenLayout (http://127.0.0.1:7544/features/projects/ProjectsScreenLayout.tsx:17:40)
+    at ProjectsTab (http://127.0.0.1:7544/features/projects/ProjectsTab.tsx:25:3)
+    at App (http://127.0.0.1:7544/App.tsx:44:41)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:14079
+[     361ms] [ERROR] The above error occurred in the <ProjectsTab> component:
+
+    at ProjectsTab (http://127.0.0.1:7544/features/projects/ProjectsTab.tsx:25:3)
+    at App (http://127.0.0.1:7544/App.tsx:44:41)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:14079
+[     361ms] [ERROR] The above error occurred in the <App> component:
+
+    at App (http://127.0.0.1:7544/App.tsx:44:41)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:14079
+[     363ms] TypeError: Cannot read properties of undefined (reading 'storageGetRecordingLocation')
+    at http://127.0.0.1:7544/features/projects/StorageSection.tsx:305:25
+    at commitHookEffectListMount (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:16963:34)
+    at commitPassiveMountOnFiber (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18206:19)
+    at commitPassiveMountEffects_complete (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18179:17)
+    at commitPassiveMountEffects_begin (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18169:15)
+    at commitPassiveMountEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18159:11)
+    at flushPassiveEffectsImpl (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19543:11)
+    at flushPassiveEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19500:22)
+    at http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19381:17
+    at workLoop (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:197:42)
+[     369ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:7544/favicon.ico:0
+[  203380ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/?token=zfh_xziV_RLR' failed:  @ http://127.0.0.1:7544/@vite/client:801
+[  203383ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed:  @ http://127.0.0.1:7544/@vite/client:1034
+[  204385ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[  205386ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[  206387ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[  207388ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[  208390ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[  209392ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[  210397ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[  211403ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7544/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7544/@vite/client:1034
+[  213337ms] TypeError: Cannot read properties of undefined (reading 'storageGetRecordingLocation')
+    at http://127.0.0.1:7544/features/projects/StorageSection.tsx:305:25
+    at commitHookEffectListMount (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:16963:34)
+    at commitPassiveMountOnFiber (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18206:19)
+    at commitPassiveMountEffects_complete (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18179:17)
+    at commitPassiveMountEffects_begin (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18169:15)
+    at commitPassiveMountEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18159:11)
+    at flushPassiveEffectsImpl (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19543:11)
+    at flushPassiveEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19500:22)
+    at http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19381:17
+    at workLoop (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:197:42)
+[  213338ms] TypeError: Cannot read properties of undefined (reading 'recentProjectsGet')
+    at http://127.0.0.1:7544/features/projects/ProjectsTab.tsx:37:21
+    at commitHookEffectListMount (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:16963:34)
+    at commitPassiveMountOnFiber (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18206:19)
+    at commitPassiveMountEffects_complete (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18179:17)
+    at commitPassiveMountEffects_begin (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18169:15)
+    at commitPassiveMountEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18159:11)
+    at flushPassiveEffectsImpl (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19543:11)
+    at flushPassiveEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19500:22)
+    at http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19381:17
+    at workLoop (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:197:42)
+[  213338ms] TypeError: Cannot read properties of undefined (reading 'onRecordingAssetReady')
+    at http://127.0.0.1:7544/App.tsx:136:35
+    at commitHookEffectListMount (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:16963:34)
+    at commitPassiveMountOnFiber (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18206:19)
+    at commitPassiveMountEffects_complete (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18179:17)
+    at commitPassiveMountEffects_begin (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18169:15)
+    at commitPassiveMountEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18159:11)
+    at flushPassiveEffectsImpl (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19543:11)
+    at flushPassiveEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19500:22)
+    at http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19381:17
+    at workLoop (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:197:42)
+[  213338ms] [ERROR] The above error occurred in the <StorageSection> component:
+
+    at StorageSection (http://127.0.0.1:7544/features/projects/StorageSection.tsx:297:53)
+    at div
+    at div
+    at ProjectsContent (http://127.0.0.1:7544/features/projects/ProjectsContent.tsx:21:3)
+    at div
+    at ProjectsScreenLayout (http://127.0.0.1:7544/features/projects/ProjectsScreenLayout.tsx:17:40)
+    at ProjectsTab (http://127.0.0.1:7544/features/projects/ProjectsTab.tsx:25:3)
+    at App (http://127.0.0.1:7544/App.tsx:44:41)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:14079
+[  213338ms] [ERROR] The above error occurred in the <ProjectsTab> component:
+
+    at ProjectsTab (http://127.0.0.1:7544/features/projects/ProjectsTab.tsx:25:3)
+    at App (http://127.0.0.1:7544/App.tsx:44:41)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:14079
+[  213338ms] [ERROR] The above error occurred in the <App> component:
+
+    at App (http://127.0.0.1:7544/App.tsx:44:41)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:14079
+[  213341ms] TypeError: Cannot read properties of undefined (reading 'storageGetRecordingLocation')
+    at http://127.0.0.1:7544/features/projects/StorageSection.tsx:305:25
+    at commitHookEffectListMount (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:16963:34)
+    at commitPassiveMountOnFiber (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18206:19)
+    at commitPassiveMountEffects_complete (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18179:17)
+    at commitPassiveMountEffects_begin (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18169:15)
+    at commitPassiveMountEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:18159:11)
+    at flushPassiveEffectsImpl (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19543:11)
+    at flushPassiveEffects (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19500:22)
+    at http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:19381:17
+    at workLoop (http://127.0.0.1:7544/@fs/media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut/apps/desktop/node_modules/.vite/deps/chunk-WJHFZ4MN.js?v=ed345b32:197:42)
