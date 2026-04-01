@@ -69,22 +69,62 @@ const videoSprite = new Sprite(videoTexture)
 - **Export:** `ctx.drawImage(webcamFrame, ...)` with `ctx.roundRect` clip path
 - Same `computeCompositeLayout()` for both = pixel-identical output
 
-### NVIDIA Linux Notes
-- VA-API hardware decode does NOT work in Chromium/Electron on NVIDIA (2026)
-- `<video>` element falls back to software decode (libvpx for VP9) — transparent
-- Software VP9 1080p30 decode is feasible on modern CPUs
-- NVENC hardware ENCODING works via WebCodecs `hardwareAcceleration: 'prefer-hardware'`
-- WebRtcPipeWireCamera flag MUST be disabled — PipeWire ignores getUserMedia constraints
+### NVIDIA Linux Notes (verified 2026-03-31)
+- **GPU:** RTX 4070 Ti, driver 580.126.09
+- **Decode:** VA-API hardware decode does NOT work in Chromium/Electron on NVIDIA
+- **Software VP9 decode:** ~2-8ms per frame for 1080p30 on Ryzen — well within 33ms budget
+- **NVENC Encoding: CONFIRMED WORKING.** `VideoEncoder` with `hardwareAcceleration: 'prefer-hardware'`
+  uses NVENC directly, independent of VA-API decode path. No special flags needed.
+- **WebRtcPipeWireCamera:** MUST be disabled — PipeWire ignores getUserMedia constraints
+- **PixiJS VideoSource:** `texSubImage2D` upload costs 2-8ms per 1080p frame. Works with
+  software-decoded video. No known NVIDIA-specific issues.
+
+### web-demuxer WASM in Electron
+- Copy `web-demuxer-mini.wasm` (~493KB) from `node_modules/web-demuxer/dist/wasm-files/` to `public/`
+- Vite config: `base: './'` for file:// compatibility in packaged app
+- `file://` works — no local HTTP server needed. Chromium allows WASM from file://
+- Avoid putting WASM inside asar — use extraResources or keep unpacked
+- In renderer: `new WebDemuxer({ wasmFilePath: '/web-demuxer-mini.wasm' })`
 
 ### WebGL Gradient Workaround
 PixiJS v8 FillGradient shaders are broken on some NVIDIA GPUs (INVALID_OPERATION).
-Use WebGL for VideoSource textures but avoid PixiJS gradient fills.
-Options: solid color rects, pre-rendered gradient canvas, or CSS gradient background.
+The rough-cut compositor already uses WebGL (no `preference: 'canvas'`).
+The gradient crash was in capture-studio-react, may not affect rough-cut.
+If it does: use solid color rects, pre-rendered gradient canvas, or CSS gradient background.
+VideoSource textures work fine with WebGL regardless.
+
+### Existing Compositor State + Confirmed Lag Root Cause
+The rough-cut `preview-compositor.ts` ALREADY uses:
+- `VideoSource` from pixi.js v8.6
+- `new VideoSource({ resource: video, autoPlay: false })`
+- `(videoCache.texture.source as VideoSource).update()` per frame
+- WebGL rendering (no Canvas2D fallback)
+
+**CONFIRMED ROOT CAUSE OF PLAYBACK LAG (2026-03-31):**
+The playback chain is:
+1. `usePlaybackLoop` increments frame counter via rAF → `setPlayheadFrame(frame)`
+2. `use-compositor.ts` subscribes to transportStore → calls `compositor.seekTo(frame)` every frame
+3. `preview-compositor.ts seekTo()` → sets `video.currentTime = targetTime` + `.update()` per frame
+
+This is **frame-by-frame seeking** (30 seeks/sec) instead of native `<video>.play()`.
+Each seek forces a full decode cycle. Native `.play()` uses sequential decode which is 5-10x faster.
+
+**Fix (TASK-050 reframed):**
+- During continuous playback: call `video.play()` and let PixiJS `autoUpdate: true` handle textures
+- Use `video.currentTime` seeking ONLY for: pause, scrub, step forward/backward
+- Add `PlaybackController` mode: 'playing' (native video.play) vs 'seeking' (manual currentTime)
+- Keep the rAF playhead loop for UI timeline sync, but DON'T seek the video element per-frame
+
+**Files to modify:**
+- `packages/preview-renderer/src/preview-compositor.ts` — add play/pause/autoUpdate mode
+- `apps/desktop/src/renderer/hooks/use-compositor.ts` — wire play/pause to compositor
+- `apps/desktop/src/renderer/hooks/use-playback-loop.ts` — stop calling setPlayheadFrame per-frame during playback; let video.currentTime drive the playhead instead
 
 ### OpenScreen Reference Files
-- `VideoPlayback.tsx` — preview with PixiJS VideoSource
-- `streamingDecoder.ts` — web-demuxer + VideoDecoder with backpressure
-- `frameRenderer.ts` — PixiJS offscreen export render
-- `muxer.ts` — mediabunny MP4 output
+- `VideoPlayback.tsx` — preview with PixiJS VideoSource + autoUpdate
+- `streamingDecoder.ts` — web-demuxer + VideoDecoder with backpressure (queue > 24 frames)
+- `frameRenderer.ts` — PixiJS offscreen export render, Texture.from(videoFrame)
+- `muxer.ts` — mediabunny MP4 output (Mp4OutputFormat + EncodedVideoPacketSource)
 - `videoExporter.ts` — orchestrates the export pipeline
 - `compositeLayout.ts` — shared PiP layout for preview + export
+- `videoEventHandlers.ts` — rAF polling for currentTime (not timeupdate events)
