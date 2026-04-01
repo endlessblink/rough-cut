@@ -68,6 +68,13 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | TASK-014 | Record: Webcam PiP (render in compositor with shape/position) | P0 | TODO | TASK-013 |
 | TASK-015 | Record: Serialize recording effects to clips (bg, corners, shadow → Effect entries) | P0 | TODO | TASK-011 |
 | TASK-016 | Record: Create separate Assets for webcam + audio on stop | P0 | TODO | TASK-012, TASK-014 |
+| TASK-050 | Preview: Switch to PixiJS VideoSource (WebGL textures, drop Canvas2D drawImage) | P0 | TODO | TASK-007 |
+| TASK-051 | Preview: Work around WebGL gradient shader crash (solid rects or pre-rendered canvas bg) | P0 | TODO | TASK-050 |
+| TASK-052 | Export: WebCodecs pipeline — web-demuxer + VideoDecoder + PixiJS offscreen + VideoEncoder + mediabunny MP4 | P0 | TODO | TASK-050 |
+| TASK-053 | Export: Frame-accurate scrubbing via mediabunny VideoSampleSink.getSample() | P1 | TODO | TASK-052 |
+| TASK-054 | Export: NVENC hardware encoding via VideoEncoder hardwareAcceleration: prefer-hardware | P1 | TODO | TASK-052 |
+| BUG-005 | Camera PiP renders as ellipse instead of circle (CSS/template shape not applied) | P1 | TODO | TASK-014 |
+| BUG-006 | Playback laggy — Canvas2D drawImage bottleneck, needs WebGL VideoSource path | P0 | TODO | TASK-050 |
 | TASK-017 | Edit: Clip drag-to-move (horizontal repositioning with snap) | P1 | TODO | TASK-003 |
 | TASK-018 | Edit: Cross-track clip dragging (V1↔V2) | P1 | TODO | TASK-017 |
 | TASK-019 | Edit: Effects stack UI (Add Effect, expandable sections, param controls) | P1 | TODO | TASK-004 |
