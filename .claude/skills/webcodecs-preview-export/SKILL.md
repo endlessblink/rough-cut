@@ -1,5 +1,58 @@
 # WebCodecs Preview & Export Pipeline
 
+## PlaybackManager — Research-Validated Design (2026-04-02)
+
+### Critical Findings from Online Research
+
+| Topic | Finding | Source |
+|---|---|---|
+| `timeupdate` for UI sync | **BAD** — fires at 4Hz = visible stutter. Use rAF at 60Hz instead. | BBC Peaks.js PR #206, Bocoup |
+| PixiJS autoUpdate during play | **Works** — uses `requestVideoFrameCallback` (not ticker) as primary path | PixiJS #11381 |
+| Off-DOM `requestVideoFrameCallback` | **May stop firing** — Chromium removes compositor layer for off-DOM elements | WICG rVFC spec |
+| Two `<video>` elements sync | **Natural drift occurs** — use rAF polling + correction, 150ms tolerance is workable | Bocoup sync article |
+| Off-DOM `video.play()` | **Works** — but need `autoplay-policy` Electron switch | Electron #13525 |
+| `protocol.handle` + seeking | **Broken without manual 206 range handling** | Electron #38749 |
+
+### PlaybackManager rAF Loop (the heart of playback)
+```typescript
+// Single rAF loop during playback — replaces 6 scattered mechanisms
+private syncLoop = () => {
+  if (!this._playing) return;
+  
+  const screenTime = this.screenVideo?.currentTime ?? 0;
+  const fps = this.fps;
+  const frame = Math.round(screenTime * fps);
+  
+  // 1. Sync store at ~30Hz (every other frame)
+  if (frame !== this.lastSyncedFrame) {
+    this.transportStore.setPlayheadFrame(frame);
+    this.lastSyncedFrame = frame;
+  }
+  
+  // 2. Camera drift correction (every frame, cheap check)
+  if (this.cameraVideo && !this.cameraVideo.paused) {
+    const drift = Math.abs(this.cameraVideo.currentTime - screenTime);
+    if (drift > 0.15) { // 150ms tolerance
+      this.cameraVideo.currentTime = screenTime;
+    }
+  }
+  
+  // 3. Compositor zoom/transform update
+  if (this.compositor) {
+    this.compositor.seekTo(frame); // updates currentFrame + renders
+  }
+  
+  this.rafId = requestAnimationFrame(this.syncLoop);
+};
+```
+
+### PixiJS Off-DOM Workaround
+```typescript
+// Force ticker path for off-DOM video elements (requestVideoFrameCallback
+// may stop firing when compositor layer is removed for off-DOM elements)
+const videoSource = new VideoSource({ resource: video, autoPlay: false, updateFPS: 0 });
+```
+
 ## Architecture (based on OpenScreen + Screen Studio patterns)
 
 ### Preview Path (interactive editing)
