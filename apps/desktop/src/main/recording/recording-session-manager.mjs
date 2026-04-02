@@ -33,7 +33,7 @@ import {
   app,
 } from 'electron';
 import { join, dirname } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../../shared/ipc-channels.mjs';
 import { saveRecording, saveRecordingFromFile } from './capture-service.mjs';
@@ -581,26 +581,18 @@ export async function stopRecording() {
   console.info('[session-manager] stopRecording() — transitioning to stopping.');
   state = 'stopping';
 
-  // On Linux the panel was hidden — show it so the renderer can process
-  // MediaRecorder.stop() and assemble the recording blob.
-  if (IS_LINUX && panelWindow && !panelWindow.isDestroyed()) {
-    panelWindow.showInactive();
-    console.info('[session-manager] Panel restored for MediaRecorder teardown.');
-  }
-
-  // Tell panel renderer to stop MediaRecorder
-  safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'stopping');
-
   // Clear timers / shortcut / tray immediately
   _cleanup();
 
-  // Stop cursor recording
+  // Stop cursor recording FIRST (lightweight, instant)
   lastCursorResult = cursorRecorder.stop();
   if (lastCursorResult) {
     console.info('[session-manager] Cursor data:', lastCursorResult.eventCount, 'events →', lastCursorResult.eventsPath);
   }
 
-  // Stop FFmpeg capture (wait for clean flush)
+  // Stop FFmpeg BEFORE telling the panel — ensures the file is complete
+  // when the panel's save IPC arrives. Without this, the save handler
+  // races with FFmpeg shutdown and gets 0 frames.
   if (ffmpegHandle) {
     try {
       await ffmpegHandle.stop();
@@ -610,6 +602,16 @@ export async function stopRecording() {
       ffmpegHandle = null;
     }
   }
+
+  // On Linux the panel was hidden — show it so the renderer can process
+  // MediaRecorder.stop() and assemble the recording blob.
+  if (IS_LINUX && panelWindow && !panelWindow.isDestroyed()) {
+    panelWindow.showInactive();
+    console.info('[session-manager] Panel restored for MediaRecorder teardown.');
+  }
+
+  // NOW tell panel to stop — FFmpeg file is already complete
+  safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'stopping');
 
   // Restore main window
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -764,14 +766,8 @@ export function initSessionManager(win, sourceInfoGetter) {
 
       // Use FFmpeg x11grab output (cursor-free) if available, otherwise MediaRecorder buffer
       let result;
-      if (ffmpegHandle && existsSync(ffmpegHandle.outputPath)) {
-        // Wait for FFmpeg to finish writing before probing the file
-        try {
-          await ffmpegHandle.stop();
-          console.info('[session-manager] FFmpeg flushed before save:', ffmpegHandle.outputPath);
-        } catch (err) {
-          console.warn('[session-manager] FFmpeg stop in save handler:', err?.message ?? err);
-        }
+      if (ffmpegHandle && existsSync(ffmpegHandle.outputPath) && statSync(ffmpegHandle.outputPath).size > 0) {
+        // FFmpeg was already stopped by stopRecording() — file should be complete
         console.info('[session-manager] Using FFmpeg x11grab output (no cursor):', ffmpegHandle.outputPath);
         result = await saveRecordingFromFile(ffmpegHandle.outputPath, projectDir, metadata);
         // Save camera recording if present (MediaRecorder path — no FFmpeg for camera)
