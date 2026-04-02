@@ -41,25 +41,31 @@ export function usePlaybackLoop(fps: number, durationFrames: number): void {
 
             const videoTime = getVideoCurrentTime();
             if (videoTime >= 0) {
-              // Compositor is driving playback — read from video
+              // Compositor's PixiJS ticker drives setPlayheadFrame — skip here
+              // to avoid double store updates (60-120/sec → causes lag)
               const frame = Math.round(videoTime * fpsRef.current);
-              if (frame !== frameRef.current) {
-                frameRef.current = frame;
+              frameRef.current = frame;
+
+              if (frameRef.current >= durationRef.current) {
+                frameRef.current = 0;
+                isPlayingRef.current = false;
+                transportStore.getState().seekToFrame(0);
+                return;
               }
+              // Do NOT call setPlayheadFrame — compositor ticker already does it
             } else {
               // No compositor video — use frame increment (RecordTab fallback)
               frameRef.current += 1;
-            }
 
-            if (frameRef.current >= durationRef.current) {
-              // End of timeline — stop and reset
-              frameRef.current = 0;
-              isPlayingRef.current = false;
-              transportStore.getState().seekToFrame(0);
-              return;
-            }
+              if (frameRef.current >= durationRef.current) {
+                frameRef.current = 0;
+                isPlayingRef.current = false;
+                transportStore.getState().seekToFrame(0);
+                return;
+              }
 
-            transportStore.getState().setPlayheadFrame(frameRef.current);
+              transportStore.getState().setPlayheadFrame(frameRef.current);
+            }
           }
 
           rafIdRef.current = requestAnimationFrame(tick);
