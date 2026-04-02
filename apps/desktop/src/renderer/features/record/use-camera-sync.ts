@@ -3,8 +3,6 @@
  *
  * During playback: video.play() runs natively, no per-frame seeking.
  * When paused: seeks to exact playhead position for scrubbing.
- * Uses direct Zustand subscriptions (NOT useTransportStore hooks) to
- * avoid React re-renders during playback.
  */
 import { useEffect, useRef } from 'react';
 import { transportStore } from '../../hooks/use-stores.js';
@@ -13,64 +11,71 @@ export function useCameraSync(
   cameraVideo: HTMLVideoElement | null,
   fps: number,
 ): void {
-  const videoRef = useRef(cameraVideo);
-  videoRef.current = cameraVideo;
-
   const fpsRef = useRef(fps);
   fpsRef.current = fps;
 
   const wasPlayingRef = useRef(false);
 
+  // Re-run when cameraVideo changes (not just on mount)
   useEffect(() => {
-    // Direct store subscription — zero React re-renders
-    const unsub = transportStore.subscribe((state) => {
-      const video = videoRef.current;
-      if (!video) return;
+    if (!cameraVideo) return;
 
-      if (state.isPlaying && !wasPlayingRef.current) {
-        // Play transition: start native playback once
+    // Check current state immediately — we may have missed the play transition
+    const state = transportStore.getState();
+    if (state.isPlaying && !wasPlayingRef.current) {
+      wasPlayingRef.current = true;
+      cameraVideo.currentTime = state.playheadFrame / fpsRef.current;
+      cameraVideo.play().then(() => {
+        console.info(`[CameraSync] play() OK — ${cameraVideo.videoWidth}x${cameraVideo.videoHeight} readyState=${cameraVideo.readyState}`);
+      }).catch((e) => {
+        console.error('[CameraSync] play() FAILED:', e);
+      });
+    } else if (!state.isPlaying) {
+      // Paused — seek to current position
+      const targetTime = state.playheadFrame / fpsRef.current;
+      if (Math.abs(cameraVideo.currentTime - targetTime) > 0.03) {
+        cameraVideo.currentTime = targetTime;
+      }
+    }
+
+    // Subscribe for future state changes
+    const unsub = transportStore.subscribe((newState) => {
+      if (newState.isPlaying && !wasPlayingRef.current) {
         wasPlayingRef.current = true;
-        video.currentTime = state.playheadFrame / fpsRef.current;
-        video.play().then(() => {
-          console.info(`[CameraSync] play() OK — ${video.videoWidth}x${video.videoHeight} src=${video.src?.slice(-30)} readyState=${video.readyState} paused=${video.paused}`);
+        cameraVideo.currentTime = newState.playheadFrame / fpsRef.current;
+        cameraVideo.play().then(() => {
+          console.info(`[CameraSync] play() OK — ${cameraVideo.videoWidth}x${cameraVideo.videoHeight} readyState=${cameraVideo.readyState}`);
         }).catch((e) => {
           console.error('[CameraSync] play() FAILED:', e);
         });
-      } else if (!state.isPlaying && wasPlayingRef.current) {
-        // Pause transition: stop and seek to exact frame
+      } else if (!newState.isPlaying && wasPlayingRef.current) {
         wasPlayingRef.current = false;
-        video.pause();
-        video.currentTime = state.playheadFrame / fpsRef.current;
-      } else if (!state.isPlaying) {
-        // Scrubbing while paused: seek to playhead
-        const targetTime = state.playheadFrame / fpsRef.current;
-        if (Math.abs(video.currentTime - targetTime) > 0.03) {
-          video.currentTime = targetTime;
+        cameraVideo.pause();
+        cameraVideo.currentTime = newState.playheadFrame / fpsRef.current;
+      } else if (!newState.isPlaying) {
+        const targetTime = newState.playheadFrame / fpsRef.current;
+        if (Math.abs(cameraVideo.currentTime - targetTime) > 0.03) {
+          cameraVideo.currentTime = targetTime;
         }
       }
-      // During playback: do nothing — native video.play() handles it
     });
 
-    return unsub;
-  }, []);
-
-  // Large drift correction — only check every 2 seconds, only hard-seek if >1s off
-  useEffect(() => {
-    let intervalId: ReturnType<typeof setInterval>;
-
-    const checkDrift = () => {
-      const video = videoRef.current;
-      if (!video || video.paused || !wasPlayingRef.current) return;
-
-      const targetTime = transportStore.getState().playheadFrame / fpsRef.current;
-      const drift = Math.abs(video.currentTime - targetTime);
-
-      if (drift > 1.0) {
-        video.currentTime = targetTime;
-      }
+    return () => {
+      unsub();
+      wasPlayingRef.current = false;
     };
+  }, [cameraVideo]); // re-subscribe when video element changes
 
-    intervalId = setInterval(checkDrift, 2000);
+  // Drift correction — every 2s, hard-seek if >1s off
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (!cameraVideo || cameraVideo.paused || !wasPlayingRef.current) return;
+      const targetTime = transportStore.getState().playheadFrame / fpsRef.current;
+      const drift = Math.abs(cameraVideo.currentTime - targetTime);
+      if (drift > 1.0) {
+        cameraVideo.currentTime = targetTime;
+      }
+    }, 2000);
     return () => clearInterval(intervalId);
-  }, []);
+  }, [cameraVideo]);
 }
