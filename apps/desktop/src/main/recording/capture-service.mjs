@@ -156,9 +156,9 @@ export async function saveRecording(buffer, projectDir, metadata, cameraBuffer) 
 export async function saveCameraRecording(camBuf, screenFilePath) {
   const recordingsDir = dirname(screenFilePath);
   const timestamp = basename(screenFilePath).replace(/^recording-/, '').replace(/\.webm$/, '');
-  const cameraPath = join(recordingsDir, `recording-${timestamp}-camera.webm`);
+  // Camera now records as MP4 H.264 (via WebCodecs/mediabunny) — already seekable, no remux needed
+  const cameraPath = join(recordingsDir, `recording-${timestamp}-camera.mp4`);
   await writeFile(cameraPath, camBuf);
-  remuxForSeeking(cameraPath);
   console.info('[capture-service] Camera recording saved:', cameraPath, camBuf.byteLength, 'bytes');
   return cameraPath;
 }

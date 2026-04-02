@@ -783,7 +783,14 @@ export function initSessionManager(win, sourceInfoGetter) {
         ffmpegHandle = null;
       } else {
         console.info('[session-manager] Using MediaRecorder buffer (FFmpeg not available)');
-        result = await saveRecording(Buffer.from(buffer), projectDir, metadata, camBuf);
+        // Save screen recording (pass null for camera — we handle camera separately as MP4)
+        result = await saveRecording(Buffer.from(buffer), projectDir, metadata, null);
+        // Save camera as MP4 separately (WebCodecs H.264 output, not WebM)
+        if (camBuf) {
+          const { saveCameraRecording } = await import('./capture-service.mjs');
+          const cameraPath = await saveCameraRecording(camBuf, result.filePath);
+          result.cameraFilePath = cameraPath;
+        }
       }
 
       // Attach cursor events path to result
