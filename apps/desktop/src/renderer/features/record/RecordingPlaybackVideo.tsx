@@ -144,15 +144,18 @@ export function RecordingPlaybackVideo({ filePath, fps, assetId }: RecordingPlay
     return unsub;
   }, [frameToVideoTime, clipTimelineIn, clipTimelineOut]);
 
-  // Play/pause sync
+  // Play/pause sync — only on transitions, not every frame
+  const wasPlayingRef2 = useRef(false);
   useEffect(() => {
     return transportStore.subscribe((state) => {
       const video = videoRef.current;
       if (!video || !readyRef.current) return;
-      if (state.isPlaying) {
+      if (state.isPlaying && !wasPlayingRef2.current) {
+        wasPlayingRef2.current = true;
         video.currentTime = frameToVideoTime(state.playheadFrame);
         video.play().catch(() => {});
-      } else {
+      } else if (!state.isPlaying && wasPlayingRef2.current) {
+        wasPlayingRef2.current = false;
         video.pause();
       }
     });

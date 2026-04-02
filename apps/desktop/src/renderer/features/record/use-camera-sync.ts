@@ -31,7 +31,11 @@ export function useCameraSync(
         // Play transition: start native playback once
         wasPlayingRef.current = true;
         video.currentTime = state.playheadFrame / fpsRef.current;
-        video.play().catch(() => {});
+        video.play().then(() => {
+          console.info(`[CameraSync] play() OK — ${video.videoWidth}x${video.videoHeight} src=${video.src?.slice(-30)} readyState=${video.readyState} paused=${video.paused}`);
+        }).catch((e) => {
+          console.error('[CameraSync] play() FAILED:', e);
+        });
       } else if (!state.isPlaying && wasPlayingRef.current) {
         // Pause transition: stop and seek to exact frame
         wasPlayingRef.current = false;
