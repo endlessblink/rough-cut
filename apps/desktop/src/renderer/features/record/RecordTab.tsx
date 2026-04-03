@@ -11,7 +11,7 @@ import type { CursorPresentation, CameraPresentation, RegionCrop } from '@rough-
 import { useRecordState } from './record-state.js';
 import { useRecording } from './use-recording.js';
 import { useLivePreview } from './use-live-preview.js';
-import { useCameraSync } from './use-camera-sync.js';
+import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 import { LivePreviewVideo } from './LivePreviewVideo.js';
 import { RecordScreenLayout } from './RecordScreenLayout.js';
 import { AppHeader } from '../../ui/index.js';
@@ -143,10 +143,9 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
 
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Sync camera video to transport playhead (pause/play/seek together)
-  useCameraSync(cameraVideoRef.current, projectFps);
+  // Register camera video with PlaybackManager (handles play/pause/sync)
 
-  // Create / update the camera <video> element when cameraAsset changes
+  // Create camera <video> element + register with PlaybackManager
   useEffect(() => {
     if (!cameraAsset) {
       cameraVideoRef.current = null;
@@ -156,13 +155,23 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     video.src = `media://${cameraAsset.filePath}`;
     video.muted = true;
     video.playsInline = true;
-    // No autoplay/loop — useCameraSync controls playback
     video.style.width = '100%';
     video.style.height = '100%';
     video.style.objectFit = 'cover';
     cameraVideoRef.current = video;
 
+    // Register with PlaybackManager once metadata loads
+    const pm = getPlaybackManager();
+    const doRegister = () => pm.registerCameraVideo(video);
+    if (video.readyState >= 1) {
+      doRegister();
+    } else {
+      video.addEventListener('loadedmetadata', doRegister, { once: true });
+    }
+
     return () => {
+      video.removeEventListener('loadedmetadata', doRegister);
+      pm.unregisterCameraVideo();
       video.pause();
       video.removeAttribute('src');
       video.load();

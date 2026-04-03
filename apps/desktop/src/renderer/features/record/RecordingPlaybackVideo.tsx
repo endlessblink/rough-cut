@@ -7,6 +7,7 @@
  */
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { transportStore, useProjectStore } from '../../hooks/use-stores.js';
+import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 import { CursorOverlay } from '../../components/CursorOverlay.js';
 import type { CursorFrameData } from '../../components/CursorOverlay.js';
 import { buildCursorFrameData, parseNdjsonCursorEvents } from '../../components/cursor-data-loader.js';
@@ -96,12 +97,6 @@ export function RecordingPlaybackVideo({ filePath, fps, assetId }: RecordingPlay
     return () => { cancelled = true; };
   }, [cursorPath, assetDuration, assetWidth, assetHeight]);
 
-  // Convert project-level frame to video-local time
-  const frameToVideoTime = useCallback(
-    (projectFrame: number) => Math.max(0, (projectFrame - clipTimelineIn) / fps),
-    [clipTimelineIn, fps],
-  );
-
   // Mark ready when video metadata loads
   useEffect(() => {
     const video = videoRef.current;
@@ -113,66 +108,41 @@ export function RecordingPlaybackVideo({ filePath, fps, assetId }: RecordingPlay
     return () => video.removeEventListener('loadedmetadata', onLoaded);
   }, [filePath]);
 
-  // Seek video when playhead changes
+  // Register with PlaybackManager once metadata is loaded
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !readyRef.current) return;
-    const isPlaying = transportStore.getState().isPlaying;
-    if (isPlaying) return;
-    const targetTime = frameToVideoTime(transportStore.getState().playheadFrame);
-    if (Math.abs(video.currentTime - targetTime) > 0.03) {
-      video.currentTime = targetTime;
-    }
-  });
+    if (!video) return;
 
-  // Subscribe to transport store directly for immediate scrub response
+    const pm = getPlaybackManager();
+
+    const doRegister = () => {
+      pm.registerScreenVideo(video);
+    };
+
+    if (video.readyState >= 1) {
+      doRegister();
+    } else {
+      video.addEventListener('loadedmetadata', doRegister, { once: true });
+    }
+
+    return () => {
+      video.removeEventListener('loadedmetadata', doRegister);
+      pm.unregisterScreenVideo();
+    };
+  }, [filePath]);
+
+  // Clip range visibility — hide video when playhead is outside clip range
   useEffect(() => {
     const unsub = transportStore.subscribe((state) => {
       const video = videoRef.current;
-      if (!video || !readyRef.current || state.isPlaying) return;
-      // Hide when playhead is outside the clip's range
+      if (!video) return;
       const inRange = clipTimelineOut > 0
         && state.playheadFrame >= clipTimelineIn
         && state.playheadFrame < clipTimelineOut;
       video.style.visibility = inRange ? 'visible' : 'hidden';
-      if (!inRange) return;
-      const targetTime = frameToVideoTime(state.playheadFrame);
-      if (Math.abs(video.currentTime - targetTime) > 0.03) {
-        video.currentTime = targetTime;
-      }
     });
     return unsub;
-  }, [frameToVideoTime, clipTimelineIn, clipTimelineOut]);
-
-  // Play/pause sync — only on transitions, not every frame
-  const wasPlayingRef2 = useRef(false);
-  useEffect(() => {
-    return transportStore.subscribe((state) => {
-      const video = videoRef.current;
-      if (!video || !readyRef.current) return;
-      if (state.isPlaying && !wasPlayingRef2.current) {
-        wasPlayingRef2.current = true;
-        video.currentTime = frameToVideoTime(state.playheadFrame);
-        video.play().catch(() => {});
-      } else if (!state.isPlaying && wasPlayingRef2.current) {
-        wasPlayingRef2.current = false;
-        video.pause();
-      }
-    });
-  }, [frameToVideoTime]);
-
-  // During playback, update transport store from video time
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    function onTimeUpdate() {
-      if (!video || !transportStore.getState().isPlaying) return;
-      const projectFrame = Math.round(video.currentTime * fps) + clipTimelineIn;
-      transportStore.getState().setPlayheadFrame(projectFrame);
-    }
-    video.addEventListener('timeupdate', onTimeUpdate);
-    return () => video.removeEventListener('timeupdate', onTimeUpdate);
-  }, [fps, clipTimelineIn]);
+  }, [clipTimelineIn, clipTimelineOut]);
 
   return (
     <>
