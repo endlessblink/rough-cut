@@ -7,8 +7,8 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { ClipId, TrackId, ClipTransform, EffectInstance, AIAnnotationId } from '@rough-cut/project-model';
 import { useProjectStore, useTransportStore, projectStore, transportStore } from '../../hooks/use-stores.js';
-import { usePlaybackLoop } from '../../hooks/use-playback-loop.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
+import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 import { TimelineStrip } from './TimelineStrip.js';
 import { EditScreenLayout } from './EditScreenLayout.js';
 import { EditPreviewStage } from './EditPreviewStage.js';
@@ -180,7 +180,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const resolution = useProjectStore((s) => s.project.settings.resolution);
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
   const durationFrames = useProjectStore((s) => s.project.composition.duration);
-  usePlaybackLoop(projectFps, durationFrames);
+  // PlaybackManager singleton handles playback loop — no usePlaybackLoop needed
 
   // Zoom-to-fit: calculate ppf so all clips fit in the visible width
   const handleZoomToFit = useCallback(() => {
@@ -253,15 +253,15 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          transportStore.getState().stepBackward(1);
+          getPlaybackManager().stepBackward(1);
           break;
         case 'ArrowRight':
           e.preventDefault();
-          transportStore.getState().stepForward(1);
+          getPlaybackManager().stepForward(1);
           break;
         case ' ':
           e.preventDefault();
-          transportStore.getState().togglePlay();
+          getPlaybackManager().togglePlay();
           break;
       }
     };

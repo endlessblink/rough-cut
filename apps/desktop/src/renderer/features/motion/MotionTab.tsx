@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { Player } from '@remotion/player';
 import type { PlayerRef } from '@remotion/player';
 import { useProjectStore, useTransportStore, transportStore } from '../../hooks/use-stores.js';
-import { usePlaybackLoop } from '../../hooks/use-playback-loop.js';
+// PlaybackManager singleton handles playback — no usePlaybackLoop needed
 import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
 import { TEMPLATE_REGISTRY } from './template-registry.js';
@@ -91,7 +91,7 @@ export function MotionTab({ activeTab, onTabChange }: MotionTabProps) {
   const durationFrames = useProjectStore((s) => s.project.composition.duration);
   const currentFrame = useTransportStore((s) => s.playheadFrame);
 
-  usePlaybackLoop(fps, durationFrames);
+  // PlaybackManager singleton handles playback loop
 
   const playerRef = useRef<PlayerRef>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState(TEMPLATE_REGISTRY[0].id);

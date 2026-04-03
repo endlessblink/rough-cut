@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useProjectStore, useTransportStore, transportStore } from '../../hooks/use-stores.js';
-import { usePlaybackLoop } from '../../hooks/use-playback-loop.js';
+// PlaybackManager singleton handles playback — no usePlaybackLoop needed
 import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
 import { RecordingPlaybackVideo } from '../record/RecordingPlaybackVideo.js';
@@ -36,7 +36,7 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   });
 
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
-  usePlaybackLoop(projectFps, durationFrames);
+  // PlaybackManager singleton handles playback loop
 
   const [exportRange, setExportRange] = useState<ExportRange>({
     inFrame: 0,
