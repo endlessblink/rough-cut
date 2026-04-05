@@ -29,7 +29,9 @@ export class CameraRecorder {
 
     const videoSource = new MediaStreamVideoTrackSource(track, {
       codec: 'avc',
-      bitrate: 8_000_000,
+      bitrate: 3_000_000,
+      keyFrameInterval: 1,
+      latencyMode: 'realtime',
     });
 
     const settings = track.getSettings();

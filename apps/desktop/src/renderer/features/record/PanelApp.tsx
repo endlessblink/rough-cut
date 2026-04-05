@@ -1231,7 +1231,7 @@ export function PanelApp() {
     let active = true;
     console.info('[PanelApp] Requesting camera via getUserMedia...');
     navigator.mediaDevices
-      .getUserMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: false })
+      .getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio: false })
       .then((s) => {
         const track = s.getVideoTracks()[0];
         if (track) {

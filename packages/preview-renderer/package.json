@@ -20,9 +20,10 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@rough-cut/project-model": "workspace:*",
-    "@rough-cut/frame-resolver": "workspace:*",
     "@rough-cut/effect-registry": "workspace:*",
+    "@rough-cut/frame-resolver": "workspace:*",
+    "@rough-cut/project-model": "workspace:*",
+    "mp4box": "^2.3.0",
     "pixi.js": "^8.6.0"
   },
   "devDependencies": {

@@ -43,11 +43,12 @@ export class PlaybackManager {
   private projectStore: ProjectStoreApi;
 
   private screenVideo: HTMLVideoElement | null = null;
-  private cameraVideo: HTMLVideoElement | null = null;
   private compositor: PreviewCompositor | null = null;
 
   private _playing = false;
   private _rafId = 0;
+  private _rvfcId = 0;
+  private _useRvfc = false;
   private _lastSyncedFrame = -1;
   private _scrubUnsub: (() => void) | null = null;
 
@@ -81,23 +82,6 @@ export class PlaybackManager {
     }
   }
 
-  registerCameraVideo(video: HTMLVideoElement): void {
-    this.cameraVideo = video;
-    console.info('[PlaybackManager] Camera video registered');
-    if (this._playing && this.screenVideo) {
-      // Sync camera to screen's current time, then play
-      video.currentTime = this.screenVideo.currentTime;
-      video.play().catch(() => {});
-    }
-  }
-
-  unregisterCameraVideo(): void {
-    if (this.cameraVideo) {
-      this.cameraVideo.pause();
-      this.cameraVideo = null;
-    }
-  }
-
   registerCompositor(comp: PreviewCompositor): void {
     this.compositor = comp;
     console.info('[PlaybackManager] Compositor registered');
@@ -121,10 +105,6 @@ export class PlaybackManager {
       this.screenVideo.currentTime = startTime;
       this._startVideo(this.screenVideo);
     }
-    if (this.cameraVideo) {
-      this.cameraVideo.currentTime = startTime;
-      this._startVideo(this.cameraVideo);
-    }
     if (this.compositor) {
       this.compositor.play();
     }
@@ -132,11 +112,16 @@ export class PlaybackManager {
     // Update store
     this.transportStore.setState({ isPlaying: true });
 
-    // Start sync loop
+    // Start sync loop — prefer rVFC when available for frame-accurate callbacks
     this._lastSyncedFrame = -1;
-    this._rafId = requestAnimationFrame(this._syncLoop);
+    this._useRvfc = !!(this.screenVideo && 'requestVideoFrameCallback' in this.screenVideo);
+    if (this._useRvfc && this.screenVideo) {
+      this._rvfcId = this.screenVideo.requestVideoFrameCallback(this._onVideoFrame);
+    } else {
+      this._rafId = requestAnimationFrame(this._syncLoop);
+    }
 
-    console.info('[PlaybackManager] play() — started from', startTime.toFixed(2) + 's');
+    console.info('[PlaybackManager] play() — started from', startTime.toFixed(2) + 's', this._useRvfc ? '(rVFC)' : '(rAF)');
   }
 
   pause(): void {
@@ -144,11 +129,14 @@ export class PlaybackManager {
     this._playing = false;
 
     // Stop sync loop
-    cancelAnimationFrame(this._rafId);
+    if (this._useRvfc && this.screenVideo) {
+      this.screenVideo.cancelVideoFrameCallback(this._rvfcId);
+    } else {
+      cancelAnimationFrame(this._rafId);
+    }
 
     // Pause all videos
     this.screenVideo?.pause();
-    this.cameraVideo?.pause();
     if (this.compositor) {
       this.compositor.pause();
     }
@@ -205,7 +193,42 @@ export class PlaybackManager {
   }
 
   /**
-   * Single rAF loop during playback. This is the ONLY place that:
+   * rVFC callback — fires once per decoded video frame, aligned with actual
+   * frame presentation. More accurate than rAF for frame-number computation.
+   * Uses metadata.mediaTime (stream time) instead of video.currentTime.
+   */
+  private _onVideoFrame = (_now: number, metadata: VideoFrameCallbackMetadata): void => {
+    if (!this._playing) return;
+
+    const fps = this.projectStore.getState().project.settings.frameRate;
+    const screenTime = metadata.mediaTime;
+    const frame = Math.round(screenTime * fps);
+
+    // 1. Sync store only when frame number changes
+    if (frame !== this._lastSyncedFrame) {
+      this._lastSyncedFrame = frame;
+      this.transportStore.setState({ playheadFrame: frame });
+
+      // 3. Update compositor only on new frame
+      if (this.compositor) {
+        this.compositor.seekTo(frame);
+      }
+    }
+
+    // 2. End-of-timeline detection
+    const duration = this.projectStore.getState().project.composition.duration;
+    if (duration > 0 && frame >= duration) {
+      this.pause();
+      this.transportStore.setState({ playheadFrame: 0 });
+      return;
+    }
+
+    this._rvfcId = this.screenVideo!.requestVideoFrameCallback(this._onVideoFrame);
+  };
+
+  /**
+   * rAF fallback loop during playback (used when requestVideoFrameCallback is
+   * unavailable). This is the ONLY place that:
    * - Reads video.currentTime (source of truth)
    * - Writes to transportStore.setPlayheadFrame (for UI)
    * - Corrects camera drift
@@ -228,22 +251,14 @@ export class PlaybackManager {
     if (frame !== this._lastSyncedFrame) {
       this._lastSyncedFrame = frame;
       this.transportStore.setState({ playheadFrame: frame });
-    }
 
-    // 2. Camera drift correction (every rAF frame, cheap comparison)
-    if (this.cameraVideo && !this.cameraVideo.paused) {
-      const drift = Math.abs(this.cameraVideo.currentTime - screenTime);
-      if (drift > 0.15) {
-        this.cameraVideo.currentTime = screenTime;
+      // 3. Update compositor only on new frame
+      if (this.compositor) {
+        this.compositor.seekTo(frame);
       }
     }
 
-    // 3. Update compositor for zoom/transform rendering
-    if (this.compositor) {
-      this.compositor.seekTo(frame);
-    }
-
-    // 4. End-of-timeline detection
+    // 2. End-of-timeline detection
     const duration = this.projectStore.getState().project.composition.duration;
     if (duration > 0 && frame >= duration) {
       this.pause();
@@ -265,12 +280,6 @@ export class PlaybackManager {
       }
     }
 
-    if (this.cameraVideo && this.cameraVideo.readyState >= 2) {
-      if (Math.abs(this.cameraVideo.currentTime - targetTime) > 0.02) {
-        this.cameraVideo.currentTime = targetTime;
-      }
-    }
-
     if (this.compositor) {
       this.compositor.seekTo(frame);
     }
@@ -281,7 +290,6 @@ export class PlaybackManager {
     this._scrubUnsub?.();
     this._scrubUnsub = null;
     this.screenVideo = null;
-    this.cameraVideo = null;
     this.compositor = null;
   }
 }

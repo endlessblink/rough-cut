@@ -4,6 +4,7 @@ import { resolveFrame } from '@rough-cut/frame-resolver';
 import { registerBuiltinEffects } from '@rough-cut/effect-registry';
 import type { RenderFrame, RenderLayer } from '@rough-cut/frame-resolver';
 import type { CompositorConfig, CompositorState, CompositorEvents } from './types.js';
+import { CameraFrameDecoder } from './camera-frame-decoder.js';
 
 /** Color palette for layer placeholders — cycled deterministically by clipId hash */
 const LAYER_COLORS = [
@@ -26,6 +27,9 @@ interface LayerCache {
   label: Text;
   videoSprite?: Sprite;
   roundCornersMask?: Graphics;
+  circleMask?: Graphics;     // circular mask for camera PiP
+  lastEffectKey?: string;   // serialized effect params for dirty check
+  lastEffectOpacity?: number; // cached computed opacity from effects
 }
 
 interface VideoCache {
@@ -59,6 +63,15 @@ export class PreviewCompositor {
 
   // Video element cache — one per asset, reused across frames
   private videoCache: Map<string, VideoCache> = new Map();
+
+  // Camera decoder cache — WebCodecs-based, frame-locked to screen
+  private cameraDecoders: Map<string, {
+    decoder: CameraFrameDecoder;
+    texture: Texture | null;
+    canvas: OffscreenCanvas | null;
+    ctx: OffscreenCanvasRenderingContext2D | null;
+    ready: boolean;
+  }> = new Map();
 
 
   constructor(config: CompositorConfig = {}, events: CompositorEvents = {}) {
@@ -127,6 +140,11 @@ export class PreviewCompositor {
         vc.texture?.destroy();
       }
       this.videoCache.clear();
+      for (const entry of this.cameraDecoders.values()) {
+        entry.decoder.dispose();
+        entry.texture?.destroy();
+      }
+      this.cameraDecoders.clear();
       if (this.layerContainer) {
         for (const [, cached] of this.layerCache) {
           this.layerContainer.removeChild(cached.container);
@@ -254,6 +272,11 @@ export class PreviewCompositor {
       vc.texture?.destroy();
     }
     this.videoCache.clear();
+    for (const entry of this.cameraDecoders.values()) {
+      entry.decoder.dispose();
+      entry.texture?.destroy();
+    }
+    this.cameraDecoders.clear();
     this.layerContainer?.destroy({ children: true });
     this.layerContainer = null;
     this.app?.destroy();
@@ -270,6 +293,25 @@ export class PreviewCompositor {
     if (!this.initialized || !this.app || !this.project) return;
 
     const renderFrame = resolveFrame(this.project, this.currentFrame);
+    // Diagnostic: log layers and project state on first render
+    if (this.currentFrame === 0 && this.project) {
+      const tracks = this.project.composition.tracks;
+      console.info('[compositor] Project tracks:', tracks.map(t => ({
+        id: t.id.slice(0, 8), type: t.type, clips: t.clips.length, visible: t.visible,
+      })));
+      for (const t of tracks) {
+        for (const c of t.clips) {
+          const a = this.project.assets.find(a => a.id === c.assetId);
+          console.info('[compositor]   clip:', c.id.slice(0, 8), 'asset:', c.assetId.slice(0, 8),
+            'type:', a?.type, 'isCamera:', (a?.metadata as Record<string, unknown> | undefined)?.isCamera,
+            'range:', c.timelineIn, '-', c.timelineOut);
+        }
+      }
+      console.info('[compositor] Assets:', this.project.assets.map(a => ({
+        id: a.id.slice(0, 8), type: a.type, isCamera: (a.metadata as Record<string, unknown> | undefined)?.isCamera,
+      })));
+      console.info('[compositor] Resolved layers:', renderFrame.layers.length);
+    }
     this.renderRenderFrame(renderFrame);
     this.events.onFrameRendered?.(this.currentFrame);
   }
@@ -362,6 +404,52 @@ export class PreviewCompositor {
     return vc;
   }
 
+  /** Upload a decoded VideoFrame to the camera's OffscreenCanvas + PixiJS texture */
+  private _uploadCameraFrame(
+    entry: { texture: Texture | null; canvas: OffscreenCanvas | null; ctx: OffscreenCanvasRenderingContext2D | null },
+    vf: VideoFrame,
+  ): void {
+    if (!entry.canvas) {
+      entry.canvas = new OffscreenCanvas(vf.displayWidth, vf.displayHeight);
+      entry.ctx = entry.canvas.getContext('2d');
+      entry.texture = Texture.from({
+        resource: entry.canvas as unknown as HTMLCanvasElement,
+      });
+    }
+    if (entry.ctx) {
+      entry.ctx.drawImage(vf, 0, 0);
+    }
+    vf.close();
+    entry.texture?.source.update();
+  }
+
+  /** Get or create a WebCodecs camera decoder for a camera asset */
+  private getOrCreateCameraDecoder(assetId: string, filePath: string): {
+    decoder: CameraFrameDecoder;
+    texture: Texture | null;
+    canvas: OffscreenCanvas | null;
+    ctx: OffscreenCanvasRenderingContext2D | null;
+    ready: boolean;
+  } {
+    let entry = this.cameraDecoders.get(assetId);
+    if (entry) return entry;
+
+    const decoder = new CameraFrameDecoder();
+    entry = { decoder, texture: null, canvas: null, ctx: null, ready: false };
+    this.cameraDecoders.set(assetId, entry);
+
+    // Initialize async — will be ready on next render
+    decoder.init(`media://${filePath}`).then(() => {
+      entry!.ready = true;
+      console.info('[compositor] Camera decoder ready for asset:', assetId);
+      this.renderCurrentFrame();
+    }).catch((err) => {
+      console.error('[compositor] Camera decoder init failed:', err);
+    });
+
+    return entry;
+  }
+
   private renderLayer(layer: RenderLayer, frameWidth: number, frameHeight: number, screenCrop?: RegionCrop): void {
     if (!this.layerContainer) return;
 
@@ -373,9 +461,41 @@ export class PreviewCompositor {
 
     // Check if this asset has a video file we can display
     const isVideoAsset = asset && (asset.type === 'recording' || asset.type === 'video') && asset.filePath;
+    const isCamera = !!(asset?.metadata as Record<string, unknown> | undefined)?.isCamera;
     let videoCache: VideoCache | null = null;
+    let cameraTextureReady = false;
+    let cameraEntry: ReturnType<typeof this.getOrCreateCameraDecoder> | null = null;
 
-    if (isVideoAsset && asset.filePath) {
+    if (isVideoAsset && asset.filePath && isCamera) {
+      // Camera: WebCodecs frame-by-frame decoder (frame-locked to screen)
+      cameraEntry = this.getOrCreateCameraDecoder(assetId, asset.filePath);
+      if (cameraEntry.ready) {
+        const targetTime = sourceFrame / fps;
+
+        // Try synchronous buffer first (fast path during playback)
+        let vf = cameraEntry.decoder.getBufferedFrame(targetTime);
+
+        if (vf) {
+          this._uploadCameraFrame(cameraEntry, vf);
+          cameraTextureReady = !!cameraEntry.texture;
+        } else {
+          // Buffer miss — decode async and re-render when ready
+          cameraEntry.decoder.getFrame(targetTime).then((asyncVf) => {
+            if (asyncVf && cameraEntry) {
+              this._uploadCameraFrame(cameraEntry, asyncVf);
+              this.renderCurrentFrame();
+            }
+          }).catch(() => {});
+        }
+
+        // Pre-fetch upcoming frames for smooth playback, re-render when done
+        cameraEntry.decoder.prefetch(targetTime).then(() => {
+          // Frames are now buffered — re-render to pick them up
+          if (this._playing) this.renderCurrentFrame();
+        }).catch(() => {});
+      }
+    } else if (isVideoAsset && asset.filePath) {
+      // Screen/other video: HTMLVideoElement path (unchanged)
       videoCache = this.getOrCreateVideo(assetId, asset.filePath);
 
       // Seek the video to the correct source frame time (only when NOT in native playback)
@@ -397,7 +517,7 @@ export class PreviewCompositor {
     }
 
     // Decide: render video sprite or placeholder
-    const useVideo = videoCache?.loaded && videoCache.texture;
+    const useVideo = (videoCache?.loaded && videoCache.texture) || cameraTextureReady;
 
     let cached = this.layerCache.get(clipId);
 
@@ -424,7 +544,8 @@ export class PreviewCompositor {
 
     const { container, rect, label } = cached;
 
-    if (useVideo && videoCache?.texture) {
+    const activeTexture = cameraTextureReady ? cameraEntry?.texture : videoCache?.texture;
+    if (useVideo && activeTexture) {
       // ── Video-backed rendering ──
       // Hide placeholder rect and label
       rect.visible = false;
@@ -432,28 +553,29 @@ export class PreviewCompositor {
 
       // Create or update video sprite
       if (!cached.videoSprite) {
-        const sprite = new Sprite(videoCache.texture);
+        const sprite = new Sprite(activeTexture);
         container.addChild(sprite);
         cached.videoSprite = sprite;
       } else {
-        cached.videoSprite.texture = videoCache.texture;
+        cached.videoSprite.texture = activeTexture;
       }
 
       const sprite = cached.videoSprite;
       sprite.visible = true;
 
-      if (screenCrop) {
+      if (!isCamera && screenCrop) {
         // Crop: scale sprite up so the crop region fills the frame,
         // then offset so the crop top-left aligns with the frame origin.
-        const sourceW = videoCache.video.videoWidth || frameWidth;
-        const sourceH = videoCache.video.videoHeight || frameHeight;
+        // screenCrop applies only to screen/non-camera layers.
+        const sourceW = videoCache!.video.videoWidth || frameWidth;
+        const sourceH = videoCache!.video.videoHeight || frameHeight;
         const cropScale = sourceW / screenCrop.width;
         sprite.width = frameWidth * cropScale;
         sprite.height = frameHeight * cropScale;
         sprite.x = -(screenCrop.x / sourceW) * sprite.width;
         sprite.y = -(screenCrop.y / sourceH) * sprite.height;
       } else {
-        // No crop: fill the frame
+        // No crop (camera layers never crop, screen layers with no crop): fill the frame
         sprite.width = frameWidth;
         sprite.height = frameHeight;
         sprite.x = 0;
@@ -507,6 +629,37 @@ export class PreviewCompositor {
     this.layerContainer!.sortableChildren = true;
 
     // ── Effect rendering ──────────────────────────────────────────────
+    // Build a cache key from the enabled effects so we can skip the
+    // destroy+rebuild cycle when nothing has changed between frames.
+    // For round-corners we also include the mask target dimensions so
+    // that resizing the sprite correctly invalidates the cached mask.
+    const roundCornersEffect = effects.find(
+      (e) => e.enabled && e.effectType === 'round-corners',
+    );
+    let maskDimSuffix = '';
+    if (roundCornersEffect) {
+      const maskTarget = cached.videoSprite?.visible ? cached.videoSprite : rect;
+      maskDimSuffix = `|mask:${maskTarget.width}x${maskTarget.height}`;
+    }
+    const effectKey =
+      effects
+        .filter((e) => e.enabled)
+        .map((e) => `${e.effectType}:${JSON.stringify(e.params)}`)
+        .join('|') + maskDimSuffix;
+
+    if (effectKey === cached.lastEffectKey) {
+      // Effects unchanged — only update opacity in case keyframes changed it
+      container.alpha = Math.max(
+        0,
+        Math.min(1, transform.opacity * (cached.lastEffectOpacity ?? 1)),
+      );
+      return;
+    }
+
+    // Effects changed — invalidate key before rebuild so a mid-rebuild error
+    // doesn't leave a stale key in place
+    cached.lastEffectKey = undefined;
+
     // Clear previous effects before rebuilding
     container.filters = null;
     if (cached.roundCornersMask) {
@@ -561,5 +714,38 @@ export class PreviewCompositor {
 
     container.filters = filters.length > 0 ? filters : null;
     container.alpha = Math.max(0, Math.min(1, transform.opacity * effectOpacity));
+
+    // Persist the key and opacity so the next frame can skip the rebuild
+    cached.lastEffectKey = effectKey;
+    cached.lastEffectOpacity = effectOpacity;
+
+    // ── Camera circle mask ───────────────────────────────────────────
+    // Apply circular clipping to camera PiP layers (replaces CSS borderRadius: 50%)
+    if (isCamera && cached.videoSprite?.visible) {
+      const spriteW = cached.videoSprite.width;
+      const spriteH = cached.videoSprite.height;
+      const radius = Math.min(spriteW, spriteH) / 2;
+
+      if (!cached.circleMask) {
+        const mask = new Graphics();
+        mask.circle(spriteW / 2, spriteH / 2, radius).fill({ color: 0xffffff });
+        mask.position.set(cached.videoSprite.x, cached.videoSprite.y);
+        container.addChild(mask);
+        container.mask = mask;
+        cached.circleMask = mask;
+      } else {
+        // Update mask position/size if sprite changed
+        cached.circleMask.clear();
+        cached.circleMask.circle(spriteW / 2, spriteH / 2, radius).fill({ color: 0xffffff });
+        cached.circleMask.position.set(cached.videoSprite.x, cached.videoSprite.y);
+        container.mask = cached.circleMask;
+      }
+    } else if (!isCamera && cached.circleMask) {
+      // Non-camera layer had a circle mask (shouldn't happen) — clean up
+      container.mask = null;
+      container.removeChild(cached.circleMask);
+      cached.circleMask.destroy();
+      cached.circleMask = undefined;
+    }
   }
 }

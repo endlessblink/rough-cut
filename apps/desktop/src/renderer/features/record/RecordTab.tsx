@@ -3,7 +3,7 @@
  * Responsible for: zoom keyframes, cursor styling, highlights, shortcut titles,
  * background/look presets. No clip edits (no cutting, trimming, reordering, track management).
  */
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { RecordingResult } from '../../env.js';
 import { useProjectStore, useTransportStore, transportStore, projectStore } from '../../hooks/use-stores.js';
 import { createDefaultZoomPresentation, createDefaultCursorPresentation, createDefaultCameraPresentation, createDefaultRegionCrop } from '@rough-cut/project-model';
@@ -11,7 +11,6 @@ import type { CursorPresentation, CameraPresentation, RegionCrop } from '@rough-
 import { useRecordState } from './record-state.js';
 import { useRecording } from './use-recording.js';
 import { useLivePreview } from './use-live-preview.js';
-import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 import { LivePreviewVideo } from './LivePreviewVideo.js';
 import { RecordScreenLayout } from './RecordScreenLayout.js';
 import { AppHeader } from '../../ui/index.js';
@@ -60,9 +59,10 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const [countdownSeconds, setCountdownSeconds] = useState(0);
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isSystemAudioEnabled, setIsSystemAudioEnabled] = useState(true);
-  const [isCameraEnabled, setIsCameraEnabled] = useState(false);
+  const [isCameraEnabled, setIsCameraEnabled] = useState(true);
+  // Default to Screen+Camera PIP template (index 1) when camera is on
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- LAYOUT_TEMPLATES is a non-empty static array
-  const defaultTemplate = LAYOUT_TEMPLATES[0]!;
+  const defaultTemplate = LAYOUT_TEMPLATES[1] ?? LAYOUT_TEMPLATES[0]!;
   const [activeTemplate, setActiveTemplate] = useState<LayoutTemplate>(defaultTemplate);
   const [screenRectOverride, setScreenRectOverride] = useState<Rect | undefined>();
   const [cameraRectOverride, setCameraRectOverride] = useState<Rect | undefined>();
@@ -135,66 +135,11 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const { previewRef } = useCompositor();
 
   // Camera playback — find the camera asset linked to the active recording
+  // (still needed so the compositor can find the camera asset)
   const cameraAsset = useProjectStore((s) => {
     if (!activeRecordingAsset?.cameraAssetId) return null;
     return s.project.assets.find((a) => a.id === activeRecordingAsset.cameraAssetId) ?? null;
   });
-
-
-  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
-
-  // Register camera video with PlaybackManager (handles play/pause/sync)
-
-  // Create camera <video> element + register with PlaybackManager
-  useEffect(() => {
-    if (!cameraAsset) {
-      cameraVideoRef.current = null;
-      return;
-    }
-    const video = document.createElement('video');
-    video.src = `media://${cameraAsset.filePath}`;
-    video.muted = true;
-    video.playsInline = true;
-    video.style.width = '100%';
-    video.style.height = '100%';
-    video.style.objectFit = 'cover';
-    cameraVideoRef.current = video;
-
-    // Register with PlaybackManager once metadata loads
-    const pm = getPlaybackManager();
-    const doRegister = () => pm.registerCameraVideo(video);
-    if (video.readyState >= 1) {
-      doRegister();
-    } else {
-      video.addEventListener('loadedmetadata', doRegister, { once: true });
-    }
-
-    return () => {
-      video.removeEventListener('loadedmetadata', doRegister);
-      pm.unregisterCameraVideo();
-      video.pause();
-      video.removeAttribute('src');
-      video.load();
-      cameraVideoRef.current = null;
-    };
-  }, [cameraAsset]);
-
-  // Wrap the camera video in a React node for TemplatePreviewRenderer
-  const cameraNode = useMemo(() => {
-    if (!cameraAsset) return undefined;
-    return (
-      <div
-        ref={(el) => {
-          if (el && cameraVideoRef.current && !el.contains(cameraVideoRef.current)) {
-            el.innerHTML = '';
-            el.appendChild(cameraVideoRef.current);
-          }
-        }}
-        style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: '50%' }}
-      />
-    );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraAsset?.id]);
 
   // Background/canvas config (lifted from RecordRightPanel so LivePreviewVideo can consume it)
   const [background, setBackground] = useState<BackgroundConfig>(DEFAULT_BACKGROUND);
@@ -436,7 +381,6 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
                       ? <RecordingPlaybackVideo filePath={activeRecordingAsset.filePath} fps={projectFps} assetId={activeRecordingAsset.id} />
                       : undefined
                 }
-                cameraContent={cameraNode}
                 screenAspect={16 / 9}
                 screenCornerRadius={background.bgCornerRadius}
                 screenShadow={background.bgShadowEnabled

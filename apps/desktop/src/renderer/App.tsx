@@ -144,6 +144,7 @@ export function App() {
       store.addClip(videoTrack.id, clip);
 
       // Add camera clip on a higher video track (renders on top of screen as PiP)
+      console.log('[App] Camera clip check — cameraAssetId:', cameraAssetId, 'clipDuration:', clipDuration);
       if (cameraAssetId) {
         const allVideoTracks = store.project.composition.tracks
           .filter((t) => t.type === 'video')
@@ -168,6 +169,7 @@ export function App() {
           },
         });
         store.addClip(cameraTrack.id, cameraClip);
+        console.log('[App] Camera clip ADDED:', { clipId: cameraClip.id, trackId: cameraTrack.id, trackIndex: cameraTrack.index });
         console.log('[App] Camera clip created on track:', cameraTrack.name, cameraClip.id);
       }
 

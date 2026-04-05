@@ -75,6 +75,7 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | TASK-054 | Export: NVENC hardware encoding via VideoEncoder hardwareAcceleration: prefer-hardware | P1 | TODO | TASK-052 |
 | BUG-005 | Camera PiP renders as ellipse instead of circle (CSS/template shape not applied) | P1 | TODO | TASK-014 |
 | BUG-006 | Playback laggy — Canvas2D drawImage bottleneck, needs WebGL VideoSource path | P0 | TODO | TASK-050 |
+| TASK-075 | Preview: Playback fluency — rVFC sync, consolidate loops, cache effects | P0 | PLANNED | TASK-007 |
 | TASK-017 | Edit: Clip drag-to-move (horizontal repositioning with snap) | P1 | TODO | TASK-003 |
 | TASK-018 | Edit: Cross-track clip dragging (V1↔V2) | P1 | TODO | TASK-017 |
 | TASK-019 | Edit: Effects stack UI (Add Effect, expandable sections, param controls) | P1 | TODO | TASK-004 |
@@ -162,6 +163,21 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 **Priority:** P2 | **Status:** ✅ DONE (2026-03-30)
 
 Recent projects list with filtering, new/open project flows. IPC integration for project management between main and renderer. Fixed `setProject` to preserve `projectFilePath` so loaded projects maintain their save location.
+
+---
+
+### TASK-075: Preview: Playback fluency — rVFC sync, consolidate loops, cache effects
+**Priority:** P0 | **Status:** PLANNED
+
+Improve playback smoothness by addressing identified bottlenecks in the rendering pipeline:
+
+1. **requestVideoFrameCallback** — Replace rAF polling of `video.currentTime` with precise frame callbacks
+2. **Consolidate rAF loops** — PlaybackManager should be sole timing authority; disable PixiJS ticker during playback
+3. **Cache effect/filter state** — Only rebuild blur, round-corners, opacity filters when params actually change
+4. **Skip redundant renders** — Don't re-render compositor when frame hasn't changed
+5. **Reuse sprites** — Avoid destroying/recreating PixiJS sprites on layer set changes; update textures only
+
+**Key files:** `playback-manager.ts`, `preview-compositor.ts`, `use-compositor.ts`
 
 ---
 

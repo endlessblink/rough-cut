@@ -365,7 +365,7 @@ app.commandLine.appendSwitch(
 // Register media:// as a privileged scheme (must happen before app.whenReady)
 // stream: true enables range requests for video seeking
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'media', privileges: { stream: true, bypassCSP: true } },
+  { scheme: 'media', privileges: { stream: true, bypassCSP: true, supportFetchAPI: true } },
 ]);
 
 // Enable hardware video decode on Linux (must be before app.ready)
