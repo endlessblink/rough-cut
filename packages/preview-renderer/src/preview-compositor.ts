@@ -68,9 +68,10 @@ export class PreviewCompositor {
   private cameraDecoders: Map<string, {
     decoder: CameraFrameDecoder;
     texture: Texture | null;
-    canvas: OffscreenCanvas | null;
-    ctx: OffscreenCanvasRenderingContext2D | null;
+    canvas: HTMLCanvasElement | null;
+    ctx: CanvasRenderingContext2D | null;
     ready: boolean;
+    lastDecodedTime: number;
   }> = new Map();
 
 
@@ -363,7 +364,9 @@ export class PreviewCompositor {
     if (vc) return vc;
 
     const video = document.createElement('video');
-    video.src = `media://${filePath}`;
+    const mediaSrc = `media://${filePath}`;
+    console.info('[compositor] Creating video element, src:', mediaSrc);
+    video.src = mediaSrc;
     video.crossOrigin = 'anonymous';
     video.preload = 'auto';
     video.muted = true; // mute to allow autoplay
@@ -404,16 +407,18 @@ export class PreviewCompositor {
     return vc;
   }
 
-  /** Upload a decoded VideoFrame to the camera's OffscreenCanvas + PixiJS texture */
+  /** Upload a decoded VideoFrame to a canvas + PixiJS texture */
   private _uploadCameraFrame(
-    entry: { texture: Texture | null; canvas: OffscreenCanvas | null; ctx: OffscreenCanvasRenderingContext2D | null },
+    entry: { texture: Texture | null; canvas: HTMLCanvasElement | null; ctx: CanvasRenderingContext2D | null },
     vf: VideoFrame,
   ): void {
     if (!entry.canvas) {
-      entry.canvas = new OffscreenCanvas(vf.displayWidth, vf.displayHeight);
+      entry.canvas = document.createElement('canvas');
+      entry.canvas.width = vf.displayWidth;
+      entry.canvas.height = vf.displayHeight;
       entry.ctx = entry.canvas.getContext('2d');
       entry.texture = Texture.from({
-        resource: entry.canvas as unknown as HTMLCanvasElement,
+        resource: entry.canvas,
       });
     }
     if (entry.ctx) {
@@ -427,21 +432,34 @@ export class PreviewCompositor {
   private getOrCreateCameraDecoder(assetId: string, filePath: string): {
     decoder: CameraFrameDecoder;
     texture: Texture | null;
-    canvas: OffscreenCanvas | null;
-    ctx: OffscreenCanvasRenderingContext2D | null;
+    canvas: HTMLCanvasElement | null;
+    ctx: CanvasRenderingContext2D | null;
     ready: boolean;
+    lastDecodedTime: number;
   } {
     let entry = this.cameraDecoders.get(assetId);
     if (entry) return entry;
 
     const decoder = new CameraFrameDecoder();
-    entry = { decoder, texture: null, canvas: null, ctx: null, ready: false };
+    entry = { decoder, texture: null, canvas: null, ctx: null, ready: false, lastDecodedTime: -1 };
     this.cameraDecoders.set(assetId, entry);
 
     // Initialize async — will be ready on next render
-    decoder.init(`media://${filePath}`).then(() => {
+    // Use preload IPC bridge to read file as ArrayBuffer (bypasses custom protocol for demux)
+    const loadAndInit = async () => {
+      const win = globalThis.window as { roughcut?: { readBinaryFile?: (p: string) => Promise<ArrayBuffer | null> } } | undefined;
+      const buf = await win?.roughcut?.readBinaryFile?.(filePath);
+      if (buf) {
+        await decoder.init(buf);
+      } else {
+        // Fallback: fetch via custom protocol
+        await decoder.init(`media://${filePath}`);
+      }
+    };
+
+    loadAndInit().then(() => {
       entry!.ready = true;
-      console.info('[compositor] Camera decoder ready for asset:', assetId);
+      console.info('[compositor] Camera decoder READY for', assetId.slice(0, 8));
       this.renderCurrentFrame();
     }).catch((err) => {
       console.error('[compositor] Camera decoder init failed:', err);
@@ -477,22 +495,31 @@ export class PreviewCompositor {
 
         if (vf) {
           this._uploadCameraFrame(cameraEntry, vf);
-          cameraTextureReady = !!cameraEntry.texture;
-        } else {
-          // Buffer miss — decode async and re-render when ready
+          console.info('[compositor] Camera sync frame uploaded, texture:', !!cameraEntry.texture);
+        } else if (Math.abs(cameraEntry.lastDecodedTime - targetTime) > 0.02) {
+          // Buffer miss at a NEW time — decode async, re-render once when done
+          cameraEntry.lastDecodedTime = targetTime;
+          console.info('[compositor] Camera async decode start, time:', targetTime);
           cameraEntry.decoder.getFrame(targetTime).then((asyncVf) => {
             if (asyncVf && cameraEntry) {
+              console.info('[compositor] Camera async frame received, uploading...');
               this._uploadCameraFrame(cameraEntry, asyncVf);
+              console.info('[compositor] Camera texture after upload:', !!cameraEntry.texture);
               this.renderCurrentFrame();
+            } else {
+              console.warn('[compositor] Camera async decode returned null');
             }
-          }).catch(() => {});
+          }).catch((err) => {
+            console.error('[compositor] Camera getFrame error:', err);
+          });
         }
+        // else: same time, texture already uploaded — reuse it
 
-        // Pre-fetch upcoming frames for smooth playback, re-render when done
-        cameraEntry.decoder.prefetch(targetTime).then(() => {
-          // Frames are now buffered — re-render to pick them up
-          if (this._playing) this.renderCurrentFrame();
-        }).catch(() => {});
+        // Always check texture (may have been set by previous async cycle)
+        cameraTextureReady = !!cameraEntry.texture;
+
+        // Pre-fetch upcoming frames for smooth playback (no re-render needed — ticker handles it)
+        cameraEntry.decoder.prefetch(targetTime).catch(() => {});
       }
     } else if (isVideoAsset && asset.filePath) {
       // Screen/other video: HTMLVideoElement path (unchanged)
@@ -518,6 +545,10 @@ export class PreviewCompositor {
 
     // Decide: render video sprite or placeholder
     const useVideo = (videoCache?.loaded && videoCache.texture) || cameraTextureReady;
+
+    if (isCamera) {
+      console.info('[compositor] Camera render decision:', { cameraTextureReady, useVideo, hasTexture: !!cameraEntry?.texture });
+    }
 
     let cached = this.layerCache.get(clipId);
 

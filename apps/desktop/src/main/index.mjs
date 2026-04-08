@@ -1,8 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog, protocol, net, session, desktopCapturer, screen } from 'electron';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile, writeFile } from 'node:fs/promises';
-import { existsSync, mkdirSync, statSync, createReadStream } from 'node:fs';
+import { existsSync, mkdirSync, statSync, createReadStream, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { getSources, saveRecording } from './recording/capture-service.mjs';
@@ -197,6 +197,74 @@ function registerIpcHandlers() {
   ipcMain.handle(IPC_CHANNELS.READ_TEXT_FILE, async (_e, filePath) => {
     if (!filePath || !existsSync(filePath)) return null;
     return readFile(filePath, 'utf-8');
+  });
+
+  // File system: read a binary file and return as ArrayBuffer (used for WebCodecs camera decode)
+  ipcMain.handle(IPC_CHANNELS.READ_BINARY_FILE, async (_e, filePath) => {
+    if (!filePath || !existsSync(filePath)) return null;
+    const buf = await readFile(filePath);
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  });
+
+  // Debug: reload the most recent recording from disk (temporary — for camera decode testing)
+  ipcMain.handle(IPC_CHANNELS.DEBUG_LOAD_LAST_RECORDING, async () => {
+    const recordingDir = '/tmp/rough-cut/recordings';
+    if (!existsSync(recordingDir)) return null;
+
+    const files = readdirSync(recordingDir)
+      .filter(f => f.endsWith('.webm'))
+      .map(f => ({ name: f, mtime: statSync(join(recordingDir, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+
+    if (files.length === 0) return null;
+
+    const latestName = files[0].name;
+    const filePath = join(recordingDir, latestName);
+    const stat = statSync(filePath);
+
+    // Check for camera sidecar
+    const baseName = latestName.replace('.webm', '');
+    const cameraPath = join(recordingDir, baseName + '-camera.mp4');
+    const hasCameraFile = existsSync(cameraPath);
+
+    // Try to get duration via ffprobe, fallback to 3 seconds at 30fps
+    let durationFrames = 90; // default 3s at 30fps
+    let width = 1920;
+    let height = 1080;
+    let fps = 30;
+
+    try {
+      const { execSync } = await import('node:child_process');
+      const probe = execSync(
+        `ffprobe -v quiet -print_format json -show_streams "${filePath}"`,
+        { encoding: 'utf-8', timeout: 5000 }
+      );
+      const info = JSON.parse(probe);
+      const videoStream = info.streams?.find(s => s.codec_type === 'video');
+      if (videoStream) {
+        width = videoStream.width || width;
+        height = videoStream.height || height;
+        const duration = parseFloat(videoStream.duration || '0');
+        if (duration > 0) {
+          const r = parseFloat(videoStream.r_frame_rate?.split('/').reduce((a, b) => a / b) || '30');
+          fps = Math.round(r) || 30;
+          durationFrames = Math.round(duration * fps);
+        }
+      }
+    } catch {
+      // ffprobe not available, use defaults
+    }
+
+    return {
+      filePath,
+      durationFrames,
+      width,
+      height,
+      fps,
+      codec: 'vp8',
+      fileSize: stat.size,
+      cameraFilePath: hasCameraFile ? cameraPath : undefined,
+    };
   });
 
   // Project: Auto-save — saves silently after recording completes.
@@ -402,11 +470,12 @@ app.whenReady().then(() => {
   });
 
   // Handle media:// URLs by serving local files with range request support.
-  // Uses createReadStream to support HTTP 206 Partial Content for video seeking.
   protocol.handle('media', (req) => {
     const filePath = decodeURIComponent(req.url.replace('media://', ''));
+    console.log('[media://] Request:', filePath, 'Range:', req.headers.get('range') ?? 'none');
 
     if (!existsSync(filePath)) {
+      console.log('[media://] 404 — file not found:', filePath);
       return new Response('Not Found', { status: 404 });
     }
 
@@ -418,7 +487,6 @@ app.whenReady().then(() => {
     const rangeHeader = req.headers.get('range');
 
     if (rangeHeader) {
-      // Parse Range: bytes=START-END
       const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
       if (match) {
         const start = parseInt(match[1], 10);

@@ -1,0 +1,112 @@
+/**
+ * CameraPlaybackCanvas — displays camera recording frames synced to the transport.
+ * Uses WebCodecs CameraFrameDecoder for frame-accurate playback.
+ */
+import { useRef, useEffect } from 'react';
+import { CameraFrameDecoder } from '@rough-cut/preview-renderer';
+import { useTransportStore } from '../../hooks/use-stores.js';
+
+interface CameraPlaybackCanvasProps {
+  filePath: string;
+  fps: number;
+}
+
+export function CameraPlaybackCanvas({ filePath, fps }: CameraPlaybackCanvasProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const decoderRef = useRef<CameraFrameDecoder | null>(null);
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const readyRef = useRef(false);
+  const lastTimeRef = useRef(-1);
+
+  // Initialize decoder
+  useEffect(() => {
+    const decoder = new CameraFrameDecoder();
+    decoderRef.current = decoder;
+    readyRef.current = false;
+
+    const init = async () => {
+      try {
+        // Load file via preload bridge (bypasses media:// protocol)
+        const buf = await (window as any).roughcut.readBinaryFile(filePath);
+        if (!buf) {
+          console.error('[CameraPlaybackCanvas] readBinaryFile returned null for:', filePath);
+          return;
+        }
+        await decoder.init(buf);
+        readyRef.current = true;
+        console.info('[CameraPlaybackCanvas] Decoder ready for:', filePath);
+      } catch (err) {
+        console.error('[CameraPlaybackCanvas] Init failed:', err);
+      }
+    };
+
+    void init();
+
+    return () => {
+      readyRef.current = false;
+      decoderRef.current = null;
+      decoder.dispose();
+    };
+  }, [filePath]);
+
+  // Subscribe to transport frame changes
+  const currentFrame = useTransportStore((s) => s.playheadFrame);
+
+  useEffect(() => {
+    if (!readyRef.current || !decoderRef.current || !canvasRef.current) return;
+
+    const targetTime = currentFrame / fps;
+    // Skip if same time (avoid redundant decodes)
+    if (Math.abs(lastTimeRef.current - targetTime) < 0.01) return;
+    lastTimeRef.current = targetTime;
+
+    const decoder = decoderRef.current;
+    const canvas = canvasRef.current;
+
+    // Try sync buffer first
+    const vf = decoder.getBufferedFrame(targetTime);
+    if (vf) {
+      drawFrame(canvas, ctxRef, vf);
+      return;
+    }
+
+    // Async decode
+    decoder.getFrame(targetTime).then((asyncVf) => {
+      if (asyncVf) {
+        drawFrame(canvas, ctxRef, asyncVf);
+      }
+    }).catch(() => {});
+
+    // Pre-fetch for smooth playback
+    decoder.prefetch(targetTime).catch(() => {});
+  }, [currentFrame, fps]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        width: '100%',
+        height: '100%',
+      }}
+    />
+  );
+}
+
+function drawFrame(
+  canvas: HTMLCanvasElement,
+  ctxRef: React.MutableRefObject<CanvasRenderingContext2D | null>,
+  vf: VideoFrame,
+): void {
+  // Set canvas size to match video frame on first draw
+  if (canvas.width !== vf.displayWidth || canvas.height !== vf.displayHeight) {
+    canvas.width = vf.displayWidth;
+    canvas.height = vf.displayHeight;
+    ctxRef.current = canvas.getContext('2d');
+  }
+  if (ctxRef.current) {
+    ctxRef.current.drawImage(vf, 0, 0);
+  }
+  vf.close();
+}

@@ -61,20 +61,24 @@ export class CameraFrameDecoder {
   get ready(): boolean { return this._ready; }
 
   /**
-   * Initialize: fetch the MP4, demux with mp4box.js, configure VideoDecoder.
+   * Initialize: load the MP4, demux with mp4box.js, configure VideoDecoder.
+   * Accepts a pre-loaded ArrayBuffer (from preload IPC bridge) or a URL string (fallback).
    */
-  async init(url: string): Promise<void> {
+  async init(source: string | ArrayBuffer): Promise<void> {
     if (this._disposed) return;
 
-    // Fetch entire file into memory (camera files are small, typically 2-10MB)
-    console.info('[CameraFrameDecoder] Fetching:', url);
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Fetch failed: ${response.status} ${response.statusText} for ${url}`);
+    // Load file into memory — accept pre-loaded ArrayBuffer or fetch from URL
+    let buffer: ArrayBuffer;
+    if (source instanceof ArrayBuffer) {
+      buffer = source;
+    } else {
+      const response = await fetch(source);
+      if (!response.ok) {
+        throw new Error(`Fetch failed: ${response.status} ${response.statusText} for ${source}`);
+      }
+      buffer = await response.arrayBuffer();
     }
-    const buffer = await response.arrayBuffer();
     this._fileBuffer = buffer;
-    console.info('[CameraFrameDecoder] Loaded:', buffer.byteLength, 'bytes');
 
     // Demux with mp4box.js
     const file = createFile();
@@ -160,14 +164,6 @@ export class CameraFrameDecoder {
 
     this.decoder.configure(this.codecConfig);
     this._ready = true;
-
-    console.info(
-      '[CameraFrameDecoder] Ready:',
-      this.samples.length, 'samples,',
-      this.keyframeIndices.length, 'keyframes,',
-      `codec=${this.codecConfig.codec}`,
-      `${this.codecConfig.codedWidth}x${this.codecConfig.codedHeight}`,
-    );
   }
 
   /**
@@ -193,9 +189,6 @@ export class CameraFrameDecoder {
       const kfIndex = this._findNearestKeyframe(sampleIndex);
       const endIndex = Math.min(sampleIndex + this._bufferSize, this.samples.length - 1);
 
-      console.info('[CameraFrameDecoder] Decoding samples', kfIndex, '→', endIndex,
-        '(target:', sampleIndex, ') decoder.state:', this.decoder.state);
-
       // Queue ALL chunks first, then flush ONCE
       for (let i = kfIndex; i <= endIndex; i++) {
         const sample = this.samples[i]!;
@@ -206,9 +199,6 @@ export class CameraFrameDecoder {
 
       // Single flush — wait for all queued chunks to decode
       await this.decoder.flush();
-
-      console.info('[CameraFrameDecoder] Flush done, currentFrame:', !!this._currentFrame,
-        'buffer:', this._buffer.size);
 
       // The output callback fires for each decoded frame.
       // For the simple case, just return whatever we got.
@@ -418,7 +408,6 @@ export class CameraFrameDecoder {
     if (start != null && hdrSize != null && size != null && size > hdrSize) {
       const contentStart = start + hdrSize;
       const contentSize = size - hdrSize;
-      console.info('[CameraFrameDecoder] avcC description:', contentSize, 'bytes at offset', contentStart);
       return new Uint8Array(this._fileBuffer.slice(contentStart, contentStart + contentSize));
     }
 
@@ -433,7 +422,6 @@ export class CameraFrameDecoder {
         const boxSize = (view[i]! << 24) | (view[i + 1]! << 16) | (view[i + 2]! << 8) | view[i + 3]!;
         if (boxSize > 8 && boxSize < 1024) { // sanity check
           const content = this._fileBuffer.slice(i + 8, i + boxSize);
-          console.info('[CameraFrameDecoder] avcC found by scan:', boxSize - 8, 'bytes');
           return new Uint8Array(content);
         }
       }

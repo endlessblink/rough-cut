@@ -120,6 +120,10 @@ const api = {
   readTextFile: (filePath) =>
     ipcRenderer.invoke(IPC_CHANNELS.READ_TEXT_FILE, filePath),
 
+  /** Read a binary file from disk as ArrayBuffer (used for WebCodecs camera decode). Returns ArrayBuffer or null. */
+  readBinaryFile: (filePath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.READ_BINARY_FILE, filePath),
+
   // ---- Auto-save ----
 
   /** Auto-save project. If filePath is provided, saves there (overwrite); otherwise creates in ~/Documents/Rough Cut/. Returns the resolved file path. */
@@ -229,6 +233,10 @@ const api = {
     ipcRenderer.on(IPC_CHANNELS.AI_ANALYSIS_PROGRESS, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.AI_ANALYSIS_PROGRESS, handler);
   },
+
+  /** [DEBUG] Reload the most recent recording from disk. Returns RecordingResult or null. */
+  debugLoadLastRecording: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEBUG_LOAD_LAST_RECORDING),
 };
 
 contextBridge.exposeInMainWorld('roughcut', api);

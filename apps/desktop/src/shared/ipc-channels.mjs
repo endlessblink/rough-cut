@@ -68,4 +68,8 @@ export const IPC_CHANNELS = {
 
   // File system
   READ_TEXT_FILE: 'fs:read-text-file',
+  READ_BINARY_FILE: 'fs:read-binary-file',
+
+  // Debug (temporary)
+  DEBUG_LOAD_LAST_RECORDING: 'debug:load-last-recording',
 };

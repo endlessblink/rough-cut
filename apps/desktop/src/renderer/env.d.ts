@@ -83,6 +83,10 @@ export interface RoughCutAPI {
   // App
   getVersion(): Promise<string>;
 
+  // File system
+  readTextFile(filePath: string): Promise<string | null>;
+  readBinaryFile(filePath: string): Promise<ArrayBuffer | null>;
+
   // Auto-save
   projectAutoSave(project: ProjectDocument, filePath?: string): Promise<string>;
 
@@ -128,6 +132,9 @@ export interface RoughCutAPI {
   }>>;
   aiCancelAnalysis(): Promise<boolean>;
   onAIProgress(callback: (progress: { assetId: string | null; stage: string; percent: number }) => void): () => void;
+
+  // Debug (temporary)
+  debugLoadLastRecording(): Promise<RecordingResult | null>;
 }
 
 declare global {

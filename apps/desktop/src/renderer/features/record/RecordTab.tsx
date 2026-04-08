@@ -30,6 +30,7 @@ import { CountdownOverlay } from './CountdownOverlay.js';
 import { SourcePickerPopup } from './SourcePickerPopup.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
 import { RecordingPlaybackVideo } from './RecordingPlaybackVideo.js';
+import { CameraPlaybackCanvas } from './CameraPlaybackCanvas.js';
 import { LAYOUT_TEMPLATES, resolutionForAspectRatio } from './templates.js';
 import type { LayoutTemplate } from './templates.js';
 import type { Rect } from './template-layout/types.js';
@@ -250,6 +251,17 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     if (!screenCrop.enabled) setCropModeActive(false);
   }, [screenCrop.enabled]);
 
+  // [DEBUG] Reload last recording for quick camera decode testing
+  const handleDebugReload = useCallback(async () => {
+    const result = await (window.roughcut as any).debugLoadLastRecording();
+    if (!result) {
+      console.warn('[DEBUG] No recordings found in /tmp/rough-cut/recordings/');
+      return;
+    }
+    console.info('[DEBUG] Reloading recording:', result.filePath, 'camera:', result.cameraFilePath);
+    onAssetCreated(result);
+  }, [onAssetCreated]);
+
   const recording = useRecording({
     selectedSourceId,
     stream: liveStream,
@@ -335,6 +347,23 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         }}
       >
         <ModeSelectorRow mode={recordMode} onChange={setRecordMode} />
+        {/* [DEBUG] Quick reload button — temporary for camera decode testing */}
+        <button
+          onClick={handleDebugReload}
+          style={{
+            padding: '4px 10px',
+            background: '#ff6b00',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 4,
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          DEBUG: Reload Last
+        </button>
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
         <BottomBar
           sourceName={selectedSourceName}
@@ -381,6 +410,12 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
                       ? <RecordingPlaybackVideo filePath={activeRecordingAsset.filePath} fps={projectFps} assetId={activeRecordingAsset.id} />
                       : undefined
                 }
+                cameraContent={
+                  cameraAsset?.filePath
+                    ? <CameraPlaybackCanvas filePath={cameraAsset.filePath} fps={projectFps} />
+                    : undefined
+                }
+                cameraAspect={4 / 3}
                 screenAspect={16 / 9}
                 screenCornerRadius={background.bgCornerRadius}
                 screenShadow={background.bgShadowEnabled
