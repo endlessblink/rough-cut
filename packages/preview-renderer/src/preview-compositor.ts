@@ -407,66 +407,8 @@ export class PreviewCompositor {
     return vc;
   }
 
-  /** Upload a decoded VideoFrame to a canvas + PixiJS texture */
-  private _uploadCameraFrame(
-    entry: { texture: Texture | null; canvas: HTMLCanvasElement | null; ctx: CanvasRenderingContext2D | null },
-    vf: VideoFrame,
-  ): void {
-    if (!entry.canvas) {
-      entry.canvas = document.createElement('canvas');
-      entry.canvas.width = vf.displayWidth;
-      entry.canvas.height = vf.displayHeight;
-      entry.ctx = entry.canvas.getContext('2d');
-      entry.texture = Texture.from({
-        resource: entry.canvas,
-      });
-    }
-    if (entry.ctx) {
-      entry.ctx.drawImage(vf, 0, 0);
-    }
-    vf.close();
-    entry.texture?.source.update();
-  }
-
-  /** Get or create a WebCodecs camera decoder for a camera asset */
-  private getOrCreateCameraDecoder(assetId: string, filePath: string): {
-    decoder: CameraFrameDecoder;
-    texture: Texture | null;
-    canvas: HTMLCanvasElement | null;
-    ctx: CanvasRenderingContext2D | null;
-    ready: boolean;
-    lastDecodedTime: number;
-  } {
-    let entry = this.cameraDecoders.get(assetId);
-    if (entry) return entry;
-
-    const decoder = new CameraFrameDecoder();
-    entry = { decoder, texture: null, canvas: null, ctx: null, ready: false, lastDecodedTime: -1 };
-    this.cameraDecoders.set(assetId, entry);
-
-    // Initialize async — will be ready on next render
-    // Use preload IPC bridge to read file as ArrayBuffer (bypasses custom protocol for demux)
-    const loadAndInit = async () => {
-      const win = globalThis.window as { roughcut?: { readBinaryFile?: (p: string) => Promise<ArrayBuffer | null> } } | undefined;
-      const buf = await win?.roughcut?.readBinaryFile?.(filePath);
-      if (buf) {
-        await decoder.init(buf);
-      } else {
-        // Fallback: fetch via custom protocol
-        await decoder.init(`media://${filePath}`);
-      }
-    };
-
-    loadAndInit().then(() => {
-      entry!.ready = true;
-      console.info('[compositor] Camera decoder READY for', assetId.slice(0, 8));
-      this.renderCurrentFrame();
-    }).catch((err) => {
-      console.error('[compositor] Camera decoder init failed:', err);
-    });
-
-    return entry;
-  }
+  // Camera rendering is handled by CameraPlaybackCanvas (React template slot).
+  // The compositor no longer decodes camera frames — it skips camera layers in renderLayer().
 
   private renderLayer(layer: RenderLayer, frameWidth: number, frameHeight: number, screenCrop?: RegionCrop): void {
     if (!this.layerContainer) return;
@@ -481,46 +423,11 @@ export class PreviewCompositor {
     const isVideoAsset = asset && (asset.type === 'recording' || asset.type === 'video') && asset.filePath;
     const isCamera = !!(asset?.metadata as Record<string, unknown> | undefined)?.isCamera;
     let videoCache: VideoCache | null = null;
-    let cameraTextureReady = false;
-    let cameraEntry: ReturnType<typeof this.getOrCreateCameraDecoder> | null = null;
 
     if (isVideoAsset && asset.filePath && isCamera) {
-      // Camera: WebCodecs frame-by-frame decoder (frame-locked to screen)
-      cameraEntry = this.getOrCreateCameraDecoder(assetId, asset.filePath);
-      if (cameraEntry.ready) {
-        const targetTime = sourceFrame / fps;
-
-        // Try synchronous buffer first (fast path during playback)
-        let vf = cameraEntry.decoder.getBufferedFrame(targetTime);
-
-        if (vf) {
-          this._uploadCameraFrame(cameraEntry, vf);
-          console.info('[compositor] Camera sync frame uploaded, texture:', !!cameraEntry.texture);
-        } else if (Math.abs(cameraEntry.lastDecodedTime - targetTime) > 0.02) {
-          // Buffer miss at a NEW time — decode async, re-render once when done
-          cameraEntry.lastDecodedTime = targetTime;
-          console.info('[compositor] Camera async decode start, time:', targetTime);
-          cameraEntry.decoder.getFrame(targetTime).then((asyncVf) => {
-            if (asyncVf && cameraEntry) {
-              console.info('[compositor] Camera async frame received, uploading...');
-              this._uploadCameraFrame(cameraEntry, asyncVf);
-              console.info('[compositor] Camera texture after upload:', !!cameraEntry.texture);
-              this.renderCurrentFrame();
-            } else {
-              console.warn('[compositor] Camera async decode returned null');
-            }
-          }).catch((err) => {
-            console.error('[compositor] Camera getFrame error:', err);
-          });
-        }
-        // else: same time, texture already uploaded — reuse it
-
-        // Always check texture (may have been set by previous async cycle)
-        cameraTextureReady = !!cameraEntry.texture;
-
-        // Pre-fetch upcoming frames for smooth playback (no re-render needed — ticker handles it)
-        cameraEntry.decoder.prefetch(targetTime).catch(() => {});
-      }
+      // Camera rendering is handled by CameraPlaybackCanvas in the React template slot.
+      // The compositor skips camera layers entirely — return early.
+      return;
     } else if (isVideoAsset && asset.filePath) {
       // Screen/other video: HTMLVideoElement path (unchanged)
       videoCache = this.getOrCreateVideo(assetId, asset.filePath);
@@ -544,11 +451,7 @@ export class PreviewCompositor {
     }
 
     // Decide: render video sprite or placeholder
-    const useVideo = (videoCache?.loaded && videoCache.texture) || cameraTextureReady;
-
-    if (isCamera) {
-      console.info('[compositor] Camera render decision:', { cameraTextureReady, useVideo, hasTexture: !!cameraEntry?.texture });
-    }
+    const useVideo = !!(videoCache?.loaded && videoCache.texture);
 
     let cached = this.layerCache.get(clipId);
 
@@ -575,7 +478,7 @@ export class PreviewCompositor {
 
     const { container, rect, label } = cached;
 
-    const activeTexture = cameraTextureReady ? cameraEntry?.texture : videoCache?.texture;
+    const activeTexture = videoCache?.texture;
     if (useVideo && activeTexture) {
       // ── Video-backed rendering ──
       // Hide placeholder rect and label

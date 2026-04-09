@@ -52,6 +52,12 @@ export function CameraPlaybackCanvas({ filePath, fps }: CameraPlaybackCanvasProp
   // Subscribe to transport frame changes
   const currentFrame = useTransportStore((s) => s.playheadFrame);
 
+  // Eagerly prefetch from time 0 once the decoder is ready
+  useEffect(() => {
+    if (!readyRef.current || !decoderRef.current) return;
+    decoderRef.current.prefetch(0).catch(() => {});
+  }, [readyRef.current]);
+
   useEffect(() => {
     if (!readyRef.current || !decoderRef.current || !canvasRef.current) return;
 
@@ -63,21 +69,14 @@ export function CameraPlaybackCanvas({ filePath, fps }: CameraPlaybackCanvasProp
     const decoder = decoderRef.current;
     const canvas = canvasRef.current;
 
-    // Try sync buffer first
+    // Sync path only: read from buffer, never block on getFrame during playback.
+    // If buffer misses, the canvas keeps showing the previous frame.
     const vf = decoder.getBufferedFrame(targetTime);
     if (vf) {
       drawFrame(canvas, ctxRef, vf);
-      return;
     }
 
-    // Async decode
-    decoder.getFrame(targetTime).then((asyncVf) => {
-      if (asyncVf) {
-        drawFrame(canvas, ctxRef, asyncVf);
-      }
-    }).catch(() => {});
-
-    // Pre-fetch for smooth playback
+    // Keep buffer warm ahead of the playhead (background, non-blocking)
     decoder.prefetch(targetTime).catch(() => {});
   }, [currentFrame, fps]);
 

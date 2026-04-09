@@ -41,14 +41,12 @@ export class CameraFrameDecoder {
   private timescale = 1;
   private codecConfig: VideoDecoderConfig | null = null;
 
-  /** The most recently decoded frame (caller must close after use) */
-  private _currentFrame: VideoFrame | null = null;
-  /** @internal used by _onDecodedFrame for diagnostics */
-  _currentFrameTime = -1;
-
   /** Ring buffer of pre-decoded frames */
   private _buffer: Map<number, VideoFrame> = new Map(); // sampleIndex → frame
-  private _bufferSize = 5;
+  private _bufferSize = 30;
+
+  /** Temporary collection of frames produced during a batch decode */
+  private _pendingFrames: VideoFrame[] = [];
 
   /** Raw file data for seeking (loaded once) */
   private _fileBuffer: ArrayBuffer | null = null;
@@ -185,11 +183,14 @@ export class CameraFrameDecoder {
       const buffered = this._buffer.get(sampleIndex);
       if (buffered) return buffered.clone();
 
-      // Decode: find nearest keyframe, decode forward to target + buffer
+      // Decode: find nearest keyframe, decode forward to target + ahead
       const kfIndex = this._findNearestKeyframe(sampleIndex);
       const endIndex = Math.min(sampleIndex + this._bufferSize, this.samples.length - 1);
 
-      // Queue ALL chunks first, then flush ONCE
+      // Clear pending frames from previous decode
+      this._pendingFrames = [];
+
+      // Queue ALL chunks, then flush ONCE
       for (let i = kfIndex; i <= endIndex; i++) {
         const sample = this.samples[i]!;
         const chunk = this._createChunk(sample);
@@ -197,19 +198,19 @@ export class CameraFrameDecoder {
         this.decoder.decode(chunk);
       }
 
-      // Single flush — wait for all queued chunks to decode
       await this.decoder.flush();
 
-      // The output callback fires for each decoded frame.
-      // For the simple case, just return whatever we got.
-      if (this._currentFrame) {
-        const frame = this._currentFrame;
-        this._currentFrame = null;
-        return frame;
-      }
-      return null;
+      // Store all decoded frames in the buffer
+      this._storePendingFrames(kfIndex);
+
+      // Return the requested frame from buffer
+      const result = this._buffer.get(sampleIndex);
+      return result ? result.clone() : null;
     } catch (err) {
       console.error('[CameraFrameDecoder] getFrame error:', err);
+      // Close any pending frames on error
+      for (const f of this._pendingFrames) f.close();
+      this._pendingFrames = [];
       return null;
     } finally {
       this._decoding = false;
@@ -233,42 +234,44 @@ export class CameraFrameDecoder {
    */
   async prefetch(timeSeconds: number): Promise<void> {
     if (!this._ready || !this.decoder || !this._fileBuffer || this._decoding) return;
+    this._decoding = true;
 
-    const sampleIndex = this._findSampleAtTime(timeSeconds);
-    if (sampleIndex < 0) return;
+    try {
+      const sampleIndex = this._findSampleAtTime(timeSeconds);
+      if (sampleIndex < 0) return;
 
-    // Check if we already have frames buffered around this time
-    let allBuffered = true;
-    for (let i = sampleIndex; i < Math.min(sampleIndex + this._bufferSize, this.samples.length); i++) {
-      if (!this._buffer.has(i)) {
-        allBuffered = false;
-        break;
+      // Check if we already have enough frames buffered ahead
+      let bufferedAhead = 0;
+      for (let i = sampleIndex; i < Math.min(sampleIndex + this._bufferSize, this.samples.length); i++) {
+        if (this._buffer.has(i)) bufferedAhead++;
       }
-    }
-    if (allBuffered) return;
+      // If >60% buffered ahead, skip prefetch
+      if (bufferedAhead > this._bufferSize * 0.6) return;
 
-    // Decode from nearest keyframe
-    const kfIndex = this._findNearestKeyframe(sampleIndex);
-    await this.decoder.flush();
-    this._clearBuffer();
+      const kfIndex = this._findNearestKeyframe(sampleIndex);
+      const endIndex = Math.min(sampleIndex + this._bufferSize, this.samples.length - 1);
 
-    const endIndex = Math.min(sampleIndex + this._bufferSize, this.samples.length - 1);
+      // Clear pending frames
+      this._pendingFrames = [];
 
-    for (let i = kfIndex; i <= endIndex; i++) {
-      const sample = this.samples[i]!;
-      const chunk = this._createChunk(sample);
-      if (!chunk) continue;
+      // Queue all chunks, single flush
+      for (let i = kfIndex; i <= endIndex; i++) {
+        const sample = this.samples[i]!;
+        const chunk = this._createChunk(sample);
+        if (!chunk) continue;
+        this.decoder.decode(chunk);
+      }
 
-      this.decoder.decode(chunk);
       await this.decoder.flush();
 
-      if (i >= sampleIndex && this._currentFrame) {
-        this._buffer.set(i, this._currentFrame);
-        this._currentFrame = null;
-      } else if (this._currentFrame) {
-        this._currentFrame.close();
-        this._currentFrame = null;
-      }
+      // Store all decoded frames
+      this._storePendingFrames(kfIndex);
+    } catch (err) {
+      // Close any pending frames on error
+      for (const f of this._pendingFrames) f.close();
+      this._pendingFrames = [];
+    } finally {
+      this._decoding = false;
     }
   }
 
@@ -282,10 +285,8 @@ export class CameraFrameDecoder {
   dispose(): void {
     this._disposed = true;
     this._clearBuffer();
-    if (this._currentFrame) {
-      this._currentFrame.close();
-      this._currentFrame = null;
-    }
+    for (const f of this._pendingFrames) f.close();
+    this._pendingFrames = [];
     if (this.decoder && this.decoder.state !== 'closed') {
       this.decoder.close();
     }
@@ -299,12 +300,42 @@ export class CameraFrameDecoder {
   // ── Internal ─────────────────────────────────────────────────
 
   private _onDecodedFrame(frame: VideoFrame): void {
-    // Close previous frame if it wasn't consumed
-    if (this._currentFrame) {
-      this._currentFrame.close();
+    this._pendingFrames.push(frame);
+  }
+
+  /** Map pending decoded frames to sample indices and store in buffer */
+  private _storePendingFrames(startSampleIndex: number): void {
+    for (const frame of this._pendingFrames) {
+      const framePts = frame.timestamp / 1_000_000; // μs → seconds
+      // Find the closest sample by CTS
+      let bestIdx = startSampleIndex;
+      let bestDist = Infinity;
+      for (let i = Math.max(0, startSampleIndex - 2); i < this.samples.length; i++) {
+        const dist = Math.abs(this.samples[i]!.cts - framePts);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestIdx = i;
+        } else if (dist > bestDist) {
+          break; // samples are sorted by CTS, distance is increasing
+        }
+      }
+
+      // Evict old entry if present
+      const old = this._buffer.get(bestIdx);
+      if (old) old.close();
+      this._buffer.set(bestIdx, frame);
     }
-    this._currentFrame = frame;
-    this._currentFrameTime = frame.timestamp / 1_000_000; // μs → seconds
+    this._pendingFrames = [];
+
+    // Evict oldest entries if buffer exceeds max size
+    if (this._buffer.size > this._bufferSize * 2) {
+      const entries = [...this._buffer.entries()].sort((a, b) => a[0] - b[0]);
+      const toRemove = entries.slice(0, entries.length - this._bufferSize);
+      for (const [idx, frame] of toRemove) {
+        frame.close();
+        this._buffer.delete(idx);
+      }
+    }
   }
 
   private _findSampleAtTime(timeSeconds: number): number {
