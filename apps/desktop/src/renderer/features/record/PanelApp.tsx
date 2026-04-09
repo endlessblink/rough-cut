@@ -1115,6 +1115,55 @@ function MiniSavingIndicator() {
   );
 }
 
+// ─── buildRecordingStream ────────────────────────────────────────────────────
+
+/**
+ * Build a combined MediaStream for recording: video + optional system audio + optional mic audio.
+ * When both audio sources are present, mixes them via AudioContext.
+ */
+function buildRecordingStream(
+  displayStream: MediaStream,
+  micStream: MediaStream | null,
+  sysAudioEnabled: boolean,
+  micEnabled: boolean,
+): { stream: MediaStream; cleanup: () => void } {
+  const videoTrack = displayStream.getVideoTracks()[0];
+  if (!videoTrack) throw new Error('No video track in display stream');
+
+  const sysAudioTracks = sysAudioEnabled ? displayStream.getAudioTracks() : [];
+  const micAudioTrack = (micEnabled && micStream) ? micStream.getAudioTracks()[0] ?? null : null;
+
+  // No audio at all
+  if (sysAudioTracks.length === 0 && !micAudioTrack) {
+    return { stream: new MediaStream([videoTrack]), cleanup: () => {} };
+  }
+
+  // Only one audio source — no mixing needed
+  if (sysAudioTracks.length === 0 && micAudioTrack) {
+    return { stream: new MediaStream([videoTrack, micAudioTrack]), cleanup: () => {} };
+  }
+  if (sysAudioTracks.length > 0 && !micAudioTrack) {
+    return { stream: new MediaStream([videoTrack, ...sysAudioTracks]), cleanup: () => {} };
+  }
+
+  // Both system + mic — mix via AudioContext
+  const ctx = new AudioContext();
+  const dest = ctx.createMediaStreamDestination();
+  const sysSource = ctx.createMediaStreamSource(new MediaStream(sysAudioTracks));
+  const micSource = ctx.createMediaStreamSource(new MediaStream([micAudioTrack!]));
+  sysSource.connect(dest);
+  micSource.connect(dest);
+
+  const mixedAudioTrack = dest.stream.getAudioTracks()[0]!;
+  const combined = new MediaStream([videoTrack, mixedAudioTrack]);
+  const cleanup = () => {
+    sysSource.disconnect();
+    micSource.disconnect();
+    void ctx.close();
+  };
+  return { stream: combined, cleanup };
+}
+
 // ─── PanelApp ───────────────────────────────────────────────────────────────
 
 export function PanelApp() {
@@ -1158,12 +1207,13 @@ export function PanelApp() {
   // Audio level monitoring from mic stream
   const audioLevel = useAudioLevel(micStream, micEnabled);
 
-  // Mic toggle with track muting
+  // Mic toggle with track muting — only mutes the mic stream, not system audio
   const handleMicToggle = useCallback(() => {
     setMicEnabled((prev) => {
       const next = !prev;
-      if (streamRef.current) {
-        streamRef.current.getAudioTracks().forEach((t) => { t.enabled = next; });
+      // Mute/unmute only the mic stream tracks so system audio is unaffected
+      if (micStreamRef.current) {
+        micStreamRef.current.getAudioTracks().forEach((t) => { t.enabled = next; });
       }
       return next;
     });
@@ -1177,10 +1227,21 @@ export function PanelApp() {
   const elapsedMsAtStop = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
 
+  // Refs for audio state — needed because startMediaRecorder is called from a stale IPC closure
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const micEnabledRef = useRef(micEnabled);
+  const sysAudioEnabledRef = useRef(sysAudioEnabled);
+  const audioMixCleanupRef = useRef<(() => void) | null>(null);
+
   // Keep streamRef in sync so onstop closure can access current value
   useEffect(() => {
     streamRef.current = stream;
   }, [stream]);
+
+  // Keep audio state refs in sync so startMediaRecorder (stale IPC closure) sees current values
+  useEffect(() => { micStreamRef.current = micStream; }, [micStream]);
+  useEffect(() => { micEnabledRef.current = micEnabled; }, [micEnabled]);
+  useEffect(() => { sysAudioEnabledRef.current = sysAudioEnabled; }, [sysAudioEnabled]);
 
   // ── Load sources on mount ────────────────────────────────────────────────
   useEffect(() => {
@@ -1318,12 +1379,31 @@ export function PanelApp() {
     chunksRef.current = [];
     cameraChunksRef.current = [];
 
-    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-      ? 'video/webm;codecs=vp9'
-      : 'video/webm;codecs=vp8';
+    // Build combined stream with audio mixing
+    const { stream: recordingStream, cleanup: audioCleanup } = buildRecordingStream(
+      currentStream,
+      micStreamRef.current,
+      sysAudioEnabledRef.current,
+      micEnabledRef.current,
+    );
+    audioMixCleanupRef.current = audioCleanup;
+
+    const hasAudio = recordingStream.getAudioTracks().length > 0;
+    let mimeType: string;
+    if (hasAudio) {
+      mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+        ? 'video/webm;codecs=vp9,opus'
+        : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+          ? 'video/webm;codecs=vp8,opus'
+          : 'video/webm';
+    } else {
+      mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+        ? 'video/webm;codecs=vp9'
+        : 'video/webm;codecs=vp8';
+    }
 
     // Screen recorder
-    const recorder = new MediaRecorder(currentStream, { mimeType });
+    const recorder = new MediaRecorder(recordingStream, { mimeType });
 
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunksRef.current.push(e.data);
@@ -1368,6 +1448,8 @@ export function PanelApp() {
 
     recorderRef.current = recorder;
     recorder.start(1000); // 1-second chunks
+    // Sync cursor recording start time with actual MediaRecorder start
+    (window as any).roughcut.panelMediaRecorderStarted(Date.now());
 
     // Start WebCodecs H.264 camera recorder (much lighter than VP9 MediaRecorder)
     const currentCameraStream = cameraStreamRef.current;
@@ -1393,6 +1475,9 @@ export function PanelApp() {
 
   const stopMediaRecorder = () => {
     elapsedMsAtStop.current = elapsedMs;
+    // Clean up AudioContext mixer if active
+    audioMixCleanupRef.current?.();
+    audioMixCleanupRef.current = null;
     // Stop screen recorder — its onstop handler will also stop camera recorder
     if (recorderRef.current?.state === 'recording' || recorderRef.current?.state === 'paused') {
       recorderRef.current.stop();

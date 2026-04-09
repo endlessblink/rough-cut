@@ -746,6 +746,15 @@ export function initSessionManager(win, sourceInfoGetter) {
     }
   });
 
+  // Rebase cursor recorder start time to match the actual MediaRecorder start
+  ipcMain.on(IPC_CHANNELS.PANEL_MEDIA_RECORDER_STARTED, (_event, { timestampMs }) => {
+    if (state === 'recording') {
+      cursorRecorder.rebaseStartTime(timestampMs);
+      // Also rebase the elapsed timer origin for the toolbar
+      recordingStartMs = timestampMs;
+    }
+  });
+
   /**
    * Called by the panel renderer once it has assembled the recording blob.
    * Saves the file via capture-service, then routes the result to mainWindow.

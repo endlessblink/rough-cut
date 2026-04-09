@@ -133,6 +133,31 @@ export class CursorRecorder {
   }
 
   /**
+   * Rebase the start time to align cursor events with the actual MediaRecorder start.
+   * Recalculates frame numbers for events captured in the gap and discards
+   * events that occurred before the new start time (negative frames).
+   */
+  rebaseStartTime(newStartTimeMs) {
+    if (!this.#recording) return;
+    const oldStart = this.#startTime;
+    if (!oldStart || newStartTimeMs <= oldStart) return;
+
+    this.#startTime = newStartTimeMs;
+
+    // Recalculate frame numbers for existing events
+    this.#events = this.#events
+      .map(e => {
+        // Convert frame back to absolute time, then to new frame number
+        const absoluteTimeMs = oldStart + (e.frame / this.#frameRate) * 1000;
+        const newFrame = Math.round(((absoluteTimeMs - newStartTimeMs) / 1000) * this.#frameRate);
+        return newFrame >= 0 ? { ...e, frame: newFrame } : null;
+      })
+      .filter(e => e !== null);
+
+    console.info('[CursorRecorder] Rebased start time, delta:', newStartTimeMs - oldStart, 'ms, events:', this.#events.length);
+  }
+
+  /**
    * Get the captured events (for in-memory access).
    * @returns {CursorEvent[]}
    */

@@ -42,6 +42,9 @@ export const IPC_CHANNELS = {
   PANEL_SAVE_RECORDING: 'panel:save-recording',
   RECORDING_ASSET_READY: 'recording:asset-ready',
 
+  // Recording sync
+  PANEL_MEDIA_RECORDER_STARTED: 'panel:media-recorder-started',
+
   // App
   APP_GET_VERSION: 'app:get-version',
 

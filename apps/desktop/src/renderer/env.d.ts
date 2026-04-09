@@ -108,6 +108,7 @@ export interface RoughCutAPI {
   panelPause(): void;
   panelResume(): void;
   panelSaveRecording(buffer: ArrayBuffer, metadata: RecordingMetadata, cameraBuffer?: ArrayBuffer): Promise<RecordingResult>;
+  panelMediaRecorderStarted(timestampMs: number): void;
   onRecordingAssetReady(callback: (result: RecordingResult) => void): () => void;
 
   // AI Analysis

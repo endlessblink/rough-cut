@@ -190,6 +190,10 @@ const api = {
   panelResume: () =>
     ipcRenderer.send('panel:resume'),
 
+  /** Notify main that the panel's MediaRecorder has started (for cursor sync). */
+  panelMediaRecorderStarted: (timestampMs) =>
+    ipcRenderer.send(IPC_CHANNELS.PANEL_MEDIA_RECORDER_STARTED, { timestampMs }),
+
   /** Send recording buffer to main for saving. Optionally includes camera buffer. */
   panelSaveRecording: (buffer, metadata, cameraBuffer) =>
     ipcRenderer.invoke(IPC_CHANNELS.PANEL_SAVE_RECORDING, { buffer, metadata, cameraBuffer }),
