@@ -135,8 +135,11 @@ export class PlaybackManager {
       cancelAnimationFrame(this._rafId);
     }
 
-    // Pause all videos
-    this.screenVideo?.pause();
+    // Pause all videos and re-mute (prevent audio during scrubbing)
+    if (this.screenVideo) {
+      this.screenVideo.muted = true;
+      this.screenVideo.pause();
+    }
     if (this.compositor) {
       this.compositor.pause();
     }
@@ -185,6 +188,9 @@ export class PlaybackManager {
   // ── Internal ─────────────────────────────────────────────────
 
   private _startVideo(video: HTMLVideoElement): void {
+    // Unmute on play — the initial muted attribute allows autoplay;
+    // unmuting here is safe because play() is triggered by a user gesture.
+    video.muted = false;
     video.play().then(() => {
       console.info(`[PlaybackManager] video.play() OK — ${video.videoWidth}x${video.videoHeight} readyState=${video.readyState}`);
     }).catch((e) => {

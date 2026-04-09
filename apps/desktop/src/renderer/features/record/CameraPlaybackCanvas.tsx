@@ -2,7 +2,7 @@
  * CameraPlaybackCanvas — displays camera recording frames synced to the transport.
  * Uses WebCodecs CameraFrameDecoder for frame-accurate playback.
  */
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { CameraFrameDecoder } from '@rough-cut/preview-renderer';
 import { useTransportStore } from '../../hooks/use-stores.js';
 
@@ -15,25 +15,24 @@ export function CameraPlaybackCanvas({ filePath, fps }: CameraPlaybackCanvasProp
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const decoderRef = useRef<CameraFrameDecoder | null>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
-  const readyRef = useRef(false);
+  const [ready, setReady] = useState(false);
   const lastTimeRef = useRef(-1);
 
   // Initialize decoder
   useEffect(() => {
     const decoder = new CameraFrameDecoder();
     decoderRef.current = decoder;
-    readyRef.current = false;
+    setReady(false);
 
     const init = async () => {
       try {
-        // Load file via preload bridge (bypasses media:// protocol)
         const buf = await (window as any).roughcut.readBinaryFile(filePath);
         if (!buf) {
           console.error('[CameraPlaybackCanvas] readBinaryFile returned null for:', filePath);
           return;
         }
         await decoder.init(buf);
-        readyRef.current = true;
+        setReady(true);
         console.info('[CameraPlaybackCanvas] Decoder ready for:', filePath);
       } catch (err) {
         console.error('[CameraPlaybackCanvas] Init failed:', err);
@@ -43,7 +42,7 @@ export function CameraPlaybackCanvas({ filePath, fps }: CameraPlaybackCanvasProp
     void init();
 
     return () => {
-      readyRef.current = false;
+      setReady(false);
       decoderRef.current = null;
       decoder.dispose();
     };
@@ -54,12 +53,12 @@ export function CameraPlaybackCanvas({ filePath, fps }: CameraPlaybackCanvasProp
 
   // Eagerly prefetch from time 0 once the decoder is ready
   useEffect(() => {
-    if (!readyRef.current || !decoderRef.current) return;
+    if (!ready || !decoderRef.current) return;
     decoderRef.current.prefetch(0).catch(() => {});
-  }, [readyRef.current]);
+  }, [ready]);
 
   useEffect(() => {
-    if (!readyRef.current || !decoderRef.current || !canvasRef.current) return;
+    if (!ready || !decoderRef.current || !canvasRef.current) return;
 
     const targetTime = currentFrame / fps;
     // Skip if same time (avoid redundant decodes)
@@ -78,7 +77,7 @@ export function CameraPlaybackCanvas({ filePath, fps }: CameraPlaybackCanvasProp
 
     // Keep buffer warm ahead of the playhead (background, non-blocking)
     decoder.prefetch(targetTime).catch(() => {});
-  }, [currentFrame, fps]);
+  }, [currentFrame, fps, ready]);
 
   return (
     <canvas

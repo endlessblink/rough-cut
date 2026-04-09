@@ -76,6 +76,7 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | BUG-005 | Camera PiP renders as ellipse instead of circle (CSS/template shape not applied) | P1 | TODO | TASK-014 |
 | BUG-006 | Playback laggy — Canvas2D drawImage bottleneck, needs WebGL VideoSource path | P0 | TODO | TASK-050 |
 | TASK-075 | Preview: Playback fluency — rVFC sync, consolidate loops, cache effects | P0 | PLANNED | TASK-007 |
+| FEATURE-076 | Record: Audio playback in preview (unmute + volume) | P2 | PLANNED | TASK-020 |
 | TASK-017 | Edit: Clip drag-to-move (horizontal repositioning with snap) | P1 | TODO | TASK-003 |
 | TASK-018 | Edit: Cross-track clip dragging (V1↔V2) | P1 | TODO | TASK-017 |
 | TASK-019 | Edit: Effects stack UI (Add Effect, expandable sections, param controls) | P1 | TODO | TASK-004 |
@@ -178,6 +179,21 @@ Improve playback smoothness by addressing identified bottlenecks in the renderin
 5. **Reuse sprites** — Avoid destroying/recreating PixiJS sprites on layer set changes; update textures only
 
 **Key files:** `playback-manager.ts`, `preview-compositor.ts`, `use-compositor.ts`
+
+---
+
+### FEATURE-076: Record: Audio playback in preview (unmute + volume)
+**Priority:** P2 | **Status:** PLANNED (2026-04-09)
+
+Unmute the screen recording `<video>` element in RecordingPlaybackVideo so users can hear mic/system audio during preview playback. Requires a user gesture gate (browsers block unmuted autoplay) and volume controls.
+
+**Tasks**:
+- [ ] Unmute video element after first user-initiated play gesture
+- [ ] Add volume slider to BottomBar or playback controls
+- [ ] Persist volume preference in store
+- [ ] Ensure audio stays synced with video during scrubbing (mute during seek, unmute on play)
+
+**Key files:** `RecordingPlaybackVideo.tsx`, `BottomBar.tsx`, `playback-manager.ts`
 
 ---
 
