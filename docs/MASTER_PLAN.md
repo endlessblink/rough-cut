@@ -77,6 +77,7 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | BUG-006 | Playback laggy — Canvas2D drawImage bottleneck, needs WebGL VideoSource path | P0 | TODO | TASK-050 |
 | TASK-075 | Preview: Playback fluency — rVFC sync, consolidate loops, cache effects | P0 | PLANNED | TASK-007 |
 | FEATURE-076 | Record: Audio playback in preview (unmute + volume) | P2 | PLANNED | TASK-020 |
+| TASK-077 | Edit: Camera playback in Edit tab compositor | P1 | PLANNED | TASK-075 |
 | TASK-017 | Edit: Clip drag-to-move (horizontal repositioning with snap) | P1 | TODO | TASK-003 |
 | TASK-018 | Edit: Cross-track clip dragging (V1↔V2) | P1 | TODO | TASK-017 |
 | TASK-019 | Edit: Effects stack UI (Add Effect, expandable sections, param controls) | P1 | TODO | TASK-004 |
@@ -185,15 +186,30 @@ Improve playback smoothness by addressing identified bottlenecks in the renderin
 ### FEATURE-076: Record: Audio playback in preview (unmute + volume)
 **Priority:** P2 | **Status:** PLANNED (2026-04-09)
 
-Unmute the screen recording `<video>` element in RecordingPlaybackVideo so users can hear mic/system audio during preview playback. Requires a user gesture gate (browsers block unmuted autoplay) and volume controls.
+The screen recording .webm currently has NO audio track — the MediaRecorder in the recording panel only captures the video stream from getDisplayMedia. Audio (mic + system) needs to be mixed into the recording, then playback needs unmute + volume controls.
 
 **Tasks**:
-- [ ] Unmute video element after first user-initiated play gesture
+- [ ] Capture mic audio track via getUserMedia in the recording panel
+- [ ] Capture system audio track from getDisplayMedia (if available)
+- [ ] Mix audio tracks into the MediaRecorder stream
+- [ ] Unmute video element on play gesture in PlaybackManager
 - [ ] Add volume slider to BottomBar or playback controls
-- [ ] Persist volume preference in store
-- [ ] Ensure audio stays synced with video during scrubbing (mute during seek, unmute on play)
 
-**Key files:** `RecordingPlaybackVideo.tsx`, `BottomBar.tsx`, `playback-manager.ts`
+**Key files:** `PanelApp.tsx`, `RecordingPlaybackVideo.tsx`, `playback-manager.ts`
+
+---
+
+### TASK-077: Edit: Camera playback in Edit tab compositor
+**Priority:** P1 | **Status:** PLANNED (2026-04-09)
+
+The Edit tab uses the PixiJS compositor for rendering, which currently skips camera layers (camera rendering was moved to CameraPlaybackCanvas in the Record tab's React template slot). The Edit tab needs its own camera rendering path — either re-enable the compositor's camera decode, or add CameraPlaybackCanvas to the Edit tab's preview.
+
+**Tasks**:
+- [ ] Decide approach: compositor-internal camera decode vs React overlay
+- [ ] Wire camera rendering into Edit tab preview
+- [ ] Ensure camera syncs with Edit tab playhead during playback and scrubbing
+
+**Key files:** `preview-compositor.ts`, `EditTab.tsx`, `CameraPlaybackCanvas.tsx`
 
 ---
 
