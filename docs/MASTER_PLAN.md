@@ -183,19 +183,66 @@ Improve playback smoothness by addressing identified bottlenecks in the renderin
 
 ---
 
-### FEATURE-076: Record: Audio playback in preview (unmute + volume)
-**Priority:** P2 | **Status:** PLANNED (2026-04-09)
+### FEATURE-076: Record: Audio capture + playback in preview
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-10)
 
-The screen recording .webm currently has NO audio track — the MediaRecorder in the recording panel only captures the video stream from getDisplayMedia. Audio (mic + system) needs to be mixed into the recording, then playback needs unmute + volume controls.
+#### Problem
+Recordings have no audio. Two parallel capture paths exist:
+1. **MediaRecorder** (panel renderer) — captures display stream + can mix mic/system audio. Audio mixing code was added (commit `1296b46`) and confirmed working: `buildRecordingStream()` in PanelApp.tsx produces a stream with audio tracks, and the MediaRecorder uses `vp9,opus` mimeType.
+2. **FFmpeg x11grab** (main process) — captures screen at higher quality via `ffmpeg -f x11grab`. This is the output that gets SAVED as the final .webm. **FFmpeg has no audio input** — it only captures video.
 
-**Tasks**:
-- [ ] Capture mic audio track via getUserMedia in the recording panel
-- [ ] Capture system audio track from getDisplayMedia (if available)
-- [ ] Mix audio tracks into the MediaRecorder stream
-- [ ] Unmute video element on play gesture in PlaybackManager
-- [ ] Add volume slider to BottomBar or playback controls
+The session manager (`recording-session-manager.mjs`) prefers the FFmpeg output when available (line ~730: `Using FFmpeg x11grab output`). The MediaRecorder output (which has audio) is discarded.
 
-**Key files:** `PanelApp.tsx`, `RecordingPlaybackVideo.tsx`, `playback-manager.ts`
+#### Root Cause
+`recording-session-manager.mjs` saves the FFmpeg x11grab .webm (video-only) as the final recording, ignoring the MediaRecorder's audio-enabled output.
+
+#### What's Already Done
+- `buildRecordingStream()` helper in `PanelApp.tsx` — merges video + system audio (getDisplayMedia) + mic audio (getUserMedia) via AudioContext mixer
+- `audioMixCleanupRef` for AudioContext teardown on stop
+- mimeType selection: `vp9,opus` when audio tracks present
+- Mic mute toggle only affects mic track (system audio independent)
+- Cursor timing sync: `rebaseStartTime()` in cursor-recorder.mjs aligns cursor events with MediaRecorder start
+
+#### Approach Options (pick one)
+
+**Option A: Add audio to FFmpeg pipeline (recommended for Linux)**
+- Add `-f pulse -i default` (or `-f alsa -i default`) to the FFmpeg command for mic capture
+- Add system audio capture via PulseAudio monitor source
+- Keeps FFmpeg as single capture pipeline (simpler)
+- Cons: PulseAudio/ALSA config complexity, may not work on all Linux setups
+
+**Option B: Post-mux MediaRecorder audio into FFmpeg video**
+- After recording stops, run `ffmpeg -i screen.webm -i mediarecorder_audio.webm -c copy output.webm`
+- MediaRecorder saves audio-only (or A/V) alongside FFmpeg screen capture
+- Cons: requires saving MediaRecorder output too, post-processing delay
+
+**Option C: Use MediaRecorder output when audio is needed**
+- If mic/system audio enabled, use MediaRecorder output instead of FFmpeg
+- If no audio needed, keep FFmpeg (better quality)
+- Cons: MediaRecorder quality may be lower than FFmpeg x11grab
+
+#### Playback Side (after audio is in the file)
+- Remove `muted` from RecordingPlaybackVideo's `<video>` element
+- PlaybackManager `_startVideo()` already has unmute code (currently no-op since file has no audio)
+- Add volume slider to BottomBar
+
+#### Tasks
+- [ ] Decide approach (A, B, or C) for getting audio into the saved .webm
+- [ ] Implement chosen approach in recording pipeline
+- [ ] Verify with ffprobe: saved .webm has audio stream
+- [ ] Unmute video element on play (RecordingPlaybackVideo.tsx — remove `muted`, or unmute in PlaybackManager)
+- [ ] Add volume controls to playback UI
+
+#### Key Files
+- `apps/desktop/src/main/recording/recording-session-manager.mjs` — orchestrates recording, chooses FFmpeg vs MediaRecorder output (~line 730)
+- `apps/desktop/src/main/recording/ffmpeg-capture.mjs` — FFmpeg x11grab command construction
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx` — MediaRecorder setup, `buildRecordingStream()` already works
+- `apps/desktop/src/renderer/features/record/RecordingPlaybackVideo.tsx` — `<video muted>` attribute
+- `packages/preview-renderer/src/playback-manager.ts` — `_startVideo()` has unmute code ready
+
+#### Platform Notes
+- Linux: PipeWire/PulseAudio for audio capture. `getDisplayMedia({audio: true})` may not provide system audio on all setups.
+- Camera: USB webcam has V4L2 corruption issues on this machine (`corrupted data` errors in terminal). This is a hardware issue, not a code issue. Camera recording works when the hardware cooperates.
 
 ---
 
