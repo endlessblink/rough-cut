@@ -241,6 +241,7 @@ function registerIpcHandlers() {
       );
       const info = JSON.parse(probe);
       const videoStream = info.streams?.find(s => s.codec_type === 'video');
+      const audioStream = info.streams?.find(s => s.codec_type === 'audio');
       if (videoStream) {
         width = videoStream.width || width;
         height = videoStream.height || height;
@@ -251,11 +252,27 @@ function registerIpcHandlers() {
           durationFrames = Math.round(duration * fps);
         }
       }
+      // Debug: log stream info to terminal
+      console.log('[DEBUG] ffprobe:', filePath);
+      console.log('[DEBUG]   video:', videoStream ? `${videoStream.codec_name} ${videoStream.width}x${videoStream.height}` : 'NONE');
+      console.log('[DEBUG]   audio:', audioStream ? `${audioStream.codec_name} ${audioStream.sample_rate}Hz` : 'NONE');
+      if (hasCameraFile) {
+        try {
+          const camProbe = execSync(
+            `ffprobe -v quiet -print_format json -show_streams "${cameraPath}"`,
+            { encoding: 'utf-8', timeout: 5000 }
+          );
+          const camInfo = JSON.parse(camProbe);
+          const camVideo = camInfo.streams?.find(s => s.codec_type === 'video');
+          console.log('[DEBUG]   camera:', camVideo ? `${camVideo.codec_name} ${camVideo.width}x${camVideo.height}` : 'NONE');
+        } catch { /* ignore */ }
+      }
     } catch {
       // ffprobe not available, use defaults
+      console.log('[DEBUG] ffprobe not available, using defaults');
     }
 
-    return {
+    const result = {
       filePath,
       durationFrames,
       width,
@@ -265,6 +282,8 @@ function registerIpcHandlers() {
       fileSize: stat.size,
       cameraFilePath: hasCameraFile ? cameraPath : undefined,
     };
+    console.log('[DEBUG] Returning:', JSON.stringify({ ...result, filePath: '...' + filePath.slice(-40) }));
+    return result;
   });
 
   // Project: Auto-save — saves silently after recording completes.

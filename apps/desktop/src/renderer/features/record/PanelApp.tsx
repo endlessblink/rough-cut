@@ -1380,6 +1380,14 @@ export function PanelApp() {
     cameraChunksRef.current = [];
 
     // Build combined stream with audio mixing
+    // Debug: log audio state (check panel window DevTools)
+    console.info('[PanelApp] buildRecordingStream inputs:', {
+      displayAudioTracks: currentStream.getAudioTracks().length,
+      hasMicStream: !!micStreamRef.current,
+      micAudioTracks: micStreamRef.current?.getAudioTracks().length ?? 0,
+      sysAudioEnabled: sysAudioEnabledRef.current,
+      micEnabled: micEnabledRef.current,
+    });
     const { stream: recordingStream, cleanup: audioCleanup } = buildRecordingStream(
       currentStream,
       micStreamRef.current,
@@ -1389,6 +1397,7 @@ export function PanelApp() {
     audioMixCleanupRef.current = audioCleanup;
 
     const hasAudio = recordingStream.getAudioTracks().length > 0;
+    console.info('[PanelApp] Recording stream:', 'video:', recordingStream.getVideoTracks().length, 'audio:', hasAudio, 'mimeType will be audio-aware:', hasAudio);
     let mimeType: string;
     if (hasAudio) {
       mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
