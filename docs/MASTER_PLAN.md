@@ -76,7 +76,7 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | BUG-005 | Camera PiP renders as ellipse instead of circle (CSS/template shape not applied) | P1 | TODO | TASK-014 |
 | BUG-006 | Playback laggy — Canvas2D drawImage bottleneck, needs WebGL VideoSource path | P0 | TODO | TASK-050 |
 | TASK-075 | Preview: Playback fluency — rVFC sync, consolidate loops, cache effects | P0 | PLANNED | TASK-007 |
-| FEATURE-076 | Record: Audio playback in preview (unmute + volume) | P2 | PLANNED | TASK-020 |
+| FEATURE-076 | Record: Audio capture + playback (FFmpeg pipeline + compositor unmute) | P1 | IN PROGRESS | TASK-020 |
 | TASK-077 | Edit: Camera playback in Edit tab compositor | P1 | PLANNED | TASK-075 |
 | TASK-017 | Edit: Clip drag-to-move (horizontal repositioning with snap) | P1 | TODO | TASK-003 |
 | TASK-018 | Edit: Cross-track clip dragging (V1↔V2) | P1 | TODO | TASK-017 |
@@ -184,7 +184,7 @@ Improve playback smoothness by addressing identified bottlenecks in the renderin
 ---
 
 ### FEATURE-076: Record: Audio capture + playback in preview
-**Priority:** P1 | **Status:** IN PROGRESS (2026-04-10)
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-11)
 
 #### Problem
 Recordings have no audio. Two parallel capture paths exist:
@@ -221,9 +221,9 @@ ffmpeg \
 ```
 
 **Audio source discovery** (run at recording start):
-- `pactl list sources --format=json` → parse JSON
+- `pactl list short sources` → tab-separated lines (pactl 16.1 has no `--format=json`)
 - System audio: source name containing `.monitor` (e.g. `alsa_output.pci-....monitor`)
-- Mic: non-monitor input source, or `default`
+- Mic: source name starting with `alsa_input.`
 - When only mic enabled: single `-f pulse -i <MIC>`, no amix filter
 - When only system audio enabled: single `-f pulse -i <MONITOR>`, no amix filter
 - When both enabled: two inputs + `amix=inputs=2` filter
@@ -232,30 +232,36 @@ ffmpeg \
 - Option B (post-mux): sync drift over long recordings — two separate clocks
 - Option C (MediaRecorder fallback): lower VP9 quality, no CRF control
 
-#### Playback Side (after audio is in the file)
-- Remove `muted` from RecordingPlaybackVideo's `<video>` element
-- PlaybackManager `_startVideo()` already has unmute code (currently no-op since file has no audio)
-- Add volume slider to BottomBar
+#### Playback Side
+- Compositor's `play()` unmutes video elements (`video.muted = false` before `video.play()`)
+- RecordTimelineShell calls `PlaybackManager.setCompositorPlaying(true/false)` — does NOT use full `PlaybackManager.play()` (which would start a competing sync loop)
+- PlaybackManager._syncLoop falls back to `compositor.getVideoCurrentTime()` when no screenVideo (Edit tab)
+- RecordingPlaybackVideo's `<video>` stays muted — only the compositor's video plays audio
+- `media://` protocol handler uses `net.fetch('file://...')` for reliable concurrent access
 
 #### Tasks
 - [x] Decide approach → **Option A: FFmpeg pipeline audio** (2026-04-10)
-- [ ] Add audio source discovery util (`pactl list sources --format=json` parser)
-- [ ] Modify `ffmpeg-capture.mjs` to accept audio source args and build command with `-f pulse` inputs + amix
-- [ ] Wire session manager to pass mic/sysAudio toggle state + source names to FFmpeg capture
-- [ ] Verify with `ffprobe`: saved .webm has audio stream
-- [ ] Unmute video element on play (RecordingPlaybackVideo.tsx — remove `muted`, or unmute in PlaybackManager)
+- [x] Add audio source discovery util — `audio-sources.mjs` uses `pactl list short sources` (2026-04-11)
+- [x] Modify `ffmpeg-capture.mjs` — `-f pulse` inputs + amix filter for all combos (2026-04-11)
+- [x] Wire session manager — IPC passes `{ micEnabled, sysAudioEnabled }`, discovers sources (2026-04-11)
+- [x] Verify with `ffprobe` — saved .webm has VP8 video + Opus audio (2026-04-11)
+- [x] Unmute compositor video on play — `compositor.play()` sets `video.muted = false` (2026-04-11)
+- [x] Fix Edit tab playhead — `_syncLoop` falls back to compositor video time (2026-04-11)
+- [x] Fix `media://` protocol handler — switched to `net.fetch` (fixes ReadableStream locking) (2026-04-11)
 - [ ] Add volume controls to playback UI
 
 #### Key Files
-- `apps/desktop/src/main/recording/recording-session-manager.mjs` — orchestrates recording, chooses FFmpeg vs MediaRecorder output (~line 730)
-- `apps/desktop/src/main/recording/ffmpeg-capture.mjs` — FFmpeg x11grab command construction (ADD audio inputs here)
-- `apps/desktop/src/renderer/features/record/PanelApp.tsx` — MediaRecorder setup, `buildRecordingStream()` (existing, may simplify later)
-- `apps/desktop/src/renderer/features/record/RecordingPlaybackVideo.tsx` — `<video muted>` attribute
-- `packages/preview-renderer/src/playback-manager.ts` — `_startVideo()` has unmute code ready
+- `apps/desktop/src/main/recording/audio-sources.mjs` — PulseAudio/PipeWire source discovery via `pactl`
+- `apps/desktop/src/main/recording/ffmpeg-capture.mjs` — FFmpeg x11grab + audio command construction
+- `apps/desktop/src/main/recording/recording-session-manager.mjs` — orchestrates recording, audio config IPC
+- `apps/desktop/src/main/index.mjs` — `media://` protocol handler (net.fetch delegation)
+- `apps/desktop/src/renderer/features/record/RecordTimelineShell.tsx` — `setCompositorPlaying()` bridge
+- `packages/preview-renderer/src/playback-manager.ts` — `setCompositorPlaying()`, `_syncLoop` fallback
+- `packages/preview-renderer/src/preview-compositor.ts` — `play()` unmutes, `getVideoCurrentTime()`
 
 #### Platform Notes
 - PipeWire with `pipewire-pulse` compat layer — `pactl` works identically to native PulseAudio
-- Verify: `pactl info | grep "Server Name"` should show "PulseAudio (on PipeWire …)"
+- `pactl list short sources` (tab-separated) — `--format=json` not available in pactl 16.1
 - No native `-f pipewire` in FFmpeg yet for audio — `-f pulse` is the correct approach
 - Camera: USB webcam has V4L2 corruption issues on this machine (hardware issue, not code)
 

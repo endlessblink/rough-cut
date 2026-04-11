@@ -45,7 +45,7 @@ These rules govern the preview rendering system and must never be violated:
 
 You are working on the Rough Cut project (desktop screen recording + editor).
 
-Before doing anything else in this session, read and obey these docs:
+Before doing anything else in this session, read and obey these docs (collectively called **"the pillars"**):
 
 - .claude/CLAUDE.md
 - docs/ARCHITECTURE.md
@@ -57,6 +57,7 @@ Before doing anything else in this session, read and obey these docs:
 - docs/MASTER_PLAN.md
 
 These files are the project constitution and the ultimate source of truth.
+When the user says "pillars", "pillar files", or "the docs", they mean these files.
 
 Rules for this and all future tasks in this repo:
 - Always base your decisions on these docs.

@@ -448,7 +448,7 @@ A transition blends `clipA` and `clipB` over a duration. The blending function r
 ### Key Decisions
 
 - **Recording produces assets + metadata, not clips.** The capture system writes media files and creates Asset entries populated with probed metadata (duration, resolution, codec, frame count). Timeline clips are a separate authoring concern — the UI creates Clip entries on tracks by referencing assets. Capture never touches timeline logic; the timeline never touches capture logic.
-- **Separate streams, separate files.** Screen, webcam, and audio are recorded as independent assets placed on independent tracks. This allows the user to reposition the webcam overlay, adjust audio independently, and trim each stream separately.
+- **Audio is embedded in the primary recording file (Linux/X11).** On Linux, FFmpeg x11grab captures both video and audio in a single pipeline using `-f pulse` to read PulseAudio/PipeWire source names discovered at recording start by `audio-sources.mjs`. When both mic and system audio are enabled, an `amix` filter blends them together. Audio is embedded in the primary .webm file — there is no separate sidecar audio asset on this platform. (Webcam is still a separate stream; screen/audio in one file, webcam in another.)
 - **Swappable capture backend.** The `CaptureSession` delegates to a `CaptureBackend` interface. The default backend uses Electron's `desktopCapturer`, but this can be swapped for platform-specific solutions (e.g., native screen capture APIs) without changing the orchestration logic.
 - **Post-capture FFmpeg probe.** Instead of trusting MediaRecorder metadata (which can be unreliable), the system runs `ffprobe` on the finalized file to extract accurate duration, resolution, frame count, and codec information. This metadata populates the Asset entry.
 
@@ -533,7 +533,7 @@ The IPC contract is defined in `@rough-cut/ipc` and shared between main and rend
 
 | Domain | Channels | Direction |
 |--------|----------|-----------|
-| **Capture** | `capture.start`, `capture.stop`, `capture.preview-frame`, `capture.status` | Renderer → Main, Main → Renderer (preview frames) |
+| **Capture** | `capture.start` (payload: `{ micEnabled, sysAudioEnabled }`), `capture.stop`, `capture.preview-frame`, `capture.status`, `PANEL_START_RECORDING` | Renderer → Main, Main → Renderer (preview frames) |
 | **Export** | `export.start`, `export.cancel`, `export.progress`, `export.complete` | Renderer → Main (commands), Main → Renderer (progress/complete) |
 | **File I/O** | `file.save`, `file.load`, `file.pick-file`, `file.autosave` | Renderer → Main |
 | **Assets** | `asset.import`, `asset.probe`, `asset.thumbnail`, `asset.delete` | Renderer → Main |
@@ -545,6 +545,10 @@ The IPC contract is defined in `@rough-cut/ipc` and shared between main and rend
 > **If it touches the DOM or needs sub-16ms response** → renderer process.
 
 This rule determines where every operation lives. No exceptions.
+
+### `media://` Protocol Handler
+
+The main process registers a custom `media://` protocol so the renderer can load local video/audio files by asset path without full `file://` exposure. The handler resolves asset paths and delegates to `net.fetch('file://...')` internally — it does not use a manual `createReadStream`. This keeps streaming, range-request support, and MIME-type inference in Node's hands.
 
 ---
 

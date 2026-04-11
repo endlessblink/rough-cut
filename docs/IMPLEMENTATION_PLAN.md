@@ -530,7 +530,7 @@ This is the most critical package. Every other package depends on it. It must be
 2. Implement `ElectronCaptureBackend` using `desktopCapturer`. Handle platform-specific behavior per Spike 0.2 findings (Wayland portal on Linux, TCC on macOS).
 3. Implement `CaptureSession` orchestrator: manages the lifecycle of a recording session. Handles `start()`, `pause()`, `resume()`, `stop()`. Uses `MediaRecorder` to write chunks to temp files.
 4. Implement webcam stream capture (separate from screen capture). Uses `navigator.mediaDevices.getUserMedia()`.
-5. Implement audio capture: microphone via `getUserMedia()`, system audio via platform-specific approach (or document limitation).
+5. Implement audio capture: on Linux/X11, audio (mic and/or system) is captured via FFmpeg PulseAudio inputs (`-f pulse`), not `getUserMedia()`. PulseAudio source names (mic input and monitor source for system audio) are discovered at recording start by `audio-sources.mjs` and passed directly to the FFmpeg command. When both are enabled, `amix` blends them in-pipeline and the result is embedded in the primary .webm file. The renderer's `buildRecordingStream()` path via `getUserMedia()` remains available as a fallback for other platforms, but FFmpeg is the primary path on Linux.
 6. Implement post-capture processing: on stop, run `ffprobe` on the finalized files to extract duration, resolution, codec, frame count. Generate a thumbnail (extract frame at 1 second).
 7. Implement live preview frame extraction: during recording, periodically extract low-resolution frames from the capture stream and send to the renderer via `MessagePort` for the live preview.
 8. Wire capture IPC handlers: `capture.start`, `capture.stop`, `capture.pause`, `capture.resume`, `capture.status`, `capture.sources`, `capture.preview-frame`.
@@ -704,6 +704,10 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 4. Implement J/K/L scrubbing: J = reverse at increasing speeds, K = pause, L = forward at increasing speeds.
 5. Implement audio playback during preview: create Web Audio nodes for audio clips, schedule playback in sync with the visual playhead. Mix multiple audio tracks.
 6. Test playback at 30fps: verify frame timing accuracy (no drift over a 1-minute composition).
+
+> **Note (implemented)**: `PlaybackManager` exposes two distinct playback paths to avoid competing sync loops:
+> - `play()` — full sync loop using `requestVideoFrameCallback` / `requestAnimationFrame`. Used by the Edit tab where timeline cursor and audio must stay locked to media time.
+> - `setCompositorPlaying()` — drives the compositor only (no external rVFC/rAF loop). Used by the Record tab's live preview, where a full sync loop would fight the compositor's own update cycle.
 
 **Done criteria**:
 - Preview canvas renders the correct frame when the playhead moves.

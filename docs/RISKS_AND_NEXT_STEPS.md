@@ -32,7 +32,7 @@ Recording behavior is meaningfully different across all three target platforms.
 - **Mitigation**: Abstract all capture behind a `CaptureBackend` interface from day one. Defer macOS system audio to v1.1 or document the BlackHole requirement clearly. Accept the Wayland portal picker as a known limitation.
 - **Spike required**: Test `desktopCapturer` on all three platforms. Budget 1-2 days per platform.
 
-> **Status (2026-03-26)**: PARTIALLY MITIGATED. Linux/X11 confirmed working (desktopCapturer, PipeWire system audio, webcam, mic). Wayland portal picker limitation accepted. macOS and Windows pending testing.
+> **Status (2026-03-26)**: PARTIALLY MITIGATED. Linux/X11 confirmed working (desktopCapturer, PipeWire system audio, webcam, mic). Wayland portal picker limitation accepted. macOS and Windows pending testing. **Update**: System audio on Linux is now captured via PulseAudio monitor source in the FFmpeg command (`-f pulse`), with source names discovered at recording start by `audio-sources.mjs`. This is more reliable than the `desktopCapturer` audio path on X11.
 
 ---
 
@@ -157,7 +157,7 @@ The current market includes OBS (free, open-source), Screen Studio (polished, Ma
 
 4. **Multiple displays with different DPIs**: Capture resolution math gets complex with Retina and HiDPI displays, especially when the cursor moves between screens.
 
-5. **Audio device changes mid-recording**: Handle device disconnection (e.g., USB audio interface unplugged) gracefully without crashing or silently dropping audio.
+5. **Audio device changes mid-recording**: Handle device disconnection (e.g., USB audio interface unplugged) gracefully without crashing or silently dropping audio. **Now a concrete risk**: PulseAudio source names are discovered at recording start and baked into the FFmpeg command. If a mic or monitor source disappears mid-recording, FFmpeg will error out. No graceful recovery is implemented yet.
 
 6. **Very long recordings (2+ hours)**: Files can exceed 4GB (the FAT32 file size limit). Timeline performance with thousands of thumbnails from a single clip needs virtual rendering.
 

@@ -177,7 +177,7 @@ The user wants to capture their screen activity -- a product demo, tutorial, or 
 **Export pipeline:**
 - Not involved during recording. The raw streams are written to disk by `MediaRecorder`. The export pipeline consumes the resulting assets later, during export.
 
-**Boundary:** The Record tab does NOT call FFmpeg or process frames. It writes raw WebM/MKV via `MediaRecorder`. The preview pipeline only provides visual feedback -- it does not produce the recording file.
+**Boundary:** The Record tab does NOT call FFmpeg or process frames. It writes raw WebM/MKV via `MediaRecorder`. The preview pipeline only provides visual feedback -- it does not produce the recording file. **Clarification (Linux/X11):** On Linux, the main process session manager uses FFmpeg x11grab for screen + audio capture (higher quality than MediaRecorder). The Record tab UI still does not invoke FFmpeg directly — it sends audio config (`micEnabled`, `sysAudioEnabled`) to the main process via IPC, and the main process handles the FFmpeg command entirely.
 
 ### 1.5 Acceptance Criteria
 
