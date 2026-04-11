@@ -143,7 +143,9 @@ export class PlaybackManager {
 
     // Snap playhead to current video time
     const fps = this.projectStore.getState().project.settings.frameRate;
-    const currentTime = this.screenVideo?.currentTime ?? 0;
+    const currentTime = this.screenVideo?.currentTime
+      ?? this.compositor?.getVideoCurrentTime()
+      ?? 0;
     const frame = Math.round(currentTime * fps);
 
     this.transportStore.setState({ isPlaying: false, playheadFrame: frame });
@@ -252,15 +254,19 @@ export class PlaybackManager {
   private _syncLoop = (): void => {
     if (!this._playing) return;
 
+    // Read current time from screenVideo or compositor video
     const screen = this.screenVideo;
-    if (!screen) {
+    const currentTime = screen
+      ? screen.currentTime
+      : this.compositor?.getVideoCurrentTime() ?? -1;
+
+    if (currentTime < 0) {
       this._rafId = requestAnimationFrame(this._syncLoop);
       return;
     }
 
     const fps = this.projectStore.getState().project.settings.frameRate;
-    const screenTime = screen.currentTime;
-    const frame = Math.round(screenTime * fps);
+    const frame = Math.round(currentTime * fps);
 
     // 1. Sync store at ~30Hz (skip if frame unchanged)
     if (frame !== this._lastSyncedFrame) {
