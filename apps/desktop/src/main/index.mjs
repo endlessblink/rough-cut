@@ -491,49 +491,10 @@ app.whenReady().then(() => {
   // Handle media:// URLs by serving local files with range request support.
   protocol.handle('media', (req) => {
     const filePath = decodeURIComponent(req.url.replace('media://', ''));
-    console.log('[media://] Request:', filePath, 'Range:', req.headers.get('range') ?? 'none');
-
-    if (!existsSync(filePath)) {
-      console.log('[media://] 404 — file not found:', filePath);
-      return new Response('Not Found', { status: 404 });
-    }
-
-    const stat = statSync(filePath);
-    const total = stat.size;
-    const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
-    const mimeTypes = { webm: 'video/webm', mp4: 'video/mp4', mkv: 'video/x-matroska', jpg: 'image/jpeg', png: 'image/png' };
-    const contentType = mimeTypes[ext] ?? 'application/octet-stream';
-    const rangeHeader = req.headers.get('range');
-
-    if (rangeHeader) {
-      const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-      if (match) {
-        const start = parseInt(match[1], 10);
-        const end = match[2] ? parseInt(match[2], 10) : total - 1;
-        const chunkSize = end - start + 1;
-        const stream = createReadStream(filePath, { start, end });
-        return new Response(stream, {
-          status: 206,
-          headers: {
-            'Content-Range': `bytes ${start}-${end}/${total}`,
-            'Accept-Ranges': 'bytes',
-            'Content-Length': String(chunkSize),
-            'Content-Type': contentType,
-          },
-        });
-      }
-    }
-
-    // No range request — serve the full file
-    const stream = createReadStream(filePath);
-    return new Response(stream, {
-      status: 200,
-      headers: {
-        'Accept-Ranges': 'bytes',
-        'Content-Length': String(total),
-        'Content-Type': contentType,
-      },
-    });
+    // Delegate to net.fetch with file:// — handles range requests,
+    // concurrent access, and stream lifecycle correctly.
+    const fileUrl = 'file://' + encodeURI(filePath).replace(/#/g, '%23');
+    return net.fetch(fileUrl, { headers: req.headers });
   });
 
   // Store selected source ID — updated via IPC from panel window

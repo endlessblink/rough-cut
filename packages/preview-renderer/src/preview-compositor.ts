@@ -169,10 +169,17 @@ export class PreviewCompositor {
   play(): void {
     this._playing = true;
     const fps = this.project?.settings.frameRate ?? 30;
-    for (const vc of this.videoCache.values()) {
+    console.info('[compositor] play() — videoCache size:', this.videoCache.size);
+    for (const [assetId, vc] of this.videoCache.entries()) {
+      console.info(`[compositor] play() asset=${assetId} loaded=${vc.loaded} readyState=${vc.video.readyState} muted=${vc.video.muted} src=${vc.video.src.slice(-40)}`);
       if (vc.loaded && vc.video.readyState >= 2) {
         vc.video.currentTime = this.currentFrame / fps;
-        vc.video.play().catch(() => {});
+        vc.video.muted = false; // unmute for audio playback
+        vc.video.play().then(() => {
+          console.info(`[compositor] play() OK — muted=${vc.video.muted} volume=${vc.video.volume} paused=${vc.video.paused}`);
+        }).catch((e) => {
+          console.error('[compositor] play() FAILED:', e);
+        });
         if (vc.texture?.source) {
           (vc.texture.source as VideoSource).autoUpdate = true;
         }
@@ -389,6 +396,7 @@ export class PreviewCompositor {
         // If playback is active, auto-start this newly loaded video
         if (this._playing) {
           vc.video.currentTime = this.currentFrame / (this.project?.settings.frameRate ?? 30);
+          vc.video.muted = false; // unmute for audio playback
           vc.video.play().catch(() => {});
           videoSource.autoUpdate = true;
         }

@@ -12,6 +12,7 @@
  */
 import { useRef, useCallback, useMemo, useEffect, useState } from 'react';
 import type { Track, Asset } from '@rough-cut/project-model';
+import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 
 /* ── Types ─────────────────────────────────────────────────────────────────── */
 
@@ -205,6 +206,8 @@ export function RecordTimelineShell({
   useEffect(() => {
     if (!isPlaying) {
       isPlayingRef.current = false;
+      // Pause compositor video (stops audio)
+      getPlaybackManager().setCompositorPlaying(false);
       return;
     }
 
@@ -216,6 +219,9 @@ export function RecordTimelineShell({
     isPlayingRef.current = true;
     const INTERVAL = 1000 / fps;
     lastTimestampRef.current = performance.now();
+
+    // Start compositor video playback (unmutes for audio)
+    getPlaybackManager().setCompositorPlaying(true);
 
     const tick = (timestamp: number) => {
       if (!isPlayingRef.current) return; // guard: cleanup already ran

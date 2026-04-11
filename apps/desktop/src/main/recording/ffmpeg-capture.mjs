@@ -3,11 +3,13 @@ import { spawn } from 'node:child_process';
 
 /**
  * @typedef {Object} FfmpegCaptureOptions
- * @property {string} outputPath  — Where to write the captured video
- * @property {number} fps         — Capture frame rate (24, 30, 60)
- * @property {string} display     — X11 display string, e.g. ':0.0' or ':0.0+1920,0'
- * @property {number} width       — Capture width in pixels
- * @property {number} height      — Capture height in pixels
+ * @property {string} outputPath          — Where to write the captured video
+ * @property {number} fps                 — Capture frame rate (24, 30, 60)
+ * @property {string} display             — X11 display string, e.g. ':0.0' or ':0.0+1920,0'
+ * @property {number} width               — Capture width in pixels
+ * @property {number} height              — Capture height in pixels
+ * @property {string | null} [micSource]          — PulseAudio mic source name, or null to skip
+ * @property {string | null} [systemAudioSource]  — PulseAudio monitor source name, or null to skip
  */
 
 /**
@@ -38,21 +40,57 @@ export function isFfmpegCaptureAvailable() {
  * @param {FfmpegCaptureOptions} options
  * @returns {FfmpegCaptureHandle}
  */
-export function startFfmpegCapture({ outputPath, fps, display, width, height }) {
+export function startFfmpegCapture({ outputPath, fps, display, width, height, micSource = null, systemAudioSource = null }) {
+  const hasMic = typeof micSource === 'string' && micSource.length > 0;
+  const hasSysAudio = typeof systemAudioSource === 'string' && systemAudioSource.length > 0;
+  const audioInputCount = (hasMic ? 1 : 0) + (hasSysAudio ? 1 : 0);
+
+  // --- Build args ---
   const args = [
     '-y',                          // Overwrite output
-    '-f', 'x11grab',              // X11 screen capture input
-    '-draw_mouse', '0',           // NO cursor in capture
+    // Input 0: x11grab video
+    '-f', 'x11grab',
+    '-draw_mouse', '0',
     '-framerate', String(fps),
     '-video_size', `${width}x${height}`,
     '-i', display,
+  ];
+
+  // Input 1 (if present): system audio monitor
+  if (hasSysAudio) {
+    args.push('-f', 'pulse', '-ac', '2', '-ar', '48000', '-i', systemAudioSource);
+  }
+
+  // Input 2 (or 1 if no system audio): microphone
+  if (hasMic) {
+    args.push('-f', 'pulse', '-ac', '2', '-ar', '48000', '-i', micSource);
+  }
+
+  // --- Filter + mapping ---
+  if (hasSysAudio && hasMic) {
+    // Mix both audio sources into one stream
+    args.push('-filter_complex', '[1:a][2:a]amix=inputs=2[a]');
+    args.push('-map', '0:v', '-map', '[a]');
+  } else if (audioInputCount === 1) {
+    // Single audio source — map explicitly
+    args.push('-map', '0:v', '-map', '1:a');
+  }
+  // No audio → no -map needed (single input, auto-mapped)
+
+  // --- Codecs ---
+  args.push(
     '-c:v', 'libvpx',            // VP8 — same codec as MediaRecorder WebM
     '-b:v', '8M',                 // 8 Mbps bitrate
     '-deadline', 'realtime',      // Low-latency encoding
     '-cpu-used', '4',             // Fastest quality tradeoff
     '-auto-alt-ref', '0',         // Disable alt-ref for realtime
-    outputPath,
-  ];
+  );
+
+  if (audioInputCount > 0) {
+    args.push('-c:a', 'libopus', '-b:a', '128k');
+  }
+
+  args.push(outputPath);
 
   console.info('[ffmpeg-capture] Starting:', 'ffmpeg', args.join(' '));
 

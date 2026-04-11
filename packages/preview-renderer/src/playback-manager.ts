@@ -150,6 +150,21 @@ export class PlaybackManager {
     console.info('[PlaybackManager] pause() — at frame', frame);
   }
 
+  /**
+   * Start/stop the compositor's native video playback without starting
+   * PlaybackManager's own sync loop. Used by RecordTimelineShell which
+   * has its own rAF loop but needs the compositor video to play() for audio.
+   */
+  setCompositorPlaying(playing: boolean): void {
+    if (this.compositor) {
+      if (playing) {
+        this.compositor.play();
+      } else {
+        this.compositor.pause();
+      }
+    }
+  }
+
   togglePlay(): void {
     if (this._playing) {
       this.pause();

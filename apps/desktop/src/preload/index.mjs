@@ -174,9 +174,10 @@ const api = {
   panelSetSource: (sourceId) =>
     ipcRenderer.send(IPC_CHANNELS.PANEL_SET_SOURCE, { sourceId }),
 
-  /** Start recording (triggers countdown in session manager). */
-  panelStartRecording: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.PANEL_START_RECORDING),
+  /** Start recording (triggers countdown in session manager).
+   *  @param {{ micEnabled?: boolean, sysAudioEnabled?: boolean }} [audioConfig] */
+  panelStartRecording: (audioConfig) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PANEL_START_RECORDING, audioConfig),
 
   /** Stop recording. */
   panelStopRecording: () =>

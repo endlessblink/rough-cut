@@ -103,7 +103,7 @@ export interface RoughCutAPI {
   openRecordingPanel(): Promise<void>;
   closeRecordingPanel(): Promise<void>;
   panelSetSource(sourceId: string): void;
-  panelStartRecording(): Promise<void>;
+  panelStartRecording(audioConfig?: { micEnabled?: boolean; sysAudioEnabled?: boolean }): Promise<void>;
   panelStopRecording(): Promise<void>;
   panelPause(): void;
   panelResume(): void;

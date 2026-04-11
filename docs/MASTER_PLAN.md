@@ -203,23 +203,34 @@ The session manager (`recording-session-manager.mjs`) prefers the FFmpeg output 
 - Mic mute toggle only affects mic track (system audio independent)
 - Cursor timing sync: `rebaseStartTime()` in cursor-recorder.mjs aligns cursor events with MediaRecorder start
 
-#### Approach Options (pick one)
+#### Decision: Option A — Add audio directly to FFmpeg pipeline
+**Decided:** 2026-04-10 | **Rationale:** Single pipeline = zero sync drift, best VP9 quality (CRF control), battle-tested on PipeWire+PulseAudio compat layer.
 
-**Option A: Add audio to FFmpeg pipeline (recommended for Linux)**
-- Add `-f pulse -i default` (or `-f alsa -i default`) to the FFmpeg command for mic capture
-- Add system audio capture via PulseAudio monitor source
-- Keeps FFmpeg as single capture pipeline (simpler)
-- Cons: PulseAudio/ALSA config complexity, may not work on all Linux setups
+**FFmpeg command pattern:**
+```bash
+ffmpeg \
+  -f x11grab -framerate 60 -video_size 1920x1080 -i :0.0 \
+  -f pulse -ac 2 -ar 48000 -i <SYSTEM_MONITOR_SOURCE> \
+  -f pulse -ac 2 -ar 48000 -i <MIC_SOURCE> \
+  -filter_complex "[1:a][2:a]amix=inputs=2[a]" \
+  -map 0:v -map "[a]" \
+  -c:v libvpx-vp9 -crf 20 -b:v 0 -deadline good -cpu-used 4 \
+  -c:a libopus -b:a 128k \
+  -pix_fmt yuv420p \
+  output.webm
+```
 
-**Option B: Post-mux MediaRecorder audio into FFmpeg video**
-- After recording stops, run `ffmpeg -i screen.webm -i mediarecorder_audio.webm -c copy output.webm`
-- MediaRecorder saves audio-only (or A/V) alongside FFmpeg screen capture
-- Cons: requires saving MediaRecorder output too, post-processing delay
+**Audio source discovery** (run at recording start):
+- `pactl list sources --format=json` → parse JSON
+- System audio: source name containing `.monitor` (e.g. `alsa_output.pci-....monitor`)
+- Mic: non-monitor input source, or `default`
+- When only mic enabled: single `-f pulse -i <MIC>`, no amix filter
+- When only system audio enabled: single `-f pulse -i <MONITOR>`, no amix filter
+- When both enabled: two inputs + `amix=inputs=2` filter
 
-**Option C: Use MediaRecorder output when audio is needed**
-- If mic/system audio enabled, use MediaRecorder output instead of FFmpeg
-- If no audio needed, keep FFmpeg (better quality)
-- Cons: MediaRecorder quality may be lower than FFmpeg x11grab
+**Why not B/C:**
+- Option B (post-mux): sync drift over long recordings — two separate clocks
+- Option C (MediaRecorder fallback): lower VP9 quality, no CRF control
 
 #### Playback Side (after audio is in the file)
 - Remove `muted` from RecordingPlaybackVideo's `<video>` element
@@ -227,22 +238,26 @@ The session manager (`recording-session-manager.mjs`) prefers the FFmpeg output 
 - Add volume slider to BottomBar
 
 #### Tasks
-- [ ] Decide approach (A, B, or C) for getting audio into the saved .webm
-- [ ] Implement chosen approach in recording pipeline
-- [ ] Verify with ffprobe: saved .webm has audio stream
+- [x] Decide approach → **Option A: FFmpeg pipeline audio** (2026-04-10)
+- [ ] Add audio source discovery util (`pactl list sources --format=json` parser)
+- [ ] Modify `ffmpeg-capture.mjs` to accept audio source args and build command with `-f pulse` inputs + amix
+- [ ] Wire session manager to pass mic/sysAudio toggle state + source names to FFmpeg capture
+- [ ] Verify with `ffprobe`: saved .webm has audio stream
 - [ ] Unmute video element on play (RecordingPlaybackVideo.tsx — remove `muted`, or unmute in PlaybackManager)
 - [ ] Add volume controls to playback UI
 
 #### Key Files
 - `apps/desktop/src/main/recording/recording-session-manager.mjs` — orchestrates recording, chooses FFmpeg vs MediaRecorder output (~line 730)
-- `apps/desktop/src/main/recording/ffmpeg-capture.mjs` — FFmpeg x11grab command construction
-- `apps/desktop/src/renderer/features/record/PanelApp.tsx` — MediaRecorder setup, `buildRecordingStream()` already works
+- `apps/desktop/src/main/recording/ffmpeg-capture.mjs` — FFmpeg x11grab command construction (ADD audio inputs here)
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx` — MediaRecorder setup, `buildRecordingStream()` (existing, may simplify later)
 - `apps/desktop/src/renderer/features/record/RecordingPlaybackVideo.tsx` — `<video muted>` attribute
 - `packages/preview-renderer/src/playback-manager.ts` — `_startVideo()` has unmute code ready
 
 #### Platform Notes
-- Linux: PipeWire/PulseAudio for audio capture. `getDisplayMedia({audio: true})` may not provide system audio on all setups.
-- Camera: USB webcam has V4L2 corruption issues on this machine (`corrupted data` errors in terminal). This is a hardware issue, not a code issue. Camera recording works when the hardware cooperates.
+- PipeWire with `pipewire-pulse` compat layer — `pactl` works identically to native PulseAudio
+- Verify: `pactl info | grep "Server Name"` should show "PulseAudio (on PipeWire …)"
+- No native `-f pipewire` in FFmpeg yet for audio — `-f pulse` is the correct approach
+- Camera: USB webcam has V4L2 corruption issues on this machine (hardware issue, not code)
 
 ---
 

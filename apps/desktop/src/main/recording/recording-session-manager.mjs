@@ -39,6 +39,7 @@ import { IPC_CHANNELS } from '../../shared/ipc-channels.mjs';
 import { saveRecording, saveRecordingFromFile } from './capture-service.mjs';
 import { CursorRecorder } from './cursor-recorder.mjs';
 import { isFfmpegCaptureAvailable, startFfmpegCapture } from './ffmpeg-capture.mjs';
+import { discoverAudioSources } from './audio-sources.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -96,6 +97,9 @@ let ffmpegHandle = null;
 
 /** @type {(() => { sourceId: string, display: string, width: number, height: number } | null) | null} */
 let getSourceInfo = null;
+
+/** Audio config received from panel for the current recording. */
+let pendingAudioConfig = { micEnabled: false, sysAudioEnabled: false };
 
 // ---------------------------------------------------------------------------
 // Tiny inline red-circle icon for the tray (8×8 px, base64 PNG)
@@ -477,6 +481,21 @@ export async function startRecording() {
       const sourceInfo = getSourceInfo();
       if (sourceInfo) {
         const ffmpegPath = join(recordingsDir, `recording-${cursorTimestamp}.webm`);
+
+        // Discover audio sources if the user enabled mic or system audio
+        let micSource = null;
+        let systemAudioSource = null;
+        if (pendingAudioConfig.micEnabled || pendingAudioConfig.sysAudioEnabled) {
+          try {
+            const sources = await discoverAudioSources();
+            if (pendingAudioConfig.micEnabled) micSource = sources.micSource;
+            if (pendingAudioConfig.sysAudioEnabled) systemAudioSource = sources.monitorSource;
+            console.info('[session-manager] Audio sources for FFmpeg:', { micSource, systemAudioSource });
+          } catch (err) {
+            console.warn('[session-manager] Audio discovery failed — recording video-only:', err?.message ?? err);
+          }
+        }
+
         try {
           ffmpegHandle = startFfmpegCapture({
             outputPath: ffmpegPath,
@@ -484,8 +503,11 @@ export async function startRecording() {
             display: sourceInfo.display,
             width: sourceInfo.width,
             height: sourceInfo.height,
+            micSource,
+            systemAudioSource,
           });
-          console.info('[session-manager] FFmpeg x11grab started →', ffmpegPath);
+          console.info('[session-manager] FFmpeg x11grab started →', ffmpegPath,
+            micSource || systemAudioSource ? '(with audio)' : '(video-only)');
         } catch (err) {
           console.warn('[session-manager] FFmpeg capture failed to start:', err?.message ?? err);
           ffmpegHandle = null;
@@ -721,7 +743,12 @@ export function initSessionManager(win, sourceInfoGetter) {
 
   // ---- Recording lifecycle ----
 
-  ipcMain.handle(IPC_CHANNELS.PANEL_START_RECORDING, async () => {
+  ipcMain.handle(IPC_CHANNELS.PANEL_START_RECORDING, async (_event, audioConfig) => {
+    pendingAudioConfig = {
+      micEnabled: !!audioConfig?.micEnabled,
+      sysAudioEnabled: !!audioConfig?.sysAudioEnabled,
+    };
+    console.info('[session-manager] Audio config from panel:', pendingAudioConfig);
     await startRecording();
   });
 

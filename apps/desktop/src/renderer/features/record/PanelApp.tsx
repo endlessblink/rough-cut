@@ -1495,7 +1495,10 @@ export function PanelApp() {
 
   // ── User action handlers ─────────────────────────────────────────────────
   const handleStartRecording = () => {
-    void window.roughcut.panelStartRecording();
+    void window.roughcut.panelStartRecording({
+      micEnabled: micEnabledRef.current,
+      sysAudioEnabled: sysAudioEnabledRef.current,
+    });
   };
 
   const handleStopRecording = () => {
