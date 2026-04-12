@@ -76,6 +76,21 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
     }
   }, []);
 
+  const handleSelectRange = useCallback(
+    (clipIds: readonly string[], mode: 'replace' | 'add') => {
+      if (mode === 'add') {
+        transportStore.getState().addToSelection(clipIds);
+      } else {
+        transportStore.getState().setSelectedClipIds(clipIds);
+      }
+    },
+    [],
+  );
+
+  const handleClearSelection = useCallback(() => {
+    transportStore.getState().clearSelection();
+  }, []);
+
   const handleScrub = useCallback((frame: number) => {
     transportStore.getState().setPlayheadFrame(frame);
   }, []);
@@ -87,10 +102,16 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   }, [selectedClipId, selectedClipTrack, playheadFrame]);
 
   const handleDelete = useCallback(() => {
-    if (!selectedClipId || !selectedClipTrack) return;
-    projectStore.getState().deleteClip(selectedClipTrack.id, selectedClipId as import('@rough-cut/project-model').ClipId);
+    const ids = transportStore.getState().selectedClipIds;
+    if (ids.length === 0) return;
+    for (const clipId of ids) {
+      const track = findTrackForClip(clipId);
+      if (track) {
+        projectStore.getState().deleteClip(track.id, clipId as import('@rough-cut/project-model').ClipId);
+      }
+    }
     transportStore.getState().clearSelection();
-  }, [selectedClipId, selectedClipTrack]);
+  }, [findTrackForClip]);
 
   const handleUpdateTransform = useCallback(
     (clipId: ClipId, patch: Partial<ClipTransform>) => {
@@ -367,6 +388,8 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
             pixelsPerFrame={pixelsPerFrame}
             snapEnabled={snapEnabled}
             onSelectClip={handleSelectClip}
+            onSelectRange={handleSelectRange}
+            onClearSelection={handleClearSelection}
             onScrub={handleScrub}
             onTrimLeft={handleTrimLeft}
             onTrimRight={handleTrimRight}

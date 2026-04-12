@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Track, Asset } from '@rough-cut/project-model';
 import { snapToNearestEdge } from '@rough-cut/timeline-engine';
 import { ClipBlock } from './ClipBlock.js';
+import { MarqueeOverlay } from './MarqueeOverlay.js';
 
 export interface TimelineInteractionConfig {
   canTrim: boolean;
@@ -25,6 +26,8 @@ interface TimelineStripProps {
   snapEnabled?: boolean;
   interaction?: TimelineInteractionConfig;
   onSelectClip?: (clipId: string) => void;
+  onSelectRange?: (clipIds: readonly string[], mode: 'replace' | 'add') => void;
+  onClearSelection?: () => void;
   onScrub: (frame: number) => void;
   onTrimLeft?: (clipId: string, newTimelineIn: number) => void;
   onTrimRight?: (clipId: string, newTimelineOut: number) => void;
@@ -63,6 +66,8 @@ export function TimelineStrip({
   snapEnabled = false,
   interaction = DEFAULT_INTERACTION,
   onSelectClip,
+  onSelectRange,
+  onClearSelection,
   onScrub,
   onTrimLeft,
   onTrimRight,
@@ -332,6 +337,7 @@ export function TimelineStrip({
 
           {/* Clip area */}
           <div
+            data-marquee-background={interaction.canSelect ? 'true' : undefined}
             style={{
               position: 'relative',
               flex: 1,
@@ -371,6 +377,20 @@ export function TimelineStrip({
           </div>
         </div>
       ))}
+
+      {/* Marquee (rubber-band) multi-select overlay */}
+      {interaction.canSelect && onSelectRange && onClearSelection && (
+        <MarqueeOverlay
+          containerRef={containerRef}
+          tracks={tracks}
+          pixelsPerFrame={pixelsPerFrame}
+          labelWidth={LABEL_WIDTH}
+          rulerHeight={RULER_HEIGHT}
+          trackHeight={TRACK_HEIGHT}
+          onSelectRange={onSelectRange}
+          onEmptyClick={onClearSelection}
+        />
+      )}
 
       {/* Playhead line */}
       <div
