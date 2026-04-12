@@ -268,7 +268,7 @@ describe('resolveFrame', () => {
           zoom: {
             autoIntensity: 0.5,
             markers: [
-              { id: 'zm-1' as import('@rough-cut/project-model').ZoomMarkerId, startFrame: 10, endFrame: 50, kind: 'manual' as const, strength: 0.5 },
+              { id: 'zm-1' as import('@rough-cut/project-model').ZoomMarkerId, startFrame: 10, endFrame: 50, kind: 'manual' as const, strength: 0.5, focalPoint: { x: 0.5, y: 0.5 }, zoomInDuration: 0, zoomOutDuration: 0 },
             ],
           },
           cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
@@ -276,10 +276,10 @@ describe('resolveFrame', () => {
       });
       const project = createProject({ assets: [asset] });
 
-      // Frame 20 is inside the marker (10–50)
+      // Frame 20 is inside the marker (10–50), hold phase (no ramp)
       const result = resolveFrame(project, 20);
-      // strength=0.5 → scale = 1 + (1.2 - 1) * 0.5 = 1.10
-      expect(result.cameraTransform.scale).toBeCloseTo(1.10, 2);
+      // strengthToScale(0.5) = 1 + 0.5 * 1.5 = 1.75
+      expect(result.cameraTransform.scale).toBeCloseTo(1.75, 2);
     });
 
     it('frame outside zoom marker → falls back to auto intensity', () => {
@@ -288,7 +288,7 @@ describe('resolveFrame', () => {
           zoom: {
             autoIntensity: 0.5,
             markers: [
-              { id: 'zm-1' as import('@rough-cut/project-model').ZoomMarkerId, startFrame: 10, endFrame: 50, kind: 'manual' as const, strength: 1 },
+              { id: 'zm-1' as import('@rough-cut/project-model').ZoomMarkerId, startFrame: 10, endFrame: 50, kind: 'manual' as const, strength: 1, focalPoint: { x: 0.5, y: 0.5 }, zoomInDuration: 0, zoomOutDuration: 0 },
             ],
           },
           cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },

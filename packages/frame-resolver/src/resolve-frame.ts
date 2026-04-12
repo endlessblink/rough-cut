@@ -1,5 +1,5 @@
 import type { ProjectDocument, Clip, Track, Transition, ZoomPresentation, CursorPresentation } from '@rough-cut/project-model';
-import { selectActiveClipsAtFrame } from '@rough-cut/timeline-engine';
+import { selectActiveClipsAtFrame, getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
 import { evaluateKeyframeTracks, getDefaultParams } from '@rough-cut/effect-registry';
 import type {
   RenderFrame,
@@ -24,35 +24,37 @@ const DEFAULT_CURSOR_PRESENTATION: ResolvedCursorPresentation = {
   clickSoundEnabled: false,
 };
 
-const DEFAULT_AUTO_ZOOM_SCALE = 1.08;
-const MANUAL_MARKER_SCALE = 1.2;
-
 /**
  * Resolve camera transform from zoom presentation for a given frame.
- * If a manual marker covers this frame, use its strength.
- * Otherwise, apply auto-intensity as a subtle base zoom.
+ * Delegates to getZoomTransformAtFrame() for full marker support:
+ * focal-point panning, smooth ramp-in/out, connected-zoom interpolation.
+ * Falls back to auto-intensity base zoom when no markers are active.
  */
 function resolveCameraTransformForFrame(
   zoom: ZoomPresentation | undefined,
   frame: number,
+  canvasWidth: number,
+  canvasHeight: number,
 ): CameraTransform {
   if (!zoom) return DEFAULT_CAMERA_TRANSFORM;
 
-  // Check for active manual/auto marker at this frame
-  const marker = zoom.markers.find(
-    (m) => frame >= m.startFrame && frame < m.endFrame,
-  );
+  // Use the full zoom engine for markers (handles easing, focal points, connected gaps)
+  const zt = getZoomTransformAtFrame(frame, zoom.markers);
 
-  if (marker) {
-    const strength = marker.strength ?? 1;
-    const scale = 1 + (MANUAL_MARKER_SCALE - 1) * strength;
-    return { ...DEFAULT_CAMERA_TRANSFORM, scale };
+  if (zt.scale !== 1 || zt.translateX !== 0 || zt.translateY !== 0) {
+    // translateX/translateY are in fraction-of-container × scale units — convert to pixels
+    return {
+      scale: zt.scale,
+      offsetX: zt.translateX * canvasWidth,
+      offsetY: zt.translateY * canvasHeight,
+    };
   }
 
-  // No marker — apply auto intensity as subtle base zoom
+  // No active marker — apply auto-intensity as subtle center zoom (no pan)
   const t = zoom.autoIntensity;
-  const scale = 1 + (DEFAULT_AUTO_ZOOM_SCALE - 1) * t;
-  return { ...DEFAULT_CAMERA_TRANSFORM, scale };
+  if (t <= 0) return DEFAULT_CAMERA_TRANSFORM;
+  const scale = 1 + t * 0.08; // subtle: 0→1x, 1→1.08x
+  return { scale, offsetX: 0, offsetY: 0 };
 }
 
 /**
@@ -103,7 +105,9 @@ export function resolveFrame(project: ProjectDocument, frame: number): RenderFra
   // 4. Resolve recording presentation (zoom + cursor)
   const activeRecording = findActiveRecordingAsset(project);
   const presentation = activeRecording?.presentation;
-  const cameraTransform = resolveCameraTransformForFrame(presentation?.zoom, frame);
+  const cameraTransform = resolveCameraTransformForFrame(
+    presentation?.zoom, frame, settings.resolution.width, settings.resolution.height,
+  );
   const cursor = resolveCursorPresentation(presentation?.cursor);
   const screenCrop = presentation?.screenCrop?.enabled ? presentation.screenCrop : undefined;
 
