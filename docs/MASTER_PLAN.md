@@ -116,6 +116,12 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 
 | ID | Title | Priority | Status | Dependencies |
 |----|-------|----------|--------|--------------|
+| FEATURE-078 | AI: ButterCut-inspired library + rough cut generation (epic) | P1 | PLANNED | TASK-040 |
+| TASK-079 | AI: Library data model — footage + transcripts + visual analysis as first-class entity | P1 | PLANNED | TASK-002 |
+| TASK-080 | AI: WhisperX audio transcription pipeline (batch ingest, word-level timestamps) | P1 | PLANNED | TASK-040, TASK-079 |
+| TASK-081 | AI: Visual frame analysis pipeline (sample frames, describe via vision LLM) | P1 | PLANNED | TASK-040, TASK-079 |
+| TASK-082 | AI: Rough cut generator — LLM produces timeline from library + user prompt | P1 | PLANNED | TASK-080, TASK-081 |
+| TASK-083 | Compliance: Third-party attribution (WhisperX BSD-4, FFmpeg LGPL) in About/credits | P2 | PLANNED | - |
 | TASK-040 | AI: Create @rough-cut/ai-bridge package + AIProvider interface | P3 | TODO | TASK-002 |
 | TASK-041 | AI: AIAnnotation type in project-model | P3 | TODO | TASK-002 |
 | TASK-042 | AI: Auto-Captions — Whisper integration (local binary) | P3 | TODO | TASK-040 |
@@ -264,6 +270,47 @@ ffmpeg \
 - `pactl list short sources` (tab-separated) — `--format=json` not available in pactl 16.1
 - No native `-f pipewire` in FFmpeg yet for audio — `-f pulse` is the correct approach
 - Camera: USB webcam has V4L2 corruption issues on this machine (hardware issue, not code)
+
+---
+
+### FEATURE-078: AI Library + Rough Cut Generation (ButterCut-inspired)
+**Priority:** P1 | **Status:** PLANNED (2026-04-12)
+
+#### Inspiration
+[ButterCut](https://github.com/barefootford/buttercut) (MIT, by Andrew Ford) demonstrates a workflow where Claude analyzes raw footage (audio transcripts + frame descriptions), then generates editor timelines from a user prompt. rough-cut adopts the same *workflow*, but outputs directly into its native timeline format instead of FCPXML/Premiere XML.
+
+#### Workflow Goal
+```
+User:  "Build a new library from /footage/wedding, English"
+AI:    [ingests, transcribes audio + describes frames in parallel, stores metadata]
+User:  "Make a 3-minute rough cut: start with vows, include first dance, end with exit"
+AI:    [produces timeline with clips arranged on V1/A1, ready to refine in Edit tab]
+```
+
+#### Licensing Compliance (MANDATORY — see CLAUDE.md)
+- **WhisperX** is **BSD-4-Clause** → promotional/About material must acknowledge the software. Non-blocking but must not be forgotten (TASK-083).
+- **FFmpeg** is already a dependency. Keep using LGPL-only builds. Never enable `--enable-gpl --enable-nonfree` (x264/x265/libfdk-aac) — that would force the entire app to GPL.
+- ButterCut itself is MIT — any code ideas or direct ports are green-lit provided we preserve the upstream copyright notice in files derived from it.
+
+#### Subtasks
+- [ ] **TASK-079** — Library data model: project-model extension for `Library` entity (footage refs, transcripts, visual descriptors, metadata). Separate from `Project` but composable (a project can reference libraries).
+- [ ] **TASK-080** — WhisperX transcription pipeline (worker/utilityProcess, batch mode, word-level timestamps stored alongside assets). Supersedes TASK-042 scope.
+- [ ] **TASK-081** — Visual frame analysis pipeline: sample frames at configurable interval, send to vision LLM, store descriptions per timestamp.
+- [ ] **TASK-082** — Rough cut generator: given a library + natural-language prompt, LLM produces a list of `{assetId, inPoint, outPoint, track}` entries that become real Clips in the store.
+- [ ] **TASK-083** — Credits screen + README attribution for WhisperX; LGPL notice if/when FFmpeg is bundled in the installer.
+
+#### Key Files (anticipated)
+- `packages/project-model/src/library.ts` — Library type
+- `packages/ai-bridge/src/transcription/whisperx.ts` — WhisperX wrapper (shells out; no bundled binary)
+- `packages/ai-bridge/src/vision/frame-analyzer.ts` — frame sampler + vision client
+- `packages/ai-bridge/src/generators/rough-cut.ts` — prompt → timeline
+- `apps/desktop/src/renderer/features/ai/LibraryView.tsx` — library browser UI
+
+#### Why Now
+Several downstream tasks depend on this being the AI paradigm:
+- TASK-042 (Whisper) subsumed by TASK-080
+- TASK-073 (Auto-Edit) becomes trivial once library + rough cut generator exist
+- TASK-074 (Silence Removal) becomes a filter over the transcript, not a new pipeline
 
 ---
 
