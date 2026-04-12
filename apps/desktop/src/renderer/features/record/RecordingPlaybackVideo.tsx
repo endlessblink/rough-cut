@@ -154,12 +154,17 @@ export function RecordingPlaybackVideo({
     transportFlags.playheadFrame >= selectedZoomMarker.startFrame &&
     transportFlags.playheadFrame < selectedZoomMarker.endFrame;
 
+  // Smooth transform with a short CSS transition that matches the frame interval.
+  // 60ms ≈ 2 frames @30fps — long enough to smooth inter-frame snaps, short enough
+  // to stay visually "locked" to the playhead.
   const zoomStyle: React.CSSProperties = {
     position: 'absolute',
     inset: 0,
     transformOrigin: '50% 50%',
     transform: `scale(${zt.scale}) translate(${zt.translateX * 100}%, ${zt.translateY * 100}%)`,
-    transition: 'transform 0ms linear',
+    transition: transportFlags.isPlaying
+      ? 'transform 60ms linear'
+      : 'transform 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94)',
     willChange: 'transform',
   };
 
