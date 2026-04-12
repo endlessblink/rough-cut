@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createTrack, createClip } from '@rough-cut/project-model';
 import type { AssetId } from '@rough-cut/project-model';
-import { snapToNearestEdge } from './snap.js';
+import { snapToNearestEdge, snapToPlayhead, snapToGrid } from './snap.js';
 
 const assetId = 'asset-1' as AssetId;
 
@@ -118,5 +118,93 @@ describe('snapToNearestEdge', () => {
     const result = snapToNearestEdge(97, [t1, t2], 5);
     expect(result.snapped).toBe(true);
     expect(result.frame).toBe(100);
+  });
+});
+
+describe('snapToPlayhead', () => {
+  it('snaps when within threshold', () => {
+    const result = snapToPlayhead(97, 100, 5);
+    expect(result.snapped).toBe(true);
+    expect(result.frame).toBe(100);
+    expect(result.snapTarget).toBe(100);
+  });
+
+  it('does not snap when outside threshold', () => {
+    const result = snapToPlayhead(90, 100, 5);
+    expect(result.snapped).toBe(false);
+    expect(result.frame).toBe(90);
+    expect(result.snapTarget).toBeUndefined();
+  });
+
+  it('snaps at exact threshold distance', () => {
+    const result = snapToPlayhead(95, 100, 5);
+    expect(result.snapped).toBe(true);
+    expect(result.frame).toBe(100);
+  });
+
+  it('snaps when already at playhead', () => {
+    const result = snapToPlayhead(100, 100, 5);
+    expect(result.snapped).toBe(true);
+    expect(result.frame).toBe(100);
+  });
+
+  it('handles playhead at frame 0', () => {
+    const result = snapToPlayhead(2, 0, 5);
+    expect(result.snapped).toBe(true);
+    expect(result.frame).toBe(0);
+  });
+});
+
+describe('snapToGrid', () => {
+  it('snaps to nearest grid multiple when within threshold', () => {
+    // grid=30, frame=32, nearest=30, distance=2, threshold=5 → snap to 30
+    const result = snapToGrid(32, 30, 5);
+    expect(result.snapped).toBe(true);
+    expect(result.frame).toBe(30);
+    expect(result.snapTarget).toBe(30);
+  });
+
+  it('snaps up to the next multiple when closer', () => {
+    // grid=30, frame=58, nearest=60, distance=2, threshold=5 → snap to 60
+    const result = snapToGrid(58, 30, 5);
+    expect(result.snapped).toBe(true);
+    expect(result.frame).toBe(60);
+  });
+
+  it('does not snap when outside threshold', () => {
+    // grid=30, frame=40, nearest=30, distance=10, threshold=5 → no snap
+    const result = snapToGrid(40, 30, 5);
+    expect(result.snapped).toBe(false);
+    expect(result.frame).toBe(40);
+  });
+
+  it('snaps to 0 when close', () => {
+    const result = snapToGrid(3, 30, 5);
+    expect(result.snapped).toBe(true);
+    expect(result.frame).toBe(0);
+  });
+
+  it('returns original frame when gridFrames is zero', () => {
+    const result = snapToGrid(50, 0, 5);
+    expect(result.snapped).toBe(false);
+    expect(result.frame).toBe(50);
+  });
+
+  it('returns original frame when gridFrames is negative', () => {
+    const result = snapToGrid(50, -10, 5);
+    expect(result.snapped).toBe(false);
+    expect(result.frame).toBe(50);
+  });
+
+  it('snaps at exact threshold distance', () => {
+    const result = snapToGrid(35, 30, 5);
+    expect(result.snapped).toBe(true);
+    expect(result.frame).toBe(30);
+  });
+
+  it('snaps exactly on grid point', () => {
+    const result = snapToGrid(60, 30, 5);
+    expect(result.snapped).toBe(true);
+    expect(result.frame).toBe(60);
   });
 });

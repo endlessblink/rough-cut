@@ -40,3 +40,38 @@ export function snapToNearestEdge(
 
   return { frame, snapped: false };
 }
+
+/**
+ * Snap to the current playhead frame if within threshold.
+ */
+export function snapToPlayhead(
+  frame: number,
+  playheadFrame: number,
+  threshold: number,
+): { frame: number; snapped: boolean; snapTarget?: number } {
+  const distance = Math.abs(frame - playheadFrame);
+  if (distance <= threshold) {
+    return { frame: playheadFrame, snapped: true, snapTarget: playheadFrame };
+  }
+  return { frame, snapped: false };
+}
+
+/**
+ * Snap to the nearest multiple of gridFrames if within threshold.
+ * gridFrames must be a positive integer; otherwise no snapping occurs.
+ */
+export function snapToGrid(
+  frame: number,
+  gridFrames: number,
+  threshold: number,
+): { frame: number; snapped: boolean; snapTarget?: number } {
+  if (gridFrames <= 0) {
+    return { frame, snapped: false };
+  }
+  const nearestMultiple = Math.round(frame / gridFrames) * gridFrames;
+  const distance = Math.abs(frame - nearestMultiple);
+  if (distance <= threshold) {
+    return { frame: nearestMultiple, snapped: true, snapTarget: nearestMultiple };
+  }
+  return { frame, snapped: false };
+}
