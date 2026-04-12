@@ -590,6 +590,10 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
           selectedZoomMarkerId={selectedZoomMarkerId}
           onAddZoomMarkerAtPlayhead={handleAddZoomMarkerAtPlayhead}
           onSelectZoomMarker={handleSelectZoomMarker}
+          onResizeZoomMarker={(id, patch) => {
+            if (!activeRecordingId) return;
+            projectStore.getState().updateRecordingZoomMarker(activeRecordingId, id, patch);
+          }}
         />
       </div>
 

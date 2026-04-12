@@ -58,6 +58,44 @@ test.describe('Zoom markers — Record tab', () => {
     expect(scale, `scale should be > 1 when playhead is inside a marker: got ${scale}`).toBeGreaterThan(1);
   });
 
+  test('right-edge drag handle lengthens the marker', async ({ appPage }) => {
+    await appPage.locator('[data-testid="debug-reload"]').click();
+    await appPage.waitForSelector('[data-testid="zoom-host"]', { timeout: 10_000 });
+
+    await appPage.locator('[data-testid="zoom-add"]').click();
+    await expect(
+      appPage.locator('[data-testid="zoom-marker"][data-marker-kind="manual"]'),
+    ).toHaveCount(1, { timeout: 5_000 });
+
+    // Select the marker so the resize handles become visible.
+    await appPage.locator('[data-testid="zoom-marker"][data-marker-kind="manual"]').click();
+    await appPage.waitForTimeout(200);
+
+    type Store = { getState: () => { project: { assets: Array<{ presentation?: { zoom?: { markers: Array<{ kind: string; endFrame: number; startFrame: number }> } } }> } } };
+    const readEnd = () => appPage.evaluate(() => {
+      const stores = (window as unknown as { __roughcutStores?: { project: { getState: () => { project: { assets: Array<{ presentation?: { zoom?: { markers: Array<{ kind: string; endFrame: number }> } } }> } } } } }).__roughcutStores;
+      const markers = stores?.project.getState().project.assets
+        .flatMap((a) => a.presentation?.zoom?.markers ?? [])
+        .filter((m) => m.kind === 'manual');
+      return markers?.[0]?.endFrame ?? -1;
+    });
+    const initialEnd = await readEnd();
+
+    // Drag the right edge handle to the right by ~200px.
+    const handle = appPage.locator('[data-testid="zoom-marker-resize-end"]').first();
+    const box = await handle.boundingBox();
+    expect(box).toBeTruthy();
+    await appPage.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await appPage.mouse.down();
+    await appPage.mouse.move(box!.x + 200, box!.y + box!.height / 2);
+    await appPage.mouse.up();
+    await appPage.waitForTimeout(200);
+
+    const finalEnd = await readEnd();
+    console.log('[zoom-test] resize end:', { initialEnd, finalEnd });
+    expect(finalEnd, 'right-edge drag should increase endFrame').toBeGreaterThan(initialEnd);
+  });
+
   test('zoom remains applied when marker is SELECTED and paused (regression: "second play broken")', async ({ appPage }) => {
     await appPage.locator('[data-testid="debug-reload"]').click();
     await appPage.waitForSelector('[data-testid="zoom-host"]', { timeout: 10_000 });

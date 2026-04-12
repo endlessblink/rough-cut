@@ -33,6 +33,8 @@ interface RecordTimelineShellProps {
   onAddZoomMarkerAtPlayhead?: () => void;
   /** Select a zoom marker */
   onSelectZoomMarker?: (id: ZoomMarkerId | null) => void;
+  /** Resize a manual zoom marker by dragging its edge handles */
+  onResizeZoomMarker?: (id: ZoomMarkerId, patch: { startFrame?: number; endFrame?: number }) => void;
 }
 
 /* ── Constants ─────────────────────────────────────────────────────────────── */
@@ -144,6 +146,7 @@ function ZoomTrackRow({
   selectedMarkerId,
   onSelectMarker,
   onAddMarker,
+  onResizeMarker,
 }: {
   top: number;
   durationFrames: number;
@@ -151,7 +154,48 @@ function ZoomTrackRow({
   selectedMarkerId: ZoomMarkerId | null;
   onSelectMarker?: (id: ZoomMarkerId | null) => void;
   onAddMarker?: () => void;
+  onResizeMarker?: (id: ZoomMarkerId, patch: { startFrame?: number; endFrame?: number }) => void;
 }) {
+  const markerAreaRef = useRef<HTMLDivElement>(null);
+
+  const startResize = useCallback(
+    (markerId: ZoomMarkerId, edge: 'start' | 'end', downEvent: React.PointerEvent) => {
+      downEvent.preventDefault();
+      downEvent.stopPropagation();
+      const area = markerAreaRef.current;
+      if (!area || durationFrames <= 0) return;
+
+      const rect = area.getBoundingClientRect();
+      const marker = markers.find((m) => m.id === markerId);
+      if (!marker) return;
+
+      const frameFromClient = (clientX: number) => {
+        const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        return Math.round(ratio * durationFrames);
+      };
+
+      const minGap = 1;
+      const onMove = (ev: PointerEvent) => {
+        const frame = frameFromClient(ev.clientX);
+        if (edge === 'start') {
+          const startFrame = Math.max(0, Math.min(frame, marker.endFrame - minGap));
+          onResizeMarker?.(markerId, { startFrame });
+        } else {
+          const endFrame = Math.max(marker.startFrame + minGap, Math.min(frame, durationFrames));
+          onResizeMarker?.(markerId, { endFrame });
+        }
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+    },
+    [durationFrames, markers, onResizeMarker],
+  );
   return (
     <div
       style={{
@@ -216,7 +260,7 @@ function ZoomTrackRow({
       </div>
 
       {/* Marker area */}
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      <div ref={markerAreaRef} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         {markers.map((m) => {
           const dur = m.endFrame - m.startFrame;
           if (durationFrames <= 0 || dur <= 0) return null;
@@ -225,19 +269,28 @@ function ZoomTrackRow({
           const widthPct = frameToPct(dur, durationFrames);
           const isManual = m.kind === 'manual';
           const selected = m.id === selectedMarkerId;
+          const canResize = isManual && !!onResizeMarker;
 
           const bg = isManual
             ? (selected ? 'rgba(255,138,101,0.95)' : 'rgba(255,138,101,0.70)')
             : 'rgba(108,160,255,0.35)';
 
           return (
-            <button
+            <div
               key={m.id}
               data-testid="zoom-marker"
               data-marker-kind={m.kind}
+              role="button"
+              tabIndex={0}
               onClick={(e) => {
                 e.stopPropagation();
                 onSelectMarker?.(m.id);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSelectMarker?.(m.id);
+                }
               }}
               title={`${m.kind} · ${Math.round(m.strength * 100)}% · ${m.startFrame}-${m.endFrame}`}
               style={{
@@ -250,12 +303,47 @@ function ZoomTrackRow({
                 borderRadius: 4,
                 border: selected ? '2px solid rgba(255,255,255,0.90)' : 'none',
                 background: bg,
-                padding: 0,
                 cursor: 'pointer',
                 pointerEvents: 'auto',
                 zIndex: selected ? 3 : 2,
+                boxSizing: 'border-box',
               }}
-            />
+            >
+              {canResize && (
+                <>
+                  <div
+                    data-testid="zoom-marker-resize-start"
+                    onPointerDown={(e) => startResize(m.id, 'start', e)}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      left: -3,
+                      width: 8,
+                      cursor: 'ew-resize',
+                      zIndex: 4,
+                      background: selected ? 'rgba(255,255,255,0.25)' : 'transparent',
+                      borderRadius: 4,
+                    }}
+                  />
+                  <div
+                    data-testid="zoom-marker-resize-end"
+                    onPointerDown={(e) => startResize(m.id, 'end', e)}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      right: -3,
+                      width: 8,
+                      cursor: 'ew-resize',
+                      zIndex: 4,
+                      background: selected ? 'rgba(255,255,255,0.25)' : 'transparent',
+                      borderRadius: 4,
+                    }}
+                  />
+                </>
+              )}
+            </div>
           );
         })}
       </div>
@@ -277,6 +365,7 @@ export function RecordTimelineShell({
   selectedZoomMarkerId = null,
   onAddZoomMarkerAtPlayhead,
   onSelectZoomMarker,
+  onResizeZoomMarker,
 }: RecordTimelineShellProps) {
   /* ── derived data ──────────────────────────────────────────────────────── */
 
@@ -596,6 +685,7 @@ export function RecordTimelineShell({
             selectedMarkerId={selectedZoomMarkerId}
             onSelectMarker={onSelectZoomMarker}
             onAddMarker={onAddZoomMarkerAtPlayhead}
+            onResizeMarker={onResizeZoomMarker}
           />
 
           {tracks.map((track, i) => {
