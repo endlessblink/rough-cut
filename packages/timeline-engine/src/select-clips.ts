@@ -1,4 +1,4 @@
-import type { Track, Clip } from '@rough-cut/project-model';
+import type { Track, Clip, TrackId } from '@rough-cut/project-model';
 
 /**
  * Check if two frame intervals overlap.
@@ -37,14 +37,19 @@ export function selectActiveClipsAtFrame(
 /**
  * Select clips within a frame range [startFrame, endFrame).
  * A clip is in range if it overlaps with the range at all.
+ * When trackIds is provided, only clips on those tracks are considered
+ * (useful for marquee selection across a vertical subset of tracks).
  */
 export function getClipsInFrameRange(
   tracks: readonly Track[],
   startFrame: number,
   endFrame: number,
+  trackIds?: readonly TrackId[],
 ): Clip[] {
+  const trackFilter = trackIds ? new Set<TrackId>(trackIds) : null;
   const result: Clip[] = [];
   for (const track of tracks) {
+    if (trackFilter && !trackFilter.has(track.id)) continue;
     for (const clip of track.clips) {
       if (frameIntervalsOverlap(clip.timelineIn, clip.timelineOut, startFrame, endFrame)) {
         result.push(clip);

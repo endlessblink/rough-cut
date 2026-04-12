@@ -158,6 +158,59 @@ describe('getClipsInFrameRange', () => {
     // getClipsInFrameRange does not filter by visibility
     expect(getClipsInFrameRange([t1], 5, 20)).toHaveLength(1);
   });
+
+  it('filters to clips on specified tracks when trackIds provided', () => {
+    const track1 = createTrack('video');
+    const track2 = createTrack('video');
+    const c1 = makeClip(track1.id, 10, 40);
+    const c2 = makeClip(track2.id, 15, 35);
+    const t1 = { ...track1, clips: [c1] };
+    const t2 = { ...track2, clips: [c2] };
+    const only1 = getClipsInFrameRange([t1, t2], 0, 100, [track1.id]);
+    expect(only1).toHaveLength(1);
+    expect(only1[0]!.id).toBe(c1.id);
+  });
+
+  it('returns clips from all specified tracks', () => {
+    const track1 = createTrack('video');
+    const track2 = createTrack('audio');
+    const track3 = createTrack('video');
+    const c1 = makeClip(track1.id, 10, 40);
+    const c2 = makeClip(track2.id, 15, 35);
+    const c3 = makeClip(track3.id, 20, 30);
+    const t1 = { ...track1, clips: [c1] };
+    const t2 = { ...track2, clips: [c2] };
+    const t3 = { ...track3, clips: [c3] };
+    const result = getClipsInFrameRange([t1, t2, t3], 0, 100, [track1.id, track3.id]);
+    expect(result).toHaveLength(2);
+    expect(result.map((c) => c.id).sort()).toEqual([c1.id, c3.id].sort());
+  });
+
+  it('returns empty when trackIds is empty array', () => {
+    const track = createTrack('video');
+    const clip = makeClip(track.id, 10, 40);
+    const populated = { ...track, clips: [clip] };
+    expect(getClipsInFrameRange([populated], 0, 100, [])).toEqual([]);
+  });
+
+  it('returns empty when trackIds matches no track', () => {
+    const track = createTrack('video');
+    const clip = makeClip(track.id, 10, 40);
+    const populated = { ...track, clips: [clip] };
+    const fakeTrackId = 'does-not-exist' as TrackId;
+    expect(getClipsInFrameRange([populated], 0, 100, [fakeTrackId])).toEqual([]);
+  });
+
+  it('undefined trackIds means no filter (backwards-compat)', () => {
+    const track1 = createTrack('video');
+    const track2 = createTrack('audio');
+    const c1 = makeClip(track1.id, 10, 40);
+    const c2 = makeClip(track2.id, 15, 35);
+    const t1 = { ...track1, clips: [c1] };
+    const t2 = { ...track2, clips: [c2] };
+    expect(getClipsInFrameRange([t1, t2], 0, 100)).toHaveLength(2);
+    expect(getClipsInFrameRange([t1, t2], 0, 100, undefined)).toHaveLength(2);
+  });
 });
 
 describe('findOverlappingClips', () => {
