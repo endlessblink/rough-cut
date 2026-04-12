@@ -14,11 +14,13 @@ export interface ExportRange {
   outFrame: number;
 }
 
+const EMPTY_SELECTION: readonly string[] = [];
+
 interface TimelineStripProps {
   tracks: readonly Track[];
   assets: readonly Asset[];
   playheadFrame: number;
-  selectedClipId?: string | null;
+  selectedClipIds?: readonly string[];
   pixelsPerFrame: number;
   snapEnabled?: boolean;
   interaction?: TimelineInteractionConfig;
@@ -56,7 +58,7 @@ export function TimelineStrip({
   tracks,
   assets,
   playheadFrame,
-  selectedClipId = null,
+  selectedClipIds = EMPTY_SELECTION,
   pixelsPerFrame,
   snapEnabled = false,
   interaction = DEFAULT_INTERACTION,
@@ -351,7 +353,7 @@ export function TimelineStrip({
                   clip={clip}
                   trackType={track.type}
                   pixelsPerFrame={pixelsPerFrame}
-                  isSelected={interaction.canSelect ? clip.id === selectedClipId : false}
+                  isSelected={interaction.canSelect ? selectedClipIds.includes(clip.id) : false}
                   label={label}
                   assetDuration={asset?.duration}
                   snapEnabled={snapEnabled && interaction.canSnap}

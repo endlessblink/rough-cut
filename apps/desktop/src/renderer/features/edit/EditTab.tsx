@@ -30,7 +30,8 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const tracks = useProjectStore((s) => s.project.composition.tracks);
   const assets = useProjectStore((s) => s.project.assets);
   const playheadFrame = useTransportStore((s) => s.playheadFrame);
-  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const selectedClipIds = useTransportStore((s) => s.selectedClipIds);
+  const selectedClipId = selectedClipIds[0] ?? null;
   const [pixelsPerFrame, setPixelsPerFrame] = useState(3);
   const [snapEnabled, setSnapEnabled] = useState(true);
 
@@ -67,7 +68,12 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const canDelete = selectedClipId !== null && selectedClipTrack !== null;
 
   const handleSelectClip = useCallback((clipId: string) => {
-    setSelectedClipId((prev) => (prev === clipId ? null : clipId));
+    const current = transportStore.getState().selectedClipIds;
+    if (current.length === 1 && current[0] === clipId) {
+      transportStore.getState().clearSelection();
+    } else {
+      transportStore.getState().setSelectedClipIds([clipId]);
+    }
   }, []);
 
   const handleScrub = useCallback((frame: number) => {
@@ -77,13 +83,13 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const handleSplit = useCallback(() => {
     if (!selectedClipId || !selectedClipTrack) return;
     projectStore.getState().splitClipAtFrame(selectedClipTrack.id, selectedClipId as import('@rough-cut/project-model').ClipId, playheadFrame);
-    setSelectedClipId(null);
+    transportStore.getState().clearSelection();
   }, [selectedClipId, selectedClipTrack, playheadFrame]);
 
   const handleDelete = useCallback(() => {
     if (!selectedClipId || !selectedClipTrack) return;
     projectStore.getState().deleteClip(selectedClipTrack.id, selectedClipId as import('@rough-cut/project-model').ClipId);
-    setSelectedClipId(null);
+    transportStore.getState().clearSelection();
   }, [selectedClipId, selectedClipTrack]);
 
   const handleUpdateTransform = useCallback(
@@ -357,7 +363,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
             tracks={tracks}
             assets={assets}
             playheadFrame={playheadFrame}
-            selectedClipId={selectedClipId}
+            selectedClipIds={selectedClipIds}
             pixelsPerFrame={pixelsPerFrame}
             snapEnabled={snapEnabled}
             onSelectClip={handleSelectClip}
