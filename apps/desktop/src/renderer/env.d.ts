@@ -136,6 +136,10 @@ export interface RoughCutAPI {
 
   // Debug (temporary)
   debugLoadLastRecording(): Promise<RecordingResult | null>;
+
+  // Zoom sidecar persistence (next to the recording .webm)
+  zoomLoadSidecar(recordingFilePath: string): Promise<{ autoIntensity: number; markers: readonly unknown[] } | null>;
+  zoomSaveSidecar(recordingFilePath: string, presentation: { autoIntensity: number; markers: readonly unknown[] }): Promise<boolean>;
 }
 
 declare global {

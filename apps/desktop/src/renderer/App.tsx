@@ -80,7 +80,7 @@ export function App() {
   }, []);
 
   // --- Recording integration ---
-  const handleRecordingComplete = useCallback((result: RecordingResult) => {
+  const handleRecordingComplete = useCallback(async (result: RecordingResult) => {
     // Auto-save the current project before replacing it — fire and forget
     const currentPath = projectStore.getState().projectFilePath;
     const currentProject = projectStore.getState().project;
@@ -114,7 +114,7 @@ export function App() {
       console.log('[App] Camera asset created:', cameraAssetId, 'path:', result.cameraFilePath);
     }
 
-    const asset = createAsset('recording', result.filePath, {
+    const baseAsset = createAsset('recording', result.filePath, {
       duration: result.durationFrames,
       thumbnailPath: result.thumbnailPath,
       metadata: {
@@ -127,6 +127,26 @@ export function App() {
       },
       ...(cameraAssetId ? { cameraAssetId } : {}),
     });
+
+    // Hydrate zoom markers from the sidecar (if the user worked on this recording before).
+    let asset = baseAsset;
+    try {
+      const loadedZoom = await window.roughcut.zoomLoadSidecar(result.filePath);
+      if (loadedZoom) {
+        const basePres = (baseAsset as unknown as { presentation?: Record<string, unknown> }).presentation ?? {};
+        asset = {
+          ...baseAsset,
+          presentation: {
+            ...basePres,
+            zoom: loadedZoom,
+          },
+        } as typeof baseAsset;
+        console.info('[App] Hydrated zoom sidecar:', loadedZoom.markers.length, 'markers for', result.filePath);
+      }
+    } catch (err) {
+      console.warn('[App] zoomLoadSidecar failed:', err);
+    }
+
     console.log('[App] Recording asset before addAsset:', { id: asset.id, cameraAssetId: (asset as any).cameraAssetId, hasCameraId: 'cameraAssetId' in asset });
     projectStore.getState().addAsset(asset);
 

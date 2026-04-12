@@ -251,6 +251,33 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     return () => clearTimeout(handle);
   }, [activeRecordingId, autoIntensity, autoCursorEvents, projectFps, sourceWidth, sourceHeight]);
 
+  // ── Zoom persistence: save ZoomPresentation to a .zoom.json sidecar on edit ──
+  // Debounce 500ms so slider drags and auto-zoom regeneration don't spam disk.
+  // Skip the first render so hydrating from the sidecar doesn't immediately re-save.
+  const recordingFilePath = activeRecordingAsset?.filePath ?? null;
+  const skipFirstZoomSaveRef = useRef(true);
+  useEffect(() => {
+    if (!recordingFilePath) return;
+    if (skipFirstZoomSaveRef.current) {
+      skipFirstZoomSaveRef.current = false;
+      return;
+    }
+    const payload = {
+      autoIntensity: zoomPresentation.autoIntensity,
+      markers: zoomPresentation.markers,
+    };
+    const handle = setTimeout(() => {
+      void window.roughcut.zoomSaveSidecar(recordingFilePath, payload)
+        .catch((err: unknown) => console.warn('[zoom-sidecar] save failed:', err));
+    }, 500);
+    return () => clearTimeout(handle);
+  }, [recordingFilePath, zoomPresentation.autoIntensity, zoomPresentation.markers]);
+
+  // Reset the first-save guard whenever we switch to a different recording.
+  useEffect(() => {
+    skipFirstZoomSaveRef.current = true;
+  }, [recordingFilePath]);
+
   const handleCursorChange = useCallback((patch: Partial<CursorPresentation>) => {
     if (!activeRecordingId) return;
     projectStore.getState().updateRecordingCursor(activeRecordingId, patch);

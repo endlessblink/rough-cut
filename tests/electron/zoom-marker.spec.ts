@@ -1,7 +1,23 @@
+import { promises as fs } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
+
+/** Remove any <recording>.zoom.json sidecars left behind by prior runs
+ *  so each test starts from an empty zoom state. */
+function clearZoomSidecars() {
+  const dir = '/tmp/rough-cut/recordings';
+  if (!existsSync(dir)) return;
+  for (const name of readdirSync(dir)) {
+    if (name.endsWith('.zoom.json')) {
+      try { void fs.unlink(join(dir, name)); } catch { /* ignore */ }
+    }
+  }
+}
 
 test.describe('Zoom markers — Record tab', () => {
   test.beforeEach(async ({ appPage }) => {
+    clearZoomSidecars();
     await navigateToTab(appPage, 'record');
   });
 

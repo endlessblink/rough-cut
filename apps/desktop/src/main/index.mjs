@@ -286,6 +286,50 @@ function registerIpcHandlers() {
     return result;
   });
 
+  // Zoom sidecar: persist ZoomPresentation next to the recording .webm.
+  // Path = <recordingFilePath>.replace(/\.(webm|mp4)$/, '.zoom.json')
+  const zoomSidecarPath = (recordingFilePath) =>
+    recordingFilePath.replace(/\.(webm|mp4)$/i, '.zoom.json');
+
+  ipcMain.handle(IPC_CHANNELS.ZOOM_LOAD_SIDECAR, async (_e, { recordingFilePath }) => {
+    try {
+      if (!recordingFilePath) return null;
+      const path = zoomSidecarPath(recordingFilePath);
+      if (!existsSync(path)) return null;
+      const content = await readFile(path, 'utf-8');
+      const parsed = JSON.parse(content);
+      // Accept either { version, autoIntensity, markers } or a bare ZoomPresentation.
+      if (parsed && typeof parsed === 'object' && Array.isArray(parsed.markers)) {
+        return {
+          autoIntensity: typeof parsed.autoIntensity === 'number' ? parsed.autoIntensity : 0,
+          markers: parsed.markers,
+        };
+      }
+      console.warn('[zoom-sidecar] Unexpected shape in', path);
+      return null;
+    } catch (err) {
+      console.warn('[zoom-sidecar] Load failed:', err?.message ?? err);
+      return null;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.ZOOM_SAVE_SIDECAR, async (_e, { recordingFilePath, presentation }) => {
+    try {
+      if (!recordingFilePath || !presentation) return false;
+      const path = zoomSidecarPath(recordingFilePath);
+      const payload = {
+        version: 1,
+        autoIntensity: typeof presentation.autoIntensity === 'number' ? presentation.autoIntensity : 0,
+        markers: Array.isArray(presentation.markers) ? presentation.markers : [],
+      };
+      await writeFile(path, JSON.stringify(payload, null, 2), 'utf-8');
+      return true;
+    } catch (err) {
+      console.warn('[zoom-sidecar] Save failed:', err?.message ?? err);
+      return false;
+    }
+  });
+
   // Project: Auto-save — saves silently after recording completes.
   // If filePath is provided, overwrites that file; otherwise resolves a path in ~/Documents/Rough Cut/.
   ipcMain.handle(IPC_CHANNELS.PROJECT_AUTO_SAVE, async (_e, { project, filePath }) => {

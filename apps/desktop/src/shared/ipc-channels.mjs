@@ -75,4 +75,8 @@ export const IPC_CHANNELS = {
 
   // Debug (temporary)
   DEBUG_LOAD_LAST_RECORDING: 'debug:load-last-recording',
+
+  // Zoom marker persistence (sidecar alongside the recording .webm)
+  ZOOM_LOAD_SIDECAR: 'zoom:load-sidecar',
+  ZOOM_SAVE_SIDECAR: 'zoom:save-sidecar',
 };

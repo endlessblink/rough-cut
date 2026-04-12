@@ -242,6 +242,14 @@ const api = {
   /** [DEBUG] Reload the most recent recording from disk. Returns RecordingResult or null. */
   debugLoadLastRecording: () =>
     ipcRenderer.invoke(IPC_CHANNELS.DEBUG_LOAD_LAST_RECORDING),
+
+  /** Load the zoom sidecar (recording-xxx.zoom.json). Returns ZoomPresentation or null. */
+  zoomLoadSidecar: (recordingFilePath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.ZOOM_LOAD_SIDECAR, { recordingFilePath }),
+
+  /** Save the zoom sidecar next to the recording file. Returns true on success. */
+  zoomSaveSidecar: (recordingFilePath, presentation) =>
+    ipcRenderer.invoke(IPC_CHANNELS.ZOOM_SAVE_SIDECAR, { recordingFilePath, presentation }),
 };
 
 contextBridge.exposeInMainWorld('roughcut', api);
