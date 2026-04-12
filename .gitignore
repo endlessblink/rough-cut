@@ -11,3 +11,7 @@ spikes/frame-decode/test-media/
 spikes/recording/samples/
 spikes/timeline-state/node_modules/
 results/
+
+# Playwright artifacts (regenerated per run)
+playwright-report/
+test-results/
