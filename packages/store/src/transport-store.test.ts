@@ -137,4 +137,58 @@ describe('transportStore', () => {
     expect(state.loopStartFrame).toBe(10);
     expect(state.loopEndFrame).toBe(100);
   });
+
+  describe('selectedClipIds', () => {
+    it('initial selection is empty', () => {
+      expect(store.getState().selectedClipIds).toEqual([]);
+    });
+
+    it('setSelectedClipIds replaces the selection', () => {
+      store.getState().setSelectedClipIds(['a', 'b']);
+      expect(store.getState().selectedClipIds).toEqual(['a', 'b']);
+      store.getState().setSelectedClipIds(['c']);
+      expect(store.getState().selectedClipIds).toEqual(['c']);
+    });
+
+    it('setSelectedClipIds deduplicates', () => {
+      store.getState().setSelectedClipIds(['a', 'b', 'a', 'b', 'c']);
+      expect(store.getState().selectedClipIds).toEqual(['a', 'b', 'c']);
+    });
+
+    it('addToSelection appends unique ids', () => {
+      store.getState().setSelectedClipIds(['a']);
+      store.getState().addToSelection(['b', 'c']);
+      expect(store.getState().selectedClipIds).toEqual(['a', 'b', 'c']);
+    });
+
+    it('addToSelection skips duplicates', () => {
+      store.getState().setSelectedClipIds(['a', 'b']);
+      store.getState().addToSelection(['b', 'c', 'a']);
+      expect(store.getState().selectedClipIds).toEqual(['a', 'b', 'c']);
+    });
+
+    it('removeFromSelection drops listed ids', () => {
+      store.getState().setSelectedClipIds(['a', 'b', 'c']);
+      store.getState().removeFromSelection(['b']);
+      expect(store.getState().selectedClipIds).toEqual(['a', 'c']);
+    });
+
+    it('removeFromSelection tolerates unknown ids', () => {
+      store.getState().setSelectedClipIds(['a']);
+      store.getState().removeFromSelection(['nope', 'a']);
+      expect(store.getState().selectedClipIds).toEqual([]);
+    });
+
+    it('clearSelection empties the array', () => {
+      store.getState().setSelectedClipIds(['a', 'b']);
+      store.getState().clearSelection();
+      expect(store.getState().selectedClipIds).toEqual([]);
+    });
+
+    it('clearSelection on empty is a no-op (same reference)', () => {
+      const before = store.getState().selectedClipIds;
+      store.getState().clearSelection();
+      expect(store.getState().selectedClipIds).toBe(before);
+    });
+  });
 });

@@ -7,6 +7,8 @@ export interface TransportState {
   loopEnabled: boolean;
   loopStartFrame: number;
   loopEndFrame: number;
+  /** Clip IDs currently selected in the Edit timeline. Transient (non-undoable). */
+  selectedClipIds: readonly string[];
 }
 
 export interface TransportActions {
@@ -19,6 +21,10 @@ export interface TransportActions {
   stepForward: (frames?: number) => void;
   stepBackward: (frames?: number) => void;
   setLoop: (enabled: boolean, startFrame?: number, endFrame?: number) => void;
+  setSelectedClipIds: (clipIds: readonly string[]) => void;
+  addToSelection: (clipIds: readonly string[]) => void;
+  removeFromSelection: (clipIds: readonly string[]) => void;
+  clearSelection: () => void;
 }
 
 export type TransportStore = TransportState & TransportActions;
@@ -30,6 +36,7 @@ export const DEFAULT_TRANSPORT_STATE: TransportState = {
   loopEnabled: false,
   loopStartFrame: 0,
   loopEndFrame: 0,
+  selectedClipIds: [],
 };
 
 export function createTransportStore() {
@@ -79,6 +86,27 @@ export function createTransportStore() {
         loopStartFrame: startFrame !== undefined ? startFrame : current.loopStartFrame,
         loopEndFrame: endFrame !== undefined ? endFrame : current.loopEndFrame,
       });
+    },
+
+    setSelectedClipIds: (clipIds: readonly string[]) => {
+      set({ selectedClipIds: Array.from(new Set(clipIds)) });
+    },
+
+    addToSelection: (clipIds: readonly string[]) => {
+      set((state) => ({
+        selectedClipIds: Array.from(new Set([...state.selectedClipIds, ...clipIds])),
+      }));
+    },
+
+    removeFromSelection: (clipIds: readonly string[]) => {
+      const remove = new Set(clipIds);
+      set((state) => ({
+        selectedClipIds: state.selectedClipIds.filter((id) => !remove.has(id)),
+      }));
+    },
+
+    clearSelection: () => {
+      set((state) => (state.selectedClipIds.length === 0 ? state : { selectedClipIds: [] }));
     },
   }));
 }
