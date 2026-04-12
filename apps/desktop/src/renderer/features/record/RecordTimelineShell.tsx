@@ -11,7 +11,7 @@
  *   4. Callbacks are accessed through a ref to avoid stale closures.
  */
 import { useRef, useCallback, useMemo, useEffect, useState } from 'react';
-import type { Track, Asset } from '@rough-cut/project-model';
+import type { Track, Asset, ZoomMarker, ZoomMarkerId } from '@rough-cut/project-model';
 import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 
 /* ── Types ─────────────────────────────────────────────────────────────────── */
@@ -25,6 +25,14 @@ interface RecordTimelineShellProps {
   onScrub: (frame: number) => void;
   /** When set, highlight clips matching this asset and dim others */
   activeAssetId?: string | null;
+  /** Zoom markers for the active recording (auto + manual) */
+  zoomMarkers?: readonly ZoomMarker[];
+  /** Currently selected zoom marker (null = none selected) */
+  selectedZoomMarkerId?: ZoomMarkerId | null;
+  /** Add a manual zoom marker at the current playhead */
+  onAddZoomMarkerAtPlayhead?: () => void;
+  /** Select a zoom marker */
+  onSelectZoomMarker?: (id: ZoomMarkerId | null) => void;
 }
 
 /* ── Constants ─────────────────────────────────────────────────────────────── */
@@ -127,6 +135,134 @@ function TimelineRuler({ durationFrames, fps }: { durationFrames: number; fps: n
   );
 }
 
+/* ── ZoomTrackRow ──────────────────────────────────────────────────────────── */
+
+function ZoomTrackRow({
+  top,
+  durationFrames,
+  markers,
+  selectedMarkerId,
+  onSelectMarker,
+  onAddMarker,
+}: {
+  top: number;
+  durationFrames: number;
+  markers: readonly ZoomMarker[];
+  selectedMarkerId: ZoomMarkerId | null;
+  onSelectMarker?: (id: ZoomMarkerId | null) => void;
+  onAddMarker?: () => void;
+}) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top,
+        left: 0,
+        right: 0,
+        height: LANE_HEIGHT,
+        borderTop: '1px solid rgba(255,255,255,0.07)',
+        display: 'flex',
+      }}
+    >
+      {/* Label column with + button */}
+      <div
+        style={{
+          width: LABEL_WIDTH,
+          flexShrink: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 2,
+          background: 'rgba(0,0,0,0.60)',
+          borderRight: '1px solid rgba(255,255,255,0.07)',
+        }}
+      >
+        <button
+          data-testid="zoom-add"
+          onClick={(e) => { e.stopPropagation(); onAddMarker?.(); }}
+          disabled={!onAddMarker || durationFrames <= 0}
+          title="Add zoom marker at playhead"
+          style={{
+            width: 18,
+            height: 18,
+            padding: 0,
+            border: 'none',
+            borderRadius: 3,
+            background: 'rgba(255,138,101,0.25)',
+            color: 'rgba(255,138,101,0.95)',
+            cursor: onAddMarker && durationFrames > 0 ? 'pointer' : 'default',
+            fontSize: 13,
+            lineHeight: 1,
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          +
+        </button>
+        <span
+          style={{
+            fontSize: 8,
+            fontWeight: 600,
+            color: 'rgba(255,138,101,0.70)',
+            letterSpacing: '0.04em',
+            userSelect: 'none',
+          }}
+        >
+          ZM
+        </span>
+      </div>
+
+      {/* Marker area */}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {markers.map((m) => {
+          const dur = m.endFrame - m.startFrame;
+          if (durationFrames <= 0 || dur <= 0) return null;
+
+          const leftPct = frameToPct(m.startFrame, durationFrames);
+          const widthPct = frameToPct(dur, durationFrames);
+          const isManual = m.kind === 'manual';
+          const selected = m.id === selectedMarkerId;
+
+          const bg = isManual
+            ? (selected ? 'rgba(255,138,101,0.95)' : 'rgba(255,138,101,0.70)')
+            : 'rgba(108,160,255,0.35)';
+
+          return (
+            <button
+              key={m.id}
+              data-testid="zoom-marker"
+              data-marker-kind={m.kind}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectMarker?.(m.id);
+              }}
+              title={`${m.kind} · ${Math.round(m.strength * 100)}% · ${m.startFrame}-${m.endFrame}`}
+              style={{
+                position: 'absolute',
+                top: CLIP_TOP,
+                left: `${leftPct}%`,
+                width: `${widthPct}%`,
+                minWidth: 4,
+                height: CLIP_HEIGHT,
+                borderRadius: 4,
+                border: selected ? '2px solid rgba(255,255,255,0.90)' : 'none',
+                background: bg,
+                padding: 0,
+                cursor: 'pointer',
+                pointerEvents: 'auto',
+                zIndex: selected ? 3 : 2,
+              }}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ── RecordTimelineShell ───────────────────────────────────────────────────── */
 
 export function RecordTimelineShell({
@@ -137,6 +273,10 @@ export function RecordTimelineShell({
   fps,
   onScrub,
   activeAssetId,
+  zoomMarkers = [],
+  selectedZoomMarkerId = null,
+  onAddZoomMarkerAtPlayhead,
+  onSelectZoomMarker,
 }: RecordTimelineShellProps) {
   /* ── derived data ──────────────────────────────────────────────────────── */
 
@@ -348,7 +488,7 @@ export function RecordTimelineShell({
     return aIdx++;
   });
 
-  const totalHeight = Math.max(tracks.length * LANE_HEIGHT, LANE_HEIGHT);
+  const totalHeight = Math.max((tracks.length + 1) * LANE_HEIGHT, LANE_HEIGHT * 2);
   const playheadPct = frameToPct(displayFrame, effectiveDuration);
 
   /* ── render ────────────────────────────────────────────────────────────── */
@@ -440,15 +580,26 @@ export function RecordTimelineShell({
           style={{
             flex: 1,
             position: 'relative',
-            overflow: 'hidden',
+            overflowX: 'hidden',
+            overflowY: 'auto',
             background: 'rgba(7,7,7,0.98)',
             cursor: 'pointer',
-            minHeight: totalHeight,
+            minHeight: Math.min(totalHeight, 170),
           }}
         >
           {/* Lane rows */}
+          {/* Zoom track row — FIRST row, above clip tracks for visibility */}
+          <ZoomTrackRow
+            top={0}
+            durationFrames={effectiveDuration}
+            markers={zoomMarkers}
+            selectedMarkerId={selectedZoomMarkerId}
+            onSelectMarker={onSelectZoomMarker}
+            onAddMarker={onAddZoomMarkerAtPlayhead}
+          />
+
           {tracks.map((track, i) => {
-            const laneTop = i * LANE_HEIGHT;
+            const laneTop = (i + 1) * LANE_HEIGHT;
             const isVideo = track.type === 'video';
             const lbl = trackLabel(track, labelIndices[i] ?? i);
 
@@ -553,7 +704,10 @@ export function RecordTimelineShell({
             <div
               style={{
                 position: 'absolute',
-                inset: 0,
+                top: 0,
+                left: 0,
+                right: 0,
+                height: LANE_HEIGHT,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',

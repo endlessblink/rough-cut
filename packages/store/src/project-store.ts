@@ -90,6 +90,7 @@ export interface ProjectActions {
   addRecordingZoomMarker: (assetId: AssetId, startFrame: number, endFrame: number) => void;
   updateRecordingZoomMarker: (assetId: AssetId, markerId: ZoomMarkerId, patch: Partial<ZoomMarker>) => void;
   removeRecordingZoomMarker: (assetId: AssetId, markerId: ZoomMarkerId) => void;
+  replaceAutoZoomMarkers: (assetId: AssetId, markers: readonly ZoomMarker[]) => void;
   resetRecordingZoom: (assetId: AssetId) => void;
 
   // Recording presentation — cursor
@@ -489,6 +490,27 @@ export function createProjectStore() {
                   zoom: {
                     ...pres.zoom,
                     markers: pres.zoom.markers.filter((m) => m.id !== markerId),
+                  },
+                },
+              };
+            }),
+          }));
+        },
+
+        replaceAutoZoomMarkers: (assetId: AssetId, autoMarkers: readonly ZoomMarker[]) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              const manuals = pres.zoom.markers.filter((m) => m.kind === 'manual');
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  zoom: {
+                    ...pres.zoom,
+                    markers: [...manuals, ...autoMarkers],
                   },
                 },
               };

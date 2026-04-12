@@ -24,6 +24,9 @@ import { TemplatePreviewRenderer } from './TemplatePreviewRenderer.js';
 import { RecordRightPanel } from './RecordRightPanel.js';
 import type { BackgroundConfig } from './RecordRightPanel.js';
 import { RecordTimelineShell } from './RecordTimelineShell.js';
+import { ZoomMarkerInspector } from './ZoomMarkerInspector.js';
+import { useCursorEvents } from '../../hooks/use-cursor-events.js';
+import { generateAutoZoomMarkers } from '@rough-cut/timeline-engine';
 import { BottomBar } from './BottomBar.js';
 import type { RecordState } from './BottomBar.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
@@ -188,24 +191,65 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     projectStore.getState().setRecordingAutoZoomIntensity(activeRecordingId, value);
   }, [activeRecordingId]);
 
-  const handleAddZoomMarker = useCallback((frame: number) => {
-    if (!activeRecordingId) return;
-    const defaultDuration = Math.round(projectFps * 2);
-    projectStore.getState().addRecordingZoomMarker(
-      activeRecordingId,
-      frame,
-      Math.min(frame + defaultDuration, durationFrames),
-    );
-  }, [activeRecordingId, projectFps, durationFrames]);
+  const [selectedZoomMarkerId, setSelectedZoomMarkerId] = useState<import('@rough-cut/project-model').ZoomMarkerId | null>(null);
 
-  const handleSelectZoomMarker = useCallback((_id: string) => {
-    // TODO: select marker for editing
+  const handleAddZoomMarkerAtPlayhead = useCallback(() => {
+    if (!activeRecordingId || durationFrames <= 0) return;
+    // Default: 1 second, capped so there's always room, but never more than half the recording
+    const preferredDuration = Math.round(projectFps * 1);
+    const maxDuration = Math.max(projectFps, Math.floor(durationFrames / 2));
+    const defaultDuration = Math.min(preferredDuration, maxDuration);
+    const startFrame = Math.max(0, Math.min(currentFrame, durationFrames - defaultDuration));
+    const endFrame = Math.min(startFrame + defaultDuration, durationFrames);
+    projectStore.getState().addRecordingZoomMarker(activeRecordingId, startFrame, endFrame);
+  }, [activeRecordingId, projectFps, durationFrames, currentFrame]);
+
+  const handleSelectZoomMarker = useCallback((id: import('@rough-cut/project-model').ZoomMarkerId | null) => {
+    setSelectedZoomMarkerId(id);
   }, []);
 
   const handleResetZoom = useCallback(() => {
     if (!activeRecordingId) return;
     projectStore.getState().resetRecordingZoom(activeRecordingId);
+    setSelectedZoomMarkerId(null);
   }, [activeRecordingId]);
+
+  // ── Auto-zoom: regenerate markers from cursor data when intensity changes ──
+  const autoIntensity = zoomPresentation.autoIntensity;
+  const cursorEventsPath = activeRecordingAsset?.metadata?.cursorEventsPath as string | null;
+  const autoCursorEvents = useCursorEvents(cursorEventsPath);
+  const sourceWidth = (activeRecordingAsset?.metadata?.width as number) || 1920;
+  const sourceHeight = (activeRecordingAsset?.metadata?.height as number) || 1080;
+
+  useEffect(() => {
+    if (!activeRecordingId) return;
+
+    const handle = setTimeout(() => {
+      const store = projectStore.getState();
+      // Wrap in temporal pause/resume so marker regeneration doesn't pollute undo history
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const temporal = (projectStore as any).temporal;
+      temporal?.getState?.().pause?.();
+      try {
+        if (autoIntensity <= 0 || !autoCursorEvents || autoCursorEvents.length === 0) {
+          store.replaceAutoZoomMarkers(activeRecordingId, []);
+          return;
+        }
+        const autos = generateAutoZoomMarkers(
+          autoCursorEvents,
+          autoIntensity,
+          projectFps,
+          sourceWidth,
+          sourceHeight,
+        );
+        store.replaceAutoZoomMarkers(activeRecordingId, autos);
+      } finally {
+        temporal?.getState?.().resume?.();
+      }
+    }, 250);
+
+    return () => clearTimeout(handle);
+  }, [activeRecordingId, autoIntensity, autoCursorEvents, projectFps, sourceWidth, sourceHeight]);
 
   const handleCursorChange = useCallback((patch: Partial<CursorPresentation>) => {
     if (!activeRecordingId) return;
@@ -349,6 +393,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         <ModeSelectorRow mode={recordMode} onChange={setRecordMode} />
         {/* [DEBUG] Quick reload button — temporary for camera decode testing */}
         <button
+          data-testid="debug-reload"
           onClick={handleDebugReload}
           style={{
             padding: '4px 10px',
@@ -407,7 +452,17 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
                   selectedSourceId
                     ? <LivePreviewVideo stream={liveStream} />
                     : activeRecordingAsset?.filePath
-                      ? <RecordingPlaybackVideo filePath={activeRecordingAsset.filePath} fps={projectFps} assetId={activeRecordingAsset.id} />
+                      ? <RecordingPlaybackVideo
+                          filePath={activeRecordingAsset.filePath}
+                          fps={projectFps}
+                          assetId={activeRecordingAsset.id}
+                          zoomMarkers={zoomPresentation.markers}
+                          selectedZoomMarker={selectedZoomMarkerId ? zoomPresentation.markers.find((m) => m.id === selectedZoomMarkerId) ?? null : null}
+                          onFocalPointChange={(markerId, focalPoint) => {
+                            if (!activeRecordingId) return;
+                            projectStore.getState().updateRecordingZoomMarker(activeRecordingId, markerId, { focalPoint });
+                          }}
+                        />
                       : undefined
                 }
                 cameraContent={
@@ -440,14 +495,10 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         }
         inspector={
           <RecordRightPanel
-            durationFrames={durationFrames}
-            currentFrame={currentFrame}
             fps={projectFps}
-            zoomMarkers={zoomPresentation.markers}
+            zoomMarkerCount={zoomPresentation.markers.length}
             zoomIntensity={zoomPresentation.autoIntensity}
             onZoomIntensityChange={handleZoomIntensityChange}
-            onAddZoomMarker={handleAddZoomMarker}
-            onSelectZoomMarker={handleSelectZoomMarker}
             onResetZoomMarkers={handleResetZoom}
             cursor={cursorPresentation}
             onCursorChange={handleCursorChange}
@@ -505,8 +556,28 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         </div>
       )}
 
-      {/* Timeline — full width, compact fixed height */}
-      <div style={{ flexShrink: 0, height: 180, padding: '0 24px', marginBottom: 8, background: '#050505' }}>
+      {/* Zoom marker inspector (above timeline, only when a marker is selected) */}
+      {selectedZoomMarkerId && (() => {
+        const marker = zoomPresentation.markers.find((m) => m.id === selectedZoomMarkerId);
+        if (!marker || !activeRecordingId) return null;
+        return (
+          <div style={{ flexShrink: 0, background: '#050505' }}>
+            <ZoomMarkerInspector
+              marker={marker}
+              fps={projectFps}
+              onPatch={(patch) => projectStore.getState().updateRecordingZoomMarker(activeRecordingId, marker.id, patch)}
+              onDelete={() => {
+                projectStore.getState().removeRecordingZoomMarker(activeRecordingId, marker.id);
+                setSelectedZoomMarkerId(null);
+              }}
+              onDismiss={() => setSelectedZoomMarkerId(null)}
+            />
+          </div>
+        );
+      })()}
+
+      {/* Timeline — full width, fixed height (fits ruler + zoom track + up to 5 clip tracks) */}
+      <div style={{ flexShrink: 0, height: 220, padding: '0 24px', marginBottom: 8, background: '#050505' }}>
         <RecordTimelineShell
           tracks={tracks}
           assets={assets}
@@ -515,6 +586,10 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
           fps={projectFps}
           onScrub={handleTimelineScrub}
           activeAssetId={activeRecordingId}
+          zoomMarkers={zoomPresentation.markers}
+          selectedZoomMarkerId={selectedZoomMarkerId}
+          onAddZoomMarkerAtPlayhead={handleAddZoomMarkerAtPlayhead}
+          onSelectZoomMarker={handleSelectZoomMarker}
         />
       </div>
 

@@ -7,7 +7,7 @@
  * its own component (RecordZoomPanel, RecordCursorPanel).
  */
 import { useCallback, useState } from 'react';
-import type { ZoomMarker, CursorPresentation, CameraPresentation, RegionCrop } from '@rough-cut/project-model';
+import type { CursorPresentation, CameraPresentation, RegionCrop } from '@rough-cut/project-model';
 import { InspectorShell, RECORD_PANEL_WIDTH } from '../../ui/index.js';
 import type { InspectorCategory } from '../../ui/index.js';
 import { RecordZoomPanel } from './RecordZoomPanel.js';
@@ -37,14 +37,10 @@ export interface BackgroundConfig {
 }
 
 export interface RecordRightPanelProps {
-  durationFrames: number;
-  currentFrame: number;
   fps: number;
-  zoomMarkers: readonly ZoomMarker[];
+  zoomMarkerCount: number;
   zoomIntensity: number;
   onZoomIntensityChange: (value: number) => void;
-  onAddZoomMarker: (frame: number) => void;
-  onSelectZoomMarker: (id: string) => void;
   onResetZoomMarkers: () => void;
   cursor: CursorPresentation;
   onCursorChange: (patch: Partial<CursorPresentation>) => void;
@@ -191,13 +187,9 @@ function PlaceholderText() {
 // ─── RecordRightPanel ─────────────────────────────────────────────────────────
 
 export function RecordRightPanel({
-  durationFrames,
-  currentFrame,
-  zoomMarkers,
+  zoomMarkerCount,
   zoomIntensity,
   onZoomIntensityChange,
-  onAddZoomMarker,
-  onSelectZoomMarker,
   onResetZoomMarkers,
   cursor,
   onCursorChange,
@@ -308,13 +300,9 @@ export function RecordRightPanel({
       onReset: onResetZoomMarkers,
       panel: (
         <RecordZoomPanel
-          durationFrames={durationFrames}
-          currentFrame={currentFrame}
-          zoomMarkers={zoomMarkers}
           zoomIntensity={zoomIntensity}
           onZoomIntensityChange={onZoomIntensityChange}
-          onAddZoomMarker={onAddZoomMarker}
-          onSelectZoomMarker={onSelectZoomMarker}
+          zoomMarkerCount={zoomMarkerCount}
         />
       ),
     },

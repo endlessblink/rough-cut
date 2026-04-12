@@ -6,6 +6,14 @@ import type { ProjectStore, TransportStore } from '@rough-cut/store';
 export const projectStore = createProjectStore();
 export const transportStore = createTransportStore();
 
+// Test hook — expose stores on window for Playwright specs (dev only).
+if (typeof window !== 'undefined') {
+  (window as unknown as { __roughcutStores?: unknown }).__roughcutStores = {
+    project: projectStore,
+    transport: transportStore,
+  };
+}
+
 /**
  * React hook that subscribes to the vanilla Zustand project store.
  * Uses useSyncExternalStore for tear-free reads.
