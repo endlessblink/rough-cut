@@ -196,6 +196,51 @@ function ZoomTrackRow({
     },
     [durationFrames, markers, onResizeMarker],
   );
+
+  /**
+   * Drag the marker body to move it along the timeline (preserves duration).
+   * Distinguishes click (< 3px movement → select) from drag (move position).
+   */
+  const startMove = useCallback(
+    (markerId: ZoomMarkerId, downEvent: React.PointerEvent) => {
+      const area = markerAreaRef.current;
+      if (!area || durationFrames <= 0) {
+        // Fallback: still select on pointerup
+        onSelectMarker?.(markerId);
+        return;
+      }
+
+      const rect = area.getBoundingClientRect();
+      const marker = markers.find((m) => m.id === markerId);
+      if (!marker) return;
+
+      const startClientX = downEvent.clientX;
+      const pixelsPerFrame = rect.width / durationFrames;
+      const dur = marker.endFrame - marker.startFrame;
+      let moved = false;
+
+      const onMove = (ev: PointerEvent) => {
+        const dx = ev.clientX - startClientX;
+        if (!moved && Math.abs(dx) < 3) return; // still a click
+        moved = true;
+        const frameDelta = Math.round(dx / pixelsPerFrame);
+        const maxStart = Math.max(0, durationFrames - dur);
+        const newStart = Math.max(0, Math.min(maxStart, marker.startFrame + frameDelta));
+        const newEnd = newStart + dur;
+        onResizeMarker?.(markerId, { startFrame: newStart, endFrame: newEnd });
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        if (!moved) onSelectMarker?.(markerId);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+    },
+    [durationFrames, markers, onResizeMarker, onSelectMarker],
+  );
   return (
     <div
       style={{
@@ -282,9 +327,13 @@ function ZoomTrackRow({
               data-marker-kind={m.kind}
               role="button"
               tabIndex={0}
-              onClick={(e) => {
+              onPointerDown={(e) => {
                 e.stopPropagation();
-                onSelectMarker?.(m.id);
+                if (isManual && onResizeMarker) {
+                  startMove(m.id, e);
+                } else {
+                  onSelectMarker?.(m.id);
+                }
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -303,7 +352,7 @@ function ZoomTrackRow({
                 borderRadius: 4,
                 border: selected ? '2px solid rgba(255,255,255,0.90)' : 'none',
                 background: bg,
-                cursor: 'pointer',
+                cursor: isManual ? 'grab' : 'pointer',
                 pointerEvents: 'auto',
                 zIndex: selected ? 3 : 2,
                 boxSizing: 'border-box',
