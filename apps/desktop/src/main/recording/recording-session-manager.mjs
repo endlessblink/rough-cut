@@ -33,7 +33,7 @@ import {
   app,
 } from 'electron';
 import { join, dirname } from 'node:path';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../../shared/ipc-channels.mjs';
 import { saveRecording, saveRecordingFromFile } from './capture-service.mjs';
@@ -453,18 +453,27 @@ export async function startRecording() {
     recordingStartMs = Date.now();
     console.info('[session-manager] Recording phase started. Platform:', process.platform, 'Content protection:', IS_LINUX ? 'UNAVAILABLE' : 'enabled');
 
-    // Start cursor recording — writes .cursor.ndjson alongside the video
+    // Start cursor recording — writes .cursor.ndjson alongside the video.
+    // Default: ~/Documents/Rough Cut/recordings (persistent). Falls back to
+    // /tmp only if the user's Documents directory is not accessible.
+    const defaultRecordingsDir = join(app.getPath('documents'), 'Rough Cut', 'recordings');
     const recordingsDir = await (async () => {
       try {
         const { getRecordingLocation } = await import('../recent-projects-service.mjs');
         const loc = getRecordingLocation();
-        console.info('[session-manager] Recording location:', loc || '(default /tmp)');
-        return loc || '/tmp/rough-cut/recordings';
+        console.info('[session-manager] Recording location:', loc || `(default ${defaultRecordingsDir})`);
+        return loc || defaultRecordingsDir;
       } catch (e) {
         console.warn('[session-manager] getRecordingLocation failed:', e?.message);
-        return '/tmp/rough-cut/recordings';
+        return defaultRecordingsDir;
       }
     })();
+    // Ensure the recordings directory exists before FFmpeg/MediaRecorder tries to write to it
+    try {
+      if (!existsSync(recordingsDir)) mkdirSync(recordingsDir, { recursive: true });
+    } catch (err) {
+      console.warn('[session-manager] Failed to create recordings dir:', recordingsDir, err?.message);
+    }
     const cursorTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const cursorPath = join(recordingsDir, `recording-${cursorTimestamp}.cursor.ndjson`);
     console.info('[session-manager] Cursor sidecar path:', cursorPath);
