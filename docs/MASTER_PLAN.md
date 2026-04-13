@@ -92,6 +92,7 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | TASK-023 | Edit: Keyframe editor (timeline markers + inspector controls) | P1 | TODO | TASK-019 |
 | TASK-024 | Edit: Transitions (crossfade rendering in preview + export) | P1 | TODO | TASK-005, TASK-007 |
 | TASK-025 | Edit: Track headers UI (mute/solo/lock toggles, volume slider) | P1 | TODO | TASK-006 |
+| FEATURE-084 | Edit: Timeline multi-select + snap additions (Increment 1 of 3) | P1 | IN PROGRESS | TASK-006, TASK-003 |
 | TASK-026 | Edit: Audio waveforms on timeline clips | P2 | TODO | TASK-020 |
 | TASK-027 | Edit: Ripple delete mode | P2 | TODO | TASK-003 |
 | TASK-028 | Export: Audio mixing in export pipeline | P1 | TODO | TASK-008, TASK-020 |
@@ -325,6 +326,29 @@ The Edit tab uses the PixiJS compositor for rendering, which currently skips cam
 - [ ] Ensure camera syncs with Edit tab playhead during playback and scrubbing
 
 **Key files:** `preview-compositor.ts`, `EditTab.tsx`, `CameraPlaybackCanvas.tsx`
+
+---
+
+### FEATURE-084: Edit: Timeline multi-select + snap additions
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-13)
+
+Increment 1 of a three-part editor upgrade inspired by headline-design/seq (no-license, reimplemented clean-room). Adds multi-select and two new snap targets. Virtualization (Increment 2) and waveform rendering (Increment 3) deferred.
+
+**Progress (2026-04-13):** Increment 1 landed on branch `feat/timeline-marquee-snap`:
+- `snapToPlayhead` and `snapToGrid` pure helpers in `packages/timeline-engine/src/snap.ts` (13 new unit tests)
+- `getClipsInFrameRange` extended with optional `trackIds` filter for marquee hit-testing (5 new tests)
+- `selectedClipIds: readonly string[]` added to `TransportStore` with `setSelectedClipIds` / `addToSelection` / `removeFromSelection` / `clearSelection` actions (9 new tests, non-undoable by design)
+- Edit tab selection migrated from component-local `useState` to transport store; `TimelineStrip` prop renamed `selectedClipId` → `selectedClipIds` (MotionTab/ExportTab unaffected, they use READ_ONLY interaction)
+- New `MarqueeOverlay.tsx` component: drag on empty timeline background draws rubber-band rect; release selects clips in range; shift-drag adds to selection; plain click on empty clears; 3px drag threshold separates click from marquee
+- `handleDelete` now removes all selected clips (previously only the first)
+- Full test matrix post-Increment 1: +27 new tests, zero regressions against baseline
+
+**Remaining (Increments 2 + 3):**
+- Clip virtualization (render only clips intersecting visible frame range)
+- Waveform rendering via main-process FFmpeg peak extraction (defer until FEATURE-076 stabilizes)
+- Known limitations (intentional for this increment): right panel shows only first selected clip; `S` (split) operates on first selection only; multi-delete produces N undo steps rather than 1
+
+**Key files:** `packages/timeline-engine/src/snap.ts`, `packages/timeline-engine/src/select-clips.ts`, `packages/store/src/transport-store.ts`, `apps/desktop/src/renderer/features/edit/{TimelineStrip,EditTab,MarqueeOverlay}.tsx`
 
 ---
 
