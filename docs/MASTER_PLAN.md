@@ -163,6 +163,7 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | TASK-070 | Accessibility basics (keyboard nav, screen reader) | P3 | TODO | - |
 | TASK-071 | Project save/load with relative paths | P1 | TODO | TASK-053 |
 | ~~TASK-072~~ | ~~Recent projects workflow~~ | P2 | ✅ **DONE** (2026-03-30) | TASK-071 |
+| TASK-085 | Record: Persistent recording location + migration for stale /tmp references | P1 | IN PROGRESS | TASK-071 |
 
 ---
 
@@ -349,6 +350,35 @@ Increment 1 of a three-part editor upgrade inspired by headline-design/seq (no-l
 - Known limitations (intentional for this increment): right panel shows only first selected clip; `S` (split) operates on first selection only; multi-delete produces N undo steps rather than 1
 
 **Key files:** `packages/timeline-engine/src/snap.ts`, `packages/timeline-engine/src/select-clips.ts`, `packages/store/src/transport-store.ts`, `apps/desktop/src/renderer/features/edit/{TimelineStrip,EditTab,MarqueeOverlay}.tsx`
+
+---
+
+### TASK-085: Record: Persistent recording location + migration for stale /tmp references
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-13)
+
+#### Problem
+Recordings have been defaulting to `/tmp/rough-cut/recordings/`. On most Linux setups `/tmp` is cleared on reboot, so any `.roughcut` project referencing those absolute paths loses its footage. Evidence: many March / early-April projects now point at `.webm` files that no longer exist on disk. Saved projects open but their preview is blank or falls back to MediaError.
+
+The app already has a user-configurable recording location stored via `electron-store` key `recordingLocation` (see `recent-projects-service.mjs:23-26`), and a Settings UI for picking one — but the default when none is set was `/tmp/...`, so new users hit the same problem.
+
+#### Progress (2026-04-13)
+- Recording session manager fallback switched from `/tmp/rough-cut/recordings` to `~/Documents/Rough Cut/recordings` (`app.getPath('documents')` + auto-`mkdirSync`). Branch: `feat/timeline-marquee-snap`, commit `ba4e092`.
+- Existing user-configured location via Settings still takes precedence (no behavior change for users who set one).
+
+#### Remaining
+- [ ] Update `DEBUG_LOAD_LAST_RECORDING` handler in `apps/desktop/src/main/index.mjs:211` to look in both the configured location AND the new default, falling back to `/tmp` only for legacy recordings.
+- [ ] Update Playwright test constants — `tests/electron/zoom-marker.spec.ts:9` and `tests/electron/zoom-persistence.spec.ts:7` hardcode `/tmp/rough-cut/recordings`. Drive them from the actual configured location.
+- [ ] Decide: scan `~/Documents/Rough Cut/*.roughcut` on startup for dead asset paths and surface a "missing footage" warning + optional "browse for recording" repair. (See TASK-071 for the relative-paths approach, which is the long-term fix.)
+- [ ] Document in MVP_SPEC.md that default recording storage is `~/Documents/Rough Cut/recordings/` and that Settings can override.
+
+#### Key files
+- `apps/desktop/src/main/recording/recording-session-manager.mjs` — fallback path + `mkdirSync`
+- `apps/desktop/src/main/index.mjs` — `DEBUG_LOAD_LAST_RECORDING` handler (still hardcodes /tmp)
+- `apps/desktop/src/main/recent-projects-service.mjs:23-26` — `recordingLocation` electron-store schema
+- `apps/desktop/src/renderer/features/settings/**` — Settings UI (already wires `STORAGE_SET_RECORDING_LOCATION`)
+
+#### Why this matters
+Without a persistent default, every new install produces projects that break on the next reboot. This is the correct short-term fix (safe default) while TASK-071 (relative paths in project documents) is the correct long-term fix (portability across machines).
 
 ---
 
