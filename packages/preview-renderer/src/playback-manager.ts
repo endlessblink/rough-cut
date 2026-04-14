@@ -2,7 +2,7 @@
  * PlaybackManager — single owner of all video playback.
  *
  * Replaces 6 scattered mechanisms (RecordingPlaybackVideo subscriptions,
- * useCameraSync, usePlaybackLoop, PlaybackController, PlaybackClock,
+ * camera-specific sync hooks, usePlaybackLoop, PlaybackController, PlaybackClock,
  * RecordTimelineShell rAF loop) with one class that controls all
  * <video> elements and the PixiJS compositor.
  *
@@ -21,7 +21,9 @@ interface TransportStoreApi {
     isPlaying: boolean;
   };
   setState: (partial: Partial<{ playheadFrame: number; isPlaying: boolean }>) => void;
-  subscribe: (listener: (state: { playheadFrame: number; isPlaying: boolean }) => void) => () => void;
+  subscribe: (
+    listener: (state: { playheadFrame: number; isPlaying: boolean }) => void,
+  ) => () => void;
 }
 
 interface ProjectStoreApi {
@@ -43,6 +45,7 @@ export class PlaybackManager {
   private projectStore: ProjectStoreApi;
 
   private screenVideo: HTMLVideoElement | null = null;
+  private cameraVideo: HTMLVideoElement | null = null;
   private compositor: PreviewCompositor | null = null;
 
   private _playing = false;
@@ -72,6 +75,22 @@ export class PlaybackManager {
     // If already playing (late registration), start this video
     if (this._playing) {
       this._startVideo(video);
+    } else {
+      this._seekAllTo(this.transportStore.getState().playheadFrame);
+    }
+  }
+
+  registerCameraVideo(video: HTMLVideoElement): void {
+    this.cameraVideo = video;
+    console.info('[PlaybackManager] Camera video registered');
+    if (this._playing) {
+      const fps = this.projectStore.getState().project.settings.frameRate;
+      const targetTime =
+        this.screenVideo?.currentTime ?? this.transportStore.getState().playheadFrame / fps;
+      video.currentTime = targetTime;
+      this._startVideo(video);
+    } else {
+      this._seekAllTo(this.transportStore.getState().playheadFrame);
     }
   }
 
@@ -79,6 +98,13 @@ export class PlaybackManager {
     if (this.screenVideo) {
       this.screenVideo.pause();
       this.screenVideo = null;
+    }
+  }
+
+  unregisterCameraVideo(): void {
+    if (this.cameraVideo) {
+      this.cameraVideo.pause();
+      this.cameraVideo = null;
     }
   }
 
@@ -105,6 +131,10 @@ export class PlaybackManager {
       this.screenVideo.currentTime = startTime;
       this._startVideo(this.screenVideo);
     }
+    if (this.cameraVideo) {
+      this.cameraVideo.currentTime = startTime;
+      this._startVideo(this.cameraVideo);
+    }
     if (this.compositor) {
       this.compositor.play();
     }
@@ -121,7 +151,11 @@ export class PlaybackManager {
       this._rafId = requestAnimationFrame(this._syncLoop);
     }
 
-    console.info('[PlaybackManager] play() — started from', startTime.toFixed(2) + 's', this._useRvfc ? '(rVFC)' : '(rAF)');
+    console.info(
+      '[PlaybackManager] play() — started from',
+      startTime.toFixed(2) + 's',
+      this._useRvfc ? '(rVFC)' : '(rAF)',
+    );
   }
 
   pause(): void {
@@ -137,15 +171,15 @@ export class PlaybackManager {
 
     // Pause all videos
     this.screenVideo?.pause();
+    this.cameraVideo?.pause();
     if (this.compositor) {
       this.compositor.pause();
     }
 
     // Snap playhead to current video time
     const fps = this.projectStore.getState().project.settings.frameRate;
-    const currentTime = this.screenVideo?.currentTime
-      ?? this.compositor?.getVideoCurrentTime()
-      ?? 0;
+    const currentTime =
+      this.screenVideo?.currentTime ?? this.compositor?.getVideoCurrentTime() ?? 0;
     const frame = Math.round(currentTime * fps);
 
     this.transportStore.setState({ isPlaying: false, playheadFrame: frame });
@@ -202,11 +236,16 @@ export class PlaybackManager {
   // ── Internal ─────────────────────────────────────────────────
 
   private _startVideo(video: HTMLVideoElement): void {
-    video.play().then(() => {
-      console.info(`[PlaybackManager] video.play() OK — ${video.videoWidth}x${video.videoHeight} readyState=${video.readyState}`);
-    }).catch((e) => {
-      console.error('[PlaybackManager] video.play() FAILED:', e);
-    });
+    video
+      .play()
+      .then(() => {
+        console.info(
+          `[PlaybackManager] video.play() OK — ${video.videoWidth}x${video.videoHeight} readyState=${video.readyState}`,
+        );
+      })
+      .catch((e) => {
+        console.error('[PlaybackManager] video.play() FAILED:', e);
+      });
   }
 
   /**
@@ -220,6 +259,8 @@ export class PlaybackManager {
     const fps = this.projectStore.getState().project.settings.frameRate;
     const screenTime = metadata.mediaTime;
     const frame = Math.round(screenTime * fps);
+
+    this._syncCameraTo(screenTime);
 
     // 1. Sync store only when frame number changes
     if (frame !== this._lastSyncedFrame) {
@@ -258,7 +299,7 @@ export class PlaybackManager {
     const screen = this.screenVideo;
     const currentTime = screen
       ? screen.currentTime
-      : this.compositor?.getVideoCurrentTime() ?? -1;
+      : (this.compositor?.getVideoCurrentTime() ?? -1);
 
     if (currentTime < 0) {
       this._rafId = requestAnimationFrame(this._syncLoop);
@@ -267,6 +308,8 @@ export class PlaybackManager {
 
     const fps = this.projectStore.getState().project.settings.frameRate;
     const frame = Math.round(currentTime * fps);
+
+    this._syncCameraTo(currentTime);
 
     // 1. Sync store at ~30Hz (skip if frame unchanged)
     if (frame !== this._lastSyncedFrame) {
@@ -295,9 +338,15 @@ export class PlaybackManager {
     const fps = this.projectStore.getState().project.settings.frameRate;
     const targetTime = frame / fps;
 
-    if (this.screenVideo && this.screenVideo.readyState >= 2) {
+    if (this.screenVideo && this.screenVideo.readyState >= 1) {
       if (Math.abs(this.screenVideo.currentTime - targetTime) > 0.02) {
         this.screenVideo.currentTime = targetTime;
+      }
+    }
+
+    if (this.cameraVideo && this.cameraVideo.readyState >= 1) {
+      if (Math.abs(this.cameraVideo.currentTime - targetTime) > 0.02) {
+        this.cameraVideo.currentTime = targetTime;
       }
     }
 
@@ -306,11 +355,21 @@ export class PlaybackManager {
     }
   }
 
+  private _syncCameraTo(targetTime: number): void {
+    if (!this.cameraVideo || this.cameraVideo.readyState < 1) return;
+
+    const drift = Math.abs(this.cameraVideo.currentTime - targetTime);
+    if (drift > 0.033) {
+      this.cameraVideo.currentTime = targetTime;
+    }
+  }
+
   dispose(): void {
     this.pause();
     this._scrubUnsub?.();
     this._scrubUnsub = null;
     this.screenVideo = null;
+    this.cameraVideo = null;
     this.compositor = null;
   }
 }

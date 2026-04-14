@@ -13,6 +13,7 @@
 import { useRef, useCallback, useMemo, useEffect, useState } from 'react';
 import type { Track, Asset, ZoomMarker, ZoomMarkerId } from '@rough-cut/project-model';
 import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
+import { transportStore, useTransportStore } from '../../hooks/use-stores.js';
 
 /* ── Types ─────────────────────────────────────────────────────────────────── */
 
@@ -23,8 +24,8 @@ interface RecordTimelineShellProps {
   currentFrame: number;
   fps: number;
   onScrub: (frame: number) => void;
-  /** When set, highlight clips matching this asset and dim others */
-  activeAssetId?: string | null;
+  /** When set, highlight clips matching these assets and dim others */
+  activeAssetIds?: readonly string[];
   /** Zoom markers for the active recording (auto + manual) */
   zoomMarkers?: readonly ZoomMarker[];
   /** Currently selected zoom marker (null = none selected) */
@@ -34,7 +35,10 @@ interface RecordTimelineShellProps {
   /** Select a zoom marker */
   onSelectZoomMarker?: (id: ZoomMarkerId | null) => void;
   /** Resize a manual zoom marker by dragging its edge handles */
-  onResizeZoomMarker?: (id: ZoomMarkerId, patch: { startFrame?: number; endFrame?: number }) => void;
+  onResizeZoomMarker?: (
+    id: ZoomMarkerId,
+    patch: { startFrame?: number; endFrame?: number },
+  ) => void;
 }
 
 /* ── Constants ─────────────────────────────────────────────────────────────── */
@@ -269,7 +273,10 @@ function ZoomTrackRow({
       >
         <button
           data-testid="zoom-add"
-          onClick={(e) => { e.stopPropagation(); onAddMarker?.(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddMarker?.();
+          }}
           disabled={!onAddMarker || durationFrames <= 0}
           title="Add zoom marker at playhead"
           style={{
@@ -317,7 +324,9 @@ function ZoomTrackRow({
           const canResize = isManual && !!onResizeMarker;
 
           const bg = isManual
-            ? (selected ? 'rgba(255,138,101,0.95)' : 'rgba(255,138,101,0.70)')
+            ? selected
+              ? 'rgba(255,138,101,0.95)'
+              : 'rgba(255,138,101,0.70)'
             : 'rgba(108,160,255,0.35)';
 
           return (
@@ -409,7 +418,7 @@ export function RecordTimelineShell({
   currentFrame,
   fps,
   onScrub,
-  activeAssetId,
+  activeAssetIds,
   zoomMarkers = [],
   selectedZoomMarkerId = null,
   onAddZoomMarkerAtPlayhead,
@@ -434,31 +443,19 @@ export function RecordTimelineShell({
 
   /* ── play/pause state ──────────────────────────────────────────────────── */
 
-  const [isPlaying, setIsPlaying] = useState(false);
+  const isPlaying = useTransportStore((s) => s.isPlaying);
 
   // Displayed frame – updates via state for the timecode readout only
   const [displayFrame, setDisplayFrame] = useState(currentFrame);
 
   /* ── refs for rAF loop (never in dep arrays) ───────────────────────────── */
 
-  const rafIdRef = useRef(0);
-  const lastTimestampRef = useRef(0);
-  const isPlayingRef = useRef(false);
-  const internalFrameRef = useRef(currentFrame);
   const onScrubRef = useRef(onScrub);
 
   // Keep onScrubRef fresh (avoids stale closure)
   useEffect(() => {
     onScrubRef.current = onScrub;
   }, [onScrub]);
-
-  // Sync external scrubs into the internal ref (when NOT playing)
-  useEffect(() => {
-    if (!isPlayingRef.current) {
-      internalFrameRef.current = currentFrame;
-      setDisplayFrame(currentFrame);
-    }
-  }, [currentFrame]);
 
   /* ── DOM refs for imperative playhead needle ───────────────────────────── */
 
@@ -467,92 +464,28 @@ export function RecordTimelineShell({
   const lanesContainerRef = useRef<HTMLDivElement>(null);
 
   const effectiveDurationRef = useRef(effectiveDuration);
-  useEffect(() => { effectiveDurationRef.current = effectiveDuration; }, [effectiveDuration]);
+  useEffect(() => {
+    effectiveDurationRef.current = effectiveDuration;
+  }, [effectiveDuration]);
 
-  const moveNeedle = useCallback(
-    (frame: number) => {
-      const pct = frameToPct(frame, effectiveDurationRef.current);
-      const left = pctToLeft(pct);
-      if (needleRef.current) needleRef.current.style.left = left;
-      if (needleHandleRef.current) needleHandleRef.current.style.left = left;
-    },
-    [],
-  );
-
-  /* ── rAF playback loop ─────────────────────────────────────────────────── */
+  const moveNeedle = useCallback((frame: number) => {
+    const pct = frameToPct(frame, effectiveDurationRef.current);
+    const left = pctToLeft(pct);
+    if (needleRef.current) needleRef.current.style.left = left;
+    if (needleHandleRef.current) needleHandleRef.current.style.left = left;
+  }, []);
 
   useEffect(() => {
-    if (!isPlaying) {
-      isPlayingRef.current = false;
-      // Pause compositor video (stops audio)
-      getPlaybackManager().setCompositorPlaying(false);
-      return;
-    }
-
-    if (effectiveDuration <= 0) {
-      setIsPlaying(false);
-      return;
-    }
-
-    isPlayingRef.current = true;
-    const INTERVAL = 1000 / fps;
-    lastTimestampRef.current = performance.now();
-
-    // Start compositor video playback (unmutes for audio)
-    getPlaybackManager().setCompositorPlaying(true);
-
-    const tick = (timestamp: number) => {
-      if (!isPlayingRef.current) return; // guard: cleanup already ran
-
-      const delta = timestamp - lastTimestampRef.current;
-
-      if (delta >= INTERVAL) {
-        // Drift-correcting modulo (prevents accumulated lag)
-        lastTimestampRef.current = timestamp - (delta % INTERVAL);
-
-        internalFrameRef.current += 1;
-
-        // End-of-timeline → stop
-        if (internalFrameRef.current >= effectiveDuration) {
-          internalFrameRef.current = 0;
-          isPlayingRef.current = false;
-          setIsPlaying(false);
-          setDisplayFrame(0);
-          onScrubRef.current(0);
-          moveNeedle(0);
-          return;
-        }
-
-        // Push frame to store (via ref — no stale closure)
-        onScrubRef.current(internalFrameRef.current);
-
-        // Imperative needle update — no React re-render
-        moveNeedle(internalFrameRef.current);
-
-        // Throttled display update (~10 Hz for timecode readout)
-        if (internalFrameRef.current % 3 === 0) {
-          setDisplayFrame(internalFrameRef.current);
-        }
-      }
-
-      rafIdRef.current = requestAnimationFrame(tick);
-    };
-
-    rafIdRef.current = requestAnimationFrame(tick);
-
-    return () => {
-      isPlayingRef.current = false;
-      cancelAnimationFrame(rafIdRef.current);
-    };
-  }, [isPlaying]); // ← ONLY isPlaying. Never frame, callbacks, or duration.
-  // effectiveDuration, fps, moveNeedle are read from their current values
-  // at tick time via closure — they're stable enough for a playback session.
+    setDisplayFrame(currentFrame);
+    moveNeedle(currentFrame);
+  }, [currentFrame, moveNeedle]);
 
   /* ── toggle ────────────────────────────────────────────────────────────── */
 
   const togglePlay = useCallback(() => {
-    setIsPlaying((prev) => !prev);
-  }, []);
+    if (effectiveDuration <= 0) return;
+    getPlaybackManager().togglePlay();
+  }, [effectiveDuration]);
 
   /* ── Space bar ─────────────────────────────────────────────────────────── */
 
@@ -560,12 +493,13 @@ export function RecordTimelineShell({
     const onKey = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !e.repeat) {
         e.preventDefault();
-        setIsPlaying((prev) => !prev);
+        if (effectiveDuration <= 0) return;
+        getPlaybackManager().togglePlay();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [effectiveDuration]);
 
   /* ── scrub (click & drag) ──────────────────────────────────────────────── */
 
@@ -590,19 +524,18 @@ export function RecordTimelineShell({
       isDraggingRef.current = true;
 
       // Pause during scrub
-      setIsPlaying(false);
+      const playbackManager = getPlaybackManager();
+      playbackManager.pause();
 
       const frame = frameFromClientX(e.clientX);
-      internalFrameRef.current = frame;
-      onScrubRef.current(frame);
+      playbackManager.seekToFrame(frame);
       setDisplayFrame(frame);
       moveNeedle(frame);
 
       const onMove = (ev: MouseEvent) => {
         if (!isDraggingRef.current) return;
         const f = frameFromClientX(ev.clientX);
-        internalFrameRef.current = f;
-        onScrubRef.current(f);
+        playbackManager.seekToFrame(f);
         setDisplayFrame(f);
         moveNeedle(f);
       };
@@ -789,14 +722,15 @@ export function RecordTimelineShell({
 
                     const leftPct = frameToPct(clip.timelineIn, effectiveDuration);
                     const widthPct = frameToPct(dur, effectiveDuration);
-                    const isActive = !activeAssetId || clip.assetId === activeAssetId;
+                    const isActive =
+                      !activeAssetIds?.length || activeAssetIds.includes(clip.assetId);
                     const dimOpacity = isActive ? 0.85 : 0.25;
                     const bg = isVideo
                       ? `linear-gradient(to right, rgba(108,191,255,${dimOpacity}), rgba(27,97,189,${dimOpacity}))`
                       : `linear-gradient(to right, rgba(255,189,110,${dimOpacity}), rgba(221,128,42,${dimOpacity}))`;
                     const label = asset
-                      ? asset.filePath.split('/').pop() ?? asset.filePath
-                      : clip.name ?? clip.id;
+                      ? (asset.filePath.split('/').pop() ?? asset.filePath)
+                      : (clip.name ?? clip.id);
 
                     return (
                       <div

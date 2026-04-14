@@ -19,7 +19,14 @@ import type {
   AnnotationStatus,
   CaptionSegment,
 } from '@rough-cut/project-model';
-import { createProject, createZoomMarker, createDefaultRecordingPresentation, createDefaultCursorPresentation, createDefaultCameraPresentation, createDefaultRegionCrop } from '@rough-cut/project-model';
+import {
+  createProject,
+  createZoomMarker,
+  createDefaultRecordingPresentation,
+  createDefaultCursorPresentation,
+  createDefaultCameraPresentation,
+  createDefaultRegionCrop,
+} from '@rough-cut/project-model';
 import {
   addClipToTrack,
   removeClipFromTrack,
@@ -60,7 +67,12 @@ export interface ProjectActions {
   removeClip: (trackId: TrackId, clipId: ClipId) => void;
   moveClip: (trackId: TrackId, clipId: ClipId, newTimelineIn: number) => void;
   moveClipToTrack: (clipId: ClipId, fromTrackId: TrackId, toTrackId: TrackId) => void;
-  moveClipWithOverwrite: (clipId: ClipId, fromTrackId: TrackId, toTrackId: TrackId, newTimelineIn: number) => void;
+  moveClipWithOverwrite: (
+    clipId: ClipId,
+    fromTrackId: TrackId,
+    toTrackId: TrackId,
+    newTimelineIn: number,
+  ) => void;
 
   // Asset actions
   addAsset: (asset: Asset) => void;
@@ -88,7 +100,11 @@ export interface ProjectActions {
   // Recording presentation — zoom
   setRecordingAutoZoomIntensity: (assetId: AssetId, value: number) => void;
   addRecordingZoomMarker: (assetId: AssetId, startFrame: number, endFrame: number) => void;
-  updateRecordingZoomMarker: (assetId: AssetId, markerId: ZoomMarkerId, patch: Partial<ZoomMarker>) => void;
+  updateRecordingZoomMarker: (
+    assetId: AssetId,
+    markerId: ZoomMarkerId,
+    patch: Partial<ZoomMarker>,
+  ) => void;
   removeRecordingZoomMarker: (assetId: AssetId, markerId: ZoomMarkerId) => void;
   replaceAutoZoomMarkers: (assetId: AssetId, markers: readonly ZoomMarker[]) => void;
   resetRecordingZoom: (assetId: AssetId) => void;
@@ -109,7 +125,12 @@ export interface ProjectActions {
 
   // Clip effect actions
   addClipEffect: (trackId: TrackId, clipId: ClipId, effect: EffectInstance) => void;
-  updateClipEffect: (trackId: TrackId, clipId: ClipId, effectIndex: number, patch: Partial<EffectInstance>) => void;
+  updateClipEffect: (
+    trackId: TrackId,
+    clipId: ClipId,
+    effectIndex: number,
+    patch: Partial<EffectInstance>,
+  ) => void;
   removeClipEffect: (trackId: TrackId, clipId: ClipId, effectIndex: number) => void;
 
   // AI annotation actions
@@ -137,7 +158,7 @@ export function createProjectStore() {
         },
 
         setProject: (project: ProjectDocument) => {
-          set({ project, isDirty: true });
+          set({ project, isDirty: false });
         },
 
         updateProject: (fn: (draft: ProjectDocument) => ProjectDocument) => {
@@ -185,9 +206,7 @@ export function createProjectStore() {
                 if (t.id !== trackId) return t;
                 return {
                   ...t,
-                  clips: t.clips.map((c) =>
-                    c.id === clipId ? moveClipOp(c, newTimelineIn) : c,
-                  ),
+                  clips: t.clips.map((c) => (c.id === clipId ? moveClipOp(c, newTimelineIn) : c)),
                 };
               }),
             },
@@ -217,7 +236,12 @@ export function createProjectStore() {
           });
         },
 
-        moveClipWithOverwrite: (clipId: ClipId, fromTrackId: TrackId, toTrackId: TrackId, newTimelineIn: number) => {
+        moveClipWithOverwrite: (
+          clipId: ClipId,
+          fromTrackId: TrackId,
+          toTrackId: TrackId,
+          newTimelineIn: number,
+        ) => {
           get().updateProject((doc) => {
             const fromTrack = doc.composition.tracks.find((t) => t.id === fromTrackId);
             if (!fromTrack) return doc;
@@ -235,7 +259,11 @@ export function createProjectStore() {
             const targetTrack = doc.composition.tracks.find((t) => t.id === toTrackId);
             if (!targetTrack) return doc;
             const otherClips = targetTrack.clips.filter((c) => c.id !== clipId);
-            const resolvedClips = resolveOverlaps(otherClips, newTimelineIn, newTimelineIn + duration);
+            const resolvedClips = resolveOverlaps(
+              otherClips,
+              newTimelineIn,
+              newTimelineIn + duration,
+            );
 
             return {
               ...doc,
@@ -330,9 +358,7 @@ export function createProjectStore() {
               ...doc.composition,
               tracks: doc.composition.tracks.map((t) => ({
                 ...t,
-                clips: t.clips.map((c) =>
-                  c.id === clipId ? { ...c, ...patch } : c,
-                ),
+                clips: t.clips.map((c) => (c.id === clipId ? { ...c, ...patch } : c)),
               })),
             },
           }));
@@ -372,9 +398,7 @@ export function createProjectStore() {
             ...doc,
             composition: {
               ...doc.composition,
-              tracks: doc.composition.tracks.map((t) =>
-                t.id === trackId ? { ...t, name } : t,
-              ),
+              tracks: doc.composition.tracks.map((t) => (t.id === trackId ? { ...t, name } : t)),
             },
           }));
         },
@@ -384,9 +408,7 @@ export function createProjectStore() {
             ...doc,
             composition: {
               ...doc.composition,
-              tracks: doc.composition.tracks.map((t) =>
-                t.id === trackId ? { ...t, locked } : t,
-              ),
+              tracks: doc.composition.tracks.map((t) => (t.id === trackId ? { ...t, locked } : t)),
             },
           }));
         },
@@ -396,9 +418,7 @@ export function createProjectStore() {
             ...doc,
             composition: {
               ...doc.composition,
-              tracks: doc.composition.tracks.map((t) =>
-                t.id === trackId ? { ...t, visible } : t,
-              ),
+              tracks: doc.composition.tracks.map((t) => (t.id === trackId ? { ...t, visible } : t)),
             },
           }));
         },
@@ -455,7 +475,11 @@ export function createProjectStore() {
           }));
         },
 
-        updateRecordingZoomMarker: (assetId: AssetId, markerId: ZoomMarkerId, patch: Partial<ZoomMarker>) => {
+        updateRecordingZoomMarker: (
+          assetId: AssetId,
+          markerId: ZoomMarkerId,
+          patch: Partial<ZoomMarker>,
+        ) => {
           get().updateProject((doc) => ({
             ...doc,
             assets: doc.assets.map((a) => {
@@ -622,7 +646,8 @@ export function createProjectStore() {
                     presentation: {
                       ...(a.presentation ?? createDefaultRecordingPresentation()),
                       screenCrop: {
-                        ...((a.presentation ?? createDefaultRecordingPresentation()).screenCrop ?? createDefaultRegionCrop()),
+                        ...((a.presentation ?? createDefaultRecordingPresentation()).screenCrop ??
+                          createDefaultRegionCrop()),
                         ...patch,
                       },
                     },
@@ -656,7 +681,8 @@ export function createProjectStore() {
                     presentation: {
                       ...(a.presentation ?? createDefaultRecordingPresentation()),
                       cameraCrop: {
-                        ...((a.presentation ?? createDefaultRecordingPresentation()).cameraCrop ?? createDefaultRegionCrop()),
+                        ...((a.presentation ?? createDefaultRecordingPresentation()).cameraCrop ??
+                          createDefaultRegionCrop()),
                         ...patch,
                       },
                     },
@@ -692,9 +718,7 @@ export function createProjectStore() {
                   ? {
                       ...track,
                       clips: track.clips.map((clip) =>
-                        clip.id === clipId
-                          ? { ...clip, effects: [...clip.effects, effect] }
-                          : clip,
+                        clip.id === clipId ? { ...clip, effects: [...clip.effects, effect] } : clip,
                       ),
                     }
                   : track,
@@ -703,7 +727,12 @@ export function createProjectStore() {
           }));
         },
 
-        updateClipEffect: (trackId: TrackId, clipId: ClipId, effectIndex: number, patch: Partial<EffectInstance>) => {
+        updateClipEffect: (
+          trackId: TrackId,
+          clipId: ClipId,
+          effectIndex: number,
+          patch: Partial<EffectInstance>,
+        ) => {
           get().updateProject((doc) => ({
             ...doc,
             composition: {
@@ -824,8 +853,7 @@ export function createProjectStore() {
         },
       }),
       {
-        equality: (pastState, currentState) =>
-          pastState.project === currentState.project,
+        equality: (pastState, currentState) => pastState.project === currentState.project,
         limit: 100,
       },
     ),

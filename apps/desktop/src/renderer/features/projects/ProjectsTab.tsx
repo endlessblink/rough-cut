@@ -23,12 +23,16 @@ export function ProjectsTab({
 }: ProjectsTabProps) {
   const [recentProjects, setRecentProjects] = useState<RecentProjectEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedProject, setSelectedProject] = useState<{ project: ProjectDocument; filePath: string } | null>(null);
+  const [selectedProject, setSelectedProject] = useState<{
+    project: ProjectDocument;
+    filePath: string;
+  } | null>(null);
 
   useEffect(() => {
     if (activeTab !== 'projects') return;
     setIsLoading(true);
-    window.roughcut.recentProjectsGet()
+    window.roughcut
+      .recentProjectsGet()
       .then(setRecentProjects)
       .catch(() => setRecentProjects([]))
       .finally(() => setIsLoading(false));
@@ -63,29 +67,100 @@ export function ProjectsTab({
     const { project, filePath } = selectedProject;
 
     // Build a clean timeline with ONLY the selected recording.
-    // Clear all clips from all tracks, then place one clip at frame 0 on V1.
+    // Preserve the linked camera clip when the recording has one.
     const selectedAsset = project.assets.find((a) => a.id === assetId);
     const clipDuration = selectedAsset?.duration ?? 0;
     const firstVideoTrack = project.composition.tracks.find((t) => t.type === 'video');
+    const linkedCameraAssetId =
+      selectedAsset && 'cameraAssetId' in selectedAsset
+        ? (selectedAsset.cameraAssetId ?? null)
+        : null;
+    const cameraTrack = linkedCameraAssetId
+      ? (project.composition.tracks.find(
+          (t) =>
+            t.type === 'video' &&
+            t.id !== firstVideoTrack?.id &&
+            t.clips.some((c) => c.assetId === linkedCameraAssetId),
+        ) ??
+        project.composition.tracks.find((t) => t.type === 'video' && t.id !== firstVideoTrack?.id))
+      : null;
 
     const cleanTracks = project.composition.tracks.map((track) => {
-      // Clear every track
-      if (!firstVideoTrack || track.id !== firstVideoTrack.id) {
+      if (!firstVideoTrack || clipDuration <= 0) {
         return { ...track, clips: [] };
       }
-      // First video track: one clip for the selected recording
-      const existingClip = track.clips.find((c) => c.assetId === assetId);
-      const clipId = existingClip?.id ?? `clip-${Date.now()}`;
-      return {
-        ...track,
-        clips: clipDuration > 0 ? [{
-          ...(existingClip ?? { id: clipId, assetId, trackId: track.id, name: '', enabled: true, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0, anchorY: 0, opacity: 1 }, effects: [], keyframes: [] }),
-          timelineIn: 0,
-          timelineOut: clipDuration,
-          sourceIn: 0,
-          sourceOut: clipDuration,
-        }] : [],
-      };
+
+      if (track.id === firstVideoTrack.id) {
+        const existingClip = track.clips.find((c) => c.assetId === assetId);
+        const clipId = existingClip?.id ?? `clip-${Date.now()}`;
+        return {
+          ...track,
+          clips: [
+            {
+              ...(existingClip ?? {
+                id: clipId,
+                assetId,
+                trackId: track.id,
+                name: '',
+                enabled: true,
+                transform: {
+                  x: 0,
+                  y: 0,
+                  scaleX: 1,
+                  scaleY: 1,
+                  rotation: 0,
+                  anchorX: 0,
+                  anchorY: 0,
+                  opacity: 1,
+                },
+                effects: [],
+                keyframes: [],
+              }),
+              timelineIn: 0,
+              timelineOut: clipDuration,
+              sourceIn: 0,
+              sourceOut: clipDuration,
+            },
+          ],
+        };
+      }
+
+      if (linkedCameraAssetId && cameraTrack && track.id === cameraTrack.id) {
+        const existingCameraClip = track.clips.find((c) => c.assetId === linkedCameraAssetId);
+        const cameraClipId = existingCameraClip?.id ?? `clip-${Date.now()}-camera`;
+        return {
+          ...track,
+          clips: [
+            {
+              ...(existingCameraClip ?? {
+                id: cameraClipId,
+                assetId: linkedCameraAssetId,
+                trackId: track.id,
+                name: '',
+                enabled: true,
+                transform: {
+                  x: 0.78,
+                  y: 0.78,
+                  scaleX: 0.2,
+                  scaleY: 0.2,
+                  rotation: 0,
+                  anchorX: 0.5,
+                  anchorY: 0.5,
+                  opacity: 1,
+                },
+                effects: [],
+                keyframes: [],
+              }),
+              timelineIn: 0,
+              timelineOut: clipDuration,
+              sourceIn: 0,
+              sourceOut: clipDuration,
+            },
+          ],
+        };
+      }
+
+      return { ...track, clips: [] };
     });
 
     const cleanProject = {
@@ -154,7 +229,8 @@ export function ProjectsTab({
 
   function handleRefresh() {
     setIsLoading(true);
-    window.roughcut.recentProjectsGet()
+    window.roughcut
+      .recentProjectsGet()
       .then(setRecentProjects)
       .catch(() => setRecentProjects([]))
       .finally(() => setIsLoading(false));

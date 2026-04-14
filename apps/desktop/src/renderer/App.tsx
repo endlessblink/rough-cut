@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import type { ProjectDocument } from '@rough-cut/project-model';
 import { createProject, createAsset, createClip } from '@rough-cut/project-model';
 import type { RecordingResult } from './env.js';
@@ -13,7 +13,20 @@ import { projectStore, transportStore } from './hooks/use-stores.js';
 
 function generateProjectName(): string {
   const d = new Date();
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
   const month = months[d.getMonth()];
   const day = d.getDate();
   const year = d.getFullYear();
@@ -35,6 +48,8 @@ const TABS: { id: TabId; label: string }[] = [
 export function App() {
   const [projectName, setProjectName] = useState('Untitled Project');
   const [activeTab, setActiveTab] = useState<TabId>('projects');
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoSaveRequestRef = useRef(0);
 
   // Initialize with a default project on mount
   useEffect(() => {
@@ -47,6 +62,58 @@ export function App() {
     });
 
     return () => {
+      unsub();
+    };
+  }, []);
+
+  useEffect(() => {
+    const clearPendingAutoSave = () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+    };
+
+    const unsub = projectStore.subscribe((state) => {
+      clearPendingAutoSave();
+
+      if (!state.isDirty || !state.projectFilePath) {
+        return;
+      }
+
+      const snapshotProject = state.project;
+      const snapshotPath = state.projectFilePath;
+      const requestId = ++autoSaveRequestRef.current;
+
+      autoSaveTimerRef.current = setTimeout(() => {
+        window.roughcut
+          .projectAutoSave(snapshotProject, snapshotPath)
+          .then((savedPath) => {
+            const currentState = projectStore.getState();
+            if (
+              autoSaveRequestRef.current === requestId &&
+              currentState.project === snapshotProject &&
+              currentState.projectFilePath === snapshotPath
+            ) {
+              if (savedPath !== snapshotPath) {
+                currentState.setProjectFilePath(savedPath);
+              }
+              currentState.markSaved();
+            }
+          })
+          .catch((err) => {
+            console.error('[auto-save] Failed to persist project changes:', err);
+          })
+          .finally(() => {
+            if (autoSaveTimerRef.current) {
+              autoSaveTimerRef.current = null;
+            }
+          });
+      }, 500);
+    });
+
+    return () => {
+      clearPendingAutoSave();
       unsub();
     };
   }, []);
@@ -133,7 +200,8 @@ export function App() {
     try {
       const loadedZoom = await window.roughcut.zoomLoadSidecar(result.filePath);
       if (loadedZoom) {
-        const basePres = (baseAsset as unknown as { presentation?: Record<string, unknown> }).presentation ?? {};
+        const basePres =
+          (baseAsset as unknown as { presentation?: Record<string, unknown> }).presentation ?? {};
         asset = {
           ...baseAsset,
           presentation: {
@@ -141,13 +209,22 @@ export function App() {
             zoom: loadedZoom,
           },
         } as typeof baseAsset;
-        console.info('[App] Hydrated zoom sidecar:', loadedZoom.markers.length, 'markers for', result.filePath);
+        console.info(
+          '[App] Hydrated zoom sidecar:',
+          loadedZoom.markers.length,
+          'markers for',
+          result.filePath,
+        );
       }
     } catch (err) {
       console.warn('[App] zoomLoadSidecar failed:', err);
     }
 
-    console.log('[App] Recording asset before addAsset:', { id: asset.id, cameraAssetId: (asset as any).cameraAssetId, hasCameraId: 'cameraAssetId' in asset });
+    console.log('[App] Recording asset before addAsset:', {
+      id: asset.id,
+      cameraAssetId: (asset as any).cameraAssetId,
+      hasCameraId: 'cameraAssetId' in asset,
+    });
     projectStore.getState().addAsset(asset);
 
     // Create a clip at frame 0 for this recording (each recording is independent)
@@ -164,7 +241,12 @@ export function App() {
       store.addClip(videoTrack.id, clip);
 
       // Add camera clip on a higher video track (renders on top of screen as PiP)
-      console.log('[App] Camera clip check — cameraAssetId:', cameraAssetId, 'clipDuration:', clipDuration);
+      console.log(
+        '[App] Camera clip check — cameraAssetId:',
+        cameraAssetId,
+        'clipDuration:',
+        clipDuration,
+      );
       if (cameraAssetId) {
         const allVideoTracks = store.project.composition.tracks
           .filter((t) => t.type === 'video')
@@ -189,7 +271,11 @@ export function App() {
           },
         });
         store.addClip(cameraTrack.id, cameraClip);
-        console.log('[App] Camera clip ADDED:', { clipId: cameraClip.id, trackId: cameraTrack.id, trackIndex: cameraTrack.index });
+        console.log('[App] Camera clip ADDED:', {
+          clipId: cameraClip.id,
+          trackId: cameraTrack.id,
+          trackIndex: cameraTrack.index,
+        });
         console.log('[App] Camera clip created on track:', cameraTrack.name, cameraClip.id);
       }
 
@@ -207,7 +293,8 @@ export function App() {
     // Auto-save the new project silently — fire and forget
     const newPath = projectStore.getState().projectFilePath;
     const updatedProject = projectStore.getState().project;
-    window.roughcut.projectAutoSave(updatedProject, newPath ?? undefined)
+    window.roughcut
+      .projectAutoSave(updatedProject, newPath ?? undefined)
       .then((savedPath) => {
         projectStore.getState().setProjectFilePath(savedPath);
         projectStore.getState().markSaved();
@@ -244,7 +331,13 @@ export function App() {
 
   // Record tab takes over the entire viewport — no chrome wrapper
   if (activeTab === 'record') {
-    return <RecordTab onAssetCreated={handleRecordingComplete} activeTab={activeTab} onTabChange={(tab) => setActiveTab(tab)} />;
+    return (
+      <RecordTab
+        onAssetCreated={handleRecordingComplete}
+        activeTab={activeTab}
+        onTabChange={(tab) => setActiveTab(tab)}
+      />
+    );
   }
 
   // Edit tab takes over the entire viewport — no chrome wrapper
@@ -270,30 +363,40 @@ export function App() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Top bar */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: '8px 16px',
-        background: '#1a1a1a',
-        borderBottom: '1px solid #333',
-      }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '8px 16px',
+          background: '#1a1a1a',
+          borderBottom: '1px solid #333',
+        }}
+      >
         <span style={{ fontWeight: 600, fontSize: 14 }}>Rough Cut</span>
         <span style={{ color: '#555' }}>|</span>
         <span style={{ color: '#aaa', fontSize: 13 }}>{projectName}</span>
         <div style={{ flex: 1 }} />
-        <button onClick={handleNew} style={btnStyle}>New</button>
-        <button onClick={handleOpen} style={btnStyle}>Open</button>
-        <button onClick={handleExport} style={btnStyle}>Export</button>
+        <button onClick={handleNew} style={btnStyle}>
+          New
+        </button>
+        <button onClick={handleOpen} style={btnStyle}>
+          Open
+        </button>
+        <button onClick={handleExport} style={btnStyle}>
+          Export
+        </button>
       </div>
 
       {/* Tab bar */}
-      <div style={{
-        display: 'flex',
-        gap: 0,
-        background: '#111',
-        borderBottom: '1px solid #333',
-      }}>
+      <div
+        style={{
+          display: 'flex',
+          gap: 0,
+          background: '#111',
+          borderBottom: '1px solid #333',
+        }}
+      >
         {TABS.map((tab) => (
           <button
             key={tab.id}
@@ -315,7 +418,15 @@ export function App() {
       </div>
 
       {/* Main content area */}
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
+      <div
+        style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: 0,
+        }}
+      >
         {renderTabContent()}
       </div>
     </div>
@@ -324,14 +435,17 @@ export function App() {
 
 function TabPlaceholder({ name }: { name: string }) {
   return (
-    <div data-testid={`${name.toLowerCase().replace(/ /g, '')}-tab-root`} style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      height: '100%',
-      color: '#555',
-      fontSize: 14,
-    }}>
+    <div
+      data-testid={`${name.toLowerCase().replace(/ /g, '')}-tab-root`}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100%',
+        color: '#555',
+        fontSize: 14,
+      }}
+    >
       {name} tab coming soon
     </div>
   );

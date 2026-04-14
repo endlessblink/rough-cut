@@ -5,8 +5,18 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { RecordingResult } from '../../env.js';
-import { useProjectStore, useTransportStore, transportStore, projectStore } from '../../hooks/use-stores.js';
-import { createDefaultZoomPresentation, createDefaultCursorPresentation, createDefaultCameraPresentation, createDefaultRegionCrop } from '@rough-cut/project-model';
+import {
+  useProjectStore,
+  useTransportStore,
+  transportStore,
+  projectStore,
+} from '../../hooks/use-stores.js';
+import {
+  createDefaultZoomPresentation,
+  createDefaultCursorPresentation,
+  createDefaultCameraPresentation,
+  createDefaultRegionCrop,
+} from '@rough-cut/project-model';
 import type { CursorPresentation, CameraPresentation, RegionCrop } from '@rough-cut/project-model';
 import { useRecordState } from './record-state.js';
 import { useRecording } from './use-recording.js';
@@ -96,15 +106,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const {
-    state,
-    setSources,
-    selectSource,
-    setStatus,
-    setError,
-    setElapsedMs,
-    reset,
-  } = useRecordState();
+  const { state, setSources, selectSource, setStatus, setError, setElapsedMs, reset } =
+    useRecordState();
 
   const { sources, selectedSourceId, status, error, elapsedMs } = state;
 
@@ -128,14 +131,19 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   });
   const activeRecordingId = activeRecordingAsset?.id ?? null;
 
-  const zoomPresentation = activeRecordingAsset?.presentation?.zoom ?? createDefaultZoomPresentation();
-  const cursorPresentation = activeRecordingAsset?.presentation?.cursor ?? createDefaultCursorPresentation();
-  const cameraPresentation = activeRecordingAsset?.presentation?.camera ?? createDefaultCameraPresentation();
+  const zoomPresentation =
+    activeRecordingAsset?.presentation?.zoom ?? createDefaultZoomPresentation();
+  const cursorPresentation =
+    activeRecordingAsset?.presentation?.cursor ?? createDefaultCursorPresentation();
+  const cameraPresentation =
+    activeRecordingAsset?.presentation?.camera ?? createDefaultCameraPresentation();
   // screenCrop from store is read but we use local state for immediate responsiveness
   // (store crop requires an active recording asset which may not exist yet)
 
   // Recording asset detection + compositor
-  const hasRecordingAsset = useProjectStore((s) => s.project.assets.some((a) => a.type === 'recording'));
+  const hasRecordingAsset = useProjectStore((s) =>
+    s.project.assets.some((a) => a.type === 'recording'),
+  );
   const { previewRef } = useCompositor();
 
   // Camera playback — find the camera asset linked to the active recording
@@ -149,8 +157,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const [background, setBackground] = useState<BackgroundConfig>(DEFAULT_BACKGROUND);
 
   // Crop state — local like background, works without a recording asset
-  const [screenCrop, setScreenCrop] = useState<RegionCrop>(
-    () => createDefaultRegionCrop(resolution.width, resolution.height),
+  const [screenCrop, setScreenCrop] = useState<RegionCrop>(() =>
+    createDefaultRegionCrop(resolution.width, resolution.height),
   );
 
   const handleBackgroundChange = useCallback((patch: Partial<BackgroundConfig>) => {
@@ -166,10 +174,12 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     setScreenRectOverride(undefined);
     setCameraRectOverride(undefined);
     setCropModeActive(false);
-    setScreenCrop(createDefaultRegionCrop(
-      resolutionForAspectRatio(template.aspectRatio).width,
-      resolutionForAspectRatio(template.aspectRatio).height,
-    ));
+    setScreenCrop(
+      createDefaultRegionCrop(
+        resolutionForAspectRatio(template.aspectRatio).width,
+        resolutionForAspectRatio(template.aspectRatio).height,
+      ),
+    );
   }, []);
 
   const handleRegionChange = useCallback((region: 'screen' | 'camera', rect: Rect) => {
@@ -186,12 +196,17 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     transportStore.getState().setPlayheadFrame(frame);
   }, []);
 
-  const handleZoomIntensityChange = useCallback((value: number) => {
-    if (!activeRecordingId) return;
-    projectStore.getState().setRecordingAutoZoomIntensity(activeRecordingId, value);
-  }, [activeRecordingId]);
+  const handleZoomIntensityChange = useCallback(
+    (value: number) => {
+      if (!activeRecordingId) return;
+      projectStore.getState().setRecordingAutoZoomIntensity(activeRecordingId, value);
+    },
+    [activeRecordingId],
+  );
 
-  const [selectedZoomMarkerId, setSelectedZoomMarkerId] = useState<import('@rough-cut/project-model').ZoomMarkerId | null>(null);
+  const [selectedZoomMarkerId, setSelectedZoomMarkerId] = useState<
+    import('@rough-cut/project-model').ZoomMarkerId | null
+  >(null);
 
   const handleAddZoomMarkerAtPlayhead = useCallback(() => {
     if (!activeRecordingId || durationFrames <= 0) return;
@@ -204,9 +219,12 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     projectStore.getState().addRecordingZoomMarker(activeRecordingId, startFrame, endFrame);
   }, [activeRecordingId, projectFps, durationFrames, currentFrame]);
 
-  const handleSelectZoomMarker = useCallback((id: import('@rough-cut/project-model').ZoomMarkerId | null) => {
-    setSelectedZoomMarkerId(id);
-  }, []);
+  const handleSelectZoomMarker = useCallback(
+    (id: import('@rough-cut/project-model').ZoomMarkerId | null) => {
+      setSelectedZoomMarkerId(id);
+    },
+    [],
+  );
 
   const handleResetZoom = useCallback(() => {
     if (!activeRecordingId) return;
@@ -267,7 +285,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
       markers: zoomPresentation.markers,
     };
     const handle = setTimeout(() => {
-      void window.roughcut.zoomSaveSidecar(recordingFilePath, payload)
+      void window.roughcut
+        .zoomSaveSidecar(recordingFilePath, payload)
         .catch((err: unknown) => console.warn('[zoom-sidecar] save failed:', err));
     }, 500);
     return () => clearTimeout(handle);
@@ -278,36 +297,45 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     skipFirstZoomSaveRef.current = true;
   }, [recordingFilePath]);
 
-  const handleCursorChange = useCallback((patch: Partial<CursorPresentation>) => {
-    if (!activeRecordingId) return;
-    projectStore.getState().updateRecordingCursor(activeRecordingId, patch);
-  }, [activeRecordingId]);
+  const handleCursorChange = useCallback(
+    (patch: Partial<CursorPresentation>) => {
+      if (!activeRecordingId) return;
+      projectStore.getState().updateRecordingCursor(activeRecordingId, patch);
+    },
+    [activeRecordingId],
+  );
 
   const handleCursorReset = useCallback(() => {
     if (!activeRecordingId) return;
     projectStore.getState().resetRecordingCursor(activeRecordingId);
   }, [activeRecordingId]);
 
-  const handleCameraChange = useCallback((patch: Partial<CameraPresentation>) => {
-    if (!activeRecordingId) return;
-    projectStore.getState().updateCameraPresentation(activeRecordingId, patch);
-  }, [activeRecordingId]);
+  const handleCameraChange = useCallback(
+    (patch: Partial<CameraPresentation>) => {
+      if (!activeRecordingId) return;
+      projectStore.getState().updateCameraPresentation(activeRecordingId, patch);
+    },
+    [activeRecordingId],
+  );
 
   const handleCameraReset = useCallback(() => {
     if (!activeRecordingId) return;
     projectStore.getState().resetCameraPresentation(activeRecordingId);
   }, [activeRecordingId]);
 
-  const handleScreenCropChange = useCallback((patch: Partial<RegionCrop>) => {
-    setScreenCrop((prev) => {
-      const next = { ...prev, ...patch };
-      // Sync to store so Edit/Export can read it
-      if (activeRecordingId) {
-        projectStore.getState().updateScreenCrop(activeRecordingId, next);
-      }
-      return next;
-    });
-  }, [activeRecordingId]);
+  const handleScreenCropChange = useCallback(
+    (patch: Partial<RegionCrop>) => {
+      setScreenCrop((prev) => {
+        const next = { ...prev, ...patch };
+        // Sync to store so Edit/Export can read it
+        if (activeRecordingId) {
+          projectStore.getState().updateScreenCrop(activeRecordingId, next);
+        }
+        return next;
+      });
+    },
+    [activeRecordingId],
+  );
 
   const handleScreenCropReset = useCallback(() => {
     const def = createDefaultRegionCrop(resolution.width, resolution.height);
@@ -322,16 +350,41 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     if (!screenCrop.enabled) setCropModeActive(false);
   }, [screenCrop.enabled]);
 
-  // [DEBUG] Reload last recording for quick camera decode testing
+  // [DEBUG] Load the latest saved project from disk instead of rebuilding
+  // from raw media files. This keeps restart/debug behavior aligned with the
+  // real reopen flow and avoids bypassing persisted camera state.
   const handleDebugReload = useCallback(async () => {
-    const result = await (window.roughcut as any).debugLoadLastRecording();
-    if (!result) {
-      console.warn('[DEBUG] No recordings found in /tmp/rough-cut/recordings/');
+    const recentProjects = await window.roughcut.recentProjectsGet();
+    const latestProject = [...recentProjects].sort(
+      (a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime(),
+    )[0];
+
+    if (!latestProject) {
+      console.warn('[DEBUG] No saved projects found to reopen');
       return;
     }
-    console.info('[DEBUG] Reloading recording:', result.filePath, 'camera:', result.cameraFilePath);
-    onAssetCreated(result);
-  }, [onAssetCreated]);
+
+    const project = await window.roughcut.projectOpenPath(latestProject.filePath);
+    const recordingAssets = project.assets.filter((asset) => asset.type === 'recording');
+    const latestRecording =
+      [...recordingAssets]
+        .reverse()
+        .find((asset) => 'cameraAssetId' in asset && asset.cameraAssetId) ??
+      recordingAssets[recordingAssets.length - 1] ??
+      null;
+
+    console.info(
+      '[DEBUG] Reopening saved project:',
+      latestProject.filePath,
+      'active recording:',
+      latestRecording?.filePath ?? 'NONE',
+    );
+
+    transportStore.getState().seekToFrame(0);
+    projectStore.getState().setProject(project);
+    projectStore.getState().setProjectFilePath(latestProject.filePath);
+    projectStore.getState().setActiveAssetId(latestRecording?.id ?? null);
+  }, []);
 
   const recording = useRecording({
     selectedSourceId,
@@ -436,7 +489,9 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         >
           DEBUG: Reload Last
         </button>
-        <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
+        <div
+          style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }}
+        />
         <BottomBar
           sourceName={selectedSourceName}
           onOpenSourcePicker={() => setIsSourcePickerOpen(true)}
@@ -476,33 +531,46 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
               <TemplatePreviewRenderer
                 template={activeTemplate}
                 screenContent={
-                  selectedSourceId
-                    ? <LivePreviewVideo stream={liveStream} />
-                    : activeRecordingAsset?.filePath
-                      ? <RecordingPlaybackVideo
-                          filePath={activeRecordingAsset.filePath}
-                          fps={projectFps}
-                          assetId={activeRecordingAsset.id}
-                          zoomMarkers={zoomPresentation.markers}
-                          selectedZoomMarker={selectedZoomMarkerId ? zoomPresentation.markers.find((m) => m.id === selectedZoomMarkerId) ?? null : null}
-                          onFocalPointChange={(markerId, focalPoint) => {
-                            if (!activeRecordingId) return;
-                            projectStore.getState().updateRecordingZoomMarker(activeRecordingId, markerId, { focalPoint });
-                          }}
-                        />
-                      : undefined
+                  selectedSourceId ? (
+                    <LivePreviewVideo stream={liveStream} />
+                  ) : activeRecordingAsset?.filePath ? (
+                    <RecordingPlaybackVideo
+                      filePath={activeRecordingAsset.filePath}
+                      fps={projectFps}
+                      assetId={activeRecordingAsset.id}
+                      zoomMarkers={zoomPresentation.markers}
+                      selectedZoomMarker={
+                        selectedZoomMarkerId
+                          ? (zoomPresentation.markers.find((m) => m.id === selectedZoomMarkerId) ??
+                            null)
+                          : null
+                      }
+                      onFocalPointChange={(markerId, focalPoint) => {
+                        if (!activeRecordingId) return;
+                        projectStore
+                          .getState()
+                          .updateRecordingZoomMarker(activeRecordingId, markerId, { focalPoint });
+                      }}
+                    />
+                  ) : undefined
                 }
                 cameraContent={
-                  cameraAsset?.filePath
-                    ? <CameraPlaybackCanvas filePath={cameraAsset.filePath} fps={projectFps} />
-                    : undefined
+                  cameraAsset?.filePath ? (
+                    <CameraPlaybackCanvas filePath={cameraAsset.filePath} />
+                  ) : undefined
                 }
                 cameraAspect={4 / 3}
+                cameraPresentation={cameraPresentation}
                 screenAspect={16 / 9}
                 screenCornerRadius={background.bgCornerRadius}
-                screenShadow={background.bgShadowEnabled
-                  ? `0 ${Math.round(background.bgShadowBlur * 0.2)}px ${background.bgShadowBlur}px rgba(0,0,0,${background.bgShadowOpacity ?? 0.25})`
-                  : undefined}
+                screenShadow={
+                  background.bgShadowEnabled
+                    ? `0 ${Math.round(background.bgShadowBlur * 0.2)}px ${background.bgShadowBlur}px rgba(0,0,0,${background.bgShadowOpacity ?? 0.25})`
+                    : undefined
+                }
+                screenPadding={background.bgPadding}
+                screenInset={background.bgInset}
+                screenInsetColor={background.bgInsetColor}
                 interactionEnabled={true}
                 onRegionChange={handleRegionChange}
                 screenRectOverride={screenRectOverride}
@@ -584,27 +652,40 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
       )}
 
       {/* Zoom marker inspector (above timeline, only when a marker is selected) */}
-      {selectedZoomMarkerId && (() => {
-        const marker = zoomPresentation.markers.find((m) => m.id === selectedZoomMarkerId);
-        if (!marker || !activeRecordingId) return null;
-        return (
-          <div style={{ flexShrink: 0, background: '#050505' }}>
-            <ZoomMarkerInspector
-              marker={marker}
-              fps={projectFps}
-              onPatch={(patch) => projectStore.getState().updateRecordingZoomMarker(activeRecordingId, marker.id, patch)}
-              onDelete={() => {
-                projectStore.getState().removeRecordingZoomMarker(activeRecordingId, marker.id);
-                setSelectedZoomMarkerId(null);
-              }}
-              onDismiss={() => setSelectedZoomMarkerId(null)}
-            />
-          </div>
-        );
-      })()}
+      {selectedZoomMarkerId &&
+        (() => {
+          const marker = zoomPresentation.markers.find((m) => m.id === selectedZoomMarkerId);
+          if (!marker || !activeRecordingId) return null;
+          return (
+            <div style={{ flexShrink: 0, background: '#050505' }}>
+              <ZoomMarkerInspector
+                marker={marker}
+                fps={projectFps}
+                onPatch={(patch) =>
+                  projectStore
+                    .getState()
+                    .updateRecordingZoomMarker(activeRecordingId, marker.id, patch)
+                }
+                onDelete={() => {
+                  projectStore.getState().removeRecordingZoomMarker(activeRecordingId, marker.id);
+                  setSelectedZoomMarkerId(null);
+                }}
+                onDismiss={() => setSelectedZoomMarkerId(null)}
+              />
+            </div>
+          );
+        })()}
 
       {/* Timeline — full width, fixed height (fits ruler + zoom track + up to 5 clip tracks) */}
-      <div style={{ flexShrink: 0, height: 220, padding: '0 24px', marginBottom: 8, background: '#050505' }}>
+      <div
+        style={{
+          flexShrink: 0,
+          height: 220,
+          padding: '0 24px',
+          marginBottom: 8,
+          background: '#050505',
+        }}
+      >
         <RecordTimelineShell
           tracks={tracks}
           assets={assets}
@@ -612,7 +693,9 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
           currentFrame={currentFrame}
           fps={projectFps}
           onScrub={handleTimelineScrub}
-          activeAssetId={activeRecordingId}
+          activeAssetIds={[activeRecordingId, cameraAsset?.id].filter((id): id is string =>
+            Boolean(id),
+          )}
           zoomMarkers={zoomPresentation.markers}
           selectedZoomMarkerId={selectedZoomMarkerId}
           onAddZoomMarkerAtPlayhead={handleAddZoomMarkerAtPlayhead}
