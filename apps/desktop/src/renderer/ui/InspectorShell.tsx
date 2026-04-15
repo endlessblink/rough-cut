@@ -3,7 +3,7 @@
  * Replaces the stacked InspectorCard pattern where a panel needs
  * category switching via a vertical icon rail on the left side.
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   TEXT_SECONDARY,
   TEXT_MUTED,
@@ -26,20 +26,31 @@ export interface InspectorCategory {
 export interface InspectorShellProps {
   categories: InspectorCategory[];
   width: number;
+  preferredCategoryId?: string | null;
 }
 
 // ─── InspectorShell ───────────────────────────────────────────────────────────
 
-export function InspectorShell({ categories, width }: InspectorShellProps) {
-  const [activeCategoryId, setActiveCategoryId] = useState<string>(
-    categories[0]?.id ?? '',
-  );
+export function InspectorShell({
+  categories,
+  width,
+  preferredCategoryId = null,
+}: InspectorShellProps) {
+  const [activeCategoryId, setActiveCategoryId] = useState<string>(categories[0]?.id ?? '');
 
-  const activeCategory =
-    categories.find((c) => c.id === activeCategoryId) ?? categories[0];
+  useEffect(() => {
+    if (!preferredCategoryId) return;
+    if (!categories.some((category) => category.id === preferredCategoryId)) return;
+    setActiveCategoryId((current) =>
+      current === preferredCategoryId ? current : preferredCategoryId,
+    );
+  }, [categories, preferredCategoryId]);
+
+  const activeCategory = categories.find((c) => c.id === activeCategoryId) ?? categories[0];
 
   return (
     <aside
+      data-testid="inspector-shell"
       style={{
         flex: `0 0 ${width}px`,
         maxWidth: width,
@@ -72,13 +83,12 @@ export function InspectorShell({ categories, width }: InspectorShellProps) {
         }}
       >
         {/* Category header */}
-        <CategoryHeader
-          label={activeCategory?.label ?? ''}
-          onReset={activeCategory?.onReset}
-        />
+        <CategoryHeader label={activeCategory?.label ?? ''} onReset={activeCategory?.onReset} />
 
         {/* Panel body */}
         <div
+          data-testid="inspector-card-active"
+          data-category={activeCategory?.id ?? ''}
           style={{
             flex: 1,
             overflowY: 'auto',
@@ -106,6 +116,7 @@ interface IconRailProps {
 function IconRail({ categories, activeCategoryId, onSelect }: IconRailProps) {
   return (
     <div
+      data-testid="inspector-rail"
       style={{
         width: 36,
         flexShrink: 0,
@@ -125,6 +136,7 @@ function IconRail({ categories, activeCategoryId, onSelect }: IconRailProps) {
       {categories.map((cat) => (
         <RailButton
           key={cat.id}
+          categoryId={cat.id}
           icon={cat.icon}
           label={cat.label}
           active={cat.id === activeCategoryId}
@@ -138,17 +150,20 @@ function IconRail({ categories, activeCategoryId, onSelect }: IconRailProps) {
 // ─── RailButton ───────────────────────────────────────────────────────────────
 
 interface RailButtonProps {
+  categoryId: string;
   icon: React.ReactNode;
   label: string;
   active: boolean;
   onClick: () => void;
 }
 
-function RailButton({ icon, label, active, onClick }: RailButtonProps) {
+function RailButton({ categoryId, icon, label, active, onClick }: RailButtonProps) {
   const [hovered, setHovered] = useState(false);
 
   return (
     <button
+      data-testid="inspector-rail-item"
+      data-category={categoryId}
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}

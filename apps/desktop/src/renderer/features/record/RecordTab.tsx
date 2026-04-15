@@ -41,14 +41,12 @@ import { BottomBar } from './BottomBar.js';
 import type { RecordState } from './BottomBar.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
 import { SourcePickerPopup } from './SourcePickerPopup.js';
-import { useCompositor } from '../../hooks/use-compositor.js';
 import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 import { RecordingPlaybackVideo } from './RecordingPlaybackVideo.js';
 import { CameraPlaybackCanvas } from './CameraPlaybackCanvas.js';
 import { LAYOUT_TEMPLATES, resolutionForAspectRatio } from './templates.js';
 import type { LayoutTemplate } from './templates.js';
 import type { Rect } from './template-layout/types.js';
-import { getCardAspect } from './template-layout/index.js';
 import type { Alignment } from './snap-guides.js';
 
 const DEFAULT_BACKGROUND: BackgroundConfig = {
@@ -141,12 +139,6 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     activeRecordingAsset?.presentation?.camera ?? createDefaultCameraPresentation();
   // screenCrop from store is read but we use local state for immediate responsiveness
   // (store crop requires an active recording asset which may not exist yet)
-
-  // Recording asset detection + compositor
-  const hasRecordingAsset = useProjectStore((s) =>
-    s.project.assets.some((a) => a.type === 'recording'),
-  );
-  const { previewRef } = useCompositor();
 
   // Camera playback — find the camera asset linked to the active recording
   // (still needed so the compositor can find the camera asset)
@@ -287,35 +279,41 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const sourceWidth = (activeRecordingAsset?.metadata?.width as number) || 1920;
   const sourceHeight = (activeRecordingAsset?.metadata?.height as number) || 1080;
 
+  const regenerateAutoZoomMarkers = useCallback(() => {
+    if (!activeRecordingId) return;
+
+    const store = projectStore.getState();
+    // Wrap in temporal pause/resume so marker regeneration doesn't pollute undo history.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const temporal = (projectStore as any).temporal;
+    temporal?.getState?.().pause?.();
+    try {
+      if (autoIntensity <= 0 || !autoCursorEvents || autoCursorEvents.length === 0) {
+        store.replaceAutoZoomMarkers(activeRecordingId, []);
+        return;
+      }
+      const autos = generateAutoZoomMarkers(
+        autoCursorEvents,
+        autoIntensity,
+        projectFps,
+        sourceWidth,
+        sourceHeight,
+      );
+      store.replaceAutoZoomMarkers(activeRecordingId, autos);
+    } finally {
+      temporal?.getState?.().resume?.();
+    }
+  }, [activeRecordingId, autoCursorEvents, autoIntensity, projectFps, sourceWidth, sourceHeight]);
+
   useEffect(() => {
     if (!activeRecordingId) return;
 
     const handle = setTimeout(() => {
-      const store = projectStore.getState();
-      // Wrap in temporal pause/resume so marker regeneration doesn't pollute undo history
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const temporal = (projectStore as any).temporal;
-      temporal?.getState?.().pause?.();
-      try {
-        if (autoIntensity <= 0 || !autoCursorEvents || autoCursorEvents.length === 0) {
-          store.replaceAutoZoomMarkers(activeRecordingId, []);
-          return;
-        }
-        const autos = generateAutoZoomMarkers(
-          autoCursorEvents,
-          autoIntensity,
-          projectFps,
-          sourceWidth,
-          sourceHeight,
-        );
-        store.replaceAutoZoomMarkers(activeRecordingId, autos);
-      } finally {
-        temporal?.getState?.().resume?.();
-      }
+      regenerateAutoZoomMarkers();
     }, 250);
 
     return () => clearTimeout(handle);
-  }, [activeRecordingId, autoIntensity, autoCursorEvents, projectFps, sourceWidth, sourceHeight]);
+  }, [activeRecordingId, regenerateAutoZoomMarkers]);
 
   // ── Zoom persistence: save ZoomPresentation to a .zoom.json sidecar on edit ──
   // Debounce 500ms so slider drags and auto-zoom regeneration don't spam disk.
@@ -715,6 +713,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
             zoomMarkerCount={zoomPresentation.markers.length}
             zoomIntensity={zoomPresentation.autoIntensity}
             onZoomIntensityChange={handleZoomIntensityChange}
+            canRegenerateAutoZoom={Boolean(cursorEventsPath)}
+            onRegenerateAutoZoom={regenerateAutoZoomMarkers}
             onResetZoomMarkers={handleResetZoom}
             cursor={cursorPresentation}
             onCursorChange={handleCursorChange}
@@ -822,7 +822,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
           currentFrame={currentFrame}
           fps={projectFps}
           onScrub={handleTimelineScrub}
-          activeAssetIds={[selectedTimelineAssetId].filter((id): id is string => Boolean(id))}
+          activeAssetIds={selectedTimelineAssetId ? [selectedTimelineAssetId] : []}
           selectedAssetId={selectedTimelineAssetId}
           onSelectAsset={handleSelectTimelineAsset}
           zoomMarkers={zoomPresentation.markers}

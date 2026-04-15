@@ -26,6 +26,10 @@ interface RecordTimelineShellProps {
   onScrub: (frame: number) => void;
   /** When set, highlight clips matching these assets and dim others */
   activeAssetIds?: readonly string[];
+  /** Timeline-selected asset for channel targeting */
+  selectedAssetId?: string | null;
+  /** Select a clip's asset/channel */
+  onSelectAsset?: (assetId: string) => void;
   /** Zoom markers for the active recording (auto + manual) */
   zoomMarkers?: readonly ZoomMarker[];
   /** Currently selected zoom marker (null = none selected) */
@@ -419,6 +423,8 @@ export function RecordTimelineShell({
   fps,
   onScrub,
   activeAssetIds,
+  selectedAssetId = null,
+  onSelectAsset,
   zoomMarkers = [],
   selectedZoomMarkerId = null,
   onAddZoomMarkerAtPlayhead,
@@ -724,6 +730,7 @@ export function RecordTimelineShell({
                     const widthPct = frameToPct(dur, effectiveDuration);
                     const isActive =
                       !activeAssetIds?.length || activeAssetIds.includes(clip.assetId);
+                    const isSelected = clip.assetId === selectedAssetId;
                     const dimOpacity = isActive ? 0.85 : 0.25;
                     const bg = isVideo
                       ? `linear-gradient(to right, rgba(108,191,255,${dimOpacity}), rgba(27,97,189,${dimOpacity}))`
@@ -735,6 +742,26 @@ export function RecordTimelineShell({
                     return (
                       <div
                         key={clip.id}
+                        data-testid="record-timeline-clip"
+                        data-asset-id={clip.assetId}
+                        data-selected={isSelected ? 'true' : 'false'}
+                        role="button"
+                        tabIndex={0}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectAsset?.(clip.assetId);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onSelectAsset?.(clip.assetId);
+                          }
+                        }}
+                        title={label}
                         style={{
                           position: 'absolute',
                           top: CLIP_TOP,
@@ -744,7 +771,15 @@ export function RecordTimelineShell({
                           borderRadius: 4,
                           background: bg,
                           overflow: 'hidden',
-                          pointerEvents: 'none',
+                          border: isSelected
+                            ? '2px solid rgba(255,255,255,0.9)'
+                            : '1px solid rgba(0,0,0,0.18)',
+                          boxShadow: isSelected
+                            ? '0 0 0 1px rgba(0,0,0,0.55), 0 0 10px rgba(255,255,255,0.12)'
+                            : 'none',
+                          cursor: 'pointer',
+                          pointerEvents: 'auto',
+                          boxSizing: 'border-box',
                         }}
                       >
                         <span
