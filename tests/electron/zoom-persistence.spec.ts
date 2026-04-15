@@ -27,11 +27,15 @@ test.describe('Zoom persistence — sidecar', () => {
       appPage.locator('[data-testid="zoom-marker"][data-marker-kind="manual"]'),
     ).toHaveCount(1, { timeout: 5_000 });
 
-    // Wait past the 500ms debounce.
-    await appPage.waitForTimeout(1000);
+    // Wait past the debounce and allow for slow fs flushes in CI.
+    await expect
+      .poll(() => existsSync(sidecarPath), {
+        timeout: 5000,
+        message: `sidecar should be created at ${sidecarPath}`,
+      })
+      .toBe(true);
 
     // Sidecar should exist and contain our marker.
-    expect(existsSync(sidecarPath), `sidecar should be created at ${sidecarPath}`).toBe(true);
     const raw = await fs.readFile(sidecarPath, 'utf-8');
     const parsed = JSON.parse(raw);
     console.log('[persistence-test] sidecar:', parsed);

@@ -412,7 +412,7 @@ The Edit tab now renders camera playback via a dedicated React overlay layered a
 
 **Priority:** P1 | **Status:** IN PROGRESS (2026-04-13)
 
-Increment 1 of a three-part editor upgrade inspired by headline-design/seq (no-license, reimplemented clean-room). Adds multi-select and two new snap targets. Virtualization (Increment 2) and waveform rendering (Increment 3) deferred.
+Increment 1 of a three-part editor upgrade inspired by headline-design/seq (no-license, reimplemented clean-room). Adds multi-select and two new snap targets. Virtualization (Increment 2) and waveform rendering (Increment 3) deferred. This feature now anchors Phase 1 of the broader edit backlog rollout below.
 
 **Progress (2026-04-13):** Increment 1 landed on branch `feat/timeline-marquee-snap`:
 
@@ -429,6 +429,19 @@ Increment 1 of a three-part editor upgrade inspired by headline-design/seq (no-l
 - Clip virtualization (render only clips intersecting visible frame range)
 - Waveform rendering via main-process FFmpeg peak extraction (defer until FEATURE-076 stabilizes)
 - Known limitations (intentional for this increment): right panel shows only first selected clip; `S` (split) operates on first selection only; multi-delete produces N undo steps rather than 1
+
+**Broader edit backlog phases (work top-to-bottom):**
+
+1. **Phase 1 - Timeline selection + structural edits**
+   Finish `FEATURE-084`, then land `TASK-017` (clip drag-to-move), `TASK-018` (cross-track dragging), and `TASK-027` (ripple delete). This keeps direct manipulation and destructive timeline edits on one shared foundation.
+2. **Phase 2 - Playback + audio editing feedback**
+   Land `TASK-020` (audio playback synced to playhead), `TASK-025` (track headers), `TASK-065` (clip/track volume controls), `TASK-026` (waveforms), and `TASK-066` (transport skip controls). This makes timing and audio decisions visible before deeper authoring UI.
+3. **Phase 3 - Inspector authoring controls**
+   Land `TASK-019` (effects stack UI), `TASK-023` (keyframe editor), and `TASK-064` (opacity/blend mode). This completes the core inspector surface for clip-level adjustments.
+4. **Phase 4 - Finishing polish in the timeline**
+   Land `TASK-024` (transitions) and `TASK-063` (thumbnail strips). These improve readability and finishing quality once editing and playback fundamentals are stable.
+
+The default one-by-one execution order is the task order listed inside each phase.
 
 **Key files:** `packages/timeline-engine/src/snap.ts`, `packages/timeline-engine/src/select-clips.ts`, `packages/store/src/transport-store.ts`, `apps/desktop/src/renderer/features/edit/{TimelineStrip,EditTab,MarqueeOverlay}.tsx`
 
@@ -496,6 +509,114 @@ The visible Record tab and the floating recording panel currently own separate s
 - Replace `useState`-owned config in `RecordTab.tsx` and `PanelApp.tsx` with store selectors/actions.
 - Route source selection and panel launch through the same store-backed actions.
 - Add targeted tests that assert the main tab and floating panel reflect the same source and device state.
+
+#### Proposed Store Shape
+
+Use the same vanilla Zustand style as `packages/store/src/transport-store.ts` and `project-store.ts`.
+
+```ts
+export interface RecordingConfigState {
+  recordMode: 'fullscreen' | 'window' | 'region';
+  availableSources: readonly CaptureSource[];
+  selectedSourceId: string | null;
+  micEnabled: boolean;
+  sysAudioEnabled: boolean;
+  cameraEnabled: boolean;
+  countdownSeconds: 0 | 3 | 5 | 10;
+  selectedMicDeviceId: string | null;
+  selectedCameraDeviceId: string | null;
+  selectedSystemAudioSourceId: string | null;
+  panelOpen: boolean;
+  hydrated: boolean;
+}
+
+export interface RecordingConfigActions {
+  hydrate: (patch?: Partial<RecordingConfigState>) => void;
+  setAvailableSources: (sources: readonly CaptureSource[]) => void;
+  setRecordMode: (mode: RecordingConfigState['recordMode']) => void;
+  selectSource: (sourceId: string | null) => void;
+  setMicEnabled: (enabled: boolean) => void;
+  setSystemAudioEnabled: (enabled: boolean) => void;
+  setCameraEnabled: (enabled: boolean) => void;
+  setCountdownSeconds: (seconds: 0 | 3 | 5 | 10) => void;
+  setMicDeviceId: (deviceId: string | null) => void;
+  setCameraDeviceId: (deviceId: string | null) => void;
+  setSystemAudioSourceId: (sourceId: string | null) => void;
+  setPanelOpen: (open: boolean) => void;
+  resetSessionOnlyState: () => void;
+}
+```
+
+#### Ownership Boundaries
+
+- `recordingStore` owns user-selected recording configuration shared by surfaces.
+- `projectStore` continues owning persisted project/asset/clip/presentation data.
+- `transportStore` continues owning playback state and timeline selection.
+- `PanelApp.tsx` keeps transient runtime state local:
+  - live `MediaStream` instances
+  - `MediaRecorder` / camera recorder instances
+  - elapsed timer updates from IPC
+  - current panel lifecycle status (`idle`, `countdown`, `recording`, `paused`, `stopping`)
+- `RecordTab.tsx` keeps transient preview-only state local if it is derived from shared config plus active media objects.
+
+#### Persistence Strategy
+
+- Persist only durable user preferences from `recordingStore`:
+  - `recordMode`
+  - `selectedSourceId` only if source IDs are stable enough on this platform, otherwise persist source kind and re-resolve best match
+  - `micEnabled`
+  - `sysAudioEnabled`
+  - `cameraEnabled`
+  - `countdownSeconds`
+  - selected device IDs when available
+- Do not persist:
+  - `availableSources`
+  - `panelOpen`
+  - live status or stream references
+  - any in-flight recording state
+- Prefer a thin renderer-side persistence adapter first; move to shared main-process persistence only if device/source restoration needs OS-aware resolution.
+
+#### Migration Order
+
+1. Create the store with defaults and tests.
+2. Read from the store in `RecordTab.tsx` without removing old local state yet.
+3. Switch write paths in `RecordTab.tsx` to store actions.
+4. Switch `PanelApp.tsx` initialization to store reads instead of panel-local defaults.
+5. Remove duplicated local config state from both surfaces.
+6. Add persistence/hydration.
+7. Add device selectors on top of the unified store.
+
+#### Concrete Refactor Steps
+
+- In `RecordTab.tsx`:
+  - replace `recordMode` local state with `recordingStore.recordMode`
+  - replace source/toggle state reads with store selectors
+  - keep preview stream ownership local for now
+  - when the user clicks Record, set `panelOpen=true` before `openRecordingPanel()`
+- In `PanelApp.tsx`:
+  - remove default `useState(true/false)` config for mic/system/camera/source
+  - subscribe to the shared store for source/device/toggle values
+  - keep local runtime recorder state only
+  - on panel close/unmount, clear only session-local flags, not user config
+- In `main/index.mjs` and recording IPC:
+  - keep main-process `selectedSourceId` bridge only as an execution detail
+  - ensure the renderer always pushes the store-selected source before capture begins
+  - avoid hidden main-process fallback that silently chooses a different source than the UI shows
+
+#### Test Plan
+
+- Add unit tests for the new store in the same style as `packages/store/src/transport-store.test.ts`
+- Add Playwright test: main Record source persists into opened panel
+- Add Playwright test: mic/system-audio/camera toggles match between tab and panel
+- Add Playwright test: relaunch restores persisted Record config
+- Update `tests/electron/acceptance-record.spec.ts` to assert shared-surface truth instead of placeholder-only expectations
+
+#### Risks and Guardrails
+
+- Do not move project presentation state into `recordingStore`; that would blur the line between live config and saved edit data.
+- Do not persist raw `CaptureSource[]`; source catalogs must be reloaded per session.
+- Do not let the panel overwrite hydrated config with hardcoded defaults on mount.
+- Keep the first pass minimal: unify state first, then add new controls and selectors.
 
 #### Key files
 
@@ -748,6 +869,126 @@ This is one of the biggest trust features in a recording tool. Users will forgiv
 - `TASK-012` is now treated as complete baseline capture support: saved recordings can include mic/system audio.
 - `FEATURE-076` remains the broader in-progress track for audio pipeline stabilization and playback polish.
 - Remaining Record audio UX is intentionally tracked separately under `TASK-031`, `TASK-032`, `TASK-088`, and `TASK-100` rather than being folded back into `TASK-012`.
+
+---
+
+### Milestone 1 Implementation Checklist
+
+#### Goal
+
+Make the Record surface trustworthy by ensuring the visible Record tab and the floating recording panel are one workflow with one shared configuration model.
+
+#### Phase 1: Introduce the shared recording store (`TASK-086`)
+
+- [ ] Create `recordingStore` with state for:
+  - `recordMode`
+  - `selectedSourceId`
+  - `micEnabled`
+  - `sysAudioEnabled`
+  - `cameraEnabled`
+  - `countdownSeconds`
+  - selected device IDs for mic/camera/system-audio where applicable
+- [ ] Move main-tab config off local component state in `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- [ ] Move panel config off local component state in `apps/desktop/src/renderer/features/record/PanelApp.tsx`
+- [ ] Keep preview/runtime-only state local where appropriate: active streams, recorder instances, elapsed timers, and transient panel status
+- [ ] Add store actions for loading sources, selecting source, toggling devices, updating mode, and hydrating persisted config
+
+Files:
+
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
+- new `apps/desktop/src/renderer/features/record/recording-store.ts` or equivalent shared store module
+- `apps/desktop/src/renderer/env.d.ts`
+- `apps/desktop/src/preload/index.mjs` if new bridge methods are needed
+
+Verification:
+
+- Record tab and panel show the same selected source after panel open
+- Record tab toggles match panel toggles without manual re-entry
+- No regressions in `tests/electron/record-tab.spec.ts`
+
+#### Phase 2: Fix sync bugs on top of the store (`BUG-007`, `BUG-008`)
+
+- [ ] Replace any remaining panel-local defaults that overwrite shared state on mount
+- [ ] Ensure `openRecordingPanel()` uses existing shared state instead of booting into panel defaults
+- [ ] Ensure source changes propagate through one path only
+- [ ] Remove duplicate source loading logic where possible, or explicitly separate source catalog loading from source selection state
+
+Files:
+
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
+- `apps/desktop/src/main/index.mjs`
+- `apps/desktop/src/main/recording/recording-session-manager.mjs`
+
+Verification:
+
+- Add or update Playwright coverage to assert the selected source survives panel open
+- Add or update Playwright coverage to assert mic/system-audio toggles survive panel open
+- Fix stale acceptance assumptions in `tests/electron/acceptance-record.spec.ts` while preserving MVP intent
+
+#### Phase 3: Make mode and camera controls real (`BUG-009`, `BUG-010`)
+
+- [ ] Wire `recordMode` to actual source/capture behavior instead of visual-only UI
+- [ ] Define exact mode behavior:
+  - `fullscreen` favors screens
+  - `window` favors app windows
+  - `region` enters crop/custom-region flow
+- [ ] Surface camera controls consistently in the toolbar and panel when camera support is available
+- [ ] Remove `hasCamera={false}` style gating once the shared state path is correct
+
+Files:
+
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `apps/desktop/src/renderer/features/record/BottomBar.tsx`
+- `apps/desktop/src/renderer/features/record/ModeSelectorRow.tsx`
+- `apps/desktop/src/renderer/features/record/SourcePickerPopup.tsx`
+
+Verification:
+
+- Acceptance coverage for visible camera toggle in the main Record surface
+- Acceptance coverage for mode-dependent source behavior
+- Manual verification that `region` mode leads into crop/region workflow rather than being decorative only
+
+#### Phase 4: Persistence and selectors (`TASK-087`, `TASK-088`)
+
+- [ ] Persist shared Record config across app restarts
+- [ ] Decide whether persistence lives in localStorage, electron-store, or a mixed renderer/main strategy
+- [ ] Add device selectors for mic, camera, and system-audio source where platform APIs allow it
+- [ ] Make selected devices part of the same shared store instead of panel-only config
+
+Files:
+
+- `apps/desktop/src/renderer/features/record/recording-store.ts`
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
+- `apps/desktop/src/renderer/features/record/BottomBar.tsx`
+- `apps/desktop/src/main/recording/audio-sources.mjs`
+- `apps/desktop/src/main/recent-projects-service.mjs` only if persistence is centralized there
+
+Verification:
+
+- Restart the app and confirm source/mic/system-audio/camera/mode selections restore correctly
+- Add tests for persisted defaults if the persistence layer is renderer-testable
+- Update acceptance tests that currently look only for "Mic: Default" so they reflect real selectors
+
+#### Test Cleanup Required During Milestone 1
+
+- [ ] Update `tests/electron/acceptance-record.spec.ts` to distinguish:
+  - truly missing features
+  - stale selectors/locators
+  - features that exist only in the panel and need shared-surface exposure
+- [ ] Add a dedicated test for "main Record config survives opening the panel"
+- [ ] Add a dedicated test for "camera toggle visible and synchronized across surfaces"
+- [ ] Add a dedicated test for "record mode changes the available source flow"
+
+#### Exit Criteria
+
+- The main Record tab and floating panel use one shared config source of truth
+- Opening the panel never resets source/device/mode state unexpectedly
+- Camera controls are surfaced consistently
+- Record mode is behaviorally meaningful
+- Persisted Record config restores correctly after relaunch
+- Milestone 1 bugs (`BUG-007` to `BUG-010`) are closed with test coverage
 
 ---
 

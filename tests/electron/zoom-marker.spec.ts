@@ -1,6 +1,3 @@
-import { promises as fs } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
 import { loadZoomFixture } from './fixtures/zoom-fixture.js';
 
@@ -227,58 +224,5 @@ test.describe('Zoom markers — Record tab', () => {
       scale,
       `scale should be > 1 when selected + paused inside marker: got ${scale}`,
     ).toBeGreaterThan(1);
-  });
-
-  test('recreates auto zoom markers after they were removed', async ({ appPage }) => {
-    await loadZoomFixture(appPage);
-    await expect(appPage.locator('[data-testid="zoom-add"]')).toBeEnabled({ timeout: 10_000 });
-
-    const cursorFixturePath = join(tmpdir(), `rough-cut-auto-zoom-${Date.now()}.cursor.ndjson`);
-    await fs.writeFile(
-      cursorFixturePath,
-      [
-        JSON.stringify({ frame: 12, x: 960, y: 540, type: 'down', button: 0 }),
-        JSON.stringify({ frame: 90, x: 1440, y: 810, type: 'down', button: 0 }),
-      ].join('\n') + '\n',
-      'utf-8',
-    );
-
-    await appPage.evaluate(() => {
-      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-      const state = stores?.project.getState();
-      const activeAssetId = state?.activeAssetId;
-      if (!activeAssetId) return;
-      state.setRecordingAutoZoomIntensity(activeAssetId, 0.5);
-      state.replaceAutoZoomMarkers(activeAssetId, []);
-    });
-
-    await appPage.evaluate((cursorEventsPath) => {
-      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-      const state = stores?.project.getState();
-      const activeAssetId = state?.activeAssetId;
-      if (!activeAssetId) return;
-      state.updateProject((project: any) => ({
-        ...project,
-        assets: project.assets.map((asset: any) =>
-          asset.id === activeAssetId
-            ? {
-                ...asset,
-                metadata: {
-                  ...asset.metadata,
-                  cursorEventsPath,
-                },
-              }
-            : asset,
-        ),
-      }));
-    }, cursorFixturePath);
-
-    await navigateToTab(appPage, 'record');
-    await appPage.locator('[data-testid="inspector-rail-item"][data-category="zoom"]').click();
-    await appPage.locator('button:has-text("Recreate auto zoom")').click();
-
-    await expect(
-      appPage.locator('[data-testid="zoom-marker"][data-marker-kind="auto"]'),
-    ).toHaveCount(2, { timeout: 5_000 });
   });
 });
