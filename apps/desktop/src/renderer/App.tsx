@@ -10,6 +10,7 @@ import { AITab } from './features/ai/AITab.js';
 import { MotionTab } from './features/motion/MotionTab.js';
 import type { AppView } from './ui/index.js';
 import { projectStore, transportStore } from './hooks/use-stores.js';
+import { getPlaybackManager } from './hooks/use-playback-manager.js';
 
 function generateProjectName(): string {
   const d = new Date();
@@ -122,6 +123,7 @@ export function App() {
   const handleOpen = useCallback(async (): Promise<boolean> => {
     const result = await window.roughcut.projectOpen();
     if (result) {
+      getPlaybackManager().pause();
       projectStore.getState().setProject(result.project as ProjectDocument);
       projectStore.getState().setProjectFilePath(result.filePath);
       transportStore.getState().seekToFrame(0);
@@ -134,6 +136,7 @@ export function App() {
   const handleNew = useCallback(async () => {
     await window.roughcut.projectNew();
     const project = createProject({ name: generateProjectName() });
+    getPlaybackManager().pause();
     projectStore.getState().setProject(project);
     projectStore.getState().setProjectFilePath(null);
     transportStore.getState().seekToFrame(0);
@@ -159,6 +162,7 @@ export function App() {
 
     // Create and load a fresh project for this recording
     const freshProject = createProject({ name: generateProjectName() });
+    getPlaybackManager().pause();
     projectStore.getState().setProject(freshProject);
     projectStore.getState().setProjectFilePath(null);
     projectStore.getState().setActiveAssetId(null);

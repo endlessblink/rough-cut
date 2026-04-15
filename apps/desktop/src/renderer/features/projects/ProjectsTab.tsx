@@ -3,6 +3,7 @@ import type { ProjectDocument } from '@rough-cut/project-model';
 import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
 import { projectStore, transportStore } from '../../hooks/use-stores.js';
+import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 import { ProjectsScreenLayout } from './ProjectsScreenLayout.js';
 import { ProjectsContent } from './ProjectsContent.js';
 import { ProjectDetailView } from './ProjectDetailView.js';
@@ -54,6 +55,7 @@ export function ProjectsTab({
   // Click a project card → load and show detail view
   async function handleOpenPath(filePath: string) {
     try {
+      getPlaybackManager().pause();
       const project = await window.roughcut.projectOpenPath(filePath);
       setSelectedProject({ project: project as ProjectDocument, filePath });
     } catch (err) {
@@ -175,6 +177,7 @@ export function ProjectsTab({
     transportStore.getState().seekToFrame(0);
 
     // Load clean project into store
+    getPlaybackManager().pause();
     projectStore.getState().setProject(cleanProject as ProjectDocument);
     projectStore.getState().setProjectFilePath(filePath);
     projectStore.getState().setActiveAssetId(assetId);
@@ -188,6 +191,7 @@ export function ProjectsTab({
 
     // Load the FULL project into store (not a stripped version)
     transportStore.getState().seekToFrame(0);
+    getPlaybackManager().pause();
     projectStore.getState().setProject(project as ProjectDocument);
     projectStore.getState().setProjectFilePath(filePath);
 

@@ -42,6 +42,7 @@ import type { RecordState } from './BottomBar.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
 import { SourcePickerPopup } from './SourcePickerPopup.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
+import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 import { RecordingPlaybackVideo } from './RecordingPlaybackVideo.js';
 import { CameraPlaybackCanvas } from './CameraPlaybackCanvas.js';
 import { LAYOUT_TEMPLATES, resolutionForAspectRatio } from './templates.js';
@@ -82,6 +83,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const [cameraRectOverride, setCameraRectOverride] = useState<Rect | undefined>();
   const [cropModeActive, setCropModeActive] = useState(false);
   const [selectedRegion, setSelectedRegion] = useState<'screen' | 'camera' | null>(null);
+  const [cropTargetRegion, setCropTargetRegion] = useState<'screen' | 'camera'>('screen');
   const alignRef = useRef<((a: Alignment) => void) | null>(null);
 
   useEffect(() => {
@@ -135,7 +137,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     activeRecordingAsset?.presentation?.zoom ?? createDefaultZoomPresentation();
   const cursorPresentation =
     activeRecordingAsset?.presentation?.cursor ?? createDefaultCursorPresentation();
-  const cameraPresentation =
+  const assetCameraPresentation =
     activeRecordingAsset?.presentation?.camera ?? createDefaultCameraPresentation();
   // screenCrop from store is read but we use local state for immediate responsiveness
   // (store crop requires an active recording asset which may not exist yet)
@@ -152,14 +154,35 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     if (!activeRecordingAsset?.cameraAssetId) return null;
     return s.project.assets.find((a) => a.id === activeRecordingAsset.cameraAssetId) ?? null;
   });
+  const cameraClip = useProjectStore((s) => {
+    if (!activeRecordingAsset?.cameraAssetId) return null;
+    for (const track of s.project.composition.tracks) {
+      for (const clip of track.clips) {
+        if (clip.assetId === activeRecordingAsset.cameraAssetId) {
+          return clip;
+        }
+      }
+    }
+    return null;
+  });
+  const cameraSourceWidth = (cameraAsset?.metadata?.width as number) || 1920;
+  const cameraSourceHeight = (cameraAsset?.metadata?.height as number) || 1080;
 
   // Background/canvas config (lifted from RecordRightPanel so LivePreviewVideo can consume it)
   const [background, setBackground] = useState<BackgroundConfig>(DEFAULT_BACKGROUND);
+  const [cameraPresentation, setCameraPresentation] = useState<CameraPresentation>(() =>
+    createDefaultCameraPresentation(),
+  );
 
   // Crop state — local like background, works without a recording asset
   const [screenCrop, setScreenCrop] = useState<RegionCrop>(() =>
     createDefaultRegionCrop(resolution.width, resolution.height),
   );
+
+  useEffect(() => {
+    setCameraPresentation(assetCameraPresentation);
+  }, [assetCameraPresentation]);
+  const [cameraCrop, setCameraCrop] = useState<RegionCrop>(() => createDefaultRegionCrop());
 
   const handleBackgroundChange = useCallback((patch: Partial<BackgroundConfig>) => {
     setBackground((prev) => ({ ...prev, ...patch }));
@@ -208,6 +231,17 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     import('@rough-cut/project-model').ZoomMarkerId | null
   >(null);
 
+  const selectedTimelineAssetId =
+    (selectedRegion === 'camera' ? cameraAsset?.id : activeRecordingId) ??
+    activeRecordingId ??
+    cameraAsset?.id ??
+    null;
+  const preferredInspectorCategoryId = selectedZoomMarkerId
+    ? 'zoom'
+    : selectedRegion === 'camera' || selectedTimelineAssetId === cameraAsset?.id
+      ? 'camera'
+      : 'crop';
+
   const handleAddZoomMarkerAtPlayhead = useCallback(() => {
     if (!activeRecordingId || durationFrames <= 0) return;
     // Default: 1 second, capped so there's always room, but never more than half the recording
@@ -224,6 +258,20 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
       setSelectedZoomMarkerId(id);
     },
     [],
+  );
+
+  const handleSelectTimelineAsset = useCallback(
+    (assetId: string) => {
+      setSelectedZoomMarkerId(null);
+      if (assetId === cameraAsset?.id) {
+        setSelectedRegion('camera');
+        return;
+      }
+      if (assetId === activeRecordingId) {
+        setSelectedRegion('screen');
+      }
+    },
+    [activeRecordingId, cameraAsset?.id],
   );
 
   const handleResetZoom = useCallback(() => {
@@ -312,6 +360,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
 
   const handleCameraChange = useCallback(
     (patch: Partial<CameraPresentation>) => {
+      setCameraPresentation((prev) => ({ ...prev, ...patch }));
       if (!activeRecordingId) return;
       projectStore.getState().updateCameraPresentation(activeRecordingId, patch);
     },
@@ -319,6 +368,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   );
 
   const handleCameraReset = useCallback(() => {
+    const defaults = createDefaultCameraPresentation();
+    setCameraPresentation(defaults);
     if (!activeRecordingId) return;
     projectStore.getState().resetCameraPresentation(activeRecordingId);
   }, [activeRecordingId]);
@@ -345,10 +396,67 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     }
   }, [resolution.width, resolution.height, activeRecordingId]);
 
+  const handleCameraCropChange = useCallback(
+    (patch: Partial<RegionCrop>) => {
+      setCameraCrop((prev) => {
+        const next = { ...prev, ...patch };
+        if (activeRecordingId) {
+          projectStore.getState().updateCameraCrop(activeRecordingId, next);
+        }
+        return next;
+      });
+    },
+    [activeRecordingId],
+  );
+
+  const handleCameraCropReset = useCallback(() => {
+    const def = createDefaultRegionCrop(cameraSourceWidth, cameraSourceHeight);
+    setCameraCrop(def);
+    if (activeRecordingId) {
+      projectStore.getState().resetCameraCrop(activeRecordingId);
+    }
+  }, [cameraSourceWidth, cameraSourceHeight, activeRecordingId]);
+
+  useEffect(() => {
+    setScreenCrop(
+      activeRecordingAsset?.presentation?.screenCrop ??
+        createDefaultRegionCrop(resolution.width, resolution.height),
+    );
+    setCameraCrop(
+      activeRecordingAsset?.presentation?.cameraCrop ??
+        createDefaultRegionCrop(cameraSourceWidth, cameraSourceHeight),
+    );
+  }, [
+    activeRecordingAsset?.id,
+    activeRecordingAsset?.presentation?.screenCrop,
+    activeRecordingAsset?.presentation?.cameraCrop,
+    resolution.width,
+    resolution.height,
+    cameraSourceWidth,
+    cameraSourceHeight,
+  ]);
+
+  useEffect(() => {
+    if (selectedRegion) setCropTargetRegion(selectedRegion);
+  }, [selectedRegion]);
+
+  const handleScreenCropModeChange = useCallback((active: boolean) => {
+    setSelectedRegion('screen');
+    setCropTargetRegion('screen');
+    setCropModeActive(active);
+  }, []);
+
+  const handleCameraCropModeChange = useCallback((active: boolean) => {
+    setSelectedRegion('camera');
+    setCropTargetRegion('camera');
+    setCropModeActive(active);
+  }, []);
+
   // Auto-disable crop mode when crop is turned off
   useEffect(() => {
-    if (!screenCrop.enabled) setCropModeActive(false);
-  }, [screenCrop.enabled]);
+    const activeCrop = cropTargetRegion === 'camera' ? cameraCrop : screenCrop;
+    if (!activeCrop.enabled) setCropModeActive(false);
+  }, [cropTargetRegion, cameraCrop, screenCrop]);
 
   // [DEBUG] Load the latest saved project from disk instead of rebuilding
   // from raw media files. This keeps restart/debug behavior aligned with the
@@ -380,6 +488,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
       latestRecording?.filePath ?? 'NONE',
     );
 
+    getPlaybackManager().pause();
     transportStore.getState().seekToFrame(0);
     projectStore.getState().setProject(project);
     projectStore.getState().setProjectFilePath(latestProject.filePath);
@@ -556,7 +665,12 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
                 }
                 cameraContent={
                   cameraAsset?.filePath ? (
-                    <CameraPlaybackCanvas filePath={cameraAsset.filePath} />
+                    <CameraPlaybackCanvas
+                      filePath={cameraAsset.filePath}
+                      fps={projectFps}
+                      clipTimelineIn={cameraClip?.timelineIn ?? 0}
+                      clipSourceIn={cameraClip?.sourceIn ?? 0}
+                    />
                   ) : undefined
                 }
                 cameraAspect={4 / 3}
@@ -576,11 +690,18 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
                 screenRectOverride={screenRectOverride}
                 cameraRectOverride={cameraRectOverride}
                 screenCrop={screenCrop}
+                cameraCrop={cameraCrop}
+                cropRegion={cropTargetRegion}
                 cropModeActive={cropModeActive}
                 onCropModeChange={setCropModeActive}
+                onScreenCropModeChange={handleScreenCropModeChange}
+                onCameraCropModeChange={handleCameraCropModeChange}
                 onScreenCropChange={handleScreenCropChange}
-                sourceWidth={resolution.width}
-                sourceHeight={resolution.height}
+                onCameraCropChange={handleCameraCropChange}
+                screenSourceWidth={resolution.width}
+                screenSourceHeight={resolution.height}
+                cameraSourceWidth={cameraSourceWidth}
+                cameraSourceHeight={cameraSourceHeight}
                 alignRef={alignRef}
                 onRegionClick={setSelectedRegion}
                 selectedRegion={selectedRegion}
@@ -607,14 +728,22 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
             screenCrop={screenCrop}
             onScreenCropChange={handleScreenCropChange}
             onScreenCropReset={handleScreenCropReset}
-            sourceWidth={resolution.width}
-            sourceHeight={resolution.height}
+            cameraCrop={cameraCrop}
+            onCameraCropChange={handleCameraCropChange}
+            onCameraCropReset={handleCameraCropReset}
+            screenSourceWidth={resolution.width}
+            screenSourceHeight={resolution.height}
+            cameraSourceWidth={cameraSourceWidth}
+            cameraSourceHeight={cameraSourceHeight}
             cropModeActive={cropModeActive}
-            onCropModeChange={setCropModeActive}
+            cropTargetRegion={cropTargetRegion}
+            onScreenCropModeChange={handleScreenCropModeChange}
+            onCameraCropModeChange={handleCameraCropModeChange}
             selectedTemplateId={activeTemplate.id}
             onTemplateChange={handleTemplateChange}
             selectedRegion={selectedRegion}
             onAlign={handleAlign}
+            preferredCategoryId={preferredInspectorCategoryId}
           />
         }
       />
@@ -693,9 +822,9 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
           currentFrame={currentFrame}
           fps={projectFps}
           onScrub={handleTimelineScrub}
-          activeAssetIds={[activeRecordingId, cameraAsset?.id].filter((id): id is string =>
-            Boolean(id),
-          )}
+          activeAssetIds={[selectedTimelineAssetId].filter((id): id is string => Boolean(id))}
+          selectedAssetId={selectedTimelineAssetId}
+          onSelectAsset={handleSelectTimelineAsset}
           zoomMarkers={zoomPresentation.markers}
           selectedZoomMarkerId={selectedZoomMarkerId}
           onAddZoomMarkerAtPlayhead={handleAddZoomMarkerAtPlayhead}

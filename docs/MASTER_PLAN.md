@@ -69,6 +69,13 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | TASK-014     | Record: Webcam PiP (render in compositor with shape/position)                                              | P0       | TODO                     | TASK-013           |
 | TASK-015     | Record: Serialize recording effects to clips (bg, corners, shadow → Effect entries)                        | P0       | TODO                     | TASK-011           |
 | TASK-016     | Record: Create separate Assets for webcam + audio on stop                                                  | P0       | TODO                     | TASK-012, TASK-014 |
+| TASK-086     | Record: Unified config store for main tab + recording panel                                                | P0       | TODO                     | TASK-010, TASK-011 |
+| BUG-007      | Fix: Record toolbar toggles don't drive the floating recording panel                                       | P0       | TODO                     | TASK-086           |
+| BUG-008      | Fix: Record source selection diverges from the floating panel source                                       | P0       | TODO                     | TASK-086           |
+| TASK-087     | Record: Persist config across panel opens and app restarts                                                 | P1       | TODO                     | TASK-086           |
+| TASK-088     | Record: Device selectors for mic, camera, and system audio                                                 | P1       | TODO                     | TASK-086, TASK-012 |
+| BUG-009      | Fix: Record mode selector is visual-only and does not affect capture                                       | P1       | TODO                     | TASK-086           |
+| BUG-010      | Fix: Camera controls hidden in Record toolbar despite camera support                                       | P1       | TODO                     | TASK-086           |
 | TASK-050     | Preview: Switch to PixiJS VideoSource (WebGL textures, drop Canvas2D drawImage)                            | P0       | TODO                     | TASK-007           |
 | TASK-051     | Preview: Work around WebGL gradient shader crash (solid rects or pre-rendered canvas bg)                   | P0       | TODO                     | TASK-050           |
 | TASK-052     | Export: WebCodecs pipeline — web-demuxer + VideoDecoder + PixiJS offscreen + VideoEncoder + mediabunny MP4 | P0       | TODO                     | TASK-050           |
@@ -101,6 +108,15 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | TASK-030    | Record: Countdown timer (0/3/5/10s configurable)                   | P2       | TODO        | TASK-011           |
 | TASK-031    | Record: Pause/resume recording (MediaRecorder pause)               | P2       | TODO        | TASK-012           |
 | TASK-032    | Record: VU meters for mic and system audio                         | P2       | TODO        | TASK-012           |
+| TASK-089    | Record: Keyboard shortcut capture + on-video overlays              | P1       | TODO        | TASK-015           |
+| TASK-090    | Record: Highlights and annotations overlay system                  | P1       | TODO        | TASK-015           |
+| TASK-091    | Record: Titles and callouts overlay system                         | P1       | TODO        | TASK-015, TASK-055 |
+| TASK-092    | Record: Dynamic camera layout changes within one recording         | P1       | TODO        | TASK-014, TASK-015 |
+| TASK-101    | Record: Cursor smoothing, idle hide, and loop-back polish          | P2       | TODO        | TASK-015, TASK-075 |
+| TASK-093    | Record: Teleprompter for scripted recording                        | P2       | TODO        | TASK-086           |
+| TASK-094    | Record: Shareable recording presets and profiles                   | P2       | TODO        | TASK-086           |
+| TASK-095    | Record: Mobile device capture with device frames                   | P2       | TODO        | TASK-010           |
+| TASK-096    | Export: Social aspect presets derived from Record templates        | P2       | TODO        | TASK-015, TASK-029 |
 
 ### Tier 3: Motion Tab — New Surface
 
@@ -136,6 +152,9 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | TASK-049    | AI: Cloud provider option (API key config)                                             | P3       | TODO    | TASK-040           |
 | TASK-073    | AI: Auto-Edit — transcription-based editing via AI (API-first)                         | P3       | TODO    | TASK-042, TASK-040 |
 | TASK-074    | AI: Silence Removal — detect and cut silent segments automatically                     | P3       | TODO    | TASK-042, TASK-040 |
+| TASK-097    | AI: Record-first captions workflow from captured assets                                | P2       | TODO    | TASK-080, TASK-044 |
+| TASK-098    | AI: Audio enhancement for recorded narration                                           | P3       | TODO    | TASK-040           |
+| TASK-099    | AI: Webcam background removal and replacement                                          | P3       | TODO    | TASK-040           |
 
 ### Tier 5: Polish & Cross-Cutting
 
@@ -165,6 +184,7 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | TASK-071     | Project save/load with relative paths                                       | P1       | TODO                     | TASK-053           |
 | ~~TASK-072~~ | ~~Recent projects workflow~~                                                | P2       | ✅ **DONE** (2026-03-30) | TASK-071           |
 | TASK-085     | Record: Persistent recording location + migration for stale /tmp references | P1       | IN PROGRESS              | TASK-071           |
+| TASK-100     | Record: Disconnect recovery and warning toasts for dropped devices          | P1       | TODO                     | TASK-009, TASK-086 |
 
 ---
 
@@ -190,12 +210,13 @@ Improve playback smoothness by addressing identified bottlenecks in the renderin
 4. **Skip redundant renders** — Don't re-render compositor when frame hasn't changed
 5. **Reuse sprites** — Avoid destroying/recreating PixiJS sprites on layer set changes; update textures only
 
-**Progress (2026-04-14):**
+**Progress (2026-04-15):**
 
-- `PlaybackManager` now owns Record-tab playback timing for the screen video, camera video, and compositor instead of relying on a separate Record-only camera sync hook.
-- Record timeline transport now drives playback through `PlaybackManager.togglePlay()` / `seekToFrame()` so replay, pause, and scrubbing use the real screen video clock.
-- Camera/video registration now seeks immediately to the current playhead when reopened in a paused state, fixing stale camera frames after restart/reload.
-- Added a real-session Electron regression spec in `tests/electron/camera-replay.spec.ts` that targets saved `.roughcut` recordings rather than synthetic fixtures.
+- `PlaybackManager` now starts Record playback only after seek-to-start settles, which removed stale-frame races when replaying or resuming the screen/compositor path.
+- Record timeline transport drives playback through `PlaybackManager.togglePlay()` / `seekToFrame()` so replay, pause, and scrubbing use the real screen video clock.
+- Camera playback stays under `PlaybackManager` ownership with clip-aware media-time resolvers, element-specific unregister guards, and `loadeddata` registration so camera resume/restart waits for a real decodable frame.
+- Project swap flows (`Open`, `New`, `Projects`, `DEBUG: Reload Last`, and post-record project replacement) now pause playback first and `setProject()` clears stale `activeAssetId`, reducing cross-project camera/video leakage after reopen or restart.
+- `tests/electron/camera-replay.spec.ts` now covers real saved-session replay behavior for both Record and Edit, and remains the primary regression target for this transport-driven model.
 
 **Key files:** `playback-manager.ts`, `preview-compositor.ts`, `use-compositor.ts`
 

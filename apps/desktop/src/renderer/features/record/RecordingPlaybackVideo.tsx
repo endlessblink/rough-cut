@@ -43,12 +43,28 @@ export function RecordingPlaybackVideo({
   const clipRangeKey = useProjectStore((s) => {
     for (const track of s.project.composition.tracks) {
       for (const clip of track.clips) {
-        if (clip.assetId === assetId) return `${clip.timelineIn}:${clip.timelineOut}`;
+        if (clip.assetId === assetId) {
+          return `${clip.timelineIn}:${clip.timelineOut}:${clip.sourceIn}`;
+        }
       }
     }
-    return '0:0';
+    return '0:0:0';
   });
-  const [clipTimelineIn, clipTimelineOut] = clipRangeKey.split(':').map(Number) as [number, number];
+  const [clipTimelineIn, clipTimelineOut, clipSourceIn] = clipRangeKey.split(':').map(Number) as [
+    number,
+    number,
+    number,
+  ];
+
+  const frameToVideoTime = useCallback(
+    (frame: number) => Math.max(0, (clipSourceIn + (frame - clipTimelineIn)) / fps),
+    [clipSourceIn, clipTimelineIn, fps],
+  );
+
+  const videoTimeToFrame = useCallback(
+    (mediaTime: number) => clipTimelineIn + Math.round(mediaTime * fps) - clipSourceIn,
+    [clipSourceIn, clipTimelineIn, fps],
+  );
 
   // Get the asset for cursor data + presentation
   const asset = useProjectStore((s) => s.project.assets.find((a) => a.id === assetId) ?? null);
@@ -93,11 +109,15 @@ export function RecordingPlaybackVideo({
     readyRef.current = false;
     function onLoaded() {
       readyRef.current = true;
+      video.currentTime = frameToVideoTime(transportStore.getState().playheadFrame);
     }
     video.addEventListener('loadedmetadata', onLoaded);
-    if (video.readyState >= 1) readyRef.current = true;
+    if (video.readyState >= 1) {
+      readyRef.current = true;
+      video.currentTime = frameToVideoTime(transportStore.getState().playheadFrame);
+    }
     return () => video.removeEventListener('loadedmetadata', onLoaded);
-  }, [filePath]);
+  }, [filePath, frameToVideoTime]);
 
   // Register with PlaybackManager once metadata is loaded
   useEffect(() => {
@@ -107,7 +127,7 @@ export function RecordingPlaybackVideo({
     const pm = getPlaybackManager();
 
     const doRegister = () => {
-      pm.registerScreenVideo(video);
+      pm.registerScreenVideo(video, frameToVideoTime, videoTimeToFrame);
     };
 
     if (video.readyState >= 1) {
@@ -118,9 +138,9 @@ export function RecordingPlaybackVideo({
 
     return () => {
       video.removeEventListener('loadedmetadata', doRegister);
-      pm.unregisterScreenVideo();
+      pm.unregisterScreenVideo(video);
     };
-  }, [filePath]);
+  }, [filePath, frameToVideoTime, videoTimeToFrame]);
 
   // Clip range visibility — hide video when playhead is outside clip range
   useEffect(() => {
@@ -132,9 +152,16 @@ export function RecordingPlaybackVideo({
         state.playheadFrame >= clipTimelineIn &&
         state.playheadFrame < clipTimelineOut;
       video.style.visibility = inRange ? 'visible' : 'hidden';
+
+      if (!state.isPlaying && readyRef.current) {
+        const targetTime = frameToVideoTime(state.playheadFrame);
+        if (Math.abs(video.currentTime - targetTime) > 0.03) {
+          video.currentTime = targetTime;
+        }
+      }
     });
     return unsub;
-  }, [clipTimelineIn, clipTimelineOut]);
+  }, [clipTimelineIn, clipTimelineOut, frameToVideoTime]);
 
   const isPlaying = useTransportStore((s) => s.isPlaying);
   const playheadFrame = useTransportStore((s) => s.playheadFrame);
@@ -188,12 +215,13 @@ export function RecordingPlaybackVideo({
             display: 'block',
           }}
         />
-        <CursorOverlay
-          cursorData={cursorData}
-          presentation={cursorPresentation}
-          clipTimelineIn={clipTimelineIn}
-        />
       </div>
+      <CursorOverlay
+        cursorData={cursorData}
+        presentation={cursorPresentation}
+        clipTimelineIn={clipTimelineIn}
+        zoomTransform={zt}
+      />
       {reticleVisible && selectedZoomMarker && onFocalPointChange && (
         <FocalPointReticle
           focalPoint={selectedZoomMarker.focalPoint}

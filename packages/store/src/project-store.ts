@@ -158,7 +158,7 @@ export function createProjectStore() {
         },
 
         setProject: (project: ProjectDocument) => {
-          set({ project, isDirty: false });
+          set({ project, isDirty: false, activeAssetId: null });
         },
 
         updateProject: (fn: (draft: ProjectDocument) => ProjectDocument) => {

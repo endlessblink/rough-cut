@@ -30,7 +30,18 @@ interface ProjectStoreApi {
   getState: () => {
     project: {
       settings: { frameRate: number };
-      composition: { duration: number };
+      assets: Array<{ id: string; filePath?: string | null }>;
+      composition: {
+        duration: number;
+        tracks: Array<{
+          clips: Array<{
+            assetId: string;
+            timelineIn: number;
+            timelineOut: number;
+            sourceIn: number;
+          }>;
+        }>;
+      };
     };
   };
 }
@@ -54,6 +65,11 @@ export class PlaybackManager {
   private _useRvfc = false;
   private _lastSyncedFrame = -1;
   private _scrubUnsub: (() => void) | null = null;
+  private _screenMediaTimeResolver: ((timelineFrame: number) => number) | null = null;
+  private _screenTimelineFrameResolver: ((mediaTime: number) => number) | null = null;
+  private _cameraMediaTimeResolver: ((timelineFrame: number) => number) | null = null;
+  private _cameraTimelineFrameResolver: ((mediaTime: number) => number) | null = null;
+  private _playToken = 0;
 
   constructor(config: PlaybackManagerConfig) {
     this.transportStore = config.transportStore;
@@ -69,8 +85,14 @@ export class PlaybackManager {
 
   // ── Registration ─────────────────────────────────────────────
 
-  registerScreenVideo(video: HTMLVideoElement): void {
+  registerScreenVideo(
+    video: HTMLVideoElement,
+    mediaTimeResolver?: (timelineFrame: number) => number,
+    timelineFrameResolver?: (mediaTime: number) => number,
+  ): void {
     this.screenVideo = video;
+    this._screenMediaTimeResolver = mediaTimeResolver ?? null;
+    this._screenTimelineFrameResolver = timelineFrameResolver ?? null;
     console.info('[PlaybackManager] Screen video registered');
     // If already playing (late registration), start this video
     if (this._playing) {
@@ -80,32 +102,46 @@ export class PlaybackManager {
     }
   }
 
-  registerCameraVideo(video: HTMLVideoElement): void {
+  registerCameraVideo(
+    video: HTMLVideoElement,
+    mediaTimeResolver?: (timelineFrame: number) => number,
+    timelineFrameResolver?: (mediaTime: number) => number,
+  ): void {
     this.cameraVideo = video;
+    this._cameraMediaTimeResolver = mediaTimeResolver ?? null;
+    this._cameraTimelineFrameResolver = timelineFrameResolver ?? null;
     console.info('[PlaybackManager] Camera video registered');
     if (this._playing) {
-      const fps = this.projectStore.getState().project.settings.frameRate;
-      const targetTime =
-        this.screenVideo?.currentTime ?? this.transportStore.getState().playheadFrame / fps;
-      video.currentTime = targetTime;
+      const startFrame = this.transportStore.getState().playheadFrame;
+      video.currentTime = this._resolveMediaTimeForVideo(video, startFrame);
       this._startVideo(video);
     } else {
       this._seekAllTo(this.transportStore.getState().playheadFrame);
     }
   }
 
-  unregisterScreenVideo(): void {
+  unregisterScreenVideo(video?: HTMLVideoElement): void {
+    if (video && this.screenVideo !== video) {
+      return;
+    }
     if (this.screenVideo) {
       this.screenVideo.pause();
       this.screenVideo = null;
     }
+    this._screenMediaTimeResolver = null;
+    this._screenTimelineFrameResolver = null;
   }
 
-  unregisterCameraVideo(): void {
+  unregisterCameraVideo(video?: HTMLVideoElement): void {
+    if (video && this.cameraVideo !== video) {
+      return;
+    }
     if (this.cameraVideo) {
       this.cameraVideo.pause();
       this.cameraVideo = null;
     }
+    this._cameraMediaTimeResolver = null;
+    this._cameraTimelineFrameResolver = null;
   }
 
   registerCompositor(comp: PreviewCompositor): void {
@@ -121,45 +157,21 @@ export class PlaybackManager {
 
   play(): void {
     if (this._playing) return;
-    this._playing = true;
+    const playToken = ++this._playToken;
 
     const fps = this.projectStore.getState().project.settings.frameRate;
-    const startTime = this.transportStore.getState().playheadFrame / fps;
+    const startFrame = this.transportStore.getState().playheadFrame;
+    const startTime = startFrame / fps;
 
-    // Start all registered videos
-    if (this.screenVideo) {
-      this.screenVideo.currentTime = startTime;
-      this._startVideo(this.screenVideo);
-    }
-    if (this.cameraVideo) {
-      this.cameraVideo.currentTime = startTime;
-      this._startVideo(this.cameraVideo);
-    }
-    if (this.compositor) {
-      this.compositor.play();
-    }
-
-    // Update store
+    this._playing = true;
     this.transportStore.setState({ isPlaying: true });
 
-    // Start sync loop — prefer rVFC when available for frame-accurate callbacks
-    this._lastSyncedFrame = -1;
-    this._useRvfc = !!(this.screenVideo && 'requestVideoFrameCallback' in this.screenVideo);
-    if (this._useRvfc && this.screenVideo) {
-      this._rvfcId = this.screenVideo.requestVideoFrameCallback(this._onVideoFrame);
-    } else {
-      this._rafId = requestAnimationFrame(this._syncLoop);
-    }
-
-    console.info(
-      '[PlaybackManager] play() — started from',
-      startTime.toFixed(2) + 's',
-      this._useRvfc ? '(rVFC)' : '(rAF)',
-    );
+    void this._beginPlayback(playToken, startFrame, startTime);
   }
 
   pause(): void {
     if (!this._playing) return;
+    this._playToken += 1;
     this._playing = false;
 
     // Stop sync loop
@@ -177,10 +189,9 @@ export class PlaybackManager {
     }
 
     // Snap playhead to current video time
-    const fps = this.projectStore.getState().project.settings.frameRate;
-    const currentTime =
-      this.screenVideo?.currentTime ?? this.compositor?.getVideoCurrentTime() ?? 0;
-    const frame = Math.round(currentTime * fps);
+    const frame = this.screenVideo
+      ? this._resolveTimelineFrameForVideo(this.screenVideo)
+      : (this.compositor?.getPlaybackFrame() ?? 0);
 
     this.transportStore.setState({ isPlaying: false, playheadFrame: frame });
     console.info('[PlaybackManager] pause() — at frame', frame);
@@ -248,6 +259,47 @@ export class PlaybackManager {
       });
   }
 
+  private async _beginPlayback(
+    playToken: number,
+    startFrame: number,
+    startTime: number,
+  ): Promise<void> {
+    if (this.screenVideo) {
+      await this._seekVideoToFrame(this.screenVideo, startFrame);
+    }
+    if (this.cameraVideo) {
+      await this._seekVideoToFrame(this.cameraVideo, startFrame);
+    }
+
+    if (!this._playing || playToken !== this._playToken) return;
+
+    if (this.screenVideo) {
+      this._startVideo(this.screenVideo);
+    }
+    if (this.cameraVideo) {
+      this._startVideo(this.cameraVideo);
+    }
+    if (this.compositor) {
+      this.compositor.play();
+    }
+
+    if (!this._playing || playToken !== this._playToken) return;
+
+    this._lastSyncedFrame = -1;
+    this._useRvfc = !!(this.screenVideo && 'requestVideoFrameCallback' in this.screenVideo);
+    if (this._useRvfc && this.screenVideo) {
+      this._rvfcId = this.screenVideo.requestVideoFrameCallback(this._onVideoFrame);
+    } else {
+      this._rafId = requestAnimationFrame(this._syncLoop);
+    }
+
+    console.info(
+      '[PlaybackManager] play() — started from',
+      startTime.toFixed(2) + 's',
+      this._useRvfc ? '(rVFC)' : '(rAF)',
+    );
+  }
+
   /**
    * rVFC callback — fires once per decoded video frame, aligned with actual
    * frame presentation. More accurate than rAF for frame-number computation.
@@ -258,7 +310,9 @@ export class PlaybackManager {
 
     const fps = this.projectStore.getState().project.settings.frameRate;
     const screenTime = metadata.mediaTime;
-    const frame = Math.round(screenTime * fps);
+    const frame = this.screenVideo
+      ? this._resolveTimelineFrameForVideo(this.screenVideo, screenTime)
+      : Math.round(screenTime * fps);
 
     this._syncCameraTo(screenTime);
 
@@ -297,19 +351,16 @@ export class PlaybackManager {
 
     // Read current time from screenVideo or compositor video
     const screen = this.screenVideo;
-    const currentTime = screen
-      ? screen.currentTime
-      : (this.compositor?.getVideoCurrentTime() ?? -1);
+    const frame = screen
+      ? this._resolveTimelineFrameForVideo(screen)
+      : (this.compositor?.getPlaybackFrame() ?? -1);
 
-    if (currentTime < 0) {
+    if (frame < 0) {
       this._rafId = requestAnimationFrame(this._syncLoop);
       return;
     }
 
-    const fps = this.projectStore.getState().project.settings.frameRate;
-    const frame = Math.round(currentTime * fps);
-
-    this._syncCameraTo(currentTime);
+    this._syncCameraTo(this._resolveMediaTimeForVideo(this.cameraVideo, frame));
 
     // 1. Sync store at ~30Hz (skip if frame unchanged)
     if (frame !== this._lastSyncedFrame) {
@@ -335,16 +386,15 @@ export class PlaybackManager {
 
   /** Seek all registered video elements + compositor to a specific frame */
   private _seekAllTo(frame: number): void {
-    const fps = this.projectStore.getState().project.settings.frameRate;
-    const targetTime = frame / fps;
-
     if (this.screenVideo && this.screenVideo.readyState >= 1) {
+      const targetTime = this._resolveMediaTimeForVideo(this.screenVideo, frame);
       if (Math.abs(this.screenVideo.currentTime - targetTime) > 0.02) {
         this.screenVideo.currentTime = targetTime;
       }
     }
 
     if (this.cameraVideo && this.cameraVideo.readyState >= 1) {
+      const targetTime = this._resolveMediaTimeForVideo(this.cameraVideo, frame);
       if (Math.abs(this.cameraVideo.currentTime - targetTime) > 0.02) {
         this.cameraVideo.currentTime = targetTime;
       }
@@ -355,13 +405,150 @@ export class PlaybackManager {
     }
   }
 
-  private _syncCameraTo(targetTime: number): void {
-    if (!this.cameraVideo || this.cameraVideo.readyState < 1) return;
+  private _syncCameraTo(targetTime: number | null): void {
+    if (
+      !this.cameraVideo ||
+      this.cameraVideo.readyState < 2 ||
+      this.cameraVideo.seeking ||
+      targetTime === null
+    ) {
+      return;
+    }
 
     const drift = Math.abs(this.cameraVideo.currentTime - targetTime);
-    if (drift > 0.033) {
+    if (drift > 0.25) {
       this.cameraVideo.currentTime = targetTime;
     }
+  }
+
+  private async _seekVideoToFrame(video: HTMLVideoElement, frame: number): Promise<void> {
+    if (video.readyState < 1) return;
+
+    const targetTime = this._resolveMediaTimeForVideo(video, frame);
+    if (Math.abs(video.currentTime - targetTime) <= 0.02) return;
+
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const cleanup = () => {
+        video.removeEventListener('seeked', onSeeked);
+        clearTimeout(timeoutId);
+      };
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      };
+      const onSeeked = () => finish();
+      const timeoutId = window.setTimeout(finish, 250);
+
+      video.addEventListener('seeked', onSeeked, { once: true });
+      video.currentTime = targetTime;
+
+      if (!video.seeking && Math.abs(video.currentTime - targetTime) <= 0.02) {
+        finish();
+      }
+    });
+  }
+
+  private _resolveMediaTimeForVideo(video: HTMLVideoElement | null, timelineFrame: number): number {
+    const fps = this.projectStore.getState().project.settings.frameRate;
+    if (!video) return timelineFrame / fps;
+
+    const directResolver =
+      video === this.screenVideo ? this._screenMediaTimeResolver : this._cameraMediaTimeResolver;
+    if (directResolver) {
+      return directResolver(timelineFrame);
+    }
+
+    const assetId = this._findAssetIdForVideo(video);
+    if (!assetId) return timelineFrame / fps;
+
+    const sourceFrame = this._resolveSourceFrameForAsset(assetId, timelineFrame);
+    return (sourceFrame ?? timelineFrame) / fps;
+  }
+
+  private _resolveTimelineFrameForVideo(
+    video: HTMLVideoElement,
+    mediaTime = video.currentTime,
+  ): number {
+    const fps = this.projectStore.getState().project.settings.frameRate;
+    const directResolver =
+      video === this.screenVideo
+        ? this._screenTimelineFrameResolver
+        : this._cameraTimelineFrameResolver;
+    if (directResolver) {
+      return directResolver(mediaTime);
+    }
+
+    const sourceFrame = Math.round(mediaTime * fps);
+    const assetId = this._findAssetIdForVideo(video);
+    if (!assetId) return sourceFrame;
+
+    return this._resolveTimelineFrameForAsset(assetId, sourceFrame) ?? sourceFrame;
+  }
+
+  private _findAssetIdForVideo(video: HTMLVideoElement): string | null {
+    const src = this._normalizeMediaSrc(video.currentSrc || video.src);
+    if (!src) return null;
+
+    const asset = this.projectStore
+      .getState()
+      .project.assets.find((entry) => entry.filePath === src);
+    return asset?.id ?? null;
+  }
+
+  private _normalizeMediaSrc(src: string): string | null {
+    if (!src) return null;
+    if (src.startsWith('media://')) {
+      return decodeURIComponent(src.slice('media://'.length));
+    }
+
+    try {
+      return decodeURIComponent(new URL(src).pathname);
+    } catch {
+      return src;
+    }
+  }
+
+  private _resolveSourceFrameForAsset(assetId: string, timelineFrame: number): number | null {
+    const tracks = this.projectStore.getState().project.composition.tracks;
+    for (const track of tracks) {
+      for (const clip of track.clips) {
+        if (clip.assetId !== assetId) continue;
+        if (timelineFrame < clip.timelineIn || timelineFrame >= clip.timelineOut) continue;
+        return clip.sourceIn + (timelineFrame - clip.timelineIn);
+      }
+    }
+
+    return null;
+  }
+
+  private _resolveTimelineFrameForAsset(assetId: string, sourceFrame: number): number | null {
+    const tracks = this.projectStore.getState().project.composition.tracks;
+    const hintFrame = this.transportStore.getState().playheadFrame;
+    let bestFrame: number | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const track of tracks) {
+      for (const clip of track.clips) {
+        if (clip.assetId !== assetId) continue;
+
+        const duration = clip.timelineOut - clip.timelineIn;
+        const sourceStart = clip.sourceIn;
+        const sourceEnd = clip.sourceIn + duration;
+        if (sourceFrame < sourceStart || sourceFrame >= sourceEnd) continue;
+
+        const timelineFrame = clip.timelineIn + (sourceFrame - clip.sourceIn);
+        const distance = Math.abs(timelineFrame - hintFrame);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestFrame = timelineFrame;
+        }
+      }
+    }
+
+    return bestFrame;
   }
 
   dispose(): void {
