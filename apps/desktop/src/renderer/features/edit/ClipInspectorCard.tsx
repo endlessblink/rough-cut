@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import type { Clip, ClipId, ClipTransform } from '@rough-cut/project-model';
 import { InspectorCard, ControlLabel, RcToggleButton, RcSlider } from '../../ui/index.js';
 
@@ -33,7 +33,12 @@ const DEFAULT_TRANSFORM: ClipTransform = {
   opacity: 1,
 };
 
-export function ClipInspectorCard({ clip, fps, onUpdateClip, onUpdateTransform }: ClipInspectorCardProps) {
+export function ClipInspectorCard({
+  clip,
+  fps,
+  onUpdateClip,
+  onUpdateTransform,
+}: ClipInspectorCardProps) {
   const [lockAspect, setLockAspect] = useState(true);
 
   if (!clip) {
@@ -53,7 +58,9 @@ export function ClipInspectorCard({ clip, fps, onUpdateClip, onUpdateTransform }
       title="Clip"
       flex={1}
       minHeight={80}
-      onReset={onUpdateTransform ? () => onUpdateTransform(clip.id, { ...DEFAULT_TRANSFORM }) : undefined}
+      onReset={
+        onUpdateTransform ? () => onUpdateTransform(clip.id, { ...DEFAULT_TRANSFORM }) : undefined
+      }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {/* Name */}
@@ -63,9 +70,7 @@ export function ClipInspectorCard({ clip, fps, onUpdateClip, onUpdateTransform }
             type="text"
             value={clip.name ?? ''}
             placeholder="Untitled clip"
-            onChange={(e) =>
-              onUpdateClip(clip.id, { name: e.target.value || undefined })
-            }
+            onChange={(e) => onUpdateClip(clip.id, { name: e.target.value || undefined })}
             style={{
               width: '100%',
               height: 28,
@@ -106,13 +111,35 @@ export function ClipInspectorCard({ clip, fps, onUpdateClip, onUpdateTransform }
         <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '4px 0' }} />
 
         {/* Transform */}
-        <RcSlider label="Position X" value={clip.transform.x} min={-1920} max={1920} step={1} onChange={(v) => onUpdateTransform?.(clip.id, { x: v })} />
-        <RcSlider label="Position Y" value={clip.transform.y} min={-1080} max={1080} step={1} onChange={(v) => onUpdateTransform?.(clip.id, { y: v })} />
-        <RcSlider label="Scale X" value={clip.transform.scaleX} min={0} max={4} step={0.01} onChange={(v) => {
-          const patch: Partial<ClipTransform> = { scaleX: v };
-          if (lockAspect) patch.scaleY = v;
-          onUpdateTransform?.(clip.id, patch);
-        }} />
+        <RcSlider
+          label="Position X"
+          value={clip.transform.x}
+          min={-1920}
+          max={1920}
+          step={1}
+          onChange={(v) => onUpdateTransform?.(clip.id, { x: v })}
+        />
+        <RcSlider
+          label="Position Y"
+          value={clip.transform.y}
+          min={-1080}
+          max={1080}
+          step={1}
+          onChange={(v) => onUpdateTransform?.(clip.id, { y: v })}
+        />
+        <RcSlider
+          label="Scale X"
+          value={clip.transform.scaleX}
+          min={0}
+          max={4}
+          step={0.01}
+          onChange={(v) => {
+            const patch = (
+              lockAspect ? { scaleX: v, scaleY: v } : { scaleX: v }
+            ) as Partial<ClipTransform>;
+            onUpdateTransform?.(clip.id, patch);
+          }}
+        />
         {/* Lock aspect toggle */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <button
@@ -131,13 +158,35 @@ export function ClipInspectorCard({ clip, fps, onUpdateClip, onUpdateTransform }
             {lockAspect ? '\u2194 Linked' : 'Independent'}
           </button>
         </div>
-        <RcSlider label="Scale Y" value={clip.transform.scaleY} min={0} max={4} step={0.01} onChange={(v) => {
-          const patch: Partial<ClipTransform> = { scaleY: v };
-          if (lockAspect) patch.scaleX = v;
-          onUpdateTransform?.(clip.id, patch);
-        }} />
-        <RcSlider label="Rotation" value={clip.transform.rotation} min={-360} max={360} step={1} onChange={(v) => onUpdateTransform?.(clip.id, { rotation: v })} />
-        <RcSlider label="Opacity" value={clip.transform.opacity} min={0} max={1} step={0.01} onChange={(v) => onUpdateTransform?.(clip.id, { opacity: v })} />
+        <RcSlider
+          label="Scale Y"
+          value={clip.transform.scaleY}
+          min={0}
+          max={4}
+          step={0.01}
+          onChange={(v) => {
+            const patch = (
+              lockAspect ? { scaleX: v, scaleY: v } : { scaleY: v }
+            ) as Partial<ClipTransform>;
+            onUpdateTransform?.(clip.id, patch);
+          }}
+        />
+        <RcSlider
+          label="Rotation"
+          value={clip.transform.rotation}
+          min={-360}
+          max={360}
+          step={1}
+          onChange={(v) => onUpdateTransform?.(clip.id, { rotation: v })}
+        />
+        <RcSlider
+          label="Opacity"
+          value={clip.transform.opacity}
+          min={0}
+          max={1}
+          step={0.01}
+          onChange={(v) => onUpdateTransform?.(clip.id, { opacity: v })}
+        />
       </div>
     </InspectorCard>
   );

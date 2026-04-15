@@ -25,29 +25,34 @@ export const ZoomTitle: React.FC<ZoomTitleProps> = ({
   });
   const scale = interpolate(zoomIn, [0, 1], [8, 1]);
   const fadeOutStart = durationInFrames - 15;
-  const opacity = frame > fadeOutStart
-    ? interpolate(frame, [fadeOutStart, durationInFrames], [1, 0], { extrapolateRight: 'clamp' })
-    : interpolate(zoomIn, [0, 0.3, 1], [0, 1, 1]);
+  const opacity =
+    frame > fadeOutStart
+      ? interpolate(frame, [fadeOutStart, durationInFrames], [1, 0], { extrapolateRight: 'clamp' })
+      : interpolate(zoomIn, [0, 0.3], [0, 1], { extrapolateRight: 'clamp' });
 
   return (
-    <div style={{
-      width: '100%',
-      height: '100%',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor,
-      overflow: 'hidden',
-    }}>
-      <div style={{
-        fontSize,
-        fontWeight: 800,
-        color,
-        fontFamily: 'system-ui, sans-serif',
-        transform: `scale(${scale})`,
-        opacity,
-        letterSpacing: '-0.03em',
-      }}>
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor,
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          fontSize,
+          fontWeight: 800,
+          color,
+          fontFamily: 'system-ui, sans-serif',
+          transform: `scale(${scale})`,
+          opacity,
+          letterSpacing: '-0.03em',
+        }}
+      >
         {title}
       </div>
     </div>

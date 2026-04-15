@@ -108,8 +108,10 @@ export function RecordingPlaybackVideo({
     if (!video) return;
     readyRef.current = false;
     function onLoaded() {
+      const currentVideo = videoRef.current;
+      if (!currentVideo) return;
       readyRef.current = true;
-      video.currentTime = frameToVideoTime(transportStore.getState().playheadFrame);
+      currentVideo.currentTime = frameToVideoTime(transportStore.getState().playheadFrame);
     }
     video.addEventListener('loadedmetadata', onLoaded);
     if (video.readyState >= 1) {

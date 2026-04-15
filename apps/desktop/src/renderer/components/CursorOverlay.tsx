@@ -33,9 +33,6 @@ interface ClickEffect {
 const CLICK_EFFECT_DURATION_MS = 400;
 const CURSOR_COLOR = 'rgba(255, 255, 255, 0.95)';
 const CURSOR_SHADOW_COLOR = 'rgba(0, 0, 0, 0.4)';
-const CLICK_RIPPLE_COLOR = 'rgba(100, 150, 255, 0.6)';
-const CLICK_RING_COLOR = 'rgba(100, 150, 255, 0.8)';
-
 function getCursorAtFrame(
   data: CursorFrameData,
   sourceFrame: number,

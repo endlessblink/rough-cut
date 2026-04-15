@@ -44,9 +44,20 @@ export interface RegionDragResult {
   /** Which region is currently hovered */
   hoveredRegion: 'screen' | 'camera' | null;
   /** Call this to start a move drag on a region */
-  startMove: (region: 'screen' | 'camera', currentRect: Rect, e: React.PointerEvent, sourceAspect?: number) => void;
+  startMove: (
+    region: 'screen' | 'camera',
+    currentRect: Rect,
+    e: React.PointerEvent,
+    sourceAspect?: number,
+  ) => void;
   /** Call this to start a resize drag on a region edge */
-  startResize: (region: 'screen' | 'camera', currentRect: Rect, edge: Edge, e: React.PointerEvent, sourceAspect?: number) => void;
+  startResize: (
+    region: 'screen' | 'camera',
+    currentRect: Rect,
+    edge: Edge,
+    e: React.PointerEvent,
+    sourceAspect?: number,
+  ) => void;
   /** Set which region is hovered (for showing handles) */
   setHoveredRegion: (region: 'screen' | 'camera' | null) => void;
   /** Active snap guide lines (ref to avoid re-renders during drag) */
@@ -109,31 +120,37 @@ export function getHandleStyle(edge: Edge): React.CSSProperties {
   // Handles sit fully inside the region so they never get clipped
   const off = -2; // slight inset from region edge
   switch (edge) {
-    case 'nw': return { ...base, top: off, left: off };
-    case 'n':  return { ...base, top: off, left: '50%', marginLeft: -HANDLE_HIT / 2 };
-    case 'ne': return { ...base, top: off, right: off };
-    case 'w':  return { ...base, top: '50%', left: off, marginTop: -HANDLE_HIT / 2 };
-    case 'e':  return { ...base, top: '50%', right: off, marginTop: -HANDLE_HIT / 2 };
-    case 'sw': return { ...base, bottom: off, left: off };
-    case 's':  return { ...base, bottom: off, left: '50%', marginLeft: -HANDLE_HIT / 2 };
-    case 'se': return { ...base, bottom: off, right: off };
+    case 'nw':
+      return { ...base, top: off, left: off };
+    case 'n':
+      return { ...base, top: off, left: '50%', marginLeft: -HANDLE_HIT / 2 };
+    case 'ne':
+      return { ...base, top: off, right: off };
+    case 'w':
+      return { ...base, top: '50%', left: off, marginTop: -HANDLE_HIT / 2 };
+    case 'e':
+      return { ...base, top: '50%', right: off, marginTop: -HANDLE_HIT / 2 };
+    case 'sw':
+      return { ...base, bottom: off, left: off };
+    case 's':
+      return { ...base, bottom: off, left: '50%', marginLeft: -HANDLE_HIT / 2 };
+    case 'se':
+      return { ...base, bottom: off, right: off };
   }
 }
 
 export function HandleDot() {
-  return (
-    React.createElement('div', {
-      style: {
-        width: HANDLE_DOT,
-        height: HANDLE_DOT,
-        borderRadius: '50%',
-        background: 'rgba(255,255,255,0.9)',
-        border: '1.5px solid rgba(0,0,0,0.4)',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
-        pointerEvents: 'none',
-      }
-    })
-  );
+  return React.createElement('div', {
+    style: {
+      width: HANDLE_DOT,
+      height: HANDLE_DOT,
+      borderRadius: '50%',
+      background: 'rgba(255,255,255,0.9)',
+      border: '1.5px solid rgba(0,0,0,0.4)',
+      boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+      pointerEvents: 'none',
+    },
+  });
 }
 
 // ─── Pixel-space math helpers ─────────────────────────────────────────────────
@@ -143,8 +160,14 @@ function clampRect(r: Rect, aspect?: number): Rect {
 
   // Enforce minimum size (aspect-locked if aspect provided)
   if (aspect != null) {
-    if (width < MIN_SIZE) { width = MIN_SIZE; height = width / aspect; }
-    if (height < MIN_SIZE) { height = MIN_SIZE; width = height * aspect; }
+    if (width < MIN_SIZE) {
+      width = MIN_SIZE;
+      height = width / aspect;
+    }
+    if (height < MIN_SIZE) {
+      height = MIN_SIZE;
+      width = height * aspect;
+    }
   } else {
     width = Math.max(MIN_SIZE, width);
     height = Math.max(MIN_SIZE, height);
@@ -161,7 +184,7 @@ function applyResize(
   dy: number,
   sourceAspect?: number,
 ): Rect {
-  const aspect = sourceAspect ?? (original.width / original.height);
+  const aspect = sourceAspect ?? original.width / original.height;
   let { x, y, width, height } = original;
 
   // Corner handles: aspect-ratio-locked resize.
@@ -182,24 +205,24 @@ function applyResize(
       dw = dh * aspect;
     }
 
-    width  = width  + dw;
+    width = width + dw;
     height = height + dh;
 
     // Anchor the opposite corner
-    if (edge.includes('w')) x = original.x + original.width  - width;
+    if (edge.includes('w')) x = original.x + original.width - width;
     if (edge.includes('n')) y = original.y + original.height - height;
 
     // Enforce minimum (aspect-locked)
     if (width < MIN_SIZE) {
-      width  = MIN_SIZE;
+      width = MIN_SIZE;
       height = width / aspect;
-      if (edge.includes('w')) x = original.x + original.width  - width;
+      if (edge.includes('w')) x = original.x + original.width - width;
       if (edge.includes('n')) y = original.y + original.height - height;
     }
     if (height < MIN_SIZE) {
       height = MIN_SIZE;
-      width  = height * aspect;
-      if (edge.includes('w')) x = original.x + original.width  - width;
+      width = height * aspect;
+      if (edge.includes('w')) x = original.x + original.width - width;
       if (edge.includes('n')) y = original.y + original.height - height;
     }
 
@@ -208,34 +231,34 @@ function applyResize(
 
   // Edge handles: single-axis resize, aspect-locked.
   if (edge === 'e') {
-    width  = width + dx;
+    width = width + dx;
     height = width / aspect;
   } else if (edge === 'w') {
     const dw = -dx;
-    width  = width + dw;
+    width = width + dw;
     height = width / aspect;
-    x = original.x + original.width  - width;
+    x = original.x + original.width - width;
     y = original.y + (original.height - height) / 2; // center vertically
   } else if (edge === 's') {
     height = height + dy;
-    width  = height * aspect;
-    x = original.x + (original.width - width) / 2;  // center horizontally
+    width = height * aspect;
+    x = original.x + (original.width - width) / 2; // center horizontally
   } else if (edge === 'n') {
     const dh = -dy;
     height = height + dh;
-    width  = height * aspect;
+    width = height * aspect;
     y = original.y + original.height - height;
-    x = original.x + (original.width - width) / 2;  // center horizontally
+    x = original.x + (original.width - width) / 2; // center horizontally
   }
 
   // Enforce minimum (aspect-locked)
   if (width < MIN_SIZE) {
-    width  = MIN_SIZE;
+    width = MIN_SIZE;
     height = width / aspect;
   }
   if (height < MIN_SIZE) {
     height = MIN_SIZE;
-    width  = height * aspect;
+    width = height * aspect;
   }
 
   return clampRect({ x, y, width, height }, aspect);
@@ -244,7 +267,7 @@ function applyResize(
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useRegionDragResize({
-  containerRef,
+  containerRef: _containerRef,
   onRegionChange,
   enabled = true,
   snapConfig,
@@ -288,7 +311,7 @@ export function useRegionDragResize({
         let rect = clampRect({
           x: drag.originalRect.x + dx,
           y: drag.originalRect.y + dy,
-          width:  drag.originalRect.width,
+          width: drag.originalRect.width,
           height: drag.originalRect.height,
         });
 
@@ -326,7 +349,12 @@ export function useRegionDragResize({
   }, [enabled]);
 
   const startMove = useCallback(
-    (region: 'screen' | 'camera', currentRect: Rect, e: React.PointerEvent, sourceAspect?: number) => {
+    (
+      region: 'screen' | 'camera',
+      currentRect: Rect,
+      e: React.PointerEvent,
+      sourceAspect?: number,
+    ) => {
       if (!onRegionChangeRef.current || !enabled) return;
       e.preventDefault();
       dragRef.current = {
@@ -343,7 +371,13 @@ export function useRegionDragResize({
   );
 
   const startResize = useCallback(
-    (region: 'screen' | 'camera', currentRect: Rect, edge: Edge, e: React.PointerEvent, sourceAspect?: number) => {
+    (
+      region: 'screen' | 'camera',
+      currentRect: Rect,
+      edge: Edge,
+      e: React.PointerEvent,
+      sourceAspect?: number,
+    ) => {
       if (!onRegionChangeRef.current || !enabled) return;
       e.preventDefault();
       e.stopPropagation();

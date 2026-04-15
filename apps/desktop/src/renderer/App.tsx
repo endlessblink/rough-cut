@@ -154,7 +154,10 @@ export function App() {
   // --- Flow 4: Trigger export ---
   const handleExport = useCallback(async () => {
     const project = projectStore.getState().project;
-    await runDesktopExport(project);
+    await runDesktopExport(project, {
+      startFrame: 0,
+      endFrame: project.composition.duration,
+    });
   }, []);
 
   // --- Recording integration ---

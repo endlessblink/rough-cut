@@ -15,8 +15,14 @@ const MIN_CROP_PX = 50;
 type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
 const EDGE_CURSORS: Record<Edge, string> = {
-  n: 'n-resize', s: 's-resize', e: 'e-resize', w: 'w-resize',
-  ne: 'ne-resize', nw: 'nw-resize', se: 'se-resize', sw: 'sw-resize',
+  n: 'n-resize',
+  s: 's-resize',
+  e: 'e-resize',
+  w: 'w-resize',
+  ne: 'ne-resize',
+  nw: 'nw-resize',
+  se: 'se-resize',
+  sw: 'sw-resize',
 };
 
 const ALL_EDGES: Edge[] = ['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'];
@@ -40,36 +46,50 @@ function getCropHandleStyle(edge: Edge): React.CSSProperties {
   };
   const off = -HANDLE_HIT / 2;
   switch (edge) {
-    case 'nw': return { ...base, top: off, left: off };
-    case 'n':  return { ...base, top: off, left: '50%', marginLeft: off };
-    case 'ne': return { ...base, top: off, right: off };
-    case 'w':  return { ...base, top: '50%', left: off, marginTop: off };
-    case 'e':  return { ...base, top: '50%', right: off, marginTop: off };
-    case 'sw': return { ...base, bottom: off, left: off };
-    case 's':  return { ...base, bottom: off, left: '50%', marginLeft: off };
-    case 'se': return { ...base, bottom: off, right: off };
+    case 'nw':
+      return { ...base, top: off, left: off };
+    case 'n':
+      return { ...base, top: off, left: '50%', marginLeft: off };
+    case 'ne':
+      return { ...base, top: off, right: off };
+    case 'w':
+      return { ...base, top: '50%', left: off, marginTop: off };
+    case 'e':
+      return { ...base, top: '50%', right: off, marginTop: off };
+    case 'sw':
+      return { ...base, bottom: off, left: off };
+    case 's':
+      return { ...base, bottom: off, left: '50%', marginLeft: off };
+    case 'se':
+      return { ...base, bottom: off, right: off };
   }
 }
 
 function CropHandleDot() {
   return (
-    <div style={{
-      width: HANDLE_DOT,
-      height: HANDLE_DOT,
-      borderRadius: '50%',
-      background: 'rgba(255,255,255,0.9)',
-      border: '1.5px solid rgba(0,0,0,0.4)',
-      boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
-      pointerEvents: 'none',
-    }} />
+    <div
+      style={{
+        width: HANDLE_DOT,
+        height: HANDLE_DOT,
+        borderRadius: '50%',
+        background: 'rgba(255,255,255,0.9)',
+        border: '1.5px solid rgba(0,0,0,0.4)',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+        pointerEvents: 'none',
+      }}
+    />
   );
 }
 
 // ─── Clamping ───────────────────────────────────────────────────────────────
 
 function clampCrop(
-  x: number, y: number, w: number, h: number,
-  srcW: number, srcH: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  srcW: number,
+  srcH: number,
 ): { x: number; y: number; width: number; height: number } {
   w = Math.max(MIN_CROP_PX, Math.min(w, srcW));
   h = Math.max(MIN_CROP_PX, Math.min(h, srcH));
@@ -79,7 +99,12 @@ function clampCrop(
 }
 
 function roundCrop(c: { x: number; y: number; width: number; height: number }) {
-  return { x: Math.round(c.x), y: Math.round(c.y), width: Math.round(c.width), height: Math.round(c.height) };
+  return {
+    x: Math.round(c.x),
+    y: Math.round(c.y),
+    width: Math.round(c.width),
+    height: Math.round(c.height),
+  };
 }
 
 // ─── Resize logic ───────────────────────────────────────────────────────────
@@ -117,8 +142,14 @@ function applyCropResize(
     if (edge.includes('n')) y = orig.y + orig.height - h;
 
     // Minimum size
-    if (w < MIN_CROP_PX) { w = MIN_CROP_PX; h = w / ratio; }
-    if (h < MIN_CROP_PX) { h = MIN_CROP_PX; w = h * ratio; }
+    if (w < MIN_CROP_PX) {
+      w = MIN_CROP_PX;
+      h = w / ratio;
+    }
+    if (h < MIN_CROP_PX) {
+      h = MIN_CROP_PX;
+      w = h * ratio;
+    }
     if (edge.includes('w')) x = orig.x + orig.width - w;
     if (edge.includes('n')) y = orig.y + orig.height - h;
 
@@ -144,8 +175,14 @@ function applyCropResize(
     x = orig.x + (orig.width - w) / 2;
   }
 
-  if (w < MIN_CROP_PX) { w = MIN_CROP_PX; h = w / ratio; }
-  if (h < MIN_CROP_PX) { h = MIN_CROP_PX; w = h * ratio; }
+  if (w < MIN_CROP_PX) {
+    w = MIN_CROP_PX;
+    h = w / ratio;
+  }
+  if (h < MIN_CROP_PX) {
+    h = MIN_CROP_PX;
+    w = h * ratio;
+  }
 
   return clampCrop(x, y, w, h, srcW, srcH);
 }
@@ -193,9 +230,9 @@ export function CropOverlay({
   cropRef.current = crop;
 
   // Crop box as CSS percentages
-  const pctLeft   = (crop.x / sourceWidth) * 100;
-  const pctTop    = (crop.y / sourceHeight) * 100;
-  const pctWidth  = (crop.width / sourceWidth) * 100;
+  const pctLeft = (crop.x / sourceWidth) * 100;
+  const pctTop = (crop.y / sourceHeight) * 100;
+  const pctWidth = (crop.width / sourceWidth) * 100;
   const pctHeight = (crop.height / sourceHeight) * 100;
 
   // Get container size for pixel→source conversion
@@ -225,7 +262,6 @@ export function CropOverlay({
       const dSrcY = (dy / frame.h) * sourceHeight;
 
       const cb = onCropChangeRef.current;
-      const currentCrop = cropRef.current;
 
       if (drag.mode === 'move') {
         const result = clampCrop(
@@ -241,8 +277,10 @@ export function CropOverlay({
         const result = applyCropResize(
           drag.originalCrop,
           drag.edge,
-          dSrcX, dSrcY,
-          sourceWidth, sourceHeight,
+          dSrcX,
+          dSrcY,
+          sourceWidth,
+          sourceHeight,
         );
         cb(roundCrop(result));
       }
@@ -263,31 +301,37 @@ export function CropOverlay({
   }, [getFrameSize, sourceWidth, sourceHeight]);
 
   // Handlers
-  const handleBoxPointerDown = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragRef.current = {
-      mode: 'move',
-      startX: e.clientX,
-      startY: e.clientY,
-      originalCrop: { x: crop.x, y: crop.y, width: crop.width, height: crop.height },
-      moved: false,
-    };
-  }, [crop.x, crop.y, crop.width, crop.height]);
+  const handleBoxPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragRef.current = {
+        mode: 'move',
+        startX: e.clientX,
+        startY: e.clientY,
+        originalCrop: { x: crop.x, y: crop.y, width: crop.width, height: crop.height },
+        moved: false,
+      };
+    },
+    [crop.x, crop.y, crop.width, crop.height],
+  );
 
-  const handleResizeDown = useCallback((edge: Edge, e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragRef.current = {
-      mode: 'resize',
-      edge,
-      startX: e.clientX,
-      startY: e.clientY,
-      originalCrop: { x: crop.x, y: crop.y, width: crop.width, height: crop.height },
-      moved: false,
-    };
-    setIsDragging(true);
-  }, [crop.x, crop.y, crop.width, crop.height]);
+  const handleResizeDown = useCallback(
+    (edge: Edge, e: React.PointerEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragRef.current = {
+        mode: 'resize',
+        edge,
+        startX: e.clientX,
+        startY: e.clientY,
+        originalCrop: { x: crop.x, y: crop.y, width: crop.width, height: crop.height },
+        moved: false,
+      };
+      setIsDragging(true);
+    },
+    [crop.x, crop.y, crop.width, crop.height],
+  );
 
   // Dark mask color
   const maskColor = 'rgba(0,0,0,0.55)';
@@ -296,33 +340,60 @@ export function CropOverlay({
     <div style={{ position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none' }}>
       {/* 4-strip dark mask — clicking any strip exits crop mode */}
       {/* Top */}
-      <div onClick={onExit} style={{
-        position: 'absolute', top: 0, left: 0, right: 0,
-        height: `${pctTop}%`,
-        background: maskColor, pointerEvents: 'auto', cursor: 'pointer',
-      }} />
+      <div
+        onClick={onExit}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: `${pctTop}%`,
+          background: maskColor,
+          pointerEvents: 'auto',
+          cursor: 'pointer',
+        }}
+      />
       {/* Bottom */}
-      <div onClick={onExit} style={{
-        position: 'absolute', left: 0, right: 0, bottom: 0,
-        top: `${pctTop + pctHeight}%`,
-        background: maskColor, pointerEvents: 'auto', cursor: 'pointer',
-      }} />
+      <div
+        onClick={onExit}
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          top: `${pctTop + pctHeight}%`,
+          background: maskColor,
+          pointerEvents: 'auto',
+          cursor: 'pointer',
+        }}
+      />
       {/* Left */}
-      <div onClick={onExit} style={{
-        position: 'absolute', left: 0,
-        top: `${pctTop}%`,
-        width: `${pctLeft}%`,
-        height: `${pctHeight}%`,
-        background: maskColor, pointerEvents: 'auto', cursor: 'pointer',
-      }} />
+      <div
+        onClick={onExit}
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: `${pctTop}%`,
+          width: `${pctLeft}%`,
+          height: `${pctHeight}%`,
+          background: maskColor,
+          pointerEvents: 'auto',
+          cursor: 'pointer',
+        }}
+      />
       {/* Right */}
-      <div onClick={onExit} style={{
-        position: 'absolute', right: 0,
-        top: `${pctTop}%`,
-        left: `${pctLeft + pctWidth}%`,
-        height: `${pctHeight}%`,
-        background: maskColor, pointerEvents: 'auto',
-      }} />
+      <div
+        onClick={onExit}
+        style={{
+          position: 'absolute',
+          right: 0,
+          top: `${pctTop}%`,
+          left: `${pctLeft + pctWidth}%`,
+          height: `${pctHeight}%`,
+          background: maskColor,
+          pointerEvents: 'auto',
+        }}
+      />
 
       {/* Crop box */}
       <div
@@ -341,10 +412,46 @@ export function CropOverlay({
       >
         {/* Rule of thirds grid */}
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-          <div style={{ position: 'absolute', left: '33.33%', top: 0, bottom: 0, width: 1, background: 'rgba(255,255,255,0.15)' }} />
-          <div style={{ position: 'absolute', left: '66.66%', top: 0, bottom: 0, width: 1, background: 'rgba(255,255,255,0.15)' }} />
-          <div style={{ position: 'absolute', top: '33.33%', left: 0, right: 0, height: 1, background: 'rgba(255,255,255,0.15)' }} />
-          <div style={{ position: 'absolute', top: '66.66%', left: 0, right: 0, height: 1, background: 'rgba(255,255,255,0.15)' }} />
+          <div
+            style={{
+              position: 'absolute',
+              left: '33.33%',
+              top: 0,
+              bottom: 0,
+              width: 1,
+              background: 'rgba(255,255,255,0.15)',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              left: '66.66%',
+              top: 0,
+              bottom: 0,
+              width: 1,
+              background: 'rgba(255,255,255,0.15)',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              top: '33.33%',
+              left: 0,
+              right: 0,
+              height: 1,
+              background: 'rgba(255,255,255,0.15)',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              top: '66.66%',
+              left: 0,
+              right: 0,
+              height: 1,
+              background: 'rgba(255,255,255,0.15)',
+            }}
+          />
         </div>
 
         {/* Resize handles */}

@@ -6,8 +6,6 @@ import {
   TEXT_MUTED,
   BORDER_SUBTLE,
   BORDER_LIGHT,
-  BG_CARD,
-  CARD_RADIUS,
   ACCENT_COLOR,
 } from '../../ui/tokens.js';
 
@@ -89,7 +87,15 @@ function OpenChoicePopup({
           <div style={{ fontSize: 16, fontWeight: 600, color: TEXT_PRIMARY, marginBottom: 6 }}>
             Open recording
           </div>
-          <div style={{ fontSize: 13, color: TEXT_MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div
+            style={{
+              fontSize: 13,
+              color: TEXT_MUTED,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
             {recordingName}
           </div>
         </div>
@@ -159,7 +165,7 @@ function OpenChoicePopup({
 
 export function ProjectDetailView({
   project,
-  filePath,
+  filePath: _filePath,
   onBack,
   onOpenRecording,
   onDeleteRecording,
@@ -184,7 +190,14 @@ export function ProjectDetailView({
     >
       <div style={{ maxWidth: 960, margin: '0 auto', width: '100%' }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 40 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            marginBottom: 40,
+          }}
+        >
           <div>
             <button
               onClick={onBack}
@@ -213,9 +226,15 @@ export function ProjectDetailView({
               {project.name}
             </h2>
 
-            <div style={{ fontSize: 13, color: TEXT_MUTED, marginTop: 6, display: 'flex', gap: 16 }}>
-              <span>{recordings.length} recording{recordings.length !== 1 ? 's' : ''}</span>
-              <span>{project.settings.resolution.width}x{project.settings.resolution.height}</span>
+            <div
+              style={{ fontSize: 13, color: TEXT_MUTED, marginTop: 6, display: 'flex', gap: 16 }}
+            >
+              <span>
+                {recordings.length} recording{recordings.length !== 1 ? 's' : ''}
+              </span>
+              <span>
+                {project.settings.resolution.width}x{project.settings.resolution.height}
+              </span>
               <span>{fps} fps</span>
             </div>
           </div>
@@ -326,7 +345,9 @@ function RecordingCard({
   const [deleteHovered, setDeleteHovered] = useState(false);
   const name = getRecordingName(asset.filePath);
   const duration = framesToDuration(asset.duration, fps);
-  const fileSize = asset.metadata?.fileSize ? formatFileSize(asset.metadata.fileSize as number) : '';
+  const fileSize = asset.metadata?.fileSize
+    ? formatFileSize(asset.metadata.fileSize as number)
+    : '';
 
   return (
     <div
@@ -374,9 +395,7 @@ function RecordingCard({
           />
         )}
 
-        <div style={{ opacity: 0.08, fontSize: 36, zIndex: 1, userSelect: 'none' }}>
-          🎬
-        </div>
+        <div style={{ opacity: 0.08, fontSize: 36, zIndex: 1, userSelect: 'none' }}>🎬</div>
 
         {/* Duration badge */}
         <div
@@ -393,13 +412,24 @@ function RecordingCard({
             zIndex: 3,
           }}
         >
-          <div style={{ width: 6, height: 6, borderRadius: '50%', background: TEAL, boxShadow: `0 0 6px ${TEAL}` }} />
+          <div
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: TEAL,
+              boxShadow: `0 0 6px ${TEAL}`,
+            }}
+          />
           <span style={{ fontSize: 12, fontWeight: 500, color: TEXT_PRIMARY }}>{duration}</span>
         </div>
 
         {/* Delete button */}
         <button
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
           onMouseEnter={() => setDeleteHovered(true)}
           onMouseLeave={() => setDeleteHovered(false)}
           style={{
@@ -423,7 +453,15 @@ function RecordingCard({
             padding: 0,
           }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="white"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
             <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
           </svg>
         </button>
@@ -431,7 +469,16 @@ function RecordingCard({
 
       {/* Info */}
       <div style={{ padding: 12 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: TEXT_PRIMARY, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 500,
+            color: TEXT_PRIMARY,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
           {name}
         </div>
         <div style={{ fontSize: 12, color: TEXT_MUTED, marginTop: 4, display: 'flex', gap: 10 }}>

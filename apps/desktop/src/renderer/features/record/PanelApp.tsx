@@ -100,24 +100,28 @@ function AudioLevelMeter({ level }: { level: number }) {
   const color = level > 0.7 ? '#ef4444' : level > 0.4 ? '#eab308' : '#4ade80';
 
   return (
-    <div style={{
-      height: 4,
-      background: 'rgba(255,255,255,0.08)',
-      borderRadius: 2,
-      marginLeft: 12,
-      marginRight: 12,
-      marginTop: 2,
-      marginBottom: 2,
-      overflow: 'hidden',
-      flexShrink: 0,
-    }}>
-      <div style={{
-        height: '100%',
-        width: `${pct}%`,
-        background: color,
+    <div
+      style={{
+        height: 4,
+        background: 'rgba(255,255,255,0.08)',
         borderRadius: 2,
-        transition: 'width 50ms ease-out',
-      }} />
+        marginLeft: 12,
+        marginRight: 12,
+        marginTop: 2,
+        marginBottom: 2,
+        overflow: 'hidden',
+        flexShrink: 0,
+      }}
+    >
+      <div
+        style={{
+          height: '100%',
+          width: `${pct}%`,
+          background: color,
+          borderRadius: 2,
+          transition: 'width 50ms ease-out',
+        }}
+      />
     </div>
   );
 }
@@ -286,17 +290,19 @@ function TitleBar({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      style={{
-        height: 32,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingLeft: 14,
-        paddingRight: 10,
-        flexShrink: 0,
-        WebkitAppRegion: 'drag',
-        userSelect: 'none',
-      } as React.CSSProperties}
+      style={
+        {
+          height: 32,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingLeft: 14,
+          paddingRight: 10,
+          flexShrink: 0,
+          WebkitAppRegion: 'drag',
+          userSelect: 'none',
+        } as React.CSSProperties
+      }
     >
       <span
         style={{
@@ -315,24 +321,26 @@ function TitleBar({ onClose }: { onClose: () => void }) {
         onClick={onClose}
         onMouseEnter={() => setCloseHovered(true)}
         onMouseLeave={() => setCloseHovered(false)}
-        style={{
-          WebkitAppRegion: 'no-drag',
-          width: 20,
-          height: 20,
-          borderRadius: '50%',
-          border: 'none',
-          background: closeHovered ? 'rgba(255,255,255,0.12)' : 'transparent',
-          cursor: 'pointer',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 0,
-          outline: 'none',
-          transition: 'background 120ms ease-out',
-          color: C.textSecondary,
-          fontSize: 16,
-          lineHeight: 1,
-        } as React.CSSProperties}
+        style={
+          {
+            WebkitAppRegion: 'no-drag',
+            width: 20,
+            height: 20,
+            borderRadius: '50%',
+            border: 'none',
+            background: closeHovered ? 'rgba(255,255,255,0.12)' : 'transparent',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+            outline: 'none',
+            transition: 'background 120ms ease-out',
+            color: C.textSecondary,
+            fontSize: 16,
+            lineHeight: 1,
+          } as React.CSSProperties
+        }
       >
         ×
       </button>
@@ -349,26 +357,37 @@ interface VideoPreviewProps {
   cameraStream: MediaStream | null;
 }
 
-function VideoPreview({ stream, countdownSeconds, isCountingDown, cameraStream }: VideoPreviewProps) {
-  const screenVideoRef = useRef<HTMLVideoElement>(null);
-  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+function VideoPreview({
+  stream,
+  countdownSeconds,
+  isCountingDown,
+  cameraStream,
+}: VideoPreviewProps) {
+  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
 
   // Attach streams via ref callbacks — avoids StrictMode ref/effect ordering bugs
-  const setScreenRef = useCallback((node: HTMLVideoElement | null) => {
-    screenVideoRef.current = node;
-    if (node && stream) {
-      node.srcObject = stream;
-      void node.play().catch(() => {});
-    }
-  }, [stream]);
+  const setScreenRef = useCallback(
+    (node: HTMLVideoElement | null) => {
+      screenVideoRef.current = node;
+      if (node && stream) {
+        node.srcObject = stream;
+        void node.play().catch(() => {});
+      }
+    },
+    [stream],
+  );
 
-  const setCameraRef = useCallback((node: HTMLVideoElement | null) => {
-    cameraVideoRef.current = node;
-    if (node && cameraStream) {
-      node.srcObject = cameraStream;
-      void node.play().catch(() => {});
-    }
-  }, [cameraStream]);
+  const setCameraRef = useCallback(
+    (node: HTMLVideoElement | null) => {
+      cameraVideoRef.current = node;
+      if (node && cameraStream) {
+        node.srcObject = cameraStream;
+        void node.play().catch(() => {});
+      }
+    },
+    [cameraStream],
+  );
 
   return (
     <div
@@ -432,9 +451,7 @@ function VideoPreview({ stream, countdownSeconds, isCountingDown, cameraStream }
           }}
         >
           <MonitorIcon size={40} color={C.textSecondary} />
-          <span style={{ fontSize: 12, color: C.textSecondary }}>
-            Select a source to preview
-          </span>
+          <span style={{ fontSize: 12, color: C.textSecondary }}>Select a source to preview</span>
         </div>
       )}
 
@@ -471,36 +488,46 @@ function SourceSelector({ sources, selectedSourceId, onSelectSource }: SourceSel
 
       <select
         value={selectedSourceId ?? ''}
-        onChange={(e) => { if (e.target.value) onSelectSource(e.target.value); }}
-        style={{
-          flex: 1,
-          height: 30,
-          background: C.input,
-          color: selectedSourceId ? C.text : C.textSecondary,
-          border: `1px solid ${C.border}`,
-          borderRadius: R.button,
-          fontSize: 12,
-          paddingLeft: 10,
-          paddingRight: 28,
-          outline: 'none',
-          cursor: 'pointer',
-          appearance: 'none',
-          WebkitAppearance: 'none',
-          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E")`,
-          backgroundRepeat: 'no-repeat',
-          backgroundPosition: 'right 10px center',
-          backgroundSize: '8px 5px',
-        } as React.CSSProperties}
+        onChange={(e) => {
+          if (e.target.value) onSelectSource(e.target.value);
+        }}
+        style={
+          {
+            flex: 1,
+            height: 30,
+            background: C.input,
+            color: selectedSourceId ? C.text : C.textSecondary,
+            border: `1px solid ${C.border}`,
+            borderRadius: R.button,
+            fontSize: 12,
+            paddingLeft: 10,
+            paddingRight: 28,
+            outline: 'none',
+            cursor: 'pointer',
+            appearance: 'none',
+            WebkitAppearance: 'none',
+            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E")`,
+            backgroundRepeat: 'no-repeat',
+            backgroundPosition: 'right 10px center',
+            backgroundSize: '8px 5px',
+          } as React.CSSProperties
+        }
       >
         {sources.length === 0 ? (
-          <option value="" disabled>No sources available</option>
+          <option value="" disabled>
+            No sources available
+          </option>
         ) : (
           <>
             {!selectedSourceId && (
-              <option value="" disabled>Select a source…</option>
+              <option value="" disabled>
+                Select a source…
+              </option>
             )}
             {sources.map((src) => (
-              <option key={src.id} value={src.id}>{src.name}</option>
+              <option key={src.id} value={src.id}>
+                {src.name}
+              </option>
             ))}
           </>
         )}
@@ -531,8 +558,12 @@ function DeviceToggleButton({
   const [hovered, setHovered] = useState(false);
 
   const bg = active
-    ? hovered ? C.inputHover : C.input
-    : hovered ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)';
+    ? hovered
+      ? C.inputHover
+      : C.input
+    : hovered
+      ? 'rgba(255,255,255,0.08)'
+      : 'rgba(255,255,255,0.03)';
 
   const borderColor = active ? C.borderLight : 'rgba(255,255,255,0.12)';
 
@@ -561,7 +592,14 @@ function DeviceToggleButton({
       }}
     >
       {icon}
-      <span style={{ fontSize: 11, color: active ? C.text : C.textSecondary, fontWeight: active ? 500 : 400, userSelect: 'none' }}>
+      <span
+        style={{
+          fontSize: 11,
+          color: active ? C.text : C.textSecondary,
+          fontWeight: active ? 500 : 400,
+          userSelect: 'none',
+        }}
+      >
         {text}
       </span>
       {showActiveDot && (
@@ -681,9 +719,7 @@ function RecordingControls({
       {(status === 'idle' || status === 'ready') && (
         <RecButton onStart={onStartRecording} disabled={!canRecord} />
       )}
-      {status === 'countdown' && (
-        <StatusLabel text="Starting…" />
-      )}
+      {status === 'countdown' && <StatusLabel text="Starting…" />}
       {(status === 'recording' || status === 'paused') && (
         <RecordingRow
           elapsedMs={elapsedMs}
@@ -692,9 +728,7 @@ function RecordingControls({
           onTogglePause={onTogglePause}
         />
       )}
-      {status === 'stopping' && (
-        <StatusLabel text="Saving…" showSpinner />
-      )}
+      {status === 'stopping' && <StatusLabel text="Saving…" showSpinner />}
     </div>
   );
 }
@@ -705,7 +739,11 @@ function RecButton({ onStart, disabled }: { onStart: () => void; disabled: boole
 
   const bg = disabled
     ? 'rgba(255,90,95,0.35)'
-    : pressed ? C.accentDark : hovered ? C.accentHover : C.accent;
+    : pressed
+      ? C.accentDark
+      : hovered
+        ? C.accentHover
+        : C.accent;
 
   return (
     <button
@@ -713,7 +751,10 @@ function RecButton({ onStart, disabled }: { onStart: () => void; disabled: boole
       disabled={disabled}
       onClick={onStart}
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => { setHovered(false); setPressed(false); }}
+      onMouseLeave={() => {
+        setHovered(false);
+        setPressed(false);
+      }}
       onMouseDown={() => setPressed(true)}
       onMouseUp={() => setPressed(false)}
       style={{
@@ -861,9 +902,7 @@ function StopButton({ onStop }: { onStop: () => void }) {
   const [hovered, setHovered] = useState(false);
   const [pressed, setPressed] = useState(false);
 
-  const bg = pressed
-    ? 'rgba(255,90,95,0.25)'
-    : hovered ? 'rgba(255,90,95,0.15)' : C.input;
+  const bg = pressed ? 'rgba(255,90,95,0.25)' : hovered ? 'rgba(255,90,95,0.15)' : C.input;
   const borderColor = hovered ? 'rgba(255,90,95,0.5)' : C.border;
 
   return (
@@ -871,7 +910,10 @@ function StopButton({ onStop }: { onStop: () => void }) {
       aria-label="Stop recording"
       onClick={onStop}
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => { setHovered(false); setPressed(false); }}
+      onMouseLeave={() => {
+        setHovered(false);
+        setPressed(false);
+      }}
       onMouseDown={() => setPressed(true)}
       onMouseUp={() => setPressed(false)}
       style={{
@@ -907,7 +949,13 @@ function StopButton({ onStop }: { onStop: () => void }) {
 
 // ─── MiniPauseButton ────────────────────────────────────────────────────────
 
-function MiniPauseButton({ paused, onTogglePause }: { paused: boolean; onTogglePause: () => void }) {
+function MiniPauseButton({
+  paused,
+  onTogglePause,
+}: {
+  paused: boolean;
+  onTogglePause: () => void;
+}) {
   const [hovered, setHovered] = useState(false);
   const borderColor = paused ? C.accent : hovered ? C.borderLight : C.border;
 
@@ -953,9 +1001,7 @@ function MiniStopButton({ onStop }: { onStop: () => void }) {
   const [hovered, setHovered] = useState(false);
   const [pressed, setPressed] = useState(false);
 
-  const bg = pressed
-    ? 'rgba(255,90,95,0.25)'
-    : hovered ? 'rgba(255,90,95,0.15)' : C.input;
+  const bg = pressed ? 'rgba(255,90,95,0.25)' : hovered ? 'rgba(255,90,95,0.15)' : C.input;
   const borderColor = hovered ? 'rgba(255,90,95,0.5)' : C.border;
 
   return (
@@ -963,7 +1009,10 @@ function MiniStopButton({ onStop }: { onStop: () => void }) {
       aria-label="Stop recording"
       onClick={onStop}
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => { setHovered(false); setPressed(false); }}
+      onMouseLeave={() => {
+        setHovered(false);
+        setPressed(false);
+      }}
       onMouseDown={() => setPressed(true)}
       onMouseUp={() => setPressed(false)}
       style={{
@@ -1014,23 +1063,25 @@ function MiniController({
 
   return (
     <div
-      style={{
-        width: 340,
-        height: 56,
-        background: C.bg,
-        borderRadius: 28,
-        border: `1px solid ${C.border}`,
-        boxShadow: '0 4px 24px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3)',
-        display: 'flex',
-        alignItems: 'center',
-        paddingLeft: 20,
-        paddingRight: 12,
-        gap: 12,
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
-        color: C.text,
-        userSelect: 'none',
-        WebkitAppRegion: 'drag',
-      } as React.CSSProperties}
+      style={
+        {
+          width: 340,
+          height: 56,
+          background: C.bg,
+          borderRadius: 28,
+          border: `1px solid ${C.border}`,
+          boxShadow: '0 4px 24px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          paddingLeft: 20,
+          paddingRight: 12,
+          gap: 12,
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+          color: C.text,
+          userSelect: 'none',
+          WebkitAppRegion: 'drag',
+        } as React.CSSProperties
+      }
     >
       {/* Recording indicator */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -1077,7 +1128,17 @@ function MiniController({
       <div style={{ flex: 1 }} />
 
       {/* Controls */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, WebkitAppRegion: 'no-drag', flexShrink: 0 } as React.CSSProperties}>
+      <div
+        style={
+          {
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            WebkitAppRegion: 'no-drag',
+            flexShrink: 0,
+          } as React.CSSProperties
+        }
+      >
         <MiniPauseButton paused={paused} onTogglePause={onTogglePause} />
         <MiniStopButton onStop={onStop} />
       </div>
@@ -1090,24 +1151,26 @@ function MiniController({
 function MiniSavingIndicator() {
   return (
     <div
-      style={{
-        width: 340,
-        height: 56,
-        background: C.bg,
-        borderRadius: 28,
-        border: `1px solid ${C.border}`,
-        boxShadow: '0 4px 24px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
-        color: C.textSecondary,
-        fontSize: 13,
-        fontWeight: 500,
-        userSelect: 'none',
-        WebkitAppRegion: 'drag',
-      } as React.CSSProperties}
+      style={
+        {
+          width: 340,
+          height: 56,
+          background: C.bg,
+          borderRadius: 28,
+          border: `1px solid ${C.border}`,
+          boxShadow: '0 4px 24px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+          color: C.textSecondary,
+          fontSize: 13,
+          fontWeight: 500,
+          userSelect: 'none',
+          WebkitAppRegion: 'drag',
+        } as React.CSSProperties
+      }
     >
       <SpinnerDot />
       Saving…
@@ -1131,7 +1194,7 @@ function buildRecordingStream(
   if (!videoTrack) throw new Error('No video track in display stream');
 
   const sysAudioTracks = sysAudioEnabled ? displayStream.getAudioTracks() : [];
-  const micAudioTrack = (micEnabled && micStream) ? micStream.getAudioTracks()[0] ?? null : null;
+  const micAudioTrack = micEnabled && micStream ? (micStream.getAudioTracks()[0] ?? null) : null;
 
   // No audio at all
   if (sysAudioTracks.length === 0 && !micAudioTrack) {
@@ -1190,7 +1253,8 @@ export function PanelApp() {
       });
       return;
     }
-    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    navigator.mediaDevices
+      .getUserMedia({ audio: true, video: false })
       .then((s) => setMicStream(s))
       .catch((err) => {
         console.warn('[PanelApp] Mic access failed:', err);
@@ -1213,7 +1277,9 @@ export function PanelApp() {
       const next = !prev;
       // Mute/unmute only the mic stream tracks so system audio is unaffected
       if (micStreamRef.current) {
-        micStreamRef.current.getAudioTracks().forEach((t) => { t.enabled = next; });
+        micStreamRef.current.getAudioTracks().forEach((t) => {
+          t.enabled = next;
+        });
       }
       return next;
     });
@@ -1239,15 +1305,24 @@ export function PanelApp() {
   }, [stream]);
 
   // Keep audio state refs in sync so startMediaRecorder (stale IPC closure) sees current values
-  useEffect(() => { micStreamRef.current = micStream; }, [micStream]);
-  useEffect(() => { micEnabledRef.current = micEnabled; }, [micEnabled]);
-  useEffect(() => { sysAudioEnabledRef.current = sysAudioEnabled; }, [sysAudioEnabled]);
+  useEffect(() => {
+    micStreamRef.current = micStream;
+  }, [micStream]);
+  useEffect(() => {
+    micEnabledRef.current = micEnabled;
+  }, [micEnabled]);
+  useEffect(() => {
+    sysAudioEnabledRef.current = sysAudioEnabled;
+  }, [sysAudioEnabled]);
 
   // ── Load sources on mount ────────────────────────────────────────────────
   useEffect(() => {
-    window.roughcut.recordingGetSources().then((srcs) => {
-      setSources(srcs);
-    }).catch(console.error);
+    window.roughcut
+      .recordingGetSources()
+      .then((srcs) => {
+        setSources(srcs);
+      })
+      .catch(console.error);
   }, []);
 
   // ── IPC event subscriptions ──────────────────────────────────────────────
@@ -1292,12 +1367,17 @@ export function PanelApp() {
     let active = true;
     console.info('[PanelApp] Requesting camera via getUserMedia...');
     navigator.mediaDevices
-      .getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio: false })
+      .getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+        audio: false,
+      })
       .then((s) => {
         const track = s.getVideoTracks()[0];
         if (track) {
           const settings = track.getSettings();
-          console.info(`[PanelApp] Camera stream: ${settings.width}x${settings.height} @ ${settings.frameRate}fps`);
+          console.info(
+            `[PanelApp] Camera stream: ${settings.width}x${settings.height} @ ${settings.frameRate}fps`,
+          );
         }
         if (active) setCameraStream(s);
         else s.getTracks().forEach((t) => t.stop());
@@ -1321,7 +1401,7 @@ export function PanelApp() {
       stream?.getTracks().forEach((t) => t.stop());
       cameraStream?.getTracks().forEach((t) => t.stop());
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Source selection ─────────────────────────────────────────────────────
@@ -1348,7 +1428,15 @@ export function PanelApp() {
       if (videoTrack) {
         void videoTrack.applyConstraints({ frameRate: { ideal: 15, max: 20 } }).catch(() => {});
         const settings = videoTrack.getSettings();
-        console.info('[PanelApp] Screen track:', settings.width, 'x', settings.height, '@', settings.frameRate, 'fps');
+        console.info(
+          '[PanelApp] Screen track:',
+          settings.width,
+          'x',
+          settings.height,
+          '@',
+          settings.frameRate,
+          'fps',
+        );
       }
       streamRef.current = s;
       setStream(s);
@@ -1397,7 +1485,15 @@ export function PanelApp() {
     audioMixCleanupRef.current = audioCleanup;
 
     const hasAudio = recordingStream.getAudioTracks().length > 0;
-    console.info('[PanelApp] Recording stream:', 'video:', recordingStream.getVideoTracks().length, 'audio:', hasAudio, 'mimeType will be audio-aware:', hasAudio);
+    console.info(
+      '[PanelApp] Recording stream:',
+      'video:',
+      recordingStream.getVideoTracks().length,
+      'audio:',
+      hasAudio,
+      'mimeType will be audio-aware:',
+      hasAudio,
+    );
     let mimeType: string;
     if (hasAudio) {
       mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
@@ -1427,8 +1523,10 @@ export function PanelApp() {
         try {
           const raw = await cameraRecorderRef.current.stop();
           // mediabunny returns Uint8Array — convert to ArrayBuffer for IPC
-          cameraBuffer = raw instanceof Uint8Array ? raw.buffer as ArrayBuffer : raw;
-          console.info('[PanelApp] Camera H.264 recording size:', cameraBuffer.byteLength);
+          cameraBuffer = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+          if (cameraBuffer) {
+            console.info('[PanelApp] Camera H.264 recording size:', cameraBuffer.byteLength);
+          }
         } catch (err) {
           console.error('[PanelApp] Camera recorder stop failed:', err);
         }
@@ -1462,23 +1560,30 @@ export function PanelApp() {
 
     // Start WebCodecs H.264 camera recorder (much lighter than VP9 MediaRecorder)
     const currentCameraStream = cameraStreamRef.current;
-    console.info('[PanelApp] Camera stream at record start:', currentCameraStream ? 'ACTIVE' : 'NULL', 'cameraEnabled:', cameraEnabledRef.current);
+    console.info(
+      '[PanelApp] Camera stream at record start:',
+      currentCameraStream ? 'ACTIVE' : 'NULL',
+      'cameraEnabled:',
+      cameraEnabledRef.current,
+    );
     if (currentCameraStream) {
-      import('./camera-recorder.js').then(async ({ CameraRecorder }) => {
-        const recorder = new CameraRecorder();
-        await recorder.start(currentCameraStream);
-        cameraRecorderRef.current = recorder;
-      }).catch((err) => {
-        console.error('[PanelApp] CameraRecorder failed, falling back to MediaRecorder:', err);
-        // Fallback: use MediaRecorder VP8 (lighter than VP9)
-        const fallbackMime = 'video/webm;codecs=vp8';
-        const camRecorder = new MediaRecorder(currentCameraStream, { mimeType: fallbackMime });
-        camRecorder.ondataavailable = (e) => {
-          if (e.data.size > 0) cameraChunksRef.current.push(e.data);
-        };
-        cameraRecorderRef.current = camRecorder;
-        camRecorder.start(1000);
-      });
+      import('./camera-recorder.js')
+        .then(async ({ CameraRecorder }) => {
+          const recorder = new CameraRecorder();
+          await recorder.start(currentCameraStream);
+          cameraRecorderRef.current = recorder;
+        })
+        .catch((err) => {
+          console.error('[PanelApp] CameraRecorder failed, falling back to MediaRecorder:', err);
+          // Fallback: use MediaRecorder VP8 (lighter than VP9)
+          const fallbackMime = 'video/webm;codecs=vp8';
+          const camRecorder = new MediaRecorder(currentCameraStream, { mimeType: fallbackMime });
+          camRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) cameraChunksRef.current.push(e.data);
+          };
+          cameraRecorderRef.current = camRecorder;
+          camRecorder.start(1000);
+        });
     }
   };
 

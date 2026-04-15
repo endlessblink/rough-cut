@@ -1,49 +1,80 @@
 import type { ProjectDocument } from '@rough-cut/project-model';
-import {
-  canUseWebCodecsExport,
-  runWebCodecsExportToBuffer,
-  type ExportProgress,
-  type ExportResult,
-} from '../../../../../../packages/export-renderer/src/webcodecs.js';
+import type { ExportResult } from '@rough-cut/export-renderer';
 
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+declare global {
+  interface Window {
+    __roughcutTestOverrides?: {
+      exportOutputPath?: string;
+    };
+  }
 }
 
-export async function runDesktopExport(project: ProjectDocument): Promise<ExportResult | null> {
+let activeExportAbortController: AbortController | null = null;
+
+export interface ExportFrameRange {
+  startFrame: number;
+  endFrame: number;
+}
+
+export async function cancelDesktopExport(): Promise<void> {
+  activeExportAbortController?.abort();
+  activeExportAbortController = null;
+  await window.roughcut.exportCancel();
+}
+
+export async function runDesktopExport(
+  project: ProjectDocument,
+  range?: ExportFrameRange,
+): Promise<ExportResult | null> {
   const settings = project.exportSettings;
-  const outputPath = await window.roughcut.exportPickOutputPath(project.name, settings.format);
+  const effectiveRange = range ?? { startFrame: 0, endFrame: project.composition.duration };
+  const selectedFrameCount = Math.max(0, effectiveRange.endFrame - effectiveRange.startFrame);
+  if (project.composition.duration <= 0 || selectedFrameCount <= 0) {
+    const failedResult: ExportResult = {
+      status: 'failed',
+      error:
+        project.composition.duration <= 0
+          ? 'Nothing to export yet. Add a clip to the timeline first.'
+          : 'Select a non-empty export range.',
+      totalFrames: 0,
+      durationMs: 0,
+    };
+    window.roughcut.exportEmitComplete(failedResult);
+    return failedResult;
+  }
+
+  const outputPath =
+    window.__roughcutTestOverrides?.exportOutputPath ??
+    (await window.roughcut.exportPickOutputPath(project.name, settings.format));
   if (!outputPath) {
     return null;
   }
 
-  if (!canUseWebCodecsExport(settings)) {
-    return window.roughcut.exportStart(project, settings, outputPath);
-  }
+  activeExportAbortController?.abort();
+  const abortController = new AbortController();
+  activeExportAbortController = abortController;
 
   try {
-    const { buffer, result } = await runWebCodecsExportToBuffer(project, settings, {
-      onProgress: (progress: ExportProgress) => window.roughcut.exportEmitProgress(progress),
-    });
-
-    if (result.status !== 'complete') {
-      window.roughcut.exportEmitComplete(result);
-      return result;
+    if (abortController.signal.aborted) {
+      return {
+        status: 'cancelled',
+        totalFrames: project.composition.duration,
+        durationMs: 0,
+      };
     }
-
-    await window.roughcut.writeBinaryFile(outputPath, toArrayBuffer(buffer));
-    const completeResult: ExportResult = { ...result, outputPath };
-    window.roughcut.exportEmitComplete(completeResult);
-    return completeResult;
+    return await window.roughcut.exportStart(project, settings, outputPath);
   } catch (err) {
     const failedResult: ExportResult = {
       status: 'failed',
       error: err instanceof Error ? err.message : String(err),
       totalFrames: project.composition.duration,
       durationMs: 0,
-      pipeline: 'webcodecs',
     };
     window.roughcut.exportEmitComplete(failedResult);
     return failedResult;
+  } finally {
+    if (activeExportAbortController === abortController) {
+      activeExportAbortController = null;
+    }
   }
 }

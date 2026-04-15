@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import type { RegionCrop } from '@rough-cut/project-model';
 import type { LayoutTemplate, NormalizedRect, InstanceLayout } from './templates.js';
-import { toCssRect, resolveRect, computeLayoutRects } from './templates.js';
+import { toCssRect, computeLayoutRects } from './templates.js';
 import { CropOverlay } from './CropOverlay.js';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -103,28 +103,38 @@ function getHandleStyle(edge: Edge): React.CSSProperties {
   // Handles sit fully inside the region so they never get clipped
   const off = -2; // slight inset from region edge
   switch (edge) {
-    case 'nw': return { ...base, top: off, left: off };
-    case 'n':  return { ...base, top: off, left: '50%', marginLeft: -HANDLE_HIT / 2 };
-    case 'ne': return { ...base, top: off, right: off };
-    case 'w':  return { ...base, top: '50%', left: off, marginTop: -HANDLE_HIT / 2 };
-    case 'e':  return { ...base, top: '50%', right: off, marginTop: -HANDLE_HIT / 2 };
-    case 'sw': return { ...base, bottom: off, left: off };
-    case 's':  return { ...base, bottom: off, left: '50%', marginLeft: -HANDLE_HIT / 2 };
-    case 'se': return { ...base, bottom: off, right: off };
+    case 'nw':
+      return { ...base, top: off, left: off };
+    case 'n':
+      return { ...base, top: off, left: '50%', marginLeft: -HANDLE_HIT / 2 };
+    case 'ne':
+      return { ...base, top: off, right: off };
+    case 'w':
+      return { ...base, top: '50%', left: off, marginTop: -HANDLE_HIT / 2 };
+    case 'e':
+      return { ...base, top: '50%', right: off, marginTop: -HANDLE_HIT / 2 };
+    case 'sw':
+      return { ...base, bottom: off, left: off };
+    case 's':
+      return { ...base, bottom: off, left: '50%', marginLeft: -HANDLE_HIT / 2 };
+    case 'se':
+      return { ...base, bottom: off, right: off };
   }
 }
 
 function HandleDot() {
   return (
-    <div style={{
-      width: HANDLE_DOT,
-      height: HANDLE_DOT,
-      borderRadius: '50%',
-      background: 'rgba(255,255,255,0.9)',
-      border: '1.5px solid rgba(0,0,0,0.4)',
-      boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
-      pointerEvents: 'none',
-    }} />
+    <div
+      style={{
+        width: HANDLE_DOT,
+        height: HANDLE_DOT,
+        borderRadius: '50%',
+        background: 'rgba(255,255,255,0.9)',
+        border: '1.5px solid rgba(0,0,0,0.4)',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+        pointerEvents: 'none',
+      }}
+    />
   );
 }
 
@@ -145,11 +155,7 @@ interface CropTransform {
  * Applied as: transform-origin: 0 0; transform: scale(S) translate(Tx, Ty)
  * where translate values are in pre-scale (source pixel) space.
  */
-function computeCropTransform(
-  viewW: number,
-  viewH: number,
-  crop: RegionCrop,
-): CropTransform {
+function computeCropTransform(viewW: number, viewH: number, crop: RegionCrop): CropTransform {
   const scale = Math.max(viewW / crop.width, viewH / crop.height);
   return { scale, translateX: -crop.x, translateY: -crop.y };
 }
@@ -257,7 +263,15 @@ function ScreenPlaceholderIcon() {
   return (
     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.5 }}>
       <rect x="2" y="4" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="8" y1="21" x2="16" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line
+        x1="8"
+        y1="21"
+        x2="16"
+        y2="21"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -266,7 +280,12 @@ function CameraPlaceholderIcon() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.5 }}>
       <rect x="2" y="5" width="14" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M16 10l4.5-3v10L16 14" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path
+        d="M16 10l4.5-3v10L16 14"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -296,9 +315,7 @@ function RegionPlaceholder({
         alignItems: 'center',
         justifyContent: 'center',
         gap: 6,
-        background: isScreen
-          ? 'rgba(90,160,250,0.08)'
-          : 'rgba(255,107,90,0.08)',
+        background: isScreen ? 'rgba(90,160,250,0.08)' : 'rgba(255,107,90,0.08)',
         border: `1px solid ${isScreen ? 'rgba(90,160,250,0.15)' : 'rgba(255,107,90,0.15)'}`,
         borderRadius: 'inherit',
         color: isScreen ? 'rgba(90,160,250,0.6)' : 'rgba(255,107,90,0.6)',
@@ -354,10 +371,9 @@ export function PreviewCard({
   onCropModeChange,
 }: PreviewCardProps) {
   const { zOrder, aspectRatio } = layout;
-  const hasAnyContent = Boolean(screenNode) || Boolean(cameraNode);
 
   // Compute rects dynamically from recording aspect + card aspect
-  const [rW, rH] = layout.aspectRatio.split(':').map(Number);
+  const [rW = 16, rH = 9] = layout.aspectRatio.split(':').map(Number);
   const cardAspect = rW / rH;
   const screenAspect = sourceWidth / sourceHeight;
   const computed = computeLayoutRects(layout.kind, cardAspect, screenAspect, layout);
@@ -396,9 +412,7 @@ export function PreviewCard({
     : 'none';
 
   // Content frame border
-  const border = bgInset > 0
-    ? `${bgInset}px solid ${bgInsetColor}`
-    : 'none';
+  const border = bgInset > 0 ? `${bgInset}px solid ${bgInsetColor}` : 'none';
 
   // Z-index for layering
   const screenZ = zOrder === 'screen-above' ? 2 : 1;
@@ -408,7 +422,9 @@ export function PreviewCard({
   useEffect(() => {
     if (!cropModeActive || !onCropModeChange) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onCropModeChange(false); }
+      if (e.key === 'Escape') {
+        onCropModeChange(false);
+      }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -447,12 +463,15 @@ export function PreviewCard({
       const dyNorm = dy / container.h;
 
       if (drag.mode === 'move') {
-        cb(drag.region, clampRect({
-          x: drag.originalRect.x + dxNorm,
-          y: drag.originalRect.y + dyNorm,
-          w: drag.originalRect.w,
-          h: drag.originalRect.h,
-        }));
+        cb(
+          drag.region,
+          clampRect({
+            x: drag.originalRect.x + dxNorm,
+            y: drag.originalRect.y + dyNorm,
+            w: drag.originalRect.w,
+            h: drag.originalRect.h,
+          }),
+        );
       } else if (drag.mode === 'resize' && drag.edge) {
         cb(drag.region, applyResize(drag.originalRect, drag.edge, dxNorm, dyNorm));
       }
@@ -527,19 +546,31 @@ export function PreviewCard({
     // media is contain-fit inside. All other regions: frame preserves source AR.
     const contentAspect = isSocialVertScreen
       ? undefined
-      : (kind === 'screen' ? screenAspectRatio : (isCircle ? '1' : cameraAspectRatio));
-    const frameRadius = kind === 'screen' ? bgCornerRadius : (isCircle ? '50%' : 4);
+      : kind === 'screen'
+        ? screenAspectRatio
+        : isCircle
+          ? '1'
+          : cameraAspectRatio;
+    const frameRadius = kind === 'screen' ? bgCornerRadius : isCircle ? '50%' : 4;
 
     // Flow layouts (stacked/split) don't use absolute positioning
-    const useAbsoluteRect = layout.kind === 'PIP' || layout.kind === 'FULL_SCREEN' || layout.kind === 'CAMERA_ONLY' || layout.kind === 'SOCIAL_VERTICAL';
+    const useAbsoluteRect =
+      layout.kind === 'PIP' ||
+      layout.kind === 'FULL_SCREEN' ||
+      layout.kind === 'CAMERA_ONLY' ||
+      layout.kind === 'SOCIAL_VERTICAL';
 
     return (
       <div
         key={kind}
         onMouseEnter={() => setHoveredRegion(kind)}
-        onMouseLeave={() => { if (!isDragging) setHoveredRegion(null); }}
+        onMouseLeave={() => {
+          if (!isDragging) setHoveredRegion(null);
+        }}
         style={{
-          ...(useAbsoluteRect ? toCssRect(rect) : { position: 'relative' as const, width: '100%', height: '100%' }),
+          ...(useAbsoluteRect
+            ? toCssRect(rect)
+            : { position: 'relative' as const, width: '100%', height: '100%' }),
           zIndex,
           display: 'flex',
           alignItems: 'center',
@@ -551,17 +582,34 @@ export function PreviewCard({
         <div
           ref={kind === 'screen' ? screenFrameRef : undefined}
           onPointerDown={canInteract ? (e) => handlePointerDown(kind, rect, e) : undefined}
-          onDoubleClick={kind === 'screen' && screenCrop?.enabled && onCropModeChange && !cropModeActive
-            ? (e) => { e.stopPropagation(); onCropModeChange(true); }
-            : undefined}
+          onDoubleClick={
+            kind === 'screen' && screenCrop?.enabled && onCropModeChange && !cropModeActive
+              ? (e) => {
+                  e.stopPropagation();
+                  onCropModeChange(true);
+                }
+              : undefined
+          }
           style={{
             position: 'relative',
             ...(isSocialVertScreen
               ? { width: '100%', height: '100%' }
               : isCircle
-                ? { width: 'auto', height: '100%', maxWidth: '100%', aspectRatio: '1', flex: '0 0 auto' }
-                : { width: '100%', height: 'auto', maxWidth: '100%', maxHeight: '100%', flex: '0 1 auto', aspectRatio: contentAspect }
-            ),
+                ? {
+                    width: 'auto',
+                    height: '100%',
+                    maxWidth: '100%',
+                    aspectRatio: '1',
+                    flex: '0 0 auto',
+                  }
+                : {
+                    width: '100%',
+                    height: 'auto',
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    flex: '0 1 auto',
+                    aspectRatio: contentAspect,
+                  }),
             borderRadius: frameRadius,
             boxShadow: kind === 'screen' ? shadow : 'none',
             border: kind === 'screen' ? border : 'none',
@@ -574,47 +622,55 @@ export function PreviewCard({
           {content ? (
             isSocialVertScreen ? (
               /* Social Vertical: template-driven frame, media contained inside */
-              <div style={{
-                position: 'absolute',
-                inset: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'rgba(0,0,0,0.85)',
-                borderRadius: 'inherit',
-              }}>
-                <div style={{
-                  position: 'relative',
-                  maxWidth: '100%',
-                  maxHeight: '100%',
-                  width: '100%',
-                  aspectRatio: screenAspectRatio,
-                  overflow: 'hidden',
-                }}>
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'rgba(0,0,0,0.85)',
+                  borderRadius: 'inherit',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'relative',
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    width: '100%',
+                    aspectRatio: screenAspectRatio,
+                    overflow: 'hidden',
+                  }}
+                >
                   {content}
                 </div>
               </div>
-            ) : (() => {
-              const crop = kind === 'screen' ? screenCrop : cameraCrop;
-              if (crop?.enabled && !isCropActive) {
-                const mediaFrameEl = screenFrameRef.current ?? contentFrameRef.current;
-                const viewW = mediaFrameEl?.clientWidth ?? sourceWidth;
-                const viewH = mediaFrameEl?.clientHeight ?? sourceHeight;
-                const t = computeCropTransform(viewW, viewH, crop);
-                return (
-                  <div style={{
-                    position: 'absolute',
-                    inset: 0,
-                    transformOrigin: '0 0',
-                    transform: `scale(${t.scale}) translate(${t.translateX}px, ${t.translateY}px)`,
-                    willChange: 'transform',
-                  }}>
-                    {content}
-                  </div>
-                );
-              }
-              return content;
-            })()
+            ) : (
+              (() => {
+                const crop = kind === 'screen' ? screenCrop : cameraCrop;
+                if (crop?.enabled && !isCropActive) {
+                  const mediaFrameEl = screenFrameRef.current ?? contentFrameRef.current;
+                  const viewW = mediaFrameEl?.clientWidth ?? sourceWidth;
+                  const viewH = mediaFrameEl?.clientHeight ?? sourceHeight;
+                  const t = computeCropTransform(viewW, viewH, crop);
+                  return (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        transformOrigin: '0 0',
+                        transform: `scale(${t.scale}) translate(${t.translateX}px, ${t.translateY}px)`,
+                        willChange: 'transform',
+                      }}
+                    >
+                      {content}
+                    </div>
+                  );
+                }
+                return content;
+              })()
+            )
           ) : (
             <RegionPlaceholder
               kind={kind}
@@ -637,24 +693,27 @@ export function PreviewCard({
           {/* Interaction overlay */}
           {canInteract && (isHovered || isBeingDragged) && (
             <>
-              <div style={{
-                position: 'absolute',
-                inset: 0,
-                border: '2px solid rgba(90,160,250,0.6)',
-                borderRadius: 'inherit',
-                pointerEvents: 'none',
-                zIndex: 9,
-              }} />
-              {!isDragging && (isCircle ? CORNER_EDGES : ALL_EDGES).map((edge) => (
-                <div
-                  key={edge}
-                  data-edge={edge}
-                  onPointerDown={(e) => handleResizePointerDown(kind, rect, edge, e)}
-                  style={getHandleStyle(edge)}
-                >
-                  <HandleDot />
-                </div>
-              ))}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  border: '2px solid rgba(90,160,250,0.6)',
+                  borderRadius: 'inherit',
+                  pointerEvents: 'none',
+                  zIndex: 9,
+                }}
+              />
+              {!isDragging &&
+                (isCircle ? CORNER_EDGES : ALL_EDGES).map((edge) => (
+                  <div
+                    key={edge}
+                    data-edge={edge}
+                    onPointerDown={(e) => handleResizePointerDown(kind, rect, edge, e)}
+                    style={getHandleStyle(edge)}
+                  >
+                    <HandleDot />
+                  </div>
+                ))}
             </>
           )}
         </div>
@@ -691,18 +750,24 @@ export function PreviewCard({
           left: padH,
           display: 'flex',
           flexDirection: layout.kind === 'SPLIT_HORIZONTAL' ? 'row' : 'column',
-          gap: layout.kind === 'PIP' || layout.kind === 'FULL_SCREEN' || layout.kind === 'CAMERA_ONLY' || layout.kind === 'SOCIAL_VERTICAL' ? 0 : 8,
+          gap:
+            layout.kind === 'PIP' ||
+            layout.kind === 'FULL_SCREEN' ||
+            layout.kind === 'CAMERA_ONLY' ||
+            layout.kind === 'SOCIAL_VERTICAL'
+              ? 0
+              : 8,
           ...(layout.kind === 'PIP' ? { position: 'absolute' as const } : {}),
         }}
       >
-        {layout.kind === 'FULL_SCREEN' && screenRect && (
+        {layout.kind === 'FULL_SCREEN' &&
+          screenRect &&
           /* Screen fills entire padded area */
-          renderRegion('screen', screenRect, screenZ, screenNode)
-        )}
+          renderRegion('screen', screenRect, screenZ, screenNode)}
 
-        {layout.kind === 'CAMERA_ONLY' && cameraRect && (
-          renderRegion('camera', cameraRect, cameraZ, cameraNode)
-        )}
+        {layout.kind === 'CAMERA_ONLY' &&
+          cameraRect &&
+          renderRegion('camera', cameraRect, cameraZ, cameraNode)}
 
         {layout.kind === 'SOCIAL_VERTICAL' && screenRect && cameraRect && (
           <>
@@ -734,7 +799,7 @@ export function PreviewCard({
           <>
             {/* Camera on left */}
             {cameraRect && (
-              <div style={{ width: `${(cameraRect.w) * 100}%`, flex: '0 0 auto' }}>
+              <div style={{ width: `${cameraRect.w * 100}%`, flex: '0 0 auto' }}>
                 {renderRegion('camera', cameraRect, cameraZ, cameraNode)}
               </div>
             )}

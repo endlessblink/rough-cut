@@ -97,3 +97,7 @@ export function useCompositor(): {
 
   return { previewRef, isReady };
 }
+
+export function getVideoCurrentTime(): number {
+  return sharedCompositor?.getVideoCurrentTime() ?? -1;
+}

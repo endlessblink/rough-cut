@@ -13,7 +13,7 @@
 import { useRef, useCallback, useMemo, useEffect, useState } from 'react';
 import type { Track, Asset, ZoomMarker, ZoomMarkerId } from '@rough-cut/project-model';
 import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
-import { transportStore, useTransportStore } from '../../hooks/use-stores.js';
+import { useTransportStore } from '../../hooks/use-stores.js';
 
 /* ── Types ─────────────────────────────────────────────────────────────────── */
 
