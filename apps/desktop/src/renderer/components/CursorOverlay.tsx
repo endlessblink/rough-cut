@@ -9,6 +9,7 @@
 import { useRef, useEffect } from 'react';
 import { transportStore } from '../hooks/use-stores.js';
 import type { CursorPresentation } from '@rough-cut/project-model';
+import type { ZoomTransform } from '@rough-cut/timeline-engine';
 
 /** Pre-indexed cursor data: [x0, y0, clickFlag0, x1, y1, clickFlag1, ...] */
 export interface CursorFrameData {
@@ -20,6 +21,7 @@ interface CursorOverlayProps {
   cursorData: CursorFrameData | null;
   presentation: CursorPresentation;
   clipTimelineIn: number;
+  zoomTransform: ZoomTransform;
 }
 
 interface ClickEffect {
@@ -97,12 +99,13 @@ function drawClickEffect(
   effect: ClickEffect,
   now: number,
   effectType: string,
+  radiusScale: number,
 ) {
   const elapsed = now - effect.startTime;
   if (elapsed > CLICK_EFFECT_DURATION_MS) return;
   const progress = elapsed / CLICK_EFFECT_DURATION_MS;
   const alpha = 1 - progress;
-  const radius = 8 + progress * 30;
+  const radius = (8 + progress * 30) * radiusScale;
 
   ctx.save();
   if (effectType === 'ripple') {
@@ -120,10 +123,24 @@ function drawClickEffect(
   ctx.restore();
 }
 
+function applyZoomToPoint(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  zoomTransform: ZoomTransform,
+): { x: number; y: number } {
+  return {
+    x: width * (0.5 + zoomTransform.scale * (x - 0.5 + zoomTransform.translateX)),
+    y: height * (0.5 + zoomTransform.scale * (y - 0.5 + zoomTransform.translateY)),
+  };
+}
+
 export function CursorOverlay({
   cursorData,
   presentation,
   clipTimelineIn,
+  zoomTransform,
 }: CursorOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -140,6 +157,8 @@ export function CursorOverlay({
   presentationRef.current = presentation;
   const clipTimelineInRef = useRef(clipTimelineIn);
   clipTimelineInRef.current = clipTimelineIn;
+  const zoomTransformRef = useRef(zoomTransform);
+  zoomTransformRef.current = zoomTransform;
 
   // ResizeObserver — always active since DOM is always mounted
   useEffect(() => {
@@ -182,6 +201,7 @@ export function CursorOverlay({
       const data = cursorDataRef.current;
       const pres = presentationRef.current;
       const clipIn = clipTimelineInRef.current;
+      const zoom = zoomTransformRef.current;
 
       // Nothing to draw — clear and wait
       if (width === 0 || height === 0 || !data) {
@@ -202,15 +222,16 @@ export function CursorOverlay({
         return;
       }
 
-      const px = cursor.x * width;
-      const py = cursor.y * height;
+      const point = applyZoomToPoint(cursor.x, cursor.y, width, height, zoom);
+      const px = point.x;
+      const py = point.y;
 
       // Click effects
       const now = performance.now();
       if (cursor.isClick && sourceFrame !== lastClickFrameRef.current) {
         lastClickFrameRef.current = sourceFrame;
         if (pres.clickEffect !== 'none') {
-          clickEffectsRef.current.push({ x: px, y: py, startTime: now });
+          clickEffectsRef.current.push({ x: cursor.x, y: cursor.y, startTime: now });
         }
       }
 
@@ -218,11 +239,18 @@ export function CursorOverlay({
         (e) => now - e.startTime < CLICK_EFFECT_DURATION_MS,
       );
       for (const effect of clickEffectsRef.current) {
-        drawClickEffect(ctx, effect, now, pres.clickEffect);
+        const effectPoint = applyZoomToPoint(effect.x, effect.y, width, height, zoom);
+        drawClickEffect(
+          ctx,
+          { ...effect, x: effectPoint.x, y: effectPoint.y },
+          now,
+          pres.clickEffect,
+          zoom.scale,
+        );
       }
 
       // Draw cursor
-      const cursorSize = (pres.sizePercent / 100) * 20;
+      const cursorSize = (pres.sizePercent / 100) * 20 * zoom.scale;
       drawCursor(ctx, px, py, cursorSize, pres.style);
 
       rafIdRef.current = requestAnimationFrame(render);
