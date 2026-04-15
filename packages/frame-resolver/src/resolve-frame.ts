@@ -5,6 +5,7 @@ import type {
   Transition,
   ZoomPresentation,
   CursorPresentation,
+  CameraPresentation,
 } from '@rough-cut/project-model';
 import { selectActiveClipsAtFrame, getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
 import { evaluateKeyframeTracks, getDefaultParams } from '@rough-cut/effect-registry';
@@ -88,6 +89,10 @@ function findActiveRecordingAsset(project: ProjectDocument) {
   return project.assets.find((a) => a.type === 'recording');
 }
 
+function findCameraPresentation(project: ProjectDocument): CameraPresentation | undefined {
+  return findActiveRecordingAsset(project)?.presentation?.camera;
+}
+
 /**
  * Resolve a complete render description for a single frame.
  *
@@ -100,10 +105,11 @@ export function resolveFrame(project: ProjectDocument, frame: number): RenderFra
 
   // 1. Find active clips at this frame
   const activeClips = selectActiveClipsAtFrame(tracks, frame);
+  const assetMap = new Map(project.assets.map((asset) => [asset.id, asset]));
 
   // 2. Resolve each active clip into a RenderLayer
   const layers: RenderLayer[] = activeClips
-    .map((clip) => resolveClipLayer(clip, tracks, frame))
+    .map((clip) => resolveClipLayer(clip, tracks, frame, assetMap))
     .sort((a, b) => a.trackIndex - b.trackIndex); // z-order: low index = bottom
 
   // 3. Find active transitions
@@ -121,6 +127,8 @@ export function resolveFrame(project: ProjectDocument, frame: number): RenderFra
   const cursor = resolveCursorPresentation(presentation?.cursor);
   const screenCrop = presentation?.screenCrop?.enabled ? presentation.screenCrop : undefined;
   const cameraCrop = presentation?.cameraCrop?.enabled ? presentation.cameraCrop : undefined;
+  const cameraPresentation = findCameraPresentation(project);
+  const cameraFrame = presentation?.cameraFrame;
 
   return {
     frame,
@@ -133,6 +141,8 @@ export function resolveFrame(project: ProjectDocument, frame: number): RenderFra
     cursor,
     screenCrop,
     cameraCrop,
+    cameraPresentation,
+    cameraFrame,
   };
 }
 
@@ -140,9 +150,15 @@ function findTrackForClip(clip: Clip, tracks: readonly Track[]): Track | undefin
   return tracks.find((t) => t.id === clip.trackId);
 }
 
-function resolveClipLayer(clip: Clip, tracks: readonly Track[], frame: number): RenderLayer {
+function resolveClipLayer(
+  clip: Clip,
+  tracks: readonly Track[],
+  frame: number,
+  assetMap: ReadonlyMap<string, ProjectDocument['assets'][number]>,
+): RenderLayer {
   const track = findTrackForClip(clip, tracks);
   const trackIndex = track?.index ?? 0;
+  const asset = assetMap.get(clip.assetId);
 
   // Calculate source frame: how far into the source media are we?
   const sourceFrame = clip.sourceIn + (frame - clip.timelineIn);
@@ -164,6 +180,7 @@ function resolveClipLayer(clip: Clip, tracks: readonly Track[], frame: number): 
     sourceFrame,
     transform,
     effects,
+    isCamera: Boolean(asset?.metadata?.isCamera),
   };
 }
 

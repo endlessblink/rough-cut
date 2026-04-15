@@ -2,6 +2,8 @@ import type {
   ClipId,
   TrackId,
   AssetId,
+  CameraPresentation,
+  NormalizedRect,
   CursorStyle,
   ClickEffect,
   RegionCrop,
@@ -27,6 +29,8 @@ export interface RenderLayer {
   transform: ResolvedTransform;
   /** Resolved effect params, keyed by effectType → ResolvedParams */
   effects: ResolvedEffect[];
+  /** True when this layer comes from a camera asset */
+  isCamera: boolean;
 }
 
 /**
@@ -115,4 +119,8 @@ export interface RenderFrame {
   screenCrop?: RegionCrop;
   /** Camera crop viewport (recording-level, source pixel coordinates) */
   cameraCrop?: RegionCrop;
+  /** Camera presentation settings from the recording */
+  cameraPresentation?: CameraPresentation;
+  /** Exact camera frame resolved in Record tab (normalized 0-1 canvas rect) */
+  cameraFrame?: NormalizedRect;
 }

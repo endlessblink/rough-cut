@@ -1,5 +1,8 @@
 import type { RegionCrop } from '@rough-cut/project-model';
 import type { RenderFrame, RenderLayer, ResolvedEffect } from '@rough-cut/frame-resolver';
+import { getCameraBorderRadius, getCameraLayoutRect } from '@rough-cut/frame-resolver';
+import type { CursorFrameData } from './cursor-render.js';
+import { renderCursorOverlay } from './cursor-render.js';
 
 export interface RenderCanvasLike {
   width: number;
@@ -18,13 +21,22 @@ export interface RenderContext2DLike {
   restore(): void;
   translate(x: number, y: number): void;
   rotate(angle: number): void;
+  scale(x: number, y: number): void;
   fillRect(x: number, y: number, width: number, height: number): void;
   strokeRect(x: number, y: number, width: number, height: number): void;
   beginPath(): void;
   fill(): void;
   stroke(): void;
   fillText(text: string, x: number, y: number): void;
-  drawImage?(image: unknown, dx: number, dy: number, dWidth: number, dHeight: number): void;
+  moveTo(x: number, y: number): void;
+  lineTo(x: number, y: number): void;
+  closePath(): void;
+  arc(x: number, y: number, radius: number, startAngle: number, endAngle: number): void;
+  shadowColor: string;
+  shadowBlur: number;
+  shadowOffsetX: number;
+  shadowOffsetY: number;
+  drawImage?(image: unknown, ...args: number[]): void;
   clip?(): void;
   roundRect?(x: number, y: number, width: number, height: number, radii?: number | number[]): void;
 }
@@ -57,7 +69,15 @@ export function renderFrameToCanvas(
   ctx.fillRect(0, 0, width, height);
 
   for (const layer of layers) {
-    renderLayer(ctx, layer, width, height, renderFrame.screenCrop, renderFrame.cameraCrop);
+    renderLayer(
+      ctx,
+      layer,
+      width,
+      height,
+      renderFrame.screenCrop,
+      renderFrame.cameraCrop,
+      renderFrame,
+    );
   }
 }
 
@@ -78,6 +98,7 @@ export async function renderFrameToCanvasAccurate(
   renderFrame: RenderFrame,
   frameRate: number,
   resolveLayerVideoFrame: ResolveLayerVideoFrame,
+  cursorDataByAssetId?: ReadonlyMap<string, CursorFrameData>,
 ): Promise<void> {
   const { backgroundColor, layers } = renderFrame;
   const width = canvas.width;
@@ -100,12 +121,54 @@ export async function renderFrameToCanvasAccurate(
       height,
       renderFrame.screenCrop,
       renderFrame.cameraCrop,
+      renderFrame,
       videoFrame,
     );
-    if (videoFrame instanceof VideoFrame) {
-      videoFrame.close();
+    if (videoFrame && typeof videoFrame === 'object' && 'close' in videoFrame) {
+      const closable = videoFrame as { close?: () => void };
+      closable.close?.();
     }
   }
+
+  const cursorLayer = layers.find(
+    (layer) => !layer.isCamera && cursorDataByAssetId?.has(layer.assetId),
+  );
+  if (cursorLayer && cursorDataByAssetId) {
+    const cursorData = cursorDataByAssetId.get(cursorLayer.assetId);
+    if (cursorData) {
+      renderCursorOverlay(
+        ctx,
+        cursorData,
+        cursorLayer.sourceFrame,
+        width,
+        height,
+        renderFrame.cursor,
+        renderFrame.cameraTransform.scale,
+        renderFrame.cameraTransform.offsetX,
+        renderFrame.cameraTransform.offsetY,
+        frameRate,
+      );
+    }
+  }
+}
+
+function drawFrameImage(
+  ctx: RenderContext2DLike,
+  videoFrame: CanvasImageSource,
+  crop: RegionCrop | undefined,
+  dx: number,
+  dy: number,
+  dWidth: number,
+  dHeight: number,
+): void {
+  if (!ctx.drawImage) return;
+
+  if (crop?.enabled) {
+    ctx.drawImage(videoFrame, crop.x, crop.y, crop.width, crop.height, dx, dy, dWidth, dHeight);
+    return;
+  }
+
+  ctx.drawImage(videoFrame, dx, dy, dWidth, dHeight);
 }
 
 function renderLayer(
@@ -115,31 +178,43 @@ function renderLayer(
   canvasHeight: number,
   _screenCrop?: RegionCrop,
   _cameraCrop?: RegionCrop,
+  renderFrame?: RenderFrame,
   videoFrame?: CanvasImageSource | null,
 ): void {
   const { transform, effects, clipId, trackIndex } = layer;
 
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, transform.opacity));
-  ctx.translate(transform.x, transform.y);
+  let rectX = 0;
+  let rectY = 0;
+  let rectW = canvasWidth;
+  let rectH = canvasHeight;
+  let crop: RegionCrop | undefined = _screenCrop;
 
-  const anchorPx = transform.anchorX * canvasWidth;
-  const anchorPy = transform.anchorY * canvasHeight;
-  ctx.translate(anchorPx, anchorPy);
-  ctx.rotate((transform.rotation * Math.PI) / 180);
-  ctx.translate(-anchorPx, -anchorPy);
-
-  let rectX = canvasWidth * 0.1;
-  let rectY = canvasHeight * 0.1;
-  let rectW = canvasWidth * 0.8;
-  let rectH = canvasHeight * 0.8;
-
-  const scaledW = rectW * transform.scaleX;
-  const scaledH = rectH * transform.scaleY;
-  rectX += (rectW - scaledW) / 2;
-  rectY += (rectH - scaledH) / 2;
-  rectW = scaledW;
-  rectH = scaledH;
+  if (layer.isCamera && renderFrame?.cameraFrame) {
+    const cameraRect = {
+      x: renderFrame.cameraFrame.x * canvasWidth,
+      y: renderFrame.cameraFrame.y * canvasHeight,
+      width: renderFrame.cameraFrame.w * canvasWidth,
+      height: renderFrame.cameraFrame.h * canvasHeight,
+    };
+    rectX = cameraRect.x;
+    rectY = cameraRect.y;
+    rectW = cameraRect.width;
+    rectH = cameraRect.height;
+    crop = _cameraCrop;
+  } else if (layer.isCamera && renderFrame?.cameraPresentation) {
+    const cameraRect = getCameraLayoutRect(
+      renderFrame.cameraPresentation,
+      canvasWidth,
+      canvasHeight,
+    );
+    rectX = cameraRect.x;
+    rectY = cameraRect.y;
+    rectW = cameraRect.width;
+    rectH = cameraRect.height;
+    crop = _cameraCrop;
+  }
 
   const activeEffects = effects.filter((e) => e.enabled);
   const zoomPan = activeEffects.find((e) => e.effectType === 'zoom-pan');
@@ -154,17 +229,57 @@ function renderLayer(
 
   const roundCorners = activeEffects.find((e) => e.effectType === 'round-corners');
   const cornerRadius =
-    roundCorners !== undefined ? ((roundCorners.params['radius'] as number | undefined) ?? 12) : 0;
+    layer.isCamera && renderFrame?.cameraPresentation
+      ? getCameraBorderRadius(renderFrame.cameraPresentation, rectW, rectH)
+      : roundCorners !== undefined
+        ? ((roundCorners.params['radius'] as number | undefined) ?? 12)
+        : 0;
 
   if (videoFrame && typeof ctx.drawImage === 'function') {
+    if (!layer.isCamera && renderFrame) {
+      ctx.translate(
+        canvasWidth / 2 + renderFrame.cameraTransform.offsetX,
+        canvasHeight / 2 + renderFrame.cameraTransform.offsetY,
+      );
+      ctx.scale(renderFrame.cameraTransform.scale, renderFrame.cameraTransform.scale);
+      ctx.translate(-canvasWidth / 2, -canvasHeight / 2);
+    } else {
+      ctx.translate(transform.x, transform.y);
+      const anchorPx = transform.anchorX * canvasWidth;
+      const anchorPy = transform.anchorY * canvasHeight;
+      ctx.translate(anchorPx, anchorPy);
+      ctx.rotate((transform.rotation * Math.PI) / 180);
+      ctx.translate(-anchorPx, -anchorPy);
+    }
+
     if (cornerRadius > 0 && typeof ctx.roundRect === 'function' && typeof ctx.clip === 'function') {
       ctx.beginPath();
       ctx.roundRect(rectX, rectY, rectW, rectH, cornerRadius);
       ctx.clip();
     }
 
-    ctx.drawImage(videoFrame, rectX, rectY, rectW, rectH);
+    drawFrameImage(ctx, videoFrame, crop, rectX, rectY, rectW, rectH);
   } else {
+    ctx.translate(transform.x, transform.y);
+    const anchorPx = transform.anchorX * canvasWidth;
+    const anchorPy = transform.anchorY * canvasHeight;
+    ctx.translate(anchorPx, anchorPy);
+    ctx.rotate((transform.rotation * Math.PI) / 180);
+    ctx.translate(-anchorPx, -anchorPy);
+
+    if (!layer.isCamera) {
+      rectX = canvasWidth * 0.1;
+      rectY = canvasHeight * 0.1;
+      rectW = canvasWidth * 0.8;
+      rectH = canvasHeight * 0.8;
+      const scaledW = rectW * transform.scaleX;
+      const scaledH = rectH * transform.scaleY;
+      rectX += (rectW - scaledW) / 2;
+      rectY += (rectH - scaledH) / 2;
+      rectW = scaledW;
+      rectH = scaledH;
+    }
+
     const color = getLayerColor(trackIndex);
     ctx.fillStyle = color;
 

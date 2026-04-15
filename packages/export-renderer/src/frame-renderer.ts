@@ -1,6 +1,7 @@
 import { createCanvas, type Canvas, type CanvasRenderingContext2D } from 'canvas';
 import type { RegionCrop } from '@rough-cut/project-model';
 import type { RenderFrame, RenderLayer, ResolvedEffect } from '@rough-cut/frame-resolver';
+import { getCameraBorderRadius, getCameraLayoutRect } from '@rough-cut/frame-resolver';
 
 export interface RenderCanvasLike {
   width: number;
@@ -101,7 +102,15 @@ export function renderFrameToCanvas(
 
   // Render each layer (z-ordered: index 0 = bottom)
   for (const layer of layers) {
-    renderLayer(ctx, layer, width, height, renderFrame.screenCrop, renderFrame.cameraCrop);
+    renderLayer(
+      ctx,
+      layer,
+      width,
+      height,
+      renderFrame.screenCrop,
+      renderFrame.cameraCrop,
+      renderFrame,
+    );
   }
 }
 
@@ -144,6 +153,7 @@ export async function renderFrameToCanvasAccurate(
       height,
       renderFrame.screenCrop,
       renderFrame.cameraCrop,
+      renderFrame,
       videoFrame,
     );
     if (videoFrame instanceof VideoFrame) {
@@ -163,6 +173,7 @@ function renderLayer(
   canvasHeight: number,
   _screenCrop?: RegionCrop,
   _cameraCrop?: RegionCrop,
+  renderFrame?: RenderFrame,
   videoFrame?: CanvasImageSource | null,
 ): void {
   const { transform, effects, clipId, trackIndex } = layer;
@@ -187,6 +198,29 @@ function renderLayer(
   let rectY = canvasHeight * 0.1;
   let rectW = canvasWidth * 0.8;
   let rectH = canvasHeight * 0.8;
+
+  if (layer.isCamera && renderFrame?.cameraFrame) {
+    const cameraRect = {
+      x: renderFrame.cameraFrame.x * canvasWidth,
+      y: renderFrame.cameraFrame.y * canvasHeight,
+      width: renderFrame.cameraFrame.w * canvasWidth,
+      height: renderFrame.cameraFrame.h * canvasHeight,
+    };
+    rectX = cameraRect.x;
+    rectY = cameraRect.y;
+    rectW = cameraRect.width;
+    rectH = cameraRect.height;
+  } else if (layer.isCamera && renderFrame?.cameraPresentation) {
+    const cameraRect = getCameraLayoutRect(
+      renderFrame.cameraPresentation,
+      canvasWidth,
+      canvasHeight,
+    );
+    rectX = cameraRect.x;
+    rectY = cameraRect.y;
+    rectW = cameraRect.width;
+    rectH = cameraRect.height;
+  }
 
   // Apply scale
   const scaledW = rectW * transform.scaleX;
@@ -214,7 +248,11 @@ function renderLayer(
   // round-corners effect
   const roundCorners = activeEffects.find((e) => e.effectType === 'round-corners');
   const cornerRadius =
-    roundCorners !== undefined ? ((roundCorners.params['radius'] as number | undefined) ?? 12) : 0;
+    layer.isCamera && renderFrame?.cameraPresentation
+      ? getCameraBorderRadius(renderFrame.cameraPresentation, rectW, rectH)
+      : roundCorners !== undefined
+        ? ((roundCorners.params['radius'] as number | undefined) ?? 12)
+        : 0;
 
   // gaussian-blur: not supported in 2D canvas — noted, skip
   const hasBlur = activeEffects.some((e) => e.effectType === 'gaussian-blur');

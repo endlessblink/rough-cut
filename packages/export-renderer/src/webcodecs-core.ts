@@ -1,6 +1,8 @@
 import type { ProjectDocument, ExportSettings } from '@rough-cut/project-model';
 import { resolveFrame } from '@rough-cut/frame-resolver';
 import { Output, Mp4OutputFormat, BufferTarget, CanvasSource } from 'mediabunny';
+import { addAudioTracksToOutput } from './audio-export.js';
+import { loadCursorFrameData, type CursorFrameData } from './cursor-render.js';
 import { renderFrameToCanvasAccurate } from './render-frame-core.js';
 import type { ExportEventHandlers, ExportProgress, ExportResult } from './types.js';
 import { resolveVideoEncodingConfig, supportsWebCodecsExport } from './video-encoding-config.js';
@@ -38,11 +40,37 @@ export async function runWebCodecsExportToBuffer(
     format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
     target,
   });
+  const disposeAudio = await addAudioTracksToOutput(project, output, settings.frameRate);
 
   const { config, hardwareAcceleration } = await resolveVideoEncodingConfig(settings);
   const videoSource = new CanvasSource(canvas, config);
   output.addVideoTrack(videoSource, { frameRate: settings.frameRate });
   const frameSources = new Map<string, MediaBunnyFrameSource>();
+  const cursorDataByAssetId = new Map<string, CursorFrameData>();
+
+  for (const asset of project.assets) {
+    const cursorEventsPath = asset.metadata?.['cursorEventsPath'];
+    const sourceWidth = asset.metadata?.['width'];
+    const sourceHeight = asset.metadata?.['height'];
+    if (
+      typeof cursorEventsPath !== 'string' ||
+      typeof sourceWidth !== 'number' ||
+      typeof sourceHeight !== 'number' ||
+      asset.duration <= 0
+    ) {
+      continue;
+    }
+
+    const cursorData = await loadCursorFrameData(
+      cursorEventsPath,
+      asset.duration,
+      sourceWidth,
+      sourceHeight,
+    );
+    if (cursorData) {
+      cursorDataByAssetId.set(asset.id, cursorData);
+    }
+  }
 
   const resolveVideoFrame = async (
     assetId: string,
@@ -72,6 +100,7 @@ export async function runWebCodecsExportToBuffer(
         renderFrame,
         settings.frameRate,
         (layer, context) => resolveVideoFrame(layer.assetId, context.timestampSeconds),
+        cursorDataByAssetId,
       );
       await videoSource.add(frame / settings.frameRate, 1 / settings.frameRate);
 
@@ -113,6 +142,7 @@ export async function runWebCodecsExportToBuffer(
       },
     };
   } finally {
+    disposeAudio?.();
     for (const source of frameSources.values()) {
       source.dispose();
     }
