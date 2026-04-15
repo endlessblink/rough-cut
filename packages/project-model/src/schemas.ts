@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ProjectDocument } from './types.js';
+import type { LibraryDocument, ProjectDocument } from './types.js';
 
 // --- Primitives ---
 
@@ -118,6 +118,7 @@ export const CameraPositionSchema = z.enum([
   'center',
 ]);
 export const CameraAspectRatioSchema = z.enum(['16:9', '1:1', '9:16', '4:3']);
+export const CropAspectRatioSchema = z.enum(['free', '16:9', '9:16', '1:1', '4:3']);
 
 export const CameraPresentationSchema = z.object({
   shape: CameraShapeSchema,
@@ -134,12 +135,32 @@ export const CameraPresentationSchema = z.object({
   shadowOpacity: z.number().min(0).max(1).default(0.45),
 });
 
+export const RegionCropSchema = z.object({
+  enabled: z.boolean(),
+  x: nonNegativeInt,
+  y: nonNegativeInt,
+  width: nonNegativeInt,
+  height: nonNegativeInt,
+  aspectRatio: CropAspectRatioSchema,
+});
+
+export const NormalizedRectSchema = z.object({
+  x: unit,
+  y: unit,
+  w: unit,
+  h: unit,
+});
+
 // --- RecordingPresentation ---
 
 export const RecordingPresentationSchema = z.object({
+  templateId: z.string().min(1).default('screen-cam-br-16x9'),
   zoom: ZoomPresentationSchema,
   cursor: CursorPresentationSchema,
   camera: CameraPresentationSchema,
+  cameraFrame: NormalizedRectSchema.optional(),
+  screenCrop: RegionCropSchema.optional(),
+  cameraCrop: RegionCropSchema.optional(),
 });
 
 export const AssetSchema = z.object({
@@ -340,6 +361,10 @@ export const LibrarySchema = z.object({
   metadata: z.record(z.unknown()),
 });
 
+export const LibraryDocumentSchema = LibrarySchema.extend({
+  version: z.number().int().nonnegative(),
+});
+
 export const ProjectLibraryReferenceSchema = z.object({
   libraryId: z.string().min(1),
   name: z.string().min(1),
@@ -381,4 +406,8 @@ export const ProjectDocumentSchema = z.object({
  */
 export function validateProject(data: unknown): ProjectDocument {
   return ProjectDocumentSchema.parse(data) as unknown as ProjectDocument;
+}
+
+export function validateLibrary(data: unknown): LibraryDocument {
+  return LibraryDocumentSchema.parse(data) as unknown as LibraryDocument;
 }

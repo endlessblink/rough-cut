@@ -7,3 +7,4 @@ export * from './factories';
 export * from './migrations';
 export * from './constants';
 export * from './frame-utils';
+export * from './library-utils';

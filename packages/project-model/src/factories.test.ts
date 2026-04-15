@@ -8,7 +8,9 @@ import {
   createKeyframeTrack,
   createKeyframe,
   createDefaultCameraPresentation,
+  createDefaultRecordingPresentation,
   createLibrary,
+  createLibraryDocument,
   createLibrarySource,
   createLibraryTranscriptSegment,
   createVisualAnalysisEntry,
@@ -18,6 +20,7 @@ import {
   validateProject,
   CameraPresentationSchema,
   LibrarySchema,
+  LibraryDocumentSchema,
   LibrarySourceSchema,
   ProjectLibraryReferenceSchema,
 } from './schemas.js';
@@ -32,7 +35,7 @@ describe('factories', () => {
 
     it('has current schema version', () => {
       const project = createProject();
-      expect(project.version).toBe(5);
+      expect(project.version).toBe(6);
     });
 
     it('has 2 video + 2 audio tracks by default', () => {
@@ -161,6 +164,13 @@ describe('factories', () => {
     });
   });
 
+  describe('createDefaultRecordingPresentation', () => {
+    it('includes the default record layout template id', () => {
+      const presentation = createDefaultRecordingPresentation();
+      expect(presentation.templateId).toBe('screen-cam-br-16x9');
+    });
+  });
+
   describe('library factories', () => {
     it('creates a library with sensible defaults', () => {
       const library = createLibrary('Interview Selects');
@@ -168,6 +178,13 @@ describe('factories', () => {
       expect(library.sources).toEqual([]);
       expect(library.metadata).toEqual({});
       expect(() => LibrarySchema.parse(library)).not.toThrow();
+    });
+
+    it('creates a persisted library document with current schema version', () => {
+      const library = createLibraryDocument('Interview Selects');
+      expect(library.version).toBe(6);
+      expect(library.name).toBe('Interview Selects');
+      expect(() => LibraryDocumentSchema.parse(library)).not.toThrow();
     });
 
     it('creates a library source with empty derived data', () => {

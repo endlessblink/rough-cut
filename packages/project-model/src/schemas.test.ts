@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { validateProject, ProjectDocumentSchema } from './schemas.js';
-import { createProject } from './factories.js';
+import {
+  validateProject,
+  validateLibrary,
+  ProjectDocumentSchema,
+  LibraryDocumentSchema,
+} from './schemas.js';
+import { createProject, createLibraryDocument, createLibrarySource } from './factories.js';
 
 describe('schemas', () => {
   it('validates a correct ProjectDocument from factory', () => {
@@ -8,9 +13,15 @@ describe('schemas', () => {
     expect(() => validateProject(project)).not.toThrow();
   });
 
+  it('validates a correct LibraryDocument from factory', () => {
+    const library = createLibraryDocument();
+    expect(() => validateLibrary(library)).not.toThrow();
+  });
+
   it('rejects missing required fields', () => {
     expect(() => validateProject({})).toThrow();
     expect(() => validateProject({ version: 1 })).toThrow();
+    expect(() => validateLibrary({})).toThrow();
   });
 
   it('rejects negative frame values', () => {
@@ -54,6 +65,7 @@ describe('schemas', () => {
       id: 'clip-1',
       assetId: 'asset-1',
       trackId: 'track-1',
+      enabled: true,
       timelineIn: 0,
       timelineOut: 30,
       sourceIn: 0,
@@ -70,9 +82,9 @@ describe('schemas', () => {
       },
       effects: [],
       keyframes: [],
-    };
+    } as const;
     const tracks = [...project.composition.tracks];
-    tracks[0] = { ...tracks[0]!, clips: [clip] };
+    tracks[0] = { ...tracks[0]!, clips: [clip as never] };
     const bad = {
       ...project,
       composition: { ...project.composition, tracks },
@@ -100,6 +112,14 @@ describe('schemas', () => {
     expect(validated).toEqual(original);
   });
 
+  it('round-trip library: create -> JSON.stringify -> JSON.parse -> validate -> equal', () => {
+    const original = createLibraryDocument();
+    const json = JSON.stringify(original);
+    const parsed: unknown = JSON.parse(json);
+    const validated = validateLibrary(parsed);
+    expect(validated).toEqual(original);
+  });
+
   it('accepts valid frame rate values', () => {
     for (const frameRate of [24, 30, 60] as const) {
       const project = createProject({
@@ -121,5 +141,16 @@ describe('schemas', () => {
       settings: { ...project.settings, frameRate: 25 },
     };
     expect(() => validateProject(bad)).toThrow();
+  });
+
+  it('rejects invalid library documents', () => {
+    const library = createLibraryDocument(undefined, {
+      sources: [createLibrarySource('video', '/tmp/test.mp4')],
+    });
+    const bad = {
+      ...library,
+      sources: [{ ...library.sources[0], duration: -1 }],
+    };
+    expect(LibraryDocumentSchema.safeParse(bad).success).toBe(false);
   });
 });

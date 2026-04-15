@@ -73,6 +73,31 @@ const migrations: readonly Migration[] = [
       libraryReferences: doc['libraryReferences'] ?? [],
     }),
   },
+  {
+    fromVersion: 5,
+    toVersion: 6,
+    migrate: (doc) => {
+      const assets = (doc['assets'] as Array<Record<string, unknown>>) ?? [];
+      return {
+        ...doc,
+        version: 6,
+        assets: assets.map((asset) => {
+          const presentation = asset['presentation'] as Record<string, unknown> | undefined;
+          if (!presentation) return asset;
+          return {
+            ...asset,
+            presentation: {
+              templateId:
+                typeof presentation['templateId'] === 'string'
+                  ? presentation['templateId']
+                  : 'screen-cam-br-16x9',
+              ...presentation,
+            },
+          };
+        }),
+      };
+    },
+  },
 ];
 
 /**

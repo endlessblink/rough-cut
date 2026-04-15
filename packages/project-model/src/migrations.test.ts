@@ -45,4 +45,48 @@ describe('migrations', () => {
     expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
     expect(result.libraryReferences).toEqual([]);
   });
+
+  it('migrates version 5 documents by backfilling a default recording template id', () => {
+    const project = createProject();
+    const legacy = {
+      ...project,
+      version: 5,
+      assets: [
+        {
+          id: 'recording-1',
+          type: 'recording',
+          filePath: '/tmp/recording.webm',
+          duration: 90,
+          metadata: {},
+          presentation: {
+            zoom: { autoIntensity: 0.5, markers: [] },
+            cursor: {
+              style: 'default',
+              clickEffect: 'ripple',
+              sizePercent: 100,
+              clickSoundEnabled: false,
+            },
+            camera: {
+              shape: 'rounded',
+              aspectRatio: '1:1',
+              position: 'corner-br',
+              roundness: 50,
+              size: 100,
+              visible: true,
+              padding: 0,
+              inset: 0,
+              insetColor: '#ffffff',
+              shadowEnabled: true,
+              shadowBlur: 24,
+              shadowOpacity: 0.45,
+            },
+          },
+        },
+      ],
+    };
+
+    const result = migrate(legacy);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    expect(result.assets[0]?.presentation?.templateId).toBe('screen-cam-br-16x9');
+  });
 });

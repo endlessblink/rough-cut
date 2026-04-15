@@ -36,6 +36,7 @@ import type {
   CaptionSegment,
   TranscriptWord,
   Library,
+  LibraryDocument,
   LibrarySource,
   LibraryTranscriptSegment,
   VisualAnalysisEntry,
@@ -243,6 +244,7 @@ export function createDefaultRegionCrop(sourceW = 1920, sourceH = 1080): RegionC
 
 export function createDefaultRecordingPresentation(): RecordingPresentation {
   return {
+    templateId: 'screen-cam-br-16x9',
     zoom: createDefaultZoomPresentation(),
     cursor: createDefaultCursorPresentation(),
     camera: createDefaultCameraPresentation(),
@@ -348,6 +350,17 @@ export function createLibrary(name = 'Untitled Library', overrides?: Partial<Lib
     modifiedAt: now,
     sources: [],
     metadata: {},
+    ...overrides,
+  };
+}
+
+export function createLibraryDocument(
+  name = 'Untitled Library',
+  overrides?: Partial<LibraryDocument>,
+): LibraryDocument {
+  return {
+    version: CURRENT_SCHEMA_VERSION,
+    ...createLibrary(name),
     ...overrides,
   };
 }

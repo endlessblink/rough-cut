@@ -39,6 +39,13 @@ export interface Resolution {
   readonly height: number;
 }
 
+export interface NormalizedRect {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
 export interface BackgroundConfig {
   readonly type: 'solid' | 'gradient';
   readonly color: string;
@@ -128,9 +135,11 @@ export interface RegionCrop {
 }
 
 export interface RecordingPresentation {
+  readonly templateId: string;
   readonly zoom: ZoomPresentation;
   readonly cursor: CursorPresentation;
   readonly camera: CameraPresentation;
+  readonly cameraFrame?: NormalizedRect;
   readonly screenCrop?: RegionCrop;
   readonly cameraCrop?: RegionCrop;
   // highlights, titles to be added later
@@ -206,6 +215,10 @@ export interface Library {
   readonly modifiedAt: string;
   readonly sources: readonly LibrarySource[];
   readonly metadata: Record<string, unknown>;
+}
+
+export interface LibraryDocument extends Library {
+  readonly version: number;
 }
 
 export interface ProjectLibraryReference {
