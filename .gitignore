@@ -15,3 +15,8 @@ results/
 # Playwright artifacts (regenerated per run)
 playwright-report/
 test-results/
+
+# Local runtime databases and write-ahead logs
+.maestro/
+*.sqlite-wal
+*.sqlite-shm
