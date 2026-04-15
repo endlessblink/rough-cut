@@ -153,11 +153,7 @@ export function createTrack(type: TrackType, overrides?: Partial<Track>): Track 
   };
 }
 
-export function createAsset(
-  type: AssetType,
-  filePath: string,
-  overrides?: Partial<Asset>,
-): Asset {
+export function createAsset(type: AssetType, filePath: string, overrides?: Partial<Asset>): Asset {
   return {
     id: assetId(),
     type,
@@ -180,7 +176,7 @@ export function createZoomMarker(
     kind: 'manual',
     strength: 1,
     focalPoint: { x: 0.5, y: 0.5 },
-    zoomInDuration: 9,  // ~0.3s at 30fps
+    zoomInDuration: 9, // ~0.3s at 30fps
     zoomOutDuration: 9,
     ...overrides,
   };
@@ -203,7 +199,20 @@ export function createDefaultCursorPresentation(): CursorPresentation {
 }
 
 export function createDefaultCameraPresentation(): CameraPresentation {
-  return { shape: 'rounded', position: 'corner-br', roundness: 50, size: 100, visible: true };
+  return {
+    shape: 'rounded',
+    aspectRatio: '1:1',
+    position: 'corner-br',
+    roundness: 50,
+    size: 100,
+    visible: true,
+    padding: 0,
+    inset: 0,
+    insetColor: '#ffffff',
+    shadowEnabled: true,
+    shadowBlur: 24,
+    shadowOpacity: 0.45,
+  };
 }
 
 /** Creates a default (disabled) crop covering the full source. */

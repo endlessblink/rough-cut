@@ -34,9 +34,7 @@ describe('factories', () => {
 
     it('has a valid UUID as id', () => {
       const project = createProject();
-      expect(project.id).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-      );
+      expect(project.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     });
 
     it('supports overrides', () => {
@@ -134,9 +132,16 @@ describe('factories', () => {
     it('returns expected defaults', () => {
       const camera = createDefaultCameraPresentation();
       expect(camera.shape).toBe('rounded');
+      expect(camera.aspectRatio).toBe('1:1');
       expect(camera.roundness).toBe(50);
       expect(camera.size).toBe(100);
       expect(camera.visible).toBe(true);
+      expect(camera.padding).toBe(0);
+      expect(camera.inset).toBe(0);
+      expect(camera.insetColor).toBe('#ffffff');
+      expect(camera.shadowEnabled).toBe(true);
+      expect(camera.shadowBlur).toBe(24);
+      expect(camera.shadowOpacity).toBe(0.45);
     });
 
     it('passes CameraPresentationSchema validation', () => {

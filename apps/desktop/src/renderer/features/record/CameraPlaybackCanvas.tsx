@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
+import { useProjectStore } from '../../hooks/use-stores.js';
+import { useCameraSync } from './use-camera-sync.js';
 
 interface CameraPlaybackCanvasProps {
   filePath: string;
@@ -8,27 +9,23 @@ interface CameraPlaybackCanvasProps {
 export function CameraPlaybackCanvas({ filePath }: CameraPlaybackCanvasProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [ready, setReady] = useState(false);
+  const fps = useProjectStore((s) => s.project.settings.frameRate);
+
+  useCameraSync(videoRef.current, fps);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    const playbackManager = getPlaybackManager();
 
-    const onLoadedMetadata = () => setReady(true);
-    const register = () => playbackManager.registerCameraVideo(video);
+    setReady(video.readyState >= 2);
 
-    video.addEventListener('loadedmetadata', onLoadedMetadata);
-    if (video.readyState >= 1) {
-      setReady(true);
-      register();
-    } else {
-      video.addEventListener('loadedmetadata', register, { once: true });
-    }
+    const onLoadedData = () => setReady(true);
+
+    video.addEventListener('loadeddata', onLoadedData);
+    if (video.readyState >= 2) setReady(true);
 
     return () => {
-      video.removeEventListener('loadedmetadata', onLoadedMetadata);
-      video.removeEventListener('loadedmetadata', register);
-      playbackManager.unregisterCameraVideo();
+      video.removeEventListener('loadeddata', onLoadedData);
     };
   }, [filePath]);
 

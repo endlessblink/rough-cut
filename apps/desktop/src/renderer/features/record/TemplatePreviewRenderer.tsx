@@ -24,7 +24,7 @@ import { useDebugToggle } from './template-layout/useDebugToggle.js';
 import { MediaFrame } from './MediaFrame.js';
 import { useRegionDragResize } from './useRegionDragResize.js';
 import type { Edge } from './useRegionDragResize.js';
-import type { RegionCrop } from '@rough-cut/project-model';
+import type { CameraPresentation, RegionCrop } from '@rough-cut/project-model';
 import { CropOverlay } from './CropOverlay.js';
 import { alignRect } from './snap-guides.js';
 import type { Alignment } from './snap-guides.js';
@@ -42,10 +42,18 @@ export interface TemplatePreviewRendererProps {
   screenAspect?: number;
   /** Camera source aspect ratio */
   cameraAspect?: number;
+  /** Camera presentation controls from the inspector */
+  cameraPresentation?: CameraPresentation;
   /** Corner radius for the screen frame (px) */
   screenCornerRadius?: number;
   /** Box shadow for the screen frame */
   screenShadow?: string;
+  /** Extra padding around the screen frame only (px) */
+  screenPadding?: number;
+  /** Optional screen border width (px) */
+  screenInset?: number;
+  /** Optional screen border color */
+  screenInsetColor?: string;
   /** Whether drag/resize interaction is enabled */
   interactionEnabled?: boolean;
   /** Called when a region is moved/resized — receives pixel-space Rect */
@@ -57,15 +65,25 @@ export interface TemplatePreviewRendererProps {
   showDebugOverlay?: boolean;
   /** Screen crop state */
   screenCrop?: RegionCrop;
+  /** Camera crop state */
+  cameraCrop?: RegionCrop;
+  /** Which region crop mode currently targets */
+  cropRegion?: 'screen' | 'camera' | null;
   /** Whether crop editing mode is active */
   cropModeActive?: boolean;
   /** Toggle crop mode */
   onCropModeChange?: (active: boolean) => void;
+  onScreenCropModeChange?: (active: boolean) => void;
+  onCameraCropModeChange?: (active: boolean) => void;
   /** Update crop rect */
   onScreenCropChange?: (patch: Partial<RegionCrop>) => void;
+  /** Update camera crop rect */
+  onCameraCropChange?: (patch: Partial<RegionCrop>) => void;
   /** Source resolution for crop math */
-  sourceWidth?: number;
-  sourceHeight?: number;
+  screenSourceWidth?: number;
+  screenSourceHeight?: number;
+  cameraSourceWidth?: number;
+  cameraSourceHeight?: number;
   /** Imperative alignment ref — parent writes a callback that triggers alignment */
   alignRef?: React.MutableRefObject<((a: Alignment) => void) | null>;
   /** Called when the hovered region changes (for alignment toolbar enable/disable) */
@@ -82,9 +100,50 @@ function resolveZIndices(zOrder: LayoutTemplate['zOrder']): {
   screenZ: number;
   cameraZ: number;
 } {
-  return zOrder === 'screen-above'
-    ? { screenZ: 2, cameraZ: 1 }
-    : { screenZ: 1, cameraZ: 2 };
+  return zOrder === 'screen-above' ? { screenZ: 2, cameraZ: 1 } : { screenZ: 1, cameraZ: 2 };
+}
+
+function getCameraAspectRatio(cameraPresentation?: CameraPresentation): number {
+  if (cameraPresentation?.shape === 'circle') return 1;
+
+  switch (cameraPresentation?.aspectRatio) {
+    case '16:9':
+      return 16 / 9;
+    case '9:16':
+      return 9 / 16;
+    case '4:3':
+      return 4 / 3;
+    case '1:1':
+    default:
+      return 1;
+  }
+}
+
+function getCameraFrameRect(frame: Rect, cameraPresentation?: CameraPresentation): Rect {
+  if (!cameraPresentation) return frame;
+
+  const targetAspect = getCameraAspectRatio(cameraPresentation);
+
+  let width = frame.width;
+  let height = width / targetAspect;
+
+  if (height > frame.height) {
+    height = frame.height;
+    width = height * targetAspect;
+  }
+
+  return {
+    x: frame.x + (frame.width - width) / 2,
+    y: frame.y + (frame.height - height) / 2,
+    width,
+    height,
+  };
+}
+
+function getCameraBorderRadius(cameraPresentation?: CameraPresentation): number | string {
+  if (!cameraPresentation || cameraPresentation.shape === 'square') return 0;
+  if (cameraPresentation.shape === 'circle') return '50%';
+  return `${Math.max(0, Math.min(100, cameraPresentation.roundness))}%`;
 }
 
 // ─── TemplatePreviewRenderer ──────────────────────────────────────────────────
@@ -95,24 +154,49 @@ export function TemplatePreviewRenderer({
   cameraContent,
   screenAspect,
   cameraAspect,
+  cameraPresentation,
   screenCornerRadius = 0,
   screenShadow,
+  screenPadding = 0,
+  screenInset = 0,
+  screenInsetColor = '#ffffff',
   interactionEnabled = false,
   onRegionChange,
   screenRectOverride,
   cameraRectOverride,
   showDebugOverlay = false,
   screenCrop,
+  cameraCrop,
+  cropRegion = 'screen',
   cropModeActive = false,
   onCropModeChange,
+  onScreenCropModeChange,
+  onCameraCropModeChange,
   onScreenCropChange,
-  sourceWidth = 1920,
-  sourceHeight = 1080,
+  onCameraCropChange,
+  screenSourceWidth = 1920,
+  screenSourceHeight = 1080,
+  cameraSourceWidth = 1920,
+  cameraSourceHeight = 1080,
   alignRef,
   onHoveredRegionChange,
   onRegionClick,
   selectedRegion,
 }: TemplatePreviewRendererProps) {
+  const insetRect = useCallback((rect: Rect, inset: number, aspect: number): Rect => {
+    const targetAspect = Number.isFinite(aspect) && aspect > 0 ? aspect : rect.width / rect.height;
+    const clampedInset = Math.max(0, Math.min(inset, Math.floor((rect.width - 1) / 2)));
+    const width = Math.max(1, rect.width - clampedInset * 2);
+    const height = Math.max(1, width / targetAspect);
+
+    return {
+      x: rect.x + clampedInset,
+      y: rect.y + (rect.height - height) / 2,
+      width,
+      height,
+    };
+  }, []);
+
   // ── Container measurement ────────────────────────────────────────────────
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -140,17 +224,41 @@ export function TemplatePreviewRenderer({
   const { width: containerW, height: containerH } = containerSize;
 
   const canvasRect: Rect = { x: 0, y: 0, width: containerW, height: containerH };
+  const previewScale = Math.min(containerW / screenSourceWidth, containerH / screenSourceHeight);
+  const scaledScreenPadding = screenPadding * previewScale;
+  const scaledScreenInset = screenInset * previewScale;
+  const scaledScreenCornerRadius =
+    typeof screenCornerRadius === 'number' ? screenCornerRadius * previewScale : screenCornerRadius;
+  const scaledCameraPadding = (cameraPresentation?.padding ?? 0) * previewScale;
+  const scaledCameraInset = (cameraPresentation?.inset ?? 0) * previewScale;
+  const scaledCameraShadowBlur = (cameraPresentation?.shadowBlur ?? 24) * previewScale;
+  const cameraShadow = cameraPresentation?.shadowEnabled
+    ? `0 ${Math.round(scaledCameraShadowBlur * 0.25)}px ${scaledCameraShadowBlur}px rgba(0,0,0,${cameraPresentation.shadowOpacity ?? 0.45})`
+    : undefined;
 
   const computed = getLayoutRects(template.kind, canvasRect, screenAspect ?? 16 / 9);
 
-  const screenRect = screenRectOverride ?? computed.screenFrame;
+  const rawScreenRect = screenRectOverride ?? computed.screenFrame;
   const cameraRect = cameraRectOverride ?? computed.cameraFrame;
+  const screenRect = rawScreenRect
+    ? insetRect(
+        rawScreenRect,
+        scaledScreenPadding,
+        screenAspect ?? rawScreenRect.width / rawScreenRect.height,
+      )
+    : null;
+  const rawCameraFrame = cameraRect ? getCameraFrameRect(cameraRect, cameraPresentation) : null;
+  const cameraFrame = rawCameraFrame
+    ? insetRect(rawCameraFrame, scaledCameraPadding, getCameraAspectRatio(cameraPresentation))
+    : null;
 
   // ── zIndex ────────────────────────────────────────────────────────────────
 
   const { screenZ, cameraZ } = resolveZIndices(template.zOrder);
 
   // ── Drag/resize ───────────────────────────────────────────────────────────
+
+  const cameraDragAspect = cameraFrame ? getCameraAspectRatio(cameraPresentation) : cameraAspect;
 
   const { isDragging, hoveredRegion, startMove, startResize, setHoveredRegion, activeGuidesRef } =
     useRegionDragResize({
@@ -162,7 +270,7 @@ export function TemplatePreviewRenderer({
             containerWidth: containerW,
             containerHeight: containerH,
             screenRect: screenRect ?? null,
-            cameraRect: cameraRect ?? null,
+            cameraRect: cameraFrame ?? null,
           }
         : undefined,
     });
@@ -179,10 +287,10 @@ export function TemplatePreviewRenderer({
   const handleCameraPointerDown = useCallback(
     (e: React.PointerEvent) => {
       onRegionClick?.('camera');
-      if (!interactionEnabled || !cameraRect) return;
-      startMove('camera', cameraRect, e, cameraAspect);
+      if (!interactionEnabled || !cameraFrame) return;
+      startMove('camera', cameraFrame, e, cameraDragAspect);
     },
-    [interactionEnabled, cameraRect, startMove, cameraAspect, onRegionClick],
+    [interactionEnabled, cameraFrame, startMove, cameraDragAspect, onRegionClick],
   );
 
   const handleScreenResizeStart = useCallback(
@@ -195,17 +303,31 @@ export function TemplatePreviewRenderer({
 
   const handleCameraResizeStart = useCallback(
     (edge: Edge, e: React.PointerEvent) => {
-      if (!interactionEnabled || !cameraRect) return;
-      startResize('camera', cameraRect, edge, e, cameraAspect);
+      if (!interactionEnabled || !cameraFrame) return;
+      startResize('camera', cameraFrame, edge, e, cameraDragAspect);
     },
-    [interactionEnabled, cameraRect, startResize, cameraAspect],
+    [interactionEnabled, cameraFrame, startResize, cameraDragAspect],
   );
 
-  const handleScreenDoubleClick = useCallback((e: React.MouseEvent) => {
-    if (!onCropModeChange || !screenCrop?.enabled) return;
-    e.stopPropagation();
-    onCropModeChange(true);
-  }, [onCropModeChange, screenCrop?.enabled]);
+  const handleScreenDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const activateCrop = onScreenCropModeChange ?? onCropModeChange;
+      if (!activateCrop || !screenCrop?.enabled) return;
+      e.stopPropagation();
+      activateCrop(true);
+    },
+    [onCropModeChange, onScreenCropModeChange, screenCrop?.enabled],
+  );
+
+  const handleCameraDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const activateCrop = onCameraCropModeChange ?? onCropModeChange;
+      if (!activateCrop || !cameraCrop?.enabled) return;
+      e.stopPropagation();
+      activateCrop(true);
+    },
+    [onCameraCropModeChange, onCropModeChange, cameraCrop?.enabled],
+  );
 
   // ── Debug overlay ─────────────────────────────────────────────────────────
 
@@ -243,7 +365,7 @@ export function TemplatePreviewRenderer({
       const region = selectedRegionRef.current ?? hoveredRegionRef.current;
       if (!region || !onRegionChange) return;
 
-      const currentRect = region === 'screen' ? screenRect : cameraRect;
+      const currentRect = region === 'screen' ? screenRect : cameraFrame;
       if (!currentRect) return;
 
       const container: Rect = { x: 0, y: 0, width: containerW, height: containerH };
@@ -253,7 +375,7 @@ export function TemplatePreviewRenderer({
     return () => {
       if (alignRef) alignRef.current = null;
     };
-  }, [alignRef, onRegionChange, screenRect, cameraRect, containerW, containerH]);
+  }, [alignRef, onRegionChange, screenRect, cameraFrame, containerW, containerH]);
 
   // ── Snap guide rendering state (force re-render on drag frame) ───────────
 
@@ -263,32 +385,35 @@ export function TemplatePreviewRenderer({
 
   // ── Crop overlay ref ──────────────────────────────────────────────────────
 
-  const screenCropWrapperRef = useRef<HTMLDivElement>(null);
+  const cropWrapperRef = useRef<HTMLDivElement>(null);
 
   const debugRects = [
     { rect: canvasRect, label: 'canvas', color: DEBUG_COLORS.canvas },
-    ...(screenRect ? [{ rect: screenRect, label: 'screenFrame', color: DEBUG_COLORS.screenFrame }] : []),
-    ...(cameraRect ? [{ rect: cameraRect, label: 'cameraFrame', color: DEBUG_COLORS.cameraFrame }] : []),
+    ...(screenRect
+      ? [{ rect: screenRect, label: 'screenFrame', color: DEBUG_COLORS.screenFrame }]
+      : []),
+    ...(cameraFrame
+      ? [{ rect: cameraFrame, label: 'cameraFrame', color: DEBUG_COLORS.cameraFrame }]
+      : []),
   ];
 
   // ── CSS transition ────────────────────────────────────────────────────────
 
   const frameTransition = isDragging ? 'none' : 'all 300ms ease';
+  const isCircularCamera = cameraPresentation?.shape === 'circle';
+  const cameraBorderRadius = getCameraBorderRadius(cameraPresentation);
+  const isScreenCropActive = cropModeActive && cropRegion !== 'camera';
+  const isCameraCropActive = cropModeActive && cropRegion === 'camera';
 
   // ── Nothing to render until measured ────────────────────────────────────
 
   if (containerW === 0 || containerH === 0) {
     return (
-      <div
-        ref={containerRef}
-        style={{ position: 'relative', width: '100%', height: '100%' }}
-      />
+      <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }} />
     );
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
-
-  const isCircularCamera = template.kind === 'PIP';
 
   return (
     <div
@@ -309,56 +434,77 @@ export function TemplatePreviewRenderer({
           frame={screenRect}
           fitMode="fill"
           mediaAspect={screenAspect}
-          borderRadius={screenCornerRadius}
+          borderRadius={scaledScreenCornerRadius}
           shadow={screenShadow}
+          border={
+            scaledScreenInset > 0 ? `${scaledScreenInset}px solid ${screenInsetColor}` : undefined
+          }
           zIndex={screenZ}
           label="Screen"
+          testId="record-screen-frame"
           transition={frameTransition}
           interactive={interactionEnabled}
           isHovered={hoveredRegion === 'screen'}
           isSelected={selectedRegion === 'screen'}
           isDragging={isDragging && hoveredRegion === 'screen'}
           onPointerEnter={() => setHoveredRegion('screen')}
-          onPointerLeave={() => { if (!isDragging) setHoveredRegion(null); }}
+          onPointerLeave={() => {
+            if (!isDragging) setHoveredRegion(null);
+          }}
           onPointerDown={handleScreenPointerDown}
           onDoubleClick={handleScreenDoubleClick}
           onResizeStart={handleScreenResizeStart}
           crop={screenCrop}
-          cropModeActive={cropModeActive}
-          sourceWidth={sourceWidth}
-          sourceHeight={sourceHeight}
+          cropModeActive={isScreenCropActive}
+          sourceWidth={screenSourceWidth}
+          sourceHeight={screenSourceHeight}
         >
           {screenContent}
         </MediaFrame>
       )}
 
       {/* Camera frame */}
-      {cameraRect && (
+      {cameraFrame && (
         <MediaFrame
-          frame={cameraRect}
+          frame={cameraFrame}
           fitMode="fill"
           mediaAspect={cameraAspect}
           zIndex={cameraZ}
           circular={isCircularCamera}
+          borderRadius={cameraBorderRadius}
+          shadow={cameraShadow}
+          border={
+            scaledCameraInset > 0
+              ? `${scaledCameraInset}px solid ${cameraPresentation?.insetColor ?? '#ffffff'}`
+              : undefined
+          }
           label="Camera"
+          testId="record-camera-frame"
           transition={frameTransition}
           interactive={interactionEnabled}
           isHovered={hoveredRegion === 'camera'}
           isSelected={selectedRegion === 'camera'}
           isDragging={isDragging && hoveredRegion === 'camera'}
           onPointerEnter={() => setHoveredRegion('camera')}
-          onPointerLeave={() => { if (!isDragging) setHoveredRegion(null); }}
+          onPointerLeave={() => {
+            if (!isDragging) setHoveredRegion(null);
+          }}
           onPointerDown={handleCameraPointerDown}
+          onDoubleClick={handleCameraDoubleClick}
           onResizeStart={handleCameraResizeStart}
+          crop={cameraCrop}
+          cropModeActive={isCameraCropActive}
+          sourceWidth={cameraSourceWidth}
+          sourceHeight={cameraSourceHeight}
         >
           {cameraContent}
         </MediaFrame>
       )}
 
-      {/* Crop overlay — positioned at screen frame */}
-      {cropModeActive && screenCrop?.enabled && screenRect && onScreenCropChange && (
+      {/* Crop overlay — positioned at the active cropped frame */}
+      {isScreenCropActive && screenCrop?.enabled && screenRect && onScreenCropChange && (
         <div
-          ref={screenCropWrapperRef}
+          ref={cropWrapperRef}
           style={{
             position: 'absolute',
             left: screenRect.x,
@@ -371,10 +517,34 @@ export function TemplatePreviewRenderer({
         >
           <CropOverlay
             crop={screenCrop}
-            sourceWidth={sourceWidth}
-            sourceHeight={sourceHeight}
+            sourceWidth={screenSourceWidth}
+            sourceHeight={screenSourceHeight}
             onCropChange={onScreenCropChange}
-            containerRef={screenCropWrapperRef}
+            containerRef={cropWrapperRef}
+            onExit={onCropModeChange ? () => onCropModeChange(false) : undefined}
+          />
+        </div>
+      )}
+
+      {isCameraCropActive && cameraCrop?.enabled && cameraFrame && onCameraCropChange && (
+        <div
+          ref={cropWrapperRef}
+          style={{
+            position: 'absolute',
+            left: cameraFrame.x,
+            top: cameraFrame.y,
+            width: cameraFrame.width,
+            height: cameraFrame.height,
+            zIndex: 30,
+            overflow: 'visible',
+          }}
+        >
+          <CropOverlay
+            crop={cameraCrop}
+            sourceWidth={cameraSourceWidth}
+            sourceHeight={cameraSourceHeight}
+            onCropChange={onCameraCropChange}
+            containerRef={cropWrapperRef}
             onExit={onCropModeChange ? () => onCropModeChange(false) : undefined}
           />
         </div>

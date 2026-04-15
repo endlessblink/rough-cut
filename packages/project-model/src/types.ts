@@ -92,13 +92,21 @@ export interface CursorEvent {
 
 export type CameraShape = 'circle' | 'rounded' | 'square';
 export type CameraPosition = 'corner-br' | 'corner-bl' | 'corner-tr' | 'corner-tl' | 'center';
+export type CameraAspectRatio = '16:9' | '1:1' | '9:16' | '4:3';
 
 export interface CameraPresentation {
   readonly shape: CameraShape;
+  readonly aspectRatio: CameraAspectRatio;
   readonly position: CameraPosition;
   readonly roundness: number;
   readonly size: number;
   readonly visible: boolean;
+  readonly padding: number;
+  readonly inset: number;
+  readonly insetColor: string;
+  readonly shadowEnabled: boolean;
+  readonly shadowBlur: number;
+  readonly shadowOpacity: number;
 }
 
 export type CropAspectRatio = 'free' | '16:9' | '9:16' | '1:1' | '4:3';

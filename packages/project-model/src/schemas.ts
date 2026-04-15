@@ -6,9 +6,13 @@ import type { ProjectDocument } from './types.js';
 const nonNegativeInt = z.number().int().nonnegative();
 const unit = z.number().min(0).max(1);
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
-const positiveEvenInt = z.number().int().positive().refine((n) => n % 2 === 0, {
-  message: 'Must be a positive even integer',
-});
+const positiveEvenInt = z
+  .number()
+  .int()
+  .positive()
+  .refine((n) => n % 2 === 0, {
+    message: 'Must be a positive even integer',
+  });
 
 // --- Enums ---
 
@@ -106,14 +110,28 @@ export const CursorEventSchema = z.object({
 // --- CameraPresentation ---
 
 export const CameraShapeSchema = z.enum(['circle', 'rounded', 'square']);
-export const CameraPositionSchema = z.enum(['corner-br', 'corner-bl', 'corner-tr', 'corner-tl', 'center']);
+export const CameraPositionSchema = z.enum([
+  'corner-br',
+  'corner-bl',
+  'corner-tr',
+  'corner-tl',
+  'center',
+]);
+export const CameraAspectRatioSchema = z.enum(['16:9', '1:1', '9:16', '4:3']);
 
 export const CameraPresentationSchema = z.object({
   shape: CameraShapeSchema,
+  aspectRatio: CameraAspectRatioSchema.default('1:1'),
   position: CameraPositionSchema,
   roundness: z.number().min(0).max(100),
   size: z.number().min(50).max(200),
   visible: z.boolean(),
+  padding: z.number().min(0).max(200).default(0),
+  inset: z.number().min(0).max(20).default(0),
+  insetColor: z.string().default('#ffffff'),
+  shadowEnabled: z.boolean().default(true),
+  shadowBlur: z.number().min(0).max(50).default(24),
+  shadowOpacity: z.number().min(0).max(1).default(0.45),
 });
 
 // --- RecordingPresentation ---
