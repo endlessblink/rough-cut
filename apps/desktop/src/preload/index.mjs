@@ -6,20 +6,17 @@ const api = {
   // ---- Project I/O ----
 
   /** Open a .roughcut file via native dialog. Returns parsed JSON or null. */
-  projectOpen: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN),
+  projectOpen: () => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN),
 
   /** Save project to a known file path. Returns true on success. */
   projectSave: (project, filePath) =>
     ipcRenderer.invoke(IPC_CHANNELS.PROJECT_SAVE, { project, filePath }),
 
   /** Save-as via native dialog. Returns the chosen path or null. */
-  projectSaveAs: (project) =>
-    ipcRenderer.invoke(IPC_CHANNELS.PROJECT_SAVE_AS, { project }),
+  projectSaveAs: (project) => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_SAVE_AS, { project }),
 
   /** Request a new project. Returns null (renderer creates via createProject). */
-  projectNew: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.PROJECT_NEW),
+  projectNew: () => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_NEW),
 
   // ---- Export ----
 
@@ -28,8 +25,7 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.EXPORT_START, { project, settings, outputPath }),
 
   /** Cancel a running export. */
-  exportCancel: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.EXPORT_CANCEL),
+  exportCancel: () => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_CANCEL),
 
   /** Subscribe to export progress events. Returns an unsubscribe function. */
   onExportProgress: (callback) => {
@@ -45,11 +41,20 @@ const api = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.EXPORT_COMPLETE, handler);
   },
 
+  /** Relay export progress from renderer-side pipelines back through main. */
+  exportEmitProgress: (progress) => ipcRenderer.send(IPC_CHANNELS.EXPORT_PROGRESS_EMIT, progress),
+
+  /** Relay export completion from renderer-side pipelines back through main. */
+  exportEmitComplete: (result) => ipcRenderer.send(IPC_CHANNELS.EXPORT_COMPLETE_EMIT, result),
+
+  /** Pick an export output path via native save dialog. */
+  exportPickOutputPath: (projectName, format) =>
+    ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, { projectName, format }),
+
   // ---- Recording ----
 
   /** Get available screen/window capture sources. */
-  recordingGetSources: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_SOURCES),
+  recordingGetSources: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_SOURCES),
 
   /** Save a finished recording. Buffer is an ArrayBuffer, metadata has fps/width/height/durationMs. */
   recordingSaveRecording: (buffer, metadata) =>
@@ -58,12 +63,10 @@ const api = {
   // ---- Recording Session ----
 
   /** Start a recording session (countdown → record → toolbar). */
-  recordingSessionStart: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.RECORDING_SESSION_START),
+  recordingSessionStart: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_SESSION_START),
 
   /** Stop the active recording session. */
-  recordingSessionStop: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.RECORDING_SESSION_STOP),
+  recordingSessionStop: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_SESSION_STOP),
 
   /** Subscribe to countdown ticks (3, 2, 1). Returns unsubscribe. */
   onSessionCountdownTick: (callback) => {
@@ -87,42 +90,39 @@ const api = {
   },
 
   /** Notify main process that the toolbar window is ready. */
-  notifyToolbarReady: () =>
-    ipcRenderer.send(IPC_CHANNELS.RECORDING_SESSION_TOOLBAR_READY),
+  notifyToolbarReady: () => ipcRenderer.send(IPC_CHANNELS.RECORDING_SESSION_TOOLBAR_READY),
 
   // ---- Recent Projects ----
 
   /** Get recent projects list. Stale entries are pruned automatically. */
-  recentProjectsGet: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.RECENT_PROJECTS_GET),
+  recentProjectsGet: () => ipcRenderer.invoke(IPC_CHANNELS.RECENT_PROJECTS_GET),
 
   /** Remove a project from recents by file path. */
   recentProjectsRemove: (filePath) =>
     ipcRenderer.invoke(IPC_CHANNELS.RECENT_PROJECTS_REMOVE, { filePath }),
 
   /** Clear all recent projects. */
-  recentProjectsClear: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.RECENT_PROJECTS_CLEAR),
+  recentProjectsClear: () => ipcRenderer.invoke(IPC_CHANNELS.RECENT_PROJECTS_CLEAR),
 
   /** Open a project by known file path (no dialog). Returns parsed ProjectDocument. */
-  projectOpenPath: (filePath) =>
-    ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN_PATH, { filePath }),
+  projectOpenPath: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN_PATH, { filePath }),
 
   // ---- App ----
 
   /** Get the app version string. */
-  getVersion: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
+  getVersion: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
 
   // ---- File system ----
 
   /** Read a text file from disk (used for cursor event sidecar loading). Returns string or null. */
-  readTextFile: (filePath) =>
-    ipcRenderer.invoke(IPC_CHANNELS.READ_TEXT_FILE, filePath),
+  readTextFile: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.READ_TEXT_FILE, filePath),
 
   /** Read a binary file from disk as ArrayBuffer (used for WebCodecs camera decode). Returns ArrayBuffer or null. */
-  readBinaryFile: (filePath) =>
-    ipcRenderer.invoke(IPC_CHANNELS.READ_BINARY_FILE, filePath),
+  readBinaryFile: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.READ_BINARY_FILE, filePath),
+
+  /** Write a binary file to disk from an ArrayBuffer. */
+  writeBinaryFile: (filePath, buffer) =>
+    ipcRenderer.invoke(IPC_CHANNELS.WRITE_BINARY_FILE, { filePath, buffer }),
 
   // ---- Auto-save ----
 
@@ -141,20 +141,16 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.STORAGE_SET_RECORDING_LOCATION, { path }),
 
   /** Open a native directory picker dialog. Returns path or null. */
-  storagePickDirectory: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.STORAGE_PICK_DIRECTORY),
+  storagePickDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.STORAGE_PICK_DIRECTORY),
 
   /** Get mounted volumes/partitions. */
-  storageGetMountedVolumes: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.STORAGE_GET_MOUNTED_VOLUMES),
+  storageGetMountedVolumes: () => ipcRenderer.invoke(IPC_CHANNELS.STORAGE_GET_MOUNTED_VOLUMES),
 
   /** Get favorite locations. */
-  storageGetFavorites: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.STORAGE_GET_FAVORITES),
+  storageGetFavorites: () => ipcRenderer.invoke(IPC_CHANNELS.STORAGE_GET_FAVORITES),
 
   /** Add a path to favorites. */
-  storageAddFavorite: (path) =>
-    ipcRenderer.invoke(IPC_CHANNELS.STORAGE_ADD_FAVORITE, { path }),
+  storageAddFavorite: (path) => ipcRenderer.invoke(IPC_CHANNELS.STORAGE_ADD_FAVORITE, { path }),
 
   /** Remove a path from favorites. */
   storageRemoveFavorite: (path) =>
@@ -163,16 +159,13 @@ const api = {
   // ---- Recording Panel ----
 
   /** Open the floating recording panel window. */
-  openRecordingPanel: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.PANEL_OPEN),
+  openRecordingPanel: () => ipcRenderer.invoke(IPC_CHANNELS.PANEL_OPEN),
 
   /** Close the floating recording panel window. */
-  closeRecordingPanel: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.PANEL_CLOSE),
+  closeRecordingPanel: () => ipcRenderer.invoke(IPC_CHANNELS.PANEL_CLOSE),
 
   /** Tell main process which source the panel selected. */
-  panelSetSource: (sourceId) =>
-    ipcRenderer.send(IPC_CHANNELS.PANEL_SET_SOURCE, { sourceId }),
+  panelSetSource: (sourceId) => ipcRenderer.send(IPC_CHANNELS.PANEL_SET_SOURCE, { sourceId }),
 
   /** Start recording (triggers countdown in session manager).
    *  @param {{ micEnabled?: boolean, sysAudioEnabled?: boolean }} [audioConfig] */
@@ -180,16 +173,13 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.PANEL_START_RECORDING, audioConfig),
 
   /** Stop recording. */
-  panelStopRecording: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.PANEL_STOP_RECORDING),
+  panelStopRecording: () => ipcRenderer.invoke(IPC_CHANNELS.PANEL_STOP_RECORDING),
 
   /** Notify session manager that recording is paused. */
-  panelPause: () =>
-    ipcRenderer.send('panel:pause'),
+  panelPause: () => ipcRenderer.send('panel:pause'),
 
   /** Notify session manager that recording is resumed. */
-  panelResume: () =>
-    ipcRenderer.send('panel:resume'),
+  panelResume: () => ipcRenderer.send('panel:resume'),
 
   /** Notify main that the panel's MediaRecorder has started (for cursor sync). */
   panelMediaRecorderStarted: (timestampMs) =>
@@ -209,16 +199,14 @@ const api = {
   // ---- AI Analysis ----
 
   /** Get API key for a provider. */
-  aiGetApiKey: (provider) =>
-    ipcRenderer.invoke(IPC_CHANNELS.AI_GET_API_KEY, { provider }),
+  aiGetApiKey: (provider) => ipcRenderer.invoke(IPC_CHANNELS.AI_GET_API_KEY, { provider }),
 
   /** Set API key for a provider. */
   aiSetApiKey: (provider, apiKey) =>
     ipcRenderer.invoke(IPC_CHANNELS.AI_SET_API_KEY, { provider, apiKey }),
 
   /** Get provider config. */
-  aiGetProviderConfig: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.AI_GET_PROVIDER_CONFIG),
+  aiGetProviderConfig: () => ipcRenderer.invoke(IPC_CHANNELS.AI_GET_PROVIDER_CONFIG),
 
   /** Set provider config. */
   aiSetProviderConfig: (provider) =>
@@ -229,8 +217,7 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.AI_ANALYZE_CAPTIONS, { assets, fps }),
 
   /** Cancel running analysis. */
-  aiCancelAnalysis: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.AI_CANCEL_ANALYSIS),
+  aiCancelAnalysis: () => ipcRenderer.invoke(IPC_CHANNELS.AI_CANCEL_ANALYSIS),
 
   /** Subscribe to analysis progress events. Returns unsubscribe function. */
   onAIProgress: (callback) => {
@@ -240,8 +227,7 @@ const api = {
   },
 
   /** [DEBUG] Reload the most recent recording from disk. Returns RecordingResult or null. */
-  debugLoadLastRecording: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.DEBUG_LOAD_LAST_RECORDING),
+  debugLoadLastRecording: () => ipcRenderer.invoke(IPC_CHANNELS.DEBUG_LOAD_LAST_RECORDING),
 
   /** Load the zoom sidecar (recording-xxx.zoom.json). Returns ZoomPresentation or null. */
   zoomLoadSidecar: (recordingFilePath) =>

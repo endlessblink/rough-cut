@@ -64,6 +64,15 @@ const migrations: readonly Migration[] = [
       motionCompositions: doc['motionCompositions'] ?? [],
     }),
   },
+  {
+    fromVersion: 4,
+    toVersion: 5,
+    migrate: (doc) => ({
+      ...doc,
+      version: 5,
+      libraryReferences: doc['libraryReferences'] ?? [],
+    }),
+  },
 ];
 
 /**

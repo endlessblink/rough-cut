@@ -1,4 +1,11 @@
-import type { ProjectDocument, Clip, Track, Transition, ZoomPresentation, CursorPresentation } from '@rough-cut/project-model';
+import type {
+  ProjectDocument,
+  Clip,
+  Track,
+  Transition,
+  ZoomPresentation,
+  CursorPresentation,
+} from '@rough-cut/project-model';
 import { selectActiveClipsAtFrame, getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
 import { evaluateKeyframeTracks, getDefaultParams } from '@rough-cut/effect-registry';
 import type {
@@ -106,10 +113,14 @@ export function resolveFrame(project: ProjectDocument, frame: number): RenderFra
   const activeRecording = findActiveRecordingAsset(project);
   const presentation = activeRecording?.presentation;
   const cameraTransform = resolveCameraTransformForFrame(
-    presentation?.zoom, frame, settings.resolution.width, settings.resolution.height,
+    presentation?.zoom,
+    frame,
+    settings.resolution.width,
+    settings.resolution.height,
   );
   const cursor = resolveCursorPresentation(presentation?.cursor);
   const screenCrop = presentation?.screenCrop?.enabled ? presentation.screenCrop : undefined;
+  const cameraCrop = presentation?.cameraCrop?.enabled ? presentation.cameraCrop : undefined;
 
   return {
     frame,
@@ -121,6 +132,7 @@ export function resolveFrame(project: ProjectDocument, frame: number): RenderFra
     cameraTransform,
     cursor,
     screenCrop,
+    cameraCrop,
   };
 }
 
@@ -203,11 +215,7 @@ function resolveEffects(clip: Clip, clipLocalFrame: number): ResolvedEffect[] {
       ...registryDefaults,
     };
     for (const [key, value] of Object.entries(effect.params)) {
-      if (
-        typeof value === 'number' ||
-        typeof value === 'string' ||
-        typeof value === 'boolean'
-      ) {
+      if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
         staticParams[key] = value;
       }
     }
@@ -270,4 +278,3 @@ function findClipById(
   }
   return undefined;
 }
-

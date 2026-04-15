@@ -5,13 +5,27 @@
  * created in the Record view.
  */
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import type { ClipId, TrackId, ClipTransform, EffectInstance, AIAnnotationId } from '@rough-cut/project-model';
-import { useProjectStore, useTransportStore, projectStore, transportStore } from '../../hooks/use-stores.js';
+import {
+  createDefaultCameraPresentation,
+  type ClipId,
+  type TrackId,
+  type ClipTransform,
+  type EffectInstance,
+  type AIAnnotationId,
+} from '@rough-cut/project-model';
+import { resolveFrame } from '@rough-cut/frame-resolver';
+import {
+  useProjectStore,
+  useTransportStore,
+  projectStore,
+  transportStore,
+} from '../../hooks/use-stores.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
 import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 import { TimelineStrip } from './TimelineStrip.js';
 import { EditScreenLayout } from './EditScreenLayout.js';
 import { EditPreviewStage } from './EditPreviewStage.js';
+import { EditCameraOverlay } from './EditCameraOverlay.js';
 import { EditRightPanel } from './EditRightPanel.js';
 import { EditTimelineShell } from './EditTimelineShell.js';
 import { AppHeader } from '../../ui/index.js';
@@ -30,6 +44,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const tracks = useProjectStore((s) => s.project.composition.tracks);
   const assets = useProjectStore((s) => s.project.assets);
   const playheadFrame = useTransportStore((s) => s.playheadFrame);
+  const isPlaying = useTransportStore((s) => s.isPlaying);
   const selectedClipIds = useTransportStore((s) => s.selectedClipIds);
   const selectedClipId = selectedClipIds[0] ?? null;
   const [pixelsPerFrame, setPixelsPerFrame] = useState(3);
@@ -76,16 +91,13 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
     }
   }, []);
 
-  const handleSelectRange = useCallback(
-    (clipIds: readonly string[], mode: 'replace' | 'add') => {
-      if (mode === 'add') {
-        transportStore.getState().addToSelection(clipIds);
-      } else {
-        transportStore.getState().setSelectedClipIds(clipIds);
-      }
-    },
-    [],
-  );
+  const handleSelectRange = useCallback((clipIds: readonly string[], mode: 'replace' | 'add') => {
+    if (mode === 'add') {
+      transportStore.getState().addToSelection(clipIds);
+    } else {
+      transportStore.getState().setSelectedClipIds(clipIds);
+    }
+  }, []);
 
   const handleClearSelection = useCallback(() => {
     transportStore.getState().clearSelection();
@@ -97,7 +109,13 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
 
   const handleSplit = useCallback(() => {
     if (!selectedClipId || !selectedClipTrack) return;
-    projectStore.getState().splitClipAtFrame(selectedClipTrack.id, selectedClipId as import('@rough-cut/project-model').ClipId, playheadFrame);
+    projectStore
+      .getState()
+      .splitClipAtFrame(
+        selectedClipTrack.id,
+        selectedClipId as import('@rough-cut/project-model').ClipId,
+        playheadFrame,
+      );
     transportStore.getState().clearSelection();
   }, [selectedClipId, selectedClipTrack, playheadFrame]);
 
@@ -107,18 +125,17 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
     for (const clipId of ids) {
       const track = findTrackForClip(clipId);
       if (track) {
-        projectStore.getState().deleteClip(track.id, clipId as import('@rough-cut/project-model').ClipId);
+        projectStore
+          .getState()
+          .deleteClip(track.id, clipId as import('@rough-cut/project-model').ClipId);
       }
     }
     transportStore.getState().clearSelection();
   }, [findTrackForClip]);
 
-  const handleUpdateTransform = useCallback(
-    (clipId: ClipId, patch: Partial<ClipTransform>) => {
-      projectStore.getState().updateClipTransform(clipId, patch);
-    },
-    [],
-  );
+  const handleUpdateTransform = useCallback((clipId: ClipId, patch: Partial<ClipTransform>) => {
+    projectStore.getState().updateClipTransform(clipId, patch);
+  }, []);
 
   const handleAddEffect = useCallback(
     (trackId: TrackId, clipId: ClipId, effect: EffectInstance) => {
@@ -141,19 +158,13 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
     [],
   );
 
-  const handleSetTrackVolume = useCallback(
-    (trackId: TrackId, volume: number) => {
-      projectStore.getState().setTrackVolume(trackId, volume);
-    },
-    [],
-  );
+  const handleSetTrackVolume = useCallback((trackId: TrackId, volume: number) => {
+    projectStore.getState().setTrackVolume(trackId, volume);
+  }, []);
 
-  const handleUpdateCaptionText = useCallback(
-    (id: AIAnnotationId, text: string) => {
-      projectStore.getState().updateCaptionText(id, text);
-    },
-    [],
-  );
+  const handleUpdateCaptionText = useCallback((id: AIAnnotationId, text: string) => {
+    projectStore.getState().updateCaptionText(id, text);
+  }, []);
 
   const handleUndo = useCallback(() => {
     projectStore.temporal.getState().undo();
@@ -167,7 +178,13 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
     (clipId: string, newTimelineIn: number) => {
       const track = findTrackForClip(clipId);
       if (!track) return;
-      projectStore.getState().trimClipLeftEdge(track.id, clipId as import('@rough-cut/project-model').ClipId, newTimelineIn);
+      projectStore
+        .getState()
+        .trimClipLeftEdge(
+          track.id,
+          clipId as import('@rough-cut/project-model').ClipId,
+          newTimelineIn,
+        );
     },
     [findTrackForClip],
   );
@@ -176,19 +193,27 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
     (clipId: string, newTimelineOut: number) => {
       const track = findTrackForClip(clipId);
       if (!track) return;
-      projectStore.getState().trimClipRightEdge(track.id, clipId as import('@rough-cut/project-model').ClipId, newTimelineOut);
+      projectStore
+        .getState()
+        .trimClipRightEdge(
+          track.id,
+          clipId as import('@rough-cut/project-model').ClipId,
+          newTimelineOut,
+        );
     },
     [findTrackForClip],
   );
 
   const handleMoveClip = useCallback(
     (clipId: string, newTimelineIn: number, fromTrackId: string, toTrackId: string) => {
-      projectStore.getState().moveClipWithOverwrite(
-        clipId as ClipId,
-        fromTrackId as TrackId,
-        toTrackId as TrackId,
-        newTimelineIn,
-      );
+      projectStore
+        .getState()
+        .moveClipWithOverwrite(
+          clipId as ClipId,
+          fromTrackId as TrackId,
+          toTrackId as TrackId,
+          newTimelineIn,
+        );
     },
     [],
   );
@@ -205,6 +230,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
 
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
   const resolution = useProjectStore((s) => s.project.settings.resolution);
+  const project = useProjectStore((s) => s.project);
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
   const durationFrames = useProjectStore((s) => s.project.composition.duration);
   // PlaybackManager singleton handles playback loop — no usePlaybackLoop needed
@@ -297,9 +323,43 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
     return () => document.removeEventListener('keydown', handler);
   }, [handleSplit, handleDelete, handleUndo, handleRedo]);
 
+  const activeCameraPreview = useMemo(() => {
+    const frame = resolveFrame(project, playheadFrame);
+    const activeCameraLayer = frame.layers.find((layer) => {
+      const asset = project.assets.find((candidate) => candidate.id === layer.assetId);
+      return Boolean(asset?.metadata?.isCamera);
+    });
+
+    if (!activeCameraLayer) {
+      return null;
+    }
+
+    const cameraAsset = project.assets.find((asset) => asset.id === activeCameraLayer.assetId);
+    if (!cameraAsset?.filePath) {
+      return null;
+    }
+
+    const recordingAsset =
+      project.assets.find(
+        (asset) => asset.type === 'recording' && asset.cameraAssetId === activeCameraLayer.assetId,
+      ) ?? null;
+
+    return {
+      filePath: cameraAsset.filePath,
+      sourceFrame: activeCameraLayer.sourceFrame,
+      camera: recordingAsset?.presentation?.camera ?? createDefaultCameraPresentation(),
+    };
+  }, [playheadFrame, project]);
+
   return (
     <EditScreenLayout>
-      <AppHeader activeTab={activeTab} onTabChange={onTabChange} projectName={projectName} onProjectNameChange={(name) => updateProject((doc) => ({ ...doc, name }))} captureSummary={captureSummary} />
+      <AppHeader
+        activeTab={activeTab}
+        onTabChange={onTabChange}
+        projectName={projectName}
+        onProjectNameChange={(name) => updateProject((doc) => ({ ...doc, name }))}
+        captureSummary={captureSummary}
+      />
 
       {/* Preview + Sidebar row */}
       <div
@@ -318,7 +378,31 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
       >
         {/* Preview — fills remaining space, uses PixiJS compositor */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <EditPreviewStage previewRef={previewRef} />
+          <EditPreviewStage>
+            <div
+              style={{
+                position: 'relative',
+                aspectRatio: '16 / 9',
+                width: '100%',
+                borderRadius: 18,
+                background: '#050505',
+                boxShadow: '0 18px 60px rgba(0,0,0,0.80)',
+                overflow: 'hidden',
+              }}
+            >
+              <div ref={previewRef} style={{ position: 'absolute', inset: 0 }} />
+              {activeCameraPreview ? (
+                <EditCameraOverlay
+                  filePath={activeCameraPreview.filePath}
+                  fps={projectFps}
+                  sourceFrame={activeCameraPreview.sourceFrame}
+                  visible={true}
+                  isPlaying={isPlaying}
+                  camera={activeCameraPreview.camera}
+                />
+              ) : null}
+            </div>
+          </EditPreviewStage>
         </div>
 
         {/* Sidebar toggle + panel */}
@@ -363,7 +447,16 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
       </div>
 
       {/* Timeline — full width, below the sidebar row */}
-      <div style={{ flex: '1 1 0%', minHeight: 120, padding: '0 24px 8px', background: '#050505', display: 'flex', flexDirection: 'column' }}>
+      <div
+        style={{
+          flex: '1 1 0%',
+          minHeight: 120,
+          padding: '0 24px 8px',
+          background: '#050505',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
         <EditTimelineShell
           canUndo={canUndo}
           canRedo={canRedo}

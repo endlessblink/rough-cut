@@ -8,8 +8,19 @@ import {
   createKeyframeTrack,
   createKeyframe,
   createDefaultCameraPresentation,
+  createLibrary,
+  createLibrarySource,
+  createLibraryTranscriptSegment,
+  createVisualAnalysisEntry,
+  createProjectLibraryReference,
 } from './factories.js';
-import { validateProject, CameraPresentationSchema } from './schemas.js';
+import {
+  validateProject,
+  CameraPresentationSchema,
+  LibrarySchema,
+  LibrarySourceSchema,
+  ProjectLibraryReferenceSchema,
+} from './schemas.js';
 import type { AssetId, TrackId } from './types.js';
 
 describe('factories', () => {
@@ -19,9 +30,9 @@ describe('factories', () => {
       expect(() => validateProject(project)).not.toThrow();
     });
 
-    it('has schema version 3', () => {
+    it('has current schema version', () => {
       const project = createProject();
-      expect(project.version).toBe(3);
+      expect(project.version).toBe(5);
     });
 
     it('has 2 video + 2 audio tracks by default', () => {
@@ -147,6 +158,39 @@ describe('factories', () => {
     it('passes CameraPresentationSchema validation', () => {
       const camera = createDefaultCameraPresentation();
       expect(() => CameraPresentationSchema.parse(camera)).not.toThrow();
+    });
+  });
+
+  describe('library factories', () => {
+    it('creates a library with sensible defaults', () => {
+      const library = createLibrary('Interview Selects');
+      expect(library.name).toBe('Interview Selects');
+      expect(library.sources).toEqual([]);
+      expect(library.metadata).toEqual({});
+      expect(() => LibrarySchema.parse(library)).not.toThrow();
+    });
+
+    it('creates a library source with empty derived data', () => {
+      const source = createLibrarySource('video', '/footage/interview.mp4');
+      expect(source.name).toBe('interview.mp4');
+      expect(source.transcriptSegments).toEqual([]);
+      expect(source.visualAnalysis).toEqual([]);
+      expect(() => LibrarySourceSchema.parse(source)).not.toThrow();
+    });
+
+    it('creates transcript and visual analysis entries', () => {
+      const transcript = createLibraryTranscriptSegment(0, 30, 'Hello world');
+      const visual = createVisualAnalysisEntry(0, 30, 'Close-up on speaker');
+      expect(transcript.confidence).toBe(1);
+      expect(visual.tags).toEqual([]);
+    });
+
+    it('creates a project library reference from a library', () => {
+      const library = createLibrary('B-roll');
+      const reference = createProjectLibraryReference(library, '/libraries/b-roll.library.json');
+      expect(reference.libraryId).toBe(library.id);
+      expect(reference.name).toBe('B-roll');
+      expect(() => ProjectLibraryReferenceSchema.parse(reference)).not.toThrow();
     });
   });
 

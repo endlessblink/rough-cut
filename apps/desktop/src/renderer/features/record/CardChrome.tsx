@@ -40,12 +40,6 @@ export function CardChrome({
   aspectRatio,
   bgColor = '#4a1942',
   bgGradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-  bgPadding = 40,
-  bgCornerRadius = 12,
-  bgShadowEnabled = true,
-  bgShadowBlur = 20,
-  bgInset = 0,
-  bgInsetColor = '#ffffff',
   children,
   innerRef,
 }: CardChromeProps) {
@@ -88,22 +82,8 @@ export function CardChrome({
     return () => observer.disconnect();
   }, [cardAspect]);
 
-  // Aspect-aware padding
-  const padH = bgPadding;
-  const padV = Math.round(bgPadding / cardAspect);
-
   // Background: gradient takes priority over solid color
   const background = bgGradient ?? bgColor;
-
-  // Content frame shadow
-  const shadow = bgShadowEnabled
-    ? `0 ${Math.round(bgShadowBlur * 0.3)}px ${bgShadowBlur}px rgba(0,0,0,0.6)`
-    : 'none';
-
-  // Content frame inset border
-  const border = bgInset > 0
-    ? `${bgInset}px solid ${bgInsetColor}`
-    : 'none';
 
   return (
     /* Invisible wrapper — fills the parent, used for measurement */
@@ -120,6 +100,7 @@ export function CardChrome({
       {/* Layer 1 — Background canvas (sized by JS, not CSS aspect-ratio) */}
       {cardSize && (
         <div
+          data-testid="record-card-chrome"
           style={{
             position: 'relative',
             width: cardSize.width,
@@ -131,16 +112,14 @@ export function CardChrome({
             transition: 'background 200ms ease',
           }}
         >
-          {/* Layer 2 — Padded content frame */}
+          {/* Layer 2 — Full-size content area. Screen-specific framing is handled downstream. */}
           <div
             ref={innerRef}
+            data-testid="record-card-content"
             style={{
               position: 'absolute',
-              top: padV,
-              right: padH,
-              bottom: padV,
-              left: padH,
-              overflow: 'visible',
+              inset: 0,
+              overflow: 'hidden',
             }}
           >
             {children}

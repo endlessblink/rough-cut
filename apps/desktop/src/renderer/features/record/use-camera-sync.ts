@@ -7,10 +7,7 @@
 import { useEffect, useRef } from 'react';
 import { transportStore } from '../../hooks/use-stores.js';
 
-export function useCameraSync(
-  cameraVideo: HTMLVideoElement | null,
-  fps: number,
-): void {
+export function useCameraSync(cameraVideo: HTMLVideoElement | null, fps: number): void {
   const fpsRef = useRef(fps);
   fpsRef.current = fps;
 
@@ -25,11 +22,16 @@ export function useCameraSync(
     if (state.isPlaying && !wasPlayingRef.current) {
       wasPlayingRef.current = true;
       cameraVideo.currentTime = state.playheadFrame / fpsRef.current;
-      cameraVideo.play().then(() => {
-        console.info(`[CameraSync] play() OK — ${cameraVideo.videoWidth}x${cameraVideo.videoHeight} readyState=${cameraVideo.readyState}`);
-      }).catch((e) => {
-        console.error('[CameraSync] play() FAILED:', e);
-      });
+      cameraVideo
+        .play()
+        .then(() => {
+          console.info(
+            `[CameraSync] play() OK — ${cameraVideo.videoWidth}x${cameraVideo.videoHeight} readyState=${cameraVideo.readyState}`,
+          );
+        })
+        .catch((e) => {
+          console.error('[CameraSync] play() FAILED:', e);
+        });
     } else if (!state.isPlaying) {
       // Paused — seek to current position
       const targetTime = state.playheadFrame / fpsRef.current;
@@ -43,11 +45,22 @@ export function useCameraSync(
       if (newState.isPlaying && !wasPlayingRef.current) {
         wasPlayingRef.current = true;
         cameraVideo.currentTime = newState.playheadFrame / fpsRef.current;
-        cameraVideo.play().then(() => {
-          console.info(`[CameraSync] play() OK — ${cameraVideo.videoWidth}x${cameraVideo.videoHeight} readyState=${cameraVideo.readyState}`);
-        }).catch((e) => {
-          console.error('[CameraSync] play() FAILED:', e);
-        });
+        cameraVideo
+          .play()
+          .then(() => {
+            console.info(
+              `[CameraSync] play() OK — ${cameraVideo.videoWidth}x${cameraVideo.videoHeight} readyState=${cameraVideo.readyState}`,
+            );
+          })
+          .catch((e) => {
+            console.error('[CameraSync] play() FAILED:', e);
+          });
+      } else if (newState.isPlaying) {
+        const targetTime = newState.playheadFrame / fpsRef.current;
+        const drift = Math.abs(cameraVideo.currentTime - targetTime);
+        if (drift > 0.05) {
+          cameraVideo.currentTime = targetTime;
+        }
       } else if (!newState.isPlaying && wasPlayingRef.current) {
         wasPlayingRef.current = false;
         cameraVideo.pause();
@@ -66,16 +79,16 @@ export function useCameraSync(
     };
   }, [cameraVideo]); // re-subscribe when video element changes
 
-  // Drift correction — every 2s, hard-seek if >1s off
+  // Drift correction — keep camera close to the screen-driven transport clock.
   useEffect(() => {
     const intervalId = setInterval(() => {
       if (!cameraVideo || cameraVideo.paused || !wasPlayingRef.current) return;
       const targetTime = transportStore.getState().playheadFrame / fpsRef.current;
       const drift = Math.abs(cameraVideo.currentTime - targetTime);
-      if (drift > 1.0) {
+      if (drift > 0.08) {
         cameraVideo.currentTime = targetTime;
       }
-    }, 2000);
+    }, 250);
     return () => clearInterval(intervalId);
   }, [cameraVideo]);
 }

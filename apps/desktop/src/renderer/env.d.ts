@@ -44,6 +44,7 @@ export interface RecordingResult {
   fps: number;
   codec: string;
   fileSize: number;
+  cursorEventsPath?: string;
   thumbnailPath?: string;
   cameraFilePath?: string;
 }
@@ -58,14 +59,27 @@ export interface RoughCutAPI {
   projectOpenPath(filePath: string): Promise<ProjectDocument>;
 
   // Export
-  exportStart(project: ProjectDocument, settings: ExportSettings, outputPath: string): Promise<void>;
+  exportStart(
+    project: ProjectDocument,
+    settings: ExportSettings,
+    outputPath: string,
+  ): Promise<ExportResult>;
   exportCancel(): Promise<void>;
   onExportProgress(callback: (progress: ExportProgress) => void): () => void;
   onExportComplete(callback: (result: ExportResult) => void): () => void;
+  exportEmitProgress(progress: ExportProgress): void;
+  exportEmitComplete(result: ExportResult): void;
+  exportPickOutputPath(
+    projectName: string,
+    format: ExportSettings['format'],
+  ): Promise<string | null>;
 
   // Recording
   recordingGetSources(): Promise<CaptureSource[]>;
-  recordingSaveRecording(buffer: ArrayBuffer, metadata: RecordingMetadata): Promise<RecordingResult>;
+  recordingSaveRecording(
+    buffer: ArrayBuffer,
+    metadata: RecordingMetadata,
+  ): Promise<RecordingResult>;
 
   // Recording Session (floating toolbar flow)
   recordingSessionStart(): Promise<void>;
@@ -86,6 +100,7 @@ export interface RoughCutAPI {
   // File system
   readTextFile(filePath: string): Promise<string | null>;
   readBinaryFile(filePath: string): Promise<ArrayBuffer | null>;
+  writeBinaryFile(filePath: string, buffer: ArrayBuffer): Promise<boolean>;
 
   // Auto-save
   projectAutoSave(project: ProjectDocument, filePath?: string): Promise<string>;
@@ -103,11 +118,18 @@ export interface RoughCutAPI {
   openRecordingPanel(): Promise<void>;
   closeRecordingPanel(): Promise<void>;
   panelSetSource(sourceId: string): void;
-  panelStartRecording(audioConfig?: { micEnabled?: boolean; sysAudioEnabled?: boolean }): Promise<void>;
+  panelStartRecording(audioConfig?: {
+    micEnabled?: boolean;
+    sysAudioEnabled?: boolean;
+  }): Promise<void>;
   panelStopRecording(): Promise<void>;
   panelPause(): void;
   panelResume(): void;
-  panelSaveRecording(buffer: ArrayBuffer, metadata: RecordingMetadata, cameraBuffer?: ArrayBuffer): Promise<RecordingResult>;
+  panelSaveRecording(
+    buffer: ArrayBuffer,
+    metadata: RecordingMetadata,
+    cameraBuffer?: ArrayBuffer,
+  ): Promise<RecordingResult>;
   panelMediaRecorderStarted(timestampMs: number): void;
   onRecordingAssetReady(callback: (result: RecordingResult) => void): () => void;
 
@@ -116,30 +138,42 @@ export interface RoughCutAPI {
   aiSetApiKey(provider: string, apiKey: string): Promise<boolean>;
   aiGetProviderConfig(): Promise<{ provider: string }>;
   aiSetProviderConfig(provider: string): Promise<boolean>;
-  aiAnalyzeCaptions(assets: Array<{ id: string; filePath: string }>, fps: number): Promise<Array<{
-    id: string;
-    assetId: string;
-    status: 'pending' | 'accepted' | 'rejected';
-    confidence: number;
-    startFrame: number;
-    endFrame: number;
-    text: string;
-    words: Array<{
-      word: string;
+  aiAnalyzeCaptions(
+    assets: Array<{ id: string; filePath: string }>,
+    fps: number,
+  ): Promise<
+    Array<{
+      id: string;
+      assetId: string;
+      status: 'pending' | 'accepted' | 'rejected';
+      confidence: number;
       startFrame: number;
       endFrame: number;
-      confidence: number;
-    }>;
-  }>>;
+      text: string;
+      words: Array<{
+        word: string;
+        startFrame: number;
+        endFrame: number;
+        confidence: number;
+      }>;
+    }>
+  >;
   aiCancelAnalysis(): Promise<boolean>;
-  onAIProgress(callback: (progress: { assetId: string | null; stage: string; percent: number }) => void): () => void;
+  onAIProgress(
+    callback: (progress: { assetId: string | null; stage: string; percent: number }) => void,
+  ): () => void;
 
   // Debug (temporary)
   debugLoadLastRecording(): Promise<RecordingResult | null>;
 
   // Zoom sidecar persistence (next to the recording .webm)
-  zoomLoadSidecar(recordingFilePath: string): Promise<{ autoIntensity: number; markers: readonly unknown[] } | null>;
-  zoomSaveSidecar(recordingFilePath: string, presentation: { autoIntensity: number; markers: readonly unknown[] }): Promise<boolean>;
+  zoomLoadSidecar(
+    recordingFilePath: string,
+  ): Promise<{ autoIntensity: number; markers: readonly unknown[] } | null>;
+  zoomSaveSidecar(
+    recordingFilePath: string,
+    presentation: { autoIntensity: number; markers: readonly unknown[] },
+  ): Promise<boolean>;
 }
 
 declare global {

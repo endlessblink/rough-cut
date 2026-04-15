@@ -295,6 +295,57 @@ export const AIAnnotationsSchema = z.object({
   captionSegments: z.array(CaptionSegmentSchema),
 });
 
+// --- AI Libraries ---
+
+export const LibraryTranscriptSegmentSchema = z.object({
+  id: z.string().min(1),
+  assetId: z.string().min(1).optional(),
+  startFrame: nonNegativeInt,
+  endFrame: nonNegativeInt,
+  text: z.string(),
+  words: z.array(TranscriptWordSchema),
+  confidence: unit,
+  language: z.string().min(1).optional(),
+});
+
+export const VisualAnalysisEntrySchema = z.object({
+  id: z.string().min(1),
+  assetId: z.string().min(1).optional(),
+  startFrame: nonNegativeInt,
+  endFrame: nonNegativeInt,
+  summary: z.string().min(1),
+  tags: z.array(z.string()),
+  confidence: unit.optional(),
+  metadata: z.record(z.unknown()),
+});
+
+export const LibrarySourceSchema = z.object({
+  id: z.string().min(1),
+  assetId: z.string().min(1).optional(),
+  type: AssetTypeSchema,
+  name: z.string().min(1),
+  filePath: z.string().min(1),
+  duration: nonNegativeInt,
+  transcriptSegments: z.array(LibraryTranscriptSegmentSchema),
+  visualAnalysis: z.array(VisualAnalysisEntrySchema),
+  metadata: z.record(z.unknown()),
+});
+
+export const LibrarySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  createdAt: z.string().datetime(),
+  modifiedAt: z.string().datetime(),
+  sources: z.array(LibrarySourceSchema),
+  metadata: z.record(z.unknown()),
+});
+
+export const ProjectLibraryReferenceSchema = z.object({
+  libraryId: z.string().min(1),
+  name: z.string().min(1),
+  filePath: z.string().min(1),
+});
+
 // --- Motion Compositions ---
 
 export const MotionCompositionSchema = z.object({
@@ -321,6 +372,7 @@ export const ProjectDocumentSchema = z.object({
   exportSettings: ExportSettingsSchema,
   aiAnnotations: AIAnnotationsSchema,
   motionCompositions: z.array(MotionCompositionSchema),
+  libraryReferences: z.array(ProjectLibraryReferenceSchema),
 });
 
 /**

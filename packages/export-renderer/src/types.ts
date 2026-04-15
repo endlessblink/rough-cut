@@ -21,6 +21,8 @@ export interface ExportResult {
   error?: string;
   totalFrames: number;
   durationMs: number;
+  pipeline?: 'ffmpeg' | 'webcodecs';
+  hardwareAcceleration?: 'no-preference' | 'prefer-hardware' | 'prefer-software';
 }
 
 export interface ExportEventHandlers {

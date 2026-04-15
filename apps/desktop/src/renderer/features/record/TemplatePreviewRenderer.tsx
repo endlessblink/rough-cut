@@ -404,6 +404,11 @@ export function TemplatePreviewRenderer({
   const cameraBorderRadius = getCameraBorderRadius(cameraPresentation);
   const isScreenCropActive = cropModeActive && cropRegion !== 'camera';
   const isCameraCropActive = cropModeActive && cropRegion === 'camera';
+  const activeCropLabel = isCameraCropActive
+    ? 'Editing camera crop'
+    : isScreenCropActive
+      ? 'Editing screen crop'
+      : null;
 
   // ── Nothing to render until measured ────────────────────────────────────
 
@@ -547,6 +552,30 @@ export function TemplatePreviewRenderer({
             containerRef={cropWrapperRef}
             onExit={onCropModeChange ? () => onCropModeChange(false) : undefined}
           />
+        </div>
+      )}
+
+      {activeCropLabel && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 14,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 40,
+            padding: '6px 10px',
+            borderRadius: 999,
+            background: 'rgba(0,0,0,0.72)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            color: 'rgba(255,255,255,0.92)',
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: '0.02em',
+            pointerEvents: 'none',
+            userSelect: 'none',
+          }}
+        >
+          {activeCropLabel}
         </div>
       )}
 

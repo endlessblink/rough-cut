@@ -124,6 +124,9 @@ importers:
       canvas:
         specifier: ^3.1.0
         version: 3.2.2
+      mediabunny:
+        specifier: ^1.40.1
+        version: 1.40.1
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -168,6 +171,9 @@ importers:
       '@rough-cut/project-model':
         specifier: workspace:*
         version: link:../project-model
+      mediabunny:
+        specifier: ^1.40.1
+        version: 1.40.1
       mp4box:
         specifier: ^2.3.0
         version: 2.3.0

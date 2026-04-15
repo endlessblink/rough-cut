@@ -4,6 +4,7 @@ import { registerBuiltinEffects, getEffect } from '@rough-cut/effect-registry';
 import { createRenderCanvas, renderFrameToBuffer } from './frame-renderer.js';
 import { createFFmpegWriter } from './ffmpeg-writer.js';
 import type { ExportResult, ExportProgress, ExportEventHandlers } from './types.js';
+import { canUseWebCodecsExport, runWebCodecsExport } from './webcodecs-export.js';
 
 /**
  * Ensure builtin effects are registered exactly once.
@@ -30,6 +31,10 @@ export async function runExport(
   const totalFrames = project.composition.duration;
   if (totalFrames === 0) {
     return { status: 'failed', error: 'Empty composition', totalFrames: 0, durationMs: 0 };
+  }
+
+  if (canUseWebCodecsExport(settings)) {
+    return runWebCodecsExport(project, settings, outputPath, handlers);
   }
 
   const canvas = createRenderCanvas(settings.resolution.width, settings.resolution.height);
@@ -66,6 +71,7 @@ export async function runExport(
       outputPath,
       totalFrames,
       durationMs,
+      pipeline: 'ffmpeg',
     };
     handlers?.onComplete?.(result);
     return result;
@@ -78,6 +84,7 @@ export async function runExport(
       error: error.message,
       totalFrames,
       durationMs: performance.now() - startTime,
+      pipeline: 'ffmpeg',
     };
   }
 }

@@ -60,6 +60,9 @@ export function EditCameraOverlay({
   const [ready, setReady] = useState(false);
   const targetTime = sourceFrame / fps;
   const widthPercent = 24 * (camera.size / 100);
+  const shadow = camera.shadowEnabled
+    ? `0 ${Math.round(camera.shadowBlur * 0.25)}px ${camera.shadowBlur}px rgba(0,0,0,${camera.shadowOpacity})`
+    : 'none';
 
   useEffect(() => {
     const video = videoRef.current;
@@ -108,30 +111,41 @@ export function EditCameraOverlay({
         aspectRatio: getAspectRatio(camera),
         overflow: 'hidden',
         borderRadius: getBorderRadius(camera),
-        boxShadow: '0 14px 38px rgba(0,0,0,0.45)',
+        boxShadow: shadow,
+        border: camera.inset > 0 ? `${camera.inset}px solid ${camera.insetColor}` : 'none',
+        boxSizing: 'border-box',
         pointerEvents: 'none',
         display: visible && camera.visible ? 'block' : 'none',
         zIndex: 3,
-        background: '#000',
         ...getPositionStyle(camera.position),
       }}
     >
-      <video
-        ref={videoRef}
-        data-testid="edit-camera-playback-video"
-        data-ready={ready ? 'true' : 'false'}
-        src={`media://${filePath}`}
-        muted
-        playsInline
-        preload="auto"
+      <div
         style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-          display: 'block',
+          position: 'absolute',
+          inset: camera.padding,
+          overflow: 'hidden',
+          borderRadius: 'inherit',
           background: '#000',
         }}
-      />
+      >
+        <video
+          ref={videoRef}
+          data-testid="edit-camera-playback-video"
+          data-ready={ready ? 'true' : 'false'}
+          src={`media://${filePath}`}
+          muted
+          playsInline
+          preload="auto"
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            display: 'block',
+            background: '#000',
+          }}
+        />
+      </div>
     </div>
   );
 }

@@ -1,4 +1,9 @@
-import { test as base, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
+import {
+  test as base,
+  _electron as electron,
+  type ElectronApplication,
+  type Page,
+} from '@playwright/test';
 
 type ElectronFixtures = {
   electronApp: ElectronApplication;
@@ -16,17 +21,40 @@ export const test = base.extend<ElectronFixtures>({
   },
 
   appPage: async ({ electronApp }, use) => {
-    // Find the renderer window (skip DevTools)
-    let page = electronApp.windows().find((w) => w.url().includes('127.0.0.1:7544'));
+    // Find the renderer window and wait for it to navigate away from about:blank.
+    let page = electronApp
+      .windows()
+      .find((w) => !w.url().startsWith('devtools://') && !w.url().startsWith('chrome-devtools://'));
     if (!page) {
       page = await electronApp.waitForEvent('window', {
-        predicate: (w) => w.url().includes('127.0.0.1:7544'),
-        timeout: 15_000,
+        predicate: (w) =>
+          !w.url().startsWith('devtools://') && !w.url().startsWith('chrome-devtools://'),
+        timeout: 30_000,
       });
     }
-    await page.waitForLoadState('domcontentloaded');
-    // Wait for React hydration — app-header testid proves the app rendered
-    await page.waitForSelector('[data-testid="app-header"]', { timeout: 10_000 });
+
+    await page.waitForURL(/127\.0\.0\.1:7544/, { timeout: 30_000 });
+    await page.waitForLoadState('domcontentloaded', { timeout: 30_000 });
+
+    // Wait for React to mount any app shell/tab content, not one specific header.
+    await page.waitForFunction(
+      () => {
+        const root = document.getElementById('root');
+        if (!root || root.childElementCount === 0) return false;
+
+        return Boolean(
+          document.querySelector('[data-testid="app-header"]') ||
+          document.querySelector('[data-testid="projects-tab-root"]') ||
+          document.querySelector('[data-testid="record-tab-root"]') ||
+          document.querySelector('[data-testid="edit-tab-root"]') ||
+          document.querySelector('[data-testid="export-tab-root"]') ||
+          document.querySelector('[data-testid="motion-tab-root"]') ||
+          document.querySelector('[data-testid="ai-tab-root"]'),
+        );
+      },
+      { timeout: 30_000 },
+    );
+
     await use(page);
   },
 });

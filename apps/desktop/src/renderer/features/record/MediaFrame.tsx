@@ -1,12 +1,7 @@
 import React, { useRef } from 'react';
 import type { RegionCrop } from '@rough-cut/project-model';
 import type { Rect, FitMode } from './template-layout/types.js';
-import {
-  ALL_EDGES,
-  CORNER_EDGES,
-  getHandleStyle,
-  HandleDot,
-} from './useRegionDragResize.js';
+import { ALL_EDGES, CORNER_EDGES, getHandleStyle, HandleDot } from './useRegionDragResize.js';
 import type { Edge } from './useRegionDragResize.js';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -24,6 +19,8 @@ export interface MediaFrameProps {
   borderRadius?: number | string;
   /** Box shadow on the frame */
   shadow?: string;
+  /** Optional visible border on the frame */
+  border?: string;
   /** Z-index for layering */
   zIndex?: number;
   /** Whether this is a circular frame (for PIP camera) */
@@ -54,6 +51,8 @@ export interface MediaFrameProps {
   /** Source resolution for crop math */
   sourceWidth?: number;
   sourceHeight?: number;
+  /** Stable selector for tests */
+  testId?: string;
 }
 
 // ─── Placeholder icons ────────────────────────────────────────────────────────
@@ -62,7 +61,15 @@ function ScreenPlaceholderIcon() {
   return (
     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.5 }}>
       <rect x="2" y="4" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="8" y1="21" x2="16" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line
+        x1="8"
+        y1="21"
+        x2="16"
+        y2="21"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -71,7 +78,12 @@ function CameraPlaceholderIcon() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.5 }}>
       <rect x="2" y="5" width="14" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M16 10l4.5-3v10L16 14" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path
+        d="M16 10l4.5-3v10L16 14"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -89,6 +101,7 @@ export function MediaFrame({
   children,
   borderRadius = 0,
   shadow,
+  border,
   zIndex,
   circular = false,
   label,
@@ -106,6 +119,7 @@ export function MediaFrame({
   cropModeActive = false,
   sourceWidth = 1920,
   sourceHeight = 1080,
+  testId,
 }: MediaFrameProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   // Circular frames override borderRadius to '50%'
@@ -129,6 +143,8 @@ export function MediaFrame({
     overflow: 'hidden',
     borderRadius: resolvedRadius,
     boxShadow: shadow,
+    border,
+    boxSizing: 'border-box',
     zIndex,
     transition,
     cursor,
@@ -144,6 +160,7 @@ export function MediaFrame({
 
     return (
       <div
+        data-testid={testId}
         style={frameStyle}
         onPointerEnter={onPointerEnter}
         onPointerLeave={onPointerLeave}
@@ -190,7 +207,8 @@ export function MediaFrame({
         )}
 
         {/* Resize handles */}
-        {showHandles && onResizeStart &&
+        {showHandles &&
+          onResizeStart &&
           edges.map((edge) => (
             <div
               key={edge}
@@ -230,15 +248,14 @@ export function MediaFrame({
   return (
     <div
       ref={frameRef}
+      data-testid={testId}
       style={frameStyle}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
     >
-      <div style={contentStyle}>
-        {children}
-      </div>
+      <div style={contentStyle}>{children}</div>
 
       {/* Selection border — inside the frame, on top of content */}
       {showBorder && (
@@ -256,7 +273,8 @@ export function MediaFrame({
       )}
 
       {/* Resize handles */}
-      {showHandles && onResizeStart &&
+      {showHandles &&
+        onResizeStart &&
         edges.map((edge) => (
           <div
             key={edge}

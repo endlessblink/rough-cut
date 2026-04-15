@@ -4,11 +4,15 @@ const generateId = (): string => crypto.randomUUID();
 import type {
   ProjectDocument,
   ProjectId,
+  LibraryId,
   AssetId,
   TrackId,
   ClipId,
   EffectId,
   PresetId,
+  LibrarySourceId,
+  LibraryTranscriptSegmentId,
+  VisualAnalysisEntryId,
   Track,
   Clip,
   Asset,
@@ -31,6 +35,11 @@ import type {
   AIAnnotations,
   CaptionSegment,
   TranscriptWord,
+  Library,
+  LibrarySource,
+  LibraryTranscriptSegment,
+  VisualAnalysisEntry,
+  ProjectLibraryReference,
   MotionCompositionId,
   MotionComposition,
 } from './types.js';
@@ -48,6 +57,9 @@ function projectId(): ProjectId {
 function assetId(): AssetId {
   return generateId() as AssetId;
 }
+function libraryId(): LibraryId {
+  return generateId() as LibraryId;
+}
 function trackId(): TrackId {
   return generateId() as TrackId;
 }
@@ -59,6 +71,15 @@ function effectId(): EffectId {
 }
 function presetId(): PresetId {
   return generateId() as PresetId;
+}
+function librarySourceId(): LibrarySourceId {
+  return generateId() as LibrarySourceId;
+}
+function libraryTranscriptSegmentId(): LibraryTranscriptSegmentId {
+  return generateId() as LibraryTranscriptSegmentId;
+}
+function visualAnalysisEntryId(): VisualAnalysisEntryId {
+  return generateId() as VisualAnalysisEntryId;
 }
 function zoomMarkerId(): ZoomMarkerId {
   return generateId() as ZoomMarkerId;
@@ -265,6 +286,85 @@ export function createCaptionSegment(
   };
 }
 
+export function createLibraryTranscriptSegment(
+  startFrame: number,
+  endFrame: number,
+  text: string,
+  words: readonly TranscriptWord[] = [],
+  overrides?: Partial<LibraryTranscriptSegment>,
+): LibraryTranscriptSegment {
+  return {
+    id: libraryTranscriptSegmentId(),
+    startFrame,
+    endFrame,
+    text,
+    words,
+    confidence: 1,
+    ...overrides,
+  };
+}
+
+export function createVisualAnalysisEntry(
+  startFrame: number,
+  endFrame: number,
+  summary: string,
+  overrides?: Partial<VisualAnalysisEntry>,
+): VisualAnalysisEntry {
+  return {
+    id: visualAnalysisEntryId(),
+    startFrame,
+    endFrame,
+    summary,
+    tags: [],
+    metadata: {},
+    ...overrides,
+  };
+}
+
+export function createLibrarySource(
+  type: Asset['type'],
+  filePath: string,
+  overrides?: Partial<LibrarySource>,
+): LibrarySource {
+  return {
+    id: librarySourceId(),
+    type,
+    name: filePath.split(/[\\/]/).pop() || filePath,
+    filePath,
+    duration: 0,
+    transcriptSegments: [],
+    visualAnalysis: [],
+    metadata: {},
+    ...overrides,
+  };
+}
+
+export function createLibrary(name = 'Untitled Library', overrides?: Partial<Library>): Library {
+  const now = new Date().toISOString();
+  return {
+    id: libraryId(),
+    name,
+    createdAt: now,
+    modifiedAt: now,
+    sources: [],
+    metadata: {},
+    ...overrides,
+  };
+}
+
+export function createProjectLibraryReference(
+  library: Library,
+  filePath: string,
+  overrides?: Partial<ProjectLibraryReference>,
+): ProjectLibraryReference {
+  return {
+    libraryId: library.id,
+    name: library.name,
+    filePath,
+    ...overrides,
+  };
+}
+
 export function createDefaultAIAnnotations(): AIAnnotations {
   return {
     captionSegments: [],
@@ -324,6 +424,7 @@ export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocu
     },
     aiAnnotations: createDefaultAIAnnotations(),
     motionCompositions: [],
+    libraryReferences: [],
     ...overrides,
   };
 }

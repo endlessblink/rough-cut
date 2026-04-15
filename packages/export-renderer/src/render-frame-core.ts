@@ -1,4 +1,3 @@
-import { createCanvas, type Canvas, type CanvasRenderingContext2D } from 'canvas';
 import type { RegionCrop } from '@rough-cut/project-model';
 import type { RenderFrame, RenderLayer, ResolvedEffect } from '@rough-cut/frame-resolver';
 
@@ -27,16 +26,9 @@ export interface RenderContext2DLike {
   fillText(text: string, x: number, y: number): void;
   drawImage?(image: unknown, dx: number, dy: number, dWidth: number, dHeight: number): void;
   clip?(): void;
-  getImageData(
-    sx: number,
-    sy: number,
-    sw: number,
-    sh: number,
-  ): { data: Uint8ClampedArray | Uint8Array };
   roundRect?(x: number, y: number, width: number, height: number, radii?: number | number[]): void;
 }
 
-// Palette of colors for clip visualisation — cycles by trackIndex
 const LAYER_COLORS = [
   '#4A90D9',
   '#E67E22',
@@ -52,54 +44,18 @@ function getLayerColor(trackIndex: number): string {
   return LAYER_COLORS[trackIndex % LAYER_COLORS.length] ?? '#888888';
 }
 
-/**
- * Create a reusable canvas for frame rendering.
- */
-export function createRenderCanvas(width: number, height: number): Canvas {
-  return createCanvas(width, height);
-}
-
-/**
- * Render a single RenderFrame to a canvas.
- * Returns the raw RGBA pixel buffer.
- *
- * For v1: renders colored rectangles per layer (no actual video decode).
- * Each layer is drawn as a colored rect with the clip ID as label.
- */
-export function renderFrameToBuffer(
-  canvas: Canvas,
-  ctx: CanvasRenderingContext2D,
-  renderFrame: RenderFrame,
-): Buffer {
-  renderFrameToCanvas(canvas, ctx, renderFrame);
-
-  // Extract raw RGBA buffer — exactly width*height*4 bytes
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  return Buffer.from(imageData.data.buffer);
-}
-
-/**
- * Render a single frame to any compatible 2D canvas.
- */
 export function renderFrameToCanvas(
   canvas: RenderCanvasLike,
   ctx: RenderContext2DLike,
   renderFrame: RenderFrame,
 ): void {
   const { backgroundColor, layers } = renderFrame;
-
-  // Use the canvas's actual pixel dimensions for all rendering.
-  // renderFrame.width/height reflect the project's logical resolution
-  // which may differ from the export resolution; the canvas is always
-  // created at the export settings resolution.
   const width = canvas.width;
   const height = canvas.height;
 
-  // Clear with background
   ctx.fillStyle = backgroundColor;
   ctx.fillRect(0, 0, width, height);
 
-  // Render each layer (z-ordered: index 0 = bottom)
   for (const layer of layers) {
     renderLayer(ctx, layer, width, height, renderFrame.screenCrop, renderFrame.cameraCrop);
   }
@@ -152,10 +108,6 @@ export async function renderFrameToCanvasAccurate(
   }
 }
 
-/**
- * Render a single layer as a colored rectangle with a debug label.
- * Applies transform (translate, scale, rotate, opacity) and basic effects.
- */
 function renderLayer(
   ctx: RenderContext2DLike,
   layer: RenderLayer,
@@ -168,39 +120,28 @@ function renderLayer(
   const { transform, effects, clipId, trackIndex } = layer;
 
   ctx.save();
-
-  // Apply opacity
   ctx.globalAlpha = Math.max(0, Math.min(1, transform.opacity));
-
-  // Translate to position
   ctx.translate(transform.x, transform.y);
 
-  // Apply rotation around the anchor point
   const anchorPx = transform.anchorX * canvasWidth;
   const anchorPy = transform.anchorY * canvasHeight;
   ctx.translate(anchorPx, anchorPy);
   ctx.rotate((transform.rotation * Math.PI) / 180);
   ctx.translate(-anchorPx, -anchorPy);
 
-  // Base rect dimensions (scaled from canvas size)
   let rectX = canvasWidth * 0.1;
   let rectY = canvasHeight * 0.1;
   let rectW = canvasWidth * 0.8;
   let rectH = canvasHeight * 0.8;
 
-  // Apply scale
   const scaledW = rectW * transform.scaleX;
   const scaledH = rectH * transform.scaleY;
-  // Keep rect centred when scaling
   rectX += (rectW - scaledW) / 2;
   rectY += (rectH - scaledH) / 2;
   rectW = scaledW;
   rectH = scaledH;
 
-  // Process effects
   const activeEffects = effects.filter((e) => e.enabled);
-
-  // zoom-pan effect: scale the drawn region
   const zoomPan = activeEffects.find((e) => e.effectType === 'zoom-pan');
   if (zoomPan !== undefined) {
     applyZoomPan(zoomPan, canvasWidth, canvasHeight, (x, y, w, h) => {
@@ -211,16 +152,9 @@ function renderLayer(
     });
   }
 
-  // round-corners effect
   const roundCorners = activeEffects.find((e) => e.effectType === 'round-corners');
   const cornerRadius =
     roundCorners !== undefined ? ((roundCorners.params['radius'] as number | undefined) ?? 12) : 0;
-
-  // gaussian-blur: not supported in 2D canvas — noted, skip
-  const hasBlur = activeEffects.some((e) => e.effectType === 'gaussian-blur');
-  if (hasBlur) {
-    // Would require OffscreenCanvas or custom blur kernel — skipped for v1
-  }
 
   if (videoFrame && typeof ctx.drawImage === 'function') {
     if (cornerRadius > 0 && typeof ctx.roundRect === 'function' && typeof ctx.clip === 'function') {
@@ -231,7 +165,6 @@ function renderLayer(
 
     ctx.drawImage(videoFrame, rectX, rectY, rectW, rectH);
   } else {
-    // Draw the layer rect
     const color = getLayerColor(trackIndex);
     ctx.fillStyle = color;
 
@@ -243,7 +176,6 @@ function renderLayer(
       ctx.fillRect(rectX, rectY, rectW, rectH);
     }
 
-    // Overlay semi-transparent border
     ctx.strokeStyle = 'rgba(255,255,255,0.4)';
     ctx.lineWidth = 2;
     if (cornerRadius > 0 && typeof ctx.roundRect === 'function') {
@@ -254,7 +186,6 @@ function renderLayer(
       ctx.strokeRect(rectX, rectY, rectW, rectH);
     }
 
-    // Debug label: clip ID (last 8 chars for readability) + frame info
     const shortId = clipId.slice(-8);
     const labelText = `clip:${shortId}`;
     const fontSize = Math.max(10, Math.min(20, rectH * 0.12));
@@ -284,7 +215,6 @@ function applyZoomPan(
 
   const scaledW = canvasWidth * scale;
   const scaledH = canvasHeight * scale;
-  // The zoom anchor is at (centerX, centerY) of the canvas
   const anchorX = canvasWidth * centerX;
   const anchorY = canvasHeight * centerY;
   const x = anchorX - anchorX * scale;

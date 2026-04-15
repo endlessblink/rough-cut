@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { PreviewCompositor } from '@rough-cut/preview-renderer';
 import { projectStore } from './use-stores.js';
 import { getPlaybackManager } from './use-playback-manager.js';
@@ -10,10 +10,7 @@ let initPromise: Promise<void> | null = null;
 
 function ensureCompositor(): void {
   if (!sharedCompositor) {
-    sharedCompositor = new PreviewCompositor(
-      { width: 1920, height: 1080 },
-      {},
-    );
+    sharedCompositor = new PreviewCompositor({ width: 1920, height: 1080 }, {});
 
     initPromise = sharedCompositor.init().then((canvas) => {
       sharedCanvas = canvas;
@@ -44,7 +41,8 @@ function attachCanvasToHost(host: HTMLDivElement): void {
     host.appendChild(canvas);
   }
 
-  canvas.style.cssText = 'position:absolute !important;inset:0 !important;width:100% !important;height:100% !important;display:block !important;';
+  canvas.style.cssText =
+    'position:absolute !important;inset:0 !important;width:100% !important;height:100% !important;display:block !important;';
 }
 
 /**
@@ -55,29 +53,47 @@ export function useCompositor(): {
   isReady: boolean;
 } {
   const [isReady, setIsReady] = useState(false);
+  const [hostNode, setHostNode] = useState<HTMLDivElement | null>(null);
 
   ensureCompositor();
 
   const previewRef = useCallback((node: HTMLDivElement | null) => {
-    if (node) {
-      const tryAttach = async () => {
-        if (initPromise) await initPromise;
-        if (sharedCanvas) {
-          attachCanvasToHost(node);
-          setIsReady(true);
-        }
-      };
-      void tryAttach();
-    } else {
+    setHostNode(node);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const tryAttach = async () => {
+      const host = hostNode;
+      if (!host) {
+        setIsReady(false);
+        return;
+      }
+
+      if (initPromise) await initPromise;
+      if (cancelled || hostNode !== host || !sharedCanvas) return;
+
+      attachCanvasToHost(host);
+      setIsReady(true);
+    };
+
+    void tryAttach();
+
+    return () => {
+      cancelled = true;
       const canvas = sharedCanvas;
       if (canvas?.parentElement) {
         const ro = (canvas.parentElement as any).__canvasResizeObserver;
-        if (ro) { ro.disconnect(); delete (canvas.parentElement as any).__canvasResizeObserver; }
+        if (ro) {
+          ro.disconnect();
+          delete (canvas.parentElement as any).__canvasResizeObserver;
+        }
         canvas.parentElement.removeChild(canvas);
       }
       setIsReady(false);
-    }
-  }, []);
+    };
+  }, [hostNode]);
 
   return { previewRef, isReady };
 }

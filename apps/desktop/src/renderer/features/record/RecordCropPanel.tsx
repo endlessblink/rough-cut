@@ -9,9 +9,10 @@ import type { PillOption } from '../../ui/index.js';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface RecordCropPanelProps {
-  screenCrop: RegionCrop;
-  onScreenCropChange: (patch: Partial<RegionCrop>) => void;
-  onScreenCropReset: () => void;
+  targetLabel: string;
+  crop: RegionCrop;
+  onCropChange: (patch: Partial<RegionCrop>) => void;
+  onCropReset: () => void;
   sourceWidth: number;
   sourceHeight: number;
   cropModeActive: boolean;
@@ -30,20 +31,26 @@ const ASPECT_OPTIONS: PillOption<CropAspectRatio>[] = [
 
 function aspectToNumber(a: CropAspectRatio): number | null {
   switch (a) {
-    case '16:9': return 16 / 9;
-    case '9:16': return 9 / 16;
-    case '1:1': return 1;
-    case '4:3': return 4 / 3;
-    default: return null;
+    case '16:9':
+      return 16 / 9;
+    case '9:16':
+      return 9 / 16;
+    case '1:1':
+      return 1;
+    case '4:3':
+      return 4 / 3;
+    default:
+      return null;
   }
 }
 
 // ─── RecordCropPanel ────────────────────────────────────────────────────────
 
 export function RecordCropPanel({
-  screenCrop,
-  onScreenCropChange,
-  onScreenCropReset,
+  targetLabel,
+  crop,
+  onCropChange,
+  onCropReset,
   sourceWidth,
   sourceHeight,
   cropModeActive,
@@ -53,7 +60,7 @@ export function RecordCropPanel({
     if (enabled) {
       const insetX = Math.round(sourceWidth * 0.1);
       const insetY = Math.round(sourceHeight * 0.1);
-      onScreenCropChange({
+      onCropChange({
         enabled: true,
         x: insetX,
         y: insetY,
@@ -62,45 +69,46 @@ export function RecordCropPanel({
       });
     } else {
       onCropModeChange(false);
-      onScreenCropChange({ enabled: false });
+      onCropChange({ enabled: false });
     }
   };
 
   const handleAspectChange = (aspect: CropAspectRatio) => {
-    onScreenCropChange({ aspectRatio: aspect });
+    onCropChange({ aspectRatio: aspect });
 
     const ratio = aspectToNumber(aspect);
     if (ratio) {
-      const currentCenterX = screenCrop.x + screenCrop.width / 2;
-      const currentCenterY = screenCrop.y + screenCrop.height / 2;
+      const currentCenterX = crop.x + crop.width / 2;
+      const currentCenterY = crop.y + crop.height / 2;
 
       let newW: number;
       let newH: number;
 
-      if (screenCrop.width / screenCrop.height > ratio) {
-        newH = screenCrop.height;
+      if (crop.width / crop.height > ratio) {
+        newH = crop.height;
         newW = newH * ratio;
       } else {
-        newW = screenCrop.width;
+        newW = crop.width;
         newH = newW / ratio;
       }
 
       const newX = Math.max(0, Math.min(currentCenterX - newW / 2, sourceWidth - newW));
       const newY = Math.max(0, Math.min(currentCenterY - newH / 2, sourceHeight - newH));
 
-      onScreenCropChange({ width: Math.round(newW), height: Math.round(newH), x: Math.round(newX), y: Math.round(newY) });
+      onCropChange({
+        width: Math.round(newW),
+        height: Math.round(newH),
+        x: Math.round(newX),
+        y: Math.round(newY),
+      });
     }
   };
 
   return (
     <>
-      <RcToggleButton
-        label="Crop screen"
-        value={screenCrop.enabled}
-        onChange={handleToggle}
-      />
+      <RcToggleButton label={`Crop ${targetLabel}`} value={crop.enabled} onChange={handleToggle} />
 
-      {screenCrop.enabled && (
+      {crop.enabled && (
         <>
           <button
             onClick={() => onCropModeChange(!cropModeActive)}
@@ -122,14 +130,17 @@ export function RecordCropPanel({
           <div>
             <ControlLabel label="Aspect ratio" />
             <PillRadioRow
-              value={screenCrop.aspectRatio}
+              value={crop.aspectRatio}
               options={ASPECT_OPTIONS}
               onChange={handleAspectChange}
             />
           </div>
 
           <button
-            onClick={() => { onCropModeChange(false); onScreenCropReset(); }}
+            onClick={() => {
+              onCropModeChange(false);
+              onCropReset();
+            }}
             style={{
               marginTop: 6,
               padding: '4px 10px',

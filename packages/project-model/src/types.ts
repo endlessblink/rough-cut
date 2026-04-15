@@ -1,11 +1,17 @@
 // Branded ID types — nominal typing via intersection with a branded tag
 export type ProjectId = string & { readonly __brand: 'ProjectId' };
+export type LibraryId = string & { readonly __brand: 'LibraryId' };
 export type AssetId = string & { readonly __brand: 'AssetId' };
 export type TrackId = string & { readonly __brand: 'TrackId' };
 export type ClipId = string & { readonly __brand: 'ClipId' };
 export type EffectId = string & { readonly __brand: 'EffectId' };
 export type TransitionId = string & { readonly __brand: 'TransitionId' };
 export type PresetId = string & { readonly __brand: 'PresetId' };
+export type LibrarySourceId = string & { readonly __brand: 'LibrarySourceId' };
+export type LibraryTranscriptSegmentId = string & {
+  readonly __brand: 'LibraryTranscriptSegmentId';
+};
+export type VisualAnalysisEntryId = string & { readonly __brand: 'VisualAnalysisEntryId' };
 
 /**
  * All temporal values in the project model are integer frame numbers.
@@ -157,6 +163,57 @@ export interface AIAnnotations {
   readonly captionSegments: readonly CaptionSegment[];
 }
 
+// --- AI Libraries ---
+
+export interface LibraryTranscriptSegment {
+  readonly id: LibraryTranscriptSegmentId;
+  readonly assetId?: AssetId;
+  readonly startFrame: Frame;
+  readonly endFrame: Frame;
+  readonly text: string;
+  readonly words: readonly TranscriptWord[];
+  readonly confidence: number;
+  readonly language?: string;
+}
+
+export interface VisualAnalysisEntry {
+  readonly id: VisualAnalysisEntryId;
+  readonly assetId?: AssetId;
+  readonly startFrame: Frame;
+  readonly endFrame: Frame;
+  readonly summary: string;
+  readonly tags: readonly string[];
+  readonly confidence?: number;
+  readonly metadata: Record<string, unknown>;
+}
+
+export interface LibrarySource {
+  readonly id: LibrarySourceId;
+  readonly assetId?: AssetId;
+  readonly type: AssetType;
+  readonly name: string;
+  readonly filePath: string;
+  readonly duration: Frame;
+  readonly transcriptSegments: readonly LibraryTranscriptSegment[];
+  readonly visualAnalysis: readonly VisualAnalysisEntry[];
+  readonly metadata: Record<string, unknown>;
+}
+
+export interface Library {
+  readonly id: LibraryId;
+  readonly name: string;
+  readonly createdAt: string;
+  readonly modifiedAt: string;
+  readonly sources: readonly LibrarySource[];
+  readonly metadata: Record<string, unknown>;
+}
+
+export interface ProjectLibraryReference {
+  readonly libraryId: LibraryId;
+  readonly name: string;
+  readonly filePath: string;
+}
+
 // --- Motion Compositions ---
 
 export type MotionCompositionId = string & { readonly __brand: 'MotionCompositionId' };
@@ -289,4 +346,5 @@ export interface ProjectDocument {
   readonly exportSettings: ExportSettings;
   readonly aiAnnotations: AIAnnotations;
   readonly motionCompositions: readonly MotionComposition[];
+  readonly libraryReferences: readonly ProjectLibraryReference[];
 }

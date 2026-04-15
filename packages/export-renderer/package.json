@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./webcodecs": {
+      "types": "./dist/webcodecs.d.ts",
+      "import": "./dist/webcodecs.js"
     }
   },
   "scripts": {
@@ -24,7 +28,8 @@
     "@rough-cut/project-model": "workspace:*",
     "@rough-cut/frame-resolver": "workspace:*",
     "@rough-cut/effect-registry": "workspace:*",
-    "canvas": "^3.1.0"
+    "canvas": "^3.1.0",
+    "mediabunny": "^1.40.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

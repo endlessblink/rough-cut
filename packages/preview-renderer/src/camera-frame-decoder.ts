@@ -40,6 +40,7 @@ export class CameraFrameDecoder {
   private keyframeIndices: number[] = [];
   private timescale = 1;
   private codecConfig: VideoDecoderConfig | null = null;
+  private _lastRequestedSampleIndex = -1;
 
   /** Ring buffer of pre-decoded frames */
   private _buffer: Map<number, VideoFrame> = new Map(); // sampleIndex → frame
@@ -56,7 +57,9 @@ export class CameraFrameDecoder {
   /** Guard: only one getFrame() can be in-flight at a time */
   private _decoding = false;
 
-  get ready(): boolean { return this._ready; }
+  get ready(): boolean {
+    return this._ready;
+  }
 
   /**
    * Initialize: load the MP4, demux with mp4box.js, configure VideoDecoder.
@@ -179,9 +182,14 @@ export class CameraFrameDecoder {
       const sampleIndex = this._findSampleAtTime(timeSeconds);
       if (sampleIndex < 0) return null;
 
+      this._resetForBackwardSeek(sampleIndex);
+
       // Check ring buffer (fast path)
       const buffered = this._buffer.get(sampleIndex);
-      if (buffered) return buffered.clone();
+      if (buffered) {
+        this._lastRequestedSampleIndex = sampleIndex;
+        return buffered.clone();
+      }
 
       // Decode: find nearest keyframe, decode forward to target + ahead
       const kfIndex = this._findNearestKeyframe(sampleIndex);
@@ -205,6 +213,7 @@ export class CameraFrameDecoder {
 
       // Return the requested frame from buffer
       const result = this._buffer.get(sampleIndex);
+      this._lastRequestedSampleIndex = sampleIndex;
       return result ? result.clone() : null;
     } catch (err) {
       console.error('[CameraFrameDecoder] getFrame error:', err);
@@ -240,9 +249,15 @@ export class CameraFrameDecoder {
       const sampleIndex = this._findSampleAtTime(timeSeconds);
       if (sampleIndex < 0) return;
 
+      this._resetForBackwardSeek(sampleIndex);
+
       // Check if we already have enough frames buffered ahead
       let bufferedAhead = 0;
-      for (let i = sampleIndex; i < Math.min(sampleIndex + this._bufferSize, this.samples.length); i++) {
+      for (
+        let i = sampleIndex;
+        i < Math.min(sampleIndex + this._bufferSize, this.samples.length);
+        i++
+      ) {
         if (this._buffer.has(i)) bufferedAhead++;
       }
       // If >60% buffered ahead, skip prefetch
@@ -266,6 +281,7 @@ export class CameraFrameDecoder {
 
       // Store all decoded frames
       this._storePendingFrames(kfIndex);
+      this._lastRequestedSampleIndex = sampleIndex;
     } catch (err) {
       // Close any pending frames on error
       for (const f of this._pendingFrames) f.close();
@@ -284,6 +300,7 @@ export class CameraFrameDecoder {
 
   dispose(): void {
     this._disposed = true;
+    this._lastRequestedSampleIndex = -1;
     this._clearBuffer();
     for (const f of this._pendingFrames) f.close();
     this._pendingFrames = [];
@@ -397,6 +414,28 @@ export class CameraFrameDecoder {
   }
 
   /**
+   * WebCodecs decoders expect monotonically increasing decode timestamps.
+   * When playback jumps backward (for example replaying from 0 after reaching
+   * the end), reset the decoder and drop stale buffered frames first.
+   */
+  private _resetForBackwardSeek(sampleIndex: number): void {
+    if (sampleIndex >= this._lastRequestedSampleIndex) return;
+
+    for (const frame of this._pendingFrames) frame.close();
+    this._pendingFrames = [];
+    this._clearBuffer();
+
+    if (this.decoder && this.decoder.state !== 'closed') {
+      this.decoder.reset();
+      if (this.codecConfig) {
+        this.decoder.configure(this.codecConfig);
+      }
+    }
+
+    this._lastRequestedSampleIndex = -1;
+  }
+
+  /**
    * Extract the avcC (or hvcC) description box from the mp4 track.
    * VideoDecoder needs this for H.264/H.265 initialization.
    *
@@ -412,21 +451,33 @@ export class CameraFrameDecoder {
    * directly from the file buffer — avoids depending on mp4box.js
    * internal serialization methods.
    */
-  private _getAvcDescription(file: ReturnType<typeof createFile>, trackId: number): Uint8Array | undefined {
+  private _getAvcDescription(
+    file: ReturnType<typeof createFile>,
+    trackId: number,
+  ): Uint8Array | undefined {
     if (!this._fileBuffer) return undefined;
 
     // Navigate mp4box.js box tree: trak → mdia → minf → stbl → stsd → entries[0] → avcC/hvcC
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const trak = file.getTrackById(trackId) as any;
-    if (!trak) { console.warn('[CameraFrameDecoder] No trak for id:', trackId); return undefined; }
+    if (!trak) {
+      console.warn('[CameraFrameDecoder] No trak for id:', trackId);
+      return undefined;
+    }
 
     const stsd = trak?.mdia?.minf?.stbl?.stsd;
     const entries = stsd?.entries;
-    if (!entries || entries.length === 0) { console.warn('[CameraFrameDecoder] No stsd entries'); return undefined; }
+    if (!entries || entries.length === 0) {
+      console.warn('[CameraFrameDecoder] No stsd entries');
+      return undefined;
+    }
 
     const entry = entries[0];
     const configBox = entry?.avcC ?? entry?.hvcC;
-    if (!configBox) { console.warn('[CameraFrameDecoder] No avcC/hvcC box found'); return undefined; }
+    if (!configBox) {
+      console.warn('[CameraFrameDecoder] No avcC/hvcC box found');
+      return undefined;
+    }
 
     // Extract raw bytes using the box's position in the file
     // configBox.start = byte offset of box start (including header)
@@ -447,11 +498,17 @@ export class CameraFrameDecoder {
     const view = new Uint8Array(this._fileBuffer);
     const avcCTag = [0x61, 0x76, 0x63, 0x43]; // 'avcC'
     for (let i = 0; i < view.length - 8; i++) {
-      if (view[i + 4] === avcCTag[0] && view[i + 5] === avcCTag[1] &&
-          view[i + 6] === avcCTag[2] && view[i + 7] === avcCTag[3]) {
+      if (
+        view[i + 4] === avcCTag[0] &&
+        view[i + 5] === avcCTag[1] &&
+        view[i + 6] === avcCTag[2] &&
+        view[i + 7] === avcCTag[3]
+      ) {
         // Found avcC box at offset i
-        const boxSize = (view[i]! << 24) | (view[i + 1]! << 16) | (view[i + 2]! << 8) | view[i + 3]!;
-        if (boxSize > 8 && boxSize < 1024) { // sanity check
+        const boxSize =
+          (view[i]! << 24) | (view[i + 1]! << 16) | (view[i + 2]! << 8) | view[i + 3]!;
+        if (boxSize > 8 && boxSize < 1024) {
+          // sanity check
           const content = this._fileBuffer.slice(i + 8, i + boxSize);
           return new Uint8Array(content);
         }

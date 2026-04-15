@@ -19,7 +19,7 @@ Zustand stores own the project model and UI state. Stores are modular -- one per
 
 ### Tab Structure
 
-The app has 5 top-level tabs: **Record**, **Edit**, **Motion**, **AI**, **Export**. Each tab is a different *view* over the same shared project model — they are surfaces, not mini-apps. All tabs read from and write to the same `ProjectDocument`. A clip created in Record appears in Edit; an effect added in Edit is visible in Motion; an AI annotation applied in AI becomes a standard effect in Edit; Export reads the entire model to render final output. Each tab owns its own UI state (panel sizes, selection, local controls) but never its own copy of project data.
+The app has 5 top-level tabs: **Record**, **Edit**, **Motion**, **AI**, **Export**. Each tab is a different _view_ over the same shared project model — they are surfaces, not mini-apps. All tabs read from and write to the same `ProjectDocument`. A clip created in Record appears in Edit; an effect added in Edit is visible in Motion; an AI annotation applied in AI becomes a standard effect in Edit; Export reads the entire model to render final output. Each tab owns its own UI state (panel sizes, selection, local controls) but never its own copy of project data.
 
 ---
 
@@ -153,9 +153,11 @@ The user wants to capture their screen activity -- a product demo, tutorial, or 
 ### 1.3 Data Model Impact
 
 **Reads:**
+
 - `Project.settings` -- to determine target resolution, FPS, and default background for the recording preview.
 
 **Writes:**
+
 - Creates a new `Asset` of type `screen-recording` (and optionally `webcam`, `audio`) when recording stops. The asset's `filePath` points to the raw file saved to the project's media directory.
 - Creates a new `Clip` on the first available video track referencing the new screen-recording asset. Sets `sourceIn = 0`, `sourceOut = asset.duration`, `position` = end of existing content on the track.
 - If webcam was enabled, creates a second `Asset` (type `webcam`) and a `Clip` on video track 2 with a `picture-in-picture` `Effect` storing position, size, and shape parameters.
@@ -163,11 +165,14 @@ The user wants to capture their screen activity -- a product demo, tutorial, or 
 - Applies default `Effect` entries to the screen-recording clip: `rounded-corners`, `shadow`, `background-pad` -- matching whatever the user configured in the sidebar. These effects are serialized so the Edit tab can modify them later.
 
 **Recording config (UI state, not persisted to project model):**
+
 - Selected source ID, region bounds, webcam device ID, mic device ID, system audio enabled, countdown duration, sidebar styling values. Stored in a Zustand `recordingStore` separate from the project store. Last-used config is persisted to `localStorage` for convenience.
+- When no custom recording location is configured, captured media defaults to `~/Documents/Rough Cut/recordings/` instead of `/tmp`. Users can override that path from Settings, and existing projects that still reference legacy `/tmp/rough-cut/recordings` assets are repaired on open by searching the configured location, the persistent default, and the legacy `/tmp` folder by basename.
 
 ### 1.4 Rendering Responsibilities
 
 **Preview pipeline (PixiJS):**
+
 - Renders a real-time composed preview during idle and recording states.
 - Takes the raw `MediaStream` from `desktopCapturer` and draws it as a texture on a PixiJS sprite.
 - Applies visual effects in the GPU pipeline: background fill/gradient behind the capture, padding (inset the capture sprite), rounded corner mask (shader or mask sprite), drop shadow (blur filter on a shadow sprite beneath the capture).
@@ -175,6 +180,7 @@ The user wants to capture their screen activity -- a product demo, tutorial, or 
 - Runs at display refresh rate. Does not need to match project FPS exactly.
 
 **Export pipeline:**
+
 - Not involved during recording. The raw streams are written to disk by `MediaRecorder`. The export pipeline consumes the resulting assets later, during export.
 
 **Boundary:** The Record tab does NOT call FFmpeg or process frames. It writes raw WebM/MKV via `MediaRecorder`. The preview pipeline only provides visual feedback -- it does not produce the recording file. **Clarification (Linux/X11):** On Linux, the main process session manager uses FFmpeg x11grab for screen + audio capture (higher quality than MediaRecorder). The Record tab UI still does not invoke FFmpeg directly — it sends audio config (`micEnabled`, `sysAudioEnabled`) to the main process via IPC, and the main process handles the FFmpeg command entirely.
@@ -208,20 +214,24 @@ The user wants to capture their screen activity -- a product demo, tutorial, or 
 ### 1.7 Test Strategy
 
 **Unit tests:**
+
 - Recording config store: test that changing source, toggling webcam, adjusting sidebar values updates state correctly.
 - Asset creation logic: given a completed recording (mock file path, duration, metadata), verify correct `Asset` and `Clip` objects are produced with correct field values.
 - Countdown timer logic: verify it counts down from the configured value and fires the start callback at zero.
 
 **Integration tests:**
+
 - Source enumeration: mock `desktopCapturer.getSources()` and verify the source picker populates correctly.
 - Recording lifecycle: mock `MediaRecorder`, trigger start -> pause -> resume -> stop, verify the correct sequence of API calls and that the final file path is valid.
 - Asset-to-timeline flow: after a mock recording completes, verify the project store contains the new asset and clip with correct references.
 
 **E2E tests:**
+
 - Full recording flow: open Record tab, select a source, enable webcam (mocked), click REC, wait 2 seconds, click Stop. Verify a file exists in the project directory and a clip appears on the timeline.
 - Settings persistence: adjust sidebar values, switch tabs, return to Record, verify values are restored.
 
 **Visual/snapshot tests:**
+
 - Snapshot the PixiJS preview canvas with a static test image as the capture source. Verify rounded corners, shadow, background, and webcam bubble render correctly against a baseline image.
 
 ---
@@ -283,6 +293,7 @@ The user wants to trim, arrange, and polish their recordings into a finished vid
 ### 2.3 Data Model Impact
 
 **Reads:**
+
 - `Project.compositions[active]` -- the currently active composition.
 - `Track[]` -- all tracks in the active composition, for timeline rendering.
 - `Clip[]` -- all clips, for positioning and rendering on tracks.
@@ -291,6 +302,7 @@ The user wants to trim, arrange, and polish their recordings into a finished vid
 - `Transition[]` -- for rendering transition zones on the timeline and in preview.
 
 **Writes:**
+
 - `Clip` CRUD: create (import/paste), read (display), update (move, trim, rename), delete.
 - `Clip.position` and `Clip.duration` -- on drag-move and edge-trim.
 - `Clip.sourceIn` / `Clip.sourceOut` -- on trimming.
@@ -301,11 +313,13 @@ The user wants to trim, arrange, and polish their recordings into a finished vid
 - `Composition.duration` -- recalculated whenever clips change.
 
 **Undo/Redo:**
+
 - Every write operation pushes a state snapshot (or inverse operation) to an undo stack managed by the project store. Undo pops and applies the previous state. Redo re-applies. The stack is capped (e.g., 100 entries) and cleared on project save to free memory.
 
 ### 2.4 Rendering Responsibilities
 
 **Preview pipeline (PixiJS):**
+
 - Given the current playhead frame, resolves which clips are active on each track.
 - For each active video clip: loads the source frame from the asset (via a frame cache / video decoder), applies the clip's effect stack in order (zoom, blur, rounded corners, color correction, etc.), and composites onto the canvas respecting track order (V1 bottom, V2 top).
 - For transitions: when the playhead is within a transition zone, renders both incoming and outgoing clips and blends them according to the transition type and progress.
@@ -314,6 +328,7 @@ The user wants to trim, arrange, and polish their recordings into a finished vid
 - Target: 30fps playback for a 30fps project on mid-range hardware. Dropped frames are acceptable during scrubbing.
 
 **Export pipeline:**
+
 - Not directly invoked from the Edit tab, but the Edit tab is where the user builds the composition that the export pipeline will render. The project model written here is exactly what the export pipeline reads.
 
 **Boundary:** The Edit tab provides clip/track/effect data to the preview pipeline via the project model. It does not call PixiJS directly -- it updates the store, and a preview renderer component subscribes to store changes and re-renders.
@@ -354,6 +369,7 @@ The user wants to trim, arrange, and polish their recordings into a finished vid
 ### 2.7 Test Strategy
 
 **Unit tests:**
+
 - Clip operations: `splitClip(clipId, frame)` produces two clips with correct `sourceIn`, `sourceOut`, `position`, `duration`. Edge cases: split at frame 0, split at last frame, split when playhead is outside clip bounds (no-op).
 - Trim logic: trimming left edge of a clip adjusts `sourceIn` and `position` without exceeding source bounds. Trimming right edge adjusts `sourceOut` and `duration`.
 - Move logic: moving a clip updates `position`. Moving to another track updates `trackId`. Collision detection: moving a clip into occupied space either blocks or ripples.
@@ -361,16 +377,19 @@ The user wants to trim, arrange, and polish their recordings into a finished vid
 - Effect parameter updates: changing a parameter value persists to the clip's effect. Adding/removing keyframes updates the keyframe array.
 
 **Integration tests:**
+
 - Recording-to-edit flow: after a recording completes (mocked), switch to Edit tab, verify the clip appears on V1 with correct duration.
 - Effect-to-preview flow: add a zoom effect to a clip, verify the preview pipeline receives the updated project model with the effect included.
 - Transition creation: overlap two clips, verify a `Transition` entity is created with correct timing.
 - Keyboard shortcuts: press S with a clip selected and playhead within it, verify split occurs.
 
 **E2E tests:**
+
 - Full edit session: import a test video asset, trim it, split it, add a zoom effect, play back, verify no crashes and correct visual output.
 - Undo/redo marathon: perform 10+ varied operations, undo all, verify clean state, redo all, verify final state.
 
 **Visual/snapshot tests:**
+
 - Render a specific frame of a test composition (known clip with known effects) via the preview pipeline and compare against a baseline image. Tests zoom, blur, rounded corners, compositing order.
 - Timeline component: snapshot the timeline with known clips positioned, verify correct visual layout.
 
@@ -431,21 +450,25 @@ The user wants to add polished motion graphics to their video -- animated intros
 ### 3.3 Data Model Impact
 
 **Reads:**
+
 - `MotionTemplate[]` -- the template library (bundled with the app, loaded at startup).
 - `Project.settings` -- resolution and FPS, so the template preview renders at the correct size and frame rate.
 
 **Writes:**
+
 - When the user clicks "Apply to Timeline":
   - Creates a new `Asset` of type `motion-template` with a reference to the template ID and the user's parameter values. (The asset doesn't point to a media file -- it points to the template definition + parameters. The render pipelines know how to resolve this.)
   - Creates a new `Clip` on a video track referencing this asset. The clip's `duration` matches the configured template duration (in frames). `position` is set to the current playhead or the end of existing content.
   - The `Clip.effects` array may include `Effect` entries generated by the template (e.g., a zoom emphasis template generates a `zoom` effect with keyframes).
 
 **Template definition** (read-only, bundled):
+
 - Each `MotionTemplate` is a JSON/TS definition containing: a mini-`Composition` describing the animation layers and their keyframed properties, a `parameters` schema listing user-configurable fields with types/defaults/constraints, and a thumbnail image path.
 
 ### 3.4 Rendering Responsibilities
 
 **Preview pipeline (PixiJS):**
+
 - Renders the template's mini-composition in the Motion tab's preview canvas. This involves:
   - Creating sprites/text objects for each layer in the template composition.
   - Evaluating keyframed properties at the current preview frame (position, scale, opacity, color).
@@ -454,6 +477,7 @@ The user wants to add polished motion graphics to their video -- animated intros
 - The same rendering logic applies when the template clip appears on the Edit tab timeline -- the preview pipeline resolves the `motion-template` asset type by evaluating its internal composition.
 
 **Export pipeline:**
+
 - Renders template clips frame-by-frame, evaluating the same composition/keyframe data as the preview pipeline but at full quality. Text is rasterized at export resolution. All keyframe interpolation is evaluated per-frame without dropping frames.
 
 **Boundary:** The Motion tab does not implement its own renderer. It constructs a `MotionTemplate` configuration (parameters + template ID) and writes it to the project model. The preview pipeline renders it. The template definitions themselves are declarative data -- not imperative rendering code.
@@ -485,19 +509,23 @@ The user wants to add polished motion graphics to their video -- animated intros
 ### 3.7 Test Strategy
 
 **Unit tests:**
+
 - Template parameter validation: given a template schema, verify that out-of-range values are clamped, missing required fields use defaults, and type mismatches are caught.
 - Keyframe interpolation: given keyframes at frames 0 and 30 with values 0 and 100 and linear easing, verify frame 15 evaluates to 50. Test ease-in, ease-out, ease-in-out, cubic-bezier.
 - Template-to-clip conversion: given a template ID and parameter values, verify the created `Asset` and `Clip` have correct fields.
 
 **Integration tests:**
+
 - Template selection flow: click a template card, verify the preview canvas receives the template composition data and begins rendering.
 - Apply-to-timeline flow: configure a template, click Apply, verify the Edit tab's project store contains a new clip with the correct asset reference and parameters.
 - Parameter change propagation: change a text parameter, verify the preview pipeline re-renders with the new text.
 
 **E2E tests:**
+
 - Full motion flow: open Motion tab, select a lower-third template, change the text to "Test Title", click Apply, switch to Edit tab, position playhead over the clip, verify the preview shows "Test Title" animated.
 
 **Visual/snapshot tests:**
+
 - Render frame 0 and the midpoint frame of each bundled template with default parameters. Compare against baseline images. This catches regressions in template rendering.
 
 ---
@@ -561,11 +589,13 @@ The user wants AI to handle tedious editing tasks: generating captions from spok
 ### 4.3 Data Model Impact
 
 **Reads:**
+
 - `Asset[]` -- to list available assets for analysis and to locate source files for the AI pipeline.
 - `Clip[]` -- to determine which clips correspond to analyzed assets (needed to apply zoom suggestions to the correct clip).
 - `Project.settings.fps` -- to convert between timestamps and frame numbers.
 
 **Writes:**
+
 - `AIAnnotation[]` -- created during analysis. Each annotation is stored at the project level (not on a clip) with a reference to the source asset. Fields:
   - Auto-Caption: `type: 'caption'`, `data: { text: string, words: { word, startFrame, endFrame }[] }`.
   - Smart Zoom: `type: 'zoom-suggestion'`, `data: { centerX, centerY, scale, durationFrames }`.
@@ -577,13 +607,16 @@ The user wants AI to handle tedious editing tasks: generating captions from spok
 ### 4.4 Rendering Responsibilities
 
 **Preview pipeline (PixiJS):**
+
 - In the AI tab, renders a small preview of the source asset at a given frame. For zoom suggestions, overlays a rectangle showing the zoom region and simulates the zoom effect when the user hovers/selects the annotation.
 - After annotations are applied to the timeline, the preview pipeline renders the resulting effects (subtitle text, zoom keyframes) just like any other effect -- no special AI-specific rendering path.
 
 **Export pipeline:**
+
 - No special behavior. Captions and zoom effects applied from AI annotations are standard `Effect` and `Keyframe` entries by the time they reach export. The export pipeline renders them identically to manually-created effects.
 
 **AI processing pipeline** (separate from rendering):
+
 - **Auto-Captions**: Extracts audio from the asset (via FFmpeg), sends to Whisper (local binary or cloud API), receives word-level timestamps, converts to `AIAnnotation[]`.
 - **Smart Zoom**: Analyzes video frames for cursor/mouse movement, click events, and UI focus changes. Uses a frame sampling strategy (not every frame -- e.g., 2-5 fps) to detect regions of interest. Produces `AIAnnotation[]` with zoom suggestions.
 - Both pipelines run in a background process (Electron `utilityProcess` or worker thread) to avoid blocking the UI.
@@ -620,21 +653,25 @@ The user wants AI to handle tedious editing tasks: generating captions from spok
 ### 4.7 Test Strategy
 
 **Unit tests:**
+
 - Whisper output parsing: given a mock Whisper JSON response (word-level timestamps), verify correct conversion to `AIAnnotation[]` with accurate frame numbers at various FPS values.
 - Zoom analysis heuristics: given a sequence of cursor positions across frames, verify the algorithm identifies the correct "points of interest" (large cursor movements, pauses after movement, click positions).
 - Annotation-to-effect conversion: given an accepted caption annotation, verify the created `Effect` has correct type, parameters (text, position, timing), and keyframes. Same for zoom annotations.
 - Provider interface: verify both local and cloud provider implementations conform to the `AIProvider` interface and handle errors gracefully (timeout, invalid response, missing model).
 
 **Integration tests:**
+
 - Full caption flow (mocked): mock the Whisper binary to return a fixed response, run the caption pipeline on a test asset, verify annotations appear in the store.
 - Apply-to-timeline flow: create mock annotations, mark some accepted, click Apply, verify the project model contains the correct effects and keyframes on the correct clips.
 - Provider switching: switch from local to cloud provider, verify the analysis pipeline uses the correct implementation.
 
 **E2E tests:**
+
 - Caption flow with real Whisper (if available in CI): analyze a short test audio file, verify captions are generated and can be applied to the timeline.
 - Smart Zoom flow: analyze a test screen recording with known cursor movements, verify zoom suggestions are generated at the expected timestamps (within a tolerance).
 
 **Visual/snapshot tests:**
+
 - Render a frame with an applied caption effect and compare against a baseline (verifying text position, font, styling).
 - Render a frame at a zoom keyframe and compare against a baseline (verifying scale and center).
 
@@ -694,16 +731,18 @@ The user has finished editing and wants to render their project to a final MP4 f
 
 **Export queue** (right panel): List of export jobs. Each shows the output filename, settings summary, and status (Queued, Processing, Complete, Failed). The currently processing job shows a progress bar (percentage), frame counter (current/total), ETA, and a live thumbnail of the frame being rendered. Completed jobs show a checkmark and "Open File" / "Open Folder" links. Failed jobs show an error message and "Retry" button.
 
-**Output preview**: A static render of the first frame of the composition at the configured export resolution, giving the user a preview of what the output will look like. Includes estimated file size (based on bitrate * duration) and estimated render time (based on a quick benchmark of rendering a few frames).
+**Output preview**: A static render of the first frame of the composition at the configured export resolution, giving the user a preview of what the output will look like. Includes estimated file size (based on bitrate \* duration) and estimated render time (based on a quick benchmark of rendering a few frames).
 
 ### 5.3 Data Model Impact
 
 **Reads:**
+
 - `Project` -- the entire project model is consumed by the export pipeline. Every `Composition`, `Track`, `Clip`, `Effect`, `Keyframe`, `Transition`, and `Asset` is read and resolved.
 - `MotionTemplate` definitions -- to resolve motion template clips.
 - `Asset.filePath` -- to locate source media files for frame decoding.
 
 **Writes:**
+
 - Export jobs are NOT part of the project model. They are transient state stored in an `exportStore` (Zustand). Each job has: `id`, `settings` (resolution, fps, codec, quality, output path), `status`, `progress` (current frame, total frames, percentage, ETA), `error?`.
 - The export tab does NOT modify the project model. It is a pure consumer.
 - On completion, the output file path could optionally be added as an `Asset` to the project for re-import, but this is not required for v1.
@@ -711,10 +750,12 @@ The user has finished editing and wants to render their project to a final MP4 f
 ### 5.4 Rendering Responsibilities
 
 **Preview pipeline (PixiJS):**
+
 - Renders the first frame / poster frame of the composition at export resolution for the output preview. This is a one-shot render, not continuous playback.
 - May render the current frame being exported as a live thumbnail in the job progress display (optional -- the export pipeline could also provide this via an off-screen canvas or buffer).
 
 **Export pipeline (frame-by-frame + FFmpeg):**
+
 - The export renderer is headless and deterministic. It may use Canvas2D or a small headless WebGL context — the only requirement is that given the same project model, it produces the exact same output every time. It is architecturally independent from the PixiJS preview renderer.
 - This is the export pipeline's primary domain. The process:
   1. **Initialize**: Read the full project model. Determine total frame count from the active composition's duration. Set up an FFmpeg process with the configured codec, resolution, FPS, and quality parameters. FFmpeg receives raw frames via stdin pipe (rgba or yuv420p).
@@ -767,12 +808,14 @@ The user has finished editing and wants to render their project to a final MP4 f
 ### 5.7 Test Strategy
 
 **Unit tests:**
+
 - Preset resolution: selecting "YouTube 1080p" produces `{ width: 1920, height: 1080, fps: 30, codec: 'h264', crf: 18 }`.
 - Settings validation: odd resolution values are rejected or auto-corrected to even. Zero/negative FPS is rejected. Invalid output path is caught.
 - File size estimation: given bitrate and duration, verify the estimate is within 20% of actual for known test cases.
 - Frame count calculation: given a composition with known duration and FPS, verify `totalFrames` is correct.
 
 **Integration tests:**
+
 - Export pipeline with simple composition: create a project with a single solid-color clip (no source decoding needed), export 30 frames, verify the output MP4 has exactly 30 frames at the configured resolution and FPS.
 - Multi-track compositing: create a project with overlapping clips on V1 and V2, export, verify V2 renders on top of V1.
 - Effect application: create a project with a clip that has a zoom effect, export one frame at the zoom keyframe, verify the frame matches the expected zoom level.
@@ -780,15 +823,18 @@ The user has finished editing and wants to render their project to a final MP4 f
 - Audio mixing: create a project with two audio clips at different volumes, export, verify the mixed audio has correct levels.
 
 **E2E tests:**
+
 - Full export flow: open a test project with multiple clips, effects, and transitions. Select "YouTube 1080p", click Export Now. Wait for completion. Open the output file and verify it plays correctly.
 - Queue flow: add two export jobs with different settings, verify they process sequentially and both complete.
 - Cancel flow: start an export, cancel it, verify the partial file is cleaned up and the app remains responsive.
 
 **Visual/snapshot tests:**
+
 - Export a single known frame and compare pixel-by-pixel against a baseline rendered by the preview pipeline. Verify preview-to-export consistency.
 - Export a frame with each supported effect type and compare against baselines.
 
 **Performance tests:**
+
 - Benchmark export speed: export a 1-minute 1080p composition and verify it completes within a time budget (e.g., 3 minutes on CI hardware). Track regression over time.
 
 ---
@@ -813,15 +859,15 @@ Each tab handles errors locally with toast notifications for recoverable errors 
 
 ### Keyboard Shortcuts (Global)
 
-| Action | Shortcut |
-|--------|----------|
-| Undo | Ctrl/Cmd+Z |
-| Redo | Ctrl/Cmd+Shift+Z |
-| Save | Ctrl/Cmd+S |
-| Play/Pause | Space |
-| Split | S |
-| Delete | Delete/Backspace |
-| Export | Ctrl/Cmd+E |
+| Action     | Shortcut         |
+| ---------- | ---------------- |
+| Undo       | Ctrl/Cmd+Z       |
+| Redo       | Ctrl/Cmd+Shift+Z |
+| Save       | Ctrl/Cmd+S       |
+| Play/Pause | Space            |
+| Split      | S                |
+| Delete     | Delete/Backspace |
+| Export     | Ctrl/Cmd+E       |
 
 ### Accessibility
 

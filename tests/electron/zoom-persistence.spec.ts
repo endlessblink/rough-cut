@@ -1,17 +1,7 @@
+import { existsSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
-
-function clearZoomSidecars() {
-  const dir = '/tmp/rough-cut/recordings';
-  if (!existsSync(dir)) return;
-  for (const name of readdirSync(dir)) {
-    if (name.endsWith('.zoom.json')) {
-      try { void fs.unlink(join(dir, name)); } catch { /* ignore */ }
-    }
-  }
-}
+import { loadZoomFixture } from './fixtures/zoom-fixture.js';
 
 /**
  * Zoom sidecar persistence:
@@ -21,27 +11,15 @@ function clearZoomSidecars() {
  */
 test.describe('Zoom persistence — sidecar', () => {
   test.beforeEach(async ({ appPage }) => {
-    clearZoomSidecars();
     await navigateToTab(appPage, 'record');
   });
 
   test('adding a marker writes ZoomPresentation to <recording>.zoom.json', async ({ appPage }) => {
-    // Load the last recording so we know the filePath.
-    await appPage.locator('[data-testid="debug-reload"]').click();
-    await appPage.waitForSelector('[data-testid="zoom-host"]', { timeout: 10_000 });
+    const filePath = await loadZoomFixture(appPage);
 
-    const filePath = await appPage.evaluate(() => {
-      type Store = { getState: () => { project: { assets: Array<{ type: string; filePath: string }> } } };
-      const stores = (window as unknown as { __roughcutStores?: { project: Store } }).__roughcutStores;
-      const rec = stores?.project.getState().project.assets.find((a) => a.type === 'recording');
-      return rec?.filePath ?? null;
-    });
     expect(filePath, 'active recording filePath should be set').toBeTruthy();
 
     const sidecarPath = filePath!.replace(/\.(webm|mp4)$/i, '.zoom.json');
-
-    // Remove any stale sidecar from a previous run.
-    if (existsSync(sidecarPath)) await fs.unlink(sidecarPath);
 
     // Add a manual marker.
     await appPage.locator('[data-testid="zoom-add"]').click();

@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { readFile, unlink } from 'node:fs/promises';
 import type { Page } from '@playwright/test';
 
@@ -29,6 +30,14 @@ export async function loadZoomFixture(
     await unlink(sidecarPath).catch(() => {});
   }
 
+  const recordingBaseName = basename(recording.filePath).replace(/\.(webm|mp4)$/i, '');
+  const inferredCursorEventsPath = [
+    recording.metadata?.cursorEventsPath,
+    `${recording.filePath.replace(/\.(webm|mp4)$/i, '.cursor.ndjson')}`,
+    join(dirname(recording.filePath), `${recordingBaseName}.cursor.ndjson`),
+    join('/home/endlessblink/Documents/Rough Cut/recordings', `${recordingBaseName}.cursor.ndjson`),
+  ].find((candidate): candidate is string => Boolean(candidate) && existsSync(candidate));
+
   const sanitizedProject = {
     ...project,
     assets: project.assets.map((asset: any) => {
@@ -38,7 +47,7 @@ export async function loadZoomFixture(
         metadata: {
           ...asset.metadata,
           cursorEventsPath: options.preserveCursorEvents
-            ? (asset.metadata?.cursorEventsPath ?? null)
+            ? (inferredCursorEventsPath ?? null)
             : null,
         },
         presentation: {

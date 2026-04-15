@@ -1,4 +1,11 @@
-import type { ClipId, TrackId, AssetId, CursorStyle, ClickEffect, RegionCrop } from '@rough-cut/project-model';
+import type {
+  ClipId,
+  TrackId,
+  AssetId,
+  CursorStyle,
+  ClickEffect,
+  RegionCrop,
+} from '@rough-cut/project-model';
 import type { ResolvedParams } from '@rough-cut/effect-registry';
 
 /**
@@ -106,4 +113,6 @@ export interface RenderFrame {
   cursor: ResolvedCursorPresentation;
   /** Screen crop viewport (recording-level, source pixel coordinates) */
   screenCrop?: RegionCrop;
+  /** Camera crop viewport (recording-level, source pixel coordinates) */
+  cameraCrop?: RegionCrop;
 }

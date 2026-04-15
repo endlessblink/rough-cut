@@ -1,33 +1,17 @@
 import { promises as fs } from 'node:fs';
-import { existsSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
-
-/** Remove any <recording>.zoom.json sidecars left behind by prior runs
- *  so each test starts from an empty zoom state. */
-function clearZoomSidecars() {
-  const dir = '/tmp/rough-cut/recordings';
-  if (!existsSync(dir)) return;
-  for (const name of readdirSync(dir)) {
-    if (name.endsWith('.zoom.json')) {
-      try { void fs.unlink(join(dir, name)); } catch { /* ignore */ }
-    }
-  }
-}
+import { loadZoomFixture } from './fixtures/zoom-fixture.js';
 
 test.describe('Zoom markers — Record tab', () => {
   test.beforeEach(async ({ appPage }) => {
-    clearZoomSidecars();
     await navigateToTab(appPage, 'record');
+    await loadZoomFixture(appPage);
+    await expect(appPage.locator('[data-testid="zoom-add"]')).toBeEnabled({ timeout: 10_000 });
   });
 
   test('adds a zoom marker via + and applies CSS transform to video host', async ({ appPage }) => {
-    // Load the latest recording so durationFrames > 0 and the + button is enabled.
-    await appPage.locator('[data-testid="debug-reload"]').click();
-
-    // Wait for the recording to load.
-    await appPage.waitForSelector('[data-testid="zoom-host"]', { timeout: 10_000 });
-
     // Click + to add a manual marker at current playhead (default 1s duration).
     await appPage.locator('[data-testid="zoom-add"]').click();
 
@@ -38,9 +22,11 @@ test.describe('Zoom markers — Record tab', () => {
     // Explicitly seek playhead INSIDE the marker range so we test the zoom pipeline.
     await appPage.evaluate(() => {
       type StoreSetState = (patch: { playheadFrame: number }) => void;
-      const stores = (window as unknown as {
-        __roughcutStores?: { transport: { setState: StoreSetState } };
-      }).__roughcutStores;
+      const stores = (
+        window as unknown as {
+          __roughcutStores?: { transport: { setState: StoreSetState } };
+        }
+      ).__roughcutStores;
       stores?.transport.setState({ playheadFrame: 5 });
     });
 
@@ -50,12 +36,12 @@ test.describe('Zoom markers — Record tab', () => {
     // Capture diagnostic snapshot: transform + marker pill attributes + playhead.
     const diag = await appPage.evaluate(() => {
       const host = document.querySelector('[data-testid="zoom-host"]') as HTMLElement | null;
-      const markers = Array.from(
-        document.querySelectorAll('[data-testid="zoom-marker"]'),
-      ).map((el) => ({
-        kind: (el as HTMLElement).getAttribute('data-marker-kind'),
-        title: (el as HTMLElement).getAttribute('title'),
-      }));
+      const markers = Array.from(document.querySelectorAll('[data-testid="zoom-marker"]')).map(
+        (el) => ({
+          kind: (el as HTMLElement).getAttribute('data-marker-kind'),
+          title: (el as HTMLElement).getAttribute('title'),
+        }),
+      );
       return {
         transform: host?.style.transform ?? null,
         markers,
@@ -71,13 +57,13 @@ test.describe('Zoom markers — Record tab', () => {
     // With no marker selected and playhead inside the marker range,
     // scale must be > 1. strengthToScale(1) = 2.5, but during ramp-in may be less.
     // Accept anything > 1.0 — proves the zoom pipeline is active.
-    expect(scale, `scale should be > 1 when playhead is inside a marker: got ${scale}`).toBeGreaterThan(1);
+    expect(
+      scale,
+      `scale should be > 1 when playhead is inside a marker: got ${scale}`,
+    ).toBeGreaterThan(1);
   });
 
   test('right-edge drag handle lengthens the marker', async ({ appPage }) => {
-    await appPage.locator('[data-testid="debug-reload"]').click();
-    await appPage.waitForSelector('[data-testid="zoom-host"]', { timeout: 10_000 });
-
     await appPage.locator('[data-testid="zoom-add"]').click();
     await expect(
       appPage.locator('[data-testid="zoom-marker"][data-marker-kind="manual"]'),
@@ -87,14 +73,42 @@ test.describe('Zoom markers — Record tab', () => {
     await appPage.locator('[data-testid="zoom-marker"][data-marker-kind="manual"]').click();
     await appPage.waitForTimeout(200);
 
-    type Store = { getState: () => { project: { assets: Array<{ presentation?: { zoom?: { markers: Array<{ kind: string; endFrame: number; startFrame: number }> } } }> } } };
-    const readEnd = () => appPage.evaluate(() => {
-      const stores = (window as unknown as { __roughcutStores?: { project: { getState: () => { project: { assets: Array<{ presentation?: { zoom?: { markers: Array<{ kind: string; endFrame: number }> } } }> } } } } }).__roughcutStores;
-      const markers = stores?.project.getState().project.assets
-        .flatMap((a) => a.presentation?.zoom?.markers ?? [])
-        .filter((m) => m.kind === 'manual');
-      return markers?.[0]?.endFrame ?? -1;
-    });
+    type Store = {
+      getState: () => {
+        project: {
+          assets: Array<{
+            presentation?: {
+              zoom?: { markers: Array<{ kind: string; endFrame: number; startFrame: number }> };
+            };
+          }>;
+        };
+      };
+    };
+    const readEnd = () =>
+      appPage.evaluate(() => {
+        const stores = (
+          window as unknown as {
+            __roughcutStores?: {
+              project: {
+                getState: () => {
+                  project: {
+                    assets: Array<{
+                      presentation?: {
+                        zoom?: { markers: Array<{ kind: string; endFrame: number }> };
+                      };
+                    }>;
+                  };
+                };
+              };
+            };
+          }
+        ).__roughcutStores;
+        const markers = stores?.project
+          .getState()
+          .project.assets.flatMap((a) => a.presentation?.zoom?.markers ?? [])
+          .filter((m) => m.kind === 'manual');
+        return markers?.[0]?.endFrame ?? -1;
+      });
     const initialEnd = await readEnd();
 
     // Drag the right edge handle to the right by ~200px.
@@ -112,21 +126,41 @@ test.describe('Zoom markers — Record tab', () => {
     expect(finalEnd, 'right-edge drag should increase endFrame').toBeGreaterThan(initialEnd);
   });
 
-  test('dragging the marker body moves it along the timeline preserving duration', async ({ appPage }) => {
-    await appPage.locator('[data-testid="debug-reload"]').click();
-    await appPage.waitForSelector('[data-testid="zoom-host"]', { timeout: 10_000 });
+  test('dragging the marker body moves it along the timeline preserving duration', async ({
+    appPage,
+  }) => {
     await appPage.locator('[data-testid="zoom-add"]').click();
     await expect(
       appPage.locator('[data-testid="zoom-marker"][data-marker-kind="manual"]'),
     ).toHaveCount(1, { timeout: 5_000 });
 
-    const readMarker = () => appPage.evaluate(() => {
-      const stores = (window as unknown as { __roughcutStores?: { project: { getState: () => { project: { assets: Array<{ presentation?: { zoom?: { markers: Array<{ kind: string; startFrame: number; endFrame: number }> } } }> } } } } }).__roughcutStores;
-      const markers = stores?.project.getState().project.assets
-        .flatMap((a) => a.presentation?.zoom?.markers ?? [])
-        .filter((m) => m.kind === 'manual');
-      return markers?.[0] ?? null;
-    });
+    const readMarker = () =>
+      appPage.evaluate(() => {
+        const stores = (
+          window as unknown as {
+            __roughcutStores?: {
+              project: {
+                getState: () => {
+                  project: {
+                    assets: Array<{
+                      presentation?: {
+                        zoom?: {
+                          markers: Array<{ kind: string; startFrame: number; endFrame: number }>;
+                        };
+                      };
+                    }>;
+                  };
+                };
+              };
+            };
+          }
+        ).__roughcutStores;
+        const markers = stores?.project
+          .getState()
+          .project.assets.flatMap((a) => a.presentation?.zoom?.markers ?? [])
+          .filter((m) => m.kind === 'manual');
+        return markers?.[0] ?? null;
+      });
 
     const before = await readMarker();
     expect(before).not.toBeNull();
@@ -150,14 +184,15 @@ test.describe('Zoom markers — Record tab', () => {
     const afterDur = after!.endFrame - after!.startFrame;
 
     console.log('[zoom-test] move:', { before, after });
-    expect(after!.startFrame, 'startFrame should increase after drag-right').toBeGreaterThan(before!.startFrame);
+    expect(after!.startFrame, 'startFrame should increase after drag-right').toBeGreaterThan(
+      before!.startFrame,
+    );
     expect(afterDur, 'duration should be preserved').toBe(beforeDur);
   });
 
-  test('zoom remains applied when marker is SELECTED and paused (regression: "second play broken")', async ({ appPage }) => {
-    await appPage.locator('[data-testid="debug-reload"]').click();
-    await appPage.waitForSelector('[data-testid="zoom-host"]', { timeout: 10_000 });
-
+  test('zoom remains applied when marker is SELECTED and paused (regression: "second play broken")', async ({
+    appPage,
+  }) => {
     // Add a manual marker.
     await appPage.locator('[data-testid="zoom-add"]').click();
     await expect(
@@ -167,9 +202,11 @@ test.describe('Zoom markers — Record tab', () => {
     // Seek playhead inside marker range.
     await appPage.evaluate(() => {
       type StoreSetState = (patch: { playheadFrame: number }) => void;
-      const stores = (window as unknown as {
-        __roughcutStores?: { transport: { setState: StoreSetState } };
-      }).__roughcutStores;
+      const stores = (
+        window as unknown as {
+          __roughcutStores?: { transport: { setState: StoreSetState } };
+        }
+      ).__roughcutStores;
       stores?.transport.setState({ playheadFrame: 5 });
     });
 
@@ -178,13 +215,70 @@ test.describe('Zoom markers — Record tab', () => {
     await appPage.waitForTimeout(300);
 
     // With marker selected AND playback paused, zoom should STILL be applied.
-    const transform = await appPage.locator('[data-testid="zoom-host"]').first().evaluate(
-      (el) => (el as HTMLElement).style.transform,
-    );
+    const transform = await appPage
+      .locator('[data-testid="zoom-host"]')
+      .first()
+      .evaluate((el) => (el as HTMLElement).style.transform);
     console.log('[zoom-test] transform (selected+paused):', transform);
     const match = transform.match(/scale\(([\d.]+)\)/);
     expect(match).toBeTruthy();
     const scale = parseFloat(match![1]);
-    expect(scale, `scale should be > 1 when selected + paused inside marker: got ${scale}`).toBeGreaterThan(1);
+    expect(
+      scale,
+      `scale should be > 1 when selected + paused inside marker: got ${scale}`,
+    ).toBeGreaterThan(1);
+  });
+
+  test('recreates auto zoom markers after they were removed', async ({ appPage }) => {
+    await loadZoomFixture(appPage);
+    await expect(appPage.locator('[data-testid="zoom-add"]')).toBeEnabled({ timeout: 10_000 });
+
+    const cursorFixturePath = join(tmpdir(), `rough-cut-auto-zoom-${Date.now()}.cursor.ndjson`);
+    await fs.writeFile(
+      cursorFixturePath,
+      [
+        JSON.stringify({ frame: 12, x: 960, y: 540, type: 'down', button: 0 }),
+        JSON.stringify({ frame: 90, x: 1440, y: 810, type: 'down', button: 0 }),
+      ].join('\n') + '\n',
+      'utf-8',
+    );
+
+    await appPage.evaluate(() => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      const state = stores?.project.getState();
+      const activeAssetId = state?.activeAssetId;
+      if (!activeAssetId) return;
+      state.setRecordingAutoZoomIntensity(activeAssetId, 0.5);
+      state.replaceAutoZoomMarkers(activeAssetId, []);
+    });
+
+    await appPage.evaluate((cursorEventsPath) => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      const state = stores?.project.getState();
+      const activeAssetId = state?.activeAssetId;
+      if (!activeAssetId) return;
+      state.updateProject((project: any) => ({
+        ...project,
+        assets: project.assets.map((asset: any) =>
+          asset.id === activeAssetId
+            ? {
+                ...asset,
+                metadata: {
+                  ...asset.metadata,
+                  cursorEventsPath,
+                },
+              }
+            : asset,
+        ),
+      }));
+    }, cursorFixturePath);
+
+    await navigateToTab(appPage, 'record');
+    await appPage.locator('[data-testid="inspector-rail-item"][data-category="zoom"]').click();
+    await appPage.locator('button:has-text("Recreate auto zoom")').click();
+
+    await expect(
+      appPage.locator('[data-testid="zoom-marker"][data-marker-kind="auto"]'),
+    ).toHaveCount(2, { timeout: 5_000 });
   });
 });

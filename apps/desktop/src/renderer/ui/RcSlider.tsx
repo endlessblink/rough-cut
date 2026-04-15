@@ -17,6 +17,7 @@ export function RcSlider({ value, min, max, step = 1, label, onChange }: RcSlide
   const slider = (
     <input
       type="range"
+      aria-label={label}
       min={min}
       max={max}
       step={step}
@@ -39,7 +40,14 @@ export function RcSlider({ value, min, max, step = 1, label, onChange }: RcSlide
         <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.50)', userSelect: 'none' }}>
           {label}
         </span>
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace', userSelect: 'none' }}>
+        <span
+          style={{
+            fontSize: 10,
+            color: 'rgba(255,255,255,0.65)',
+            fontFamily: 'monospace',
+            userSelect: 'none',
+          }}
+        >
           {step < 1 ? value.toFixed(2) : value}
         </span>
       </div>

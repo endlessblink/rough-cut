@@ -17,6 +17,9 @@ export const IPC_CHANNELS = {
   EXPORT_CANCEL: 'export:cancel',
   EXPORT_PROGRESS: 'export:progress',
   EXPORT_COMPLETE: 'export:complete',
+  EXPORT_PROGRESS_EMIT: 'export:progress-emit',
+  EXPORT_COMPLETE_EMIT: 'export:complete-emit',
+  EXPORT_PICK_OUTPUT_PATH: 'export:pick-output-path',
 
   // Recording
   RECORDING_GET_SOURCES: 'recording:get-sources',
@@ -72,6 +75,7 @@ export const IPC_CHANNELS = {
   // File system
   READ_TEXT_FILE: 'fs:read-text-file',
   READ_BINARY_FILE: 'fs:read-binary-file',
+  WRITE_BINARY_FILE: 'fs:write-binary-file',
 
   // Debug (temporary)
   DEBUG_LOAD_LAST_RECORDING: 'debug:load-last-recording',

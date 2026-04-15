@@ -8,6 +8,8 @@ export interface RecordZoomPanelProps {
   zoomIntensity: number;
   onZoomIntensityChange: (value: number) => void;
   zoomMarkerCount: number;
+  canRegenerateAutoZoom: boolean;
+  onRegenerateAutoZoom: () => void;
 }
 
 function intensityLabel(value: number): string {
@@ -22,6 +24,8 @@ export function RecordZoomPanel({
   zoomIntensity,
   onZoomIntensityChange,
   zoomMarkerCount,
+  canRegenerateAutoZoom,
+  onRegenerateAutoZoom,
 }: RecordZoomPanelProps) {
   return (
     <>
@@ -53,6 +57,26 @@ export function RecordZoomPanel({
           <>Add manual markers with the + button on the timeline zoom track.</>
         )}
       </div>
+
+      <button
+        type="button"
+        onClick={onRegenerateAutoZoom}
+        disabled={!canRegenerateAutoZoom}
+        style={{
+          marginTop: 12,
+          width: '100%',
+          padding: '8px 10px',
+          fontSize: 11,
+          fontWeight: 600,
+          color: canRegenerateAutoZoom ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)',
+          background: canRegenerateAutoZoom ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
+          border: '1px solid rgba(255,255,255,0.10)',
+          borderRadius: 6,
+          cursor: canRegenerateAutoZoom ? 'pointer' : 'default',
+        }}
+      >
+        Recreate auto zoom
+      </button>
     </>
   );
 }

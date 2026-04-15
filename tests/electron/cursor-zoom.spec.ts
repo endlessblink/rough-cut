@@ -6,7 +6,7 @@ test.describe('Cursor overlay during zoom', () => {
     appPage,
   }) => {
     await navigateToTab(appPage, 'record');
-    await loadZoomFixture(appPage, { preserveCursorEvents: true });
+    await loadZoomFixture(appPage);
 
     await appPage.locator('[data-testid="zoom-add"]').click();
     await expect(

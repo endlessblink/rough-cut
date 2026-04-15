@@ -37,4 +37,12 @@ describe('migrations', () => {
     expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
     expect(result.id).toBe(project.id);
   });
+
+  it('migrates version 4 documents by adding empty library references', () => {
+    const project = createProject();
+    const legacy = { ...project, version: 4, libraryReferences: undefined };
+    const result = migrate(legacy);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    expect(result.libraryReferences).toEqual([]);
+  });
 });

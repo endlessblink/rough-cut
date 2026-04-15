@@ -1,16 +1,25 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import type { ProjectDocument } from '@rough-cut/project-model';
-import { createProject, createAsset, createClip } from '@rough-cut/project-model';
+import {
+  createProject,
+  createAsset,
+  createClip,
+  createDefaultRecordingPresentation,
+} from '@rough-cut/project-model';
+import type { CursorEvent } from '@rough-cut/project-model';
 import type { RecordingResult } from './env.js';
 import { RecordTab } from './features/record/RecordTab.js';
 import { EditTab } from './features/edit/EditTab.js';
 import { ExportTab } from './features/export/ExportTab.js';
+import { runDesktopExport } from './features/export/run-export.js';
 import { ProjectsTab } from './features/projects/ProjectsTab.js';
 import { AITab } from './features/ai/AITab.js';
 import { MotionTab } from './features/motion/MotionTab.js';
 import type { AppView } from './ui/index.js';
 import { projectStore, transportStore } from './hooks/use-stores.js';
 import { getPlaybackManager } from './hooks/use-playback-manager.js';
+import { parseNdjsonCursorEvents } from './components/cursor-data-loader.js';
+import { generateAutoZoomMarkers } from '@rough-cut/timeline-engine';
 
 function generateProjectName(): string {
   const d = new Date();
@@ -145,8 +154,7 @@ export function App() {
   // --- Flow 4: Trigger export ---
   const handleExport = useCallback(async () => {
     const project = projectStore.getState().project;
-    const settings = project.exportSettings;
-    await window.roughcut.exportStart(project, settings, '/tmp/rough-cut-export.mp4');
+    await runDesktopExport(project);
   }, []);
 
   // --- Recording integration ---
@@ -169,7 +177,7 @@ export function App() {
     transportStore.getState().seekToFrame(0);
 
     // If a camera file was saved alongside the screen recording, create a camera asset first
-    let cameraAssetId: string | undefined;
+    let cameraAssetId: ProjectDocument['assets'][number]['id'] | undefined;
     console.log('[App] Recording result cameraFilePath:', result.cameraFilePath ?? 'NONE');
     if (result.cameraFilePath) {
       const cameraAsset = createAsset('video', result.cameraFilePath, {
@@ -185,6 +193,34 @@ export function App() {
       console.log('[App] Camera asset created:', cameraAssetId, 'path:', result.cameraFilePath);
     }
 
+    let generatedZoom = null;
+    if (result.cursorEventsPath) {
+      try {
+        const ndjson = await window.roughcut.readTextFile(result.cursorEventsPath);
+        if (ndjson) {
+          const cursorEvents = parseNdjsonCursorEvents(ndjson).map<CursorEvent>((event) => ({
+            frame: event.frame,
+            x: event.x,
+            y: event.y,
+            type: event.type as CursorEvent['type'],
+            button: (event.button ?? 0) as CursorEvent['button'],
+          }));
+          generatedZoom = {
+            autoIntensity: 0.5,
+            markers: generateAutoZoomMarkers(
+              cursorEvents,
+              0.5,
+              result.fps,
+              result.width,
+              result.height,
+            ),
+          };
+        }
+      } catch (err) {
+        console.warn('[App] Failed to generate auto zoom from cursor data:', err);
+      }
+    }
+
     const baseAsset = createAsset('recording', result.filePath, {
       duration: result.durationFrames,
       thumbnailPath: result.thumbnailPath,
@@ -196,6 +232,14 @@ export function App() {
         fileSize: result.fileSize,
         cursorEventsPath: result.cursorEventsPath || null,
       },
+      ...(generatedZoom
+        ? {
+            presentation: {
+              ...createDefaultRecordingPresentation(),
+              zoom: generatedZoom,
+            },
+          }
+        : {}),
       ...(cameraAssetId ? { cameraAssetId } : {}),
     });
 
@@ -431,26 +475,8 @@ export function App() {
           minHeight: 0,
         }}
       >
-        {renderTabContent()}
+        {null}
       </div>
-    </div>
-  );
-}
-
-function TabPlaceholder({ name }: { name: string }) {
-  return (
-    <div
-      data-testid={`${name.toLowerCase().replace(/ /g, '')}-tab-root`}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100%',
-        color: '#555',
-        fontSize: 14,
-      }}
-    >
-      {name} tab coming soon
     </div>
   );
 }
