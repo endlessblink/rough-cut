@@ -1,15 +1,29 @@
-import { Application, Graphics, Text, Container, TextStyle, Sprite, Texture, VideoSource, BlurFilter, Filter } from 'pixi.js';
+import 'pixi.js/unsafe-eval';
+import {
+  Application,
+  Graphics,
+  Text,
+  Container,
+  TextStyle,
+  Sprite,
+  Texture,
+  VideoSource,
+  CanvasSource,
+  BlurFilter,
+  Filter,
+} from 'pixi.js';
 import type { ProjectDocument, Asset, RegionCrop } from '@rough-cut/project-model';
 import { resolveFrame } from '@rough-cut/frame-resolver';
 import { registerBuiltinEffects } from '@rough-cut/effect-registry';
 import type { RenderFrame, RenderLayer } from '@rough-cut/frame-resolver';
 import type { CompositorConfig, CompositorState, CompositorEvents } from './types.js';
 import { CameraFrameDecoder } from './camera-frame-decoder.js';
+import { MediaBunnyVideoScrubber } from './media-bunny-video-scrubber.js';
 
 /** Color palette for layer placeholders — cycled deterministically by clipId hash */
 const LAYER_COLORS = [
-  0x4a90d9, 0xe74c3c, 0x2ecc71, 0xf39c12, 0x9b59b6,
-  0x1abc9c, 0xe67e22, 0x3498db, 0xe91e63, 0x00bcd4,
+  0x4a90d9, 0xe74c3c, 0x2ecc71, 0xf39c12, 0x9b59b6, 0x1abc9c, 0xe67e22, 0x3498db, 0xe91e63,
+  0x00bcd4,
 ];
 
 /** Derive a consistent color for a clipId without external libraries */
@@ -27,16 +41,20 @@ interface LayerCache {
   label: Text;
   videoSprite?: Sprite;
   roundCornersMask?: Graphics;
-  circleMask?: Graphics;     // circular mask for camera PiP
-  lastEffectKey?: string;   // serialized effect params for dirty check
+  circleMask?: Graphics; // circular mask for camera PiP
+  lastEffectKey?: string; // serialized effect params for dirty check
   lastEffectOpacity?: number; // cached computed opacity from effects
 }
 
 interface VideoCache {
   video: HTMLVideoElement;
   texture: Texture | null;
+  scrubTexture: Texture | null;
+  scrubber: MediaBunnyVideoScrubber | null;
   loaded: boolean;
   lastSeekTime: number;
+  lastScrubSourceFrame: number;
+  pendingScrubSourceFrame: number | null;
 }
 
 /**
@@ -55,6 +73,8 @@ export class PreviewCompositor {
   private events: CompositorEvents;
   private layerContainer: Container | null = null;
   private initialized = false;
+  private lastRenderedFrame = -1;
+  private lastRenderedProject: ProjectDocument | null = null;
   private _playing = false;
   private _playbackTickerBound: ((ticker: any) => void) | null = null;
 
@@ -65,15 +85,17 @@ export class PreviewCompositor {
   private videoCache: Map<string, VideoCache> = new Map();
 
   // Camera decoder cache — WebCodecs-based, frame-locked to screen
-  private cameraDecoders: Map<string, {
-    decoder: CameraFrameDecoder;
-    texture: Texture | null;
-    canvas: HTMLCanvasElement | null;
-    ctx: CanvasRenderingContext2D | null;
-    ready: boolean;
-    lastDecodedTime: number;
-  }> = new Map();
-
+  private cameraDecoders: Map<
+    string,
+    {
+      decoder: CameraFrameDecoder;
+      texture: Texture | null;
+      canvas: HTMLCanvasElement | null;
+      ctx: CanvasRenderingContext2D | null;
+      ready: boolean;
+      lastDecodedTime: number;
+    }
+  > = new Map();
 
   constructor(config: CompositorConfig = {}, events: CompositorEvents = {}) {
     this.config = {
@@ -115,7 +137,7 @@ export class PreviewCompositor {
 
     // If setProject was called before init finished, render now
     if (this.project) {
-      this.renderCurrentFrame();
+      this.renderCurrentFrame(true);
     }
 
     return this.app.canvas as HTMLCanvasElement;
@@ -139,6 +161,8 @@ export class PreviewCompositor {
         vc.video.pause();
         vc.video.src = '';
         vc.texture?.destroy();
+        vc.scrubTexture?.destroy();
+        vc.scrubber?.dispose();
       }
       this.videoCache.clear();
       for (const entry of this.cameraDecoders.values()) {
@@ -161,7 +185,7 @@ export class PreviewCompositor {
     // renders at source recording resolution (1920x1080).  CSS scaling handles
     // the display fit.
     if (this.initialized && this.app?.renderer) {
-      this.renderCurrentFrame();
+      this.renderCurrentFrame(true);
     }
   }
 
@@ -169,17 +193,17 @@ export class PreviewCompositor {
   play(): void {
     this._playing = true;
     const fps = this.project?.settings.frameRate ?? 30;
-    console.info('[compositor] play() — videoCache size:', this.videoCache.size);
     for (const [assetId, vc] of this.videoCache.entries()) {
-      console.info(`[compositor] play() asset=${assetId} loaded=${vc.loaded} readyState=${vc.video.readyState} muted=${vc.video.muted} src=${vc.video.src.slice(-40)}`);
       if (vc.loaded && vc.video.readyState >= 2) {
-        vc.video.currentTime = this.currentFrame / fps;
+        vc.video.currentTime =
+          this.resolveMediaTimeForAsset(assetId, this.currentFrame) ?? this.currentFrame / fps;
         vc.video.muted = false; // unmute for audio playback
-        vc.video.play().then(() => {
-          console.info(`[compositor] play() OK — muted=${vc.video.muted} volume=${vc.video.volume} paused=${vc.video.paused}`);
-        }).catch((e) => {
-          console.error('[compositor] play() FAILED:', e);
-        });
+        vc.video
+          .play()
+          .then(() => {})
+          .catch((e) => {
+            console.error('[compositor] play() FAILED:', e);
+          });
         if (vc.texture?.source) {
           (vc.texture.source as VideoSource).autoUpdate = true;
         }
@@ -208,6 +232,18 @@ export class PreviewCompositor {
     return -1;
   }
 
+  /** Map native video playback back to the project timeline frame. */
+  getPlaybackFrame(): number {
+    const fps = this.project?.settings.frameRate ?? 30;
+    for (const [assetId, vc] of this.videoCache.entries()) {
+      if (vc.loaded && vc.video.readyState >= 2) {
+        const sourceFrame = Math.round(vc.video.currentTime * fps);
+        return this.resolveTimelineFrameForAsset(assetId, sourceFrame) ?? sourceFrame;
+      }
+    }
+    return -1;
+  }
+
   /** Check if native video playback is active */
   isPlayingNative(): boolean {
     return this._playing;
@@ -224,11 +260,12 @@ export class PreviewCompositor {
       const timeSec = this.getVideoCurrentTime();
       if (timeSec < 0) return;
       const fps = this.project?.settings.frameRate ?? 30;
-      this.currentFrame = Math.round(timeSec * fps);
+      const playbackFrame = this.getPlaybackFrame();
+      this.currentFrame = playbackFrame >= 0 ? playbackFrame : Math.round(timeSec * fps);
       // Re-render for zoom/transform updates (but renderCurrentFrame won't seek video)
       this.renderCurrentFrame();
       // Sync playhead UI
-      onTimeSync(timeSec);
+      onTimeSync(this.currentFrame / fps);
     };
     this.app.ticker.add(this._playbackTickerBound);
   }
@@ -265,6 +302,7 @@ export class PreviewCompositor {
     this.config.width = width;
     this.config.height = height;
     this.app?.renderer.resize(width, height);
+    this.renderCurrentFrame(true);
   }
 
   /** Clean up PixiJS resources */
@@ -278,6 +316,8 @@ export class PreviewCompositor {
       vc.video.pause();
       vc.video.src = '';
       vc.texture?.destroy();
+      vc.scrubTexture?.destroy();
+      vc.scrubber?.dispose();
     }
     this.videoCache.clear();
     for (const entry of this.cameraDecoders.values()) {
@@ -289,6 +329,8 @@ export class PreviewCompositor {
     this.layerContainer = null;
     this.app?.destroy();
     this.app = null;
+    this.lastRenderedFrame = -1;
+    this.lastRenderedProject = null;
   }
 
   private setState(next: CompositorState): void {
@@ -297,30 +339,20 @@ export class PreviewCompositor {
   }
 
   /** Render the current frame using resolveFrame + PixiJS */
-  private renderCurrentFrame(): void {
+  private renderCurrentFrame(force = false): void {
     if (!this.initialized || !this.app || !this.project) return;
+    if (
+      !force &&
+      this.lastRenderedFrame === this.currentFrame &&
+      this.lastRenderedProject === this.project
+    ) {
+      return;
+    }
 
     const renderFrame = resolveFrame(this.project, this.currentFrame);
-    // Diagnostic: log layers and project state on first render
-    if (this.currentFrame === 0 && this.project) {
-      const tracks = this.project.composition.tracks;
-      console.info('[compositor] Project tracks:', tracks.map(t => ({
-        id: t.id.slice(0, 8), type: t.type, clips: t.clips.length, visible: t.visible,
-      })));
-      for (const t of tracks) {
-        for (const c of t.clips) {
-          const a = this.project.assets.find(a => a.id === c.assetId);
-          console.info('[compositor]   clip:', c.id.slice(0, 8), 'asset:', c.assetId.slice(0, 8),
-            'type:', a?.type, 'isCamera:', (a?.metadata as Record<string, unknown> | undefined)?.isCamera,
-            'range:', c.timelineIn, '-', c.timelineOut);
-        }
-      }
-      console.info('[compositor] Assets:', this.project.assets.map(a => ({
-        id: a.id.slice(0, 8), type: a.type, isCamera: (a.metadata as Record<string, unknown> | undefined)?.isCamera,
-      })));
-      console.info('[compositor] Resolved layers:', renderFrame.layers.length);
-    }
     this.renderRenderFrame(renderFrame);
+    this.lastRenderedFrame = this.currentFrame;
+    this.lastRenderedProject = this.project;
     this.events.onFrameRendered?.(this.currentFrame);
   }
 
@@ -372,7 +404,6 @@ export class PreviewCompositor {
 
     const video = document.createElement('video');
     const mediaSrc = `media://${filePath}`;
-    console.info('[compositor] Creating video element, src:', mediaSrc);
     video.src = mediaSrc;
     video.crossOrigin = 'anonymous';
     video.preload = 'auto';
@@ -382,34 +413,48 @@ export class PreviewCompositor {
     vc = {
       video,
       texture: null,
+      scrubTexture: null,
+      scrubber: null,
       loaded: false,
       lastSeekTime: -1,
+      lastScrubSourceFrame: -1,
+      pendingScrubSourceFrame: null,
     };
 
     // Once metadata is loaded, create the PixiJS texture
-    video.addEventListener('loadeddata', () => {
-      if (!vc) return;
-      try {
-        const videoSource = new VideoSource({ resource: video, autoPlay: false });
-        vc.texture = new Texture({ source: videoSource });
-        vc.loaded = true;
-        // If playback is active, auto-start this newly loaded video
-        if (this._playing) {
-          vc.video.currentTime = this.currentFrame / (this.project?.settings.frameRate ?? 30);
-          vc.video.muted = false; // unmute for audio playback
-          vc.video.play().catch(() => {});
-          videoSource.autoUpdate = true;
+    video.addEventListener(
+      'loadeddata',
+      () => {
+        if (!vc) return;
+        try {
+          const videoSource = new VideoSource({ resource: video, autoPlay: false });
+          vc.texture = new Texture({ source: videoSource });
+          vc.loaded = true;
+          // If playback is active, auto-start this newly loaded video
+          if (this._playing) {
+            vc.video.currentTime =
+              this.resolveMediaTimeForAsset(assetId, this.currentFrame) ??
+              this.currentFrame / (this.project?.settings.frameRate ?? 30);
+            vc.video.muted = false; // unmute for audio playback
+            vc.video.play().catch(() => {});
+            videoSource.autoUpdate = true;
+          }
+          this.renderCurrentFrame(true);
+        } catch {
+          vc.loaded = false;
         }
-        this.renderCurrentFrame();
-      } catch {
-        vc.loaded = false;
-      }
-    }, { once: true });
+      },
+      { once: true },
+    );
 
-    video.addEventListener('error', () => {
-      console.warn(`[compositor] Failed to load video: ${filePath}`, video.error);
-      if (vc) vc.loaded = false;
-    }, { once: true });
+    video.addEventListener(
+      'error',
+      () => {
+        console.warn(`[compositor] Failed to load video: ${filePath}`, video.error);
+        if (vc) vc.loaded = false;
+      },
+      { once: true },
+    );
 
     this.videoCache.set(assetId, vc);
     return vc;
@@ -418,7 +463,12 @@ export class PreviewCompositor {
   // Camera rendering is handled by CameraPlaybackCanvas (React template slot).
   // The compositor no longer decodes camera frames — it skips camera layers in renderLayer().
 
-  private renderLayer(layer: RenderLayer, frameWidth: number, frameHeight: number, screenCrop?: RegionCrop): void {
+  private renderLayer(
+    layer: RenderLayer,
+    frameWidth: number,
+    frameHeight: number,
+    screenCrop?: RegionCrop,
+  ): void {
     if (!this.layerContainer) return;
 
     const { clipId, assetId, sourceFrame, transform, effects } = layer;
@@ -428,7 +478,8 @@ export class PreviewCompositor {
     const fps = this.project?.settings.frameRate ?? 30;
 
     // Check if this asset has a video file we can display
-    const isVideoAsset = asset && (asset.type === 'recording' || asset.type === 'video') && asset.filePath;
+    const isVideoAsset =
+      asset && (asset.type === 'recording' || asset.type === 'video') && asset.filePath;
     const isCamera = !!(asset?.metadata as Record<string, unknown> | undefined)?.isCamera;
     let videoCache: VideoCache | null = null;
 
@@ -440,17 +491,17 @@ export class PreviewCompositor {
       // Screen/other video: HTMLVideoElement path (unchanged)
       videoCache = this.getOrCreateVideo(assetId, asset.filePath);
 
-      // Seek the video to the correct source frame time (only when NOT in native playback)
+      // Native video playback stays on the HTMLVideoElement path. Paused scrubbing
+      // requests an exact decoded frame through MediaBunny to avoid seek drift.
       if (videoCache.loaded && videoCache.video.readyState >= 2) {
         if (!this._playing) {
           const targetTime = sourceFrame / fps;
-          // Only seek if we're not already at the right time (avoid unnecessary seeks)
           if (Math.abs(videoCache.video.currentTime - targetTime) > 0.02) {
             videoCache.video.currentTime = targetTime;
             videoCache.lastSeekTime = targetTime;
           }
-          // Update the texture source to reflect the current frame
-          if (videoCache.texture?.source) {
+          this.requestAccurateVideoFrame(videoCache, asset.filePath, sourceFrame, fps);
+          if (videoCache.lastScrubSourceFrame !== sourceFrame && videoCache.texture?.source) {
             (videoCache.texture.source as VideoSource).update();
           }
         }
@@ -459,7 +510,11 @@ export class PreviewCompositor {
     }
 
     // Decide: render video sprite or placeholder
-    const useVideo = !!(videoCache?.loaded && videoCache.texture);
+    const activeTexture =
+      !this._playing && videoCache?.lastScrubSourceFrame === sourceFrame && videoCache.scrubTexture
+        ? videoCache.scrubTexture
+        : videoCache?.texture;
+    const useVideo = !!(videoCache?.loaded && activeTexture);
 
     let cached = this.layerCache.get(clipId);
 
@@ -486,7 +541,6 @@ export class PreviewCompositor {
 
     const { container, rect, label } = cached;
 
-    const activeTexture = videoCache?.texture;
     if (useVideo && activeTexture) {
       // ── Video-backed rendering ──
       // Hide placeholder rect and label
@@ -575,9 +629,7 @@ export class PreviewCompositor {
     // destroy+rebuild cycle when nothing has changed between frames.
     // For round-corners we also include the mask target dimensions so
     // that resizing the sprite correctly invalidates the cached mask.
-    const roundCornersEffect = effects.find(
-      (e) => e.enabled && e.effectType === 'round-corners',
-    );
+    const roundCornersEffect = effects.find((e) => e.enabled && e.effectType === 'round-corners');
     let maskDimSuffix = '';
     if (roundCornersEffect) {
       const maskTarget = cached.videoSprite?.visible ? cached.videoSprite : rect;
@@ -689,5 +741,77 @@ export class PreviewCompositor {
       cached.circleMask.destroy();
       cached.circleMask = undefined;
     }
+  }
+
+  private resolveMediaTimeForAsset(assetId: string, timelineFrame: number): number | null {
+    if (!this.project) return null;
+
+    const fps = this.project.settings.frameRate ?? 30;
+    const renderFrame = resolveFrame(this.project, timelineFrame);
+    const layer = renderFrame.layers.find((entry) => entry.assetId === assetId);
+    return layer ? layer.sourceFrame / fps : null;
+  }
+
+  private resolveTimelineFrameForAsset(
+    assetId: string,
+    sourceFrame: number,
+    hintFrame = this.currentFrame,
+  ): number | null {
+    if (!this.project) return null;
+
+    let bestFrame: number | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const track of this.project.composition.tracks) {
+      for (const clip of track.clips) {
+        if (clip.assetId !== assetId) continue;
+
+        const clipDuration = clip.timelineOut - clip.timelineIn;
+        const sourceStart = clip.sourceIn;
+        const sourceEnd = clip.sourceIn + clipDuration;
+        if (sourceFrame < sourceStart || sourceFrame >= sourceEnd) continue;
+
+        const timelineFrame = clip.timelineIn + (sourceFrame - clip.sourceIn);
+        const distance = Math.abs(timelineFrame - hintFrame);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestFrame = timelineFrame;
+        }
+      }
+    }
+
+    return bestFrame;
+  }
+
+  private requestAccurateVideoFrame(
+    videoCache: VideoCache,
+    filePath: string,
+    sourceFrame: number,
+    fps: number,
+  ): void {
+    if (videoCache.pendingScrubSourceFrame === sourceFrame) return;
+    if (videoCache.lastScrubSourceFrame === sourceFrame) return;
+
+    videoCache.pendingScrubSourceFrame = sourceFrame;
+    videoCache.scrubber ??= new MediaBunnyVideoScrubber(filePath);
+
+    void videoCache.scrubber.getFrameCanvas(sourceFrame / fps).then((canvas) => {
+      if (!canvas) {
+        if (videoCache.pendingScrubSourceFrame === sourceFrame) {
+          videoCache.pendingScrubSourceFrame = null;
+        }
+        return;
+      }
+      if (videoCache.pendingScrubSourceFrame !== sourceFrame) return;
+
+      videoCache.scrubTexture?.destroy();
+      videoCache.scrubTexture = new Texture({ source: new CanvasSource({ resource: canvas }) });
+      videoCache.lastScrubSourceFrame = sourceFrame;
+      videoCache.pendingScrubSourceFrame = null;
+
+      if (!this._playing) {
+        this.renderCurrentFrame(true);
+      }
+    });
   }
 }

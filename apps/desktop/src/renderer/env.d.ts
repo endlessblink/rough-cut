@@ -1,5 +1,11 @@
-import type { ProjectDocument, ExportSettings } from '@rough-cut/project-model';
+import type {
+  ProjectDocument,
+  LibraryDocument,
+  LibraryTranscriptSegment,
+  ExportSettings,
+} from '@rough-cut/project-model';
 import type { ExportProgress, ExportResult } from '@rough-cut/export-renderer';
+import type { RecordingConfigPatch, RecordingConfigState } from '@rough-cut/store';
 
 // ---- Storage types ----
 
@@ -26,6 +32,11 @@ export interface CaptureSource {
   name: string;
   type: 'screen' | 'window';
   thumbnailDataUrl: string;
+}
+
+export interface SystemAudioSourceOption {
+  id: string;
+  label: string;
 }
 
 export interface RecordingMetadata {
@@ -57,6 +68,10 @@ export interface RoughCutAPI {
   projectSaveAs(project: ProjectDocument): Promise<string | null>;
   projectNew(): Promise<null>;
   projectOpenPath(filePath: string): Promise<ProjectDocument>;
+  libraryOpen(): Promise<{ library: LibraryDocument; filePath: string } | null>;
+  librarySave(library: LibraryDocument, filePath: string): Promise<boolean>;
+  librarySaveAs(library: LibraryDocument): Promise<string | null>;
+  libraryOpenPath(filePath: string): Promise<LibraryDocument>;
 
   // Export
   exportStart(
@@ -73,9 +88,15 @@ export interface RoughCutAPI {
     projectName: string,
     format: ExportSettings['format'],
   ): Promise<string | null>;
+  exportFinalizeMedia(
+    project: ProjectDocument,
+    videoPath: string,
+    outputPath: string,
+  ): Promise<{ outputPath: string; audioIncluded: boolean }>;
 
   // Recording
   recordingGetSources(): Promise<CaptureSource[]>;
+  recordingGetSystemAudioSources(): Promise<SystemAudioSourceOption[]>;
   recordingSaveRecording(
     buffer: ArrayBuffer,
     metadata: RecordingMetadata,
@@ -118,9 +139,17 @@ export interface RoughCutAPI {
   openRecordingPanel(): Promise<void>;
   closeRecordingPanel(): Promise<void>;
   panelSetSource(sourceId: string): void;
+  recordingConfigGet(): Promise<Omit<RecordingConfigState, 'hydrated'>>;
+  recordingConfigUpdate(
+    patch: RecordingConfigPatch,
+  ): Promise<Omit<RecordingConfigState, 'hydrated'>>;
+  onRecordingConfigChanged(
+    callback: (config: Omit<RecordingConfigState, 'hydrated'>) => void,
+  ): () => void;
   panelStartRecording(audioConfig?: {
     micEnabled?: boolean;
     sysAudioEnabled?: boolean;
+    selectedSystemAudioSourceId?: string | null;
   }): Promise<void>;
   panelStopRecording(): Promise<void>;
   panelPause(): void;
@@ -138,6 +167,15 @@ export interface RoughCutAPI {
   aiSetApiKey(provider: string, apiKey: string): Promise<boolean>;
   aiGetProviderConfig(): Promise<{ provider: string }>;
   aiSetProviderConfig(provider: string): Promise<boolean>;
+  aiTranscribeLibrarySource(
+    libraryFilePath: string,
+    sourceId: string,
+    fps?: number,
+  ): Promise<{
+    library: LibraryDocument;
+    sourceId: string;
+    transcriptSegments: readonly LibraryTranscriptSegment[];
+  }>;
   aiAnalyzeCaptions(
     assets: Array<{ id: string; filePath: string }>,
     fps: number,
@@ -174,6 +212,7 @@ export interface RoughCutAPI {
     recordingFilePath: string,
     presentation: { autoIntensity: number; markers: readonly unknown[] },
   ): Promise<boolean>;
+  storageGetAutoZoomIntensity(): Promise<number>;
 }
 
 declare global {

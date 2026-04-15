@@ -1,19 +1,385 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net, session, desktopCapturer, screen } from 'electron';
-import { join, dirname } from 'node:path';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  shell,
+  protocol,
+  net,
+  session,
+  desktopCapturer,
+  screen,
+} from 'electron';
+import { join, dirname, basename, extname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, rename, unlink } from 'node:fs/promises';
 import { existsSync, mkdirSync, statSync, createReadStream, readdirSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { promisify } from 'node:util';
+import { execFile as execFileCallback, spawn } from 'node:child_process';
+import { Readable } from 'node:stream';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { getSources, saveRecording } from './recording/capture-service.mjs';
+import { discoverAudioSources } from './recording/audio-sources.mjs';
 import { initSessionManager } from './recording/recording-session-manager.mjs';
-import { getRecentProjects, addRecentProject, removeRecentProject, clearRecentProjects, getRecordingLocation, setRecordingLocation, getFavoriteLocations, addFavoriteLocation, removeFavoriteLocation } from './recent-projects-service.mjs';
+import {
+  getRecentProjects,
+  addRecentProject,
+  removeRecentProject,
+  clearRecentProjects,
+  getRecordingLocation,
+  setRecordingLocation,
+  getFavoriteLocations,
+  addFavoriteLocation,
+  removeFavoriteLocation,
+  getRecordingConfig,
+  setRecordingConfig,
+} from './recent-projects-service.mjs';
 import { registerAIHandlers } from './ai/ai-service.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 let mainWindow = null;
+let currentExportFinalizeProcess = null;
+const execFile = promisify(execFileCallback);
+
+const DEFAULT_RECORDING_CONFIG = {
+  recordMode: 'fullscreen',
+  selectedSourceId: null,
+  micEnabled: true,
+  sysAudioEnabled: true,
+  cameraEnabled: true,
+  selectedMicDeviceId: null,
+  selectedCameraDeviceId: null,
+  selectedSystemAudioSourceId: null,
+};
+
+let recordingConfig = { ...DEFAULT_RECORDING_CONFIG, ...getRecordingConfig() };
+
+function broadcastRecordingConfig() {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(IPC_CHANNELS.RECORDING_CONFIG_CHANGED, recordingConfig);
+    }
+  }
+}
+
+function applyRecordingConfigPatch(patch = {}) {
+  const next = { ...recordingConfig };
+  for (const key of Object.keys(DEFAULT_RECORDING_CONFIG)) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      next[key] = patch[key];
+    }
+  }
+  recordingConfig = next;
+  setRecordingConfig(recordingConfig);
+  return recordingConfig;
+}
+
+function getDefaultProjectDir() {
+  return join(app.getPath('documents'), 'Rough Cut');
+}
+
+function sanitizeFileStem(value) {
+  return (value || 'rough-cut-export').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'rough-cut-export';
+}
+
+function getDefaultRecordingsDir() {
+  return join(getDefaultProjectDir(), 'recordings');
+}
+
+const PROJECT_FILE_FILTER = { name: 'Rough Cut Project', extensions: ['roughcut'] };
+const LIBRARY_FILE_FILTER = { name: 'Rough Cut Library', extensions: ['roughcutlib'] };
+
+function getRecordingSearchDirs() {
+  const dirs = [];
+  const configuredLocation = getRecordingLocation();
+  if (configuredLocation) dirs.push(configuredLocation);
+
+  const defaultRecordingsDir = getDefaultRecordingsDir();
+  if (!dirs.includes(defaultRecordingsDir)) dirs.push(defaultRecordingsDir);
+
+  const legacyTmpDir = '/tmp/rough-cut/recordings';
+  if (!dirs.includes(legacyTmpDir)) dirs.push(legacyTmpDir);
+
+  return dirs;
+}
+
+function resolveExistingMediaPath(filePath) {
+  if (!filePath) return filePath;
+  if (existsSync(filePath)) return filePath;
+
+  const fileName = basename(filePath);
+  for (const dir of getRecordingSearchDirs()) {
+    const candidate = join(dir, fileName);
+    if (existsSync(candidate)) return candidate;
+  }
+
+  return filePath;
+}
+
+function repairProjectMediaPaths(project) {
+  if (!project || !Array.isArray(project.assets)) return project;
+
+  return {
+    ...project,
+    assets: project.assets.map((asset) => ({
+      ...asset,
+      ...(asset.filePath ? { filePath: resolveExistingMediaPath(asset.filePath) } : {}),
+      ...(asset.thumbnailPath
+        ? { thumbnailPath: resolveExistingMediaPath(asset.thumbnailPath) }
+        : {}),
+      ...(asset.metadata && typeof asset.metadata === 'object'
+        ? {
+            metadata: {
+              ...asset.metadata,
+              ...(asset.metadata.cursorEventsPath
+                ? { cursorEventsPath: resolveExistingMediaPath(asset.metadata.cursorEventsPath) }
+                : {}),
+            },
+          }
+        : {}),
+    })),
+  };
+}
+
+function collectExportAudioSegments(project) {
+  if (!project?.composition?.tracks || !Array.isArray(project.assets)) return [];
+
+  const assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
+  const cameraAssetIds = new Set(
+    project.assets.map((asset) => asset.cameraAssetId).filter(Boolean),
+  );
+  const segments = project.composition.tracks
+    .filter((track) => track.visible && track.volume > 0)
+    .flatMap((track) =>
+      track.clips
+        .filter((clip) => clip.enabled && clip.timelineOut > clip.timelineIn)
+        .map((clip) => ({ clip, track, asset: assetsById.get(clip.assetId) ?? null }))
+        .filter(
+          (entry) =>
+            entry.asset &&
+            entry.asset.filePath &&
+            !cameraAssetIds.has(entry.asset.id) &&
+            entry.asset.metadata?.isCamera !== true &&
+            ['recording', 'video', 'audio'].includes(entry.asset.type),
+        ),
+    )
+    .sort((a, b) => a.clip.timelineIn - b.clip.timelineIn || a.track.index - b.track.index);
+
+  const accepted = [];
+  let lastTimelineOut = -1;
+  for (const segment of segments) {
+    if (segment.clip.timelineIn < lastTimelineOut) continue;
+    accepted.push(segment);
+    lastTimelineOut = segment.clip.timelineOut;
+  }
+
+  return accepted;
+}
+
+async function hasPrimaryAudioStream(filePath) {
+  try {
+    const { stdout } = await execFile('ffprobe', [
+      '-v',
+      'quiet',
+      '-select_streams',
+      'a:0',
+      '-show_entries',
+      'stream=index',
+      '-of',
+      'csv=p=0',
+      filePath,
+    ]);
+    return stdout.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function finalizeExportMedia(project, videoPath, outputPath, range) {
+  const repairedProject = repairProjectMediaPaths(project);
+  const segments = collectExportAudioSegments(repairedProject);
+  const frameRate = repairedProject?.settings?.frameRate ?? 30;
+  const usableSegments = [];
+
+  for (const segment of segments) {
+    if (await hasPrimaryAudioStream(segment.asset.filePath)) {
+      usableSegments.push(segment);
+    }
+  }
+
+  if (usableSegments.length === 0) {
+    await rename(videoPath, outputPath);
+    return { outputPath, audioIncluded: false };
+  }
+
+  const tempOutputPath = `${outputPath}.muxing.mp4`;
+  const ffmpegArgs = ['-y', '-i', videoPath];
+  for (const segment of usableSegments) {
+    ffmpegArgs.push('-i', segment.asset.filePath);
+  }
+
+  const filterParts = usableSegments
+    .map((segment, index) => {
+      const overlapStartFrame = Math.max(segment.clip.timelineIn, range?.startFrame ?? 0);
+      const overlapEndFrame = Math.min(
+        segment.clip.timelineOut,
+        range?.endFrame ?? repairedProject.composition.duration,
+      );
+      if (overlapEndFrame <= overlapStartFrame) {
+        return null;
+      }
+
+      const trimOffsetFrames = overlapStartFrame - segment.clip.timelineIn;
+      const sourceStart = (segment.clip.sourceIn + trimOffsetFrames) / frameRate;
+      const sourceEnd = sourceStart + (overlapEndFrame - overlapStartFrame) / frameRate;
+      const delayMs = Math.max(
+        0,
+        Math.round(((overlapStartFrame - (range?.startFrame ?? 0)) / frameRate) * 1000),
+      );
+      return `[${index + 1}:a:0]atrim=start=${sourceStart}:end=${sourceEnd},asetpts=PTS-STARTPTS,adelay=${delayMs}:all=1[a${index}]`;
+    })
+    .filter(Boolean);
+  if (filterParts.length === 0) {
+    await rename(videoPath, outputPath);
+    return { outputPath, audioIncluded: false };
+  }
+  const mixInputs = filterParts.map((_, index) => `[a${index}]`).join('');
+  const filterComplex = `${filterParts.join(';')};${mixInputs}amix=inputs=${filterParts.length}:normalize=0:dropout_transition=0[aout]`;
+
+  ffmpegArgs.push(
+    '-filter_complex',
+    filterComplex,
+    '-map',
+    '0:v:0',
+    '-map',
+    '[aout]',
+    '-c:v',
+    'copy',
+    '-c:a',
+    'aac',
+    '-b:a',
+    '128k',
+    '-shortest',
+    tempOutputPath,
+  );
+
+  try {
+    await new Promise((resolve, reject) => {
+      const child = spawn('ffmpeg', ffmpegArgs, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let stderr = '';
+      currentExportFinalizeProcess = child;
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk.toString();
+      });
+      child.on('error', (error) => {
+        currentExportFinalizeProcess = null;
+        reject(error);
+      });
+      child.on('close', (code) => {
+        currentExportFinalizeProcess = null;
+        if (code === 0) {
+          resolve(undefined);
+          return;
+        }
+        reject(new Error(stderr || `ffmpeg exited with code ${code}`));
+      });
+    });
+    await unlink(videoPath).catch(() => {});
+    await rename(tempOutputPath, outputPath);
+    return { outputPath, audioIncluded: true };
+  } catch {
+    await unlink(tempOutputPath).catch(() => {});
+    await rename(videoPath, outputPath);
+    return { outputPath, audioIncluded: false };
+  }
+}
+
+function getMediaContentType(filePath) {
+  switch (extname(filePath).toLowerCase()) {
+    case '.webm':
+      return 'video/webm';
+    case '.mp4':
+      return 'video/mp4';
+    case '.mov':
+      return 'video/quicktime';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.png':
+      return 'image/png';
+    case '.json':
+      return 'application/json';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+function buildRangeResponse(filePath, rangeHeader) {
+  const stat = statSync(filePath);
+  const size = stat.size;
+  const contentType = getMediaContentType(filePath);
+  const baseHeaders = {
+    'Accept-Ranges': 'bytes',
+    'Content-Type': contentType,
+    'Cache-Control': 'no-cache',
+  };
+
+  if (!rangeHeader) {
+    return new Response(Readable.toWeb(createReadStream(filePath)), {
+      status: 200,
+      headers: {
+        ...baseHeaders,
+        'Content-Length': String(size),
+      },
+    });
+  }
+
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
+  if (!match) {
+    return new Response(null, {
+      status: 416,
+      headers: {
+        ...baseHeaders,
+        'Content-Range': `bytes */${size}`,
+      },
+    });
+  }
+
+  let start = match[1] ? Number.parseInt(match[1], 10) : 0;
+  let end = match[2] ? Number.parseInt(match[2], 10) : size - 1;
+
+  if (!match[1] && match[2]) {
+    const suffixLength = Number.parseInt(match[2], 10);
+    start = Math.max(0, size - suffixLength);
+    end = size - 1;
+  }
+
+  if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= size) {
+    return new Response(null, {
+      status: 416,
+      headers: {
+        ...baseHeaders,
+        'Content-Range': `bytes */${size}`,
+      },
+    });
+  }
+
+  end = Math.min(end, size - 1);
+  const chunkSize = end - start + 1;
+
+  return new Response(Readable.toWeb(createReadStream(filePath, { start, end })), {
+    status: 206,
+    headers: {
+      ...baseHeaders,
+      'Content-Length': String(chunkSize),
+      'Content-Range': `bytes ${start}-${end}/${size}`,
+    },
+  });
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -50,19 +416,24 @@ function registerIpcHandlers() {
   // Project: Open -- native file dialog, read JSON, return parsed document + filePath
   ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN, async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
-      filters: [{ name: 'Rough Cut Project', extensions: ['roughcut'] }],
+      filters: [PROJECT_FILE_FILTER],
       properties: ['openFile'],
     });
     if (result.canceled || !result.filePaths[0]) return null;
 
     const filePath = result.filePaths[0];
     const content = await readFile(filePath, 'utf-8');
-    const data = JSON.parse(content);
+    const data = repairProjectMediaPaths(JSON.parse(content));
     // Return the raw data -- the renderer will validate via the project-model package
     const firstThumb = Array.isArray(data.assets) ? data.assets.find((a) => a.thumbnailPath) : null;
     addRecentProject({
       filePath,
-      name: data.name ?? filePath.split('/').pop().replace(/\.roughcut$/, ''),
+      name:
+        data.name ??
+        filePath
+          .split('/')
+          .pop()
+          .replace(/\.roughcut$/, ''),
       modifiedAt: new Date().toISOString(),
       resolution: data.settings?.resolution
         ? `${data.settings.resolution.width}x${data.settings.resolution.height}`
@@ -76,10 +447,17 @@ function registerIpcHandlers() {
   // Project: Save
   ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, async (_e, { project, filePath }) => {
     await writeFile(filePath, JSON.stringify(project, null, 2), 'utf-8');
-    const firstThumb = Array.isArray(project.assets) ? project.assets.find((a) => a.thumbnailPath) : null;
+    const firstThumb = Array.isArray(project.assets)
+      ? project.assets.find((a) => a.thumbnailPath)
+      : null;
     addRecentProject({
       filePath,
-      name: project.name ?? filePath.split('/').pop().replace(/\.roughcut$/, ''),
+      name:
+        project.name ??
+        filePath
+          .split('/')
+          .pop()
+          .replace(/\.roughcut$/, ''),
       modifiedAt: new Date().toISOString(),
       resolution: project.settings?.resolution
         ? `${project.settings.resolution.width}x${project.settings.resolution.height}`
@@ -93,14 +471,21 @@ function registerIpcHandlers() {
   // Project: Save As
   ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE_AS, async (_e, { project }) => {
     const result = await dialog.showSaveDialog(mainWindow, {
-      filters: [{ name: 'Rough Cut Project', extensions: ['roughcut'] }],
+      filters: [PROJECT_FILE_FILTER],
     });
     if (result.canceled || !result.filePath) return null;
     await writeFile(result.filePath, JSON.stringify(project, null, 2), 'utf-8');
-    const firstThumb = Array.isArray(project.assets) ? project.assets.find((a) => a.thumbnailPath) : null;
+    const firstThumb = Array.isArray(project.assets)
+      ? project.assets.find((a) => a.thumbnailPath)
+      : null;
     addRecentProject({
       filePath: result.filePath,
-      name: project.name ?? result.filePath.split('/').pop().replace(/\.roughcut$/, ''),
+      name:
+        project.name ??
+        result.filePath
+          .split('/')
+          .pop()
+          .replace(/\.roughcut$/, ''),
       modifiedAt: new Date().toISOString(),
       resolution: project.settings?.resolution
         ? `${project.settings.resolution.width}x${project.settings.resolution.height}`
@@ -118,6 +503,38 @@ function registerIpcHandlers() {
     return null; // Signal to renderer to create a new project locally
   });
 
+  ipcMain.handle(IPC_CHANNELS.LIBRARY_OPEN, async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      filters: [LIBRARY_FILE_FILTER],
+      properties: ['openFile'],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+
+    const filePath = result.filePaths[0];
+    const content = await readFile(filePath, 'utf-8');
+    return { library: JSON.parse(content), filePath };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.LIBRARY_SAVE, async (_e, { library, filePath }) => {
+    await writeFile(filePath, JSON.stringify(library, null, 2), 'utf-8');
+    return true;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.LIBRARY_SAVE_AS, async (_e, { library }) => {
+    const defaultPath = join(
+      getDefaultProjectDir(),
+      `${sanitizeFileStem(library?.name || 'Untitled Library')}.roughcutlib`,
+    );
+    const result = await dialog.showSaveDialog(mainWindow, {
+      defaultPath,
+      filters: [LIBRARY_FILE_FILTER],
+      properties: ['showOverwriteConfirmation'],
+    });
+    if (result.canceled || !result.filePath) return null;
+    await writeFile(result.filePath, JSON.stringify(library, null, 2), 'utf-8');
+    return result.filePath;
+  });
+
   // Export: Start
   // In a full build, this would call runExport from @rough-cut/export-renderer.
   // For now, the main process just acknowledges the request.
@@ -127,7 +544,7 @@ function registerIpcHandlers() {
     try {
       // Dynamic import of the workspace package
       const { runExport } = await import('@rough-cut/export-renderer');
-      await runExport(project, settings, outputPath, {
+      return await runExport(project, settings, outputPath, {
         onProgress: (progress) => {
           mainWindow?.webContents.send(IPC_CHANNELS.EXPORT_PROGRESS, progress);
         },
@@ -144,23 +561,74 @@ function registerIpcHandlers() {
         },
       });
     } catch (err) {
-      mainWindow?.webContents.send(IPC_CHANNELS.EXPORT_COMPLETE, {
+      const result = {
         status: 'failed',
         error: err instanceof Error ? err.message : String(err),
         totalFrames: 0,
         durationMs: 0,
-      });
+      };
+      mainWindow?.webContents.send(IPC_CHANNELS.EXPORT_COMPLETE, result);
+      return result;
     }
   });
 
-  // Export: Cancel (stub for now)
   ipcMain.handle(IPC_CHANNELS.EXPORT_CANCEL, () => {
-    // TODO: implement cancellation via AbortController
+    if (currentExportFinalizeProcess) {
+      currentExportFinalizeProcess.kill('SIGTERM');
+      currentExportFinalizeProcess = null;
+    }
+  });
+
+  ipcMain.on(IPC_CHANNELS.EXPORT_PROGRESS_EMIT, (_event, progress) => {
+    mainWindow?.webContents.send(IPC_CHANNELS.EXPORT_PROGRESS, progress);
+  });
+
+  ipcMain.on(IPC_CHANNELS.EXPORT_COMPLETE_EMIT, (_event, result) => {
+    mainWindow?.webContents.send(IPC_CHANNELS.EXPORT_COMPLETE, result);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, async (_event, { projectName, format }) => {
+    const extension = format === 'webm' ? 'webm' : format === 'gif' ? 'gif' : 'mp4';
+    const defaultPath = join(
+      app.getPath('videos'),
+      `${sanitizeFileStem(projectName)}.${extension}`,
+    );
+    const result = await dialog.showSaveDialog(mainWindow, {
+      defaultPath,
+      filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
+      properties: ['showOverwriteConfirmation'],
+    });
+    if (result.canceled || !result.filePath) {
+      return null;
+    }
+
+    return result.filePath;
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.EXPORT_FINALIZE_MEDIA,
+    async (_event, { project, videoPath, outputPath, range }) => {
+      return finalizeExportMedia(project, videoPath, outputPath, range);
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.EXPORT_OPEN_FILE, async (_event, filePath) => {
+    const error = await shell.openPath(filePath);
+    return error.length === 0;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.EXPORT_SHOW_IN_FOLDER, async (_event, filePath) => {
+    shell.showItemInFolder(filePath);
+    return true;
   });
 
   // Recording: Get available capture sources (screens + windows)
   ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SOURCES, async () => {
     return getSources();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => {
+    return discoverAudioSources();
   });
 
   // Recording: Save finished recording blob to disk and probe metadata
@@ -187,6 +655,11 @@ function registerIpcHandlers() {
   // Project: Open by known file path (no dialog)
   ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, async (_e, { filePath }) => {
     const content = await readFile(filePath, 'utf-8');
+    return repairProjectMediaPaths(JSON.parse(content));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.LIBRARY_OPEN_PATH, async (_e, { filePath }) => {
+    const content = await readFile(filePath, 'utf-8');
     return JSON.parse(content);
   });
 
@@ -206,20 +679,32 @@ function registerIpcHandlers() {
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   });
 
+  ipcMain.handle(IPC_CHANNELS.WRITE_BINARY_FILE, async (_e, { filePath, buffer }) => {
+    await writeFile(filePath, Buffer.from(buffer));
+    return true;
+  });
+
   // Debug: reload the most recent recording from disk (temporary — for camera decode testing)
   ipcMain.handle(IPC_CHANNELS.DEBUG_LOAD_LAST_RECORDING, async () => {
-    const recordingDir = '/tmp/rough-cut/recordings';
-    if (!existsSync(recordingDir)) return null;
-
-    const files = readdirSync(recordingDir)
-      .filter(f => f.endsWith('.webm'))
-      .map(f => ({ name: f, mtime: statSync(join(recordingDir, f)).mtimeMs }))
+    const recordingDirs = getRecordingSearchDirs();
+    const files = recordingDirs
+      .flatMap((recordingDir) => {
+        if (!existsSync(recordingDir)) return [];
+        return readdirSync(recordingDir)
+          .filter((f) => f.endsWith('.webm'))
+          .map((f) => {
+            const filePath = join(recordingDir, f);
+            return { name: f, filePath, recordingDir, mtime: statSync(filePath).mtimeMs };
+          });
+      })
       .sort((a, b) => b.mtime - a.mtime);
 
     if (files.length === 0) return null;
 
-    const latestName = files[0].name;
-    const filePath = join(recordingDir, latestName);
+    const latest = files[0];
+    const latestName = latest.name;
+    const filePath = latest.filePath;
+    const recordingDir = latest.recordingDir;
     const stat = statSync(filePath);
 
     // Check for camera sidecar
@@ -235,37 +720,52 @@ function registerIpcHandlers() {
 
     try {
       const { execSync } = await import('node:child_process');
-      const probe = execSync(
-        `ffprobe -v quiet -print_format json -show_streams "${filePath}"`,
-        { encoding: 'utf-8', timeout: 5000 }
-      );
+      const probe = execSync(`ffprobe -v quiet -print_format json -show_streams "${filePath}"`, {
+        encoding: 'utf-8',
+        timeout: 5000,
+      });
       const info = JSON.parse(probe);
-      const videoStream = info.streams?.find(s => s.codec_type === 'video');
-      const audioStream = info.streams?.find(s => s.codec_type === 'audio');
+      const videoStream = info.streams?.find((s) => s.codec_type === 'video');
+      const audioStream = info.streams?.find((s) => s.codec_type === 'audio');
       if (videoStream) {
         width = videoStream.width || width;
         height = videoStream.height || height;
         const duration = parseFloat(videoStream.duration || '0');
         if (duration > 0) {
-          const r = parseFloat(videoStream.r_frame_rate?.split('/').reduce((a, b) => a / b) || '30');
+          const r = parseFloat(
+            videoStream.r_frame_rate?.split('/').reduce((a, b) => a / b) || '30',
+          );
           fps = Math.round(r) || 30;
           durationFrames = Math.round(duration * fps);
         }
       }
       // Debug: log stream info to terminal
       console.log('[DEBUG] ffprobe:', filePath);
-      console.log('[DEBUG]   video:', videoStream ? `${videoStream.codec_name} ${videoStream.width}x${videoStream.height}` : 'NONE');
-      console.log('[DEBUG]   audio:', audioStream ? `${audioStream.codec_name} ${audioStream.sample_rate}Hz` : 'NONE');
+      console.log(
+        '[DEBUG]   video:',
+        videoStream
+          ? `${videoStream.codec_name} ${videoStream.width}x${videoStream.height}`
+          : 'NONE',
+      );
+      console.log(
+        '[DEBUG]   audio:',
+        audioStream ? `${audioStream.codec_name} ${audioStream.sample_rate}Hz` : 'NONE',
+      );
       if (hasCameraFile) {
         try {
           const camProbe = execSync(
             `ffprobe -v quiet -print_format json -show_streams "${cameraPath}"`,
-            { encoding: 'utf-8', timeout: 5000 }
+            { encoding: 'utf-8', timeout: 5000 },
           );
           const camInfo = JSON.parse(camProbe);
-          const camVideo = camInfo.streams?.find(s => s.codec_type === 'video');
-          console.log('[DEBUG]   camera:', camVideo ? `${camVideo.codec_name} ${camVideo.width}x${camVideo.height}` : 'NONE');
-        } catch { /* ignore */ }
+          const camVideo = camInfo.streams?.find((s) => s.codec_type === 'video');
+          console.log(
+            '[DEBUG]   camera:',
+            camVideo ? `${camVideo.codec_name} ${camVideo.width}x${camVideo.height}` : 'NONE',
+          );
+        } catch {
+          /* ignore */
+        }
       }
     } catch {
       // ffprobe not available, use defaults
@@ -282,7 +782,10 @@ function registerIpcHandlers() {
       fileSize: stat.size,
       cameraFilePath: hasCameraFile ? cameraPath : undefined,
     };
-    console.log('[DEBUG] Returning:', JSON.stringify({ ...result, filePath: '...' + filePath.slice(-40) }));
+    console.log(
+      '[DEBUG] Returning:',
+      JSON.stringify({ ...result, filePath: '...' + filePath.slice(-40) }),
+    );
     return result;
   });
 
@@ -313,21 +816,30 @@ function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.ZOOM_SAVE_SIDECAR, async (_e, { recordingFilePath, presentation }) => {
-    try {
-      if (!recordingFilePath || !presentation) return false;
-      const path = zoomSidecarPath(recordingFilePath);
-      const payload = {
-        version: 1,
-        autoIntensity: typeof presentation.autoIntensity === 'number' ? presentation.autoIntensity : 0,
-        markers: Array.isArray(presentation.markers) ? presentation.markers : [],
-      };
-      await writeFile(path, JSON.stringify(payload, null, 2), 'utf-8');
-      return true;
-    } catch (err) {
-      console.warn('[zoom-sidecar] Save failed:', err?.message ?? err);
-      return false;
-    }
+  ipcMain.handle(
+    IPC_CHANNELS.ZOOM_SAVE_SIDECAR,
+    async (_e, { recordingFilePath, presentation }) => {
+      try {
+        if (!recordingFilePath || !presentation) return false;
+        const path = zoomSidecarPath(recordingFilePath);
+        const payload = {
+          version: 1,
+          autoIntensity:
+            typeof presentation.autoIntensity === 'number' ? presentation.autoIntensity : 0,
+          markers: Array.isArray(presentation.markers) ? presentation.markers : [],
+        };
+        await writeFile(path, JSON.stringify(payload, null, 2), 'utf-8');
+        return true;
+      } catch (err) {
+        console.warn('[zoom-sidecar] Save failed:', err?.message ?? err);
+        return false;
+      }
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_PATH, (_e, filePath) => shell.openPath(filePath));
+  ipcMain.handle(IPC_CHANNELS.SHELL_SHOW_ITEM_IN_FOLDER, (_e, filePath) => {
+    shell.showItemInFolder(filePath);
   });
 
   // Project: Auto-save — saves silently after recording completes.
@@ -335,7 +847,9 @@ function registerIpcHandlers() {
   ipcMain.handle(IPC_CHANNELS.PROJECT_AUTO_SAVE, async (_e, { project, filePath }) => {
     try {
       if (!filePath) {
-        const safeName = (project.name || 'Untitled Project').replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'Untitled Project';
+        const safeName =
+          (project.name || 'Untitled Project').replace(/[^a-zA-Z0-9 _-]/g, '').trim() ||
+          'Untitled Project';
         // Use configured recording location, fall back to ~/Documents/Rough Cut
         const configuredLocation = getRecordingLocation();
         // Validate configured location exists and is usable
@@ -344,7 +858,7 @@ function registerIpcHandlers() {
           defaultDir = configuredLocation;
         } else {
           // Fall back to ~/Documents/Rough Cut
-          defaultDir = join(homedir(), 'Documents', 'Rough Cut');
+          defaultDir = getDefaultProjectDir();
         }
         if (!existsSync(defaultDir)) {
           mkdirSync(defaultDir, { recursive: true });
@@ -375,10 +889,17 @@ function registerIpcHandlers() {
 
       await writeFile(filePath, JSON.stringify(project, null, 2), 'utf-8');
 
-      const firstThumb = Array.isArray(project.assets) ? project.assets.find((a) => a.thumbnailPath) : null;
+      const firstThumb = Array.isArray(project.assets)
+        ? project.assets.find((a) => a.thumbnailPath)
+        : null;
       addRecentProject({
         filePath,
-        name: project.name ?? filePath.split('/').pop().replace(/\.roughcut$/, ''),
+        name:
+          project.name ??
+          filePath
+            .split('/')
+            .pop()
+            .replace(/\.roughcut$/, ''),
         modifiedAt: new Date().toISOString(),
         resolution: project.settings?.resolution
           ? `${project.settings.resolution.width}x${project.settings.resolution.height}`
@@ -390,7 +911,7 @@ function registerIpcHandlers() {
       return filePath;
     } catch (err) {
       console.error('[auto-save] Failed:', err);
-      throw err;  // Re-throw so the renderer .catch() fires
+      throw err; // Re-throw so the renderer .catch() fires
     }
   });
 
@@ -421,8 +942,21 @@ function registerIpcHandlers() {
 
       // Filesystem types that represent real disk partitions
       const REAL_FS_TYPES = new Set([
-        'ext4', 'ext3', 'ext2', 'btrfs', 'xfs', 'ntfs', 'ntfs3',
-        'vfat', 'fat32', 'exfat', 'fuseblk', 'nfs', 'nfs4', 'cifs', 'f2fs',
+        'ext4',
+        'ext3',
+        'ext2',
+        'btrfs',
+        'xfs',
+        'ntfs',
+        'ntfs3',
+        'vfat',
+        'fat32',
+        'exfat',
+        'fuseblk',
+        'nfs',
+        'nfs4',
+        'cifs',
+        'f2fs',
       ]);
 
       for (const line of content.split('\n')) {
@@ -448,11 +982,12 @@ function registerIpcHandlers() {
           mountPoint.startsWith('/mnt/') ||
           mountPoint === '/home'
         ) {
-          const name = mountPoint === '/'
-            ? 'System'
-            : mountPoint === '/home'
-              ? 'Home'
-              : mountPoint.split('/').pop();
+          const name =
+            mountPoint === '/'
+              ? 'System'
+              : mountPoint === '/home'
+                ? 'Home'
+                : mountPoint.split('/').pop();
 
           volumes.push({ path: mountPoint, name });
         }
@@ -460,7 +995,7 @@ function registerIpcHandlers() {
 
       // Deduplicate by path
       const seen = new Set();
-      return volumes.filter(v => {
+      return volumes.filter((v) => {
         if (seen.has(v.path)) return false;
         seen.add(v.path);
         return true;
@@ -484,13 +1019,21 @@ function registerIpcHandlers() {
     removeFavoriteLocation(path);
   });
 
+  ipcMain.handle(IPC_CHANNELS.RECORDING_CONFIG_GET, () => ({ ...recordingConfig }));
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_CONFIG_UPDATE, (_e, { patch }) => {
+    applyRecordingConfigPatch(patch);
+    broadcastRecordingConfig();
+    return { ...recordingConfig };
+  });
+
   registerAIHandlers(mainWindow);
 }
 
 // macOS audio loopback support (ScreenCaptureKit)
 app.commandLine.appendSwitch(
   'enable-features',
-  'MacLoopbackAudioForScreenShare,MacSckSystemAudioLoopbackOverride'
+  'MacLoopbackAudioForScreenShare,MacSckSystemAudioLoopbackOverride',
 );
 
 // Register media:// as a privileged scheme (must happen before app.whenReady)
@@ -518,10 +1061,12 @@ if (process.platform === 'linux') {
 
 app.whenReady().then(() => {
   // Permission CHECK handler (synchronous pre-flight — getUserMedia needs this)
-  session.defaultSession.setPermissionCheckHandler((_webContents, permission, _requestingOrigin, details) => {
-    if (permission === 'media') return true;
-    return false;
-  });
+  session.defaultSession.setPermissionCheckHandler(
+    (_webContents, permission, _requestingOrigin, details) => {
+      if (permission === 'media') return true;
+      return false;
+    },
+  );
 
   // Permission REQUEST handler (async — approves the actual request)
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -532,30 +1077,33 @@ app.whenReady().then(() => {
     }
   });
 
-  // Handle media:// URLs by serving local files with range request support.
+  // Handle media:// URLs by serving local files with explicit byte-range support.
   protocol.handle('media', (req) => {
     const filePath = decodeURIComponent(req.url.replace('media://', ''));
-    // Delegate to net.fetch with file:// — handles range requests,
-    // concurrent access, and stream lifecycle correctly.
-    const fileUrl = 'file://' + encodeURI(filePath).replace(/#/g, '%23');
-    return net.fetch(fileUrl, { headers: req.headers });
+    if (!filePath || !existsSync(filePath)) {
+      return new Response('Not found', { status: 404 });
+    }
+
+    return buildRangeResponse(filePath, req.headers.get('range'));
   });
 
-  // Store selected source ID — updated via IPC from panel window
-  let selectedSourceId = null;
-
   ipcMain.on(IPC_CHANNELS.PANEL_SET_SOURCE, (_e, { sourceId }) => {
-    selectedSourceId = sourceId;
+    applyRecordingConfigPatch({ selectedSourceId: sourceId });
+    broadcastRecordingConfig();
   });
 
   // Intercept getDisplayMedia() from any renderer (panel window uses this)
   session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
     try {
       const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+      const selectedSourceId = recordingConfig.selectedSourceId;
       const source = selectedSourceId
-        ? sources.find(s => s.id === selectedSourceId) ?? sources[0]
+        ? (sources.find((s) => s.id === selectedSourceId) ?? sources[0])
         : sources[0];
-      if (!source) { callback(undefined); return; }
+      if (!source) {
+        callback(undefined);
+        return;
+      }
       callback({ video: source, audio: 'loopback' });
     } catch (err) {
       console.error('[display-media-handler] Error:', err);
@@ -568,6 +1116,7 @@ app.whenReady().then(() => {
 
   // Pass source info getter so the session manager can use FFmpeg x11grab
   initSessionManager(mainWindow, () => {
+    const selectedSourceId = recordingConfig.selectedSourceId;
     if (!selectedSourceId) return null;
     // Parse Electron source ID (e.g. 'screen:0:0') for x11grab display string
     const isScreen = selectedSourceId.startsWith('screen:');

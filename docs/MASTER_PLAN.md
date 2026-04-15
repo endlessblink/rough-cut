@@ -58,41 +58,46 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 
 ### Tier 1: Core Pipeline Completeness — Makes the App Usable
 
-| ID           | Title                                                                                                      | Priority | Status                   | Dependencies       |
-| ------------ | ---------------------------------------------------------------------------------------------------------- | -------- | ------------------------ | ------------------ |
-| ~~TASK-012~~ | ~~Record: Enable audio capture (mic + system audio)~~                                                      | P0       | ✅ **DONE** (2026-04-11) | TASK-010           |
-| TASK-013     | Record: PixiJS live preview (replace `<video>` with compositor)                                            | P0       | TODO                     | TASK-007, TASK-011 |
-| ~~BUG-001~~  | Fix: Compositor canvas sizing + video sprite positioning                                                   | P0       | DONE                     | TASK-007           |
-| ~~BUG-002~~  | Fix: Compositor resizing to template resolution + debug logging cleanup                                    | P0       | ✅ **DONE** (2026-03-30) | BUG-001            |
-| ~~BUG-003~~  | Fix: Video playback + timeline sync across all tabs                                                        | P0       | ✅ **DONE** (2026-03-30) | BUG-002            |
-| BUG-004      | No icon shown in dock/taskbar during recording — blank space                                               | P2       | PLANNED                  | TASK-010           |
-| TASK-014     | Record: Webcam PiP (render in compositor with shape/position)                                              | P0       | TODO                     | TASK-013           |
-| TASK-015     | Record: Serialize recording effects to clips (bg, corners, shadow → Effect entries)                        | P0       | TODO                     | TASK-011           |
-| TASK-016     | Record: Create separate Assets for webcam + audio on stop                                                  | P0       | TODO                     | TASK-012, TASK-014 |
-| TASK-086     | Record: Unified config store for main tab + recording panel                                                | P0       | TODO                     | TASK-010, TASK-011 |
-| BUG-007      | Fix: Record toolbar toggles don't drive the floating recording panel                                       | P0       | TODO                     | TASK-086           |
-| BUG-008      | Fix: Record source selection diverges from the floating panel source                                       | P0       | TODO                     | TASK-086           |
-| TASK-087     | Record: Persist config across panel opens and app restarts                                                 | P1       | TODO                     | TASK-086           |
-| TASK-088     | Record: Device selectors for mic, camera, and system audio                                                 | P1       | TODO                     | TASK-086, TASK-012 |
-| BUG-009      | Fix: Record mode selector is visual-only and does not affect capture                                       | P1       | TODO                     | TASK-086           |
-| BUG-010      | Fix: Camera controls hidden in Record toolbar despite camera support                                       | P1       | TODO                     | TASK-086           |
-| ~~TASK-113~~ | Record: Camera aspect presets for shaped PiP                                                               | P1       | ✅ **DONE** (2026-04-15) | TASK-011           |
-| TASK-050     | Preview: Switch to PixiJS VideoSource (WebGL textures, drop Canvas2D drawImage)                            | P0       | TODO                     | TASK-007           |
-| TASK-051     | Preview: Work around WebGL gradient shader crash (solid rects or pre-rendered canvas bg)                   | P0       | TODO                     | TASK-050           |
-| TASK-052     | Export: WebCodecs pipeline — web-demuxer + VideoDecoder + PixiJS offscreen + VideoEncoder + mediabunny MP4 | P0       | TODO                     | TASK-050           |
-| TASK-053     | Export: Frame-accurate scrubbing via mediabunny VideoSampleSink.getSample()                                | P1       | TODO                     | TASK-052           |
-| TASK-054     | Export: NVENC hardware encoding via VideoEncoder hardwareAcceleration: prefer-hardware                     | P1       | TODO                     | TASK-052           |
-| BUG-005      | Camera PiP renders as ellipse instead of circle (CSS/template shape not applied)                           | P1       | TODO                     | TASK-014           |
-| BUG-006      | Playback laggy — Canvas2D drawImage bottleneck, needs WebGL VideoSource path                               | P0       | TODO                     | TASK-050           |
-| TASK-075     | Preview: Playback fluency — rVFC sync, consolidate loops, cache effects                                    | P0       | IN PROGRESS              | TASK-007           |
-| FEATURE-076  | Record: Audio capture + playback (FFmpeg pipeline + compositor unmute)                                     | P1       | IN PROGRESS              | TASK-020           |
-| ~~TASK-077~~ | Edit: Camera playback in Edit tab compositor                                                               | P1       | ✅ DONE (2026-04-14)     | TASK-075           |
-| TASK-017     | Edit: Clip drag-to-move (horizontal repositioning with snap)                                               | P1       | TODO                     | TASK-003           |
-| TASK-018     | Edit: Cross-track clip dragging (V1↔V2)                                                                    | P1       | TODO                     | TASK-017           |
-| TASK-019     | Edit: Effects stack UI (Add Effect, expandable sections, param controls)                                   | P1       | TODO                     | TASK-004           |
-| TASK-020     | Edit: Audio playback via Web Audio API synced to playhead                                                  | P1       | TODO                     | TASK-007           |
-| TASK-021     | Export: Progress bar + frame counter (wire existing IPC events to UI)                                      | P1       | TODO                     | TASK-008           |
-| TASK-022     | Export: Output path selector (native save dialog)                                                          | P1       | TODO                     | TASK-009           |
+| ID           | Title                                                                                                      | Priority | Status                   | Dependencies                 |
+| ------------ | ---------------------------------------------------------------------------------------------------------- | -------- | ------------------------ | ---------------------------- |
+| ~~TASK-012~~ | ~~Record: Enable audio capture (mic + system audio)~~                                                      | P0       | ✅ **DONE** (2026-04-11) | TASK-010                     |
+| TASK-013     | Record: PixiJS live preview (replace `<video>` with compositor)                                            | P0       | TODO                     | TASK-007, TASK-011           |
+| ~~BUG-001~~  | Fix: Compositor canvas sizing + video sprite positioning                                                   | P0       | DONE                     | TASK-007                     |
+| ~~BUG-002~~  | Fix: Compositor resizing to template resolution + debug logging cleanup                                    | P0       | ✅ **DONE** (2026-03-30) | BUG-001                      |
+| ~~BUG-003~~  | Fix: Video playback + timeline sync across all tabs                                                        | P0       | ✅ **DONE** (2026-03-30) | BUG-002                      |
+| BUG-004      | No icon shown in dock/taskbar during recording — blank space                                               | P2       | PLANNED                  | TASK-010                     |
+| TASK-014     | Record: Webcam PiP (render in compositor with shape/position)                                              | P0       | TODO                     | TASK-013                     |
+| TASK-015     | Record: Serialize recording effects to clips (bg, corners, shadow → Effect entries)                        | P0       | TODO                     | TASK-011                     |
+| TASK-016     | Record: Create separate Assets for webcam + audio on stop                                                  | P0       | TODO                     | TASK-012, TASK-014           |
+| TASK-086     | Record: Unified config store for main tab + recording panel                                                | P0       | TODO                     | TASK-010, TASK-011           |
+| BUG-007      | Fix: Record toolbar toggles don't drive the floating recording panel                                       | P0       | TODO                     | TASK-086                     |
+| BUG-008      | Fix: Record source selection diverges from the floating panel source                                       | P0       | TODO                     | TASK-086                     |
+| TASK-087     | Record: Persist config across panel opens and app restarts                                                 | P1       | TODO                     | TASK-086                     |
+| TASK-088     | Record: Device selectors for mic, camera, and system audio                                                 | P1       | TODO                     | TASK-086, TASK-012           |
+| BUG-009      | Fix: Record mode selector is visual-only and does not affect capture                                       | P1       | TODO                     | TASK-086                     |
+| BUG-010      | Fix: Camera controls hidden in Record toolbar despite camera support                                       | P1       | TODO                     | TASK-086                     |
+| ~~TASK-113~~ | Record: Camera aspect presets for shaped PiP                                                               | P1       | ✅ **DONE** (2026-04-15) | TASK-011                     |
+| TASK-050     | Preview: Switch to PixiJS VideoSource (WebGL textures, drop Canvas2D drawImage)                            | P0       | TODO                     | TASK-007                     |
+| TASK-051     | Preview: Work around WebGL gradient shader crash (solid rects or pre-rendered canvas bg)                   | P0       | TODO                     | TASK-050                     |
+| TASK-052     | Export: WebCodecs pipeline — web-demuxer + VideoDecoder + PixiJS offscreen + VideoEncoder + mediabunny MP4 | P0       | TODO                     | TASK-050                     |
+| ~~TASK-053~~ | ✅ Export: Frame-accurate scrubbing via mediabunny VideoSampleSink.getSample()                             | P1       | ✅ **DONE** (2026-04-16) | TASK-052                     |
+| TASK-054     | Export: NVENC hardware encoding via VideoEncoder hardwareAcceleration: prefer-hardware                     | P1       | TODO                     | TASK-052                     |
+| BUG-005      | Camera PiP renders as ellipse instead of circle (CSS/template shape not applied)                           | P1       | TODO                     | TASK-014                     |
+| BUG-006      | Playback laggy — Canvas2D drawImage bottleneck, needs WebGL VideoSource path                               | P0       | TODO                     | TASK-050                     |
+| TASK-075     | Preview: Playback fluency — rVFC sync, consolidate loops, cache effects                                    | P0       | IN PROGRESS              | TASK-007                     |
+| FEATURE-076  | Record: Audio capture + playback (FFmpeg pipeline + compositor unmute)                                     | P1       | IN PROGRESS              | TASK-020                     |
+| ~~TASK-077~~ | Edit: Camera playback in Edit tab compositor                                                               | P1       | ✅ DONE (2026-04-14)     | TASK-075                     |
+| ~~TASK-114~~ | Edit: Camera source/timing parity with Record preview                                                      | P1       | ✅ DONE (2026-04-15)     | TASK-075, TASK-077           |
+| ~~TASK-119~~ | Record/Edit: Persist layout template for camera preview parity                                             | P1       | ✅ DONE (2026-04-15)     | TASK-077, TASK-113           |
+| ~~TASK-115~~ | Edit: Camera layout/visibility parity with Record preview                                                  | P1       | ✅ DONE (2026-04-16)     | TASK-114, TASK-119           |
+| TASK-116     | Tests: Record/Edit camera parity regression coverage                                                       | P1       | TODO                     | TASK-114, TASK-115, TASK-119 |
+| TASK-017     | Edit: Clip drag-to-move (horizontal repositioning with snap)                                               | P1       | TODO                     | TASK-003                     |
+| TASK-018     | Edit: Cross-track clip dragging (V1↔V2)                                                                    | P1       | TODO                     | TASK-017                     |
+| TASK-019     | Edit: Effects stack UI (Add Effect, expandable sections, param controls)                                   | P1       | TODO                     | TASK-004                     |
+| TASK-020     | Edit: Audio playback via Web Audio API synced to playhead                                                  | P1       | TODO                     | TASK-007                     |
+| TASK-118     | Export: Camera PiP preview parity with Record + Edit tabs                                                  | P1       | ✅ DONE (2026-04-15)     | TASK-114                     |
+| ~~TASK-021~~ | Export: Progress bar + frame counter (wire existing IPC events to UI)                                      | P1       | ✅ DONE (2026-04-16)     | TASK-008                     |
+| ~~TASK-022~~ | Export: Output path selector (native save dialog)                                                          | P1       | ✅ DONE (2026-04-16)     | TASK-009                     |
 
 ### Tier 2: Essential Editing Features
 
@@ -101,6 +106,7 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | TASK-023    | Edit: Keyframe editor (timeline markers + inspector controls)      | P1       | TODO        | TASK-019           |
 | TASK-024    | Edit: Transitions (crossfade rendering in preview + export)        | P1       | TODO        | TASK-005, TASK-007 |
 | TASK-025    | Edit: Track headers UI (mute/solo/lock toggles, volume slider)     | P1       | TODO        | TASK-006           |
+| TASK-117    | Edit: Dynamic track management (add/remove channels)               | P1       | TODO        | TASK-006, TASK-025 |
 | FEATURE-084 | Edit: Timeline multi-select + snap additions (Increment 1 of 3)    | P1       | IN PROGRESS | TASK-006, TASK-003 |
 | TASK-026    | Edit: Audio waveforms on timeline clips                            | P2       | TODO        | TASK-020           |
 | TASK-027    | Edit: Ripple delete mode                                           | P2       | TODO        | TASK-003           |
@@ -137,7 +143,7 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. For phased build order, s
 | ----------- | -------------------------------------------------------------------------------------- | -------- | ----------- | ------------------ |
 | FEATURE-078 | AI: ButterCut-inspired library + rough cut generation (epic)                           | P1       | PLANNED     | TASK-040           |
 | TASK-079    | AI: Library data model — footage + transcripts + visual analysis as first-class entity | P1       | IN PROGRESS | TASK-002           |
-| TASK-080    | AI: WhisperX audio transcription pipeline (batch ingest, word-level timestamps)        | P1       | PLANNED     | TASK-040, TASK-079 |
+| TASK-080    | AI: WhisperX audio transcription pipeline (batch ingest, word-level timestamps)        | P1       | IN PROGRESS | TASK-040, TASK-079 |
 | TASK-081    | AI: Visual frame analysis pipeline (sample frames, describe via vision LLM)            | P1       | PLANNED     | TASK-040, TASK-079 |
 | TASK-082    | AI: Rough cut generator — LLM produces timeline from library + user prompt             | P1       | PLANNED     | TASK-080, TASK-081 |
 | TASK-083    | Compliance: Third-party attribution (WhisperX BSD-4, FFmpeg LGPL) in About/credits     | P2       | PLANNED     | -                  |
@@ -221,6 +227,57 @@ Improve playback smoothness by addressing identified bottlenecks in the renderin
 - `tests/electron/camera-replay.spec.ts` now covers real saved-session replay behavior for both Record and Edit, and `tests/electron/playhead-start.spec.ts` locks the trimmed-playhead start case that regressed during this work.
 
 **Key files:** `playback-manager.ts`, `preview-compositor.ts`, `use-compositor.ts`
+
+---
+
+### ~~TASK-118: Export: Camera PiP preview parity with Record + Edit tabs~~
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-15)
+
+Export tab preview now renders the camera picture-in-picture overlay identically to the Record and Edit tabs. The fix adds `EditCameraOverlay` to the preview container in `ExportTab.tsx`, driven by the same `resolveFrame` + `asset.metadata.isCamera` lookup used in `EditTab`. Camera shape, size, position, shadow, inset, roundness and visibility settings from the recording's `presentation.camera` are all respected. No new APIs — pure reuse of existing overlay component.
+
+**Key files:** `apps/desktop/src/renderer/features/export/ExportTab.tsx`
+
+---
+
+## Export Tab Sprint Plan
+
+Ordered by dependency. Each sprint increment is independently shippable.
+
+### Sprint 1 — Preview Fidelity (foundation for all QA) ✅ done
+
+| Task     | Title                            | Notes                            |
+| -------- | -------------------------------- | -------------------------------- |
+| TASK-118 | Camera PiP preview in Export tab | Done — `EditCameraOverlay` wired |
+
+### Sprint 2 — Export UX Core (P1, unblocked)
+
+| Task     | Title                                            | Dependency  |
+| -------- | ------------------------------------------------ | ----------- |
+| TASK-022 | Output path selector (native save dialog)        | TASK-009 ✅ |
+| TASK-021 | Progress bar + frame counter                     | TASK-008 ✅ |
+| TASK-109 | Cancel button during export                      | TASK-021    |
+| TASK-110 | Error display for failed exports                 | TASK-021    |
+| TASK-111 | "Open File"/"Open Folder" links after completion | TASK-021    |
+
+### Sprint 3 — Export Quality Settings (P2)
+
+| Task     | Title                                  | Dependency            |
+| -------- | -------------------------------------- | --------------------- |
+| TASK-028 | Audio mixing in export pipeline        | TASK-008 ✅, TASK-020 |
+| TASK-029 | Quality presets (resolution, FPS, CRF) | TASK-021              |
+| TASK-112 | File size + time estimates             | TASK-029              |
+
+### Sprint 4 — Advanced Export (P2–P3)
+
+| Task         | Title                                                      | Dependency               |
+| ------------ | ---------------------------------------------------------- | ------------------------ |
+| TASK-096     | Social aspect presets from Record templates                | TASK-015 ✅, TASK-029    |
+| TASK-052     | WebCodecs pipeline (web-demuxer → VideoEncoder → MP4)      | TASK-050                 |
+| ~~TASK-053~~ | ✅ Frame-accurate scrubbing via mediabunny VideoSampleSink | TASK-052 ✅              |
+| TASK-054     | NVENC hardware encoding                                    | TASK-052                 |
+| TASK-108     | Job queue (multi-job sequential)                           | TASK-021                 |
+| TASK-067     | Preview + export parity visual regression test             | TASK-007 ✅, TASK-008 ✅ |
 
 ---
 
@@ -392,6 +449,28 @@ Add the first standalone library primitives to `@rough-cut/project-model` so AI 
 
 ---
 
+### TASK-080: AI: WhisperX audio transcription pipeline (batch ingest, word-level timestamps)
+
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-15)
+
+Start the transcription pipeline on top of the new library model without committing to final WhisperX worker orchestration yet.
+
+**Current scope:**
+
+- Reuse the existing main-process Whisper-style cloud transcription path for the first end-to-end library flow
+- Persist transcript output back into `.roughcutlib` sources as word-level `transcriptSegments`
+- Track provider/model/fps/transcribed-at metadata on each library source for later migration to WhisperX/utilityProcess execution
+
+**Initial implementation (2026-04-15):**
+
+- Added desktop IPC for transcribing a single library source and saving the result back into its library file
+- Added `project-model` utility coverage for replacing a source transcript and recording transcription metadata
+- Kept the change additive: existing project caption analysis flow is unchanged
+
+**Key files:** `apps/desktop/src/main/ai/ai-service.mjs`, `packages/project-model/src/library-utils.ts`
+
+---
+
 ### ~~TASK-077: Edit: Camera playback in Edit tab compositor~~
 
 **Priority:** P1 | **Status:** ✅ DONE (2026-04-14)
@@ -405,6 +484,61 @@ The Edit tab now renders camera playback via a dedicated React overlay layered a
 - Added an Edit-specific Electron replay check in `tests/electron/camera-replay.spec.ts` to verify visible camera playback and frame changes after seeking
 
 **Key files:** `apps/desktop/src/renderer/features/edit/EditTab.tsx`, `apps/desktop/src/renderer/features/edit/EditCameraOverlay.tsx`, `tests/electron/camera-replay.spec.ts`
+
+---
+
+### ~~TASK-114: Edit: Camera source/timing parity with Record preview~~
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-15)
+
+The Edit tab should resolve the same camera recording and media time as the Record page for a saved session. The original Edit overlay kept its own play/pause/currentTime loop, which let it diverge from the shared playback clock even after `TASK-077` established visible camera playback.
+
+**Completed:**
+
+- Rewired `EditCameraOverlay` to register its `<video>` with `PlaybackManager` instead of running a separate Edit-only media clock.
+- Kept initial seeks aligned to the shared transport playhead so Edit and Record now resolve the same camera source/time for the same frame.
+- Added Electron regression coverage that compares Record and Edit camera source identity plus media time for a saved replay fixture.
+
+**Key files:** `apps/desktop/src/renderer/features/edit/{EditTab,EditCameraOverlay}.tsx`, `tests/electron/camera-replay.spec.ts`
+
+---
+
+### ~~TASK-119: Record/Edit: Persist layout template for camera preview parity~~
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-15)
+
+Record and Edit now share persisted preview-layout inputs instead of relying on transient Record-only UI state. The selected Record template is stored on the recording presentation, the resolved camera frame is persisted as a normalized rect, and both Record and Edit rehydrate from that saved state.
+
+**Completed:**
+
+- Added `presentation.templateId` and `presentation.cameraFrame` to the recording presentation model, plus schema/factory defaults and a v6 migration for older projects.
+- Added project-store actions to persist template changes and resolved camera-frame updates on recording assets.
+- Rehydrated `RecordTab` from persisted template state and passed the persisted camera frame back into `TemplatePreviewRenderer`.
+- Updated `EditTab` to consume the same persisted template/frame inputs via the shared preview renderer path.
+- Added a focused Electron parity spec that loads a saved project with a persisted camera frame and verifies Record/Edit render matching normalized placement.
+
+**Follow-ups unlocked:**
+
+- `TASK-115` can now focus on any remaining layout/visibility mismatches on top of a shared persisted source of truth.
+- `TASK-116` can expand parity coverage across save/reopen and playback-state scenarios.
+
+**Key files:** `apps/desktop/src/renderer/features/{record/RecordTab,edit/EditTab}.tsx`, `apps/desktop/src/renderer/features/record/{TemplatePreviewRenderer,CameraPlaybackCanvas}.tsx`, `packages/project-model/src/{types,schemas,factories,migrations,constants}.ts`, `packages/store/src/{project-store.ts,project-store.test.ts}`, `tests/electron/camera-template-parity.spec.ts`
+
+---
+
+### ~~TASK-115: Edit: Camera layout/visibility parity with Record preview~~
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-16)
+
+Edit now uses the same shared preview-layout inputs and visibility rules as Record instead of approximating camera rendering from a narrower subset of props.
+
+**Completed:**
+
+- Updated the shared `TemplatePreviewRenderer` path to honor `camera.visible` consistently, so hiding the camera in Record also hides it in Edit.
+- Passed persisted camera crop and source-dimension inputs through `EditTab`, matching the camera framing inputs already used in Record.
+- Added focused Electron coverage that verifies persisted camera-frame parity across Record/Edit and that camera visibility toggles hide the camera in both tabs.
+
+**Key files:** `apps/desktop/src/renderer/features/{edit/EditTab,record/TemplatePreviewRenderer}.tsx`, `tests/electron/{camera-template-parity,camera-replay}.spec.ts`
 
 ---
 
@@ -435,7 +569,7 @@ Increment 1 of a three-part editor upgrade inspired by headline-design/seq (no-l
 1. **Phase 1 - Timeline selection + structural edits**
    Finish `FEATURE-084`, then land `TASK-017` (clip drag-to-move), `TASK-018` (cross-track dragging), and `TASK-027` (ripple delete). This keeps direct manipulation and destructive timeline edits on one shared foundation.
 2. **Phase 2 - Playback + audio editing feedback**
-   Land `TASK-020` (audio playback synced to playhead), `TASK-025` (track headers), `TASK-065` (clip/track volume controls), `TASK-026` (waveforms), and `TASK-066` (transport skip controls). This makes timing and audio decisions visible before deeper authoring UI.
+   Land `TASK-119` (persist preview layout template), `TASK-115` (camera layout/visibility parity), `TASK-116` (camera parity tests), `TASK-020` (audio playback synced to playhead), `TASK-025` (track headers), `TASK-117` (dynamic add/remove channels), `TASK-065` (clip/track volume controls), `TASK-026` (waveforms), and `TASK-066` (transport skip controls). This makes playback feedback trustworthy before deeper authoring UI.
 3. **Phase 3 - Inspector authoring controls**
    Land `TASK-019` (effects stack UI), `TASK-023` (keyframe editor), and `TASK-064` (opacity/blend mode). This completes the core inspector surface for clip-level adjustments.
 4. **Phase 4 - Finishing polish in the timeline**
@@ -1006,7 +1140,12 @@ Verification:
 - ~~TASK-010~~ Capture service (desktopCapturer)
 - ~~TASK-011~~ Record tab UI + inspector panels
 - ~~TASK-012~~ Record: Enable audio capture (mic + system audio)
+- ~~TASK-072~~ Recent projects workflow
+- ~~TASK-077~~ Edit: Camera playback in Edit tab compositor
+- ~~TASK-085~~ Record: Persistent recording location + migration for stale /tmp references
 - ~~TASK-113~~ Record: Camera aspect presets for shaped PiP
+- ~~TASK-114~~ Edit: Camera source/timing parity with Record preview
+- ~~TASK-118~~ Export: Camera PiP preview parity with Record + Edit tabs
 - ~~BUG-001~~ Fix: Compositor canvas sizing + video sprite positioning
 - ~~BUG-002~~ Fix: Compositor resizing to template resolution + debug logging cleanup
 - ~~BUG-003~~ Fix: Video playback + timeline sync across all tabs

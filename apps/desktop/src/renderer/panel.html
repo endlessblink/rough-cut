@@ -1,17 +1,32 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Recording — Rough Cut</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { background: transparent; overflow: hidden; height: 100%; }
-    #panel-root { height: 100%; }
-  </style>
-</head>
-<body>
-  <div id="panel-root"></div>
-  <script type="module" src="./panel-main.tsx"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' http://127.0.0.1:7544; style-src 'self' 'unsafe-inline' http://127.0.0.1:7544; img-src 'self' data: blob: media:; media-src 'self' blob: media:; connect-src 'self' http://127.0.0.1:7544 ws://127.0.0.1:7544 media: blob: data:; font-src 'self' data:; worker-src 'self' blob:; child-src 'self' blob:;"
+    />
+    <title>Recording — Rough Cut</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        background: transparent;
+        overflow: hidden;
+        height: 100%;
+      }
+      #panel-root {
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="panel-root"></div>
+    <script type="module" src="./panel-main.tsx"></script>
+  </body>
 </html>

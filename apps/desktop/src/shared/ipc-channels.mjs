@@ -6,6 +6,10 @@ export const IPC_CHANNELS = {
   PROJECT_SAVE_AS: 'project:save-as',
   PROJECT_NEW: 'project:new',
   PROJECT_OPEN_PATH: 'project:open-path',
+  LIBRARY_OPEN: 'library:open',
+  LIBRARY_SAVE: 'library:save',
+  LIBRARY_SAVE_AS: 'library:save-as',
+  LIBRARY_OPEN_PATH: 'library:open-path',
 
   // Recent Projects
   RECENT_PROJECTS_GET: 'recent-projects:get',
@@ -20,9 +24,11 @@ export const IPC_CHANNELS = {
   EXPORT_PROGRESS_EMIT: 'export:progress-emit',
   EXPORT_COMPLETE_EMIT: 'export:complete-emit',
   EXPORT_PICK_OUTPUT_PATH: 'export:pick-output-path',
+  EXPORT_FINALIZE_MEDIA: 'export:finalize-media',
 
   // Recording
   RECORDING_GET_SOURCES: 'recording:get-sources',
+  RECORDING_GET_SYSTEM_AUDIO_SOURCES: 'recording:get-system-audio-sources',
   RECORDING_START: 'recording:start',
   RECORDING_STOP: 'recording:stop',
   RECORDING_STATUS: 'recording:status',
@@ -47,6 +53,9 @@ export const IPC_CHANNELS = {
 
   // Recording sync
   PANEL_MEDIA_RECORDER_STARTED: 'panel:media-recorder-started',
+  RECORDING_CONFIG_GET: 'recording-config:get',
+  RECORDING_CONFIG_UPDATE: 'recording-config:update',
+  RECORDING_CONFIG_CHANGED: 'recording-config:changed',
 
   // App
   APP_GET_VERSION: 'app:get-version',
@@ -65,6 +74,7 @@ export const IPC_CHANNELS = {
 
   // AI Analysis
   AI_ANALYZE_CAPTIONS: 'ai:analyze-captions',
+  AI_TRANSCRIBE_LIBRARY_SOURCE: 'ai:transcribe-library-source',
   AI_ANALYSIS_PROGRESS: 'ai:analysis-progress',
   AI_CANCEL_ANALYSIS: 'ai:cancel-analysis',
   AI_SET_API_KEY: 'ai:set-api-key',

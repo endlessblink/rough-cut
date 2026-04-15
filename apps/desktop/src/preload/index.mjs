@@ -18,6 +18,16 @@ const api = {
   /** Request a new project. Returns null (renderer creates via createProject). */
   projectNew: () => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_NEW),
 
+  /** Open a .roughcutlib file via native dialog. Returns parsed JSON or null. */
+  libraryOpen: () => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_OPEN),
+
+  /** Save library to a known file path. Returns true on success. */
+  librarySave: (library, filePath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_SAVE, { library, filePath }),
+
+  /** Save-as via native dialog. Returns the chosen path or null. */
+  librarySaveAs: (library) => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_SAVE_AS, { library }),
+
   // ---- Export ----
 
   /** Start export. Progress and completion are reported via events. */
@@ -51,10 +61,18 @@ const api = {
   exportPickOutputPath: (projectName, format) =>
     ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, { projectName, format }),
 
+  /** Finalize a renderer-produced export, muxing audio when possible. */
+  exportFinalizeMedia: (project, videoPath, outputPath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.EXPORT_FINALIZE_MEDIA, { project, videoPath, outputPath }),
+
   // ---- Recording ----
 
   /** Get available screen/window capture sources. */
   recordingGetSources: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_SOURCES),
+
+  /** Get available system-audio sources when supported by the platform. */
+  recordingGetSystemAudioSources: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES),
 
   /** Save a finished recording. Buffer is an ArrayBuffer, metadata has fps/width/height/durationMs. */
   recordingSaveRecording: (buffer, metadata) =>
@@ -106,6 +124,9 @@ const api = {
 
   /** Open a project by known file path (no dialog). Returns parsed ProjectDocument. */
   projectOpenPath: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN_PATH, { filePath }),
+
+  /** Open a library by known file path (no dialog). Returns parsed LibraryDocument. */
+  libraryOpenPath: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_OPEN_PATH, { filePath }),
 
   // ---- App ----
 
@@ -167,8 +188,22 @@ const api = {
   /** Tell main process which source the panel selected. */
   panelSetSource: (sourceId) => ipcRenderer.send(IPC_CHANNELS.PANEL_SET_SOURCE, { sourceId }),
 
+  /** Get the shared Record config. */
+  recordingConfigGet: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_CONFIG_GET),
+
+  /** Update the shared Record config. */
+  recordingConfigUpdate: (patch) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RECORDING_CONFIG_UPDATE, { patch }),
+
+  /** Subscribe to shared Record config changes. */
+  onRecordingConfigChanged: (callback) => {
+    const handler = (_event, config) => callback(config);
+    ipcRenderer.on(IPC_CHANNELS.RECORDING_CONFIG_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.RECORDING_CONFIG_CHANGED, handler);
+  },
+
   /** Start recording (triggers countdown in session manager).
-   *  @param {{ micEnabled?: boolean, sysAudioEnabled?: boolean }} [audioConfig] */
+   *  @param {{ micEnabled?: boolean, sysAudioEnabled?: boolean, selectedSystemAudioSourceId?: string | null }} [audioConfig] */
   panelStartRecording: (audioConfig) =>
     ipcRenderer.invoke(IPC_CHANNELS.PANEL_START_RECORDING, audioConfig),
 
@@ -211,6 +246,14 @@ const api = {
   /** Set provider config. */
   aiSetProviderConfig: (provider) =>
     ipcRenderer.invoke(IPC_CHANNELS.AI_SET_PROVIDER_CONFIG, { provider }),
+
+  /** Transcribe a library source and persist transcript segments into its .roughcutlib file. */
+  aiTranscribeLibrarySource: (libraryFilePath, sourceId, fps) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AI_TRANSCRIBE_LIBRARY_SOURCE, {
+      libraryFilePath,
+      sourceId,
+      fps,
+    }),
 
   /** Analyze assets for captions. Returns CaptionSegment[]. */
   aiAnalyzeCaptions: (assets, fps) =>

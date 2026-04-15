@@ -193,6 +193,13 @@ export function App() {
       console.log('[App] Camera asset created:', cameraAssetId, 'path:', result.cameraFilePath);
     }
 
+    let autoZoomIntensity = 0.5;
+    try {
+      autoZoomIntensity = await window.roughcut.storageGetAutoZoomIntensity();
+    } catch (err) {
+      console.warn('[App] Failed to load auto zoom intensity setting:', err);
+    }
+
     let generatedZoom = null;
     if (result.cursorEventsPath) {
       try {
@@ -206,10 +213,10 @@ export function App() {
             button: (event.button ?? 0) as CursorEvent['button'],
           }));
           generatedZoom = {
-            autoIntensity: 0.5,
+            autoIntensity: autoZoomIntensity,
             markers: generateAutoZoomMarkers(
               cursorEvents,
-              0.5,
+              autoZoomIntensity,
               result.fps,
               result.width,
               result.height,

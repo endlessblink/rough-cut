@@ -64,12 +64,14 @@ export class PlaybackManager {
   private _rvfcId = 0;
   private _useRvfc = false;
   private _lastSyncedFrame = -1;
+  private _lastCameraResyncAt = 0;
   private _scrubUnsub: (() => void) | null = null;
   private _screenMediaTimeResolver: ((timelineFrame: number) => number) | null = null;
   private _screenTimelineFrameResolver: ((mediaTime: number) => number) | null = null;
   private _cameraMediaTimeResolver: ((timelineFrame: number) => number) | null = null;
   private _cameraTimelineFrameResolver: ((mediaTime: number) => number) | null = null;
   private _playToken = 0;
+  private _pauseSettleToken = 0;
 
   constructor(config: PlaybackManagerConfig) {
     this.transportStore = config.transportStore;
@@ -158,6 +160,7 @@ export class PlaybackManager {
   play(): void {
     if (this._playing) return;
     const playToken = ++this._playToken;
+    this._pauseSettleToken += 1;
 
     const fps = this.projectStore.getState().project.settings.frameRate;
     const startFrame = this.transportStore.getState().playheadFrame;
@@ -172,6 +175,7 @@ export class PlaybackManager {
   pause(): void {
     if (!this._playing) return;
     this._playToken += 1;
+    const pauseSettleToken = ++this._pauseSettleToken;
     this._playing = false;
 
     // Stop sync loop
@@ -191,9 +195,10 @@ export class PlaybackManager {
     // Snap playhead to current video time
     const frame = this.screenVideo
       ? this._resolveTimelineFrameForVideo(this.screenVideo)
-      : (this.compositor?.getPlaybackFrame() ?? 0);
+      : (this.compositor?.getCurrentFrame() ?? 0);
 
     this.transportStore.setState({ isPlaying: false, playheadFrame: frame });
+    void this._settlePausedMedia(frame, pauseSettleToken);
     console.info('[PlaybackManager] pause() — at frame', frame);
   }
 
@@ -314,7 +319,7 @@ export class PlaybackManager {
       ? this._resolveTimelineFrameForVideo(this.screenVideo, screenTime)
       : Math.round(screenTime * fps);
 
-    this._syncCameraTo(screenTime);
+    this._syncCameraTo(this._resolveMediaTimeForVideo(this.cameraVideo, frame));
 
     // 1. Sync store only when frame number changes
     if (frame !== this._lastSyncedFrame) {
@@ -353,7 +358,7 @@ export class PlaybackManager {
     const screen = this.screenVideo;
     const frame = screen
       ? this._resolveTimelineFrameForVideo(screen)
-      : (this.compositor?.getPlaybackFrame() ?? -1);
+      : (this.compositor?.getCurrentFrame() ?? -1);
 
     if (frame < 0) {
       this._rafId = requestAnimationFrame(this._syncLoop);
@@ -410,19 +415,43 @@ export class PlaybackManager {
       !this.cameraVideo ||
       this.cameraVideo.readyState < 2 ||
       this.cameraVideo.seeking ||
+      this.cameraVideo.paused ||
       targetTime === null
     ) {
       return;
     }
 
     const drift = Math.abs(this.cameraVideo.currentTime - targetTime);
-    if (drift > 0.25) {
+    const now = performance.now();
+    if (drift > 0.4 && now - this._lastCameraResyncAt > 250) {
+      this._lastCameraResyncAt = now;
       this.cameraVideo.currentTime = targetTime;
     }
   }
 
-  private async _seekVideoToFrame(video: HTMLVideoElement, frame: number): Promise<void> {
+  private async _settlePausedMedia(frame: number, settleToken: number): Promise<void> {
+    if (this._playing || settleToken !== this._pauseSettleToken) return;
+
+    if (this.screenVideo) {
+      await this._seekVideoToFrame(this.screenVideo, frame, settleToken);
+    }
+
+    if (!this._playing && settleToken === this._pauseSettleToken && this.cameraVideo) {
+      await this._seekVideoToFrame(this.cameraVideo, frame, settleToken);
+    }
+
+    if (!this._playing && settleToken === this._pauseSettleToken && this.compositor) {
+      this.compositor.seekTo(frame);
+    }
+  }
+
+  private async _seekVideoToFrame(
+    video: HTMLVideoElement,
+    frame: number,
+    settleToken?: number,
+  ): Promise<void> {
     if (video.readyState < 1) return;
+    if (settleToken !== undefined && settleToken !== this._pauseSettleToken) return;
 
     const targetTime = this._resolveMediaTimeForVideo(video, frame);
     if (Math.abs(video.currentTime - targetTime) <= 0.02) return;
@@ -443,6 +472,10 @@ export class PlaybackManager {
       const timeoutId = window.setTimeout(finish, 250);
 
       video.addEventListener('seeked', onSeeked, { once: true });
+      if (settleToken !== undefined && settleToken !== this._pauseSettleToken) {
+        finish();
+        return;
+      }
       video.currentTime = targetTime;
 
       if (!video.seeking && Math.abs(video.currentTime - targetTime) <= 0.02) {
