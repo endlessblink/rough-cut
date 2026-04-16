@@ -3,6 +3,56 @@ import { existsSync } from 'node:fs';
 
 const MAX_RECENT = 20;
 
+export const DEFAULT_RECORDING_CONFIG = {
+  recordMode: 'fullscreen',
+  selectedSourceId: null,
+  micEnabled: true,
+  sysAudioEnabled: true,
+  cameraEnabled: true,
+  countdownSeconds: 3,
+  selectedMicDeviceId: null,
+  selectedCameraDeviceId: null,
+  selectedSystemAudioSourceId: null,
+};
+
+function normalizeNullableString(value, fallback = null) {
+  return typeof value === 'string' || value === null ? value : fallback;
+}
+
+function normalizeRecordingMode(value) {
+  return value === 'fullscreen' || value === 'window' || value === 'region'
+    ? value
+    : DEFAULT_RECORDING_CONFIG.recordMode;
+}
+
+function normalizeCountdownSeconds(value) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : DEFAULT_RECORDING_CONFIG.countdownSeconds;
+}
+
+function normalizeRecordingConfig(config) {
+  const next = config && typeof config === 'object' ? config : {};
+  return {
+    recordMode: normalizeRecordingMode(next.recordMode),
+    selectedSourceId: normalizeNullableString(next.selectedSourceId),
+    micEnabled:
+      typeof next.micEnabled === 'boolean' ? next.micEnabled : DEFAULT_RECORDING_CONFIG.micEnabled,
+    sysAudioEnabled:
+      typeof next.sysAudioEnabled === 'boolean'
+        ? next.sysAudioEnabled
+        : DEFAULT_RECORDING_CONFIG.sysAudioEnabled,
+    cameraEnabled:
+      typeof next.cameraEnabled === 'boolean'
+        ? next.cameraEnabled
+        : DEFAULT_RECORDING_CONFIG.cameraEnabled,
+    countdownSeconds: normalizeCountdownSeconds(next.countdownSeconds),
+    selectedMicDeviceId: normalizeNullableString(next.selectedMicDeviceId),
+    selectedCameraDeviceId: normalizeNullableString(next.selectedCameraDeviceId),
+    selectedSystemAudioSourceId: normalizeNullableString(next.selectedSystemAudioSourceId),
+  };
+}
+
 const schema = {
   recentProjects: {
     type: 'array',
@@ -42,17 +92,7 @@ const schema = {
       selectedCameraDeviceId: { type: ['string', 'null'] },
       selectedSystemAudioSourceId: { type: ['string', 'null'] },
     },
-    default: {
-      recordMode: 'fullscreen',
-      selectedSourceId: null,
-      micEnabled: true,
-      sysAudioEnabled: true,
-      cameraEnabled: true,
-      countdownSeconds: 3,
-      selectedMicDeviceId: null,
-      selectedCameraDeviceId: null,
-      selectedSystemAudioSourceId: null,
-    },
+    default: DEFAULT_RECORDING_CONFIG,
   },
 };
 
@@ -176,9 +216,11 @@ export function removeFavoriteLocation(path) {
 }
 
 export function getRecordingConfig() {
-  return store.get('recordingConfig');
+  const normalized = normalizeRecordingConfig(store.get('recordingConfig'));
+  store.set('recordingConfig', normalized);
+  return normalized;
 }
 
 export function setRecordingConfig(config) {
-  store.set('recordingConfig', config);
+  store.set('recordingConfig', normalizeRecordingConfig(config));
 }

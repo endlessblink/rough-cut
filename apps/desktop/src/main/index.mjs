@@ -23,7 +23,7 @@ import {
   reconcileSelectedSourceId,
   saveRecording,
 } from './recording/capture-service.mjs';
-import { discoverAudioSources } from './recording/audio-sources.mjs';
+import { listSystemAudioSources } from './recording/audio-sources.mjs';
 import { initSessionManager } from './recording/recording-session-manager.mjs';
 import {
   getRecentProjects,
@@ -35,6 +35,7 @@ import {
   getFavoriteLocations,
   addFavoriteLocation,
   removeFavoriteLocation,
+  DEFAULT_RECORDING_CONFIG,
   getRecordingConfig,
   setRecordingConfig,
 } from './recent-projects-service.mjs';
@@ -48,19 +49,41 @@ let currentExportFinalizeProcess = null;
 let cachedCaptureSources = [];
 const execFile = promisify(execFileCallback);
 
-const DEFAULT_RECORDING_CONFIG = {
-  recordMode: 'fullscreen',
-  selectedSourceId: null,
-  micEnabled: true,
-  sysAudioEnabled: true,
-  cameraEnabled: true,
-  countdownSeconds: 3,
-  selectedMicDeviceId: null,
-  selectedCameraDeviceId: null,
-  selectedSystemAudioSourceId: null,
-};
-
 let recordingConfig = { ...DEFAULT_RECORDING_CONFIG, ...getRecordingConfig() };
+
+function getCaptureSourceTypeForMode(recordMode) {
+  return recordMode === 'window' ? 'window' : 'screen';
+}
+
+function getSourceTypeFromId(sourceId) {
+  if (!sourceId || typeof sourceId !== 'string') return null;
+  return sourceId.startsWith('screen:') ? 'screen' : 'window';
+}
+
+function isSourceIdCompatibleWithMode(sourceId, recordMode) {
+  const sourceType = getSourceTypeFromId(sourceId);
+  return sourceType === getCaptureSourceTypeForMode(recordMode);
+}
+
+function pickSourceForRecordMode(sources, recordMode, selectedSourceId, cachedSelectedSource) {
+  const expectedType = getCaptureSourceTypeForMode(recordMode);
+  const compatibleSources = sources.filter((source) => {
+    const sourceType = source.id.startsWith('screen:') ? 'screen' : 'window';
+    return sourceType === expectedType;
+  });
+
+  const compatibleSelectedSourceId = isSourceIdCompatibleWithMode(selectedSourceId, recordMode)
+    ? selectedSourceId
+    : null;
+
+  const source = compatibleSelectedSourceId
+    ? (compatibleSources.find((item) => item.id === compatibleSelectedSourceId) ??
+      compatibleSources.find((item) => matchDesktopCaptureSource(item, cachedSelectedSource)) ??
+      compatibleSources[0])
+    : compatibleSources[0];
+
+  return source ?? null;
+}
 
 function broadcastRecordingConfig() {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -734,7 +757,7 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => {
-    return discoverAudioSources();
+    return listSystemAudioSources();
   });
 
   // Recording: Save finished recording blob to disk and probe metadata
@@ -1204,20 +1227,22 @@ app.whenReady().then(() => {
     try {
       const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
       const selectedSourceId = recordingConfig.selectedSourceId;
+      const recordMode = recordingConfig.recordMode;
       const cachedSelectedSource = cachedCaptureSources.find(
         (source) => source.id === selectedSourceId,
       );
-      const source = selectedSourceId
-        ? (sources.find((item) => item.id === selectedSourceId) ??
-          sources.find((item) => matchDesktopCaptureSource(item, cachedSelectedSource)) ??
-          sources[0])
-        : sources[0];
+      const source = pickSourceForRecordMode(
+        sources,
+        recordMode,
+        selectedSourceId,
+        cachedSelectedSource,
+      );
       if (!source) {
         callback(undefined);
         return;
       }
 
-      if (selectedSourceId && source.id !== selectedSourceId) {
+      if (source.id !== selectedSourceId) {
         applyRecordingConfigPatch({ selectedSourceId: source.id });
         broadcastRecordingConfig();
       }

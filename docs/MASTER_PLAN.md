@@ -117,7 +117,7 @@ For each surface, land the infrastructure that makes the view reliable first, th
 | ~~TASK-086~~ | ~~Record: Unified config store for main tab + recording panel~~          | P0       | ✅ DONE (2026-04-16)     | TASK-010, TASK-011 |
 | ~~BUG-007~~  | ~~Fix: Record toolbar toggles don't drive the floating recording panel~~ | P0       | ✅ DONE (2026-04-16)     | TASK-086           |
 | ~~BUG-008~~  | ~~Fix: Record source selection diverges from the floating panel source~~ | P0       | ✅ DONE (2026-04-16)     | TASK-086           |
-| TASK-087     | Record: Persist config across panel opens and app restarts               | P1       | TODO                     | TASK-086           |
+| ~~TASK-087~~ | ~~Record: Persist config across panel opens and app restarts~~           | P1       | ✅ DONE (2026-04-16)     | TASK-086           |
 | TASK-088     | Record: Device selectors for mic, camera, and system audio               | P1       | TODO                     | TASK-086, TASK-012 |
 | BUG-009      | Fix: Record mode selector is visual-only and does not affect capture     | P1       | TODO                     | TASK-086           |
 | ~~BUG-010~~  | ~~Fix: Camera controls hidden in Record toolbar despite camera support~~ | P1       | ✅ **DONE** (2026-04-16) | TASK-086           |
@@ -665,6 +665,27 @@ The Edit tab should resolve the same camera recording and media time as the Reco
 - Added Electron regression coverage that compares Record and Edit camera source identity plus media time for a saved replay fixture.
 
 **Key files:** `apps/desktop/src/renderer/features/edit/{EditTab,EditCameraOverlay}.tsx`, `tests/electron/camera-replay.spec.ts`
+
+---
+
+### ~~TASK-087: Record: Persist config across panel opens and app restarts~~
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-16)
+
+The shared Record config now survives both floating-panel open/close cycles and full app relaunches through the same persisted main-process config path.
+
+**Completed:**
+
+- Normalized `recordingConfig` persistence in `electron-store` so only valid mode, toggle, device, and countdown values are rehydrated after restart.
+- Reused the persisted config defaults from `recent-projects-service.mjs` in `main/index.mjs`, keeping initialization and storage aligned.
+- Added focused Electron coverage for both panel-open persistence and full restart persistence using a dedicated temporary config directory.
+
+**Verification:**
+
+- `xvfb-run --auto-servernum pnpm exec playwright test tests/electron/record-tab.spec.ts tests/electron/record-config-persistence.spec.ts`
+- `pnpm --filter @rough-cut/store test`
+
+**Key files:** `apps/desktop/src/main/{index,recent-projects-service}.mjs`, `tests/electron/{record-tab,record-config-persistence}.spec.ts`
 
 ---
 
