@@ -196,21 +196,9 @@ async function loadReplayFixture(
   if (tab === 'edit') {
     await navigateToTab(page, 'edit');
   } else {
-    await page
-      .waitForFunction((selector) => {
-        const video = document.querySelector(selector) as HTMLVideoElement | null;
-        return !!video && video.readyState >= 1 && !video.paused;
-      }, SCREEN_VIDEO)
-      .catch(async () => {
-        await page.waitForFunction((selector) => {
-          const video = document.querySelector(selector) as HTMLVideoElement | null;
-          return !!video && video.readyState >= 1;
-        }, SCREEN_VIDEO);
-      });
-
     await page.waitForFunction((selector) => {
-      const video = document.querySelector(selector) as HTMLVideoElement | null;
-      return !!video && video.readyState >= 1;
+      const surface = document.querySelector(selector) as HTMLElement | null;
+      return surface?.getAttribute('data-ready') === 'true';
     }, SCREEN_VIDEO);
   }
 

@@ -63,8 +63,16 @@ export function App() {
 
   // Initialize with a default project on mount
   useEffect(() => {
-    const defaultProject = createProject({ name: generateProjectName() });
-    projectStore.getState().setProject(defaultProject);
+    const currentState = projectStore.getState();
+    const shouldSeedDefaultProject =
+      currentState.project.name === 'Untitled Project' &&
+      currentState.project.assets.length === 0 &&
+      currentState.projectFilePath == null;
+
+    if (shouldSeedDefaultProject) {
+      const defaultProject = createProject({ name: generateProjectName() });
+      currentState.setProject(defaultProject);
+    }
 
     // Keep projectName in sync with store
     const unsub = projectStore.subscribe((state) => {
