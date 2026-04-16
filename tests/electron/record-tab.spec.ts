@@ -7,6 +7,30 @@ type RoughcutApi = {
   closeRecordingPanel: () => Promise<void>;
 };
 
+type DeviceSelectionSnapshot = {
+  selectedMicDeviceId: string | null;
+  selectedCameraDeviceId: string | null;
+  selectedSystemAudioSourceId: string | null;
+};
+
+async function getAvailableDeviceSelections(appPage: import('@playwright/test').Page) {
+  return appPage.evaluate(async () => {
+    const devices = await (navigator.mediaDevices?.enumerateDevices?.() ?? Promise.resolve([]));
+    const systemAudioSources = await (
+      window as unknown as {
+        roughcut: { recordingGetSystemAudioSources: () => Promise<Array<{ id: string }>> };
+      }
+    ).roughcut.recordingGetSystemAudioSources();
+
+    return {
+      selectedMicDeviceId: devices.find((device) => device.kind === 'audioinput')?.deviceId ?? null,
+      selectedCameraDeviceId:
+        devices.find((device) => device.kind === 'videoinput')?.deviceId ?? null,
+      selectedSystemAudioSourceId: systemAudioSources[0]?.id ?? null,
+    };
+  });
+}
+
 test.describe('Record tab', () => {
   test.beforeEach(async ({ appPage }) => {
     await appPage.evaluate(async () => {
@@ -37,22 +61,27 @@ test.describe('Record tab', () => {
   });
 
   test('record controls update the shared recording config store', async ({ appPage }) => {
-    await appPage.evaluate(async () => {
-      await (
-        window as unknown as {
-          roughcut: { recordingConfigUpdate: (patch: Record<string, unknown>) => Promise<unknown> };
-        }
-      ).roughcut.recordingConfigUpdate({
-        recordMode: 'window',
-        micEnabled: false,
-        sysAudioEnabled: false,
-        cameraEnabled: false,
-        countdownSeconds: 5,
-        selectedMicDeviceId: 'mic-1',
-        selectedCameraDeviceId: 'cam-1',
-        selectedSystemAudioSourceId: 'monitor-1',
-      });
-    });
+    const deviceSelections = await getAvailableDeviceSelections(appPage);
+
+    await appPage.evaluate(
+      async ({ deviceSelections }) => {
+        await (
+          window as unknown as {
+            roughcut: {
+              recordingConfigUpdate: (patch: Record<string, unknown>) => Promise<unknown>;
+            };
+          }
+        ).roughcut.recordingConfigUpdate({
+          recordMode: 'window',
+          micEnabled: false,
+          sysAudioEnabled: false,
+          cameraEnabled: false,
+          countdownSeconds: 5,
+          ...deviceSelections,
+        });
+      },
+      { deviceSelections },
+    );
 
     await expect
       .poll(async () =>
@@ -84,9 +113,7 @@ test.describe('Record tab', () => {
         sysAudioEnabled: false,
         cameraEnabled: false,
         countdownSeconds: 5,
-        selectedMicDeviceId: 'mic-1',
-        selectedCameraDeviceId: 'cam-1',
-        selectedSystemAudioSourceId: 'monitor-1',
+        ...deviceSelections,
       });
   });
 
@@ -192,23 +219,26 @@ test.describe('Record tab', () => {
   });
 
   test('panel hydrates the shared source and toggle config', async ({ appPage, electronApp }) => {
-    const selectedSourceId = await appPage.evaluate(async () => {
-      const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
-      const sources = await api.recordingGetSources();
-      const sourceId = sources[0]?.id ?? null;
+    const deviceSelections = await getAvailableDeviceSelections(appPage);
 
-      await api.recordingConfigUpdate({
-        selectedSourceId: sourceId,
-        micEnabled: false,
-        sysAudioEnabled: false,
-        cameraEnabled: false,
-        selectedMicDeviceId: 'mic-1',
-        selectedCameraDeviceId: 'cam-1',
-        selectedSystemAudioSourceId: 'monitor-1',
-      });
+    const selectedSourceId = await appPage.evaluate(
+      async ({ deviceSelections }) => {
+        const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
+        const sources = await api.recordingGetSources();
+        const sourceId = sources[0]?.id ?? null;
 
-      return sourceId;
-    });
+        await api.recordingConfigUpdate({
+          selectedSourceId: sourceId,
+          micEnabled: false,
+          sysAudioEnabled: false,
+          cameraEnabled: false,
+          ...deviceSelections,
+        });
+
+        return sourceId;
+      },
+      { deviceSelections },
+    );
 
     const panelPromise = electronApp.waitForEvent('window');
     await appPage.evaluate(() => {
@@ -247,9 +277,7 @@ test.describe('Record tab', () => {
         micEnabled: false,
         sysAudioEnabled: false,
         cameraEnabled: false,
-        selectedMicDeviceId: 'mic-1',
-        selectedCameraDeviceId: 'cam-1',
-        selectedSystemAudioSourceId: 'monitor-1',
+        ...deviceSelections,
       });
 
     if (selectedSourceId) {
