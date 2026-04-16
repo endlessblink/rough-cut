@@ -1,7 +1,7 @@
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
 
 type RoughcutApi = {
-  recordingGetSources: () => Promise<Array<{ id: string }>>;
+  recordingGetSources: () => Promise<Array<{ id: string; type: 'screen' | 'window' }>>;
   recordingConfigUpdate: (patch: Record<string, unknown>) => Promise<unknown>;
   openRecordingPanel: () => Promise<void>;
   closeRecordingPanel: () => Promise<void>;
@@ -180,6 +180,133 @@ test.describe('Record tab', () => {
     await appPage.evaluate(() => {
       return (window as unknown as { roughcut: RoughcutApi }).roughcut.closeRecordingPanel();
     });
+  });
+
+  test('record mode switches reconcile capture source type and hydrate the panel', async ({
+    appPage,
+    electronApp,
+  }) => {
+    const sourceSummary = await appPage.evaluate(async () => {
+      const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
+      const sources = await api.recordingGetSources();
+      return {
+        screenIds: sources.filter((source) => source.type === 'screen').map((source) => source.id),
+        windowIds: sources.filter((source) => source.type === 'window').map((source) => source.id),
+      };
+    });
+
+    test.skip(
+      sourceSummary.screenIds.length === 0 || sourceSummary.windowIds.length === 0,
+      'Mode/source reconciliation requires both screen and window capture sources.',
+    );
+
+    const initialScreenSourceId = sourceSummary.screenIds[0] ?? null;
+    if (!initialScreenSourceId) {
+      throw new Error('Expected at least one screen capture source.');
+    }
+
+    await appPage.evaluate(
+      async ({ sourceId }) => {
+        const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
+        await api.recordingConfigUpdate({
+          recordMode: 'fullscreen',
+          selectedSourceId: sourceId,
+        });
+      },
+      { sourceId: initialScreenSourceId },
+    );
+
+    await expect
+      .poll(async () =>
+        appPage.evaluate(() => {
+          const stores = (
+            window as unknown as {
+              __roughcutStores?: {
+                recordingConfig?: {
+                  getState: () => {
+                    recordMode: string;
+                    selectedSourceId: string | null;
+                  };
+                };
+              };
+            }
+          ).__roughcutStores;
+          return stores?.recordingConfig?.getState() ?? null;
+        }),
+      )
+      .toMatchObject({
+        recordMode: 'fullscreen',
+        selectedSourceId: initialScreenSourceId,
+      });
+
+    await appPage.evaluate(async () => {
+      const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
+      await api.recordingConfigUpdate({ recordMode: 'window' });
+    });
+
+    await expect
+      .poll(async () =>
+        appPage.evaluate(() => {
+          const stores = (
+            window as unknown as {
+              __roughcutStores?: {
+                recordingConfig?: {
+                  getState: () => {
+                    recordMode: string;
+                    selectedSourceId: string | null;
+                  };
+                };
+              };
+            }
+          ).__roughcutStores;
+          return stores?.recordingConfig?.getState() ?? null;
+        }),
+      )
+      .toMatchObject({
+        recordMode: 'window',
+        selectedSourceId: expect.stringMatching(/^window:/),
+      });
+
+    const panelPromise = electronApp.waitForEvent('window');
+    await appPage.evaluate(() => {
+      return (window as unknown as { roughcut: RoughcutApi }).roughcut.openRecordingPanel();
+    });
+    const panelPage = await panelPromise;
+    await panelPage.waitForLoadState('domcontentloaded');
+
+    await expect(panelPage.locator('select').first()).toHaveValue(/window:/);
+
+    await appPage.evaluate(() => {
+      return (window as unknown as { roughcut: RoughcutApi }).roughcut.closeRecordingPanel();
+    });
+
+    await appPage.evaluate(async () => {
+      const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
+      await api.recordingConfigUpdate({ recordMode: 'region' });
+    });
+
+    await expect
+      .poll(async () =>
+        appPage.evaluate(() => {
+          const stores = (
+            window as unknown as {
+              __roughcutStores?: {
+                recordingConfig?: {
+                  getState: () => {
+                    recordMode: string;
+                    selectedSourceId: string | null;
+                  };
+                };
+              };
+            }
+          ).__roughcutStores;
+          return stores?.recordingConfig?.getState() ?? null;
+        }),
+      )
+      .toMatchObject({
+        recordMode: 'region',
+        selectedSourceId: expect.stringMatching(/^screen:/),
+      });
   });
 
   test('record button shows REC text when idle', async ({ appPage }) => {

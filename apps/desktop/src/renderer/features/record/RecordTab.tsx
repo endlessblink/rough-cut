@@ -538,6 +538,19 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     void loadSources();
   }, [loadSources]);
 
+  useEffect(() => {
+    if (sources.length === 0) return;
+
+    const expectedType = recordMode === 'window' ? 'window' : 'screen';
+    const selectedSource = sources.find((source) => source.id === selectedSourceId) ?? null;
+    if (selectedSource?.type === expectedType) return;
+
+    const fallbackSource = sources.find((source) => source.type === expectedType) ?? null;
+    if (fallbackSource && fallbackSource.id !== selectedSourceId) {
+      updateRecordingConfig({ selectedSourceId: fallbackSource.id });
+    }
+  }, [recordMode, selectedSourceId, sources]);
+
   const selectedSourceName = sources.find((s) => s.id === selectedSourceId)?.name ?? null;
 
   const recordState: RecordState =
