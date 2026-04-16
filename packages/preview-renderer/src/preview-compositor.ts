@@ -76,7 +76,6 @@ export class PreviewCompositor {
   private lastRenderedFrame = -1;
   private lastRenderedProject: ProjectDocument | null = null;
   private _playing = false;
-  private _playbackTickerBound: ((ticker: any) => void) | null = null;
 
   // Layer cache — reuse PixiJS objects to avoid GC pressure at 60fps
   private layerCache: Map<string, LayerCache> = new Map();
@@ -117,6 +116,7 @@ export class PreviewCompositor {
       height: this.config.height,
       background: this.config.backgroundColor,
       antialias: true,
+      autoStart: false,
       autoDensity: false,
       resolution: 1,
     };
@@ -127,6 +127,7 @@ export class PreviewCompositor {
 
     this.app = new Application();
     await this.app.init(initOptions);
+    this.app.ticker?.stop();
 
     // Create a dedicated container for all timeline layers
     this.layerContainer = new Container();
@@ -249,33 +250,13 @@ export class PreviewCompositor {
     return this._playing;
   }
 
-  /**
-   * Start a PixiJS ticker that reads video.currentTime during playback
-   * and syncs the UI playhead via the provided callback.
-   */
-  startPlaybackTicker(onTimeSync: (timeSec: number) => void): void {
-    if (!this.app || this._playbackTickerBound) return;
-    this._playbackTickerBound = () => {
-      if (!this._playing) return;
-      const timeSec = this.getVideoCurrentTime();
-      if (timeSec < 0) return;
-      const fps = this.project?.settings.frameRate ?? 30;
-      const playbackFrame = this.getPlaybackFrame();
-      this.currentFrame = playbackFrame >= 0 ? playbackFrame : Math.round(timeSec * fps);
-      // Re-render for zoom/transform updates (but renderCurrentFrame won't seek video)
-      this.renderCurrentFrame();
-      // Sync playhead UI
-      onTimeSync(this.currentFrame / fps);
-    };
-    this.app.ticker.add(this._playbackTickerBound);
-  }
-
-  /** Stop the playback ticker */
-  stopPlaybackTicker(): void {
-    if (this.app && this._playbackTickerBound) {
-      this.app.ticker.remove(this._playbackTickerBound);
-      this._playbackTickerBound = null;
+  /** Detect native playback completion from the compositor-owned media elements. */
+  hasPlaybackEnded(): boolean {
+    for (const vc of this.videoCache.values()) {
+      if (!vc.loaded) continue;
+      if (vc.video.ended) return true;
     }
+    return false;
   }
 
   /** Seek to a specific frame and render it */
@@ -307,7 +288,6 @@ export class PreviewCompositor {
 
   /** Clean up PixiJS resources */
   dispose(): void {
-    this.stopPlaybackTicker();
     this.pause();
     this.setState('disposed');
     this.layerCache.clear();
@@ -351,6 +331,7 @@ export class PreviewCompositor {
 
     const renderFrame = resolveFrame(this.project, this.currentFrame);
     this.renderRenderFrame(renderFrame);
+    this.app.render();
     this.lastRenderedFrame = this.currentFrame;
     this.lastRenderedProject = this.project;
     this.events.onFrameRendered?.(this.currentFrame);

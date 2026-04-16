@@ -172,7 +172,7 @@ export class PlaybackManager {
     void this._beginPlayback(playToken, startFrame, startTime);
   }
 
-  pause(): void {
+  pause(nextFrame?: number): void {
     if (!this._playing) return;
     this._playToken += 1;
     const pauseSettleToken = ++this._pauseSettleToken;
@@ -194,13 +194,14 @@ export class PlaybackManager {
 
     // Snap playhead to current video time
     const compositorPlaybackFrame = this.compositor?.getPlaybackFrame() ?? -1;
-    const frame = this.screenVideo
+    const playbackFrame = this.screenVideo
       ? this._resolveTimelineFrameForVideo(this.screenVideo)
       : compositorPlaybackFrame >= 0
         ? compositorPlaybackFrame
         : this.cameraVideo
           ? this._resolveTimelineFrameForVideo(this.cameraVideo)
           : (this.compositor?.getCurrentFrame() ?? 0);
+    const frame = nextFrame ?? playbackFrame;
 
     this.transportStore.setState({ isPlaying: false, playheadFrame: frame });
     void this._settlePausedMedia(frame, pauseSettleToken);
@@ -283,6 +284,14 @@ export class PlaybackManager {
 
     if (!this._playing || playToken !== this._playToken) return;
 
+    // Record uses the shared compositor as the visible screen surface, so
+    // compositor-driven playback must be snapped to the transport start frame
+    // before native video playback begins. Without this, replay-after-end can
+    // bootstrap from the compositor's stale last frame and immediately stall.
+    if (this.compositor) {
+      this.compositor.seekTo(startFrame);
+    }
+
     if (this.screenVideo) {
       this._startVideo(this.screenVideo);
     }
@@ -318,6 +327,11 @@ export class PlaybackManager {
   private _onVideoFrame = (_now: number, metadata: VideoFrameCallbackMetadata): void => {
     if (!this._playing) return;
 
+    if (this.screenVideo?.ended || this.compositor?.hasPlaybackEnded()) {
+      this.pause(0);
+      return;
+    }
+
     const fps = this.projectStore.getState().project.settings.frameRate;
     const screenTime = metadata.mediaTime;
     const frame = this.screenVideo
@@ -339,9 +353,9 @@ export class PlaybackManager {
 
     // 2. End-of-timeline detection
     const duration = this.projectStore.getState().project.composition.duration;
-    if (duration > 0 && frame >= duration) {
-      this.pause();
-      this.transportStore.setState({ playheadFrame: 0 });
+    const compositorEnded = this.compositor?.hasPlaybackEnded() ?? false;
+    if (this.screenVideo?.ended || compositorEnded || (duration > 0 && frame >= duration)) {
+      this.pause(0);
       return;
     }
 
@@ -358,6 +372,11 @@ export class PlaybackManager {
    */
   private _syncLoop = (): void => {
     if (!this._playing) return;
+
+    if (this.screenVideo?.ended || this.compositor?.hasPlaybackEnded()) {
+      this.pause(0);
+      return;
+    }
 
     // Read current time from screenVideo or compositor video
     const screen = this.screenVideo;
@@ -391,9 +410,9 @@ export class PlaybackManager {
 
     // 2. End-of-timeline detection
     const duration = this.projectStore.getState().project.composition.duration;
-    if (duration > 0 && frame >= duration) {
-      this.pause();
-      this.transportStore.setState({ playheadFrame: 0 });
+    const compositorEnded = this.compositor?.hasPlaybackEnded() ?? false;
+    if (compositorEnded || (duration > 0 && frame >= duration)) {
+      this.pause(0);
       return;
     }
 

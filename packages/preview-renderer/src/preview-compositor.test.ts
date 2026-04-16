@@ -10,7 +10,9 @@ vi.mock('pixi.js', () => ({
       children: [] as unknown[],
     };
     renderer = { resize: vi.fn() };
+    ticker = { stop: vi.fn() };
     async init(_opts?: unknown): Promise<void> {}
+    render(): void {}
     destroy(): void {}
   },
   Container: class {
@@ -29,10 +31,18 @@ vi.mock('pixi.js', () => ({
     destroy(_opts?: unknown): void {}
   },
   Graphics: class {
-    clear(): this { return this; }
-    rect(): this { return this; }
-    fill(): this { return this; }
-    stroke(): this { return this; }
+    clear(): this {
+      return this;
+    }
+    rect(): this {
+      return this;
+    }
+    fill(): this {
+      return this;
+    }
+    stroke(): this {
+      return this;
+    }
     destroy(): void {}
   },
   Text: class {

@@ -68,7 +68,7 @@ For each surface, land the infrastructure that makes the view reliable first, th
 
 ### Current sprint framing
 
-1. **Sprint A -- Recording Infrastructure**: ~~TASK-013~~, TASK-086, ~~BUG-007~~, ~~BUG-008~~, TASK-087, TASK-088, BUG-009, TASK-100
+1. **Sprint A -- Recording Infrastructure**: ~~TASK-013~~, TASK-086, ~~BUG-007~~, ~~BUG-008~~, TASK-087, TASK-088, BUG-009, TASK-100, BUG-004, BUG-011, ~~BUG-012~~, ~~TASK-120~~
 2. **Sprint B -- Recording Edge Features**: TASK-014, TASK-015, TASK-016, TASK-089, TASK-090, TASK-091, TASK-092, TASK-101
 3. **Sprint C -- Export Core Flow**: TASK-021, TASK-022, TASK-028, TASK-029, TASK-112, TASK-067
 4. **Sprint D -- Export Performance + Advanced Output**: TASK-050, TASK-051, TASK-052, TASK-054, TASK-096, TASK-108
@@ -123,7 +123,10 @@ For each surface, land the infrastructure that makes the view reliable first, th
 | ~~BUG-010~~  | ~~Fix: Camera controls hidden in Record toolbar despite camera support~~ | P1       | ✅ **DONE** (2026-04-16) | TASK-086           |
 | ~~TASK-113~~ | Record: Camera aspect presets for shaped PiP                             | P1       | ✅ **DONE** (2026-04-15) | TASK-011           |
 | FEATURE-076  | Record: Audio capture + playback (FFmpeg pipeline + compositor unmute)   | P1       | IN PROGRESS              | TASK-020           |
-| BUG-004      | No icon shown in dock/taskbar during recording — blank space             | P2       | PLANNED                  | TASK-010           |
+| BUG-004      | No icon shown in dock/taskbar during recording — blank space             | P1       | TODO                     | TASK-010           |
+| BUG-011      | Fix: Linux recording hides all dock/taskbar stop controls                | P1       | TODO                     | TASK-010           |
+| ~~BUG-012~~  | ~~Fix: Record replay bootstrap stalls on saved-session playback~~        | P1       | ✅ DONE (2026-04-17)     | TASK-075           |
+| ~~TASK-120~~ | ~~Record: Decouple timeline playhead from per-frame React rerenders~~    | P1       | ✅ DONE (2026-04-16)     | TASK-075           |
 | ~~TASK-030~~ | ~~Record: Countdown timer (0/3/5/10s configurable)~~                     | P2       | ✅ DONE (2026-04-16)     | TASK-011           |
 | ~~TASK-031~~ | ~~Record: Pause/resume recording (MediaRecorder pause)~~                 | P2       | ✅ DONE (2026-04-16)     | TASK-012           |
 | TASK-032     | Record: VU meters for mic and system audio                               | P2       | TODO                     | TASK-012           |
@@ -170,7 +173,7 @@ For each surface, land the infrastructure that makes the view reliable first, th
 | ~~TASK-053~~ | ✅ Export: Frame-accurate scrubbing via mediabunny VideoSampleSink.getSample()                             | P1       | ✅ **DONE** (2026-04-16) | TASK-052           |
 | TASK-054     | Export: NVENC hardware encoding via VideoEncoder hardwareAcceleration: prefer-hardware                     | P1       | TODO                     | TASK-052           |
 | BUG-006      | Playback laggy — Canvas2D drawImage bottleneck, needs WebGL VideoSource path                               | P0       | TODO                     | TASK-050           |
-| TASK-075     | Preview: Playback fluency — rVFC sync, consolidate loops, cache effects                                    | P0       | IN PROGRESS              | TASK-007           |
+| ~~TASK-075~~ | Preview: Playback fluency — rVFC sync, consolidate loops, cache effects                                    | P0       | ✅ DONE (2026-04-16)     | TASK-007           |
 | TASK-096     | Export: Social aspect presets derived from Record templates                                                | P2       | TODO                     | TASK-015, TASK-029 |
 | TASK-108     | Export: Job queue (multi-job sequential processing)                                                        | P3       | TODO                     | TASK-021           |
 
@@ -312,9 +315,9 @@ Recent projects list with filtering, new/open project flows. IPC integration for
 
 ---
 
-### TASK-075: Preview: Playback fluency — rVFC sync, consolidate loops, cache effects
+### ~~TASK-075: Preview: Playback fluency — rVFC sync, consolidate loops, cache effects~~
 
-**Priority:** P0 | **Status:** IN PROGRESS (2026-04-14)
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-16)
 
 Improve playback smoothness by addressing identified bottlenecks in the rendering pipeline:
 
@@ -324,16 +327,18 @@ Improve playback smoothness by addressing identified bottlenecks in the renderin
 4. **Skip redundant renders** — Don't re-render compositor when frame hasn't changed
 5. **Reuse sprites** — Avoid destroying/recreating PixiJS sprites on layer set changes; update textures only
 
-**Progress (2026-04-15):**
+**Progress (2026-04-16):**
 
 - `PlaybackManager` now starts Record playback only after seek-to-start settles, which removed stale-frame races when replaying or resuming the screen/compositor path.
 - Record timeline transport drives playback through `PlaybackManager.togglePlay()` / `seekToFrame()` so replay, pause, and scrubbing use the real screen video clock.
 - The `media://` handler now serves explicit byte-range responses, so Chromium treats recorded media as seekable and playback resumes from the visible playhead instead of jumping near frame 0.
 - Camera playback stays under `PlaybackManager` ownership with clip-aware media-time resolvers, element-specific unregister guards, and `loadeddata` registration so camera resume/restart waits for a real decodable frame.
 - Project swap flows (`Open`, `New`, `Projects`, `DEBUG: Reload Last`, and post-record project replacement) now pause playback first and `setProject()` clears stale `activeAssetId`, reducing cross-project camera/video leakage after reopen or restart.
-- `tests/electron/camera-replay.spec.ts` now covers real saved-session replay behavior for both Record and Edit, and `tests/electron/playhead-start.spec.ts` locks the trimmed-playhead start case that regressed during this work.
+- The PixiJS compositor now runs in manual render mode (`autoStart: false`) so `PlaybackManager` is the only playback clock and unchanged frames no longer incur automatic ticker-driven GPU renders.
+- `PlaybackManager` now treats compositor/video `ended` state as a hard stop condition, which fixes replay sessions that could reach the end of media without snapping the UI back to frame 0.
+- Verified with `pnpm --filter @rough-cut/preview-renderer typecheck`, `pnpm --filter @rough-cut/preview-renderer test`, and `npx playwright test tests/electron/camera-replay.spec.ts`.
 
-**Key files:** `playback-manager.ts`, `preview-compositor.ts`, `use-compositor.ts`
+**Key files:** `playback-manager.ts`, `preview-compositor.ts`, `preview-compositor.test.ts`
 
 ---
 
@@ -344,6 +349,16 @@ Improve playback smoothness by addressing identified bottlenecks in the renderin
 Export tab preview now renders the camera picture-in-picture overlay identically to the Record and Edit tabs. The fix adds `EditCameraOverlay` to the preview container in `ExportTab.tsx`, driven by the same `resolveFrame` + `asset.metadata.isCamera` lookup used in `EditTab`. Camera shape, size, position, shadow, inset, roundness and visibility settings from the recording's `presentation.camera` are all respected. No new APIs — pure reuse of existing overlay component.
 
 **Key files:** `apps/desktop/src/renderer/features/export/ExportTab.tsx`
+
+---
+
+### ~~TASK-120: Record: Decouple timeline playhead from per-frame React rerenders~~
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-16)
+
+Record playback no longer forces the full `RecordTab` tree to rerender on every playhead tick. The timeline now reads `playheadFrame` directly from the transport store, updates its needle and timecode imperatively through refs, and `RecordTab` only snapshots the playhead when the user explicitly creates a zoom marker. This keeps scrubbing responsive while removing the page-wide React churn that was causing visible stutter.
+
+**Key files:** `apps/desktop/src/renderer/features/record/RecordTab.tsx`, `apps/desktop/src/renderer/features/record/RecordTimelineShell.tsx`
 
 ---
 
@@ -363,6 +378,10 @@ Ordered by the desired product flow: infrastructure first, then edge features, o
 | TASK-088     | Device selectors for mic, camera, system audio              | Required for a production-ready record surface     |
 | BUG-009      | Fix mode selector so it affects capture                     | Core correctness issue                             |
 | TASK-100     | Disconnect recovery and warning toasts                      | Hardens real recording sessions                    |
+| BUG-004      | Fix missing recording icon in dock/taskbar                  | Restores visible OS-level recording presence       |
+| BUG-011      | Fix Linux dock/taskbar stop affordance during recording     | Prevents control loss when panel is hidden         |
+| ~~BUG-012~~  | ~~Fix Record saved-session replay bootstrap stalls~~        | Restores reliable replay/startup for playback      |
+| ~~TASK-120~~ | ~~Decouple Record timeline playhead from React rerenders~~  | Removes UI stutter during playback and scrubbing   |
 
 ### Sprint B — Recording Edge Features
 
@@ -1397,6 +1416,7 @@ Verification:
 - ~~TASK-113~~ Record: Camera aspect presets for shaped PiP
 - ~~TASK-114~~ Edit: Camera source/timing parity with Record preview
 - ~~TASK-118~~ Export: Camera PiP preview parity with Record + Edit tabs
+- ~~TASK-120~~ Record: Decouple timeline playhead from per-frame React rerenders
 - ~~BUG-001~~ Fix: Compositor canvas sizing + video sprite positioning
 - ~~BUG-002~~ Fix: Compositor resizing to template resolution + debug logging cleanup
 - ~~BUG-003~~ Fix: Video playback + timeline sync across all tabs
