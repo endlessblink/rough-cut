@@ -21,7 +21,7 @@ import type { CursorPresentation, CameraPresentation, RegionCrop } from '@rough-
 import { useRecordState } from './record-state.js';
 import { useRecording } from './use-recording.js';
 import { useLivePreview } from './use-live-preview.js';
-import { LivePreviewVideo } from './LivePreviewVideo.js';
+import { LivePreviewCanvas } from './LivePreviewCanvas.js';
 import { RecordScreenLayout } from './RecordScreenLayout.js';
 import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
@@ -216,8 +216,6 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
 
   // Live preview stream — acquired when a source is selected, independent of recording
   const { stream: liveStream } = useLivePreview(selectedSourceId);
-  const shouldShowLivePreview =
-    Boolean(selectedSourceId && liveStream) && !hasRecordingAssets && !projectFilePath;
 
   // UI state
 
@@ -680,8 +678,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
                           .updateRecordingZoomMarker(activeRecordingId, markerId, { focalPoint });
                       }}
                     />
-                  ) : shouldShowLivePreview ? (
-                    <LivePreviewVideo stream={liveStream} />
+                  ) : !hasRecordingAssets ? (
+                    <LivePreviewCanvas stream={liveStream} />
                   ) : undefined
                 }
                 cameraContent={
