@@ -53,12 +53,32 @@ export { expect } from '@playwright/test';
 
 /** Navigate to a tab by clicking its testid button and waiting for the tab root to appear. */
 export async function navigateToTab(page: Page, tabId: string) {
+  const tabButtonSelector = `[data-testid="tab-${tabId}"]`;
   const tabRootSelector = `[data-testid="${tabId}-tab-root"]`;
   const tabRoot = page.locator(tabRootSelector);
   if (await tabRoot.isVisible().catch(() => false)) {
     return;
   }
 
-  await page.click(`[data-testid="tab-${tabId}"]`);
+  const tabButton = page.locator(tabButtonSelector);
+  await tabButton.waitFor({ state: 'visible', timeout: 30_000 });
+
+  // App startup occasionally races the first tab switch, so retry a few times
+  // before failing the test.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await tabButton.click();
+
+    const navigated = await page
+      .waitForFunction((selector) => Boolean(document.querySelector(selector)), tabRootSelector, {
+        timeout: 5_000,
+      })
+      .then(() => true)
+      .catch(() => false);
+
+    if (navigated) {
+      return;
+    }
+  }
+
   await page.waitForSelector(tabRootSelector, { timeout: 30_000 });
 }
