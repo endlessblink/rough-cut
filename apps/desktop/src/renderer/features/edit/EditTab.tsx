@@ -262,7 +262,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
 
   const trackVolume = selectedClipTrack?.volume ?? 1;
 
-  const allCaptionSegments = useProjectStore((s) => s.project.aiAnnotations.captionSegments);
+  const allCaptionSegments = useProjectStore((s) => s.project.aiAnnotations?.captionSegments) ?? [];
   const captionSegments = useMemo(() => {
     if (!selectedClip) return [];
     return allCaptionSegments.filter(
