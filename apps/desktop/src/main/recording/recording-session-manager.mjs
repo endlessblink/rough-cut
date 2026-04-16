@@ -46,7 +46,7 @@ const __dirname = dirname(__filename);
 
 const IS_LINUX = process.platform === 'linux';
 const PANEL_SETUP = { width: 500, height: 460 };
-const PANEL_MINI  = { width: 340, height: 56 };
+const PANEL_MINI = { width: 340, height: 56 };
 
 // ---------------------------------------------------------------------------
 // State
@@ -98,8 +98,18 @@ let ffmpegHandle = null;
 /** @type {(() => { sourceId: string, display: string, width: number, height: number } | null) | null} */
 let getSourceInfo = null;
 
-/** Audio config received from panel for the current recording. */
-let pendingAudioConfig = { micEnabled: false, sysAudioEnabled: false };
+/** Recording config received from panel for the current recording. */
+let pendingAudioConfig = {
+  micEnabled: false,
+  sysAudioEnabled: false,
+  countdownSeconds: 3,
+  selectedSystemAudioSourceId: null,
+};
+
+function broadcastSessionEvent(channel, ...args) {
+  safeSend(panelWindow, channel, ...args);
+  safeSend(mainWindow, channel, ...args);
+}
 
 // ---------------------------------------------------------------------------
 // Tiny inline red-circle icon for the tray (8×8 px, base64 PNG)
@@ -209,11 +219,13 @@ function _togglePauseFromTray() {
     isPaused = true;
     pauseStartMs = Date.now();
     safeSend(panelWindow, 'panel:tray-pause', null);
+    updateTrayTooltip();
     console.info('[session-manager] Paused from tray');
   } else {
     totalPausedMs += Date.now() - pauseStartMs;
     isPaused = false;
     safeSend(panelWindow, 'panel:tray-resume', null);
+    updateTrayTooltip();
     console.info('[session-manager] Resumed from tray, total paused:', totalPausedMs, 'ms');
   }
   if (tray) _rebuildTrayMenu(tray);
@@ -247,9 +259,7 @@ function updateTrayTooltip() {
 function getPanelPosition(panelSize) {
   try {
     const bounds = mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : null;
-    const display = bounds
-      ? screen.getDisplayMatching(bounds)
-      : screen.getPrimaryDisplay();
+    const display = bounds ? screen.getDisplayMatching(bounds) : screen.getPrimaryDisplay();
     const { x: dx, y: dy, width: dw, height: dh } = display.workArea;
     const x = Math.round(dx + (dw - panelSize.width) / 2);
     const y = Math.round(dy + dh - panelSize.height - 32); // 32 px margin from bottom
@@ -285,9 +295,7 @@ function getMiniPosition(panelSize) {
 function resizePanel(mode) {
   if (!panelWindow || panelWindow.isDestroyed()) return;
   const size = mode === 'mini' ? PANEL_MINI : PANEL_SETUP;
-  const pos = mode === 'mini'
-    ? getMiniPosition(size)
-    : getPanelPosition(size);
+  const pos = mode === 'mini' ? getMiniPosition(size) : getPanelPosition(size);
   panelWindow.setBounds({ ...pos, ...size });
   console.info(`[session-manager] Panel resized to ${mode} mode`);
 }
@@ -428,7 +436,7 @@ function _destroyPanel() {
  *
  * Flow:
  *  1. Guard: only when panel-open
- *  2. Run 3-second countdown — send ticks to panelWindow
+ *  2. Run configured countdown — send ticks to the panel and main windows
  *  3. Transition to 'recording'
  *  4. Send `status-changed: 'recording'` to panelWindow
  *  5. Start elapsed timer (100 ms) → panelWindow
@@ -440,7 +448,7 @@ export async function startRecording() {
   try {
     state = 'countdown';
 
-    await _runCountdown();
+    await _runCountdown(pendingAudioConfig.countdownSeconds);
 
     // Check if state was externally changed during countdown (e.g. panel closed)
     if (state !== 'countdown') {
@@ -451,7 +459,12 @@ export async function startRecording() {
     // --- Recording phase ---
     state = 'recording';
     recordingStartMs = Date.now();
-    console.info('[session-manager] Recording phase started. Platform:', process.platform, 'Content protection:', IS_LINUX ? 'UNAVAILABLE' : 'enabled');
+    console.info(
+      '[session-manager] Recording phase started. Platform:',
+      process.platform,
+      'Content protection:',
+      IS_LINUX ? 'UNAVAILABLE' : 'enabled',
+    );
 
     // Start cursor recording — writes .cursor.ndjson alongside the video.
     // Default: ~/Documents/Rough Cut/recordings (persistent). Falls back to
@@ -461,7 +474,10 @@ export async function startRecording() {
       try {
         const { getRecordingLocation } = await import('../recent-projects-service.mjs');
         const loc = getRecordingLocation();
-        console.info('[session-manager] Recording location:', loc || `(default ${defaultRecordingsDir})`);
+        console.info(
+          '[session-manager] Recording location:',
+          loc || `(default ${defaultRecordingsDir})`,
+        );
         return loc || defaultRecordingsDir;
       } catch (e) {
         console.warn('[session-manager] getRecordingLocation failed:', e?.message);
@@ -472,7 +488,11 @@ export async function startRecording() {
     try {
       if (!existsSync(recordingsDir)) mkdirSync(recordingsDir, { recursive: true });
     } catch (err) {
-      console.warn('[session-manager] Failed to create recordings dir:', recordingsDir, err?.message);
+      console.warn(
+        '[session-manager] Failed to create recordings dir:',
+        recordingsDir,
+        err?.message,
+      );
     }
     const cursorTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const cursorPath = join(recordingsDir, `recording-${cursorTimestamp}.cursor.ndjson`);
@@ -496,12 +516,20 @@ export async function startRecording() {
         let systemAudioSource = null;
         if (pendingAudioConfig.micEnabled || pendingAudioConfig.sysAudioEnabled) {
           try {
-            const sources = await discoverAudioSources();
+            const sources = await discoverAudioSources(
+              pendingAudioConfig.selectedSystemAudioSourceId ?? null,
+            );
             if (pendingAudioConfig.micEnabled) micSource = sources.micSource;
             if (pendingAudioConfig.sysAudioEnabled) systemAudioSource = sources.monitorSource;
-            console.info('[session-manager] Audio sources for FFmpeg:', { micSource, systemAudioSource });
+            console.info('[session-manager] Audio sources for FFmpeg:', {
+              micSource,
+              systemAudioSource,
+            });
           } catch (err) {
-            console.warn('[session-manager] Audio discovery failed — recording video-only:', err?.message ?? err);
+            console.warn(
+              '[session-manager] Audio discovery failed — recording video-only:',
+              err?.message ?? err,
+            );
           }
         }
 
@@ -515,14 +543,19 @@ export async function startRecording() {
             micSource,
             systemAudioSource,
           });
-          console.info('[session-manager] FFmpeg x11grab started →', ffmpegPath,
-            micSource || systemAudioSource ? '(with audio)' : '(video-only)');
+          console.info(
+            '[session-manager] FFmpeg x11grab started →',
+            ffmpegPath,
+            micSource || systemAudioSource ? '(with audio)' : '(video-only)',
+          );
         } catch (err) {
           console.warn('[session-manager] FFmpeg capture failed to start:', err?.message ?? err);
           ffmpegHandle = null;
         }
       } else {
-        console.info('[session-manager] No source info — skipping FFmpeg capture (window capture?)');
+        console.info(
+          '[session-manager] No source info — skipping FFmpeg capture (window capture?)',
+        );
       }
     }
 
@@ -556,7 +589,7 @@ export async function startRecording() {
       console.info('[session-manager] Panel resized to mini-controller.');
     }
 
-    safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'recording');
+    broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'recording');
     console.info('[session-manager] Sent recording status to panel.');
 
     // Reset pause tracking
@@ -569,7 +602,7 @@ export async function startRecording() {
       if (isPaused) return; // Don't update elapsed while paused
       const currentPausedMs = totalPausedMs;
       const elapsedMs = Date.now() - recordingStartMs - currentPausedMs;
-      safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_ELAPSED, elapsedMs);
+      broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_ELAPSED, elapsedMs);
       updateTrayTooltip();
     }, 100);
 
@@ -618,7 +651,12 @@ export async function stopRecording() {
   // Stop cursor recording FIRST (lightweight, instant)
   lastCursorResult = cursorRecorder.stop();
   if (lastCursorResult) {
-    console.info('[session-manager] Cursor data:', lastCursorResult.eventCount, 'events →', lastCursorResult.eventsPath);
+    console.info(
+      '[session-manager] Cursor data:',
+      lastCursorResult.eventCount,
+      'events →',
+      lastCursorResult.eventsPath,
+    );
   }
 
   // Stop FFmpeg BEFORE telling the panel — ensures the file is complete
@@ -642,7 +680,7 @@ export async function stopRecording() {
   }
 
   // NOW tell panel to stop — FFmpeg file is already complete
-  safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'stopping');
+  broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'stopping');
 
   // Restore main window
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -658,14 +696,19 @@ export async function stopRecording() {
 // ---------------------------------------------------------------------------
 
 /**
- * Run the 3-second countdown.  Sends a tick per second to panelWindow.
+ * Run the configured countdown. Sends a tick per second to the panel and main windows.
  * Resolves once the final tick has been sent (after the 1-second pause for "1").
  * @returns {Promise<void>}
  */
-function _runCountdown() {
+function _runCountdown(configuredSeconds = 3) {
   return new Promise((resolve) => {
-    let secondsLeft = 3;
-    safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_COUNTDOWN_TICK, secondsLeft);
+    let secondsLeft = Number.isFinite(configuredSeconds) ? Math.max(0, configuredSeconds) : 3;
+    if (secondsLeft === 0) {
+      resolve();
+      return;
+    }
+
+    broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_COUNTDOWN_TICK, secondsLeft);
 
     countdownTimer = setInterval(() => {
       secondsLeft -= 1;
@@ -674,7 +717,7 @@ function _runCountdown() {
         countdownTimer = null;
         resolve();
       } else {
-        safeSend(panelWindow, IPC_CHANNELS.RECORDING_SESSION_COUNTDOWN_TICK, secondsLeft);
+        broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_COUNTDOWN_TICK, secondsLeft);
       }
     }, 1000);
   });
@@ -756,8 +799,10 @@ export function initSessionManager(win, sourceInfoGetter) {
     pendingAudioConfig = {
       micEnabled: !!audioConfig?.micEnabled,
       sysAudioEnabled: !!audioConfig?.sysAudioEnabled,
+      countdownSeconds: audioConfig?.countdownSeconds,
+      selectedSystemAudioSourceId: audioConfig?.selectedSystemAudioSourceId ?? null,
     };
-    console.info('[session-manager] Audio config from panel:', pendingAudioConfig);
+    console.info('[session-manager] Recording config from panel:', pendingAudioConfig);
     await startRecording();
   });
 
@@ -770,6 +815,8 @@ export function initSessionManager(win, sourceInfoGetter) {
     if (state === 'recording' && !isPaused) {
       isPaused = true;
       pauseStartMs = Date.now();
+      updateTrayTooltip();
+      if (tray) _rebuildTrayMenu(tray);
       console.info('[session-manager] Recording paused');
     }
   });
@@ -778,6 +825,8 @@ export function initSessionManager(win, sourceInfoGetter) {
     if (state === 'recording' && isPaused) {
       totalPausedMs += Date.now() - pauseStartMs;
       isPaused = false;
+      updateTrayTooltip();
+      if (tray) _rebuildTrayMenu(tray);
       console.info('[session-manager] Recording resumed, total paused:', totalPausedMs, 'ms');
     }
   });
@@ -795,69 +844,97 @@ export function initSessionManager(win, sourceInfoGetter) {
    * Called by the panel renderer once it has assembled the recording blob.
    * Saves the file via capture-service, then routes the result to mainWindow.
    */
-  ipcMain.handle(IPC_CHANNELS.PANEL_SAVE_RECORDING, async (_event, { buffer, metadata, cameraBuffer }) => {
-    try {
-      // Use the recording location from app settings, or fall back to /tmp
-      let projectDir = null;
+  ipcMain.handle(
+    IPC_CHANNELS.PANEL_SAVE_RECORDING,
+    async (_event, { buffer, metadata, cameraBuffer }) => {
       try {
-        const { getRecordingLocation } = await import('../recent-projects-service.mjs');
-        const configuredDir = getRecordingLocation();
-        if (configuredDir) projectDir = configuredDir;
-      } catch { /* ignore — fall back to /tmp */ }
-
-      console.info('[session-manager] Saving recording to:', projectDir ?? '/tmp/rough-cut/recordings/');
-      console.info('[session-manager] Camera buffer received:', cameraBuffer ? `${cameraBuffer.byteLength} bytes` : 'NONE');
-      const camBuf = cameraBuffer ? Buffer.from(cameraBuffer) : null;
-
-      // Use FFmpeg x11grab output (cursor-free) if available, otherwise MediaRecorder buffer
-      let result;
-      if (ffmpegHandle && existsSync(ffmpegHandle.outputPath) && statSync(ffmpegHandle.outputPath).size > 0) {
-        // FFmpeg was already stopped by stopRecording() — file should be complete
-        console.info('[session-manager] Using FFmpeg x11grab output (no cursor):', ffmpegHandle.outputPath);
-        result = await saveRecordingFromFile(ffmpegHandle.outputPath, projectDir, metadata);
-        // Save camera recording if present (MediaRecorder path — no FFmpeg for camera)
-        if (camBuf) {
-          const { saveCameraRecording } = await import('./capture-service.mjs');
-          const cameraPath = await saveCameraRecording(camBuf, ffmpegHandle.outputPath);
-          result.cameraFilePath = cameraPath;
+        // Use the recording location from app settings, or fall back to /tmp
+        let projectDir = null;
+        try {
+          const { getRecordingLocation } = await import('../recent-projects-service.mjs');
+          const configuredDir = getRecordingLocation();
+          if (configuredDir) projectDir = configuredDir;
+        } catch {
+          /* ignore — fall back to /tmp */
         }
-        ffmpegHandle = null;
-      } else {
-        console.info('[session-manager] Using MediaRecorder buffer (FFmpeg not available)');
-        // Save screen recording (pass null for camera — we handle camera separately as MP4)
-        result = await saveRecording(Buffer.from(buffer), projectDir, metadata, null);
-        // Save camera as MP4 separately (WebCodecs H.264 output, not WebM)
-        if (camBuf) {
-          const { saveCameraRecording } = await import('./capture-service.mjs');
-          const cameraPath = await saveCameraRecording(camBuf, result.filePath);
-          result.cameraFilePath = cameraPath;
+
+        console.info(
+          '[session-manager] Saving recording to:',
+          projectDir ?? '/tmp/rough-cut/recordings/',
+        );
+        console.info(
+          '[session-manager] Camera buffer received:',
+          cameraBuffer ? `${cameraBuffer.byteLength} bytes` : 'NONE',
+        );
+        const camBuf = cameraBuffer ? Buffer.from(cameraBuffer) : null;
+
+        // Use FFmpeg x11grab output (cursor-free) if available, otherwise MediaRecorder buffer
+        let result;
+        if (
+          ffmpegHandle &&
+          existsSync(ffmpegHandle.outputPath) &&
+          statSync(ffmpegHandle.outputPath).size > 0
+        ) {
+          // FFmpeg was already stopped by stopRecording() — file should be complete
+          console.info(
+            '[session-manager] Using FFmpeg x11grab output (no cursor):',
+            ffmpegHandle.outputPath,
+          );
+          result = await saveRecordingFromFile(ffmpegHandle.outputPath, projectDir, metadata);
+          // Save camera recording if present (MediaRecorder path — no FFmpeg for camera)
+          if (camBuf) {
+            const { saveCameraRecording } = await import('./capture-service.mjs');
+            const cameraPath = await saveCameraRecording(camBuf, ffmpegHandle.outputPath);
+            result.cameraFilePath = cameraPath;
+          }
+          ffmpegHandle = null;
+        } else {
+          console.info('[session-manager] Using MediaRecorder buffer (FFmpeg not available)');
+          // Save screen recording (pass null for camera — we handle camera separately as MP4)
+          result = await saveRecording(Buffer.from(buffer), projectDir, metadata, null);
+          // Save camera as MP4 separately (WebCodecs H.264 output, not WebM)
+          if (camBuf) {
+            const { saveCameraRecording } = await import('./capture-service.mjs');
+            const cameraPath = await saveCameraRecording(camBuf, result.filePath);
+            result.cameraFilePath = cameraPath;
+          }
         }
+
+        // Attach cursor events path to result
+        console.info(
+          '[session-manager] lastCursorResult:',
+          lastCursorResult
+            ? `${lastCursorResult.eventCount} events at ${lastCursorResult.eventsPath}`
+            : 'NULL',
+        );
+        if (lastCursorResult) {
+          result.cursorEventsPath = lastCursorResult.eventsPath;
+          lastCursorResult = null;
+        }
+        console.info(
+          '[session-manager] Final result keys:',
+          Object.keys(result),
+          'cursorEventsPath:',
+          result.cursorEventsPath ?? 'NOT SET',
+        );
+
+        // Route result to the main renderer so it can create an Asset entry
+        safeSend(mainWindow, IPC_CHANNELS.RECORDING_ASSET_READY, result);
+
+        // Tear down panel and return to idle
+        _destroyPanel();
+        state = 'idle';
+
+        console.info('[session-manager] Recording saved, transitioned to idle.');
+        return result;
+      } catch (err) {
+        console.error('[session-manager] PANEL_SAVE_RECORDING failed:', err);
+        _destroyPanel();
+        state = 'idle';
+        throw err;
       }
-
-      // Attach cursor events path to result
-      console.info('[session-manager] lastCursorResult:', lastCursorResult ? `${lastCursorResult.eventCount} events at ${lastCursorResult.eventsPath}` : 'NULL');
-      if (lastCursorResult) {
-        result.cursorEventsPath = lastCursorResult.eventsPath;
-        lastCursorResult = null;
-      }
-      console.info('[session-manager] Final result keys:', Object.keys(result), 'cursorEventsPath:', result.cursorEventsPath ?? 'NOT SET');
-
-      // Route result to the main renderer so it can create an Asset entry
-      safeSend(mainWindow, IPC_CHANNELS.RECORDING_ASSET_READY, result);
-
-      // Tear down panel and return to idle
-      _destroyPanel();
-      state = 'idle';
-
-      console.info('[session-manager] Recording saved, transitioned to idle.');
-      return result;
-    } catch (err) {
-      console.error('[session-manager] PANEL_SAVE_RECORDING failed:', err);
-      _destroyPanel();
-      state = 'idle';
-      throw err;
-    }
-  });
+    },
+  );
 
   // ---- Legacy session handlers (keep for backward compat) ----
 

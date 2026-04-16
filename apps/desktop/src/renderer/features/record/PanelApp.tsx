@@ -13,10 +13,12 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import type { CaptureSource, RecordingMetadata } from '../../env.js';
+import type { CaptureSource, RecordingMetadata, SystemAudioSourceOption } from '../../env.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
 import { formatElapsed } from './format-elapsed.js';
 import { useRecordingConfig, updateRecordingConfig } from './recording-config.js';
+import { useRecordingDeviceOptions } from './use-recording-device-options.js';
+import { useToast } from '../../ui/toast.js';
 
 // ─── Design tokens ─────────────────────────────────────────────────────────
 
@@ -635,6 +637,15 @@ interface DeviceControlsProps {
   micEnabled: boolean;
   sysAudioEnabled: boolean;
   cameraEnabled: boolean;
+  micOptions: Array<{ id: string; label: string }>;
+  selectedMicDeviceId: string | null;
+  onSelectMicDevice: (id: string | null) => void;
+  cameraOptions: Array<{ id: string; label: string }>;
+  selectedCameraDeviceId: string | null;
+  onSelectCameraDevice: (id: string | null) => void;
+  systemAudioOptions: SystemAudioSourceOption[];
+  selectedSystemAudioSourceId: string | null;
+  onSelectSystemAudioSource: (id: string | null) => void;
   onMicToggle: () => void;
   onSysAudioToggle: () => void;
   onCameraToggle: () => void;
@@ -644,47 +655,131 @@ function DeviceControls({
   micEnabled,
   sysAudioEnabled,
   cameraEnabled,
+  micOptions,
+  selectedMicDeviceId,
+  onSelectMicDevice,
+  cameraOptions,
+  selectedCameraDeviceId,
+  onSelectCameraDevice,
+  systemAudioOptions,
+  selectedSystemAudioSourceId,
+  onSelectSystemAudioSource,
   onMicToggle,
   onSysAudioToggle,
   onCameraToggle,
 }: DeviceControlsProps) {
+  const selectedMicValue =
+    selectedMicDeviceId && micOptions.some((option) => option.id === selectedMicDeviceId)
+      ? selectedMicDeviceId
+      : '';
+  const selectedCameraValue =
+    selectedCameraDeviceId && cameraOptions.some((option) => option.id === selectedCameraDeviceId)
+      ? selectedCameraDeviceId
+      : '';
+  const selectedSystemAudioValue =
+    selectedSystemAudioSourceId &&
+    systemAudioOptions.some((option) => option.id === selectedSystemAudioSourceId)
+      ? selectedSystemAudioSourceId
+      : '';
+
   return (
     <div
       style={{
-        height: 40,
+        minHeight: 84,
         display: 'flex',
-        alignItems: 'center',
+        flexDirection: 'column',
+        justifyContent: 'center',
         gap: 6,
         paddingLeft: 10,
         paddingRight: 10,
         flexShrink: 0,
       }}
     >
-      <DeviceToggleButton
-        label="Microphone"
-        icon={<MicIcon size={13} color={micEnabled ? C.text : C.textSecondary} />}
-        active={micEnabled}
-        text="Mic"
-        onToggle={onMicToggle}
-        showActiveDot={micEnabled}
-      />
-      <DeviceToggleButton
-        label="System Audio"
-        icon={<SpeakerIcon size={13} color={sysAudioEnabled ? C.text : C.textSecondary} />}
-        active={sysAudioEnabled}
-        text="Audio"
-        onToggle={onSysAudioToggle}
-      />
-      <DeviceToggleButton
-        label="Camera"
-        icon={<CameraIcon size={13} color={cameraEnabled ? C.text : C.textSecondary} />}
-        active={cameraEnabled}
-        text="Camera"
-        onToggle={onCameraToggle}
-      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
+        <DeviceToggleButton
+          label="Microphone"
+          icon={<MicIcon size={13} color={micEnabled ? C.text : C.textSecondary} />}
+          active={micEnabled}
+          text="Mic"
+          onToggle={onMicToggle}
+          showActiveDot={micEnabled}
+        />
+        <DeviceToggleButton
+          label="System Audio"
+          icon={<SpeakerIcon size={13} color={sysAudioEnabled ? C.text : C.textSecondary} />}
+          active={sysAudioEnabled}
+          text="Audio"
+          onToggle={onSysAudioToggle}
+        />
+        <DeviceToggleButton
+          label="Camera"
+          icon={<CameraIcon size={13} color={cameraEnabled ? C.text : C.textSecondary} />}
+          active={cameraEnabled}
+          text="Camera"
+          onToggle={onCameraToggle}
+        />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
+        <select
+          data-testid="panel-mic-select"
+          value={selectedMicValue}
+          onChange={(event) => onSelectMicDevice(event.target.value || null)}
+          style={panelSelectStyle}
+          aria-label="Microphone device"
+        >
+          <option value="">Default microphone</option>
+          {micOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <select
+          data-testid="panel-system-audio-select"
+          value={selectedSystemAudioValue}
+          onChange={(event) => onSelectSystemAudioSource(event.target.value || null)}
+          style={panelSelectStyle}
+          aria-label="System audio source"
+        >
+          <option value="">Default system audio</option>
+          {systemAudioOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <select
+          data-testid="panel-camera-select"
+          value={selectedCameraValue}
+          onChange={(event) => onSelectCameraDevice(event.target.value || null)}
+          style={panelSelectStyle}
+          aria-label="Camera device"
+        >
+          <option value="">Default camera</option>
+          {cameraOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }
+
+const panelSelectStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  height: 30,
+  background: C.input,
+  color: C.text,
+  border: `1px solid ${C.border}`,
+  borderRadius: R.button,
+  fontSize: 12,
+  paddingLeft: 10,
+  paddingRight: 10,
+  outline: 'none',
+};
 
 // ─── RecordingControls ──────────────────────────────────────────────────────
 
@@ -865,6 +960,7 @@ function PauseButton({ paused, onTogglePause }: { paused: boolean; onTogglePause
 
   return (
     <button
+      data-testid="btn-pause"
       aria-label={paused ? 'Resume recording' : 'Pause recording'}
       onClick={onTogglePause}
       onMouseEnter={() => setHovered(true)}
@@ -962,6 +1058,7 @@ function MiniPauseButton({
 
   return (
     <button
+      data-testid="btn-pause"
       aria-label={paused ? 'Resume recording' : 'Pause recording'}
       onClick={onTogglePause}
       onMouseEnter={() => setHovered(true)}
@@ -1231,6 +1328,7 @@ function buildRecordingStream(
 // ─── PanelApp ───────────────────────────────────────────────────────────────
 
 export function PanelApp() {
+  const { showToast } = useToast();
   // ── State ────────────────────────────────────────────────────────────────
   const [sources, setSources] = useState<CaptureSource[]>([]);
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -1239,13 +1337,40 @@ export function PanelApp() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const hydrated = useRecordingConfig((s) => s.hydrated);
+  const recordMode = useRecordingConfig((s) => s.recordMode);
   const selectedSourceId = useRecordingConfig((s) => s.selectedSourceId);
   const micEnabled = useRecordingConfig((s) => s.micEnabled);
   const sysAudioEnabled = useRecordingConfig((s) => s.sysAudioEnabled);
   const cameraEnabled = useRecordingConfig((s) => s.cameraEnabled);
+  const configuredCountdownSeconds = useRecordingConfig((s) => s.countdownSeconds);
+  const selectedMicDeviceId = useRecordingConfig((s) => s.selectedMicDeviceId);
+  const selectedCameraDeviceId = useRecordingConfig((s) => s.selectedCameraDeviceId);
+  const selectedSystemAudioSourceId = useRecordingConfig((s) => s.selectedSystemAudioSourceId);
+  const {
+    micOptions,
+    cameraOptions,
+    systemAudioOptions,
+    refresh: refreshDeviceOptions,
+  } = useRecordingDeviceOptions();
 
   // Microphone stream for audio level monitoring (separate from screen capture stream)
   const [micStream, setMicStream] = useState<MediaStream | null>(null);
+  const warningRef = useRef<Record<string, string | null>>({
+    mic: null,
+    camera: null,
+    systemAudio: null,
+    source: null,
+  });
+  const availableSelectionRef = useRef<Record<string, boolean>>({
+    mic: false,
+    camera: false,
+    systemAudio: false,
+  });
+  const statusRef = useRef<PanelStatus>('idle');
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1257,8 +1382,14 @@ export function PanelApp() {
       return;
     }
     navigator.mediaDevices
-      .getUserMedia({ audio: true, video: false })
-      .then((s) => setMicStream(s))
+      .getUserMedia({
+        audio: selectedMicDeviceId ? { deviceId: { exact: selectedMicDeviceId } } : true,
+        video: false,
+      })
+      .then((s) => {
+        setMicStream(s);
+        void refreshDeviceOptions();
+      })
       .catch((err) => {
         console.warn('[PanelApp] Mic access failed:', err);
         setMicStream(null);
@@ -1269,7 +1400,82 @@ export function PanelApp() {
         return null;
       });
     };
-  }, [hydrated, micEnabled]);
+  }, [hydrated, micEnabled, refreshDeviceOptions, selectedMicDeviceId]);
+
+  useEffect(() => {
+    const wasAvailable = availableSelectionRef.current.mic;
+    const isAvailable = selectedMicDeviceId
+      ? micOptions.some((option) => option.id === selectedMicDeviceId)
+      : false;
+    availableSelectionRef.current.mic = isAvailable;
+
+    if (
+      wasAvailable &&
+      selectedMicDeviceId &&
+      !isAvailable &&
+      warningRef.current.mic !== selectedMicDeviceId
+    ) {
+      warningRef.current.mic = selectedMicDeviceId;
+      updateRecordingConfig({ selectedMicDeviceId: null, micEnabled: false });
+      showToast({
+        title: 'Microphone disconnected',
+        message: 'Recording will continue without mic audio until you choose another input.',
+        tone: 'warning',
+      });
+      return;
+    }
+    warningRef.current.mic = null;
+  }, [micOptions, selectedMicDeviceId, showToast]);
+
+  useEffect(() => {
+    const wasAvailable = availableSelectionRef.current.camera;
+    const isAvailable = selectedCameraDeviceId
+      ? cameraOptions.some((option) => option.id === selectedCameraDeviceId)
+      : false;
+    availableSelectionRef.current.camera = isAvailable;
+
+    if (
+      wasAvailable &&
+      selectedCameraDeviceId &&
+      !isAvailable &&
+      warningRef.current.camera !== selectedCameraDeviceId
+    ) {
+      warningRef.current.camera = selectedCameraDeviceId;
+      updateRecordingConfig({ selectedCameraDeviceId: null, cameraEnabled: false });
+      showToast({
+        title: 'Camera disconnected',
+        message: 'Recording will continue without camera video until you choose another camera.',
+        tone: 'warning',
+      });
+      return;
+    }
+    warningRef.current.camera = null;
+  }, [cameraOptions, selectedCameraDeviceId, showToast]);
+
+  useEffect(() => {
+    const wasAvailable = availableSelectionRef.current.systemAudio;
+    const isAvailable = selectedSystemAudioSourceId
+      ? systemAudioOptions.some((option) => option.id === selectedSystemAudioSourceId)
+      : false;
+    availableSelectionRef.current.systemAudio = isAvailable;
+
+    if (
+      wasAvailable &&
+      selectedSystemAudioSourceId &&
+      !isAvailable &&
+      warningRef.current.systemAudio !== selectedSystemAudioSourceId
+    ) {
+      warningRef.current.systemAudio = selectedSystemAudioSourceId;
+      updateRecordingConfig({ selectedSystemAudioSourceId: null, sysAudioEnabled: false });
+      showToast({
+        title: 'System audio source unavailable',
+        message: 'Recording will continue without system audio until you choose another output.',
+        tone: 'warning',
+      });
+      return;
+    }
+    warningRef.current.systemAudio = null;
+  }, [selectedSystemAudioSourceId, showToast, systemAudioOptions]);
 
   // Audio level monitoring from mic stream
   const audioLevel = useAudioLevel(micStream, micEnabled);
@@ -1370,7 +1576,12 @@ export function PanelApp() {
     console.info('[PanelApp] Requesting camera via getUserMedia...');
     navigator.mediaDevices
       .getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+        video: {
+          ...(selectedCameraDeviceId ? { deviceId: { exact: selectedCameraDeviceId } } : {}),
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 },
+        },
         audio: false,
       })
       .then((s) => {
@@ -1381,6 +1592,7 @@ export function PanelApp() {
             `[PanelApp] Camera stream: ${settings.width}x${settings.height} @ ${settings.frameRate}fps`,
           );
         }
+        void refreshDeviceOptions();
         if (active) setCameraStream(s);
         else s.getTracks().forEach((t) => t.stop());
       })
@@ -1395,7 +1607,55 @@ export function PanelApp() {
         return null;
       });
     };
-  }, [cameraEnabled, hydrated]);
+  }, [cameraEnabled, hydrated, refreshDeviceOptions, selectedCameraDeviceId]);
+
+  useEffect(() => {
+    const track = micStream?.getAudioTracks()[0] ?? null;
+    if (!track) {
+      warningRef.current.mic = null;
+      return;
+    }
+
+    const handleEnded = () => {
+      if (warningRef.current.mic === track.id) return;
+      warningRef.current.mic = track.id;
+      updateRecordingConfig({ selectedMicDeviceId: null, micEnabled: false });
+      showToast({
+        title: 'Microphone disconnected',
+        message: 'Recording is still running, but mic audio has been removed.',
+        tone: 'warning',
+      });
+    };
+
+    track.addEventListener('ended', handleEnded);
+    return () => {
+      track.removeEventListener('ended', handleEnded);
+    };
+  }, [micStream, showToast]);
+
+  useEffect(() => {
+    const track = cameraStream?.getVideoTracks()[0] ?? null;
+    if (!track) {
+      warningRef.current.camera = null;
+      return;
+    }
+
+    const handleEnded = () => {
+      if (warningRef.current.camera === track.id) return;
+      warningRef.current.camera = track.id;
+      updateRecordingConfig({ selectedCameraDeviceId: null, cameraEnabled: false });
+      showToast({
+        title: 'Camera disconnected',
+        message: 'Recording is still running, but camera video has been removed.',
+        tone: 'warning',
+      });
+    };
+
+    track.addEventListener('ended', handleEnded);
+    return () => {
+      track.removeEventListener('ended', handleEnded);
+    };
+  }, [cameraStream, showToast]);
 
   // Cleanup streams on unmount
   useEffect(() => {
@@ -1410,6 +1670,19 @@ export function PanelApp() {
   const handleSelectSource = useCallback((id: string) => {
     updateRecordingConfig({ selectedSourceId: id });
   }, []);
+
+  useEffect(() => {
+    if (!hydrated || sources.length === 0) return;
+
+    const expectedType = recordMode === 'window' ? 'window' : 'screen';
+    const selectedSource = sources.find((source) => source.id === selectedSourceId) ?? null;
+    if (selectedSource?.type === expectedType) return;
+
+    const fallbackSource = sources.find((source) => source.type === expectedType) ?? null;
+    if (fallbackSource && fallbackSource.id !== selectedSourceId) {
+      updateRecordingConfig({ selectedSourceId: fallbackSource.id });
+    }
+  }, [hydrated, recordMode, selectedSourceId, sources]);
 
   useEffect(() => {
     let active = true;
@@ -1487,6 +1760,34 @@ export function PanelApp() {
       active = false;
     };
   }, [hydrated, selectedSourceId]);
+
+  useEffect(() => {
+    const track = stream?.getVideoTracks()[0] ?? null;
+    if (!track) {
+      warningRef.current.source = null;
+      return;
+    }
+
+    const handleEnded = () => {
+      if (warningRef.current.source === track.id) return;
+      warningRef.current.source = track.id;
+      updateRecordingConfig({ selectedSourceId: null });
+      if (statusRef.current === 'recording' || statusRef.current === 'paused') {
+        void window.roughcut.panelStopRecording();
+      }
+      setStatus('idle');
+      showToast({
+        title: 'Capture source disconnected',
+        message: 'The selected screen or window disappeared, so recording was stopped safely.',
+        tone: 'warning',
+      });
+    };
+
+    track.addEventListener('ended', handleEnded);
+    return () => {
+      track.removeEventListener('ended', handleEnded);
+    };
+  }, [showToast, stream]);
 
   // ── MediaRecorder helpers ────────────────────────────────────────────────
   // Store latest camera stream in a ref so the IPC callback (which uses [] deps)
@@ -1643,6 +1944,8 @@ export function PanelApp() {
     void window.roughcut.panelStartRecording({
       micEnabled: micEnabledRef.current,
       sysAudioEnabled: sysAudioEnabledRef.current,
+      countdownSeconds: configuredCountdownSeconds,
+      selectedSystemAudioSourceId,
     });
   };
 
@@ -1650,24 +1953,54 @@ export function PanelApp() {
     void window.roughcut.panelStopRecording();
   };
 
+  const pauseRecorder = useCallback(() => {
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state !== 'recording') return false;
+
+    recorder.pause();
+    // Note: WebCodecs CameraRecorder doesn't support pause — camera keeps recording.
+    setStatus('paused');
+    window.roughcut.panelPause();
+    console.info('[PanelApp] MediaRecorder paused');
+    return true;
+  }, []);
+
+  const resumeRecorder = useCallback(() => {
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state !== 'paused') return false;
+
+    recorder.resume();
+    setStatus('recording');
+    window.roughcut.panelResume();
+    console.info('[PanelApp] MediaRecorder resumed');
+    return true;
+  }, []);
+
   const handleTogglePause = () => {
     const recorder = recorderRef.current;
     console.info('[PanelApp] handleTogglePause — recorder:', recorder?.state, 'status:', status);
     if (!recorder) return;
 
     if (recorder.state === 'recording') {
-      recorder.pause();
-      // Note: WebCodecs CameraRecorder doesn't support pause — camera keeps recording
-      setStatus('paused');
-      window.roughcut.panelPause();
-      console.info('[PanelApp] MediaRecorder paused');
+      pauseRecorder();
     } else if (recorder.state === 'paused') {
-      recorder.resume();
-      setStatus('recording');
-      window.roughcut.panelResume();
-      console.info('[PanelApp] MediaRecorder resumed');
+      resumeRecorder();
     }
   };
+
+  useEffect(() => {
+    const unsubPause = window.roughcut.onPanelPauseRequested(() => {
+      pauseRecorder();
+    });
+    const unsubResume = window.roughcut.onPanelResumeRequested(() => {
+      resumeRecorder();
+    });
+
+    return () => {
+      unsubPause();
+      unsubResume();
+    };
+  }, [pauseRecorder, resumeRecorder]);
 
   const handleClose = () => {
     void window.roughcut.closeRecordingPanel();
@@ -1738,6 +2071,17 @@ export function PanelApp() {
         micEnabled={micEnabled}
         sysAudioEnabled={sysAudioEnabled}
         cameraEnabled={cameraEnabled}
+        micOptions={micOptions}
+        selectedMicDeviceId={selectedMicDeviceId}
+        onSelectMicDevice={(id) => updateRecordingConfig({ selectedMicDeviceId: id })}
+        cameraOptions={cameraOptions}
+        selectedCameraDeviceId={selectedCameraDeviceId}
+        onSelectCameraDevice={(id) => updateRecordingConfig({ selectedCameraDeviceId: id })}
+        systemAudioOptions={systemAudioOptions}
+        selectedSystemAudioSourceId={selectedSystemAudioSourceId}
+        onSelectSystemAudioSource={(id) =>
+          updateRecordingConfig({ selectedSystemAudioSourceId: id })
+        }
         onMicToggle={handleMicToggle}
         onSysAudioToggle={() => updateRecordingConfig({ sysAudioEnabled: !sysAudioEnabled })}
         onCameraToggle={() => updateRecordingConfig({ cameraEnabled: !cameraEnabled })}

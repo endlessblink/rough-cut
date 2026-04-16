@@ -210,7 +210,7 @@ const api = {
   },
 
   /** Start recording (triggers countdown in session manager).
-   *  @param {{ micEnabled?: boolean, sysAudioEnabled?: boolean, selectedSystemAudioSourceId?: string | null }} [audioConfig] */
+   *  @param {{ micEnabled?: boolean, sysAudioEnabled?: boolean, countdownSeconds?: number, selectedSystemAudioSourceId?: string | null }} [audioConfig] */
   panelStartRecording: (audioConfig) =>
     ipcRenderer.invoke(IPC_CHANNELS.PANEL_START_RECORDING, audioConfig),
 
@@ -222,6 +222,20 @@ const api = {
 
   /** Notify session manager that recording is resumed. */
   panelResume: () => ipcRenderer.send('panel:resume'),
+
+  /** Subscribe to pause requests initiated outside the panel UI (for example the tray). */
+  onPanelPauseRequested: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('panel:tray-pause', handler);
+    return () => ipcRenderer.removeListener('panel:tray-pause', handler);
+  },
+
+  /** Subscribe to resume requests initiated outside the panel UI (for example the tray). */
+  onPanelResumeRequested: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('panel:tray-resume', handler);
+    return () => ipcRenderer.removeListener('panel:tray-resume', handler);
+  },
 
   /** Notify main that the panel's MediaRecorder has started (for cursor sync). */
   panelMediaRecorderStarted: (timestampMs) =>
@@ -278,6 +292,10 @@ const api = {
 
   /** [DEBUG] Reload the most recent recording from disk. Returns RecordingResult or null. */
   debugLoadLastRecording: () => ipcRenderer.invoke(IPC_CHANNELS.DEBUG_LOAD_LAST_RECORDING),
+
+  /** [DEBUG] Inspect the last source granted by the display-media handler. */
+  debugGetLastDisplayMediaSelection: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEBUG_GET_LAST_DISPLAY_MEDIA_SELECTION),
 
   /** Load the zoom sidecar (recording-xxx.zoom.json). Returns ZoomPresentation or null. */
   zoomLoadSidecar: (recordingFilePath) =>

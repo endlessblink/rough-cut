@@ -26,6 +26,7 @@ import { RecordScreenLayout } from './RecordScreenLayout.js';
 import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
 import { WorkspaceRow, RECORD_PANEL_WIDTH } from '../../ui/index.js';
+import { useToast } from '../../ui/toast.js';
 import { ModeSelectorRow } from './ModeSelectorRow.js';
 import type { RecordMode } from './ModeSelectorRow.js';
 import { PreviewStage } from './PreviewStage.js';
@@ -42,6 +43,11 @@ import type { RecordState } from './BottomBar.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
 import { SourcePickerPopup } from './SourcePickerPopup.js';
 import { useRecordingConfig, updateRecordingConfig } from './recording-config.js';
+import { RecordDeviceSelectors } from './RecordDeviceSelectors.js';
+import {
+  getSelectedOptionLabel,
+  useRecordingDeviceOptions,
+} from './use-recording-device-options.js';
 import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 import { RecordingPlaybackVideo } from './RecordingPlaybackVideo.js';
 import { CameraPlaybackCanvas } from './CameraPlaybackCanvas.js';
@@ -68,6 +74,7 @@ interface RecordTabProps {
 }
 
 export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabProps) {
+  const { showToast } = useToast();
   const [isSourcePickerOpen, setIsSourcePickerOpen] = useState(false);
   const [countdownSeconds, setCountdownSeconds] = useState(0);
   // Default to Screen+Camera PIP template (index 1) when camera is on
@@ -111,6 +118,23 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const micEnabled = useRecordingConfig((s) => s.micEnabled);
   const sysAudioEnabled = useRecordingConfig((s) => s.sysAudioEnabled);
   const cameraEnabled = useRecordingConfig((s) => s.cameraEnabled);
+  const configuredCountdownSeconds = useRecordingConfig((s) => s.countdownSeconds);
+  const selectedMicDeviceId = useRecordingConfig((s) => s.selectedMicDeviceId);
+  const selectedCameraDeviceId = useRecordingConfig((s) => s.selectedCameraDeviceId);
+  const selectedSystemAudioSourceId = useRecordingConfig((s) => s.selectedSystemAudioSourceId);
+  const { micOptions, cameraOptions, systemAudioOptions } = useRecordingDeviceOptions();
+  const warnedSelectionRef = useRef<Record<string, string | null>>({
+    mic: null,
+    camera: null,
+    systemAudio: null,
+    source: null,
+  });
+  const availableSelectionRef = useRef<Record<string, boolean>>({
+    mic: false,
+    camera: false,
+    systemAudio: false,
+  });
+  const selectedMicName = getSelectedOptionLabel(micOptions, selectedMicDeviceId, 'Default');
 
   // Project + transport state for timeline
   const projectName = useProjectStore((s) => s.project.name);
@@ -551,6 +575,109 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     }
   }, [recordMode, selectedSourceId, sources]);
 
+  useEffect(() => {
+    const wasAvailable = availableSelectionRef.current.mic;
+    const isAvailable = selectedMicDeviceId
+      ? micOptions.some((option) => option.id === selectedMicDeviceId)
+      : false;
+    availableSelectionRef.current.mic = isAvailable;
+
+    if (
+      wasAvailable &&
+      selectedMicDeviceId &&
+      !isAvailable &&
+      warnedSelectionRef.current.mic !== selectedMicDeviceId
+    ) {
+      warnedSelectionRef.current.mic = selectedMicDeviceId;
+      updateRecordingConfig({ selectedMicDeviceId: null, micEnabled: false });
+      showToast({
+        title: 'Microphone disconnected',
+        message: 'Recording will continue without mic audio until you choose another input.',
+        tone: 'warning',
+      });
+      return;
+    }
+    warnedSelectionRef.current.mic = null;
+  }, [micEnabled, micOptions, selectedMicDeviceId, showToast]);
+
+  useEffect(() => {
+    const wasAvailable = availableSelectionRef.current.camera;
+    const isAvailable = selectedCameraDeviceId
+      ? cameraOptions.some((option) => option.id === selectedCameraDeviceId)
+      : false;
+    availableSelectionRef.current.camera = isAvailable;
+
+    if (
+      wasAvailable &&
+      selectedCameraDeviceId &&
+      !isAvailable &&
+      warnedSelectionRef.current.camera !== selectedCameraDeviceId
+    ) {
+      warnedSelectionRef.current.camera = selectedCameraDeviceId;
+      updateRecordingConfig({ selectedCameraDeviceId: null, cameraEnabled: false });
+      showToast({
+        title: 'Camera disconnected',
+        message: 'Recording will continue without camera video until you choose another camera.',
+        tone: 'warning',
+      });
+      return;
+    }
+    warnedSelectionRef.current.camera = null;
+  }, [cameraEnabled, cameraOptions, selectedCameraDeviceId, showToast]);
+
+  useEffect(() => {
+    const wasAvailable = availableSelectionRef.current.systemAudio;
+    const isAvailable = selectedSystemAudioSourceId
+      ? systemAudioOptions.some((option) => option.id === selectedSystemAudioSourceId)
+      : false;
+    availableSelectionRef.current.systemAudio = isAvailable;
+
+    if (
+      wasAvailable &&
+      selectedSystemAudioSourceId &&
+      !isAvailable &&
+      warnedSelectionRef.current.systemAudio !== selectedSystemAudioSourceId
+    ) {
+      warnedSelectionRef.current.systemAudio = selectedSystemAudioSourceId;
+      updateRecordingConfig({ selectedSystemAudioSourceId: null, sysAudioEnabled: false });
+      showToast({
+        title: 'System audio source unavailable',
+        message: 'Recording will continue without system audio until you choose another output.',
+        tone: 'warning',
+      });
+      return;
+    }
+    warnedSelectionRef.current.systemAudio = null;
+  }, [selectedSystemAudioSourceId, showToast, systemAudioOptions]);
+
+  useEffect(() => {
+    const videoTrack = liveStream?.getVideoTracks()[0] ?? null;
+    if (!videoTrack) {
+      warnedSelectionRef.current.source = null;
+      return;
+    }
+
+    const handleEnded = () => {
+      if (warnedSelectionRef.current.source === selectedSourceId) return;
+      warnedSelectionRef.current.source = selectedSourceId;
+      updateRecordingConfig({ selectedSourceId: null });
+      if (status === 'recording' || status === 'countdown') {
+        void window.roughcut.recordingSessionStop();
+      }
+      setStatus('idle');
+      showToast({
+        title: 'Capture source disconnected',
+        message: 'The selected screen or window disappeared, so the session was stopped safely.',
+        tone: 'warning',
+      });
+    };
+
+    videoTrack.addEventListener('ended', handleEnded);
+    return () => {
+      videoTrack.removeEventListener('ended', handleEnded);
+    };
+  }, [liveStream, selectedSourceId, setStatus, showToast, status]);
+
   const selectedSourceName = sources.find((s) => s.id === selectedSourceId)?.name ?? null;
 
   const recordState: RecordState =
@@ -595,7 +722,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         projectName={projectName}
         onProjectNameChange={(name) => updateProject((doc) => ({ ...doc, name }))}
         captureSummary={captureSummary}
-        deviceStatus="Mic: Default"
+        deviceStatus={`Mic: ${selectedMicName}`}
       />
 
       {/* Unified recording toolbar */}
@@ -640,7 +767,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         <BottomBar
           sourceName={selectedSourceName}
           onOpenSourcePicker={() => setIsSourcePickerOpen(true)}
-          micName="Default"
+          micName={selectedMicName}
           isMicMuted={!micEnabled}
           onToggleMicMute={() => updateRecordingConfig({ micEnabled: !micEnabled })}
           hasSystemAudio={true}
@@ -651,11 +778,28 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
           onToggleCamera={() => updateRecordingConfig({ cameraEnabled: !cameraEnabled })}
           recordState={recordState}
           onClickRecord={handleClickRecord}
+          countdownValue={configuredCountdownSeconds}
+          onSelectCountdown={(seconds) => updateRecordingConfig({ countdownSeconds: seconds })}
+          countdownSeconds={countdownSeconds}
           elapsedSeconds={elapsedSeconds}
           resolutionLabel={`${resolution.width}×${resolution.height}`}
           fpsLabel={`${projectFps} fps`}
         />
       </div>
+
+      <RecordDeviceSelectors
+        micOptions={micOptions}
+        selectedMicDeviceId={selectedMicDeviceId}
+        onSelectMicDevice={(id) => updateRecordingConfig({ selectedMicDeviceId: id })}
+        cameraOptions={cameraOptions}
+        selectedCameraDeviceId={selectedCameraDeviceId}
+        onSelectCameraDevice={(id) => updateRecordingConfig({ selectedCameraDeviceId: id })}
+        systemAudioOptions={systemAudioOptions}
+        selectedSystemAudioSourceId={selectedSystemAudioSourceId}
+        onSelectSystemAudioSource={(id) =>
+          updateRecordingConfig({ selectedSystemAudioSourceId: id })
+        }
+      />
 
       {/* Preview + Inspector row */}
       <WorkspaceRow

@@ -26,7 +26,7 @@ function normalizeRecordingMode(value) {
 }
 
 function normalizeCountdownSeconds(value) {
-  return typeof value === 'number' && Number.isFinite(value)
+  return value === 0 || value === 3 || value === 5 || value === 10
     ? value
     : DEFAULT_RECORDING_CONFIG.countdownSeconds;
 }

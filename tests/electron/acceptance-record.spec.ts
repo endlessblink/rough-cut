@@ -6,6 +6,17 @@
  */
 import { test, expect } from './fixtures/electron-app.js';
 
+type RoughcutWindow = Window & {
+  roughcut: {
+    openRecordingPanel: () => Promise<void>;
+    closeRecordingPanel: () => Promise<void>;
+    panelPause: () => void;
+    panelResume: () => void;
+    onPanelPauseRequested: (callback: () => void) => () => void;
+    onPanelResumeRequested: (callback: () => void) => () => void;
+  };
+};
+
 function nav(appPage: import('@playwright/test').Page) {
   return appPage
     .click('[data-testid="tab-record"]')
@@ -62,6 +73,9 @@ test.describe('Record Tab — MVP Acceptance', () => {
     await expect(mic).toBeVisible();
     const sysAudio = appPage.locator('[data-testid="record-system-audio-toggle"]');
     await expect(sysAudio).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-mic-select"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-camera-select"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-system-audio-select"]')).toBeVisible();
   });
 
   test('1.5.5 — VU meters are not yet exposed on the main Record surface', async ({ appPage }) => {
@@ -98,14 +112,40 @@ test.describe('Record Tab — MVP Acceptance', () => {
   });
 
   // ── 1.5.8: Pause and resume recording ──────────────────────────────────
-  test('1.5.8 — pause and resume recording without gap', async ({ appPage }) => {
+  test('1.5.8 — pause and resume recording without gap', async ({ appPage, electronApp }) => {
     await nav(appPage);
-    // Check if pause button exists (visible during recording)
-    // Since we can't actually record in tests, check if the UI supports pause
-    const pauseBtn = appPage.locator('[data-testid="btn-pause"]').or(appPage.locator('text=Pause'));
-    const count = await pauseBtn.count();
-    // Pause/resume is NOT implemented (TASK-031 is TODO)
-    expect(count, 'Pause button should exist for recording pause/resume').toBeGreaterThan(0);
+
+    const panelPromise = electronApp.waitForEvent('window');
+    await appPage.evaluate(() =>
+      (window as unknown as RoughcutWindow).roughcut.openRecordingPanel(),
+    );
+    const panelPage = await panelPromise;
+
+    await panelPage.waitForLoadState('domcontentloaded');
+
+    const pauseSupport = await panelPage.evaluate(() => {
+      const api = (window as unknown as RoughcutWindow).roughcut;
+      return {
+        panelPause: typeof api.panelPause === 'function',
+        panelResume: typeof api.panelResume === 'function',
+        onPanelPauseRequested: typeof api.onPanelPauseRequested === 'function',
+        onPanelResumeRequested: typeof api.onPanelResumeRequested === 'function',
+      };
+    });
+
+    expect(
+      pauseSupport,
+      'Floating recording panel should expose pause/resume controls and tray pause/resume hooks',
+    ).toEqual({
+      panelPause: true,
+      panelResume: true,
+      onPanelPauseRequested: true,
+      onPanelResumeRequested: true,
+    });
+
+    await appPage.evaluate(() =>
+      (window as unknown as RoughcutWindow).roughcut.closeRecordingPanel(),
+    );
   });
 
   // ── 1.5.9: Stop recording saves raw media files ───────────────────────

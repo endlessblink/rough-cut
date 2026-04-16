@@ -61,6 +61,13 @@ export interface RecordingResult {
   cameraFilePath?: string;
 }
 
+export interface DisplayMediaSelectionDebugInfo {
+  requestedRecordMode: string | null;
+  configuredSelectedSourceId: string | null;
+  grantedSourceId: string | null;
+  grantedSourceType: 'screen' | 'window' | null;
+}
+
 /** Type declaration for the preload API exposed on window.roughcut */
 export interface RoughCutAPI {
   // Project I/O
@@ -152,11 +159,14 @@ export interface RoughCutAPI {
   panelStartRecording(audioConfig?: {
     micEnabled?: boolean;
     sysAudioEnabled?: boolean;
+    countdownSeconds?: number;
     selectedSystemAudioSourceId?: string | null;
   }): Promise<void>;
   panelStopRecording(): Promise<void>;
   panelPause(): void;
   panelResume(): void;
+  onPanelPauseRequested(callback: () => void): () => void;
+  onPanelResumeRequested(callback: () => void): () => void;
   panelSaveRecording(
     buffer: ArrayBuffer,
     metadata: RecordingMetadata,
@@ -206,6 +216,7 @@ export interface RoughCutAPI {
 
   // Debug (temporary)
   debugLoadLastRecording(): Promise<RecordingResult | null>;
+  debugGetLastDisplayMediaSelection(): Promise<DisplayMediaSelectionDebugInfo | null>;
 
   // Zoom sidecar persistence (next to the recording .webm)
   zoomLoadSidecar(

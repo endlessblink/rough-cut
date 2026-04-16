@@ -47,6 +47,7 @@ const __dirname = dirname(__filename);
 let mainWindow = null;
 let currentExportFinalizeProcess = null;
 let cachedCaptureSources = [];
+let lastDisplayMediaSelection = null;
 const execFile = promisify(execFileCallback);
 
 let recordingConfig = { ...DEFAULT_RECORDING_CONFIG, ...getRecordingConfig() };
@@ -918,6 +919,10 @@ function registerIpcHandlers() {
     return result;
   });
 
+  ipcMain.handle(IPC_CHANNELS.DEBUG_GET_LAST_DISPLAY_MEDIA_SELECTION, async () => {
+    return lastDisplayMediaSelection;
+  });
+
   // Zoom sidecar: persist ZoomPresentation next to the recording .webm.
   // Path = <recordingFilePath>.replace(/\.(webm|mp4)$/, '.zoom.json')
   const zoomSidecarPath = (recordingFilePath) =>
@@ -1238,6 +1243,12 @@ app.whenReady().then(() => {
         cachedSelectedSource,
       );
       if (!source) {
+        lastDisplayMediaSelection = {
+          requestedRecordMode: recordMode,
+          configuredSelectedSourceId: selectedSourceId,
+          grantedSourceId: null,
+          grantedSourceType: null,
+        };
         callback(undefined);
         return;
       }
@@ -1247,9 +1258,17 @@ app.whenReady().then(() => {
         broadcastRecordingConfig();
       }
 
+      lastDisplayMediaSelection = {
+        requestedRecordMode: recordMode,
+        configuredSelectedSourceId: selectedSourceId,
+        grantedSourceId: source.id,
+        grantedSourceType: source.id.startsWith('screen:') ? 'screen' : 'window',
+      };
+
       callback({ video: source, audio: 'loopback' });
     } catch (err) {
       console.error('[display-media-handler] Error:', err);
+      lastDisplayMediaSelection = null;
       callback(undefined); // MUST call or getDisplayMedia hangs forever
     }
   });

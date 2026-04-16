@@ -23,12 +23,16 @@ export interface BottomBarProps {
 
   recordState: RecordState;
   onClickRecord: () => void;
+  countdownValue: number;
+  onSelectCountdown: (seconds: number) => void;
   countdownSeconds?: number;
 
   elapsedSeconds: number;
   resolutionLabel: string;
   fpsLabel: string;
 }
+
+const COUNTDOWN_OPTIONS = [0, 3, 5, 10] as const;
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
 
@@ -296,6 +300,73 @@ function RecordButton({
   );
 }
 
+function CountdownControl({
+  value,
+  onSelect,
+  disabled,
+}: {
+  value: number;
+  onSelect: (seconds: number) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div
+      data-testid="countdown-config"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        height: 32,
+        padding: '0 4px 0 10px',
+        background: 'rgba(255,255,255,0.04)',
+        borderRadius: 8,
+        flexShrink: 0,
+      }}
+    >
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: 500,
+          color: 'rgba(255,255,255,0.72)',
+          letterSpacing: '0.02em',
+        }}
+      >
+        Countdown
+      </span>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        {COUNTDOWN_OPTIONS.map((seconds) => {
+          const active = value === seconds;
+          return (
+            <button
+              key={seconds}
+              data-testid={`countdown-option-${seconds}`}
+              onClick={() => onSelect(seconds)}
+              disabled={disabled}
+              style={{
+                height: 24,
+                minWidth: 32,
+                padding: '0 8px',
+                borderRadius: 6,
+                border: 'none',
+                background: active ? 'rgba(255,255,255,0.14)' : 'transparent',
+                color: active ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.56)',
+                cursor: disabled ? 'default' : 'pointer',
+                fontSize: 11,
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                letterSpacing: '0.03em',
+                opacity: disabled ? 0.6 : 1,
+              }}
+            >
+              {seconds === 0 ? 'Off' : `${seconds}s`}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── CaptureStatus ────────────────────────────────────────────────────────────
 
 function CaptureStatus({
@@ -365,6 +436,8 @@ export function BottomBar({
   onToggleCamera,
   recordState,
   onClickRecord,
+  countdownValue,
+  onSelectCountdown,
   countdownSeconds,
   elapsedSeconds,
   resolutionLabel,
@@ -432,8 +505,14 @@ export function BottomBar({
         style={{
           display: 'flex',
           alignItems: 'center',
+          gap: 8,
         }}
       >
+        <CountdownControl
+          value={countdownValue}
+          onSelect={onSelectCountdown}
+          disabled={recordState !== 'idle'}
+        />
         <RecordButton
           recordState={recordState}
           countdownSeconds={countdownSeconds}

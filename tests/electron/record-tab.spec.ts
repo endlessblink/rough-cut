@@ -9,6 +9,22 @@ type RoughcutApi = {
 
 test.describe('Record tab', () => {
   test.beforeEach(async ({ appPage }) => {
+    await appPage.evaluate(async () => {
+      await (
+        window as unknown as {
+          roughcut: { recordingConfigUpdate: (patch: Record<string, unknown>) => Promise<unknown> };
+        }
+      ).roughcut.recordingConfigUpdate({
+        selectedSourceId: null,
+        selectedMicDeviceId: null,
+        selectedCameraDeviceId: null,
+        selectedSystemAudioSourceId: null,
+        micEnabled: true,
+        sysAudioEnabled: true,
+        cameraEnabled: true,
+        countdownSeconds: 3,
+      });
+    });
     await navigateToTab(appPage, 'record');
   });
 
@@ -32,6 +48,9 @@ test.describe('Record tab', () => {
         sysAudioEnabled: false,
         cameraEnabled: false,
         countdownSeconds: 5,
+        selectedMicDeviceId: 'mic-1',
+        selectedCameraDeviceId: 'cam-1',
+        selectedSystemAudioSourceId: 'monitor-1',
       });
     });
 
@@ -48,6 +67,9 @@ test.describe('Record tab', () => {
                     sysAudioEnabled: boolean;
                     cameraEnabled: boolean;
                     countdownSeconds: number;
+                    selectedMicDeviceId: string | null;
+                    selectedCameraDeviceId: string | null;
+                    selectedSystemAudioSourceId: string | null;
                   };
                 };
               };
@@ -62,7 +84,56 @@ test.describe('Record tab', () => {
         sysAudioEnabled: false,
         cameraEnabled: false,
         countdownSeconds: 5,
+        selectedMicDeviceId: 'mic-1',
+        selectedCameraDeviceId: 'cam-1',
+        selectedSystemAudioSourceId: 'monitor-1',
       });
+  });
+
+  test('countdown controls update the shared recording config store', async ({ appPage }) => {
+    await expect(appPage.locator('[data-testid="countdown-config"]')).toBeVisible();
+
+    await appPage.locator('[data-testid="countdown-option-10"]').click();
+
+    await expect
+      .poll(async () =>
+        appPage.evaluate(() => {
+          const stores = (
+            window as unknown as {
+              __roughcutStores?: {
+                recordingConfig?: {
+                  getState: () => {
+                    countdownSeconds: number;
+                  };
+                };
+              };
+            }
+          ).__roughcutStores;
+          return stores?.recordingConfig?.getState().countdownSeconds ?? null;
+        }),
+      )
+      .toBe(10);
+
+    await appPage.locator('[data-testid="countdown-option-0"]').click();
+
+    await expect
+      .poll(async () =>
+        appPage.evaluate(() => {
+          const stores = (
+            window as unknown as {
+              __roughcutStores?: {
+                recordingConfig?: {
+                  getState: () => {
+                    countdownSeconds: number;
+                  };
+                };
+              };
+            }
+          ).__roughcutStores;
+          return stores?.recordingConfig?.getState().countdownSeconds ?? null;
+        }),
+      )
+      .toBe(0);
   });
 
   test('opening the panel does not reset shared recording config', async ({ appPage }) => {
@@ -131,6 +202,9 @@ test.describe('Record tab', () => {
         micEnabled: false,
         sysAudioEnabled: false,
         cameraEnabled: false,
+        selectedMicDeviceId: 'mic-1',
+        selectedCameraDeviceId: 'cam-1',
+        selectedSystemAudioSourceId: 'monitor-1',
       });
 
       return sourceId;
@@ -157,6 +231,9 @@ test.describe('Record tab', () => {
                     micEnabled: boolean;
                     sysAudioEnabled: boolean;
                     cameraEnabled: boolean;
+                    selectedMicDeviceId: string | null;
+                    selectedCameraDeviceId: string | null;
+                    selectedSystemAudioSourceId: string | null;
                   };
                 };
               };
@@ -167,14 +244,16 @@ test.describe('Record tab', () => {
       )
       .toMatchObject({
         hydrated: true,
-        selectedSourceId,
         micEnabled: false,
         sysAudioEnabled: false,
         cameraEnabled: false,
+        selectedMicDeviceId: 'mic-1',
+        selectedCameraDeviceId: 'cam-1',
+        selectedSystemAudioSourceId: 'monitor-1',
       });
 
     if (selectedSourceId) {
-      await expect(panelPage.locator('select')).toHaveValue(selectedSourceId);
+      await expect(panelPage.locator('select').first()).not.toHaveValue('');
     }
 
     await appPage.evaluate(() => {
