@@ -8,6 +8,7 @@ export interface RecordingConfigState {
   micEnabled: boolean;
   sysAudioEnabled: boolean;
   cameraEnabled: boolean;
+  countdownSeconds: number;
   selectedMicDeviceId: string | null;
   selectedCameraDeviceId: string | null;
   selectedSystemAudioSourceId: string | null;
@@ -30,6 +31,7 @@ export const DEFAULT_RECORDING_CONFIG_STATE: RecordingConfigState = {
   micEnabled: true,
   sysAudioEnabled: true,
   cameraEnabled: true,
+  countdownSeconds: 3,
   selectedMicDeviceId: null,
   selectedCameraDeviceId: null,
   selectedSystemAudioSourceId: null,

@@ -13,6 +13,106 @@ test.describe('Record tab', () => {
     await expect(appPage.locator('[data-testid="btn-record"]')).toBeVisible();
   });
 
+  test('record controls update the shared recording config store', async ({ appPage }) => {
+    await appPage.evaluate(async () => {
+      await (
+        window as unknown as {
+          roughcut: { recordingConfigUpdate: (patch: Record<string, unknown>) => Promise<unknown> };
+        }
+      ).roughcut.recordingConfigUpdate({
+        recordMode: 'window',
+        micEnabled: false,
+        sysAudioEnabled: false,
+        cameraEnabled: false,
+        countdownSeconds: 5,
+      });
+    });
+
+    await expect
+      .poll(async () =>
+        appPage.evaluate(() => {
+          const stores = (
+            window as unknown as {
+              __roughcutStores?: {
+                recordingConfig?: {
+                  getState: () => {
+                    recordMode: string;
+                    micEnabled: boolean;
+                    sysAudioEnabled: boolean;
+                    cameraEnabled: boolean;
+                    countdownSeconds: number;
+                  };
+                };
+              };
+            }
+          ).__roughcutStores;
+          return stores?.recordingConfig?.getState() ?? null;
+        }),
+      )
+      .toMatchObject({
+        recordMode: 'window',
+        micEnabled: false,
+        sysAudioEnabled: false,
+        cameraEnabled: false,
+        countdownSeconds: 5,
+      });
+  });
+
+  test('opening the panel does not reset shared recording config', async ({ appPage }) => {
+    await appPage.evaluate(async () => {
+      const api = (
+        window as unknown as {
+          roughcut: {
+            recordingConfigUpdate: (patch: Record<string, unknown>) => Promise<unknown>;
+            openRecordingPanel: () => Promise<void>;
+            closeRecordingPanel: () => Promise<void>;
+          };
+        }
+      ).roughcut;
+
+      await api.recordingConfigUpdate({
+        recordMode: 'window',
+        micEnabled: false,
+        sysAudioEnabled: false,
+        cameraEnabled: false,
+        countdownSeconds: 10,
+      });
+
+      await api.openRecordingPanel();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await api.closeRecordingPanel();
+    });
+
+    await expect
+      .poll(async () =>
+        appPage.evaluate(() => {
+          const stores = (
+            window as unknown as {
+              __roughcutStores?: {
+                recordingConfig?: {
+                  getState: () => {
+                    recordMode: string;
+                    micEnabled: boolean;
+                    sysAudioEnabled: boolean;
+                    cameraEnabled: boolean;
+                    countdownSeconds: number;
+                  };
+                };
+              };
+            }
+          ).__roughcutStores;
+          return stores?.recordingConfig?.getState() ?? null;
+        }),
+      )
+      .toMatchObject({
+        recordMode: 'window',
+        micEnabled: false,
+        sysAudioEnabled: false,
+        cameraEnabled: false,
+        countdownSeconds: 10,
+      });
+  });
+
   test('record button shows REC text when idle', async ({ appPage }) => {
     const btn = appPage.locator('[data-testid="btn-record"]');
     await expect(btn).toContainText('REC');

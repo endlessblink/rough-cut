@@ -16,6 +16,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { CaptureSource, RecordingMetadata } from '../../env.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
 import { formatElapsed } from './format-elapsed.js';
+import { useRecordingConfig, updateRecordingConfig } from './recording-config.js';
 
 // ─── Design tokens ─────────────────────────────────────────────────────────
 
@@ -1232,15 +1233,15 @@ function buildRecordingStream(
 export function PanelApp() {
   // ── State ────────────────────────────────────────────────────────────────
   const [sources, setSources] = useState<CaptureSource[]>([]);
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [status, setStatus] = useState<PanelStatus>('idle');
   const [countdownSeconds, setCountdownSeconds] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [micEnabled, setMicEnabled] = useState(true);
-  const [sysAudioEnabled, setSysAudioEnabled] = useState(false);
-  const [cameraEnabled, setCameraEnabled] = useState(true);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const selectedSourceId = useRecordingConfig((s) => s.selectedSourceId);
+  const micEnabled = useRecordingConfig((s) => s.micEnabled);
+  const sysAudioEnabled = useRecordingConfig((s) => s.sysAudioEnabled);
+  const cameraEnabled = useRecordingConfig((s) => s.cameraEnabled);
 
   // Microphone stream for audio level monitoring (separate from screen capture stream)
   const [micStream, setMicStream] = useState<MediaStream | null>(null);
@@ -1273,17 +1274,15 @@ export function PanelApp() {
 
   // Mic toggle with track muting — only mutes the mic stream, not system audio
   const handleMicToggle = useCallback(() => {
-    setMicEnabled((prev) => {
-      const next = !prev;
-      // Mute/unmute only the mic stream tracks so system audio is unaffected
-      if (micStreamRef.current) {
-        micStreamRef.current.getAudioTracks().forEach((t) => {
-          t.enabled = next;
-        });
-      }
-      return next;
-    });
-  }, []);
+    const next = !micEnabled;
+    // Mute/unmute only the mic stream tracks so system audio is unaffected
+    if (micStreamRef.current) {
+      micStreamRef.current.getAudioTracks().forEach((t) => {
+        t.enabled = next;
+      });
+    }
+    updateRecordingConfig({ micEnabled: next });
+  }, [micEnabled]);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -1405,48 +1404,80 @@ export function PanelApp() {
   }, []);
 
   // ── Source selection ─────────────────────────────────────────────────────
-  const handleSelectSource = async (id: string) => {
-    setSelectedSourceId(id);
-    window.roughcut.panelSetSource(id);
+  const handleSelectSource = useCallback((id: string) => {
+    updateRecordingConfig({ selectedSourceId: id });
+  }, []);
 
-    // Release previous stream
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-    }
+  useEffect(() => {
+    let active = true;
 
-    try {
-      // getDisplayMedia() is intercepted by main process via setDisplayMediaRequestHandler
-      // which uses the selectedSourceId we set above via panelSetSource
-      const s = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          frameRate: { ideal: 15, max: 20 }, // Low fps for preview — FFmpeg handles full-quality recording
-        },
-        audio: true, // system audio via loopback
-      });
-      // Try to reduce framerate after acquisition — saves decode work for preview
-      const videoTrack = s.getVideoTracks()[0];
-      if (videoTrack) {
-        void videoTrack.applyConstraints({ frameRate: { ideal: 15, max: 20 } }).catch(() => {});
-        const settings = videoTrack.getSettings();
-        console.info(
-          '[PanelApp] Screen track:',
-          settings.width,
-          'x',
-          settings.height,
-          '@',
-          settings.frameRate,
-          'fps',
-        );
+    if (!selectedSourceId) {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
       }
-      streamRef.current = s;
-      setStream(s);
-      setStatus('ready');
-      console.info('[PanelApp] Stream acquired via getDisplayMedia');
-    } catch (err) {
-      console.error('[PanelApp] Failed to acquire stream:', err);
-      setStatus('idle');
+      streamRef.current = null;
+      setStream(null);
+      setStatus((current) =>
+        current === 'recording' || current === 'paused' || current === 'stopping'
+          ? current
+          : 'idle',
+      );
+      return () => {
+        active = false;
+      };
     }
-  };
+
+    const acquireStream = async () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+      }
+
+      try {
+        const s = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            frameRate: { ideal: 15, max: 20 },
+          },
+          audio: true,
+        });
+        if (!active) {
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        const videoTrack = s.getVideoTracks()[0];
+        if (videoTrack) {
+          void videoTrack.applyConstraints({ frameRate: { ideal: 15, max: 20 } }).catch(() => {});
+          const settings = videoTrack.getSettings();
+          console.info(
+            '[PanelApp] Screen track:',
+            settings.width,
+            'x',
+            settings.height,
+            '@',
+            settings.frameRate,
+            'fps',
+          );
+        }
+
+        streamRef.current = s;
+        setStream(s);
+        setStatus('ready');
+        console.info('[PanelApp] Stream acquired via getDisplayMedia');
+      } catch (err) {
+        if (!active) return;
+        console.error('[PanelApp] Failed to acquire stream:', err);
+        streamRef.current = null;
+        setStream(null);
+        setStatus('idle');
+      }
+    };
+
+    void acquireStream();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedSourceId]);
 
   // ── MediaRecorder helpers ────────────────────────────────────────────────
   // Store latest camera stream in a ref so the IPC callback (which uses [] deps)
@@ -1699,8 +1730,8 @@ export function PanelApp() {
         sysAudioEnabled={sysAudioEnabled}
         cameraEnabled={cameraEnabled}
         onMicToggle={handleMicToggle}
-        onSysAudioToggle={() => setSysAudioEnabled((v) => !v)}
-        onCameraToggle={() => setCameraEnabled((v) => !v)}
+        onSysAudioToggle={() => updateRecordingConfig({ sysAudioEnabled: !sysAudioEnabled })}
+        onCameraToggle={() => updateRecordingConfig({ cameraEnabled: !cameraEnabled })}
       />
 
       {/* Audio level meter — shows when mic is active */}

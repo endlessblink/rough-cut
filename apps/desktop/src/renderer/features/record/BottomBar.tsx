@@ -35,9 +35,33 @@ export interface BottomBarProps {
 function MonitorIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <rect x="1.5" y="2.5" width="11" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-      <line x1="5" y1="13" x2="9" y2="13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-      <line x1="7" y1="10.5" x2="7" y2="13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <rect
+        x="1.5"
+        y="2.5"
+        width="11"
+        height="8"
+        rx="1.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
+      <line
+        x1="5"
+        y1="13"
+        x2="9"
+        y2="13"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+      <line
+        x1="7"
+        y1="10.5"
+        x2="7"
+        y2="13"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -46,10 +70,31 @@ function MicIcon({ muted }: { muted: boolean }) {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
       <rect x="5" y="1" width="4" height="7" rx="2" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M3 6.5a4 4 0 0 0 8 0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-      <line x1="7" y1="10.5" x2="7" y2="13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path
+        d="M3 6.5a4 4 0 0 0 8 0"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+      <line
+        x1="7"
+        y1="10.5"
+        x2="7"
+        y2="13"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
       {muted && (
-        <line x1="2" y1="2" x2="12" y2="12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        <line
+          x1="2"
+          y1="2"
+          x2="12"
+          y2="12"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+        />
       )}
     </svg>
   );
@@ -58,8 +103,18 @@ function MicIcon({ muted }: { muted: boolean }) {
 function SpeakerIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M2 5h2l3-3v10L4 9H2V5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-      <path d="M9.5 5a3 3 0 0 1 0 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path
+        d="M2 5h2l3-3v10L4 9H2V5z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.5 5a3 3 0 0 1 0 4"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -68,9 +123,22 @@ function CameraIcon({ off }: { off: boolean }) {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
       <rect x="1" y="3.5" width="9" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M10 5.5l3-1.5v6l-3-1.5" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      <path
+        d="M10 5.5l3-1.5v6l-3-1.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
       {off && (
-        <line x1="2" y1="2" x2="12" y2="12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        <line
+          x1="2"
+          y1="2"
+          x2="12"
+          y2="12"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+        />
       )}
     </svg>
   );
@@ -84,9 +152,17 @@ interface DeviceSegmentProps {
   active?: boolean;
   accent?: string;
   onClick: () => void;
+  testId?: string;
 }
 
-function DeviceSegment({ icon, label, active = true, accent, onClick }: DeviceSegmentProps) {
+function DeviceSegment({
+  icon,
+  label,
+  active = true,
+  accent,
+  onClick,
+  testId,
+}: DeviceSegmentProps) {
   const [hovered, setHovered] = useState(false);
   const [pressed, setPressed] = useState(false);
 
@@ -109,9 +185,13 @@ function DeviceSegment({ icon, label, active = true, accent, onClick }: DeviceSe
 
   return (
     <button
+      data-testid={testId}
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => { setHovered(false); setPressed(false); }}
+      onMouseLeave={() => {
+        setHovered(false);
+        setPressed(false);
+      }}
       onMouseDown={() => setPressed(true)}
       onMouseUp={() => setPressed(false)}
       style={{
@@ -182,7 +262,10 @@ function RecordButton({
       data-testid="btn-record"
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => { setHovered(false); setPressed(false); }}
+      onMouseLeave={() => {
+        setHovered(false);
+        setPressed(false);
+      }}
       onMouseDown={() => setPressed(true)}
       onMouseUp={() => setPressed(false)}
       style={{
@@ -314,6 +397,7 @@ export function BottomBar({
           label={sourceName ? `Source: ${sourceName}` : 'Source: None'}
           active={Boolean(sourceName)}
           onClick={onOpenSourcePicker}
+          testId="record-source-toggle"
         />
         <DeviceSegment
           icon={<MicIcon muted={isMicMuted} />}
@@ -321,6 +405,7 @@ export function BottomBar({
           active={!isMicMuted}
           accent={isMicMuted ? '#ff746b' : undefined}
           onClick={onToggleMicMute}
+          testId="record-mic-toggle"
         />
         {hasSystemAudio && (
           <DeviceSegment
@@ -328,6 +413,7 @@ export function BottomBar({
             label={isSystemAudioEnabled ? 'System audio' : 'Audio off'}
             active={isSystemAudioEnabled}
             onClick={onToggleSystemAudio}
+            testId="record-system-audio-toggle"
           />
         )}
         {hasCamera && (
@@ -336,6 +422,7 @@ export function BottomBar({
             label={isCameraEnabled ? 'Camera' : 'Camera off'}
             active={isCameraEnabled}
             onClick={onToggleCamera}
+            testId="record-camera-toggle"
           />
         )}
       </div>

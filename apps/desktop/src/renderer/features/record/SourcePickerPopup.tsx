@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import type { CaptureSource } from '../../env.js';
 
+import type { RecordMode } from './ModeSelectorRow.js';
+
 interface SourcePickerPopupProps {
   sources: CaptureSource[];
   selectedSourceId: string | null;
+  recordMode?: RecordMode;
   onSelect: (id: string) => void;
   onClose: () => void;
   onRefresh?: () => void;
@@ -15,8 +18,24 @@ interface SourcePickerPopupProps {
 function CloseIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <line x1="3" y1="3" x2="11" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <line x1="11" y1="3" x2="3" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line
+        x1="3"
+        y1="3"
+        x2="11"
+        y2="11"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <line
+        x1="11"
+        y1="3"
+        x2="3"
+        y2="11"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -26,7 +45,15 @@ function CloseIcon() {
 function MonitorIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <rect x="1.5" y="2.5" width="11" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <rect
+        x="1.5"
+        y="2.5"
+        width="11"
+        height="9"
+        rx="1.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
     </svg>
   );
 }
@@ -45,14 +72,14 @@ function SourceCard({ source, isSelected, onClick }: SourceCardProps) {
   const borderStyle = isSelected
     ? '2px solid #ff7043'
     : isHovered
-    ? '1px solid rgba(255,255,255,0.20)'
-    : '1px solid rgba(255,255,255,0.08)';
+      ? '1px solid rgba(255,255,255,0.20)'
+      : '1px solid rgba(255,255,255,0.08)';
 
   const shadowStyle = isSelected
     ? '0 0 0 1px rgba(0,0,0,0.90), 0 0 0 2px rgba(255,255,255,0.08)'
     : isHovered
-    ? '0 10px 28px rgba(0,0,0,0.70)'
-    : '0 8px 24px rgba(0,0,0,0.55)';
+      ? '0 10px 28px rgba(0,0,0,0.70)'
+      : '0 8px 24px rgba(0,0,0,0.55)';
 
   const bgStyle = isSelected ? '#111010' : '#0c0c0c';
   const transformStyle = isHovered && !isSelected ? 'translateY(-1px)' : 'none';
@@ -163,6 +190,7 @@ function SourceCard({ source, isSelected, onClick }: SourceCardProps) {
 export function SourcePickerPopup({
   sources,
   selectedSourceId,
+  recordMode = 'fullscreen',
   onSelect,
   onClose,
   onRefresh,
@@ -175,19 +203,26 @@ export function SourcePickerPopup({
   const [useHovered, setUseHovered] = useState(false);
   const [refreshHovered, setRefreshHovered] = useState(false);
 
-  const selectedSource = sources.find((s) => s.id === tempSelectedId);
+  const filteredSources =
+    recordMode === 'region'
+      ? sources.filter((source) => source.type === 'screen')
+      : sources.filter((source) => source.type === recordMode);
+  const visibleSources = filteredSources.length > 0 ? filteredSources : sources;
+  const selectedSource = visibleSources.find((s) => s.id === tempSelectedId) ?? null;
+  const modeLabel =
+    recordMode === 'window'
+      ? 'window'
+      : recordMode === 'region'
+        ? 'screen for region capture'
+        : 'screen';
 
   const closeButtonBg = closePressed
     ? 'rgba(255,255,255,0.14)'
     : closeHovered
-    ? 'rgba(255,255,255,0.08)'
-    : 'transparent';
+      ? 'rgba(255,255,255,0.08)'
+      : 'transparent';
 
-  const useBtnBg = !tempSelectedId
-    ? 'rgba(255,255,255,0.10)'
-    : useHovered
-    ? '#ff8a65'
-    : '#ff7043';
+  const useBtnBg = !tempSelectedId ? 'rgba(255,255,255,0.10)' : useHovered ? '#ff8a65' : '#ff7043';
 
   const useBtnColor = !tempSelectedId ? 'rgba(255,255,255,0.40)' : '#000';
 
@@ -250,7 +285,7 @@ export function SourcePickerPopup({
                 marginLeft: 12,
               }}
             >
-              Pick a screen or window to record.
+              {`Pick a ${modeLabel} to record.`}
             </span>
           </div>
 
@@ -258,7 +293,10 @@ export function SourcePickerPopup({
           <button
             onClick={onClose}
             onMouseEnter={() => setCloseHovered(true)}
-            onMouseLeave={() => { setCloseHovered(false); setClosePressed(false); }}
+            onMouseLeave={() => {
+              setCloseHovered(false);
+              setClosePressed(false);
+            }}
             onMouseDown={() => setClosePressed(true)}
             onMouseUp={() => setClosePressed(false)}
             style={{
@@ -306,9 +344,7 @@ export function SourcePickerPopup({
                   height: 26,
                   padding: '0 10px',
                   borderRadius: 999,
-                  background: refreshHovered
-                    ? 'rgba(255,255,255,0.08)'
-                    : 'rgba(255,255,255,0.04)',
+                  background: refreshHovered ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)',
                   border: '1px solid rgba(255,255,255,0.08)',
                   color: 'rgba(255,255,255,0.60)',
                   fontSize: 11,
@@ -355,7 +391,7 @@ export function SourcePickerPopup({
             >
               Loading sources...
             </div>
-          ) : sources.length === 0 ? (
+          ) : visibleSources.length === 0 ? (
             <div
               style={{
                 flex: 1,
@@ -366,7 +402,7 @@ export function SourcePickerPopup({
                 fontSize: 13,
               }}
             >
-              No sources available. Try refreshing.
+              No matching sources available. Try refreshing or switch record mode.
             </div>
           ) : (
             /* Source card list */
@@ -380,7 +416,7 @@ export function SourcePickerPopup({
                 scrollbarWidth: 'none',
               }}
             >
-              {sources.map((source) => (
+              {visibleSources.map((source) => (
                 <SourceCard
                   key={source.id}
                   source={source}

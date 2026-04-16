@@ -49,6 +49,7 @@ const DEFAULT_RECORDING_CONFIG = {
   micEnabled: true,
   sysAudioEnabled: true,
   cameraEnabled: true,
+  countdownSeconds: 3,
   selectedMicDeviceId: null,
   selectedCameraDeviceId: null,
   selectedSystemAudioSourceId: null,

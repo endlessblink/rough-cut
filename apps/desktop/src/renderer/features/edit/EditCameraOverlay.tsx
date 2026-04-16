@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { CameraPresentation } from '@rough-cut/project-model';
+import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
+import { transportStore } from '../../hooks/use-stores.js';
 
 interface EditCameraOverlayProps {
   filePath: string;
   fps: number;
-  sourceFrame: number;
+  clipTimelineIn: number;
+  clipSourceIn: number;
   visible: boolean;
-  isPlaying: boolean;
   camera: CameraPresentation;
 }
 
@@ -51,57 +53,49 @@ function getAspectRatio(camera: CameraPresentation): string {
 export function EditCameraOverlay({
   filePath,
   fps,
-  sourceFrame,
+  clipTimelineIn,
+  clipSourceIn,
   visible,
-  isPlaying,
   camera,
 }: EditCameraOverlayProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [ready, setReady] = useState(false);
-  const targetTime = sourceFrame / fps;
   const widthPercent = 24 * (camera.size / 100);
   const shadow = camera.shadowEnabled
     ? `0 ${Math.round(camera.shadowBlur * 0.25)}px ${camera.shadowBlur}px rgba(0,0,0,${camera.shadowOpacity})`
     : 'none';
+  const frameToVideoTime = (frame: number) =>
+    Math.max(0, (clipSourceIn + (frame - clipTimelineIn)) / fps);
+  const videoTimeToFrame = (mediaTime: number) =>
+    clipTimelineIn + Math.round(mediaTime * fps) - clipSourceIn;
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+    const playbackManager = getPlaybackManager();
 
     setReady(video.readyState >= 1);
 
-    const onLoadedMetadata = () => {
+    const onLoadedData = () => {
       setReady(true);
-      video.currentTime = targetTime;
+      video.currentTime = frameToVideoTime(transportStore.getState().playheadFrame);
     };
+    const register = () =>
+      playbackManager.registerCameraVideo(video, frameToVideoTime, videoTimeToFrame);
 
-    video.addEventListener('loadedmetadata', onLoadedMetadata);
-    return () => {
-      video.removeEventListener('loadedmetadata', onLoadedMetadata);
-    };
-  }, [filePath]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || video.readyState < 1) return;
-
-    if (!visible || !camera.visible) {
-      video.pause();
-      return;
-    }
-
-    if (isPlaying) {
-      if (Math.abs(video.currentTime - targetTime) > 0.08) {
-        video.currentTime = targetTime;
-      }
-      video.play().catch(() => {});
+    video.addEventListener('loadeddata', onLoadedData);
+    if (video.readyState >= 2) {
+      register();
     } else {
-      video.pause();
-      if (Math.abs(video.currentTime - targetTime) > 0.02) {
-        video.currentTime = targetTime;
-      }
+      video.addEventListener('loadeddata', register, { once: true });
     }
-  }, [camera.visible, isPlaying, targetTime, visible]);
+
+    return () => {
+      video.removeEventListener('loadeddata', onLoadedData);
+      video.removeEventListener('loadeddata', register);
+      playbackManager.unregisterCameraVideo(video);
+    };
+  }, [clipSourceIn, clipTimelineIn, filePath, fps]);
 
   return (
     <div

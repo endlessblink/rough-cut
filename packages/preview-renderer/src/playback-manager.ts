@@ -193,9 +193,14 @@ export class PlaybackManager {
     }
 
     // Snap playhead to current video time
+    const compositorPlaybackFrame = this.compositor?.getPlaybackFrame() ?? -1;
     const frame = this.screenVideo
       ? this._resolveTimelineFrameForVideo(this.screenVideo)
-      : (this.compositor?.getCurrentFrame() ?? 0);
+      : compositorPlaybackFrame >= 0
+        ? compositorPlaybackFrame
+        : this.cameraVideo
+          ? this._resolveTimelineFrameForVideo(this.cameraVideo)
+          : (this.compositor?.getCurrentFrame() ?? 0);
 
     this.transportStore.setState({ isPlaying: false, playheadFrame: frame });
     void this._settlePausedMedia(frame, pauseSettleToken);
@@ -356,9 +361,15 @@ export class PlaybackManager {
 
     // Read current time from screenVideo or compositor video
     const screen = this.screenVideo;
+    const camera = this.cameraVideo;
+    const compositorPlaybackFrame = this.compositor?.getPlaybackFrame() ?? -1;
     const frame = screen
       ? this._resolveTimelineFrameForVideo(screen)
-      : (this.compositor?.getCurrentFrame() ?? -1);
+      : compositorPlaybackFrame >= 0
+        ? compositorPlaybackFrame
+        : camera
+          ? this._resolveTimelineFrameForVideo(camera)
+          : (this.compositor?.getCurrentFrame() ?? -1);
 
     if (frame < 0) {
       this._rafId = requestAnimationFrame(this._syncLoop);

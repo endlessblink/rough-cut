@@ -41,6 +41,7 @@ import { BottomBar } from './BottomBar.js';
 import type { RecordState } from './BottomBar.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
 import { SourcePickerPopup } from './SourcePickerPopup.js';
+import { useRecordingConfig, updateRecordingConfig } from './recording-config.js';
 import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 import { RecordingPlaybackVideo } from './RecordingPlaybackVideo.js';
 import { CameraPlaybackCanvas } from './CameraPlaybackCanvas.js';
@@ -67,12 +68,8 @@ interface RecordTabProps {
 }
 
 export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabProps) {
-  const [recordMode, setRecordMode] = useState<RecordMode>('fullscreen');
   const [isSourcePickerOpen, setIsSourcePickerOpen] = useState(false);
   const [countdownSeconds, setCountdownSeconds] = useState(0);
-  const [isMicMuted, setIsMicMuted] = useState(false);
-  const [isSystemAudioEnabled, setIsSystemAudioEnabled] = useState(true);
-  const [isCameraEnabled, setIsCameraEnabled] = useState(true);
   // Default to Screen+Camera PIP template (index 1) when camera is on
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- LAYOUT_TEMPLATES is a non-empty static array
   const defaultTemplate = LAYOUT_TEMPLATES[1] ?? LAYOUT_TEMPLATES[0]!;
@@ -106,10 +103,14 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { state, setSources, selectSource, setStatus, setError, setElapsedMs, reset } =
-    useRecordState();
+  const { state, setSources, setStatus, setError, setElapsedMs, reset } = useRecordState();
 
-  const { sources, selectedSourceId, status, error, elapsedMs } = state;
+  const { sources, status, error, elapsedMs } = state;
+  const recordMode = useRecordingConfig((s) => s.recordMode);
+  const selectedSourceId = useRecordingConfig((s) => s.selectedSourceId);
+  const micEnabled = useRecordingConfig((s) => s.micEnabled);
+  const sysAudioEnabled = useRecordingConfig((s) => s.sysAudioEnabled);
+  const cameraEnabled = useRecordingConfig((s) => s.cameraEnabled);
 
   // Project + transport state for timeline
   const projectName = useProjectStore((s) => s.project.name);
@@ -598,7 +599,10 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
           borderBottom: '1px solid rgba(255,255,255,0.04)',
         }}
       >
-        <ModeSelectorRow mode={recordMode} onChange={setRecordMode} />
+        <ModeSelectorRow
+          mode={recordMode as RecordMode}
+          onChange={(mode) => updateRecordingConfig({ recordMode: mode })}
+        />
         {/* [DEBUG] Quick reload button — temporary for camera decode testing */}
         <button
           data-testid="debug-reload"
@@ -624,14 +628,14 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
           sourceName={selectedSourceName}
           onOpenSourcePicker={() => setIsSourcePickerOpen(true)}
           micName="Default"
-          isMicMuted={isMicMuted}
-          onToggleMicMute={() => setIsMicMuted((m) => !m)}
+          isMicMuted={!micEnabled}
+          onToggleMicMute={() => updateRecordingConfig({ micEnabled: !micEnabled })}
           hasSystemAudio={true}
-          isSystemAudioEnabled={isSystemAudioEnabled}
-          onToggleSystemAudio={() => setIsSystemAudioEnabled((e) => !e)}
-          hasCamera={false}
-          isCameraEnabled={isCameraEnabled}
-          onToggleCamera={() => setIsCameraEnabled((c) => !c)}
+          isSystemAudioEnabled={sysAudioEnabled}
+          onToggleSystemAudio={() => updateRecordingConfig({ sysAudioEnabled: !sysAudioEnabled })}
+          hasCamera={true}
+          isCameraEnabled={cameraEnabled}
+          onToggleCamera={() => updateRecordingConfig({ cameraEnabled: !cameraEnabled })}
           recordState={recordState}
           onClickRecord={handleClickRecord}
           elapsedSeconds={elapsedSeconds}
@@ -861,8 +865,9 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
         <SourcePickerPopup
           sources={sources}
           selectedSourceId={selectedSourceId}
+          recordMode={recordMode as RecordMode}
           onSelect={(id) => {
-            selectSource(id);
+            updateRecordingConfig({ selectedSourceId: id });
             setIsSourcePickerOpen(false);
           }}
           onClose={() => setIsSourcePickerOpen(false)}

@@ -193,25 +193,25 @@ async function loadReplayFixture(
     return Boolean(recording?.filePath && camera?.filePath);
   });
 
-  await page
-    .waitForFunction((selector) => {
-      const video = document.querySelector(selector) as HTMLVideoElement | null;
-      return !!video && video.readyState >= 1 && !video.paused;
-    }, SCREEN_VIDEO)
-    .catch(async () => {
-      await page.waitForFunction((selector) => {
-        const video = document.querySelector(selector) as HTMLVideoElement | null;
-        return !!video && video.readyState >= 1;
-      }, SCREEN_VIDEO);
-    });
-
-  await page.waitForFunction((selector) => {
-    const video = document.querySelector(selector) as HTMLVideoElement | null;
-    return !!video && video.readyState >= 1;
-  }, SCREEN_VIDEO);
-
   if (tab === 'edit') {
     await navigateToTab(page, 'edit');
+  } else {
+    await page
+      .waitForFunction((selector) => {
+        const video = document.querySelector(selector) as HTMLVideoElement | null;
+        return !!video && video.readyState >= 1 && !video.paused;
+      }, SCREEN_VIDEO)
+      .catch(async () => {
+        await page.waitForFunction((selector) => {
+          const video = document.querySelector(selector) as HTMLVideoElement | null;
+          return !!video && video.readyState >= 1;
+        }, SCREEN_VIDEO);
+      });
+
+    await page.waitForFunction((selector) => {
+      const video = document.querySelector(selector) as HTMLVideoElement | null;
+      return !!video && video.readyState >= 1;
+    }, SCREEN_VIDEO);
   }
 
   const cameraSelector = tab === 'edit' ? EDIT_CAMERA_VIDEO : CAMERA_VIDEO;

@@ -44,7 +44,6 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const tracks = useProjectStore((s) => s.project.composition.tracks);
   const assets = useProjectStore((s) => s.project.assets);
   const playheadFrame = useTransportStore((s) => s.playheadFrame);
-  const isPlaying = useTransportStore((s) => s.isPlaying);
   const selectedClipIds = useTransportStore((s) => s.selectedClipIds);
   const selectedClipId = selectedClipIds[0] ?? null;
   const [pixelsPerFrame, setPixelsPerFrame] = useState(3);
@@ -380,6 +379,20 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
       return null;
     }
 
+    const cameraClip =
+      project.composition.tracks
+        .flatMap((track) => track.clips)
+        .find(
+          (clip) =>
+            clip.assetId === activeCameraLayer.assetId &&
+            playheadFrame >= clip.timelineIn &&
+            playheadFrame < clip.timelineOut,
+        ) ?? null;
+
+    if (!cameraClip) {
+      return null;
+    }
+
     const recordingAsset =
       project.assets.find(
         (asset) => asset.type === 'recording' && asset.cameraAssetId === activeCameraLayer.assetId,
@@ -387,7 +400,8 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
 
     return {
       filePath: cameraAsset.filePath,
-      sourceFrame: activeCameraLayer.sourceFrame,
+      clipTimelineIn: cameraClip.timelineIn,
+      clipSourceIn: cameraClip.sourceIn,
       camera: recordingAsset?.presentation?.camera ?? createDefaultCameraPresentation(),
     };
   }, [playheadFrame, project]);
@@ -436,9 +450,9 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
                 <EditCameraOverlay
                   filePath={activeCameraPreview.filePath}
                   fps={projectFps}
-                  sourceFrame={activeCameraPreview.sourceFrame}
+                  clipTimelineIn={activeCameraPreview.clipTimelineIn}
+                  clipSourceIn={activeCameraPreview.clipSourceIn}
                   visible={true}
-                  isPlaying={isPlaying}
                   camera={activeCameraPreview.camera}
                 />
               ) : null}

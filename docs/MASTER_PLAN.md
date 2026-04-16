@@ -114,7 +114,7 @@ For each surface, land the infrastructure that makes the view reliable first, th
 | ~~BUG-001~~  | Fix: Compositor canvas sizing + video sprite positioning                 | P0       | DONE                     | TASK-007           |
 | ~~BUG-002~~  | Fix: Compositor resizing to template resolution + debug logging cleanup  | P0       | ✅ **DONE** (2026-03-30) | BUG-001            |
 | ~~BUG-003~~  | Fix: Video playback + timeline sync across all tabs                      | P0       | ✅ **DONE** (2026-03-30) | BUG-002            |
-| TASK-086     | Record: Unified config store for main tab + recording panel              | P0       | TODO                     | TASK-010, TASK-011 |
+| ~~TASK-086~~ | ~~Record: Unified config store for main tab + recording panel~~          | P0       | ✅ DONE (2026-04-16)     | TASK-010, TASK-011 |
 | BUG-007      | Fix: Record toolbar toggles don't drive the floating recording panel     | P0       | TODO                     | TASK-086           |
 | BUG-008      | Fix: Record source selection diverges from the floating panel source     | P0       | TODO                     | TASK-086           |
 | TASK-087     | Record: Persist config across panel opens and app restarts               | P1       | TODO                     | TASK-086           |
@@ -828,9 +828,9 @@ Without a persistent default, every new install produces projects that break on 
 
 ---
 
-### TASK-086: Record: Unified config store for main tab + recording panel
+### ~~TASK-086~~: Record: Unified config store for main tab + recording panel
 
-**Priority:** P0 | **Status:** TODO
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-16)
 
 #### Problem
 
@@ -1346,6 +1346,7 @@ Verification:
 - ~~TASK-010~~ Capture service (desktopCapturer)
 - ~~TASK-011~~ Record tab UI + inspector panels
 - ~~TASK-012~~ Record: Enable audio capture (mic + system audio)
+- ~~TASK-086~~ Record: Unified config store for main tab + recording panel
 - ~~TASK-072~~ Recent projects workflow
 - ~~TASK-077~~ Edit: Camera playback in Edit tab compositor
 - ~~TASK-085~~ Record: Persistent recording location + migration for stale /tmp references
