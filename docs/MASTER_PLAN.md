@@ -59,7 +59,7 @@ For each surface, land the infrastructure that makes the view reliable first, th
 
 | Order | Surface   | Goal                                                       | Primary task focus                                                                                                             |
 | ----- | --------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| 1     | Projects  | Stable project entry, reopen, and persistence foundation   | ~~TASK-072~~, TASK-071, ~~TASK-085~~                                                                                           |
+| 1     | Projects  | Stable project entry, reopen, and persistence foundation   | ~~TASK-072~~, ~~TASK-071~~, ~~TASK-085~~                                                                                       |
 | 2     | Recording | Reliable capture pipeline with polished in-record controls | TASK-013, TASK-014, TASK-015, TASK-016, TASK-086, BUG-007, BUG-008, TASK-087, TASK-088, TASK-089, TASK-090, TASK-091, TASK-092 |
 | 3     | Export    | Complete output flow for recorded projects                 | TASK-021, TASK-022, TASK-028, TASK-029, TASK-112, TASK-067, TASK-052, TASK-054                                                 |
 | 4     | Edit      | Deep timeline editing and refinement                       | TASK-017, TASK-018, TASK-019, TASK-020, TASK-023, TASK-024, TASK-026, TASK-027, TASK-065                                       |
@@ -101,7 +101,7 @@ For each surface, land the infrastructure that makes the view reliable first, th
 
 | ID           | Title                                                                       | Priority | Status                   | Dependencies |
 | ------------ | --------------------------------------------------------------------------- | -------- | ------------------------ | ------------ |
-| TASK-071     | Project save/load with relative paths                                       | P1       | TODO                     | TASK-105     |
+| ~~TASK-071~~ | ~~Project save/load with relative paths~~                                   | P1       | ✅ DONE (2026-04-16)     | TASK-105     |
 | ~~TASK-072~~ | ~~Recent projects workflow~~                                                | P2       | ✅ **DONE** (2026-03-30) | TASK-071     |
 | ~~TASK-085~~ | Record: Persistent recording location + migration for stale /tmp references | P1       | ✅ DONE (2026-04-15)     | TASK-071     |
 
@@ -244,24 +244,44 @@ For each surface, land the infrastructure that makes the view reliable first, th
 
 ### Cross-Cutting / Polish
 
-| ID       | Title                                                              | Priority | Status | Dependencies       |
-| -------- | ------------------------------------------------------------------ | -------- | ------ | ------------------ |
-| TASK-061 | Record: Custom region selection overlay                            | P3       | TODO   | TASK-013           |
-| TASK-062 | Record: Image backgrounds                                          | P3       | TODO   | TASK-011           |
-| TASK-068 | Cross-platform testing (macOS, Windows)                            | P2       | TODO   | TASK-015           |
-| TASK-069 | Performance profiling + optimization                               | P3       | TODO   | TASK-020           |
-| TASK-070 | Accessibility basics (keyboard nav, screen reader)                 | P3       | TODO   | -                  |
-| TASK-100 | Record: Disconnect recovery and warning toasts for dropped devices | P1       | TODO   | TASK-009, TASK-086 |
-| TASK-102 | Toast notification system for errors/warnings                      | P2       | TODO   | TASK-009           |
-| TASK-103 | Global keyboard shortcuts (Ctrl+S save, Ctrl+E export)             | P2       | TODO   | TASK-009           |
-| TASK-104 | Recording config persistence to localStorage                       | P3       | TODO   | TASK-011           |
-| TASK-105 | Relative asset paths for project portability                       | P2       | TODO   | TASK-009           |
-| TASK-106 | Effect registry: add color-correction effect                       | P2       | TODO   | TASK-004           |
-| TASK-107 | Effect registry: add subtitle/text effect                          | P2       | TODO   | TASK-004           |
+| ID           | Title                                                              | Priority | Status               | Dependencies       |
+| ------------ | ------------------------------------------------------------------ | -------- | -------------------- | ------------------ |
+| TASK-061     | Record: Custom region selection overlay                            | P3       | TODO                 | TASK-013           |
+| TASK-062     | Record: Image backgrounds                                          | P3       | TODO                 | TASK-011           |
+| TASK-068     | Cross-platform testing (macOS, Windows)                            | P2       | TODO                 | TASK-015           |
+| TASK-069     | Performance profiling + optimization                               | P3       | TODO                 | TASK-020           |
+| TASK-070     | Accessibility basics (keyboard nav, screen reader)                 | P3       | TODO                 | -                  |
+| TASK-100     | Record: Disconnect recovery and warning toasts for dropped devices | P1       | TODO                 | TASK-009, TASK-086 |
+| TASK-102     | Toast notification system for errors/warnings                      | P2       | TODO                 | TASK-009           |
+| TASK-103     | Global keyboard shortcuts (Ctrl+S save, Ctrl+E export)             | P2       | TODO                 | TASK-009           |
+| TASK-104     | Recording config persistence to localStorage                       | P3       | TODO                 | TASK-011           |
+| ~~TASK-105~~ | ~~Relative asset paths for project portability~~                   | P2       | ✅ DONE (2026-04-16) | TASK-009           |
+| TASK-106     | Effect registry: add color-correction effect                       | P2       | TODO                 | TASK-004           |
+| TASK-107     | Effect registry: add subtitle/text effect                          | P2       | TODO                 | TASK-004           |
 
 ---
 
 ## Active Work
+
+### ~~TASK-105~~: Relative asset paths for project portability
+
+**Priority:** P2 | **Status:** ✅ DONE (2026-04-16)
+
+- Project saves now serialize asset, thumbnail, cursor-sidecar, and library-reference paths relative to the `.roughcut` file.
+- Project open now resolves relative paths against the project directory before falling back to the legacy filename-based repair search.
+- Verified with Electron Playwright coverage that saved projects write relative paths on disk and still reopen after moving the whole project folder.
+
+---
+
+### ~~TASK-071~~: Project save/load with relative paths
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-16)
+
+- Implemented portable project save/load in `apps/desktop/src/main/index.mjs` by serializing project-linked file paths relative to the project document and resolving them on open.
+- Preserved the existing stale-path recovery flow so older projects with broken absolute recording paths can still recover by basename search.
+- Added direct Electron regression coverage for both data-level portability and the visible Projects UI flow, including moved-project reopen and thumbnail load.
+
+---
 
 ### ~~TASK-072: Recent Projects Workflow~~
 
