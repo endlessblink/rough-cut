@@ -6,12 +6,7 @@
  * MediaStreamTrackProcessor → VideoEncoder → MP4 muxing internally.
  */
 
-import {
-  Output,
-  Mp4OutputFormat,
-  BufferTarget,
-  MediaStreamVideoTrackSource,
-} from 'mediabunny';
+import { Output, Mp4OutputFormat, BufferTarget, MediaStreamVideoTrackSource } from 'mediabunny';
 
 export class CameraRecorder {
   private output: Output | null = null;
@@ -40,8 +35,10 @@ export class CameraRecorder {
     });
 
     await this.output.start();
-    console.info('[CameraRecorder] Started H.264 recording',
-      `${settings.width}x${settings.height} @${settings.frameRate}fps`);
+    console.info(
+      '[CameraRecorder] Started H.264 recording',
+      `${settings.width}x${settings.height} @${settings.frameRate}fps`,
+    );
   }
 
   async stop(): Promise<Uint8Array> {
@@ -49,10 +46,13 @@ export class CameraRecorder {
 
     await this.output.finalize();
     const buffer = this.target.buffer;
+    if (!buffer) {
+      throw new Error('Camera recorder produced no buffer');
+    }
     console.info('[CameraRecorder] Stopped, MP4 size:', buffer.byteLength, 'bytes');
 
     this.output = null;
     this.target = null;
-    return buffer;
+    return new Uint8Array(buffer);
   }
 }

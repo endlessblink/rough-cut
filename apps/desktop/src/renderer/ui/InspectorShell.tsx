@@ -3,7 +3,7 @@
  * Replaces the stacked InspectorCard pattern where a panel needs
  * category switching via a vertical icon rail on the left side.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   TEXT_SECONDARY,
   TEXT_MUTED,
@@ -37,14 +37,22 @@ export function InspectorShell({
   preferredCategoryId = null,
 }: InspectorShellProps) {
   const [activeCategoryId, setActiveCategoryId] = useState<string>(categories[0]?.id ?? '');
+  const categoryIdsKey = categories.map((category) => category.id).join('|');
+  const lastAppliedPreferredRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!preferredCategoryId) return;
+    if (!preferredCategoryId) {
+      lastAppliedPreferredRef.current = null;
+      return;
+    }
     if (!categories.some((category) => category.id === preferredCategoryId)) return;
+    if (lastAppliedPreferredRef.current === preferredCategoryId) return;
+
+    lastAppliedPreferredRef.current = preferredCategoryId;
     setActiveCategoryId((current) =>
       current === preferredCategoryId ? current : preferredCategoryId,
     );
-  }, [categories, preferredCategoryId]);
+  }, [categoryIdsKey, categories, preferredCategoryId]);
 
   const activeCategory = categories.find((c) => c.id === activeCategoryId) ?? categories[0];
 

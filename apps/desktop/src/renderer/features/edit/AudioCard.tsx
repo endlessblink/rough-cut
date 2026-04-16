@@ -1,4 +1,3 @@
-import React from 'react';
 import type { TrackId } from '@rough-cut/project-model';
 import { InspectorCard, RcSlider } from '../../ui/index.js';
 

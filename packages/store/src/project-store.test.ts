@@ -39,10 +39,10 @@ describe('projectStore', () => {
       expect(store.getState().project.name).toBe('New Project');
     });
 
-    it('sets isDirty = true', () => {
+    it('sets isDirty = false for a loaded project', () => {
       const newProject = createProject();
       store.getState().setProject(newProject);
-      expect(store.getState().isDirty).toBe(true);
+      expect(store.getState().isDirty).toBe(false);
     });
   });
 
@@ -62,7 +62,7 @@ describe('projectStore', () => {
     it('sets isDirty = false', () => {
       const newProject = createProject();
       store.getState().setProject(newProject);
-      expect(store.getState().isDirty).toBe(true);
+      expect(store.getState().isDirty).toBe(false);
       store.getState().markSaved();
       expect(store.getState().isDirty).toBe(false);
     });
@@ -72,11 +72,10 @@ describe('projectStore', () => {
     it('addClip: clip appears on the specified track', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+      });
       store.getState().addClip(track.id, clip);
       const updatedTrack = store
         .getState()
@@ -88,11 +87,10 @@ describe('projectStore', () => {
     it('removeClip: clip is removed from the track', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+      });
       store.getState().addClip(track.id, clip);
       store.getState().removeClip(track.id, clip.id);
       const updatedTrack = store
@@ -104,11 +102,12 @@ describe('projectStore', () => {
     it('moveClip: updates timelineIn/Out, sourceIn/Out unchanged', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30, sourceIn: 5, sourceOut: 35 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+        sourceIn: 5,
+        sourceOut: 35,
+      });
       store.getState().addClip(track.id, clip);
       store.getState().moveClip(track.id, clip.id, 60);
       const updatedTrack = store
@@ -126,11 +125,10 @@ describe('projectStore', () => {
       const fromTrack = tracks[0];
       const toTrack = tracks[1];
       if (!fromTrack || !toTrack) throw new Error('Need at least 2 tracks');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        fromTrack.id,
-        { timelineIn: 0, timelineOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], fromTrack.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+      });
       store.getState().addClip(fromTrack.id, clip);
       store.getState().moveClipToTrack(clip.id, fromTrack.id, toTrack.id);
       const updatedTracks = store.getState().project.composition.tracks;
@@ -224,11 +222,12 @@ describe('projectStore', () => {
     it('produces two clips on the same track', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30, sourceIn: 0, sourceOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+        sourceIn: 0,
+        sourceOut: 30,
+      });
       store.getState().addClip(track.id, clip);
       store.getState().splitClipAtFrame(track.id, clip.id, 15);
       const updatedTrack = store
@@ -242,11 +241,12 @@ describe('projectStore', () => {
     it('at invalid position is a no-op', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30, sourceIn: 0, sourceOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+        sourceIn: 0,
+        sourceOut: 30,
+      });
       store.getState().addClip(track.id, clip);
       store.getState().splitClipAtFrame(track.id, clip.id, 0); // at boundary
       const updatedTrack = store
@@ -258,11 +258,12 @@ describe('projectStore', () => {
     it('is undoable', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30, sourceIn: 0, sourceOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+        sourceIn: 0,
+        sourceOut: 30,
+      });
       store.getState().addClip(track.id, clip);
       store.getState().splitClipAtFrame(track.id, clip.id, 15);
       store.temporal.getState().undo();
@@ -277,11 +278,12 @@ describe('projectStore', () => {
     it('adjusts timelineIn and sourceIn', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30, sourceIn: 0, sourceOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+        sourceIn: 0,
+        sourceOut: 30,
+      });
       store.getState().addClip(track.id, clip);
       store.getState().trimClipLeftEdge(track.id, clip.id, 10);
       const updatedTrack = store
@@ -296,11 +298,12 @@ describe('projectStore', () => {
     it('is undoable', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30, sourceIn: 0, sourceOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+        sourceIn: 0,
+        sourceOut: 30,
+      });
       store.getState().addClip(track.id, clip);
       store.getState().trimClipLeftEdge(track.id, clip.id, 10);
       store.temporal.getState().undo();
@@ -315,11 +318,12 @@ describe('projectStore', () => {
     it('adjusts timelineOut and sourceOut', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30, sourceIn: 0, sourceOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+        sourceIn: 0,
+        sourceOut: 30,
+      });
       store.getState().addClip(track.id, clip);
       store.getState().trimClipRightEdge(track.id, clip.id, 20);
       const updatedTrack = store
@@ -334,11 +338,12 @@ describe('projectStore', () => {
     it('is undoable', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30, sourceIn: 0, sourceOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+        sourceIn: 0,
+        sourceOut: 30,
+      });
       store.getState().addClip(track.id, clip);
       store.getState().trimClipRightEdge(track.id, clip.id, 20);
       store.temporal.getState().undo();
@@ -353,11 +358,10 @@ describe('projectStore', () => {
     it('removes the clip', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+      });
       store.getState().addClip(track.id, clip);
       store.getState().deleteClip(track.id, clip.id);
       const updatedTrack = store
@@ -369,11 +373,10 @@ describe('projectStore', () => {
     it('is undoable', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+      });
       store.getState().addClip(track.id, clip);
       store.getState().deleteClip(track.id, clip.id);
       store.temporal.getState().undo();
@@ -388,17 +391,18 @@ describe('projectStore', () => {
     it('addClipEffect: effect is appended to the clip', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+      });
       store.getState().addClip(track.id, clip);
 
       const effect = createEffectInstance('shadow', { params: { blur: 20 } });
       store.getState().addClipEffect(track.id, clip.id, effect);
 
-      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedTrack = store
+        .getState()
+        .project.composition.tracks.find((t) => t.id === track.id);
       const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
       expect(updatedClip?.effects).toHaveLength(1);
       expect(updatedClip?.effects[0]?.effectType).toBe('shadow');
@@ -407,11 +411,10 @@ describe('projectStore', () => {
     it('removeClipEffect: effect is removed by index', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+      });
       store.getState().addClip(track.id, clip);
 
       const effect1 = createEffectInstance('shadow');
@@ -422,7 +425,9 @@ describe('projectStore', () => {
       // Remove first effect (index 0)
       store.getState().removeClipEffect(track.id, clip.id, 0);
 
-      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedTrack = store
+        .getState()
+        .project.composition.tracks.find((t) => t.id === track.id);
       const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
       expect(updatedClip?.effects).toHaveLength(1);
       expect(updatedClip?.effects[0]?.effectType).toBe('round-corners');
@@ -431,11 +436,10 @@ describe('projectStore', () => {
     it('addClipEffect: is undoable', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+      });
       store.getState().addClip(track.id, clip);
 
       const effect = createEffectInstance('shadow');
@@ -443,7 +447,9 @@ describe('projectStore', () => {
 
       store.temporal.getState().undo();
 
-      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedTrack = store
+        .getState()
+        .project.composition.tracks.find((t) => t.id === track.id);
       const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
       expect(updatedClip?.effects).toHaveLength(0);
     });
@@ -451,11 +457,10 @@ describe('projectStore', () => {
     it('removeClipEffect: is undoable', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+      });
       store.getState().addClip(track.id, clip);
 
       const effect = createEffectInstance('shadow');
@@ -464,7 +469,9 @@ describe('projectStore', () => {
 
       store.temporal.getState().undo();
 
-      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedTrack = store
+        .getState()
+        .project.composition.tracks.find((t) => t.id === track.id);
       const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
       expect(updatedClip?.effects).toHaveLength(1);
     });
@@ -472,18 +479,19 @@ describe('projectStore', () => {
     it('updateClipEffect: updates effect params by index', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+      });
       store.getState().addClip(track.id, clip);
 
       const effect = createEffectInstance('shadow', { params: { blur: 10 } });
       store.getState().addClipEffect(track.id, clip.id, effect);
       store.getState().updateClipEffect(track.id, clip.id, 0, { params: { blur: 30 } });
 
-      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedTrack = store
+        .getState()
+        .project.composition.tracks.find((t) => t.id === track.id);
       const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
       expect(updatedClip?.effects[0]?.params).toEqual({ blur: 30 });
     });
@@ -534,16 +542,17 @@ describe('projectStore', () => {
     it('patches transform fields on the matching clip', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+      });
       store.getState().addClip(track.id, clip);
 
       store.getState().updateClipTransform(clip.id, { opacity: 0.5, rotation: 45 });
 
-      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedTrack = store
+        .getState()
+        .project.composition.tracks.find((t) => t.id === track.id);
       const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
       expect(updatedClip?.transform.opacity).toBe(0.5);
       expect(updatedClip?.transform.rotation).toBe(45);
@@ -552,17 +561,18 @@ describe('projectStore', () => {
     it('preserves untouched transform fields', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+      });
       store.getState().addClip(track.id, clip);
       const originalTransform = { ...clip.transform };
 
       store.getState().updateClipTransform(clip.id, { opacity: 0.5 });
 
-      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedTrack = store
+        .getState()
+        .project.composition.tracks.find((t) => t.id === track.id);
       const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
       expect(updatedClip?.transform.opacity).toBe(0.5);
       expect(updatedClip?.transform.x).toBe(originalTransform.x);
@@ -575,18 +585,19 @@ describe('projectStore', () => {
     it('is undoable', () => {
       const track = store.getState().project.composition.tracks[0];
       if (!track) throw new Error('No track found');
-      const clip = createClip(
-        'asset-1' as ReturnType<typeof createClip>['assetId'],
-        track.id,
-        { timelineIn: 0, timelineOut: 30 },
-      );
+      const clip = createClip('asset-1' as ReturnType<typeof createClip>['assetId'], track.id, {
+        timelineIn: 0,
+        timelineOut: 30,
+      });
       store.getState().addClip(track.id, clip);
       const originalOpacity = clip.transform.opacity;
 
       store.getState().updateClipTransform(clip.id, { opacity: 0.25 });
       store.temporal.getState().undo();
 
-      const updatedTrack = store.getState().project.composition.tracks.find((t) => t.id === track.id);
+      const updatedTrack = store
+        .getState()
+        .project.composition.tracks.find((t) => t.id === track.id);
       const updatedClip = updatedTrack?.clips.find((c) => c.id === clip.id);
       expect(updatedClip?.transform.opacity).toBe(originalOpacity);
     });
@@ -673,8 +684,7 @@ describe('projectStore', () => {
 
       // Mutate project once to establish a baseline
       projectStore.getState().updateProject((doc) => ({ ...doc, name: 'ProjectMutation' }));
-      const pastCountAfterProjectMutation =
-        projectStore.temporal.getState().pastStates.length;
+      const pastCountAfterProjectMutation = projectStore.temporal.getState().pastStates.length;
 
       // Mutate transport many times
       transportStore.getState().setPlayheadFrame(100);

@@ -11,11 +11,13 @@ import { transportStore, projectStore } from './use-stores.js';
 
 let manager: PlaybackManager | null = null;
 
+type PlaybackManagerProjectStore = ConstructorParameters<typeof PlaybackManager>[0]['projectStore'];
+
 export function getPlaybackManager(): PlaybackManager {
   if (!manager) {
     manager = new PlaybackManager({
       transportStore,
-      projectStore,
+      projectStore: projectStore as unknown as PlaybackManagerProjectStore,
     });
   }
   return manager;

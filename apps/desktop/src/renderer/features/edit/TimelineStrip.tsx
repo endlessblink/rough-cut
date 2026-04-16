@@ -32,8 +32,20 @@ interface TimelineStripProps {
   onTrimLeft?: (clipId: string, newTimelineIn: number) => void;
   onTrimRight?: (clipId: string, newTimelineOut: number) => void;
   onMove?: (clipId: string, newTimelineIn: number) => void;
-  onMoveClip?: (clipId: string, newTimelineIn: number, fromTrackId: string, toTrackId: string) => void;
+  onMoveClip?: (
+    clipId: string,
+    newTimelineIn: number,
+    fromTrackId: string,
+    toTrackId: string,
+  ) => void;
   onZoomChange?: (newPixelsPerFrame: number) => void;
+  canRemoveTrack?: (trackId: string) => boolean;
+  onRemoveTrack?: (trackId: string) => void;
+  soloTrackIds?: ReadonlySet<string>;
+  onToggleTrackMute?: (trackId: string, muted: boolean) => void;
+  onToggleTrackSolo?: (trackId: string) => void;
+  onToggleTrackLock?: (trackId: string, locked: boolean) => void;
+  onTrackVolumeChange?: (trackId: string, volume: number) => void;
   exportRange?: ExportRange;
   onChangeExportRange?: (range: ExportRange) => void;
 }
@@ -74,6 +86,13 @@ export function TimelineStrip({
   onMove,
   onMoveClip,
   onZoomChange,
+  canRemoveTrack,
+  onRemoveTrack,
+  soloTrackIds,
+  onToggleTrackMute,
+  onToggleTrackSolo,
+  onToggleTrackLock,
+  onTrackVolumeChange,
   exportRange,
   onChangeExportRange,
 }: TimelineStripProps) {
@@ -132,14 +151,11 @@ export function TimelineStrip({
   }, [pixelsPerFrame, onZoomChange]);
 
   // Compute total timeline width from the maximum extent across all tracks
-  const visibleFrames = containerWidth > 0
-    ? Math.ceil((containerWidth - LABEL_WIDTH) / pixelsPerFrame)
-    : 30;
+  const visibleFrames =
+    containerWidth > 0 ? Math.ceil((containerWidth - LABEL_WIDTH) / pixelsPerFrame) : 30;
 
   const maxFrame = Math.max(
-    ...tracks.map((t) =>
-      t.clips.reduce((mx, c) => Math.max(mx, c.timelineOut), 0),
-    ),
+    ...tracks.map((t) => t.clips.reduce((mx, c) => Math.max(mx, c.timelineOut), 0)),
     playheadFrame + 1,
     visibleFrames,
   );
@@ -193,8 +209,9 @@ export function TimelineStrip({
       const rect = container.getBoundingClientRect();
       const relY = clientY - rect.top - RULER_HEIGHT + container.scrollTop;
       const trackIndex = Math.floor(relY / TRACK_HEIGHT);
-      if (trackIndex >= 0 && trackIndex < tracks.length) {
-        return tracks[trackIndex].id;
+      const targetTrack = tracks[trackIndex];
+      if (trackIndex >= 0 && targetTrack) {
+        return targetTrack.id;
       }
       return null;
     },
@@ -277,7 +294,9 @@ export function TimelineStrip({
   return (
     <div
       ref={containerRef}
-      onMouseMove={(e) => { lastMouseXRef.current = e.clientX; }}
+      onMouseMove={(e) => {
+        lastMouseXRef.current = e.clientX;
+      }}
       style={{
         overflowX: 'auto',
         overflowY: 'hidden',
@@ -308,31 +327,138 @@ export function TimelineStrip({
       {tracks.map((track) => (
         <div
           key={track.id}
+          data-testid={`track-row-${track.id}`}
           style={{
             display: 'flex',
             height: TRACK_HEIGHT,
             borderBottom: '1px solid rgba(255,255,255,0.04)',
             background: dragTargetTrackId === track.id ? 'rgba(90,200,250,0.08)' : undefined,
+            opacity:
+              soloTrackIds && soloTrackIds.size > 0 && !soloTrackIds.has(track.id) ? 0.45 : 1,
           }}
         >
           {/* Track label */}
           <div
             style={{
-              width: LABEL_WIDTH,
-              minWidth: LABEL_WIDTH,
+              width: 172,
+              minWidth: 172,
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
+              justifyContent: 'space-between',
               fontSize: 10,
               color: 'rgba(255,255,255,0.50)',
               background: 'rgba(0,0,0,0.6)',
               borderRight: '1px solid rgba(255,255,255,0.06)',
               userSelect: 'none',
+              padding: '0 6px',
+              boxSizing: 'border-box',
             }}
           >
-            {track.name.length > 6
-              ? track.name.replace('Video ', 'V').replace('Audio ', 'A')
-              : track.name}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+              <span style={{ minWidth: 24 }}>
+                {track.name.length > 6
+                  ? track.name.replace('Video ', 'V').replace('Audio ', 'A')
+                  : track.name}
+              </span>
+              <button
+                data-testid={`btn-mute-${track.id}`}
+                title={track.visible ? `Mute ${track.name}` : `Unmute ${track.name}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleTrackMute?.(track.id, track.visible);
+                }}
+                style={{
+                  border: 'none',
+                  borderRadius: 3,
+                  background: track.visible ? 'rgba(255,255,255,0.06)' : 'rgba(255,112,67,0.22)',
+                  color: track.visible ? 'rgba(255,255,255,0.7)' : '#ffb199',
+                  cursor: 'pointer',
+                  fontSize: 10,
+                  lineHeight: 1,
+                  padding: '2px 4px',
+                }}
+              >
+                M
+              </button>
+              <button
+                data-testid={`btn-solo-${track.id}`}
+                title={`Solo ${track.name}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleTrackSolo?.(track.id);
+                }}
+                style={{
+                  border: 'none',
+                  borderRadius: 3,
+                  background: soloTrackIds?.has(track.id)
+                    ? 'rgba(90,200,250,0.22)'
+                    : 'rgba(255,255,255,0.06)',
+                  color: soloTrackIds?.has(track.id) ? '#9be7ff' : 'rgba(255,255,255,0.7)',
+                  cursor: 'pointer',
+                  fontSize: 10,
+                  lineHeight: 1,
+                  padding: '2px 4px',
+                }}
+              >
+                S
+              </button>
+              <button
+                data-testid={`btn-lock-${track.id}`}
+                title={track.locked ? `Unlock ${track.name}` : `Lock ${track.name}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleTrackLock?.(track.id, track.locked);
+                }}
+                style={{
+                  border: 'none',
+                  borderRadius: 3,
+                  background: track.locked ? 'rgba(255,214,102,0.22)' : 'rgba(255,255,255,0.06)',
+                  color: track.locked ? '#ffe08a' : 'rgba(255,255,255,0.7)',
+                  cursor: 'pointer',
+                  fontSize: 10,
+                  lineHeight: 1,
+                  padding: '2px 4px',
+                }}
+              >
+                L
+              </button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {track.type === 'audio' ? (
+                <input
+                  data-testid={`track-volume-${track.id}`}
+                  title={`${track.name} volume`}
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={track.volume}
+                  onChange={(e) => onTrackVolumeChange?.(track.id, Number(e.target.value))}
+                  style={{ width: 42, accentColor: '#ff7043' }}
+                />
+              ) : null}
+              {onRemoveTrack && canRemoveTrack?.(track.id) ? (
+                <button
+                  data-testid={`remove-track-${track.id}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemoveTrack(track.id);
+                  }}
+                  title={`Remove ${track.name}`}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'rgba(255,255,255,0.4)',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    lineHeight: 1,
+                    padding: 0,
+                  }}
+                >
+                  ×
+                </button>
+              ) : null}
+            </div>
           </div>
 
           {/* Clip area */}
@@ -350,9 +476,7 @@ export function TimelineStrip({
           >
             {track.clips.map((clip) => {
               const asset = assetMap.get(clip.assetId);
-              const label = asset
-                ? asset.filePath.split('/').pop() ?? clip.id
-                : clip.id;
+              const label = asset ? (asset.filePath.split('/').pop() ?? clip.id) : clip.id;
               return (
                 <ClipBlock
                   key={clip.id}
@@ -366,7 +490,7 @@ export function TimelineStrip({
                   allClipEdges={allClipEdges}
                   playheadFrame={playheadFrame}
                   onSnapWhileDragging={setDragSnapFrame}
-                  onClick={interaction.canSelect ? onSelectClip : undefined}
+                  onClick={interaction.canSelect ? (onSelectClip ?? (() => {})) : () => {}}
                   onTrimLeft={interaction.canTrim ? onTrimLeft : undefined}
                   onTrimRight={interaction.canTrim ? onTrimRight : undefined}
                   onDrop={interaction.canTrim ? handleClipDrop : undefined}
@@ -441,124 +565,136 @@ export function TimelineStrip({
       )}
 
       {/* Export range overlay — dims areas outside the range */}
-      {exportRange && (() => {
-        const inX = LABEL_WIDTH + exportRange.inFrame * pixelsPerFrame;
-        const outX = LABEL_WIDTH + exportRange.outFrame * pixelsPerFrame;
-        const fullWidth = LABEL_WIDTH + maxFrame * pixelsPerFrame;
+      {exportRange &&
+        (() => {
+          const inX = LABEL_WIDTH + exportRange.inFrame * pixelsPerFrame;
+          const outX = LABEL_WIDTH + exportRange.outFrame * pixelsPerFrame;
+          const fullWidth = LABEL_WIDTH + maxFrame * pixelsPerFrame;
 
-        return (
-          <>
-            {/* Left dim zone */}
-            {inX > LABEL_WIDTH && (
-              <div style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: LABEL_WIDTH,
-                width: inX - LABEL_WIDTH,
-                background: 'rgba(0,0,0,0.55)',
-                pointerEvents: 'none',
-                zIndex: 8,
-              }} />
-            )}
-            {/* Right dim zone */}
-            {outX < fullWidth && (
-              <div style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: outX,
-                width: fullWidth - outX,
-                background: 'rgba(0,0,0,0.55)',
-                pointerEvents: 'none',
-                zIndex: 8,
-              }} />
-            )}
-            {/* In handle */}
-            <div
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const startX = e.clientX;
-                const startFrame = exportRange.inFrame;
-                const handleMove = (ev: MouseEvent) => {
-                  const dx = ev.clientX - startX;
-                  const deltaFrames = Math.round(dx / pixelsPerFrame);
-                  const newIn = Math.max(0, Math.min(exportRange.outFrame - 1, startFrame + deltaFrames));
-                  onChangeExportRange?.({ ...exportRange, inFrame: newIn });
-                };
-                const handleUp = () => {
-                  window.removeEventListener('mousemove', handleMove);
-                  window.removeEventListener('mouseup', handleUp);
-                };
-                window.addEventListener('mousemove', handleMove);
-                window.addEventListener('mouseup', handleUp);
-              }}
-              style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: inX - 3,
-                width: 6,
-                cursor: 'ew-resize',
-                zIndex: 9,
-                background: 'transparent',
-              }}
-            >
-              <div style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: 2,
-                width: 2,
-                background: '#ffcc66',
-                borderRadius: 1,
-              }} />
-            </div>
-            {/* Out handle */}
-            <div
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const startX = e.clientX;
-                const startFrame = exportRange.outFrame;
-                const handleMove = (ev: MouseEvent) => {
-                  const dx = ev.clientX - startX;
-                  const deltaFrames = Math.round(dx / pixelsPerFrame);
-                  const newOut = Math.max(exportRange.inFrame + 1, startFrame + deltaFrames);
-                  onChangeExportRange?.({ ...exportRange, outFrame: newOut });
-                };
-                const handleUp = () => {
-                  window.removeEventListener('mousemove', handleMove);
-                  window.removeEventListener('mouseup', handleUp);
-                };
-                window.addEventListener('mousemove', handleMove);
-                window.addEventListener('mouseup', handleUp);
-              }}
-              style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: outX - 3,
-                width: 6,
-                cursor: 'ew-resize',
-                zIndex: 9,
-                background: 'transparent',
-              }}
-            >
-              <div style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: 2,
-                width: 2,
-                background: '#ffcc66',
-                borderRadius: 1,
-              }} />
-            </div>
-          </>
-        );
-      })()}
+          return (
+            <>
+              {/* Left dim zone */}
+              {inX > LABEL_WIDTH && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: LABEL_WIDTH,
+                    width: inX - LABEL_WIDTH,
+                    background: 'rgba(0,0,0,0.55)',
+                    pointerEvents: 'none',
+                    zIndex: 8,
+                  }}
+                />
+              )}
+              {/* Right dim zone */}
+              {outX < fullWidth && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: outX,
+                    width: fullWidth - outX,
+                    background: 'rgba(0,0,0,0.55)',
+                    pointerEvents: 'none',
+                    zIndex: 8,
+                  }}
+                />
+              )}
+              {/* In handle */}
+              <div
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const startX = e.clientX;
+                  const startFrame = exportRange.inFrame;
+                  const handleMove = (ev: MouseEvent) => {
+                    const dx = ev.clientX - startX;
+                    const deltaFrames = Math.round(dx / pixelsPerFrame);
+                    const newIn = Math.max(
+                      0,
+                      Math.min(exportRange.outFrame - 1, startFrame + deltaFrames),
+                    );
+                    onChangeExportRange?.({ ...exportRange, inFrame: newIn });
+                  };
+                  const handleUp = () => {
+                    window.removeEventListener('mousemove', handleMove);
+                    window.removeEventListener('mouseup', handleUp);
+                  };
+                  window.addEventListener('mousemove', handleMove);
+                  window.addEventListener('mouseup', handleUp);
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  bottom: 0,
+                  left: inX - 3,
+                  width: 6,
+                  cursor: 'ew-resize',
+                  zIndex: 9,
+                  background: 'transparent',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: 2,
+                    width: 2,
+                    background: '#ffcc66',
+                    borderRadius: 1,
+                  }}
+                />
+              </div>
+              {/* Out handle */}
+              <div
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const startX = e.clientX;
+                  const startFrame = exportRange.outFrame;
+                  const handleMove = (ev: MouseEvent) => {
+                    const dx = ev.clientX - startX;
+                    const deltaFrames = Math.round(dx / pixelsPerFrame);
+                    const newOut = Math.max(exportRange.inFrame + 1, startFrame + deltaFrames);
+                    onChangeExportRange?.({ ...exportRange, outFrame: newOut });
+                  };
+                  const handleUp = () => {
+                    window.removeEventListener('mousemove', handleMove);
+                    window.removeEventListener('mouseup', handleUp);
+                  };
+                  window.addEventListener('mousemove', handleMove);
+                  window.addEventListener('mouseup', handleUp);
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  bottom: 0,
+                  left: outX - 3,
+                  width: 6,
+                  cursor: 'ew-resize',
+                  zIndex: 9,
+                  background: 'transparent',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: 2,
+                    width: 2,
+                    background: '#ffcc66',
+                    borderRadius: 1,
+                  }}
+                />
+              </div>
+            </>
+          );
+        })()}
     </div>
   );
 }

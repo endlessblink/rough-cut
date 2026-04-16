@@ -10,7 +10,7 @@ import {
   desktopCapturer,
   screen,
 } from 'electron';
-import { join, dirname, basename, extname } from 'node:path';
+import { join, dirname, basename, extname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile, writeFile, rename, unlink } from 'node:fs/promises';
 import { existsSync, mkdirSync, statSync, createReadStream, readdirSync } from 'node:fs';
@@ -105,41 +105,111 @@ function getRecordingSearchDirs() {
   return dirs;
 }
 
-function resolveExistingMediaPath(filePath) {
-  if (!filePath) return filePath;
-  if (existsSync(filePath)) return filePath;
+function toPortableProjectPath(projectDir, filePath) {
+  if (!projectDir || !filePath || typeof filePath !== 'string' || !isAbsolute(filePath)) {
+    return filePath;
+  }
 
-  const fileName = basename(filePath);
+  return relative(projectDir, filePath).split('\\').join('/');
+}
+
+function serializeProjectPaths(project, projectFilePath) {
+  if (!project || !projectFilePath) return project;
+
+  const projectDir = dirname(projectFilePath);
+
+  return {
+    ...project,
+    assets: Array.isArray(project.assets)
+      ? project.assets.map((asset) => ({
+          ...asset,
+          ...(asset.filePath
+            ? { filePath: toPortableProjectPath(projectDir, asset.filePath) }
+            : {}),
+          ...(asset.thumbnailPath
+            ? { thumbnailPath: toPortableProjectPath(projectDir, asset.thumbnailPath) }
+            : {}),
+          ...(asset.metadata && typeof asset.metadata === 'object'
+            ? {
+                metadata: {
+                  ...asset.metadata,
+                  ...(asset.metadata.cursorEventsPath
+                    ? {
+                        cursorEventsPath: toPortableProjectPath(
+                          projectDir,
+                          asset.metadata.cursorEventsPath,
+                        ),
+                      }
+                    : {}),
+                },
+              }
+            : {}),
+        }))
+      : project.assets,
+    libraryReferences: Array.isArray(project.libraryReferences)
+      ? project.libraryReferences.map((reference) => ({
+          ...reference,
+          ...(reference.filePath
+            ? { filePath: toPortableProjectPath(projectDir, reference.filePath) }
+            : {}),
+        }))
+      : project.libraryReferences,
+  };
+}
+
+function resolveExistingMediaPath(filePath, projectDir = null) {
+  if (!filePath) return filePath;
+
+  const resolvedPath =
+    !isAbsolute(filePath) && projectDir ? resolve(projectDir, filePath) : filePath;
+  if (existsSync(resolvedPath)) return resolvedPath;
+
+  const fileName = basename(resolvedPath);
   for (const dir of getRecordingSearchDirs()) {
     const candidate = join(dir, fileName);
     if (existsSync(candidate)) return candidate;
   }
 
-  return filePath;
+  return resolvedPath;
 }
 
-function repairProjectMediaPaths(project) {
+function repairProjectMediaPaths(project, projectFilePath = null) {
   if (!project || !Array.isArray(project.assets)) return project;
+
+  const projectDir = projectFilePath ? dirname(projectFilePath) : null;
 
   return {
     ...project,
     assets: project.assets.map((asset) => ({
       ...asset,
-      ...(asset.filePath ? { filePath: resolveExistingMediaPath(asset.filePath) } : {}),
+      ...(asset.filePath ? { filePath: resolveExistingMediaPath(asset.filePath, projectDir) } : {}),
       ...(asset.thumbnailPath
-        ? { thumbnailPath: resolveExistingMediaPath(asset.thumbnailPath) }
+        ? { thumbnailPath: resolveExistingMediaPath(asset.thumbnailPath, projectDir) }
         : {}),
       ...(asset.metadata && typeof asset.metadata === 'object'
         ? {
             metadata: {
               ...asset.metadata,
               ...(asset.metadata.cursorEventsPath
-                ? { cursorEventsPath: resolveExistingMediaPath(asset.metadata.cursorEventsPath) }
+                ? {
+                    cursorEventsPath: resolveExistingMediaPath(
+                      asset.metadata.cursorEventsPath,
+                      projectDir,
+                    ),
+                  }
                 : {}),
             },
           }
         : {}),
     })),
+    libraryReferences: Array.isArray(project.libraryReferences)
+      ? project.libraryReferences.map((reference) => ({
+          ...reference,
+          ...(reference.filePath
+            ? { filePath: resolveExistingMediaPath(reference.filePath, projectDir) }
+            : {}),
+        }))
+      : project.libraryReferences,
   };
 }
 
@@ -423,7 +493,7 @@ function registerIpcHandlers() {
 
     const filePath = result.filePaths[0];
     const content = await readFile(filePath, 'utf-8');
-    const data = repairProjectMediaPaths(JSON.parse(content));
+    const data = repairProjectMediaPaths(JSON.parse(content), filePath);
     // Return the raw data -- the renderer will validate via the project-model package
     const firstThumb = Array.isArray(data.assets) ? data.assets.find((a) => a.thumbnailPath) : null;
     addRecentProject({
@@ -446,7 +516,8 @@ function registerIpcHandlers() {
 
   // Project: Save
   ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, async (_e, { project, filePath }) => {
-    await writeFile(filePath, JSON.stringify(project, null, 2), 'utf-8');
+    const serializedProject = serializeProjectPaths(project, filePath);
+    await writeFile(filePath, JSON.stringify(serializedProject, null, 2), 'utf-8');
     const firstThumb = Array.isArray(project.assets)
       ? project.assets.find((a) => a.thumbnailPath)
       : null;
@@ -474,7 +545,8 @@ function registerIpcHandlers() {
       filters: [PROJECT_FILE_FILTER],
     });
     if (result.canceled || !result.filePath) return null;
-    await writeFile(result.filePath, JSON.stringify(project, null, 2), 'utf-8');
+    const serializedProject = serializeProjectPaths(project, result.filePath);
+    await writeFile(result.filePath, JSON.stringify(serializedProject, null, 2), 'utf-8');
     const firstThumb = Array.isArray(project.assets)
       ? project.assets.find((a) => a.thumbnailPath)
       : null;
@@ -655,7 +727,7 @@ function registerIpcHandlers() {
   // Project: Open by known file path (no dialog)
   ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, async (_e, { filePath }) => {
     const content = await readFile(filePath, 'utf-8');
-    return repairProjectMediaPaths(JSON.parse(content));
+    return repairProjectMediaPaths(JSON.parse(content), filePath);
   });
 
   ipcMain.handle(IPC_CHANNELS.LIBRARY_OPEN_PATH, async (_e, { filePath }) => {
@@ -887,7 +959,8 @@ function registerIpcHandlers() {
         }
       }
 
-      await writeFile(filePath, JSON.stringify(project, null, 2), 'utf-8');
+      const serializedProject = serializeProjectPaths(project, filePath);
+      await writeFile(filePath, JSON.stringify(serializedProject, null, 2), 'utf-8');
 
       const firstThumb = Array.isArray(project.assets)
         ? project.assets.find((a) => a.thumbnailPath)

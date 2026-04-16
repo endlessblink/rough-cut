@@ -23,6 +23,7 @@ export interface ExportResult {
   durationMs: number;
   pipeline?: 'ffmpeg' | 'webcodecs';
   hardwareAcceleration?: 'no-preference' | 'prefer-hardware' | 'prefer-software';
+  audioIncluded?: boolean;
 }
 
 export interface ExportEventHandlers {

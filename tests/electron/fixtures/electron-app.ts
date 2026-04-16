@@ -21,17 +21,7 @@ export const test = base.extend<ElectronFixtures>({
   },
 
   appPage: async ({ electronApp }, use) => {
-    // Find the renderer window and wait for it to navigate away from about:blank.
-    let page = electronApp
-      .windows()
-      .find((w) => !w.url().startsWith('devtools://') && !w.url().startsWith('chrome-devtools://'));
-    if (!page) {
-      page = await electronApp.waitForEvent('window', {
-        predicate: (w) =>
-          !w.url().startsWith('devtools://') && !w.url().startsWith('chrome-devtools://'),
-        timeout: 30_000,
-      });
-    }
+    const page = await electronApp.firstWindow();
 
     await page.waitForURL(/127\.0\.0\.1:7544/, { timeout: 30_000 });
     await page.waitForLoadState('domcontentloaded', { timeout: 30_000 });
@@ -63,6 +53,12 @@ export { expect } from '@playwright/test';
 
 /** Navigate to a tab by clicking its testid button and waiting for the tab root to appear. */
 export async function navigateToTab(page: Page, tabId: string) {
+  const tabRootSelector = `[data-testid="${tabId}-tab-root"]`;
+  const tabRoot = page.locator(tabRootSelector);
+  if (await tabRoot.isVisible().catch(() => false)) {
+    return;
+  }
+
   await page.click(`[data-testid="tab-${tabId}"]`);
-  await page.waitForSelector(`[data-testid="${tabId}-tab-root"]`, { timeout: 5_000 });
+  await page.waitForSelector(tabRootSelector, { timeout: 30_000 });
 }

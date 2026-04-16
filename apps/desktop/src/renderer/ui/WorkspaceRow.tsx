@@ -20,11 +20,7 @@ interface WorkspaceRowProps {
  * This component exists so Record and Edit can share identical horizontal
  * layout logic and the sidebar can never be clipped.
  */
-export function WorkspaceRow({
-  main,
-  inspector,
-  sidebarWidth,
-}: WorkspaceRowProps) {
+export function WorkspaceRow({ main, inspector, sidebarWidth }: WorkspaceRowProps) {
   const isCollapsed = useUiStore((s) => s.isRightSidebarCollapsed);
   const toggleWidth = 12;
   const paddingX = 24;
@@ -62,6 +58,8 @@ export function WorkspaceRow({
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
+          position: 'relative',
+          zIndex: 0,
         }}
       >
         {main}
@@ -71,6 +69,8 @@ export function WorkspaceRow({
       <div
         data-testid="record-inspector"
         style={{
+          position: 'relative',
+          zIndex: 10,
           display: 'flex',
           flexDirection: 'row',
           flexShrink: 0,

@@ -1,5 +1,12 @@
-import React from 'react';
-import type { Clip, ClipId, TrackId, ClipTransform, EffectInstance, CaptionSegment, AIAnnotationId } from '@rough-cut/project-model';
+import type {
+  Clip,
+  ClipId,
+  TrackId,
+  ClipTransform,
+  EffectInstance,
+  CaptionSegment,
+  AIAnnotationId,
+} from '@rough-cut/project-model';
 import { InspectorCard, EDIT_PANEL_WIDTH, CARD_GAP } from '../../ui/index.js';
 import { ClipInspectorCard } from './ClipInspectorCard.js';
 import { EffectsCard } from './EffectsCard.js';
@@ -16,7 +23,12 @@ interface EditRightPanelProps {
   // Effects
   trackId: TrackId | null;
   onAddEffect: (trackId: TrackId, clipId: ClipId, effect: EffectInstance) => void;
-  onUpdateEffect: (trackId: TrackId, clipId: ClipId, effectIndex: number, patch: Partial<EffectInstance>) => void;
+  onUpdateEffect: (
+    trackId: TrackId,
+    clipId: ClipId,
+    effectIndex: number,
+    patch: Partial<EffectInstance>,
+  ) => void;
   onRemoveEffect: (trackId: TrackId, clipId: ClipId, effectIndex: number) => void;
   // Audio
   trackVolume: number;
@@ -83,7 +95,11 @@ export function EditRightPanel({
 
       <AudioCard trackId={trackId} trackVolume={trackVolume} onSetTrackVolume={onSetTrackVolume} />
 
-      <CaptionsCard captionSegments={captionSegments} fps={fps} onUpdateCaptionText={onUpdateCaptionText} />
+      <CaptionsCard
+        captionSegments={captionSegments}
+        fps={fps}
+        onUpdateCaptionText={onUpdateCaptionText}
+      />
     </aside>
   );
 }

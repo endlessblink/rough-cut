@@ -22,12 +22,35 @@ const schema = {
   },
   recordingLocation: {
     type: 'string',
-    default: '',  // empty = use ~/Documents/Rough Cut (the auto-save default)
+    default: '', // empty = use ~/Documents/Rough Cut (the auto-save default)
   },
   favoriteLocations: {
     type: 'array',
     items: { type: 'string' },
     default: [],
+  },
+  recordingConfig: {
+    type: 'object',
+    properties: {
+      recordMode: { type: ['string', 'null'] },
+      selectedSourceId: { type: ['string', 'null'] },
+      micEnabled: { type: 'boolean' },
+      sysAudioEnabled: { type: 'boolean' },
+      cameraEnabled: { type: 'boolean' },
+      selectedMicDeviceId: { type: ['string', 'null'] },
+      selectedCameraDeviceId: { type: ['string', 'null'] },
+      selectedSystemAudioSourceId: { type: ['string', 'null'] },
+    },
+    default: {
+      recordMode: 'fullscreen',
+      selectedSourceId: null,
+      micEnabled: true,
+      sysAudioEnabled: true,
+      cameraEnabled: true,
+      selectedMicDeviceId: null,
+      selectedCameraDeviceId: null,
+      selectedSystemAudioSourceId: null,
+    },
   },
 };
 
@@ -52,11 +75,25 @@ export function getRecentProjects() {
  * Trims the list to MAX_RECENT entries.
  * @param {{ filePath: string, name: string, modifiedAt: string, resolution?: string, assetCount?: number }} entry
  */
-export function addRecentProject({ filePath, name, modifiedAt, resolution, assetCount, thumbnailPath }) {
+export function addRecentProject({
+  filePath,
+  name,
+  modifiedAt,
+  resolution,
+  assetCount,
+  thumbnailPath,
+}) {
   const all = store.get('recentProjects');
   const filtered = all.filter((e) => e.filePath !== filePath);
   const updated = [
-    { filePath, name, modifiedAt, ...(resolution !== undefined && { resolution }), ...(assetCount !== undefined && { assetCount }), ...(thumbnailPath !== undefined && { thumbnailPath }) },
+    {
+      filePath,
+      name,
+      modifiedAt,
+      ...(resolution !== undefined && { resolution }),
+      ...(assetCount !== undefined && { assetCount }),
+      ...(thumbnailPath !== undefined && { thumbnailPath }),
+    },
     ...filtered,
   ].slice(0, MAX_RECENT);
   store.set('recentProjects', updated);
@@ -68,7 +105,10 @@ export function addRecentProject({ filePath, name, modifiedAt, resolution, asset
  */
 export function removeRecentProject(filePath) {
   const all = store.get('recentProjects');
-  store.set('recentProjects', all.filter((e) => e.filePath !== filePath));
+  store.set(
+    'recentProjects',
+    all.filter((e) => e.filePath !== filePath),
+  );
 }
 
 /**
@@ -127,5 +167,16 @@ export function addFavoriteLocation(path) {
  */
 export function removeFavoriteLocation(path) {
   const favs = store.get('favoriteLocations');
-  store.set('favoriteLocations', favs.filter((f) => f !== path));
+  store.set(
+    'favoriteLocations',
+    favs.filter((f) => f !== path),
+  );
+}
+
+export function getRecordingConfig() {
+  return store.get('recordingConfig');
+}
+
+export function setRecordingConfig(config) {
+  store.set('recordingConfig', config);
 }

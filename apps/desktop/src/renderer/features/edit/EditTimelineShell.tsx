@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { useTransportStore, transportStore } from '../../hooks/use-stores.js';
+import { useTransportStore } from '../../hooks/use-stores.js';
+import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 
 interface EditTimelineShellProps {
   // Tool actions
@@ -13,6 +14,8 @@ interface EditTimelineShellProps {
   onSplit: () => void;
   onDelete: () => void;
   onToggleSnap: () => void;
+  onAddVideoTrack?: () => void;
+  onAddAudioTrack?: () => void;
 
   // Zoom
   pixelsPerFrame: number;
@@ -130,6 +133,8 @@ export function EditTimelineShell({
   onSplit,
   onDelete,
   onToggleSnap,
+  onAddVideoTrack,
+  onAddAudioTrack,
   pixelsPerFrame,
   onZoomChange,
   onZoomToFit,
@@ -173,7 +178,7 @@ export function EditTimelineShell({
         {/* Left: tool buttons + divider + snap */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <button
-            onClick={() => transportStore.getState().togglePlay()}
+            onClick={() => getPlaybackManager().togglePlay()}
             style={{
               width: 22,
               height: 22,
@@ -193,12 +198,38 @@ export function EditTimelineShell({
             {isPlaying ? '\u23F8' : '\u25B6'}
           </button>
 
-          <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
+          <div
+            style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }}
+          />
 
-          <TimelineToolButton label="Undo" title="Undo (Ctrl+Z)" disabled={!canUndo} testId="btn-undo" onClick={onUndo} />
-          <TimelineToolButton label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!canRedo} testId="btn-redo" onClick={onRedo} />
-          <TimelineToolButton label="Split" title="Split at playhead (S)" disabled={!canSplit} testId="btn-split" onClick={onSplit} />
-          <TimelineToolButton label="Delete" title="Delete clip (Delete)" disabled={!canDelete} testId="btn-delete" onClick={onDelete} />
+          <TimelineToolButton
+            label="Undo"
+            title="Undo (Ctrl+Z)"
+            disabled={!canUndo}
+            testId="btn-undo"
+            onClick={onUndo}
+          />
+          <TimelineToolButton
+            label="Redo"
+            title="Redo (Ctrl+Shift+Z)"
+            disabled={!canRedo}
+            testId="btn-redo"
+            onClick={onRedo}
+          />
+          <TimelineToolButton
+            label="Split"
+            title="Split at playhead (S)"
+            disabled={!canSplit}
+            testId="btn-split"
+            onClick={onSplit}
+          />
+          <TimelineToolButton
+            label="Delete"
+            title="Delete clip (Delete)"
+            disabled={!canDelete}
+            testId="btn-delete"
+            onClick={onDelete}
+          />
 
           {/* Divider */}
           <div
@@ -211,7 +242,39 @@ export function EditTimelineShell({
             }}
           />
 
-          <TimelineToolToggle label="Snap" title="Toggle snap to edges" active={snapEnabled} onClick={onToggleSnap} />
+          <TimelineToolToggle
+            label="Snap"
+            title="Toggle snap to edges"
+            active={snapEnabled}
+            onClick={onToggleSnap}
+          />
+
+          <div
+            style={{
+              width: 1,
+              height: 16,
+              background: 'rgba(255,255,255,0.08)',
+              margin: '0 2px',
+              flexShrink: 0,
+            }}
+          />
+
+          {onAddVideoTrack ? (
+            <TimelineToolButton
+              label="+ Video"
+              title="Add video channel"
+              testId="btn-add-video-track"
+              onClick={onAddVideoTrack}
+            />
+          ) : null}
+          {onAddAudioTrack ? (
+            <TimelineToolButton
+              label="+ Audio"
+              title="Add audio channel"
+              testId="btn-add-audio-track"
+              onClick={onAddAudioTrack}
+            />
+          ) : null}
         </div>
 
         {/* Right: zoom + timecode */}

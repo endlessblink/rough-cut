@@ -1,5 +1,10 @@
 import type { ProjectDocument } from '@rough-cut/project-model';
-import type { ExportResult } from '@rough-cut/export-renderer';
+import {
+  canUseWebCodecsExport,
+  runWebCodecsExportToBuffer,
+  type ExportProgress,
+  type ExportResult,
+} from '../../../../../../packages/export-renderer/src/webcodecs.js';
 
 declare global {
   interface Window {
@@ -10,6 +15,10 @@ declare global {
 }
 
 let activeExportAbortController: AbortController | null = null;
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
 
 export interface ExportFrameRange {
   startFrame: number;
@@ -62,7 +71,30 @@ export async function runDesktopExport(
         durationMs: 0,
       };
     }
-    return await window.roughcut.exportStart(project, settings, outputPath);
+
+    if (!canUseWebCodecsExport(settings)) {
+      return await window.roughcut.exportStart(project, settings, outputPath);
+    }
+
+    const { buffer, result } = await runWebCodecsExportToBuffer(project, settings, {
+      onProgress: (progress: ExportProgress) => window.roughcut.exportEmitProgress(progress),
+    });
+
+    if (result.status !== 'complete') {
+      window.roughcut.exportEmitComplete(result);
+      return result;
+    }
+
+    const tempVideoPath = outputPath.replace(/\.mp4$/i, '.video-only.mp4');
+    await window.roughcut.writeBinaryFile(tempVideoPath, toArrayBuffer(buffer));
+    const finalized = await window.roughcut.exportFinalizeMedia(project, tempVideoPath, outputPath);
+    const completeResult: ExportResult = {
+      ...result,
+      outputPath,
+      audioIncluded: finalized.audioIncluded,
+    };
+    window.roughcut.exportEmitComplete(completeResult);
+    return completeResult;
   } catch (err) {
     const failedResult: ExportResult = {
       status: 'failed',
@@ -72,9 +104,5 @@ export async function runDesktopExport(
     };
     window.roughcut.exportEmitComplete(failedResult);
     return failedResult;
-  } finally {
-    if (activeExportAbortController === abortController) {
-      activeExportAbortController = null;
-    }
   }
 }

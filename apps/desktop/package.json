@@ -9,6 +9,7 @@
     "dev:vite": "vite",
     "dev:electron": "electron .",
     "build": "vite build",
+    "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {

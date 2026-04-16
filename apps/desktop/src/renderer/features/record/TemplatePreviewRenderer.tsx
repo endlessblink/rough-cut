@@ -140,6 +140,57 @@ function getCameraFrameRect(frame: Rect, cameraPresentation?: CameraPresentation
   };
 }
 
+function positionCameraFrame(
+  frame: Rect,
+  canvasRect: Rect,
+  cameraPresentation?: CameraPresentation,
+): Rect | null {
+  if (cameraPresentation?.visible === false) return null;
+
+  const sizeScale = Math.max(0, cameraPresentation?.size ?? 100) / 100;
+  const width = frame.width * sizeScale;
+  const height = frame.height * sizeScale;
+
+  const leftMargin = frame.x - canvasRect.x;
+  const rightMargin = canvasRect.x + canvasRect.width - (frame.x + frame.width);
+  const topMargin = frame.y - canvasRect.y;
+  const bottomMargin = canvasRect.y + canvasRect.height - (frame.y + frame.height);
+
+  switch (cameraPresentation?.position) {
+    case 'corner-tl':
+      return { x: canvasRect.x + leftMargin, y: canvasRect.y + topMargin, width, height };
+    case 'corner-tr':
+      return {
+        x: canvasRect.x + canvasRect.width - rightMargin - width,
+        y: canvasRect.y + topMargin,
+        width,
+        height,
+      };
+    case 'corner-bl':
+      return {
+        x: canvasRect.x + leftMargin,
+        y: canvasRect.y + canvasRect.height - bottomMargin - height,
+        width,
+        height,
+      };
+    case 'center':
+      return {
+        x: canvasRect.x + (canvasRect.width - width) / 2,
+        y: canvasRect.y + (canvasRect.height - height) / 2,
+        width,
+        height,
+      };
+    case 'corner-br':
+    default:
+      return {
+        x: canvasRect.x + canvasRect.width - rightMargin - width,
+        y: canvasRect.y + canvasRect.height - bottomMargin - height,
+        width,
+        height,
+      };
+  }
+}
+
 function getCameraBorderRadius(cameraPresentation?: CameraPresentation): number | string {
   if (!cameraPresentation || cameraPresentation.shape === 'square') return 0;
   if (cameraPresentation.shape === 'circle') return '50%';
@@ -247,10 +298,14 @@ export function TemplatePreviewRenderer({
         screenAspect ?? rawScreenRect.width / rawScreenRect.height,
       )
     : null;
-  const rawCameraFrame = cameraRect ? getCameraFrameRect(cameraRect, cameraPresentation) : null;
-  const cameraFrame = rawCameraFrame
-    ? insetRect(rawCameraFrame, scaledCameraPadding, getCameraAspectRatio(cameraPresentation))
+  const rawCameraFrame = cameraRect
+    ? positionCameraFrame(
+        getCameraFrameRect(cameraRect, cameraPresentation),
+        canvasRect,
+        cameraPresentation,
+      )
     : null;
+  const cameraFrame = rawCameraFrame;
 
   // ── zIndex ────────────────────────────────────────────────────────────────
 
@@ -478,6 +533,7 @@ export function TemplatePreviewRenderer({
           circular={isCircularCamera}
           borderRadius={cameraBorderRadius}
           shadow={cameraShadow}
+          contentPadding={scaledCameraPadding}
           border={
             scaledCameraInset > 0
               ? `${scaledCameraInset}px solid ${cameraPresentation?.insetColor ?? '#ffffff'}`

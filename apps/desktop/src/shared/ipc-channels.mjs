@@ -25,6 +25,8 @@ export const IPC_CHANNELS = {
   EXPORT_COMPLETE_EMIT: 'export:complete-emit',
   EXPORT_PICK_OUTPUT_PATH: 'export:pick-output-path',
   EXPORT_FINALIZE_MEDIA: 'export:finalize-media',
+  EXPORT_OPEN_FILE: 'export:open-file',
+  EXPORT_SHOW_IN_FOLDER: 'export:show-in-folder',
 
   // Recording
   RECORDING_GET_SOURCES: 'recording:get-sources',
@@ -93,4 +95,8 @@ export const IPC_CHANNELS = {
   // Zoom marker persistence (sidecar alongside the recording .webm)
   ZOOM_LOAD_SIDECAR: 'zoom:load-sidecar',
   ZOOM_SAVE_SIDECAR: 'zoom:save-sidecar',
+
+  // Shell
+  SHELL_OPEN_PATH: 'shell:open-path',
+  SHELL_SHOW_ITEM_IN_FOLDER: 'shell:show-item-in-folder',
 };

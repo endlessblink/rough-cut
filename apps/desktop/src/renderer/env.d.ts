@@ -117,6 +117,8 @@ export interface RoughCutAPI {
 
   // App
   getVersion(): Promise<string>;
+  shellOpenPath(filePath: string): Promise<string>;
+  shellShowItemInFolder(filePath: string): Promise<void>;
 
   // File system
   readTextFile(filePath: string): Promise<string | null>;

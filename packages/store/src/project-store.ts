@@ -21,6 +21,7 @@ import type {
 } from '@rough-cut/project-model';
 import {
   createProject,
+  createTrack,
   createZoomMarker,
   createDefaultRecordingPresentation,
   createDefaultCursorPresentation,
@@ -86,6 +87,8 @@ export interface ProjectActions {
 
   // Track actions
   setTrackName: (trackId: TrackId, name: string) => void;
+  addTrack: (type: 'video' | 'audio') => void;
+  removeTrack: (trackId: TrackId) => void;
   setTrackLocked: (trackId: TrackId, locked: boolean) => void;
   setTrackVisible: (trackId: TrackId, visible: boolean) => void;
   setTrackVolume: (trackId: TrackId, volume: number) => void;
@@ -401,6 +404,66 @@ export function createProjectStore() {
               tracks: doc.composition.tracks.map((t) => (t.id === trackId ? { ...t, name } : t)),
             },
           }));
+        },
+
+        addTrack: (type: 'video' | 'audio') => {
+          get().updateProject((doc) => {
+            const tracks = [...doc.composition.tracks];
+            const suffix =
+              tracks
+                .filter((track) => track.type === type)
+                .reduce((max, track) => {
+                  const match = track.name.match(/(\d+)$/);
+                  return Math.max(max, match ? Number(match[1]) : 0);
+                }, 0) + 1;
+            const insertAt =
+              type === 'video'
+                ? tracks.filter((track) => track.type === 'video').length
+                : tracks.length;
+
+            tracks.splice(
+              insertAt,
+              0,
+              createTrack(type, {
+                name: `${type === 'video' ? 'Video' : 'Audio'} ${suffix}`,
+              }),
+            );
+
+            return {
+              ...doc,
+              composition: {
+                ...doc.composition,
+                tracks: tracks.map((track, index) => ({
+                  ...track,
+                  index: tracks.length - index - 1,
+                })),
+              },
+            };
+          });
+        },
+
+        removeTrack: (trackId: TrackId) => {
+          get().updateProject((doc) => {
+            const targetTrack = doc.composition.tracks.find((track) => track.id === trackId);
+            if (!targetTrack || targetTrack.clips.length > 0) return doc;
+
+            const sameTypeCount = doc.composition.tracks.filter(
+              (track) => track.type === targetTrack.type,
+            ).length;
+            if (sameTypeCount <= 1) return doc;
+
+            const remainingTracks = doc.composition.tracks.filter((track) => track.id !== trackId);
+            return {
+              ...doc,
+              composition: {
+                ...doc.composition,
+                tracks: remainingTracks.map((track, index) => ({
+                  ...track,
+                  index: remainingTracks.length - index - 1,
+                })),
+              },
+            };
+          });
         },
 
         setTrackLocked: (trackId: TrackId, locked: boolean) => {

@@ -133,6 +133,13 @@ const api = {
   /** Get the app version string. */
   getVersion: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
 
+  /** Open a file or folder path with the OS shell. */
+  shellOpenPath: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_PATH, filePath),
+
+  /** Reveal a file in its containing folder. */
+  shellShowItemInFolder: (filePath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SHELL_SHOW_ITEM_IN_FOLDER, filePath),
+
   // ---- File system ----
 
   /** Read a text file from disk (used for cursor event sidecar loading). Returns string or null. */

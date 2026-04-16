@@ -1,4 +1,3 @@
-import React from 'react';
 import type { CaptionSegment, AIAnnotationId } from '@rough-cut/project-model';
 import { InspectorCard } from '../../ui/index.js';
 

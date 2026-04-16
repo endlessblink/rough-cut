@@ -1,99 +1,94 @@
-# Rough Cut -- Phased MVP Implementation Plan
+# Rough Cut -- Canonical MVP Implementation Plan
 
-> This document is the canonical build order for Rough Cut. It translates the architecture, MVP spec, and risk analysis into an ordered sequence of implementable tasks grouped by phase. Each phase has clear entry criteria, done criteria, and a dependency map.
+> This document is the canonical build order for Rough Cut. It translates the architecture, MVP spec, and risk analysis into a single delivery spine: infrastructure first, then complete user-facing flows view by view.
 
 ---
 
-## Dependency Graph
+## Delivery Spine
 
 ```
-Phase 0: Spikes
-  ├── Spike 1 (Frame Decoding)
-  ├── Spike 2 (Recording Per Platform)
-  └── Spike 3 (Timeline State Performance)
+Completed foundations
+  ├── Spikes
+  ├── Core packages
+  ├── Renderers
+  └── Electron shell
         │
         ▼
-Phase 1: Foundation ◄── all spikes must complete before production code
-  ├── 1.1 Monorepo scaffold
-  ├── 1.2 project-model ◄── 1.1
-  ├── 1.3 timeline-engine ◄── 1.2
-  ├── 1.4 effect-registry ◄── 1.2
-  └── 1.5 store ◄── 1.2, 1.3
+Projects view (stable enough)
+  ├── recent projects
+  ├── open/create flows
+  └── project persistence baseline
         │
         ▼
-Phase 2: Core Rendering ◄── 1.2, 1.4 minimum; 1.5 for full integration
-  ├── 2.1 preview-renderer ◄── 1.2, 1.4
-  ├── 2.2 export-renderer ◄── 1.2, 1.4
-  └── 2.3 Vertical Slice: preview + export parity test ◄── 2.1, 2.2
+Recording view (current top priority)
+  ├── compositor-backed preview
+  ├── unified config + device state
+  ├── recording reliability / recovery
+  └── record-time overlays and capture polish
         │
         ▼
-Phase 3: Electron Shell + Record Tab ◄── 1.5, 2.1
-  ├── 3.1 Electron app shell ◄── 1.5
-  ├── 3.2 ipc package ◄── 1.2
-  ├── 3.3 capture package ◄── 3.2, Spike 2 findings
-  ├── 3.4 Record tab UI ◄── 3.1, 3.3, 2.1
-  └── 3.5 Vertical Slice: record → asset → preview ◄── 3.4
+Export view (second priority)
+  ├── export UX completion
+  ├── audio + quality settings
+  ├── preview/export parity validation
+  └── performance / advanced output pipeline
         │
         ▼
-Phase 4: Edit Tab ◄── Phase 3
-  ├── 4.1 Timeline UI ◄── 1.5, 3.1
-  ├── 4.2 Clip operations UI ◄── 1.3, 4.1
-  ├── 4.3 Preview playback integration ◄── 2.1, 4.1
-  ├── 4.4 Effects + Inspector ◄── 1.4, 4.1
-  ├── 4.5 Undo/redo ◄── 1.5, 4.2
-  ├── 4.6 Transitions ◄── 1.4, 4.2
-  └── 4.7 Vertical Slice: record → edit → preview ◄── all above
+Edit view (third priority)
+  ├── timeline movement + track interaction
+  ├── effects + audio playback
+  ├── keyframes + transitions
+  └── precision tooling and polish
         │
         ▼
-Phase 5: Motion + AI + Export Tabs ◄── Phase 4 (partially parallelizable)
-  ├── 5A Motion Track (can start after 4.1)
-  │   ├── 5A.1 Motion template data model
-  │   ├── 5A.2 Template renderer
-  │   └── 5A.3 Motion tab UI
-  ├── 5B AI Track (can start after 4.4)
-  │   ├── 5B.1 ai-bridge package
-  │   ├── 5B.2 Whisper integration (captions)
-  │   ├── 5B.3 Smart Zoom analysis
-  │   └── 5B.4 AI tab UI
-  └── 5C Export Track (can start after 2.2)
-      ├── 5C.1 Export pipeline integration
-      ├── 5C.2 Export tab UI
-      └── 5C.3 Export queue
+AI view (fourth priority)
+  ├── ingest/library data model
+  ├── transcription + vision analysis
+  ├── rough cut generation
+  └── review/apply workflow
         │
         ▼
-Phase 6: Integration + Polish
-  ├── 6.1 Project save/load
-  ├── 6.2 Keyboard shortcuts
-  ├── 6.3 Cross-platform testing
-  ├── 6.4 Performance profiling + optimization
-  ├── 6.5 Error handling + edge cases
-  └── 6.6 Final integration test
+Motion view (fifth priority)
+  ├── motion template data model
+  ├── template browser + preview
+  ├── parameter editing
+  └── timeline/export integration
+        │
+        ▼
+Final integration + polish
+  ├── portability
+  ├── shortcuts
+  ├── cross-platform checks
+  ├── performance tuning
+  └── error handling / accessibility
 ```
 
 ### Demo Milestones
 
-| Milestone | Earliest Phase | What the Demo Shows |
-|-----------|---------------|---------------------|
-| **D1: "It renders"** | End of Phase 2 | A hardcoded project renders in PixiJS preview AND exports to MP4 via FFmpeg. Visual parity proven. |
-| **D2: "It records"** | End of Phase 3 | App opens, user records their screen, recording appears as an asset with a preview. |
-| **D3: "It edits"** | End of Phase 4 | Full Record → Edit → Preview loop. User can trim, split, add effects, undo/redo. |
-| **D4: "It ships"** | End of Phase 5 | All 5 tabs functional. User can record, edit, add motion graphics, use AI captions, and export. |
+| Milestone                     | Earliest Stage    | What the Demo Shows                                                                    |
+| ----------------------------- | ----------------- | -------------------------------------------------------------------------------------- |
+| **D1: "Projects are stable"** | Projects view     | User can create, reopen, and recover projects reliably.                                |
+| **D2: "It records"**          | Recording view    | User records with dependable config/device behavior and sees the real compositor path. |
+| **D3: "It ships"**            | Export view       | Full Projects → Record → Export loop works end to end without depending on Edit.       |
+| **D4: "It refines"**          | Edit view         | User can manually refine timing, effects, audio, and transitions after recording.      |
+| **D5: "It accelerates"**      | AI + Motion views | AI generates rough cuts/captions and Motion provides reusable graphics templates.      |
 
 ---
 
-## Progress Summary (2026-03-27)
+## Progress Summary (2026-04-16)
 
-| Phase | Status | Notes |
-|-------|--------|-------|
-| Phase 0: Spikes | **COMPLETE** | All three spikes executed; findings incorporated |
-| Phase 1: Foundation | **COMPLETE** | All 7 packages built: project-model, timeline-engine, effect-registry, frame-resolver, preview-renderer, export-renderer, store |
-| Phase 2: Core Rendering | **~80% COMPLETE** | Both renderers exist, frame-resolver works; vertical slice parity test not yet done |
-| Phase 3: Electron Shell + Record Tab | **~70% COMPLETE** | App shell, capture service, Record tab UI with inspector panels built; some integration gaps remain |
-| Phase 4: Edit Tab | **~40% COMPLETE** | Timeline UI, clip inspector, asset list exist; transitions, full DnD, audio waveforms, undo UX not yet complete |
-| Phase 5: Motion + AI + Export Tabs | **NOT STARTED** | Export tab has a basic range selector stub only |
-| Phase 6: Integration + Polish | **NOT STARTED** | — |
+| Stage                      | Status                        | Notes                                                                                                                         |
+| -------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Foundations                | **COMPLETE**                  | Core packages, renderers, shell, and base architecture are in place                                                           |
+| Projects view              | **STABLE**                    | Recent projects and persistence workflows are good enough to treat this surface as temporarily complete                       |
+| Recording view             | **ACTIVE**                    | Core record flow exists, but compositor parity, unified config, device resilience, and overlay serialization still need focus |
+| Export view                | **PARTIALLY COMPLETE**        | Basic export UX is now much stronger; audio mixing, quality settings, parity coverage, and pipeline upgrades remain           |
+| Edit view                  | **PARTIALLY COMPLETE**        | Timeline and inspector exist, but the main interaction layer still trails the desired flow                                    |
+| AI view                    | **EARLY / PARTIALLY STARTED** | Data model and transcription work have begun, but the actual user-facing workflow is not yet coherent                         |
+| Motion view                | **NOT STARTED**               | Placeholder surface only                                                                                                      |
+| Final integration + polish | **ONGOING IN PARALLEL**       | Save/load, performance, portability, and resilience continue as supporting work                                               |
 
-**Current milestone**: Approaching D2 ("It records") — the record-to-asset pipeline is functional but the full vertical slice through to preview needs completion.
+**Current milestone**: Approaching D3 ("It ships") — the next target is a solid Projects -> Record -> Export loop before deepening Edit or expanding AI/Motion.
 
 ---
 
@@ -110,12 +105,14 @@ Phase 6: Integration + Polish
 **Question**: Can we extract an arbitrary frame from a recorded video within 16ms (one frame at 60fps)?
 
 **Tasks**:
+
 1. Build a standalone Node.js + FFmpeg benchmark. Extract 100 random frames from a 10-minute 1080p H.264 screen recording. Measure p50/p95/p99 latency.
 2. Build the same benchmark using the WebCodecs API in a browser/Electron renderer context. Compare latency.
 3. Test HTML5 `<video>` element seeking accuracy: seek to 100 known frame positions, capture via `drawImage()`, compare against FFmpeg-extracted ground truth frames. Quantify the keyframe-seeking error.
 4. Test with a pre-decoded LRU frame cache: decode sequentially, cache N frames, measure random-access latency from cache vs. cold decode.
 
 **Done criteria**:
+
 - Written report with p50/p95/p99 latency numbers for each approach.
 - Clear recommendation: which approach for preview (real-time), which for export (quality).
 - If no approach hits 16ms for random access: documented fallback strategy (e.g., seek to nearest keyframe + sequential decode, two-tier preview quality).
@@ -129,12 +126,14 @@ Phase 6: Integration + Polish
 **Question**: What works and what breaks with `desktopCapturer` on each platform?
 
 **Tasks**:
+
 1. **Linux**: Test on Wayland (PipeWire + XDG portal) and X11. Document the portal picker behavior. Test with PipeWire screen capture. Measure capture FPS at 1080p and 4K.
 2. **macOS** (if available): Test TCC permission flow. Confirm system audio is NOT capturable without a virtual audio device. Document the BlackHole/Loopback requirement.
 3. **Windows** (if available): Test DXGI capture. Test WASAPI loopback audio. Test with hardware-accelerated windows.
 4. For each platform: test MediaRecorder output formats (WebM/MKV), verify FFprobe can parse the output, measure file size per minute at 30fps and 60fps.
 
 **Done criteria**:
+
 - Per-platform capability matrix: what works, what requires workarounds, what is blocked.
 - Recommended `CaptureBackend` implementation strategy per platform.
 - Known limitations documented for user-facing messaging.
@@ -148,6 +147,7 @@ Phase 6: Integration + Polish
 **Question**: Can Zustand + React handle a playhead moving at 60Hz with 100 clips across 4 tracks without UI stutter?
 
 **Tasks**:
+
 1. Build a standalone React + Zustand prototype (no Electron, no video). Create a mock timeline with 100 clips across 4 tracks.
 2. Animate a playhead at 60Hz using `requestAnimationFrame`. Measure React re-render time per frame using React Profiler.
 3. Test with naive store subscription (full store) vs. fine-grained selectors vs. separated transport state.
@@ -155,6 +155,7 @@ Phase 6: Integration + Polish
 5. If Zustand stutters: test alternatives (Jotai, Valtio, raw `useSyncExternalStore`).
 
 **Done criteria**:
+
 - Measured frame time for playhead updates at 60Hz with 100 clips on 4 tracks.
 - Confirmed approach: Zustand with selectors, or identified alternative.
 - Transport state separation strategy validated or rejected.
@@ -180,6 +181,7 @@ Phase 6: Integration + Polish
 **Dependencies**: None
 
 **Tasks**:
+
 1. Initialize pnpm workspace with `pnpm-workspace.yaml` listing `packages/*` and `apps/*`.
 2. Configure Turborepo (`turbo.json`) with pipelines: `build`, `test`, `lint`, `typecheck`, `dev`.
 3. Create `tsconfig.base.json` with strict mode, path aliases, and composite project references.
@@ -189,6 +191,7 @@ Phase 6: Integration + Polish
 7. Create empty package shells for all 10 packages with correct `package.json` (name, dependencies placeholders, scripts).
 
 **Done criteria**:
+
 - `pnpm install` succeeds.
 - `pnpm build`, `pnpm test`, `pnpm lint`, `pnpm typecheck` all pass (on empty packages).
 - CI pipeline runs and passes.
@@ -205,6 +208,7 @@ Phase 6: Integration + Polish
 This is the most critical package. Every other package depends on it. It must be reviewed before anything else is built on top of it.
 
 **Tasks**:
+
 1. Define all TypeScript interfaces from the architecture spec: `ProjectDocument`, `ProjectSettings`, `Asset`, `Composition`, `Track`, `Clip`, `ClipTransform`, `EffectInstance`, `KeyframeTrack`, `Keyframe`, `EasingType`, `Transition`, `MotionPreset`, `ExportSettings`, `AIAnnotation`.
 2. Implement branded ID types: `ProjectId`, `AssetId`, `TrackId`, `ClipId`, `EffectId`, `TransitionId`.
 3. Write Zod schemas for every type. Schemas must enforce: frame values are non-negative integers, IDs are non-empty strings, `sourceIn < sourceOut`, `timelineIn < timelineOut`, volume is 0-1, opacity is 0-1.
@@ -214,6 +218,7 @@ This is the most critical package. Every other package depends on it. It must be
 7. Write comprehensive unit tests: factory functions produce valid documents, validation catches all invalid states, migration pipeline runs correctly, branded IDs prevent accidental mixing.
 
 **Done criteria**:
+
 - 100% of types from the architecture spec are defined.
 - Every type has a matching Zod schema.
 - Every schema has a matching factory function.
@@ -222,6 +227,7 @@ This is the most critical package. Every other package depends on it. It must be
 - Zero runtime dependencies (Zod is a dev/peer dependency for schema validation at the boundary).
 
 **Risks**:
+
 - Getting the schema wrong at this stage is expensive -- every downstream package depends on it. Mitigation: explicit review gate before Phase 1.3 begins.
 - Over-engineering the schema for future needs. Mitigation: build only what the MVP spec requires, use the version migration system to evolve later.
 
@@ -234,6 +240,7 @@ This is the most critical package. Every other package depends on it. It must be
 **Dependencies**: 1.2
 
 **Tasks**:
+
 1. Implement `placeClip(composition, clip, trackId, frame): Composition` -- places a clip on a track at the given frame. Returns updated composition. Validates that the clip doesn't exceed source bounds.
 2. Implement `trimClip(composition, clipId, side: 'left' | 'right', newFrame): Composition` -- adjusts `sourceIn`/`timelineIn` (left trim) or `sourceOut`/`timelineOut` (right trim). Clamps to source duration.
 3. Implement `splitClip(composition, clipId, frame): Composition` -- divides a clip at the given frame into two clips with correct source references. Returns composition with the original clip replaced by two new clips.
@@ -246,6 +253,7 @@ This is the most critical package. Every other package depends on it. It must be
 10. Write property-based tests (using fast-check or similar): random clip operations should never produce invalid state (negative durations, sourceIn > sourceOut, overlapping clips after resolveOverlaps).
 
 **Done criteria**:
+
 - All 8 functions implemented as pure functions (no side effects, no mutations).
 - Every function returns a new `Composition` -- never mutates input.
 - Unit test coverage > 95% of branches.
@@ -263,6 +271,7 @@ This is the most critical package. Every other package depends on it. It must be
 **Dependencies**: 1.2
 
 **Tasks**:
+
 1. Define `EffectDefinition` interface per the architecture spec: `type`, `name`, `category`, `params` (schema), `createPreviewFilter`, `updatePreviewFilter`, `renderExportFrame`.
 2. Define `TransitionDefinition` interface: `type`, `name`, `blend(frameA, frameB, progress, params)`.
 3. Define `ParamDefinition` interface: `name`, `type` (number, string, boolean, color, enum), `default`, `min`, `max`, `step`, `options`.
@@ -275,6 +284,7 @@ This is the most critical package. Every other package depends on it. It must be
 10. Write unit tests: registry CRUD, keyframe interpolation at exact keyframe frames and between frames, easing function accuracy (test known values), parameter clamping to min/max.
 
 **Done criteria**:
+
 - Registry can register and retrieve effects and transitions.
 - `evaluateKeyframeTracks()` correctly interpolates between keyframes with all easing types.
 - Easing functions match expected curves (test against known cubic-bezier values).
@@ -293,6 +303,7 @@ This is the most critical package. Every other package depends on it. It must be
 **Dependencies**: 1.2, 1.3 (informed by Spike 0.3 results)
 
 **Tasks**:
+
 1. Set up Zustand store with immer middleware, devtools middleware, and `subscribeWithSelector`.
 2. Implement project slice: `setProject()`, `updateSettings()`, `getProject()`.
 3. Implement assets slice: `addAsset()`, `removeAsset()`, `getAssetById()`.
@@ -305,6 +316,7 @@ This is the most critical package. Every other package depends on it. It must be
 10. Write unit tests: every action produces correct state, undo/redo reverses and re-applies, playback state changes don't trigger undo snapshots, selectors return correct data, rapid mutations are grouped.
 
 **Done criteria**:
+
 - All slices implemented and tested.
 - Undo/redo works for all composition mutations.
 - Playback state is separated from undo-able state.
@@ -312,6 +324,7 @@ This is the most critical package. Every other package depends on it. It must be
 - Performance: updating `currentFrame` at 60Hz does not trigger re-renders in non-playback subscribers (verified by test).
 
 **Risks**:
+
 - Undo/redo grouping for drag operations is tricky. The debounce window must be long enough to group a full drag but short enough that the user's next action isn't accidentally merged. Start with 300ms, tune based on testing.
 
 ---
@@ -362,6 +375,7 @@ This is the most critical package. Every other package depends on it. It must be
 **Dependencies**: 1.2, 1.4
 
 **Tasks**:
+
 1. Set up PixiJS (v8) as a dependency. Create the `PreviewCompositor` class with lifecycle methods: `constructor(canvas: HTMLCanvasElement)`, `setProject(doc: ProjectDocument)`, `seekTo(frame: number)`, `play()`, `pause()`, `resize(width, height)`, `destroy()`.
 2. Implement frame resolution: given a frame number and a project, determine which clips are active on each track, their z-order, and their source frame numbers (accounting for `sourceIn` offsets).
 3. Implement video texture loading from `<video>` elements. Create a pool of video elements (one per active clip). Implement `seek → drawImage → upload to PIXI.Texture` pipeline. [VALIDATION] -- validates Spike 0.1 findings.
@@ -374,6 +388,7 @@ This is the most critical package. Every other package depends on it. It must be
 10. Write integration tests: create a `PreviewCompositor` with a mock canvas (via `jsdom` or headless PixiJS), set a test project, seek to known frames, verify the compositor queries the correct clips and applies the correct transforms.
 
 **Done criteria**:
+
 - `PreviewCompositor` renders a multi-clip, multi-track composition with effects to a canvas.
 - Seeking to any frame renders the correct clips with correct transforms and effects.
 - Playback runs at target FPS (measured, not assumed) on a mid-range machine.
@@ -381,6 +396,7 @@ This is the most critical package. Every other package depends on it. It must be
 - At least 3 effects render correctly in preview.
 
 **Risks**:
+
 - [HIGH-RISK] PixiJS video texture performance. If `<video>` seeking is too slow (as Spike 0.1 may reveal), the texture loading strategy may need to use a frame extraction approach instead. The compositor architecture should abstract texture source behind a `FrameProvider` interface to allow swapping strategies.
 - GPU context contention on integrated GPUs. Mitigation: test on weakest target hardware early. Implement quality degradation during scrubbing.
 
@@ -393,6 +409,7 @@ This is the most critical package. Every other package depends on it. It must be
 **Dependencies**: 1.2, 1.4
 
 **Tasks**:
+
 1. Implement `ExportPipeline` class: `constructor(project: ProjectDocument, settings: ExportSettings)`, `start(): Promise<void>`, `abort()`, `onProgress(callback)`.
 2. Implement frame decoder: use FFmpeg (via child process) to extract frames sequentially from source assets. Output as raw RGBA buffers. Implement a pre-decode buffer (N frames ahead) to prevent pipeline stalls.
 3. Implement the frame render loop: for each frame 0 to `composition.duration - 1`:
@@ -410,6 +427,7 @@ This is the most critical package. Every other package depends on it. It must be
 9. Write integration tests: export a 30-frame test project (solid color clips with known effects), verify the output MP4 has the correct frame count, resolution, and codec (via ffprobe). Verify a specific frame matches expected pixel values.
 
 **Done criteria**:
+
 - `ExportPipeline` produces a valid MP4 from a `ProjectDocument`.
 - Frame count in output matches `composition.duration`.
 - Effects are applied correctly (verified by extracting frames from output and comparing).
@@ -418,6 +436,7 @@ This is the most critical package. Every other package depends on it. It must be
 - Memory usage stays under 200MB (no frame accumulation -- streaming pipeline).
 
 **Risks**:
+
 - [HIGH-RISK] FFmpeg bundling and spawning. Path resolution, permissions, and cross-platform binary selection are error-prone. Mitigation: abstract FFmpeg spawning behind a `FfmpegRunner` utility that handles platform-specific path resolution.
 - Large frame buffers. An uncompressed 1080p RGBA frame is ~8MB. The pipeline must never hold more than 3-4 frames in memory simultaneously.
 
@@ -429,6 +448,7 @@ This is the most critical package. Every other package depends on it. It must be
 **Dependencies**: 2.1, 2.2
 
 **Tasks**:
+
 1. Create a test project fixture: 2 video tracks, 3 clips with overlaps, 1 transition (cross-dissolve), effects (blur on one clip, zoom on another, rounded corners on a third).
 2. Render frame N in the preview compositor. Extract the canvas pixels.
 3. Export the same project. Extract frame N from the output MP4 via FFmpeg.
@@ -437,6 +457,7 @@ This is the most critical package. Every other package depends on it. It must be
 6. If parity fails: investigate whether the discrepancy is in effect rendering, transform application, or compositing order. Fix until SSIM > 0.95 for all test frames.
 
 **Done criteria**:
+
 - 5 test frames pass parity check (SSIM > 0.95) between preview and export.
 - Parity test runs in CI.
 - Any discrepancies are documented with root cause (e.g., "WebGL uses premultiplied alpha, Canvas2D does not -- normalized in export postprocess").
@@ -480,6 +501,7 @@ This is the most critical package. Every other package depends on it. It must be
 **Dependencies**: 1.5 (store)
 
 **Tasks**:
+
 1. Set up Electron with Vite (electron-vite or manual configuration). Configure main process entry, preload script, and renderer entry.
 2. Create the main window with appropriate defaults: 1280x800 minimum, native title bar (or custom frame if design requires it), dev tools toggle in development.
 3. Set up React 18 entry point in the renderer process. Mount the root `<App />` component.
@@ -490,6 +512,7 @@ This is the most critical package. Every other package depends on it. It must be
 8. Implement basic window lifecycle: close confirmation if project has unsaved changes (stub -- save/load comes in Phase 6).
 
 **Done criteria**:
+
 - `pnpm dev` launches an Electron window with 5 tabs.
 - Switching tabs renders the correct (initially empty) tab content.
 - Store initializes with a valid empty project.
@@ -504,6 +527,7 @@ This is the most critical package. Every other package depends on it. It must be
 **Dependencies**: 1.2
 
 **Tasks**:
+
 1. Define the `IpcContract` type: a mapped type where each channel name maps to `{ request: TReq, response: TRes }`. Include all channels from the architecture spec (capture, export, file I/O, assets, AI).
 2. Implement `createMainHandler(contract)`: registers `ipcMain.handle()` for each channel with type-safe handler functions. Returns a typed event emitter for main-to-renderer push events.
 3. Implement `createRendererClient(contract)`: creates a typed client that wraps `ipcRenderer.invoke()` with type inference. The client is exposed via `contextBridge` in the preload script.
@@ -512,6 +536,7 @@ This is the most critical package. Every other package depends on it. It must be
 6. Implement a `MessagePort`-based channel for high-throughput data (preview frames during recording) -- separate from the invoke/handle pattern.
 
 **Done criteria**:
+
 - Typed IPC contract covers all channels.
 - Main handler and renderer client are type-safe (compile-time errors on misuse).
 - Preload script exposes the client correctly.
@@ -526,6 +551,7 @@ This is the most critical package. Every other package depends on it. It must be
 **Dependencies**: 3.2, Spike 0.2 findings
 
 **Tasks**:
+
 1. Define the `CaptureBackend` interface: `getSources(): Promise<SourceInfo[]>`, `startCapture(config): MediaStream`, `stopCapture()`. Config includes source ID, resolution, frame rate, audio settings.
 2. Implement `ElectronCaptureBackend` using `desktopCapturer`. Handle platform-specific behavior per Spike 0.2 findings (Wayland portal on Linux, TCC on macOS).
 3. Implement `CaptureSession` orchestrator: manages the lifecycle of a recording session. Handles `start()`, `pause()`, `resume()`, `stop()`. Uses `MediaRecorder` to write chunks to temp files.
@@ -538,6 +564,7 @@ This is the most critical package. Every other package depends on it. It must be
 10. Write unit tests (with mocked MediaRecorder): verify session lifecycle, state transitions, asset metadata extraction.
 
 **Done criteria**:
+
 - `CaptureSession` records screen to a file.
 - Screen, webcam, and mic are captured as separate files/assets.
 - Post-capture `ffprobe` extracts accurate metadata.
@@ -546,6 +573,7 @@ This is the most critical package. Every other package depends on it. It must be
 - Device disconnection is handled gracefully.
 
 **Risks**:
+
 - [HIGH-RISK] Platform-specific capture issues identified in Spike 0.2. The implementation must respect the spike's findings. If Wayland portal is the only option on Linux, the UX must accommodate the picker dialog.
 
 ---
@@ -557,6 +585,7 @@ This is the most critical package. Every other package depends on it. It must be
 **Dependencies**: 3.1, 3.3, 2.1
 
 **Tasks**:
+
 1. Implement `RecordTab` container component with the layout from the MVP spec: top toolbar, center canvas, bottom controls, right sidebar.
 2. Implement `SourcePicker` dropdown: calls `capture.sources` IPC, displays source names with thumbnails, handles selection.
 3. Implement live preview canvas: embed the `PreviewCompositor` in a `PreviewCanvas` wrapper component. During idle, show the selected source's live feed. During recording, show the composed feed with styling.
@@ -569,6 +598,7 @@ This is the most critical package. Every other package depends on it. It must be
 10. Write component tests: source picker renders sources, recording controls enable/disable based on state, sidebar values propagate to preview.
 
 **Done criteria**:
+
 - User can see a live preview of their selected screen with styling applied.
 - User can configure background, padding, corners, shadow, and webcam.
 - User can record, pause, resume, and stop.
@@ -585,6 +615,7 @@ This is the most critical package. Every other package depends on it. It must be
 This is Demo D2. Walk through the entire flow end-to-end:
 
 **Tasks**:
+
 1. Launch the app. Open the Record tab. Select a screen source.
 2. Configure styling (background, padding, corners).
 3. Enable webcam and mic.
@@ -595,6 +626,7 @@ This is Demo D2. Walk through the entire flow end-to-end:
 8. Document any issues found during the walkthrough.
 
 **Done criteria**:
+
 - The full Record → Asset → Timeline → Preview flow works without manual intervention.
 - No crashes, no data loss, no silent failures.
 
@@ -644,6 +676,7 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 **Dependencies**: 1.5, 3.1
 
 **Tasks**:
+
 1. Implement `Timeline` container component: horizontal track lanes with a shared time ruler at the top.
 2. Implement `TimeRuler`: frame/timecode markings that scale with zoom. Shows both frame numbers and `HH:MM:SS:FF` timecode.
 3. Implement `TrackLane` component: renders a horizontal lane for a single track. Shows track header on the left (name, mute/solo, lock, volume slider for audio).
@@ -656,6 +689,7 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 10. Write component tests: clips render at correct positions, zoom scales correctly, selection highlights correctly, playhead positions correctly.
 
 **Done criteria**:
+
 - Timeline displays 4 tracks (2V + 2A) with clips at correct positions.
 - Playhead is draggable and click-positionable.
 - Zoom works smoothly from overview to frame-level detail.
@@ -663,6 +697,7 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 - Clip selection works with single and multi-select.
 
 **Risks**:
+
 - [HIGH-RISK] Timeline rendering performance. This is the most complex UI component in the app. Thumbnail generation and waveform rendering must be lazy and cached. Spike 0.3 results should guide the subscription strategy.
 
 ---
@@ -674,6 +709,7 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 **Dependencies**: 1.3, 4.1
 
 **Tasks**:
+
 1. Implement clip drag-to-move: horizontal dragging repositions the clip (updates `timelineIn`/`timelineOut`). Vertical dragging moves to another track (same type only). Snap to clip edges and playhead when snap is enabled.
 2. Implement trim handles: dragging the left or right edge of a clip trims it. Left trim adjusts `sourceIn` and `timelineIn`. Right trim adjusts `sourceOut` and `timelineOut`. Clamp to source duration. Show a live preview of the trim frame during drag.
 3. Implement split at playhead: keyboard shortcut `S` or toolbar button. Calls `splitClip()` from timeline-engine via store action. Visual feedback: the clip divides into two at the playhead.
@@ -684,6 +720,7 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 8. Write component tests and integration tests: drag a clip, verify new position in store. Trim a clip, verify new source in/out. Split a clip, verify two clips with correct properties. Delete with ripple, verify subsequent clips shift.
 
 **Done criteria**:
+
 - All clip operations (move, trim, split, delete) work via direct manipulation on the timeline.
 - Snap magnetism works for clip edges and playhead.
 - Ripple mode toggle changes delete/trim behavior.
@@ -698,6 +735,7 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 **Dependencies**: 2.1, 4.1
 
 **Tasks**:
+
 1. Implement `PreviewCanvas` component in the Edit tab: hosts the PixiJS canvas, manages `PreviewCompositor` lifecycle (create on mount, destroy on unmount).
 2. Wire the compositor to the store: subscribe to `composition` and `playback` slices. On `currentFrame` change, call `compositor.seekTo(frame)`. On composition change, call `compositor.setProject()`.
 3. Implement transport controls: Play/Pause button, step forward/backward (frame-by-frame), skip to start/end. Display current timecode.
@@ -706,10 +744,12 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 6. Test playback at 30fps: verify frame timing accuracy (no drift over a 1-minute composition).
 
 > **Note (implemented)**: `PlaybackManager` exposes two distinct playback paths to avoid competing sync loops:
+>
 > - `play()` — full sync loop using `requestVideoFrameCallback` / `requestAnimationFrame`. Used by the Edit tab where timeline cursor and audio must stay locked to media time.
 > - `setCompositorPlaying()` — drives the compositor only (no external rVFC/rAF loop). Used by the Record tab's live preview, where a full sync loop would fight the compositor's own update cycle.
 
 **Done criteria**:
+
 - Preview canvas renders the correct frame when the playhead moves.
 - Play/Pause advances the playhead at project FPS with frame-accurate timing.
 - Audio plays in sync with video preview.
@@ -725,6 +765,7 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 **Dependencies**: 1.4, 4.1
 
 **Tasks**:
+
 1. Implement `ClipInspector` component: displays when a clip is selected. Shows clip name, source info, in/out points, opacity, blend mode.
 2. Implement `EffectStack` component: lists the clip's effects. Each effect is an expandable section showing parameter controls. Drag to reorder.
 3. Implement `EffectControls` component: renders type-appropriate controls for each parameter (slider for numbers, color picker for colors, dropdown for enums, checkbox for booleans). Values update the store on change.
@@ -736,6 +777,7 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 9. Write component tests: adding an effect updates the store, changing a parameter updates the store and triggers preview refresh, keyframe creation captures the current value.
 
 **Done criteria**:
+
 - Inspector shows clip properties and effect stack when a clip is selected.
 - All 8 built-in effects can be added, configured, and previewed.
 - Keyframe animation works: user can set keyframes at different frames and see the effect animate during playback.
@@ -750,6 +792,7 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 **Dependencies**: 1.5, 4.2
 
 **Tasks**:
+
 1. Wire keyboard shortcuts: Ctrl/Cmd+Z for undo, Ctrl/Cmd+Shift+Z for redo. Add toolbar buttons.
 2. Verify that all composition mutations are captured: move, trim, split, delete, add/remove effect, change effect param, add/remove keyframe, add/remove transition.
 3. Verify that drag operations are grouped: dragging a clip across 20 intermediate positions produces only 1 undo step.
@@ -759,6 +802,7 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 7. Stress test: perform 100 random operations, undo all, verify state matches initial state.
 
 **Done criteria**:
+
 - Every timeline/effect mutation is undoable.
 - Undo/redo keyboard shortcuts work.
 - Drag operations are grouped into single steps.
@@ -774,6 +818,7 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 **Dependencies**: 1.4, 4.2
 
 **Tasks**:
+
 1. Implement transition creation UX: when the user drags a clip to overlap another clip on the same track, create a `Transition` entity. Show a visual indicator (crossfade icon) at the overlap zone.
 2. Implement transition rendering in the preview compositor: when the playhead is within a transition zone, render both clips and blend using the `TransitionDefinition.blend()` function.
 3. Complete the 3 built-in transition definitions: `cross-dissolve`, `wipe`, `slide`. Implement both preview and export render functions.
@@ -782,6 +827,7 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 6. Write tests: transition creation on overlap, rendering blends correctly at progress=0, progress=0.5, progress=1.
 
 **Done criteria**:
+
 - Transitions can be created by overlapping clips.
 - Cross-dissolve, wipe, and slide transitions render correctly in preview and export.
 - Transition type and duration are configurable in the inspector.
@@ -796,6 +842,7 @@ Phase 2.1 (preview-renderer, if not done) ─┘
 This is Demo D3. Walk through the full editing workflow:
 
 **Tasks**:
+
 1. Record a 30-second screen capture with webcam and audio.
 2. Switch to Edit tab. Verify clips on the timeline.
 3. Trim the beginning and end of the screen recording clip.
@@ -807,6 +854,7 @@ This is Demo D3. Walk through the full editing workflow:
 9. Document any issues.
 
 **Done criteria**:
+
 - Full Record → Edit → Preview workflow works.
 - All clip operations, effects, transitions, and undo/redo function correctly.
 - Preview renders the edited composition accurately.
@@ -865,6 +913,7 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 **Dependencies**: 1.2, 1.4
 
 **Tasks**:
+
 1. Define `MotionTemplate` type with full fidelity: `id`, `name`, `category`, `thumbnail`, `parameters` (schema with types/defaults/constraints), `composition` (mini-composition with layers and keyframed properties).
 2. Define `TemplateParameter` type: `name`, `type` (string, number, color, enum, boolean), `default`, `min`, `max`, `options`, `label`.
 3. Create 8 template definitions as JSON/TS data: 2 intros, 2 outros, 2 lower thirds, 1 call-to-action, 1 zoom emphasis. Each template has a mini-composition with sprites/text and keyframed transforms.
@@ -872,6 +921,7 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 5. Implement template-to-clip conversion: `createClipFromTemplate(template, params, projectSettings)` produces an `Asset` and `Clip` pair.
 
 **Done criteria**:
+
 - 8 template definitions exist as data.
 - Template parameters are validated against their schemas.
 - Templates convert to clips with correct duration and effects.
@@ -885,12 +935,14 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 **Dependencies**: 2.1, 2.2, 5A.1
 
 **Tasks**:
+
 1. Extend the preview compositor to handle `motion-template` asset type: when encountering a template clip, evaluate the template's internal composition at the relative frame. Create PixiJS sprites and text objects for each layer. Apply keyframed transforms.
 2. Implement text rendering in PixiJS: use `PIXI.Text` or `PIXI.BitmapText` for template text layers. Handle font loading, sizing, and color from template parameters.
 3. Extend the export renderer to handle template clips: same composition evaluation, rendered via Canvas2D. Text rendered via `ctx.fillText()` at export resolution.
 4. Verify preview/export parity for template clips (extend the parity test from 2.3).
 
 **Done criteria**:
+
 - Template clips render correctly in both preview and export.
 - Text is crisp at project resolution.
 - Template animations play smoothly with correct keyframe interpolation.
@@ -904,6 +956,7 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 **Dependencies**: 3.1, 5A.1, 5A.2
 
 **Tasks**:
+
 1. Implement `MotionTab` container with the layout from the MVP spec: left sidebar (template library), center canvas (template preview), right panel (parameter editor).
 2. Implement `TemplateLibrary` component: scrollable grid of template cards with thumbnail, name, and category badge. Implement search filtering and category filtering.
 3. Implement `TemplatePreview` component: PixiJS canvas that plays the selected template's animation. Playback controls (play, pause, loop). Uses the preview compositor with the template's mini-composition.
@@ -912,6 +965,7 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 6. Write component tests: template selection loads preview, parameter changes update preview, apply creates clip in store.
 
 **Done criteria**:
+
 - User can browse, search, and filter 8 templates.
 - Template preview plays with correct animation.
 - Parameter editing updates the preview in real-time.
@@ -928,6 +982,7 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 **Dependencies**: 1.2
 
 **Tasks**:
+
 1. Define `AiProvider` interface: `analyzeForCaptions(assetPath, options): AsyncGenerator<CaptionAnnotation>`, `analyzeForZoom(assetPath, options): AsyncGenerator<ZoomAnnotation>`.
 2. Define `CaptionAnnotation` and `ZoomAnnotation` types that map to `AIAnnotation` in the project model.
 3. Implement `LocalWhisperProvider`: spawns whisper.cpp or whisper binary, feeds audio extracted via FFmpeg, parses JSON output into annotations. Runs in a `utilityProcess`.
@@ -936,12 +991,14 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 6. Write unit tests with mocked whisper output: verify annotation parsing, frame number conversion at different FPS values.
 
 **Done criteria**:
+
 - `AiProvider` interface is defined and extensible.
 - Local Whisper provider produces caption annotations from an audio file.
 - Provider errors (missing binary, timeout) are handled gracefully.
 - Annotations conform to the project model's `AIAnnotation` type.
 
 **Risks**:
+
 - [HIGH-RISK] Whisper binary bundling and cross-platform compatibility. whisper.cpp builds are platform-specific. May need to download on first use or bundle per platform.
 
 ---
@@ -953,6 +1010,7 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 **Dependencies**: 5B.1
 
 **Tasks**:
+
 1. Implement audio extraction from video assets: use FFmpeg to extract audio track to WAV (16kHz mono, Whisper's expected format).
 2. Implement Whisper invocation: spawn the whisper binary with the audio file, capture JSON output with word-level timestamps.
 3. Implement streaming progress: parse whisper stderr for progress updates, report to the UI.
@@ -961,6 +1019,7 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 6. Test with real audio: verify caption accuracy and timing on a 2-minute test recording.
 
 **Done criteria**:
+
 - Captions are generated from a video/audio asset.
 - Word-level timestamps are accurate within 1 frame.
 - Progress is reported during analysis.
@@ -975,6 +1034,7 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 **Dependencies**: 5B.1
 
 **Tasks**:
+
 1. Implement frame sampling: extract frames at 2-5fps from the source video via FFmpeg (not every frame -- performance optimization).
 2. Implement cursor/mouse movement detection: analyze frame differences to identify regions of activity. Use simple heuristics -- large cursor movements, clicks (if cursor click highlighting is detectable), pauses after movement.
 3. Implement zoom suggestion generation: for each detected point of interest, create a `ZoomAnnotation` with `centerX`, `centerY`, `scale`, `durationFrames`. Use heuristics for scale (zoom closer for small UI elements, less zoom for large movements).
@@ -983,6 +1043,7 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 6. Test with a screen recording containing known cursor interactions.
 
 **Done criteria**:
+
 - Zoom suggestions are generated for a screen recording.
 - Suggestions identify regions of cursor activity.
 - Confidence scores differentiate strong and weak suggestions.
@@ -997,6 +1058,7 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 **Dependencies**: 3.1, 5B.2, 5B.3
 
 **Tasks**:
+
 1. Implement `AiTab` container with the layout from the MVP spec: top toolbar (feature selector, provider picker), left panel (source selector + preview), right panel (results list).
 2. Implement `FeatureSelector`: toggle between Auto-Captions and Smart Zoom views.
 3. Implement `SourceSelector`: list project assets valid for the selected feature. Checkboxes for multi-select.
@@ -1009,6 +1071,7 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 10. Write component tests: annotation list renders correctly, accept/reject updates status, apply creates correct effects in store.
 
 **Done criteria**:
+
 - User can analyze assets for captions and zoom suggestions.
 - Results are displayed with accept/reject/edit controls.
 - Applying accepted annotations creates correct effects on the timeline.
@@ -1025,6 +1088,7 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 **Dependencies**: 2.2
 
 **Tasks**:
+
 1. Wire the export pipeline to the Electron main process: `export.start` IPC handler creates an `ExportPipeline` instance, runs it in a background thread or `utilityProcess`.
 2. Implement FFmpeg binary resolution: locate the bundled FFmpeg binary per platform. Verify it's executable.
 3. Implement export settings validation: resolution must be even numbers, FPS must be positive, output path must be writable, codec must be supported.
@@ -1034,6 +1098,7 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 7. Test end-to-end: create a project with clips and effects, trigger export, verify output MP4.
 
 **Done criteria**:
+
 - Export can be triggered from the renderer via IPC.
 - Export runs in the background without blocking the UI.
 - Progress is reported accurately.
@@ -1049,15 +1114,17 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 **Dependencies**: 3.1, 5C.1
 
 **Tasks**:
+
 1. Implement `ExportTab` container with the layout from the MVP spec: left panel (settings), right panel (queue), bottom (output preview).
 2. Implement `ExportPresets` dropdown: YouTube 1080p, YouTube 4K, Twitter/X, Instagram, Custom. Selecting a preset auto-fills settings.
 3. Implement `ExportSettings` panel: resolution fields (linked aspect ratio), FPS dropdown, codec selector (H.264 only for v1), quality dropdown (Low/Medium/High/Lossless mapping to CRF values), audio codec and bitrate.
 4. Implement output path selector: text field + Browse button that opens a native save dialog.
-5. Implement estimated file size and render time display (calculated from bitrate * duration, and a brief benchmark of rendering a few frames).
+5. Implement estimated file size and render time display (calculated from bitrate \* duration, and a brief benchmark of rendering a few frames).
 6. Implement "Export Now" and "Add to Queue" buttons.
 7. Write component tests: preset selection populates fields, settings validation catches invalid values.
 
 **Done criteria**:
+
 - Settings panel populates correctly from presets.
 - All settings fields are validated.
 - Export Now triggers the pipeline and shows progress.
@@ -1071,6 +1138,7 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 **Dependencies**: 5C.2
 
 **Tasks**:
+
 1. Implement `exportStore`: job management with `addJob()`, `startNext()`, `cancelJob()`, `getJobs()`. Each job has: id, settings, status (queued/processing/complete/failed), progress.
 2. Implement `ExportQueue` component: list of jobs with status, progress bar (for processing job), frame counter, ETA. Complete jobs show "Open File" / "Open Folder" links. Failed jobs show error and "Retry".
 3. Implement sequential processing: when a job completes, automatically start the next queued job.
@@ -1078,6 +1146,7 @@ The three sub-phases (5A, 5B, 5C) can be worked on concurrently by separate deve
 5. Test queue behavior: add 3 jobs, verify sequential processing, cancel mid-job, verify next job starts.
 
 **Done criteria**:
+
 - Multiple export jobs can be queued.
 - Jobs process sequentially.
 - Progress, completion, and failure states display correctly.
@@ -1130,6 +1199,7 @@ Track 5C (Export):  5C.1 ──▶ 5C.2 ──▶ 5C.3
 **Dependencies**: All phases
 
 **Tasks**:
+
 1. Implement `file.save` IPC handler: serialize the project store to JSON, write to a `.roughcut` file. Include `CURRENT_SCHEMA_VERSION` in the output.
 2. Implement `file.load` IPC handler: read `.roughcut` file, run through `migrate()` pipeline, validate with `validateProject()`, load into store.
 3. Implement asset path resolution: store asset paths as relative to the project file. Resolve to absolute on load.
@@ -1140,6 +1210,7 @@ Track 5C (Export):  5C.1 ──▶ 5C.2 ──▶ 5C.3
 8. Handle edge cases: corrupted project file (graceful error + offer autosave recovery), missing media files (relink dialog), project file from a future version (error message).
 
 **Done criteria**:
+
 - Projects save and load correctly with all data intact.
 - Autosave runs and recovery works.
 - Missing media prompts for relinking.
@@ -1153,6 +1224,7 @@ Track 5C (Export):  5C.1 ──▶ 5C.2 ──▶ 5C.3
 **Dependencies**: Phase 4
 
 **Tasks**:
+
 1. Implement global shortcut system: register shortcuts with actions, handle conflicts between tabs.
 2. Wire all shortcuts from the MVP spec: Ctrl/Cmd+Z (undo), Ctrl/Cmd+Shift+Z (redo), Ctrl/Cmd+S (save), Space (play/pause), S (split), Delete/Backspace (delete), Ctrl/Cmd+E (export).
 3. Implement J/K/L scrubbing in the Edit tab.
@@ -1162,6 +1234,7 @@ Track 5C (Export):  5C.1 ──▶ 5C.2 ──▶ 5C.3
 7. Handle keyboard focus correctly: shortcuts should only fire when the appropriate panel/tab has focus. Prevent shortcuts from firing during text input.
 
 **Done criteria**:
+
 - All shortcuts from the MVP spec are functional.
 - Shortcuts don't fire during text input.
 - Tooltips show shortcut hints.
@@ -1174,6 +1247,7 @@ Track 5C (Export):  5C.1 ──▶ 5C.2 ──▶ 5C.3
 **Dependencies**: All phases
 
 **Tasks**:
+
 1. Build and test on Linux (primary development platform): full test pass.
 2. Build and test on macOS (if available): recording with TCC permissions, preview rendering, export, file I/O.
 3. Build and test on Windows (if available): recording with DXGI, all tabs, file paths with backslashes.
@@ -1183,6 +1257,7 @@ Track 5C (Export):  5C.1 ──▶ 5C.2 ──▶ 5C.3
 7. Verify keyboard shortcuts (Ctrl vs. Cmd) work correctly per platform.
 
 **Done criteria**:
+
 - App builds and runs on all target platforms.
 - Recording works on all platforms (with documented limitations from Spike 0.2).
 - Platform-specific issues are documented.
@@ -1195,6 +1270,7 @@ Track 5C (Export):  5C.1 ──▶ 5C.2 ──▶ 5C.3
 **Dependencies**: All phases
 
 **Tasks**:
+
 1. Profile preview playback on weakest target hardware (integrated GPU laptop): identify frame budget overruns using Chrome DevTools Performance panel and PixiJS stats overlay.
 2. Profile timeline rendering with 50+ clips: identify re-render storms, unnecessary React updates.
 3. Profile memory usage during a full session: record → edit (add effects, keyframes) → export. Track heap growth, texture cache size, undo history size.
@@ -1204,6 +1280,7 @@ Track 5C (Export):  5C.1 ──▶ 5C.2 ──▶ 5C.3
 7. Test on an 8GB system: verify total RAM usage stays under 1.5GB during normal operation.
 
 **Done criteria**:
+
 - Preview sustains 30fps on target hardware.
 - Timeline renders smoothly with 50+ clips.
 - Memory usage stays under 1.5GB on an 8GB system.
@@ -1217,6 +1294,7 @@ Track 5C (Export):  5C.1 ──▶ 5C.2 ──▶ 5C.3
 **Dependencies**: All phases
 
 **Tasks**:
+
 1. Implement toast notification system for recoverable errors.
 2. Implement error boundaries in React for crash recovery.
 3. Handle all edge cases from the RISKS doc: crash recovery for partial WebM files, source media moved/deleted (relink dialog), disk space exhaustion during recording, audio device changes mid-recording, very long recordings (2+ hours), empty timeline export prevention, corrupted project file recovery, app update during active project.
@@ -1224,6 +1302,7 @@ Track 5C (Export):  5C.1 ──▶ 5C.2 ──▶ 5C.3
 5. Write tests for edge cases.
 
 **Done criteria**:
+
 - All edge cases from the RISKS doc are handled.
 - Error messages are clear and actionable.
 - No silent failures -- every error is surfaced to the user.
@@ -1236,6 +1315,7 @@ Track 5C (Export):  5C.1 ──▶ 5C.2 ──▶ 5C.3
 **Dependencies**: 6.1-6.5
 
 **Tasks**:
+
 1. Full end-to-end workflow test: create a new project → record screen with webcam and audio → switch to Edit tab → trim, split, add effects (zoom, blur, rounded corners), add a transition → switch to Motion tab → add a lower third template → switch to AI tab → generate captions → apply accepted captions → switch to Export tab → export as YouTube 1080p preset → verify output MP4.
 2. Save the project. Close the app. Reopen. Load the project. Verify all state is preserved.
 3. Test undo/redo across the entire editing session (50+ operations).
@@ -1244,6 +1324,7 @@ Track 5C (Export):  5C.1 ──▶ 5C.2 ──▶ 5C.3
 6. Document any remaining issues as known limitations for v1.
 
 **Done criteria**:
+
 - Full end-to-end workflow completes without errors.
 - Project save/load round-trips perfectly.
 - Preview matches export output.
@@ -1277,17 +1358,17 @@ Tasks 6.1-6.5 can all proceed in parallel. 6.6 is the final gate that depends on
 
 ## Effort Summary
 
-| Phase | Estimated Duration | Parallel Tracks |
-|-------|-------------------|-----------------|
-| Phase 0: Spikes | 1-2 weeks | 3 spikes, partially parallel |
-| Phase 1: Foundation | 2-3 weeks | 2 parallel after project-model |
-| Phase 2: Core Rendering | 2-3 weeks | 2 parallel (preview + export) |
-| Phase 3: Electron + Record | 2-3 weeks | 2 parallel initially |
-| Phase 4: Edit Tab | 3-4 weeks | 3 parallel after timeline UI |
-| Phase 5: Motion + AI + Export | 3-4 weeks | 3 fully parallel tracks |
-| Phase 6: Integration + Polish | 2-3 weeks | 5 parallel, then final gate |
-| **Total (sequential)** | **15-22 weeks** | |
-| **Total (with parallelization, 2 devs)** | **~12-16 weeks** | |
+| Phase                                    | Estimated Duration | Parallel Tracks                |
+| ---------------------------------------- | ------------------ | ------------------------------ |
+| Phase 0: Spikes                          | 1-2 weeks          | 3 spikes, partially parallel   |
+| Phase 1: Foundation                      | 2-3 weeks          | 2 parallel after project-model |
+| Phase 2: Core Rendering                  | 2-3 weeks          | 2 parallel (preview + export)  |
+| Phase 3: Electron + Record               | 2-3 weeks          | 2 parallel initially           |
+| Phase 4: Edit Tab                        | 3-4 weeks          | 3 parallel after timeline UI   |
+| Phase 5: Motion + AI + Export            | 3-4 weeks          | 3 fully parallel tracks        |
+| Phase 6: Integration + Polish            | 2-3 weeks          | 5 parallel, then final gate    |
+| **Total (sequential)**                   | **15-22 weeks**    |                                |
+| **Total (with parallelization, 2 devs)** | **~12-16 weeks**   |                                |
 
 ---
 
@@ -1295,28 +1376,28 @@ Tasks 6.1-6.5 can all proceed in parallel. 6.6 is the final gate that depends on
 
 Tasks marked [VALIDATION] confirm architecture assumptions:
 
-| Task | What It Validates |
-|------|-------------------|
-| Spike 0.1 | Frame decoding latency determines preview strategy |
-| Spike 0.2 | Per-platform recording capabilities determine capture backend |
-| Spike 0.3 | Store performance determines state architecture |
+| Task       | What It Validates                                                |
+| ---------- | ---------------------------------------------------------------- |
+| Spike 0.1  | Frame decoding latency determines preview strategy               |
+| Spike 0.2  | Per-platform recording capabilities determine capture backend    |
+| Spike 0.3  | Store performance determines state architecture                  |
 | 2.1 task 3 | Video texture loading validates Spike 0.1 findings in production |
-| 2.3 | Preview/export parity validates the dual-pipeline architecture |
-| 3.5 | Record → Asset → Preview flow validates the end-to-end data path |
-| 4.7 | Full editing workflow validates the editing architecture |
+| 2.3        | Preview/export parity validates the dual-pipeline architecture   |
+| 3.5        | Record → Asset → Preview flow validates the end-to-end data path |
+| 4.7        | Full editing workflow validates the editing architecture         |
 
 ## High-Risk Items Summary
 
-| Item | Phase | Risk | Mitigation |
-|------|-------|------|------------|
-| Frame decoding latency | 0, 2 | Preview may not hit 16ms per frame | LRU cache, two-tier quality, Spike 0.1 findings |
-| Platform recording | 0, 3 | Wayland, macOS system audio, DXGI quirks | CaptureBackend interface, per-platform backends |
-| PixiJS video compositing | 2 | GPU contention on integrated GPUs | OffscreenCanvas, quality degradation during scrub |
-| Timeline UI performance | 4 | Thumbnail/waveform rendering with many clips | Virtual scrolling, lazy generation, LRU cache |
-| FFmpeg bundling | 2, 5C | Cross-platform binary resolution, GPL/LGPL | Per-platform static LGPL builds, path abstraction |
-| Whisper bundling | 5B | Platform-specific binaries, model download | Cloud fallback, download on first use |
-| Preview/export mismatch | 2, 4 | Visual differences between WebGL and Canvas2D | Shared effect math, golden-image parity tests in CI |
+| Item                     | Phase | Risk                                          | Mitigation                                          |
+| ------------------------ | ----- | --------------------------------------------- | --------------------------------------------------- |
+| Frame decoding latency   | 0, 2  | Preview may not hit 16ms per frame            | LRU cache, two-tier quality, Spike 0.1 findings     |
+| Platform recording       | 0, 3  | Wayland, macOS system audio, DXGI quirks      | CaptureBackend interface, per-platform backends     |
+| PixiJS video compositing | 2     | GPU contention on integrated GPUs             | OffscreenCanvas, quality degradation during scrub   |
+| Timeline UI performance  | 4     | Thumbnail/waveform rendering with many clips  | Virtual scrolling, lazy generation, LRU cache       |
+| FFmpeg bundling          | 2, 5C | Cross-platform binary resolution, GPL/LGPL    | Per-platform static LGPL builds, path abstraction   |
+| Whisper bundling         | 5B    | Platform-specific binaries, model download    | Cloud fallback, download on first use               |
+| Preview/export mismatch  | 2, 4  | Visual differences between WebGL and Canvas2D | Shared effect math, golden-image parity tests in CI |
 
 ---
 
-*Last updated: 2026-03-25*
+_Last updated: 2026-03-25_

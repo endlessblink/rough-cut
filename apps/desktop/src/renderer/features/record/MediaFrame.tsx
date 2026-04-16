@@ -21,6 +21,8 @@ export interface MediaFrameProps {
   shadow?: string;
   /** Optional visible border on the frame */
   border?: string;
+  /** Optional inner padding that shrinks content without moving the frame */
+  contentPadding?: number;
   /** Z-index for layering */
   zIndex?: number;
   /** Whether this is a circular frame (for PIP camera) */
@@ -102,6 +104,7 @@ export function MediaFrame({
   borderRadius = 0,
   shadow,
   border,
+  contentPadding = 0,
   zIndex,
   circular = false,
   label,
@@ -168,9 +171,10 @@ export function MediaFrame({
         onDoubleClick={onDoubleClick}
       >
         <div
+          data-testid={testId ? `${testId}-content` : undefined}
           style={{
             position: 'absolute',
-            inset: 0,
+            inset: contentPadding,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -226,7 +230,7 @@ export function MediaFrame({
   // When crop is enabled and we're NOT in crop edit mode, zoom into the cropped area.
 
   const applyCrop = crop?.enabled && !cropModeActive;
-  let contentStyle: React.CSSProperties = { position: 'absolute', inset: 0 };
+  let contentStyle: React.CSSProperties = { position: 'absolute', inset: contentPadding };
 
   if (applyCrop && crop) {
     // scale: how much to zoom (source full width / crop width)
@@ -236,7 +240,7 @@ export function MediaFrame({
     const ty = -(crop.y / sourceHeight) * frame.height;
     contentStyle = {
       position: 'absolute',
-      inset: 0,
+      inset: contentPadding,
       transformOrigin: '0 0',
       transform: `scale(${scale}) translate(${tx}px, ${ty}px)`,
       willChange: 'transform',
@@ -255,7 +259,9 @@ export function MediaFrame({
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
     >
-      <div style={contentStyle}>{children}</div>
+      <div data-testid={testId ? `${testId}-content` : undefined} style={contentStyle}>
+        {children}
+      </div>
 
       {/* Selection border — inside the frame, on top of content */}
       {showBorder && (

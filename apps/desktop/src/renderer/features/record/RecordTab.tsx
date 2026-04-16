@@ -120,23 +120,34 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const currentFrame = useTransportStore((s) => s.playheadFrame);
   const tracks = useProjectStore((s) => s.project.composition.tracks);
   const assets = useProjectStore((s) => s.project.assets);
+  const projectFilePath = useProjectStore((s) => s.projectFilePath);
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
 
-  // Get the active recording asset — use activeAssetId if set, otherwise fall back to first
+  // Keep Record tied to a recording asset even when camera-related UI selects the camera asset.
   const activeRecordingAsset = useProjectStore((s) => {
     const preferred = s.activeAssetId
       ? s.project.assets.find((a) => a.id === s.activeAssetId)
       : null;
-    return preferred ?? s.project.assets.find((a) => a.type === 'recording') ?? null;
+    if (preferred?.type === 'recording') {
+      return preferred;
+    }
+    if (preferred?.metadata?.isCamera) {
+      return (
+        s.project.assets.find((a) => a.type === 'recording' && a.cameraAssetId === preferred.id) ??
+        null
+      );
+    }
+    return s.project.assets.find((a) => a.type === 'recording') ?? null;
   });
   const activeRecordingId = activeRecordingAsset?.id ?? null;
+  const hasRecordingAssets = useProjectStore((s) =>
+    s.project.assets.some((asset) => asset.type === 'recording'),
+  );
 
   const zoomPresentation =
     activeRecordingAsset?.presentation?.zoom ?? createDefaultZoomPresentation();
   const cursorPresentation =
     activeRecordingAsset?.presentation?.cursor ?? createDefaultCursorPresentation();
-  const assetCameraPresentation =
-    activeRecordingAsset?.presentation?.camera ?? createDefaultCameraPresentation();
   // screenCrop from store is read but we use local state for immediate responsiveness
   // (store crop requires an active recording asset which may not exist yet)
 
@@ -172,8 +183,9 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   );
 
   useEffect(() => {
-    setCameraPresentation(assetCameraPresentation);
-  }, [assetCameraPresentation]);
+    if (!activeRecordingAsset?.presentation?.camera) return;
+    setCameraPresentation(activeRecordingAsset.presentation.camera);
+  }, [activeRecordingAsset?.id, activeRecordingAsset?.presentation?.camera]);
   const [cameraCrop, setCameraCrop] = useState<RegionCrop>(() => createDefaultRegionCrop());
 
   const handleBackgroundChange = useCallback((patch: Partial<BackgroundConfig>) => {
@@ -204,6 +216,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
 
   // Live preview stream — acquired when a source is selected, independent of recording
   const { stream: liveStream } = useLivePreview(selectedSourceId);
+  const shouldShowLivePreview =
+    Boolean(selectedSourceId && liveStream) && !hasRecordingAssets && !projectFilePath;
 
   // UI state
 
@@ -460,19 +474,28 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   // from raw media files. This keeps restart/debug behavior aligned with the
   // real reopen flow and avoids bypassing persisted camera state.
   const handleDebugReload = useCallback(async () => {
-    const recentProjects = await window.roughcut.recentProjectsGet();
-    const latestProject = [...recentProjects].sort(
-      (a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime(),
-    )[0];
+    const fallbackRecentProject = async () => {
+      const recentProjects = await window.roughcut.recentProjectsGet();
+      return (
+        [...recentProjects].sort(
+          (a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime(),
+        )[0] ?? null
+      );
+    };
 
-    if (!latestProject) {
+    const filePathToReload = projectFilePath ?? (await fallbackRecentProject())?.filePath ?? null;
+    if (!filePathToReload) {
       console.warn('[DEBUG] No saved projects found to reopen');
       return;
     }
 
-    const project = await window.roughcut.projectOpenPath(latestProject.filePath);
+    const project = await window.roughcut.projectOpenPath(filePathToReload);
     const recordingAssets = project.assets.filter((asset) => asset.type === 'recording');
+    const matchingRecording = activeRecordingId
+      ? (recordingAssets.find((asset) => asset.id === activeRecordingId) ?? null)
+      : null;
     const latestRecording =
+      matchingRecording ??
       [...recordingAssets]
         .reverse()
         .find((asset) => 'cameraAssetId' in asset && asset.cameraAssetId) ??
@@ -481,7 +504,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
 
     console.info(
       '[DEBUG] Reopening saved project:',
-      latestProject.filePath,
+      filePathToReload,
       'active recording:',
       latestRecording?.filePath ?? 'NONE',
     );
@@ -489,9 +512,9 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     getPlaybackManager().pause();
     transportStore.getState().seekToFrame(0);
     projectStore.getState().setProject(project);
-    projectStore.getState().setProjectFilePath(latestProject.filePath);
+    projectStore.getState().setProjectFilePath(filePathToReload);
     projectStore.getState().setActiveAssetId(latestRecording?.id ?? null);
-  }, []);
+  }, [activeRecordingId, projectFilePath]);
 
   const recording = useRecording({
     selectedSourceId,
@@ -638,9 +661,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
               <TemplatePreviewRenderer
                 template={activeTemplate}
                 screenContent={
-                  selectedSourceId ? (
-                    <LivePreviewVideo stream={liveStream} />
-                  ) : activeRecordingAsset?.filePath ? (
+                  activeRecordingAsset?.filePath ? (
                     <RecordingPlaybackVideo
                       filePath={activeRecordingAsset.filePath}
                       fps={projectFps}
@@ -659,6 +680,8 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
                           .updateRecordingZoomMarker(activeRecordingId, markerId, { focalPoint });
                       }}
                     />
+                  ) : shouldShowLivePreview ? (
+                    <LivePreviewVideo stream={liveStream} />
                   ) : undefined
                 }
                 cameraContent={

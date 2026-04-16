@@ -1,4 +1,4 @@
-import React from 'react';
+import type { CSSProperties } from 'react';
 import type { ParamDefinition } from '@rough-cut/effect-registry';
 import { RcSlider, RcSelect, RcToggleButton, ControlLabel } from '../../ui/index.js';
 
@@ -8,7 +8,7 @@ interface EffectParamRendererProps {
   onChange: (key: string, value: unknown) => void;
 }
 
-const inputStyle: React.CSSProperties = {
+const inputStyle: CSSProperties = {
   width: '100%',
   height: 28,
   borderRadius: 6,
@@ -45,7 +45,8 @@ export function EffectParamRenderer({ params, values, onChange }: EffectParamRen
           }
 
           case 'boolean': {
-            const boolVal = typeof rawValue === 'boolean' ? rawValue : (param.defaultValue as boolean);
+            const boolVal =
+              typeof rawValue === 'boolean' ? rawValue : (param.defaultValue as boolean);
             return (
               <RcToggleButton
                 key={param.key}
@@ -59,18 +60,16 @@ export function EffectParamRenderer({ params, values, onChange }: EffectParamRen
           case 'enum': {
             const strVal = typeof rawValue === 'string' ? rawValue : String(param.defaultValue);
             return (
-              <RcSelect
-                key={param.key}
-                label={param.label}
-                value={strVal}
-                onChange={(v) => onChange(param.key, v)}
-              >
-                {(param.options ?? []).map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-              </RcSelect>
+              <div key={param.key}>
+                <ControlLabel label={param.label} />
+                <RcSelect value={strVal} onChange={(v) => onChange(param.key, v)}>
+                  {(param.options ?? []).map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </RcSelect>
+              </div>
             );
           }
 

@@ -49,6 +49,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const selectedClipId = selectedClipIds[0] ?? null;
   const [pixelsPerFrame, setPixelsPerFrame] = useState(3);
   const [snapEnabled, setSnapEnabled] = useState(true);
+  const [soloTrackIds, setSoloTrackIds] = useState<Set<string>>(() => new Set());
 
   // PixiJS compositor — renders clips with transforms and effects
   const { previewRef } = useCompositor();
@@ -162,6 +163,47 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
     projectStore.getState().setTrackVolume(trackId, volume);
   }, []);
 
+  const handleToggleTrackMute = useCallback((trackId: string, currentlyVisible: boolean) => {
+    projectStore.getState().setTrackVisible(trackId as TrackId, !currentlyVisible);
+  }, []);
+
+  const handleToggleTrackLock = useCallback((trackId: string, currentlyLocked: boolean) => {
+    projectStore.getState().setTrackLocked(trackId as TrackId, !currentlyLocked);
+  }, []);
+
+  const handleToggleTrackSolo = useCallback((trackId: string) => {
+    setSoloTrackIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(trackId)) {
+        next.delete(trackId);
+      } else {
+        next.add(trackId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleAddVideoTrack = useCallback(() => {
+    projectStore.getState().addTrack('video');
+  }, []);
+
+  const handleAddAudioTrack = useCallback(() => {
+    projectStore.getState().addTrack('audio');
+  }, []);
+
+  const canRemoveTrack = useCallback(
+    (trackId: string) => {
+      const track = tracks.find((candidate) => candidate.id === trackId);
+      if (!track || track.clips.length > 0) return false;
+      return tracks.filter((candidate) => candidate.type === track.type).length > 1;
+    },
+    [tracks],
+  );
+
+  const handleRemoveTrack = useCallback((trackId: string) => {
+    projectStore.getState().removeTrack(trackId as TrackId);
+  }, []);
+
   const handleUpdateCaptionText = useCallback((id: AIAnnotationId, text: string) => {
     projectStore.getState().updateCaptionText(id, text);
   }, []);
@@ -232,7 +274,6 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const resolution = useProjectStore((s) => s.project.settings.resolution);
   const project = useProjectStore((s) => s.project);
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
-  const durationFrames = useProjectStore((s) => s.project.composition.duration);
   // PlaybackManager singleton handles playback loop — no usePlaybackLoop needed
 
   // Zoom-to-fit: calculate ppf so all clips fit in the visible width
@@ -468,6 +509,8 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
           onSplit={handleSplit}
           onDelete={handleDelete}
           onToggleSnap={() => setSnapEnabled((prev) => !prev)}
+          onAddVideoTrack={handleAddVideoTrack}
+          onAddAudioTrack={handleAddAudioTrack}
           pixelsPerFrame={pixelsPerFrame}
           onZoomChange={setPixelsPerFrame}
           onZoomToFit={handleZoomToFit}
@@ -488,6 +531,15 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
             onTrimRight={handleTrimRight}
             onMoveClip={handleMoveClip}
             onZoomChange={setPixelsPerFrame}
+            canRemoveTrack={canRemoveTrack}
+            onRemoveTrack={handleRemoveTrack}
+            soloTrackIds={soloTrackIds}
+            onToggleTrackMute={handleToggleTrackMute}
+            onToggleTrackSolo={handleToggleTrackSolo}
+            onToggleTrackLock={handleToggleTrackLock}
+            onTrackVolumeChange={(trackId, volume) =>
+              handleSetTrackVolume(trackId as TrackId, volume)
+            }
           />
         </EditTimelineShell>
       </div>
