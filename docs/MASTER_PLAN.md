@@ -125,7 +125,7 @@ For each surface, land the infrastructure that makes the view reliable first, th
 | FEATURE-076  | Record: Audio capture + playback (FFmpeg pipeline + compositor unmute)   | P1       | IN PROGRESS              | TASK-020           |
 | BUG-004      | No icon shown in dock/taskbar during recording — blank space             | P2       | PLANNED                  | TASK-010           |
 | ~~TASK-030~~ | ~~Record: Countdown timer (0/3/5/10s configurable)~~                     | P2       | ✅ DONE (2026-04-16)     | TASK-011           |
-| TASK-031     | Record: Pause/resume recording (MediaRecorder pause)                     | P2       | TODO                     | TASK-012           |
+| ~~TASK-031~~ | ~~Record: Pause/resume recording (MediaRecorder pause)~~                 | P2       | ✅ DONE (2026-04-16)     | TASK-012           |
 | TASK-032     | Record: VU meters for mic and system audio                               | P2       | TODO                     | TASK-012           |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
@@ -1224,7 +1224,7 @@ This is one of the biggest trust features in a recording tool. Users will forgiv
 - `TASK-015` serialize Record styling into resulting clips/effects
 - `TASK-016` separate webcam/audio assets on stop
 - `~~TASK-030~~` configurable countdown
-- `TASK-031` pause/resume recording
+- `~~TASK-031~~` pause/resume recording
 - `TASK-032` VU meters for mic and system audio
 - `TASK-100` disconnect recovery and warning toasts
 
