@@ -1238,6 +1238,7 @@ export function PanelApp() {
   const [countdownSeconds, setCountdownSeconds] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const hydrated = useRecordingConfig((s) => s.hydrated);
   const selectedSourceId = useRecordingConfig((s) => s.selectedSourceId);
   const micEnabled = useRecordingConfig((s) => s.micEnabled);
   const sysAudioEnabled = useRecordingConfig((s) => s.sysAudioEnabled);
@@ -1247,6 +1248,7 @@ export function PanelApp() {
   const [micStream, setMicStream] = useState<MediaStream | null>(null);
 
   useEffect(() => {
+    if (!hydrated) return;
     if (!micEnabled) {
       setMicStream((prev) => {
         prev?.getTracks().forEach((t) => t.stop());
@@ -1267,7 +1269,7 @@ export function PanelApp() {
         return null;
       });
     };
-  }, [micEnabled]);
+  }, [hydrated, micEnabled]);
 
   // Audio level monitoring from mic stream
   const audioLevel = useAudioLevel(micStream, micEnabled);
@@ -1356,6 +1358,7 @@ export function PanelApp() {
 
   // ── Camera stream management ─────────────────────────────────────────────
   useEffect(() => {
+    if (!hydrated) return;
     if (!cameraEnabled) {
       setCameraStream((prev) => {
         prev?.getTracks().forEach((t) => t.stop());
@@ -1392,7 +1395,7 @@ export function PanelApp() {
         return null;
       });
     };
-  }, [cameraEnabled]);
+  }, [cameraEnabled, hydrated]);
 
   // Cleanup streams on unmount
   useEffect(() => {
@@ -1410,6 +1413,12 @@ export function PanelApp() {
 
   useEffect(() => {
     let active = true;
+
+    if (!hydrated) {
+      return () => {
+        active = false;
+      };
+    }
 
     if (!selectedSourceId) {
       if (streamRef.current) {
@@ -1477,7 +1486,7 @@ export function PanelApp() {
     return () => {
       active = false;
     };
-  }, [selectedSourceId]);
+  }, [hydrated, selectedSourceId]);
 
   // ── MediaRecorder helpers ────────────────────────────────────────────────
   // Store latest camera stream in a ref so the IPC callback (which uses [] deps)
@@ -1665,7 +1674,7 @@ export function PanelApp() {
   };
 
   // ─── Render ──────────────────────────────────────────────────────────────
-  const canRecord = status === 'ready' && stream !== null;
+  const canRecord = hydrated && status === 'ready' && stream !== null;
 
   // ─── Mini-controller during recording ─────────────────────────────────
   if (status === 'recording' || status === 'paused') {

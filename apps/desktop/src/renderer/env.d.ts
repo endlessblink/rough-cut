@@ -32,6 +32,7 @@ export interface CaptureSource {
   name: string;
   type: 'screen' | 'window';
   thumbnailDataUrl: string;
+  displayId?: string | null;
 }
 
 export interface SystemAudioSourceOption {

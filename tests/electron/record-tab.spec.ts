@@ -1,5 +1,12 @@
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
 
+type RoughcutApi = {
+  recordingGetSources: () => Promise<Array<{ id: string }>>;
+  recordingConfigUpdate: (patch: Record<string, unknown>) => Promise<unknown>;
+  openRecordingPanel: () => Promise<void>;
+  closeRecordingPanel: () => Promise<void>;
+};
+
 test.describe('Record tab', () => {
   test.beforeEach(async ({ appPage }) => {
     await navigateToTab(appPage, 'record');
@@ -111,6 +118,68 @@ test.describe('Record tab', () => {
         cameraEnabled: false,
         countdownSeconds: 10,
       });
+  });
+
+  test('panel hydrates the shared source and toggle config', async ({ appPage, electronApp }) => {
+    const selectedSourceId = await appPage.evaluate(async () => {
+      const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
+      const sources = await api.recordingGetSources();
+      const sourceId = sources[0]?.id ?? null;
+
+      await api.recordingConfigUpdate({
+        selectedSourceId: sourceId,
+        micEnabled: false,
+        sysAudioEnabled: false,
+        cameraEnabled: false,
+      });
+
+      return sourceId;
+    });
+
+    const panelPromise = electronApp.waitForEvent('window');
+    await appPage.evaluate(() => {
+      return (window as unknown as { roughcut: RoughcutApi }).roughcut.openRecordingPanel();
+    });
+    const panelPage = await panelPromise;
+
+    await panelPage.waitForLoadState('domcontentloaded');
+
+    await expect
+      .poll(async () =>
+        panelPage.evaluate(() => {
+          const stores = (
+            window as unknown as {
+              __roughcutStores?: {
+                recordingConfig?: {
+                  getState: () => {
+                    hydrated: boolean;
+                    selectedSourceId: string | null;
+                    micEnabled: boolean;
+                    sysAudioEnabled: boolean;
+                    cameraEnabled: boolean;
+                  };
+                };
+              };
+            }
+          ).__roughcutStores;
+          return stores?.recordingConfig?.getState() ?? null;
+        }),
+      )
+      .toMatchObject({
+        hydrated: true,
+        selectedSourceId,
+        micEnabled: false,
+        sysAudioEnabled: false,
+        cameraEnabled: false,
+      });
+
+    if (selectedSourceId) {
+      await expect(panelPage.locator('select')).toHaveValue(selectedSourceId);
+    }
+
+    await appPage.evaluate(() => {
+      return (window as unknown as { roughcut: RoughcutApi }).roughcut.closeRecordingPanel();
+    });
   });
 
   test('record button shows REC text when idle', async ({ appPage }) => {

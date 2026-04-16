@@ -6,7 +6,7 @@ import { execSync } from 'node:child_process';
 
 /**
  * List available capture sources (screens and windows).
- * @returns {Promise<Array<{id: string, name: string, type: string, thumbnailDataUrl: string}>>}
+ * @returns {Promise<Array<{id: string, name: string, type: string, thumbnailDataUrl: string, displayId: string | null}>>}
  */
 export async function getSources() {
   const sources = await desktopCapturer.getSources({
@@ -18,7 +18,37 @@ export async function getSources() {
     name: s.name,
     type: s.id.startsWith('screen:') ? 'screen' : 'window',
     thumbnailDataUrl: s.thumbnail.toDataURL(),
+    displayId: s.display_id || null,
   }));
+}
+
+/**
+ * Resolve a selected source ID against a refreshed source list.
+ * Electron source IDs can drift across calls, so fall back to stable metadata
+ * from the previous snapshot when possible.
+ *
+ * @param {Array<{id: string, name: string, type: string, displayId: string | null}>} previousSources
+ * @param {Array<{id: string, name: string, type: string, displayId: string | null}>} nextSources
+ * @param {string | null} selectedSourceId
+ * @returns {string | null}
+ */
+export function reconcileSelectedSourceId(previousSources, nextSources, selectedSourceId) {
+  if (!selectedSourceId) return selectedSourceId;
+  if (nextSources.some((source) => source.id === selectedSourceId)) {
+    return selectedSourceId;
+  }
+
+  const previousSource = previousSources.find((source) => source.id === selectedSourceId);
+  if (!previousSource) return selectedSourceId;
+
+  const matchedSource = nextSources.find((source) => {
+    if (previousSource.displayId && source.displayId) {
+      return source.displayId === previousSource.displayId;
+    }
+    return source.type === previousSource.type && source.name === previousSource.name;
+  });
+
+  return matchedSource?.id ?? selectedSourceId;
 }
 
 /**
@@ -42,19 +72,23 @@ function parseFps(fpsStr) {
 function remuxForSeeking(filePath) {
   const tmpPath = filePath + '.remux.webm';
   try {
-    execSync(
-      `ffmpeg -y -i "${filePath}" -c copy "${tmpPath}"`,
-      { timeout: 30000, stdio: 'pipe' },
-    );
+    execSync(`ffmpeg -y -i "${filePath}" -c copy "${tmpPath}"`, { timeout: 30000, stdio: 'pipe' });
     // Atomic replace: delete original, rename temp
     unlinkSync(filePath);
     renameSync(tmpPath, filePath);
     console.info('[capture-service] Remuxed for seeking:', filePath);
   } catch (err) {
     // Remux failed — original file is still intact and playable (just not seekable)
-    console.warn('[capture-service] Remux for seeking failed (original preserved):', err?.message ?? err);
+    console.warn(
+      '[capture-service] Remux for seeking failed (original preserved):',
+      err?.message ?? err,
+    );
     // Clean up temp file if it exists
-    try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -155,7 +189,9 @@ export async function saveRecording(buffer, projectDir, metadata, cameraBuffer) 
  */
 export async function saveCameraRecording(camBuf, screenFilePath) {
   const recordingsDir = dirname(screenFilePath);
-  const timestamp = basename(screenFilePath).replace(/^recording-/, '').replace(/\.webm$/, '');
+  const timestamp = basename(screenFilePath)
+    .replace(/^recording-/, '')
+    .replace(/\.webm$/, '');
   // Camera now records as MP4 H.264 (via WebCodecs/mediabunny) — already seekable, no remux needed
   const cameraPath = join(recordingsDir, `recording-${timestamp}-camera.mp4`);
   await writeFile(cameraPath, camBuf);
@@ -185,7 +221,11 @@ export async function saveRecordingFromFile(srcFilePath, projectDir, metadata) {
     } catch {
       // Cross-device move — fall back to copy + delete
       copyFileSync(srcFilePath, destPath);
-      try { unlinkSync(srcFilePath); } catch { /* ignore */ }
+      try {
+        unlinkSync(srcFilePath);
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -229,7 +269,11 @@ export async function saveRecordingFromFile(srcFilePath, projectDir, metadata) {
 
   const fileSize = existsSync(destPath) ? statSync(destPath).size : 0;
 
-  console.info('[capture-service] FFmpeg recording saved:', destPath, `(${durationFrames} frames, ${probedMeta.width}x${probedMeta.height})`);
+  console.info(
+    '[capture-service] FFmpeg recording saved:',
+    destPath,
+    `(${durationFrames} frames, ${probedMeta.width}x${probedMeta.height})`,
+  );
 
   return {
     filePath: destPath,

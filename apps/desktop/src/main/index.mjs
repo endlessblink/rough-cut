@@ -18,7 +18,11 @@ import { promisify } from 'node:util';
 import { execFile as execFileCallback, spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
-import { getSources, saveRecording } from './recording/capture-service.mjs';
+import {
+  getSources,
+  reconcileSelectedSourceId,
+  saveRecording,
+} from './recording/capture-service.mjs';
 import { discoverAudioSources } from './recording/audio-sources.mjs';
 import { initSessionManager } from './recording/recording-session-manager.mjs';
 import {
@@ -41,6 +45,7 @@ const __dirname = dirname(__filename);
 
 let mainWindow = null;
 let currentExportFinalizeProcess = null;
+let cachedCaptureSources = [];
 const execFile = promisify(execFileCallback);
 
 const DEFAULT_RECORDING_CONFIG = {
@@ -75,6 +80,32 @@ function applyRecordingConfigPatch(patch = {}) {
   recordingConfig = next;
   setRecordingConfig(recordingConfig);
   return recordingConfig;
+}
+
+function reconcileCaptureSources(nextSources) {
+  const nextSelectedSourceId = reconcileSelectedSourceId(
+    cachedCaptureSources,
+    nextSources,
+    recordingConfig.selectedSourceId,
+  );
+  cachedCaptureSources = nextSources;
+
+  if (nextSelectedSourceId !== recordingConfig.selectedSourceId) {
+    applyRecordingConfigPatch({ selectedSourceId: nextSelectedSourceId });
+    broadcastRecordingConfig();
+  }
+
+  return nextSelectedSourceId;
+}
+
+function matchDesktopCaptureSource(source, cachedSource) {
+  if (!cachedSource) return false;
+  if (source.id === cachedSource.id) return true;
+  if (cachedSource.displayId && source.display_id) {
+    return source.display_id === cachedSource.displayId;
+  }
+  const sourceType = source.id.startsWith('screen:') ? 'screen' : 'window';
+  return sourceType === cachedSource.type && source.name === cachedSource.name;
 }
 
 function getDefaultProjectDir() {
@@ -697,7 +728,9 @@ function registerIpcHandlers() {
 
   // Recording: Get available capture sources (screens + windows)
   ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SOURCES, async () => {
-    return getSources();
+    const nextSources = await getSources();
+    reconcileCaptureSources(nextSources);
+    return nextSources;
   });
 
   ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => {
@@ -1171,13 +1204,24 @@ app.whenReady().then(() => {
     try {
       const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
       const selectedSourceId = recordingConfig.selectedSourceId;
+      const cachedSelectedSource = cachedCaptureSources.find(
+        (source) => source.id === selectedSourceId,
+      );
       const source = selectedSourceId
-        ? (sources.find((s) => s.id === selectedSourceId) ?? sources[0])
+        ? (sources.find((item) => item.id === selectedSourceId) ??
+          sources.find((item) => matchDesktopCaptureSource(item, cachedSelectedSource)) ??
+          sources[0])
         : sources[0];
       if (!source) {
         callback(undefined);
         return;
       }
+
+      if (selectedSourceId && source.id !== selectedSourceId) {
+        applyRecordingConfigPatch({ selectedSourceId: source.id });
+        broadcastRecordingConfig();
+      }
+
       callback({ video: source, audio: 'loopback' });
     } catch (err) {
       console.error('[display-media-handler] Error:', err);

@@ -57,18 +57,18 @@ For each surface, land the infrastructure that makes the view reliable first, th
 
 ### Surface order and focus
 
-| Order | Surface   | Goal                                                       | Primary task focus                                                                                                             |
-| ----- | --------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| 1     | Projects  | Stable project entry, reopen, and persistence foundation   | ~~TASK-072~~, ~~TASK-071~~, ~~TASK-085~~                                                                                       |
-| 2     | Recording | Reliable capture pipeline with polished in-record controls | TASK-013, TASK-014, TASK-015, TASK-016, TASK-086, BUG-007, BUG-008, TASK-087, TASK-088, TASK-089, TASK-090, TASK-091, TASK-092 |
-| 3     | Export    | Complete output flow for recorded projects                 | TASK-021, TASK-022, TASK-028, TASK-029, TASK-112, TASK-067, TASK-052, TASK-054                                                 |
-| 4     | Edit      | Deep timeline editing and refinement                       | TASK-017, TASK-018, TASK-019, TASK-020, TASK-023, TASK-024, TASK-026, TASK-027, TASK-065                                       |
-| 5     | AI        | Library ingest, analysis, and rough-cut generation         | TASK-040, TASK-079, TASK-080, TASK-081, TASK-082, TASK-044, TASK-045, TASK-047, TASK-097                                       |
-| 6     | Motion    | Dedicated motion graphics authoring                        | TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-039                                                           |
+| Order | Surface   | Goal                                                       | Primary task focus                                                                                                                         |
+| ----- | --------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1     | Projects  | Stable project entry, reopen, and persistence foundation   | ~~TASK-072~~, ~~TASK-071~~, ~~TASK-085~~                                                                                                   |
+| 2     | Recording | Reliable capture pipeline with polished in-record controls | ~~TASK-013~~, TASK-014, TASK-015, TASK-016, TASK-086, ~~BUG-007~~, ~~BUG-008~~, TASK-087, TASK-088, TASK-089, TASK-090, TASK-091, TASK-092 |
+| 3     | Export    | Complete output flow for recorded projects                 | TASK-021, TASK-022, TASK-028, TASK-029, TASK-112, TASK-067, TASK-052, TASK-054                                                             |
+| 4     | Edit      | Deep timeline editing and refinement                       | TASK-017, TASK-018, TASK-019, TASK-020, TASK-023, TASK-024, TASK-026, TASK-027, TASK-065                                                   |
+| 5     | AI        | Library ingest, analysis, and rough-cut generation         | TASK-040, TASK-079, TASK-080, TASK-081, TASK-082, TASK-044, TASK-045, TASK-047, TASK-097                                                   |
+| 6     | Motion    | Dedicated motion graphics authoring                        | TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-039                                                                       |
 
 ### Current sprint framing
 
-1. **Sprint A -- Recording Infrastructure**: TASK-013, TASK-086, BUG-007, BUG-008, TASK-087, TASK-088, BUG-009, TASK-100
+1. **Sprint A -- Recording Infrastructure**: ~~TASK-013~~, TASK-086, ~~BUG-007~~, ~~BUG-008~~, TASK-087, TASK-088, BUG-009, TASK-100
 2. **Sprint B -- Recording Edge Features**: TASK-014, TASK-015, TASK-016, TASK-089, TASK-090, TASK-091, TASK-092, TASK-101
 3. **Sprint C -- Export Core Flow**: TASK-021, TASK-022, TASK-028, TASK-029, TASK-112, TASK-067
 4. **Sprint D -- Export Performance + Advanced Output**: TASK-050, TASK-051, TASK-052, TASK-054, TASK-096, TASK-108
@@ -110,13 +110,13 @@ For each surface, land the infrastructure that makes the view reliable first, th
 | ID           | Title                                                                    | Priority | Status                   | Dependencies       |
 | ------------ | ------------------------------------------------------------------------ | -------- | ------------------------ | ------------------ |
 | ~~TASK-012~~ | ~~Record: Enable audio capture (mic + system audio)~~                    | P0       | ✅ **DONE** (2026-04-11) | TASK-010           |
-| TASK-013     | Record: PixiJS live preview (replace `<video>` with compositor)          | P0       | TODO                     | TASK-007, TASK-011 |
+| ~~TASK-013~~ | ~~Record: PixiJS live preview (replace `<video>` with compositor)~~      | P0       | ✅ DONE (2026-04-16)     | TASK-007, TASK-011 |
 | ~~BUG-001~~  | Fix: Compositor canvas sizing + video sprite positioning                 | P0       | DONE                     | TASK-007           |
 | ~~BUG-002~~  | Fix: Compositor resizing to template resolution + debug logging cleanup  | P0       | ✅ **DONE** (2026-03-30) | BUG-001            |
 | ~~BUG-003~~  | Fix: Video playback + timeline sync across all tabs                      | P0       | ✅ **DONE** (2026-03-30) | BUG-002            |
 | ~~TASK-086~~ | ~~Record: Unified config store for main tab + recording panel~~          | P0       | ✅ DONE (2026-04-16)     | TASK-010, TASK-011 |
-| BUG-007      | Fix: Record toolbar toggles don't drive the floating recording panel     | P0       | TODO                     | TASK-086           |
-| BUG-008      | Fix: Record source selection diverges from the floating panel source     | P0       | TODO                     | TASK-086           |
+| ~~BUG-007~~  | ~~Fix: Record toolbar toggles don't drive the floating recording panel~~ | P0       | ✅ DONE (2026-04-16)     | TASK-086           |
+| ~~BUG-008~~  | ~~Fix: Record source selection diverges from the floating panel source~~ | P0       | ✅ DONE (2026-04-16)     | TASK-086           |
 | TASK-087     | Record: Persist config across panel opens and app restarts               | P1       | TODO                     | TASK-086           |
 | TASK-088     | Record: Device selectors for mic, camera, and system audio               | P1       | TODO                     | TASK-086, TASK-012 |
 | BUG-009      | Fix: Record mode selector is visual-only and does not affect capture     | P1       | TODO                     | TASK-086           |
@@ -263,6 +263,16 @@ For each surface, land the infrastructure that makes the view reliable first, th
 
 ## Active Work
 
+### ~~TASK-013~~: Record: PixiJS live preview
+
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-16)
+
+- Replaced the visible Record-tab screen preview path with canvas-backed rendering and moved loaded-project playback onto the shared PixiJS compositor host so Record now uses the real compositor surface instead of a raw screen `<video>`.
+- Kept Record-specific cursor overlays, zoom focal-point editing, and camera preview layering intact while the compositor handles the screen render path.
+- Verified with desktop typecheck plus focused Electron coverage for Record-tab controls, live preview acceptance, and loaded-project compositor playback/seek regressions.
+
+---
+
 ### ~~TASK-105~~: Relative asset paths for project portability
 
 **Priority:** P2 | **Status:** ✅ DONE (2026-04-16)
@@ -332,16 +342,16 @@ Ordered by the desired product flow: infrastructure first, then edge features, o
 
 ### Sprint A — Recording Infrastructure
 
-| Task     | Title                                                       | Why now                                            |
-| -------- | ----------------------------------------------------------- | -------------------------------------------------- |
-| TASK-013 | Record: PixiJS live preview                                 | Capture surface must use the real compositor path  |
-| TASK-086 | Record: Unified config store for main tab + recording panel | Single source of truth before more record features |
-| BUG-007  | Fix toolbar toggles not driving floating panel              | Removes duplicated state drift                     |
-| BUG-008  | Fix source selection divergence                             | Prevents wrong-capture regressions                 |
-| TASK-087 | Persist record config across opens and restarts             | Makes recording workflow dependable                |
-| TASK-088 | Device selectors for mic, camera, system audio              | Required for a production-ready record surface     |
-| BUG-009  | Fix mode selector so it affects capture                     | Core correctness issue                             |
-| TASK-100 | Disconnect recovery and warning toasts                      | Hardens real recording sessions                    |
+| Task         | Title                                                       | Why now                                            |
+| ------------ | ----------------------------------------------------------- | -------------------------------------------------- |
+| ~~TASK-013~~ | ~~Record: PixiJS live preview~~                             | Capture surface must use the real compositor path  |
+| TASK-086     | Record: Unified config store for main tab + recording panel | Single source of truth before more record features |
+| ~~BUG-007~~  | ~~Fix toolbar toggles not driving floating panel~~          | Removes duplicated state drift                     |
+| ~~BUG-008~~  | ~~Fix source selection divergence~~                         | Prevents wrong-capture regressions                 |
+| TASK-087     | Persist record config across opens and restarts             | Makes recording workflow dependable                |
+| TASK-088     | Device selectors for mic, camera, system audio              | Required for a production-ready record surface     |
+| BUG-009      | Fix mode selector so it affects capture                     | Core correctness issue                             |
+| TASK-100     | Disconnect recovery and warning toasts                      | Hardens real recording sessions                    |
 
 ### Sprint B — Recording Edge Features
 
@@ -1177,7 +1187,7 @@ This is one of the biggest trust features in a recording tool. Users will forgiv
 
 #### Milestone 2: Preview and capture parity
 
-- `TASK-013` PixiJS live preview replaces raw video preview
+- `~~TASK-013~~` PixiJS live preview replaces raw video preview
 - `TASK-014` webcam PiP in compositor
 - `TASK-015` serialize Record styling into resulting clips/effects
 - `TASK-016` separate webcam/audio assets on stop
@@ -1347,6 +1357,8 @@ Verification:
 - ~~TASK-011~~ Record tab UI + inspector panels
 - ~~TASK-012~~ Record: Enable audio capture (mic + system audio)
 - ~~TASK-086~~ Record: Unified config store for main tab + recording panel
+- ~~BUG-007~~ Fix: Record toolbar toggles don't drive the floating recording panel
+- ~~BUG-008~~ Fix: Record source selection diverges from the floating panel source
 - ~~TASK-072~~ Recent projects workflow
 - ~~TASK-077~~ Edit: Camera playback in Edit tab compositor
 - ~~TASK-085~~ Record: Persistent recording location + migration for stale /tmp references
