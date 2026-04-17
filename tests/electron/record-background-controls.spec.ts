@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/electron-app.js';
+import { test, expect, navigateToTab } from './fixtures/electron-app.js';
 
 interface RectMetrics {
   x: number;
@@ -96,8 +96,7 @@ async function readBoxShadow(
 }
 
 async function ensureRecordPreviewReady(appPage: import('@playwright/test').Page) {
-  await appPage.click('[data-testid="tab-record"]');
-  await expect(appPage.locator('[data-testid="record-tab-root"]')).toBeVisible();
+  await navigateToTab(appPage, 'record');
 
   const screenFrame = appPage.locator('[data-testid="record-screen-frame"]');
   const cameraFrame = appPage.locator('[data-testid="record-camera-frame"]');
@@ -115,6 +114,7 @@ async function ensureRecordPreviewReady(appPage: import('@playwright/test').Page
 
   await expect(screenFrame).toBeVisible({ timeout: 15000 });
   await expect(cameraFrame).toBeVisible({ timeout: 15000 });
+  await appPage.waitForTimeout(350);
 }
 
 test.describe('Record framing controls', () => {
@@ -157,6 +157,8 @@ test.describe('Record framing controls', () => {
       .poll(async () => Number.parseFloat(await readBorderTopWidth(appPage, 'record-screen-frame')))
       .toBeGreaterThan(Number.parseFloat(initialBorder));
 
+    await appPage.waitForTimeout(350);
+
     const nextCamera = await readRect(appPage, 'record-camera-frame');
     expect(nextCamera.x).toBeCloseTo(initialCamera.x, 0);
     expect(nextCamera.y).toBeCloseTo(initialCamera.y, 0);
@@ -176,6 +178,8 @@ test.describe('Record framing controls', () => {
     await expect
       .poll(async () => (await readRect(appPage, 'record-camera-frame-content')).width)
       .toBeLessThan(initialCameraContent.width);
+
+    await appPage.waitForTimeout(350);
 
     const nextScreen = await readRect(appPage, 'record-screen-frame');
     const nextCamera = await readRect(appPage, 'record-camera-frame');
@@ -203,6 +207,8 @@ test.describe('Record framing controls', () => {
       .poll(async () => (await readRect(appPage, 'record-camera-frame')).width)
       .toBeGreaterThan(initialCamera.width);
 
+    await appPage.waitForTimeout(350);
+
     const nextScreen = await readRect(appPage, 'record-screen-frame');
     const nextCamera = await readRect(appPage, 'record-camera-frame');
 
@@ -225,6 +231,8 @@ test.describe('Record framing controls', () => {
     await expect
       .poll(async () => Number.parseFloat(await readBorderTopWidth(appPage, 'record-camera-frame')))
       .toBeGreaterThan(Number.parseFloat(initialBorder));
+
+    await appPage.waitForTimeout(350);
 
     const nextScreen = await readRect(appPage, 'record-screen-frame');
     expect(nextScreen.x).toBeCloseTo(initialScreen.x, 0);
