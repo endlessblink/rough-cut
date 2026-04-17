@@ -36,10 +36,19 @@ import { join, dirname } from 'node:path';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../../shared/ipc-channels.mjs';
-import { saveRecording, saveRecordingFromFile } from './capture-service.mjs';
+import {
+  muxAudioIntoRecording,
+  probeRecordingFile,
+  saveRecording,
+  saveRecordingFromFile,
+} from './capture-service.mjs';
 import { CursorRecorder } from './cursor-recorder.mjs';
-import { isFfmpegCaptureAvailable, startFfmpegCapture } from './ffmpeg-capture.mjs';
-import { discoverAudioSources } from './audio-sources.mjs';
+import {
+  isFfmpegCaptureAvailable,
+  startFfmpegAudioCapture,
+  startFfmpegCapture,
+} from './ffmpeg-capture.mjs';
+import { discoverAudioSources, ensureSourceAudible } from './audio-sources.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -95,6 +104,15 @@ let lastCursorResult = null;
 /** @type {import('./ffmpeg-capture.mjs').FfmpegCaptureHandle | null} */
 let ffmpegHandle = null;
 
+/** @type {import('./ffmpeg-capture.mjs').FfmpegCaptureHandle | null} */
+let ffmpegAudioHandle = null;
+
+/** @type {string | null} */
+let ffmpegOutputPath = null;
+
+/** @type {string | null} */
+let ffmpegAudioOutputPath = null;
+
 /** @type {(() => { sourceId: string, display: string, width: number, height: number } | null) | null} */
 let getSourceInfo = null;
 
@@ -109,6 +127,33 @@ let pendingAudioConfig = {
 function broadcastSessionEvent(channel, ...args) {
   safeSend(panelWindow, channel, ...args);
   safeSend(mainWindow, channel, ...args);
+}
+
+async function waitForCaptureFile(filePath, timeoutMs = 4000) {
+  if (!filePath) return false;
+
+  const startedAt = Date.now();
+  let lastSize = -1;
+  let stableReads = 0;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (existsSync(filePath)) {
+      const size = statSync(filePath).size;
+      if (size > 0) {
+        if (size === lastSize) {
+          stableReads += 1;
+          if (stableReads >= 2) return true;
+        } else {
+          lastSize = size;
+          stableReads = 0;
+        }
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+
+  return existsSync(filePath) && statSync(filePath).size > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -506,6 +551,9 @@ export async function startRecording() {
 
     // Start FFmpeg x11grab capture (cursor-free) on Linux/X11
     ffmpegHandle = null;
+    ffmpegAudioHandle = null;
+    ffmpegOutputPath = null;
+    ffmpegAudioOutputPath = null;
     if (isFfmpegCaptureAvailable() && getSourceInfo) {
       const sourceInfo = getSourceInfo();
       if (sourceInfo) {
@@ -521,6 +569,9 @@ export async function startRecording() {
             );
             if (pendingAudioConfig.micEnabled) micSource = sources.micSource;
             if (pendingAudioConfig.sysAudioEnabled) systemAudioSource = sources.monitorSource;
+            if (systemAudioSource) {
+              await ensureSourceAudible(systemAudioSource);
+            }
             console.info('[session-manager] Audio sources for FFmpeg:', {
               micSource,
               systemAudioSource,
@@ -543,6 +594,7 @@ export async function startRecording() {
             micSource,
             systemAudioSource,
           });
+          ffmpegOutputPath = ffmpegPath;
           console.info(
             '[session-manager] FFmpeg x11grab started →',
             ffmpegPath,
@@ -556,6 +608,38 @@ export async function startRecording() {
         console.info(
           '[session-manager] No source info — skipping FFmpeg capture (window capture?)',
         );
+      }
+    }
+
+    if (!ffmpegHandle && (pendingAudioConfig.micEnabled || pendingAudioConfig.sysAudioEnabled)) {
+      try {
+        const sources = await discoverAudioSources(
+          pendingAudioConfig.selectedSystemAudioSourceId ?? null,
+        );
+        const micSource = pendingAudioConfig.micEnabled ? sources.micSource : null;
+        const systemAudioSource = pendingAudioConfig.sysAudioEnabled ? sources.monitorSource : null;
+        if (systemAudioSource) {
+          await ensureSourceAudible(systemAudioSource);
+        }
+        const audioPath = join(recordingsDir, `recording-${cursorTimestamp}-audio.webm`);
+        ffmpegAudioHandle = startFfmpegAudioCapture({
+          outputPath: audioPath,
+          micSource,
+          systemAudioSource,
+        });
+        if (ffmpegAudioHandle) {
+          ffmpegAudioOutputPath = audioPath;
+          console.info('[session-manager] FFmpeg audio-only capture started →', audioPath, {
+            micSource,
+            systemAudioSource,
+          });
+        }
+      } catch (err) {
+        console.warn(
+          '[session-manager] FFmpeg audio-only capture failed to start:',
+          err?.message ?? err,
+        );
+        ffmpegAudioHandle = null;
       }
     }
 
@@ -669,6 +753,19 @@ export async function stopRecording() {
     } catch (err) {
       console.warn('[session-manager] FFmpeg stop failed:', err?.message ?? err);
       ffmpegHandle = null;
+    }
+  }
+
+  if (ffmpegAudioHandle) {
+    try {
+      await ffmpegAudioHandle.stop();
+      console.info(
+        '[session-manager] FFmpeg audio-only capture stopped →',
+        ffmpegAudioHandle.outputPath,
+      );
+    } catch (err) {
+      console.warn('[session-manager] FFmpeg audio-only stop failed:', err?.message ?? err);
+      ffmpegAudioHandle = null;
     }
   }
 
@@ -870,34 +967,70 @@ export function initSessionManager(win, sourceInfoGetter) {
 
         // Use FFmpeg x11grab output (cursor-free) if available, otherwise MediaRecorder buffer
         let result;
-        if (
-          ffmpegHandle &&
-          existsSync(ffmpegHandle.outputPath) &&
-          statSync(ffmpegHandle.outputPath).size > 0
-        ) {
+        const hasFfmpegOutput = await waitForCaptureFile(ffmpegOutputPath);
+        const hasFfmpegAudioOutput = await waitForCaptureFile(ffmpegAudioOutputPath, 2500);
+        if (hasFfmpegOutput) {
           // FFmpeg was already stopped by stopRecording() — file should be complete
           console.info(
             '[session-manager] Using FFmpeg x11grab output (no cursor):',
-            ffmpegHandle.outputPath,
+            ffmpegOutputPath,
           );
-          result = await saveRecordingFromFile(ffmpegHandle.outputPath, projectDir, metadata);
+          result = await saveRecordingFromFile(ffmpegOutputPath, projectDir, metadata);
+          if (hasFfmpegAudioOutput) {
+            await muxAudioIntoRecording(result.filePath, ffmpegAudioOutputPath);
+          }
           // Save camera recording if present (MediaRecorder path — no FFmpeg for camera)
           if (camBuf) {
             const { saveCameraRecording } = await import('./capture-service.mjs');
-            const cameraPath = await saveCameraRecording(camBuf, ffmpegHandle.outputPath);
+            const cameraPath = await saveCameraRecording(camBuf, result.filePath);
             result.cameraFilePath = cameraPath;
           }
           ffmpegHandle = null;
+          ffmpegAudioHandle = null;
+          ffmpegOutputPath = null;
+          ffmpegAudioOutputPath = null;
         } else {
           console.info('[session-manager] Using MediaRecorder buffer (FFmpeg not available)');
           // Save screen recording (pass null for camera — we handle camera separately as MP4)
           result = await saveRecording(Buffer.from(buffer), projectDir, metadata, null);
+          if (hasFfmpegAudioOutput) {
+            await muxAudioIntoRecording(result.filePath, ffmpegAudioOutputPath);
+          }
+          const fallbackProbe = (() => {
+            try {
+              return probeRecordingFile(result.filePath);
+            } catch {
+              return null;
+            }
+          })();
+          const fallbackLooksWrong =
+            !!fallbackProbe &&
+            (fallbackProbe.fps > 120 ||
+              ((pendingAudioConfig.sysAudioEnabled || pendingAudioConfig.micEnabled) &&
+                !fallbackProbe.hasAudio));
+          if (fallbackLooksWrong && (await waitForCaptureFile(ffmpegOutputPath, 8000))) {
+            console.warn(
+              '[session-manager] MediaRecorder artifact looks wrong; switching to FFmpeg output',
+              {
+                fallbackPath: result.filePath,
+                ffmpegOutputPath,
+                fallbackProbe,
+              },
+            );
+            result = await saveRecordingFromFile(ffmpegOutputPath, projectDir, metadata);
+            if (hasFfmpegAudioOutput) {
+              await muxAudioIntoRecording(result.filePath, ffmpegAudioOutputPath);
+            }
+          }
           // Save camera as MP4 separately (WebCodecs H.264 output, not WebM)
           if (camBuf) {
             const { saveCameraRecording } = await import('./capture-service.mjs');
             const cameraPath = await saveCameraRecording(camBuf, result.filePath);
             result.cameraFilePath = cameraPath;
           }
+          ffmpegAudioHandle = null;
+          ffmpegOutputPath = null;
+          ffmpegAudioOutputPath = null;
         }
 
         // Attach cursor events path to result
@@ -924,6 +1057,7 @@ export function initSessionManager(win, sourceInfoGetter) {
         // Tear down panel and return to idle
         _destroyPanel();
         state = 'idle';
+        broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'idle');
 
         console.info('[session-manager] Recording saved, transitioned to idle.');
         return result;
@@ -931,6 +1065,7 @@ export function initSessionManager(win, sourceInfoGetter) {
         console.error('[session-manager] PANEL_SAVE_RECORDING failed:', err);
         _destroyPanel();
         state = 'idle';
+        broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'idle');
         throw err;
       }
     },

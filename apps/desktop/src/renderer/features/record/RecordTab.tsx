@@ -4,13 +4,7 @@
  * background/look presets. No clip edits (no cutting, trimming, reordering, track management).
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { RecordingResult } from '../../env.js';
-import {
-  useProjectStore,
-  useTransportStore,
-  transportStore,
-  projectStore,
-} from '../../hooks/use-stores.js';
+import { useProjectStore, transportStore, projectStore } from '../../hooks/use-stores.js';
 import {
   createDefaultZoomPresentation,
   createDefaultCursorPresentation,
@@ -19,7 +13,6 @@ import {
 } from '@rough-cut/project-model';
 import type { CursorPresentation, CameraPresentation, RegionCrop } from '@rough-cut/project-model';
 import { useRecordState } from './record-state.js';
-import { useRecording } from './use-recording.js';
 import { useLivePreview } from './use-live-preview.js';
 import { LivePreviewCanvas } from './LivePreviewCanvas.js';
 import { RecordScreenLayout } from './RecordScreenLayout.js';
@@ -68,12 +61,11 @@ const DEFAULT_BACKGROUND: BackgroundConfig = {
 };
 
 interface RecordTabProps {
-  onAssetCreated: (result: RecordingResult) => void;
   activeTab: AppView;
   onTabChange: (tab: AppView) => void;
 }
 
-export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabProps) {
+export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const { showToast } = useToast();
   const [isSourcePickerOpen, setIsSourcePickerOpen] = useState(false);
   const [countdownSeconds, setCountdownSeconds] = useState(0);
@@ -110,7 +102,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { state, setSources, setStatus, setError, setElapsedMs, reset } = useRecordState();
+  const { state, setSources, setStatus, setError, reset } = useRecordState();
 
   const { sources, status, error, elapsedMs } = state;
   const recordMode = useRecordingConfig((s) => s.recordMode);
@@ -142,7 +134,6 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
   const durationFrames = useProjectStore((s) => s.project.composition.duration);
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
   const resolution = useProjectStore((s) => s.project.settings.resolution);
-  const currentFrame = useTransportStore((s) => s.playheadFrame);
   const tracks = useProjectStore((s) => s.project.composition.tracks);
   const assets = useProjectStore((s) => s.project.assets);
   const projectFilePath = useProjectStore((s) => s.projectFilePath);
@@ -244,10 +235,6 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
 
   // UI state
 
-  const handleTimelineScrub = useCallback((frame: number) => {
-    transportStore.getState().setPlayheadFrame(frame);
-  }, []);
-
   const handleZoomIntensityChange = useCallback(
     (value: number) => {
       if (!activeRecordingId) return;
@@ -273,6 +260,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
 
   const handleAddZoomMarkerAtPlayhead = useCallback(() => {
     if (!activeRecordingId || durationFrames <= 0) return;
+    const currentFrame = transportStore.getState().playheadFrame;
     // Default: 1 second, capped so there's always room, but never more than half the recording
     const preferredDuration = Math.round(projectFps * 1);
     const maxDuration = Math.max(projectFps, Math.floor(durationFrames / 2));
@@ -280,7 +268,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     const startFrame = Math.max(0, Math.min(currentFrame, durationFrames - defaultDuration));
     const endFrame = Math.min(startFrame + defaultDuration, durationFrames);
     projectStore.getState().addRecordingZoomMarker(activeRecordingId, startFrame, endFrame);
-  }, [activeRecordingId, projectFps, durationFrames, currentFrame]);
+  }, [activeRecordingId, projectFps, durationFrames]);
 
   const handleSelectZoomMarker = useCallback(
     (id: import('@rough-cut/project-model').ZoomMarkerId | null) => {
@@ -539,15 +527,6 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
     projectStore.getState().setActiveAssetId(latestRecording?.id ?? null);
   }, [activeRecordingId, projectFilePath]);
 
-  const recording = useRecording({
-    selectedSourceId,
-    stream: liveStream,
-    onStatusChange: setStatus,
-    onError: setError,
-    onElapsedChange: setElapsedMs,
-    onAssetCreated,
-  });
-
   const loadSources = useCallback(async () => {
     setStatus('loading-sources');
     try {
@@ -702,9 +681,12 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
 
     const unsubStatus = window.roughcut.onSessionStatusChanged((sessionStatus) => {
       if (sessionStatus === 'recording') {
-        void recording.startRecording();
+        setStatus('recording');
       } else if (sessionStatus === 'stopping') {
-        recording.stopRecording();
+        setStatus('stopping');
+      } else if (sessionStatus === 'idle') {
+        setStatus('idle');
+        setCountdownSeconds(0);
       }
     });
 
@@ -712,7 +694,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
       unsubCountdown();
       unsubStatus();
     };
-  }, [recording, setStatus]);
+  }, [setStatus]);
 
   return (
     <RecordScreenLayout>
@@ -1001,9 +983,7 @@ export function RecordTab({ onAssetCreated, activeTab, onTabChange }: RecordTabP
           tracks={tracks}
           assets={assets}
           durationFrames={durationFrames}
-          currentFrame={currentFrame}
           fps={projectFps}
-          onScrub={handleTimelineScrub}
           activeAssetIds={selectedTimelineAssetId ? [selectedTimelineAssetId] : []}
           selectedAssetId={selectedTimelineAssetId}
           onSelectAsset={handleSelectTimelineAsset}
