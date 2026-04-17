@@ -10,10 +10,10 @@
  *   3. The playhead needle is updated imperatively via a DOM ref.
  *   4. Callbacks are accessed through a ref to avoid stale closures.
  */
-import { useRef, useCallback, useMemo, useEffect, useState } from 'react';
+import { useRef, useCallback, useMemo, useEffect } from 'react';
 import type { Track, Asset, ZoomMarker, ZoomMarkerId } from '@rough-cut/project-model';
 import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
-import { useTransportStore } from '../../hooks/use-stores.js';
+import { transportStore, useTransportStore } from '../../hooks/use-stores.js';
 
 /* ── Types ─────────────────────────────────────────────────────────────────── */
 
@@ -21,9 +21,7 @@ interface RecordTimelineShellProps {
   tracks: readonly Track[];
   assets: readonly Asset[];
   durationFrames: number;
-  currentFrame: number;
   fps: number;
-  onScrub: (frame: number) => void;
   /** When set, highlight clips matching these assets and dim others */
   activeAssetIds?: readonly string[];
   /** Timeline-selected asset for channel targeting */
@@ -419,9 +417,7 @@ export function RecordTimelineShell({
   tracks,
   assets,
   durationFrames,
-  currentFrame,
   fps,
-  onScrub,
   activeAssetIds,
   selectedAssetId = null,
   onSelectAsset,
@@ -451,23 +447,13 @@ export function RecordTimelineShell({
 
   const isPlaying = useTransportStore((s) => s.isPlaying);
 
-  // Displayed frame – updates via state for the timecode readout only
-  const [displayFrame, setDisplayFrame] = useState(currentFrame);
-
-  /* ── refs for rAF loop (never in dep arrays) ───────────────────────────── */
-
-  const onScrubRef = useRef(onScrub);
-
-  // Keep onScrubRef fresh (avoids stale closure)
-  useEffect(() => {
-    onScrubRef.current = onScrub;
-  }, [onScrub]);
-
   /* ── DOM refs for imperative playhead needle ───────────────────────────── */
 
   const needleRef = useRef<HTMLDivElement>(null);
   const needleHandleRef = useRef<HTMLDivElement>(null);
   const lanesContainerRef = useRef<HTMLDivElement>(null);
+  const timecodeRef = useRef<HTMLSpanElement>(null);
+  const displayFrameRef = useRef(transportStore.getState().playheadFrame);
 
   const effectiveDurationRef = useRef(effectiveDuration);
   useEffect(() => {
@@ -481,10 +467,28 @@ export function RecordTimelineShell({
     if (needleHandleRef.current) needleHandleRef.current.style.left = left;
   }, []);
 
+  const syncDisplayedFrame = useCallback(
+    (frame: number) => {
+      displayFrameRef.current = frame;
+      moveNeedle(frame);
+      if (timecodeRef.current) {
+        timecodeRef.current.textContent = formatTimecode(frame / fps);
+      }
+    },
+    [fps, moveNeedle],
+  );
+
   useEffect(() => {
-    setDisplayFrame(currentFrame);
-    moveNeedle(currentFrame);
-  }, [currentFrame, moveNeedle]);
+    syncDisplayedFrame(transportStore.getState().playheadFrame);
+  }, [syncDisplayedFrame]);
+
+  useEffect(() => {
+    const unsubscribe = transportStore.subscribe((state, prevState) => {
+      if (state.playheadFrame === prevState.playheadFrame) return;
+      syncDisplayedFrame(state.playheadFrame);
+    });
+    return unsubscribe;
+  }, [syncDisplayedFrame]);
 
   /* ── toggle ────────────────────────────────────────────────────────────── */
 
@@ -535,15 +539,13 @@ export function RecordTimelineShell({
 
       const frame = frameFromClientX(e.clientX);
       playbackManager.seekToFrame(frame);
-      setDisplayFrame(frame);
-      moveNeedle(frame);
+      syncDisplayedFrame(frame);
 
       const onMove = (ev: MouseEvent) => {
         if (!isDraggingRef.current) return;
         const f = frameFromClientX(ev.clientX);
         playbackManager.seekToFrame(f);
-        setDisplayFrame(f);
-        moveNeedle(f);
+        syncDisplayedFrame(f);
       };
       const onUp = () => {
         isDraggingRef.current = false;
@@ -566,7 +568,6 @@ export function RecordTimelineShell({
   });
 
   const totalHeight = Math.max((tracks.length + 1) * LANE_HEIGHT, LANE_HEIGHT * 2);
-  const playheadPct = frameToPct(displayFrame, effectiveDuration);
 
   /* ── render ────────────────────────────────────────────────────────────── */
 
@@ -635,6 +636,7 @@ export function RecordTimelineShell({
           </span>
         </div>
         <span
+          ref={timecodeRef}
           style={{
             fontSize: 11,
             fontFamily: 'monospace',
@@ -642,7 +644,7 @@ export function RecordTimelineShell({
             userSelect: 'none',
           }}
         >
-          {formatTimecode(displayFrame / fps)}
+          {formatTimecode(displayFrameRef.current / fps)}
         </span>
       </div>
 
@@ -835,7 +837,7 @@ export function RecordTimelineShell({
                 position: 'absolute',
                 top: 0,
                 bottom: 0,
-                left: pctToLeft(playheadPct),
+                left: pctToLeft(frameToPct(displayFrameRef.current, effectiveDuration)),
                 width: 2,
                 background: '#ff7043',
                 boxShadow: '0 0 0 1px rgba(0,0,0,0.7)',
@@ -853,7 +855,7 @@ export function RecordTimelineShell({
               style={{
                 position: 'absolute',
                 top: 2,
-                left: pctToLeft(playheadPct),
+                left: pctToLeft(frameToPct(displayFrameRef.current, effectiveDuration)),
                 width: 10,
                 height: 10,
                 borderRadius: 999,
