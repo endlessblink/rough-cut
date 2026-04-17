@@ -45,17 +45,20 @@ export interface RecordingMetadata {
   width: number;
   height: number;
   durationMs: number;
+  timelineFps?: number;
   projectDir?: string;
 }
 
 export interface RecordingResult {
   filePath: string;
   durationFrames: number;
+  durationMs: number;
   width: number;
   height: number;
   fps: number;
   codec: string;
   fileSize: number;
+  hasAudio: boolean;
   cursorEventsPath?: string;
   thumbnailPath?: string;
   cameraFilePath?: string;
@@ -227,6 +230,7 @@ export interface RoughCutAPI {
     presentation: { autoIntensity: number; markers: readonly unknown[] },
   ): Promise<boolean>;
   storageGetAutoZoomIntensity(): Promise<number>;
+  storageSetAutoZoomIntensity(intensity: number): Promise<void>;
 }
 
 declare global {

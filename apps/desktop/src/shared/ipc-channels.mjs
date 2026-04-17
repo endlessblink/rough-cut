@@ -73,6 +73,8 @@ export const IPC_CHANNELS = {
   STORAGE_GET_FAVORITES: 'storage:get-favorites',
   STORAGE_ADD_FAVORITE: 'storage:add-favorite',
   STORAGE_REMOVE_FAVORITE: 'storage:remove-favorite',
+  STORAGE_GET_AUTO_ZOOM_INTENSITY: 'storage:get-auto-zoom-intensity',
+  STORAGE_SET_AUTO_ZOOM_INTENSITY: 'storage:set-auto-zoom-intensity',
 
   // AI Analysis
   AI_ANALYZE_CAPTIONS: 'ai:analyze-captions',

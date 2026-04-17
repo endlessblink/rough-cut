@@ -184,6 +184,14 @@ const api = {
   storageRemoveFavorite: (path) =>
     ipcRenderer.invoke(IPC_CHANNELS.STORAGE_REMOVE_FAVORITE, { path }),
 
+  /** Get the auto zoom intensity setting (0–1). */
+  storageGetAutoZoomIntensity: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.STORAGE_GET_AUTO_ZOOM_INTENSITY),
+
+  /** Set the auto zoom intensity setting (0–1). */
+  storageSetAutoZoomIntensity: (intensity) =>
+    ipcRenderer.invoke(IPC_CHANNELS.STORAGE_SET_AUTO_ZOOM_INTENSITY, { intensity }),
+
   // ---- Recording Panel ----
 
   /** Open the floating recording panel window. */

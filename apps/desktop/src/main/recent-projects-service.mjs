@@ -185,6 +185,24 @@ export function setRecordingLocation(path) {
 }
 
 /**
+ * Get the auto zoom intensity setting.
+ * @returns {number} Value between 0 and 1, default 0.5
+ */
+export function getAutoZoomIntensity() {
+  const value = store.get('autoZoomIntensity');
+  if (typeof value === 'number' && value >= 0 && value <= 1) return value;
+  return 0.5;
+}
+
+/**
+ * Set the auto zoom intensity setting.
+ * @param {number} intensity Value between 0 and 1
+ */
+export function setAutoZoomIntensity(intensity) {
+  store.set('autoZoomIntensity', intensity);
+}
+
+/**
  * Get all favorite locations.
  * @returns {string[]}
  */

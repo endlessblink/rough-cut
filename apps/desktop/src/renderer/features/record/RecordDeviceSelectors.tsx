@@ -30,7 +30,8 @@ function Selector({
   defaultLabel: string;
   onChange: (id: string | null) => void;
 }) {
-  const hasSelectedOption = value ? options.some((option) => option.id === value) : false;
+  const safeOptions = Array.isArray(options) ? options : [];
+  const hasSelectedOption = value ? safeOptions.some((option) => option.id === value) : false;
 
   return (
     <label
@@ -70,7 +71,7 @@ function Selector({
         }}
       >
         <option value="">{defaultLabel}</option>
-        {options.map((option) => (
+        {safeOptions.map((option) => (
           <option key={option.id} value={option.id}>
             {option.label}
           </option>

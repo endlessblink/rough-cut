@@ -32,6 +32,8 @@ import {
   clearRecentProjects,
   getRecordingLocation,
   setRecordingLocation,
+  getAutoZoomIntensity,
+  setAutoZoomIntensity,
   getFavoriteLocations,
   addFavoriteLocation,
   removeFavoriteLocation,
@@ -1058,6 +1060,15 @@ function registerIpcHandlers() {
   // Storage: Set recording location
   ipcMain.handle(IPC_CHANNELS.STORAGE_SET_RECORDING_LOCATION, (_e, { path }) => {
     setRecordingLocation(path);
+  });
+
+  // Storage: Get/set auto zoom intensity
+  ipcMain.handle(IPC_CHANNELS.STORAGE_GET_AUTO_ZOOM_INTENSITY, () => {
+    return getAutoZoomIntensity();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.STORAGE_SET_AUTO_ZOOM_INTENSITY, (_e, { intensity }) => {
+    setAutoZoomIntensity(intensity);
   });
 
   // Storage: Pick directory via native dialog
