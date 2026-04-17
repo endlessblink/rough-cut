@@ -19,6 +19,10 @@ export function getPlaybackManager(): PlaybackManager {
       transportStore,
       projectStore: projectStore as unknown as PlaybackManagerProjectStore,
     });
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __roughcutPlaybackManager?: PlaybackManager }).__roughcutPlaybackManager =
+        manager;
+    }
   }
   return manager;
 }

@@ -198,10 +198,15 @@ export class PreviewCompositor {
       if (vc.loaded && vc.video.readyState >= 2) {
         vc.video.currentTime =
           this.resolveMediaTimeForAsset(assetId, this.currentFrame) ?? this.currentFrame / fps;
-        vc.video.muted = false; // unmute for audio playback
-        vc.video
+        // Play while still muted, then unmute on success. Chromium always
+        // allows muted play(); an unmuted play() can fail if the user gesture
+        // was lost through async awaits in PlaybackManager._beginPlayback.
+        const video = vc.video;
+        video
           .play()
-          .then(() => {})
+          .then(() => {
+            video.muted = false;
+          })
           .catch((e) => {
             console.error('[compositor] play() FAILED:', e);
           });
@@ -413,8 +418,13 @@ export class PreviewCompositor {
             vc.video.currentTime =
               this.resolveMediaTimeForAsset(assetId, this.currentFrame) ??
               this.currentFrame / (this.project?.settings.frameRate ?? 30);
-            vc.video.muted = false; // unmute for audio playback
-            vc.video.play().catch(() => {});
+            const video = vc.video;
+            video
+              .play()
+              .then(() => {
+                video.muted = false;
+              })
+              .catch(() => {});
             videoSource.autoUpdate = true;
           }
           this.renderCurrentFrame(true);

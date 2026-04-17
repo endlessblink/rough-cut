@@ -65,6 +65,36 @@ test.describe('Record playback canvas', () => {
     expect(Math.abs(frame0Again.playheadFrame)).toBeLessThanOrEqual(1);
     expect(frame0Again.canvasHash).not.toBe(frame45.canvasHash);
   });
+
+  test('canvas keeps painting while playback runs', async ({ appPage }) => {
+    await loadRecordedProject(appPage);
+
+    await appPage.evaluate(() => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      stores?.transport.getState().seekToFrame(0);
+    });
+
+    const before = await captureCanvasState(appPage);
+
+    await appPage.evaluate(() => {
+      const pm = (window as unknown as { __roughcutPlaybackManager?: any })
+        .__roughcutPlaybackManager;
+      pm?.play();
+    });
+
+    await appPage.waitForTimeout(500);
+
+    const during = await captureCanvasState(appPage);
+
+    await appPage.evaluate(() => {
+      const pm = (window as unknown as { __roughcutPlaybackManager?: any })
+        .__roughcutPlaybackManager;
+      pm?.pause();
+    });
+
+    expect(during.playheadFrame).toBeGreaterThan(before.playheadFrame);
+    expect(during.canvasHash).not.toBe(before.canvasHash);
+  });
 });
 
 async function loadRecordedProject(page: import('@playwright/test').Page): Promise<void> {
