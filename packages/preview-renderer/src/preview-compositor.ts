@@ -262,10 +262,7 @@ export class PreviewCompositor {
   /** Seek to a specific frame and render it */
   seekTo(frame: number): void {
     this.currentFrame = frame;
-    if (!this._playing) {
-      this.renderCurrentFrame();
-    }
-    // During playback: currentFrame is updated but rendering is driven by the ticker
+    this.renderCurrentFrame();
   }
 
   /** Get current frame number */
