@@ -1280,21 +1280,36 @@ app.whenReady().then(() => {
   initSessionManager(mainWindow, () => {
     const selectedSourceId = recordingConfig.selectedSourceId;
     if (!selectedSourceId) return null;
-    // Parse Electron source ID (e.g. 'screen:0:0') for x11grab display string
-    const isScreen = selectedSourceId.startsWith('screen:');
-    if (!isScreen) return null; // window capture — FFmpeg x11grab can't target a specific window
+    if (!selectedSourceId.startsWith('screen:')) return null; // x11grab can't target a window
 
-    // Get the display bounds for the selected screen
     const displays = screen.getAllDisplays();
-    const screenIndex = parseInt(selectedSourceId.split(':')[1] ?? '0', 10);
-    const display = displays[screenIndex] ?? displays[0];
-    if (!display) return null;
+    // Electron's desktopCapturer gives each source a stable `display_id` that
+    // matches `screen.getAllDisplays()[i].id`. The second segment of the
+    // selectedSourceId (e.g. 'screen:2147483647:0') is the Electron display id,
+    // NOT the array index — on multi-monitor setups, treating it as an index
+    // silently falls back to the primary display.
+    const cachedSource = cachedCaptureSources.find((entry) => entry.id === selectedSourceId);
+    const displayIdFromCache = cachedSource?.displayId ? String(cachedSource.displayId) : null;
+    const displayIdFromId = selectedSourceId.split(':')[1] ?? null;
+
+    const resolvedDisplay =
+      (displayIdFromCache && displays.find((d) => String(d.id) === displayIdFromCache)) ||
+      (displayIdFromId && displays.find((d) => String(d.id) === displayIdFromId)) ||
+      displays[0];
+
+    if (!resolvedDisplay) return null;
+
+    console.info('[session-source] Resolved capture display:', {
+      selectedSourceId,
+      displayId: resolvedDisplay.id,
+      bounds: resolvedDisplay.bounds,
+    });
 
     return {
       sourceId: selectedSourceId,
-      display: `${process.env.DISPLAY || ':0'}.0+${display.bounds.x},${display.bounds.y}`,
-      width: display.bounds.width,
-      height: display.bounds.height,
+      display: `${process.env.DISPLAY || ':0'}.0+${resolvedDisplay.bounds.x},${resolvedDisplay.bounds.y}`,
+      width: resolvedDisplay.bounds.width,
+      height: resolvedDisplay.bounds.height,
     };
   });
 });
