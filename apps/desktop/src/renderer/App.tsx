@@ -60,6 +60,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabId>('projects');
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoSaveRequestRef = useRef(0);
+  const lastHandledRecordingRef = useRef<{ filePath: string; handledAt: number } | null>(null);
 
   // Initialize with a default project on mount
   useEffect(() => {
@@ -170,22 +171,53 @@ export function App() {
 
   // --- Recording integration ---
   const handleRecordingComplete = useCallback(async (result: RecordingResult) => {
-    // Auto-save the current project before replacing it — fire and forget
-    const currentPath = projectStore.getState().projectFilePath;
-    const currentProject = projectStore.getState().project;
-    if (currentPath && projectStore.getState().isDirty) {
-      window.roughcut.projectAutoSave(currentProject, currentPath).catch((err) => {
-        console.error('[auto-save] Failed to save previous project:', err);
+    const lastHandled = lastHandledRecordingRef.current;
+    if (lastHandled?.filePath === result.filePath) {
+      console.info('[App] Ignoring duplicate recording result for same file:', result.filePath);
+      return;
+    }
+
+    const now = Date.now();
+    if (lastHandled && now - lastHandled.handledAt < 15000) {
+      console.warn('[App] Ignoring competing recording result shortly after import:', {
+        acceptedFilePath: lastHandled.filePath,
+        ignoredFilePath: result.filePath,
+      });
+      return;
+    }
+    lastHandledRecordingRef.current = { filePath: result.filePath, handledAt: now };
+
+    // Decide: append to current project, or start a fresh one.
+    // Rule: if the current project already has assets, the user is inside a
+    //       session (recording take 2+, or capturing inside an open project),
+    //       so the new recording is added as another take on the same timeline.
+    //       Otherwise the first take of the session populates a freshly-named
+    //       project, matching the long-standing "new project per recording" UX.
+    const preStore = projectStore.getState();
+    const shouldAppend = preStore.project.assets.length > 0;
+
+    // Auto-save the current project before touching it — fire and forget.
+    // Matters for both branches: in append mode we keep writing to the same
+    // file; in replace mode we snapshot the outgoing project before it's
+    // swapped out of memory.
+    if (preStore.projectFilePath && preStore.isDirty) {
+      window.roughcut.projectAutoSave(preStore.project, preStore.projectFilePath).catch((err) => {
+        console.error('[auto-save] Failed to save current project before new recording:', err);
       });
     }
 
-    // Create and load a fresh project for this recording
-    const freshProject = createProject({ name: generateProjectName() });
     getPlaybackManager().pause();
-    projectStore.getState().setProject(freshProject);
-    projectStore.getState().setProjectFilePath(null);
-    projectStore.getState().setActiveAssetId(null);
-    transportStore.getState().seekToFrame(0);
+
+    if (shouldAppend) {
+      // Land the playhead at the new clip's start so the user sees it immediately.
+      transportStore.getState().seekToFrame(preStore.project.composition.duration);
+    } else {
+      const freshProject = createProject({ name: generateProjectName() });
+      projectStore.getState().setProject(freshProject);
+      projectStore.getState().setProjectFilePath(null);
+      projectStore.getState().setActiveAssetId(null);
+      transportStore.getState().seekToFrame(0);
+    }
 
     // If a camera file was saved alongside the screen recording, create a camera asset first
     let cameraAssetId: ProjectDocument['assets'][number]['id'] | undefined;
@@ -239,8 +271,13 @@ export function App() {
       }
     }
 
+    const store = projectStore.getState();
+    const timelineFps = store.project.settings.frameRate || 30;
+    const clipDuration =
+      result.durationMs > 0 ? Math.round((result.durationMs / 1000) * timelineFps) : 0;
+
     const baseAsset = createAsset('recording', result.filePath, {
-      duration: result.durationFrames,
+      duration: clipDuration,
       thumbnailPath: result.thumbnailPath,
       metadata: {
         width: result.width,
@@ -248,6 +285,7 @@ export function App() {
         fps: result.fps,
         codec: result.codec,
         fileSize: result.fileSize,
+        hasAudio: result.hasAudio,
         cursorEventsPath: result.cursorEventsPath || null,
       },
       ...(generatedZoom
@@ -293,18 +331,32 @@ export function App() {
     });
     projectStore.getState().addAsset(asset);
 
-    // Create a clip at frame 0 for this recording (each recording is independent)
-    const clipDuration = result.durationFrames > 0 ? result.durationFrames : 0;
-    const store = projectStore.getState();
+    // Append the new clip at the current end of the timeline. On a freshly
+    // replaced project, composition.duration === 0, so this lands at frame 0.
+    // On an existing project, it lands right after the previous take.
+    const nextTimelineIn = store.project.composition.duration;
+    const nextTimelineOut = nextTimelineIn + clipDuration;
+
     const videoTrack = store.project.composition.tracks.find((t) => t.type === 'video');
+    const audioTrack = store.project.composition.tracks.find((t) => t.type === 'audio');
     if (videoTrack && clipDuration > 0) {
       const clip = createClip(asset.id, videoTrack.id, {
-        timelineIn: 0,
-        timelineOut: clipDuration,
+        timelineIn: nextTimelineIn,
+        timelineOut: nextTimelineOut,
         sourceIn: 0,
         sourceOut: clipDuration,
       });
       store.addClip(videoTrack.id, clip);
+
+      if (result.hasAudio && audioTrack) {
+        const audioClip = createClip(asset.id, audioTrack.id, {
+          timelineIn: nextTimelineIn,
+          timelineOut: nextTimelineOut,
+          sourceIn: 0,
+          sourceOut: clipDuration,
+        });
+        store.addClip(audioTrack.id, audioClip);
+      }
 
       // Add camera clip on a higher video track (renders on top of screen as PiP)
       console.log(
@@ -320,8 +372,8 @@ export function App() {
         // Use a different video track (higher z-index) so camera renders on top
         const cameraTrack = allVideoTracks.find((t) => t.id !== videoTrack.id) ?? videoTrack;
         const cameraClip = createClip(cameraAssetId, cameraTrack.id, {
-          timelineIn: 0,
-          timelineOut: clipDuration,
+          timelineIn: nextTimelineIn,
+          timelineOut: nextTimelineOut,
           sourceIn: 0,
           sourceOut: clipDuration,
           // PiP: bottom-right corner, 20% size
@@ -345,10 +397,12 @@ export function App() {
         console.log('[App] Camera clip created on track:', cameraTrack.name, cameraClip.id);
       }
 
-      // Update composition duration
+      // Update composition duration to the end of the new clip (or keep it
+      // if it was already longer, which shouldn't happen on append but is
+      // defensive).
       const newDuration = Math.max(
         projectStore.getState().project.composition.duration,
-        clipDuration,
+        nextTimelineOut,
       );
       projectStore.getState().updateProject((p) => ({
         ...p,
@@ -397,13 +451,7 @@ export function App() {
 
   // Record tab takes over the entire viewport — no chrome wrapper
   if (activeTab === 'record') {
-    return (
-      <RecordTab
-        onAssetCreated={handleRecordingComplete}
-        activeTab={activeTab}
-        onTabChange={(tab) => setActiveTab(tab)}
-      />
-    );
+    return <RecordTab activeTab={activeTab} onTabChange={(tab) => setActiveTab(tab)} />;
   }
 
   // Edit tab takes over the entire viewport — no chrome wrapper
