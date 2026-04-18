@@ -159,7 +159,22 @@ test.describe('Zoom markers — Record tab', () => {
         return markers?.[0] ?? null;
       });
 
+    const readPlayheadFrame = () =>
+      appPage.evaluate(() => {
+        const stores = (
+          window as unknown as {
+            __roughcutStores?: {
+              transport: {
+                getState: () => { playheadFrame: number };
+              };
+            };
+          }
+        ).__roughcutStores;
+        return stores?.transport.getState().playheadFrame ?? -1;
+      });
+
     const before = await readMarker();
+    const playheadBefore = await readPlayheadFrame();
     expect(before).not.toBeNull();
     const beforeDur = before!.endFrame - before!.startFrame;
 
@@ -177,14 +192,16 @@ test.describe('Zoom markers — Record tab', () => {
     await appPage.waitForTimeout(200);
 
     const after = await readMarker();
+    const playheadAfter = await readPlayheadFrame();
     expect(after).not.toBeNull();
     const afterDur = after!.endFrame - after!.startFrame;
 
-    console.log('[zoom-test] move:', { before, after });
+    console.log('[zoom-test] move:', { before, after, playheadBefore, playheadAfter });
     expect(after!.startFrame, 'startFrame should increase after drag-right').toBeGreaterThan(
       before!.startFrame,
     );
     expect(afterDur, 'duration should be preserved').toBe(beforeDur);
+    expect(playheadAfter, 'dragging a marker should not scrub the playhead').toBe(playheadBefore);
   });
 
   test('zoom remains applied when marker is SELECTED and paused (regression: "second play broken")', async ({
@@ -224,5 +241,34 @@ test.describe('Zoom markers — Record tab', () => {
       scale,
       `scale should be > 1 when selected + paused inside marker: got ${scale}`,
     ).toBeGreaterThan(1);
+  });
+
+  test('camera frame shrinks while an active zoom is applied', async ({ appPage }) => {
+    const cameraFrame = appPage.locator('[data-testid="record-camera-frame"]');
+
+    const before = await cameraFrame.evaluate((el) => {
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    });
+
+    await appPage.locator('[data-testid="zoom-add"]').click();
+    await appPage.evaluate(() => {
+      type StoreSetState = (patch: { playheadFrame: number }) => void;
+      const stores = (
+        window as unknown as {
+          __roughcutStores?: { transport: { setState: StoreSetState } };
+        }
+      ).__roughcutStores;
+      stores?.transport.setState({ playheadFrame: 5 });
+    });
+    await appPage.waitForTimeout(100);
+
+    const during = await cameraFrame.evaluate((el) => {
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    });
+
+    expect(during.width).toBeLessThan(before.width);
+    expect(during.height).toBeLessThan(before.height);
   });
 });

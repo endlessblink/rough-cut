@@ -346,6 +346,9 @@ function ZoomTrackRow({
                   onSelectMarker?.(m.id);
                 }
               }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
@@ -374,6 +377,9 @@ function ZoomTrackRow({
                   <div
                     data-testid="zoom-marker-resize-start"
                     onPointerDown={(e) => startResize(m.id, 'start', e)}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                    }}
                     style={{
                       position: 'absolute',
                       top: 0,
@@ -389,6 +395,9 @@ function ZoomTrackRow({
                   <div
                     data-testid="zoom-marker-resize-end"
                     onPointerDown={(e) => startResize(m.id, 'end', e)}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                    }}
                     style={{
                       position: 'absolute',
                       top: 0,
@@ -750,6 +759,9 @@ export function RecordTimelineShell({
                         role="button"
                         tabIndex={0}
                         onPointerDown={(e) => {
+                          e.stopPropagation();
+                        }}
+                        onMouseDown={(e) => {
                           e.stopPropagation();
                         }}
                         onClick={(e) => {
