@@ -17,6 +17,7 @@ import type {
   CameraPresentation,
   RegionCrop,
   EffectInstance,
+  AIAnnotations,
   AIAnnotationId,
   AnnotationStatus,
   CaptionSegment,
@@ -155,6 +156,7 @@ export interface ProjectActions {
   // AI annotation actions
   addCaptionSegments: (segments: CaptionSegment[]) => void;
   replaceCaptionSegmentsForAsset: (assetId: AssetId, segments: CaptionSegment[]) => void;
+  updateCaptionStyle: (patch: Partial<AIAnnotations['captionStyle']>) => void;
   updateAnnotationStatus: (id: AIAnnotationId, status: AnnotationStatus) => void;
   updateCaptionText: (id: AIAnnotationId, text: string) => void;
   acceptAllCaptions: () => void;
@@ -1003,6 +1005,19 @@ export function createProjectStore() {
                 ...doc.aiAnnotations.captionSegments.filter((seg) => seg.assetId !== assetId),
                 ...segments,
               ],
+            },
+          }));
+        },
+
+        updateCaptionStyle: (patch: Partial<AIAnnotations['captionStyle']>) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            aiAnnotations: {
+              ...doc.aiAnnotations,
+              captionStyle: {
+                ...doc.aiAnnotations.captionStyle,
+                ...patch,
+              },
             },
           }));
         },

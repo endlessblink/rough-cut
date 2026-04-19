@@ -77,6 +77,7 @@ export class PreviewCompositor {
   private lastRenderedProject: ProjectDocument | null = null;
   private _playing = false;
   private lastLoggedPrimaryPlaybackAssetId: string | null = null;
+  private preferredPlaybackAssetId: string | null = null;
 
   // Layer cache — reuse PixiJS objects to avoid GC pressure at 60fps
   private layerCache: Map<string, LayerCache> = new Map();
@@ -283,6 +284,10 @@ export class PreviewCompositor {
     this.config.height = height;
     this.app?.renderer.resize(width, height);
     this.renderCurrentFrame(true);
+  }
+
+  setPreferredPlaybackAssetId(assetId: string | null): void {
+    this.preferredPlaybackAssetId = assetId;
   }
 
   /** Clean up PixiJS resources */
@@ -772,7 +777,13 @@ export class PreviewCompositor {
     if (!this.project) return null;
 
     const renderFrame = resolveFrame(this.project, this.currentFrame);
-    for (const layer of renderFrame.layers) {
+    const preferredLayer = this.preferredPlaybackAssetId
+      ? renderFrame.layers.find((layer) => layer.assetId === this.preferredPlaybackAssetId)
+      : null;
+    const orderedLayers = preferredLayer
+      ? [preferredLayer, ...renderFrame.layers.filter((layer) => layer !== preferredLayer)]
+      : renderFrame.layers;
+    for (const layer of orderedLayers) {
       const asset = this.findAsset(layer.assetId);
       const isPlayableVideo =
         asset &&

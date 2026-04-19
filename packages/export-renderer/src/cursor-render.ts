@@ -183,27 +183,40 @@ export function buildCursorFrameData(
 }
 
 export async function loadCursorFrameData(
-  cursorEventsPath: string,
+  cursorEventsPath: string | null | undefined,
   totalFrames: number,
   sourceWidth: number,
   sourceHeight: number,
+  recordingFilePath?: string | null,
 ): Promise<CursorFrameData | null> {
-  const response = await fetch(`media://${cursorEventsPath}`);
-  if (!response.ok) {
-    return null;
+  const candidatePaths = new Set<string>();
+  if (cursorEventsPath) {
+    candidatePaths.add(cursorEventsPath);
+  }
+  if (recordingFilePath) {
+    candidatePaths.add(recordingFilePath.replace(/\.(webm|mp4)$/i, '.cursor.ndjson'));
   }
 
-  const text = await response.text();
-  if (!text.trim()) {
-    return null;
+  for (const path of candidatePaths) {
+    const response = await fetch(`media://${path}`);
+    if (!response.ok) {
+      continue;
+    }
+
+    const text = await response.text();
+    if (!text.trim()) {
+      continue;
+    }
+
+    return buildCursorFrameData(
+      parseNdjsonCursorEvents(text),
+      totalFrames,
+      sourceWidth,
+      sourceHeight,
+    );
   }
 
-  return buildCursorFrameData(
-    parseNdjsonCursorEvents(text),
-    totalFrames,
-    sourceWidth,
-    sourceHeight,
-  );
+  return null;
 }
 
 function getCursorAtFrame(

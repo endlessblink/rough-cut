@@ -123,3 +123,41 @@ test('record config survives app restart', async () => {
     await rm(configRoot, { recursive: true, force: true });
   }
 });
+
+test('unsupported region mode is normalized to fullscreen and stays normalized after restart', async () => {
+  const configRoot = await mkdtemp(join(tmpdir(), 'rough-cut-record-config-region-'));
+
+  try {
+    const firstApp = await launchApp(configRoot);
+    const firstPage = await waitForAppPage(firstApp);
+    await navigateToRecordTab(firstPage);
+
+    await firstPage.evaluate(async () => {
+      await (
+        window as unknown as {
+          roughcut: { recordingConfigUpdate: (patch: Record<string, unknown>) => Promise<unknown> };
+        }
+      ).roughcut.recordingConfigUpdate({ recordMode: 'region' });
+    });
+
+    await expect
+      .poll(async () => readRecordingConfigStore(firstPage))
+      .toMatchObject({ hydrated: true, recordMode: 'fullscreen' });
+
+    await firstApp.close();
+
+    const secondApp = await launchApp(configRoot);
+    try {
+      const secondPage = await waitForAppPage(secondApp);
+      await navigateToRecordTab(secondPage);
+
+      await expect
+        .poll(async () => readRecordingConfigStore(secondPage))
+        .toMatchObject({ hydrated: true, recordMode: 'fullscreen' });
+    } finally {
+      await secondApp.close();
+    }
+  } finally {
+    await rm(configRoot, { recursive: true, force: true });
+  }
+});

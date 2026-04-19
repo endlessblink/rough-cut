@@ -184,8 +184,17 @@ export interface CaptionSegment {
   readonly words: readonly TranscriptWord[];
 }
 
+export type CaptionPosition = 'bottom' | 'center';
+
+export interface CaptionStyle {
+  readonly fontSize: number;
+  readonly position: CaptionPosition;
+  readonly backgroundOpacity: number;
+}
+
 export interface AIAnnotations {
   readonly captionSegments: readonly CaptionSegment[];
+  readonly captionStyle: CaptionStyle;
 }
 
 // --- AI Libraries ---

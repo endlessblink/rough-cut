@@ -80,8 +80,19 @@ export function RecordZoomPanel({
           checked={zoomFollowCursor}
           onChange={(e) => onZoomFollowCursorChange(e.target.checked)}
         />
-        Follow cursor during auto zoom
+        Zoom to cursor
       </label>
+
+      <div
+        style={{
+          marginTop: 6,
+          fontSize: 11,
+          lineHeight: 1.45,
+          color: 'rgba(255,255,255,0.5)',
+        }}
+      >
+        Keeps the active zoom framing attached to the mouse while the zoom marker is live.
+      </div>
 
       <div style={{ marginTop: 12, opacity: zoomFollowCursor ? 1 : 0.45 }}>
         <ControlLabel

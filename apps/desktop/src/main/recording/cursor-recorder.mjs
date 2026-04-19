@@ -13,6 +13,11 @@ import { mkdirSync, existsSync } from 'node:fs';
 // the native thread doesn't cleanly reinitialize. Instead, we always listen
 // for events and gate recording via the #recording flag.
 let uiohookStarted = false;
+let testHooks = null;
+
+function getTestHook(name) {
+  return testHooks && typeof testHooks[name] === 'function' ? testHooks[name] : null;
+}
 
 export class CursorRecorder {
   /** @type {CursorEvent[]} */
@@ -32,14 +37,20 @@ export class CursorRecorder {
   /** @type {number} */
   #offsetY = 0;
 
+  #pushEvent(event) {
+    this.#events.push(event);
+    if (event.type === 'move') {
+      this.#lastMoveFrame = event.frame;
+    }
+  }
+
   constructor() {
     // Register listeners once — they check #recording internally
     uIOhook.on('mousemove', /** @param {import('uiohook-napi').UiohookMouseEvent} e */ (e) => {
       if (!this.#recording) return;
       const frame = this.#currentFrame();
       if (frame === this.#lastMoveFrame) return;
-      this.#lastMoveFrame = frame;
-      this.#events.push({
+      this.#pushEvent({
         frame,
         x: e.x - this.#offsetX,
         y: e.y - this.#offsetY,
@@ -50,7 +61,7 @@ export class CursorRecorder {
 
     uIOhook.on('mousedown', /** @param {import('uiohook-napi').UiohookMouseEvent} e */ (e) => {
       if (!this.#recording) return;
-      this.#events.push({
+      this.#pushEvent({
         frame: this.#currentFrame(),
         x: e.x - this.#offsetX,
         y: e.y - this.#offsetY,
@@ -61,7 +72,7 @@ export class CursorRecorder {
 
     uIOhook.on('mouseup', /** @param {import('uiohook-napi').UiohookMouseEvent} e */ (e) => {
       if (!this.#recording) return;
-      this.#events.push({
+      this.#pushEvent({
         frame: this.#currentFrame(),
         x: e.x - this.#offsetX,
         y: e.y - this.#offsetY,
@@ -72,7 +83,7 @@ export class CursorRecorder {
 
     uIOhook.on('wheel', /** @param {import('uiohook-napi').UiohookWheelEvent} e */ (e) => {
       if (!this.#recording) return;
-      this.#events.push({
+      this.#pushEvent({
         frame: this.#currentFrame(),
         x: e.x - this.#offsetX,
         y: e.y - this.#offsetY,
@@ -91,7 +102,7 @@ export class CursorRecorder {
    * Start capturing cursor events.
    * @param {number} frameRate - Project frame rate (24, 30, or 60)
    * @param {string} outputPath - Path to write .cursor.ndjson sidecar
-   * @param {{ offsetX?: number, offsetY?: number }} [captureBounds]
+   * @param {{ offsetX?: number, offsetY?: number, initialX?: number, initialY?: number }} [captureBounds]
    */
   start(frameRate, outputPath, captureBounds = {}) {
     if (this.#recording) {
@@ -108,10 +119,25 @@ export class CursorRecorder {
     this.#offsetY = Number.isFinite(captureBounds.offsetY) ? captureBounds.offsetY : 0;
     this.#recording = true;
 
+    const initialX = Number.isFinite(captureBounds.initialX)
+      ? captureBounds.initialX - this.#offsetX
+      : null;
+    const initialY = Number.isFinite(captureBounds.initialY)
+      ? captureBounds.initialY - this.#offsetY
+      : null;
+    if (initialX !== null && initialY !== null) {
+      this.#pushEvent({ frame: 0, x: initialX, y: initialY, type: 'move', button: 0 });
+    }
+
     // Start uIOhook once — never stop it
     if (!uiohookStarted) {
       try {
-        uIOhook.start();
+        const testStartHook = getTestHook('startHook');
+        if (testStartHook) {
+          testStartHook();
+        } else {
+          uIOhook.start();
+        }
         uiohookStarted = true;
         console.log('CursorRecorder: uIOhook started (will stay running)');
       } catch (err) {
@@ -193,4 +219,13 @@ export class CursorRecorder {
   get isRecording() {
     return this.#recording;
   }
+}
+
+export function __setCursorRecorderTestHooks(hooks = null) {
+  testHooks = hooks;
+}
+
+export function __resetCursorRecorderForTests() {
+  testHooks = null;
+  uiohookStarted = false;
 }

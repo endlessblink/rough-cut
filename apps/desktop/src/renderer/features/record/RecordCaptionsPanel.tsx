@@ -1,5 +1,6 @@
 import type { AIAnnotationId, CaptionSegment } from '@rough-cut/project-model';
 import { CaptionsCard } from '../edit/CaptionsCard.js';
+import { ControlLabel, RcSlider, RcSelect } from '../../ui/index.js';
 
 interface RecordCaptionsPanelProps {
   captionSegments: readonly CaptionSegment[];
@@ -9,6 +10,12 @@ interface RecordCaptionsPanelProps {
   error: string | null;
   onGenerate: () => void;
   onUpdateCaptionText: (id: AIAnnotationId, text: string) => void;
+  style: {
+    fontSize: number;
+    position: 'bottom' | 'center';
+    backgroundOpacity: number;
+  };
+  onUpdateStyle: (patch: Partial<RecordCaptionsPanelProps['style']>) => void;
 }
 
 export function RecordCaptionsPanel({
@@ -19,6 +26,8 @@ export function RecordCaptionsPanel({
   error,
   onGenerate,
   onUpdateCaptionText,
+  style,
+  onUpdateStyle,
 }: RecordCaptionsPanelProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -51,6 +60,47 @@ export function RecordCaptionsPanel({
           {error}
         </div>
       )}
+
+      <div style={{ display: 'grid', gap: 10 }}>
+        <div>
+          <ControlLabel label="Caption size" value={`${style.fontSize}px`} />
+          <RcSlider
+            label="Caption size"
+            min={16}
+            max={56}
+            step={2}
+            value={style.fontSize}
+            onChange={(value) => onUpdateStyle({ fontSize: value })}
+          />
+        </div>
+
+        <div>
+          <ControlLabel label="Caption position" />
+          <RcSelect
+            ariaLabel="Caption position"
+            value={style.position}
+            onChange={(value) => onUpdateStyle({ position: value as 'bottom' | 'center' })}
+          >
+            <option value="bottom">Bottom</option>
+            <option value="center">Center</option>
+          </RcSelect>
+        </div>
+
+        <div>
+          <ControlLabel
+            label="Background"
+            value={`${Math.round(style.backgroundOpacity * 100)}%`}
+          />
+          <RcSlider
+            label="Caption background"
+            min={0}
+            max={100}
+            step={5}
+            value={style.backgroundOpacity * 100}
+            onChange={(value) => onUpdateStyle({ backgroundOpacity: value / 100 })}
+          />
+        </div>
+      </div>
 
       <CaptionsCard
         captionSegments={captionSegments}

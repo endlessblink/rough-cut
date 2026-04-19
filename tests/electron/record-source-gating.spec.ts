@@ -103,6 +103,8 @@ test.describe('Record source gating', () => {
           thumbnailDataUrl: '',
         },
       ]);
+
+      window.dispatchEvent(new Event('focus'));
     });
 
     await navigateToTab(appPage, 'projects');
@@ -143,7 +145,7 @@ test.describe('Record source gating', () => {
       });
 
     const recordButton = appPage.locator('[data-testid="btn-record"]');
-    await expect(recordButton).toBeEnabled();
+    await expect.poll(async () => recordButton.isEnabled()).toBe(true);
 
     await appPage.evaluate(async () => {
       const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
@@ -173,10 +175,8 @@ test.describe('Record source gating', () => {
         selectedSourceId: null,
       });
 
-    await expect(recordButton).toBeDisabled();
-    await expect(appPage.locator('[data-testid="record-start-guard-banner"]')).toContainText(
-      'Select a window to enable REC.',
-    );
+    await expect.poll(async () => recordButton.isEnabled()).toBe(false);
+    await expect(recordButton).toHaveAttribute('title', 'Select a window to enable REC.');
 
     await appPage.locator('[data-testid="record-source-toggle"]').click();
     await expect(appPage.locator('text=Debug Window')).toBeVisible();
@@ -207,7 +207,7 @@ test.describe('Record source gating', () => {
         selectedSourceId: initialWindowSourceId,
       });
 
-    await expect(recordButton).toBeEnabled();
+    await expect.poll(async () => recordButton.isEnabled()).toBe(true);
 
     await appPage.evaluate(async () => {
       const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
@@ -233,7 +233,7 @@ test.describe('Record source gating', () => {
         }),
       )
       .toMatchObject({
-        recordMode: 'region',
+        recordMode: 'fullscreen',
         selectedSourceId: null,
       });
 
@@ -264,7 +264,7 @@ test.describe('Record source gating', () => {
         }),
       )
       .toMatchObject({
-        recordMode: 'region',
+        recordMode: 'fullscreen',
         selectedSourceId: initialScreenSourceId,
       });
   });

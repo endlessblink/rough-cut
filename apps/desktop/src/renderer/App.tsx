@@ -220,11 +220,20 @@ export function App() {
     }
 
     // If a camera file was saved alongside the screen recording, create a camera asset first
+    const store = projectStore.getState();
+    const timelineFps = store.project.settings.frameRate || 30;
+    const clipDuration =
+      result.durationFrames > 0
+        ? result.durationFrames
+        : result.durationMs > 0
+          ? Math.round((result.durationMs / 1000) * timelineFps)
+          : 0;
+
     let cameraAssetId: ProjectDocument['assets'][number]['id'] | undefined;
     console.log('[App] Recording result cameraFilePath:', result.cameraFilePath ?? 'NONE');
     if (result.cameraFilePath) {
       const cameraAsset = createAsset('video', result.cameraFilePath, {
-        duration: result.durationFrames,
+        duration: clipDuration,
         metadata: {
           isCamera: true,
           width: 640,
@@ -273,11 +282,6 @@ export function App() {
         console.warn('[App] Failed to generate auto zoom from cursor data:', err);
       }
     }
-
-    const store = projectStore.getState();
-    const timelineFps = store.project.settings.frameRate || 30;
-    const clipDuration =
-      result.durationMs > 0 ? Math.round((result.durationMs / 1000) * timelineFps) : 0;
 
     const baseAsset = createAsset('recording', result.filePath, {
       duration: clipDuration,

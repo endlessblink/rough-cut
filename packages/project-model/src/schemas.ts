@@ -327,8 +327,15 @@ export const CaptionSegmentSchema = z.object({
   words: z.array(TranscriptWordSchema),
 });
 
+export const CaptionStyleSchema = z.object({
+  fontSize: z.number().min(12).max(72),
+  position: z.enum(['bottom', 'center']),
+  backgroundOpacity: unit,
+});
+
 export const AIAnnotationsSchema = z.object({
   captionSegments: z.array(CaptionSegmentSchema),
+  captionStyle: CaptionStyleSchema,
 });
 
 // --- AI Libraries ---

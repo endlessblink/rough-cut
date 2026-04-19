@@ -51,6 +51,7 @@ function attachCanvasToHost(host: HTMLDivElement): void {
 export function useCompositor(): {
   previewRef: (node: HTMLDivElement | null) => void;
   isReady: boolean;
+  setPreferredPlaybackAssetId: (assetId: string | null) => void;
 } {
   const [isReady, setIsReady] = useState(false);
   const [hostNode, setHostNode] = useState<HTMLDivElement | null>(null);
@@ -59,6 +60,10 @@ export function useCompositor(): {
 
   const previewRef = useCallback((node: HTMLDivElement | null) => {
     setHostNode(node);
+  }, []);
+
+  const setPreferredPlaybackAssetId = useCallback((assetId: string | null) => {
+    sharedCompositor?.setPreferredPlaybackAssetId(assetId);
   }, []);
 
   useEffect(() => {
@@ -95,7 +100,7 @@ export function useCompositor(): {
     };
   }, [hostNode]);
 
-  return { previewRef, isReady };
+  return { previewRef, isReady, setPreferredPlaybackAssetId };
 }
 
 export function getVideoCurrentTime(): number {

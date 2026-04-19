@@ -22,6 +22,7 @@ import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import {
   getSources,
   muxAudioIntoRecording,
+  probeRecordingResult,
   reconcileSelectedSourceId,
   saveRecording,
   saveRecordingFromFile,
@@ -62,7 +63,30 @@ let debugDisplayBoundsOverride = null;
 let lastDisplayMediaSelection = null;
 const execFile = promisify(execFileCallback);
 
-let recordingConfig = { ...DEFAULT_RECORDING_CONFIG, ...getRecordingConfig() };
+function normalizeSupportedRecordMode(recordMode) {
+  return recordMode === 'window' ? 'window' : 'fullscreen';
+}
+
+function normalizeSupportedRecordingConfig(config = {}) {
+  const next = { ...DEFAULT_RECORDING_CONFIG, ...config };
+  const recordMode = normalizeSupportedRecordMode(next.recordMode);
+  const selectedSourceId = isSourceIdCompatibleWithMode(next.selectedSourceId, recordMode)
+    ? next.selectedSourceId
+    : null;
+
+  return {
+    ...next,
+    recordMode,
+    selectedSourceId,
+  };
+}
+
+const persistedRecordingConfig = { ...DEFAULT_RECORDING_CONFIG, ...getRecordingConfig() };
+let recordingConfig = normalizeSupportedRecordingConfig(persistedRecordingConfig);
+
+if (JSON.stringify(recordingConfig) !== JSON.stringify(persistedRecordingConfig)) {
+  setRecordingConfig(recordingConfig);
+}
 
 function getCaptureSourceTypeForMode(recordMode) {
   return recordMode === 'window' ? 'window' : 'screen';
@@ -182,13 +206,13 @@ function broadcastRecordingConfig() {
 }
 
 function applyRecordingConfigPatch(patch = {}) {
-  const next = { ...recordingConfig };
+  const nextPatch = {};
   for (const key of Object.keys(DEFAULT_RECORDING_CONFIG)) {
     if (Object.prototype.hasOwnProperty.call(patch, key)) {
-      next[key] = patch[key];
+      nextPatch[key] = patch[key];
     }
   }
-  recordingConfig = next;
+  recordingConfig = normalizeSupportedRecordingConfig({ ...recordingConfig, ...nextPatch });
   setRecordingConfig(recordingConfig);
   return recordingConfig;
 }
@@ -424,6 +448,92 @@ async function hydrateProjectRecordSidecars(project) {
   return {
     ...project,
     assets: hydratedAssets,
+  };
+}
+
+async function hydrateProjectRecordingDurations(project) {
+  if (!project || !Array.isArray(project.assets) || !project.composition?.tracks) return project;
+
+  const timelineFps = project.settings?.frameRate ?? 30;
+  const assetUpdates = new Map();
+
+  for (const asset of project.assets) {
+    if (asset?.type !== 'recording' || !asset.filePath || !existsSync(asset.filePath)) continue;
+
+    try {
+      const metadata = probeRecordingResult(asset.filePath, { timelineFps });
+      if (!metadata.durationFrames || metadata.durationFrames <= 0) continue;
+
+      assetUpdates.set(asset.id, {
+        duration: metadata.durationFrames,
+        metadata: {
+          ...asset.metadata,
+          width: metadata.width,
+          height: metadata.height,
+          fps: metadata.fps,
+          codec: metadata.codec,
+          fileSize: metadata.fileSize,
+          hasAudio: metadata.hasAudio,
+        },
+      });
+    } catch (err) {
+      console.warn('[project-open] Failed to probe recording metadata:', asset.filePath, err);
+    }
+  }
+
+  if (assetUpdates.size === 0) return project;
+
+  let maxCompositionDuration = 0;
+  const nextTracks = project.composition.tracks.map((track) => ({
+    ...track,
+    clips: track.clips.map((clip) => {
+      const update = assetUpdates.get(clip.assetId);
+      if (!update) {
+        maxCompositionDuration = Math.max(maxCompositionDuration, clip.timelineOut);
+        return clip;
+      }
+
+      const previousSourceDuration = Math.max(0, clip.sourceOut - clip.sourceIn);
+      const nextSourceDuration = update.duration;
+      const nextTimelineOut = clip.timelineIn + nextSourceDuration;
+
+      const repairedClip = {
+        ...clip,
+        sourceOut: clip.sourceIn + nextSourceDuration,
+        timelineOut: nextTimelineOut,
+      };
+
+      if (previousSourceDuration !== nextSourceDuration) {
+        console.info('[project-open] Repaired recording clip duration:', {
+          assetId: clip.assetId,
+          clipId: clip.id,
+          previousSourceDuration,
+          nextSourceDuration,
+        });
+      }
+
+      maxCompositionDuration = Math.max(maxCompositionDuration, repairedClip.timelineOut);
+      return repairedClip;
+    }),
+  }));
+
+  return {
+    ...project,
+    assets: project.assets.map((asset) => {
+      const update = assetUpdates.get(asset.id);
+      return update
+        ? {
+            ...asset,
+            duration: update.duration,
+            metadata: update.metadata,
+          }
+        : asset;
+    }),
+    composition: {
+      ...project.composition,
+      tracks: nextTracks,
+      duration: Math.max(maxCompositionDuration, project.composition.duration ?? 0),
+    },
   };
 }
 
@@ -708,7 +818,8 @@ function registerIpcHandlers() {
     const filePath = result.filePaths[0];
     const content = await readFile(filePath, 'utf-8');
     const repairedProject = repairProjectMediaPaths(JSON.parse(content), filePath);
-    const data = await hydrateProjectRecordSidecars(repairedProject);
+    const durationHydratedProject = await hydrateProjectRecordingDurations(repairedProject);
+    const data = await hydrateProjectRecordSidecars(durationHydratedProject);
     // Return the raw data -- the renderer will validate via the project-model package
     const firstThumb = Array.isArray(data.assets) ? data.assets.find((a) => a.thumbnailPath) : null;
     addRecentProject({
@@ -1022,7 +1133,8 @@ function registerIpcHandlers() {
   ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, async (_e, { filePath }) => {
     const content = await readFile(filePath, 'utf-8');
     const repairedProject = repairProjectMediaPaths(JSON.parse(content), filePath);
-    return hydrateProjectRecordSidecars(repairedProject);
+    const durationHydratedProject = await hydrateProjectRecordingDurations(repairedProject);
+    return hydrateProjectRecordSidecars(durationHydratedProject);
   });
 
   ipcMain.handle(IPC_CHANNELS.LIBRARY_OPEN_PATH, async (_e, { filePath }) => {

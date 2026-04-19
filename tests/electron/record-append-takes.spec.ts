@@ -275,6 +275,60 @@ test.describe('Record append takes', () => {
     }, savedPath);
   });
 
+  test('fresh recording import prefers durationFrames when durationMs is stale', async ({
+    electronApp,
+    appPage,
+  }) => {
+    await navigateToTab(appPage, 'record');
+
+    const initial = await readProjectSnapshot(appPage);
+    expect(initial.assetCount).toBe(0);
+    expect(initial.projectFilePath).toBeNull();
+
+    const fake: FakeRecordingResult = {
+      filePath: '/tmp/rough-cut-e2e-synthetic-duration-truth.webm',
+      durationFrames: 270,
+      durationMs: 3000,
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      codec: 'vp8',
+      fileSize: 1,
+      hasAudio: true,
+      thumbnailPath: null,
+      cursorEventsPath: null,
+    };
+
+    await fireRecordingAssetReady(electronApp, fake);
+
+    await appPage.waitForFunction(
+      () => {
+        const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+        return stores?.project.getState().project.assets.length === 1;
+      },
+      null,
+      { timeout: 10_000 },
+    );
+
+    const after = await readProjectSnapshot(appPage);
+    expect(after.assetCount).toBe(1);
+    expect(after.primaryVideoClipCount).toBe(1);
+    expect(after.audioClipCount).toBe(1);
+
+    const onlyClip = after.primaryVideoClips[0];
+    expect(onlyClip).toBeDefined();
+    expect(onlyClip!.timelineIn).toBe(0);
+    expect(onlyClip!.timelineOut).toBe(fake.durationFrames);
+    expect(after.duration).toBe(fake.durationFrames);
+
+    const activeAsset = await appPage.evaluate(() => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      const state = stores?.project.getState();
+      return state?.project.assets.find((asset: any) => asset.id === state.activeAssetId) ?? null;
+    });
+    expect(activeAsset?.duration).toBe(fake.durationFrames);
+  });
+
   test('imported project state stays silent when the final result has no audio', async ({
     electronApp,
     appPage,

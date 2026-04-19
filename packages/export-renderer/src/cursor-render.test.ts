@@ -1,6 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createCanvas } from 'canvas';
-import { buildCursorFrameData, renderCursorOverlay, type CursorFrameData } from './cursor-render.js';
+import {
+  buildCursorFrameData,
+  loadCursorFrameData,
+  renderCursorOverlay,
+  type CursorFrameData,
+} from './cursor-render.js';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('renderCursorOverlay', () => {
   it('draws a cursor and click effect onto the canvas', () => {
@@ -92,5 +101,25 @@ describe('renderCursorOverlay', () => {
 
     expect(sampleWindow(20, 42, 12)).toBeGreaterThan(10);
     expect(sampleWindow(104, 18, 8)).toBe(0);
+  });
+
+  it('falls back to inferred cursor sidecar during export loading', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'media:///tmp/example.cursor.ndjson') {
+        return {
+          ok: true,
+          text: async () => '{"frame":0,"x":100,"y":50,"type":"move","button":0}\n',
+        };
+      }
+
+      return { ok: false, text: async () => '' };
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const data = await loadCursorFrameData(null, 30, 1920, 1080, '/tmp/example.webm');
+
+    expect(data).not.toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith('media:///tmp/example.cursor.ndjson');
   });
 });

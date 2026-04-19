@@ -14,6 +14,7 @@ import type { CursorFrameData } from '../../components/CursorOverlay.js';
 import { buildCursorFrameData } from '../../components/cursor-data-loader.js';
 import { useCursorEvents } from '../../hooks/use-cursor-events.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
+import { inferCursorEventsPath } from '../../lib/media-sidecars.js';
 
 interface RecordingPlaybackVideoProps {
   filePath: string;
@@ -35,7 +36,12 @@ export function RecordingPlaybackVideo({
   selectedZoomMarker = null,
   onFocalPointChange,
 }: RecordingPlaybackVideoProps) {
-  const { previewRef, isReady } = useCompositor();
+  const { previewRef, isReady, setPreferredPlaybackAssetId } = useCompositor();
+
+  useEffect(() => {
+    setPreferredPlaybackAssetId(assetId);
+    return () => setPreferredPlaybackAssetId(null);
+  }, [assetId, setPreferredPlaybackAssetId]);
 
   // Find the clip range so we can map project frames → clip-local zoom timing.
   const clipRangeKey = useProjectStore((s) => {
@@ -61,7 +67,10 @@ export function RecordingPlaybackVideo({
   const assetDuration = asset?.duration || 900;
   const assetWidth = (asset?.metadata?.width as number) || 1920;
   const assetHeight = (asset?.metadata?.height as number) || 1080;
-  const cursorPath = asset?.metadata?.cursorEventsPath as string | null;
+  const cursorPath = inferCursorEventsPath(
+    asset?.filePath ?? null,
+    asset?.metadata?.cursorEventsPath as string | null,
+  );
   const cursorEvents = useCursorEvents(cursorPath, assetWidth, assetHeight);
 
   const [cursorData, setCursorData] = useState<CursorFrameData | null>(null);

@@ -402,6 +402,11 @@ export function createProjectLibraryReference(
 export function createDefaultAIAnnotations(): AIAnnotations {
   return {
     captionSegments: [],
+    captionStyle: {
+      fontSize: 28,
+      position: 'bottom',
+      backgroundOpacity: 0.55,
+    },
   };
 }
 

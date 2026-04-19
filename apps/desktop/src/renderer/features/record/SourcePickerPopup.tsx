@@ -3,13 +3,16 @@ import type { CaptureSource } from '../../env.js';
 
 import type { RecordMode } from './ModeSelectorRow.js';
 
+function normalizeSupportedRecordMode(recordMode: RecordMode): Exclude<RecordMode, 'region'> {
+  return recordMode === 'window' ? 'window' : 'fullscreen';
+}
+
 function getExpectedSourceType(recordMode: RecordMode): 'screen' | 'window' {
-  return recordMode === 'window' ? 'window' : 'screen';
+  return normalizeSupportedRecordMode(recordMode) === 'window' ? 'window' : 'screen';
 }
 
 function getModeLabel(recordMode: RecordMode): string {
-  if (recordMode === 'window') return 'window';
-  if (recordMode === 'region') return 'screen for region capture';
+  if (normalizeSupportedRecordMode(recordMode) === 'window') return 'window';
   return 'screen';
 }
 

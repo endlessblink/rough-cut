@@ -65,14 +65,16 @@ export async function runWebCodecsExportToBuffer(
   const cursorDataByAssetId = new Map<string, CursorFrameData>();
 
   for (const asset of project.assets) {
-    const cursorEventsPath = asset.metadata?.['cursorEventsPath'];
+    const rawCursorEventsPath = asset.metadata?.['cursorEventsPath'];
+    const cursorEventsPath =
+      typeof rawCursorEventsPath === 'string' ? rawCursorEventsPath : undefined;
     const sourceWidth = asset.metadata?.['width'];
     const sourceHeight = asset.metadata?.['height'];
     if (
-      typeof cursorEventsPath !== 'string' ||
       typeof sourceWidth !== 'number' ||
       typeof sourceHeight !== 'number' ||
-      asset.duration <= 0
+      asset.duration <= 0 ||
+      !asset.filePath
     ) {
       continue;
     }
@@ -82,6 +84,7 @@ export async function runWebCodecsExportToBuffer(
       asset.duration,
       sourceWidth,
       sourceHeight,
+      asset.filePath,
     );
     if (cursorData) {
       cursorDataByAssetId.set(asset.id, cursorData);

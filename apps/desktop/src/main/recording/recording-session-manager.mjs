@@ -134,6 +134,11 @@ let stopCompletion = null;
 let shutdownPromise = null;
 let panelDestroyInProgress = false;
 let allowAppQuit = false;
+let testHooks = null;
+
+function getTestHook(name) {
+  return testHooks && typeof testHooks[name] === 'function' ? testHooks[name] : null;
+}
 
 function broadcastSessionEvent(channel, ...args) {
   safeSend(panelWindow, channel, ...args);
@@ -290,6 +295,12 @@ function deriveRecordModeFromSourceId(sourceId) {
 }
 
 async function persistActiveRecoveryMarker(patch = {}) {
+  const testPersistRecoveryMarker = getTestHook('persistRecoveryMarker');
+  if (testPersistRecoveryMarker) {
+    activeRecoveryMarker = await testPersistRecoveryMarker(activeRecoveryMarker, patch);
+    return activeRecoveryMarker;
+  }
+
   if (!activeRecoveryMarker) return null;
 
   activeRecoveryMarker = await writeRecordingRecoveryMarker({
@@ -314,6 +325,11 @@ function getEffectiveElapsedMs() {
 }
 
 async function resolveProjectDir() {
+  const testResolveProjectDir = getTestHook('resolveProjectDir');
+  if (testResolveProjectDir) {
+    return testResolveProjectDir();
+  }
+
   try {
     const { getRecordingLocation } = await import('../recent-projects-service.mjs');
     return getRecordingLocation() || null;
@@ -366,6 +382,12 @@ function transitionToIdle() {
 }
 
 async function stopActiveCaptureResources() {
+  const testStopActiveCaptureResources = getTestHook('stopActiveCaptureResources');
+  if (testStopActiveCaptureResources) {
+    await testStopActiveCaptureResources();
+    return;
+  }
+
   _cleanup();
 
   try {
@@ -445,7 +467,12 @@ async function decorateSavedResult(result, metadata) {
 }
 
 async function finalizeSavedSession(result, metadata) {
-  await clearRecordingRecoveryMarker();
+  const testClearRecoveryMarker = getTestHook('clearRecoveryMarker');
+  if (testClearRecoveryMarker) {
+    await testClearRecoveryMarker(activeRecoveryMarker);
+  } else {
+    await clearRecordingRecoveryMarker();
+  }
   activeRecoveryMarker = null;
   await decorateSavedResult(result, metadata);
 
@@ -483,6 +510,11 @@ async function finalizeInterruptedSession(reason) {
 }
 
 async function trySaveFromCaptureFiles(metadata) {
+  const testTrySaveFromCaptureFiles = getTestHook('trySaveFromCaptureFiles');
+  if (testTrySaveFromCaptureFiles) {
+    return testTrySaveFromCaptureFiles(metadata);
+  }
+
   const projectDir = await resolveProjectDir();
   const hasFfmpegOutput = await waitForCaptureFile(ffmpegOutputPath, 8000);
   const hasFfmpegAudioOutput = await waitForCaptureFile(ffmpegAudioOutputPath, 2500);
@@ -994,9 +1026,12 @@ export async function startRecording() {
     });
     try {
       const fps = 30;
+      const initialPoint = screen.getCursorScreenPoint();
       cursorRecorder.start(fps, cursorPath, {
         offsetX: sourceInfo?.offsetX ?? 0,
         offsetY: sourceInfo?.offsetY ?? 0,
+        initialX: initialPoint?.x,
+        initialY: initialPoint?.y,
       });
     } catch (err) {
       console.warn('[session-manager] CursorRecorder failed to start:', err?.message ?? err);
@@ -1163,6 +1198,103 @@ export async function stopRecording() {
   await requestSessionShutdown('user-stop');
   console.info('[session-manager] Recording stop completed.');
 }
+
+async function handleBeforeQuit(event) {
+  if (allowAppQuit) return;
+  if (state === 'idle' && !panelWindow) return;
+
+  event.preventDefault();
+  void requestSessionShutdown('app-quit')
+    .catch((err) => {
+      console.error('[session-manager] stopRecording on quit failed:', err);
+    })
+    .finally(() => {
+      allowAppQuit = true;
+      const testQuitApplication = getTestHook('quitApplication');
+      if (testQuitApplication) {
+        testQuitApplication();
+      } else {
+        app.quit();
+      }
+    });
+}
+
+export function __setSessionManagerTestHooks(hooks = null) {
+  testHooks = hooks;
+}
+
+export function __setSessionManagerTestState(patch = {}) {
+  if ('state' in patch) state = patch.state;
+  if ('mainWindow' in patch) mainWindow = patch.mainWindow;
+  if ('panelWindow' in patch) panelWindow = patch.panelWindow;
+  if ('recordingStartMs' in patch) recordingStartMs = patch.recordingStartMs;
+  if ('activeRecoveryMarker' in patch) activeRecoveryMarker = patch.activeRecoveryMarker;
+  if ('pendingAudioConfig' in patch) pendingAudioConfig = { ...pendingAudioConfig, ...patch.pendingAudioConfig };
+  if ('activeAudioCapturePlan' in patch) {
+    activeAudioCapturePlan = { ...activeAudioCapturePlan, ...patch.activeAudioCapturePlan };
+  }
+  if ('stopCompletion' in patch) stopCompletion = patch.stopCompletion;
+  if ('allowAppQuit' in patch) allowAppQuit = patch.allowAppQuit;
+}
+
+export function __getSessionManagerTestState() {
+  return {
+    state,
+    allowAppQuit,
+    hasPanelWindow: !!panelWindow,
+    hasMainWindow: !!mainWindow,
+    activeRecoveryMarker,
+  };
+}
+
+export function __resetSessionManagerForTests() {
+  testHooks = null;
+  state = 'idle';
+  mainWindow = null;
+  panelWindow = null;
+  tray = null;
+  elapsedTimer = null;
+  countdownTimer = null;
+  recordingStartMs = 0;
+  lastCursorResult = null;
+  ffmpegHandle = null;
+  ffmpegAudioHandle = null;
+  ffmpegOutputPath = null;
+  ffmpegAudioOutputPath = null;
+  activeRecoveryMarker = null;
+  getSourceInfo = null;
+  pendingAudioConfig = {
+    micEnabled: false,
+    sysAudioEnabled: false,
+    countdownSeconds: 3,
+    selectedMicDeviceId: null,
+    selectedMicLabel: null,
+    selectedSystemAudioSourceId: null,
+  };
+  activeAudioCapturePlan = { micSource: null, systemAudioSource: null };
+  stopCompletion = null;
+  shutdownPromise = null;
+  panelDestroyInProgress = false;
+  allowAppQuit = false;
+  pauseCapability = getRecordingPauseCapability({ capturesCursor: true });
+}
+
+export async function __handleBeforeQuitForTests(event) {
+  await handleBeforeQuit(event);
+}
+
+export async function __requestSessionShutdownForTests(reason, options) {
+  return requestSessionShutdown(reason, options);
+}
+
+globalThis.__roughCutSessionManagerTestApi = {
+  __setSessionManagerTestHooks,
+  __setSessionManagerTestState,
+  __getSessionManagerTestState,
+  __resetSessionManagerForTests,
+  __handleBeforeQuitForTests,
+  __requestSessionShutdownForTests,
+};
 
 // ---------------------------------------------------------------------------
 // Countdown (internal)
@@ -1423,18 +1555,5 @@ export function initSessionManager(win, sourceInfoGetter) {
 
   // ---- Safety net ----
 
-  app.on('before-quit', (event) => {
-    if (allowAppQuit) return;
-    if (state === 'idle' && !panelWindow) return;
-
-    event.preventDefault();
-    void requestSessionShutdown('app-quit')
-      .catch((err) => {
-        console.error('[session-manager] stopRecording on quit failed:', err);
-      })
-      .finally(() => {
-        allowAppQuit = true;
-        app.quit();
-      });
-  });
+  app.on('before-quit', handleBeforeQuit);
 }

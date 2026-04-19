@@ -206,7 +206,7 @@ test.describe('Record mode capture source selection', () => {
         }),
       )
       .toMatchObject({
-        recordMode: 'region',
+        recordMode: 'fullscreen',
         selectedSourceId: null,
       });
 
@@ -228,7 +228,7 @@ test.describe('Record mode capture source selection', () => {
         }),
       )
       .toMatchObject({
-        requestedRecordMode: 'region',
+        requestedRecordMode: 'fullscreen',
         configuredSelectedSourceId: null,
         grantedSourceId: null,
         grantedSourceType: null,
@@ -252,7 +252,7 @@ test.describe('Record mode capture source selection', () => {
         }),
       )
       .toMatchObject({
-        recordMode: 'region',
+        recordMode: 'fullscreen',
         selectedSourceId: initialScreenSourceId,
       });
 
@@ -274,7 +274,7 @@ test.describe('Record mode capture source selection', () => {
         }),
       )
       .toMatchObject({
-        requestedRecordMode: 'region',
+        requestedRecordMode: 'fullscreen',
         configuredSelectedSourceId: expect.stringMatching(/^screen:/),
         grantedSourceId: expect.stringMatching(/^screen:/),
         grantedSourceType: 'screen',

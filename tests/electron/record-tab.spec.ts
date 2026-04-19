@@ -23,6 +23,16 @@ type DeviceSelectionSnapshot = {
   selectedSystemAudioSourceId: string | null;
 };
 
+async function chooseRecordSource(
+  appPage: import('@playwright/test').Page,
+  sourceName: string,
+): Promise<void> {
+  await appPage.locator('[data-testid="record-source-toggle"]').click();
+  await expect(appPage.locator(`text=${sourceName}`)).toBeVisible();
+  await appPage.locator(`text=${sourceName}`).click();
+  await appPage.getByRole('button', { name: 'Use source' }).click();
+}
+
 async function getAvailableDeviceSelections(appPage: import('@playwright/test').Page) {
   return appPage.evaluate(async () => {
     const devices = await (navigator.mediaDevices?.enumerateDevices?.() ?? Promise.resolve([]));
@@ -71,6 +81,19 @@ test.describe('Record tab', () => {
 
   test('renders the record tab root', async ({ appPage }) => {
     await expect(appPage.locator('[data-testid="record-tab-root"]')).toBeVisible();
+  });
+
+  test('shows the zoom-to-cursor control in the zoom panel', async ({ appPage }) => {
+    await loadZoomFixture(appPage, { preserveCursorEvents: true });
+
+    const recordRoot = appPage.locator('[data-testid="record-tab-root"]');
+    await expect(recordRoot.getByRole('button', { name: 'Zoom' })).toBeVisible();
+    await recordRoot.getByRole('button', { name: 'Zoom' }).click();
+
+    await expect(recordRoot.getByText('Zoom to cursor')).toBeVisible();
+    await expect(
+      recordRoot.getByText('Keeps the active zoom framing attached to the mouse'),
+    ).toBeVisible();
   });
 
   test('shows the record button', async ({ appPage }) => {
@@ -303,16 +326,17 @@ test.describe('Record tab', () => {
     await navigateToTab(appPage, 'projects');
     await navigateToTab(appPage, 'record');
 
-    await appPage.evaluate(
-      async ({ sourceId }) => {
-        const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
-        await api.recordingConfigUpdate({
-          recordMode: 'fullscreen',
-          selectedSourceId: sourceId,
-        });
-      },
-      { sourceId: initialScreenSourceId },
-    );
+    await expect
+      .poll(async () =>
+        appPage.evaluate(async () => {
+          const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
+          const sources = await api.recordingGetSources();
+          return sources.map((source) => source.id);
+        }),
+      )
+      .toContain(initialScreenSourceId);
+
+    await chooseRecordSource(appPage, 'Debug Screen');
 
     await expect
       .poll(async () =>
@@ -339,7 +363,7 @@ test.describe('Record tab', () => {
 
     const recordButton = appPage.locator('[data-testid="btn-record"]');
 
-    await expect(recordButton).toBeEnabled();
+    await expect.poll(async () => recordButton.isEnabled()).toBe(true);
 
     await appPage.evaluate(async () => {
       const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
@@ -369,10 +393,8 @@ test.describe('Record tab', () => {
         selectedSourceId: null,
       });
 
-    await expect(recordButton).toBeDisabled();
-    await expect(appPage.locator('[data-testid="record-start-guard-banner"]')).toContainText(
-      'Select a window to enable REC.',
-    );
+    await expect.poll(async () => recordButton.isEnabled()).toBe(false);
+    await expect(recordButton).toHaveAttribute('title', 'Select a window to enable REC.');
 
     await appPage.locator('[data-testid="record-source-toggle"]').click();
     await expect(appPage.locator('text=Debug Window')).toBeVisible();
@@ -403,7 +425,7 @@ test.describe('Record tab', () => {
         selectedSourceId: initialWindowSourceId,
       });
 
-    await expect(recordButton).toBeEnabled();
+    await expect.poll(async () => recordButton.isEnabled()).toBe(true);
 
     await appPage.evaluate(async () => {
       const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
@@ -429,7 +451,7 @@ test.describe('Record tab', () => {
         }),
       )
       .toMatchObject({
-        recordMode: 'region',
+        recordMode: 'fullscreen',
         selectedSourceId: null,
       });
 
@@ -460,7 +482,7 @@ test.describe('Record tab', () => {
         }),
       )
       .toMatchObject({
-        recordMode: 'region',
+        recordMode: 'fullscreen',
         selectedSourceId: initialScreenSourceId,
       });
 
@@ -1049,6 +1071,32 @@ test.describe('Record tab', () => {
       .toContain('Generated in Record');
   });
 
+  test('Record captions panel updates persisted caption style', async ({ appPage }) => {
+    await loadZoomFixture(appPage);
+
+    await appPage.getByRole('button', { name: 'Captions' }).click();
+    await appPage
+      .locator('select')
+      .filter({ has: appPage.locator('option[value="bottom"]') })
+      .last()
+      .selectOption('center');
+
+    await expect
+      .poll(async () =>
+        appPage.evaluate(() => {
+          const stores = (
+            window as unknown as {
+              __roughcutStores?: {
+                project: { getState: () => { project: { aiAnnotations: { captionStyle: any } } } };
+              };
+            }
+          ).__roughcutStores;
+          return stores?.project.getState().project.aiAnnotations.captionStyle ?? null;
+        }),
+      )
+      .toMatchObject({ position: 'center' });
+  });
+
   test('record button shows REC text when idle', async ({ appPage }) => {
     const btn = appPage.locator('[data-testid="btn-record"]');
     await expect(btn).toContainText('REC');
@@ -1061,8 +1109,7 @@ test.describe('Record tab', () => {
   test('clicking a timeline clip switches selection away from a zoom marker', async ({
     appPage,
   }) => {
-    await appPage.locator('[data-testid="debug-reload"]').click();
-    await appPage.waitForSelector('[data-testid="zoom-host"]', { timeout: 10_000 });
+    await loadZoomFixture(appPage);
 
     await appPage.locator('[data-testid="zoom-add"]').click();
 
@@ -1089,8 +1136,7 @@ test.describe('Record tab', () => {
   });
 
   test('inspector follows zoom, screen, and camera timeline selection', async ({ appPage }) => {
-    await appPage.locator('[data-testid="debug-reload"]').click();
-    await appPage.waitForSelector('[data-testid="zoom-host"]', { timeout: 10_000 });
+    await loadZoomFixture(appPage);
 
     const assetIds = await appPage.evaluate(() => {
       const stores = (

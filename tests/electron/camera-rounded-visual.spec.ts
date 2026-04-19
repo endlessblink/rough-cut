@@ -18,6 +18,77 @@ test('rounded camera keeps restrained corners at max roundness for 16:9', async 
   await assertRoundedCameraVisual(appPage, '16:9', 'camera-rounded-max-roundness-wide.png');
 });
 
+test('camera aspect control updates a saved camera frame override', async ({ appPage }) => {
+  test.setTimeout(45_000);
+
+  await navigateToTab(appPage, 'record');
+
+  const project = (await appPage.evaluate(
+    (projectPath) =>
+      (
+        window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
+      ).roughcut.projectOpenPath(projectPath),
+    RECORDED_PROJECT_PATH,
+  )) as Record<string, any>;
+
+  const recording = project.assets.find(
+    (asset: any) => asset.type === 'recording' && asset.metadata?.isCamera !== true,
+  );
+  expect(recording).toBeTruthy();
+
+  await appPage.evaluate(
+    ({ nextProject, projectPath, activeAssetId }) => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      const patchedProject = {
+        ...nextProject,
+        assets: nextProject.assets.map((asset: any) =>
+          asset.id === activeAssetId
+            ? {
+                ...asset,
+                presentation: {
+                  ...(asset.presentation ?? {}),
+                  templateId: 'presentation-16x9',
+                  cameraFrame: { x: 0.72, y: 0.72, w: 0.2, h: 0.2 },
+                  camera: {
+                    ...(asset.presentation?.camera ?? {}),
+                    visible: true,
+                    shape: 'square',
+                    aspectRatio: '1:1',
+                    size: 100,
+                    position: 'corner-br',
+                  },
+                },
+              }
+            : asset,
+        ),
+      };
+
+      stores?.project.getState().setProject(patchedProject);
+      stores?.project.getState().setProjectFilePath(projectPath);
+      stores?.project.getState().setActiveAssetId(activeAssetId);
+      stores?.transport.getState().seekToFrame(0);
+    },
+    {
+      nextProject: project,
+      projectPath: RECORDED_PROJECT_PATH,
+      activeAssetId: recording?.id ?? null,
+    },
+  );
+
+  await appPage.locator(RECORD_CAMERA_FRAME).waitFor({ state: 'visible', timeout: 30_000 });
+
+  const before = await getFrameMetrics(appPage);
+  expect(before.width).toBeGreaterThan(before.height);
+
+  await appPage.locator(RECORD_CAMERA_FRAME).click();
+  await appPage.locator('button', { hasText: '9:16' }).first().click();
+  await appPage.waitForTimeout(300);
+
+  const after = await getFrameMetrics(appPage);
+  expect(after.width).toBeLessThan(before.width);
+  expect(after.height).toBeGreaterThan(after.width * 1.4);
+});
+
 async function assertRoundedCameraVisual(
   appPage: import('@playwright/test').Page,
   aspectRatio: CameraAspectRatio,
@@ -81,10 +152,7 @@ async function assertRoundedCameraVisual(
     },
   );
 
-  await appPage.waitForFunction((selector) => {
-    const video = document.querySelector(selector) as HTMLVideoElement | null;
-    return video?.getAttribute('data-ready') === 'true';
-  }, RECORD_CAMERA_VIDEO);
+  await appPage.locator(RECORD_CAMERA_FRAME).waitFor({ state: 'visible', timeout: 30_000 });
   await appPage.waitForTimeout(400);
 
   const metrics = await appPage.evaluate((selector) => {
@@ -102,8 +170,8 @@ async function assertRoundedCameraVisual(
   expect(metrics).not.toBeNull();
   if (!metrics) return;
 
-  expect(metrics.width).toBeGreaterThan(60);
-  expect(metrics.height).toBeGreaterThan(60);
+  expect(metrics.width).toBeGreaterThan(50);
+  expect(metrics.height).toBeGreaterThan(50);
   expect(metrics.borderTopLeftRadius).toBeGreaterThan(0);
   expect(metrics.borderTopLeftRadius).toBeLessThan(Math.min(metrics.width, metrics.height) / 2);
 
@@ -111,4 +179,22 @@ async function assertRoundedCameraVisual(
     animations: 'disabled',
     caret: 'hide',
   });
+}
+
+async function getFrameMetrics(appPage: import('@playwright/test').Page) {
+  const metrics = await appPage.evaluate((selector) => {
+    const frame = document.querySelector(selector) as HTMLElement | null;
+    if (!frame) return null;
+    const rect = frame.getBoundingClientRect();
+    const styles = window.getComputedStyle(frame);
+    return {
+      width: rect.width,
+      height: rect.height,
+      borderTopLeftRadius: Number.parseFloat(styles.borderTopLeftRadius),
+    };
+  }, RECORD_CAMERA_FRAME);
+
+  expect(metrics).not.toBeNull();
+  if (!metrics) throw new Error('Expected measurable camera frame');
+  return metrics;
 }

@@ -109,6 +109,10 @@ export interface RecordRightPanelProps {
   isGeneratingCaptions?: boolean;
   captionError?: string | null;
   onGenerateCaptions?: () => void;
+  captionStyle?: { fontSize: number; position: 'bottom' | 'center'; backgroundOpacity: number };
+  onUpdateCaptionStyle?: (
+    patch: Partial<{ fontSize: number; position: 'bottom' | 'center'; backgroundOpacity: number }>,
+  ) => void;
 }
 
 // ─── Inline SVG Icons ─────────────────────────────────────────────────────────
@@ -422,6 +426,8 @@ export function RecordRightPanel({
   isGeneratingCaptions = false,
   captionError = null,
   onGenerateCaptions,
+  captionStyle = { fontSize: 28, position: 'bottom', backgroundOpacity: 0.55 },
+  onUpdateCaptionStyle,
 }: RecordRightPanelProps) {
   const handleSelectTemplate = useCallback(
     (template: LayoutTemplate) => {
@@ -576,6 +582,8 @@ export function RecordRightPanel({
           error={captionError}
           onGenerate={() => onGenerateCaptions?.()}
           onUpdateCaptionText={(id, text) => onUpdateCaptionText?.(id, text)}
+          style={captionStyle}
+          onUpdateStyle={(patch) => onUpdateCaptionStyle?.(patch)}
         />
       ),
     },

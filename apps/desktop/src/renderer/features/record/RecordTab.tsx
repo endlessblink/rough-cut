@@ -66,8 +66,8 @@ import {
 } from './use-recording-device-options.js';
 import { RecordingPlaybackVideo } from './RecordingPlaybackVideo.js';
 import { CameraPlaybackCanvas } from './CameraPlaybackCanvas.js';
-import { LivePreviewCanvas } from './LivePreviewCanvas.js';
 import { LAYOUT_TEMPLATES, resolutionForAspectRatio } from './templates.js';
+import { inferCursorEventsPath } from '../../lib/media-sidecars.js';
 import type { LayoutTemplate } from './templates.js';
 import type { Rect } from './template-layout/types.js';
 import type { Alignment } from './snap-guides.js';
@@ -123,18 +123,21 @@ type RuntimeCheck = {
   detail: string;
 };
 
+function normalizeSupportedRecordMode(recordMode: RecordMode): Exclude<RecordMode, 'region'> {
+  return recordMode === 'window' ? 'window' : 'fullscreen';
+}
+
 function getExpectedSourceType(recordMode: RecordMode): 'screen' | 'window' {
-  return recordMode === 'window' ? 'window' : 'screen';
+  return normalizeSupportedRecordMode(recordMode) === 'window' ? 'window' : 'screen';
 }
 
 function getRecordModeSourceLabel(recordMode: RecordMode): string {
-  if (recordMode === 'window') return 'window';
-  if (recordMode === 'region') return 'screen for region capture';
+  if (normalizeSupportedRecordMode(recordMode) === 'window') return 'window';
   return 'screen';
 }
 
 function getPreviewSelectionLabel(recordMode: RecordMode): string {
-  return recordMode === 'window' ? 'window' : 'screen';
+  return normalizeSupportedRecordMode(recordMode) === 'window' ? 'window' : 'screen';
 }
 
 export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
@@ -188,6 +191,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
 
   const { sources, status, error, elapsedMs } = state;
   const recordMode = useRecordingConfig((s) => s.recordMode);
+  const supportedRecordMode = normalizeSupportedRecordMode(recordMode as RecordMode);
   const selectedSourceId = useRecordingConfig((s) => s.selectedSourceId);
   const micEnabled = useRecordingConfig((s) => s.micEnabled);
   const sysAudioEnabled = useRecordingConfig((s) => s.sysAudioEnabled);
@@ -247,6 +251,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   });
   const activeRecordingId = activeRecordingAsset?.id ?? null;
   const captionSegments = useProjectStore((s) => s.project.aiAnnotations.captionSegments);
+  const captionStyle = useProjectStore((s) => s.project.aiAnnotations.captionStyle);
   const recordCaptionSegments = activeRecordingId
     ? captionSegments.filter((seg) => seg.assetId === activeRecordingId)
     : ([] as CaptionSegment[]);
@@ -286,7 +291,8 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         bitrate: exportBitrate,
       },
     })?.id ?? null;
-  const selectedDestinationPresetId = persistedDestinationPreset?.id ?? inferredDestinationPresetId ?? null;
+  const selectedDestinationPresetId =
+    persistedDestinationPreset?.id ?? inferredDestinationPresetId ?? null;
   const cursorPresentation =
     activeRecordingPresentation?.cursor ?? createDefaultCursorPresentation();
   // screenCrop from store is read but we use local state for immediate responsiveness
@@ -706,6 +712,22 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     projectStore.getState().updateCaptionText(id, text);
   }, []);
 
+  const handleUpdateRecordCaptionStyle = useCallback(
+    (
+      patch: Partial<{
+        fontSize: number;
+        position: 'bottom' | 'center';
+        backgroundOpacity: number;
+      }>,
+    ) => {
+      const store = projectStore.getState() as unknown as {
+        updateCaptionStyle?: (next: typeof patch) => void;
+      };
+      store.updateCaptionStyle?.(patch);
+    },
+    [],
+  );
+
   const handleGenerateRecordCaptions = useCallback(async () => {
     if (!activeRecordingAsset?.filePath || !activeRecordingId) return;
 
@@ -788,7 +810,10 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
 
   // ── Auto-zoom: regenerate markers from cursor data when intensity changes ──
   const autoIntensity = zoomPresentation.autoIntensity;
-  const cursorEventsPath = activeRecordingAsset?.metadata?.cursorEventsPath as string | null;
+  const cursorEventsPath = inferCursorEventsPath(
+    activeRecordingAsset?.filePath ?? null,
+    activeRecordingAsset?.metadata?.cursorEventsPath as string | null,
+  );
   const sourceWidth = (activeRecordingAsset?.metadata?.width as number) || 1920;
   const sourceHeight = (activeRecordingAsset?.metadata?.height as number) || 1080;
   const autoCursorEvents = useCursorEvents(cursorEventsPath, sourceWidth, sourceHeight);
@@ -884,6 +909,35 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     (patch: Partial<CameraPresentation>) => {
       setCameraPresentation((prev) => ({ ...prev, ...patch }));
       if (!activeRecordingId) return;
+
+      const shapeOrAspectChanged =
+        Object.prototype.hasOwnProperty.call(patch, 'shape') ||
+        Object.prototype.hasOwnProperty.call(patch, 'aspectRatio');
+
+      if (shapeOrAspectChanged) {
+        setCameraRectOverride(undefined);
+        projectStore.getState().updateProject((doc) => ({
+          ...doc,
+          assets: doc.assets.map((asset) =>
+            asset.id === activeRecordingId
+              ? {
+                  ...asset,
+                  presentation: {
+                    ...(asset.presentation ?? createDefaultRecordingPresentation()),
+                    camera: {
+                      ...((asset.presentation ?? createDefaultRecordingPresentation()).camera ??
+                        createDefaultCameraPresentation()),
+                      ...patch,
+                    },
+                    cameraFrame: undefined,
+                  },
+                }
+              : asset,
+          ),
+        }));
+        return;
+      }
+
       projectStore.getState().updateCameraPresentation(activeRecordingId, patch);
     },
     [activeRecordingId],
@@ -1112,15 +1166,20 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   }, [loadSources]);
 
   useEffect(() => {
+    if (recordMode !== 'region') return;
+    updateRecordingConfig({ recordMode: 'fullscreen' });
+  }, [recordMode]);
+
+  useEffect(() => {
     if (!selectedSourceId) return;
 
-    const expectedType = getExpectedSourceType(recordMode as RecordMode);
+    const expectedType = getExpectedSourceType(supportedRecordMode);
     const selectedSource = sources.find((source) => source.id === selectedSourceId) ?? null;
     if (!selectedSource || selectedSource.type === expectedType) return;
 
     modeClearedSourceSelectionRef.current = true;
     updateRecordingConfig({ selectedSourceId: null });
-  }, [recordMode, selectedSourceId, sources]);
+  }, [selectedSourceId, sources, supportedRecordMode]);
 
   useEffect(() => {
     const previousSelectedSourceId = previousSelectedSourceIdRef.current;
@@ -1143,7 +1202,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           : 'The previously selected screen or window is gone, and no capture sources are currently available.',
       );
     }
-  }, [recordMode, selectedSourceId, sources]);
+  }, [selectedSourceId, sources, supportedRecordMode]);
 
   useEffect(() => {
     const wasAvailable = availableSelectionRef.current.mic;
@@ -1249,7 +1308,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   }, [liveStream, selectedSourceId, setStatus, showToast, status]);
 
   const selectedSourceName = sources.find((s) => s.id === selectedSourceId)?.name ?? null;
-  const expectedSourceType = getExpectedSourceType(recordMode as RecordMode);
+  const expectedSourceType = getExpectedSourceType(supportedRecordMode);
   const modeCompatibleSources = sources.filter((source) => source.type === expectedSourceType);
   const selectedSource = sources.find((source) => source.id === selectedSourceId) ?? null;
   const hasValidSelectedSource = Boolean(
@@ -1258,10 +1317,10 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const recordStartGuardReason = hasValidSelectedSource
     ? null
     : modeCompatibleSources.length === 0
-      ? `No ${getRecordModeSourceLabel(recordMode as RecordMode)} is available. Refresh sources or switch record mode.`
+      ? `No ${getRecordModeSourceLabel(supportedRecordMode)} is available. Refresh sources or switch record mode.`
       : selectedSourceId
-        ? `Choose a ${getRecordModeSourceLabel(recordMode as RecordMode)} before recording.`
-        : `Select a ${getRecordModeSourceLabel(recordMode as RecordMode)} to enable REC.`;
+        ? `Choose a ${getRecordModeSourceLabel(supportedRecordMode)} before recording.`
+        : `Select a ${getRecordModeSourceLabel(supportedRecordMode)} to enable REC.`;
   const recordButtonDisabled =
     status !== 'recording' &&
     (status === 'stopping' ||
@@ -1340,7 +1399,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const previewOverlay = activeRecordingAsset?.filePath
     ? null
     : (() => {
-        const previewSelectionLabel = getPreviewSelectionLabel(recordMode as RecordMode);
+        const previewSelectionLabel = getPreviewSelectionLabel(supportedRecordMode);
         if (!selectedSourceId) {
           return {
             title: sourceRecoveryMessage
@@ -1401,8 +1460,20 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         }}
       >
         <ModeSelectorRow
-          mode={recordMode as RecordMode}
-          onChange={(mode) => updateRecordingConfig({ recordMode: mode })}
+          mode={supportedRecordMode}
+          onChange={(mode) => {
+            if (mode === 'region') {
+              showToast({
+                title: 'Region capture is unavailable',
+                message: 'Rough Cut currently supports full screen or window capture only.',
+                tone: 'warning',
+              });
+              updateRecordingConfig({ recordMode: 'fullscreen' });
+              return;
+            }
+
+            updateRecordingConfig({ recordMode: mode });
+          }}
         />
         <div
           style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }}
@@ -1705,8 +1776,6 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
                           .updateRecordingZoomMarker(activeRecordingId, markerId, { focalPoint });
                       }}
                     />
-                  ) : liveStream ? (
-                    <LivePreviewCanvas stream={liveStream} />
                   ) : previewOverlay ? (
                     <div
                       data-testid="record-preview-status"
@@ -1896,6 +1965,8 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
             isGeneratingCaptions={isGeneratingCaptions}
             captionError={recordCaptionError}
             onGenerateCaptions={handleGenerateRecordCaptions}
+            captionStyle={captionStyle}
+            onUpdateCaptionStyle={handleUpdateRecordCaptionStyle}
           />
         }
       />
@@ -2013,7 +2084,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         <SourcePickerPopup
           sources={sources}
           selectedSourceId={selectedSourceId}
-          recordMode={recordMode as RecordMode}
+          recordMode={supportedRecordMode}
           onSelect={(id) => {
             updateRecordingConfig({ selectedSourceId: id });
             setIsSourcePickerOpen(false);

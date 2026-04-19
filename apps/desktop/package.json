@@ -9,6 +9,7 @@
     "dev:vite": "vite",
     "dev:electron": "electron .",
     "build": "vite build",
+    "test": "node --test src/shared/recording-pause-policy.test.mjs",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },

@@ -304,7 +304,7 @@ export class PlaybackManager {
 
     if (!this._playing || playToken !== this._playToken) return;
 
-    this._lastSyncedFrame = -1;
+    this._lastSyncedFrame = startFrame;
     this._useRvfc = !!(this.screenVideo && 'requestVideoFrameCallback' in this.screenVideo);
     if (this._useRvfc && this.screenVideo) {
       this._rvfcId = this.screenVideo.requestVideoFrameCallback(this._onVideoFrame);

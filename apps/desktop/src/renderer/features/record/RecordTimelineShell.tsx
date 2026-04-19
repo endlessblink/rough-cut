@@ -49,6 +49,7 @@ interface RecordTimelineShellProps {
   selectedCameraLayoutMarkerId?: string | null;
   onSelectCameraLayoutMarker?: (id: string | null) => void;
   onMoveCameraLayoutMarker?: (id: string, frame: number) => void;
+  onDeleteSelectedCameraLayoutMarker?: () => void;
 }
 
 /* ── Constants ─────────────────────────────────────────────────────────────── */
@@ -435,6 +436,7 @@ function CameraLayoutTrackRow({
   selectedMarkerId,
   onSelectMarker,
   onMoveMarker,
+  onDeleteMarker,
 }: {
   top: number;
   durationFrames: number;
@@ -447,6 +449,7 @@ function CameraLayoutTrackRow({
   selectedMarkerId?: string | null;
   onSelectMarker?: (id: string | null) => void;
   onMoveMarker?: (id: string, frame: number) => void;
+  onDeleteMarker?: () => void;
 }) {
   const describeMarker = useCallback(
     (marker: { camera: { visible?: boolean; position?: string }; templateId?: string }) => {
@@ -548,6 +551,7 @@ function CameraLayoutTrackRow({
               tabIndex={0}
               onPointerDown={(e) => {
                 e.stopPropagation();
+                e.currentTarget.focus();
                 startMove(marker.id, e);
               }}
               onKeyDown={(e) => {
@@ -555,6 +559,13 @@ function CameraLayoutTrackRow({
                   e.preventDefault();
                   e.stopPropagation();
                   onSelectMarker?.(marker.id);
+                  return;
+                }
+
+                if (selected && (e.key === 'Delete' || e.key === 'Backspace')) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDeleteMarker?.();
                 }
               }}
               title={`layout @ ${marker.frame} · ${markerLabel}`}
@@ -621,6 +632,7 @@ export function RecordTimelineShell({
   selectedCameraLayoutMarkerId = null,
   onSelectCameraLayoutMarker,
   onMoveCameraLayoutMarker,
+  onDeleteSelectedCameraLayoutMarker,
 }: RecordTimelineShellProps) {
   /* ── derived data ──────────────────────────────────────────────────────── */
 
@@ -705,6 +717,31 @@ export function RecordTimelineShell({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [effectiveDuration]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!selectedCameraLayoutMarkerId) return;
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+
+      const target = e.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+      ) {
+        return;
+      }
+
+      e.preventDefault();
+      onDeleteSelectedCameraLayoutMarker?.();
+    };
+
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onDeleteSelectedCameraLayoutMarker, selectedCameraLayoutMarkerId]);
 
   /* ── scrub (click & drag) ──────────────────────────────────────────────── */
 
@@ -880,6 +917,7 @@ export function RecordTimelineShell({
             selectedMarkerId={selectedCameraLayoutMarkerId}
             onSelectMarker={onSelectCameraLayoutMarker}
             onMoveMarker={onMoveCameraLayoutMarker}
+            onDeleteMarker={onDeleteSelectedCameraLayoutMarker}
           />
 
           {tracks.map((track, i) => {
