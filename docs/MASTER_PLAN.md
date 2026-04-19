@@ -183,10 +183,11 @@ Parallel-start rule:
 | ~~TASK-166~~ | ~~Record: Enforce mode-filtered source picker and REC gating~~           | P0       | ✅ DONE (2026-04-19)     | TASK-165, TASK-088 |
 | ~~TASK-167~~ | ~~Record: Route selected mic and system audio into saved capture~~       | P0       | ✅ DONE (2026-04-19)     | TASK-088, TASK-012 |
 | ~~TASK-168~~ | ~~Record: Re-probe muxed output and import truthful audio metadata~~     | P0       | ✅ DONE (2026-04-19)     | TASK-167           |
-| TASK-169     | Record: Harden stop/save lifecycle on panel close and app quit           | P0       | TODO                     | TASK-010, TASK-086 |
-| TASK-170     | Record: Make pause/resume truthful or disable unsupported paths          | P1       | TODO                     | TASK-169, TASK-031 |
-| TASK-171     | Record: Session manifest and partial-take recovery on relaunch           | P0       | TODO                     | TASK-169, TASK-168 |
-| TASK-172     | Record: Real region capture or hide unsupported region mode              | P1       | TODO                     | TASK-166           |
+| ~~TASK-169~~ | ~~Record: Harden stop/save lifecycle on panel close and app quit~~       | P0       | ✅ DONE (2026-04-20)     | TASK-010, TASK-086 |
+| ~~TASK-170~~ | ~~Record: Make pause/resume truthful or disable unsupported paths~~      | P1       | ✅ DONE (2026-04-20)     | TASK-169, TASK-031 |
+| ~~TASK-171~~ | ~~Record: Session manifest and partial-take recovery on relaunch~~       | P0       | ✅ DONE (2026-04-20)     | TASK-169, TASK-168 |
+| ~~TASK-172~~ | ~~Record: Real region capture or hide unsupported region mode~~          | P1       | ✅ DONE (2026-04-20)     | TASK-166           |
+| TASK-176     | Record: Clarify camera layout marker add vs update UX                   | P2       | TODO                     | TASK-159           |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
@@ -538,7 +539,6 @@ Ordered by the desired product flow: infrastructure first, then edge features, o
 - `apps/desktop/src/renderer/features/export/ExportTab.tsx`
 - `tests/electron/acceptance-export.spec.ts`
 - `tests/electron/export-tab.spec.ts`
-| TASK-067     | Preview + export parity visual regression test | Locks down the full record -> export loop     |
 
 ### Sprint D — Export Performance + Advanced Output
 
@@ -1350,6 +1350,43 @@ This is one of the clearest competitive gaps versus FocuSee-style storytelling, 
 
 ---
 
+### TASK-176: Record: Clarify camera layout marker add vs update UX
+
+**Priority:** P2 | **Status:** TODO
+
+#### Problem
+
+Camera layout markers are currently editable, but the distinction between creating a new marker at the playhead and updating an already-selected marker is unclear. This makes it easy to accidentally overwrite an existing layout state when the user intended to create a new one.
+
+#### Scope
+
+- Split the camera layout controls into explicit actions for:
+  - add new marker at playhead
+  - update selected marker
+  - deselect current marker
+- Make the selected-marker state obvious in the inspector and timeline.
+- Prevent ambiguous preset actions that silently mutate the selected marker when the user expects insertion.
+
+#### First Steps
+
+- Add dedicated inspector affordances for `Add new marker` and `Update selected marker`.
+- Add a visible selected-marker summary with frame/time.
+- Add focused tests covering selection, deselection, add-new, and update-selected flows.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/RecordCameraPanel.tsx`
+- `apps/desktop/src/renderer/features/record/RecordRightPanel.tsx`
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `apps/desktop/src/renderer/features/record/RecordTimelineShell.tsx`
+- `tests/electron/record-tab.spec.ts`
+
+#### Why this matters
+
+This is quality-of-life work, not a recording-readiness blocker. But it removes a subtle authoring trap in the Record timeline and makes camera layout editing feel intentional instead of fragile.
+
+---
+
 ### ~~TASK-100: Record: Disconnect recovery and warning toasts for dropped devices~~
 
 **Priority:** P1 | **Status:** ✅ DONE (2026-04-19)
@@ -1709,9 +1746,9 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 
 ---
 
-### TASK-169: Record: Harden stop/save lifecycle on panel close and app quit
+### ~~TASK-169~~: Record: Harden stop/save lifecycle on panel close and app quit
 
-**Priority:** P0 | **Status:** TODO
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-20)
 
 #### Goal
 
@@ -1750,9 +1787,9 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 
 ---
 
-### TASK-170: Record: Make pause/resume truthful or disable unsupported paths
+### ~~TASK-170~~: Record: Make pause/resume truthful or disable unsupported paths
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-20)
 
 #### Goal
 
@@ -1787,9 +1824,9 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 
 ---
 
-### TASK-171: Record: Session manifest and partial-take recovery on relaunch
+### ~~TASK-171~~: Record: Session manifest and partial-take recovery on relaunch
 
-**Priority:** P0 | **Status:** TODO
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-20)
 
 #### Goal
 
@@ -1825,9 +1862,9 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 
 ---
 
-### TASK-172: Record: Real region capture or hide unsupported region mode
+### ~~TASK-172~~: Record: Real region capture or hide unsupported region mode
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-20)
 
 #### Goal
 
