@@ -55,7 +55,7 @@ export function AboutCreditsCard() {
               WhisperX
             </div>
             <div style={{ fontSize: 13, lineHeight: 1.6, color: TEXT_SOFT, marginTop: 8 }}>
-              rough-cut includes support for WhisperX-powered transcription workflows.
+              rough-cut includes WhisperX-related transcription work and attribution materials.
             </div>
             <div style={{ fontSize: 13, lineHeight: 1.6, color: TEXT_SOFT, marginTop: 8 }}>
               This product includes software developed by Max Bain and WhisperX contributors.
