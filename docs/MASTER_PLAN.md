@@ -156,7 +156,7 @@ For each surface, land the infrastructure that makes the view reliable first, th
 | ~~TASK-021~~ | Export: Progress bar + frame counter (wire existing IPC events to UI) | P1       | ✅ DONE (2026-04-16) | TASK-008           |
 | ~~TASK-022~~ | Export: Output path selector (native save dialog)                     | P1       | ✅ DONE (2026-04-16) | TASK-009           |
 | TASK-028     | Export: Audio mixing in export pipeline                               | P1       | TODO                 | TASK-008, TASK-020 |
-| TASK-029     | Export: Quality presets + editable settings (resolution, FPS, CRF)    | P2       | TODO                 | TASK-021           |
+| ~~TASK-029~~ | Export: Quality presets + editable settings (resolution, FPS, CRF)    | P2       | ✅ DONE (2026-04-19) | TASK-021           |
 | TASK-067     | Preview + export parity test (visual regression)                      | P2       | TODO                 | TASK-007, TASK-008 |
 | ~~TASK-109~~ | Export: Cancel button during export                                   | P2       | ✅ DONE (2026-04-16) | TASK-021           |
 | ~~TASK-110~~ | Export: Error display for failed exports                              | P2       | ✅ DONE (2026-04-16) | TASK-021           |
@@ -407,7 +407,24 @@ Ordered by the desired product flow: infrastructure first, then edge features, o
 | ~~TASK-110~~ | Error display for failed exports               | Core export UX complete                       |
 | ~~TASK-111~~ | Open File / Open Folder links                  | Core export UX complete                       |
 | TASK-028     | Audio mixing in export pipeline                | Completes recorded project output             |
-| TASK-029     | Quality presets + editable settings            | Required before users can trust export output |
+| ~~TASK-029~~ | Quality presets + editable settings            | Required before users can trust export output |
+
+### ~~TASK-029~~: Export: Quality presets + editable settings (resolution, FPS, CRF)
+
+**Priority:** P2 | **Status:** ✅ DONE (2026-04-19)
+
+#### Completed
+
+- Added export preset controls for Draft, Balanced, and Crisp, plus automatic Custom mode when users diverge from preset defaults.
+- Added editable export controls for resolution, frame rate, and CRF directly in the Export tab.
+- Mapped the CRF control onto the existing bitrate-backed export pipeline so quality is configurable without destabilizing the renderer/export backends.
+- Added focused Playwright coverage for both default settings and interactive preset changes.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/export/ExportTab.tsx`
+- `tests/electron/acceptance-export.spec.ts`
+- `tests/electron/export-tab.spec.ts`
 | TASK-112     | File size + time estimates                     | Important finishing UX for export decisions   |
 | TASK-067     | Preview + export parity visual regression test | Locks down the full record -> export loop     |
 
