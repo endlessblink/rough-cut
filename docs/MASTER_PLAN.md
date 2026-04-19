@@ -175,7 +175,7 @@ For each surface, land the infrastructure that makes the view reliable first, th
 | BUG-006      | Playback laggy — Canvas2D drawImage bottleneck, needs WebGL VideoSource path                               | P0       | TODO                     | TASK-050           |
 | ~~TASK-075~~ | Preview: Playback fluency — rVFC sync, consolidate loops, cache effects                                    | P0       | ✅ DONE (2026-04-16)     | TASK-007           |
 | TASK-096     | Export: Social aspect presets derived from Record templates                                                | P2       | TODO                     | TASK-015, TASK-029 |
-| TASK-108     | Export: Job queue (multi-job sequential processing)                                                        | P3       | TODO                     | TASK-021           |
+| ~~TASK-108~~ | Export: Job queue (multi-job sequential processing)                                                        | P3       | ✅ DONE (2026-04-19)     | TASK-021           |
 
 ### Edit Core
 
@@ -421,7 +421,24 @@ Ordered by the desired product flow: infrastructure first, then edge features, o
 | ~~TASK-053~~ | Frame-accurate scrubbing via mediabunny             | Already landed groundwork for WebCodecs export   |
 | TASK-054     | NVENC hardware encoding                             | Performance upgrade after baseline works         |
 | TASK-096     | Social aspect presets derived from Record templates | Productized output presets                       |
-| TASK-108     | Export job queue                                    | Batch workflow after core single export is solid |
+| ~~TASK-108~~ | Export job queue                                    | Batch workflow after core single export is solid |
+
+### ~~TASK-108~~: Export: Job queue (multi-job sequential processing)
+
+**Priority:** P3 | **Status:** ✅ DONE (2026-04-19)
+
+#### Completed
+
+- Added a renderer-local export queue so multiple export jobs can be queued without reworking the main-process export pipeline.
+- Captured the output path at queue time, then processed jobs sequentially with the existing export progress/completion events.
+- Added queue UI affordances for queued, running, complete, failed, and cancelled jobs, including remove/open/folder actions where appropriate.
+- Added acceptance coverage for the queue surface while preserving the existing export-tab checks.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/export/ExportTab.tsx`
+- `apps/desktop/src/renderer/features/export/run-export.ts`
+- `tests/electron/acceptance-export.spec.ts`
 
 ### Sprint E — Edit Core Authoring
 
