@@ -22,6 +22,12 @@ test.describe('Export Tab — Acceptance', () => {
     await expect(appPage.getByText('Ready to export')).toBeVisible();
   });
 
+  test('shows an export queue surface for sequential jobs', async ({ appPage }) => {
+    await expect(appPage.locator('[data-testid="export-queue"]')).toBeVisible();
+    await expect(appPage.getByText(/No queued exports yet/i)).toBeVisible();
+    await expect(appPage.locator('[data-testid="btn-export"]')).toContainText('Add to Queue');
+  });
+
   test('shows the export range timeline', async ({ appPage }) => {
     await expect(appPage.getByText('Export Timeline')).toBeVisible();
     await expect(appPage.getByText(/Drag handles to set export range/i)).toBeVisible();

@@ -1,6 +1,9 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { createDefaultCameraPresentation } from '@rough-cut/project-model';
+import type { ProjectDocument } from '@rough-cut/project-model';
 import { resolveFrame } from '@rough-cut/frame-resolver';
+import { getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
+import type { ExportResult } from '@rough-cut/export-renderer';
 import {
   useProjectStore,
   useTransportStore,
@@ -17,7 +20,11 @@ import { LAYOUT_TEMPLATES } from '../record/templates.js';
 import { RecordingPlaybackVideo } from '../record/RecordingPlaybackVideo.js';
 import { TimelineStrip } from '../edit/TimelineStrip.js';
 import type { ExportRange } from '../edit/TimelineStrip.js';
-import { cancelDesktopExport, runDesktopExport } from './run-export.js';
+import {
+  cancelDesktopExport,
+  pickDesktopExportOutputPath,
+  runDesktopExport,
+} from './run-export.js';
 
 interface ExportTabProps {
   activeTab: AppView;
@@ -29,6 +36,62 @@ const READ_ONLY = {
   canSelect: false,
   canSnap: false,
 } as const;
+
+type ExportJobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
+
+interface ExportJob {
+  id: string;
+  project: ProjectDocument;
+  projectName: string;
+  outputPath: string;
+  range: ExportRange;
+  frameCount: number;
+  status: ExportJobStatus;
+  progress: number;
+  progressLabel: string | null;
+  error: string | null;
+  outputFilePath: string | null;
+}
+
+function createExportJob(
+  project: ProjectDocument,
+  range: ExportRange,
+  outputPath: string,
+): ExportJob {
+  const frameCount = Math.max(0, range.outFrame - range.inFrame);
+  return {
+    id: `export-job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    project,
+    projectName: project.name,
+    outputPath,
+    range,
+    frameCount,
+    status: 'queued',
+    progress: 0,
+    progressLabel: 'Queued',
+    error: null,
+    outputFilePath: null,
+  };
+}
+
+function formatJobRange(job: ExportJob): string {
+  return `${job.range.inFrame}-${job.range.outFrame}`;
+}
+
+function getJobStatusColor(status: ExportJobStatus): string {
+  switch (status) {
+    case 'running':
+      return '#ffb066';
+    case 'complete':
+      return '#9be28f';
+    case 'failed':
+      return '#ff9f8f';
+    case 'cancelled':
+      return 'rgba(255,255,255,0.58)';
+    default:
+      return 'rgba(255,255,255,0.68)';
+  }
+}
 
 export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const projectName = useProjectStore((s) => s.project.name);
@@ -86,6 +149,20 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
     return LAYOUT_TEMPLATES.find((template) => template.id === templateId) ?? LAYOUT_TEMPLATES[1];
   }, [activeRecordingAsset?.presentation?.templateId]);
 
+  const activeScreenAspect =
+    ((activeRecordingAsset?.metadata?.width as number | undefined) ?? resolution.width) /
+    (((activeRecordingAsset?.metadata?.height as number | undefined) ?? resolution.height) || 1);
+  const activeScreenCrop = activeRecordingAsset?.presentation?.screenCrop;
+  const activeCameraCrop = activeRecordingAsset?.presentation?.cameraCrop;
+  const activeZoomMarkers = activeRecordingAsset?.presentation?.zoom?.markers ?? [];
+  const activeCameraSourceWidth =
+    (project.assets.find((asset) => asset.id === activeRecordingAsset?.cameraAssetId)?.metadata
+      ?.width as number | undefined) ?? 1280;
+  const activeCameraSourceHeight =
+    (project.assets.find((asset) => asset.id === activeRecordingAsset?.cameraAssetId)?.metadata
+      ?.height as number | undefined) ?? 720;
+  const activeZoomScale = getZoomTransformAtFrame(currentFrame, activeZoomMarkers).scale;
+
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
 
   const [exportRange, setExportRange] = useState<ExportRange>({
@@ -97,6 +174,11 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const [exportProgress, setExportProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState<string | null>(null);
   const [lastOutputPath, setLastOutputPath] = useState<string | null>(null);
+  const [exportJobs, setExportJobs] = useState<ExportJob[]>([]);
+  const activeJobIdRef = useRef<string | null>(null);
+  const queueProcessingRef = useRef(false);
+
+  const queuedCount = exportJobs.filter((job) => job.status === 'queued').length;
 
   useEffect(() => {
     setExportRange((current) => ({
@@ -134,14 +216,30 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
 
   useEffect(() => {
     const unsubscribeProgress = window.roughcut.onExportProgress((progress) => {
+      const activeJobId = activeJobIdRef.current;
       setIsExporting(true);
       setExportProgress(progress.percentage);
       setProgressLabel(
         `Frame ${progress.currentFrame}/${progress.totalFrames} · ${Math.round(progress.percentage)}%`,
       );
+      if (activeJobId) {
+        setExportJobs((jobs) =>
+          jobs.map((job) =>
+            job.id === activeJobId
+              ? {
+                  ...job,
+                  status: 'running',
+                  progress: progress.percentage,
+                  progressLabel: `Frame ${progress.currentFrame}/${progress.totalFrames} · ${Math.round(progress.percentage)}%`,
+                }
+              : job,
+          ),
+        );
+      }
     });
 
     const unsubscribeComplete = window.roughcut.onExportComplete((result) => {
+      const activeJobId = activeJobIdRef.current;
       setIsExporting(false);
       setExportProgress(result.status === 'complete' ? 100 : 0);
       setProgressLabel(
@@ -160,6 +258,24 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
       } else {
         setExportStatus(result.error ?? 'Export failed');
       }
+
+      if (activeJobId) {
+        setExportJobs((jobs) =>
+          jobs.map((job) =>
+            job.id === activeJobId
+              ? {
+                  ...job,
+                  status: mapExportResultToJobStatus(result),
+                  progress: result.status === 'complete' ? 100 : job.progress,
+                  progressLabel: getResultLabel(result),
+                  error: result.status === 'failed' ? (result.error ?? 'Export failed') : null,
+                  outputFilePath:
+                    result.status === 'complete' ? (result.outputPath ?? job.outputPath) : null,
+                }
+              : job,
+          ),
+        );
+      }
     });
 
     return () => {
@@ -176,29 +292,84 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
     setExportStatus('Export cancelled');
   }, []);
 
-  const handleExport = useCallback(async () => {
+  const processQueue = useCallback(async () => {
+    if (queueProcessingRef.current) return;
+
+    const nextJob = exportJobs.find((job) => job.status === 'queued');
+    if (!nextJob) return;
+
+    queueProcessingRef.current = true;
+    activeJobIdRef.current = nextJob.id;
     setIsExporting(true);
     setExportStatus(null);
     setLastOutputPath(null);
     setExportProgress(0);
     setProgressLabel('Preparing export...');
+    setExportJobs((jobs) =>
+      jobs.map((job) =>
+        job.id === nextJob.id
+          ? { ...job, status: 'running', progress: 0, progressLabel: 'Preparing export...' }
+          : job,
+      ),
+    );
+
     try {
-      const result = await runDesktopExport(projectStore.getState().project, {
-        startFrame: exportRange.inFrame,
-        endFrame: exportRange.outFrame,
-      });
+      const result = await runDesktopExport(
+        nextJob.project,
+        {
+          startFrame: nextJob.range.inFrame,
+          endFrame: nextJob.range.outFrame,
+        },
+        nextJob.outputPath,
+      );
+
       if (!result) {
-        setIsExporting(false);
-        setExportProgress(0);
-        setProgressLabel('Ready to export');
-        setExportStatus('Export cancelled');
+        setExportJobs((jobs) =>
+          jobs.map((job) =>
+            job.id === nextJob.id
+              ? { ...job, status: 'cancelled', progressLabel: 'Export cancelled' }
+              : job,
+          ),
+        );
       }
     } finally {
-      if (!projectStore.getState().project.composition.duration) {
-        setIsExporting(false);
-      }
+      activeJobIdRef.current = null;
+      queueProcessingRef.current = false;
     }
-  }, [exportRange.inFrame, exportRange.outFrame]);
+  }, [exportJobs]);
+
+  useEffect(() => {
+    if (!isExporting) {
+      void processQueue();
+    }
+  }, [exportJobs, isExporting, processQueue]);
+
+  const handleQueueExport = useCallback(async () => {
+    const currentProject = projectStore.getState().project;
+    const selectedFrameCount = Math.max(0, exportRange.outFrame - exportRange.inFrame);
+    if (currentProject.composition.duration <= 0 || selectedFrameCount <= 0) {
+      setExportStatus(
+        currentProject.composition.duration <= 0
+          ? 'Nothing to export yet. Add a clip to the timeline first.'
+          : 'Select a non-empty export range.',
+      );
+      return;
+    }
+
+    const outputPath = await pickDesktopExportOutputPath(currentProject);
+    if (!outputPath) {
+      return;
+    }
+
+    const job = createExportJob(currentProject, exportRange, outputPath);
+    setExportStatus(null);
+    setLastOutputPath(null);
+    setExportJobs((jobs) => [...jobs, job]);
+  }, [exportRange]);
+
+  const handleRemoveJob = useCallback((jobId: string) => {
+    setExportJobs((jobs) => jobs.filter((job) => job.id !== jobId));
+  }, []);
 
   return (
     <div
@@ -251,6 +422,7 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
                         filePath={activeRecordingAsset.filePath}
                         fps={projectFps}
                         assetId={activeRecordingAsset.id}
+                        zoomMarkers={activeZoomMarkers}
                       />
                     ) : (
                       <div
@@ -278,9 +450,22 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
                       />
                     ) : undefined
                   }
-                  screenAspect={resolution.width / resolution.height}
+                  screenAspect={activeScreenAspect}
                   cameraAspect={4 / 3}
                   cameraPresentation={activeCameraPreview?.camera}
+                  screenCrop={activeScreenCrop}
+                  cameraCrop={activeCameraCrop}
+                  screenSourceWidth={
+                    (activeRecordingAsset?.metadata?.width as number | undefined) ??
+                    resolution.width
+                  }
+                  screenSourceHeight={
+                    (activeRecordingAsset?.metadata?.height as number | undefined) ??
+                    resolution.height
+                  }
+                  cameraSourceWidth={activeCameraSourceWidth}
+                  cameraSourceHeight={activeCameraSourceHeight}
+                  activeZoomScale={activeZoomScale}
                   interactionEnabled={false}
                 />
               </CardChrome>
@@ -407,6 +592,167 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
                 marginBottom: 8,
               }}
             >
+              Queue
+            </div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', marginBottom: 8 }}>
+              {exportJobs.length === 0
+                ? 'No queued exports yet.'
+                : `${exportJobs.length} total · ${queuedCount} waiting`}
+            </div>
+            <div
+              data-testid="export-queue"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                maxHeight: 180,
+                overflowY: 'auto',
+              }}
+            >
+              {exportJobs.length === 0 ? (
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: 'rgba(255,255,255,0.52)',
+                    border: '1px dashed rgba(255,255,255,0.12)',
+                    borderRadius: 8,
+                    padding: '10px 12px',
+                  }}
+                >
+                  Queue a few ranges and rough-cut will export them one-by-one.
+                </div>
+              ) : (
+                exportJobs.map((job) => {
+                  const canRemove = job.status !== 'running';
+                  const resolvedOutputPath = job.outputFilePath ?? job.outputPath;
+                  return (
+                    <div
+                      key={job.id}
+                      style={{
+                        borderRadius: 10,
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: 'rgba(255,255,255,0.03)',
+                        padding: '10px 10px 8px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 6,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 8,
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: 'rgba(255,255,255,0.88)',
+                            minWidth: 0,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {job.projectName}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            letterSpacing: '0.06em',
+                            textTransform: 'uppercase',
+                            color: getJobStatusColor(job.status),
+                            flexShrink: 0,
+                          }}
+                        >
+                          {job.status}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.62)' }}>
+                        Frames {formatJobRange(job)} · {job.frameCount} selected
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: 'rgba(255,255,255,0.52)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {resolvedOutputPath.split('/').pop()}
+                      </div>
+                      {job.progress > 0 ? (
+                        <div
+                          style={{
+                            height: 5,
+                            borderRadius: 999,
+                            background: 'rgba(255,255,255,0.06)',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: `${job.progress}%`,
+                              height: '100%',
+                              background: '#ff6b5a',
+                            }}
+                          />
+                        </div>
+                      ) : null}
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: job.error ? '#ff9f8f' : 'rgba(255,255,255,0.62)',
+                        }}
+                      >
+                        {job.error ?? job.progressLabel ?? 'Queued'}
+                      </div>
+                      {job.status === 'complete' && resolvedOutputPath ? (
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            onClick={() => void window.roughcut.shellOpenPath(resolvedOutputPath)}
+                            style={miniActionStyle}
+                          >
+                            Open
+                          </button>
+                          <button
+                            onClick={() =>
+                              void window.roughcut.shellShowItemInFolder(resolvedOutputPath)
+                            }
+                            style={miniActionStyle}
+                          >
+                            Folder
+                          </button>
+                        </div>
+                      ) : null}
+                      {canRemove ? (
+                        <button onClick={() => handleRemoveJob(job.id)} style={miniTextButtonStyle}>
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: 'rgba(255,255,255,0.68)',
+                marginBottom: 8,
+              }}
+            >
               Export Range
             </div>
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.80)' }}>
@@ -481,10 +827,10 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
           ) : (
             <button
               data-testid="btn-export"
-              onClick={() => void handleExport()}
+              onClick={() => void handleQueueExport()}
               style={primaryButtonStyle}
             >
-              Export
+              {exportJobs.length === 0 ? 'Add to Queue' : 'Queue Another'}
             </button>
           )}
         </aside>
@@ -606,3 +952,42 @@ const secondaryActionStyle: React.CSSProperties = {
   cursor: 'pointer',
   fontFamily: 'inherit',
 };
+
+const miniActionStyle: React.CSSProperties = {
+  flex: 1,
+  height: 24,
+  borderRadius: 6,
+  border: '1px solid rgba(255,255,255,0.12)',
+  background: 'rgba(255,255,255,0.06)',
+  color: 'rgba(255,255,255,0.8)',
+  fontSize: 10,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+};
+
+const miniTextButtonStyle: React.CSSProperties = {
+  alignSelf: 'flex-start',
+  border: 'none',
+  background: 'transparent',
+  color: 'rgba(255,255,255,0.62)',
+  fontSize: 10,
+  padding: 0,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+};
+
+function mapExportResultToJobStatus(result: ExportResult): ExportJobStatus {
+  if (result.status === 'complete') return 'complete';
+  if (result.status === 'cancelled') return 'cancelled';
+  return 'failed';
+}
+
+function getResultLabel(result: ExportResult): string {
+  if (result.status === 'complete') {
+    return `Finished in ${(result.durationMs / 1000).toFixed(1)}s`;
+  }
+  if (result.status === 'cancelled') {
+    return 'Export cancelled';
+  }
+  return result.error ?? 'Export failed';
+}

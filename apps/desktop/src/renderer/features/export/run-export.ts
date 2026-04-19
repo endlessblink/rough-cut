@@ -25,6 +25,16 @@ export interface ExportFrameRange {
   endFrame: number;
 }
 
+export async function pickDesktopExportOutputPath(
+  project: ProjectDocument,
+): Promise<string | null> {
+  const settings = project.exportSettings;
+  return (
+    window.__roughcutTestOverrides?.exportOutputPath ??
+    (await window.roughcut.exportPickOutputPath(project.name, settings.format))
+  );
+}
+
 export async function cancelDesktopExport(): Promise<void> {
   activeExportAbortController?.abort();
   activeExportAbortController = null;
@@ -34,6 +44,7 @@ export async function cancelDesktopExport(): Promise<void> {
 export async function runDesktopExport(
   project: ProjectDocument,
   range?: ExportFrameRange,
+  outputPathOverride?: string,
 ): Promise<ExportResult | null> {
   const settings = project.exportSettings;
   const effectiveRange = range ?? { startFrame: 0, endFrame: project.composition.duration };
@@ -52,9 +63,7 @@ export async function runDesktopExport(
     return failedResult;
   }
 
-  const outputPath =
-    window.__roughcutTestOverrides?.exportOutputPath ??
-    (await window.roughcut.exportPickOutputPath(project.name, settings.format));
+  const outputPath = outputPathOverride ?? (await pickDesktopExportOutputPath(project));
   if (!outputPath) {
     return null;
   }
