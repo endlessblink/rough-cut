@@ -9,8 +9,27 @@ test.describe('Export Tab — Acceptance', () => {
     const settings = appPage.locator('[data-testid="export-settings"]');
     await expect(settings).toBeVisible();
     await expect(settings.getByText('MP4 (H.264)')).toBeVisible();
-    await expect(settings.getByText(/1920/)).toBeVisible();
-    await expect(settings.getByText(/fps/)).toBeVisible();
+    await expect(appPage.locator('[data-testid="export-preset-select"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="export-resolution-select"]')).toHaveValue(
+      '1920x1080',
+    );
+    await expect(appPage.locator('[data-testid="export-frame-rate-select"]')).toHaveValue('30');
+    await expect(appPage.locator('[data-testid="export-crf-select"]')).toHaveValue('18');
+  });
+
+  test('lets you switch export settings from the preset controls', async ({ appPage }) => {
+    await appPage.locator('[data-testid="export-preset-select"]').selectOption('draft');
+    await expect(appPage.locator('[data-testid="export-resolution-select"]')).toHaveValue(
+      '1280x720',
+    );
+    await expect(appPage.locator('[data-testid="export-frame-rate-select"]')).toHaveValue('24');
+    await expect(appPage.locator('[data-testid="export-crf-select"]')).toHaveValue('30');
+
+    await appPage.locator('[data-testid="export-resolution-select"]').selectOption('1080x1080');
+    await appPage.locator('[data-testid="export-frame-rate-select"]').selectOption('60');
+    await appPage.locator('[data-testid="export-crf-select"]').selectOption('18');
+
+    await expect(appPage.locator('[data-testid="export-preset-select"]')).toHaveValue('custom');
   });
 
   test('explains that the save path is chosen at export time', async ({ appPage }) => {

@@ -31,6 +31,25 @@ interface ExportTabProps {
   onTabChange: (tab: AppView) => void;
 }
 
+function getActiveCameraLayoutSnapshot(
+  markers:
+    | ReadonlyArray<{
+        frame: number;
+        camera: ReturnType<typeof createDefaultCameraPresentation>;
+        cameraFrame?: unknown;
+        templateId?: string;
+      }>
+    | undefined,
+  playheadFrame: number,
+) {
+  if (!markers || markers.length === 0) return null;
+  return (
+    [...markers]
+      .filter((marker) => marker.frame <= playheadFrame)
+      .sort((left, right) => right.frame - left.frame)[0] ?? null
+  );
+}
+
 const READ_ONLY = {
   canTrim: false,
   canSelect: false,
@@ -38,6 +57,17 @@ const READ_ONLY = {
 } as const;
 
 type ExportJobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
+
+type ExportPresetId = 'draft' | 'balanced' | 'crisp' | 'custom';
+
+interface ExportPreset {
+  id: ExportPresetId;
+  label: string;
+  description: string;
+  resolution: { width: number; height: number };
+  frameRate: 24 | 30 | 60;
+  crf: number;
+}
 
 interface ExportJob {
   id: string;
@@ -93,12 +123,94 @@ function getJobStatusColor(status: ExportJobStatus): string {
   }
 }
 
+const EXPORT_RESOLUTION_OPTIONS = [
+  { label: '1280x720', width: 1280, height: 720 },
+  { label: '1920x1080', width: 1920, height: 1080 },
+  { label: '1080x1920', width: 1080, height: 1920 },
+  { label: '1080x1080', width: 1080, height: 1080 },
+] as const;
+
+const EXPORT_FRAME_RATE_OPTIONS = [24, 30, 60] as const;
+const EXPORT_CRF_OPTIONS = [18, 22, 26, 30] as const;
+
+const EXPORT_PRESETS: readonly ExportPreset[] = [
+  {
+    id: 'draft',
+    label: 'Draft',
+    description: 'Fast review exports with smaller files',
+    resolution: { width: 1280, height: 720 },
+    frameRate: 24,
+    crf: 30,
+  },
+  {
+    id: 'balanced',
+    label: 'Balanced',
+    description: 'General-purpose delivery for tutorials',
+    resolution: { width: 1920, height: 1080 },
+    frameRate: 30,
+    crf: 18,
+  },
+  {
+    id: 'crisp',
+    label: 'Crisp',
+    description: 'Higher frame rate and lower compression',
+    resolution: { width: 1920, height: 1080 },
+    frameRate: 60,
+    crf: 18,
+  },
+];
+
+function bitrateFromCrf(crf: number): number {
+  switch (crf) {
+    case 18:
+      return 10_000_000;
+    case 22:
+      return 5_000_000;
+    case 26:
+      return 2_000_000;
+    default:
+      return 1_000_000;
+  }
+}
+
+function crfFromBitrate(bitrate: number): number {
+  if (bitrate >= 10_000_000) return 18;
+  if (bitrate >= 5_000_000) return 22;
+  if (bitrate >= 2_000_000) return 26;
+  return 30;
+}
+
+function resolutionKey(width: number, height: number): string {
+  return `${width}x${height}`;
+}
+
+function presetMatches(project: ProjectDocument, preset: ExportPreset): boolean {
+  return (
+    project.exportSettings.resolution.width === preset.resolution.width &&
+    project.exportSettings.resolution.height === preset.resolution.height &&
+    project.exportSettings.frameRate === preset.frameRate &&
+    crfFromBitrate(project.exportSettings.bitrate) === preset.crf
+  );
+}
+
+function formatCodecLabel(codec: ProjectDocument['exportSettings']['codec']): string {
+  switch (codec) {
+    case 'h264':
+      return 'H.264';
+    case 'h265':
+      return 'H.265';
+    default:
+      return codec.toUpperCase();
+  }
+}
+
 export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const projectName = useProjectStore((s) => s.project.name);
   const updateProject = useProjectStore((s) => s.updateProject);
   const durationFrames = useProjectStore((s) => s.project.composition.duration);
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
   const resolution = useProjectStore((s) => s.project.settings.resolution);
+  const exportSettings = useProjectStore((s) => s.project.exportSettings);
   const currentFrame = useTransportStore((s) => s.playheadFrame);
   const isPlaying = useTransportStore((s) => s.isPlaying);
   const project = useProjectStore((s) => s.project);
@@ -148,6 +260,15 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
     const templateId = activeRecordingAsset?.presentation?.templateId;
     return LAYOUT_TEMPLATES.find((template) => template.id === templateId) ?? LAYOUT_TEMPLATES[1];
   }, [activeRecordingAsset?.presentation?.templateId]);
+  const activeCameraLayoutSnapshot = getActiveCameraLayoutSnapshot(
+    (activeRecordingAsset?.presentation as { cameraLayouts?: ReadonlyArray<any> } | undefined)
+      ?.cameraLayouts,
+    currentFrame,
+  );
+  const effectiveTemplate =
+    (activeCameraLayoutSnapshot?.templateId
+      ? LAYOUT_TEMPLATES.find((template) => template.id === activeCameraLayoutSnapshot.templateId)
+      : null) ?? activeTemplate;
 
   const activeScreenAspect =
     ((activeRecordingAsset?.metadata?.width as number | undefined) ?? resolution.width) /
@@ -164,6 +285,9 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const activeZoomScale = getZoomTransformAtFrame(currentFrame, activeZoomMarkers).scale;
 
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
+  const selectedCrf = crfFromBitrate(exportSettings.bitrate);
+  const selectedPresetId: ExportPresetId =
+    EXPORT_PRESETS.find((preset) => presetMatches(project, preset))?.id ?? 'custom';
 
   const [exportRange, setExportRange] = useState<ExportRange>({
     inFrame: 0,
@@ -193,7 +317,13 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
       switch (e.key) {
         case ' ':
           e.preventDefault();
@@ -371,6 +501,67 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
     setExportJobs((jobs) => jobs.filter((job) => job.id !== jobId));
   }, []);
 
+  const patchExportSettings = useCallback(
+    (patch: Partial<ProjectDocument['exportSettings']>) => {
+      updateProject((doc) => ({
+        ...doc,
+        exportSettings: {
+          ...doc.exportSettings,
+          ...patch,
+        },
+      }));
+    },
+    [updateProject],
+  );
+
+  const handlePresetChange = useCallback(
+    (presetId: string) => {
+      const preset = EXPORT_PRESETS.find((entry) => entry.id === presetId);
+      if (!preset) return;
+      patchExportSettings({
+        resolution: { ...preset.resolution },
+        frameRate: preset.frameRate,
+        bitrate: bitrateFromCrf(preset.crf),
+      });
+    },
+    [patchExportSettings],
+  );
+
+  const handleResolutionChange = useCallback(
+    (value: string) => {
+      const option = EXPORT_RESOLUTION_OPTIONS.find((entry) => entry.label === value);
+      if (!option) return;
+      patchExportSettings({
+        resolution: { width: option.width, height: option.height },
+      });
+    },
+    [patchExportSettings],
+  );
+
+  const handleFrameRateChange = useCallback(
+    (value: string) => {
+      const frameRate = Number(value);
+      if (
+        !EXPORT_FRAME_RATE_OPTIONS.includes(frameRate as (typeof EXPORT_FRAME_RATE_OPTIONS)[number])
+      ) {
+        return;
+      }
+      patchExportSettings({ frameRate: frameRate as 24 | 30 | 60 });
+    },
+    [patchExportSettings],
+  );
+
+  const handleCrfChange = useCallback(
+    (value: string) => {
+      const crf = Number(value);
+      if (!EXPORT_CRF_OPTIONS.includes(crf as (typeof EXPORT_CRF_OPTIONS)[number])) {
+        return;
+      }
+      patchExportSettings({ bitrate: bitrateFromCrf(crf) });
+    },
+    [patchExportSettings],
+  );
+
   return (
     <div
       data-testid="export-tab-root"
@@ -415,7 +606,7 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
             <div style={{ height: 585 }}>
               <CardChrome aspectRatio={activeTemplate?.aspectRatio ?? '16:9'}>
                 <TemplatePreviewRenderer
-                  template={activeTemplate ?? LAYOUT_TEMPLATES[1] ?? LAYOUT_TEMPLATES[0]!}
+                  template={effectiveTemplate ?? LAYOUT_TEMPLATES[1] ?? LAYOUT_TEMPLATES[0]!}
                   screenContent={
                     activeRecordingAsset?.filePath ? (
                       <RecordingPlaybackVideo
@@ -452,7 +643,9 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
                   }
                   screenAspect={activeScreenAspect}
                   cameraAspect={4 / 3}
-                  cameraPresentation={activeCameraPreview?.camera}
+                  cameraPresentation={
+                    activeCameraLayoutSnapshot?.camera ?? activeCameraPreview?.camera
+                  }
                   screenCrop={activeScreenCrop}
                   cameraCrop={activeCameraCrop}
                   screenSourceWidth={
@@ -466,6 +659,8 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
                   cameraSourceWidth={activeCameraSourceWidth}
                   cameraSourceHeight={activeCameraSourceHeight}
                   activeZoomScale={activeZoomScale}
+                  activeLayoutFrame={activeCameraLayoutSnapshot?.frame ?? null}
+                  activeLayoutVisible={activeCameraLayoutSnapshot?.camera?.visible ?? null}
                   interactionEnabled={false}
                 />
               </CardChrome>
@@ -504,7 +699,42 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
             >
               Format
             </div>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.80)' }}>MP4 (H.264)</div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.80)' }}>
+              {exportSettings.format.toUpperCase()} ({formatCodecLabel(exportSettings.codec)})
+            </div>
+          </div>
+
+          <div>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: 'rgba(255,255,255,0.68)',
+                marginBottom: 8,
+              }}
+            >
+              Preset
+            </div>
+            <select
+              data-testid="export-preset-select"
+              value={selectedPresetId}
+              onChange={(e) => handlePresetChange(e.target.value)}
+              style={selectStyle}
+            >
+              <option value="custom">Custom</option>
+              {EXPORT_PRESETS.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.52)', marginTop: 6 }}>
+              {selectedPresetId === 'custom'
+                ? 'Fine-tune resolution, frame rate, and CRF for this export.'
+                : EXPORT_PRESETS.find((preset) => preset.id === selectedPresetId)?.description}
+            </div>
           </div>
 
           <div>
@@ -520,9 +750,21 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
             >
               Resolution
             </div>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.80)' }}>
-              {resolution.width}x{resolution.height}
-            </div>
+            <select
+              data-testid="export-resolution-select"
+              value={resolutionKey(
+                exportSettings.resolution.width,
+                exportSettings.resolution.height,
+              )}
+              onChange={(e) => handleResolutionChange(e.target.value)}
+              style={selectStyle}
+            >
+              {EXPORT_RESOLUTION_OPTIONS.map((option) => (
+                <option key={option.label} value={option.label}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>
@@ -538,7 +780,48 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
             >
               Frame Rate
             </div>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.80)' }}>{projectFps} fps</div>
+            <select
+              data-testid="export-frame-rate-select"
+              value={String(exportSettings.frameRate)}
+              onChange={(e) => handleFrameRateChange(e.target.value)}
+              style={selectStyle}
+            >
+              {EXPORT_FRAME_RATE_OPTIONS.map((frameRate) => (
+                <option key={frameRate} value={frameRate}>
+                  {frameRate} fps
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: 'rgba(255,255,255,0.68)',
+                marginBottom: 8,
+              }}
+            >
+              Quality
+            </div>
+            <select
+              data-testid="export-crf-select"
+              value={String(selectedCrf)}
+              onChange={(e) => handleCrfChange(e.target.value)}
+              style={selectStyle}
+            >
+              {EXPORT_CRF_OPTIONS.map((crf) => (
+                <option key={crf} value={crf}>
+                  CRF {crf}
+                </option>
+              ))}
+            </select>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.52)', marginTop: 6 }}>
+              Lower CRF means higher quality and larger files.
+            </div>
           </div>
 
           <div
@@ -951,6 +1234,19 @@ const secondaryActionStyle: React.CSSProperties = {
   fontSize: 11,
   cursor: 'pointer',
   fontFamily: 'inherit',
+};
+
+const selectStyle: React.CSSProperties = {
+  width: '100%',
+  height: 34,
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,0.12)',
+  background: 'rgba(255,255,255,0.06)',
+  color: 'rgba(255,255,255,0.88)',
+  fontSize: 12,
+  fontFamily: 'inherit',
+  padding: '0 10px',
+  outline: 'none',
 };
 
 const miniActionStyle: React.CSSProperties = {
