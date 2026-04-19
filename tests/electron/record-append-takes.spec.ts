@@ -78,11 +78,7 @@ test.describe('Record append takes', () => {
       cursorEventsPath: null,
     };
 
-    await electronApp.evaluate(async ({ BrowserWindow }, payload) => {
-      const win = BrowserWindow.getAllWindows().find((w) => w.webContents && !w.isDestroyed());
-      if (!win) throw new Error('No BrowserWindow available to emit RECORDING_ASSET_READY');
-      win.webContents.send('recording:asset-ready', payload);
-    }, fake);
+    await fireRecordingAssetReady(electronApp, fake);
 
     // Wait for the store to reflect the append — asset count climbing to 2
     // is the simplest signal.
@@ -111,7 +107,182 @@ test.describe('Record append takes', () => {
     expect(after.activeAssetId).not.toBeNull();
     expect(after.activeAssetId).not.toBe(initial.activeAssetId);
   });
+
+  test('append with camera attaches a new PiP clip to the secondary video track', async ({
+    electronApp,
+    appPage,
+  }) => {
+    const firstFilePath = await loadRecordedProject(appPage, tempProjectPath);
+
+    const initial = await readProjectSnapshot(appPage);
+    expect(initial.cameraAssetCount).toBeGreaterThanOrEqual(1);
+    expect(initial.secondaryVideoClipCount).toBe(1);
+    const initialDuration = initial.duration;
+    const initialAssetCount = initial.assetCount;
+    const initialCameraAssetCount = initial.cameraAssetCount;
+    const initialPrimaryClipCount = initial.primaryVideoClipCount;
+    const initialSecondaryClipCount = initial.secondaryVideoClipCount;
+
+    const fake: FakeRecordingResult = {
+      filePath: `${firstFilePath}.take2-synth-camera.webm`,
+      durationFrames: 90,
+      durationMs: 3000,
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      codec: 'vp8',
+      fileSize: 1,
+      hasAudio: true,
+      thumbnailPath: null,
+      cursorEventsPath: null,
+      cameraFilePath: `${firstFilePath}.take2-synth-camera.cam.mp4`,
+    };
+
+    await fireRecordingAssetReady(electronApp, fake);
+
+    // Append should grow the primary track by 1, secondary (camera) track by 1,
+    // and assets by 2 (one recording + one camera).
+    await appPage.waitForFunction(
+      (expected) => {
+        const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+        return stores?.project.getState().project.assets.length >= expected;
+      },
+      initialAssetCount + 2,
+      { timeout: 10_000 },
+    );
+
+    const after = await readProjectSnapshot(appPage);
+    expect(after.assetCount).toBe(initialAssetCount + 2);
+    expect(after.cameraAssetCount).toBe(initialCameraAssetCount + 1);
+    expect(after.primaryVideoClipCount).toBe(initialPrimaryClipCount + 1);
+    expect(after.secondaryVideoClipCount).toBe(initialSecondaryClipCount + 1);
+
+    const newPrimary = after.primaryVideoClips[after.primaryVideoClips.length - 1];
+    const newSecondary = after.secondaryVideoClips[after.secondaryVideoClips.length - 1];
+    expect(newPrimary).toBeDefined();
+    expect(newSecondary).toBeDefined();
+
+    const expectedOutFrame = initialDuration + Math.round((fake.durationMs / 1000) * fake.fps);
+    expect(newPrimary!.timelineIn).toBe(initialDuration);
+    expect(newPrimary!.timelineOut).toBe(expectedOutFrame);
+    expect(newSecondary!.timelineIn).toBe(initialDuration);
+    expect(newSecondary!.timelineOut).toBe(expectedOutFrame);
+
+    // Camera clip must carry the PiP transform (bottom-right 20%).
+    expect(newSecondary!.transform).not.toBeNull();
+    expect(newSecondary!.transform!.x).toBeCloseTo(0.78, 5);
+    expect(newSecondary!.transform!.y).toBeCloseTo(0.78, 5);
+    expect(newSecondary!.transform!.scaleX).toBeCloseTo(0.2, 5);
+    expect(newSecondary!.transform!.scaleY).toBeCloseTo(0.2, 5);
+
+    // The two camera clips sit on the same secondary track, sequential.
+    const firstSecondary = after.secondaryVideoClips[0];
+    expect(firstSecondary!.timelineOut).toBeLessThanOrEqual(newSecondary!.timelineIn);
+  });
+
+  test('replace branch creates a fresh project when no assets exist', async ({
+    electronApp,
+    appPage,
+  }) => {
+    await navigateToTab(appPage, 'record');
+
+    // App's initial mount seeds a default project with 0 assets and no file.
+    const initial = await readProjectSnapshot(appPage);
+    expect(initial.assetCount).toBe(0);
+    expect(initial.projectFilePath).toBeNull();
+    const initialProjectId = initial.projectId;
+
+    // Record the pre-existing set of .roughcut files so we can identify the
+    // one auto-save writes for this test and remove only that one.
+    const preSaveFiles = await listRoughcutFiles(appPage);
+
+    const fake: FakeRecordingResult = {
+      filePath: '/tmp/rough-cut-e2e-synthetic-first-take.webm',
+      durationFrames: 120,
+      durationMs: 4000,
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      codec: 'vp8',
+      fileSize: 1,
+      hasAudio: true,
+      thumbnailPath: null,
+      cursorEventsPath: null,
+    };
+
+    await fireRecordingAssetReady(electronApp, fake);
+
+    await appPage.waitForFunction(
+      () => {
+        const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+        return stores?.project.getState().project.assets.length === 1;
+      },
+      null,
+      { timeout: 10_000 },
+    );
+
+    const after = await readProjectSnapshot(appPage);
+    expect(after.projectId).not.toBe(initialProjectId);
+    expect(after.assetCount).toBe(1);
+    expect(after.primaryVideoClipCount).toBe(1);
+    expect(after.audioClipCount).toBe(1);
+
+    const onlyClip = after.primaryVideoClips[0];
+    expect(onlyClip).toBeDefined();
+    expect(onlyClip!.timelineIn).toBe(0);
+    const expectedOutFrame = Math.round((fake.durationMs / 1000) * fake.fps);
+    expect(onlyClip!.timelineOut).toBe(expectedOutFrame);
+
+    expect(after.duration).toBe(expectedOutFrame);
+    expect(after.activeAssetId).not.toBeNull();
+
+    // Wait for the fire-and-forget auto-save to settle, then clean up the
+    // file + recent-projects entry we just created.
+    await appPage.waitForFunction(
+      () => {
+        const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+        return typeof stores?.project.getState().projectFilePath === 'string';
+      },
+      null,
+      { timeout: 10_000 },
+    );
+    const savedPath = await appPage.evaluate(() => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      return stores?.project.getState().projectFilePath as string;
+    });
+
+    expect(savedPath).toBeTruthy();
+    // Only unlink if this test actually created the file (not pre-existing).
+    if (!preSaveFiles.includes(savedPath) && existsSync(savedPath)) {
+      try {
+        unlinkSync(savedPath);
+      } catch {
+        /* ignore */
+      }
+      const thumbPath = savedPath.replace(/\.roughcut$/, '-thumb.jpg');
+      if (existsSync(thumbPath)) {
+        try {
+          unlinkSync(thumbPath);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    await appPage.evaluate((path) => {
+      return (
+        window as unknown as { roughcut: { recentProjectsRemove: (p: string) => Promise<void> } }
+      ).roughcut.recentProjectsRemove(path);
+    }, savedPath);
+  });
 });
+
+async function listRoughcutFiles(page: Page): Promise<string[]> {
+  return page.evaluate(async () => {
+    const rough = (window as unknown as { roughcut: any }).roughcut;
+    const entries = (await rough.recentProjectsGet()) as Array<{ filePath: string }>;
+    return entries.map((e) => e.filePath);
+  });
+}
 
 async function loadRecordedProject(page: Page, projectPath: string): Promise<string> {
   await navigateToTab(page, 'record');
@@ -148,18 +319,31 @@ async function loadRecordedProject(page: Page, projectPath: string): Promise<str
   return recording.filePath as string;
 }
 
+interface SnapshotClip {
+  id: string;
+  assetId: string;
+  timelineIn: number;
+  timelineOut: number;
+  transform: {
+    x: number;
+    y: number;
+    scaleX: number;
+    scaleY: number;
+  } | null;
+}
+
 interface ProjectSnapshot {
+  projectId: string | null;
+  projectFilePath: string | null;
   assetCount: number;
   duration: number;
   activeAssetId: string | null;
   primaryVideoClipCount: number;
+  secondaryVideoClipCount: number;
   audioClipCount: number;
-  primaryVideoClips: Array<{
-    id: string;
-    assetId: string;
-    timelineIn: number;
-    timelineOut: number;
-  }>;
+  primaryVideoClips: SnapshotClip[];
+  secondaryVideoClips: SnapshotClip[];
+  cameraAssetCount: number;
 }
 
 async function readProjectSnapshot(page: Page): Promise<ProjectSnapshot> {
@@ -168,25 +352,69 @@ async function readProjectSnapshot(page: Page): Promise<ProjectSnapshot> {
     const state = stores?.project.getState();
     const project = state?.project;
     const tracks = project?.composition?.tracks ?? [];
-    const primaryVideoTrack = tracks.find((t: any) => t.type === 'video');
+    const videoTracks = tracks
+      .filter((t: any) => t.type === 'video')
+      .sort((a: any, b: any) => b.index - a.index);
+    const primaryVideoTrack = videoTracks[0];
+    const secondaryVideoTrack = videoTracks.find((t: any) => t.id !== primaryVideoTrack?.id);
     const audioTrack = tracks.find((t: any) => t.type === 'audio');
 
+    const mapClip = (c: any) => ({
+      id: c.id,
+      assetId: c.assetId,
+      timelineIn: c.timelineIn,
+      timelineOut: c.timelineOut,
+      transform: c.transform
+        ? {
+            x: c.transform.x,
+            y: c.transform.y,
+            scaleX: c.transform.scaleX,
+            scaleY: c.transform.scaleY,
+          }
+        : null,
+    });
+
     const primaryVideoClips = (primaryVideoTrack?.clips ?? [])
-      .map((c: any) => ({
-        id: c.id,
-        assetId: c.assetId,
-        timelineIn: c.timelineIn,
-        timelineOut: c.timelineOut,
-      }))
-      .sort((a: any, b: any) => a.timelineIn - b.timelineIn);
+      .map(mapClip)
+      .sort((a: SnapshotClip, b: SnapshotClip) => a.timelineIn - b.timelineIn);
+    const secondaryVideoClips = (secondaryVideoTrack?.clips ?? [])
+      .map(mapClip)
+      .sort((a: SnapshotClip, b: SnapshotClip) => a.timelineIn - b.timelineIn);
 
     return {
+      projectId: project?.id ?? null,
+      projectFilePath: state?.projectFilePath ?? null,
       assetCount: project?.assets?.length ?? 0,
       duration: project?.composition?.duration ?? 0,
       activeAssetId: state?.activeAssetId ?? null,
       primaryVideoClipCount: primaryVideoTrack?.clips?.length ?? 0,
+      secondaryVideoClipCount: secondaryVideoTrack?.clips?.length ?? 0,
       audioClipCount: audioTrack?.clips?.length ?? 0,
       primaryVideoClips,
+      secondaryVideoClips,
+      cameraAssetCount: (project?.assets ?? []).filter(
+        (a: any) => a?.metadata?.isCamera === true,
+      ).length,
     };
   });
+}
+
+async function stubProjectAutoSave(page: Page, stubPath: string): Promise<void> {
+  await page.evaluate((path) => {
+    const rough = (window as unknown as { roughcut?: any }).roughcut;
+    if (rough) {
+      rough.projectAutoSave = async () => path;
+    }
+  }, stubPath);
+}
+
+async function fireRecordingAssetReady(
+  electronApp: import('@playwright/test').ElectronApplication,
+  payload: FakeRecordingResult,
+): Promise<void> {
+  await electronApp.evaluate(async ({ BrowserWindow }, p) => {
+    const win = BrowserWindow.getAllWindows().find((w) => w.webContents && !w.isDestroyed());
+    if (!win) throw new Error('No BrowserWindow available to emit RECORDING_ASSET_READY');
+    win.webContents.send('recording:asset-ready', p);
+  }, payload);
 }
