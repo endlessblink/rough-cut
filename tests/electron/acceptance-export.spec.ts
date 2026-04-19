@@ -41,6 +41,14 @@ test.describe('Export Tab — Acceptance', () => {
     await expect(appPage.getByText('Ready to export')).toBeVisible();
   });
 
+  test('shows file size and export time estimates', async ({ appPage }) => {
+    const estimates = appPage.locator('[data-testid="export-estimates"]');
+    await expect(estimates).toBeVisible();
+    await expect(estimates.getByText('Clip Length')).toBeVisible();
+    await expect(estimates.getByText('File Size')).toBeVisible();
+    await expect(estimates.getByText('Export Time')).toBeVisible();
+  });
+
   test('shows an export queue surface for sequential jobs', async ({ appPage }) => {
     await expect(appPage.locator('[data-testid="export-queue"]')).toBeVisible();
     await expect(appPage.getByText(/No queued exports yet/i)).toBeVisible();

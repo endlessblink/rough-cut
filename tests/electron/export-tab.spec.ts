@@ -33,6 +33,30 @@ test.describe('Export tab', () => {
     await expect(appPage.locator('[data-testid="export-crf-select"]')).toHaveValue('18');
   });
 
+  test('record destination presets link social framing into export defaults', async ({ appPage }) => {
+    await navigateToTab(appPage, 'record');
+    await appPage.locator('[data-testid="inspector-rail-item"][data-category="destinations"]').click();
+    await appPage.locator('[data-testid="record-destination-preset-reels-portrait"]').click();
+
+    await navigateToTab(appPage, 'export');
+
+    await expect(appPage.locator('[data-testid="export-preset-select"]')).toHaveValue(
+      'social-vertical',
+    );
+    await expect(appPage.locator('[data-testid="export-resolution-select"]')).toHaveValue(
+      '1080x1920',
+    );
+    await expect(appPage.locator('[data-testid="export-frame-rate-select"]')).toHaveValue('30');
+  });
+
+  test('displays export estimates', async ({ appPage }) => {
+    const estimates = appPage.locator('[data-testid="export-estimates"]');
+    await expect(estimates).toBeVisible();
+    await expect(estimates.getByText('Clip Length')).toBeVisible();
+    await expect(estimates.getByText('File Size')).toBeVisible();
+    await expect(estimates.getByText('Export Time')).toBeVisible();
+  });
+
   test('export button is visible', async ({ appPage }) => {
     const btn = appPage.locator('[data-testid="btn-export"]');
     await expect(btn).toBeVisible();

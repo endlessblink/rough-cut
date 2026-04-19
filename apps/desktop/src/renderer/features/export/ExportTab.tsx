@@ -58,7 +58,13 @@ const READ_ONLY = {
 
 type ExportJobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
 
-type ExportPresetId = 'draft' | 'balanced' | 'crisp' | 'custom';
+type ExportPresetId =
+  | 'draft'
+  | 'balanced'
+  | 'crisp'
+  | 'social-vertical'
+  | 'social-square'
+  | 'custom';
 
 interface ExportPreset {
   id: ExportPresetId;
@@ -81,6 +87,12 @@ interface ExportJob {
   progressLabel: string | null;
   error: string | null;
   outputFilePath: string | null;
+}
+
+interface ExportEstimate {
+  durationSeconds: number;
+  estimatedBytes: number;
+  estimatedMs: number;
 }
 
 function createExportJob(
@@ -158,6 +170,22 @@ const EXPORT_PRESETS: readonly ExportPreset[] = [
     frameRate: 60,
     crf: 18,
   },
+  {
+    id: 'social-vertical',
+    label: 'Social Vertical',
+    description: '9:16 delivery defaults for Reels, Shorts, and TikTok.',
+    resolution: { width: 1080, height: 1920 },
+    frameRate: 30,
+    crf: 18,
+  },
+  {
+    id: 'social-square',
+    label: 'Social Square',
+    description: '1:1 feed-ready export tuned for square social posts.',
+    resolution: { width: 1080, height: 1080 },
+    frameRate: 30,
+    crf: 18,
+  },
 ];
 
 function bitrateFromCrf(crf: number): number {
@@ -202,6 +230,41 @@ function formatCodecLabel(codec: ProjectDocument['exportSettings']['codec']): st
     default:
       return codec.toUpperCase();
   }
+}
+
+function estimateExport(
+  range: ExportRange,
+  settings: ProjectDocument['exportSettings'],
+): ExportEstimate {
+  const selectedFrames = Math.max(0, range.outFrame - range.inFrame);
+  const durationSeconds = selectedFrames / Math.max(1, settings.frameRate);
+  const audioBitrate = 192_000;
+  const estimatedBytes = ((settings.bitrate + audioBitrate) * durationSeconds) / 8;
+  const pixelFactor = (settings.resolution.width * settings.resolution.height) / (1920 * 1080);
+  const fpsFactor = settings.frameRate / 30;
+  const estimatedMs = Math.max(2_000, durationSeconds * 1000 * 0.9 * pixelFactor * fpsFactor);
+  return { durationSeconds, estimatedBytes, estimatedMs };
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  if (bytes >= 1024) {
+    return `${Math.round(bytes / 1024)} KB`;
+  }
+  return `${Math.round(bytes)} B`;
+}
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
 }
 
 export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
@@ -301,6 +364,14 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const [exportJobs, setExportJobs] = useState<ExportJob[]>([]);
   const activeJobIdRef = useRef<string | null>(null);
   const queueProcessingRef = useRef(false);
+  const exportEstimate = useMemo(
+    () => estimateExport(exportRange, exportSettings),
+    [exportRange, exportSettings],
+  );
+  const liveEtaMs = useMemo(() => {
+    if (!isExporting || exportProgress <= 0 || exportProgress >= 100) return null;
+    return Math.max(0, exportEstimate.estimatedMs * ((100 - exportProgress) / 100));
+  }, [exportEstimate.estimatedMs, exportProgress, isExporting]);
 
   const queuedCount = exportJobs.filter((job) => job.status === 'queued').length;
 
@@ -844,10 +915,12 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
             aria-valuemax={100}
             aria-valuenow={Math.round(exportProgress)}
             style={{
+              width: '100%',
               height: 8,
               borderRadius: 999,
               background: 'rgba(255,255,255,0.06)',
               overflow: 'hidden',
+              flexShrink: 0,
             }}
           >
             <div
@@ -862,6 +935,53 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
 
           <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.62)' }}>
             {progressLabel ?? 'Ready to export'}
+          </div>
+
+          <div
+            data-testid="export-estimates"
+            style={{
+              borderRadius: 10,
+              border: '1px solid rgba(255,255,255,0.06)',
+              background: 'rgba(255,255,255,0.03)',
+              padding: 10,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: 'rgba(255,255,255,0.68)',
+              }}
+            >
+              Estimates
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 }}>
+              <span style={{ color: 'rgba(255,255,255,0.62)' }}>Clip Length</span>
+              <span style={{ color: 'rgba(255,255,255,0.88)' }}>
+                {formatDuration(exportEstimate.durationSeconds * 1000)}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 }}>
+              <span style={{ color: 'rgba(255,255,255,0.62)' }}>File Size</span>
+              <span style={{ color: 'rgba(255,255,255,0.88)' }}>
+                {formatBytes(exportEstimate.estimatedBytes)}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 }}>
+              <span style={{ color: 'rgba(255,255,255,0.62)' }}>
+                {isExporting && liveEtaMs !== null ? 'Live ETA' : 'Export Time'}
+              </span>
+              <span style={{ color: 'rgba(255,255,255,0.88)' }}>
+                {isExporting && liveEtaMs !== null
+                  ? formatDuration(liveEtaMs)
+                  : formatDuration(exportEstimate.estimatedMs)}
+              </span>
+            </div>
           </div>
 
           <div>
