@@ -1,6 +1,7 @@
 import { ProjectsHero } from './ProjectsHero.js';
 import { StorageSection } from './StorageSection.js';
 import { RecentProjectsSection } from './RecentProjectsSection.js';
+import { AboutCreditsCard } from './AboutCreditsCard.js';
 import type { RecentProjectEntry } from './types.js';
 
 interface ProjectsContentProps {
@@ -53,6 +54,7 @@ export function ProjectsContent({
           onRemove={onRemove}
           onRefresh={onRefresh}
         />
+        <AboutCreditsCard />
       </div>
     </div>
   );
