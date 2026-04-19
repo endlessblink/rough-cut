@@ -1,10 +1,5 @@
 import { useState } from 'react';
-import {
-  CARD_RADIUS,
-  BORDER_SUBTLE,
-  TEXT_PRIMARY,
-  TEXT_MUTED,
-} from '../../ui/tokens.js';
+import { CARD_RADIUS, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_MUTED } from '../../ui/tokens.js';
 import type { RecentProjectEntry } from './types.js';
 
 // Component-local teal accent — specific to project cards
@@ -12,7 +7,20 @@ const TEAL_ACCENT = '#4fd1c5';
 
 function formatProjectDate(iso: string): string {
   const d = new Date(iso);
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
   const month = months[d.getMonth()];
   const day = d.getDate();
   const year = d.getFullYear();
@@ -44,14 +52,14 @@ export function ProjectCard({ project, isSelected = false, onOpen, onRemove }: P
   const cardBorder = isSelected
     ? `1px solid rgba(79, 209, 197, 0.5)`
     : isHovered
-    ? `1px solid rgba(255,255,255,0.12)`
-    : `1px solid ${BORDER_SUBTLE}`;
+      ? `1px solid rgba(255,255,255,0.12)`
+      : `1px solid ${BORDER_SUBTLE}`;
 
   const cardShadow = isSelected
     ? '0 0 20px rgba(79, 209, 197, 0.15), 0 8px 32px rgba(0,0,0,0.6)'
     : isHovered
-    ? '0 8px 32px rgba(0,0,0,0.5)'
-    : '0 2px 12px rgba(0,0,0,0.3)';
+      ? '0 8px 32px rgba(0,0,0,0.5)'
+      : '0 2px 12px rgba(0,0,0,0.3)';
 
   return (
     <div
@@ -84,7 +92,7 @@ export function ProjectCard({ project, isSelected = false, onOpen, onRemove }: P
         {/* Actual thumbnail if available */}
         {project.thumbnailPath && (
           <img
-            src={`media://${project.thumbnailPath}`}
+            src={buildMediaUrl(project.thumbnailPath, project.filePath) ?? undefined}
             alt=""
             style={{
               position: 'absolute',
@@ -106,7 +114,8 @@ export function ProjectCard({ project, isSelected = false, onOpen, onRemove }: P
           style={{
             position: 'absolute',
             inset: 0,
-            background: 'radial-gradient(ellipse at 50% 55%, rgba(79, 209, 197, 0.04) 0%, transparent 70%)',
+            background:
+              'radial-gradient(ellipse at 50% 55%, rgba(79, 209, 197, 0.04) 0%, transparent 70%)',
             pointerEvents: 'none',
           }}
         />
@@ -243,13 +252,7 @@ export function ProjectCard({ project, isSelected = false, onOpen, onRemove }: P
 
 function FilmStripIcon() {
   return (
-    <svg
-      width="48"
-      height="44"
-      viewBox="0 0 48 44"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
+    <svg width="48" height="44" viewBox="0 0 48 44" fill="none" xmlns="http://www.w3.org/2000/svg">
       {/* Main film strip body */}
       <rect x="0" y="5" width="48" height="34" rx="3" fill="white" />
       {/* Left perforation strip */}
@@ -286,3 +289,4 @@ function TrashIcon() {
     </svg>
   );
 }
+import { buildMediaUrl } from '../../lib/media-url.js';

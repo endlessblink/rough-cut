@@ -40,6 +40,9 @@ test.describe('Export tab', () => {
 
     await navigateToTab(appPage, 'export');
 
+    await expect(appPage.locator('[data-testid="export-linked-destination"]')).toContainText(
+      'Reels / TikTok',
+    );
     await expect(appPage.locator('[data-testid="export-preset-select"]')).toHaveValue(
       'social-vertical',
     );

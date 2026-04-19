@@ -11,6 +11,8 @@ import type {
   AssetId,
   ZoomMarker,
   ZoomMarkerId,
+  ZoomPresentation,
+  CameraLayoutMarker,
   CursorPresentation,
   CameraPresentation,
   RegionCrop,
@@ -23,6 +25,7 @@ import {
   createProject,
   createTrack,
   createZoomMarker,
+  createCameraLayoutMarker,
   createDefaultRecordingPresentation,
   createDefaultCursorPresentation,
   createDefaultCameraPresentation,
@@ -102,6 +105,7 @@ export interface ProjectActions {
 
   // Recording presentation — zoom
   setRecordingAutoZoomIntensity: (assetId: AssetId, value: number) => void;
+  updateRecordingZoomSettings: (assetId: AssetId, patch: Partial<ZoomPresentation>) => void;
   addRecordingZoomMarker: (assetId: AssetId, startFrame: number, endFrame: number) => void;
   updateRecordingZoomMarker: (
     assetId: AssetId,
@@ -119,6 +123,18 @@ export interface ProjectActions {
   // Recording presentation — camera
   updateCameraPresentation: (assetId: AssetId, patch: Partial<CameraPresentation>) => void;
   resetCameraPresentation: (assetId: AssetId) => void;
+  addRecordingCameraLayoutSnapshot: (
+    assetId: AssetId,
+    frame: number,
+    snapshot?: Partial<CameraLayoutMarker>,
+  ) => void;
+  removeRecordingCameraLayoutSnapshot: (assetId: AssetId, markerId: string) => void;
+  moveRecordingCameraLayoutSnapshot: (assetId: AssetId, markerId: string, frame: number) => void;
+  updateRecordingCameraLayoutSnapshot: (
+    assetId: AssetId,
+    markerId: string,
+    patch: Partial<CameraLayoutMarker>,
+  ) => void;
 
   // Recording presentation — crop
   updateScreenCrop: (assetId: AssetId, patch: Partial<RegionCrop>) => void;
@@ -138,6 +154,7 @@ export interface ProjectActions {
 
   // AI annotation actions
   addCaptionSegments: (segments: CaptionSegment[]) => void;
+  replaceCaptionSegmentsForAsset: (assetId: AssetId, segments: CaptionSegment[]) => void;
   updateAnnotationStatus: (id: AIAnnotationId, status: AnnotationStatus) => void;
   updateCaptionText: (id: AIAnnotationId, text: string) => void;
   acceptAllCaptions: () => void;
@@ -517,6 +534,26 @@ export function createProjectStore() {
           }));
         },
 
+        updateRecordingZoomSettings: (assetId: AssetId, patch: Partial<ZoomPresentation>) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  zoom: {
+                    ...pres.zoom,
+                    ...patch,
+                  },
+                },
+              };
+            }),
+          }));
+        },
+
         addRecordingZoomMarker: (assetId: AssetId, startFrame: number, endFrame: number) => {
           get().updateProject((doc) => ({
             ...doc,
@@ -697,6 +734,106 @@ export function createProjectStore() {
           }));
         },
 
+        addRecordingCameraLayoutSnapshot: (
+          assetId: AssetId,
+          frame: number,
+          snapshot: Partial<CameraLayoutMarker> = {},
+        ) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              const marker = createCameraLayoutMarker(frame, snapshot.camera ?? pres.camera, {
+                cameraFrame: snapshot.cameraFrame,
+                templateId: snapshot.templateId ?? pres.templateId,
+              });
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  cameraLayouts: [...(pres.cameraLayouts ?? []), marker].sort(
+                    (left, right) => left.frame - right.frame,
+                  ),
+                },
+              };
+            }),
+          }));
+        },
+
+        removeRecordingCameraLayoutSnapshot: (assetId: AssetId, markerId: string) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  cameraLayouts: (pres.cameraLayouts ?? []).filter(
+                    (marker) => marker.id !== markerId,
+                  ),
+                },
+              };
+            }),
+          }));
+        },
+
+        moveRecordingCameraLayoutSnapshot: (assetId: AssetId, markerId: string, frame: number) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  cameraLayouts: (pres.cameraLayouts ?? [])
+                    .map((marker) => (marker.id === markerId ? { ...marker, frame } : marker))
+                    .sort((left, right) => left.frame - right.frame),
+                },
+              };
+            }),
+          }));
+        },
+
+        updateRecordingCameraLayoutSnapshot: (
+          assetId: AssetId,
+          markerId: string,
+          patch: Partial<CameraLayoutMarker>,
+        ) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  cameraLayouts: (pres.cameraLayouts ?? []).map((marker) =>
+                    marker.id === markerId
+                      ? {
+                          ...marker,
+                          ...patch,
+                          camera: patch.camera ?? marker.camera,
+                          cameraFrame: Object.prototype.hasOwnProperty.call(patch, 'cameraFrame')
+                            ? patch.cameraFrame
+                            : marker.cameraFrame,
+                          templateId: Object.prototype.hasOwnProperty.call(patch, 'templateId')
+                            ? patch.templateId
+                            : marker.templateId,
+                        }
+                      : marker,
+                  ),
+                },
+              };
+            }),
+          }));
+        },
+
         // --- Recording presentation — crop ---
 
         updateScreenCrop: (assetId: AssetId, patch: Partial<RegionCrop>) => {
@@ -853,6 +990,19 @@ export function createProjectStore() {
             aiAnnotations: {
               ...doc.aiAnnotations,
               captionSegments: [...doc.aiAnnotations.captionSegments, ...segments],
+            },
+          }));
+        },
+
+        replaceCaptionSegmentsForAsset: (assetId: AssetId, segments: CaptionSegment[]) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            aiAnnotations: {
+              ...doc.aiAnnotations,
+              captionSegments: [
+                ...doc.aiAnnotations.captionSegments.filter((seg) => seg.assetId !== assetId),
+                ...segments,
+              ],
             },
           }));
         },

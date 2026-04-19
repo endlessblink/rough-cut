@@ -23,6 +23,8 @@ export interface BottomBarProps {
 
   recordState: RecordState;
   onClickRecord: () => void;
+  recordDisabled?: boolean;
+  recordDisabledReason?: string | null;
   countdownValue: number;
   onSelectCountdown: (seconds: number) => void;
   countdownSeconds?: number;
@@ -230,10 +232,14 @@ function DeviceSegment({
 function RecordButton({
   recordState,
   countdownSeconds,
+  disabled = false,
+  disabledReason = null,
   onClick,
 }: {
   recordState: RecordState;
   countdownSeconds?: number;
+  disabled?: boolean;
+  disabledReason?: string | null;
   onClick: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -254,6 +260,11 @@ function RecordButton({
     bg = pressed ? 'rgba(255,255,255,0.10)' : hovered ? 'rgba(255,255,255,0.06)' : 'transparent';
     color = '#f5f5f5';
     border = '1px solid rgba(255,255,255,0.40)';
+  } else if (disabled) {
+    label = '\u25CF REC';
+    bg = 'transparent';
+    color = 'rgba(255,90,95,0.40)';
+    border = '1px solid rgba(255,90,95,0.20)';
   } else {
     label = '\u25CF REC';
     bg = pressed ? 'rgba(255,90,95,0.12)' : hovered ? 'rgba(255,90,95,0.08)' : 'transparent';
@@ -265,6 +276,8 @@ function RecordButton({
     <button
       data-testid="btn-record"
       onClick={onClick}
+      disabled={disabled}
+      title={disabledReason ?? undefined}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => {
         setHovered(false);
@@ -283,7 +296,7 @@ function RecordButton({
         fontSize: 12,
         fontWeight: 600,
         border,
-        cursor: recordState === 'countdown' ? 'default' : 'pointer',
+        cursor: disabled || recordState === 'countdown' ? 'not-allowed' : 'pointer',
         fontFamily: 'inherit',
         userSelect: 'none',
         background: bg,
@@ -293,6 +306,7 @@ function RecordButton({
         letterSpacing: '0.04em',
         flexShrink: 0,
         outline: 'none',
+        opacity: disabled ? 0.7 : 1,
       }}
     >
       {label}
@@ -436,6 +450,8 @@ export function BottomBar({
   onToggleCamera,
   recordState,
   onClickRecord,
+  recordDisabled = false,
+  recordDisabledReason = null,
   countdownValue,
   onSelectCountdown,
   countdownSeconds,
@@ -516,6 +532,8 @@ export function BottomBar({
         <RecordButton
           recordState={recordState}
           countdownSeconds={countdownSeconds}
+          disabled={recordDisabled}
+          disabledReason={recordDisabledReason}
           onClick={onClickRecord}
         />
       </div>

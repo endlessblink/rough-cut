@@ -27,6 +27,10 @@ export class CursorRecorder {
   #recording = false;
   /** @type {number} */
   #lastMoveFrame = -1;
+  /** @type {number} */
+  #offsetX = 0;
+  /** @type {number} */
+  #offsetY = 0;
 
   constructor() {
     // Register listeners once — they check #recording internally
@@ -35,14 +39,23 @@ export class CursorRecorder {
       const frame = this.#currentFrame();
       if (frame === this.#lastMoveFrame) return;
       this.#lastMoveFrame = frame;
-      this.#events.push({ frame, x: e.x, y: e.y, type: 'move', button: 0 });
+      this.#events.push({
+        frame,
+        x: e.x - this.#offsetX,
+        y: e.y - this.#offsetY,
+        type: 'move',
+        button: 0,
+      });
     });
 
     uIOhook.on('mousedown', /** @param {import('uiohook-napi').UiohookMouseEvent} e */ (e) => {
       if (!this.#recording) return;
       this.#events.push({
         frame: this.#currentFrame(),
-        x: e.x, y: e.y, type: 'down', button: e.button ?? 0,
+        x: e.x - this.#offsetX,
+        y: e.y - this.#offsetY,
+        type: 'down',
+        button: e.button ?? 0,
       });
     });
 
@@ -50,7 +63,10 @@ export class CursorRecorder {
       if (!this.#recording) return;
       this.#events.push({
         frame: this.#currentFrame(),
-        x: e.x, y: e.y, type: 'up', button: e.button ?? 0,
+        x: e.x - this.#offsetX,
+        y: e.y - this.#offsetY,
+        type: 'up',
+        button: e.button ?? 0,
       });
     });
 
@@ -58,7 +74,10 @@ export class CursorRecorder {
       if (!this.#recording) return;
       this.#events.push({
         frame: this.#currentFrame(),
-        x: e.x, y: e.y, type: 'scroll', button: 0,
+        x: e.x - this.#offsetX,
+        y: e.y - this.#offsetY,
+        type: 'scroll',
+        button: 0,
       });
     });
   }
@@ -72,8 +91,9 @@ export class CursorRecorder {
    * Start capturing cursor events.
    * @param {number} frameRate - Project frame rate (24, 30, or 60)
    * @param {string} outputPath - Path to write .cursor.ndjson sidecar
+   * @param {{ offsetX?: number, offsetY?: number }} [captureBounds]
    */
-  start(frameRate, outputPath) {
+  start(frameRate, outputPath, captureBounds = {}) {
     if (this.#recording) {
       console.warn('CursorRecorder: already recording, stopping previous session');
       this.stop();
@@ -84,6 +104,8 @@ export class CursorRecorder {
     this.#outputPath = outputPath;
     this.#startTime = Date.now();
     this.#lastMoveFrame = -1;
+    this.#offsetX = Number.isFinite(captureBounds.offsetX) ? captureBounds.offsetX : 0;
+    this.#offsetY = Number.isFinite(captureBounds.offsetY) ? captureBounds.offsetY : 0;
     this.#recording = true;
 
     // Start uIOhook once — never stop it
@@ -99,7 +121,9 @@ export class CursorRecorder {
       }
     }
 
-    console.log(`CursorRecorder: recording started (${frameRate}fps → ${outputPath})`);
+    console.log(
+      `CursorRecorder: recording started (${frameRate}fps → ${outputPath}, offset ${this.#offsetX},${this.#offsetY})`,
+    );
   }
 
   /**

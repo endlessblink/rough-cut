@@ -4,17 +4,17 @@ name: Record Tab Development Guide
 description: Complete architectural context for building features in the Rough Cut Record tab — inspector categories, layout patterns, store wiring, effect pipeline, and industry reference from Focusee/Screen Studio
 source: conversation
 triggers:
-  - "record tab"
-  - "record inspector"
-  - "record category"
-  - "recording sidebar"
-  - "add recording feature"
-  - "background panel"
-  - "highlights panel"
-  - "titles panel"
-  - "RecordRightPanel"
-  - "RecordTab"
-  - "presentation events"
+  - 'record tab'
+  - 'record inspector'
+  - 'record category'
+  - 'recording sidebar'
+  - 'add recording feature'
+  - 'background panel'
+  - 'highlights panel'
+  - 'titles panel'
+  - 'RecordRightPanel'
+  - 'RecordTab'
+  - 'presentation events'
 quality: high
 ---
 
@@ -36,13 +36,13 @@ Before making any change to the Record tab, re-read these files — they are the
 
 Rough Cut is a desktop screen recording + editing studio. Five tabs, each with a specific responsibility:
 
-| Tab | Creates/Reads | Never Touches |
-|-----|--------------|---------------|
+| Tab        | Creates/Reads                                | Never Touches                   |
+| ---------- | -------------------------------------------- | ------------------------------- |
 | **Record** | Creates Assets, writes presentation metadata | Timeline clips, track structure |
-| **Edit** | Reads/writes Composition (tracks, clips) | Capture logic, asset creation |
-| **Motion** | Reads/writes MotionPresets, clip keyframes | Capture, track structure |
-| **AI** | Creates AIAnnotations, proposes edits | Direct clip mutation |
-| **Export** | Reads entire ProjectDocument, writes output | Everything else |
+| **Edit**   | Reads/writes Composition (tracks, clips)     | Capture logic, asset creation   |
+| **Motion** | Reads/writes MotionPresets, clip keyframes   | Capture, track structure        |
+| **AI**     | Creates AIAnnotations, proposes edits        | Direct clip mutation            |
+| **Export** | Reads entire ProjectDocument, writes output  | Everything else                 |
 
 **The ProjectDocument is the single source of truth.** Every subsystem reads from or writes to it. No subsystem communicates with another directly.
 
@@ -68,6 +68,7 @@ apps/desktop                → wires everything together
 ```
 
 **Hard rules:**
+
 - `project-model` depends on NOTHING
 - `preview-renderer` and `export-renderer` NEVER depend on each other
 - `ui` NEVER imports from `preview-renderer` directly
@@ -78,6 +79,61 @@ apps/desktop                → wires everything together
 
 The Record tab is a **presentation layer**, not a structural editor. All features here are visual enhancements applied to recordings — zoom emphasis, cursor styling, click highlights, text overlays, background framing. These live on `Asset.presentation` (per-recording metadata) or as `EffectInstance[]` on clips. The Record tab never creates, splits, trims, or reorders clips — that's the Edit tab's job.
 
+## Development Path
+
+Record development must be infrastructure-first. Do not stack premium features on top of unstable recording foundations.
+
+### Sprint R1 — Trust Infrastructure
+
+These are the first-class blockers for a premium recorder:
+
+- `TASK-143` permission diagnostics + deep links + preflight test
+- `TASK-144` mid-take source/device recovery with re-target and offline badge
+- `TASK-145` floating controller hide/fade + never-in-video guarantee
+- `TASK-146` preview/export fidelity enforcement
+- `TASK-147` reopen/project-move fidelity for templates and sidecars
+- `TASK-148` crash-resilient autosave + partial-take recovery
+- `TASK-152` fear-reducing micro-affordances
+- `TASK-153` auto desktop icon hide + Do Not Disturb
+- `TASK-154` replay buffer hotkey
+- related existing work: `TASK-100`, `TASK-124`, `TASK-125`, `BUG-004`, `BUG-011`, `BUG-013`
+
+### Sprint R2 — Core Polish
+
+Only after R1 is credible should Record chase premium visual polish:
+
+- `TASK-122` zoom marker transform + paused-selection behavior
+- `TASK-123` zoom sidecar + cursor continuity persistence
+- `TASK-129` automatic zoom generation from clicks
+- `TASK-130` advanced cursor styles, click effects, and click sounds
+- `TASK-131` cinematic motion blur
+- `TASK-132` privacy blur masks and spotlight regions
+- `TASK-150` per-segment visibility toggles
+- `TASK-158` camera auto-shrink during zoom activation
+- `TASK-159` full dynamic camera layout authoring UX
+
+### Sprint R3 — Assistance
+
+These make Rough Cut genuinely one-take friendly for tutorials:
+
+- `TASK-089` keyboard shortcut overlays
+- `TASK-090` highlights and annotations
+- `TASK-091` titles and callouts
+- `TASK-093` teleprompter
+- `TASK-149` clipping warnings + ducking preview + multi-track review
+- `TASK-155` AI captions with timeline edit + styling
+- `TASK-156` Smart Cut for filler words, silence, breaths, and mouth clicks
+
+### Sprint R4 — Packaging
+
+These connect Record to publishing, branding, and repeatability:
+
+- `TASK-094` shareable presets and profiles
+- `TASK-121` restore template picker and preset application flow
+- `TASK-151` destination presets with social framing and export linkage
+- `TASK-157` watermark/logo inspector with persistent branding controls
+- `TASK-095` mobile device capture with device frames
+
 ## Why This Matters
 
 Adding features to the Record tab requires understanding three layers: (1) where data lives in the project model, (2) how the inspector UI is structured, (3) how effects reach the preview/export renderers. Getting any of these wrong causes architectural violations that the CLAUDE.md constitution explicitly prohibits.
@@ -85,6 +141,7 @@ Adding features to the Record tab requires understanding three layers: (1) where
 ## Architecture: Data Ownership
 
 ### Presentation data (zoom, cursor, highlights, titles)
+
 - Lives on: `Asset.presentation: RecordingPresentation`
 - Package: `@rough-cut/project-model`
 - Store actions: `projectStore.getState().setRecordingAutoZoomIntensity(assetId, value)` etc.
@@ -92,6 +149,7 @@ Adding features to the Record tab requires understanding three layers: (1) where
 - Types file: `packages/project-model/src/types.ts` (line ~64, `RecordingPresentation`)
 
 ### Visual framing (background, padding, corners, shadow)
+
 - Lives on: `Clip.effects: EffectInstance[]` (applied at recording stop)
 - During recording: ephemeral UI state (local `useState` or a `recordingStore`)
 - At stop: translated into `EffectInstance[]` on the newly created clip
@@ -99,6 +157,7 @@ Adding features to the Record tab requires understanding three layers: (1) where
 - MVP spec reference: MVP_SPEC.md lines 160-164
 
 ### Project-level settings (background color, resolution)
+
 - Lives on: `ProjectDocument.settings`
 - Store action: `projectStore.getState().updateSettings({ resolution, backgroundColor })`
 - Already working: resolution changes via template selection
@@ -106,6 +165,7 @@ Adding features to the Record tab requires understanding three layers: (1) where
 ## Architecture: Inspector UI Pattern
 
 ### InspectorShell (shared component)
+
 - File: `apps/desktop/src/renderer/ui/InspectorShell.tsx`
 - Pattern: icon rail (36px) + single active panel + category header with optional Reset
 - DO NOT MODIFY this component when adding categories
@@ -118,6 +178,7 @@ Adding features to the Record tab requires understanding three layers: (1) where
    - Import from `../../ui/index.js`
 
 2. **Add to categories array** in `RecordRightPanel.tsx`:
+
    ```tsx
    { id: 'your-id', label: 'Label', icon: <Icon />, onReset: handler, panel: <Panel ... /> }
    ```
@@ -127,6 +188,7 @@ Adding features to the Record tab requires understanding three layers: (1) where
    - Inactive: `rgba(255,255,255,0.35)`
 
 ### Current categories (in order):
+
 1. **Templates** — layout presets (aspect ratio + camera position), 2-column grid grouped by Landscape/Portrait/Square. Selection updates `project.settings.resolution` via `updateSettings`.
 2. **Zoom** — auto intensity slider + markers lane. Data: `Asset.presentation.zoom`
 3. **Cursor** — style pills, click effect, size, click sound. Data: `Asset.presentation.cursor`
@@ -134,6 +196,7 @@ Adding features to the Record tab requires understanding three layers: (1) where
 5. **Titles** — PLACEHOLDER ("Coming soon"). Needs: `TitlePresentation` type + markers
 
 ### Missing categories (per Focusee/Screen Studio research):
+
 - **Background/Canvas** — background fill (color/gradient/image), padding, corner radius, shadow. Both Focusee and Screen Studio have this. Highest priority gap.
 - **Camera shape** — circle/rectangle + corner roundness for webcam overlay
 - **Spotlight** — darkness layer outside focus area (Focusee has this)
@@ -141,12 +204,14 @@ Adding features to the Record tab requires understanding three layers: (1) where
 ## Architecture: Layout (LOCKED — do not modify)
 
 ### WorkspaceRow
+
 - File: `apps/desktop/src/renderer/ui/WorkspaceRow.tsx`
 - Owns all horizontal math: main content (flex: 1, minWidth: 0, overflow: hidden) + sidebar (fixed width)
 - The main content div MUST have `overflow: hidden` — this is what prevents the sidebar from being clipped
 - `data-testid="workspace-row"` for Playwright testing
 
 ### RecordTab structure
+
 ```
 RecordScreenLayout (100vh, overflow: hidden)
   AppHeader
@@ -160,6 +225,7 @@ RecordScreenLayout (100vh, overflow: hidden)
 ```
 
 ### Key layout rules
+
 - Timeline is OUTSIDE WorkspaceRow (spans full viewport width)
 - Left column: `flex: 1 1 0%, minWidth: 0, overflow: hidden`
 - Sidebar wrapper: explicit pixel `width`, `flexShrink: 0`
@@ -177,6 +243,7 @@ The preview uses a **3-layer hybrid approach** — NOT everything in PixiJS:
 **Critical:** Background, padding, shadow, rounded corners are ALL CSS on wrapper divs. PixiJS only handles video content + zoom transforms. This is how Recordly and Screen Studio work.
 
 **PreviewCard architecture:**
+
 ```
 PreviewCard (outer, CSS aspectRatio from resolution)
   ├── Background div (position: absolute, inset: 0, background: gradient/color)
@@ -192,6 +259,7 @@ Source: [Recordly VideoPlayback.tsx](https://github.com/webadderall/Recordly/blo
 ### Adding a new effect type
 
 1. **Define in effect-registry**: `packages/effect-registry/src/effects/[name].ts`
+
    ```ts
    export const [name]Effect: EffectDefinition = {
      type: '[name]',
@@ -212,6 +280,7 @@ Source: [Recordly VideoPlayback.tsx](https://github.com/webadderall/Recordly/blo
    - `round-corners` already has a Canvas2D implementation here
 
 ### Current effects:
+
 - `zoom-pan` (category: transform)
 - `round-corners` (category: stylize) — has Canvas2D export impl
 - `gaussian-blur` (category: blur)
@@ -220,12 +289,14 @@ Source: [Recordly VideoPlayback.tsx](https://github.com/webadderall/Recordly/blo
 ## Store Patterns
 
 ### Project store actions
+
 - File: `packages/store/src/project-store.ts`
 - All actions go through `updateProject(fn)` for automatic undo via zundo
 - Selectors in `packages/store/src/selectors.ts`
 - Test file: `packages/store/src/project-store.test.ts` — follow existing `describe/it` pattern
 
 ### Missing store actions needed:
+
 - `addClipEffect(trackId, clipId, effect)`
 - `updateClipEffect(trackId, clipId, effectId, patch)`
 - `removeClipEffect(trackId, clipId, effectId)`
@@ -269,6 +340,7 @@ Source: [Recordly VideoPlayback.tsx](https://github.com/webadderall/Recordly/blo
 7. **Spotlight** — darkness layer outside focus area with adjustable shape
 
 **Recording Presets (whole-project bundles):**
+
 - Saved via "Preset" button in upper-right corner
 - A preset bundles: canvas ratio + background, mouse style, click effects, camera layout, watermark
 - Named text list (not visual thumbnails)
@@ -283,6 +355,7 @@ Source: [Recordly VideoPlayback.tsx](https://github.com/webadderall/Recordly/blo
 **Editor structure:** Right-panel-dominant. Video preview on left/center, all controls in right sidebar.
 
 **Aspect ratio selector (ABOVE the canvas, not in sidebar):**
+
 - Six labeled buttons in a segmented control: Auto, Wide (16:9), Vertical (9:16), Square (1:1), Classic (4:3), Tall (3:4)
 - Most prominent and accessible UI element in the editor
 
@@ -324,42 +397,58 @@ Source: [Recordly VideoPlayback.tsx](https://github.com/webadderall/Recordly/blo
 
 ### Feature Parity Matrix: Us vs Industry
 
-| Feature | Rough Cut | Focusee | Screen Studio |
-|---------|-----------|---------|---------------|
-| Templates/Layouts | ✅ 8 presets | ✅ 6 presets | ✅ 3 modes + timeline |
-| Aspect ratios | ✅ via templates | ✅ 4 presets + dropdown | ✅ 6 presets |
-| Zoom | ✅ intensity + markers | ✅ | ✅ auto |
-| Cursor | ✅ style, click, size, sound | ✅ | ✅ |
-| **Background/Canvas** | ❌ MISSING | ✅ full (gradient, image, color) | ✅ full (wallpaper, gradient, color, image) |
-| **Padding** | ❌ MISSING | ✅ slider | ✅ slider |
-| **Corner radius** | ❌ UI missing (effect exists) | ✅ slider | ✅ slider |
-| **Shadow** | ❌ MISSING | ✅ | ✅ |
-| **Camera shape** | ❌ | ✅ circle/rect + roundness | ✅ roundness |
-| **Spotlight** | ❌ | ✅ | ❌ |
-| Highlights | placeholder | ✅ click highlights | ❌ |
-| Titles | placeholder | ❌ | ❌ |
-| Captions | ❌ (AI tab future) | ❌ | ✅ auto-transcription |
-| Presets (saved bundles) | ❌ | ✅ | ✅ |
+| Feature                 | Rough Cut                     | Focusee                          | Screen Studio                               |
+| ----------------------- | ----------------------------- | -------------------------------- | ------------------------------------------- |
+| Templates/Layouts       | ✅ 8 presets                  | ✅ 6 presets                     | ✅ 3 modes + timeline                       |
+| Aspect ratios           | ✅ via templates              | ✅ 4 presets + dropdown          | ✅ 6 presets                                |
+| Zoom                    | ✅ intensity + markers        | ✅                               | ✅ auto                                     |
+| Cursor                  | ✅ style, click, size, sound  | ✅                               | ✅                                          |
+| **Background/Canvas**   | ❌ MISSING                    | ✅ full (gradient, image, color) | ✅ full (wallpaper, gradient, color, image) |
+| **Padding**             | ❌ MISSING                    | ✅ slider                        | ✅ slider                                   |
+| **Corner radius**       | ❌ UI missing (effect exists) | ✅ slider                        | ✅ slider                                   |
+| **Shadow**              | ❌ MISSING                    | ✅                               | ✅                                          |
+| **Camera shape**        | ❌                            | ✅ circle/rect + roundness       | ✅ roundness                                |
+| **Spotlight**           | ❌                            | ✅                               | ❌                                          |
+| Highlights              | placeholder                   | ✅ click highlights              | ❌                                          |
+| Titles                  | placeholder                   | ❌                               | ❌                                          |
+| Captions                | ❌ (AI tab future)            | ❌                               | ✅ auto-transcription                       |
+| Presets (saved bundles) | ❌                            | ✅                               | ✅                                          |
+
+### Hidden Premium UX Requirements
+
+The obvious visible features are not enough. Premium recorders also establish these expectations:
+
+1. **Permission diagnostics** — exact missing permission, deep link to system settings, relaunch guidance, and a test button before the first real take.
+2. **Mid-take recovery** — window/source/device loss should not hard-fail the take; re-targeting and offline states must be visible and recoverable.
+3. **Controller safety** — the recording widget must be hideable, recallable, and guaranteed not to leak into the final output.
+4. **Preview/export parity** — what users see in Record review must be what exports.
+5. **Reopen fidelity** — camera layouts, zoom sidecars, cursor overlays, watermarks, and templates must survive close/reopen and project moves.
+6. **Crash resilience** — long recordings need autosave and partial-take recovery.
+7. **Audio trust** — clipping warnings, multi-track visibility, and route clarity matter as much as AI cleanup.
+8. **Per-segment control** — camera/cursor/click/overlay visibility changes must be editable on the Record timeline.
+9. **Destination-first packaging** — social presets, branding, and export linkage should start in Record, not be bolted on later.
 
 ### Priority order based on industry parity:
-1. **Background/Canvas** — both competitors have it, biggest visual impact
-2. **Highlights** — Focusee has it, key for professional recordings
-3. **Titles** — neither competitor has it in sidebar (Rough Cut differentiator)
-4. **Camera shape** — both have it, expected feature
-5. **Spotlight** — only Focusee, nice-to-have
-6. **Saved presets** — both have it, quality-of-life feature
+
+1. **Trust infrastructure** — diagnostics, recovery, autosave, parity, reopen fidelity
+2. **Dynamic camera layouts + auto-shrink** — biggest immediate premium-feel gap vs FocuSee / Screen Studio
+3. **Zoom/cursor polish** — auto zoom, styles, click effects, spotlight, motion blur
+4. **Assistance layer** — teleprompter, captions, Smart Cut, audio confidence
+5. **Packaging layer** — presets, destination presets, watermark, mobile framing
 
 ### Background/Wallpaper Selector — Visual Design Reference (from Recordly/Screen Studio)
 
 The background picker UI follows a specific pattern used by Screen Studio and Recordly:
 
 **Tab switcher:**
+
 - 3-tab pill-style toggle: Gradient / Color / Image
 - Active tab: accent-colored background (we use #ff6b5a)
 - Container: rounded border, subtle dark background
 - Height ~28px, grid layout (3 equal columns)
 
 **Tile grid (shared by gradients and colors):**
+
 - 6-column grid (we use 6; Recordly uses 8 but their panel is wider)
 - Square aspect ratio tiles (`aspect-ratio: 1`)
 - Rounded corners (8px)
@@ -369,27 +458,32 @@ The background picker UI follows a specific pattern used by Screen Studio and Re
 - No checkmarks — selection indicated purely by border color
 
 **Gradient presets:**
+
 - 24 CSS `linear-gradient` strings, pre-rendered as tile backgrounds
 - Organized in rows: dark/moody → cool blues → vibrant → soft/warm
 - All 135deg angle for consistency
 - Source: curated from uiGradients (MIT license)
 
 **Solid colors:**
+
 - Same tile grid, 24 dark color presets
 - Includes dark blacks, navy blues, deep purples, forest greens
 
 **Image section:**
+
 - Dashed border drop zone with upload icon
 - Support for user image upload (stores as project asset, main process handles I/O)
 - Wallpaper images can be AI-generated or sourced from Unsplash (free commercial license)
 
 **Framing controls (below the grid):**
+
 - Padding slider (0-200px, step 5)
 - Corner radius slider (0-40px)
 - Shadow toggle + blur slider (0-50px when enabled)
 - All use ControlLabel + RcSlider pattern
 
 ## Design Tokens (from tokens.ts)
+
 ```
 RECORD_PANEL_WIDTH = 260
 CARD_GAP = 12
@@ -405,30 +499,36 @@ BG_CONTROL = rgba(255,255,255,0.05)
 ## What Can Go Wrong (Lessons Learned)
 
 ### Layout regressions
+
 - **Never rewrite working layout code for aesthetics.** The WorkspaceRow was rewritten from a working 2-div pattern to a "cleaner" 3-column pattern, which broke vertical scrolling. Always commit working layout immediately.
 - **Playwright browser ≠ Electron.** Tests pass in Playwright MCP browser but fail in real Electron due to canvas intrinsic sizes, DevTools docking, and `min-width: auto` propagation. Use `tests/electron/debug-layout.mjs` for real verification.
 - **The left column MUST have `overflow: hidden`.** Without it, content with intrinsic width (PixiJS canvas at 1920px, timeline tracks) forces the flex item wider than available space, pushing the sidebar off-screen.
 
 ### Store/model violations
+
 - **Don't add runtime deps to `project-model`.** It's types, schemas, factories, and migrations only. Pure data.
 - **Don't put presentation logic in components.** All mutations go through store actions. Components are props-in, callbacks-out.
 - **Sidebar values during recording are NOT project model data.** They're ephemeral UI state. Only the resulting EffectInstances written to clips at stop-time enter the project model.
 
 ### Effect system
+
 - **Don't hardcode effect logic in renderers.** Use the registry pattern. Define the effect in `effect-registry`, implement rendering separately in `preview-renderer` (PixiJS) and `export-renderer` (Canvas2D).
 - **Don't share rendering code between preview and export.** They're fundamentally different pipelines. They share only type definitions and interpolation math.
 
 ## Testing
 
 ### Playwright Electron test
+
 - Script: `tests/electron/debug-layout.mjs`
 - Launches real Electron app, measures DOM elements
 - Key assertion: `aside.right <= window.innerWidth` (no sidebar clipping)
 - Run: `node tests/electron/debug-layout.mjs`
 
 ### Store tests
+
 - `pnpm -F @rough-cut/store test` — 58 tests
 - Pattern: `createProjectStore()`, call action, assert state, test undo
 
 ### Model tests
+
 - `pnpm -F @rough-cut/project-model test` — factory + schema validation tests

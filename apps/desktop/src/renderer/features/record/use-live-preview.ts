@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+export type LivePreviewStatus = 'idle' | 'acquiring' | 'live' | 'failed';
+
 /**
  * Acquires a MediaStream for the selected desktop capturer source
  * and provides a ref callback to attach it to a <video> element.
@@ -7,6 +9,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  */
 export function useLivePreview(selectedSourceId: string | null) {
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [status, setStatus] = useState<LivePreviewStatus>('idle');
+  const [error, setError] = useState<string | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
 
@@ -18,16 +22,22 @@ export function useLivePreview(selectedSourceId: string | null) {
         streamRef.current = null;
         setStream(null);
       }
+      setStatus('idle');
+      setError(null);
       return;
     }
 
     let cancelled = false;
 
     async function acquireStream() {
+      setStatus('acquiring');
+      setError(null);
       try {
         // Stop previous stream first
         if (streamRef.current) {
           streamRef.current.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+          setStream(null);
         }
 
         const newStream = await navigator.mediaDevices.getUserMedia({
@@ -51,6 +61,7 @@ export function useLivePreview(selectedSourceId: string | null) {
 
         streamRef.current = newStream;
         setStream(newStream);
+        setStatus('live');
 
         // If video element already exists, attach
         if (videoElementRef.current) {
@@ -61,6 +72,8 @@ export function useLivePreview(selectedSourceId: string | null) {
         if (!cancelled) {
           streamRef.current = null;
           setStream(null);
+          setStatus('failed');
+          setError(err instanceof Error ? err.message : String(err));
         }
       }
     }
@@ -90,5 +103,5 @@ export function useLivePreview(selectedSourceId: string | null) {
     }
   }, []);
 
-  return { stream, videoRef };
+  return { stream, status, error, videoRef };
 }

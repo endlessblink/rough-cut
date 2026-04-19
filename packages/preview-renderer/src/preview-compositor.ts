@@ -76,6 +76,7 @@ export class PreviewCompositor {
   private lastRenderedFrame = -1;
   private lastRenderedProject: ProjectDocument | null = null;
   private _playing = false;
+  private lastLoggedPrimaryPlaybackAssetId: string | null = null;
 
   // Layer cache — reuse PixiJS objects to avoid GC pressure at 60fps
   private layerCache: Map<string, LayerCache> = new Map();
@@ -230,23 +231,23 @@ export class PreviewCompositor {
 
   /** Get the current playback time from the first loaded video element */
   getVideoCurrentTime(): number {
-    for (const vc of this.videoCache.values()) {
-      if (vc.loaded && vc.video.readyState >= 2) {
-        return vc.video.currentTime;
-      }
+    const activeVideo = this.getPrimaryPlaybackVideoCache();
+    if (activeVideo?.video.loaded && activeVideo.video.video.readyState >= 2) {
+      return activeVideo.video.video.currentTime;
     }
+
     return -1;
   }
 
   /** Map native video playback back to the project timeline frame. */
   getPlaybackFrame(): number {
     const fps = this.project?.settings.frameRate ?? 30;
-    for (const [assetId, vc] of this.videoCache.entries()) {
-      if (vc.loaded && vc.video.readyState >= 2) {
-        const sourceFrame = Math.round(vc.video.currentTime * fps);
-        return this.resolveTimelineFrameForAsset(assetId, sourceFrame) ?? sourceFrame;
-      }
+    const primaryPlayback = this.getPrimaryPlaybackVideoCache();
+    if (primaryPlayback?.video.loaded && primaryPlayback.video.video.readyState >= 2) {
+      const sourceFrame = Math.round(primaryPlayback.video.video.currentTime * fps);
+      return this.resolveTimelineFrameForAsset(primaryPlayback.assetId, sourceFrame) ?? sourceFrame;
     }
+
     return -1;
   }
 
@@ -257,11 +258,7 @@ export class PreviewCompositor {
 
   /** Detect native playback completion from the compositor-owned media elements. */
   hasPlaybackEnded(): boolean {
-    for (const vc of this.videoCache.values()) {
-      if (!vc.loaded) continue;
-      if (vc.video.ended) return true;
-    }
-    return false;
+    return this.getPrimaryPlaybackVideoCache()?.video.video.ended ?? false;
   }
 
   /** Seek to a specific frame and render it */
@@ -769,6 +766,47 @@ export class PreviewCompositor {
     }
 
     return bestFrame;
+  }
+
+  private getPrimaryPlaybackVideoCache(): { assetId: string; video: VideoCache } | null {
+    if (!this.project) return null;
+
+    const renderFrame = resolveFrame(this.project, this.currentFrame);
+    for (const layer of renderFrame.layers) {
+      const asset = this.findAsset(layer.assetId);
+      const isPlayableVideo =
+        asset &&
+        (asset.type === 'recording' || asset.type === 'video') &&
+        asset.filePath &&
+        !(asset.metadata as Record<string, unknown> | undefined)?.isCamera;
+
+      if (!isPlayableVideo) continue;
+
+      const video = this.videoCache.get(layer.assetId);
+      if (!video) continue;
+
+      if (this.lastLoggedPrimaryPlaybackAssetId !== layer.assetId) {
+        this.lastLoggedPrimaryPlaybackAssetId = layer.assetId;
+        console.info('[PreviewCompositor] Primary playback asset selected', {
+          assetId: layer.assetId,
+          clipId: layer.clipId,
+          sourceFrame: layer.sourceFrame,
+          timelineFrame: this.currentFrame,
+          filePath: asset.filePath,
+          loaded: video.loaded,
+          readyState: video.video.readyState,
+        });
+      }
+
+      return { assetId: layer.assetId, video };
+    }
+
+    if (this.lastLoggedPrimaryPlaybackAssetId !== null) {
+      this.lastLoggedPrimaryPlaybackAssetId = null;
+      console.info('[PreviewCompositor] No primary playback asset for frame', this.currentFrame);
+    }
+
+    return null;
   }
 
   private requestAccurateVideoFrame(

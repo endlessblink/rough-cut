@@ -107,6 +107,24 @@ function roundCrop(c: { x: number; y: number; width: number; height: number }) {
   };
 }
 
+function clampRectFreeform(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  srcW: number,
+  srcH: number,
+) {
+  const width = Math.max(MIN_CROP_PX, Math.min(w, srcW));
+  const height = Math.max(MIN_CROP_PX, Math.min(h, srcH));
+  return {
+    x: Math.max(0, Math.min(x, srcW - width)),
+    y: Math.max(0, Math.min(y, srcH - height)),
+    width,
+    height,
+  };
+}
+
 // ─── Resize logic ───────────────────────────────────────────────────────────
 // Always locks to the crop box's current aspect ratio during drag.
 // Uses a single diagonal metric: project the mouse delta onto the
@@ -119,7 +137,25 @@ function applyCropResize(
   dY: number,
   srcW: number,
   srcH: number,
+  lockAspect: boolean,
 ): { x: number; y: number; width: number; height: number } {
+  if (!lockAspect) {
+    let { x, y, width, height } = orig;
+
+    if (edge.includes('e')) width = orig.width + dX;
+    if (edge.includes('s')) height = orig.height + dY;
+    if (edge.includes('w')) {
+      width = orig.width - dX;
+      x = orig.x + orig.width - width;
+    }
+    if (edge.includes('n')) {
+      height = orig.height - dY;
+      y = orig.y + orig.height - height;
+    }
+
+    return clampRectFreeform(x, y, width, height, srcW, srcH);
+  }
+
   const ratio = orig.width / orig.height;
   let { x, y, width: w, height: h } = orig;
 
@@ -229,6 +265,8 @@ export function CropOverlay({
   const cropRef = useRef(crop);
   cropRef.current = crop;
 
+  const isAspectLocked = crop.aspectRatio !== 'free';
+
   // Crop box as CSS percentages
   const pctLeft = (crop.x / sourceWidth) * 100;
   const pctTop = (crop.y / sourceHeight) * 100;
@@ -281,6 +319,7 @@ export function CropOverlay({
           dSrcY,
           sourceWidth,
           sourceHeight,
+          isAspectLocked,
         );
         cb(roundCrop(result));
       }
@@ -298,7 +337,7 @@ export function CropOverlay({
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
     };
-  }, [getFrameSize, sourceWidth, sourceHeight]);
+  }, [getFrameSize, isAspectLocked, sourceWidth, sourceHeight]);
 
   // Handlers
   const handleBoxPointerDown = useCallback(
@@ -333,15 +372,62 @@ export function CropOverlay({
     [crop.x, crop.y, crop.width, crop.height],
   );
 
+  const focusTitle = isAspectLocked ? `Focus area locked to ${crop.aspectRatio}` : 'Focus area';
+
   // Dark mask color
   const maskColor = 'rgba(0,0,0,0.55)';
 
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none' }}>
-      {/* 4-strip dark mask — clicking any strip exits crop mode */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 10,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 10px',
+          borderRadius: 12,
+          background: 'rgba(10,12,17,0.86)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.28)',
+          color: 'rgba(255,255,255,0.9)',
+          fontSize: 11,
+          lineHeight: 1.3,
+          pointerEvents: 'auto',
+          userSelect: 'none',
+        }}
+      >
+        <div>
+          <div style={{ fontWeight: 700 }}>{focusTitle}</div>
+          <div style={{ color: 'rgba(255,255,255,0.66)' }}>
+            Drag inside to reposition. Drag edges to refine.
+          </div>
+        </div>
+        {onExit && (
+          <button
+            onClick={onExit}
+            style={{
+              padding: '6px 10px',
+              borderRadius: 999,
+              border: '1px solid rgba(90,160,250,0.45)',
+              background: 'rgba(90,160,250,0.16)',
+              color: 'rgba(190,220,255,0.98)',
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            Done
+          </button>
+        )}
+      </div>
+
+      {/* 4-strip dark mask */}
       {/* Top */}
       <div
-        onClick={onExit}
         style={{
           position: 'absolute',
           top: 0,
@@ -350,12 +436,10 @@ export function CropOverlay({
           height: `${pctTop}%`,
           background: maskColor,
           pointerEvents: 'auto',
-          cursor: 'pointer',
         }}
       />
       {/* Bottom */}
       <div
-        onClick={onExit}
         style={{
           position: 'absolute',
           left: 0,
@@ -364,12 +448,10 @@ export function CropOverlay({
           top: `${pctTop + pctHeight}%`,
           background: maskColor,
           pointerEvents: 'auto',
-          cursor: 'pointer',
         }}
       />
       {/* Left */}
       <div
-        onClick={onExit}
         style={{
           position: 'absolute',
           left: 0,
@@ -378,12 +460,10 @@ export function CropOverlay({
           height: `${pctHeight}%`,
           background: maskColor,
           pointerEvents: 'auto',
-          cursor: 'pointer',
         }}
       />
       {/* Right */}
       <div
-        onClick={onExit}
         style={{
           position: 'absolute',
           right: 0,
@@ -450,6 +530,36 @@ export function CropOverlay({
               right: 0,
               height: 1,
               background: 'rgba(255,255,255,0.15)',
+            }}
+          />
+        </div>
+
+        <div
+          style={{
+            position: 'absolute',
+            left: '50%',
+            top: '50%',
+            width: 22,
+            height: 22,
+            marginLeft: -11,
+            marginTop: -11,
+            borderRadius: '50%',
+            border: '1px solid rgba(255,255,255,0.45)',
+            boxShadow: '0 0 0 9999px rgba(0,0,0,0)',
+            pointerEvents: 'none',
+          }}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              left: '50%',
+              top: '50%',
+              width: 6,
+              height: 6,
+              marginLeft: -3,
+              marginTop: -3,
+              borderRadius: '50%',
+              background: 'rgba(255,255,255,0.92)',
             }}
           />
         </div>

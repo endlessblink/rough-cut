@@ -57,25 +57,39 @@ For each surface, land the infrastructure that makes the view reliable first, th
 
 ### Surface order and focus
 
-| Order | Surface   | Goal                                                       | Primary task focus                                                                                                                         |
-| ----- | --------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1     | Projects  | Stable project entry, reopen, and persistence foundation   | ~~TASK-072~~, ~~TASK-071~~, ~~TASK-085~~                                                                                                   |
-| 2     | Recording | Reliable capture pipeline with polished in-record controls | ~~TASK-013~~, TASK-014, TASK-015, TASK-016, TASK-086, ~~BUG-007~~, ~~BUG-008~~, TASK-087, TASK-088, TASK-089, TASK-090, TASK-091, TASK-092 |
-| 3     | Export    | Complete output flow for recorded projects                 | TASK-021, TASK-022, TASK-028, TASK-029, TASK-112, TASK-067, TASK-052, TASK-054                                                             |
-| 4     | Edit      | Deep timeline editing and refinement                       | TASK-017, TASK-018, TASK-019, TASK-020, TASK-023, TASK-024, TASK-026, TASK-027, TASK-065                                                   |
-| 5     | AI        | Library ingest, analysis, and rough-cut generation         | TASK-040, TASK-079, TASK-080, TASK-081, TASK-082, TASK-044, TASK-045, TASK-047, TASK-097                                                   |
-| 6     | Motion    | Dedicated motion graphics authoring                        | TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-039                                                                       |
+| Order | Surface   | Goal                                                       | Primary task focus                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----- | --------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Projects  | Stable project entry, reopen, and persistence foundation   | ~~TASK-072~~, ~~TASK-071~~, ~~TASK-085~~                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 2     | Recording | Reliable capture pipeline with polished in-record controls | ~~TASK-013~~, TASK-014, TASK-015, TASK-016, TASK-086, ~~BUG-007~~, ~~BUG-008~~, TASK-087, TASK-088, TASK-089, TASK-090, TASK-091, TASK-092, TASK-121, TASK-122, TASK-123, TASK-124, TASK-125, TASK-126, TASK-127, TASK-128, TASK-129, TASK-130, TASK-131, TASK-132, TASK-143, TASK-144, TASK-145, TASK-146, TASK-147, TASK-148, TASK-149, TASK-150, TASK-151, TASK-152, TASK-153, TASK-154, TASK-155, TASK-156, TASK-157, TASK-158, TASK-159, TASK-162, TASK-163, BUG-013 |
+| 3     | Export    | Complete output flow for recorded projects                 | TASK-021, TASK-022, TASK-028, TASK-029, TASK-112, TASK-067, TASK-052, TASK-054                                                                                                                                                                                                                                                                                                                                                                                            |
+| 4     | Edit      | Deep timeline editing and refinement                       | TASK-017, TASK-018, TASK-019, TASK-020, TASK-023, TASK-024, TASK-026, TASK-027, TASK-065                                                                                                                                                                                                                                                                                                                                                                                  |
+| 5     | AI        | Library ingest, analysis, and rough-cut generation         | TASK-040, TASK-079, TASK-080, TASK-081, TASK-082, TASK-044, TASK-045, TASK-047, TASK-097                                                                                                                                                                                                                                                                                                                                                                                  |
+| 6     | Motion    | Dedicated motion graphics authoring                        | TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-039                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ### Current sprint framing
 
-1. **Sprint A -- Recording Infrastructure**: ~~TASK-013~~, TASK-086, ~~BUG-007~~, ~~BUG-008~~, TASK-087, TASK-088, BUG-009, TASK-100, BUG-004, BUG-011, ~~BUG-012~~, ~~TASK-120~~
-2. **Sprint B -- Recording Edge Features**: TASK-014, TASK-015, TASK-016, TASK-089, TASK-090, TASK-091, TASK-092, TASK-101
-3. **Sprint C -- Export Core Flow**: TASK-021, TASK-022, TASK-028, TASK-029, TASK-112, TASK-067
-4. **Sprint D -- Export Performance + Advanced Output**: TASK-050, TASK-051, TASK-052, TASK-054, TASK-096, TASK-108
-5. **Sprint E -- Edit Core Authoring**: TASK-017, TASK-018, TASK-019, TASK-020, TASK-023, TASK-024
-6. **Sprint F -- Edit Depth + Polish**: TASK-026, TASK-027, TASK-063, TASK-064, TASK-065, TASK-066
-7. **Sprint G -- AI Foundations + Workflow**: TASK-040, TASK-079, TASK-080, TASK-081, TASK-082, TASK-044, TASK-045, TASK-047, TASK-083, TASK-097
-8. **Sprint H -- Motion Surface**: TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-039
+This framing intentionally hides unrelated surfaces for now. Flow should show only the client-tutorial recording readiness path below. New categories unlock only after this path is complete enough to trust.
+
+1. **Sprint A -- Lane 1: Preview + Source UX**: TASK-165, TASK-166
+2. **Sprint B -- Lane 2: Audio Truthfulness**: TASK-167, TASK-168
+3. **Sprint C -- Lane 3: Session Lifecycle + Recovery**: TASK-169, TASK-170, TASK-171
+4. **Sprint D -- Lane 4: Capture Mode Truth**: TASK-172
+5. **Sprint E -- Lane 5: Verification**: TASK-173, TASK-174, TASK-175
+
+Practical order for lowest merge pain:
+
+- Sprint A first
+- Sprint B second
+- Sprint C third
+- Sprint D fourth
+- Sprint E last
+
+Parallel-start rule:
+
+- Sprint A and Sprint B may run together if ownership is strict
+- Sprint C should follow after Sprint B stabilizes `recording-session-manager.mjs`
+- Sprint D should follow after Sprint A settles source/mode behavior
+- Sprint E should encode the final truth, not chase moving contracts
 
 ---
 
@@ -127,9 +141,52 @@ For each surface, land the infrastructure that makes the view reliable first, th
 | BUG-011      | Fix: Linux recording hides all dock/taskbar stop controls                | P1       | TODO                     | TASK-010           |
 | ~~BUG-012~~  | ~~Fix: Record replay bootstrap stalls on saved-session playback~~        | P1       | ✅ DONE (2026-04-17)     | TASK-075           |
 | ~~TASK-120~~ | ~~Record: Decouple timeline playhead from per-frame React rerenders~~    | P1       | ✅ DONE (2026-04-16)     | TASK-075           |
+| TASK-124     | Record: Prove and harden saved-file system-audio capture                 | P1       | TODO                     | TASK-012, TASK-088 |
+| BUG-013      | Fix: Record/Edit camera template and visibility regressions after reopen | P1       | TODO                     | TASK-119, TASK-115 |
 | ~~TASK-030~~ | ~~Record: Countdown timer (0/3/5/10s configurable)~~                     | P2       | ✅ DONE (2026-04-16)     | TASK-011           |
 | ~~TASK-031~~ | ~~Record: Pause/resume recording (MediaRecorder pause)~~                 | P2       | ✅ DONE (2026-04-16)     | TASK-012           |
 | TASK-032     | Record: VU meters for mic and system audio                               | P2       | TODO                     | TASK-012           |
+| TASK-121     | Record: Restore template picker and preset application flow              | P2       | TODO                     | TASK-011, TASK-119 |
+| TASK-122     | Record: Fix zoom marker transform and paused-selection behavior          | P2       | TODO                     | TASK-013, TASK-120 |
+| TASK-123     | Record: Persist zoom sidecar and cursor overlay continuity               | P2       | TODO                     | TASK-015, TASK-122 |
+| TASK-125     | Record: Per-app system audio capture and routing controls                | P2       | TODO                     | TASK-088, TASK-124 |
+| TASK-126     | Record: In-progress controller with finish, pause, restart, and delete   | P2       | TODO                     | TASK-010, TASK-031 |
+| TASK-127     | Record: Webcam background removal, blur, and virtual scenes              | P2       | TODO                     | TASK-014           |
+| TASK-128     | Record: Audio cleanup and voice enhancement pipeline                     | P2       | TODO                     | TASK-124           |
+| TASK-129     | Record: Automatic zoom generation from clicks with editable refinement   | P2       | TODO                     | TASK-122           |
+| TASK-130     | Record: Advanced cursor styles, click effects, and click sounds          | P2       | TODO                     | TASK-101           |
+| TASK-131     | Record: Cinematic motion blur for cursor, zoom, and camera movement      | P2       | TODO                     | TASK-075, TASK-122 |
+| TASK-132     | Record: Privacy blur masks and spotlight regions                         | P2       | TODO                     | TASK-090           |
+| TASK-143     | Record: In-app permission diagnostics + deep links + preflight test      | P1       | TODO                     | TASK-010, TASK-088 |
+| ~~TASK-144~~ | ~~Record: Mid-take source/device recovery with re-target and offline badge~~ | P1       | ✅ DONE (2026-04-19)     | TASK-100, TASK-088 |
+| TASK-145     | Record: Floating controller hide/fade + never-in-video guarantee         | P1       | TODO                     | TASK-126, TASK-010 |
+| TASK-146     | Record: Preview/export fidelity enforcement for all Record polish        | P1       | TODO                     | TASK-013, TASK-015 |
+| TASK-147     | Record: Full reopen/project-move fidelity for templates and sidecars     | P1       | IN PROGRESS (2026-04-19) | BUG-013, TASK-123  |
+| TASK-148     | Record: Crash-resilient autosave + partial-take recovery                 | P1       | TODO                     | TASK-010, TASK-100 |
+| TASK-149     | Record: Audio clipping warnings + ducking preview + multi-track review   | P1       | TODO                     | TASK-032, TASK-125 |
+| TASK-150     | Record: Per-segment visibility toggles for camera/cursor/clicks/overlays | P1       | TODO                     | TASK-089, TASK-090 |
+| ~~TASK-151~~ | ~~Record: Destination presets with social framing and export linkage~~   | P1       | ✅ DONE (2026-04-19)     | TASK-094, TASK-121 |
+| TASK-152     | Record: Fear-reducing micro-affordances (DND, test clip, safe stop)      | P1       | TODO                     | TASK-126, TASK-100 |
+| TASK-153     | Record: Auto desktop icon hide + Do Not Disturb during recording         | P2       | TODO                     | TASK-152           |
+| TASK-154     | Record: Replay buffer hotkey to save the last 30 seconds                 | P2       | TODO                     | TASK-010, TASK-148 |
+| TASK-155     | Record: AI captions with timeline edit + styling in Record review        | P1       | TODO                     | TASK-093, TASK-149 |
+| TASK-156     | Record: Smart Cut for filler words, silence, breaths, and mouth clicks   | P1       | TODO                     | TASK-128, TASK-149 |
+| TASK-157     | Record: Watermark/logo inspector with persistent branding controls       | P1       | TODO                     | TASK-094, TASK-151 |
+| TASK-158     | Record: Camera auto-shrink and reposition during zoom activation         | P0       | TODO                     | TASK-122, TASK-092 |
+| TASK-159     | Record: Full dynamic camera layout authoring UX in Record timeline       | P0       | TODO                     | TASK-092, TASK-158 |
+| ~~TASK-162~~ | ~~Record: Focus-first framing UX for screen and camera preview~~         | P1       | ✅ DONE                  | TASK-013, TASK-122 |
+| ~~TASK-163~~ | ~~Record: Advanced framing presets and guidance for crop editing~~       | P2       | ✅ DONE                  | TASK-162           |
+| TASK-160     | Record: Render zoomed preview from source-resolution media, not CSS-only | P1       | TODO                     | TASK-146, TASK-129 |
+| TASK-161     | Export: Re-render zoom/crop from source media for sharp zoomed output    | P1       | TODO                     | TASK-146, TASK-160 |
+| ~~TASK-164~~ | ~~Record/Edit: camera visibility parity after persisted framing~~        | P1       | ✅ DONE (2026-04-19)     | TASK-147           |
+| ~~TASK-165~~ | ~~Record: Wire main-tab live preview to selected capture source~~        | P0       | ✅ DONE (2026-04-19)     | TASK-013, TASK-086 |
+| ~~TASK-166~~ | ~~Record: Enforce mode-filtered source picker and REC gating~~           | P0       | ✅ DONE (2026-04-19)     | TASK-165, TASK-088 |
+| ~~TASK-167~~ | ~~Record: Route selected mic and system audio into saved capture~~       | P0       | ✅ DONE (2026-04-19)     | TASK-088, TASK-012 |
+| ~~TASK-168~~ | ~~Record: Re-probe muxed output and import truthful audio metadata~~     | P0       | ✅ DONE (2026-04-19)     | TASK-167           |
+| TASK-169     | Record: Harden stop/save lifecycle on panel close and app quit           | P0       | TODO                     | TASK-010, TASK-086 |
+| TASK-170     | Record: Make pause/resume truthful or disable unsupported paths          | P1       | TODO                     | TASK-169, TASK-031 |
+| TASK-171     | Record: Session manifest and partial-take recovery on relaunch           | P0       | TODO                     | TASK-169, TASK-168 |
+| TASK-172     | Record: Real region capture or hide unsupported region mode              | P1       | TODO                     | TASK-166           |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
@@ -156,7 +213,7 @@ For each surface, land the infrastructure that makes the view reliable first, th
 | ~~TASK-021~~ | Export: Progress bar + frame counter (wire existing IPC events to UI) | P1       | ✅ DONE (2026-04-16) | TASK-008           |
 | ~~TASK-022~~ | Export: Output path selector (native save dialog)                     | P1       | ✅ DONE (2026-04-16) | TASK-009           |
 | TASK-028     | Export: Audio mixing in export pipeline                               | P1       | TODO                 | TASK-008, TASK-020 |
-| ~~TASK-029~~ | Export: Quality presets + editable settings (resolution, FPS, CRF)    | P2       | ✅ DONE (2026-04-19) | TASK-021           |
+| TASK-029     | Export: Quality presets + editable settings (resolution, FPS, CRF)    | P2       | TODO                 | TASK-021           |
 | TASK-067     | Preview + export parity test (visual regression)                      | P2       | TODO                 | TASK-007, TASK-008 |
 | ~~TASK-109~~ | Export: Cancel button during export                                   | P2       | ✅ DONE (2026-04-16) | TASK-021           |
 | ~~TASK-110~~ | Export: Error display for failed exports                              | P2       | ✅ DONE (2026-04-16) | TASK-021           |
@@ -209,29 +266,29 @@ For each surface, land the infrastructure that makes the view reliable first, th
 
 ### AI
 
-| ID          | Title                                                                                  | Priority | Status      | Dependencies       |
-| ----------- | -------------------------------------------------------------------------------------- | -------- | ----------- | ------------------ |
-| FEATURE-078 | AI: ButterCut-inspired library + rough cut generation (epic)                           | P1       | PLANNED     | TASK-040           |
-| TASK-079    | AI: Library data model — footage + transcripts + visual analysis as first-class entity | P1       | IN PROGRESS | TASK-002           |
-| TASK-080    | AI: WhisperX audio transcription pipeline (batch ingest, word-level timestamps)        | P1       | IN PROGRESS | TASK-040, TASK-079 |
-| TASK-081    | AI: Visual frame analysis pipeline (sample frames, describe via vision LLM)            | P1       | PLANNED     | TASK-040, TASK-079 |
-| TASK-082    | AI: Rough cut generator — LLM produces timeline from library + user prompt             | P1       | PLANNED     | TASK-080, TASK-081 |
-| TASK-083    | Compliance: Third-party attribution (WhisperX BSD-4, FFmpeg LGPL) in About/credits     | P2       | PLANNED     | -                  |
-| TASK-040    | AI: Create @rough-cut/ai-bridge package + AIProvider interface                         | P3       | TODO        | TASK-002           |
-| TASK-041    | AI: AIAnnotation type in project-model                                                 | P3       | TODO        | TASK-002           |
-| TASK-042    | AI: Auto-Captions — Whisper integration (local binary)                                 | P3       | TODO        | TASK-040           |
-| TASK-043    | AI: Smart Zoom — cursor/mouse movement analysis                                        | P3       | TODO        | TASK-040           |
-| TASK-044    | AI: Source selector UI (pick assets to analyze)                                        | P3       | TODO        | TASK-033           |
-| TASK-045    | AI: Results panel with Accept/Reject/Edit per annotation                               | P3       | TODO        | TASK-041, TASK-044 |
-| TASK-046    | AI: Preview player showing annotation context                                          | P3       | TODO        | TASK-045           |
-| TASK-047    | AI: "Apply Accepted to Timeline" (captions → subtitle effects, zooms → keyframes)      | P3       | TODO        | TASK-045           |
-| TASK-048    | AI: Background worker/utilityProcess for analysis                                      | P3       | TODO        | TASK-040           |
-| TASK-049    | AI: Cloud provider option (API key config)                                             | P3       | TODO        | TASK-040           |
-| TASK-073    | AI: Auto-Edit — transcription-based editing via AI (API-first)                         | P3       | TODO        | TASK-042, TASK-040 |
-| TASK-074    | AI: Silence Removal — detect and cut silent segments automatically                     | P3       | TODO        | TASK-042, TASK-040 |
-| TASK-097    | AI: Record-first captions workflow from captured assets                                | P2       | TODO        | TASK-080, TASK-044 |
-| TASK-098    | AI: Audio enhancement for recorded narration                                           | P3       | TODO        | TASK-040           |
-| TASK-099    | AI: Webcam background removal and replacement                                          | P3       | TODO        | TASK-040           |
+| ID           | Title                                                                                  | Priority | Status               | Dependencies       |
+| ------------ | -------------------------------------------------------------------------------------- | -------- | -------------------- | ------------------ |
+| FEATURE-078  | AI: ButterCut-inspired library + rough cut generation (epic)                           | P1       | PLANNED              | TASK-040           |
+| TASK-079     | AI: Library data model — footage + transcripts + visual analysis as first-class entity | P1       | IN PROGRESS          | TASK-002           |
+| TASK-080     | AI: WhisperX audio transcription pipeline (batch ingest, word-level timestamps)        | P1       | IN PROGRESS          | TASK-040, TASK-079 |
+| TASK-081     | AI: Visual frame analysis pipeline (sample frames, describe via vision LLM)            | P1       | PLANNED              | TASK-040, TASK-079 |
+| TASK-082     | AI: Rough cut generator — LLM produces timeline from library + user prompt             | P1       | PLANNED              | TASK-080, TASK-081 |
+| ~~TASK-083~~ | Compliance: Third-party attribution (WhisperX BSD-4, FFmpeg LGPL) in About/credits     | P2       | ✅ DONE (2026-04-19) | -                  |
+| TASK-040     | AI: Create @rough-cut/ai-bridge package + AIProvider interface                         | P3       | TODO                 | TASK-002           |
+| TASK-041     | AI: AIAnnotation type in project-model                                                 | P3       | TODO                 | TASK-002           |
+| TASK-042     | AI: Auto-Captions — Whisper integration (local binary)                                 | P3       | TODO                 | TASK-040           |
+| TASK-043     | AI: Smart Zoom — cursor/mouse movement analysis                                        | P3       | TODO                 | TASK-040           |
+| TASK-044     | AI: Source selector UI (pick assets to analyze)                                        | P3       | TODO                 | TASK-033           |
+| TASK-045     | AI: Results panel with Accept/Reject/Edit per annotation                               | P3       | TODO                 | TASK-041, TASK-044 |
+| TASK-046     | AI: Preview player showing annotation context                                          | P3       | TODO                 | TASK-045           |
+| TASK-047     | AI: "Apply Accepted to Timeline" (captions → subtitle effects, zooms → keyframes)      | P3       | TODO                 | TASK-045           |
+| TASK-048     | AI: Background worker/utilityProcess for analysis                                      | P3       | TODO                 | TASK-040           |
+| TASK-049     | AI: Cloud provider option (API key config)                                             | P3       | TODO                 | TASK-040           |
+| TASK-073     | AI: Auto-Edit — transcription-based editing via AI (API-first)                         | P3       | TODO                 | TASK-042, TASK-040 |
+| TASK-074     | AI: Silence Removal — detect and cut silent segments automatically                     | P3       | TODO                 | TASK-042, TASK-040 |
+| TASK-097     | AI: Record-first captions workflow from captured assets                                | P2       | TODO                 | TASK-080, TASK-044 |
+| TASK-098     | AI: Audio enhancement for recorded narration                                           | P3       | TODO                 | TASK-040           |
+| TASK-099     | AI: Webcam background removal and replacement                                          | P3       | TODO                 | TASK-040           |
 
 ### Motion
 
@@ -247,20 +304,23 @@ For each surface, land the infrastructure that makes the view reliable first, th
 
 ### Cross-Cutting / Polish
 
-| ID           | Title                                                              | Priority | Status               | Dependencies       |
-| ------------ | ------------------------------------------------------------------ | -------- | -------------------- | ------------------ |
-| TASK-061     | Record: Custom region selection overlay                            | P3       | TODO                 | TASK-013           |
-| TASK-062     | Record: Image backgrounds                                          | P3       | TODO                 | TASK-011           |
-| TASK-068     | Cross-platform testing (macOS, Windows)                            | P2       | TODO                 | TASK-015           |
-| TASK-069     | Performance profiling + optimization                               | P3       | TODO                 | TASK-020           |
-| TASK-070     | Accessibility basics (keyboard nav, screen reader)                 | P3       | TODO                 | -                  |
-| TASK-100     | Record: Disconnect recovery and warning toasts for dropped devices | P1       | TODO                 | TASK-009, TASK-086 |
-| TASK-102     | Toast notification system for errors/warnings                      | P2       | TODO                 | TASK-009           |
-| TASK-103     | Global keyboard shortcuts (Ctrl+S save, Ctrl+E export)             | P2       | TODO                 | TASK-009           |
-| TASK-104     | Recording config persistence to localStorage                       | P3       | TODO                 | TASK-011           |
-| ~~TASK-105~~ | ~~Relative asset paths for project portability~~                   | P2       | ✅ DONE (2026-04-16) | TASK-009           |
-| TASK-106     | Effect registry: add color-correction effect                       | P2       | TODO                 | TASK-004           |
-| TASK-107     | Effect registry: add subtitle/text effect                          | P2       | TODO                 | TASK-004           |
+| ID           | Title                                                              | Priority | Status                   | Dependencies       |
+| ------------ | ------------------------------------------------------------------ | -------- | ------------------------ | ------------------ |
+| TASK-061     | Record: Custom region selection overlay                            | P3       | TODO                     | TASK-013           |
+| TASK-062     | Record: Image backgrounds                                          | P3       | TODO                     | TASK-011           |
+| TASK-068     | Cross-platform testing (macOS, Windows)                            | P2       | TODO                     | TASK-015           |
+| TASK-069     | Performance profiling + optimization                               | P3       | TODO                     | TASK-020           |
+| TASK-070     | Accessibility basics (keyboard nav, screen reader)                 | P3       | TODO                     | -                  |
+| ~~TASK-100~~ | ~~Record: Disconnect recovery and warning toasts for dropped devices~~ | P1       | ✅ DONE (2026-04-19)     | TASK-009, TASK-086 |
+| TASK-102     | Toast notification system for errors/warnings                      | P2       | TODO                     | TASK-009           |
+| TASK-103     | Global keyboard shortcuts (Ctrl+S save, Ctrl+E export)             | P2       | TODO                     | TASK-009           |
+| TASK-104     | Recording config persistence to localStorage                       | P3       | TODO                     | TASK-011           |
+| ~~TASK-105~~ | ~~Relative asset paths for project portability~~                   | P2       | ✅ DONE (2026-04-16)     | TASK-009           |
+| TASK-106     | Effect registry: add color-correction effect                       | P2       | TODO                     | TASK-004           |
+| TASK-107     | Effect registry: add subtitle/text effect                          | P2       | TODO                     | TASK-004           |
+| TASK-173     | Tests: Golden-path record-stop-save readiness suite               | P0       | TODO                     | TASK-165, TASK-166, TASK-168, TASK-169 |
+| TASK-174     | Tests: Audio route fidelity and post-save import suite            | P0       | TODO                     | TASK-167, TASK-168 |
+| TASK-175     | Tests: Recovery, reopen, and export-from-fresh-recording suite    | P0       | TODO                     | TASK-171, TASK-173 |
 
 ---
 
@@ -362,6 +422,52 @@ Record playback no longer forces the full `RecordTab` tree to rerender on every 
 
 ---
 
+### ~~TASK-162~~: Record: Focus-first framing UX for screen and camera preview
+
+**Priority:** P1 | **Status:** ✅ DONE
+
+- Replace the current crop-first inspector language with a focus-first framing model so users start by choosing what should stay visible rather than entering a raw crop box mode.
+- Add quick framing presets for common intents like centering the action, returning to the full frame, hiding browser chrome, and switching to vertical or square cuts.
+- Improve the in-canvas editor with clearer guidance, an explicit done action, and less accidental mode exit behavior while preserving the existing crop data model underneath.
+- Fix the advanced crop editor so `Free` framing is actually freeform instead of silently locking to the current aspect ratio during resize.
+
+Files:
+
+- `apps/desktop/src/renderer/features/record/RecordCropPanel.tsx`
+- `apps/desktop/src/renderer/features/record/CropOverlay.tsx`
+- `apps/desktop/src/renderer/features/record/RecordRightPanel.tsx`
+- `apps/desktop/src/renderer/features/record/TemplatePreviewRenderer.tsx`
+
+Verification:
+
+- Screen and camera framing controls read as focus/framing actions rather than low-level crop editing.
+- Enabling framing drops the user directly into preview editing instead of requiring a second hidden action.
+- `Free` mode supports non-locked resizing in the overlay.
+
+---
+
+### ~~TASK-163~~: Record: Advanced framing presets and guidance for crop editing
+
+**Priority:** P2 | **Status:** ✅ DONE
+
+- Added richer screen framing presets for left-column and right-column focus alongside the first-pass center, full-frame, top-trim, vertical, and square presets.
+- Connected the Focus inspector to the timeline zoom workflow so the current screen focus can spawn a manual zoom marker at the playhead, prefilled with focal point and strength derived from the chosen focus region.
+- Added inspector guidance on both sides of the bridge: the Focus panel now explains how to convert framing into motion, and the Zoom panel calls out when a screen focus region is available to reuse.
+
+Files:
+
+- `apps/desktop/src/renderer/features/record/RecordCropPanel.tsx`
+- `apps/desktop/src/renderer/features/record/RecordZoomPanel.tsx`
+- `apps/desktop/src/renderer/features/record/RecordRightPanel.tsx`
+- `apps/desktop/src/renderer/features/record/RecordCameraPanel.tsx`
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+
+Verification:
+
+- Verified with `pnpm --filter @rough-cut/desktop typecheck`.
+
+---
+
 ## Unified Delivery Sprints
 
 Ordered by the desired product flow: infrastructure first, then edge features, one view at a time.
@@ -377,24 +483,30 @@ Ordered by the desired product flow: infrastructure first, then edge features, o
 | TASK-087     | Persist record config across opens and restarts             | Makes recording workflow dependable                |
 | TASK-088     | Device selectors for mic, camera, system audio              | Required for a production-ready record surface     |
 | BUG-009      | Fix mode selector so it affects capture                     | Core correctness issue                             |
+| TASK-162     | Focus-first framing UX for screen and camera preview        | Removes a high-friction authoring flow             |
 | TASK-100     | Disconnect recovery and warning toasts                      | Hardens real recording sessions                    |
 | BUG-004      | Fix missing recording icon in dock/taskbar                  | Restores visible OS-level recording presence       |
 | BUG-011      | Fix Linux dock/taskbar stop affordance during recording     | Prevents control loss when panel is hidden         |
 | ~~BUG-012~~  | ~~Fix Record saved-session replay bootstrap stalls~~        | Restores reliable replay/startup for playback      |
 | ~~TASK-120~~ | ~~Decouple Record timeline playhead from React rerenders~~  | Removes UI stutter during playback and scrubbing   |
+| TASK-124     | Prove and harden saved-file system-audio capture            | Audio must survive into recorded/exported outputs  |
+| BUG-013      | Fix camera template/visibility regressions after reopen     | Reopened recordings must match what was recorded   |
 
 ### Sprint B — Recording Edge Features
 
-| Task     | Title                                              | Why next                                      |
-| -------- | -------------------------------------------------- | --------------------------------------------- |
-| TASK-014 | Webcam PiP in compositor                           | Core Screen Studio expectation                |
-| TASK-015 | Serialize recording effects to clips               | Needed for downstream Edit/Export fidelity    |
-| TASK-016 | Separate webcam + audio assets on stop             | Makes recordings reusable across the pipeline |
-| TASK-089 | Keyboard shortcut capture + overlays               | High-value record-time feature                |
-| TASK-090 | Highlights and annotations overlay system          | High-value record-time feature                |
-| TASK-091 | Titles and callouts overlay system                 | Finishes the record-time storytelling layer   |
-| TASK-092 | Dynamic camera layout changes within one recording | Advanced but flow-defining record feature     |
-| TASK-101 | Cursor smoothing, idle hide, and loop-back polish  | Record polish after backbone is stable        |
+| Task     | Title                                              | Why next                                           |
+| -------- | -------------------------------------------------- | -------------------------------------------------- |
+| TASK-014 | Webcam PiP in compositor                           | Core Screen Studio expectation                     |
+| TASK-015 | Serialize recording effects to clips               | Needed for downstream Edit/Export fidelity         |
+| TASK-016 | Separate webcam + audio assets on stop             | Makes recordings reusable across the pipeline      |
+| TASK-121 | Restore template picker and preset application     | Template-driven recording flow is currently broken |
+| TASK-122 | Fix zoom marker transform and paused-selection     | Playback trust breaks when zoom state is wrong     |
+| TASK-123 | Persist zoom sidecar and cursor continuity         | Reopened recordings must keep authored zoom data   |
+| TASK-089 | Keyboard shortcut capture + overlays               | High-value record-time feature                     |
+| TASK-090 | Highlights and annotations overlay system          | High-value record-time feature                     |
+| TASK-091 | Titles and callouts overlay system                 | Finishes the record-time storytelling layer        |
+| TASK-092 | Dynamic camera layout changes within one recording | Advanced but flow-defining record feature          |
+| TASK-101 | Cursor smoothing, idle hide, and loop-back polish  | Record polish after backbone is stable             |
 
 ### Sprint C — Export Core Flow
 
@@ -407,24 +519,7 @@ Ordered by the desired product flow: infrastructure first, then edge features, o
 | ~~TASK-110~~ | Error display for failed exports               | Core export UX complete                       |
 | ~~TASK-111~~ | Open File / Open Folder links                  | Core export UX complete                       |
 | TASK-028     | Audio mixing in export pipeline                | Completes recorded project output             |
-| ~~TASK-029~~ | Quality presets + editable settings            | Required before users can trust export output |
-
-### ~~TASK-029~~: Export: Quality presets + editable settings (resolution, FPS, CRF)
-
-**Priority:** P2 | **Status:** ✅ DONE (2026-04-19)
-
-#### Completed
-
-- Added export preset controls for Draft, Balanced, and Crisp, plus automatic Custom mode when users diverge from preset defaults.
-- Added editable export controls for resolution, frame rate, and CRF directly in the Export tab.
-- Mapped the CRF control onto the existing bitrate-backed export pipeline so quality is configurable without destabilizing the renderer/export backends.
-- Added focused Playwright coverage for both default settings and interactive preset changes.
-
-#### Key files
-
-- `apps/desktop/src/renderer/features/export/ExportTab.tsx`
-- `tests/electron/acceptance-export.spec.ts`
-- `tests/electron/export-tab.spec.ts`
+| TASK-029     | Quality presets + editable settings            | Required before users can trust export output |
 | TASK-112     | File size + time estimates                     | Important finishing UX for export decisions   |
 | TASK-067     | Preview + export parity visual regression test | Locks down the full record -> export loop     |
 
@@ -634,7 +729,22 @@ AI:    [produces timeline with clips arranged on V1/A1, ready to refine in Edit 
 - [ ] **TASK-080** — WhisperX transcription pipeline (worker/utilityProcess, batch mode, word-level timestamps stored alongside assets). Supersedes TASK-042 scope.
 - [ ] **TASK-081** — Visual frame analysis pipeline: sample frames at configurable interval, send to vision LLM, store descriptions per timestamp.
 - [ ] **TASK-082** — Rough cut generator: given a library + natural-language prompt, LLM produces a list of `{assetId, inPoint, outPoint, track}` entries that become real Clips in the store.
-- [ ] **TASK-083** — Credits screen + README attribution for WhisperX; LGPL notice if/when FFmpeg is bundled in the installer.
+- [x] **TASK-083** — Credits screen + README attribution for WhisperX; LGPL notice if/when FFmpeg is bundled in the installer.
+
+### ~~TASK-083~~: Compliance: Third-party attribution (WhisperX BSD-4, FFmpeg LGPL) in About/credits
+
+**Priority:** P2 | **Status:** ✅ DONE (2026-04-19)
+
+#### Completed
+
+- Added an in-app About and Credits card on the Projects screen with the required WhisperX acknowledgement and FFmpeg licensing note.
+- Added `README.md` with the WhisperX advertising acknowledgement.
+- Added `THIRD_PARTY_LICENSES.md` with the WhisperX BSD-4-Clause license text and FFmpeg distribution guidance.
+
+#### Notes
+
+- rough-cut currently invokes an external `ffmpeg` binary instead of bundling one.
+- If installer bundling is added later, ship the applicable LGPL text and preserve end-user replacement rights.
 
 #### Key Files (anticipated)
 
@@ -1081,7 +1191,7 @@ The Record preview and Edit overlay now both respect the selected camera aspect 
 
 ### TASK-090: Record: Highlights and annotations overlay system
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-19)
 
 #### Problem
 
@@ -1223,9 +1333,17 @@ This is one of the clearest competitive gaps versus FocuSee-style storytelling, 
 
 ---
 
-### TASK-100: Record: Disconnect recovery and warning toasts for dropped devices
+### ~~TASK-100: Record: Disconnect recovery and warning toasts for dropped devices~~
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-19)
+
+#### Completed
+
+- Added disconnect detection for mic, camera, system audio, and capture source in both the main Record tab and floating panel.
+- Added warning toasts plus persistent offline issue state so failures remain visible after the initial toast.
+- Synced panel-reported connection issues back to the main Record tab via shared session IPC.
+- Made reconnect behavior predictable: selecting a replacement mic/camera/system-audio source re-enables that input.
+- Added focused Electron coverage for source loss recovery, interrupted-session banners, panel-to-main issue sync, and replacement-device re-enable behavior.
 
 #### Problem
 
@@ -1255,6 +1373,576 @@ The MVP spec expects recording to continue gracefully when a mic or camera disco
 #### Why this matters
 
 This is one of the biggest trust features in a recording tool. Users will forgive a device problem; they will not forgive losing the recording because the app failed to degrade gracefully.
+
+---
+
+### ~~TASK-144: Record: Mid-take source/device recovery with re-target and offline badge~~
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-19)
+
+#### Completed
+
+- Built on `TASK-100` by keeping mid-session disconnect state visible as inline offline badges on the actual Record device controls instead of only banners/toasts.
+- Added panel-side offline badges for source, mic, camera, and system audio while preserving the existing issue notice and mini-controller warning pill.
+- Kept reconnect behavior explicit: selecting a replacement mic/camera/system-audio source now re-enables that input.
+- Reworked panel source loss to preserve the broken state instead of silently auto-falling back, and added explicit `Refresh` / `Re-target` actions in the floating panel.
+- Added a mini-controller `Fix` action that expands the panel back to setup mode during recording so users can recover without stopping the take.
+- Added focused Electron coverage for panel-reported issue sync, source-loss recovery messaging, and reconnect behavior in the Record tab.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `apps/desktop/src/renderer/features/record/RecordDeviceSelectors.tsx`
+- `tests/electron/record-tab.spec.ts`
+
+---
+
+### TASK-147: Record: Full reopen/project-move fidelity for templates and sidecars
+
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-19)
+
+#### Progress
+
+- Rehydrated the Record surface from persisted `presentation.templateId` instead of leaving the preview on the local default template after reopen.
+- Added normalized camera-frame replay support in `TemplatePreviewRenderer` so moved/reopened projects can render the saved Record framing directly from project data.
+- Persisted live Record camera drag/resize edits back into `presentation.cameraFrame` so authored framing now survives save/reopen instead of only replaying fixture-injected values.
+- Added Electron regression coverage that reopens a moved project, verifies template/camera-frame fidelity in Record, and confirms zoom sidecars still save next to the moved recording media.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `apps/desktop/src/renderer/features/record/TemplatePreviewRenderer.tsx`
+- `tests/electron/project-relative-paths.spec.ts`
+
+#### Remaining
+
+- Close the broader dependency chain with `BUG-013` and `TASK-123`, then run a final Record/Edit parity sweep before marking the task done.
+
+---
+
+### ~~TASK-164~~: Record/Edit: camera visibility parity after persisted framing
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-19)
+
+#### Problem
+
+- Persisted camera-frame replay is now working in Record, but the existing Record/Edit parity suite still exposes a mismatch when camera visibility is toggled off.
+- Current evidence points to Edit still instantiating camera playback when the presentation says the camera should be hidden, while Record now correctly suppresses that path.
+
+#### Resolution
+
+- Prevented `EditTab` from mounting `EditCameraOverlay` when the saved camera presentation is hidden.
+- Added Edit preview test bounds so the Record/Edit parity suite can measure both surfaces against the same normalized preview container.
+- Wired `EditCameraOverlay` to honor persisted `presentation.cameraFrame`, matching Record’s reopened framing instead of falling back to legacy position/size placement.
+- Verified the focused parity suite now passes: saved framing parity, reopen parity, drag/save/reopen persistence, and hidden-camera parity.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `apps/desktop/src/renderer/features/record/TemplatePreviewRenderer.tsx`
+- `apps/desktop/src/renderer/features/edit/EditTab.tsx`
+- `tests/electron/camera-template-parity.spec.ts`
+
+#### Notes
+
+- `pnpm test:e2e tests/electron/camera-template-parity.spec.ts` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` still reports unrelated pre-existing `ExportTab.tsx` `selectStyle` errors outside this task.
+
+---
+
+### ~~TASK-151~~: Record: Destination presets with social framing and export linkage
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-19)
+
+#### Goal
+
+- Add destination presets that bundle social framing choices in Record and carry them into Export defaults.
+
+#### Safe starting scope
+
+- Trace current Record template selection, persisted project settings, and Export preset hydration.
+- Introduce the smallest shared preset model that links Record-side destination intent to Export without crossing into dynamic camera timeline authoring.
+- Keep the initial slice isolated to Record inspector/preset plumbing and Export default selection.
+
+#### Progress
+
+- Added Record-side destination presets for YouTube, vertical social, and square social framing.
+- Linked each Record destination choice to Export defaults by patching export resolution/frame rate/bitrate alongside the Record template/resolution change.
+- Added Export-side portrait and square preset options so the linkage survives as a named preset instead of degrading to `custom`.
+- Added Electron coverage proving that choosing a Record destination preset updates Export defaults on tab switch.
+- Persisted the chosen destination preset explicitly in `project.settings.destinationPresetId` with a schema migration so linkage survives save/reopen without relying only on inference.
+- Added an Export-side `Linked Destination` summary card and clear-on-manual-edit behavior so users can see when Export is still following a Record destination preset.
+
+#### Notes
+
+- `pnpm test:e2e tests/electron/export-tab.spec.ts` passes.
+- `pnpm --filter @rough-cut/project-model test` passes.
+- While landing this slice, fixed a pre-existing `RecordTab` store-selector loop by moving caption-segment filtering out of the `useProjectStore` selector.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/RecordRightPanel.tsx`
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `apps/desktop/src/renderer/features/export/ExportTab.tsx`
+- `packages/project-model/**` and `packages/store/**` if persisted preset state is needed
+
+#### Outcome
+
+- Record now offers destination presets for landscape, vertical social, and square social capture.
+- Destination choice persists in project settings, survives migrations, and drives linked Export defaults.
+- Export shows the active linked destination explicitly and falls back honestly when users diverge into custom settings.
+
+---
+
+### Client Tutorial Recording Readiness Flow
+
+This flow is the A-to-Z path to make Rough Cut safe enough to record a paid client tutorial in the app itself. The order is intentional: first make the visible recording path truthful, then harden interruption handling, then prove the whole workflow with deterministic verification.
+
+#### Design rule
+
+- The Record surface must never imply capabilities the pipeline does not actually deliver.
+- The same source, mode, and device choices shown before `REC` must be the ones used in the saved artifact.
+- Recovery and tests are part of the feature, not cleanup work after the feature.
+
+#### Phase A: Golden path truthfulness
+
+- `TASK-165` wire the main Record tab to the real selected-source live preview
+- `TASK-166` enforce mode-filtered source selection and prevent invalid recording starts
+- `TASK-167` ensure the selected mic/system-audio route is the one that actually gets saved
+- `TASK-168` re-probe muxed recordings so imported project state reflects real audio truth
+
+#### Phase B: Failure-path resilience
+
+- `TASK-169` guarantee clean stop/save behavior on panel close and app quit
+- `TASK-170` make pause/resume truthful end-to-end or explicitly disable unsupported pause paths
+- `TASK-171` add relaunch-time session manifests and partial-take recovery
+- `TASK-172` either implement true region capture or remove the misleading unsupported path
+
+#### Phase C: Verification gates
+
+- `TASK-173` prove the golden path from blank project to saved recording asset/clip
+- `TASK-174` prove audio route fidelity and post-save import correctness
+- `TASK-175` prove interrupted-session recovery, reopen, and export from a fresh recording
+
+#### Exit gate
+
+Rough Cut is not client-tutorial ready until all three verification tasks are passing on the same workstation and audio routing setup that will be used for the client session.
+
+---
+
+### ~~TASK-165~~: Record: Wire main-tab live preview to selected capture source
+
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-19)
+
+#### Goal
+
+- Make the visible Record tab preview show the actual selected capture source before recording starts.
+- Replace placeholder-only confidence with truthful states: no source selected, acquiring preview, preview live, preview lost, preview failed.
+
+#### Product contract
+
+- The large preview on the main Record tab is the source-of-truth preview before recording starts.
+- If the user selects a different screen or window, the preview must visibly switch to that exact source.
+- If Rough Cut cannot show a live preview yet, it must say so directly instead of showing stale or generic imagery.
+
+#### Scope
+
+- Wire `useLivePreview(selectedSourceId)` into the Record-tab preview render path.
+- Lock one explicit preview rule for the Record tab when a project already has saved takes:
+  - pre-record: live source preview
+  - post-record review: playback of the saved take
+  - if a hybrid state exists, label the transition clearly instead of guessing for the user
+- Remove or retire dead preview code once the real path is chosen.
+
+#### Non-goals
+
+- Do not redesign the whole preview renderer.
+- Do not mix live-source preview and saved-take playback in the same unlabeled state.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `apps/desktop/src/renderer/features/record/TemplatePreviewRenderer.tsx`
+- `apps/desktop/src/renderer/features/record/LivePreviewCanvas.tsx`
+- `apps/desktop/src/renderer/features/record/LivePreviewVideo.tsx`
+
+#### Verification
+
+- Main Record surface shows the selected source before the panel opens.
+- Losing the source produces a visible degraded state instead of a stale preview.
+- Acceptance tests assert real preview behavior instead of placeholder assumptions.
+
+---
+
+### ~~TASK-166~~: Record: Enforce mode-filtered source picker and REC gating
+
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-19)
+
+#### Goal
+
+- Make source selection behaviorally correct so the user cannot start a recording from an invalid or misleading source state.
+
+#### Product contract
+
+- The mode picker defines what kinds of sources are legal.
+- The source picker only shows sources that can really be recorded for the current mode.
+- `REC` is enabled only when the current mode/source combination is valid.
+
+#### Scope
+
+- Enforce exact mode-to-source behavior:
+  - `fullscreen` -> screen sources only
+  - `window` -> window sources only
+  - `region` -> screen-only source selection until true region capture exists
+- Remove fallback logic that silently shows all sources when a mode filter fails.
+- Prevent `REC` from opening the panel when no valid source is selected.
+- Keep source picker state synchronized with the shared Record config store.
+
+#### UX rule
+
+- Invalid states should be obvious and recoverable: disabled `REC`, inline reason, and the next action the user should take.
+- Never silently coerce `window` or `region` into some other source family.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/SourcePickerPopup.tsx`
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `apps/desktop/src/main/index.mjs`
+
+#### Verification
+
+- Picker contents change correctly when record mode changes.
+- Invalid record starts are blocked with actionable UI.
+- `tests/electron/record-mode-capture-source.spec.ts` reflects the intended mode contract.
+
+---
+
+### ~~TASK-167~~: Record: Route selected mic and system audio into saved capture
+
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-19)
+
+#### Goal
+
+- Make the device/routes selected in the UI be the ones used by the main-process recording pipeline, not just the panel preview path.
+
+#### Product contract
+
+- Audio selection is not cosmetic. The saved file must reflect the exact mic and system-audio choices shown in the UI.
+- If a route is unavailable, the UI must degrade truthfully before recording starts.
+
+#### Scope
+
+- Plumb selected mic device identity into the main-process recording session.
+- Map selected mic and selected system-audio route to the FFmpeg/Pulse capture path.
+- Remove fallback behavior that silently records from the first available source when the UI indicates another device.
+
+#### Non-goals
+
+- Do not add new audio-processing features here.
+- Do not accept "some audio was recorded" as success; route correctness is the bar.
+
+#### Key files
+
+- `apps/desktop/src/main/recording/recording-session-manager.mjs`
+- `apps/desktop/src/main/recording/audio-sources.mjs`
+- `apps/desktop/src/preload/index.mjs`
+- `apps/desktop/src/renderer/env.d.ts`
+
+#### Verification
+
+- The saved artifact reflects the selected mic/system-audio route, not just panel-time `getUserMedia` constraints.
+- Focused artifact tests can prove the selected route survives into the recorded file.
+
+---
+
+### ~~TASK-168~~: Record: Re-probe muxed output and import truthful audio metadata
+
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-19)
+
+#### Goal
+
+- Ensure the app's imported project state reflects the actual post-mux output, especially audio presence.
+
+#### Product contract
+
+- The project model must describe the final saved file, not an earlier pre-mux assumption.
+- If the final MP4 has audio, imported state must say it has audio. If it does not, imported state must not invent it.
+
+#### Scope
+
+- Re-probe the final recording after mux/remux steps complete.
+- Return truthful `hasAudio` and related metadata to the renderer.
+- Ensure project import creates the correct audio asset/clip state when the final file contains audio.
+
+#### Design note
+
+- Final-file truth beats intermediate pipeline state. Any cached capture metadata must be treated as provisional until post-mux probing completes.
+
+#### Key files
+
+- `apps/desktop/src/main/recording/capture-service.mjs`
+- `apps/desktop/src/main/recording/recording-session-manager.mjs`
+- `apps/desktop/src/renderer/App.tsx`
+
+#### Verification
+
+- Post-mux recordings with audio are imported with audio-bearing project state.
+- No path exists where a file contains audio but the project treats it as silent.
+
+---
+
+### TASK-169: Record: Harden stop/save lifecycle on panel close and app quit
+
+**Priority:** P0 | **Status:** TODO
+
+#### Goal
+
+- Make session teardown safe so the app never silently drops a take or leaves capture processes orphaned when the panel closes or the app quits mid-session.
+
+#### Product contract
+
+- There must be one authoritative stop/save lifecycle, regardless of whether recording ends from the floating panel, the main UI, panel close, or app quit.
+- A stop action is not complete until Rough Cut knows whether the take was saved, recoverable, or failed.
+
+#### Scope
+
+- Cleanly stop FFmpeg, audio capture, and cursor capture on panel close, quit, and abnormal termination paths.
+- Prevent save handoff from being skipped when the renderer window disappears.
+- Define one authoritative stop/save state machine for normal and interrupted exits.
+
+#### Required states
+
+- `recording`
+- `stopping`
+- `saving`
+- `saved`
+- `recoverable_interrupted`
+- `failed`
+
+#### Key files
+
+- `apps/desktop/src/main/recording/recording-session-manager.mjs`
+- `apps/desktop/src/main/index.mjs`
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
+
+#### Verification
+
+- No orphan capture processes remain after panel close or app quit.
+- Interrupted stop/save paths leave recoverable files and consistent session state.
+
+---
+
+### TASK-170: Record: Make pause/resume truthful or disable unsupported paths
+
+**Priority:** P1 | **Status:** TODO
+
+#### Goal
+
+- Remove the current ambiguity where UI pause/resume may not match what the saved artifact actually contains.
+
+#### Product contract
+
+- `Pause` means the saved take omits the paused span across every persisted stream that claims to support pause.
+- If Rough Cut cannot guarantee that, the control must be disabled or relabeled before release.
+
+#### Scope
+
+- Audit screen, camera, cursor, and audio pause semantics end to end.
+- Choose one truthful product behavior:
+  - implement segmented capture/concat so every recorded stream honors pause
+  - or disable pause in any path that cannot be saved truthfully
+- Align visible status, elapsed time, and saved media semantics.
+
+#### Decision rule
+
+- Prefer a temporarily smaller truthful feature over a larger misleading one.
+
+#### Key files
+
+- `apps/desktop/src/main/recording/recording-session-manager.mjs`
+- `apps/desktop/src/main/recording/ffmpeg-capture.mjs`
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
+
+#### Verification
+
+- Artifact-level tests prove paused time is either absent from the saved result or pause is explicitly unavailable in that mode.
+
+---
+
+### TASK-171: Record: Session manifest and partial-take recovery on relaunch
+
+**Priority:** P0 | **Status:** TODO
+
+#### Goal
+
+- Replace marker-only interruption tracking with actual recoverable session state on relaunch.
+
+#### Product contract
+
+- After a crash, forced quit, or panel disappearance, Rough Cut should reopen with a clear recovery decision, not a scavenger hunt in the filesystem.
+- Recovery should restore the user's latest salvageable take into project context whenever possible.
+
+#### Scope
+
+- Persist a session manifest with expected artifact paths and session lifecycle state.
+- Detect salvageable partial takes on relaunch.
+- Add recovery UI that can reattach/import partial recordings instead of only opening the folder.
+- Keep recovery compatible with moved projects and relative asset path behavior.
+
+#### Recovery UX rule
+
+- Show three explicit outcomes: recover take, discard take, or reveal files for manual inspection.
+- Never pretend recovery succeeded if the recovered asset is incomplete or missing.
+
+#### Key files
+
+- `apps/desktop/src/main/recording/recovery-state.mjs`
+- `apps/desktop/src/main/recording/recording-session-manager.mjs`
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+
+#### Verification
+
+- A forced interruption followed by relaunch produces a visible recovery flow with recoverable artifacts.
+- Recovery results in a coherent project state rather than manual disk spelunking.
+
+---
+
+### TASK-172: Record: Real region capture or hide unsupported region mode
+
+**Priority:** P1 | **Status:** TODO
+
+#### Goal
+
+- Make the `region` mode truthful. If true region capture is not implemented yet, the product must stop implying that it is.
+
+#### Product contract
+
+- `Region` in the UI must mean an actual crop-bounded capture workflow.
+- If the pipeline still records full-screen and crops later, that is not true region capture and must not be marketed as such.
+
+#### Scope
+
+- Either implement true region-capture semantics in the recording pipeline or hide/rename/de-scope the unsupported mode.
+- Keep source picker, preview, and actual capture behavior aligned with whichever decision lands.
+
+#### Decision preference
+
+- If real region capture is not close, hide the mode for now. Trust is more important than surface-area.
+
+#### Key files
+
+- `apps/desktop/src/main/index.mjs`
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `apps/desktop/src/renderer/features/record/SourcePickerPopup.tsx`
+
+#### Verification
+
+- A user selecting `region` gets either a real region workflow or no misleading affordance at all.
+
+---
+
+### TASK-173: Tests: Golden-path record-stop-save readiness suite
+
+**Priority:** P0 | **Status:** TODO
+
+#### Goal
+
+- Prove the blank-project -> source selection -> live preview -> start -> stop -> save path with deterministic assertions.
+
+#### What this suite proves
+
+- The visible happy path is truthful from first preview through imported saved take.
+- The app can be trusted for the simplest real customer recording flow.
+
+#### Scope
+
+- Add one focused readiness suite that exercises the actual recording path instead of injected asset-ready shortcuts.
+- Assert artifact creation, project asset/clip creation, and visible UI success state.
+
+#### Pass/fail rule
+
+- This suite is the primary release gate for "can I safely record a tutorial right now?"
+
+#### Key files
+
+- `tests/electron/acceptance-record.spec.ts`
+- `tests/electron/record-device-artifact.spec.ts`
+- new focused readiness spec if needed
+
+#### Verification
+
+- The suite passes on the intended workstation and becomes the primary go/no-go gate for tutorial recording.
+
+---
+
+### TASK-174: Tests: Audio route fidelity and post-save import suite
+
+**Priority:** P0 | **Status:** TODO
+
+#### Goal
+
+- Prove that mic-only, system-audio-only, and combined audio routes survive into the saved artifact and imported project state.
+
+#### What this suite proves
+
+- Audio routing truth survives across selection, capture, muxing, and import.
+- The app is not merely producing an audio stream; it is producing the intended one.
+
+#### Scope
+
+- Add focused checks for selected-route fidelity.
+- Validate that post-save import matches the real artifact after muxing.
+- Cover the cases most likely to break a client tutorial recording.
+
+#### Pass/fail rule
+
+- Route fidelity must be asserted per scenario, not inferred from a generic `hasAudio=true`.
+
+#### Key files
+
+- `tests/electron/record-device-artifact.spec.ts`
+- `tests/electron/acceptance-record.spec.ts`
+- `packages/export-renderer/src/audio-export.test.ts` if shared helpers need broader assertions
+
+#### Verification
+
+- Audio test coverage proves route truth, not just audio-stream existence.
+
+---
+
+### TASK-175: Tests: Recovery, reopen, and export-from-fresh-recording suite
+
+**Priority:** P0 | **Status:** TODO
+
+#### Goal
+
+- Prove that a fresh recorded session survives interruption, relaunch, reopen, and export.
+
+#### What this suite proves
+
+- A newly recorded tutorial does not become fragile the moment the app closes or the machine hiccups.
+- Recovery is integrated with the normal project and export flow, not a one-off rescue path.
+
+#### Scope
+
+- Simulate interrupted recording and relaunch recovery.
+- Validate reopen behavior for a newly recorded project.
+- Export that fresh recording and validate the final MP4 with ffprobe-level assertions.
+
+#### Pass/fail rule
+
+- A recovered or reopened fresh recording must export without hidden manual repair steps.
+
+#### Key files
+
+- `tests/electron/project-relative-paths.spec.ts`
+- `tests/electron/export-smoke.spec.ts`
+- new recovery/reopen readiness coverage
+
+#### Verification
+
+- Freshly recorded footage can be recovered or reopened and then exported successfully without hidden repair steps.
 
 ---
 

@@ -274,6 +274,43 @@ test.describe('Record append takes', () => {
       ).roughcut.recentProjectsRemove(path);
     }, savedPath);
   });
+
+  test('imported project state stays silent when the final result has no audio', async ({
+    electronApp,
+    appPage,
+  }) => {
+    await navigateToTab(appPage, 'record');
+
+    const fake: FakeRecordingResult = {
+      filePath: '/tmp/rough-cut-e2e-synthetic-silent-take.webm',
+      durationFrames: 120,
+      durationMs: 4000,
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      codec: 'vp8',
+      fileSize: 1,
+      hasAudio: false,
+      thumbnailPath: null,
+      cursorEventsPath: null,
+    };
+
+    await fireRecordingAssetReady(electronApp, fake);
+
+    await appPage.waitForFunction(
+      () => {
+        const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+        return stores?.project.getState().project.assets.length === 1;
+      },
+      null,
+      { timeout: 10_000 },
+    );
+
+    const after = await readProjectSnapshot(appPage);
+    expect(after.assetCount).toBe(1);
+    expect(after.primaryVideoClipCount).toBe(1);
+    expect(after.audioClipCount).toBe(0);
+  });
 });
 
 async function listRoughcutFiles(page: Page): Promise<string[]> {

@@ -7,6 +7,7 @@ import type {
   CursorPresentation,
   CameraPresentation,
 } from '@rough-cut/project-model';
+import { normalizeRegionCrop } from '@rough-cut/project-model';
 import { selectActiveClipsAtFrame, getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
 import { evaluateKeyframeTracks, getDefaultParams } from '@rough-cut/effect-registry';
 import type {
@@ -32,6 +33,13 @@ const DEFAULT_CURSOR_PRESENTATION: ResolvedCursorPresentation = {
   clickSoundEnabled: false,
 };
 
+export interface ResolveFrameOptions {
+  readonly getCursorPosition?: (
+    assetId: string,
+    sourceFrame: number,
+  ) => { x: number; y: number } | null;
+}
+
 /**
  * Resolve camera transform from zoom presentation for a given frame.
  * Delegates to getZoomTransformAtFrame() for full marker support:
@@ -40,14 +48,26 @@ const DEFAULT_CURSOR_PRESENTATION: ResolvedCursorPresentation = {
  */
 function resolveCameraTransformForFrame(
   zoom: ZoomPresentation | undefined,
-  frame: number,
+  sourceFrame: number,
   canvasWidth: number,
   canvasHeight: number,
+  options?: {
+    assetId?: string;
+    getCursorPosition?: (assetId: string, sourceFrame: number) => { x: number; y: number } | null;
+  },
 ): CameraTransform {
   if (!zoom) return DEFAULT_CAMERA_TRANSFORM;
 
   // Use the full zoom engine for markers (handles easing, focal points, connected gaps)
-  const zt = getZoomTransformAtFrame(frame, zoom.markers);
+  const zt = getZoomTransformAtFrame(sourceFrame, zoom.markers, {
+    followCursor: zoom.followCursor,
+    followAnimation: zoom.followAnimation,
+    followPadding: zoom.followPadding,
+    getCursorPosition:
+      options?.assetId && options.getCursorPosition
+        ? (frame) => options.getCursorPosition?.(options.assetId!, frame) ?? null
+        : undefined,
+  });
 
   if (zt.scale !== 1 || zt.translateX !== 0 || zt.translateY !== 0) {
     // translateX/translateY are in fraction-of-container × scale units — convert to pixels
@@ -93,13 +113,30 @@ function findCameraPresentation(project: ProjectDocument): CameraPresentation | 
   return findActiveRecordingAsset(project)?.presentation?.camera;
 }
 
+function getAssetSourceSize(asset: ProjectDocument['assets'][number] | undefined): {
+  width: number;
+  height: number;
+} {
+  const width = Number(asset?.metadata?.width);
+  const height = Number(asset?.metadata?.height);
+
+  return {
+    width: Number.isFinite(width) && width > 0 ? width : 1920,
+    height: Number.isFinite(height) && height > 0 ? height : 1080,
+  };
+}
+
 /**
  * Resolve a complete render description for a single frame.
  *
  * This is the architectural keystone — both preview and export call this.
  * Same ProjectDocument + same frame number = same RenderFrame output.
  */
-export function resolveFrame(project: ProjectDocument, frame: number): RenderFrame {
+export function resolveFrame(
+  project: ProjectDocument,
+  frame: number,
+  options?: ResolveFrameOptions,
+): RenderFrame {
   const { settings, composition } = project;
   const tracks = composition.tracks;
 
@@ -116,17 +153,46 @@ export function resolveFrame(project: ProjectDocument, frame: number): RenderFra
   const transitions = resolveTransitions(composition.transitions, tracks, frame);
 
   // 4. Resolve recording presentation (zoom + cursor)
-  const activeRecording = findActiveRecordingAsset(project);
+  const activeRecordingLayer = layers.find((layer) => {
+    const asset = assetMap.get(layer.assetId);
+    return asset?.type === 'recording' && !asset.metadata?.isCamera;
+  });
+  const activeRecording = activeRecordingLayer
+    ? assetMap.get(activeRecordingLayer.assetId)
+    : findActiveRecordingAsset(project);
   const presentation = activeRecording?.presentation;
+  const screenSourceSize = getAssetSourceSize(activeRecording);
+  const cameraAsset = activeRecording?.cameraAssetId
+    ? project.assets.find((asset) => asset.id === activeRecording.cameraAssetId)
+    : undefined;
+  const cameraSourceSize = getAssetSourceSize(cameraAsset);
   const cameraTransform = resolveCameraTransformForFrame(
     presentation?.zoom,
-    frame,
+    activeRecordingLayer?.sourceFrame ?? frame,
     settings.resolution.width,
     settings.resolution.height,
+    {
+      assetId: activeRecording?.id,
+      getCursorPosition: options?.getCursorPosition,
+    },
   );
   const cursor = resolveCursorPresentation(presentation?.cursor);
-  const screenCrop = presentation?.screenCrop?.enabled ? presentation.screenCrop : undefined;
-  const cameraCrop = presentation?.cameraCrop?.enabled ? presentation.cameraCrop : undefined;
+  const screenCrop = presentation?.screenCrop?.enabled
+    ? normalizeRegionCrop(
+        presentation.screenCrop,
+        screenSourceSize.width,
+        screenSourceSize.height,
+        settings.resolution.width,
+        settings.resolution.height,
+      )
+    : undefined;
+  const cameraCrop = presentation?.cameraCrop?.enabled
+    ? normalizeRegionCrop(
+        presentation.cameraCrop,
+        cameraSourceSize.width,
+        cameraSourceSize.height,
+      )
+    : undefined;
   const cameraPresentation = findCameraPresentation(project);
   const cameraFrame = presentation?.cameraFrame;
 

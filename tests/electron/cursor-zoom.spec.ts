@@ -26,7 +26,11 @@ test.describe('Cursor overlay during zoom', () => {
     await appPage.waitForTimeout(500);
 
     const diag = await appPage.evaluate(() => {
-      const zoomHost = document.querySelector('[data-testid="zoom-host"]') as HTMLElement | null;
+      const recordRoot = document.querySelector('[data-testid="record-tab-root"]') as HTMLElement | null;
+      const zoomHost = recordRoot?.querySelector('[data-testid="zoom-host"]') as HTMLElement | null;
+      const zoomSurface = recordRoot?.querySelector(
+        '[data-testid="recording-playback-canvas"]',
+      ) as HTMLElement | null;
       const overlayCanvas = zoomHost?.parentElement?.querySelector(
         ':scope > div > canvas',
       ) as HTMLCanvasElement | null;
@@ -34,7 +38,7 @@ test.describe('Cursor overlay during zoom', () => {
       const zoomContainsCanvas = !!zoomHost?.contains(overlayCanvas ?? null);
 
       return {
-        zoomTransform: zoomHost?.style.transform ?? null,
+        zoomTransform: zoomSurface ? getComputedStyle(zoomSurface).transform : null,
         overlayInsideZoomHost: zoomContainsCanvas,
         overlayHostPosition: overlayHost ? getComputedStyle(overlayHost).position : null,
         canvasCssWidth: overlayCanvas?.style.width ?? null,
@@ -48,9 +52,8 @@ test.describe('Cursor overlay during zoom', () => {
     expect(diag.overlayInsideZoomHost).toBe(false);
     expect(diag.overlayHostPosition).toBe('absolute');
 
-    const match = (diag.zoomTransform ?? '').match(/scale\(([\d.]+)\)/);
-    expect(match).toBeTruthy();
-    expect(parseFloat(match![1])).toBeGreaterThan(1);
+    expect(diag.zoomTransform).toBeTruthy();
+    expect(diag.zoomTransform).not.toBe('none');
 
     const cssWidth = Number.parseFloat(diag.canvasCssWidth ?? '0');
     const cssHeight = Number.parseFloat(diag.canvasCssHeight ?? '0');

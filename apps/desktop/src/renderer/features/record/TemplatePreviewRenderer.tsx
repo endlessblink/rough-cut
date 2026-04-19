@@ -24,7 +24,8 @@ import { useDebugToggle } from './template-layout/useDebugToggle.js';
 import { MediaFrame } from './MediaFrame.js';
 import { useRegionDragResize } from './useRegionDragResize.js';
 import type { Edge } from './useRegionDragResize.js';
-import type { CameraPresentation, RegionCrop } from '@rough-cut/project-model';
+import type { CameraPresentation, RegionCrop, NormalizedRect } from '@rough-cut/project-model';
+import { getCameraBorderRadius } from '@rough-cut/frame-resolver';
 import { CropOverlay } from './CropOverlay.js';
 import { alignRect } from './snap-guides.js';
 import type { Alignment } from './snap-guides.js';
@@ -61,6 +62,9 @@ export interface TemplatePreviewRendererProps {
   /** User-supplied rect overrides (pixel space) — supersede computed rects */
   screenRectOverride?: Rect;
   cameraRectOverride?: Rect;
+  cameraNormalizedFrameOverride?: NormalizedRect;
+  /** Persisted normalized camera frame updates for save/reopen fidelity */
+  onCameraNormalizedFrameChange?: (rect: NormalizedRect) => void;
   /** Force the debug overlay on (Ctrl+Shift+D also toggles it) */
   showDebugOverlay?: boolean;
   /** Screen crop state */
@@ -92,6 +96,29 @@ export interface TemplatePreviewRendererProps {
   onRegionClick?: (region: 'screen' | 'camera' | null) => void;
   /** Currently selected region (sticky, set by click) */
   selectedRegion?: 'screen' | 'camera' | null;
+  /** Current active zoom scale for camera auto-shrink behavior */
+  activeZoomScale?: number;
+  /** Debug/verification aid: which layout snapshot frame is currently active */
+  activeLayoutFrame?: number | null;
+  activeLayoutVisible?: boolean | null;
+}
+
+function normalizedRectToCanvasRect(rect: NormalizedRect, width: number, height: number): Rect {
+  return {
+    x: rect.x * width,
+    y: rect.y * height,
+    width: rect.w * width,
+    height: rect.h * height,
+  };
+}
+
+function canvasRectToNormalizedRect(rect: Rect, width: number, height: number): NormalizedRect {
+  return {
+    x: rect.x / width,
+    y: rect.y / height,
+    w: rect.width / width,
+    h: rect.height / height,
+  };
 }
 
 // ─── z-index helpers ──────────────────────────────────────────────────────────
@@ -144,12 +171,17 @@ function positionCameraFrame(
   frame: Rect,
   canvasRect: Rect,
   cameraPresentation?: CameraPresentation,
+  activeZoomScale = 1,
 ): Rect | null {
   if (cameraPresentation?.visible === false) return null;
 
   const sizeScale = Math.max(0, cameraPresentation?.size ?? 100) / 100;
-  const width = frame.width * sizeScale;
-  const height = frame.height * sizeScale;
+  const zoomAmount = Math.max(0, activeZoomScale - 1);
+  const zoomProgress = Math.min(zoomAmount / 1.5, 1);
+  const autoShrinkFactor = 1 - zoomProgress * 0.28;
+  const effectiveSizeScale = sizeScale * autoShrinkFactor;
+  const width = frame.width * effectiveSizeScale;
+  const height = frame.height * effectiveSizeScale;
 
   const leftMargin = frame.x - canvasRect.x;
   const rightMargin = canvasRect.x + canvasRect.width - (frame.x + frame.width);
@@ -191,10 +223,13 @@ function positionCameraFrame(
   }
 }
 
-function getCameraBorderRadius(cameraPresentation?: CameraPresentation): number | string {
-  if (!cameraPresentation || cameraPresentation.shape === 'square') return 0;
-  if (cameraPresentation.shape === 'circle') return '50%';
-  return `${Math.max(0, Math.min(100, cameraPresentation.roundness))}%`;
+function getCameraFrameBorderRadius(
+  cameraPresentation: CameraPresentation | undefined,
+  frame: Rect | null,
+): number | string {
+  if (!cameraPresentation) return 0;
+  if (!frame) return cameraPresentation.shape === 'circle' ? '50%' : 0;
+  return getCameraBorderRadius(cameraPresentation, frame.width, frame.height);
 }
 
 // ─── TemplatePreviewRenderer ──────────────────────────────────────────────────
@@ -215,6 +250,8 @@ export function TemplatePreviewRenderer({
   onRegionChange,
   screenRectOverride,
   cameraRectOverride,
+  cameraNormalizedFrameOverride,
+  onCameraNormalizedFrameChange,
   showDebugOverlay = false,
   screenCrop,
   cameraCrop,
@@ -233,6 +270,9 @@ export function TemplatePreviewRenderer({
   onHoveredRegionChange,
   onRegionClick,
   selectedRegion,
+  activeZoomScale = 1,
+  activeLayoutFrame = null,
+  activeLayoutVisible = null,
 }: TemplatePreviewRendererProps) {
   const insetRect = useCallback((rect: Rect, inset: number, aspect: number): Rect => {
     const targetAspect = Number.isFinite(aspect) && aspect > 0 ? aspect : rect.width / rect.height;
@@ -289,7 +329,20 @@ export function TemplatePreviewRenderer({
 
   const computed = getLayoutRects(template.kind, canvasRect, screenAspect ?? 16 / 9);
 
+  const handleRegionChange = useCallback(
+    (region: 'screen' | 'camera', rect: Rect) => {
+      onRegionChange?.(region, rect);
+      if (region === 'camera' && containerW > 0 && containerH > 0) {
+        onCameraNormalizedFrameChange?.(canvasRectToNormalizedRect(rect, containerW, containerH));
+      }
+    },
+    [containerH, containerW, onCameraNormalizedFrameChange, onRegionChange],
+  );
+
   const rawScreenRect = screenRectOverride ?? computed.screenFrame;
+  const normalizedCameraFrame = cameraNormalizedFrameOverride
+    ? normalizedRectToCanvasRect(cameraNormalizedFrameOverride, containerW, containerH)
+    : null;
   const cameraRect = cameraRectOverride ?? computed.cameraFrame;
   const screenRect = rawScreenRect
     ? insetRect(
@@ -298,13 +351,19 @@ export function TemplatePreviewRenderer({
         screenAspect ?? rawScreenRect.width / rawScreenRect.height,
       )
     : null;
-  const rawCameraFrame = cameraRect
-    ? positionCameraFrame(
-        getCameraFrameRect(cameraRect, cameraPresentation),
-        canvasRect,
-        cameraPresentation,
-      )
-    : null;
+  const rawCameraFrame =
+    cameraPresentation?.visible === false
+      ? null
+      : normalizedCameraFrame
+        ? normalizedCameraFrame
+        : cameraRect
+          ? positionCameraFrame(
+              getCameraFrameRect(cameraRect, cameraPresentation),
+              canvasRect,
+              cameraPresentation,
+              activeZoomScale,
+            )
+          : null;
   const cameraFrame = rawCameraFrame;
 
   // ── zIndex ────────────────────────────────────────────────────────────────
@@ -318,7 +377,7 @@ export function TemplatePreviewRenderer({
   const { isDragging, hoveredRegion, startMove, startResize, setHoveredRegion, activeGuidesRef } =
     useRegionDragResize({
       containerRef,
-      onRegionChange,
+      onRegionChange: handleRegionChange,
       enabled: interactionEnabled,
       snapConfig: interactionEnabled
         ? {
@@ -456,13 +515,13 @@ export function TemplatePreviewRenderer({
 
   const frameTransition = isDragging ? 'none' : 'all 300ms ease';
   const isCircularCamera = cameraPresentation?.shape === 'circle';
-  const cameraBorderRadius = getCameraBorderRadius(cameraPresentation);
+  const cameraBorderRadius = getCameraFrameBorderRadius(cameraPresentation, cameraFrame);
   const isScreenCropActive = cropModeActive && cropRegion !== 'camera';
   const isCameraCropActive = cropModeActive && cropRegion === 'camera';
   const activeCropLabel = isCameraCropActive
-    ? 'Editing camera crop'
+    ? 'Focusing camera'
     : isScreenCropActive
-      ? 'Editing screen crop'
+      ? 'Focusing screen'
       : null;
 
   // ── Nothing to render until measured ────────────────────────────────────
@@ -477,6 +536,19 @@ export function TemplatePreviewRenderer({
 
   return (
     <div
+      data-testid="template-preview-root"
+      data-template-id={template.id}
+      data-camera-visible={cameraPresentation?.visible === false ? 'false' : 'true'}
+      data-camera-position={cameraPresentation?.position ?? 'unknown'}
+      data-camera-shape={cameraPresentation?.shape ?? 'unknown'}
+      data-camera-frame-x={cameraFrame ? (cameraFrame.x / containerW).toFixed(4) : ''}
+      data-camera-frame-y={cameraFrame ? (cameraFrame.y / containerH).toFixed(4) : ''}
+      data-camera-frame-w={cameraFrame ? (cameraFrame.width / containerW).toFixed(4) : ''}
+      data-camera-frame-h={cameraFrame ? (cameraFrame.height / containerH).toFixed(4) : ''}
+      data-active-layout-frame={activeLayoutFrame == null ? '' : String(activeLayoutFrame)}
+      data-active-layout-visible={
+        activeLayoutVisible == null ? '' : activeLayoutVisible ? 'true' : 'false'
+      }
       ref={containerRef}
       style={{
         position: 'relative',

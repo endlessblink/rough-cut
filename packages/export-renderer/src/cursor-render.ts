@@ -3,6 +3,8 @@ import type { CursorPresentation } from '@rough-cut/project-model';
 export interface CursorFrameData {
   readonly frames: Float32Array;
   readonly frameCount: number;
+  readonly sourceWidth: number;
+  readonly sourceHeight: number;
 }
 
 interface RawCursorEvent {
@@ -45,6 +47,68 @@ export function parseNdjsonCursorEvents(ndjson: string): RawCursorEvent[] {
     .map((line) => JSON.parse(line) as RawCursorEvent);
 }
 
+function scoreInBounds(
+  events: readonly RawCursorEvent[],
+  width: number,
+  height: number,
+  offsetX: number,
+  offsetY: number,
+): number {
+  let count = 0;
+  for (const event of events) {
+    const x = event.x - offsetX;
+    const y = event.y - offsetY;
+    if (x >= 0 && x <= width && y >= 0 && y <= height) count += 1;
+  }
+  return count;
+}
+
+function normalizeCursorEvents(
+  events: readonly RawCursorEvent[],
+  sourceWidth: number,
+  sourceHeight: number,
+): readonly RawCursorEvent[] {
+  if (events.length === 0 || sourceWidth <= 0 || sourceHeight <= 0) return events;
+
+  const localScore = scoreInBounds(events, sourceWidth, sourceHeight, 0, 0);
+  if (localScore === events.length) return events;
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const event of events) {
+    if (event.x < minX) minX = event.x;
+    if (event.y < minY) minY = event.y;
+    if (event.x > maxX) maxX = event.x;
+    if (event.y > maxY) maxY = event.y;
+  }
+
+  const rangeXStart = Math.max(0, maxX - sourceWidth);
+  const rangeXEnd = Math.max(0, minX);
+  const rangeYStart = Math.max(0, maxY - sourceHeight);
+  const rangeYEnd = Math.max(0, minY);
+  if (rangeXStart > rangeXEnd || rangeYStart > rangeYEnd) return events;
+
+  const guessedOffsetX = Math.round((rangeXStart + rangeXEnd) / 2);
+  const guessedOffsetY = Math.round((rangeYStart + rangeYEnd) / 2);
+  const guessedScore = scoreInBounds(
+    events,
+    sourceWidth,
+    sourceHeight,
+    guessedOffsetX,
+    guessedOffsetY,
+  );
+
+  if (guessedScore <= localScore || guessedScore < Math.ceil(events.length * 0.8)) return events;
+
+  return events.map((event) => ({
+    ...event,
+    x: event.x - guessedOffsetX,
+    y: event.y - guessedOffsetY,
+  }));
+}
+
 export function buildCursorFrameData(
   events: readonly RawCursorEvent[],
   totalFrames: number,
@@ -53,7 +117,9 @@ export function buildCursorFrameData(
 ): CursorFrameData {
   const frames = new Float32Array(totalFrames * 3);
   frames.fill(-1);
-  const sorted = [...events].sort((a, b) => a.frame - b.frame);
+  const sorted = [...normalizeCursorEvents(events, sourceWidth, sourceHeight)].sort(
+    (a, b) => a.frame - b.frame,
+  );
 
   for (const e of sorted) {
     if (e.frame < 0 || e.frame >= totalFrames) continue;
@@ -113,7 +179,7 @@ export function buildCursorFrameData(
     }
   }
 
-  return { frames, frameCount: totalFrames };
+  return { frames, frameCount: totalFrames, sourceWidth, sourceHeight };
 }
 
 export async function loadCursorFrameData(
@@ -166,6 +232,27 @@ function applyZoomToPoint(
   return {
     x: width / 2 + scale * (x * width - width / 2) + offsetX,
     y: height / 2 + scale * (y * height - height / 2) + offsetY,
+  };
+}
+
+function applyCropToPoint(
+  x: number,
+  y: number,
+  data: CursorFrameData,
+  crop: { enabled?: boolean; x: number; y: number; width: number; height: number } | undefined,
+): { x: number; y: number; scale: number } | null {
+  if (!crop?.enabled) return { x, y, scale: 1 };
+
+  const px = x * data.sourceWidth;
+  const py = y * data.sourceHeight;
+  if (px < crop.x || px > crop.x + crop.width || py < crop.y || py > crop.y + crop.height) {
+    return null;
+  }
+
+  return {
+    x: (px - crop.x) / crop.width,
+    y: (py - crop.y) / crop.height,
+    scale: data.sourceWidth / crop.width,
   };
 }
 
@@ -250,21 +337,35 @@ export function renderCursorOverlay(
   offsetX: number,
   offsetY: number,
   frameRate: number,
+  crop?: { enabled?: boolean; x: number; y: number; width: number; height: number },
 ): void {
   const cursor = getCursorAtFrame(cursorData, sourceFrame);
   if (!cursor) return;
 
-  const point = applyZoomToPoint(cursor.x, cursor.y, width, height, scale, offsetX, offsetY);
-  const cursorSize = (presentation.sizePercent / 100) * 20 * scale;
+  const croppedCursor = applyCropToPoint(cursor.x, cursor.y, cursorData, crop);
+  if (!croppedCursor) return;
+
+  const point = applyZoomToPoint(
+    croppedCursor.x,
+    croppedCursor.y,
+    width,
+    height,
+    scale,
+    offsetX,
+    offsetY,
+  );
+  const cursorSize = (presentation.sizePercent / 100) * 20 * croppedCursor.scale * scale;
   const clickWindowFrames = Math.ceil((CLICK_EFFECT_DURATION_MS / 1000) * frameRate);
 
   if (presentation.clickEffect !== 'none') {
     for (let frame = Math.max(0, sourceFrame - clickWindowFrames); frame <= sourceFrame; frame++) {
       const pastCursor = getCursorAtFrame(cursorData, frame);
       if (!pastCursor?.isClick) continue;
+      const croppedEffect = applyCropToPoint(pastCursor.x, pastCursor.y, cursorData, crop);
+      if (!croppedEffect) continue;
       const effectPoint = applyZoomToPoint(
-        pastCursor.x,
-        pastCursor.y,
+        croppedEffect.x,
+        croppedEffect.y,
         width,
         height,
         scale,
@@ -277,7 +378,7 @@ export function renderCursorOverlay(
         effectPoint.y,
         ((sourceFrame - frame) / frameRate) * 1000,
         presentation.clickEffect,
-        scale,
+        croppedEffect.scale * scale,
       );
     }
   }

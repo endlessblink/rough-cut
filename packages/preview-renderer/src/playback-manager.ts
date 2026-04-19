@@ -328,15 +328,21 @@ export class PlaybackManager {
     if (!this._playing) return;
 
     if (this.screenVideo?.ended || this.compositor?.hasPlaybackEnded()) {
+      console.info('[PlaybackManager] pause reason: native playback ended (rVFC)', {
+        screenEnded: this.screenVideo?.ended ?? false,
+        compositorEnded: this.compositor?.hasPlaybackEnded() ?? false,
+        mediaTime: metadata.mediaTime,
+      });
       this.pause(0);
       return;
     }
 
     const fps = this.projectStore.getState().project.settings.frameRate;
     const screenTime = metadata.mediaTime;
-    const frame = this.screenVideo
+    const rawFrame = this.screenVideo
       ? this._resolveTimelineFrameForVideo(this.screenVideo, screenTime)
       : Math.round(screenTime * fps);
+    const frame = this._lastSyncedFrame >= 0 ? Math.max(rawFrame, this._lastSyncedFrame) : rawFrame;
 
     this._syncCameraTo(this._resolveMediaTimeForVideo(this.cameraVideo, frame));
 
@@ -355,6 +361,12 @@ export class PlaybackManager {
     const duration = this.projectStore.getState().project.composition.duration;
     const compositorEnded = this.compositor?.hasPlaybackEnded() ?? false;
     if (this.screenVideo?.ended || compositorEnded || (duration > 0 && frame >= duration)) {
+      console.info('[PlaybackManager] pause reason: timeline boundary reached (rVFC)', {
+        frame,
+        duration,
+        screenEnded: this.screenVideo?.ended ?? false,
+        compositorEnded,
+      });
       this.pause(0);
       return;
     }
@@ -373,7 +385,12 @@ export class PlaybackManager {
   private _syncLoop = (): void => {
     if (!this._playing) return;
 
-    if (this.screenVideo?.ended || this.compositor?.hasPlaybackEnded()) {
+    const compositorEndedAtLoopStart = this.compositor?.hasPlaybackEnded() ?? false;
+    if (this.screenVideo?.ended || compositorEndedAtLoopStart) {
+      console.info('[PlaybackManager] pause reason: native playback ended (rAF)', {
+        screenEnded: this.screenVideo?.ended ?? false,
+        compositorEnded: compositorEndedAtLoopStart,
+      });
       this.pause(0);
       return;
     }
@@ -382,13 +399,16 @@ export class PlaybackManager {
     const screen = this.screenVideo;
     const camera = this.cameraVideo;
     const compositorPlaybackFrame = this.compositor?.getPlaybackFrame() ?? -1;
-    const frame = screen
+    const rawFrame = screen
       ? this._resolveTimelineFrameForVideo(screen)
       : compositorPlaybackFrame >= 0
         ? compositorPlaybackFrame
         : camera
           ? this._resolveTimelineFrameForVideo(camera)
           : (this.compositor?.getCurrentFrame() ?? -1);
+
+    const frame =
+      rawFrame >= 0 && this._lastSyncedFrame >= 0 ? Math.max(rawFrame, this._lastSyncedFrame) : rawFrame;
 
     if (frame < 0) {
       this._rafId = requestAnimationFrame(this._syncLoop);
@@ -412,6 +432,11 @@ export class PlaybackManager {
     const duration = this.projectStore.getState().project.composition.duration;
     const compositorEnded = this.compositor?.hasPlaybackEnded() ?? false;
     if (compositorEnded || (duration > 0 && frame >= duration)) {
+      console.info('[PlaybackManager] pause reason: timeline boundary reached (rAF)', {
+        frame,
+        duration,
+        compositorEnded,
+      });
       this.pause(0);
       return;
     }

@@ -4,7 +4,7 @@
  * These tests check what's ACTUALLY implemented. Tests that fail = features
  * that are missing. This file IS the status dashboard for the Record tab.
  */
-import { test, expect } from './fixtures/electron-app.js';
+import { test, expect, navigateToTab } from './fixtures/electron-app.js';
 
 type RoughcutWindow = Window & {
   roughcut: {
@@ -18,30 +18,37 @@ type RoughcutWindow = Window & {
 };
 
 function nav(appPage: import('@playwright/test').Page) {
-  return appPage
-    .click('[data-testid="tab-record"]')
-    .then(() => appPage.waitForSelector('[data-testid="record-tab-root"]', { timeout: 5_000 }));
+  return navigateToTab(appPage, 'record');
 }
 
 test.describe('Record Tab — MVP Acceptance', () => {
   // ── 1.5.1: Live preview with background, padding, corners, shadow ──────
   test('1.5.1 — live preview renders with styled background', async ({ appPage }) => {
     await nav(appPage);
-    // The CardChrome component applies background/padding/corners/shadow
-    // Check that PreviewStage contains a styled card, not just raw video
-    const card = appPage
-      .locator('[data-testid="record-tab-root"]')
-      .locator('div')
-      .filter({ hasText: '' })
-      .first();
+
+    const selectedSource = await appPage.evaluate(async () => {
+      const api = (
+        window as unknown as {
+          roughcut: {
+            recordingGetSources: () => Promise<Array<{ id: string; type: 'screen' | 'window' }>>;
+            recordingConfigUpdate: (patch: Record<string, unknown>) => Promise<unknown>;
+          };
+        }
+      ).roughcut;
+      const sources = await api.recordingGetSources();
+      const source = sources.find((entry) => entry.type === 'screen') ?? sources[0] ?? null;
+      if (!source) return null;
+      await api.recordingConfigUpdate({
+        recordMode: source.type === 'window' ? 'window' : 'fullscreen',
+        selectedSourceId: source.id,
+      });
+      return source.id;
+    });
+
+    expect(selectedSource, 'Expected a capture source for live preview verification').toBeTruthy();
     await expect(appPage.locator('[data-testid="record-tab-root"]')).toBeVisible();
-    // Verify the preview uses PixiJS compositor (NOT raw <video>)
-    // MVP spec: "This is NOT the raw capture — it includes background, padding..."
-    // Current state: uses <video> element for live stream, PixiJS only for playback
-    const pixiCanvas = appPage.locator('[data-testid="record-tab-root"] canvas');
-    // This SHOULD find a PixiJS canvas in the preview area
-    const canvasCount = await pixiCanvas.count();
-    expect(canvasCount, 'Live preview should use PixiJS canvas, not <video>').toBeGreaterThan(0);
+    await expect(appPage.locator('[data-testid="record-card-chrome"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="live-preview-canvas"]')).toBeVisible();
   });
 
   // ── 1.5.2: Source picker switches between screens/windows ──────────────
@@ -49,6 +56,8 @@ test.describe('Record Tab — MVP Acceptance', () => {
     await nav(appPage);
     const sourceBtn = appPage.locator('[data-testid="record-source-toggle"]');
     await expect(sourceBtn).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-start-guard-banner"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-start-guard-pick-source"]')).toBeVisible();
   });
 
   // ── 1.5.3: Custom region selection overlay ─────────────────────────────
@@ -94,8 +103,10 @@ test.describe('Record Tab — MVP Acceptance', () => {
   // ── 1.5.6: Sidebar controls for visual styling ────────────────────────
   test('1.5.6 — sidebar has background/padding/corners/shadow controls', async ({ appPage }) => {
     await nav(appPage);
-    // RecordRightPanel has inspector panels for background, camera, etc.
-    // Check for background-related controls
+    await appPage.click('[data-testid="inspector-rail-item"][data-category="background"]');
+
+    // RecordRightPanel uses an icon rail; select the Background category before
+    // asserting against panel copy.
     const bgSection = appPage.locator('text=Background').or(appPage.locator('text=Canvas'));
     await expect(bgSection.first()).toBeVisible();
   });
@@ -156,6 +167,7 @@ test.describe('Record Tab — MVP Acceptance', () => {
     const recBtn = appPage.locator('[data-testid="btn-record"]');
     await expect(recBtn).toBeVisible();
     await expect(recBtn).toContainText('REC');
+    await expect(recBtn).toBeDisabled();
   });
 
   // ── 1.5.10: After recording, asset + clip in project model ────────────

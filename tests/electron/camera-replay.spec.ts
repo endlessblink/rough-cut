@@ -29,21 +29,82 @@ test.describe('camera replay', () => {
 
     expect(durationFrames).toBeGreaterThan(30);
 
-    await appPage.click(TIMELINE_PLAY_BUTTON);
-    await appPage.waitForFunction(() => {
-      const button = document.querySelector('[data-testid="record-timeline"] button');
-      return button?.textContent?.includes('⏸');
-    });
-
-    await appPage.waitForFunction(
-      () => {
-        const button = document.querySelector('[data-testid="record-timeline"] button');
-        return button?.textContent?.includes('▶');
+    await appPage.evaluate(
+      (frame) => {
+        const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+        stores?.transport.getState().seekToFrame(frame);
       },
-      { timeout: 25_000 },
+      Math.max(0, durationFrames - 20),
     );
 
-    const replaySamples = await samplePlayback(appPage, 1_600, 200);
+    await appPage.evaluate((selector) => {
+      const buttons = Array.from(document.querySelectorAll(selector)) as HTMLButtonElement[];
+      buttons.at(-1)?.click();
+    }, TIMELINE_PLAY_BUTTON);
+    await expect
+      .poll(
+        async () =>
+          appPage.evaluate(() => {
+            const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+            return {
+              isPlaying: stores?.transport.getState().isPlaying ?? null,
+              playheadFrame: stores?.transport.getState().playheadFrame ?? -1,
+            };
+          }),
+        { timeout: 5_000 },
+      )
+      .toMatchObject({
+        isPlaying: true,
+        playheadFrame: Math.max(0, durationFrames - 20),
+      });
+
+    await appPage.waitForTimeout(500);
+
+    await appPage.locator(TIMELINE_PLAY_BUTTON).last().click();
+    await expect
+      .poll(
+        async () =>
+          appPage.evaluate(() => {
+            const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+            return stores?.transport.getState().isPlaying ?? null;
+          }),
+        { timeout: 5_000 },
+      )
+      .toBe(false);
+
+    await appPage.evaluate(() => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      stores?.transport.getState().seekToFrame(0);
+    });
+
+    await expect
+      .poll(
+        async () =>
+          appPage.evaluate(() => {
+            const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+
+            return {
+              isPlaying: stores?.transport.getState().isPlaying ?? null,
+              playheadFrame: stores?.transport.getState().playheadFrame ?? -1,
+            };
+          }),
+        { timeout: 5_000 },
+      )
+      .toMatchObject({ isPlaying: false, playheadFrame: 0 });
+
+    await appPage.locator(TIMELINE_PLAY_BUTTON).last().click();
+    await expect
+      .poll(
+        async () =>
+          appPage.evaluate(() => {
+            const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+            return stores?.transport.getState().isPlaying ?? null;
+          }),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+
+    const replaySamples = await samplePlayback(appPage, 1_600, 200, false);
     const distinctPlayheadFrames = countDistinct(
       replaySamples.map((sample) => sample.playheadFrame),
       1,
@@ -62,11 +123,11 @@ test.describe('camera replay', () => {
 
     await loadReplayFixture(appPage);
 
-    await appPage.click(TIMELINE_PLAY_BUTTON);
+    await appPage.locator(TIMELINE_PLAY_BUTTON).last().click();
     await appPage.waitForTimeout(500);
 
     const beforePause = await captureCameraState(appPage);
-    await appPage.click(TIMELINE_PLAY_BUTTON);
+    await appPage.locator(TIMELINE_PLAY_BUTTON).last().click();
     await appPage.waitForTimeout(250);
 
     const pausedA = await captureCameraState(appPage);
@@ -76,7 +137,7 @@ test.describe('camera replay', () => {
     expect(pausedA.playheadFrame).toBe(pausedB.playheadFrame);
     expect(pausedA.cameraHash).toBe(pausedB.cameraHash);
 
-    await appPage.click(TIMELINE_PLAY_BUTTON);
+    await appPage.locator(TIMELINE_PLAY_BUTTON).last().click();
     await appPage.waitForTimeout(500);
     const resumed = await captureCameraState(appPage);
 
@@ -84,7 +145,7 @@ test.describe('camera replay', () => {
     expect(resumed.cameraHash).not.toBe(pausedB.cameraHash);
     expect(resumed.cameraTime).toBeGreaterThan(beforePause.cameraTime - 0.05);
 
-    await appPage.click(TIMELINE_PLAY_BUTTON);
+    await appPage.locator(TIMELINE_PLAY_BUTTON).last().click();
     await appPage.waitForTimeout(200);
 
     await appPage.evaluate(() => {
@@ -126,7 +187,7 @@ test.describe('camera replay', () => {
 
     await loadReplayFixture(appPage, 'edit');
 
-    await appPage.click(EDIT_TIMELINE_PLAY_BUTTON);
+    await appPage.locator(EDIT_TIMELINE_PLAY_BUTTON).last().click();
     await appPage.waitForFunction(
       () => {
         const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
@@ -138,7 +199,7 @@ test.describe('camera replay', () => {
     const beforeSeek = await captureCameraState(appPage, EDIT_CAMERA_VIDEO);
     expect(beforeSeek.playheadFrame).toBeGreaterThan(5);
 
-    await appPage.click(EDIT_TIMELINE_PLAY_BUTTON);
+    await appPage.locator(EDIT_TIMELINE_PLAY_BUTTON).last().click();
     await appPage.waitForTimeout(200);
 
     await appPage.evaluate(() => {
@@ -168,6 +229,24 @@ async function loadReplayFixture(
   )) as Record<string, any>;
   const recording = project.assets.find((asset: any) => asset.type === 'recording') ?? null;
 
+  const patchedProject = {
+    ...project,
+    assets: project.assets.map((asset: any) =>
+      asset.id === recording?.id
+        ? {
+            ...asset,
+            presentation: {
+              ...(asset.presentation ?? {}),
+              camera: {
+                ...(asset.presentation?.camera ?? {}),
+                visible: true,
+              },
+            },
+          }
+        : asset,
+    ),
+  };
+
   await page.evaluate(
     ({ nextProject, projectPath, activeAssetId }) => {
       const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
@@ -177,7 +256,7 @@ async function loadReplayFixture(
       stores?.transport.getState().seekToFrame(0);
     },
     {
-      nextProject: project,
+      nextProject: patchedProject,
       projectPath: RECORDED_PROJECT_PATH,
       activeAssetId: recording?.id ?? null,
     },
@@ -290,7 +369,7 @@ async function samplePlayback(
   await cameraVideo.waitFor({ state: 'visible', timeout: 5_000 });
 
   if (autoStart) {
-    await page.click(TIMELINE_PLAY_BUTTON);
+    await page.locator(TIMELINE_PLAY_BUTTON).last().click();
     await page.waitForTimeout(150);
   }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import type { CameraPresentation } from '@rough-cut/project-model';
+import type { CameraPresentation, NormalizedRect } from '@rough-cut/project-model';
+import { getCameraBorderRadius } from '@rough-cut/frame-resolver';
 import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 import { transportStore } from '../../hooks/use-stores.js';
 
@@ -10,6 +11,7 @@ interface EditCameraOverlayProps {
   clipSourceIn: number;
   visible: boolean;
   camera: CameraPresentation;
+  cameraFrame?: NormalizedRect;
 }
 
 function getPositionStyle(position: CameraPresentation['position']): CSSProperties {
@@ -26,12 +28,6 @@ function getPositionStyle(position: CameraPresentation['position']): CSSProperti
     default:
       return { right: '4%', bottom: '4%' };
   }
-}
-
-function getBorderRadius(camera: CameraPresentation): string {
-  if (camera.shape === 'circle') return '9999px';
-  if (camera.shape === 'square') return '0';
-  return `${Math.max(0, Math.min(100, camera.roundness))}%`;
 }
 
 function getAspectRatio(camera: CameraPresentation): string {
@@ -57,9 +53,12 @@ export function EditCameraOverlay({
   clipSourceIn,
   visible,
   camera,
+  cameraFrame,
 }: EditCameraOverlayProps) {
+  const frameRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [ready, setReady] = useState(false);
+  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const widthPercent = 24 * (camera.size / 100);
   const shadow = camera.shadowEnabled
     ? `0 ${Math.round(camera.shadowBlur * 0.25)}px ${camera.shadowBlur}px rgba(0,0,0,${camera.shadowOpacity})`
@@ -97,21 +96,53 @@ export function EditCameraOverlay({
     };
   }, [clipSourceIn, clipTimelineIn, filePath, fps]);
 
-  return (
-    <div
-      style={{
-        position: 'absolute',
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame || typeof ResizeObserver === 'undefined') return;
+
+    const updateSize = () => {
+      const rect = frame.getBoundingClientRect();
+      setFrameSize({ width: rect.width, height: rect.height });
+    };
+
+    updateSize();
+
+    const observer = new ResizeObserver(() => updateSize());
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, []);
+
+  const borderRadius =
+    camera.shape === 'circle'
+      ? '50%'
+      : getCameraBorderRadius(camera, frameSize.width, frameSize.height);
+  const frameStyle: CSSProperties = cameraFrame
+    ? {
+        left: `${cameraFrame.x * 100}%`,
+        top: `${cameraFrame.y * 100}%`,
+        width: `${cameraFrame.w * 100}%`,
+        height: `${cameraFrame.h * 100}%`,
+      }
+    : {
         width: `${widthPercent}%`,
         aspectRatio: getAspectRatio(camera),
+        ...getPositionStyle(camera.position),
+      };
+
+  return (
+    <div
+      ref={frameRef}
+      style={{
+        position: 'absolute',
         overflow: 'hidden',
-        borderRadius: getBorderRadius(camera),
+        borderRadius,
         boxShadow: shadow,
         border: camera.inset > 0 ? `${camera.inset}px solid ${camera.insetColor}` : 'none',
         boxSizing: 'border-box',
         pointerEvents: 'none',
         display: visible && camera.visible ? 'block' : 'none',
         zIndex: 3,
-        ...getPositionStyle(camera.position),
+        ...frameStyle,
       }}
     >
       <div

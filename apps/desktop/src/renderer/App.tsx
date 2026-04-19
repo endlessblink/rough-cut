@@ -257,6 +257,9 @@ export function App() {
           }));
           generatedZoom = {
             autoIntensity: autoZoomIntensity,
+            followCursor: true,
+            followAnimation: 'focused' as const,
+            followPadding: 0.18,
             markers: generateAutoZoomMarkers(
               cursorEvents,
               autoZoomIntensity,
@@ -287,6 +290,7 @@ export function App() {
         fileSize: result.fileSize,
         hasAudio: result.hasAudio,
         cursorEventsPath: result.cursorEventsPath || null,
+        audioCapture: result.audioCapture ?? null,
       },
       ...(generatedZoom
         ? {

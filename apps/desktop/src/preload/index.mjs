@@ -70,9 +70,29 @@ const api = {
   /** Get available screen/window capture sources. */
   recordingGetSources: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_SOURCES),
 
+  /** Get capture-space bounds for all attached displays. */
+  recordingGetDisplayBounds: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_DISPLAY_BOUNDS),
+
   /** Get available system-audio sources when supported by the platform. */
   recordingGetSystemAudioSources: () =>
     ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES),
+
+  /** Get platform-specific permission guidance for recording preflight. */
+  recordingGetPreflightStatus: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS),
+
+  /** Open the OS settings page for a recording permission when supported. */
+  recordingOpenPermissionSettings: (kind) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RECORDING_OPEN_PERMISSION_SETTINGS, { kind }),
+
+  /** Get any persisted recovery marker from an interrupted recording session. */
+  recordingRecoveryGet: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_RECOVERY_GET),
+
+  /** Import the recoverable partial take from an interrupted session. */
+  recordingRecoveryRecover: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_RECOVERY_RECOVER),
+
+  /** Dismiss the interrupted-recording recovery marker. */
+  recordingRecoveryDismiss: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_RECOVERY_DISMISS),
 
   /** Save a finished recording. Buffer is an ArrayBuffer, metadata has fps/width/height/durationMs. */
   recordingSaveRecording: (buffer, metadata) =>
@@ -105,6 +125,14 @@ const api = {
     const handler = (_event, ms) => callback(ms);
     ipcRenderer.on(IPC_CHANNELS.RECORDING_SESSION_ELAPSED, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.RECORDING_SESSION_ELAPSED, handler);
+  },
+
+  /** Subscribe to current panel-reported connection issues. */
+  onSessionConnectionIssuesChanged: (callback) => {
+    const handler = (_event, issues) => callback(issues);
+    ipcRenderer.on(IPC_CHANNELS.RECORDING_SESSION_CONNECTION_ISSUES_CHANGED, handler);
+    return () =>
+      ipcRenderer.removeListener(IPC_CHANNELS.RECORDING_SESSION_CONNECTION_ISSUES_CHANGED, handler);
   },
 
   /** Notify main process that the toolbar window is ready. */
@@ -200,6 +228,9 @@ const api = {
   /** Close the floating recording panel window. */
   closeRecordingPanel: () => ipcRenderer.invoke(IPC_CHANNELS.PANEL_CLOSE),
 
+  /** Resize the floating recording panel between setup and mini modes. */
+  panelResize: (mode) => ipcRenderer.invoke(IPC_CHANNELS.PANEL_RESIZE, { mode }),
+
   /** Tell main process which source the panel selected. */
   panelSetSource: (sourceId) => ipcRenderer.send(IPC_CHANNELS.PANEL_SET_SOURCE, { sourceId }),
 
@@ -218,12 +249,16 @@ const api = {
   },
 
   /** Start recording (triggers countdown in session manager).
-   *  @param {{ micEnabled?: boolean, sysAudioEnabled?: boolean, countdownSeconds?: number, selectedSystemAudioSourceId?: string | null }} [audioConfig] */
+   *  @param {{ micEnabled?: boolean, sysAudioEnabled?: boolean, countdownSeconds?: number, selectedMicDeviceId?: string | null, selectedMicLabel?: string | null, selectedSystemAudioSourceId?: string | null }} [audioConfig] */
   panelStartRecording: (audioConfig) =>
     ipcRenderer.invoke(IPC_CHANNELS.PANEL_START_RECORDING, audioConfig),
 
   /** Stop recording. */
   panelStopRecording: () => ipcRenderer.invoke(IPC_CHANNELS.PANEL_STOP_RECORDING),
+
+  /** Report current panel connection issues to the main session manager. */
+  panelReportConnectionIssues: (issues) =>
+    ipcRenderer.send(IPC_CHANNELS.PANEL_CONNECTION_ISSUES_CHANGED, issues),
 
   /** Notify session manager that recording is paused. */
   panelPause: () => ipcRenderer.send('panel:pause'),
@@ -304,6 +339,18 @@ const api = {
   /** [DEBUG] Inspect the last source granted by the display-media handler. */
   debugGetLastDisplayMediaSelection: () =>
     ipcRenderer.invoke(IPC_CHANNELS.DEBUG_GET_LAST_DISPLAY_MEDIA_SELECTION),
+
+  /** [DEBUG] Seed or clear the interrupted-recording recovery marker. */
+  debugSetRecordingRecovery: (payload) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEBUG_SET_RECORDING_RECOVERY, payload),
+
+  /** [DEBUG] Override available capture sources for deterministic mode/source tests. */
+  debugSetCaptureSources: (payload) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEBUG_SET_CAPTURE_SOURCES, payload),
+
+  /** [DEBUG] Override display bounds for deterministic cursor tests. */
+  debugSetDisplayBounds: (payload) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEBUG_SET_DISPLAY_BOUNDS, payload),
 
   /** Load the zoom sidecar (recording-xxx.zoom.json). Returns ZoomPresentation or null. */
   zoomLoadSidecar: (recordingFilePath) =>

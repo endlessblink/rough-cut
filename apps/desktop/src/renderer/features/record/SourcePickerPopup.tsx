@@ -1,7 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { CaptureSource } from '../../env.js';
 
 import type { RecordMode } from './ModeSelectorRow.js';
+
+function getExpectedSourceType(recordMode: RecordMode): 'screen' | 'window' {
+  return recordMode === 'window' ? 'window' : 'screen';
+}
+
+function getModeLabel(recordMode: RecordMode): string {
+  if (recordMode === 'window') return 'window';
+  if (recordMode === 'region') return 'screen for region capture';
+  return 'screen';
+}
 
 interface SourcePickerPopupProps {
   sources: CaptureSource[];
@@ -203,18 +213,12 @@ export function SourcePickerPopup({
   const [useHovered, setUseHovered] = useState(false);
   const [refreshHovered, setRefreshHovered] = useState(false);
 
-  const filteredSources =
-    recordMode === 'region'
-      ? sources.filter((source) => source.type === 'screen')
-      : sources.filter((source) => source.type === recordMode);
-  const visibleSources = filteredSources.length > 0 ? filteredSources : sources;
+  const expectedSourceType = getExpectedSourceType(recordMode);
+  const filteredSources = sources.filter((source) => source.type === expectedSourceType);
+  const visibleSources = filteredSources;
   const selectedSource = visibleSources.find((s) => s.id === tempSelectedId) ?? null;
-  const modeLabel =
-    recordMode === 'window'
-      ? 'window'
-      : recordMode === 'region'
-        ? 'screen for region capture'
-        : 'screen';
+  const canUseSelectedSource = Boolean(selectedSource);
+  const modeLabel = getModeLabel(recordMode);
 
   const closeButtonBg = closePressed
     ? 'rgba(255,255,255,0.14)'
@@ -222,9 +226,22 @@ export function SourcePickerPopup({
       ? 'rgba(255,255,255,0.08)'
       : 'transparent';
 
-  const useBtnBg = !tempSelectedId ? 'rgba(255,255,255,0.10)' : useHovered ? '#ff8a65' : '#ff7043';
+  const useBtnBg = !canUseSelectedSource
+    ? 'rgba(255,255,255,0.10)'
+    : useHovered
+      ? '#ff8a65'
+      : '#ff7043';
 
-  const useBtnColor = !tempSelectedId ? 'rgba(255,255,255,0.40)' : '#000';
+  const useBtnColor = !canUseSelectedSource ? 'rgba(255,255,255,0.40)' : '#000';
+
+  useEffect(() => {
+    if (selectedSourceId && filteredSources.some((source) => source.id === selectedSourceId)) {
+      setTempSelectedId(selectedSourceId);
+      return;
+    }
+
+    setTempSelectedId(null);
+  }, [recordMode, selectedSourceId, sources]);
 
   return (
     <div
@@ -473,21 +490,22 @@ export function SourcePickerPopup({
             </button>
             <button
               onClick={() => {
-                if (tempSelectedId) {
-                  onSelect(tempSelectedId);
+                const selectedId = tempSelectedId;
+                if (selectedId) {
+                  onSelect(selectedId);
                 }
               }}
               onMouseEnter={() => setUseHovered(true)}
-              onMouseLeave={() => setUseHovered(false)}
-              disabled={!tempSelectedId}
-              style={{
+               onMouseLeave={() => setUseHovered(false)}
+               disabled={!canUseSelectedSource}
+               style={{
                 height: 32,
                 padding: '0 16px',
                 borderRadius: 999,
                 fontSize: 12,
                 fontWeight: 600,
-                border: 'none',
-                cursor: tempSelectedId ? 'pointer' : 'not-allowed',
+                 border: 'none',
+                 cursor: canUseSelectedSource ? 'pointer' : 'not-allowed',
                 background: useBtnBg,
                 color: useBtnColor,
                 fontFamily: 'inherit',

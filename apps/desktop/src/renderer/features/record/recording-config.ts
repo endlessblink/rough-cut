@@ -7,28 +7,31 @@ import {
 
 const recordingConfigStore = createRecordingConfigStore();
 
-let recordingConfigInitialized = false;
+let recordingConfigInitPromise: Promise<void> | null = null;
+let recordingConfigUnsubscribe: (() => void) | null = null;
 
 function hydrateRecordingConfig(config: RecordingConfigPatch) {
   recordingConfigStore.getState().hydrate(config);
 }
 
 function ensureRecordingConfigSync() {
-  if (recordingConfigInitialized || typeof window === 'undefined') return;
-  recordingConfigInitialized = true;
+  if (recordingConfigInitPromise || typeof window === 'undefined' || !window.roughcut) return;
 
-  void window.roughcut
+  if (!recordingConfigUnsubscribe) {
+    recordingConfigUnsubscribe = window.roughcut.onRecordingConfigChanged((config) => {
+      hydrateRecordingConfig(config);
+    });
+  }
+
+  recordingConfigInitPromise = window.roughcut
     .recordingConfigGet()
     .then((config) => {
       hydrateRecordingConfig(config);
     })
     .catch((error: unknown) => {
       console.error('[recording-config] Failed to load config:', error);
+      recordingConfigInitPromise = null;
     });
-
-  window.roughcut.onRecordingConfigChanged((config) => {
-    hydrateRecordingConfig(config);
-  });
 }
 
 export function updateRecordingConfig(patch: RecordingConfigPatch) {
@@ -64,7 +67,15 @@ export function useRecordingConfig<T>(selector: (state: RecordingConfigStore) =>
   );
 }
 
+export function subscribeRecordingConfig(
+  listener: (state: RecordingConfigStore, previousState: RecordingConfigStore) => void,
+) {
+  ensureRecordingConfigSync();
+  return recordingConfigStore.subscribe(listener);
+}
+
 if (typeof window !== 'undefined') {
+  ensureRecordingConfigSync();
   const currentStores = (window as unknown as { __roughcutStores?: Record<string, unknown> })
     .__roughcutStores;
   (window as unknown as { __roughcutStores?: Record<string, unknown> }).__roughcutStores = {

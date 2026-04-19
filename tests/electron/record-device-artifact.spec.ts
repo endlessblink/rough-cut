@@ -7,14 +7,32 @@ import { execFile } from 'node:child_process';
 type RecordingResult = {
   filePath: string;
   durationFrames: number;
+   durationMs: number;
   width: number;
   height: number;
   fps: number;
   codec: string;
   fileSize: number;
+   hasAudio: boolean;
   cursorEventsPath?: string;
   thumbnailPath?: string;
   cameraFilePath?: string;
+   audioCapture?: {
+     requested: {
+       micEnabled: boolean;
+       sysAudioEnabled: boolean;
+       selectedMicDeviceId: string | null;
+       selectedMicLabel: string | null;
+       selectedSystemAudioSourceId: string | null;
+     };
+     resolved: {
+       micSource: string | null;
+       systemAudioSource: string | null;
+     };
+     final: {
+       hasAudio: boolean;
+     };
+   };
 };
 
 function ffprobeJson(filePath: string): Promise<any> {
@@ -92,9 +110,9 @@ test.describe('Record device artifacts', () => {
         runtimeInfo.sources.find((source) => source.type === 'screen')?.id ??
         runtimeInfo.sources[0]?.id ??
         'manual-test-source';
-      const selectedMicDeviceId = null;
+      const selectedMicDeviceId = runtimeInfo.micDevices[0]?.deviceId ?? null;
       const selectedCameraDeviceId = null;
-      const selectedSystemAudioSourceId = null;
+      const selectedSystemAudioSourceId = runtimeInfo.systemAudioSources[0]?.id ?? null;
 
       await appPage.evaluate(
         async ({
@@ -264,6 +282,20 @@ test.describe('Record device artifacts', () => {
       })) as RecordingResult | null;
 
       expect(result).not.toBeNull();
+      expect(result!.hasAudio).toBe(true);
+      expect(result!.audioCapture?.final.hasAudio).toBe(true);
+      expect(result!.audioCapture?.requested.selectedSystemAudioSourceId ?? null).toBe(
+        selectedSystemAudioSourceId,
+      );
+
+      if (selectedMicDeviceId) {
+        expect(result!.audioCapture?.requested.selectedMicDeviceId).toBe(selectedMicDeviceId);
+        expect(result!.audioCapture?.resolved.micSource).toBeTruthy();
+      }
+
+      if (selectedSystemAudioSourceId) {
+        expect(result!.audioCapture?.resolved.systemAudioSource).toBe(selectedSystemAudioSourceId);
+      }
 
       const screenStats = await stat(result!.filePath);
       test.skip(screenStats.size <= 0, 'Recording artifact was empty in this automated session');
@@ -288,6 +320,8 @@ test.describe('Record device artifacts', () => {
       expect(Number(screenVideo.width || 0)).toBeGreaterThan(0);
       expect(Number(screenVideo.height || 0)).toBeGreaterThan(0);
       expect(screenAudio).toBeTruthy();
+      expect(result!.hasAudio).toBe(Boolean(screenAudio));
+      expect(result!.audioCapture?.final.hasAudio).toBe(Boolean(screenAudio));
 
       const cameraProbe = await ffprobeJson(result!.cameraFilePath!);
       const cameraVideo = cameraProbe.streams?.find((stream: any) => stream.codec_type === 'video');

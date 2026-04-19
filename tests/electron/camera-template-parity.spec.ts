@@ -209,6 +209,117 @@ test('saved project preserves camera template/frame parity after reopen', async 
   expect(diffs.h).toBeLessThanOrEqual(0.01);
 });
 
+test('dragging the Record camera frame persists after save and reopen', async ({ appPage }) => {
+  test.setTimeout(45_000);
+
+  await navigateToTab(appPage, 'record');
+
+  const project = (await appPage.evaluate(
+    (projectPath) =>
+      (
+        window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
+      ).roughcut.projectOpenPath(projectPath),
+    RECORDED_PROJECT_PATH,
+  )) as Record<string, any>;
+
+  const recording = project.assets.find((asset: any) => asset.type === 'recording');
+  expect(recording).toBeTruthy();
+
+  await applyRecordingPresentationPatch(appPage, {
+    nextProject: project,
+    projectPath: RECORDED_PROJECT_PATH,
+    activeAssetId: recording?.id ?? null,
+    persistedFrame: DEFAULT_PERSISTED_CAMERA_FRAME,
+    cameraVisible: true,
+  });
+
+  await appPage.waitForFunction((selector) => {
+    const video = document.querySelector(selector) as HTMLVideoElement | null;
+    return video?.getAttribute('data-ready') === 'true';
+  }, RECORD_CAMERA_VIDEO);
+  await appPage.waitForTimeout(400);
+
+  const before = await readTemplateCameraFrame(appPage);
+  const box = await appPage.locator(RECORD_CAMERA_FRAME).boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) return;
+
+  await appPage.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await appPage.mouse.down();
+  await appPage.mouse.move(box.x + box.width / 2 + 90, box.y + box.height / 2 - 45, { steps: 12 });
+  await appPage.mouse.up();
+
+  await expect
+    .poll(async () => {
+      const frame = await readTemplateCameraFrame(appPage);
+      return Math.abs(frame.x - before.x) + Math.abs(frame.y - before.y);
+    })
+    .toBeGreaterThan(0.05);
+
+  const afterDrag = await readTemplateCameraFrame(appPage);
+  const savedPath = `/tmp/rough-cut-camera-frame-authoring-${Date.now()}.roughcut`;
+
+  const saved = await appPage.evaluate(async (filePath) => {
+    const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+    const projectState = stores?.project.getState();
+    if (!projectState?.project) return false;
+    return (
+      window as unknown as {
+        roughcut: { projectSave: (project: unknown, path: string) => Promise<boolean> };
+      }
+    ).roughcut.projectSave(projectState.project, filePath);
+  }, savedPath);
+
+  expect(saved).toBe(true);
+
+  const reopenedProject = (await appPage.evaluate(
+    (projectPath) =>
+      (
+        window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
+      ).roughcut.projectOpenPath(projectPath),
+    savedPath,
+  )) as Record<string, any>;
+
+  const reopenedRecording = reopenedProject.assets.find((asset: any) => asset.type === 'recording');
+  expect(reopenedRecording?.presentation?.templateId).toBe('presentation-16x9');
+  expect(reopenedRecording?.presentation?.cameraFrame?.x).toBeCloseTo(afterDrag.x, 2);
+  expect(reopenedRecording?.presentation?.cameraFrame?.y).toBeCloseTo(afterDrag.y, 2);
+  expect(reopenedRecording?.presentation?.cameraFrame?.w).toBeCloseTo(afterDrag.w, 2);
+  expect(reopenedRecording?.presentation?.cameraFrame?.h).toBeCloseTo(afterDrag.h, 2);
+
+  await appPage.evaluate(
+    ({ nextProject, projectPath, activeAssetId }) => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      stores?.project.getState().setProject(nextProject);
+      stores?.project.getState().setProjectFilePath(projectPath);
+      stores?.project.getState().setActiveAssetId(activeAssetId);
+      stores?.transport.getState().seekToFrame(0);
+    },
+    {
+      nextProject: reopenedProject,
+      projectPath: savedPath,
+      activeAssetId: reopenedRecording?.id ?? null,
+    },
+  );
+
+  await expect
+    .poll(async () => {
+      const frame = await readTemplateCameraFrame(appPage);
+      return {
+        x: Number(frame.x.toFixed(2)),
+        y: Number(frame.y.toFixed(2)),
+        w: Number(frame.w.toFixed(2)),
+        h: Number(frame.h.toFixed(2)),
+      };
+    })
+    .toEqual({
+      x: Number(afterDrag.x.toFixed(2)),
+      y: Number(afterDrag.y.toFixed(2)),
+      w: Number(afterDrag.w.toFixed(2)),
+      h: Number(afterDrag.h.toFixed(2)),
+    });
+});
+
 test('camera visibility toggle hides camera video in both Record and Edit', async ({ appPage }) => {
   test.setTimeout(45_000);
 
@@ -346,4 +457,19 @@ async function captureNormalizedRect(
   expect(rect.pixelWidth).toBeGreaterThanOrEqual(120);
   expect(rect.pixelHeight).toBeGreaterThanOrEqual(120);
   return rect;
+}
+
+async function readTemplateCameraFrame(page: import('@playwright/test').Page) {
+  return page.evaluate(() => {
+    const root = document.querySelector('[data-testid="template-preview-root"]') as HTMLElement | null;
+    if (!root) {
+      throw new Error('template-preview-root not found');
+    }
+    return {
+      x: Number(root.getAttribute('data-camera-frame-x') ?? '0'),
+      y: Number(root.getAttribute('data-camera-frame-y') ?? '0'),
+      w: Number(root.getAttribute('data-camera-frame-w') ?? '0'),
+      h: Number(root.getAttribute('data-camera-frame-h') ?? '0'),
+    };
+  });
 }

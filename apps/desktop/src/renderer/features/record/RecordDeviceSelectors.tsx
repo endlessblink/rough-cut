@@ -6,12 +6,15 @@ interface DeviceOption {
 interface RecordDeviceSelectorsProps {
   micOptions: DeviceOption[];
   selectedMicDeviceId: string | null;
+  micIssue?: string | null;
   onSelectMicDevice: (id: string | null) => void;
   cameraOptions: DeviceOption[];
   selectedCameraDeviceId: string | null;
+  cameraIssue?: string | null;
   onSelectCameraDevice: (id: string | null) => void;
   systemAudioOptions: DeviceOption[];
   selectedSystemAudioSourceId: string | null;
+  systemAudioIssue?: string | null;
   onSelectSystemAudioSource: (id: string | null) => void;
 }
 
@@ -19,6 +22,7 @@ function Selector({
   testId,
   label,
   value,
+  issue,
   options,
   defaultLabel,
   onChange,
@@ -26,6 +30,7 @@ function Selector({
   testId: string;
   label: string;
   value: string | null;
+  issue?: string | null;
   options: DeviceOption[];
   defaultLabel: string;
   onChange: (id: string | null) => void;
@@ -45,6 +50,9 @@ function Selector({
     >
       <span
         style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
           fontSize: 11,
           fontWeight: 600,
           letterSpacing: '0.06em',
@@ -52,7 +60,26 @@ function Selector({
           color: 'rgba(255,255,255,0.55)',
         }}
       >
-        {label}
+        <span>{label}</span>
+        {issue && (
+          <span
+            data-testid={`${testId}-offline-badge`}
+            title={issue}
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '0.02em',
+              textTransform: 'none',
+              color: '#fcd34d',
+              border: '1px solid rgba(245,158,11,0.28)',
+              background: 'rgba(245,158,11,0.1)',
+              borderRadius: 999,
+              padding: '2px 6px',
+            }}
+          >
+            Offline
+          </span>
+        )}
       </span>
       <select
         data-testid={testId}
@@ -84,12 +111,15 @@ function Selector({
 export function RecordDeviceSelectors({
   micOptions,
   selectedMicDeviceId,
+  micIssue,
   onSelectMicDevice,
   cameraOptions,
   selectedCameraDeviceId,
+  cameraIssue,
   onSelectCameraDevice,
   systemAudioOptions,
   selectedSystemAudioSourceId,
+  systemAudioIssue,
   onSelectSystemAudioSource,
 }: RecordDeviceSelectorsProps) {
   return (
@@ -108,6 +138,7 @@ export function RecordDeviceSelectors({
         testId="record-mic-select"
         label="Microphone"
         value={selectedMicDeviceId}
+        issue={micIssue}
         options={micOptions}
         defaultLabel="Default microphone"
         onChange={onSelectMicDevice}
@@ -116,6 +147,7 @@ export function RecordDeviceSelectors({
         testId="record-camera-select"
         label="Camera"
         value={selectedCameraDeviceId}
+        issue={cameraIssue}
         options={cameraOptions}
         defaultLabel="Default camera"
         onChange={onSelectCameraDevice}
@@ -124,6 +156,7 @@ export function RecordDeviceSelectors({
         testId="record-system-audio-select"
         label="System Audio"
         value={selectedSystemAudioSourceId}
+        issue={systemAudioIssue}
         options={systemAudioOptions}
         defaultLabel="Default system audio"
         onChange={onSelectSystemAudioSource}

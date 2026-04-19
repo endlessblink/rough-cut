@@ -10,10 +10,20 @@ interface RcSliderProps {
   max: number;
   step?: number;
   label?: string;
+  disabled?: boolean;
   onChange: (value: number) => void;
 }
 
-export function RcSlider({ value, min, max, step = 1, label, onChange }: RcSliderProps) {
+export function RcSlider({
+  value,
+  min,
+  max,
+  step = 1,
+  label,
+  disabled = false,
+  onChange,
+}: RcSliderProps) {
+  const safeValue = Number.isFinite(value) ? value : min;
   const slider = (
     <input
       type="range"
@@ -21,13 +31,15 @@ export function RcSlider({ value, min, max, step = 1, label, onChange }: RcSlide
       min={min}
       max={max}
       step={step}
-      value={value}
+      value={safeValue}
+      disabled={disabled}
       onChange={(e) => onChange(Number(e.target.value))}
       style={{
         width: '100%',
         height: 4,
         accentColor: ACCENT_COLOR,
-        cursor: 'pointer',
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.55 : 1,
       }}
     />
   );
@@ -48,7 +60,7 @@ export function RcSlider({ value, min, max, step = 1, label, onChange }: RcSlide
             userSelect: 'none',
           }}
         >
-          {step < 1 ? value.toFixed(2) : value}
+          {step < 1 ? safeValue.toFixed(2) : safeValue}
         </span>
       </div>
       {slider}

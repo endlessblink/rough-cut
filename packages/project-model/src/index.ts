@@ -6,5 +6,6 @@ export * from './schemas.js';
 export * from './factories.js';
 export * from './migrations.js';
 export * from './constants.js';
+export * from './crop-utils.js';
 export * from './frame-utils.js';
 export * from './library-utils.js';

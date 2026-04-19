@@ -8,6 +8,14 @@ import { execFile } from 'node:child_process';
  * @property {Array<{id: string, label: string}>} systemAudioSources
  */
 
+function normalizeSourceLabel(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/\.monitor$/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
 function toAudioSourceLabel(name) {
   return name.replace(/\.monitor$/, '').replace(/[_\.]+/g, ' ');
 }
@@ -34,6 +42,52 @@ function parsePactlSources(output) {
   return { monitorSources, micSources };
 }
 
+function parsePactlSourceBlocks(output) {
+  const blocks = output.split(/\n(?=Source #)/).filter(Boolean);
+  return blocks
+    .map((block) => {
+      const name = block.match(/^\s*Name:\s*(.+)$/m)?.[1]?.trim() ?? null;
+      const description = block.match(/^\s*Description:\s*(.+)$/m)?.[1]?.trim() ?? null;
+      if (!name) return null;
+      return {
+        name,
+        description,
+        isMonitor: name.includes('.monitor'),
+      };
+    })
+    .filter(Boolean);
+}
+
+function resolvePreferredMicSource(micSourceDetails, preferredMicSourceId, preferredMicLabel) {
+  if (!Array.isArray(micSourceDetails) || micSourceDetails.length === 0) return null;
+
+  if (preferredMicSourceId) {
+    const exactSource = micSourceDetails.find((source) => source.name === preferredMicSourceId);
+    if (exactSource) return exactSource.name;
+  }
+
+  const normalizedPreferredLabel = normalizeSourceLabel(preferredMicLabel);
+  if (!normalizedPreferredLabel) return null;
+
+  const exactLabelMatch = micSourceDetails.find((source) => {
+    return [source.description, source.name].some(
+      (candidate) => normalizeSourceLabel(candidate) === normalizedPreferredLabel,
+    );
+  });
+  if (exactLabelMatch) return exactLabelMatch.name;
+
+  const partialLabelMatch = micSourceDetails.find((source) => {
+    return [source.description, source.name].some((candidate) => {
+      const normalizedCandidate = normalizeSourceLabel(candidate);
+      return (
+        normalizedCandidate.includes(normalizedPreferredLabel) ||
+        normalizedPreferredLabel.includes(normalizedCandidate)
+      );
+    });
+  });
+  return partialLabelMatch?.name ?? null;
+}
+
 function toMonitorSourceName(sinkName) {
   return sinkName ? `${sinkName}.monitor` : null;
 }
@@ -42,6 +96,54 @@ function resolveDefaultMonitorSource(monitorSources, defaultSinkName) {
   const defaultMonitorSource = toMonitorSourceName(defaultSinkName);
   if (!defaultMonitorSource) return null;
   return monitorSources.includes(defaultMonitorSource) ? defaultMonitorSource : null;
+}
+
+function resolveDefaultMicSource(micSources, defaultSourceName) {
+  if (!defaultSourceName) return null;
+  return micSources.includes(defaultSourceName) ? defaultSourceName : null;
+}
+
+export function resolveAudioSourceSelection({
+  monitorSources,
+  micSources,
+  micSourceDetails,
+  defaultSinkName,
+  defaultSourceName,
+  preferredSystemAudioSourceId = null,
+  preferredMicSourceId = null,
+  preferredMicLabel = null,
+  strictMicSelection = false,
+  strictSystemSelection = false,
+}) {
+  const defaultMonitorSource = resolveDefaultMonitorSource(monitorSources, defaultSinkName);
+  const defaultMicSource = resolveDefaultMicSource(micSources, defaultSourceName);
+  const preferredMonitorSource =
+    preferredSystemAudioSourceId && monitorSources.includes(preferredSystemAudioSourceId)
+      ? preferredSystemAudioSourceId
+      : null;
+  const monitorSource = strictSystemSelection
+    ? preferredMonitorSource
+    : preferredMonitorSource ?? defaultMonitorSource ?? monitorSources[0] ?? null;
+  const preferredMicSource = resolvePreferredMicSource(
+    micSourceDetails,
+    preferredMicSourceId,
+    preferredMicLabel,
+  );
+  const micSource = strictMicSelection
+    ? preferredMicSource
+    : preferredMicSource ?? defaultMicSource ?? micSources[0] ?? null;
+  const systemAudioSources = monitorSources.map((name) => ({
+    id: name,
+    label: toAudioSourceLabel(name),
+  }));
+
+  return {
+    monitorSource,
+    micSource,
+    systemAudioSources,
+    defaultMonitorSource,
+    defaultMicSource,
+  };
 }
 
 /**
@@ -56,38 +158,62 @@ function resolveDefaultMonitorSource(monitorSources, defaultSinkName) {
  * Returns nulls on failure (no PulseAudio, pactl not found, etc.).
  * Callers must treat null as "skip audio" — never let this break recording.
  *
- * @param {string | null} [preferredSystemAudioSourceId]
+ * @param {{
+ *   preferredSystemAudioSourceId?: string | null,
+ *   preferredMicSourceId?: string | null,
+ *   preferredMicLabel?: string | null,
+ *   strictMicSelection?: boolean,
+ * }} [options]
  * @returns {Promise<AudioSources>}
  */
-export async function discoverAudioSources(preferredSystemAudioSourceId = null) {
+export async function discoverAudioSources(options = {}) {
+  const {
+    preferredSystemAudioSourceId = null,
+    preferredMicSourceId = null,
+    preferredMicLabel = null,
+    strictMicSelection = false,
+    strictSystemSelection = false,
+  } = options;
+
   try {
-    const [output, defaultSinkName] = await Promise.all([
+    const [output, sourceDetailsOutput, defaultSinkName, defaultSourceName] = await Promise.all([
       runPactlShort(),
+      runPactlSourceDetails(),
       runPactlDefaultSink().catch(() => null),
+      runPactlDefaultSource().catch(() => null),
     ]);
     const { monitorSources, micSources } = parsePactlSources(output);
-    const defaultMonitorSource = resolveDefaultMonitorSource(monitorSources, defaultSinkName);
-    const monitorSource =
-      (preferredSystemAudioSourceId && monitorSources.includes(preferredSystemAudioSourceId)
-        ? preferredSystemAudioSourceId
-        : null) ??
-      defaultMonitorSource ??
-      monitorSources[0] ??
-      null;
-    const micSource = micSources[0] ?? null;
-    const systemAudioSources = monitorSources.map((name) => ({
-      id: name,
-      label: toAudioSourceLabel(name),
-    }));
+    const micSourceDetails = parsePactlSourceBlocks(sourceDetailsOutput).filter(
+      (source) => !source.isMonitor,
+    );
+    const selection = resolveAudioSourceSelection({
+      monitorSources,
+      micSources,
+      micSourceDetails,
+      defaultSinkName,
+      defaultSourceName,
+      preferredSystemAudioSourceId,
+      preferredMicSourceId,
+      preferredMicLabel,
+      strictMicSelection,
+      strictSystemSelection,
+    });
 
     console.info('[audio-sources] Discovered:', {
-      monitorSource,
+      monitorSource: selection.monitorSource,
       defaultSinkName,
-      defaultMonitorSource,
-      micSource,
-      systemAudioSources,
+      defaultMonitorSource: selection.defaultMonitorSource,
+      defaultSourceName,
+      preferredMicSourceId,
+      preferredMicLabel,
+      micSource: selection.micSource,
+      systemAudioSources: selection.systemAudioSources,
     });
-    return { monitorSource, micSource, systemAudioSources };
+    return {
+      monitorSource: selection.monitorSource,
+      micSource: selection.micSource,
+      systemAudioSources: selection.systemAudioSources,
+    };
   } catch (err) {
     console.warn(
       '[audio-sources] Discovery failed (recording will be video-only):',
@@ -100,6 +226,20 @@ export async function discoverAudioSources(preferredSystemAudioSourceId = null) 
 export async function listSystemAudioSources() {
   const { systemAudioSources } = await discoverAudioSources();
   return systemAudioSources;
+}
+
+function runPactlSourceDetails() {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'pactl',
+      ['list', 'sources'],
+      { timeout: 5000, maxBuffer: 10 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err) return reject(err);
+        resolve(stdout);
+      },
+    );
+  });
 }
 
 /**
@@ -200,6 +340,19 @@ function runPactlShort() {
 function runPactlDefaultSink() {
   return new Promise((resolve, reject) => {
     execFile('pactl', ['get-default-sink'], { timeout: 5000 }, (err, stdout) => {
+      if (err) return reject(err);
+      resolve(stdout.trim());
+    });
+  });
+}
+
+/**
+ * Run `pactl get-default-source` and return the source name.
+ * @returns {Promise<string>}
+ */
+function runPactlDefaultSource() {
+  return new Promise((resolve, reject) => {
+    execFile('pactl', ['get-default-source'], { timeout: 5000 }, (err, stdout) => {
       if (err) return reject(err);
       resolve(stdout.trim());
     });

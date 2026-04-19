@@ -98,6 +98,22 @@ const migrations: readonly Migration[] = [
       };
     },
   },
+  {
+    fromVersion: 6,
+    toVersion: 7,
+    migrate: (doc) => ({
+      ...doc,
+      version: 7,
+      settings: {
+        ...((doc['settings'] as Record<string, unknown> | undefined) ?? {}),
+        destinationPresetId:
+          ((doc['settings'] as Record<string, unknown> | undefined)?.['destinationPresetId'] as
+            | string
+            | null
+            | undefined) ?? null,
+      },
+    }),
+  },
 ];
 
 /**

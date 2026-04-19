@@ -8,13 +8,15 @@
  */
 import { useRef, useEffect } from 'react';
 import { transportStore } from '../hooks/use-stores.js';
-import type { CursorPresentation } from '@rough-cut/project-model';
+import type { CursorPresentation, RegionCrop } from '@rough-cut/project-model';
 import type { ZoomTransform } from '@rough-cut/timeline-engine';
 
 /** Pre-indexed cursor data: [x0, y0, clickFlag0, x1, y1, clickFlag1, ...] */
 export interface CursorFrameData {
   readonly frames: Float32Array;
   readonly frameCount: number;
+  readonly sourceWidth: number;
+  readonly sourceHeight: number;
 }
 
 interface CursorOverlayProps {
@@ -22,6 +24,7 @@ interface CursorOverlayProps {
   presentation: CursorPresentation;
   clipTimelineIn: number;
   zoomTransform: ZoomTransform;
+  crop?: RegionCrop;
 }
 
 interface ClickEffect {
@@ -133,11 +136,33 @@ function applyZoomToPoint(
   };
 }
 
+function applyCropToPoint(
+  x: number,
+  y: number,
+  data: CursorFrameData,
+  crop: RegionCrop | undefined,
+): { x: number; y: number; scale: number } | null {
+  if (!crop?.enabled) return { x, y, scale: 1 };
+
+  const px = x * data.sourceWidth;
+  const py = y * data.sourceHeight;
+  if (px < crop.x || px > crop.x + crop.width || py < crop.y || py > crop.y + crop.height) {
+    return null;
+  }
+
+  return {
+    x: (px - crop.x) / crop.width,
+    y: (py - crop.y) / crop.height,
+    scale: data.sourceWidth / crop.width,
+  };
+}
+
 export function CursorOverlay({
   cursorData,
   presentation,
   clipTimelineIn,
   zoomTransform,
+  crop,
 }: CursorOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -156,6 +181,8 @@ export function CursorOverlay({
   clipTimelineInRef.current = clipTimelineIn;
   const zoomTransformRef = useRef(zoomTransform);
   zoomTransformRef.current = zoomTransform;
+  const cropRef = useRef(crop);
+  cropRef.current = crop;
 
   // ResizeObserver — always active since DOM is always mounted
   useEffect(() => {
@@ -199,6 +226,7 @@ export function CursorOverlay({
       const pres = presentationRef.current;
       const clipIn = clipTimelineInRef.current;
       const zoom = zoomTransformRef.current;
+      const activeCrop = cropRef.current;
 
       // Nothing to draw — clear and wait
       if (width === 0 || height === 0 || !data) {
@@ -219,7 +247,13 @@ export function CursorOverlay({
         return;
       }
 
-      const point = applyZoomToPoint(cursor.x, cursor.y, width, height, zoom);
+      const croppedCursor = applyCropToPoint(cursor.x, cursor.y, data, activeCrop);
+      if (!croppedCursor) {
+        rafIdRef.current = requestAnimationFrame(render);
+        return;
+      }
+
+      const point = applyZoomToPoint(croppedCursor.x, croppedCursor.y, width, height, zoom);
       const px = point.x;
       const py = point.y;
 
@@ -236,18 +270,20 @@ export function CursorOverlay({
         (e) => now - e.startTime < CLICK_EFFECT_DURATION_MS,
       );
       for (const effect of clickEffectsRef.current) {
-        const effectPoint = applyZoomToPoint(effect.x, effect.y, width, height, zoom);
+        const croppedEffect = applyCropToPoint(effect.x, effect.y, data, activeCrop);
+        if (!croppedEffect) continue;
+        const effectPoint = applyZoomToPoint(croppedEffect.x, croppedEffect.y, width, height, zoom);
         drawClickEffect(
           ctx,
           { ...effect, x: effectPoint.x, y: effectPoint.y },
           now,
           pres.clickEffect,
-          zoom.scale,
+          croppedEffect.scale * zoom.scale,
         );
       }
 
       // Draw cursor
-      const cursorSize = (pres.sizePercent / 100) * 20 * zoom.scale;
+      const cursorSize = (pres.sizePercent / 100) * 20 * croppedCursor.scale * zoom.scale;
       drawCursor(ctx, px, py, cursorSize, pres.style);
 
       rafIdRef.current = requestAnimationFrame(render);
