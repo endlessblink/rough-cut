@@ -218,7 +218,7 @@ Parallel-start rule:
 | ~~TASK-109~~ | Export: Cancel button during export                                   | P2       | ✅ DONE (2026-04-16) | TASK-021           |
 | ~~TASK-110~~ | Export: Error display for failed exports                              | P2       | ✅ DONE (2026-04-16) | TASK-021           |
 | ~~TASK-111~~ | Export: "Open File"/"Open Folder" links after completion              | P3       | ✅ DONE (2026-04-16) | TASK-021           |
-| TASK-112     | Export: File size + time estimates                                    | P3       | TODO                 | TASK-029           |
+| ~~TASK-112~~ | Export: File size + time estimates                                    | P3       | ✅ DONE (2026-04-19) | TASK-029           |
 
 ### Export Advanced
 
@@ -520,7 +520,24 @@ Ordered by the desired product flow: infrastructure first, then edge features, o
 | ~~TASK-111~~ | Open File / Open Folder links                  | Core export UX complete                       |
 | TASK-028     | Audio mixing in export pipeline                | Completes recorded project output             |
 | TASK-029     | Quality presets + editable settings            | Required before users can trust export output |
-| TASK-112     | File size + time estimates                     | Important finishing UX for export decisions   |
+| ~~TASK-112~~ | File size + time estimates                     | Important finishing UX for export decisions   |
+| TASK-067     | Preview + export parity visual regression test | Locks down the full record -> export loop     |
+
+### ~~TASK-112~~: Export: File size + time estimates
+
+**Priority:** P3 | **Status:** ✅ DONE (2026-04-19)
+
+#### Completed
+
+- Added an Estimates panel to the Export tab showing clip length, estimated file size, and estimated export time from the current range and export settings.
+- Added a live ETA mode while exports are actively running so progress feedback remains actionable during longer renders.
+- Added focused Playwright coverage for the new estimates surface in both acceptance and export-tab suites.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/export/ExportTab.tsx`
+- `tests/electron/acceptance-export.spec.ts`
+- `tests/electron/export-tab.spec.ts`
 | TASK-067     | Preview + export parity visual regression test | Locks down the full record -> export loop     |
 
 ### Sprint D — Export Performance + Advanced Output
