@@ -18,6 +18,13 @@ import { RecordCropPanel } from './RecordCropPanel.js';
 export interface RecordCameraPanelProps {
   camera: CameraPresentation;
   onCameraChange: (patch: Partial<CameraPresentation>) => void;
+  layoutSnapshotCount?: number;
+  onAddLayoutSnapshot?: () => void;
+  onAddLayoutPreset?: (
+    preset: 'hide-camera' | 'top-left' | 'presentation' | 'talking-head',
+  ) => void;
+  selectedLayoutMarkerId?: string | null;
+  onDeleteSelectedLayoutMarker?: () => void;
   cameraCrop: RegionCrop;
   onCameraCropChange: (patch: Partial<RegionCrop>) => void;
   onCameraCropReset: () => void;
@@ -25,6 +32,7 @@ export interface RecordCameraPanelProps {
   onCropModeChange: (active: boolean) => void;
   sourceWidth: number;
   sourceHeight: number;
+  zoomMarkerCount?: number;
 }
 
 // ─── Options ──────────────────────────────────────────────────────────────────
@@ -58,6 +66,11 @@ const CAMERA_INSET_COLORS = ['#ffffff', '#000000', '#1a1a2e', '#ff6b5a'];
 export function RecordCameraPanel({
   camera,
   onCameraChange,
+  layoutSnapshotCount = 0,
+  onAddLayoutSnapshot,
+  onAddLayoutPreset,
+  selectedLayoutMarkerId = null,
+  onDeleteSelectedLayoutMarker,
   cameraCrop,
   onCameraCropChange,
   onCameraCropReset,
@@ -65,6 +78,7 @@ export function RecordCameraPanel({
   onCropModeChange,
   sourceWidth,
   sourceHeight,
+  zoomMarkerCount = 0,
 }: RecordCameraPanelProps) {
   return (
     <>
@@ -136,6 +150,93 @@ export function RecordCameraPanel({
               onChange={(v) => onCameraChange({ size: v })}
             />
           </div>
+
+          <button
+            type="button"
+            data-testid="camera-layout-add"
+            onClick={() => onAddLayoutSnapshot?.()}
+            style={{
+              marginTop: 8,
+              width: '100%',
+              padding: '8px 10px',
+              fontSize: 11,
+              fontWeight: 600,
+              color: 'rgba(255,255,255,0.9)',
+              background: 'rgba(255,255,255,0.08)',
+              border: '1px solid rgba(255,255,255,0.10)',
+              borderRadius: 6,
+              cursor: 'pointer',
+            }}
+          >
+            Add layout snapshot
+          </button>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 8 }}>
+            {[
+              { id: 'hide-camera', label: 'Hide Camera', testId: 'camera-layout-preset-hide' },
+              { id: 'top-left', label: 'Top Left', testId: 'camera-layout-preset-top-left' },
+              {
+                id: 'presentation',
+                label: 'Presentation',
+                testId: 'camera-layout-preset-presentation',
+              },
+              {
+                id: 'talking-head',
+                label: 'Talking Head',
+                testId: 'camera-layout-preset-talking-head',
+              },
+            ].map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                data-testid={preset.testId}
+                onClick={() =>
+                  onAddLayoutPreset?.(
+                    preset.id as 'hide-camera' | 'top-left' | 'presentation' | 'talking-head',
+                  )
+                }
+                style={{
+                  padding: '7px 8px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: 'rgba(255,255,255,0.82)',
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                }}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 8 }}>
+            {layoutSnapshotCount} layout snapshot{layoutSnapshotCount === 1 ? '' : 's'} on this
+            recording.
+          </div>
+
+          {selectedLayoutMarkerId && (
+            <button
+              type="button"
+              data-testid="camera-layout-delete"
+              onClick={() => onDeleteSelectedLayoutMarker?.()}
+              style={{
+                marginTop: 8,
+                width: '100%',
+                padding: '8px 10px',
+                fontSize: 11,
+                fontWeight: 600,
+                color: 'rgba(255,120,120,0.95)',
+                background: 'rgba(255,120,120,0.12)',
+                border: '1px solid rgba(255,120,120,0.35)',
+                borderRadius: 6,
+                cursor: 'pointer',
+              }}
+            >
+              Delete selected layout marker
+            </button>
+          )}
 
           <div>
             <ControlLabel label="Padding" value={`${camera.padding}px`} />
@@ -240,6 +341,7 @@ export function RecordCameraPanel({
             sourceHeight={sourceHeight}
             cropModeActive={cropModeActive}
             onCropModeChange={onCropModeChange}
+            zoomMarkerCount={zoomMarkerCount}
           />
         </>
       )}

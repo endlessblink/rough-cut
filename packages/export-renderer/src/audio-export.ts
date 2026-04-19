@@ -34,6 +34,11 @@ function getCameraAssetIds(project: ProjectDocument): Set<string> {
 export function collectAudioExportSegments(project: ProjectDocument): AudioExportSegment[] {
   const assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
   const cameraAssetIds = getCameraAssetIds(project);
+  const assetIdsWithAudioTrackClips = new Set(
+    project.composition.tracks
+      .filter((track) => track.type === 'audio')
+      .flatMap((track) => track.clips.map((clip) => clip.assetId)),
+  );
   const segments = project.composition.tracks
     .filter((track) => track.visible && track.volume > 0)
     .flatMap((track) =>
@@ -51,6 +56,7 @@ export function collectAudioExportSegments(project: ProjectDocument): AudioExpor
             entry.asset !== null &&
             entry.asset.filePath.length > 0 &&
             !cameraAssetIds.has(entry.asset.id) &&
+            !(track.type !== 'audio' && assetIdsWithAudioTrackClips.has(entry.asset.id)) &&
             entry.asset.metadata['isCamera'] !== true &&
             (entry.asset.type === 'recording' ||
               entry.asset.type === 'video' ||

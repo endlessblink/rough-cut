@@ -9,6 +9,7 @@ import {
   session,
   desktopCapturer,
   screen,
+  systemPreferences,
 } from 'electron';
 import { join, dirname, basename, extname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -20,11 +21,18 @@ import { Readable } from 'node:stream';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import {
   getSources,
+  muxAudioIntoRecording,
   reconcileSelectedSourceId,
   saveRecording,
+  saveRecordingFromFile,
 } from './recording/capture-service.mjs';
 import { listSystemAudioSources } from './recording/audio-sources.mjs';
 import { initSessionManager } from './recording/recording-session-manager.mjs';
+import {
+  clearRecordingRecoveryMarker,
+  readRecordingRecoveryMarker,
+  writeRecordingRecoveryMarker,
+} from './recording/recovery-state.mjs';
 import {
   getRecentProjects,
   addRecentProject,
@@ -49,6 +57,8 @@ const __dirname = dirname(__filename);
 let mainWindow = null;
 let currentExportFinalizeProcess = null;
 let cachedCaptureSources = [];
+let debugCaptureSourcesOverride = null;
+let debugDisplayBoundsOverride = null;
 let lastDisplayMediaSelection = null;
 const execFile = promisify(execFileCallback);
 
@@ -68,6 +78,79 @@ function isSourceIdCompatibleWithMode(sourceId, recordMode) {
   return sourceType === getCaptureSourceTypeForMode(recordMode);
 }
 
+function getPermissionSettingsUrl(kind) {
+  if (process.platform === 'darwin') {
+    if (kind === 'screenCapture') {
+      return 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture';
+    }
+    if (kind === 'microphone') {
+      return 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone';
+    }
+    if (kind === 'camera') {
+      return 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera';
+    }
+  }
+
+  if (process.platform === 'win32') {
+    if (kind === 'microphone') return 'ms-settings:privacy-microphone';
+    if (kind === 'camera') return 'ms-settings:privacy-webcam';
+    if (kind === 'screenCapture') return 'ms-settings:privacy-broadfilesystemaccess';
+  }
+
+  return null;
+}
+
+function getMediaPermissionStatus(kind) {
+  if (process.platform === 'darwin' || process.platform === 'win32') {
+    try {
+      return systemPreferences.getMediaAccessStatus(kind);
+    } catch {
+      return 'not-determined';
+    }
+  }
+  return 'granted';
+}
+
+function normalizePermissionDiagnostic(kind, status) {
+  const canOpenSettings = getPermissionSettingsUrl(kind) !== null;
+  if (process.platform === 'linux') {
+    return {
+      status: 'not-required',
+      detail: 'No OS privacy gate is required here; use the preflight test to verify devices.',
+      canOpenSettings: false,
+    };
+  }
+
+  if (status === 'granted') {
+    return {
+      status: 'granted',
+      detail: 'Ready.',
+      canOpenSettings,
+    };
+  }
+
+  return {
+    status: 'attention',
+    detail: 'Needs OS permission before recording will be reliable.',
+    canOpenSettings,
+  };
+}
+
+function buildRecordingPreflightStatus() {
+  const screenStatus =
+    process.platform === 'darwin' ? getMediaPermissionStatus('screen') : 'granted';
+  const microphoneStatus = getMediaPermissionStatus('microphone');
+  const cameraStatus = getMediaPermissionStatus('camera');
+
+  return {
+    platform: process.platform,
+    requiresFullRelaunch: process.platform === 'darwin',
+    screenCapture: normalizePermissionDiagnostic('screenCapture', screenStatus),
+    microphone: normalizePermissionDiagnostic('microphone', microphoneStatus),
+    camera: normalizePermissionDiagnostic('camera', cameraStatus),
+  };
+}
+
 function pickSourceForRecordMode(sources, recordMode, selectedSourceId, cachedSelectedSource) {
   const expectedType = getCaptureSourceTypeForMode(recordMode);
   const compatibleSources = sources.filter((source) => {
@@ -79,11 +162,13 @@ function pickSourceForRecordMode(sources, recordMode, selectedSourceId, cachedSe
     ? selectedSourceId
     : null;
 
-  const source = compatibleSelectedSourceId
-    ? (compatibleSources.find((item) => item.id === compatibleSelectedSourceId) ??
-      compatibleSources.find((item) => matchDesktopCaptureSource(item, cachedSelectedSource)) ??
-      compatibleSources[0])
-    : compatibleSources[0];
+  if (!compatibleSelectedSourceId) {
+    return null;
+  }
+
+  const source =
+    compatibleSources.find((item) => item.id === compatibleSelectedSourceId) ??
+    compatibleSources.find((item) => matchDesktopCaptureSource(item, cachedSelectedSource));
 
   return source ?? null;
 }
@@ -124,6 +209,10 @@ function reconcileCaptureSources(nextSources) {
   return nextSelectedSourceId;
 }
 
+function getAvailableCaptureSources() {
+  return debugCaptureSourcesOverride ?? cachedCaptureSources;
+}
+
 function matchDesktopCaptureSource(source, cachedSource) {
   if (!cachedSource) return false;
   if (source.id === cachedSource.id) return true;
@@ -132,6 +221,20 @@ function matchDesktopCaptureSource(source, cachedSource) {
   }
   const sourceType = source.id.startsWith('screen:') ? 'screen' : 'window';
   return sourceType === cachedSource.type && source.name === cachedSource.name;
+}
+
+function getDisplayCaptureBounds(display) {
+  const scaleFactor =
+    Number.isFinite(display?.scaleFactor) && display.scaleFactor > 0 ? display.scaleFactor : 1;
+  const bounds = display?.bounds ?? { x: 0, y: 0, width: 0, height: 0 };
+
+  return {
+    x: Math.floor(bounds.x * scaleFactor),
+    y: Math.floor(bounds.y * scaleFactor),
+    width: Math.ceil(bounds.width * scaleFactor),
+    height: Math.ceil(bounds.height * scaleFactor),
+    scaleFactor,
+  };
 }
 
 function getDefaultProjectDir() {
@@ -268,6 +371,59 @@ function repairProjectMediaPaths(project, projectFilePath = null) {
             : {}),
         }))
       : project.libraryReferences,
+  };
+}
+
+function zoomSidecarPath(recordingFilePath) {
+  return recordingFilePath.replace(/\.(webm|mp4)$/i, '.zoom.json');
+}
+
+async function loadZoomSidecar(recordingFilePath) {
+  try {
+    if (!recordingFilePath) return null;
+    const path = zoomSidecarPath(recordingFilePath);
+    if (!existsSync(path)) return null;
+    const content = await readFile(path, 'utf-8');
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.markers)) {
+      return {
+        autoIntensity: typeof parsed.autoIntensity === 'number' ? parsed.autoIntensity : 0,
+        followCursor: typeof parsed.followCursor === 'boolean' ? parsed.followCursor : true,
+        followAnimation: parsed.followAnimation === 'smooth' ? 'smooth' : 'focused',
+        followPadding: typeof parsed.followPadding === 'number' ? parsed.followPadding : 0.18,
+        markers: parsed.markers,
+      };
+    }
+    return null;
+  } catch (err) {
+    console.warn('[zoom-sidecar] Load failed:', err?.message ?? err);
+    return null;
+  }
+}
+
+async function hydrateProjectRecordSidecars(project) {
+  if (!project || !Array.isArray(project.assets)) return project;
+
+  const hydratedAssets = await Promise.all(
+    project.assets.map(async (asset) => {
+      if (asset?.type !== 'recording' || !asset.filePath) return asset;
+
+      const loadedZoom = await loadZoomSidecar(asset.filePath);
+      if (!loadedZoom) return asset;
+
+      return {
+        ...asset,
+        presentation: {
+          ...(asset.presentation ?? {}),
+          zoom: loadedZoom,
+        },
+      };
+    }),
+  );
+
+  return {
+    ...project,
+    assets: hydratedAssets,
   };
 }
 
@@ -551,7 +707,8 @@ function registerIpcHandlers() {
 
     const filePath = result.filePaths[0];
     const content = await readFile(filePath, 'utf-8');
-    const data = repairProjectMediaPaths(JSON.parse(content), filePath);
+    const repairedProject = repairProjectMediaPaths(JSON.parse(content), filePath);
+    const data = await hydrateProjectRecordSidecars(repairedProject);
     // Return the raw data -- the renderer will validate via the project-model package
     const firstThumb = Array.isArray(data.assets) ? data.assets.find((a) => a.thumbnailPath) : null;
     addRecentProject({
@@ -754,13 +911,90 @@ function registerIpcHandlers() {
 
   // Recording: Get available capture sources (screens + windows)
   ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SOURCES, async () => {
-    const nextSources = await getSources();
+    const nextSources = debugCaptureSourcesOverride ?? (await getSources());
     reconcileCaptureSources(nextSources);
     return nextSources;
   });
 
+  ipcMain.handle(IPC_CHANNELS.RECORDING_GET_DISPLAY_BOUNDS, () => {
+    if (Array.isArray(debugDisplayBoundsOverride)) return debugDisplayBoundsOverride;
+    return screen.getAllDisplays().map((display) => getDisplayCaptureBounds(display));
+  });
+
   ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => {
     return listSystemAudioSources();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, () => {
+    return buildRecordingPreflightStatus();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_OPEN_PERMISSION_SETTINGS, async (_e, { kind }) => {
+    const url = getPermissionSettingsUrl(kind);
+    if (!url) {
+      return {
+        opened: false,
+        requiresFullRelaunch: false,
+        message: 'This platform does not expose a direct recording-permission settings link.',
+      };
+    }
+
+    await shell.openExternal(url);
+    return {
+      opened: true,
+      requiresFullRelaunch: process.platform === 'darwin',
+      message:
+        process.platform === 'darwin'
+          ? 'Permissions may require a full app relaunch before Electron sees the new state.'
+          : 'Opened the OS privacy settings for this recording permission.',
+    };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_GET, async () => {
+    return readRecordingRecoveryMarker();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_RECOVER, async () => {
+    const recovery = await readRecordingRecoveryMarker();
+    if (!recovery?.canRecover || !recovery.recoveryCandidate?.videoPath) {
+      return null;
+    }
+
+    const metadata = {
+      fps: recovery.captureMetadata?.fps ?? 30,
+      width: recovery.captureMetadata?.width ?? 1920,
+      height: recovery.captureMetadata?.height ?? 1080,
+      durationMs: 0,
+      timelineFps: recovery.captureMetadata?.timelineFps ?? 30,
+    };
+    const recoveryProjectDir =
+      basename(recovery.recordingsDir) === 'recordings'
+        ? dirname(recovery.recordingsDir)
+        : recovery.recordingsDir;
+    const projectDir = getRecordingLocation() || recoveryProjectDir || null;
+    const result = await saveRecordingFromFile(
+      recovery.recoveryCandidate.videoPath,
+      projectDir,
+      metadata,
+    );
+
+    if (recovery.recoveryCandidate.audioPath) {
+      await muxAudioIntoRecording(result.filePath, recovery.recoveryCandidate.audioPath);
+    }
+    if (recovery.recoveryCandidate.cursorPath) {
+      result.cursorEventsPath = recovery.recoveryCandidate.cursorPath;
+    }
+
+    await clearRecordingRecoveryMarker();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.RECORDING_ASSET_READY, result);
+    }
+    return result;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_DISMISS, async () => {
+    await clearRecordingRecoveryMarker();
+    return true;
   });
 
   // Recording: Save finished recording blob to disk and probe metadata
@@ -787,7 +1021,8 @@ function registerIpcHandlers() {
   // Project: Open by known file path (no dialog)
   ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, async (_e, { filePath }) => {
     const content = await readFile(filePath, 'utf-8');
-    return repairProjectMediaPaths(JSON.parse(content), filePath);
+    const repairedProject = repairProjectMediaPaths(JSON.parse(content), filePath);
+    return hydrateProjectRecordSidecars(repairedProject);
   });
 
   ipcMain.handle(IPC_CHANNELS.LIBRARY_OPEN_PATH, async (_e, { filePath }) => {
@@ -925,31 +1160,30 @@ function registerIpcHandlers() {
     return lastDisplayMediaSelection;
   });
 
-  // Zoom sidecar: persist ZoomPresentation next to the recording .webm.
-  // Path = <recordingFilePath>.replace(/\.(webm|mp4)$/, '.zoom.json')
-  const zoomSidecarPath = (recordingFilePath) =>
-    recordingFilePath.replace(/\.(webm|mp4)$/i, '.zoom.json');
-
-  ipcMain.handle(IPC_CHANNELS.ZOOM_LOAD_SIDECAR, async (_e, { recordingFilePath }) => {
-    try {
-      if (!recordingFilePath) return null;
-      const path = zoomSidecarPath(recordingFilePath);
-      if (!existsSync(path)) return null;
-      const content = await readFile(path, 'utf-8');
-      const parsed = JSON.parse(content);
-      // Accept either { version, autoIntensity, markers } or a bare ZoomPresentation.
-      if (parsed && typeof parsed === 'object' && Array.isArray(parsed.markers)) {
-        return {
-          autoIntensity: typeof parsed.autoIntensity === 'number' ? parsed.autoIntensity : 0,
-          markers: parsed.markers,
-        };
-      }
-      console.warn('[zoom-sidecar] Unexpected shape in', path);
-      return null;
-    } catch (err) {
-      console.warn('[zoom-sidecar] Load failed:', err?.message ?? err);
+  ipcMain.handle(IPC_CHANNELS.DEBUG_SET_RECORDING_RECOVERY, async (_e, payload) => {
+    if (!payload) {
+      await clearRecordingRecoveryMarker();
       return null;
     }
+    return writeRecordingRecoveryMarker(payload);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DEBUG_SET_CAPTURE_SOURCES, async (_e, payload) => {
+    debugCaptureSourcesOverride = Array.isArray(payload) ? payload : null;
+    if (debugCaptureSourcesOverride) {
+      reconcileCaptureSources(debugCaptureSourcesOverride);
+      broadcastRecordingConfig();
+    }
+    return debugCaptureSourcesOverride;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DEBUG_SET_DISPLAY_BOUNDS, async (_e, payload) => {
+    debugDisplayBoundsOverride = Array.isArray(payload) ? payload : null;
+    return debugDisplayBoundsOverride;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.ZOOM_LOAD_SIDECAR, async (_e, { recordingFilePath }) => {
+    return loadZoomSidecar(recordingFilePath);
   });
 
   ipcMain.handle(
@@ -962,6 +1196,11 @@ function registerIpcHandlers() {
           version: 1,
           autoIntensity:
             typeof presentation.autoIntensity === 'number' ? presentation.autoIntensity : 0,
+          followCursor:
+            typeof presentation.followCursor === 'boolean' ? presentation.followCursor : true,
+          followAnimation: presentation.followAnimation === 'smooth' ? 'smooth' : 'focused',
+          followPadding:
+            typeof presentation.followPadding === 'number' ? presentation.followPadding : 0.18,
           markers: Array.isArray(presentation.markers) ? presentation.markers : [],
         };
         await writeFile(path, JSON.stringify(payload, null, 2), 'utf-8');
@@ -1241,7 +1480,9 @@ app.whenReady().then(() => {
   // Intercept getDisplayMedia() from any renderer (panel window uses this)
   session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
     try {
-      const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+      const sources =
+        debugCaptureSourcesOverride ??
+        (await desktopCapturer.getSources({ types: ['screen', 'window'] }));
       const selectedSourceId = recordingConfig.selectedSourceId;
       const recordMode = recordingConfig.recordMode;
       const cachedSelectedSource = cachedCaptureSources.find(
@@ -1262,11 +1503,6 @@ app.whenReady().then(() => {
         };
         callback(undefined);
         return;
-      }
-
-      if (source.id !== selectedSourceId) {
-        applyRecordingConfigPatch({ selectedSourceId: source.id });
-        broadcastRecordingConfig();
       }
 
       lastDisplayMediaSelection = {
@@ -1310,17 +1546,23 @@ app.whenReady().then(() => {
 
     if (!resolvedDisplay) return null;
 
+    const captureBounds = getDisplayCaptureBounds(resolvedDisplay);
+
     console.info('[session-source] Resolved capture display:', {
       selectedSourceId,
       displayId: resolvedDisplay.id,
       bounds: resolvedDisplay.bounds,
+      captureBounds,
+      scaleFactor: resolvedDisplay.scaleFactor,
     });
 
     return {
       sourceId: selectedSourceId,
-      display: `${process.env.DISPLAY || ':0'}.0+${resolvedDisplay.bounds.x},${resolvedDisplay.bounds.y}`,
-      width: resolvedDisplay.bounds.width,
-      height: resolvedDisplay.bounds.height,
+      display: `${process.env.DISPLAY || ':0'}.0+${captureBounds.x},${captureBounds.y}`,
+      width: captureBounds.width,
+      height: captureBounds.height,
+      offsetX: captureBounds.x,
+      offsetY: captureBounds.y,
     };
   });
 });

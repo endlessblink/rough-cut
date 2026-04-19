@@ -4,21 +4,33 @@
  * Manages its own state, acquires its own MediaStream, runs its own
  * MediaRecorder, and communicates with the main process via window.roughcut.
  *
- * Layout (500 × 460):
- *   1. TitleBar      (32px)
- *   2. VideoPreview  (flex-grow)
- *   3. SourceSelector (40px)
- *   4. DeviceControls (40px)
- *   5. RecordingControls (56px)
+ * The screen-capture preview lives in the main Record tab (not here) — this
+ * window is controls-only, with a small live camera PiP that overlays the
+ * bottom-right corner when the camera is enabled.
+ *
+ * Layout (500 × 240, +44 when issues banner is shown):
+ *   1. TitleBar          (32px)
+ *   2. SourceSelector    (40px)
+ *   3. DeviceControls    (40px + audio level meter when mic is on)
+ *   4. RecordingControls (56px)
+ *   + CameraPiPOverlay (bottom-right, absolute, only when camera is on)
+ *   + CountdownOverlay (position:fixed — covers the whole window)
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import type { CaptureSource, RecordingMetadata, SystemAudioSourceOption } from '../../env.js';
+import type {
+  CaptureSource,
+  RecordingMetadata,
+  RecordingRecoveryMarker,
+  RecordingSessionConnectionIssues,
+  SystemAudioSourceOption,
+} from '../../env.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
 import { formatElapsed } from './format-elapsed.js';
 import { useRecordingConfig, updateRecordingConfig } from './recording-config.js';
 import { useRecordingDeviceOptions } from './use-recording-device-options.js';
 import { useToast } from '../../ui/toast.js';
+import { getRecordingPauseCapability } from '../../../shared/recording-pause-policy.mjs';
 
 // ─── Design tokens ─────────────────────────────────────────────────────────
 
@@ -131,7 +143,9 @@ function AudioLevelMeter({ level }: { level: number }) {
 
 // ─── Status type ────────────────────────────────────────────────────────────
 
-type PanelStatus = 'idle' | 'ready' | 'countdown' | 'recording' | 'paused' | 'stopping';
+type PanelStatus = 'idle' | 'ready' | 'countdown' | 'recording' | 'stopping';
+
+const pauseCapability = getRecordingPauseCapability({ capturesCursor: true });
 
 // ─── Icons ─────────────────────────────────────────────────────────────────
 
@@ -288,7 +302,7 @@ function PulsingDot() {
 
 // ─── TitleBar ───────────────────────────────────────────────────────────────
 
-function TitleBar({ onClose }: { onClose: () => void }) {
+function TitleBar({ onClose, accessory }: { onClose: () => void; accessory?: React.ReactNode }) {
   const [closeHovered, setCloseHovered] = useState(false);
 
   return (
@@ -319,148 +333,105 @@ function TitleBar({ onClose }: { onClose: () => void }) {
         ROUGH CUT
       </span>
 
-      <button
-        aria-label="Close recording panel"
-        onClick={onClose}
-        onMouseEnter={() => setCloseHovered(true)}
-        onMouseLeave={() => setCloseHovered(false)}
-        style={
-          {
-            WebkitAppRegion: 'no-drag',
-            width: 20,
-            height: 20,
-            borderRadius: '50%',
-            border: 'none',
-            background: closeHovered ? 'rgba(255,255,255,0.12)' : 'transparent',
-            cursor: 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 0,
-            outline: 'none',
-            transition: 'background 120ms ease-out',
-            color: C.textSecondary,
-            fontSize: 16,
-            lineHeight: 1,
-          } as React.CSSProperties
-        }
-      >
-        ×
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {accessory}
+        <button
+          aria-label="Close recording panel"
+          onClick={onClose}
+          onMouseEnter={() => setCloseHovered(true)}
+          onMouseLeave={() => setCloseHovered(false)}
+          style={
+            {
+              WebkitAppRegion: 'no-drag',
+              width: 20,
+              height: 20,
+              borderRadius: '50%',
+              border: 'none',
+              background: closeHovered ? 'rgba(255,255,255,0.12)' : 'transparent',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              outline: 'none',
+              transition: 'background 120ms ease-out',
+              color: C.textSecondary,
+              fontSize: 16,
+              lineHeight: 1,
+            } as React.CSSProperties
+          }
+        >
+          ×
+        </button>
+      </div>
     </div>
   );
 }
 
-// ─── VideoPreview ───────────────────────────────────────────────────────────
-
-interface VideoPreviewProps {
-  stream: MediaStream | null;
-  countdownSeconds: number;
-  isCountingDown: boolean;
-  cameraStream: MediaStream | null;
+function SetupModeButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      data-testid="panel-return-mini"
+      onClick={onClick}
+      style={
+        {
+          WebkitAppRegion: 'no-drag',
+          height: 22,
+          borderRadius: 999,
+          border: '1px solid rgba(255,255,255,0.08)',
+          background: 'rgba(255,255,255,0.04)',
+          color: 'rgba(255,255,255,0.74)',
+          cursor: 'pointer',
+          fontSize: 11,
+          fontWeight: 600,
+          padding: '0 10px',
+          marginLeft: 'auto',
+          marginRight: 8,
+        } as React.CSSProperties & { WebkitAppRegion?: 'drag' | 'no-drag' }
+      }
+    >
+      Compact
+    </button>
+  );
 }
 
-function VideoPreview({
-  stream,
-  countdownSeconds,
-  isCountingDown,
-  cameraStream,
-}: VideoPreviewProps) {
-  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
+// ─── Camera PiP ─────────────────────────────────────────────────────────────
+
+function CameraPiPOverlay({ cameraStream }: { cameraStream: MediaStream | null }) {
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Attach streams via ref callbacks — avoids StrictMode ref/effect ordering bugs
-  const setScreenRef = useCallback(
-    (node: HTMLVideoElement | null) => {
-      screenVideoRef.current = node;
-      if (node && stream) {
-        node.srcObject = stream;
-        void node.play().catch(() => {});
-      }
-    },
-    [stream],
-  );
+  useEffect(() => {
+    const node = cameraVideoRef.current;
+    if (!node || !cameraStream) {
+      return;
+    }
 
-  const setCameraRef = useCallback(
-    (node: HTMLVideoElement | null) => {
-      cameraVideoRef.current = node;
-      if (node && cameraStream) {
-        node.srcObject = cameraStream;
-        void node.play().catch(() => {});
-      }
-    },
-    [cameraStream],
-  );
+    node.srcObject = cameraStream;
+    void node.play().catch(() => {});
+  }, [cameraStream]);
+
+  if (!cameraStream) {
+    return null;
+  }
 
   return (
-    <div
+    <video
+      ref={cameraVideoRef}
+      muted
+      playsInline
       style={{
-        flex: 1,
-        minHeight: 0,
-        position: 'relative',
-        background: C.previewBg,
-        borderRadius: R.inner,
-        overflow: 'hidden',
-        margin: '0 10px',
+        position: 'absolute',
+        bottom: 8,
+        right: 8,
+        width: 80,
+        height: 80,
+        borderRadius: '50%',
+        objectFit: 'cover',
+        border: '2px solid rgba(255,255,255,0.3)',
+        zIndex: 2,
+        pointerEvents: 'none',
       }}
-    >
-      {/* Screen preview — GPU-accelerated decode + display via native <video> */}
-      <video
-        ref={setScreenRef}
-        muted
-        playsInline
-        style={{
-          position: 'absolute',
-          inset: 0,
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-          borderRadius: R.inner,
-          display: stream ? 'block' : 'none',
-        }}
-      />
-
-      {/* Camera PiP — circular overlay, GPU-composited via CSS */}
-      {cameraStream && (
-        <video
-          ref={setCameraRef}
-          muted
-          playsInline
-          style={{
-            position: 'absolute',
-            bottom: 8,
-            right: 8,
-            width: 80,
-            height: 80,
-            borderRadius: '50%',
-            objectFit: 'cover',
-            border: '2px solid rgba(255,255,255,0.3)',
-            zIndex: 2,
-          }}
-        />
-      )}
-
-      {/* Placeholder shown when no source is selected */}
-      {!stream && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-          }}
-        >
-          <MonitorIcon size={40} color={C.textSecondary} />
-          <span style={{ fontSize: 12, color: C.textSecondary }}>Select a source to preview</span>
-        </div>
-      )}
-
-      {/* Countdown overlay (absolute, within preview bounds) */}
-      <CountdownOverlay secondsRemaining={countdownSeconds} visible={isCountingDown} />
-    </div>
+    />
   );
 }
 
@@ -469,10 +440,22 @@ function VideoPreview({
 interface SourceSelectorProps {
   sources: CaptureSource[];
   selectedSourceId: string | null;
+  issue?: string | null;
   onSelectSource: (id: string) => void;
+  onRefreshSources?: () => void;
+  onRetarget?: () => void;
+  canRetarget?: boolean;
 }
 
-function SourceSelector({ sources, selectedSourceId, onSelectSource }: SourceSelectorProps) {
+function SourceSelector({
+  sources,
+  selectedSourceId,
+  issue,
+  onSelectSource,
+  onRefreshSources,
+  onRetarget,
+  canRetarget = false,
+}: SourceSelectorProps) {
   return (
     <div
       style={{
@@ -489,7 +472,27 @@ function SourceSelector({ sources, selectedSourceId, onSelectSource }: SourceSel
         <MonitorIcon size={16} color={C.text} />
       </div>
 
+      {issue && (
+        <span
+          data-testid="panel-source-offline-badge"
+          title={issue}
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            color: '#fcd34d',
+            border: '1px solid rgba(245,158,11,0.28)',
+            background: 'rgba(245,158,11,0.1)',
+            borderRadius: 999,
+            padding: '2px 6px',
+            flexShrink: 0,
+          }}
+        >
+          Offline
+        </span>
+      )}
+
       <select
+        data-testid="panel-source-select"
         value={selectedSourceId ?? ''}
         onChange={(e) => {
           if (e.target.value) onSelectSource(e.target.value);
@@ -535,9 +538,45 @@ function SourceSelector({ sources, selectedSourceId, onSelectSource }: SourceSel
           </>
         )}
       </select>
+
+      {issue && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <button
+            data-testid="panel-source-refresh"
+            onClick={onRefreshSources}
+            style={sourceActionButtonStyle}
+          >
+            Refresh
+          </button>
+          <button
+            data-testid="panel-source-retarget"
+            onClick={onRetarget}
+            disabled={!canRetarget}
+            style={{
+              ...sourceActionButtonStyle,
+              opacity: canRetarget ? 1 : 0.45,
+              cursor: canRetarget ? 'pointer' : 'default',
+            }}
+          >
+            Re-target
+          </button>
+        </div>
+      )}
     </div>
   );
 }
+
+const sourceActionButtonStyle: React.CSSProperties = {
+  height: 28,
+  padding: '0 10px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,0.1)',
+  background: 'rgba(255,255,255,0.05)',
+  color: 'rgba(255,255,255,0.84)',
+  fontSize: 12,
+  fontFamily: 'inherit',
+  flexShrink: 0,
+};
 
 // ─── DeviceToggleButton ─────────────────────────────────────────────────────
 
@@ -637,6 +676,9 @@ interface DeviceControlsProps {
   micEnabled: boolean;
   sysAudioEnabled: boolean;
   cameraEnabled: boolean;
+  micIssue?: string | null;
+  cameraIssue?: string | null;
+  systemAudioIssue?: string | null;
   micOptions: Array<{ id: string; label: string }>;
   selectedMicDeviceId: string | null;
   onSelectMicDevice: (id: string | null) => void;
@@ -655,6 +697,9 @@ function DeviceControls({
   micEnabled,
   sysAudioEnabled,
   cameraEnabled,
+  micIssue,
+  cameraIssue,
+  systemAudioIssue,
   micOptions,
   selectedMicDeviceId,
   onSelectMicDevice,
@@ -734,6 +779,11 @@ function DeviceControls({
             </option>
           ))}
         </select>
+        {micIssue && (
+          <span data-testid="panel-mic-offline-badge" title={micIssue} style={offlineBadgeStyle}>
+            Offline
+          </span>
+        )}
         <select
           data-testid="panel-system-audio-select"
           value={selectedSystemAudioValue}
@@ -748,6 +798,15 @@ function DeviceControls({
             </option>
           ))}
         </select>
+        {systemAudioIssue && (
+          <span
+            data-testid="panel-system-audio-offline-badge"
+            title={systemAudioIssue}
+            style={offlineBadgeStyle}
+          >
+            Offline
+          </span>
+        )}
         <select
           data-testid="panel-camera-select"
           value={selectedCameraValue}
@@ -762,10 +821,30 @@ function DeviceControls({
             </option>
           ))}
         </select>
+        {cameraIssue && (
+          <span
+            data-testid="panel-camera-offline-badge"
+            title={cameraIssue}
+            style={offlineBadgeStyle}
+          >
+            Offline
+          </span>
+        )}
       </div>
     </div>
   );
 }
+
+const offlineBadgeStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 700,
+  color: '#fcd34d',
+  border: '1px solid rgba(245,158,11,0.28)',
+  background: 'rgba(245,158,11,0.1)',
+  borderRadius: 999,
+  padding: '2px 6px',
+  flexShrink: 0,
+};
 
 const panelSelectStyle: React.CSSProperties = {
   flex: 1,
@@ -789,7 +868,6 @@ interface RecordingControlsProps {
   canRecord: boolean;
   onStartRecording: () => void;
   onStopRecording: () => void;
-  onTogglePause: () => void;
 }
 
 function RecordingControls({
@@ -798,7 +876,6 @@ function RecordingControls({
   canRecord,
   onStartRecording,
   onStopRecording,
-  onTogglePause,
 }: RecordingControlsProps) {
   return (
     <div
@@ -816,14 +893,7 @@ function RecordingControls({
         <RecButton onStart={onStartRecording} disabled={!canRecord} />
       )}
       {status === 'countdown' && <StatusLabel text="Starting…" />}
-      {(status === 'recording' || status === 'paused') && (
-        <RecordingRow
-          elapsedMs={elapsedMs}
-          paused={status === 'paused'}
-          onStop={onStopRecording}
-          onTogglePause={onTogglePause}
-        />
-      )}
+      {status === 'recording' && <RecordingRow elapsedMs={elapsedMs} onStop={onStopRecording} />}
       {status === 'stopping' && <StatusLabel text="Saving…" showSpinner />}
     </div>
   );
@@ -914,22 +984,12 @@ function StatusLabel({ text, showSpinner = false }: { text: string; showSpinner?
   );
 }
 
-function RecordingRow({
-  elapsedMs,
-  paused,
-  onStop,
-  onTogglePause,
-}: {
-  elapsedMs: number;
-  paused: boolean;
-  onStop: () => void;
-  onTogglePause: () => void;
-}) {
+function RecordingRow({ elapsedMs, onStop }: { elapsedMs: number; onStop: () => void }) {
   const elapsedSeconds = Math.floor(elapsedMs / 1000);
 
   return (
     <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8 }}>
-      <PauseButton paused={paused} onTogglePause={onTogglePause} />
+      <PauseUnavailableBadge compact />
 
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, userSelect: 'none' }}>
@@ -954,44 +1014,30 @@ function RecordingRow({
   );
 }
 
-function PauseButton({ paused, onTogglePause }: { paused: boolean; onTogglePause: () => void }) {
-  const [hovered, setHovered] = useState(false);
-  const borderColor = paused ? C.accent : hovered ? C.borderLight : C.border;
-
+function PauseUnavailableBadge({ compact = false }: { compact?: boolean }) {
   return (
-    <button
-      data-testid="btn-pause"
-      aria-label={paused ? 'Resume recording' : 'Pause recording'}
-      onClick={onTogglePause}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+    <div
+      aria-label={pauseCapability.reason ?? pauseCapability.label}
+      title={pauseCapability.reason ?? pauseCapability.label}
       style={{
-        width: 36,
-        height: 36,
-        borderRadius: R.button,
-        border: `1px solid ${borderColor}`,
-        background: hovered ? C.inputHover : C.input,
-        cursor: 'pointer',
+        minWidth: compact ? 104 : 118,
+        height: compact ? 36 : 32,
+        borderRadius: 999,
+        border: `1px solid ${C.border}`,
+        background: C.input,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        outline: 'none',
-        padding: 0,
+        padding: compact ? '0 10px' : '0 12px',
         flexShrink: 0,
-        transition: 'background 120ms ease-out, border-color 120ms ease-out',
+        color: C.textSecondary,
+        fontSize: compact ? 11 : 10,
+        fontWeight: 600,
+        letterSpacing: '0.03em',
       }}
     >
-      {paused ? (
-        <svg width="11" height="13" viewBox="0 0 11 13" fill={C.text} aria-hidden="true">
-          <polygon points="1,0 11,6.5 1,13" />
-        </svg>
-      ) : (
-        <svg width="10" height="12" viewBox="0 0 10 12" fill={C.text} aria-hidden="true">
-          <rect x="0" y="0" width="3.5" height="12" rx="1" />
-          <rect x="6.5" y="0" width="3.5" height="12" rx="1" />
-        </svg>
-      )}
-    </button>
+      Pause unavailable
+    </div>
   );
 }
 
@@ -1040,55 +1086,6 @@ function StopButton({ onStop }: { onStop: () => void }) {
           flexShrink: 0,
         }}
       />
-    </button>
-  );
-}
-
-// ─── MiniPauseButton ────────────────────────────────────────────────────────
-
-function MiniPauseButton({
-  paused,
-  onTogglePause,
-}: {
-  paused: boolean;
-  onTogglePause: () => void;
-}) {
-  const [hovered, setHovered] = useState(false);
-  const borderColor = paused ? C.accent : hovered ? C.borderLight : C.border;
-
-  return (
-    <button
-      data-testid="btn-pause"
-      aria-label={paused ? 'Resume recording' : 'Pause recording'}
-      onClick={onTogglePause}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        width: 32,
-        height: 32,
-        borderRadius: R.button,
-        border: `1px solid ${borderColor}`,
-        background: hovered ? C.inputHover : C.input,
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        outline: 'none',
-        padding: 0,
-        flexShrink: 0,
-        transition: 'background 120ms ease-out, border-color 120ms ease-out',
-      }}
-    >
-      {paused ? (
-        <svg width="9" height="11" viewBox="0 0 11 13" fill={C.text} aria-hidden="true">
-          <polygon points="1,0 11,6.5 1,13" />
-        </svg>
-      ) : (
-        <svg width="8" height="10" viewBox="0 0 10 12" fill={C.text} aria-hidden="true">
-          <rect x="0" y="0" width="3.5" height="12" rx="1" />
-          <rect x="6.5" y="0" width="3.5" height="12" rx="1" />
-        </svg>
-      )}
     </button>
   );
 }
@@ -1148,22 +1145,36 @@ function MiniStopButton({ onStop }: { onStop: () => void }) {
 
 function MiniController({
   elapsedMs,
-  paused,
+  issueLabel,
+  onFixIssue,
   onStop,
-  onTogglePause,
 }: {
   elapsedMs: number;
-  paused: boolean;
+  issueLabel: string | null;
+  onFixIssue: (() => void) | null;
   onStop: () => void;
-  onTogglePause: () => void;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [faded, setFaded] = useState(false);
   const elapsedSeconds = Math.floor(elapsedMs / 1000);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => setFaded(true), 3000);
+    return () => window.clearTimeout(handle);
+  }, [elapsedMs, collapsed]);
+
+  const wakeController = useCallback(() => {
+    setFaded(false);
+  }, []);
 
   return (
     <div
+      data-testid="mini-controller"
+      onMouseMove={wakeController}
+      onMouseEnter={wakeController}
       style={
         {
-          width: 340,
+          width: collapsed ? 220 : 340,
           height: 56,
           background: C.bg,
           borderRadius: 28,
@@ -1178,26 +1189,14 @@ function MiniController({
           color: C.text,
           userSelect: 'none',
           WebkitAppRegion: 'drag',
+          opacity: faded ? 0.36 : 1,
+          transition: 'opacity 180ms ease, width 180ms ease',
         } as React.CSSProperties
       }
     >
       {/* Recording indicator */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-        {paused ? (
-          <span
-            aria-hidden="true"
-            style={{
-              display: 'inline-block',
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              background: '#eab308',
-              flexShrink: 0,
-            }}
-          />
-        ) : (
-          <PulsingDot />
-        )}
+        <PulsingDot />
       </div>
 
       {/* Timer */}
@@ -1215,11 +1214,49 @@ function MiniController({
         {formatElapsed(elapsedSeconds)}
       </span>
 
-      {/* Paused label */}
-      {paused && (
-        <span style={{ fontSize: 11, color: '#eab308', fontWeight: 500, flexShrink: 0 }}>
-          Paused
-        </span>
+      {!collapsed && <PauseUnavailableBadge />}
+
+      {issueLabel && !collapsed && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <span
+            data-testid="mini-controller-issue-pill"
+            style={{
+              fontSize: 10,
+              color: '#fcd34d',
+              fontWeight: 600,
+              flexShrink: 0,
+              border: '1px solid rgba(245,158,11,0.32)',
+              background: 'rgba(245,158,11,0.12)',
+              borderRadius: 999,
+              padding: '3px 8px',
+            }}
+          >
+            {issueLabel}
+          </span>
+          {onFixIssue && (
+            <button
+              data-testid="mini-controller-fix-issue"
+              onClick={onFixIssue}
+              style={
+                {
+                  height: 24,
+                  padding: '0 8px',
+                  borderRadius: 999,
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: 'rgba(255,255,255,0.06)',
+                  color: 'rgba(255,255,255,0.88)',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                  WebkitAppRegion: 'no-drag',
+                } as React.CSSProperties & { WebkitAppRegion?: 'drag' | 'no-drag' }
+              }
+            >
+              Fix
+            </button>
+          )}
+        </div>
       )}
 
       {/* Spacer */}
@@ -1237,7 +1274,28 @@ function MiniController({
           } as React.CSSProperties
         }
       >
-        <MiniPauseButton paused={paused} onTogglePause={onTogglePause} />
+        <button
+          data-testid="mini-controller-toggle"
+          onClick={() => {
+            wakeController();
+            setCollapsed((value) => !value);
+          }}
+          title={collapsed ? 'Expand controller' : 'Minimize controller'}
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 14,
+            border: '1px solid rgba(255,255,255,0.08)',
+            background: 'rgba(255,255,255,0.04)',
+            color: 'rgba(255,255,255,0.72)',
+            cursor: 'pointer',
+            fontSize: 15,
+            lineHeight: '28px',
+            padding: 0,
+          }}
+        >
+          {collapsed ? '>' : '-'}
+        </button>
         <MiniStopButton onStop={onStop} />
       </div>
     </div>
@@ -1272,6 +1330,120 @@ function MiniSavingIndicator() {
     >
       <SpinnerDot />
       Saving…
+    </div>
+  );
+}
+
+function IssueNotice({ messages }: { messages: string[] }) {
+  if (messages.length === 0) return null;
+
+  return (
+    <div
+      data-testid="panel-issue-notice"
+      style={{
+        margin: '8px 10px 0',
+        borderRadius: 8,
+        border: '1px solid rgba(245,158,11,0.28)',
+        background: 'rgba(245,158,11,0.1)',
+        color: '#fef3c7',
+        fontSize: 11,
+        lineHeight: 1.4,
+        padding: '7px 10px',
+        flexShrink: 0,
+      }}
+    >
+      {messages.join(' ')}
+    </div>
+  );
+}
+
+function RecoveryNotice({
+  recovery,
+  busy,
+  onRecover,
+  onOpenFolder,
+  onDismiss,
+}: {
+  recovery: RecordingRecoveryMarker;
+  busy: boolean;
+  onRecover: () => void;
+  onOpenFolder: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      data-testid="panel-recovery-banner"
+      style={{
+        margin: '8px 10px 0',
+        borderRadius: 8,
+        border: '1px solid rgba(245,158,11,0.28)',
+        background: 'rgba(245,158,11,0.12)',
+        color: '#fef3c7',
+        fontSize: 11,
+        lineHeight: 1.4,
+        padding: '8px 10px',
+        flexShrink: 0,
+      }}
+    >
+      <div style={{ fontWeight: 600 }}>Recover interrupted take</div>
+      <div style={{ marginTop: 2, color: 'rgba(255,255,255,0.78)' }}>
+        Found a partial recording from {recovery.startedAt}. Rough Cut can import the saved video
+        and any matching sidecars.
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <button
+          data-testid="panel-recovery-recover"
+          onClick={onRecover}
+          disabled={busy}
+          style={{
+            height: 28,
+            padding: '0 10px',
+            borderRadius: 7,
+            border: '1px solid rgba(255,255,255,0.12)',
+            background: busy ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.14)',
+            color: 'rgba(255,255,255,0.92)',
+            cursor: busy ? 'default' : 'pointer',
+            fontSize: 12,
+            fontFamily: 'inherit',
+          }}
+        >
+          {busy ? 'Recovering…' : 'Recover take'}
+        </button>
+        <button
+          data-testid="panel-recovery-open-folder"
+          onClick={onOpenFolder}
+          style={{
+            height: 28,
+            padding: '0 10px',
+            borderRadius: 7,
+            border: '1px solid rgba(255,255,255,0.12)',
+            background: 'rgba(255,255,255,0.05)',
+            color: 'rgba(255,255,255,0.84)',
+            cursor: 'pointer',
+            fontSize: 12,
+            fontFamily: 'inherit',
+          }}
+        >
+          Open folder
+        </button>
+        <button
+          data-testid="panel-recovery-dismiss"
+          onClick={onDismiss}
+          style={{
+            height: 28,
+            padding: '0 10px',
+            borderRadius: 7,
+            border: '1px solid rgba(255,255,255,0.12)',
+            background: 'transparent',
+            color: 'rgba(255,255,255,0.72)',
+            cursor: 'pointer',
+            fontSize: 12,
+            fontFamily: 'inherit',
+          }}
+        >
+          Dismiss
+        </button>
+      </div>
     </div>
   );
 }
@@ -1355,6 +1527,15 @@ export function PanelApp() {
 
   // Microphone stream for audio level monitoring (separate from screen capture stream)
   const [micStream, setMicStream] = useState<MediaStream | null>(null);
+  const [connectionIssues, setConnectionIssues] = useState<RecordingSessionConnectionIssues>({
+    mic: null,
+    camera: null,
+    systemAudio: null,
+    source: null,
+  });
+  const [recordingRecovery, setRecordingRecovery] = useState<RecordingRecoveryMarker | null>(null);
+  const [recoveringTake, setRecoveringTake] = useState(false);
+  const [setupModeDuringRecording, setSetupModeDuringRecording] = useState(false);
   const warningRef = useRef<Record<string, string | null>>({
     mic: null,
     camera: null,
@@ -1367,10 +1548,41 @@ export function PanelApp() {
     systemAudio: false,
   });
   const statusRef = useRef<PanelStatus>('idle');
+  const previousSelectedSourceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  useEffect(() => {
+    if (selectedSourceId) {
+      previousSelectedSourceIdRef.current = selectedSourceId;
+      setConnectionIssues((current) => ({ ...current, source: null }));
+    }
+  }, [selectedSourceId]);
+
+  useEffect(() => {
+    if (selectedMicDeviceId) {
+      setConnectionIssues((current) => ({ ...current, mic: null }));
+    }
+  }, [selectedMicDeviceId]);
+
+  useEffect(() => {
+    if (selectedCameraDeviceId) {
+      setConnectionIssues((current) => ({ ...current, camera: null }));
+    }
+  }, [selectedCameraDeviceId]);
+
+  useEffect(() => {
+    if (selectedSystemAudioSourceId) {
+      setConnectionIssues((current) => ({ ...current, systemAudio: null }));
+    }
+  }, [selectedSystemAudioSourceId]);
+
+  useEffect(() => {
+    const hasIssue = Object.values(connectionIssues).some(Boolean);
+    window.roughcut.panelReportConnectionIssues(hasIssue ? connectionIssues : null);
+  }, [connectionIssues]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1417,6 +1629,10 @@ export function PanelApp() {
     ) {
       warningRef.current.mic = selectedMicDeviceId;
       updateRecordingConfig({ selectedMicDeviceId: null, micEnabled: false });
+      setConnectionIssues((current) => ({
+        ...current,
+        mic: 'Mic offline. Recording will continue without microphone audio until you pick another input.',
+      }));
       showToast({
         title: 'Microphone disconnected',
         message: 'Recording will continue without mic audio until you choose another input.',
@@ -1442,6 +1658,11 @@ export function PanelApp() {
     ) {
       warningRef.current.camera = selectedCameraDeviceId;
       updateRecordingConfig({ selectedCameraDeviceId: null, cameraEnabled: false });
+      setConnectionIssues((current) => ({
+        ...current,
+        camera:
+          'Camera offline. Recording will continue without camera video until you pick another camera.',
+      }));
       showToast({
         title: 'Camera disconnected',
         message: 'Recording will continue without camera video until you choose another camera.',
@@ -1467,6 +1688,11 @@ export function PanelApp() {
     ) {
       warningRef.current.systemAudio = selectedSystemAudioSourceId;
       updateRecordingConfig({ selectedSystemAudioSourceId: null, sysAudioEnabled: false });
+      setConnectionIssues((current) => ({
+        ...current,
+        systemAudio:
+          'System audio offline. Recording will continue without desktop audio until you pick another output.',
+      }));
       showToast({
         title: 'System audio source unavailable',
         message: 'Recording will continue without system audio until you choose another output.',
@@ -1522,15 +1748,40 @@ export function PanelApp() {
     sysAudioEnabledRef.current = sysAudioEnabled;
   }, [sysAudioEnabled]);
 
+  const refreshSources = useCallback(async () => {
+    try {
+      const nextSources = await window.roughcut.recordingGetSources();
+      setSources(nextSources);
+    } catch (error) {
+      console.warn('[PanelApp] Failed to refresh capture sources:', error);
+      setSources([]);
+    }
+  }, []);
+
   // ── Load sources on mount ────────────────────────────────────────────────
   useEffect(() => {
-    window.roughcut
-      .recordingGetSources()
-      .then((srcs) => {
-        setSources(srcs);
-      })
-      .catch(console.error);
-  }, []);
+    void refreshSources();
+  }, [refreshSources]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        void refreshSources();
+      }
+    };
+
+    const handleFocus = () => {
+      void refreshSources();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshSources]);
 
   // ── IPC event subscriptions ──────────────────────────────────────────────
   useEffect(() => {
@@ -1542,11 +1793,13 @@ export function PanelApp() {
     const unsubStatus = window.roughcut.onSessionStatusChanged((s) => {
       if (s === 'recording') {
         setStatus('recording');
+        setSetupModeDuringRecording(false);
         startMediaRecorder();
       } else if (s === 'stopping') {
         stopMediaRecorder();
       } else if (s === 'idle') {
         setStatus('idle');
+        setSetupModeDuringRecording(false);
       }
     });
 
@@ -1620,6 +1873,10 @@ export function PanelApp() {
       if (warningRef.current.mic === track.id) return;
       warningRef.current.mic = track.id;
       updateRecordingConfig({ selectedMicDeviceId: null, micEnabled: false });
+      setConnectionIssues((current) => ({
+        ...current,
+        mic: 'Mic offline. Recording is still running, but microphone audio has been removed.',
+      }));
       showToast({
         title: 'Microphone disconnected',
         message: 'Recording is still running, but mic audio has been removed.',
@@ -1644,6 +1901,10 @@ export function PanelApp() {
       if (warningRef.current.camera === track.id) return;
       warningRef.current.camera = track.id;
       updateRecordingConfig({ selectedCameraDeviceId: null, cameraEnabled: false });
+      setConnectionIssues((current) => ({
+        ...current,
+        camera: 'Camera offline. Recording is still running, but camera video has been removed.',
+      }));
       showToast({
         title: 'Camera disconnected',
         message: 'Recording is still running, but camera video has been removed.',
@@ -1661,22 +1922,46 @@ export function PanelApp() {
   useEffect(() => {
     return () => {
       stream?.getTracks().forEach((t) => t.stop());
+      micStream?.getTracks().forEach((t) => t.stop());
       cameraStream?.getTracks().forEach((t) => t.stop());
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [cameraStream, micStream, stream]);
 
   // ── Source selection ─────────────────────────────────────────────────────
   const handleSelectSource = useCallback((id: string) => {
     updateRecordingConfig({ selectedSourceId: id });
   }, []);
 
+  const handleRetargetSource = useCallback(() => {
+    const expectedType = recordMode === 'window' ? 'window' : 'screen';
+    const fallbackSource = sources.find((source) => source.type === expectedType) ?? null;
+    if (!fallbackSource) return;
+    updateRecordingConfig({ selectedSourceId: fallbackSource.id });
+  }, [recordMode, sources]);
+
   useEffect(() => {
-    if (!hydrated || sources.length === 0) return;
+    if (!hydrated) return;
 
     const expectedType = recordMode === 'window' ? 'window' : 'screen';
     const selectedSource = sources.find((source) => source.id === selectedSourceId) ?? null;
     if (selectedSource?.type === expectedType) return;
+
+    if (selectedSourceId) {
+      previousSelectedSourceIdRef.current = selectedSourceId;
+      updateRecordingConfig({ selectedSourceId: null });
+      setConnectionIssues((current) => ({
+        ...current,
+        source:
+          sources.length > 0
+            ? 'Source offline. The selected screen or window is no longer available. Re-target to continue.'
+            : 'Source offline. No capture sources are currently available. Refresh sources or reconnect a display.',
+      }));
+      return;
+    }
+
+    if (previousSelectedSourceIdRef.current) {
+      return;
+    }
 
     const fallbackSource = sources.find((source) => source.type === expectedType) ?? null;
     if (fallbackSource && fallbackSource.id !== selectedSourceId) {
@@ -1700,9 +1985,7 @@ export function PanelApp() {
       streamRef.current = null;
       setStream(null);
       setStatus((current) =>
-        current === 'recording' || current === 'paused' || current === 'stopping'
-          ? current
-          : 'idle',
+        current === 'recording' || current === 'stopping' ? current : 'idle',
       );
       return () => {
         active = false;
@@ -1762,6 +2045,22 @@ export function PanelApp() {
   }, [hydrated, selectedSourceId]);
 
   useEffect(() => {
+    let active = true;
+    window.roughcut
+      .recordingRecoveryGet()
+      .then((recovery) => {
+        if (active) setRecordingRecovery(recovery?.canRecover ? recovery : null);
+      })
+      .catch((error) => {
+        console.warn('[PanelApp] Failed to load recovery state:', error);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const track = stream?.getVideoTracks()[0] ?? null;
     if (!track) {
       warningRef.current.source = null;
@@ -1772,7 +2071,12 @@ export function PanelApp() {
       if (warningRef.current.source === track.id) return;
       warningRef.current.source = track.id;
       updateRecordingConfig({ selectedSourceId: null });
-      if (statusRef.current === 'recording' || statusRef.current === 'paused') {
+      setConnectionIssues((current) => ({
+        ...current,
+        source:
+          'Source offline. The selected screen or window disappeared, so recording was stopped safely.',
+      }));
+      if (statusRef.current === 'recording') {
         void window.roughcut.panelStopRecording();
       }
       setStatus('idle');
@@ -1883,6 +2187,7 @@ export function PanelApp() {
         width: settings?.width ?? 1920,
         height: settings?.height ?? 1080,
         durationMs: elapsedMsAtStop.current,
+        timelineFps: 30,
       };
 
       try {
@@ -1939,12 +2244,59 @@ export function PanelApp() {
     }
   };
 
+  const teardownLocalRecordingResources = useCallback(() => {
+    audioMixCleanupRef.current?.();
+    audioMixCleanupRef.current = null;
+
+    const recorder = recorderRef.current;
+    if (recorder) {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      if (recorder.state === 'recording' || recorder.state === 'paused') {
+        try {
+          recorder.stop();
+        } catch {
+          // Ignore renderer teardown races.
+        }
+      }
+    }
+    recorderRef.current = null;
+
+    const cameraRecorder = cameraRecorderRef.current;
+    if (cameraRecorder && typeof cameraRecorder.stop === 'function') {
+      Promise.resolve(cameraRecorder.stop()).catch(() => {});
+    }
+    cameraRecorderRef.current = null;
+
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    micStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      teardownLocalRecordingResources();
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [teardownLocalRecordingResources]);
+
   // ── User action handlers ─────────────────────────────────────────────────
   const handleStartRecording = () => {
+    const selectedMicLabel =
+      selectedMicDeviceId && micOptions.some((option) => option.id === selectedMicDeviceId)
+        ? (micOptions.find((option) => option.id === selectedMicDeviceId)?.label ?? null)
+        : null;
+
     void window.roughcut.panelStartRecording({
       micEnabled: micEnabledRef.current,
       sysAudioEnabled: sysAudioEnabledRef.current,
       countdownSeconds: configuredCountdownSeconds,
+      selectedMicDeviceId,
+      selectedMicLabel,
       selectedSystemAudioSourceId,
     });
   };
@@ -1953,70 +2305,83 @@ export function PanelApp() {
     void window.roughcut.panelStopRecording();
   };
 
-  const pauseRecorder = useCallback(() => {
-    const recorder = recorderRef.current;
-    if (!recorder || recorder.state !== 'recording') return false;
-
-    recorder.pause();
-    // Note: WebCodecs CameraRecorder doesn't support pause — camera keeps recording.
-    setStatus('paused');
-    window.roughcut.panelPause();
-    console.info('[PanelApp] MediaRecorder paused');
-    return true;
-  }, []);
-
-  const resumeRecorder = useCallback(() => {
-    const recorder = recorderRef.current;
-    if (!recorder || recorder.state !== 'paused') return false;
-
-    recorder.resume();
-    setStatus('recording');
-    window.roughcut.panelResume();
-    console.info('[PanelApp] MediaRecorder resumed');
-    return true;
-  }, []);
-
-  const handleTogglePause = () => {
-    const recorder = recorderRef.current;
-    console.info('[PanelApp] handleTogglePause — recorder:', recorder?.state, 'status:', status);
-    if (!recorder) return;
-
-    if (recorder.state === 'recording') {
-      pauseRecorder();
-    } else if (recorder.state === 'paused') {
-      resumeRecorder();
-    }
-  };
-
-  useEffect(() => {
-    const unsubPause = window.roughcut.onPanelPauseRequested(() => {
-      pauseRecorder();
-    });
-    const unsubResume = window.roughcut.onPanelResumeRequested(() => {
-      resumeRecorder();
-    });
-
-    return () => {
-      unsubPause();
-      unsubResume();
-    };
-  }, [pauseRecorder, resumeRecorder]);
-
   const handleClose = () => {
+    if (statusRef.current === 'recording' || statusRef.current === 'stopping') {
+      setStatus('stopping');
+    }
     void window.roughcut.closeRecordingPanel();
   };
 
+  const handleOpenFixMode = useCallback(() => {
+    setSetupModeDuringRecording(true);
+    void window.roughcut.panelResize('setup');
+  }, []);
+
+  const handleReturnMiniMode = useCallback(() => {
+    setSetupModeDuringRecording(false);
+    void window.roughcut.panelResize('mini');
+  }, []);
+
+  const handleRecoverTake = useCallback(() => {
+    setRecoveringTake(true);
+    void window.roughcut
+      .recordingRecoveryRecover()
+      .then((result) => {
+        if (!result) {
+          showToast({
+            title: 'Recovery unavailable',
+            message: 'The partial take is no longer available to import.',
+            tone: 'warning',
+          });
+          setRecordingRecovery(null);
+          return;
+        }
+
+        setRecordingRecovery(null);
+        showToast({
+          title: 'Recovered interrupted take',
+          message: 'The partial recording was imported into the current project flow.',
+          tone: 'info',
+        });
+        void window.roughcut.closeRecordingPanel();
+      })
+      .catch((error) => {
+        console.error('[PanelApp] Failed to recover interrupted take:', error);
+        showToast({
+          title: 'Recovery failed',
+          message: 'Rough Cut could not import the interrupted take.',
+          tone: 'error',
+        });
+      })
+      .finally(() => {
+        setRecoveringTake(false);
+      });
+  }, [showToast]);
+
   // ─── Render ──────────────────────────────────────────────────────────────
   const canRecord = hydrated && status === 'ready' && stream !== null;
+  const issueMessages = Object.values(connectionIssues).filter((message): message is string =>
+    Boolean(message),
+  );
+  const setupPanelHeight = (issueMessages.length > 0 ? 284 : 240) + (recordingRecovery ? 86 : 0);
+  const miniIssueLabel = connectionIssues.source
+    ? 'Source offline'
+    : connectionIssues.mic
+      ? 'Mic offline'
+      : connectionIssues.camera
+        ? 'Camera offline'
+        : connectionIssues.systemAudio
+          ? 'Audio offline'
+          : null;
 
   // ─── Mini-controller during recording ─────────────────────────────────
-  if (status === 'recording' || status === 'paused') {
+  if (status === 'recording' && !setupModeDuringRecording) {
     return (
       <MiniController
         elapsedMs={elapsedMs}
-        paused={status === 'paused'}
+        issueLabel={miniIssueLabel}
+        onFixIssue={miniIssueLabel ? handleOpenFixMode : null}
         onStop={handleStopRecording}
-        onTogglePause={handleTogglePause}
       />
     );
   }
@@ -2030,7 +2395,7 @@ export function PanelApp() {
     <div
       style={{
         width: 500,
-        height: 460,
+        height: setupPanelHeight,
         background: C.bg,
         borderRadius: R.outer,
         border: `1px solid ${C.border}`,
@@ -2038,49 +2403,83 @@ export function PanelApp() {
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
+        position: 'relative',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
         color: C.text,
         userSelect: 'none',
       }}
     >
       {/* 1. Title bar */}
-      <TitleBar onClose={handleClose} />
-
-      {/* 2. Video preview */}
-      <VideoPreview
-        stream={stream}
-        countdownSeconds={countdownSeconds}
-        isCountingDown={status === 'countdown'}
-        cameraStream={cameraStream}
+      <TitleBar
+        onClose={handleClose}
+        accessory={
+          status === 'recording' && setupModeDuringRecording ? (
+            <SetupModeButton onClick={handleReturnMiniMode} />
+          ) : undefined
+        }
       />
 
-      <div style={{ height: 8, flexShrink: 0 }} />
-      <Divider />
+      {recordingRecovery && (
+        <RecoveryNotice
+          recovery={recordingRecovery}
+          busy={recoveringTake}
+          onRecover={handleRecoverTake}
+          onOpenFolder={() => {
+            void window.roughcut.shellOpenPath(recordingRecovery.recordingsDir);
+          }}
+          onDismiss={() => {
+            void window.roughcut.recordingRecoveryDismiss().then(() => setRecordingRecovery(null));
+          }}
+        />
+      )}
 
-      {/* 3. Source selector */}
+      {/* 2. Source selector */}
       <SourceSelector
         sources={sources}
         selectedSourceId={selectedSourceId}
+        issue={connectionIssues.source}
         onSelectSource={handleSelectSource}
+        onRefreshSources={() => {
+          void refreshSources();
+        }}
+        onRetarget={handleRetargetSource}
+        canRetarget={sources.some(
+          (source) => source.type === (recordMode === 'window' ? 'window' : 'screen'),
+        )}
       />
+
+      <IssueNotice messages={issueMessages} />
 
       <Divider />
 
-      {/* 4. Device controls */}
+      {/* 3. Device controls */}
       <DeviceControls
         micEnabled={micEnabled}
         sysAudioEnabled={sysAudioEnabled}
         cameraEnabled={cameraEnabled}
+        micIssue={connectionIssues.mic}
+        cameraIssue={connectionIssues.camera}
+        systemAudioIssue={connectionIssues.systemAudio}
         micOptions={micOptions}
         selectedMicDeviceId={selectedMicDeviceId}
-        onSelectMicDevice={(id) => updateRecordingConfig({ selectedMicDeviceId: id })}
+        onSelectMicDevice={(id) =>
+          updateRecordingConfig({ selectedMicDeviceId: id, micEnabled: id ? true : micEnabled })
+        }
         cameraOptions={cameraOptions}
         selectedCameraDeviceId={selectedCameraDeviceId}
-        onSelectCameraDevice={(id) => updateRecordingConfig({ selectedCameraDeviceId: id })}
+        onSelectCameraDevice={(id) =>
+          updateRecordingConfig({
+            selectedCameraDeviceId: id,
+            cameraEnabled: id ? true : cameraEnabled,
+          })
+        }
         systemAudioOptions={systemAudioOptions}
         selectedSystemAudioSourceId={selectedSystemAudioSourceId}
         onSelectSystemAudioSource={(id) =>
-          updateRecordingConfig({ selectedSystemAudioSourceId: id })
+          updateRecordingConfig({
+            selectedSystemAudioSourceId: id,
+            sysAudioEnabled: id ? true : sysAudioEnabled,
+          })
         }
         onMicToggle={handleMicToggle}
         onSysAudioToggle={() => updateRecordingConfig({ sysAudioEnabled: !sysAudioEnabled })}
@@ -2092,15 +2491,20 @@ export function PanelApp() {
 
       <Divider />
 
-      {/* 5. Recording controls */}
+      {/* 4. Recording controls */}
       <RecordingControls
         status={status}
         elapsedMs={elapsedMs}
         canRecord={canRecord}
         onStartRecording={handleStartRecording}
         onStopRecording={handleStopRecording}
-        onTogglePause={handleTogglePause}
       />
+
+      {/* Live camera PiP — top-right overlay, only when camera is enabled */}
+      <CameraPiPOverlay cameraStream={cameraStream} />
+
+      {/* Countdown overlay — position:fixed, covers the whole window */}
+      <CountdownOverlay secondsRemaining={countdownSeconds} visible={status === 'countdown'} />
     </div>
   );
 }

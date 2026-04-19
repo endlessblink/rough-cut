@@ -147,6 +147,7 @@ export async function renderFrameToCanvasAccurate(
         renderFrame.cameraTransform.offsetX,
         renderFrame.cameraTransform.offsetY,
         frameRate,
+        renderFrame.screenCrop,
       );
     }
   }

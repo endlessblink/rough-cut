@@ -36,12 +36,15 @@ import { join, dirname } from 'node:path';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../../shared/ipc-channels.mjs';
+import { getRecordingPauseCapability } from '../../shared/recording-pause-policy.mjs';
 import {
+  mergeRecordingResultWithFinalProbe,
   muxAudioIntoRecording,
   probeRecordingFile,
   saveRecording,
   saveRecordingFromFile,
 } from './capture-service.mjs';
+import { clearRecordingRecoveryMarker, writeRecordingRecoveryMarker } from './recovery-state.mjs';
 import { CursorRecorder } from './cursor-recorder.mjs';
 import {
   isFfmpegCaptureAvailable,
@@ -54,7 +57,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const IS_LINUX = process.platform === 'linux';
-const PANEL_SETUP = { width: 500, height: 460 };
+const PANEL_SETUP = { width: 500, height: 284 };
 const PANEL_MINI = { width: 340, height: 56 };
 
 // ---------------------------------------------------------------------------
@@ -83,17 +86,10 @@ let elapsedTimer = null;
 /** @type {ReturnType<typeof setInterval> | null} */
 let countdownTimer = null;
 
-/** Whether the recording is currently paused. */
-let isPaused = false;
-
-/** Accumulated paused time in ms (subtracted from elapsed). */
-let totalPausedMs = 0;
-
-/** Timestamp when current pause started. */
-let pauseStartMs = 0;
-
 /** Millisecond timestamp when recording phase started. */
 let recordingStartMs = 0;
+
+let pauseCapability = getRecordingPauseCapability({ capturesCursor: true });
 
 /** @type {CursorRecorder} */
 const cursorRecorder = new CursorRecorder();
@@ -113,7 +109,10 @@ let ffmpegOutputPath = null;
 /** @type {string | null} */
 let ffmpegAudioOutputPath = null;
 
-/** @type {(() => { sourceId: string, display: string, width: number, height: number } | null) | null} */
+/** @type {{ version?: number, startedAt: string, recordingsDir: string, sourceId?: string | null, recordMode?: string | null, sessionState?: string | null, interruptionReason?: string | null, interruptedAt?: string | null, captureMetadata?: { fps?: number | null, width?: number | null, height?: number | null, timelineFps?: number | null } | null, expectedArtifacts?: { videoPath?: string | null, audioPath?: string | null, cursorPath?: string | null } | null } | null} */
+let activeRecoveryMarker = null;
+
+/** @type {(() => { sourceId: string, display: string, width: number, height: number, offsetX?: number, offsetY?: number } | null) | null} */
 let getSourceInfo = null;
 
 /** Recording config received from panel for the current recording. */
@@ -121,12 +120,111 @@ let pendingAudioConfig = {
   micEnabled: false,
   sysAudioEnabled: false,
   countdownSeconds: 3,
+  selectedMicDeviceId: null,
+  selectedMicLabel: null,
   selectedSystemAudioSourceId: null,
 };
+
+let activeAudioCapturePlan = {
+  micSource: null,
+  systemAudioSource: null,
+};
+
+let stopCompletion = null;
+let shutdownPromise = null;
+let panelDestroyInProgress = false;
+let allowAppQuit = false;
 
 function broadcastSessionEvent(channel, ...args) {
   safeSend(panelWindow, channel, ...args);
   safeSend(mainWindow, channel, ...args);
+}
+
+function broadcastConnectionIssues(issues) {
+  broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_CONNECTION_ISSUES_CHANGED, issues);
+}
+
+function createDeferred() {
+  let settled = false;
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = (value) => {
+      if (settled) return;
+      settled = true;
+      resolvePromise(value);
+    };
+    reject = (error) => {
+      if (settled) return;
+      settled = true;
+      rejectPromise(error);
+    };
+  });
+
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function resolveAudioCapturePlan(audioConfig) {
+  const wantsMic = !!audioConfig?.micEnabled;
+  const wantsSystemAudio = !!audioConfig?.sysAudioEnabled;
+
+  if (!wantsMic && !wantsSystemAudio) {
+    return {
+      micSource: null,
+      systemAudioSource: null,
+      issues: null,
+    };
+  }
+
+  const strictMicSelection = Boolean(
+    audioConfig?.selectedMicDeviceId || audioConfig?.selectedMicLabel,
+  );
+  const strictSystemSelection = Boolean(audioConfig?.selectedSystemAudioSourceId);
+  const sources = await discoverAudioSources({
+    preferredSystemAudioSourceId: audioConfig?.selectedSystemAudioSourceId ?? null,
+    preferredMicSourceId: audioConfig?.selectedMicDeviceId ?? null,
+    preferredMicLabel: audioConfig?.selectedMicLabel ?? null,
+    strictMicSelection,
+    strictSystemSelection,
+  });
+
+  const micSource = wantsMic ? sources.micSource : null;
+  const systemAudioSource = wantsSystemAudio ? sources.monitorSource : null;
+
+  if (systemAudioSource) {
+    await ensureSourceAudible(systemAudioSource);
+  }
+
+  const issues = {
+    mic:
+      wantsMic && !micSource
+        ? strictMicSelection
+          ? 'Selected microphone is unavailable for capture. Choose another input before recording.'
+          : 'No microphone capture source is available. Choose another input or turn the mic off before recording.'
+        : null,
+    camera: null,
+    systemAudio:
+      wantsSystemAudio && !systemAudioSource
+        ? strictSystemSelection
+          ? 'Selected system audio source is unavailable for capture. Choose another output before recording.'
+          : 'No system audio capture source is available. Choose another output or turn system audio off before recording.'
+        : null,
+    source: null,
+  };
+
+  return {
+    micSource,
+    systemAudioSource,
+    issues: Object.values(issues).some(Boolean) ? issues : null,
+  };
 }
 
 async function waitForCaptureFile(filePath, timeoutMs = 4000) {
@@ -184,6 +282,321 @@ function safeSend(win, channel, ...args) {
   }
 }
 
+function deriveRecordModeFromSourceId(sourceId) {
+  if (typeof sourceId !== 'string') return null;
+  if (sourceId.startsWith('window:')) return 'window';
+  if (sourceId.startsWith('screen:')) return 'screen';
+  return null;
+}
+
+async function persistActiveRecoveryMarker(patch = {}) {
+  if (!activeRecoveryMarker) return null;
+
+  activeRecoveryMarker = await writeRecordingRecoveryMarker({
+    ...activeRecoveryMarker,
+    ...patch,
+    expectedArtifacts: {
+      ...(activeRecoveryMarker.expectedArtifacts ?? {}),
+      ...(patch.expectedArtifacts ?? {}),
+    },
+  });
+
+  return activeRecoveryMarker;
+}
+
+function isWindowAlive(win) {
+  return !!win && !win.isDestroyed() && !!win.webContents && !win.webContents.isDestroyed();
+}
+
+function getEffectiveElapsedMs() {
+  if (!recordingStartMs) return 0;
+  return Math.max(0, Date.now() - recordingStartMs);
+}
+
+async function resolveProjectDir() {
+  try {
+    const { getRecordingLocation } = await import('../recent-projects-service.mjs');
+    return getRecordingLocation() || null;
+  } catch {
+    return null;
+  }
+}
+
+function buildFallbackRecordingMetadata() {
+  const sourceInfo = getSourceInfo?.();
+  return {
+    fps: 30,
+    width: sourceInfo?.width ?? 1920,
+    height: sourceInfo?.height ?? 1080,
+    durationMs: getEffectiveElapsedMs(),
+    timelineFps: 30,
+  };
+}
+
+function resolveStopCompletion(result) {
+  if (!stopCompletion) return;
+  stopCompletion.resolve(result);
+  stopCompletion = null;
+}
+
+function rejectStopCompletion(error) {
+  if (!stopCompletion) return;
+  stopCompletion.reject(error);
+  stopCompletion = null;
+}
+
+function resetCaptureRefs() {
+  ffmpegHandle = null;
+  ffmpegAudioHandle = null;
+  ffmpegOutputPath = null;
+  ffmpegAudioOutputPath = null;
+}
+
+function transitionToIdle() {
+  _cleanup();
+  activeAudioCapturePlan = { micSource: null, systemAudioSource: null };
+  recordingStartMs = 0;
+  state = 'idle';
+  broadcastConnectionIssues(null);
+  broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'idle');
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+  }
+}
+
+async function stopActiveCaptureResources() {
+  _cleanup();
+
+  try {
+    lastCursorResult = cursorRecorder.stop();
+    if (lastCursorResult) {
+      console.info(
+        '[session-manager] Cursor data:',
+        lastCursorResult.eventCount,
+        'events →',
+        lastCursorResult.eventsPath,
+      );
+    }
+  } catch (err) {
+    console.warn('[session-manager] Cursor recorder stop failed:', err?.message ?? err);
+    lastCursorResult = null;
+  }
+
+  if (ffmpegHandle) {
+    try {
+      await ffmpegHandle.stop();
+      console.info('[session-manager] FFmpeg capture stopped →', ffmpegHandle.outputPath);
+    } catch (err) {
+      console.warn('[session-manager] FFmpeg stop failed:', err?.message ?? err);
+    } finally {
+      ffmpegHandle = null;
+    }
+  }
+
+  if (ffmpegAudioHandle) {
+    try {
+      await ffmpegAudioHandle.stop();
+      console.info(
+        '[session-manager] FFmpeg audio-only capture stopped →',
+        ffmpegAudioHandle.outputPath,
+      );
+    } catch (err) {
+      console.warn('[session-manager] FFmpeg audio-only stop failed:', err?.message ?? err);
+    } finally {
+      ffmpegAudioHandle = null;
+    }
+  }
+}
+
+async function decorateSavedResult(result, metadata) {
+  if (lastCursorResult) {
+    result.cursorEventsPath = lastCursorResult.eventsPath;
+    lastCursorResult = null;
+  }
+
+  try {
+    Object.assign(result, mergeRecordingResultWithFinalProbe(result, metadata));
+  } catch (probeError) {
+    console.warn(
+      '[session-manager] Final recording re-probe failed; keeping provisional metadata:',
+      probeError?.message ?? probeError,
+    );
+  }
+
+  result.audioCapture = {
+    requested: {
+      micEnabled: pendingAudioConfig.micEnabled,
+      sysAudioEnabled: pendingAudioConfig.sysAudioEnabled,
+      selectedMicDeviceId: pendingAudioConfig.selectedMicDeviceId ?? null,
+      selectedMicLabel: pendingAudioConfig.selectedMicLabel ?? null,
+      selectedSystemAudioSourceId: pendingAudioConfig.selectedSystemAudioSourceId ?? null,
+    },
+    resolved: {
+      micSource: activeAudioCapturePlan.micSource,
+      systemAudioSource: activeAudioCapturePlan.systemAudioSource,
+    },
+    final: {
+      hasAudio: result.hasAudio,
+    },
+  };
+
+  return result;
+}
+
+async function finalizeSavedSession(result, metadata) {
+  await clearRecordingRecoveryMarker();
+  activeRecoveryMarker = null;
+  await decorateSavedResult(result, metadata);
+
+  console.info(
+    '[session-manager] Final result keys:',
+    Object.keys(result),
+    'cursorEventsPath:',
+    result.cursorEventsPath ?? 'NOT SET',
+  );
+
+  safeSend(mainWindow, IPC_CHANNELS.RECORDING_ASSET_READY, result);
+  _destroyPanel();
+  transitionToIdle();
+  resolveStopCompletion(result);
+  return result;
+}
+
+async function finalizeInterruptedSession(reason) {
+  if (activeRecoveryMarker) {
+    activeRecoveryMarker = await persistActiveRecoveryMarker({
+      sessionState: state,
+      interruptionReason: reason,
+      interruptedAt: new Date().toISOString(),
+    }).catch((err) => {
+      console.warn('[session-manager] Failed to update recovery marker:', err?.message ?? err);
+      return activeRecoveryMarker;
+    });
+  }
+
+  activeRecoveryMarker = null;
+  resetCaptureRefs();
+  _destroyPanel();
+  transitionToIdle();
+  resolveStopCompletion(null);
+}
+
+async function trySaveFromCaptureFiles(metadata) {
+  const projectDir = await resolveProjectDir();
+  const hasFfmpegOutput = await waitForCaptureFile(ffmpegOutputPath, 8000);
+  const hasFfmpegAudioOutput = await waitForCaptureFile(ffmpegAudioOutputPath, 2500);
+
+  if (!hasFfmpegOutput) {
+    resetCaptureRefs();
+    return null;
+  }
+
+  console.info(
+    '[session-manager] Finalizing recording from FFmpeg capture fallback:',
+    ffmpegOutputPath,
+  );
+  const result = await saveRecordingFromFile(ffmpegOutputPath, projectDir, metadata);
+  if (hasFfmpegAudioOutput) {
+    await muxAudioIntoRecording(result.filePath, ffmpegAudioOutputPath);
+  }
+  resetCaptureRefs();
+  return result;
+}
+
+async function requestSessionShutdown(reason, options = {}) {
+  const { preferRendererSave = true } = options;
+
+  if (shutdownPromise) {
+    return shutdownPromise;
+  }
+
+  shutdownPromise = (async () => {
+    try {
+      if (state === 'idle') {
+        _destroyPanel();
+        transitionToIdle();
+        return null;
+      }
+
+      if (state === 'panel-open') {
+        _destroyPanel();
+        transitionToIdle();
+        return null;
+      }
+
+      if (state === 'countdown') {
+        console.info('[session-manager] Aborting countdown during shutdown:', reason);
+        _destroyPanel();
+        transitionToIdle();
+        return null;
+      }
+
+      if (state !== 'recording' && state !== 'stopping') {
+        console.warn('[session-manager] requestSessionShutdown ignored in state:', state);
+        return null;
+      }
+
+      if (!stopCompletion) {
+        stopCompletion = createDeferred();
+      }
+
+      if (state === 'recording') {
+        console.info('[session-manager] Shutdown requested — transitioning to stopping:', reason);
+        state = 'stopping';
+        await persistActiveRecoveryMarker({
+          sessionState: 'stopping',
+          interruptedAt: new Date().toISOString(),
+        }).catch((err) => {
+          console.warn('[session-manager] Failed to update recovery marker before shutdown:', err);
+          return null;
+        });
+        await stopActiveCaptureResources();
+      } else {
+        _cleanup();
+      }
+
+      if (IS_LINUX && isWindowAlive(panelWindow)) {
+        panelWindow.showInactive();
+        console.info('[session-manager] Panel restored for renderer shutdown.');
+      }
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+      }
+
+      let savedResult = null;
+      const canUseRendererSave = preferRendererSave && isWindowAlive(panelWindow);
+
+      if (canUseRendererSave) {
+        broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'stopping');
+        try {
+          savedResult = await Promise.race([stopCompletion.promise, delay(8000).then(() => null)]);
+        } catch (error) {
+          console.warn('[session-manager] Renderer save handoff failed, falling back:', error);
+        }
+      }
+
+      if (savedResult) {
+        return savedResult;
+      }
+
+      const fallbackMetadata = buildFallbackRecordingMetadata();
+      savedResult = await trySaveFromCaptureFiles(fallbackMetadata);
+      if (savedResult) {
+        return await finalizeSavedSession(savedResult, fallbackMetadata);
+      }
+
+      await finalizeInterruptedSession(reason);
+      return null;
+    } finally {
+      shutdownPromise = null;
+    }
+  })();
+
+  return shutdownPromise;
+}
+
 /**
  * Format elapsed milliseconds as "MM:SS".
  * @param {number} ms
@@ -216,7 +629,7 @@ function guardState(fnName, allowed) {
 // ---------------------------------------------------------------------------
 
 /**
- * Create the system tray icon with Pause/Resume and Stop Recording menu items.
+ * Create the system tray icon with explicit pause-unavailable state and stop.
  * On Linux the tray is the PRIMARY recording control (no visible mini-controller).
  * @returns {Tray}
  */
@@ -229,17 +642,15 @@ function createTray() {
 }
 
 /**
- * Rebuild the tray context menu to reflect the current pause state.
+ * Rebuild the tray context menu to reflect the current pause support state.
  * @param {Tray} t
  */
 function _rebuildTrayMenu(t) {
   if (!t || t.isDestroyed()) return;
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: isPaused ? 'Resume Recording' : 'Pause Recording',
-      click: () => {
-        _togglePauseFromTray();
-      },
+      label: pauseCapability.label,
+      enabled: false,
     },
     { type: 'separator' },
     {
@@ -255,37 +666,14 @@ function _rebuildTrayMenu(t) {
 }
 
 /**
- * Toggle pause/resume from the tray — mirrors the panel's pause/resume IPC
- * so recording can be controlled entirely from the tray on Linux.
- */
-function _togglePauseFromTray() {
-  if (state !== 'recording') return;
-  if (!isPaused) {
-    isPaused = true;
-    pauseStartMs = Date.now();
-    safeSend(panelWindow, 'panel:tray-pause', null);
-    updateTrayTooltip();
-    console.info('[session-manager] Paused from tray');
-  } else {
-    totalPausedMs += Date.now() - pauseStartMs;
-    isPaused = false;
-    safeSend(panelWindow, 'panel:tray-resume', null);
-    updateTrayTooltip();
-    console.info('[session-manager] Resumed from tray, total paused:', totalPausedMs, 'ms');
-  }
-  if (tray) _rebuildTrayMenu(tray);
-}
-
-/**
  * Update the tray tooltip with the current elapsed time (called every 100 ms).
  */
 function updateTrayTooltip() {
   if (!tray || tray.isDestroyed()) return;
   try {
-    const elapsedMs = Date.now() - recordingStartMs - totalPausedMs;
+    const elapsedMs = Date.now() - recordingStartMs;
     const elapsed = formatElapsed(elapsedMs);
-    const label = isPaused ? 'Paused' : 'Recording';
-    tray.setToolTip(`${label} — ${elapsed}`);
+    tray.setToolTip(`Recording — ${elapsed}`);
   } catch {
     // Tray may have been destroyed concurrently — ignore
   }
@@ -356,9 +744,10 @@ function resizePanel(mode) {
 export function openPanel() {
   console.info('[session-manager] openPanel() called, state:', state);
   if (!guardState('openPanel', ['idle'])) return;
+  broadcastConnectionIssues(null);
 
   const PANEL_W = 500;
-  const PANEL_H = 460;
+  const PANEL_H = 284;
   const { x, y } = getPanelPosition({ width: PANEL_W, height: PANEL_H });
 
   const preloadPath = join(__dirname, '..', '..', 'preload', 'index.mjs');
@@ -417,6 +806,15 @@ export function openPanel() {
     console.info('[session-manager] Panel finished loading.');
   });
 
+  panelWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.warn('[session-manager] Panel renderer disappeared:', details?.reason ?? 'unknown');
+    if (state === 'recording' || state === 'stopping' || state === 'countdown') {
+      void requestSessionShutdown('renderer-gone', { preferRendererSave: false }).catch((err) =>
+        console.error('[session-manager] Shutdown after renderer loss failed:', err),
+      );
+    }
+  });
+
   panelWindow.once('ready-to-show', () => {
     console.info('[session-manager] Panel ready to show.');
     if (panelWindow && !panelWindow.isDestroyed()) {
@@ -426,14 +824,22 @@ export function openPanel() {
 
   // If the panel is closed externally (user clicks X or OS closes it), clean up.
   panelWindow.on('closed', () => {
-    console.info('[session-manager] Panel closed externally — cleaning up.');
+    const wasIntentional = panelDestroyInProgress;
+    panelDestroyInProgress = false;
     panelWindow = null;
-    _cleanup();
-    // Restore main window in case recording was active when panel was closed.
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.show();
+    if (wasIntentional) {
+      return;
     }
-    state = 'idle';
+
+    console.info('[session-manager] Panel closed unexpectedly.');
+    if (state === 'recording' || state === 'stopping' || state === 'countdown') {
+      void requestSessionShutdown('panel-closed', { preferRendererSave: false }).catch((err) =>
+        console.error('[session-manager] Shutdown after panel close failed:', err),
+      );
+      return;
+    }
+
+    transitionToIdle();
   });
 
   state = 'panel-open';
@@ -444,16 +850,10 @@ export function openPanel() {
  * Destroy the panel BrowserWindow and transition to `idle`.
  * No-ops if no panel is open.
  */
-export function closePanel() {
+export async function closePanel() {
   if (!guardState('closePanel', ['panel-open', 'countdown', 'recording', 'stopping'])) return;
 
-  _cleanup();
-  _destroyPanel();
-  // Restore main window in case recording was active.
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.show();
-  }
-  state = 'idle';
+  await requestSessionShutdown('panel-closed');
   console.info('[session-manager] Panel closed.');
 }
 
@@ -463,8 +863,10 @@ export function closePanel() {
 function _destroyPanel() {
   if (panelWindow) {
     try {
+      panelDestroyInProgress = true;
       if (!panelWindow.isDestroyed()) panelWindow.destroy();
     } catch (err) {
+      panelDestroyInProgress = false;
       console.warn('[session-manager] panelWindow.destroy() failed:', err?.message ?? err);
     }
     panelWindow = null;
@@ -491,6 +893,25 @@ export async function startRecording() {
   if (!guardState('startRecording', ['panel-open'])) return;
 
   try {
+    const audioCapturePlan = await resolveAudioCapturePlan(pendingAudioConfig);
+    if (audioCapturePlan.issues) {
+      activeAudioCapturePlan = { micSource: null, systemAudioSource: null };
+      broadcastConnectionIssues(audioCapturePlan.issues);
+      console.warn(
+        '[session-manager] Blocking recording start because selected audio route is unavailable:',
+        {
+          pendingAudioConfig,
+          audioCapturePlan,
+        },
+      );
+      return;
+    }
+
+    activeAudioCapturePlan = {
+      micSource: audioCapturePlan.micSource,
+      systemAudioSource: audioCapturePlan.systemAudioSource,
+    };
+
     state = 'countdown';
 
     await _runCountdown(pendingAudioConfig.countdownSeconds);
@@ -503,6 +924,7 @@ export async function startRecording() {
 
     // --- Recording phase ---
     state = 'recording';
+    broadcastConnectionIssues(null);
     recordingStartMs = Date.now();
     console.info(
       '[session-manager] Recording phase started. Platform:',
@@ -541,10 +963,41 @@ export async function startRecording() {
     }
     const cursorTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const cursorPath = join(recordingsDir, `recording-${cursorTimestamp}.cursor.ndjson`);
+    const sourceInfo = getSourceInfo?.();
+    const sourceId = sourceInfo?.sourceId ?? null;
+    const ffmpegPath =
+      isFfmpegCaptureAvailable() && sourceInfo
+        ? join(recordingsDir, `recording-${cursorTimestamp}.webm`)
+        : null;
+    const ffmpegAudioPath =
+      pendingAudioConfig.micEnabled || pendingAudioConfig.sysAudioEnabled
+        ? join(recordingsDir, `recording-${cursorTimestamp}-audio.webm`)
+        : null;
     console.info('[session-manager] Cursor sidecar path:', cursorPath);
+    activeRecoveryMarker = await writeRecordingRecoveryMarker({
+      startedAt: new Date().toISOString(),
+      recordingsDir,
+      sourceId,
+      recordMode: deriveRecordModeFromSourceId(sourceId),
+      sessionState: 'recording',
+      captureMetadata: {
+        fps: 30,
+        width: sourceInfo?.width ?? null,
+        height: sourceInfo?.height ?? null,
+        timelineFps: 30,
+      },
+      expectedArtifacts: {
+        videoPath: ffmpegPath,
+        audioPath: ffmpegAudioPath,
+        cursorPath,
+      },
+    });
     try {
       const fps = 30;
-      cursorRecorder.start(fps, cursorPath);
+      cursorRecorder.start(fps, cursorPath, {
+        offsetX: sourceInfo?.offsetX ?? 0,
+        offsetY: sourceInfo?.offsetY ?? 0,
+      });
     } catch (err) {
       console.warn('[session-manager] CursorRecorder failed to start:', err?.message ?? err);
     }
@@ -555,34 +1008,13 @@ export async function startRecording() {
     ffmpegOutputPath = null;
     ffmpegAudioOutputPath = null;
     if (isFfmpegCaptureAvailable() && getSourceInfo) {
-      const sourceInfo = getSourceInfo();
       if (sourceInfo) {
-        const ffmpegPath = join(recordingsDir, `recording-${cursorTimestamp}.webm`);
-
-        // Discover audio sources if the user enabled mic or system audio
-        let micSource = null;
-        let systemAudioSource = null;
-        if (pendingAudioConfig.micEnabled || pendingAudioConfig.sysAudioEnabled) {
-          try {
-            const sources = await discoverAudioSources(
-              pendingAudioConfig.selectedSystemAudioSourceId ?? null,
-            );
-            if (pendingAudioConfig.micEnabled) micSource = sources.micSource;
-            if (pendingAudioConfig.sysAudioEnabled) systemAudioSource = sources.monitorSource;
-            if (systemAudioSource) {
-              await ensureSourceAudible(systemAudioSource);
-            }
-            console.info('[session-manager] Audio sources for FFmpeg:', {
-              micSource,
-              systemAudioSource,
-            });
-          } catch (err) {
-            console.warn(
-              '[session-manager] Audio discovery failed — recording video-only:',
-              err?.message ?? err,
-            );
-          }
-        }
+        const micSource = activeAudioCapturePlan.micSource;
+        const systemAudioSource = activeAudioCapturePlan.systemAudioSource;
+        console.info('[session-manager] Audio sources for FFmpeg:', {
+          micSource,
+          systemAudioSource,
+        });
 
         try {
           ffmpegHandle = startFfmpegCapture({
@@ -613,15 +1045,9 @@ export async function startRecording() {
 
     if (!ffmpegHandle && (pendingAudioConfig.micEnabled || pendingAudioConfig.sysAudioEnabled)) {
       try {
-        const sources = await discoverAudioSources(
-          pendingAudioConfig.selectedSystemAudioSourceId ?? null,
-        );
-        const micSource = pendingAudioConfig.micEnabled ? sources.micSource : null;
-        const systemAudioSource = pendingAudioConfig.sysAudioEnabled ? sources.monitorSource : null;
-        if (systemAudioSource) {
-          await ensureSourceAudible(systemAudioSource);
-        }
-        const audioPath = join(recordingsDir, `recording-${cursorTimestamp}-audio.webm`);
+        const micSource = activeAudioCapturePlan.micSource;
+        const systemAudioSource = activeAudioCapturePlan.systemAudioSource;
+        const audioPath = ffmpegAudioPath;
         ffmpegAudioHandle = startFfmpegAudioCapture({
           outputPath: audioPath,
           micSource,
@@ -662,7 +1088,7 @@ export async function startRecording() {
       if (Notification.isSupported()) {
         const n = new Notification({
           title: 'Rough Cut — Recording',
-          body: 'Press Ctrl+Shift+Esc to stop. Right-click tray icon to pause.',
+          body: 'Press Ctrl+Shift+Esc to stop. Right-click tray icon for recording controls. Pause is unavailable for this pipeline.',
           silent: true,
         });
         n.show();
@@ -676,16 +1102,21 @@ export async function startRecording() {
     broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'recording');
     console.info('[session-manager] Sent recording status to panel.');
 
-    // Reset pause tracking
-    isPaused = false;
-    totalPausedMs = 0;
-    pauseStartMs = 0;
+    pauseCapability = getRecordingPauseCapability({
+      screenCaptureBackend: ffmpegHandle ? 'ffmpeg' : 'media-recorder',
+      audioCaptureBackend:
+        ffmpegHandle || ffmpegAudioHandle
+          ? 'ffmpeg'
+          : pendingAudioConfig.micEnabled || pendingAudioConfig.sysAudioEnabled
+            ? 'media-recorder'
+            : 'none',
+      capturesCursor: true,
+      capturesCamera: false,
+    });
 
-    // Elapsed heartbeat → panelWindow (accounts for paused time)
+    // Elapsed heartbeat → panelWindow
     elapsedTimer = setInterval(() => {
-      if (isPaused) return; // Don't update elapsed while paused
-      const currentPausedMs = totalPausedMs;
-      const elapsedMs = Date.now() - recordingStartMs - currentPausedMs;
+      const elapsedMs = Date.now() - recordingStartMs;
       broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_ELAPSED, elapsedMs);
       updateTrayTooltip();
     }, 100);
@@ -724,68 +1155,13 @@ export async function startRecording() {
  *     (final cleanup to idle happens after PANEL_SAVE_RECORDING resolves)
  */
 export async function stopRecording() {
-  if (!guardState('stopRecording', ['recording'])) return;
-
-  console.info('[session-manager] stopRecording() — transitioning to stopping.');
-  state = 'stopping';
-
-  // Clear timers / shortcut / tray immediately
-  _cleanup();
-
-  // Stop cursor recording FIRST (lightweight, instant)
-  lastCursorResult = cursorRecorder.stop();
-  if (lastCursorResult) {
-    console.info(
-      '[session-manager] Cursor data:',
-      lastCursorResult.eventCount,
-      'events →',
-      lastCursorResult.eventsPath,
-    );
+  if (state !== 'recording' && state !== 'stopping') {
+    console.warn(`[session-manager] stopRecording() ignored — current state: ${state}`);
+    return;
   }
 
-  // Stop FFmpeg BEFORE telling the panel — ensures the file is complete
-  // when the panel's save IPC arrives. Without this, the save handler
-  // races with FFmpeg shutdown and gets 0 frames.
-  if (ffmpegHandle) {
-    try {
-      await ffmpegHandle.stop();
-      console.info('[session-manager] FFmpeg capture stopped →', ffmpegHandle.outputPath);
-    } catch (err) {
-      console.warn('[session-manager] FFmpeg stop failed:', err?.message ?? err);
-      ffmpegHandle = null;
-    }
-  }
-
-  if (ffmpegAudioHandle) {
-    try {
-      await ffmpegAudioHandle.stop();
-      console.info(
-        '[session-manager] FFmpeg audio-only capture stopped →',
-        ffmpegAudioHandle.outputPath,
-      );
-    } catch (err) {
-      console.warn('[session-manager] FFmpeg audio-only stop failed:', err?.message ?? err);
-      ffmpegAudioHandle = null;
-    }
-  }
-
-  // On Linux the panel was hidden — show it so the renderer can process
-  // MediaRecorder.stop() and assemble the recording blob.
-  if (IS_LINUX && panelWindow && !panelWindow.isDestroyed()) {
-    panelWindow.showInactive();
-    console.info('[session-manager] Panel restored for MediaRecorder teardown.');
-  }
-
-  // NOW tell panel to stop — FFmpeg file is already complete
-  broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'stopping');
-
-  // Restore main window
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.show();
-    console.info('[session-manager] Main window restored.');
-  }
-
-  console.info('[session-manager] Stop signal sent to panel renderer.');
+  await requestSessionShutdown('user-stop');
+  console.info('[session-manager] Recording stop completed.');
 }
 
 // ---------------------------------------------------------------------------
@@ -882,8 +1258,8 @@ export function initSessionManager(win, sourceInfoGetter) {
     openPanel();
   });
 
-  ipcMain.handle(IPC_CHANNELS.PANEL_CLOSE, () => {
-    closePanel();
+  ipcMain.handle(IPC_CHANNELS.PANEL_CLOSE, async () => {
+    await closePanel();
   });
 
   ipcMain.handle(IPC_CHANNELS.PANEL_RESIZE, (_event, { mode }) => {
@@ -897,6 +1273,8 @@ export function initSessionManager(win, sourceInfoGetter) {
       micEnabled: !!audioConfig?.micEnabled,
       sysAudioEnabled: !!audioConfig?.sysAudioEnabled,
       countdownSeconds: audioConfig?.countdownSeconds,
+      selectedMicDeviceId: audioConfig?.selectedMicDeviceId ?? null,
+      selectedMicLabel: audioConfig?.selectedMicLabel ?? null,
       selectedSystemAudioSourceId: audioConfig?.selectedSystemAudioSourceId ?? null,
     };
     console.info('[session-manager] Recording config from panel:', pendingAudioConfig);
@@ -907,24 +1285,19 @@ export function initSessionManager(win, sourceInfoGetter) {
     await stopRecording();
   });
 
-  // Pause/resume elapsed timer when panel pauses/resumes MediaRecorder
+  ipcMain.on(IPC_CHANNELS.PANEL_CONNECTION_ISSUES_CHANGED, (_event, issues) => {
+    broadcastConnectionIssues(issues);
+  });
+
   ipcMain.on('panel:pause', () => {
-    if (state === 'recording' && !isPaused) {
-      isPaused = true;
-      pauseStartMs = Date.now();
-      updateTrayTooltip();
-      if (tray) _rebuildTrayMenu(tray);
-      console.info('[session-manager] Recording paused');
+    if (state === 'recording') {
+      console.warn('[session-manager] Ignoring pause request:', pauseCapability.reason);
     }
   });
 
   ipcMain.on('panel:resume', () => {
-    if (state === 'recording' && isPaused) {
-      totalPausedMs += Date.now() - pauseStartMs;
-      isPaused = false;
-      updateTrayTooltip();
-      if (tray) _rebuildTrayMenu(tray);
-      console.info('[session-manager] Recording resumed, total paused:', totalPausedMs, 'ms');
+    if (state === 'recording') {
+      console.warn('[session-manager] Ignoring resume request:', pauseCapability.reason);
     }
   });
 
@@ -945,15 +1318,12 @@ export function initSessionManager(win, sourceInfoGetter) {
     IPC_CHANNELS.PANEL_SAVE_RECORDING,
     async (_event, { buffer, metadata, cameraBuffer }) => {
       try {
-        // Use the recording location from app settings, or fall back to /tmp
-        let projectDir = null;
-        try {
-          const { getRecordingLocation } = await import('../recent-projects-service.mjs');
-          const configuredDir = getRecordingLocation();
-          if (configuredDir) projectDir = configuredDir;
-        } catch {
-          /* ignore — fall back to /tmp */
+        if (state !== 'stopping') {
+          console.warn('[session-manager] Ignoring late panel save while state is', state);
+          return null;
         }
+
+        const projectDir = await resolveProjectDir();
 
         console.info(
           '[session-manager] Saving recording to:',
@@ -985,10 +1355,7 @@ export function initSessionManager(win, sourceInfoGetter) {
             const cameraPath = await saveCameraRecording(camBuf, result.filePath);
             result.cameraFilePath = cameraPath;
           }
-          ffmpegHandle = null;
-          ffmpegAudioHandle = null;
-          ffmpegOutputPath = null;
-          ffmpegAudioOutputPath = null;
+          resetCaptureRefs();
         } else {
           console.info('[session-manager] Using MediaRecorder buffer (FFmpeg not available)');
           // Save screen recording (pass null for camera — we handle camera separately as MP4)
@@ -1028,44 +1395,13 @@ export function initSessionManager(win, sourceInfoGetter) {
             const cameraPath = await saveCameraRecording(camBuf, result.filePath);
             result.cameraFilePath = cameraPath;
           }
-          ffmpegAudioHandle = null;
-          ffmpegOutputPath = null;
-          ffmpegAudioOutputPath = null;
+          resetCaptureRefs();
         }
 
-        // Attach cursor events path to result
-        console.info(
-          '[session-manager] lastCursorResult:',
-          lastCursorResult
-            ? `${lastCursorResult.eventCount} events at ${lastCursorResult.eventsPath}`
-            : 'NULL',
-        );
-        if (lastCursorResult) {
-          result.cursorEventsPath = lastCursorResult.eventsPath;
-          lastCursorResult = null;
-        }
-        console.info(
-          '[session-manager] Final result keys:',
-          Object.keys(result),
-          'cursorEventsPath:',
-          result.cursorEventsPath ?? 'NOT SET',
-        );
-
-        // Route result to the main renderer so it can create an Asset entry
-        safeSend(mainWindow, IPC_CHANNELS.RECORDING_ASSET_READY, result);
-
-        // Tear down panel and return to idle
-        _destroyPanel();
-        state = 'idle';
-        broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'idle');
-
-        console.info('[session-manager] Recording saved, transitioned to idle.');
-        return result;
+        return await finalizeSavedSession(result, metadata);
       } catch (err) {
         console.error('[session-manager] PANEL_SAVE_RECORDING failed:', err);
-        _destroyPanel();
-        state = 'idle';
-        broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'idle');
+        rejectStopCompletion(err);
         throw err;
       }
     },
@@ -1087,19 +1423,18 @@ export function initSessionManager(win, sourceInfoGetter) {
 
   // ---- Safety net ----
 
-  app.on('before-quit', () => {
-    if (state === 'recording') {
-      console.info('[session-manager] App quitting mid-recording — stopping session.');
-      stopRecording().catch((err) =>
-        console.error('[session-manager] stopRecording on quit failed:', err),
-      );
-    } else if (state === 'countdown') {
-      // Abort countdown gracefully
-      _cleanup();
-      state = 'idle';
-    }
+  app.on('before-quit', (event) => {
+    if (allowAppQuit) return;
+    if (state === 'idle' && !panelWindow) return;
 
-    // Destroy panel window if still open
-    _destroyPanel();
+    event.preventDefault();
+    void requestSessionShutdown('app-quit')
+      .catch((err) => {
+        console.error('[session-manager] stopRecording on quit failed:', err);
+      })
+      .finally(() => {
+        allowAppQuit = true;
+        app.quit();
+      });
   });
 }

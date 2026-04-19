@@ -60,9 +60,11 @@ export interface ProjectSettings {
   readonly backgroundColor: string;
   readonly sampleRate: SampleRate;
   readonly backgroundConfig?: BackgroundConfig;
+  readonly destinationPresetId?: string | null;
 }
 
 export type ZoomMarkerId = string & { readonly __brand: 'ZoomMarkerId' };
+export type CameraLayoutMarkerId = string & { readonly __brand: 'CameraLayoutMarkerId' };
 
 export interface ZoomFocalPoint {
   readonly x: number; // normalized 0–1 within source frame
@@ -80,9 +82,22 @@ export interface ZoomMarker {
   readonly zoomOutDuration: Frame;
 }
 
+export type ZoomFollowAnimation = 'focused' | 'smooth';
+
 export interface ZoomPresentation {
   readonly autoIntensity: number; // 0–1
+  readonly followCursor: boolean;
+  readonly followAnimation: ZoomFollowAnimation;
+  readonly followPadding: number; // 0–0.3 normalized viewport padding per edge
   readonly markers: readonly ZoomMarker[];
+}
+
+export interface CameraLayoutMarker {
+  readonly id: CameraLayoutMarkerId;
+  readonly frame: Frame;
+  readonly camera: CameraPresentation;
+  readonly cameraFrame?: NormalizedRect;
+  readonly templateId?: string;
 }
 
 export type CursorStyle = 'subtle' | 'default' | 'spotlight';
@@ -139,6 +154,7 @@ export interface RecordingPresentation {
   readonly zoom: ZoomPresentation;
   readonly cursor: CursorPresentation;
   readonly camera: CameraPresentation;
+  readonly cameraLayouts?: readonly CameraLayoutMarker[];
   readonly cameraFrame?: NormalizedRect;
   readonly screenCrop?: RegionCrop;
   readonly cameraCrop?: RegionCrop;

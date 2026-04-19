@@ -1,54 +1,10 @@
 /**
  * Record tab layout regression tests.
  *
- * Launches the Electron app via Playwright and asserts that the
- * flex-based layout never overflows the viewport — the class of bug
- * we fixed with min-width: 0 / overflow: hidden on every flex container.
- *
- * Requires: `pnpm dev` running (Vite dev server at 127.0.0.1:7544).
+ * Verifies the Record workspace fits the viewport after entering the app from
+ * the Projects tab.
  */
-import {
-  test,
-  expect,
-  _electron as electron,
-  type ElectronApplication,
-  type Page,
-} from '@playwright/test';
-
-let app: ElectronApplication;
-let page: Page;
-
-test.beforeAll(async () => {
-  app = await electron.launch({
-    args: ['--no-sandbox', 'apps/desktop'],
-    cwd: process.cwd(),
-  });
-
-  // Wait for the renderer window (skip DevTools windows)
-  const windows = app.windows();
-  for (const w of windows) {
-    if (w.url().includes('127.0.0.1:7544')) {
-      page = w;
-      break;
-    }
-  }
-  if (!page) {
-    page = await app.waitForEvent('window', {
-      predicate: (w) => w.url().includes('127.0.0.1:7544'),
-      timeout: 15_000,
-    });
-  }
-
-  // Let the app settle (React hydration, compositor init)
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForTimeout(2_000);
-});
-
-test.afterAll(async () => {
-  await app?.close();
-});
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
+import { test, expect, navigateToTab } from './fixtures/electron-app.js';
 
 interface LayoutMetrics {
   innerWidth: number;
@@ -61,11 +17,15 @@ interface LayoutMetrics {
   overflowCountY: number;
 }
 
-async function collectMetrics(): Promise<LayoutMetrics> {
+async function collectMetrics(page: import('@playwright/test').Page): Promise<LayoutMetrics> {
   return page.evaluate(() => {
     const row = document.querySelector('[data-testid="workspace-row"]') as HTMLElement | null;
-    const inspector = document.querySelector('[data-testid="record-inspector"]') as HTMLElement | null;
-    const timeline = document.querySelector('[data-testid="record-timeline"]') as HTMLElement | null;
+    const inspector = document.querySelector(
+      '[data-testid="record-inspector"]',
+    ) as HTMLElement | null;
+    const timeline = document.querySelector(
+      '[data-testid="record-timeline"]',
+    ) as HTMLElement | null;
     const split = document.querySelector('[data-testid="vertical-split"]') as HTMLElement | null;
 
     const rr = row?.getBoundingClientRect();
@@ -76,7 +36,6 @@ async function collectMetrics(): Promise<LayoutMetrics> {
     const iw = window.innerWidth;
     const ih = window.innerHeight;
 
-    // Count elements overflowing the viewport
     const allEls = Array.from(document.querySelectorAll('*')).filter(
       (el): el is HTMLElement => el instanceof HTMLElement,
     );
@@ -90,7 +49,11 @@ async function collectMetrics(): Promise<LayoutMetrics> {
       inspector: ir ? { right: ir.right, width: ir.width } : null,
       timeline: tr ? { bottom: tr.bottom, height: tr.height } : null,
       verticalSplit: sr
-        ? { bottom: sr.bottom, scrollHeight: split!.scrollHeight, clientHeight: split!.clientHeight }
+        ? {
+            bottom: sr.bottom,
+            scrollHeight: split!.scrollHeight,
+            clientHeight: split!.clientHeight,
+          }
         : null,
       overflowCountX: allEls.filter((el) => el.getBoundingClientRect().right > iw + 0.5).length,
       overflowCountY: allEls.filter((el) => el.getBoundingClientRect().bottom > ih + 0.5).length,
@@ -98,41 +61,40 @@ async function collectMetrics(): Promise<LayoutMetrics> {
   });
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 test.describe('Record tab layout', () => {
-  test('workspace row does not overflow horizontally', async () => {
-    const m = await collectMetrics();
+  test.beforeEach(async ({ appPage }) => {
+    await navigateToTab(appPage, 'record');
+  });
+
+  test('workspace row does not overflow horizontally', async ({ appPage }) => {
+    const m = await collectMetrics(appPage);
     expect(m.workspaceRow, 'workspace-row testid not found').not.toBeNull();
     expect(m.workspaceRow!.scrollWidth).toBeLessThanOrEqual(m.workspaceRow!.clientWidth + 1);
   });
 
-  test('inspector right edge stays within viewport', async () => {
-    const m = await collectMetrics();
-    // Inspector may be null if sidebar is collapsed — that's fine
+  test('inspector right edge stays within viewport', async ({ appPage }) => {
+    const m = await collectMetrics(appPage);
     if (m.inspector) {
       expect(m.inspector.right).toBeLessThanOrEqual(m.innerWidth + 0.5);
     }
   });
 
-  test('timeline bottom edge stays within viewport', async () => {
-    const m = await collectMetrics();
+  test('timeline bottom edge stays within viewport', async ({ appPage }) => {
+    const m = await collectMetrics(appPage);
     if (m.timeline) {
       expect(m.timeline.bottom).toBeLessThanOrEqual(m.innerHeight + 0.5);
     }
   });
 
-  test('vertical split does not overflow its container', async () => {
-    const m = await collectMetrics();
+  test('vertical split does not overflow its container', async ({ appPage }) => {
+    const m = await collectMetrics(appPage);
     if (m.verticalSplit) {
-      expect(m.verticalSplit.scrollHeight).toBeLessThanOrEqual(
-        m.verticalSplit.clientHeight + 1,
-      );
+      expect(m.verticalSplit.scrollHeight).toBeLessThanOrEqual(m.verticalSplit.clientHeight + 1);
     }
   });
 
-  test('no elements overflow the viewport horizontally', async () => {
-    const m = await collectMetrics();
+  test('no elements overflow the viewport horizontally', async ({ appPage }) => {
+    const m = await collectMetrics(appPage);
     expect(m.overflowCountX).toBe(0);
   });
 });

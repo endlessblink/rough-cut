@@ -41,6 +41,14 @@ interface RecordTimelineShellProps {
     id: ZoomMarkerId,
     patch: { startFrame?: number; endFrame?: number },
   ) => void;
+  cameraLayoutMarkers?: ReadonlyArray<{
+    id: string;
+    frame: number;
+    camera: { visible?: boolean; position?: string };
+  }>;
+  selectedCameraLayoutMarkerId?: string | null;
+  onSelectCameraLayoutMarker?: (id: string | null) => void;
+  onMoveCameraLayoutMarker?: (id: string, frame: number) => void;
 }
 
 /* ── Constants ─────────────────────────────────────────────────────────────── */
@@ -420,6 +428,180 @@ function ZoomTrackRow({
   );
 }
 
+function CameraLayoutTrackRow({
+  top,
+  durationFrames,
+  markers,
+  selectedMarkerId,
+  onSelectMarker,
+  onMoveMarker,
+}: {
+  top: number;
+  durationFrames: number;
+  markers: ReadonlyArray<{
+    id: string;
+    frame: number;
+    camera: { visible?: boolean; position?: string };
+    templateId?: string;
+  }>;
+  selectedMarkerId?: string | null;
+  onSelectMarker?: (id: string | null) => void;
+  onMoveMarker?: (id: string, frame: number) => void;
+}) {
+  const describeMarker = useCallback(
+    (marker: { camera: { visible?: boolean; position?: string }; templateId?: string }) => {
+      if (marker.camera.visible === false) return 'Hide Camera';
+      if (marker.templateId === 'presentation-16x9') return 'Presentation';
+      if (marker.templateId === 'talking-head') return 'Talking Head';
+      if (marker.camera.position === 'corner-tl') return 'Top Left';
+      return marker.camera.position ?? 'Camera';
+    },
+    [],
+  );
+
+  const markerAreaRef = useRef<HTMLDivElement>(null);
+
+  const startMove = useCallback(
+    (markerId: string, downEvent: React.PointerEvent) => {
+      const area = markerAreaRef.current;
+      if (!area || durationFrames <= 0) {
+        onSelectMarker?.(markerId);
+        return;
+      }
+
+      const rect = area.getBoundingClientRect();
+      const marker = markers.find((m) => m.id === markerId);
+      if (!marker) return;
+      const startClientX = downEvent.clientX;
+      const pixelsPerFrame = rect.width / durationFrames;
+      let moved = false;
+
+      const onMove = (ev: PointerEvent) => {
+        const dx = ev.clientX - startClientX;
+        if (!moved && Math.abs(dx) < 3) return;
+        moved = true;
+        const frameDelta = Math.round(dx / pixelsPerFrame);
+        const nextFrame = Math.max(0, Math.min(durationFrames, marker.frame + frameDelta));
+        onMoveMarker?.(markerId, nextFrame);
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        if (!moved) onSelectMarker?.(markerId);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+    },
+    [durationFrames, markers, onMoveMarker, onSelectMarker],
+  );
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top,
+        left: 0,
+        right: 0,
+        height: LANE_HEIGHT,
+        borderTop: '1px solid rgba(255,255,255,0.07)',
+        display: 'flex',
+      }}
+    >
+      <div
+        style={{
+          width: LABEL_WIDTH,
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'rgba(0,0,0,0.60)',
+          borderRight: '1px solid rgba(255,255,255,0.07)',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 8,
+            fontWeight: 600,
+            color: 'rgba(180,140,255,0.78)',
+            userSelect: 'none',
+            letterSpacing: '0.04em',
+          }}
+        >
+          CL
+        </span>
+      </div>
+
+      <div ref={markerAreaRef} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {markers.map((marker) => {
+          if (durationFrames <= 0) return null;
+          const leftPct = frameToPct(marker.frame, durationFrames);
+          const selected = marker.id === selectedMarkerId;
+          const markerLabel = describeMarker(marker);
+          return (
+            <div
+              key={marker.id}
+              data-testid="camera-layout-marker"
+              data-selected={selected ? 'true' : 'false'}
+              role="button"
+              tabIndex={0}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                startMove(marker.id, e);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onSelectMarker?.(marker.id);
+                }
+              }}
+              title={`layout @ ${marker.frame} · ${markerLabel}`}
+              style={{
+                position: 'absolute',
+                top: CLIP_TOP,
+                left: `${leftPct}%`,
+                width: selected ? 10 : 8,
+                height: CLIP_HEIGHT,
+                marginLeft: selected ? -5 : -4,
+                borderRadius: 4,
+                background: selected
+                  ? 'rgba(214,188,250,1)'
+                  : marker.camera.visible === false
+                    ? 'rgba(180,140,255,0.95)'
+                    : 'rgba(180,140,255,0.78)',
+                boxShadow: selected
+                  ? '0 0 0 2px rgba(255,255,255,0.18) inset'
+                  : '0 0 0 1px rgba(255,255,255,0.10) inset',
+              }}
+            >
+              <span
+                style={{
+                  position: 'absolute',
+                  top: -14,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  padding: '1px 4px',
+                  borderRadius: 4,
+                  background: 'rgba(0,0,0,0.72)',
+                  color: 'rgba(255,255,255,0.8)',
+                  fontSize: 8,
+                  lineHeight: 1.2,
+                  whiteSpace: 'nowrap',
+                  pointerEvents: 'none',
+                }}
+              >
+                {markerLabel}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ── RecordTimelineShell ───────────────────────────────────────────────────── */
 
 export function RecordTimelineShell({
@@ -435,6 +617,10 @@ export function RecordTimelineShell({
   onAddZoomMarkerAtPlayhead,
   onSelectZoomMarker,
   onResizeZoomMarker,
+  cameraLayoutMarkers = [],
+  selectedCameraLayoutMarkerId = null,
+  onSelectCameraLayoutMarker,
+  onMoveCameraLayoutMarker,
 }: RecordTimelineShellProps) {
   /* ── derived data ──────────────────────────────────────────────────────── */
 
@@ -576,7 +762,7 @@ export function RecordTimelineShell({
     return aIdx++;
   });
 
-  const totalHeight = Math.max((tracks.length + 1) * LANE_HEIGHT, LANE_HEIGHT * 2);
+  const totalHeight = Math.max((tracks.length + 2) * LANE_HEIGHT, LANE_HEIGHT * 3);
 
   /* ── render ────────────────────────────────────────────────────────────── */
 
@@ -687,8 +873,17 @@ export function RecordTimelineShell({
             onResizeMarker={onResizeZoomMarker}
           />
 
+          <CameraLayoutTrackRow
+            top={LANE_HEIGHT}
+            durationFrames={effectiveDuration}
+            markers={cameraLayoutMarkers}
+            selectedMarkerId={selectedCameraLayoutMarkerId}
+            onSelectMarker={onSelectCameraLayoutMarker}
+            onMoveMarker={onMoveCameraLayoutMarker}
+          />
+
           {tracks.map((track, i) => {
-            const laneTop = (i + 1) * LANE_HEIGHT;
+            const laneTop = (i + 2) * LANE_HEIGHT;
             const isVideo = track.type === 'video';
             const lbl = trackLabel(track, labelIndices[i] ?? i);
 

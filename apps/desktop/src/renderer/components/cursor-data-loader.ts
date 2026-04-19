@@ -100,7 +100,7 @@ export function buildCursorFrameData(
     }
   }
 
-  return { frames, frameCount: totalFrames };
+  return { frames, frameCount: totalFrames, sourceWidth, sourceHeight };
 }
 
 /**

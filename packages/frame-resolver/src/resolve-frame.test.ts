@@ -238,7 +238,13 @@ describe('resolveFrame', () => {
     it('recording with auto zoom intensity → scale reflects intensity', () => {
       const asset = createAsset('recording', '/test.webm', {
         presentation: {
-          zoom: { autoIntensity: 1, markers: [] },
+          zoom: {
+            autoIntensity: 1,
+            followCursor: true,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
           cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
         },
       });
@@ -252,7 +258,13 @@ describe('resolveFrame', () => {
     it('recording with zero auto intensity → scale = 1', () => {
       const asset = createAsset('recording', '/test.webm', {
         presentation: {
-          zoom: { autoIntensity: 0, markers: [] },
+          zoom: {
+            autoIntensity: 0,
+            followCursor: true,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
           cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
         },
       });
@@ -267,6 +279,9 @@ describe('resolveFrame', () => {
         presentation: {
           zoom: {
             autoIntensity: 0.5,
+            followCursor: true,
+            followAnimation: 'focused',
+            followPadding: 0.18,
             markers: [
               { id: 'zm-1' as import('@rough-cut/project-model').ZoomMarkerId, startFrame: 10, endFrame: 50, kind: 'manual' as const, strength: 0.5, focalPoint: { x: 0.5, y: 0.5 }, zoomInDuration: 0, zoomOutDuration: 0 },
             ],
@@ -287,6 +302,9 @@ describe('resolveFrame', () => {
         presentation: {
           zoom: {
             autoIntensity: 0.5,
+            followCursor: true,
+            followAnimation: 'focused',
+            followPadding: 0.18,
             markers: [
               { id: 'zm-1' as import('@rough-cut/project-model').ZoomMarkerId, startFrame: 10, endFrame: 50, kind: 'manual' as const, strength: 1, focalPoint: { x: 0.5, y: 0.5 }, zoomInDuration: 0, zoomOutDuration: 0 },
             ],
@@ -305,7 +323,13 @@ describe('resolveFrame', () => {
     it('recording with cursor settings → reflected in resolved cursor', () => {
       const asset = createAsset('recording', '/test.webm', {
         presentation: {
-          zoom: { autoIntensity: 0.5, markers: [] },
+          zoom: {
+            autoIntensity: 0.5,
+            followCursor: true,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
           cursor: { style: 'spotlight', clickEffect: 'ripple', sizePercent: 120, clickSoundEnabled: true },
         },
       });

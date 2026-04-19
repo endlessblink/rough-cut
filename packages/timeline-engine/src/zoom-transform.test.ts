@@ -127,6 +127,44 @@ describe('getZoomTransformForMarker', () => {
     // Focal point is above center, so translate should be positive (move content down)
     expect(t!.translateY).toBeGreaterThan(0);
   });
+
+  it('follows the cursor for auto markers when enabled', () => {
+    const marker = createZoomMarker(0, 30, {
+      kind: 'auto',
+      strength: 1,
+      zoomInDuration: 0,
+      zoomOutDuration: 0,
+      focalPoint: { x: 0.5, y: 0.5 },
+    });
+    const t = getZoomTransformForMarker(15, marker, {
+      followCursor: true,
+      followAnimation: 'focused',
+      followPadding: 0,
+      getCursorPosition: () => ({ x: 0.8, y: 0.5 }),
+    });
+
+    expect(t).not.toBeNull();
+    expect(t!.translateX).toBeLessThan(0);
+  });
+
+  it('keeps the zoom steadier when cursor stays inside the framing zone', () => {
+    const marker = createZoomMarker(0, 30, {
+      kind: 'auto',
+      strength: 1,
+      zoomInDuration: 0,
+      zoomOutDuration: 0,
+      focalPoint: { x: 0.5, y: 0.5 },
+    });
+    const t = getZoomTransformForMarker(15, marker, {
+      followCursor: true,
+      followAnimation: 'focused',
+      followPadding: 0.18,
+      getCursorPosition: () => ({ x: 0.56, y: 0.5 }),
+    });
+
+    expect(t).not.toBeNull();
+    expect(t!.translateX).toBeCloseTo(0, 5);
+  });
 });
 
 describe('getZoomTransformAtFrame', () => {

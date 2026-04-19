@@ -35,7 +35,7 @@ describe('factories', () => {
 
     it('has current schema version', () => {
       const project = createProject();
-      expect(project.version).toBe(6);
+      expect(project.version).toBe(7);
     });
 
     it('has 2 video + 2 audio tracks by default', () => {
@@ -54,6 +54,11 @@ describe('factories', () => {
     it('supports overrides', () => {
       const project = createProject({ name: 'My Project' });
       expect(project.name).toBe('My Project');
+    });
+
+    it('defaults destination preset id to null', () => {
+      const project = createProject();
+      expect(project.settings.destinationPresetId).toBeNull();
     });
   });
 
@@ -182,7 +187,7 @@ describe('factories', () => {
 
     it('creates a persisted library document with current schema version', () => {
       const library = createLibraryDocument('Interview Selects');
-      expect(library.version).toBe(6);
+      expect(library.version).toBe(7);
       expect(library.name).toBe('Interview Selects');
       expect(() => LibraryDocumentSchema.parse(library)).not.toThrow();
     });

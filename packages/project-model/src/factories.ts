@@ -26,6 +26,8 @@ import type {
   ZoomMarkerId,
   ZoomMarker,
   ZoomPresentation,
+  CameraLayoutMarkerId,
+  CameraLayoutMarker,
   CursorPresentation,
   CameraPresentation,
   RegionCrop,
@@ -84,6 +86,9 @@ function visualAnalysisEntryId(): VisualAnalysisEntryId {
 }
 function zoomMarkerId(): ZoomMarkerId {
   return generateId() as ZoomMarkerId;
+}
+function cameraLayoutMarkerId(): CameraLayoutMarkerId {
+  return generateId() as CameraLayoutMarkerId;
 }
 function aiAnnotationId(): AIAnnotationId {
   return generateId() as AIAnnotationId;
@@ -207,6 +212,9 @@ export function createZoomMarker(
 export function createDefaultZoomPresentation(): ZoomPresentation {
   return {
     autoIntensity: 0.5,
+    followCursor: true,
+    followAnimation: 'focused',
+    followPadding: 0.18,
     markers: [],
   };
 }
@@ -217,6 +225,19 @@ export function createDefaultCursorPresentation(): CursorPresentation {
     clickEffect: 'none',
     sizePercent: 100,
     clickSoundEnabled: false,
+  };
+}
+
+export function createCameraLayoutMarker(
+  frame: number,
+  camera: CameraPresentation,
+  overrides?: Partial<CameraLayoutMarker>,
+): CameraLayoutMarker {
+  return {
+    id: cameraLayoutMarkerId(),
+    frame,
+    camera,
+    ...overrides,
   };
 }
 
@@ -415,6 +436,7 @@ export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocu
       frameRate: DEFAULT_FRAME_RATE,
       backgroundColor: DEFAULT_BACKGROUND_COLOR,
       sampleRate: DEFAULT_SAMPLE_RATE,
+      destinationPresetId: null,
     },
     assets: [],
     composition: {

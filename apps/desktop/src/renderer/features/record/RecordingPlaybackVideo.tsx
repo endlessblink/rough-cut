@@ -58,12 +58,11 @@ export function RecordingPlaybackVideo({
     clickSoundEnabled: false,
   };
 
-  const cursorPath = asset?.metadata?.cursorEventsPath as string | null;
-  const cursorEvents = useCursorEvents(cursorPath);
-
   const assetDuration = asset?.duration || 900;
   const assetWidth = (asset?.metadata?.width as number) || 1920;
   const assetHeight = (asset?.metadata?.height as number) || 1080;
+  const cursorPath = asset?.metadata?.cursorEventsPath as string | null;
+  const cursorEvents = useCursorEvents(cursorPath, assetWidth, assetHeight);
 
   const [cursorData, setCursorData] = useState<CursorFrameData | null>(null);
   useEffect(() => {
@@ -89,7 +88,21 @@ export function RecordingPlaybackVideo({
 
   const zt =
     zoomMarkers.length > 0
-      ? getZoomTransformAtFrame(playheadFrame - clipTimelineIn, zoomMarkers)
+      ? getZoomTransformAtFrame(playheadFrame - clipTimelineIn, zoomMarkers, {
+          followCursor: asset?.presentation?.zoom?.followCursor ?? true,
+          followAnimation: asset?.presentation?.zoom?.followAnimation ?? 'focused',
+          followPadding: asset?.presentation?.zoom?.followPadding ?? 0.18,
+          getCursorPosition: (frame) => {
+            if (!cursorData) return null;
+            const clampedFrame = Math.max(0, Math.min(frame, cursorData.frameCount - 1));
+            const idx = clampedFrame * 3;
+            if (idx + 1 >= cursorData.frames.length) return null;
+            const x = cursorData.frames[idx] ?? -1;
+            const y = cursorData.frames[idx + 1] ?? -1;
+            if (x < 0 || y < 0) return null;
+            return { x, y };
+          },
+        })
       : { scale: 1, translateX: 0, translateY: 0 };
 
   const reticleVisible =
@@ -141,6 +154,7 @@ export function RecordingPlaybackVideo({
         presentation={cursorPresentation}
         clipTimelineIn={clipTimelineIn}
         zoomTransform={zt}
+        crop={asset?.presentation?.screenCrop}
       />
       {reticleVisible && selectedZoomMarker && onFocalPointChange && (
         <FocalPointReticle

@@ -23,6 +23,72 @@ triggers:
 
 The Record tab is where users configure their recording setup: pick a screen/window source, toggle microphone/camera/system audio, see a live preview of what will be captured, and adjust visual settings (background, camera shape, presentation events). Once configured, clicking REC hands off to the recording session flow (see recording-session-flow skill).
 
+## Product Standard
+
+The quality bar for the Record tab is no longer just "feature exists." It must feel like a premium recorder in the Screen Studio / FocuSee class:
+
+1. **Stable and trustworthy first** — permission diagnostics, source/device recovery, controller safety, autosave, reopen fidelity, and preview/export parity come before flashy polish.
+2. **Build on infrastructure** — do not add premium polish on top of unreliable session state, broken persistence, or weak preview parity.
+3. **One-take readiness** — teleprompter, audio confidence, camera layout control, captions, Smart Cut, and destination presets should make a tutorial mostly done by the time recording stops.
+4. **Record-native polish** — premium zoom/cursor/camera/annotation behavior belongs in Record review, not deferred to Edit.
+
+## Development Path
+
+When planning or implementing Record work, follow this sprint order unless the user explicitly reprioritizes:
+
+### Sprint R1 — Record Trust Infrastructure
+
+These tasks make recording safe, recoverable, and believable:
+
+- `TASK-143` permission diagnostics + deep links + preflight test
+- `TASK-144` mid-take source/device recovery with re-target and offline badge
+- `TASK-145` floating controller hide/fade + never-in-video guarantee
+- `TASK-146` preview/export fidelity enforcement
+- `TASK-147` reopen/project-move fidelity for templates and sidecars
+- `TASK-148` crash-resilient autosave + partial-take recovery
+- `TASK-152` fear-reducing micro-affordances
+- `TASK-153` auto desktop icon hide + Do Not Disturb
+- `TASK-154` replay buffer hotkey
+- existing related work: `TASK-100`, `TASK-124`, `TASK-125`, `BUG-004`, `BUG-011`, `BUG-013`
+
+Do not call Record premium until this layer is substantially green in code and tests.
+
+### Sprint R2 — Record Polish Core
+
+These tasks make the recording output feel competitive with Screen Studio / FocuSee:
+
+- `TASK-122` zoom marker transform + paused-selection behavior
+- `TASK-123` zoom sidecar + cursor continuity persistence
+- `TASK-129` automatic zoom generation from clicks
+- `TASK-130` advanced cursor styles, click effects, click sounds
+- `TASK-131` cinematic motion blur
+- `TASK-132` privacy blur masks and spotlight regions
+- `TASK-150` per-segment visibility toggles
+- `TASK-158` camera auto-shrink during zoom activation
+- `TASK-159` full dynamic camera layout authoring UX
+
+### Sprint R3 — Record Assistance
+
+These tasks make one-take tutorial creation realistic:
+
+- `TASK-089` keyboard shortcut capture + overlays
+- `TASK-090` highlights and annotations
+- `TASK-091` titles and callouts
+- `TASK-093` teleprompter
+- `TASK-149` clipping warnings + ducking preview + multi-track review
+- `TASK-155` AI captions with timeline edit + styling
+- `TASK-156` Smart Cut for filler words, silence, breaths, and mouth clicks
+
+### Sprint R4 — Record Packaging
+
+These tasks connect Record output to publishing and repeatable workflows:
+
+- `TASK-094` shareable recording presets and profiles
+- `TASK-121` restore template picker and preset application flow
+- `TASK-151` destination presets with social framing and export linkage
+- `TASK-157` watermark/logo inspector with persistent branding controls
+- `TASK-095` mobile device capture with device frames
+
 ## Canonical Constraints
 
 From the project constitution:
@@ -46,15 +112,15 @@ idle → loading-sources → ready → countdown → recording → stopping → 
                                     ↘ error ↗ (any state can error)
 ```
 
-| State | Description |
-|-------|-------------|
-| `idle` | Initial state, nothing loaded |
-| `loading-sources` | Fetching available sources from main |
-| `ready` | Sources loaded, user can configure and record |
-| `countdown` | 3-2-1 countdown before capture starts |
-| `recording` | Actively capturing |
-| `stopping` | MediaRecorder stopped, saving to disk |
-| `error` | Something failed, can retry |
+| State             | Description                                   |
+| ----------------- | --------------------------------------------- |
+| `idle`            | Initial state, nothing loaded                 |
+| `loading-sources` | Fetching available sources from main          |
+| `ready`           | Sources loaded, user can configure and record |
+| `countdown`       | 3-2-1 countdown before capture starts         |
+| `recording`       | Actively capturing                            |
+| `stopping`        | MediaRecorder stopped, saving to disk         |
+| `error`           | Something failed, can retry                   |
 
 ## Component Architecture
 
@@ -102,11 +168,13 @@ apps/desktop/src/shared/
 ## Key Hooks
 
 ### useRecordState
+
 - Manages FSM transitions
 - Holds: status, sources list, selected source, selected devices, error
 - Pure state management, no side effects
 
 ### useLivePreview(sourceId)
+
 - Acquires MediaStream from desktopCapturer as soon as source is selected
 - Returns: `{ stream }` — the MediaStream object
 - Stream is reused by useRecording (no duplicate getUserMedia)
@@ -114,6 +182,7 @@ apps/desktop/src/shared/
 - Uses `mounted` boolean guard to prevent setting srcObject after cleanup
 
 ### useRecording({ stream, onElapsedChange, onAssetCreated })
+
 - Accepts external stream from useLivePreview (does NOT call getUserMedia itself)
 - Creates MediaRecorder from the provided stream
 - Collects chunks at 1-second intervals
@@ -162,14 +231,16 @@ PreviewCard (outer div)
 Three mutually exclusive modes, checked in priority order:
 
 ```tsx
-{selectedSourceId ? (
-  // LIVE: source selected → show <video> with MediaStream
-  <LivePreviewVideo stream={liveStream} />
-) : hasRecordingAsset ? (
-  // REVIEW: no source, but has recorded asset → show compositor canvas
-  <div ref={previewRef} style={{ position: 'absolute', inset: 0 }} />
-) : null}
-  // EMPTY: no source, no recording → PreviewCard shows empty state
+{
+  selectedSourceId ? (
+    // LIVE: source selected → show <video> with MediaStream
+    <LivePreviewVideo stream={liveStream} />
+  ) : hasRecordingAsset ? (
+    // REVIEW: no source, but has recorded asset → show compositor canvas
+    <div ref={previewRef} style={{ position: 'absolute', inset: 0 }} />
+  ) : null;
+}
+// EMPTY: no source, no recording → PreviewCard shows empty state
 ```
 
 **CRITICAL**: `selectedSourceId` MUST be checked FIRST. Previous bug: `hasRecordingAsset` was checked first, so the compositor (with wrong resolution) always rendered instead of the live video.
@@ -198,7 +269,9 @@ function LivePreviewVideo({ stream }: { stream: MediaStream | null }) {
   return (
     <video
       ref={ref}
-      autoPlay muted playsInline
+      autoPlay
+      muted
+      playsInline
       style={{
         position: 'absolute',
         inset: 0,
@@ -213,6 +286,7 @@ function LivePreviewVideo({ stream }: { stream: MediaStream | null }) {
 ```
 
 Key details:
+
 - NO wrapper div — the `<video>` IS the component
 - `position: absolute; inset: 0` — video fills the card (card has `position: relative`)
 - `object-fit: contain` — preserves aspect ratio, letterboxes if needed
@@ -233,7 +307,7 @@ function useLivePreview(sourceId: string | null) {
       return;
     }
 
-    let mounted = true;        // ← prevents setting state after cleanup
+    let mounted = true; // ← prevents setting state after cleanup
     let acquired: MediaStream | null = null;
 
     (async () => {
@@ -248,18 +322,18 @@ function useLivePreview(sourceId: string | null) {
       });
 
       if (!mounted) {
-        acquired.getTracks().forEach(t => t.stop());
+        acquired.getTracks().forEach((t) => t.stop());
         return;
       }
       setStream(acquired);
-    })().catch(err => {
+    })().catch((err) => {
       console.error('[useLivePreview]', err);
     });
 
     return () => {
       mounted = false;
       if (acquired) {
-        acquired.getTracks().forEach(t => t.stop());
+        acquired.getTracks().forEach((t) => t.stop());
       }
     };
   }, [sourceId]);
@@ -286,9 +360,9 @@ function useLivePreview(sourceId: string | null) {
 
 ## IPC Channels
 
-| Channel | Direction | Purpose |
-|---------|-----------|---------|
-| `recording:get-sources` | renderer→main | Enumerate available sources |
+| Channel                    | Direction     | Purpose                                                  |
+| -------------------------- | ------------- | -------------------------------------------------------- |
+| `recording:get-sources`    | renderer→main | Enumerate available sources                              |
 | `recording:save-recording` | renderer→main | Send buffer + metadata, get back file path + probed info |
 
 Defined in `apps/desktop/src/shared/ipc-channels.mjs`.
@@ -303,6 +377,19 @@ The Record tab uses the **InspectorShell** pattern (shared with Edit tab):
 - **PresentationCategory**: Auto-zoom on click, cursor highlight, shortcut title overlays
 
 Inspector state lives in the project store under `composition.presentationEvents` and camera/background settings.
+
+## Premium Benchmark Checklist
+
+Use this list when deciding whether the Record tab is actually competitive:
+
+- **Trust**: permission diagnostics, source recovery, device recovery, autosave, controller safety, safe stop, clear recording indicators
+- **Parity**: preview matches export, reopen matches what was recorded, moved projects do not lose Record metadata
+- **Camera**: dynamic layouts, per-segment camera visibility, auto-shrink during zoom, background removal/blur, shaped PiP
+- **Cursor + Zoom**: automatic zoom generation, editable markers, click effects, click sounds, motion blur, spotlight/privacy controls
+- **Assistance**: teleprompter, shortcut overlays, captions, Smart Cut, audio confidence indicators
+- **Packaging**: presets, social-output presets, watermarking, mobile device framing
+
+If a change improves polish but leaves trust or parity broken, finish the trust/parity layer first.
 
 ## Audio Level Monitoring
 

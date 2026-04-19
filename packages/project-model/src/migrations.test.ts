@@ -59,7 +59,13 @@ describe('migrations', () => {
           duration: 90,
           metadata: {},
           presentation: {
-            zoom: { autoIntensity: 0.5, markers: [] },
+            zoom: {
+              autoIntensity: 0.5,
+              followCursor: true,
+              followAnimation: 'focused',
+              followPadding: 0.18,
+              markers: [],
+            },
             cursor: {
               style: 'default',
               clickEffect: 'ripple',
@@ -88,5 +94,21 @@ describe('migrations', () => {
     const result = migrate(legacy);
     expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
     expect(result.assets[0]?.presentation?.templateId).toBe('screen-cam-br-16x9');
+  });
+
+  it('migrates version 6 documents by backfilling a null destination preset id', () => {
+    const project = createProject();
+    const legacy = {
+      ...project,
+      version: 6,
+      settings: {
+        ...project.settings,
+        destinationPresetId: undefined,
+      },
+    };
+
+    const result = migrate(legacy);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    expect(result.settings.destinationPresetId).toBeNull();
   });
 });

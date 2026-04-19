@@ -21,6 +21,22 @@ export function canUseWebCodecsExport(settings: ExportSettings): boolean {
   return typeof OffscreenCanvas !== 'undefined' && typeof VideoEncoder !== 'undefined';
 }
 
+function getCursorPosition(
+  cursorDataByAssetId: ReadonlyMap<string, CursorFrameData>,
+  assetId: string,
+  sourceFrame: number,
+): { x: number; y: number } | null {
+  const data = cursorDataByAssetId.get(assetId);
+  if (!data) return null;
+  const frame = Math.max(0, Math.min(sourceFrame, data.frameCount - 1));
+  const idx = frame * 3;
+  if (idx + 1 >= data.frames.length) return null;
+  const x = data.frames[idx] ?? -1;
+  const y = data.frames[idx + 1] ?? -1;
+  if (x < 0 || y < 0) return null;
+  return { x, y };
+}
+
 export async function runWebCodecsExportToBuffer(
   project: ProjectDocument,
   settings: ExportSettings,
@@ -93,7 +109,10 @@ export async function runWebCodecsExportToBuffer(
     await output.start();
 
     for (let frame = 0; frame < totalFrames; frame++) {
-      const renderFrame = resolveFrame(project, frame);
+      const renderFrame = resolveFrame(project, frame, {
+        getCursorPosition: (assetId, sourceFrame) =>
+          getCursorPosition(cursorDataByAssetId, assetId, sourceFrame),
+      });
       await renderFrameToCanvasAccurate(
         canvas,
         ctx,

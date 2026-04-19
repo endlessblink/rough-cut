@@ -1,114 +1,130 @@
-/**
- * Live preview video layout test.
- *
- * Verifies the LivePreviewVideo fills the PreviewCard properly
- * when a source is selected on the Record tab.
- *
- * Requires: `pnpm dev` running (Vite dev server at 127.0.0.1:7544).
- */
-import {
-  test,
-  expect,
-  _electron as electron,
-  type ElectronApplication,
-  type Page,
-} from '@playwright/test';
+import { test, expect, navigateToTab } from './fixtures/electron-app.js';
 
-let app: ElectronApplication;
-let page: Page;
+type RoughcutApi = {
+  recordingConfigUpdate: (patch: Record<string, unknown>) => Promise<unknown>;
+  debugSetCaptureSources: (
+    payload: Array<{
+      id: string;
+      name: string;
+      type: 'screen' | 'window';
+      displayId: string | null;
+      thumbnailDataUrl: string;
+    }> | null,
+  ) => Promise<unknown>;
+};
 
-test.beforeAll(async () => {
-  app = await electron.launch({
-    args: ['--no-sandbox', 'apps/desktop'],
-    cwd: process.cwd(),
+const DEBUG_SCREEN_SOURCE = {
+  id: 'screen:debug-screen:0',
+  name: 'Debug Screen',
+  type: 'screen' as const,
+  displayId: 'debug-display',
+  thumbnailDataUrl: '',
+};
+
+test.describe('Live preview states', () => {
+  test.beforeEach(async ({ appPage }) => {
+    await appPage.evaluate(async () => {
+      const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
+      await api.debugSetCaptureSources(null);
+      await api.recordingConfigUpdate({
+        recordMode: 'fullscreen',
+        selectedSourceId: null,
+      });
+    });
+
+    await navigateToTab(appPage, 'record');
   });
 
-  const windows = app.windows();
-  for (const w of windows) {
-    if (w.url().includes('127.0.0.1:7544')) {
-      page = w;
-      break;
-    }
-  }
-  if (!page) {
-    page = await app.waitForEvent('window', {
-      predicate: (w) => w.url().includes('127.0.0.1:7544'),
-      timeout: 15_000,
+  test.afterEach(async ({ appPage }) => {
+    await appPage.evaluate(async () => {
+      const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
+      await api.debugSetCaptureSources(null);
+      await api.recordingConfigUpdate({ selectedSourceId: null });
     });
-  }
+  });
 
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForTimeout(2_000);
-});
+  test('shows an empty preview state when no source is selected', async ({ appPage }) => {
+    const preview = appPage.locator('[data-testid="record-preview-status"]');
 
-test.afterAll(async () => {
-  await app?.close();
-});
+    await expect(preview).toHaveAttribute('data-preview-state', 'empty');
+    await expect(preview).toContainText('Choose a screen to preview');
+    await expect(preview).toContainText('Pick a screen to make the Record tab reflect the real capture source.');
+    await expect(appPage.locator('[data-testid="record-preview-mode-badge"]')).toHaveCount(0);
+  });
 
-test.describe('Live preview layout', () => {
-  test('PreviewCard content wrapper fills the card', async () => {
-    // Navigate to Record tab
-    const recordTab = page.locator('text=Record').first();
-    await recordTab.click();
-    await page.waitForTimeout(1_000);
-
-    // Take a screenshot for visual verification
-    await page.screenshot({ path: 'tests/electron/screenshots/record-preview.png' });
-
-    // Check that PreviewCard exists and its content wrapper fills it
-    const previewCard = await page.evaluate(() => {
-      // Find the preview card by its distinctive styling (rounded, 16/9 aspect)
-      const cards = Array.from(document.querySelectorAll('div')).filter((el) => {
-        const style = window.getComputedStyle(el);
-        return style.aspectRatio === '16 / 9' && style.borderRadius === '18px';
-      });
-      if (cards.length === 0) return null;
-
-      const card = cards[0];
-      const cardRect = card.getBoundingClientRect();
-
-      // Find the content wrapper (position: absolute, inset: 0, zIndex: 1)
-      const contentWrapper = Array.from(card.querySelectorAll(':scope div')).find((el) => {
-        const style = window.getComputedStyle(el);
-        return style.position === 'absolute' && style.zIndex === '1';
-      }) as HTMLElement | null;
-
-      const wrapperRect = contentWrapper?.getBoundingClientRect();
-
-      // Find video element if present
-      const video = card.querySelector('video');
-      const videoRect = video?.getBoundingClientRect();
-
-      return {
-        card: { width: cardRect.width, height: cardRect.height },
-        wrapper: wrapperRect ? { width: wrapperRect.width, height: wrapperRect.height } : null,
-        video: videoRect
-          ? {
-              width: videoRect.width,
-              height: videoRect.height,
-              left: videoRect.left - cardRect.left,
-              top: videoRect.top - cardRect.top,
-            }
-          : null,
+  test('shows an acquiring preview state while a source is connecting', async ({ appPage }) => {
+    await appPage.evaluate(async ({ debugSource }) => {
+      const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (constraints?: MediaStreamConstraints) => {
+        const mandatory = (constraints?.video as { mandatory?: { chromeMediaSource?: string } })
+          ?.mandatory;
+        if (mandatory?.chromeMediaSource === 'desktop') {
+          return await new Promise<MediaStream>(() => {});
+        }
+        return originalGetUserMedia(constraints);
       };
-    });
 
-    expect(previewCard, 'PreviewCard not found').not.toBeNull();
-    expect(previewCard!.card.width).toBeGreaterThan(100);
-    expect(previewCard!.card.height).toBeGreaterThan(50);
+      const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
+      await api.debugSetCaptureSources([debugSource]);
+      await api.recordingConfigUpdate({
+        recordMode: 'fullscreen',
+        selectedSourceId: debugSource.id,
+      });
+    }, { debugSource: DEBUG_SCREEN_SOURCE });
 
-    if (previewCard!.wrapper) {
-      // Content wrapper should fill the card
-      expect(previewCard!.wrapper.width).toBeCloseTo(previewCard!.card.width, -1);
-      expect(previewCard!.wrapper.height).toBeCloseTo(previewCard!.card.height, -1);
-    }
+    const preview = appPage.locator('[data-testid="record-preview-status"]');
+    await expect(preview).toHaveAttribute('data-preview-state', 'acquiring');
+    await expect(preview).toContainText('Acquiring live preview');
+  });
 
-    if (previewCard!.video) {
-      // Video should fill at least 90% of the card (accounting for padding)
-      const fillRatioW = previewCard!.video.width / previewCard!.card.width;
-      const fillRatioH = previewCard!.video.height / previewCard!.card.height;
-      expect(fillRatioW).toBeGreaterThan(0.9);
-      expect(fillRatioH).toBeGreaterThan(0.9);
-    }
+  test('shows a failed preview state when the source cannot be previewed', async ({ appPage }) => {
+    await appPage.evaluate(async ({ debugSource }) => {
+      const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (constraints?: MediaStreamConstraints) => {
+        const mandatory = (constraints?.video as { mandatory?: { chromeMediaSource?: string } })
+          ?.mandatory;
+        if (mandatory?.chromeMediaSource === 'desktop') {
+          throw new Error('Preview pipeline rejected the selected source.');
+        }
+        return originalGetUserMedia(constraints);
+      };
+
+      const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
+      await api.debugSetCaptureSources([debugSource]);
+      await api.recordingConfigUpdate({
+        recordMode: 'fullscreen',
+        selectedSourceId: debugSource.id,
+      });
+    }, { debugSource: DEBUG_SCREEN_SOURCE });
+
+    const preview = appPage.locator('[data-testid="record-preview-status"]');
+    await expect(preview).toHaveAttribute('data-preview-state', 'failed');
+    await expect(preview).toContainText('Preview unavailable');
+    await expect(preview).toContainText('Preview pipeline rejected the selected source.');
+  });
+
+  test('renders a live preview canvas for the selected source', async ({ appPage }) => {
+    await appPage.evaluate(async ({ debugSource }) => {
+      const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      const stubStream = document.createElement('canvas').captureStream(1);
+      navigator.mediaDevices.getUserMedia = async (constraints?: MediaStreamConstraints) => {
+        const mandatory = (constraints?.video as { mandatory?: { chromeMediaSource?: string } })
+          ?.mandatory;
+        if (mandatory?.chromeMediaSource === 'desktop') {
+          return stubStream;
+        }
+        return originalGetUserMedia(constraints);
+      };
+
+      const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
+      await api.debugSetCaptureSources([debugSource]);
+      await api.recordingConfigUpdate({
+        recordMode: 'fullscreen',
+        selectedSourceId: debugSource.id,
+      });
+    }, { debugSource: DEBUG_SCREEN_SOURCE });
+
+    await expect(appPage.locator('[data-testid="live-preview-canvas"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-preview-status"]')).toHaveCount(0);
   });
 });

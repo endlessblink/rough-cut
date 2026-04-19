@@ -52,6 +52,11 @@ export async function loadZoomFixture(
         },
         presentation: {
           ...asset.presentation,
+          camera: {
+            ...(asset.presentation?.camera ?? {}),
+            visible: true,
+          },
+          cameraLayouts: [],
           zoom: {
             ...(asset.presentation?.zoom ?? {}),
             autoIntensity: 0,

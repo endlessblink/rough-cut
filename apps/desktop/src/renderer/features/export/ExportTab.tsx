@@ -17,6 +17,11 @@ import { CardChrome } from '../record/CardChrome.js';
 import { TemplatePreviewRenderer } from '../record/TemplatePreviewRenderer.js';
 import { CameraPlaybackCanvas } from '../record/CameraPlaybackCanvas.js';
 import { LAYOUT_TEMPLATES } from '../record/templates.js';
+import {
+  getDestinationPreset,
+  isDestinationPresetId,
+  matchDestinationPreset,
+} from '../record/destination-presets.js';
 import { RecordingPlaybackVideo } from '../record/RecordingPlaybackVideo.js';
 import { TimelineStrip } from '../edit/TimelineStrip.js';
 import type { ExportRange } from '../edit/TimelineStrip.js';
@@ -273,6 +278,7 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const durationFrames = useProjectStore((s) => s.project.composition.duration);
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
   const resolution = useProjectStore((s) => s.project.settings.resolution);
+  const destinationPresetId = useProjectStore((s) => s.project.settings.destinationPresetId);
   const exportSettings = useProjectStore((s) => s.project.exportSettings);
   const currentFrame = useTransportStore((s) => s.playheadFrame);
   const isPlaying = useTransportStore((s) => s.isPlaying);
@@ -351,6 +357,17 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const selectedCrf = crfFromBitrate(exportSettings.bitrate);
   const selectedPresetId: ExportPresetId =
     EXPORT_PRESETS.find((preset) => presetMatches(project, preset))?.id ?? 'custom';
+  const linkedDestinationPreset =
+    (isDestinationPresetId(destinationPresetId) ? getDestinationPreset(destinationPresetId) : null) ??
+    matchDestinationPreset({
+      templateId: activeTemplate?.id,
+      captureResolution: resolution,
+      exportSettings: {
+        resolution: exportSettings.resolution,
+        frameRate: exportSettings.frameRate,
+        bitrate: exportSettings.bitrate,
+      },
+    });
 
   const [exportRange, setExportRange] = useState<ExportRange>({
     inFrame: 0,
@@ -576,6 +593,10 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
     (patch: Partial<ProjectDocument['exportSettings']>) => {
       updateProject((doc) => ({
         ...doc,
+        settings: {
+          ...doc.settings,
+          destinationPresetId: null,
+        },
         exportSettings: {
           ...doc.exportSettings,
           ...patch,
@@ -757,6 +778,40 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
             overflowY: 'auto',
           }}
         >
+          <div>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: 'rgba(255,255,255,0.68)',
+                marginBottom: 8,
+              }}
+            >
+              Linked Destination
+            </div>
+            <div
+              data-testid="export-linked-destination"
+              style={{
+                borderRadius: 10,
+                border: '1px solid rgba(255,255,255,0.06)',
+                background: 'rgba(255,255,255,0.03)',
+                padding: 10,
+                fontSize: 12,
+                color: 'rgba(255,255,255,0.78)',
+              }}
+            >
+              <div style={{ fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
+                {linkedDestinationPreset?.label ?? 'Custom Export'}
+              </div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.54)', marginTop: 4 }}>
+                {linkedDestinationPreset?.description ??
+                  'This export is no longer linked to a saved Record destination preset.'}
+              </div>
+            </div>
+          </div>
+
           <div>
             <div
               style={{

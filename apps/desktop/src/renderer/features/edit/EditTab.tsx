@@ -305,10 +305,28 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
 
   // Keyboard shortcuts
   useEffect(() => {
+    const getShortcutTargetKind = (
+      target: EventTarget | null,
+    ): 'text-entry' | 'interactive-control' | 'generic' => {
+      if (!(target instanceof HTMLElement)) return 'generic';
+      if (target.isContentEditable) return 'text-entry';
+      if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return 'text-entry';
+      if (target instanceof HTMLButtonElement) return 'interactive-control';
+      if (!(target instanceof HTMLInputElement)) return 'generic';
+
+      const type = target.type.toLowerCase();
+      if (['button', 'checkbox', 'color', 'file', 'hidden', 'radio', 'reset', 'submit'].includes(type)) {
+        return 'interactive-control';
+      }
+
+      if (type === 'range') return 'generic';
+
+      return 'text-entry';
+    };
+
     const handler = (e: KeyboardEvent) => {
-      // Skip if focused on an input element
-      const tag = (document.activeElement?.tagName ?? '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      const targetKind = getShortcutTargetKind(e.target);
+      if (targetKind === 'text-entry') return;
 
       const isMeta = e.metaKey || e.ctrlKey;
 
@@ -352,10 +370,12 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
           e.preventDefault();
           getPlaybackManager().stepForward(1);
           break;
-        case ' ':
-          e.preventDefault();
-          getPlaybackManager().togglePlay();
-          break;
+      }
+
+      if ((e.code === 'Space' || e.key === ' ') && !e.repeat && targetKind !== 'interactive-control') {
+        e.preventDefault();
+        getPlaybackManager().togglePlay();
+        return;
       }
     };
 
@@ -403,6 +423,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
       clipTimelineIn: cameraClip.timelineIn,
       clipSourceIn: cameraClip.sourceIn,
       camera: recordingAsset?.presentation?.camera ?? createDefaultCameraPresentation(),
+      cameraFrame: recordingAsset?.presentation?.cameraFrame,
     };
   }, [playheadFrame, project]);
 
@@ -435,6 +456,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <EditPreviewStage>
             <div
+              data-testid="record-card-content"
               style={{
                 position: 'relative',
                 aspectRatio: '16 / 9',
@@ -446,12 +468,13 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
               }}
             >
               <div ref={previewRef} style={{ position: 'absolute', inset: 0 }} />
-              {activeCameraPreview ? (
+              {activeCameraPreview && activeCameraPreview.camera.visible !== false ? (
                 <EditCameraOverlay
                   filePath={activeCameraPreview.filePath}
                   fps={projectFps}
                   clipTimelineIn={activeCameraPreview.clipTimelineIn}
                   clipSourceIn={activeCameraPreview.clipSourceIn}
+                  cameraFrame={activeCameraPreview.cameraFrame}
                   visible={true}
                   camera={activeCameraPreview.camera}
                 />

@@ -165,7 +165,7 @@ function OpenChoicePopup({
 
 export function ProjectDetailView({
   project,
-  filePath: _filePath,
+  filePath,
   onBack,
   onOpenRecording,
   onDeleteRecording,
@@ -303,6 +303,7 @@ export function ProjectDetailView({
               <RecordingCard
                 key={asset.id}
                 asset={asset}
+                projectFilePath={filePath}
                 fps={fps}
                 onSelect={() => setPopupAsset(asset)}
                 onDelete={() => onDeleteRecording(asset.id)}
@@ -332,11 +333,13 @@ export function ProjectDetailView({
 
 function RecordingCard({
   asset,
+  projectFilePath,
   fps,
   onSelect,
   onDelete,
 }: {
   asset: Asset;
+  projectFilePath: string;
   fps: number;
   onSelect: () => void;
   onDelete: () => void;
@@ -378,7 +381,7 @@ function RecordingCard({
       >
         {asset.thumbnailPath && (
           <img
-            src={`media://${asset.thumbnailPath}`}
+            src={buildMediaUrl(asset.thumbnailPath, projectFilePath) ?? undefined}
             alt=""
             style={{
               position: 'absolute',
@@ -489,3 +492,4 @@ function RecordingCard({
     </div>
   );
 }
+import { buildMediaUrl } from '../../lib/media-url.js';

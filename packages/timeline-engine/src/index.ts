@@ -5,5 +5,5 @@ export { findOverlappingClips, wouldOverlap, resolveOverlaps } from './overlap.j
 export { snapToNearestEdge, snapToPlayhead, snapToGrid } from './snap.js';
 export { calculateCompositionDuration, rippleDelete } from './composition-utils.js';
 export { smootherStep, strengthToScale, getZoomTransformForMarker, getZoomTransformAtFrame } from './zoom-transform.js';
-export type { ZoomTransform } from './zoom-transform.js';
+export type { ZoomTransform, ZoomTransformOptions, ZoomCursorPosition } from './zoom-transform.js';
 export { generateAutoZoomMarkers } from './auto-zoom.js';
