@@ -1930,6 +1930,8 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 - The focused live-preview suite passes, including the successful preview-canvas case.
 - The Record tab visibly renders a live preview for a valid selected source before recording.
 
+**Progress (2026-04-20):** Restored live preview canvas mounting in the healthy `live` state and added acceptance-suite setup resets so basic Record-tab checks stop leaking source selection across tests. Focused live preview and small acceptance subsets are green, but the broader release-gate stabilization sweep still needs follow-up under TASK-178.
+
 ---
 
 ### TASK-178: Stabilize Tests: replace flaky record acceptance suite with release gate
