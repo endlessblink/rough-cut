@@ -91,6 +91,8 @@ Parallel-start rule:
 - Sprint D should follow after Sprint A settles source/mode behavior
 - Sprint E should encode the final truth, not chase moving contracts
 
+**Progress (2026-04-20):** Simplified Watchpost Flow for Rough Cut into a lane-based delivery line with kickoff-prompt copy actions, horizontal lane layout, and auto-advance to the next incomplete lane. Remaining alignment work is to make the lane sequence itself (`Lane 1 -> Lane 2 -> Lane 3 -> Lane 4 -> Lane 5`) the authoritative flow so legacy task dependencies stop overriding this management model.
+
 ---
 
 ## Roadmap
