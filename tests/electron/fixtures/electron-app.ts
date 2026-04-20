@@ -60,6 +60,21 @@ export async function navigateToTab(page: Page, tabId: string) {
     return;
   }
 
+  const switchedDirectly = await page
+    .evaluate((nextTab) => {
+      const setter = (window as unknown as { __roughcutSetActiveTab?: (tab: string) => void })
+        .__roughcutSetActiveTab;
+      if (!setter) return false;
+      setter(nextTab);
+      return true;
+    }, tabId)
+    .catch(() => false);
+
+  if (switchedDirectly) {
+    await page.waitForSelector(tabRootSelector, { timeout: 30_000 });
+    return;
+  }
+
   const tabButton = page.locator(tabButtonSelector);
   await tabButton.waitFor({ state: 'visible', timeout: 30_000 });
 

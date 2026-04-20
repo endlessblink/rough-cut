@@ -65,17 +65,7 @@ export function collectAudioExportSegments(project: ProjectDocument): AudioExpor
     )
     .sort((a, b) => a.clip.timelineIn - b.clip.timelineIn || a.track.index - b.track.index);
 
-  const accepted: AudioExportSegment[] = [];
-  let lastTimelineOut = -1;
-  for (const segment of segments) {
-    if (segment.clip.timelineIn < lastTimelineOut) {
-      continue;
-    }
-    accepted.push(segment);
-    lastTimelineOut = segment.clip.timelineOut;
-  }
-
-  return accepted;
+  return segments;
 }
 
 async function loadAudioAsset(filePath: string): Promise<LoadedAudioAsset | null> {

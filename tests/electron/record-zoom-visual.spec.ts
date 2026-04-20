@@ -1,16 +1,13 @@
-import { test, expect, navigateToTab } from './fixtures/electron-app.js';
-
-const RECORDED_PROJECT_PATH =
-  process.env.ROUGH_CUT_SESSION_PATH ??
-  '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
+import { test, expect } from './fixtures/electron-app.js';
+import { loadPlaybackFixture } from './fixtures/playback-fixture.js';
 
 test.describe('Record zoom rendering', () => {
   test('active zoom markers visibly change the rendered frame', async ({ appPage }) => {
-    await loadRecordedProject(appPage);
+    await loadPlaybackFixture(appPage, 'record');
 
     await appPage.evaluate(() => {
       const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-      stores?.transport.getState().seekToFrame(220);
+      stores?.transport.getState().seekToFrame(5);
     });
     await appPage.waitForTimeout(300);
 
@@ -53,41 +50,6 @@ test.describe('Record zoom rendering', () => {
     expect(before).not.toBe(after);
   });
 });
-
-async function loadRecordedProject(page: import('@playwright/test').Page): Promise<void> {
-  await navigateToTab(page, 'record');
-
-  const project = (await page.evaluate((projectPath) => {
-    return (
-      window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
-    ).roughcut.projectOpenPath(projectPath);
-  }, RECORDED_PROJECT_PATH)) as Record<string, any>;
-
-  const recording = project.assets.find((asset: any) => asset.type === 'recording');
-  expect(recording).toBeTruthy();
-
-  await page.evaluate(
-    ({ nextProject, projectPath, activeAssetId }) => {
-      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-      stores?.project.getState().setProject(nextProject);
-      stores?.project.getState().setProjectFilePath(projectPath);
-      stores?.project.getState().setActiveAssetId(activeAssetId);
-      stores?.transport.getState().seekToFrame(0);
-    },
-    {
-      nextProject: project,
-      projectPath: RECORDED_PROJECT_PATH,
-      activeAssetId: recording?.id ?? null,
-    },
-  );
-
-  await page.waitForFunction((selector) => {
-    const video = document.querySelector(selector) as HTMLVideoElement | null;
-    return video?.getAttribute('data-ready') === 'true';
-  }, '[data-testid="recording-playback-video"]');
-
-  await expect(page.locator('[data-testid="record-screen-frame"]')).toBeVisible();
-}
 
 function hashBytes(buffer: Buffer): number {
   let hash = 0;

@@ -60,8 +60,8 @@ For each surface, land the infrastructure that makes the view reliable first, th
 | Order | Surface   | Goal                                                       | Primary task focus                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ----- | --------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1     | Projects  | Stable project entry, reopen, and persistence foundation   | ~~TASK-072~~, ~~TASK-071~~, ~~TASK-085~~                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 2     | Recording | Reliable capture pipeline with polished in-record controls | ~~TASK-013~~, TASK-014, TASK-015, TASK-016, TASK-086, ~~BUG-007~~, ~~BUG-008~~, TASK-087, TASK-088, TASK-089, TASK-090, TASK-091, TASK-092, TASK-121, TASK-122, TASK-123, TASK-124, TASK-125, TASK-126, TASK-127, TASK-128, TASK-129, TASK-130, TASK-131, TASK-132, TASK-143, TASK-144, TASK-145, TASK-146, TASK-147, TASK-148, TASK-149, TASK-150, TASK-151, TASK-152, TASK-153, TASK-154, TASK-155, TASK-156, TASK-157, TASK-158, TASK-159, TASK-162, TASK-163, BUG-013 |
-| 3     | Export    | Complete output flow for recorded projects                 | TASK-021, TASK-022, TASK-028, TASK-029, TASK-112, TASK-067, TASK-052, TASK-054                                                                                                                                                                                                                                                                                                                                                                                            |
+| 2     | Recording | Reliable capture pipeline with polished in-record controls | ~~TASK-013~~, TASK-014, TASK-015, TASK-016, TASK-086, ~~BUG-007~~, ~~BUG-008~~, TASK-087, TASK-088, TASK-089, TASK-090, TASK-091, TASK-092, TASK-121, TASK-122, TASK-123, TASK-124, TASK-125, TASK-126, TASK-127, TASK-128, TASK-129, TASK-130, TASK-131, TASK-132, TASK-143, TASK-144, TASK-145, ~~TASK-146~~, TASK-147, TASK-148, TASK-149, TASK-150, TASK-151, TASK-152, TASK-153, TASK-154, TASK-155, TASK-156, TASK-157, TASK-158, TASK-159, ~~TASK-160~~, ~~TASK-161~~, TASK-162, TASK-163, BUG-013 |
+| 3     | Export    | Complete output flow for recorded projects                 | TASK-021, TASK-022, ~~TASK-028~~, ~~TASK-029~~, TASK-112, ~~TASK-067~~, TASK-052, TASK-054                                                                                                                                                                                                                                                                                                                                                                                |
 | 4     | Edit      | Deep timeline editing and refinement                       | TASK-017, TASK-018, TASK-019, TASK-020, TASK-023, TASK-024, TASK-026, TASK-027, TASK-065                                                                                                                                                                                                                                                                                                                                                                                  |
 | 5     | AI        | Library ingest, analysis, and rough-cut generation         | TASK-040, TASK-079, TASK-080, TASK-081, TASK-082, TASK-044, TASK-045, TASK-047, TASK-097                                                                                                                                                                                                                                                                                                                                                                                  |
 | 6     | Motion    | Dedicated motion graphics authoring                        | TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-039                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -162,7 +162,7 @@ Parallel-start rule:
 | TASK-143     | Record: In-app permission diagnostics + deep links + preflight test      | P1       | TODO                     | TASK-010, TASK-088 |
 | ~~TASK-144~~ | ~~Record: Mid-take source/device recovery with re-target and offline badge~~ | P1       | ✅ DONE (2026-04-19)     | TASK-100, TASK-088 |
 | TASK-145     | Record: Floating controller hide/fade + never-in-video guarantee         | P1       | TODO                     | TASK-126, TASK-010 |
-| TASK-146     | Record: Preview/export fidelity enforcement for all Record polish        | P1       | TODO                     | TASK-013, TASK-015 |
+| ~~TASK-146~~ | ~~Record: Preview/export fidelity enforcement for all Record polish~~    | P1       | ✅ DONE (2026-04-21)     | TASK-013, TASK-015 |
 | TASK-147     | Record: Full reopen/project-move fidelity for templates and sidecars     | P1       | IN PROGRESS (2026-04-19) | BUG-013, TASK-123  |
 | TASK-148     | Record: Crash-resilient autosave + partial-take recovery                 | P1       | TODO                     | TASK-010, TASK-100 |
 | TASK-149     | Record: Audio clipping warnings + ducking preview + multi-track review   | P1       | TODO                     | TASK-032, TASK-125 |
@@ -178,8 +178,8 @@ Parallel-start rule:
 | TASK-159     | Record: Full dynamic camera layout authoring UX in Record timeline       | P0       | TODO                     | TASK-092, TASK-158 |
 | ~~TASK-162~~ | ~~Record: Focus-first framing UX for screen and camera preview~~         | P1       | ✅ DONE                  | TASK-013, TASK-122 |
 | ~~TASK-163~~ | ~~Record: Advanced framing presets and guidance for crop editing~~       | P2       | ✅ DONE                  | TASK-162           |
-| TASK-160     | Record: Render zoomed preview from source-resolution media, not CSS-only | P1       | TODO                     | TASK-146, TASK-129 |
-| TASK-161     | Export: Re-render zoom/crop from source media for sharp zoomed output    | P1       | TODO                     | TASK-146, TASK-160 |
+| ~~TASK-160~~ | ~~Record: Render zoomed preview from source-resolution media, not CSS-only~~ | P1    | ✅ DONE (2026-04-21)     | TASK-146, TASK-129 |
+| ~~TASK-161~~ | ~~Export: Re-render zoom/crop from source media for sharp zoomed output~~ | P1     | ✅ DONE (2026-04-21)     | TASK-146, TASK-160 |
 | ~~TASK-164~~ | ~~Record/Edit: camera visibility parity after persisted framing~~        | P1       | ✅ DONE (2026-04-19)     | TASK-147           |
 | ~~TASK-165~~ | ~~Record: Wire main-tab live preview to selected capture source~~        | P0       | ✅ DONE (2026-04-19)     | TASK-013, TASK-086 |
 | ~~TASK-166~~ | ~~Record: Enforce mode-filtered source picker and REC gating~~           | P0       | ✅ DONE (2026-04-19)     | TASK-165, TASK-088 |
@@ -190,7 +190,7 @@ Parallel-start rule:
 | ~~TASK-171~~ | ~~Record: Session manifest and partial-take recovery on relaunch~~       | P0       | ✅ DONE (2026-04-20)     | TASK-169, TASK-168 |
 | ~~TASK-172~~ | ~~Record: Real region capture or hide unsupported region mode~~          | P1       | ✅ DONE (2026-04-20)     | TASK-166           |
 | ~~TASK-179~~ | ~~Record: Append new takes to current project instead of replacing it~~  | P1       | ✅ DONE (2026-04-20)     | TASK-086           |
-| TASK-177     | Stabilize Record: restore truthful live preview canvas reliably          | P0       | TODO                     | TASK-165, TASK-172 |
+| ~~TASK-177~~ | ~~Stabilize Record: restore truthful live preview canvas reliably~~      | P0       | ✅ DONE (2026-04-20)     | TASK-165, TASK-172 |
 | TASK-178     | Stabilize Tests: replace flaky record acceptance suite with release gate | P1       | TODO                     | TASK-173, TASK-177 |
 | TASK-176     | Record: Clarify camera layout marker add vs update UX                   | P2       | TODO                     | TASK-159           |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
@@ -218,13 +218,14 @@ Parallel-start rule:
 | TASK-118     | Export: Camera PiP preview parity with Record + Edit tabs             | P1       | ✅ DONE (2026-04-15) | TASK-114           |
 | ~~TASK-021~~ | Export: Progress bar + frame counter (wire existing IPC events to UI) | P1       | ✅ DONE (2026-04-16) | TASK-008           |
 | ~~TASK-022~~ | Export: Output path selector (native save dialog)                     | P1       | ✅ DONE (2026-04-16) | TASK-009           |
-| TASK-028     | Export: Audio mixing in export pipeline                               | P1       | TODO                 | TASK-008, TASK-020 |
-| TASK-029     | Export: Quality presets + editable settings (resolution, FPS, CRF)    | P2       | TODO                 | TASK-021           |
-| TASK-067     | Preview + export parity test (visual regression)                      | P2       | TODO                 | TASK-007, TASK-008 |
+| ~~TASK-028~~ | ~~Export: Audio mixing in export pipeline~~                           | P1       | ✅ DONE (2026-04-21) | TASK-008, TASK-020 |
+| ~~TASK-029~~ | ~~Export: Quality presets + editable settings (resolution, FPS, CRF)~~ | P2      | ✅ DONE (2026-04-21) | TASK-021           |
+| ~~TASK-067~~ | ~~Preview + export parity test (visual regression)~~                  | P2       | ✅ DONE (2026-04-21) | TASK-007, TASK-008 |
 | ~~TASK-109~~ | Export: Cancel button during export                                   | P2       | ✅ DONE (2026-04-16) | TASK-021           |
 | ~~TASK-110~~ | Export: Error display for failed exports                              | P2       | ✅ DONE (2026-04-16) | TASK-021           |
 | ~~TASK-111~~ | Export: "Open File"/"Open Folder" links after completion              | P3       | ✅ DONE (2026-04-16) | TASK-021           |
 | ~~TASK-112~~ | Export: File size + time estimates                                    | P3       | ✅ DONE (2026-04-19) | TASK-029           |
+| ~~BUG-014~~  | ~~Export: WebCodecs bitrate config rejected — pipeline stalls, no file produced~~ | P0       | ✅ DONE (2026-04-20) | TASK-021, TASK-052 |
 
 ### Export Advanced
 
@@ -324,13 +325,108 @@ Parallel-start rule:
 | ~~TASK-105~~ | ~~Relative asset paths for project portability~~                   | P2       | ✅ DONE (2026-04-16)     | TASK-009           |
 | TASK-106     | Effect registry: add color-correction effect                       | P2       | TODO                     | TASK-004           |
 | TASK-107     | Effect registry: add subtitle/text effect                          | P2       | TODO                     | TASK-004           |
-| TASK-173     | Tests: Golden-path record-stop-save readiness suite               | P0       | TODO                     | TASK-165, TASK-166, TASK-168, TASK-169 |
-| TASK-174     | Tests: Audio route fidelity and post-save import suite            | P0       | TODO                     | TASK-167, TASK-168 |
-| TASK-175     | Tests: Recovery, reopen, and export-from-fresh-recording suite    | P0       | TODO                     | TASK-171, TASK-173 |
+| ~~TASK-173~~ | ~~Tests: Golden-path record-stop-save readiness suite~~           | P0       | ✅ DONE (2026-04-20)     | TASK-165, TASK-166, TASK-168, TASK-169 |
+| ~~TASK-174~~ | ~~Tests: Audio route fidelity and post-save import suite~~        | P0       | ✅ DONE (2026-04-20)     | TASK-167, TASK-168 |
+| ~~TASK-175~~ | ~~Tests: Recovery, reopen, and export-from-fresh-recording suite~~ | P0       | ✅ DONE (2026-04-20)     | TASK-171, TASK-173 |
 
 ---
 
 ## Active Work
+
+### ~~BUG-014~~: Export: WebCodecs bitrate config rejected — pipeline stalls, no file produced
+
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-20) | **Blocked:** the full Projects → Record → Export loop on Linux before this fix landed
+
+**Symptom (reproduced twice, 2026-04-20)**
+
+- Clicking Export enqueues a job, transitions the queue item to `running`, shows `Preparing export...` indefinitely. No output file is written.
+- After the 210–240s timeout the UI surfaces: `config.bitrate must be a positive integer or a quality.` — that is a WebCodecs `VideoEncoder.configure()` runtime error.
+- Estimates panel shows `File Size: NaN B`, indicating the same `NaN` is leaking through settings-derived math in at least two places.
+- The job never transitions to a failed state in the queue — it just sits at `Preparing export...`.
+
+**Empirical reproduction**
+
+- `tests/electron/export-smoke.spec.ts` (existing CI spec) — FAILED at 240s timeout, 0-byte output. Fixture's source WebM was missing (`/tmp/rough-cut/recordings/...` cleared on reboot), which also surfaced as a `404` in the UI — but the job still never failed or fell back.
+- `tests/electron/adhoc-export-fresh.spec.ts` (newly added) — FAILED identically, 0-byte output after 210s. This spec generates a fresh VP8+Opus WebM via `ffmpeg` and builds a clean project that references it, so stale-path problems are excluded. The UI line `config.bitrate must be a positive integer or a quality` is the revealing error.
+
+**Root-cause hypothesis**
+
+- `VideoEncoder.configure()` is being passed an invalid `bitrate` value (likely `NaN` or `undefined`), either because:
+  1. The CRF-based quality setting is not being converted to a bits-per-second value before reaching the WebCodecs encoder, and `quality` isn't being passed as an alternative, OR
+  2. The export-settings hydration path (project `exportSettings` → preset → encoder config) has a missing field that produces `NaN` during a multiplication (e.g. `resolution.width * resolution.height * frameRate * someMultiplier`).
+- The `File Size: NaN B` in the Estimates panel is almost certainly the same bad value surfacing through a different consumer.
+
+**Completed fix (2026-04-20)**
+
+1. Added shared export-settings normalization so stale project shapes using `videoBitrate` or `crf` resolve to a canonical positive `bitrate` before the Export UI and WebCodecs pipeline consume them.
+2. Added fast encoder-config validation so invalid bitrate values fail clearly instead of hanging the queue at `Preparing export...`.
+3. Restored estimate math by feeding the Export UI normalized settings rather than the stale raw shape.
+4. Verified the full repro with `tests/electron/adhoc-export-fresh.spec.ts`, which now produces a real audio-muxed MP4 from a freshly generated WebM source.
+5. Added a focused unit test in `packages/export-renderer/src/video-encoding-config.test.ts` for invalid bitrate rejection.
+
+**Files touched**
+
+- `apps/desktop/src/renderer/features/export/export-settings.ts`
+- `apps/desktop/src/renderer/features/export/run-export.ts`
+- `apps/desktop/src/renderer/features/export/ExportTab.tsx`
+- `packages/export-renderer/src/video-encoding-config.ts`
+- `packages/export-renderer/src/video-encoding-config.test.ts`
+
+**Test artifacts kept for reference**
+
+- `test-results/export-smoke-export-smoke--7b82f-layable-mp4-file-with-audio/` — page snapshot, screenshot, trace (404 case)
+- `test-results/adhoc-export-fresh-adhoc-f-4261e-reshly-created-webm-project/` — page snapshot surfacing the `config.bitrate` error (clean source case)
+- `/home/endlessblink/.claude/plans/nifty-yawning-tome.md` — the full scoping plan that led to this reproduction
+
+**Verification**
+
+- `pnpm --filter @rough-cut/export-renderer test -- video-encoding-config.test.ts`
+- `pnpm exec playwright test tests/electron/adhoc-export-fresh.spec.ts --workers=1`
+
+**Follow-up**
+
+- `TASK-028 Export: Audio mixing in export pipeline` is now DONE after removing the overlap-dropping collectors in both export audio paths and re-verifying the broader reopen/export flow.
+
+---
+
+### ~~TASK-146~~ / ~~TASK-160~~ / ~~TASK-161~~ / ~~TASK-067~~: Record/export fidelity stabilization
+
+**Priority:** P1/P2 | **Status:** ✅ DONE (2026-04-21)
+
+- Removed the old CSS-only zoom transform from `RecordingPlaybackVideo` so Record preview zoom is rendered by the compositor/frame-resolver path instead of by scaling the DOM host.
+- Switched `resolve-frame` zoom offset math to source-media dimensions so preview and export share the same source-resolution zoom model.
+- Added a valid playback fixture for parity tests because the older Apr 14 fixture pointed at a missing `/tmp` screen recording and could only exercise placeholder playback.
+- Added a direct test-only tab switch hook to avoid flaky first-tab UI clicks during parity/playback regressions.
+- Added `tests/electron/preview-export-parity.spec.ts` to compare raw Record vs Export compositor canvas pixels at the same frame.
+
+**Key files**
+
+- `apps/desktop/src/renderer/features/record/RecordingPlaybackVideo.tsx`
+- `packages/frame-resolver/src/resolve-frame.ts`
+- `apps/desktop/src/renderer/App.tsx`
+- `tests/electron/fixtures/electron-app.ts`
+- `tests/electron/fixtures/playback-fixture.ts`
+- `tests/electron/preview-export-parity.spec.ts`
+
+---
+
+### ~~TASK-028~~ / ~~TASK-029~~: Export output flow completion
+
+**Priority:** P1/P2 | **Status:** ✅ DONE (2026-04-21)
+
+- Export audio mixing no longer drops overlapping segments before they reach the WebCodecs or FFmpeg finalize path, so overlapping clips are eligible for real output mixing.
+- Export quality presets and editable settings are now treated as complete verified behavior: presets, editable resolution/frame-rate/CRF controls, and linked Record destination defaults all pass the focused export suite.
+
+**Key files**
+
+- `packages/export-renderer/src/audio-export.ts`
+- `packages/export-renderer/src/audio-export.test.ts`
+- `apps/desktop/src/main/index.mjs`
+- `apps/desktop/src/renderer/features/export/ExportTab.tsx`
+
+---
+
+---
 
 ### ~~TASK-030~~: Record: Countdown timer (0/3/5/10s configurable)
 
@@ -524,10 +620,10 @@ Ordered by the desired product flow: infrastructure first, then edge features, o
 | ~~TASK-109~~ | Cancel button during export                    | Core export UX complete                       |
 | ~~TASK-110~~ | Error display for failed exports               | Core export UX complete                       |
 | ~~TASK-111~~ | Open File / Open Folder links                  | Core export UX complete                       |
-| TASK-028     | Audio mixing in export pipeline                | Completes recorded project output             |
-| TASK-029     | Quality presets + editable settings            | Required before users can trust export output |
+| ~~TASK-028~~ | ~~Audio mixing in export pipeline~~            | Completes recorded project output             |
+| ~~TASK-029~~ | ~~Quality presets + editable settings~~        | Required before users can trust export output |
 | ~~TASK-112~~ | File size + time estimates                     | Important finishing UX for export decisions   |
-| TASK-067     | Preview + export parity visual regression test | Locks down the full record -> export loop     |
+| ~~TASK-067~~ | ~~Preview + export parity visual regression test~~ | Locks down the full record -> export loop |
 
 ### ~~TASK-112~~: Export: File size + time estimates
 
@@ -1901,9 +1997,9 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 
 ---
 
-### TASK-177: Stabilize Record: restore truthful live preview canvas reliably
+### ~~TASK-177~~: Stabilize Record: restore truthful live preview canvas reliably
 
-**Priority:** P0 | **Status:** TODO
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-20)
 
 #### Goal
 
@@ -1932,7 +2028,7 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 - The focused live-preview suite passes, including the successful preview-canvas case.
 - The Record tab visibly renders a live preview for a valid selected source before recording.
 
-**Progress (2026-04-20):** Restored live preview canvas mounting in the healthy `live` state and added acceptance-suite setup resets so basic Record-tab checks stop leaking source selection across tests. Focused live preview and small acceptance subsets are green, but the broader release-gate stabilization sweep still needs follow-up under TASK-178.
+**Completed (2026-04-20):** Restored live preview canvas mounting in the healthy `live` state and added acceptance-suite setup resets so basic Record-tab checks stop leaking source selection across tests. Focused live preview and the main Record acceptance check for the live preview path are green. Broader release-gate stabilization follow-up remains tracked under `TASK-178`.
 
 ---
 
@@ -1970,9 +2066,9 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 
 ---
 
-### TASK-173: Tests: Golden-path record-stop-save readiness suite
+### ~~TASK-173~~: Tests: Golden-path record-stop-save readiness suite
 
-**Priority:** P0 | **Status:** TODO
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-20)
 
 #### Goal
 
@@ -1988,6 +2084,12 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 - Add one focused readiness suite that exercises the actual recording path instead of injected asset-ready shortcuts.
 - Assert artifact creation, project asset/clip creation, and visible UI success state.
 
+#### Completed
+
+- Added `tests/electron/record-readiness.spec.ts` as the focused release gate for the blank-project -> source selection -> live preview -> start -> stop/save -> imported take path.
+- Kept the test deterministic by using a synthetic capture source and animated capture stream while still exercising the real panel recording, save, import, and Record-tab success flow.
+- The suite asserts empty pre-record state, live preview readiness, saved artifact creation, project asset/clip import, and visible `Saved take` playback state on the Record tab.
+
 #### Pass/fail rule
 
 - This suite is the primary release gate for "can I safely record a tutorial right now?"
@@ -2000,13 +2102,15 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 
 #### Verification
 
-- The suite passes on the intended workstation and becomes the primary go/no-go gate for tutorial recording.
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm exec playwright test tests/electron/record-readiness.spec.ts --workers=1`
+- The suite passes on the intended workstation and now acts as the primary go/no-go gate for tutorial recording readiness.
 
 ---
 
-### TASK-174: Tests: Audio route fidelity and post-save import suite
+### ~~TASK-174~~: Tests: Audio route fidelity and post-save import suite
 
-**Priority:** P0 | **Status:** TODO
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-20)
 
 #### Goal
 
@@ -2023,6 +2127,12 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 - Validate that post-save import matches the real artifact after muxing.
 - Cover the cases most likely to break a client tutorial recording.
 
+#### Completed
+
+- Expanded `tests/electron/record-audio-import-parity.spec.ts` so imported recording assets must preserve the exact `audioCapture` route metadata for mic-only, system-audio-only, and combined routes.
+- Kept the existing positive and silent import cases so the suite still proves audio-clip creation is tied to actual `hasAudio` truth.
+- The imported project snapshot now asserts route truth from asset metadata, not just generic audio-stream existence.
+
 #### Pass/fail rule
 
 - Route fidelity must be asserted per scenario, not inferred from a generic `hasAudio=true`.
@@ -2035,13 +2145,15 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 
 #### Verification
 
-- Audio test coverage proves route truth, not just audio-stream existence.
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm exec playwright test tests/electron/record-audio-import-parity.spec.ts --workers=1`
+- Audio test coverage now proves route truth, not just audio-stream existence.
 
 ---
 
-### TASK-175: Tests: Recovery, reopen, and export-from-fresh-recording suite
+### ~~TASK-175~~: Tests: Recovery, reopen, and export-from-fresh-recording suite
 
-**Priority:** P0 | **Status:** TODO
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-20)
 
 #### Goal
 
@@ -2058,6 +2170,13 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 - Validate reopen behavior for a newly recorded project.
 - Export that fresh recording and validate the final MP4 with ffprobe-level assertions.
 
+#### Completed
+
+- Kept `tests/electron/record-recovery-relaunch.spec.ts` as the proof that a partial take survives relaunch and can be recovered into project state.
+- Added `tests/electron/record-reopen-export.spec.ts` to prove a freshly recorded session can be saved, relaunched, reopened from disk, and exported successfully.
+- Verified the exported MP4 from the reopened fresh recording with `ffprobe` so this lane now checks the real final artifact, not just UI completion.
+- Re-ran the combined release-gate bundle for readiness, audio route fidelity, recovery relaunch, reopen/export, and fresh export in one Playwright session.
+
 #### Pass/fail rule
 
 - A recovered or reopened fresh recording must export without hidden manual repair steps.
@@ -2070,7 +2189,11 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 
 #### Verification
 
-- Freshly recorded footage can be recovered or reopened and then exported successfully without hidden repair steps.
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm exec playwright test tests/electron/record-recovery-relaunch.spec.ts --workers=1`
+- `pnpm exec playwright test tests/electron/record-reopen-export.spec.ts --workers=1`
+- `pnpm exec playwright test tests/electron/record-readiness.spec.ts tests/electron/record-audio-import-parity.spec.ts tests/electron/record-recovery-relaunch.spec.ts tests/electron/record-reopen-export.spec.ts tests/electron/adhoc-export-fresh.spec.ts --workers=1`
+- Freshly recorded footage can now be recovered or reopened and then exported successfully without hidden repair steps.
 
 ---
 

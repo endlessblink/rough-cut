@@ -169,8 +169,8 @@ export function resolveFrame(
   const cameraTransform = resolveCameraTransformForFrame(
     presentation?.zoom,
     activeRecordingLayer?.sourceFrame ?? frame,
-    settings.resolution.width,
-    settings.resolution.height,
+    screenSourceSize.width,
+    screenSourceSize.height,
     {
       assetId: activeRecording?.id,
       getCursorPosition: options?.getCursorPosition,

@@ -1,11 +1,9 @@
-import { test, expect, navigateToTab } from './fixtures/electron-app.js';
+import { test, expect } from './fixtures/electron-app.js';
+import { loadPlaybackFixture } from './fixtures/playback-fixture.js';
 
-const RECORDED_PROJECT_PATH =
-  process.env.ROUGH_CUT_SESSION_PATH ??
-  '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
 test.describe('Record playback canvas', () => {
   test('loaded project playback uses a visible canvas surface', async ({ appPage }) => {
-    await loadRecordedProject(appPage);
+    await loadPlaybackFixture(appPage, 'record');
 
     await expect(appPage.locator('[data-testid="recording-playback-canvas"]')).toBeVisible();
 
@@ -41,7 +39,7 @@ test.describe('Record playback canvas', () => {
   });
 
   test('canvas frame updates when the paused playhead seeks', async ({ appPage }) => {
-    await loadRecordedProject(appPage);
+    await loadPlaybackFixture(appPage, 'record');
 
     const frame0 = await captureCanvasState(appPage);
 
@@ -67,7 +65,7 @@ test.describe('Record playback canvas', () => {
   });
 
   test('canvas keeps painting while playback runs', async ({ appPage }) => {
-    await loadRecordedProject(appPage);
+    await loadPlaybackFixture(appPage, 'record');
 
     await appPage.evaluate(() => {
       const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
@@ -96,41 +94,6 @@ test.describe('Record playback canvas', () => {
     expect(during.canvasHash).not.toBe(before.canvasHash);
   });
 });
-
-async function loadRecordedProject(page: import('@playwright/test').Page): Promise<void> {
-  await navigateToTab(page, 'record');
-
-  const project = (await page.evaluate((projectPath) => {
-    return (
-      window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
-    ).roughcut.projectOpenPath(projectPath);
-  }, RECORDED_PROJECT_PATH)) as Record<string, any>;
-
-  const recording = project.assets.find((asset: any) => asset.type === 'recording');
-  expect(recording).toBeTruthy();
-
-  await page.evaluate(
-    ({ nextProject, projectPath, activeAssetId }) => {
-      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-      stores?.project.getState().setProject(nextProject);
-      stores?.project.getState().setProjectFilePath(projectPath);
-      stores?.project.getState().setActiveAssetId(activeAssetId);
-      stores?.transport.getState().seekToFrame(0);
-    },
-    {
-      nextProject: project,
-      projectPath: RECORDED_PROJECT_PATH,
-      activeAssetId: recording?.id ?? null,
-    },
-  );
-
-  await page.waitForFunction((selector) => {
-    const video = document.querySelector(selector) as HTMLVideoElement | null;
-    return video?.getAttribute('data-ready') === 'true';
-  }, '[data-testid="recording-playback-video"]');
-
-  await expect(page.locator('[data-testid="recording-playback-canvas"]')).toBeVisible();
-}
 
 async function captureCanvasState(page: import('@playwright/test').Page): Promise<{
   playheadFrame: number;

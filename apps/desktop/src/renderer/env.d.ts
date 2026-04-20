@@ -270,6 +270,7 @@ export interface RoughCutAPI {
     buffer: ArrayBuffer,
     metadata: RecordingMetadata,
     cameraBuffer?: ArrayBuffer,
+    cameraMimeType?: string,
   ): Promise<RecordingResult>;
   panelMediaRecorderStarted(timestampMs: number): void;
   onRecordingAssetReady(callback: (result: RecordingResult) => void): () => void;
@@ -363,5 +364,6 @@ export interface RoughCutAPI {
 declare global {
   interface Window {
     roughcut: RoughCutAPI;
+    __roughcutSetActiveTab?: (tab: 'projects' | 'record' | 'edit' | 'motion' | 'ai' | 'export') => void;
   }
 }

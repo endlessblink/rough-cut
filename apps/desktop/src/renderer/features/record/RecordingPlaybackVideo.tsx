@@ -14,13 +14,13 @@ import type { CursorFrameData } from '../../components/CursorOverlay.js';
 import { buildCursorFrameData } from '../../components/cursor-data-loader.js';
 import { useCursorEvents } from '../../hooks/use-cursor-events.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
-import { inferCursorEventsPath } from '../../lib/media-sidecars.js';
+import { inferCursorEventsPath, resolveProjectMediaPath } from '../../lib/media-sidecars.js';
 
 interface RecordingPlaybackVideoProps {
   filePath: string;
   fps: number;
   assetId: string;
-  /** All zoom markers for this recording (drives CSS zoom transform). */
+  /** All zoom markers for this recording (drives cursor overlay + focal-point UI). */
   zoomMarkers?: readonly ZoomMarker[];
   /** If a zoom marker is selected AND playback is paused AND playhead is inside its range,
    *  render a focal-point reticle that the user can drag. */
@@ -36,12 +36,20 @@ export function RecordingPlaybackVideo({
   selectedZoomMarker = null,
   onFocalPointChange,
 }: RecordingPlaybackVideoProps) {
-  const { previewRef, isReady, setPreferredPlaybackAssetId } = useCompositor();
+  const asset = useProjectStore((s) => s.project.assets.find((a) => a.id === assetId) ?? null);
+  const projectFilePath = useProjectStore((s) => s.projectFilePath);
+  const assetWidth = (asset?.metadata?.width as number) || 1920;
+  const assetHeight = (asset?.metadata?.height as number) || 1080;
+  const { previewRef, isReady, setPreferredPlaybackAssetId, setRenderSize } = useCompositor();
 
   useEffect(() => {
     setPreferredPlaybackAssetId(assetId);
     return () => setPreferredPlaybackAssetId(null);
   }, [assetId, setPreferredPlaybackAssetId]);
+
+  useEffect(() => {
+    setRenderSize(assetWidth, assetHeight);
+  }, [assetHeight, assetWidth, setRenderSize]);
 
   // Find the clip range so we can map project frames → clip-local zoom timing.
   const clipRangeKey = useProjectStore((s) => {
@@ -56,7 +64,6 @@ export function RecordingPlaybackVideo({
   });
   const [clipTimelineIn = 0, clipTimelineOut = 0] = clipRangeKey.split(':').map(Number);
 
-  const asset = useProjectStore((s) => s.project.assets.find((a) => a.id === assetId) ?? null);
   const cursorPresentation = asset?.presentation?.cursor ?? {
     style: 'default' as const,
     clickEffect: 'ripple' as const,
@@ -65,11 +72,10 @@ export function RecordingPlaybackVideo({
   };
 
   const assetDuration = asset?.duration || 900;
-  const assetWidth = (asset?.metadata?.width as number) || 1920;
-  const assetHeight = (asset?.metadata?.height as number) || 1080;
   const cursorPath = inferCursorEventsPath(
-    asset?.filePath ?? null,
+    resolveProjectMediaPath(asset?.filePath ?? null, projectFilePath),
     asset?.metadata?.cursorEventsPath as string | null,
+    projectFilePath,
   );
   const cursorEvents = useCursorEvents(cursorPath, assetWidth, assetHeight);
 
@@ -140,12 +146,6 @@ export function RecordingPlaybackVideo({
           style={{
             position: 'absolute',
             inset: 0,
-            transformOrigin: '50% 50%',
-            transform: `scale(${zt.scale}) translate(${zt.translateX * 100}%, ${zt.translateY * 100}%)`,
-            transition: isPlaying
-              ? 'transform 60ms linear'
-              : 'transform 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-            willChange: 'transform',
           }}
         >
           <div ref={previewRef} style={{ position: 'absolute', inset: 0 }} />

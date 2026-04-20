@@ -1,13 +1,10 @@
-import { test, expect, navigateToTab } from './fixtures/electron-app.js';
-
-const RECORDED_PROJECT_PATH =
-  process.env.ROUGH_CUT_SESSION_PATH ??
-  '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
+import { test, expect } from './fixtures/electron-app.js';
+import { loadPlaybackFixture } from './fixtures/playback-fixture.js';
 
 test('record playback stays monotonic during first second after space resume', async ({ appPage }) => {
   test.setTimeout(45_000);
 
-  await loadRecordedProject(appPage);
+  await loadPlaybackFixture(appPage, 'record');
 
   const timeline = appPage.locator('[data-testid="record-timeline"]').first();
   const playButton = appPage
@@ -54,41 +51,6 @@ test('record playback stays monotonic during first second after space resume', a
   expect(countBackwardSteps(samples.map((sample) => sample.playheadFrame), 1)).toBe(0);
   expect(countDistinct(samples.map((sample) => sample.canvasHash), 1)).toBeGreaterThanOrEqual(3);
 });
-
-async function loadRecordedProject(page: import('@playwright/test').Page): Promise<void> {
-  await navigateToTab(page, 'record');
-
-  const project = (await page.evaluate((projectPath) => {
-    return (
-      window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
-    ).roughcut.projectOpenPath(projectPath);
-  }, RECORDED_PROJECT_PATH)) as Record<string, any>;
-
-  const recording = project.assets.find((asset: any) => asset.type === 'recording');
-  expect(recording).toBeTruthy();
-
-  await page.evaluate(
-    ({ nextProject, projectPath, activeAssetId }) => {
-      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-      stores?.project.getState().setProject(nextProject);
-      stores?.project.getState().setProjectFilePath(projectPath);
-      stores?.project.getState().setActiveAssetId(activeAssetId);
-      stores?.transport.getState().seekToFrame(0);
-    },
-    {
-      nextProject: project,
-      projectPath: RECORDED_PROJECT_PATH,
-      activeAssetId: recording?.id ?? null,
-    },
-  );
-
-  await page.waitForFunction((selector) => {
-    const video = document.querySelector(selector) as HTMLVideoElement | null;
-    return video?.getAttribute('data-ready') === 'true';
-  }, '[data-testid="recording-playback-video"]');
-
-  await expect(page.locator('[data-testid="recording-playback-canvas"]')).toBeVisible();
-}
 
 async function sampleRecordPlayback(
   page: import('@playwright/test').Page,

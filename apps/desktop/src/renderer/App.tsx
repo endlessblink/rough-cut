@@ -62,6 +62,16 @@ export function App() {
   const autoSaveRequestRef = useRef(0);
   const lastHandledRecordingRef = useRef<{ filePath: string; handledAt: number } | null>(null);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    (window as unknown as { __roughcutSetActiveTab?: (tab: TabId) => void }).__roughcutSetActiveTab =
+      setActiveTab;
+    return () => {
+      delete (window as unknown as { __roughcutSetActiveTab?: (tab: TabId) => void })
+        .__roughcutSetActiveTab;
+    };
+  }, []);
+
   // Initialize with a default project on mount
   useEffect(() => {
     const currentState = projectStore.getState();
@@ -243,6 +253,8 @@ export function App() {
       projectStore.getState().addAsset(cameraAsset);
       cameraAssetId = cameraAsset.id;
       console.log('[App] Camera asset created:', cameraAssetId, 'path:', result.cameraFilePath);
+    } else {
+      console.warn('[App] No camera file was returned for this recording; camera clip import skipped');
     }
 
     let autoZoomIntensity = 0.5;
@@ -267,7 +279,7 @@ export function App() {
           generatedZoom = {
             autoIntensity: autoZoomIntensity,
             followCursor: true,
-            followAnimation: 'focused' as const,
+            followAnimation: 'smooth' as const,
             followPadding: 0.18,
             markers: generateAutoZoomMarkers(
               cursorEvents,

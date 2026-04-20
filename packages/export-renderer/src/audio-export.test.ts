@@ -51,7 +51,7 @@ describe('collectAudioExportSegments', () => {
     expect(segments[0]?.asset.id).toBe(recordingAsset.id);
   });
 
-  it('skips overlapping clips after the first accepted segment', () => {
+  it('keeps overlapping clips so export can mix them', () => {
     const project = createProject({ name: 'audio-overlap-test' });
     const videoTrack = project.composition.tracks.find((track) => track.type === 'video')!;
     const assetA = createAsset('recording', '/tmp/a.webm', { duration: 120 });
@@ -82,7 +82,8 @@ describe('collectAudioExportSegments', () => {
 
     const segments = collectAudioExportSegments(nextProject);
 
-    expect(segments).toHaveLength(1);
+    expect(segments).toHaveLength(2);
     expect(segments[0]?.asset.id).toBe(assetA.id);
+    expect(segments[1]?.asset.id).toBe(assetB.id);
   });
 });

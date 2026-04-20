@@ -30,6 +30,7 @@ import {
   pickDesktopExportOutputPath,
   runDesktopExport,
 } from './run-export.js';
+import { bitrateFromCrf, normalizeExportSettings, resolveExportBitrate } from './export-settings.js';
 
 interface ExportTabProps {
   activeTab: AppView;
@@ -193,21 +194,9 @@ const EXPORT_PRESETS: readonly ExportPreset[] = [
   },
 ];
 
-function bitrateFromCrf(crf: number): number {
-  switch (crf) {
-    case 18:
-      return 10_000_000;
-    case 22:
-      return 5_000_000;
-    case 26:
-      return 2_000_000;
-    default:
-      return 1_000_000;
-  }
-}
-
 function crfFromBitrate(bitrate: number): number {
   if (bitrate >= 10_000_000) return 18;
+  if (bitrate >= 6_000_000) return 23;
   if (bitrate >= 5_000_000) return 22;
   if (bitrate >= 2_000_000) return 26;
   return 30;
@@ -218,11 +207,16 @@ function resolutionKey(width: number, height: number): string {
 }
 
 function presetMatches(project: ProjectDocument, preset: ExportPreset): boolean {
+  const bitrate = resolveExportBitrate(
+    project.exportSettings as ProjectDocument['exportSettings'] & Record<string, unknown>,
+  );
+
   return (
     project.exportSettings.resolution.width === preset.resolution.width &&
     project.exportSettings.resolution.height === preset.resolution.height &&
     project.exportSettings.frameRate === preset.frameRate &&
-    crfFromBitrate(project.exportSettings.bitrate) === preset.crf
+    bitrate !== null &&
+    crfFromBitrate(bitrate) === preset.crf
   );
 }
 
@@ -280,9 +274,27 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const resolution = useProjectStore((s) => s.project.settings.resolution);
   const destinationPresetId = useProjectStore((s) => s.project.settings.destinationPresetId);
   const exportSettings = useProjectStore((s) => s.project.exportSettings);
+  const normalizedExportSettings = useMemo(
+    () =>
+      normalizeExportSettings(
+        exportSettings as ProjectDocument['exportSettings'] & Record<string, unknown>,
+      ),
+    [exportSettings],
+  );
   const currentFrame = useTransportStore((s) => s.playheadFrame);
   const isPlaying = useTransportStore((s) => s.isPlaying);
   const project = useProjectStore((s) => s.project);
+
+  useEffect(() => {
+    if (normalizedExportSettings === exportSettings) {
+      return;
+    }
+
+    updateProject((doc) => ({
+      ...doc,
+      exportSettings: normalizedExportSettings,
+    }));
+  }, [exportSettings, normalizedExportSettings, updateProject]);
 
   const activeRecordingAsset = useMemo(() => {
     const frame = resolveFrame(project, currentFrame);
@@ -354,7 +366,10 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const activeZoomScale = getZoomTransformAtFrame(currentFrame, activeZoomMarkers).scale;
 
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
-  const selectedCrf = crfFromBitrate(exportSettings.bitrate);
+  const resolvedExportBitrate = resolveExportBitrate(
+    exportSettings as ProjectDocument['exportSettings'] & Record<string, unknown>,
+  );
+  const selectedCrf = crfFromBitrate(resolvedExportBitrate ?? 1_000_000);
   const selectedPresetId: ExportPresetId =
     EXPORT_PRESETS.find((preset) => presetMatches(project, preset))?.id ?? 'custom';
   const linkedDestinationPreset =
@@ -362,12 +377,12 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
     matchDestinationPreset({
       templateId: activeTemplate?.id,
       captureResolution: resolution,
-      exportSettings: {
-        resolution: exportSettings.resolution,
-        frameRate: exportSettings.frameRate,
-        bitrate: exportSettings.bitrate,
-      },
-    });
+        exportSettings: {
+          resolution: normalizedExportSettings.resolution,
+          frameRate: normalizedExportSettings.frameRate,
+          bitrate: normalizedExportSettings.bitrate,
+        },
+      });
 
   const [exportRange, setExportRange] = useState<ExportRange>({
     inFrame: 0,
@@ -382,8 +397,8 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const activeJobIdRef = useRef<string | null>(null);
   const queueProcessingRef = useRef(false);
   const exportEstimate = useMemo(
-    () => estimateExport(exportRange, exportSettings),
-    [exportRange, exportSettings],
+    () => estimateExport(exportRange, normalizedExportSettings),
+    [exportRange, normalizedExportSettings],
   );
   const liveEtaMs = useMemo(() => {
     if (!isExporting || exportProgress <= 0 || exportProgress >= 100) return null;
@@ -826,7 +841,7 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
               Format
             </div>
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.80)' }}>
-              {exportSettings.format.toUpperCase()} ({formatCodecLabel(exportSettings.codec)})
+              {normalizedExportSettings.format.toUpperCase()} ({formatCodecLabel(normalizedExportSettings.codec)})
             </div>
           </div>
 
@@ -879,8 +894,8 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
             <select
               data-testid="export-resolution-select"
               value={resolutionKey(
-                exportSettings.resolution.width,
-                exportSettings.resolution.height,
+                normalizedExportSettings.resolution.width,
+                normalizedExportSettings.resolution.height,
               )}
               onChange={(e) => handleResolutionChange(e.target.value)}
               style={selectStyle}
@@ -908,7 +923,7 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
             </div>
             <select
               data-testid="export-frame-rate-select"
-              value={String(exportSettings.frameRate)}
+              value={String(normalizedExportSettings.frameRate)}
               onChange={(e) => handleFrameRateChange(e.target.value)}
               style={selectStyle}
             >

@@ -78,4 +78,72 @@ describe('renderFrameToCanvasAccurate', () => {
     expect(inside[0]).toBeGreaterThan(200);
     expect(outside[0]).toBe(0);
   });
+
+  it('applies recording zoom to source media during accurate export rendering', async () => {
+    const canvas = createCanvas(200, 100);
+    const ctx = canvas.getContext('2d');
+    const source = createCanvas(200, 100);
+    const sourceCtx = source.getContext('2d');
+
+    sourceCtx.fillStyle = '#000000';
+    sourceCtx.fillRect(0, 0, 50, 100);
+    sourceCtx.fillStyle = '#ff0000';
+    sourceCtx.fillRect(50, 0, 50, 100);
+    sourceCtx.fillStyle = '#00ff00';
+    sourceCtx.fillRect(100, 0, 50, 100);
+    sourceCtx.fillStyle = '#0000ff';
+    sourceCtx.fillRect(150, 0, 50, 100);
+
+    const frame: RenderFrame = {
+      frame: 0,
+      width: 200,
+      height: 100,
+      backgroundColor: '#000000',
+      layers: [
+        {
+          clipId: 'clip-screen' as ClipId,
+          trackId: 'track-screen' as TrackId,
+          trackIndex: 0,
+          assetId: 'asset-screen' as AssetId,
+          sourceFrame: 0,
+          transform: {
+            x: 0,
+            y: 0,
+            scaleX: 1,
+            scaleY: 1,
+            rotation: 0,
+            anchorX: 0.5,
+            anchorY: 0.5,
+            opacity: 1,
+          },
+          effects: [],
+          isCamera: false,
+        },
+      ],
+      transitions: [],
+      cameraTransform: { scale: 2, offsetX: 0, offsetY: 0 },
+      cursor: {
+        style: 'default',
+        clickEffect: 'none',
+        sizePercent: 100,
+        clickSoundEnabled: false,
+      },
+    };
+
+    await renderFrameToCanvasAccurate(
+      canvas,
+      ctx,
+      frame,
+      30,
+      async () => source as unknown as CanvasImageSource,
+    );
+
+    const left = ctx.getImageData(10, 50, 1, 1).data;
+    const right = ctx.getImageData(190, 50, 1, 1).data;
+
+    expect(left[0]).toBeGreaterThan(200);
+    expect(left[1]).toBeLessThan(50);
+    expect(right[1]).toBeGreaterThan(200);
+    expect(right[0]).toBeLessThan(50);
+  });
 });
