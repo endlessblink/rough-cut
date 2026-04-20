@@ -64,7 +64,6 @@ import {
   getSelectedOptionLabel,
   useRecordingDeviceOptions,
 } from './use-recording-device-options.js';
-import { LivePreviewCanvas } from './LivePreviewCanvas.js';
 import { RecordingPlaybackVideo } from './RecordingPlaybackVideo.js';
 import { CameraPlaybackCanvas } from './CameraPlaybackCanvas.js';
 import { LAYOUT_TEMPLATES, resolutionForAspectRatio } from './templates.js';
@@ -1830,8 +1829,6 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
                         </div>
                       </div>
                     </div>
-                  ) : livePreviewStatus === 'live' && liveStream ? (
-                    <LivePreviewCanvas stream={liveStream} />
                   ) : undefined
                 }
                 cameraContent={
