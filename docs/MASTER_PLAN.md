@@ -187,6 +187,7 @@ Parallel-start rule:
 | ~~TASK-170~~ | ~~Record: Make pause/resume truthful or disable unsupported paths~~      | P1       | ✅ DONE (2026-04-20)     | TASK-169, TASK-031 |
 | ~~TASK-171~~ | ~~Record: Session manifest and partial-take recovery on relaunch~~       | P0       | ✅ DONE (2026-04-20)     | TASK-169, TASK-168 |
 | ~~TASK-172~~ | ~~Record: Real region capture or hide unsupported region mode~~          | P1       | ✅ DONE (2026-04-20)     | TASK-166           |
+| ~~TASK-179~~ | ~~Record: Append new takes to current project instead of replacing it~~  | P1       | ✅ DONE (2026-04-20)     | TASK-086           |
 | TASK-177     | Stabilize Record: restore truthful live preview canvas reliably          | P0       | TODO                     | TASK-165, TASK-172 |
 | TASK-178     | Stabilize Tests: replace flaky record acceptance suite with release gate | P1       | TODO                     | TASK-173, TASK-177 |
 | TASK-176     | Record: Clarify camera layout marker add vs update UX                   | P2       | TODO                     | TASK-159           |
