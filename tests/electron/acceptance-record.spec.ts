@@ -10,6 +10,8 @@ type RoughcutWindow = Window & {
   roughcut: {
     openRecordingPanel: () => Promise<void>;
     closeRecordingPanel: () => Promise<void>;
+    debugSetCaptureSources?: (payload: unknown) => Promise<unknown>;
+    recordingConfigUpdate?: (patch: Record<string, unknown>) => Promise<unknown>;
     panelPause: () => void;
     panelResume: () => void;
     onPanelPauseRequested: (callback: () => void) => () => void;
@@ -22,6 +24,24 @@ function nav(appPage: import('@playwright/test').Page) {
 }
 
 test.describe('Record Tab — MVP Acceptance', () => {
+  test.beforeEach(async ({ appPage }) => {
+    await appPage.evaluate(async () => {
+      const api = (window as unknown as RoughcutWindow).roughcut;
+      await api.debugSetCaptureSources?.(null);
+      await api.recordingConfigUpdate?.({
+        recordMode: 'fullscreen',
+        selectedSourceId: null,
+        selectedMicDeviceId: null,
+        selectedCameraDeviceId: null,
+        selectedSystemAudioSourceId: null,
+        micEnabled: true,
+        sysAudioEnabled: true,
+        cameraEnabled: true,
+        countdownSeconds: 3,
+      });
+    });
+  });
+
   // ── 1.5.1: Live preview with background, padding, corners, shadow ──────
   test('1.5.1 — live preview renders with styled background', async ({ appPage }) => {
     await nav(appPage);

@@ -187,6 +187,8 @@ Parallel-start rule:
 | ~~TASK-170~~ | ~~Record: Make pause/resume truthful or disable unsupported paths~~      | P1       | ✅ DONE (2026-04-20)     | TASK-169, TASK-031 |
 | ~~TASK-171~~ | ~~Record: Session manifest and partial-take recovery on relaunch~~       | P0       | ✅ DONE (2026-04-20)     | TASK-169, TASK-168 |
 | ~~TASK-172~~ | ~~Record: Real region capture or hide unsupported region mode~~          | P1       | ✅ DONE (2026-04-20)     | TASK-166           |
+| TASK-177     | Stabilize Record: restore truthful live preview canvas reliably          | P0       | TODO                     | TASK-165, TASK-172 |
+| TASK-178     | Stabilize Tests: replace flaky record acceptance suite with release gate | P1       | TODO                     | TASK-173, TASK-177 |
 | TASK-176     | Record: Clarify camera layout marker add vs update UX                   | P2       | TODO                     | TASK-159           |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
@@ -1893,6 +1895,73 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 #### Verification
 
 - A user selecting `region` gets either a real region workflow or no misleading affordance at all.
+
+---
+
+### TASK-177: Stabilize Record: restore truthful live preview canvas reliably
+
+**Priority:** P0 | **Status:** TODO
+
+#### Goal
+
+- Make the Record tab consistently show the real live preview canvas whenever a valid source is selected and preview acquisition succeeds.
+
+#### Problem
+
+- Focused stabilization runs still showed the healthy live-preview state failing to render the preview canvas, even though acquisition state and failure states worked.
+- This creates a major trust gap because the user's first confidence check is whether the selected source is visibly live before recording starts.
+
+#### Scope
+
+- Ensure `live` preview state actually mounts the preview surface.
+- Keep empty/acquiring/failed/lost states intact and non-overlapping.
+- Verify that saved-take playback and live preview do not mask each other incorrectly.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `apps/desktop/src/renderer/features/record/LivePreviewCanvas.tsx`
+- `apps/desktop/src/renderer/features/record/use-live-preview.ts`
+- `tests/electron/live-preview.spec.ts`
+
+#### Verification
+
+- The focused live-preview suite passes, including the successful preview-canvas case.
+- The Record tab visibly renders a live preview for a valid selected source before recording.
+
+---
+
+### TASK-178: Stabilize Tests: replace flaky record acceptance suite with release gate
+
+**Priority:** P1 | **Status:** TODO
+
+#### Goal
+
+- Replace the current broad-but-flaky Record acceptance suite with a smaller, deterministic release-gate suite that people can trust before client recordings.
+
+#### Problem
+
+- Broad stabilization runs showed `acceptance-record.spec.ts` failing in ways that do not cleanly distinguish product regressions from test harness instability.
+- A flaky confidence suite is almost as bad as no suite because it trains the team to ignore failures.
+
+#### Scope
+
+- Audit `tests/electron/acceptance-record.spec.ts` for environment-coupled and startup-flaky cases.
+- Split stable product-contract checks from exploratory or aspirational assertions.
+- Promote a smaller release-gate suite that answers: can I safely record a tutorial right now?
+
+#### Key files
+
+- `tests/electron/acceptance-record.spec.ts`
+- `tests/electron/live-preview.spec.ts`
+- `tests/electron/record-source-gating.spec.ts`
+- `tests/electron/record-recovery-relaunch.spec.ts`
+- `tests/electron/record-shutdown-paths.spec.ts`
+
+#### Verification
+
+- The release-gate suite runs green repeatedly on the target workstation.
+- A failing gate points to a real user-facing readiness issue, not harness noise.
 
 ---
 
