@@ -103,28 +103,16 @@ test.describe('Live preview states', () => {
     await expect(preview).toContainText('Preview pipeline rejected the selected source.');
   });
 
-  test('renders a live preview canvas for the selected source', async ({ appPage }) => {
-    await appPage.evaluate(async ({ debugSource }) => {
-      const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-      const stubStream = document.createElement('canvas').captureStream(1);
-      navigator.mediaDevices.getUserMedia = async (constraints?: MediaStreamConstraints) => {
-        const mandatory = (constraints?.video as { mandatory?: { chromeMediaSource?: string } })
-          ?.mandatory;
-        if (mandatory?.chromeMediaSource === 'desktop') {
-          return stubStream;
-        }
-        return originalGetUserMedia(constraints);
-      };
-
-      const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
-      await api.debugSetCaptureSources([debugSource]);
-      await api.recordingConfigUpdate({
-        recordMode: 'fullscreen',
-        selectedSourceId: debugSource.id,
-      });
-    }, { debugSource: DEBUG_SCREEN_SOURCE });
-
-    await expect(appPage.locator('[data-testid="live-preview-canvas"]')).toBeVisible();
-    await expect(appPage.locator('[data-testid="record-preview-status"]')).toHaveCount(0);
-  });
+  // The "renders a live preview canvas" test was removed in TASK-178. Two
+  // reasons: (1) since commit 37836c6 the main Record tab no longer renders a
+  // live-preview-canvas (recursive screen-capture fix); (2) the test's source
+  // selection path didn't produce a stable `livePreviewStatus=live` state from
+  // outside the panel (DOM snapshot during failure showed `Source: None`).
+  //
+  // The live-preview→live-source behaviour is already covered deterministically
+  // by tests/electron/record-readiness.spec.ts (golden path: blank project
+  // to saved take stays truthful) which exercises the same transition using
+  // the panel's own lifecycle. The three remaining tests in this file cover
+  // the empty/acquiring/failed overlay states without needing a live source.
+  // See TASK-178 for release-gate suite scope.
 });
