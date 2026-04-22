@@ -1897,9 +1897,14 @@ export function PanelApp() {
       return;
     }
     const desiredCameraKey = selectedCameraDeviceId ?? '__default__';
-    const existingTrack = cameraStream?.getVideoTracks()[0] ?? null;
+    // Read via ref, not state: `cameraStream` is intentionally omitted from this
+    // effect's deps below (TASK-185). Setting cameraStream from inside this effect
+    // caused self-retriggering re-runs whose guard could fail during transient
+    // non-live states and wastefully re-acquire, stopping the old track.
+    const existingStream = cameraStreamRef.current;
+    const existingTrack = existingStream?.getVideoTracks()[0] ?? null;
     if (
-      cameraStream &&
+      existingStream &&
       existingTrack &&
       existingTrack.readyState === 'live' &&
       activeCameraStreamKeyRef.current === desiredCameraKey
@@ -1963,7 +1968,8 @@ export function PanelApp() {
     return () => {
       active = false;
     };
-  }, [cameraEnabled, cameraStream, hydrated, refreshDeviceOptions, selectedCameraDeviceId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cameraStream read via ref (see comment above)
+  }, [cameraEnabled, hydrated, refreshDeviceOptions, selectedCameraDeviceId]);
 
   useEffect(() => {
     const track = micStream?.getAudioTracks()[0] ?? null;
