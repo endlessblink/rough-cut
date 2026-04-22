@@ -116,21 +116,70 @@ test.describe('Record Tab — MVP Acceptance', () => {
     await expect(appPage.locator('[data-testid="record-camera-toggle"]')).toBeVisible();
   });
 
-  // ── 1.5.5: Audio — mic select, system audio toggle, VU meters ─────────
-  test('1.5.5 — mic, system audio, and camera setup is handed off to the recording panel', async ({
+  // ── 1.5.5: Audio — mic/camera/system-audio toggles flip inline (TASK-186 Cut B) ─
+  test('1.5.5 — mic, system audio, and camera toggles flip inline without opening the panel', async ({
     appPage,
     electronApp,
   }) => {
     await nav(appPage);
-    await expect(appPage.locator('[data-testid="record-mic-toggle"]')).toBeVisible();
-    await expect(appPage.locator('[data-testid="record-system-audio-toggle"]')).toBeVisible();
-    await expect(appPage.locator('[data-testid="record-camera-toggle"]')).toBeVisible();
+
+    const micToggle = appPage.locator('[data-testid="record-mic-toggle"]');
+    const sysAudioToggle = appPage.locator('[data-testid="record-system-audio-toggle"]');
+    const cameraToggle = appPage.locator('[data-testid="record-camera-toggle"]');
+
+    await expect(micToggle).toBeVisible();
+    await expect(sysAudioToggle).toBeVisible();
+    await expect(cameraToggle).toBeVisible();
     await expect(appPage.locator('[data-testid="record-mic-select"]')).toHaveCount(0);
     await expect(appPage.locator('[data-testid="record-camera-select"]')).toHaveCount(0);
     await expect(appPage.locator('[data-testid="record-system-audio-select"]')).toHaveCount(0);
 
+    const readConfig = () =>
+      appPage.evaluate(() => {
+        const stores = (window as unknown as { __roughcutStores?: Record<string, unknown> })
+          .__roughcutStores;
+        const store = stores?.recordingConfig as
+          | { getState: () => { micEnabled: boolean; sysAudioEnabled: boolean; cameraEnabled: boolean } }
+          | undefined;
+        const s = store?.getState();
+        return s
+          ? { micEnabled: s.micEnabled, sysAudioEnabled: s.sysAudioEnabled, cameraEnabled: s.cameraEnabled }
+          : null;
+      });
+
+    const windowCountBefore = electronApp.windows().length;
+    const before = await readConfig();
+    expect(before).not.toBeNull();
+
+    await micToggle.click();
+    await expect
+      .poll(async () => (await readConfig())?.micEnabled)
+      .toBe(!before!.micEnabled);
+    expect(electronApp.windows().length).toBe(windowCountBefore);
+
+    await sysAudioToggle.click();
+    await expect
+      .poll(async () => (await readConfig())?.sysAudioEnabled)
+      .toBe(!before!.sysAudioEnabled);
+    expect(electronApp.windows().length).toBe(windowCountBefore);
+
+    await cameraToggle.click();
+    await expect
+      .poll(async () => (await readConfig())?.cameraEnabled)
+      .toBe(!before!.cameraEnabled);
+    expect(electronApp.windows().length).toBe(windowCountBefore);
+  });
+
+  test('1.5.5 — Setup button opens the panel with full device pickers', async ({
+    appPage,
+    electronApp,
+  }) => {
+    await nav(appPage);
+    const setupBtn = appPage.locator('[data-testid="record-open-setup-panel"]');
+    await expect(setupBtn).toBeVisible();
+
     const panelPromise = electronApp.waitForEvent('window');
-    await appPage.locator('[data-testid="record-mic-toggle"]').click();
+    await setupBtn.click();
     const panelPage = await panelPromise;
     await panelPage.waitForLoadState('domcontentloaded');
     await expect(panelPage.locator('[data-testid="panel-setup-summary"]')).toBeVisible();

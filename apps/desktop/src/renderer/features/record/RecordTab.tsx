@@ -1614,24 +1614,50 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           onOpenSourcePicker={openRecordingSetupPanel}
           micName={selectedMicName}
           isMicMuted={!micEnabled}
-          onToggleMicMute={openRecordingSetupPanel}
+          onToggleMicMute={() => updateRecordingConfig({ micEnabled: !micEnabled })}
           hasSystemAudio={true}
           isSystemAudioEnabled={sysAudioEnabled}
-          onToggleSystemAudio={openRecordingSetupPanel}
+          onToggleSystemAudio={() => updateRecordingConfig({ sysAudioEnabled: !sysAudioEnabled })}
           hasCamera={true}
           isCameraEnabled={cameraEnabled}
-          onToggleCamera={openRecordingSetupPanel}
+          onToggleCamera={() => updateRecordingConfig({ cameraEnabled: !cameraEnabled })}
           recordState={recordState}
           onClickRecord={handleClickRecord}
           recordDisabled={recordButtonDisabled}
           recordDisabledReason={recordStartGuardReason}
           countdownValue={configuredCountdownSeconds}
-          onSelectCountdown={openRecordingSetupPanel}
+          onSelectCountdown={(seconds) => updateRecordingConfig({ countdownSeconds: seconds })}
           countdownSeconds={countdownSeconds}
           elapsedSeconds={elapsedSeconds}
           resolutionLabel={`${resolution.width}×${resolution.height}`}
           fpsLabel={`${projectFps} fps`}
         />
+        <button
+          type="button"
+          data-testid="record-open-setup-panel"
+          onClick={openRecordingSetupPanel}
+          title="Open recording setup panel — device pickers, audio meter, diagnostics"
+          style={{
+            height: 32,
+            padding: '0 12px',
+            borderRadius: 8,
+            border: '1px solid rgba(255,255,255,0.08)',
+            background: 'rgba(255,255,255,0.04)',
+            color: 'rgba(255,255,255,0.72)',
+            fontSize: 12,
+            fontWeight: 500,
+            letterSpacing: '0.02em',
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            flexShrink: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <span aria-hidden="true" style={{ fontSize: 13, lineHeight: 1 }}>⚙</span>
+          Setup
+        </button>
       </div>
 
       {recordingRecovery && (
