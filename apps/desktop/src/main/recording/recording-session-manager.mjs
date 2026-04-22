@@ -1541,10 +1541,29 @@ function _cleanup() {
     console.warn('[session-manager] globalShortcut.unregister failed:', err?.message ?? err);
   }
 
-  // Destroy tray
+  // Destroy tray. Known Electron quirk on some Linux status-notifier
+  // implementations: the visible icon can linger after destroy(). Clearing the
+  // image to 1x1 transparent first and then destroy() empirically removes the
+  // icon more reliably across KDE/GNOME-with-AppIndicator/Tuxedo DEs.
   if (tray) {
+    const wasDestroyed = tray.isDestroyed();
     try {
-      if (!tray.isDestroyed()) tray.destroy();
+      if (!wasDestroyed) {
+        try {
+          tray.setContextMenu(null);
+        } catch {
+          // older Electron may not accept null — ignore
+        }
+        try {
+          tray.setImage(nativeImage.createEmpty());
+        } catch {
+          // non-fatal — proceed to destroy
+        }
+        tray.destroy();
+      }
+      console.info(
+        '[session-manager] Tray destroyed — wasAlreadyDestroyed=' + wasDestroyed,
+      );
     } catch (err) {
       console.warn('[session-manager] tray.destroy() failed:', err?.message ?? err);
     }
