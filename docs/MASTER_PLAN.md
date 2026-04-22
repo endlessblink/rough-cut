@@ -215,7 +215,7 @@ Parallel-start rule:
 | TASK-183     | Record: Fix Linux X11 screen capture bounds on secondary displays       | P0       | IN PROGRESS (2026-04-21) | TASK-010, TASK-167 |
 | TASK-184     | Record: Eliminate Pixi video alpha CSP noise in the renderer            | P1       | IN PROGRESS (2026-04-21) | TASK-013           |
 | TASK-176     | Record: Clarify camera layout marker add vs update UX                   | P2       | TODO                     | TASK-159           |
-| TASK-185     | Record: Stabilize camera preview track lifecycle                        | P2       | PLANNED                  | TASK-182           |
+| TASK-185     | Record: Stabilize camera preview track lifecycle                        | P2       | IN PROGRESS (2026-04-22) | TASK-182           |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
@@ -475,7 +475,18 @@ This warning is currently polluting the debugging signal around camera failures.
 
 ### TASK-185: Record: Stabilize camera preview track lifecycle
 
-**Priority:** P2 | **Status:** PLANNED (2026-04-22)
+**Priority:** P2 | **Status:** IN PROGRESS (2026-04-22)
+
+#### Progress (2026-04-22)
+
+- **Diagnostic landed** (commit `8c8f04e`): preview camera track now logs an `[PanelApp][task-185] Camera preview track ended unexpectedly` warning with stack trace whenever it transitions to `ended`. Always-on observability for the next reproduction.
+- **Structural fix landed** (commit `9de2b7f`): removed `cameraStream` from the preview useEffect's dependency array and switched to reading via `cameraStreamRef.current`. This eliminates the self-retrigger loop where `setCameraStream(s)` inside the effect caused the effect to re-run and potentially re-acquire during transient non-live states — a plausible root cause for the 2026-04-22 ended-track state.
+- All camera-artifact (3) and camera-template-parity (5) specs still green with both changes.
+
+#### Remaining
+
+- **Reproduce the ended-track state** on the fix branch. If the diagnostic logger never fires in a few sessions of normal use, the structural fix may have eliminated the root cause and this task can close. If the warning fires, the stack trace identifies the culprit.
+- **(Optional) Track-ended auto-heal**: if the preview track can still end from an external cause (panel hide/show, device disconnect), add a re-acquire-on-end handler so preview self-heals. Hold on this until there's evidence the structural fix alone isn't enough.
 
 #### Context
 
