@@ -1930,6 +1930,19 @@ export function PanelApp() {
           console.info(
             `[PanelApp] Camera stream: ${settings.width}x${settings.height} @ ${settings.frameRate}fps`,
           );
+          // TASK-185 diagnostic: log every preview track transition to ended with a
+          // stack trace. The 2026-04-22 bug happened because this track ended
+          // silently between preview setup and REC click. Leaving this as an
+          // always-on observability hook so the next reproduction has evidence of
+          // which code path ended it.
+          track.addEventListener('ended', () => {
+            console.warn(
+              '[PanelApp][task-185] Camera preview track ended unexpectedly',
+              'trackId=' + track.id,
+              'readyState=' + track.readyState,
+              new Error('preview-track-ended').stack,
+            );
+          });
         }
         void refreshDeviceOptions();
         if (active) {
