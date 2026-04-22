@@ -57,12 +57,12 @@ export class CameraRecorder {
     );
   }
 
-  async stop(): Promise<Uint8Array> {
+  async stop(timeoutMs: number = 3000): Promise<Uint8Array> {
     if (!this.output || !this.target) throw new Error('Not recording');
 
     // TASK-182 diagnostic: label which branch of the race won so we can
     // distinguish "finalize completed cleanly" from "errorPromise killed it"
-    // in captured logs.
+    // from "timeout — no frames arrived" in captured logs.
     const stopStartedAt = Date.now();
     const finalize: Promise<'finalize'> = this.output
       .finalize()
@@ -82,19 +82,47 @@ export class CameraRecorder {
           () => 'errorGate' as const,
         )
       : (new Promise<never>(() => {}) as Promise<never>);
+    // TASK-182 fix: hard timeout. Observed 2026-04-22 13:27 — camera track was
+    // ACTIVE at REC click but delivered ~0.000384 fps (effectively no frames)
+    // while the panel was hidden during recording, so Mediabunny's finalize()
+    // waited forever for encoding to drain. Without this, stopMediaRecorder →
+    // finalizePanelRecording → cameraRecorder.stop() hangs the entire stop
+    // flow, and the panel UI cannot dismiss. With the timeout, the panel
+    // saves a screen-only take and the app stays responsive.
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const timeout: Promise<'timeout'> = new Promise((resolve) => {
+      timeoutHandle = setTimeout(() => resolve('timeout'), timeoutMs);
+    });
 
-    let winner: 'finalize' | 'errorGate' | null = null;
+    let winner: 'finalize' | 'errorGate' | 'timeout' | null = null;
     try {
-      winner = await Promise.race([finalize, errorGate]);
+      winner = await Promise.race([finalize, errorGate, timeout]);
     } catch (raceErr) {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
       console.warn(
         '[CameraRecorder][task-182] stop race rejected after',
         Date.now() - stopStartedAt,
-        'ms, buffer-present=' + Boolean(this.target.buffer),
+        'ms, buffer-present=' + Boolean(this.target?.buffer),
         'err=',
         raceErr,
       );
       throw raceErr;
+    }
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+
+    if (winner === 'timeout') {
+      console.warn(
+        '[CameraRecorder][task-182] finalize did not complete within',
+        timeoutMs,
+        'ms — abandoning camera sidecar',
+        'buffer-present=' + Boolean(this.target?.buffer),
+      );
+      // Cancel the output so mediabunny releases resources.
+      void this.output?.cancel().catch(() => {});
+      this.output = null;
+      this.target = null;
+      this.errorPromise = null;
+      throw new Error('Camera recorder finalize timed out');
     }
 
     const buffer = this.target.buffer;

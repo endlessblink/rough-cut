@@ -34,6 +34,7 @@ import {
 } from 'electron';
 import { join, dirname } from 'node:path';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../../shared/ipc-channels.mjs';
 import { getRecordingPauseCapability } from '../../shared/recording-pause-policy.mjs';
@@ -135,6 +136,7 @@ let shutdownPromise = null;
 let panelDestroyInProgress = false;
 let allowAppQuit = false;
 let testHooks = null;
+let lastFinalizedRecordingResult = null;
 
 function getTestHook(name) {
   return testHooks && typeof testHooks[name] === 'function' ? testHooks[name] : null;
@@ -260,12 +262,13 @@ async function waitForCaptureFile(filePath, timeoutMs = 4000) {
 }
 
 // ---------------------------------------------------------------------------
-// Tiny inline red-circle icon for the tray (8×8 px, base64 PNG)
+// Inline red-circle icon for the tray (16×16 px RGBA, base64 PNG).
+// Sized for a visible Linux tray slot — the previous 8×8 icon rendered as a
+// 1–2 pixel speck in most desktop environments and was effectively invisible.
 // ---------------------------------------------------------------------------
 const RED_CIRCLE_DATA_URL =
   'data:image/png;base64,' +
-  'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAB' +
-  'xJREFUKFNjYBgFgx8wMjD8Z2BgYGBkYGD4DwAIAAH/AJ9VQAAAAABJRU5ErkJggg==';
+  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAWklEQVR4nGNgoAV4pqTECcTBQFwFxSA2J7GaQRr+48BVhDTj0oiCybEZv0ugfiZWMwxzIhsQTIYBweQ6H9Mb1DCAYi9QFogURyNVEhKRLsGflNHChLzMRCoAAEe1O6wqkYs0AAAAAElFTkSuQmCC';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -431,6 +434,130 @@ async function stopActiveCaptureResources() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Auto-zoom from clicks helpers
+// ---------------------------------------------------------------------------
+
+function zoomSidecarPathFor(recordingFilePath) {
+  return recordingFilePath.replace(/\.(webm|mp4)$/i, '.zoom.json');
+}
+
+async function loadZoomSidecarForDecorate(recordingFilePath) {
+  try {
+    const path = zoomSidecarPathFor(recordingFilePath);
+    if (!existsSync(path)) return null;
+    const content = await readFile(path, 'utf-8');
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.markers)) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Generate auto-zoom markers from the cursor NDJSON sidecar and append them
+ * to the recording's zoom sidecar file. Existing manual markers are preserved
+ * and act as blockers (auto markers overlapping a manual marker are skipped).
+ * Prior auto markers are replaced by the fresh set.
+ *
+ * Respects the `autoFromClicks` flag on the recording's zoom presentation
+ * (default: true when undefined). Reads `autoZoomIntensity` from user prefs.
+ */
+async function applyAutoZoomFromClicks(result) {
+  try {
+    const cursorEventsPath = result.cursorEventsPath;
+    if (!cursorEventsPath || !existsSync(cursorEventsPath)) return;
+    if (!result.filePath) return;
+
+    // Read the autoFromClicks flag — load existing zoom sidecar first
+    const existingSidecar = await loadZoomSidecarForDecorate(result.filePath);
+    const autoFromClicks = existingSidecar?.autoFromClicks !== false; // default true
+    if (!autoFromClicks) {
+      console.info('[auto-zoom] autoFromClicks is disabled for this recording — skipping.');
+      return;
+    }
+
+    // Read intensity from user preferences
+    let intensity = 0.5;
+    try {
+      const { getAutoZoomIntensity } = await import('../recent-projects-service.mjs');
+      intensity = getAutoZoomIntensity();
+    } catch (e) {
+      console.warn('[auto-zoom] Could not read autoZoomIntensity:', e?.message);
+    }
+
+    if (intensity <= 0) {
+      console.info('[auto-zoom] autoZoomIntensity is 0 — skipping auto-zoom generation.');
+      return;
+    }
+
+    // Parse cursor NDJSON
+    const ndjsonText = await readFile(cursorEventsPath, 'utf-8');
+    const cursorEvents = ndjsonText
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+      .map((line) => {
+        try { return JSON.parse(line); } catch { return null; }
+      })
+      .filter(Boolean);
+
+    // Generate auto zoom markers
+    const { generateAutoZoomMarkers, filterAutoMarkersAgainstManual } = await import(
+      '@rough-cut/timeline-engine'
+    );
+
+    const fps = result.fps || 30;
+    const sourceWidth = result.width || 1920;
+    const sourceHeight = result.height || 1080;
+
+    const rawCandidates = generateAutoZoomMarkers(cursorEvents, intensity, fps, sourceWidth, sourceHeight);
+
+    if (rawCandidates.length === 0) {
+      console.info('[auto-zoom] No auto-zoom markers generated (no click triggers found).');
+      return;
+    }
+
+    // Preserve existing manual markers, discard prior auto markers
+    const existingManualMarkers = (existingSidecar?.markers ?? []).filter(
+      (m) => m.kind === 'manual',
+    );
+
+    // Filter candidates against manual markers
+    const filtered = filterAutoMarkersAgainstManual(rawCandidates, existingManualMarkers);
+
+    // Merge: manual markers + new auto markers
+    const allMarkers = [...existingManualMarkers, ...filtered];
+
+    const sidecarPayload = {
+      version: 1,
+      autoIntensity: typeof existingSidecar?.autoIntensity === 'number'
+        ? existingSidecar.autoIntensity
+        : intensity,
+      followCursor: typeof existingSidecar?.followCursor === 'boolean'
+        ? existingSidecar.followCursor
+        : true,
+      followAnimation: existingSidecar?.followAnimation === 'smooth' ? 'smooth' : 'focused',
+      followPadding: typeof existingSidecar?.followPadding === 'number'
+        ? existingSidecar.followPadding
+        : 0.18,
+      autoFromClicks: true,
+      markers: allMarkers,
+    };
+
+    const sidecarPath = zoomSidecarPathFor(result.filePath);
+    await writeFile(sidecarPath, JSON.stringify(sidecarPayload, null, 2), 'utf-8');
+
+    console.info(
+      `[auto-zoom] Wrote ${filtered.length} auto markers (${existingManualMarkers.length} manual preserved) → ${sidecarPath}`,
+    );
+  } catch (err) {
+    console.warn('[auto-zoom] applyAutoZoomFromClicks failed (non-fatal):', err?.message ?? err);
+  }
+}
+
 async function decorateSavedResult(result, metadata) {
   if (lastCursorResult) {
     result.cursorEventsPath = lastCursorResult.eventsPath;
@@ -463,6 +590,9 @@ async function decorateSavedResult(result, metadata) {
     },
   };
 
+  // Generate auto-zoom markers from click events (non-fatal — errors are logged and swallowed).
+  await applyAutoZoomFromClicks(result);
+
   return result;
 }
 
@@ -482,6 +612,8 @@ async function finalizeSavedSession(result, metadata) {
     'cursorEventsPath:',
     result.cursorEventsPath ?? 'NOT SET',
   );
+
+  lastFinalizedRecordingResult = structuredClone(result);
 
   safeSend(mainWindow, IPC_CHANNELS.RECORDING_ASSET_READY, result);
   _destroyPanel();
@@ -666,11 +798,27 @@ function guardState(fnName, allowed) {
  * @returns {Tray}
  */
 function createTray() {
-  const icon = nativeImage.createFromDataURL(RED_CIRCLE_DATA_URL);
-  const t = new Tray(icon);
-  t.setToolTip('Recording — 00:00');
-  _rebuildTrayMenu(t);
-  return t;
+  try {
+    const icon = nativeImage.createFromDataURL(RED_CIRCLE_DATA_URL);
+    if (icon.isEmpty()) {
+      console.warn('[session-manager] Tray icon decoded empty — tray may render blank');
+    }
+    const t = new Tray(icon);
+    t.setToolTip('Recording — 00:00');
+    _rebuildTrayMenu(t);
+    console.info(
+      '[session-manager] Tray created — iconSize=' +
+        JSON.stringify(icon.getSize()) +
+        ' platform=' +
+        process.platform +
+        ' xdgDesktop=' +
+        (process.env.XDG_CURRENT_DESKTOP ?? 'unknown'),
+    );
+    return t;
+  } catch (err) {
+    console.error('[session-manager] createTray() failed:', err);
+    return null;
+  }
 }
 
 /**
@@ -1553,7 +1701,19 @@ export function initSessionManager(win, sourceInfoGetter) {
     await stopRecording();
   });
 
+  // ---- Debug: test-only IPC for auto-zoom generation ----
+  // Used by Playwright tests to trigger auto-zoom outside of a real recording session.
+  ipcMain.handle(IPC_CHANNELS.DEBUG_APPLY_AUTO_ZOOM, async (_e, { filePath, cursorEventsPath, fps, width, height }) => {
+    const fakeResult = { filePath, cursorEventsPath, fps: fps ?? 30, width: width ?? 1920, height: height ?? 1080 };
+    await applyAutoZoomFromClicks(fakeResult);
+    return loadZoomSidecarForDecorate(filePath);
+  });
+
   // ---- Safety net ----
 
   app.on('before-quit', handleBeforeQuit);
+}
+
+export function getLastFinalizedRecordingResult() {
+  return lastFinalizedRecordingResult ? structuredClone(lastFinalizedRecordingResult) : null;
 }
