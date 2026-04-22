@@ -43,6 +43,13 @@ test.describe('Record Tab — MVP Acceptance', () => {
   });
 
   // ── 1.5.1: Live preview with background, padding, corners, shadow ──────
+  // Note: since commit 37836c6 (TASK-178 cleanup) the main Record tab no longer
+  // hosts the live capture canvas — that would produce recursive on-screen
+  // capture. Live capture lives in the floating panel; the main tab shows the
+  // styled preview shell (record-card-chrome) with either a saved-take
+  // renderer or the status overlay (record-preview-status). We assert the
+  // shell renders + the status surface reflects the selected source instead
+  // of asserting a live-preview-canvas that no longer exists.
   test('1.5.1 — live preview renders with styled background', async ({ appPage }) => {
     await nav(appPage);
 
@@ -68,7 +75,6 @@ test.describe('Record Tab — MVP Acceptance', () => {
     expect(selectedSource, 'Expected a capture source for live preview verification').toBeTruthy();
     await expect(appPage.locator('[data-testid="record-tab-root"]')).toBeVisible();
     await expect(appPage.locator('[data-testid="record-card-chrome"]')).toBeVisible();
-    await expect(appPage.locator('[data-testid="live-preview-canvas"]')).toBeVisible();
   });
 
   // ── 1.5.2: Source picker switches between screens/windows ──────────────
