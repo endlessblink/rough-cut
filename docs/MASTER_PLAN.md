@@ -66,32 +66,51 @@ For each surface, land the infrastructure that makes the view reliable first, th
 | 5     | AI        | Library ingest, analysis, and rough-cut generation         | TASK-040, TASK-079, TASK-080, TASK-081, TASK-082, TASK-044, TASK-045, TASK-047, TASK-097                                                                                                                                                                                                                                                                                                                                                                                  |
 | 6     | Motion    | Dedicated motion graphics authoring                        | TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-039                                                                                                                                                                                                                                                                                                                                                                                                      |
 
+### Delivery Lines
+
+These lines define the flow-first orchestration view in Watchpost. `Sequence` is the visible critical path. `Supports` stay out of the main flow and appear in backlog/detail until they are explicitly promoted by a blocker.
+
+1. **LINE A — Record explanation layer**
+   Sequence: TASK-090 -> TASK-091
+   Supports: TASK-132, TASK-150
+
+2. **LINE B — Audio confidence in Record**
+   Sequence: TASK-088 -> TASK-032 -> TASK-124
+   Supports: TASK-125, TASK-128, TASK-143, TASK-149
+
+3. **LINE C — Template and preset recovery**
+   Sequence: TASK-121
+
+4. **LINE D — Cursor and interaction polish**
+   Sequence: TASK-130
+
 ### Current sprint framing
 
-This framing intentionally hides unrelated surfaces for now. Flow should show only the client-tutorial recording readiness path below. New categories unlock only after this path is complete enough to trust.
+The client-tutorial readiness path is now green enough to stop being the only frame. The current sprint should stay inside the Record surface and remove the most obvious remaining trust gaps that a user still sees immediately after opening the app: placeholder authoring panels, unfinished cursor polish, and remaining audio-confidence work.
 
-1. **Sprint A -- Lane 1: Preview + Source UX**: TASK-165, TASK-166
-2. **Sprint B -- Lane 2: Audio Truthfulness**: TASK-167, TASK-168
-3. **Sprint C -- Lane 3: Session Lifecycle + Recovery**: TASK-169, TASK-170, TASK-171
-4. **Sprint D -- Lane 4: Capture Mode Truth**: TASK-172
-5. **Sprint E -- Lane 5: Verification**: TASK-173, TASK-174, TASK-175
+1. **Lane 1 -- Reopen fidelity closure**: ~~BUG-013~~, ~~TASK-147~~
+2. **Lane 2 -- Record explanation layer**: TASK-090, TASK-091
+3. **Lane 3 -- Cursor + auto-zoom polish**: TASK-101, TASK-180
+4. **Lane 4 -- Audio confidence in Record**: TASK-088, TASK-032, TASK-124
 
 Practical order for lowest merge pain:
 
-- Sprint A first
-- Sprint B second
-- Sprint C third
-- Sprint D fourth
-- Sprint E last
+- Lane 1 is complete
+- Lane 2 is the active lane
+- Lane 3 follows once Lane 2 stops changing preview/export overlay contracts
+- Lane 4 follows after Lane 2 because audio-confidence work should not be mixed with placeholder-surface authoring churn
 
 Parallel-start rule:
 
-- Sprint A and Sprint B may run together if ownership is strict
-- Sprint C should follow after Sprint B stabilizes `recording-session-manager.mjs`
-- Sprint D should follow after Sprint A settles source/mode behavior
-- Sprint E should encode the final truth, not chase moving contracts
+- Lane 2 and Lane 3 may run together once the annotation/title data model is stable enough for parity coverage.
+- Lane 4 should follow after Lane 2 because audio-confidence work should not be mixed with new overlay-surface churn.
+- `TASK-181` is a valid follow-up immediately after this sprint, but it should not displace visible Record-surface completion while `Highlights` and `Titles` are still placeholder-only.
 
-**Progress (2026-04-20):** Simplified Watchpost Flow for Rough Cut into a lane-based delivery line with kickoff-prompt copy actions, horizontal lane layout, and auto-advance to the next incomplete lane. Remaining alignment work is to make the lane sequence itself (`Lane 1 -> Lane 2 -> Lane 3 -> Lane 4 -> Lane 5`) the authoritative flow so legacy task dependencies stop overriding this management model.
+**Why this sprint now**
+
+- Lane 1 is now closed by the green moved-project, reopen, and Record/Edit parity regressions.
+- `RecordRightPanel.tsx` still exposes visible `Coming soon` placeholders for `Highlights` and `Titles`.
+- The record/export stabilization sweep is green, so the highest-value next step is to turn the now-trustworthy Record surface into a more complete authoring surface.
 
 ---
 
@@ -144,18 +163,18 @@ Parallel-start rule:
 | ~~BUG-012~~  | ~~Fix: Record replay bootstrap stalls on saved-session playback~~        | P1       | ✅ DONE (2026-04-17)     | TASK-075           |
 | ~~TASK-120~~ | ~~Record: Decouple timeline playhead from per-frame React rerenders~~    | P1       | ✅ DONE (2026-04-16)     | TASK-075           |
 | TASK-124     | Record: Prove and harden saved-file system-audio capture                 | P1       | TODO                     | TASK-012, TASK-088 |
-| BUG-013      | Fix: Record/Edit camera template and visibility regressions after reopen | P1       | TODO                     | TASK-119, TASK-115 |
+| ~~BUG-013~~  | ~~Fix: Record/Edit camera template and visibility regressions after reopen~~ | P1       | ✅ DONE (2026-04-21)     | TASK-119, TASK-115 |
 | ~~TASK-030~~ | ~~Record: Countdown timer (0/3/5/10s configurable)~~                     | P2       | ✅ DONE (2026-04-16)     | TASK-011           |
 | ~~TASK-031~~ | ~~Record: Pause/resume recording (MediaRecorder pause)~~                 | P2       | ✅ DONE (2026-04-16)     | TASK-012           |
 | TASK-032     | Record: VU meters for mic and system audio                               | P2       | TODO                     | TASK-012           |
 | TASK-121     | Record: Restore template picker and preset application flow              | P2       | TODO                     | TASK-011, TASK-119 |
-| TASK-122     | Record: Fix zoom marker transform and paused-selection behavior          | P2       | TODO                     | TASK-013, TASK-120 |
-| TASK-123     | Record: Persist zoom sidecar and cursor overlay continuity               | P2       | TODO                     | TASK-015, TASK-122 |
+| ~~TASK-122~~ | ~~Record: Fix zoom marker transform and paused-selection behavior~~      | P2       | ✅ DONE (2026-04-21)     | TASK-013, TASK-120 |
+| ~~TASK-123~~ | ~~Record: Persist zoom sidecar and cursor overlay continuity~~           | P2       | ✅ DONE (2026-04-21)     | TASK-015, TASK-122 |
 | TASK-125     | Record: Per-app system audio capture and routing controls                | P2       | TODO                     | TASK-088, TASK-124 |
 | TASK-126     | Record: In-progress controller with finish, pause, restart, and delete   | P2       | TODO                     | TASK-010, TASK-031 |
 | TASK-127     | Record: Webcam background removal, blur, and virtual scenes              | P2       | TODO                     | TASK-014           |
 | TASK-128     | Record: Audio cleanup and voice enhancement pipeline                     | P2       | TODO                     | TASK-124           |
-| TASK-129     | Record: Automatic zoom generation from clicks with editable refinement   | P2       | TODO                     | TASK-122           |
+| ~~TASK-129~~ | ~~Record: Automatic zoom generation from clicks with editable refinement~~ | P2     | ✅ DONE (2026-04-21)     | TASK-122           |
 | TASK-130     | Record: Advanced cursor styles, click effects, and click sounds          | P2       | TODO                     | TASK-101           |
 | TASK-131     | Record: Cinematic motion blur for cursor, zoom, and camera movement      | P2       | TODO                     | TASK-075, TASK-122 |
 | TASK-132     | Record: Privacy blur masks and spotlight regions                         | P2       | TODO                     | TASK-090           |
@@ -163,7 +182,7 @@ Parallel-start rule:
 | ~~TASK-144~~ | ~~Record: Mid-take source/device recovery with re-target and offline badge~~ | P1       | ✅ DONE (2026-04-19)     | TASK-100, TASK-088 |
 | TASK-145     | Record: Floating controller hide/fade + never-in-video guarantee         | P1       | TODO                     | TASK-126, TASK-010 |
 | ~~TASK-146~~ | ~~Record: Preview/export fidelity enforcement for all Record polish~~    | P1       | ✅ DONE (2026-04-21)     | TASK-013, TASK-015 |
-| TASK-147     | Record: Full reopen/project-move fidelity for templates and sidecars     | P1       | IN PROGRESS (2026-04-19) | BUG-013, TASK-123  |
+| ~~TASK-147~~ | ~~Record: Full reopen/project-move fidelity for templates and sidecars~~ | P1       | ✅ DONE (2026-04-21)     | BUG-013, TASK-123  |
 | TASK-148     | Record: Crash-resilient autosave + partial-take recovery                 | P1       | TODO                     | TASK-010, TASK-100 |
 | TASK-149     | Record: Audio clipping warnings + ducking preview + multi-track review   | P1       | TODO                     | TASK-032, TASK-125 |
 | TASK-150     | Record: Per-segment visibility toggles for camera/cursor/clicks/overlays | P1       | TODO                     | TASK-089, TASK-090 |
@@ -192,7 +211,11 @@ Parallel-start rule:
 | ~~TASK-179~~ | ~~Record: Append new takes to current project instead of replacing it~~  | P1       | ✅ DONE (2026-04-20)     | TASK-086           |
 | ~~TASK-177~~ | ~~Stabilize Record: restore truthful live preview canvas reliably~~      | P0       | ✅ DONE (2026-04-20)     | TASK-165, TASK-172 |
 | TASK-178     | Stabilize Tests: replace flaky record acceptance suite with release gate | P1       | TODO                     | TASK-173, TASK-177 |
+| TASK-182     | Record: Make camera sidecar capture deterministic on first take         | P0       | IN PROGRESS (2026-04-21) | TASK-014, TASK-169 |
+| TASK-183     | Record: Fix Linux X11 screen capture bounds on secondary displays       | P0       | IN PROGRESS (2026-04-21) | TASK-010, TASK-167 |
+| TASK-184     | Record: Eliminate Pixi video alpha CSP noise in the renderer            | P1       | IN PROGRESS (2026-04-21) | TASK-013           |
 | TASK-176     | Record: Clarify camera layout marker add vs update UX                   | P2       | TODO                     | TASK-159           |
+| TASK-185     | Record: Stabilize camera preview track lifecycle                        | P2       | PLANNED                  | TASK-182           |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
@@ -204,12 +227,12 @@ Parallel-start rule:
 | TASK-014 | Record: Webcam PiP (render in compositor with shape/position)                       | P0       | TODO   | TASK-013           |
 | TASK-015 | Record: Serialize recording effects to clips (bg, corners, shadow → Effect entries) | P0       | TODO   | TASK-011           |
 | TASK-016 | Record: Create separate Assets for webcam + audio on stop                           | P0       | TODO   | TASK-012, TASK-014 |
-| BUG-005  | Camera PiP renders as ellipse instead of circle (CSS/template shape not applied)    | P1       | TODO   | TASK-014           |
+| ~~BUG-005~~ | ~~Camera PiP renders as ellipse instead of circle (CSS/template shape not applied)~~ | P1     | ✅ DONE (2026-04-21) | TASK-014           |
 | TASK-089 | Record: Keyboard shortcut capture + on-video overlays                               | P1       | TODO   | TASK-015           |
 | TASK-090 | Record: Highlights and annotations overlay system                                   | P1       | TODO   | TASK-015           |
 | TASK-091 | Record: Titles and callouts overlay system                                          | P1       | TODO   | TASK-015, TASK-107 |
 | TASK-092 | Record: Dynamic camera layout changes within one recording                          | P1       | TODO   | TASK-014, TASK-015 |
-| TASK-101 | Record: Cursor smoothing, idle hide, and loop-back polish                           | P2       | TODO   | TASK-015, TASK-075 |
+| ~~TASK-101~~ | ~~Record: Cursor smoothing, idle hide, and loop-back polish~~                   | P2       | ✅ DONE (2026-04-21) | TASK-015, TASK-075 |
 
 ### Export Core
 
@@ -332,6 +355,162 @@ Parallel-start rule:
 ---
 
 ## Active Work
+
+### TASK-182: Record: Make camera sidecar capture deterministic on first take
+
+**Priority:** P0 | **Status:** IN PROGRESS (2026-04-21)
+
+#### Problem
+
+- Real fresh takes still intermittently import with `cameraFilePath: NONE` even when the panel acquires a live webcam stream.
+- Clean repro traces show multiple failure modes in the same lane:
+  - the panel can begin recording before the camera stream exists at record start
+  - screen `MediaRecorder.start()` can fail while FFmpeg still records screen successfully
+  - custom `CameraRecorder` can start successfully but still yield no buffer at finalize
+- The result is an empty camera layer in Record playback, which breaks trust in the core tutorial-recording workflow.
+
+#### Scope
+
+- Make first-take camera capture deterministic on the real Linux workstation.
+- Ensure camera sidecar recording survives the FFmpeg screen-fallback branch.
+- Keep the higher-quality camera path if it can be integrated correctly; only downgrade as a deliberate fallback decision.
+- Add direct verification around start, finalize, buffer extraction, and imported camera asset presence.
+
+#### Active hypotheses
+
+- The panel begins recording before the webcam source is fully usable in the renderer lifecycle.
+- Mediabunny `MediaStreamVideoTrackSource` errors are escaping via `errorPromise` and invalidating finalize.
+- The camera recorder start/stop path is racing with the failed screen `MediaRecorder` branch.
+- Renderer visibility / panel hide behavior on Linux may still be interfering with live webcam frame delivery.
+
+#### First Steps
+
+- Instrument `camera-recorder.ts` lifecycle end to end (`start`, `errorPromise`, `finalize`, buffer extraction, cleanup order).
+- Keep a deterministic clean repro script for first-take camera capture against a fresh Vite/Electron runtime.
+- Verify whether the camera sidecar path should stay on Mediabunny/WebCodecs or fall back selectively after proving the failure source.
+- Rebuild a stable camera artifact spec only after the real runtime path is deterministic again.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
+- `apps/desktop/src/renderer/features/record/camera-recorder.ts`
+- `apps/desktop/src/main/recording/recording-session-manager.mjs`
+- `apps/desktop/src/main/recording/capture-service.mjs`
+- `tests/electron/record-camera-artifact.spec.ts`
+
+#### Why this matters
+
+This is the current top blocker for using Rough Cut as a personal daily recording tool. A recorder that occasionally loses the webcam on the first take is not trustworthy, no matter how strong the rest of the pipeline is.
+
+---
+
+### TASK-183: Record: Fix Linux X11 screen capture bounds on secondary displays
+
+**Priority:** P0 | **Status:** IN PROGRESS (2026-04-21)
+
+#### Problem
+
+- Real recordings on secondary displays are still reported as cropped even after prior compositor and preview fixes.
+- The remaining likely fault is the FFmpeg X11 capture rectangle derivation used by the real saved-screen artifact, not the preview surface.
+- This is especially visible on multi-display setups where selected source IDs resolve to a non-primary screen.
+
+#### Scope
+
+- Verify that `screen.getAllDisplays()` mapping, display ID resolution, and X11 `:0.0+X,Y` offsets match the actual target display.
+- Ensure `video_size`, `offsetX`, and `offsetY` passed to FFmpeg and cursor sidecars align with real workstation coordinates.
+- Prove the fix on the specific problematic secondary display setup.
+
+#### First Steps
+
+- Capture and compare the resolved `bounds` vs `captureBounds` logs for the failing screen.
+- Validate `getDisplayCaptureBounds(...)` behavior under Linux/X11 with non-primary screens.
+- Re-record on the problematic screen and compare the saved artifact geometry with the actual display dimensions.
+
+#### Key files
+
+- `apps/desktop/src/main/index.mjs`
+- `apps/desktop/src/main/recording/ffmpeg-capture.mjs`
+- `apps/desktop/src/main/recording/recording-session-manager.mjs`
+- `apps/desktop/src/main/recording/cursor-recorder.mjs`
+
+#### Why this matters
+
+Screen crop on the actual saved file destroys the value of a tutorial recording even when preview looks correct. This must be fixed at the native capture rectangle layer, not cosmetically in playback.
+
+---
+
+### TASK-184: Record: Eliminate Pixi video alpha CSP noise in the renderer
+
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-21)
+
+#### Problem
+
+- The renderer still logs a persistent CSP violation for `data:video/webm;base64,...`.
+- Tracing shows this comes from PixiJS video alpha detection logic, not from the application’s own camera save/import code.
+- The message is noisy and misleading during camera debugging, and may still indicate a renderer branch that should be explicitly bypassed.
+
+#### Scope
+
+- Remove or bypass the Pixi video alpha-detection probe without broadening CSP.
+- Keep `media-src` strict.
+- Confirm the renderer no longer emits the `data:video/webm` CSP violation during normal playback.
+
+#### First Steps
+
+- Verify whether explicit `alphaMode` on the active `VideoSource` path is sufficient in the actual runtime bundle.
+- If not, patch or wrap the relevant Pixi video source behavior at the app integration layer.
+- Re-test after a forced Vite rebuild so stale prebundled code is not mistaken for a source-level failure.
+
+#### Key files
+
+- `packages/preview-renderer/src/preview-compositor.ts`
+- `apps/desktop/src/renderer/index.html`
+- `apps/desktop/src/renderer/panel.html`
+
+#### Why this matters
+
+This warning is currently polluting the debugging signal around camera failures. Removing it cleanly will make remaining recorder regressions much easier to reason about.
+
+---
+
+### TASK-185: Record: Stabilize camera preview track lifecycle
+
+**Priority:** P2 | **Status:** PLANNED (2026-04-22)
+
+#### Context
+
+During the 2026-04-22 camera-recording bug, the preview's camera `MediaStreamTrack` had already transitioned to `readyState === 'ended'` by the time the user clicked REC. The recorder fix (acquire a fresh `getUserMedia` stream at REC click, see `apps/desktop/src/renderer/features/record/PanelApp.tsx:2410-2463`) decouples recording from the preview's lifecycle, so this is no longer a functional blocker for capture. However, an ended preview track means the user sees a frozen/dead camera in the panel UI, which is still a real UX bug.
+
+Root cause of the preview track ending mid-session is **unconfirmed**. The diagnostic log only captured the already-ended state; there is no evidence identifying which code path stopped the track.
+
+#### Suspects
+
+- `cameraStream` is its own dep in the preview `useEffect` at `PanelApp.tsx:1921-1985`. Each `setCameraStream(s)` re-runs the effect. The guard at `:1933-1940` short-circuits only when `readyState === 'live'` AND `activeCameraStreamKeyRef.current === desiredCameraKey`. Transient non-live states (e.g. briefly muted) during the guard check would cause the effect to re-acquire and stop the old track.
+- Panel `BrowserWindow` show/hide events around the REC transition may cause Chromium to pause/freeze the media stream for the hidden window, transitioning the track to ended.
+- `activeCameraStreamKeyRef.current` is assigned inside the `.then()` block at `:1968`, so there is a small window where the ref doesn't match `desiredCameraKey` even after a successful acquire.
+- `beforeunload` handler at `:2495-2497` calls `teardownLocalRecordingResources` which stops ALL `cameraStreamRef` tracks at `:2491`. If this fires spuriously (nav, soft-reload), preview dies.
+
+#### First Steps
+
+- **Reproduce the ended-track state.** Until we can reliably reproduce it, any "fix" is speculative patching. Candidate repros: rapid toggle camera off/on, switch devices mid-session, minimize+restore the panel window, click between tabs while recording gate is live.
+- Add a `track.onended` listener in the preview effect that logs WHY (stack trace) the track ended. Leave it in as an always-on diagnostic.
+- Once reproduced, the minimum-viable fix is likely: remove `cameraStream` from the effect's dep array (self-referential; causes unnecessary re-runs) and keep a `cameraStreamRef` for intra-effect reads. Alternatively, make the preview effect auto-heal by re-acquiring on track `ended` events.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx:1921-1985` — preview effect
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx:2477-2492` — teardownLocalRecordingResources
+
+#### Why this matters
+
+The recorder is now immune (TASK-185 is not a data-loss risk). But an unexplained preview-track-ended state is a latent correctness/UX issue, and the longer it lives, the more it surprises future contributors. Also, the CLAUDE.md rule added this session (`Recording Owns Its Own Streams`) says recorders must not trust preview tracks — stabilizing the preview reduces the pressure on that rule.
+
+#### Non-goals
+
+- Do NOT revert the recorder fix at `PanelApp.tsx:2410-2463` as part of this task.
+- Do NOT re-introduce `waitForLiveVideoTrack` for the recorder path.
+
+---
 
 ### ~~BUG-014~~: Export: WebCodecs bitrate config rejected — pipeline stalls, no file produced
 
@@ -1553,11 +1732,11 @@ This is one of the biggest trust features in a recording tool. Users will forgiv
 
 ---
 
-### TASK-147: Record: Full reopen/project-move fidelity for templates and sidecars
+### ~~TASK-147~~: Record: Full reopen/project-move fidelity for templates and sidecars
 
-**Priority:** P1 | **Status:** IN PROGRESS (2026-04-19)
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-21)
 
-#### Progress
+#### Completed
 
 - Rehydrated the Record surface from persisted `presentation.templateId` instead of leaving the preview on the local default template after reopen.
 - Added normalized camera-frame replay support in `TemplatePreviewRenderer` so moved/reopened projects can render the saved Record framing directly from project data.
@@ -1570,9 +1749,9 @@ This is one of the biggest trust features in a recording tool. Users will forgiv
 - `apps/desktop/src/renderer/features/record/TemplatePreviewRenderer.tsx`
 - `tests/electron/project-relative-paths.spec.ts`
 
-#### Remaining
+#### Final closure
 
-- Close the broader dependency chain with `BUG-013` and `TASK-123`, then run a final Record/Edit parity sweep before marking the task done.
+- Closed the broader dependency chain with `BUG-013` / `TASK-123` and re-ran the focused Record/Edit parity and moved-project reopen suites.
 
 ---
 

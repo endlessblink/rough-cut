@@ -108,6 +108,70 @@ function useAudioLevel(stream: MediaStream | null, enabled: boolean): number {
   return level;
 }
 
+async function warmCameraStream(stream: MediaStream): Promise<void> {
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.autoplay = true;
+  video.style.position = 'fixed';
+  video.style.opacity = '0';
+  video.style.pointerEvents = 'none';
+  video.style.width = '1px';
+  video.style.height = '1px';
+  video.style.left = '-9999px';
+  video.style.top = '-9999px';
+  video.srcObject = stream;
+  document.body.appendChild(video);
+
+  try {
+    await video.play().catch(() => {});
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error('Timed out warming camera stream'));
+      }, 1500);
+      const handleLoadedData = () => {
+        cleanup();
+        resolve();
+      };
+      const handleError = () => {
+        cleanup();
+        reject(new Error('Camera warmup video failed to load data'));
+      };
+      const cleanup = () => {
+        window.clearTimeout(timeout);
+        video.removeEventListener('loadeddata', handleLoadedData);
+        video.removeEventListener('error', handleError);
+      };
+      video.addEventListener('loadeddata', handleLoadedData, { once: true });
+      video.addEventListener('error', handleError, { once: true });
+    });
+  } finally {
+    video.pause();
+    video.srcObject = null;
+    video.remove();
+  }
+}
+
+async function waitForCameraStreamReady(
+  getStream: () => MediaStream | null,
+  timeoutMs = 1500,
+): Promise<MediaStream | null> {
+  const existing = getStream();
+  if (existing) return existing;
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+    const stream = getStream();
+    if (stream) return stream;
+  }
+  return getStream();
+}
+
 // ─── Audio Level Meter ──────────────────────────────────────────────────────
 
 function AudioLevelMeter({ level }: { level: number }) {
@@ -1721,7 +1785,13 @@ export function PanelApp() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const cameraRecorderRef = useRef<any>(null); // CameraRecorder (WebCodecs H.264)
+  const cameraRecorderStartRef = useRef<Promise<void> | null>(null);
+  const cameraRecorderKindRef = useRef<'none' | 'mediabunny' | 'mediarecorder'>('none');
+  const cameraRecorderMimeTypeRef = useRef<string>('video/webm');
+  const cameraRecordingStreamRef = useRef<MediaStream | null>(null);
   const cameraChunksRef = useRef<BlobPart[]>([]); // kept for fallback
+  const screenRecorderStartFailedRef = useRef(false);
+  const activeCameraStreamKeyRef = useRef<string | null>(null);
   // Capture elapsed at the moment stop is triggered (recorder.onstop fires async)
   const elapsedMsAtStop = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
@@ -1819,10 +1889,21 @@ export function PanelApp() {
   useEffect(() => {
     if (!hydrated) return;
     if (!cameraEnabled) {
+      activeCameraStreamKeyRef.current = null;
       setCameraStream((prev) => {
         prev?.getTracks().forEach((t) => t.stop());
         return null;
       });
+      return;
+    }
+    const desiredCameraKey = selectedCameraDeviceId ?? '__default__';
+    const existingTrack = cameraStream?.getVideoTracks()[0] ?? null;
+    if (
+      cameraStream &&
+      existingTrack &&
+      existingTrack.readyState === 'live' &&
+      activeCameraStreamKeyRef.current === desiredCameraKey
+    ) {
       return;
     }
     let active = true;
@@ -1837,8 +1918,13 @@ export function PanelApp() {
         },
         audio: false,
       })
-      .then((s) => {
+      .then(async (s) => {
         const track = s.getVideoTracks()[0];
+        try {
+          await warmCameraStream(s);
+        } catch (err) {
+          console.warn('[PanelApp] Camera warmup failed:', err);
+        }
         if (track) {
           const settings = track.getSettings();
           console.info(
@@ -1846,7 +1932,15 @@ export function PanelApp() {
           );
         }
         void refreshDeviceOptions();
-        if (active) setCameraStream(s);
+        if (active) {
+          activeCameraStreamKeyRef.current = desiredCameraKey;
+          setCameraStream((prev) => {
+            if (prev && prev !== s) {
+              prev.getTracks().forEach((t) => t.stop());
+            }
+            return s;
+          });
+        }
         else s.getTracks().forEach((t) => t.stop());
       })
       .catch((err) => {
@@ -1855,12 +1949,8 @@ export function PanelApp() {
       });
     return () => {
       active = false;
-      setCameraStream((prev) => {
-        prev?.getTracks().forEach((t) => t.stop());
-        return null;
-      });
     };
-  }, [cameraEnabled, hydrated, refreshDeviceOptions, selectedCameraDeviceId]);
+  }, [cameraEnabled, cameraStream, hydrated, refreshDeviceOptions, selectedCameraDeviceId]);
 
   useEffect(() => {
     const track = micStream?.getAudioTracks()[0] ?? null;
@@ -2102,6 +2192,140 @@ export function PanelApp() {
   const cameraEnabledRef = useRef(cameraEnabled);
   cameraEnabledRef.current = cameraEnabled;
 
+  const selectedCameraDeviceIdRef = useRef(selectedCameraDeviceId);
+  selectedCameraDeviceIdRef.current = selectedCameraDeviceId;
+
+  // Test-only hooks for controlling the panel's camera preview state from Playwright
+  // specs. Matches the existing `window.__roughcutStores` and `window.roughcut.debug*`
+  // patterns — always exposed, harmless in production because nothing in shipping code
+  // invokes them. Added to support the preview-track-ended regression test for the
+  // 2026-04-22 camera-recording bug. See TASK-185.
+  useEffect(() => {
+    const hooks = {
+      injectCameraStream: (stream: MediaStream | null) => {
+        // Match the preview useEffect's key so its early-bail guard passes and it
+        // doesn't immediately re-acquire via getUserMedia.
+        activeCameraStreamKeyRef.current = stream
+          ? (selectedCameraDeviceIdRef.current ?? '__default__')
+          : null;
+        // Update the ref synchronously so immediate follow-up calls (e.g. killing
+        // tracks in the same microtask from a test) see the injected stream
+        // without waiting for a React render pass.
+        cameraStreamRef.current = stream;
+        setCameraStream(stream);
+      },
+      killCameraStreamTracks: () => {
+        cameraStreamRef.current?.getTracks().forEach((t) => t.stop());
+      },
+      getCameraStreamTrackStates: () =>
+        cameraStreamRef.current?.getTracks().map((t) => t.readyState) ?? [],
+    };
+    (window as unknown as { __panelTestHooks?: typeof hooks }).__panelTestHooks = hooks;
+    return () => {
+      delete (window as unknown as { __panelTestHooks?: typeof hooks }).__panelTestHooks;
+    };
+  }, []);
+
+  const finalizePanelRecording = async (currentStream: MediaStream) => {
+    setStatus('stopping');
+
+    let cameraBuffer: ArrayBuffer | undefined;
+    let cameraMimeType: string | undefined;
+    if (cameraRecorderStartRef.current) {
+      try {
+        await cameraRecorderStartRef.current;
+      } catch (err) {
+        console.error('[PanelApp] Camera recorder startup failed before stop:', err);
+      } finally {
+        cameraRecorderStartRef.current = null;
+      }
+    }
+    const cameraRecorder = cameraRecorderRef.current;
+    console.info('[PanelApp] Finalizing camera recorder:', {
+      kind: cameraRecorderKindRef.current,
+      hasRecorder: Boolean(cameraRecorder),
+      constructorName: cameraRecorder?.constructor?.name ?? 'none',
+      mimeType: cameraRecorderMimeTypeRef.current,
+      chunkCount: cameraChunksRef.current.length,
+    });
+    if (cameraRecorder instanceof MediaRecorder) {
+      cameraMimeType = cameraRecorderMimeTypeRef.current;
+      try {
+        if (cameraRecorder.state === 'recording' || cameraRecorder.state === 'paused') {
+          cameraBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+            const handleStop = async () => {
+              cameraRecorder.removeEventListener('stop', handleStop);
+              cameraRecorder.removeEventListener('error', handleError);
+              try {
+                const blob = new Blob(cameraChunksRef.current, {
+                  type: cameraMimeType || 'video/webm',
+                });
+                resolve(await blob.arrayBuffer());
+              } catch (error) {
+                reject(error);
+              }
+            };
+            const handleError = (event: Event) => {
+              cameraRecorder.removeEventListener('stop', handleStop);
+              cameraRecorder.removeEventListener('error', handleError);
+              reject(event);
+            };
+
+            cameraRecorder.addEventListener('stop', handleStop, { once: true });
+            cameraRecorder.addEventListener('error', handleError, { once: true });
+            try {
+              cameraRecorder.requestData();
+            } catch {
+              // Ignore requestData timing issues.
+            }
+            cameraRecorder.stop();
+          });
+        }
+      } catch (err) {
+        console.error('[PanelApp] Camera recorder stop failed:', err);
+      }
+    } else if (cameraRecorder && typeof cameraRecorder.stop === 'function') {
+      cameraMimeType = cameraRecorderMimeTypeRef.current;
+      try {
+        console.info('[PanelApp] Stopping custom camera recorder');
+        const raw = await cameraRecorder.stop();
+        if (raw instanceof Uint8Array) {
+          cameraBuffer = Uint8Array.from(raw).buffer;
+        } else if (raw instanceof ArrayBuffer) {
+          cameraBuffer = raw;
+        }
+        if (cameraBuffer) {
+          console.info('[PanelApp] Camera recording size:', cameraBuffer.byteLength);
+        }
+      } catch (err) {
+        console.error('[PanelApp] Camera recorder stop failed:', err);
+      }
+    }
+    cameraRecorderRef.current = null;
+    cameraRecorderKindRef.current = 'none';
+    cameraRecordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraRecordingStreamRef.current = null;
+
+    const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+    const buffer = await blob.arrayBuffer();
+    const settings = currentStream.getVideoTracks()[0]?.getSettings();
+
+    const metadata: RecordingMetadata = {
+      fps: settings?.frameRate ?? 30,
+      width: settings?.width ?? 1920,
+      height: settings?.height ?? 1080,
+      durationMs: elapsedMsAtStop.current,
+      timelineFps: 30,
+    };
+
+    try {
+      await window.roughcut.panelSaveRecording(buffer, metadata, cameraBuffer, cameraMimeType);
+    } catch (err) {
+      console.error('[PanelApp] Failed to save recording:', err);
+      setStatus('ready');
+    }
+  };
+
   const startMediaRecorder = () => {
     const currentStream = streamRef.current;
     if (!currentStream) {
@@ -2111,6 +2335,7 @@ export function PanelApp() {
 
     chunksRef.current = [];
     cameraChunksRef.current = [];
+    screenRecorderStartFailedRef.current = false;
 
     // Build combined stream with audio mixing
     // Debug: log audio state (check panel window DevTools)
@@ -2159,52 +2384,24 @@ export function PanelApp() {
       if (e.data.size > 0) chunksRef.current.push(e.data);
     };
 
-    recorder.onstop = async () => {
-      setStatus('stopping');
-
-      // Stop WebCodecs camera recorder if active
-      let cameraBuffer: ArrayBuffer | undefined;
-      if (cameraRecorderRef.current) {
-        try {
-          const raw = await cameraRecorderRef.current.stop();
-          // mediabunny returns Uint8Array — convert to ArrayBuffer for IPC
-          cameraBuffer = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
-          if (cameraBuffer) {
-            console.info('[PanelApp] Camera H.264 recording size:', cameraBuffer.byteLength);
-          }
-        } catch (err) {
-          console.error('[PanelApp] Camera recorder stop failed:', err);
-        }
-        cameraRecorderRef.current = null;
-      }
-
-      const blob = new Blob(chunksRef.current, { type: 'video/webm' });
-      const buffer = await blob.arrayBuffer();
-      const settings = currentStream.getVideoTracks()[0]?.getSettings();
-
-      const metadata: RecordingMetadata = {
-        fps: settings?.frameRate ?? 30,
-        width: settings?.width ?? 1920,
-        height: settings?.height ?? 1080,
-        durationMs: elapsedMsAtStop.current,
-        timelineFps: 30,
-      };
-
-      try {
-        await window.roughcut.panelSaveRecording(buffer, metadata, cameraBuffer);
-        // Main process will close the panel after save completes
-      } catch (err) {
-        console.error('[PanelApp] Failed to save recording:', err);
-        setStatus('ready');
-      }
+    recorder.onstop = () => {
+      void finalizePanelRecording(currentStream);
     };
 
     recorderRef.current = recorder;
-    recorder.start(1000); // 1-second chunks
+    try {
+      recorder.start(1000); // 1-second chunks
+    } catch (err) {
+      screenRecorderStartFailedRef.current = true;
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      recorderRef.current = null;
+      console.error('[PanelApp] Screen MediaRecorder failed to start; relying on fallback save path:', err);
+    }
     // Sync cursor recording start time with actual MediaRecorder start
     (window as any).roughcut.panelMediaRecorderStarted(Date.now());
 
-    // Start WebCodecs H.264 camera recorder (much lighter than VP9 MediaRecorder)
+    // Record camera on a fresh getUserMedia stream so preview lifecycle doesn't affect capture.
     const currentCameraStream = cameraStreamRef.current;
     console.info(
       '[PanelApp] Camera stream at record start:',
@@ -2212,24 +2409,70 @@ export function PanelApp() {
       'cameraEnabled:',
       cameraEnabledRef.current,
     );
-    if (currentCameraStream) {
-      import('./camera-recorder.js')
-        .then(async ({ CameraRecorder }) => {
-          const recorder = new CameraRecorder();
-          await recorder.start(currentCameraStream);
-          cameraRecorderRef.current = recorder;
-        })
-        .catch((err) => {
-          console.error('[PanelApp] CameraRecorder failed, falling back to MediaRecorder:', err);
-          // Fallback: use MediaRecorder VP8 (lighter than VP9)
-          const fallbackMime = 'video/webm;codecs=vp8';
-          const camRecorder = new MediaRecorder(currentCameraStream, { mimeType: fallbackMime });
-          camRecorder.ondataavailable = (e) => {
-            if (e.data.size > 0) cameraChunksRef.current.push(e.data);
-          };
-          cameraRecorderRef.current = camRecorder;
-          camRecorder.start(1000);
-        });
+    if (currentCameraStream && cameraEnabledRef.current) {
+      void (async () => {
+        let recordingCameraStream: MediaStream;
+        try {
+          recordingCameraStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              ...(selectedCameraDeviceId ? { deviceId: { exact: selectedCameraDeviceId } } : {}),
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              frameRate: { ideal: 30 },
+            },
+            audio: false,
+          });
+        } catch (err) {
+          console.error('[PanelApp] Camera acquire for recording failed:', err);
+          return;
+        }
+
+        const recordingCameraTrack = recordingCameraStream.getVideoTracks()[0] ?? null;
+        if (!recordingCameraTrack || recordingCameraTrack.readyState !== 'live') {
+          console.error(
+            '[PanelApp] Camera track not live after acquire:',
+            recordingCameraTrack?.readyState ?? 'no-track',
+          );
+          recordingCameraStream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        cameraRecordingStreamRef.current = recordingCameraStream;
+        cameraRecorderStartRef.current = import('./camera-recorder.js')
+          .then(async ({ CameraRecorder }) => {
+            const recorder = new CameraRecorder();
+            cameraRecorderKindRef.current = 'mediabunny';
+            cameraRecorderMimeTypeRef.current = 'video/mp4';
+            cameraRecorderRef.current = recorder;
+            await recorder.start(recordingCameraStream);
+          })
+          .catch((err) => {
+            console.error('[PanelApp] CameraRecorder failed, falling back to MediaRecorder:', err);
+            const fallbackMime = MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
+              ? 'video/webm;codecs=vp8'
+              : 'video/webm';
+            cameraRecorderMimeTypeRef.current = fallbackMime;
+            try {
+              const camRecorder = new MediaRecorder(recordingCameraStream, { mimeType: fallbackMime });
+              cameraRecorderKindRef.current = 'mediarecorder';
+              cameraRecorderRef.current = camRecorder;
+              camRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) cameraChunksRef.current.push(e.data);
+              };
+              camRecorder.onerror = (event) => {
+                console.error('[PanelApp] Camera MediaRecorder error event:', event);
+              };
+              camRecorder.start(250);
+            } catch (fallbackErr) {
+              console.error('[PanelApp] Camera MediaRecorder failed:', fallbackErr);
+              cameraRecorderRef.current = null;
+              cameraRecorderKindRef.current = 'none';
+            }
+          })
+          .finally(() => {
+            cameraRecorderStartRef.current = null;
+          });
+      })();
     }
   };
 
@@ -2241,6 +2484,11 @@ export function PanelApp() {
     // Stop screen recorder — its onstop handler will also stop camera recorder
     if (recorderRef.current?.state === 'recording' || recorderRef.current?.state === 'paused') {
       recorderRef.current.stop();
+      return;
+    }
+    if (screenRecorderStartFailedRef.current && streamRef.current) {
+      screenRecorderStartFailedRef.current = false;
+      void finalizePanelRecording(streamRef.current);
     }
   };
 
@@ -2267,6 +2515,10 @@ export function PanelApp() {
       Promise.resolve(cameraRecorder.stop()).catch(() => {});
     }
     cameraRecorderRef.current = null;
+    cameraRecorderStartRef.current = null;
+    cameraRecorderKindRef.current = 'none';
+    cameraRecordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraRecordingStreamRef.current = null;
 
     streamRef.current?.getTracks().forEach((track) => track.stop());
     micStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -2291,14 +2543,29 @@ export function PanelApp() {
         ? (micOptions.find((option) => option.id === selectedMicDeviceId)?.label ?? null)
         : null;
 
-    void window.roughcut.panelStartRecording({
-      micEnabled: micEnabledRef.current,
-      sysAudioEnabled: sysAudioEnabledRef.current,
-      countdownSeconds: configuredCountdownSeconds,
-      selectedMicDeviceId,
-      selectedMicLabel,
-      selectedSystemAudioSourceId,
-    });
+    void (async () => {
+      if (cameraEnabledRef.current) {
+        const readyCameraStream = await waitForCameraStreamReady(() => cameraStreamRef.current);
+        if (!readyCameraStream) {
+          console.warn('[PanelApp] Blocking recording start because camera stream is not ready');
+          showToast({
+            title: 'Camera still warming up',
+            message: 'Wait a moment for the camera preview before starting the take.',
+            tone: 'warning',
+          });
+          return;
+        }
+      }
+
+      await window.roughcut.panelStartRecording({
+        micEnabled: micEnabledRef.current,
+        sysAudioEnabled: sysAudioEnabledRef.current,
+        countdownSeconds: configuredCountdownSeconds,
+        selectedMicDeviceId,
+        selectedMicLabel,
+        selectedSystemAudioSourceId,
+      });
+    })();
   };
 
   const handleStopRecording = () => {
