@@ -51,7 +51,7 @@ For Rough Cut, user trust beats feature breadth. The order is: make screen recor
 1. **Projects view** -- stable enough for now. Treat as the entry surface that anchors project creation, opening, and recovery.
 2. **Recording core** -- highest priority active surface. The first job is not adding more authoring surface area; it is making saved screen, camera, and audio capture trustworthy on real machines.
 3. **Playback + export** -- only after recording truth is solid. Finish the full record -> save -> replay -> reopen -> export loop so a user can safely inspect and ship what they just captured.
-4. **Record sidebar completion** -- once recording, playback, and export are dependable, stabilize and finish the controls that are already visible in the Record sidebar before adding new flourish.
+4. **Record sidebar authoring toolset** -- once recording, playback, and export are dependable, build out the full Record-sidebar toolset (templates, branding, overlays, annotations, titles, dynamic camera layouts, cursor effects, motion blur, privacy masks, per-segment visibility, AI captions, smart cut). This is the creative surface that turns Rough Cut from a capture utility into a Screen Studio / Descript-class product.
 5. **Edit view** -- deepen manual timeline manipulation and effect authoring after the record/playback/export loop is dependable.
 6. **AI view** -- build ingest/library/transcription/rough-cut workflow after the manual flow is solid.
 7. **Motion view** -- build the dedicated motion-authoring surface after the core recording/playback/export/edit loop is trustworthy.
@@ -63,7 +63,7 @@ For Rough Cut, user trust beats feature breadth. The order is: make screen recor
 | 1     | Projects           | Stable project entry, reopen, and persistence foundation             | ~~TASK-072~~, ~~TASK-071~~, ~~TASK-085~~                                                                                                                                                                                                                                                                                                                                                                                                            |
 | 2     | Recording core     | Stable screen, camera, audio, and sync before feature expansion      | ~~TASK-013~~, TASK-014, TASK-015, TASK-016, TASK-086, ~~BUG-007~~, ~~BUG-008~~, TASK-087, TASK-088, BUG-009, FEATURE-076, BUG-004, BUG-011, TASK-124, TASK-126, TASK-143, TASK-145, TASK-148, TASK-152, TASK-182, TASK-183, TASK-184, ~~TASK-146~~, ~~TASK-147~~, ~~BUG-013~~                                                                                                                                                                 |
 | 3     | Playback + export  | Stable replay and output flow for freshly recorded projects           | BUG-006, TASK-020, TASK-021, TASK-022, ~~TASK-028~~, ~~TASK-029~~, TASK-112, ~~TASK-067~~, TASK-052, TASK-054                                                                                                                                                                                                                                                                                                |
-| 4     | Record sidebar     | Make already-visible Record controls useful and reliable             | TASK-121, TASK-032, TASK-089, TASK-090, TASK-091, TASK-092, TASK-125, TASK-127, TASK-128, TASK-130, TASK-131, TASK-132, TASK-149, TASK-150, TASK-155, TASK-156, TASK-157, TASK-158, TASK-159, ~~TASK-122~~, ~~TASK-123~~, ~~TASK-129~~, ~~TASK-151~~, ~~TASK-162~~, ~~TASK-163~~, ~~TASK-160~~, ~~TASK-161~~                                                                                                                               |
+| 4     | Record sidebar     | Build the full authoring toolset in the Record sidebar (templates, branding, overlays, annotations, titles, dynamic camera layouts, cursor FX, motion blur, privacy masks, per-segment visibility, AI captions, smart cut) | TASK-121, TASK-032, TASK-089, TASK-090, TASK-091, TASK-092, TASK-125, TASK-127, TASK-128, TASK-130, TASK-131, TASK-132, TASK-149, TASK-150, TASK-155, TASK-156, TASK-157, TASK-158, TASK-159, ~~TASK-122~~, ~~TASK-123~~, ~~TASK-129~~, ~~TASK-151~~, ~~TASK-162~~, ~~TASK-163~~, ~~TASK-160~~, ~~TASK-161~~                                                                                                                               |
 | 5     | Edit               | Deep timeline editing and refinement                                 | TASK-017, TASK-018, TASK-019, TASK-020, TASK-023, TASK-024, TASK-026, TASK-027, TASK-065                                                                                                                                                                                                                                                                                                                                                           |
 | 6     | AI                 | Library ingest, analysis, and rough-cut generation                   | TASK-040, TASK-079, TASK-080, TASK-081, TASK-082, TASK-044, TASK-045, TASK-047, TASK-097                                                                                                                                                                                                                                                                                                                                                           |
 | 7     | Motion             | Dedicated motion graphics authoring                                  | TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-039                                                                                                                                                                                                                                                                                                                                                                               |
@@ -94,7 +94,8 @@ These lines define the stability-first orchestration view in Watchpost. `Sequenc
 6. **LINE F — Stable export**
    Sequence: TASK-021 -> TASK-022 -> TASK-112 -> TASK-052 -> TASK-054
 
-7. **LINE G — Existing Record sidebar completion**
+7. **LINE G — Record sidebar authoring toolset**
+   The full creative surface: templates, branding, keyboard overlays, highlights, titles, dynamic camera layouts, cursor styles, click effects, motion blur, privacy masks, per-segment visibility, AI captions, smart cut.
    Sequence: TASK-121 -> TASK-157 -> TASK-089 -> TASK-090 -> TASK-091 -> TASK-092 -> TASK-130
    Supports: TASK-131, TASK-132, TASK-150, TASK-155, TASK-156
 
@@ -107,7 +108,7 @@ The current sprint should stay inside the Record surface, but the priority is no
 3. **Lane 3 -- Stable camera recording**: TASK-182, TASK-014, TASK-016, TASK-185
 4. **Lane 4 -- Stable audio recording**: TASK-088, TASK-124, FEATURE-076, TASK-032
 5. **Lane 5 -- Stable playback + sync + export**: BUG-006, TASK-020, TASK-015, TASK-021, TASK-022, TASK-112, TASK-052, TASK-054
-6. **Lane 6 -- Existing Record sidebar completion**: TASK-121, TASK-157, TASK-089, TASK-090, TASK-091, TASK-092, TASK-130
+6. **Lane 6 -- Record sidebar authoring toolset**: TASK-121 (templates), TASK-157 (branding/watermark), TASK-089 (keyboard overlays), TASK-090 (highlights/annotations), TASK-091 (titles/callouts), TASK-092 (dynamic camera layouts), TASK-130 (cursor styles + click FX + sounds), TASK-131 (cinematic motion blur), TASK-132 (privacy blur + spotlight), TASK-150 (per-segment visibility toggles), TASK-155 (AI captions in Record review), TASK-156 (Smart Cut for fillers/silence/breaths). This is the full creative surface, not placeholder wiring.
 
 Practical order for lowest user-risk:
 
@@ -132,7 +133,7 @@ Parallel-start rule:
 - Open audio-confidence work (`TASK-088`, `TASK-124`, `FEATURE-076`, `TASK-032`) still affects whether the saved artifact matches what the user believes they recorded.
 - Playback confidence work (`BUG-006`, `TASK-020`) belongs before export polish because users need a smooth, truthful way to review what they just captured.
 - Export should be treated as downstream truth preservation, not as a separate polish lane after garnish features.
-- `RecordRightPanel.tsx` placeholders still matter, but they now come after the existing recording, playback, and export path is reliable enough to trust.
+- The full Record-sidebar authoring toolset (overlays, annotations, titles, cursor FX, motion blur, privacy masks, AI captions, smart cut, dynamic layouts) is what turns Rough Cut into a Screen Studio / Descript-class product, but it comes only after the capture -> playback -> export core path is reliable enough to trust. Until then, polish on the sidebar is wasted effort against an untrustworthy foundation.
 
 ---
 
@@ -587,15 +588,22 @@ Define and implement one truthful recording workflow:
 
 #### Key files
 
-- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
-- `apps/desktop/src/renderer/features/record/BottomBar.tsx`
-- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
-- `apps/desktop/src/renderer/features/record/recording-store.ts`
-- `apps/desktop/src/main/index.mjs`
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx` (2186 lines — in-app Record surface, displays BottomBar but every control click shunts to the panel)
+- `apps/desktop/src/renderer/features/record/BottomBar.tsx` (559 lines — pure presentational component; already props-driven, reusable)
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx` (3048 lines — floating panel root, owns 100% of pre-record and during-record authority today)
+- `apps/desktop/src/renderer/features/record/recording-config.ts` (shared IPC-synced store — both surfaces subscribe to it, so state unification is free)
+- `apps/desktop/src/renderer/panel-main.tsx` (boots `panel.html` → `<PanelApp>`)
+- `apps/desktop/src/main/recording/recording-session-manager.mjs` (`PANEL_OPEN` / `PANEL_CLOSE` IPC; opens the panel as a separate BrowserWindow)
+
+#### Current progress (2026-04-22)
+
+- **Inventory pass complete.** Today the tab's BottomBar renders device/source/mic/camera segments but every click calls `openRecordingSetupPanel()` and pops the floating panel window. PanelApp owns all setup authority (source picker, device dropdowns, audio meter, offline badges, recovery notice) plus the during-record mini controller. RecordTab is a teaser; PanelApp is the real recorder.
+- **Cut A shipped:** deleted `RecordingPanel.tsx` (1052 lines of unimported dead code; panel window has long booted `PanelApp` via `panel-main.tsx`).
+- **Cut B planned:** make BottomBar's mic/camera/system-audio toggles flip `recording-config` directly instead of opening the panel. Source picker keeps its shunt-to-panel behavior for now (needs rich UI). Add a visible "Open setup panel" affordance so the full device dropdowns + audio meter + diagnostics stay reachable.
 
 #### Why this matters
 
-A user who senses redundancy between the app and the panel will hesitate before recording. Unifying the flow is core product trust work, not cosmetic polish.
+A user who senses redundancy between the app and the panel will hesitate before recording. Unifying the flow is core product trust work, not cosmetic polish. Until it's done, no user can honestly judge whether capture/playback/export fixes worked — they're still confused about which window owns the recorder.
 
 ---
 
@@ -2751,7 +2759,10 @@ All five of this task's Key files run green back-to-back. The 2026-04-22 full e2
 - `TASK-052` export quality/performance polish
 - `TASK-054` export verification and artifact confidence
 
-#### Milestone 5: Existing Record-sidebar completion
+#### Milestone 5: Record sidebar authoring toolset
+
+The full creative surface that turns Rough Cut from a capture utility into a Screen Studio / Descript-class product.
+
 
 - `TASK-121` restore template picker and preset application flow
 - `TASK-157` watermark/logo inspector with persistent branding controls
