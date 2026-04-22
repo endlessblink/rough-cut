@@ -64,48 +64,54 @@ test.describe('Cursor overlay with crop', () => {
         },
       );
 
-      await appPage.waitForFunction((selector) => {
-        const video = document.querySelector(selector) as HTMLVideoElement | null;
-        return video?.getAttribute('data-ready') === 'true';
-      }, '[data-testid="recording-playback-video"]');
+      await appPage.locator('[data-testid="tab-record"]').click();
+      await appPage.waitForSelector('[data-testid="record-tab-root"]', { timeout: 30_000 });
 
-      const diag = await appPage.evaluate(
-        ({ cursorX, cursorY, crop, sourceWidth, sourceHeight }) => {
-          const canvas = document.querySelector(
-            '[data-testid="zoom-host"]',
-          )?.parentElement?.querySelector(':scope > div > canvas') as HTMLCanvasElement | null;
-          const ctx = canvas?.getContext('2d');
-          if (!canvas || !ctx) return null;
+      await expect
+        .poll(
+          async () =>
+            appPage.evaluate(
+              ({ cursorX, cursorY, crop, sourceWidth, sourceHeight }) => {
+                const canvas = document.querySelector(
+                  '[data-testid="zoom-host"]',
+                )?.parentElement?.querySelector(':scope > div > canvas') as HTMLCanvasElement | null;
+                const ctx = canvas?.getContext('2d');
+                if (!canvas || !ctx) return null;
 
-          const expectedX = ((cursorX - crop.x) / crop.width) * canvas.width;
-          const expectedY = ((cursorY - crop.y) / crop.height) * canvas.height;
-          const uncroppedX = (cursorX / sourceWidth) * canvas.width;
-          const uncroppedY = (cursorY / sourceHeight) * canvas.height;
+                const expectedX = ((cursorX - crop.x) / crop.width) * canvas.width;
+                const expectedY = ((cursorY - crop.y) / crop.height) * canvas.height;
+                const uncroppedX = (cursorX / sourceWidth) * canvas.width;
+                const uncroppedY = (cursorY / sourceHeight) * canvas.height;
 
-          const sampleWindow = (x: number, y: number, radius: number) => {
-            const left = Math.max(0, Math.floor(x - radius));
-            const top = Math.max(0, Math.floor(y - radius));
-            const width = Math.min(canvas.width - left, radius * 2);
-            const height = Math.min(canvas.height - top, radius * 2);
-            const data = ctx.getImageData(left, top, width, height).data;
-            let pixels = 0;
-            for (let i = 3; i < data.length; i += 4) {
-              if (data[i] > 0) pixels += 1;
-            }
-            return pixels;
-          };
+                const sampleWindow = (x: number, y: number, radius: number) => {
+                  const left = Math.max(0, Math.floor(x - radius));
+                  const top = Math.max(0, Math.floor(y - radius));
+                  const width = Math.min(canvas.width - left, radius * 2);
+                  const height = Math.min(canvas.height - top, radius * 2);
+                  const data = ctx.getImageData(left, top, width, height).data;
+                  let pixels = 0;
+                  for (let i = 3; i < data.length; i += 4) {
+                    if (data[i] > 0) pixels += 1;
+                  }
+                  return pixels;
+                };
 
-          return {
-            expectedPixels: sampleWindow(expectedX, expectedY, 24),
-            uncroppedPixels: sampleWindow(uncroppedX, uncroppedY, 16),
-          };
-        },
-        { cursorX, cursorY, crop, sourceWidth: width, sourceHeight: height },
-      );
-
-      expect(diag).not.toBeNull();
-      expect(diag?.expectedPixels ?? 0).toBeGreaterThan(20);
-      expect(diag?.expectedPixels ?? 0).toBeGreaterThan(diag?.uncroppedPixels ?? 0);
+                return {
+                  expectedPixels: sampleWindow(expectedX, expectedY, 24),
+                  uncroppedPixels: sampleWindow(uncroppedX, uncroppedY, 16),
+                };
+              },
+              { cursorX, cursorY, crop, sourceWidth: width, sourceHeight: height },
+            ).then((diag) => {
+              return Boolean(
+                diag &&
+                  (diag.expectedPixels ?? 0) > 20 &&
+                  (diag.expectedPixels ?? 0) > (diag.uncroppedPixels ?? 0),
+              );
+            }),
+          { timeout: 30_000 },
+        )
+        .toBe(true);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

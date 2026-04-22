@@ -216,6 +216,7 @@ export function createDefaultZoomPresentation(): ZoomPresentation {
     followAnimation: 'focused',
     followPadding: 0.18,
     markers: [],
+    autoFromClicks: true,
   };
 }
 

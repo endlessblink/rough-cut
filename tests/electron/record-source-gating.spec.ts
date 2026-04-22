@@ -61,7 +61,7 @@ test.describe('Record source gating', () => {
       'data-preview-state',
       'lost',
     );
-    await expect(appPage.locator('[data-testid="btn-record"]')).toBeDisabled();
+    await expect(appPage.locator('[data-testid="btn-record"]')).toBeEnabled();
 
     await appPage.evaluate(async () => {
       const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
@@ -70,7 +70,10 @@ test.describe('Record source gating', () => {
     });
   });
 
-  test('record mode switches clear incompatible capture source and gate REC', async ({ appPage }) => {
+  test('record mode switches clear incompatible capture source and gate REC', async ({
+    appPage,
+    electronApp,
+  }) => {
     const initialScreenSourceId = 'screen:debug-screen:0';
     const initialWindowSourceId = 'window:debug-window:0';
 
@@ -175,14 +178,22 @@ test.describe('Record source gating', () => {
         selectedSourceId: null,
       });
 
-    await expect.poll(async () => recordButton.isEnabled()).toBe(false);
-    await expect(recordButton).toHaveAttribute('title', 'Select a window to enable REC.');
+    await expect.poll(async () => recordButton.isEnabled()).toBe(true);
+    await expect(recordButton).toHaveAttribute(
+      'title',
+      'Open the recording panel to choose a window before recording.',
+    );
 
     await appPage.locator('[data-testid="record-source-toggle"]').click();
-    await expect(appPage.locator('text=Debug Window')).toBeVisible();
-    await expect(appPage.locator('text=Debug Screen')).toHaveCount(0);
-    await appPage.locator('text=Debug Window').click();
-    await appPage.getByRole('button', { name: 'Use source' }).click();
+    await expect
+      .poll(async () => (await electronApp.windows()).some((page) => page !== appPage && !page.isClosed()))
+      .toBe(true);
+    const panelPage = (await electronApp.windows()).find((page) => page !== appPage && !page.isClosed());
+    expect(panelPage, 'Expected recording panel window').toBeTruthy();
+    await panelPage!.waitForLoadState('domcontentloaded');
+    await expect(panelPage!.locator('[data-testid="panel-setup-summary"]')).toBeVisible();
+    await panelPage!.locator('[data-testid="panel-edit-setup"]').click();
+    await panelPage!.locator('[data-testid="panel-source-select"]').selectOption({ label: 'Debug Window' });
 
     await expect
       .poll(async () =>
@@ -237,13 +248,24 @@ test.describe('Record source gating', () => {
         selectedSourceId: null,
       });
 
-    await expect(recordButton).toBeDisabled();
+    await expect(recordButton).toBeEnabled();
 
     await appPage.locator('[data-testid="record-source-toggle"]').click();
-    await expect(appPage.locator('text=Debug Screen')).toBeVisible();
-    await expect(appPage.locator('text=Debug Window')).toHaveCount(0);
-    await appPage.locator('text=Debug Screen').click();
-    await appPage.getByRole('button', { name: 'Use source' }).click();
+    await expect
+      .poll(async () => (await electronApp.windows()).some((page) => page !== appPage && !page.isClosed()))
+      .toBe(true);
+    const secondPanelPage = (await electronApp.windows()).find(
+      (page) => page !== appPage && !page.isClosed(),
+    );
+    expect(secondPanelPage, 'Expected recording panel window').toBeTruthy();
+    await secondPanelPage!.waitForLoadState('domcontentloaded');
+    const secondSummary = secondPanelPage!.locator('[data-testid="panel-setup-summary"]');
+    if (await secondSummary.count()) {
+      await secondPanelPage!.locator('[data-testid="panel-edit-setup"]').click();
+    }
+    await secondPanelPage!.locator('[data-testid="panel-source-select"]').selectOption({
+      label: 'Debug Screen',
+    });
 
     await expect
       .poll(async () =>

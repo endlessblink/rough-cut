@@ -340,9 +340,23 @@ export function TemplatePreviewRenderer({
   );
 
   const rawScreenRect = screenRectOverride ?? computed.screenFrame;
-  const normalizedCameraFrame = cameraNormalizedFrameOverride
+  const normalizedCameraFrameRaw = cameraNormalizedFrameOverride
     ? normalizedRectToCanvasRect(cameraNormalizedFrameOverride, containerW, containerH)
     : null;
+  // BUG-005 fix: when shape is 'circle', the persisted frame may have non-square w/h.
+  // Enforce 1:1 by taking the smaller dimension and centering.
+  const normalizedCameraFrame = (() => {
+    if (!normalizedCameraFrameRaw || cameraPresentation?.shape !== 'circle') {
+      return normalizedCameraFrameRaw;
+    }
+    const side = Math.min(normalizedCameraFrameRaw.width, normalizedCameraFrameRaw.height);
+    return {
+      x: normalizedCameraFrameRaw.x + (normalizedCameraFrameRaw.width - side) / 2,
+      y: normalizedCameraFrameRaw.y + (normalizedCameraFrameRaw.height - side) / 2,
+      width: side,
+      height: side,
+    };
+  })();
   const cameraRect = cameraRectOverride ?? computed.cameraFrame;
   const screenRect = rawScreenRect
     ? insetRect(

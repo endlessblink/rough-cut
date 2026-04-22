@@ -208,6 +208,45 @@ function mergeOverlappingMarkers(markers: RawMarker[]): RawMarker[] {
 // ---------------------------------------------------------------------------
 
 /**
+ * Returns true if two frame ranges overlap (inclusive start, exclusive end convention).
+ */
+function rangesOverlap(
+  aStart: Frame,
+  aEnd: Frame,
+  bStart: Frame,
+  bEnd: Frame,
+): boolean {
+  return aStart < bEnd && bStart < aEnd;
+}
+
+/**
+ * Filter auto-zoom markers, dropping any that overlap an existing manual marker.
+ * This preserves user intent: manual markers are never overwritten.
+ *
+ * @param candidates  Newly generated auto markers to check
+ * @param existing    Already-saved markers (any kind)
+ * @returns           Candidates with no overlap against existing manual markers
+ */
+export function filterAutoMarkersAgainstManual(
+  candidates: readonly ZoomMarker[],
+  existing: readonly ZoomMarker[],
+): ZoomMarker[] {
+  const manualMarkers = existing.filter((m) => m.kind === 'manual');
+  if (manualMarkers.length === 0) return [...candidates];
+
+  return candidates.filter((candidate) =>
+    !manualMarkers.some((manual) =>
+      rangesOverlap(
+        candidate.startFrame,
+        candidate.endFrame,
+        manual.startFrame,
+        manual.endFrame,
+      ),
+    ),
+  );
+}
+
+/**
  * Generate auto-zoom markers from cursor event data.
  *
  * Pure function — no side effects, no IDs generated here (createZoomMarker handles that).

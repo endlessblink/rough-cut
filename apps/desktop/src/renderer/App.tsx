@@ -5,6 +5,7 @@ import {
   createAsset,
   createClip,
   createDefaultRecordingPresentation,
+  migrate,
 } from '@rough-cut/project-model';
 import type { CursorEvent } from '@rough-cut/project-model';
 import type { RecordingResult } from './env.js';
@@ -46,18 +47,44 @@ function generateProjectName(): string {
 }
 
 type TabId = AppView;
+/**
+ * SHOW_WIP_TABS — flip to `true` to expose Edit, Motion, and AI tabs.
+ *
+ * These tabs are hidden during the Record-first stabilization push.
+ * The underlying code (apps/desktop/src/renderer/features/{edit,motion,ai}/)
+ * is intact and Export still consumes the shared timeline/effect packages,
+ * so re-enabling is a one-line change with no downstream wiring required.
+ */
+const SHOW_WIP_TABS = false;
+
 const TABS: { id: TabId; label: string }[] = [
   { id: 'projects', label: 'Projects' },
   { id: 'record', label: 'Record' },
-  { id: 'edit', label: 'Edit' },
-  { id: 'motion', label: 'Motion' },
-  { id: 'ai', label: 'AI' },
+  ...(SHOW_WIP_TABS
+    ? ([
+        { id: 'edit', label: 'Edit' },
+        { id: 'motion', label: 'Motion' },
+        { id: 'ai', label: 'AI' },
+      ] as { id: TabId; label: string }[])
+    : []),
   { id: 'export', label: 'Export' },
 ];
 
+function getInitialTab(): TabId {
+  if (typeof window === 'undefined') return 'projects';
+  const forced = new URLSearchParams(window.location.search).get('start-tab');
+  return forced === 'record' || forced === 'projects' || forced === 'export' ? forced : 'projects';
+}
+
+function useShellOnlyMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('shell-only') === '1';
+}
+
 export function App() {
   const [projectName, setProjectName] = useState('Untitled Project');
-  const [activeTab, setActiveTab] = useState<TabId>('projects');
+  const [activeTab, setActiveTab] = useState<TabId>(() => getInitialTab());
+  const shellOnly = useShellOnlyMode();
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoSaveRequestRef = useRef(0);
   const lastHandledRecordingRef = useRef<{ filePath: string; handledAt: number } | null>(null);
@@ -152,7 +179,7 @@ export function App() {
     const result = await window.roughcut.projectOpen();
     if (result) {
       getPlaybackManager().pause();
-      projectStore.getState().setProject(result.project as ProjectDocument);
+      projectStore.getState().setProject(migrate(result.project));
       projectStore.getState().setProjectFilePath(result.filePath);
       transportStore.getState().seekToFrame(0);
       return true;
@@ -456,6 +483,24 @@ export function App() {
     });
     return unsub;
   }, [handleRecordingComplete]);
+
+  if (shellOnly) {
+    return (
+      <div
+        style={{
+          height: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#111',
+          color: '#eee',
+          fontFamily: 'system-ui, sans-serif',
+        }}
+      >
+        Rough Cut shell only
+      </div>
+    );
+  }
 
   // Projects tab takes over the entire viewport — no chrome wrapper
   if (activeTab === 'projects') {

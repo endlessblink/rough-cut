@@ -105,6 +105,7 @@ export const IPC_CHANNELS = {
   DEBUG_SET_RECORDING_RECOVERY: 'debug:set-recording-recovery',
   DEBUG_SET_CAPTURE_SOURCES: 'debug:set-capture-sources',
   DEBUG_SET_DISPLAY_BOUNDS: 'debug:set-display-bounds',
+  DEBUG_APPLY_AUTO_ZOOM: 'debug:apply-auto-zoom',
 
   // Zoom marker persistence (sidecar alongside the recording .webm)
   ZOOM_LOAD_SIDECAR: 'zoom:load-sidecar',

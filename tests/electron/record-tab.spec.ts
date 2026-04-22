@@ -25,12 +25,22 @@ type DeviceSelectionSnapshot = {
 
 async function chooseRecordSource(
   appPage: import('@playwright/test').Page,
+  electronApp: import('@playwright/test').ElectronApplication,
   sourceName: string,
 ): Promise<void> {
   await appPage.locator('[data-testid="record-source-toggle"]').click();
-  await expect(appPage.locator(`text=${sourceName}`)).toBeVisible();
-  await appPage.locator(`text=${sourceName}`).click();
-  await appPage.getByRole('button', { name: 'Use source' }).click();
+  await expect
+    .poll(async () => (await electronApp.windows()).some((page) => page !== appPage && !page.isClosed()))
+    .toBe(true);
+  const panelPage = (await electronApp.windows()).find((page) => page !== appPage && !page.isClosed());
+  expect(panelPage, 'Expected recording panel window').toBeTruthy();
+  await panelPage!.waitForLoadState('domcontentloaded');
+  const summary = panelPage!.locator('[data-testid="panel-setup-summary"]');
+  if (await summary.count()) {
+    await panelPage!.locator('[data-testid="panel-edit-setup"]').click();
+  }
+  await expect(panelPage!.locator('[data-testid="panel-source-select"]')).toBeVisible();
+  await panelPage!.locator('[data-testid="panel-source-select"]').selectOption({ label: sourceName });
 }
 
 async function getAvailableDeviceSelections(appPage: import('@playwright/test').Page) {
@@ -157,50 +167,16 @@ test.describe('Record tab', () => {
       });
   });
 
-  test('countdown controls update the shared recording config store', async ({ appPage }) => {
+  test('countdown controls hand setup off to the recording panel', async ({ appPage, electronApp }) => {
     await expect(appPage.locator('[data-testid="countdown-config"]')).toBeVisible();
 
+    const panelPromise = electronApp.waitForEvent('window');
     await appPage.locator('[data-testid="countdown-option-10"]').click();
-
-    await expect
-      .poll(async () =>
-        appPage.evaluate(() => {
-          const stores = (
-            window as unknown as {
-              __roughcutStores?: {
-                recordingConfig?: {
-                  getState: () => {
-                    countdownSeconds: number;
-                  };
-                };
-              };
-            }
-          ).__roughcutStores;
-          return stores?.recordingConfig?.getState().countdownSeconds ?? null;
-        }),
-      )
-      .toBe(10);
-
-    await appPage.locator('[data-testid="countdown-option-0"]').click();
-
-    await expect
-      .poll(async () =>
-        appPage.evaluate(() => {
-          const stores = (
-            window as unknown as {
-              __roughcutStores?: {
-                recordingConfig?: {
-                  getState: () => {
-                    countdownSeconds: number;
-                  };
-                };
-              };
-            }
-          ).__roughcutStores;
-          return stores?.recordingConfig?.getState().countdownSeconds ?? null;
-        }),
-      )
-      .toBe(0);
+    const panelPage = await panelPromise;
+    await panelPage.waitForLoadState('domcontentloaded');
+    await expect(panelPage.locator('[data-testid="panel-setup-summary"]')).toBeVisible();
+    await panelPage.locator('[data-testid="panel-edit-setup"]').click();
+    await expect(panelPage.locator('[data-testid="panel-source-select"]')).toBeVisible();
   });
 
   test('auto-refreshes sources and shows gating when every capture source disappears', async ({
@@ -223,7 +199,7 @@ test.describe('Record tab', () => {
       'data-preview-state',
       'lost',
     );
-    await expect(appPage.locator('[data-testid="btn-record"]')).toBeDisabled();
+    await expect(appPage.locator('[data-testid="btn-record"]')).toBeEnabled();
 
     await appPage.evaluate(async () => {
       const api = (window as unknown as { roughcut: RoughcutApi }).roughcut;
@@ -287,9 +263,7 @@ test.describe('Record tab', () => {
       });
   });
 
-  test('record mode switches clear incompatible capture source and gate REC', async ({
-    appPage,
-  }) => {
+  test('record mode switches clear incompatible capture source and gate REC', async ({ appPage, electronApp }) => {
     const initialScreenSourceId = 'screen:debug-screen:0';
     const initialWindowSourceId = 'window:debug-window:0';
 
@@ -336,7 +310,7 @@ test.describe('Record tab', () => {
       )
       .toContain(initialScreenSourceId);
 
-    await chooseRecordSource(appPage, 'Debug Screen');
+    await chooseRecordSource(appPage, electronApp, 'Debug Screen');
 
     await expect
       .poll(async () =>
@@ -393,14 +367,26 @@ test.describe('Record tab', () => {
         selectedSourceId: null,
       });
 
-    await expect.poll(async () => recordButton.isEnabled()).toBe(false);
-    await expect(recordButton).toHaveAttribute('title', 'Select a window to enable REC.');
+    await expect.poll(async () => recordButton.isEnabled()).toBe(true);
+    await expect(recordButton).toHaveAttribute(
+      'title',
+      'Open the recording panel to choose a window before recording.',
+    );
 
     await appPage.locator('[data-testid="record-source-toggle"]').click();
-    await expect(appPage.locator('text=Debug Window')).toBeVisible();
-    await expect(appPage.locator('text=Debug Screen')).toHaveCount(0);
-    await appPage.locator('text=Debug Window').click();
-    await appPage.getByRole('button', { name: 'Use source' }).click();
+    await expect
+      .poll(async () => (await electronApp.windows()).some((page) => page !== appPage && !page.isClosed()))
+      .toBe(true);
+    const firstPanelPage = (await electronApp.windows()).find((page) => page !== appPage && !page.isClosed());
+    expect(firstPanelPage, 'Expected recording panel window').toBeTruthy();
+    await firstPanelPage!.waitForLoadState('domcontentloaded');
+    const firstSummary = firstPanelPage!.locator('[data-testid="panel-setup-summary"]');
+    if (await firstSummary.count()) {
+      await firstPanelPage!.locator('[data-testid="panel-edit-setup"]').click();
+    }
+    await firstPanelPage!.locator('[data-testid="panel-source-select"]').selectOption({
+      label: 'Debug Window',
+    });
 
     await expect
       .poll(async () =>
@@ -455,13 +441,24 @@ test.describe('Record tab', () => {
         selectedSourceId: null,
       });
 
-    await expect(recordButton).toBeDisabled();
+    await expect(recordButton).toBeEnabled();
 
     await appPage.locator('[data-testid="record-source-toggle"]').click();
-    await expect(appPage.locator('text=Debug Screen')).toBeVisible();
-    await expect(appPage.locator('text=Debug Window')).toHaveCount(0);
-    await appPage.locator('text=Debug Screen').click();
-    await appPage.getByRole('button', { name: 'Use source' }).click();
+    await expect
+      .poll(async () => (await electronApp.windows()).some((page) => page !== appPage && !page.isClosed()))
+      .toBe(true);
+    const secondPanelPage = (await electronApp.windows()).find(
+      (page) => page !== appPage && !page.isClosed(),
+    );
+    expect(secondPanelPage, 'Expected recording panel window').toBeTruthy();
+    await secondPanelPage!.waitForLoadState('domcontentloaded');
+    const secondSummary = secondPanelPage!.locator('[data-testid="panel-setup-summary"]');
+    if (await secondSummary.count()) {
+      await secondPanelPage!.locator('[data-testid="panel-edit-setup"]').click();
+    }
+    await secondPanelPage!.locator('[data-testid="panel-source-select"]').selectOption({
+      label: 'Debug Screen',
+    });
 
     await expect
       .poll(async () =>

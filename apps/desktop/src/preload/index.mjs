@@ -352,6 +352,10 @@ const api = {
   debugSetDisplayBounds: (payload) =>
     ipcRenderer.invoke(IPC_CHANNELS.DEBUG_SET_DISPLAY_BOUNDS, payload),
 
+  /** [DEBUG] Trigger auto-zoom generation from a cursor NDJSON file, bypassing a real recording session. */
+  debugApplyAutoZoom: (payload) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEBUG_APPLY_AUTO_ZOOM, payload),
+
   /** Load the zoom sidecar (recording-xxx.zoom.json). Returns ZoomPresentation or null. */
   zoomLoadSidecar: (recordingFilePath) =>
     ipcRenderer.invoke(IPC_CHANNELS.ZOOM_LOAD_SIDECAR, { recordingFilePath }),

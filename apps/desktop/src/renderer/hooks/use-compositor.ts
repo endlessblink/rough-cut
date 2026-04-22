@@ -52,6 +52,11 @@ export function useCompositor(): {
   previewRef: (node: HTMLDivElement | null) => void;
   isReady: boolean;
   setPreferredPlaybackAssetId: (assetId: string | null) => void;
+  setRenderSize: (width: number, height: number) => void;
+  setCursorFrameData: (
+    assetId: string,
+    cursorData: { frames: Float32Array; frameCount: number } | null,
+  ) => void;
 } {
   const [isReady, setIsReady] = useState(false);
   const [hostNode, setHostNode] = useState<HTMLDivElement | null>(null);
@@ -65,6 +70,21 @@ export function useCompositor(): {
   const setPreferredPlaybackAssetId = useCallback((assetId: string | null) => {
     sharedCompositor?.setPreferredPlaybackAssetId(assetId);
   }, []);
+
+  const setRenderSize = useCallback((width: number, height: number) => {
+    if (!sharedCompositor || !sharedCanvas || width <= 0 || height <= 0) return;
+    const needsResize = sharedCanvas.width !== width || sharedCanvas.height !== height;
+    if (needsResize) {
+      sharedCompositor.resize(width, height);
+    }
+  }, []);
+
+  const setCursorFrameData = useCallback(
+    (assetId: string, cursorData: { frames: Float32Array; frameCount: number } | null) => {
+      sharedCompositor?.setCursorFrameData(assetId, cursorData);
+    },
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -100,7 +120,7 @@ export function useCompositor(): {
     };
   }, [hostNode]);
 
-  return { previewRef, isReady, setPreferredPlaybackAssetId };
+  return { previewRef, isReady, setPreferredPlaybackAssetId, setRenderSize, setCursorFrameData };
 }
 
 export function getVideoCurrentTime(): number {

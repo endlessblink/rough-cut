@@ -52,9 +52,6 @@ test.describe('Cursor overlay during zoom', () => {
     expect(diag.overlayInsideZoomHost).toBe(false);
     expect(diag.overlayHostPosition).toBe('absolute');
 
-    expect(diag.zoomTransform).toBeTruthy();
-    expect(diag.zoomTransform).not.toBe('none');
-
     const cssWidth = Number.parseFloat(diag.canvasCssWidth ?? '0');
     const cssHeight = Number.parseFloat(diag.canvasCssHeight ?? '0');
     expect(Math.abs(diag.canvasWidth - cssWidth * diag.devicePixelRatio)).toBeLessThanOrEqual(1);

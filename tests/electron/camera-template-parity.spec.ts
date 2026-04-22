@@ -378,6 +378,78 @@ test('camera visibility toggle hides camera video in both Record and Edit', asyn
   await expect(appPage.locator(`${EDIT_ROOT} ${EDIT_CAMERA_VIDEO}`)).toHaveCount(0);
 });
 
+// BUG-005: Camera PiP renders as circle (not ellipse) when shape === 'circle'
+test('circle-shape camera PiP frame is square (width === height)', async ({ appPage }) => {
+  test.setTimeout(45_000);
+
+  await navigateToTab(appPage, 'record');
+
+  const project = (await appPage.evaluate(
+    (projectPath) =>
+      (
+        window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
+      ).roughcut.projectOpenPath(projectPath),
+    RECORDED_PROJECT_PATH,
+  )) as Record<string, any>;
+
+  const recording = project.assets.find((asset: any) => asset.type === 'recording');
+  expect(recording).toBeTruthy();
+
+  // Patch with a non-square cameraFrame and shape === 'circle' — the renderer must square it
+  const nonSquareFrame = { x: 0.05, y: 0.1, w: 0.25, h: 0.6 };
+
+  await appPage.evaluate(
+    ({ nextProject, projectPath, activeAssetId, persistedFrame }) => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      const patchedProject = {
+        ...nextProject,
+        assets: nextProject.assets.map((asset: any) =>
+          asset.id === activeAssetId
+            ? {
+                ...asset,
+                presentation: {
+                  ...(asset.presentation ?? {}),
+                  templateId: 'presentation-16x9',
+                  cameraFrame: persistedFrame,
+                  camera: {
+                    ...(asset.presentation?.camera ?? {}),
+                    visible: true,
+                    shape: 'circle',
+                  },
+                },
+              }
+            : asset,
+        ),
+      };
+
+      stores?.project.getState().setProject(patchedProject);
+      stores?.project.getState().setProjectFilePath(projectPath);
+      stores?.project.getState().setActiveAssetId(activeAssetId);
+      stores?.transport.getState().seekToFrame(0);
+    },
+    {
+      nextProject: project,
+      projectPath: RECORDED_PROJECT_PATH,
+      activeAssetId: recording?.id ?? null,
+      persistedFrame: nonSquareFrame,
+    },
+  );
+
+  await appPage.waitForTimeout(300);
+
+  // The camera frame must be square: width === height (within 2px tolerance)
+  const cameraFrameBox = await appPage.locator(RECORD_CAMERA_FRAME).boundingBox();
+  expect(cameraFrameBox).not.toBeNull();
+  if (!cameraFrameBox) return;
+
+  const widthHeightDiff = Math.abs(cameraFrameBox.width - cameraFrameBox.height);
+  expect(widthHeightDiff).toBeLessThanOrEqual(2);
+
+  // Also verify the data-camera-shape attribute is set
+  const shape = await appPage.locator('[data-testid="template-preview-root"]').getAttribute('data-camera-shape');
+  expect(shape).toBe('circle');
+});
+
 async function applyRecordingPresentationPatch(
   page: import('@playwright/test').Page,
   params: {

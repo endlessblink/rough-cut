@@ -90,6 +90,8 @@ export interface ZoomPresentation {
   readonly followAnimation: ZoomFollowAnimation;
   readonly followPadding: number; // 0–0.3 normalized viewport padding per edge
   readonly markers: readonly ZoomMarker[];
+  /** When true (default), auto zoom markers are generated from recorded mouse clicks. */
+  readonly autoFromClicks?: boolean;
 }
 
 export interface CameraLayoutMarker {

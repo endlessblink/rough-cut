@@ -158,6 +158,17 @@ test.describe('Record device selection runtime', () => {
 
     await panelPage.waitForLoadState('domcontentloaded');
     await installPanelProbe(panelPage);
+    await expect(panelPage.locator('[data-testid="panel-setup-summary"]')).toBeVisible();
+    await expect(panelPage.locator('[data-testid="panel-source-select"]')).toHaveCount(0);
+    await expect(panelPage.locator('[data-testid="panel-mic-select"]')).toHaveCount(0);
+    await expect(panelPage.locator('[data-testid="panel-camera-select"]')).toHaveCount(0);
+    await expect(panelPage.locator('[data-testid="panel-system-audio-select"]')).toHaveCount(0);
+
+    await panelPage.locator('[data-testid="panel-edit-setup"]').click();
+    await expect(panelPage.locator('[data-testid="panel-source-select"]')).toBeVisible();
+    await expect(panelPage.locator('[data-testid="panel-mic-select"]')).toBeVisible();
+    await expect(panelPage.locator('[data-testid="panel-camera-select"]')).toBeVisible();
+    await expect(panelPage.locator('[data-testid="panel-system-audio-select"]')).toBeVisible();
 
     if (micDevices.length > 0) {
       const selectedMicId = micDevices[0]!.deviceId;

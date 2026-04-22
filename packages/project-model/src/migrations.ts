@@ -51,7 +51,10 @@ const migrations: readonly Migration[] = [
       return {
         ...doc,
         version: 3,
-        aiAnnotations: doc['aiAnnotations'] ?? { captionSegments: [] },
+        aiAnnotations: doc['aiAnnotations'] ?? {
+          captionSegments: [],
+          captionStyle: { fontSize: 28, position: 'bottom', backgroundOpacity: 0.55 },
+        },
       };
     },
   },
@@ -113,6 +116,29 @@ const migrations: readonly Migration[] = [
             | undefined) ?? null,
       },
     }),
+  },
+  {
+    fromVersion: 7,
+    toVersion: 8,
+    migrate: (doc) => {
+      const existing = (doc['aiAnnotations'] as Record<string, unknown> | undefined) ?? {};
+      const existingStyle = existing['captionStyle'] as Record<string, unknown> | undefined;
+      return {
+        ...doc,
+        version: 8,
+        aiAnnotations: {
+          captionSegments: Array.isArray(existing['captionSegments'])
+            ? (existing['captionSegments'] as unknown[])
+            : [],
+          captionStyle: {
+            fontSize: 28,
+            position: 'bottom',
+            backgroundOpacity: 0.55,
+            ...(existingStyle ?? {}),
+          },
+        },
+      };
+    },
   },
 ];
 

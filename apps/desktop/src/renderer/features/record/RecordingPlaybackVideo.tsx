@@ -40,7 +40,8 @@ export function RecordingPlaybackVideo({
   const projectFilePath = useProjectStore((s) => s.projectFilePath);
   const assetWidth = (asset?.metadata?.width as number) || 1920;
   const assetHeight = (asset?.metadata?.height as number) || 1080;
-  const { previewRef, isReady, setPreferredPlaybackAssetId, setRenderSize } = useCompositor();
+  const { previewRef, isReady, setPreferredPlaybackAssetId, setRenderSize, setCursorFrameData } =
+    useCompositor();
 
   useEffect(() => {
     setPreferredPlaybackAssetId(assetId);
@@ -51,7 +52,7 @@ export function RecordingPlaybackVideo({
     setRenderSize(assetWidth, assetHeight);
   }, [assetHeight, assetWidth, setRenderSize]);
 
-  // Find the clip range so we can map project frames → clip-local zoom timing.
+  // Find the clip range so we can map project frames => clip-local zoom timing.
   const clipRangeKey = useProjectStore((s) => {
     for (const track of s.project.composition.tracks) {
       for (const clip of track.clips) {
@@ -95,6 +96,13 @@ export function RecordingPlaybackVideo({
     );
     setCursorData(data);
   }, [cursorEvents, assetDuration, assetWidth, assetHeight]);
+
+  useEffect(() => {
+    setCursorFrameData(assetId, cursorData);
+    return () => {
+      setCursorFrameData(assetId, null);
+    };
+  }, [assetId, cursorData, setCursorFrameData]);
 
   const isPlaying = useTransportStore((s) => s.isPlaying);
   const playheadFrame = useTransportStore((s) => s.playheadFrame);
@@ -168,6 +176,7 @@ export function RecordingPlaybackVideo({
       {reticleVisible && selectedZoomMarker && onFocalPointChange && (
         <FocalPointReticle
           focalPoint={selectedZoomMarker.focalPoint}
+          zoomTransform={zt}
           onChange={(fp) => onFocalPointChange(selectedZoomMarker.id, fp)}
         />
       )}
@@ -175,14 +184,38 @@ export function RecordingPlaybackVideo({
   );
 }
 
+/**
+ * Map a source-normalized coordinate (0-1) to a screen-normalized position
+ * given the current zoom transform.
+ *
+ * The PixiJS compositor renders with:
+ *   screen_x = source_x * S + (1 - S) / 2 + translateX
+ */
+function sourceToScreen(s: number, scale: number, translate: number): number {
+  return s * scale + (1 - scale) / 2 + translate;
+}
+
+/**
+ * Inverse of sourceToScreen: given a screen-normalized coordinate, return the
+ * corresponding source-normalized coordinate.
+ *
+ *   source_x = (screen_x - (1 - S) / 2 - translateX) / S
+ */
+function screenToSource(n: number, scale: number, translate: number): number {
+  return (n - (1 - scale) / 2 - translate) / scale;
+}
+
 function FocalPointReticle({
   focalPoint,
+  zoomTransform,
   onChange,
 }: {
   focalPoint: { x: number; y: number };
+  zoomTransform: { scale: number; translateX: number; translateY: number };
   onChange: (fp: { x: number; y: number }) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const { scale, translateX, translateY } = zoomTransform;
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -193,9 +226,13 @@ function FocalPointReticle({
       const rect = host.getBoundingClientRect();
 
       const updateFromClient = (clientX: number, clientY: number) => {
+        // Normalize screen coords to 0-1
         const nx = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
         const ny = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
-        onChange({ x: nx, y: ny });
+        // Inverse-transform through current zoom to get source-space coords
+        const sx = Math.max(0, Math.min(1, screenToSource(nx, scale, translateX)));
+        const sy = Math.max(0, Math.min(1, screenToSource(ny, scale, translateY)));
+        onChange({ x: sx, y: sy });
       };
 
       updateFromClient(e.clientX, e.clientY);
@@ -208,8 +245,13 @@ function FocalPointReticle({
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
     },
-    [onChange],
+    [onChange, scale, translateX, translateY],
   );
+
+  // Forward-transform the stored focal point into screen space so the dot
+  // appears exactly over the rendered source pixel, even when zoomed.
+  const dotScreenX = sourceToScreen(focalPoint.x, scale, translateX);
+  const dotScreenY = sourceToScreen(focalPoint.y, scale, translateY);
 
   return (
     <div
@@ -226,8 +268,8 @@ function FocalPointReticle({
       <div
         style={{
           position: 'absolute',
-          left: `${focalPoint.x * 100}%`,
-          top: `${focalPoint.y * 100}%`,
+          left: `${dotScreenX * 100}%`,
+          top: `${dotScreenY * 100}%`,
           transform: 'translate(-50%, -50%)',
           width: 24,
           height: 24,

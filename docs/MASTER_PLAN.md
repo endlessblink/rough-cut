@@ -44,73 +44,95 @@ This is the single build order for Rough Cut going forward. Work should be organ
 
 ### Guiding rule
 
-For each surface, land the infrastructure that makes the view reliable first, then finish the edge features that make the view genuinely usable, then move to the next surface.
+For Rough Cut, user trust beats feature breadth. The order is: make screen recording reliable, then camera recording reliable, then audio recording reliable, then prove those streams stay in sync, then make export reliable, then stabilize and complete the Record-sidebar features that are already exposed to the user. Do not prioritize garnish features ahead of truthfulness and daily-use reliability.
 
 ### Delivery spine
 
 1. **Projects view** -- stable enough for now. Treat as the entry surface that anchors project creation, opening, and recovery.
-2. **Recording view** -- highest priority active surface. Finish the capture/compositor/config/device backbone first, then complete record-time overlays and quality-of-life features.
-3. **Export view** -- second priority. Finish the full Screen Studio loop so a user can record and ship a result without depending on Edit.
-4. **Edit view** -- third priority. Once record -> export is solid, deepen timeline manipulation, audio, and effect authoring.
-5. **AI view** -- fourth priority. Build the ingest/library/transcription/rough-cut workflow after the manual flow is complete.
-6. **Motion view** -- fifth priority. Build the dedicated motion authoring surface after the core recording/export/edit loop and AI ingest path are in place.
+2. **Recording core** -- highest priority active surface. The first job is not adding more authoring surface area; it is making saved screen, camera, and audio capture trustworthy on real machines.
+3. **Playback + export** -- only after recording truth is solid. Finish the full record -> save -> replay -> reopen -> export loop so a user can safely inspect and ship what they just captured.
+4. **Record sidebar completion** -- once recording, playback, and export are dependable, stabilize and finish the controls that are already visible in the Record sidebar before adding new flourish.
+5. **Edit view** -- deepen manual timeline manipulation and effect authoring after the record/playback/export loop is dependable.
+6. **AI view** -- build ingest/library/transcription/rough-cut workflow after the manual flow is solid.
+7. **Motion view** -- build the dedicated motion-authoring surface after the core recording/playback/export/edit loop is trustworthy.
 
 ### Surface order and focus
 
-| Order | Surface   | Goal                                                       | Primary task focus                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ----- | --------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | Projects  | Stable project entry, reopen, and persistence foundation   | ~~TASK-072~~, ~~TASK-071~~, ~~TASK-085~~                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 2     | Recording | Reliable capture pipeline with polished in-record controls | ~~TASK-013~~, TASK-014, TASK-015, TASK-016, TASK-086, ~~BUG-007~~, ~~BUG-008~~, TASK-087, TASK-088, TASK-089, TASK-090, TASK-091, TASK-092, TASK-121, TASK-122, TASK-123, TASK-124, TASK-125, TASK-126, TASK-127, TASK-128, TASK-129, TASK-130, TASK-131, TASK-132, TASK-143, TASK-144, TASK-145, ~~TASK-146~~, TASK-147, TASK-148, TASK-149, TASK-150, TASK-151, TASK-152, TASK-153, TASK-154, TASK-155, TASK-156, TASK-157, TASK-158, TASK-159, ~~TASK-160~~, ~~TASK-161~~, TASK-162, TASK-163, BUG-013 |
-| 3     | Export    | Complete output flow for recorded projects                 | TASK-021, TASK-022, ~~TASK-028~~, ~~TASK-029~~, TASK-112, ~~TASK-067~~, TASK-052, TASK-054                                                                                                                                                                                                                                                                                                                                                                                |
-| 4     | Edit      | Deep timeline editing and refinement                       | TASK-017, TASK-018, TASK-019, TASK-020, TASK-023, TASK-024, TASK-026, TASK-027, TASK-065                                                                                                                                                                                                                                                                                                                                                                                  |
-| 5     | AI        | Library ingest, analysis, and rough-cut generation         | TASK-040, TASK-079, TASK-080, TASK-081, TASK-082, TASK-044, TASK-045, TASK-047, TASK-097                                                                                                                                                                                                                                                                                                                                                                                  |
-| 6     | Motion    | Dedicated motion graphics authoring                        | TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-039                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Order | Surface            | Goal                                                                 | Primary task focus                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----- | ------------------ | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Projects           | Stable project entry, reopen, and persistence foundation             | ~~TASK-072~~, ~~TASK-071~~, ~~TASK-085~~                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 2     | Recording core     | Stable screen, camera, audio, and sync before feature expansion      | ~~TASK-013~~, TASK-014, TASK-015, TASK-016, TASK-086, ~~BUG-007~~, ~~BUG-008~~, TASK-087, TASK-088, BUG-009, FEATURE-076, BUG-004, BUG-011, TASK-124, TASK-126, TASK-143, TASK-145, TASK-148, TASK-152, TASK-182, TASK-183, TASK-184, ~~TASK-146~~, ~~TASK-147~~, ~~BUG-013~~                                                                                                                                                                 |
+| 3     | Playback + export  | Stable replay and output flow for freshly recorded projects           | BUG-006, TASK-020, TASK-021, TASK-022, ~~TASK-028~~, ~~TASK-029~~, TASK-112, ~~TASK-067~~, TASK-052, TASK-054                                                                                                                                                                                                                                                                                                |
+| 4     | Record sidebar     | Make already-visible Record controls useful and reliable             | TASK-121, TASK-032, TASK-089, TASK-090, TASK-091, TASK-092, TASK-125, TASK-127, TASK-128, TASK-130, TASK-131, TASK-132, TASK-149, TASK-150, TASK-155, TASK-156, TASK-157, TASK-158, TASK-159, ~~TASK-122~~, ~~TASK-123~~, ~~TASK-129~~, ~~TASK-151~~, ~~TASK-162~~, ~~TASK-163~~, ~~TASK-160~~, ~~TASK-161~~                                                                                                                               |
+| 5     | Edit               | Deep timeline editing and refinement                                 | TASK-017, TASK-018, TASK-019, TASK-020, TASK-023, TASK-024, TASK-026, TASK-027, TASK-065                                                                                                                                                                                                                                                                                                                                                           |
+| 6     | AI                 | Library ingest, analysis, and rough-cut generation                   | TASK-040, TASK-079, TASK-080, TASK-081, TASK-082, TASK-044, TASK-045, TASK-047, TASK-097                                                                                                                                                                                                                                                                                                                                                           |
+| 7     | Motion             | Dedicated motion graphics authoring                                  | TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-039                                                                                                                                                                                                                                                                                                                                                                               |
 
 ### Delivery Lines
 
-These lines define the flow-first orchestration view in Watchpost. `Sequence` is the visible critical path. `Supports` stay out of the main flow and appear in backlog/detail until they are explicitly promoted by a blocker.
+These lines define the stability-first orchestration view in Watchpost. `Sequence` is the visible critical path. `Supports` stay out of the main flow and appear in backlog/detail until they are explicitly promoted by a blocker.
 
-1. **LINE A — Record explanation layer**
-   Sequence: TASK-090 -> TASK-091
-   Supports: TASK-132, TASK-150
+1. **LINE A — Unify the recording workflow**
+   Sequence: TASK-186 -> TASK-187
+   Supports: TASK-126, TASK-145, TASK-152
 
-2. **LINE B — Audio confidence in Record**
-   Sequence: TASK-088 -> TASK-032 -> TASK-124
-   Supports: TASK-125, TASK-128, TASK-143, TASK-149
+2. **LINE B — Stable screen recording**
+   Sequence: TASK-183 -> BUG-009 -> TASK-148 -> TASK-126
+   Supports: BUG-004, BUG-011, TASK-145, TASK-152
 
-3. **LINE C — Template and preset recovery**
-   Sequence: TASK-121
+3. **LINE C — Stable camera recording**
+   Sequence: TASK-182 -> TASK-014 -> TASK-016
+   Supports: ~~BUG-013~~, ~~TASK-147~~, TASK-185
 
-4. **LINE D — Cursor and interaction polish**
-   Sequence: TASK-130
+4. **LINE D — Stable audio recording**
+   Sequence: TASK-088 -> TASK-124 -> FEATURE-076 -> TASK-032
+   Supports: TASK-143, TASK-125, TASK-128, TASK-149
+
+5. **LINE E — Stable playback and sync review**
+   Sequence: BUG-006 -> TASK-020 -> TASK-015 -> TASK-016
+
+6. **LINE F — Stable export**
+   Sequence: TASK-021 -> TASK-022 -> TASK-112 -> TASK-052 -> TASK-054
+
+7. **LINE G — Existing Record sidebar completion**
+   Sequence: TASK-121 -> TASK-157 -> TASK-089 -> TASK-090 -> TASK-091 -> TASK-092 -> TASK-130
+   Supports: TASK-131, TASK-132, TASK-150, TASK-155, TASK-156
 
 ### Current sprint framing
 
-The client-tutorial readiness path is now green enough to stop being the only frame. The current sprint should stay inside the Record surface and remove the most obvious remaining trust gaps that a user still sees immediately after opening the app: placeholder authoring panels, unfinished cursor polish, and remaining audio-confidence work.
+The current sprint should stay inside the Record surface, but the priority is now stability-first rather than feature-first. The immediate next task is to eliminate the product-level redundancy between the in-app pre-record flow and the floating recording panel so Rough Cut reads as one coherent recorder before more capture hardening and polish continue. From there, the near-term job remains to make saved screen capture correct, camera capture deterministic, audio capture truthful, playback easy to inspect, those streams kept in sync, and export a faithful downstream result.
 
-1. **Lane 1 -- Reopen fidelity closure**: ~~BUG-013~~, ~~TASK-147~~
-2. **Lane 2 -- Record explanation layer**: TASK-090, TASK-091
-3. **Lane 3 -- Cursor + auto-zoom polish**: TASK-101, TASK-180
-4. **Lane 4 -- Audio confidence in Record**: TASK-088, TASK-032, TASK-124
+1. **Lane 1 -- Unify the recording workflow**: TASK-186, TASK-187
+2. **Lane 2 -- Stable screen recording**: TASK-183, BUG-009, TASK-148, TASK-126
+3. **Lane 3 -- Stable camera recording**: TASK-182, TASK-014, TASK-016, TASK-185
+4. **Lane 4 -- Stable audio recording**: TASK-088, TASK-124, FEATURE-076, TASK-032
+5. **Lane 5 -- Stable playback + sync + export**: BUG-006, TASK-020, TASK-015, TASK-021, TASK-022, TASK-112, TASK-052, TASK-054
+6. **Lane 6 -- Existing Record sidebar completion**: TASK-121, TASK-157, TASK-089, TASK-090, TASK-091, TASK-092, TASK-130
 
-Practical order for lowest merge pain:
+Practical order for lowest user-risk:
 
-- Lane 1 is complete
-- Lane 2 is the active lane
-- Lane 3 follows once Lane 2 stops changing preview/export overlay contracts
-- Lane 4 follows after Lane 2 because audio-confidence work should not be mixed with placeholder-surface authoring churn
+- Lane 1 is the active lane because the app currently feels like two overlapping recording products instead of one trustworthy workflow
+- Lane 2 follows immediately once control ownership between the main app and the panel is explicit
+- Lane 3 follows once the workflow split is reduced and first-take camera reliability can be judged inside the clarified recording path
+- Lane 4 follows once screen and camera truth are stable enough to make audio verification meaningful
+- Lane 5 follows once recording truth exists end to end and users can reliably review playback before exporting artifacts
+- Lane 6 starts only after the core recording/playback/export path is dependable
 
 Parallel-start rule:
 
-- Lane 2 and Lane 3 may run together once the annotation/title data model is stable enough for parity coverage.
-- Lane 4 should follow after Lane 2 because audio-confidence work should not be mixed with new overlay-surface churn.
-- `TASK-181` is a valid follow-up immediately after this sprint, but it should not displace visible Record-surface completion while `Highlights` and `Titles` are still placeholder-only.
+- Lane 2 may overlap with Lane 1 when camera work does not destabilize screen-capture fixes, because both are core recording-trust work.
+- Lane 3 should begin only after the recording path is stable enough that audio failures are not confounded by unrelated capture regressions.
+- Lane 5 should not displace Lanes 1-4. Visible placeholder work is important, but only after the core path is trustworthy.
 
 **Why this sprint now**
 
-- Lane 1 is now closed by the green moved-project, reopen, and Record/Edit parity regressions.
-- `RecordRightPanel.tsx` still exposes visible `Coming soon` placeholders for `Highlights` and `Titles`.
-- The record/export stabilization sweep is green, so the highest-value next step is to turn the now-trustworthy Record surface into a more complete authoring surface.
+- `TASK-186` now captures the highest-leverage product problem: Rough Cut still feels like two overlapping recording flows instead of one coherent recorder.
+- `TASK-182` is explicitly called out as a current top blocker for daily use because a first take can still lose the webcam.
+- `TASK-183` addresses saved-file screen crop on secondary displays, which breaks tutorial usefulness even when preview looks fine.
+- Open audio-confidence work (`TASK-088`, `TASK-124`, `FEATURE-076`, `TASK-032`) still affects whether the saved artifact matches what the user believes they recorded.
+- Playback confidence work (`BUG-006`, `TASK-020`) belongs before export polish because users need a smooth, truthful way to review what they just captured.
+- Export should be treated as downstream truth preservation, not as a separate polish lane after garnish features.
+- `RecordRightPanel.tsx` placeholders still matter, but they now come after the existing recording, playback, and export path is reliable enough to trust.
 
 ---
 
@@ -216,6 +238,9 @@ Parallel-start rule:
 | TASK-184     | Record: Eliminate Pixi video alpha CSP noise in the renderer            | P1       | IN PROGRESS (2026-04-21) | TASK-013           |
 | TASK-176     | Record: Clarify camera layout marker add vs update UX                   | P2       | TODO                     | TASK-159           |
 | TASK-185     | Record: Stabilize camera preview track lifecycle                        | P2       | IN PROGRESS (2026-04-22) | TASK-182           |
+| TASK-186     | Record: Unify in-app pre-record flow and floating recording panel       | P0       | IN PROGRESS (2026-04-22) | TASK-086, TASK-126 |
+| TASK-187     | Record: Break down and redesign the floating recording panel UX         | P1       | TODO                     | TASK-186, TASK-145 |
+| TASK-188     | Product: Break down stabilization work across Projects/Record/Playback/Sidebar/Timeline/Export | P1 | TODO | TASK-186, TASK-187 |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
@@ -520,6 +545,303 @@ The recorder is now immune (TASK-185 is not a data-loss risk). But an unexplaine
 
 - Do NOT revert the recorder fix at `PanelApp.tsx:2410-2463` as part of this task.
 - Do NOT re-introduce `waitForLiveVideoTrack` for the recorder path.
+
+---
+
+### TASK-186: Record: Unify in-app pre-record flow and floating recording panel
+
+**Priority:** P0 | **Status:** IN PROGRESS (2026-04-22)
+
+#### Problem
+
+- Rough Cut currently exposes two overlapping recording workflows: the in-app Record surface and the floating recording panel.
+- The split makes the product feel redundant and increases the chance that users set up recording in one place but have to mentally switch models when the panel opens.
+- Even where state is technically shared, the experience still reads as two separate products instead of one coherent pre-record -> during-recording flow.
+
+#### Goal
+
+Define and implement one truthful recording workflow:
+- the main app owns pre-record setup and trust-building
+- the floating panel owns only the narrow during-recording controls that must stay available while capturing
+- no user should have to re-learn the workflow or wonder which surface is the real source of truth
+
+#### Scope
+
+- Audit every control that exists in both the main Record surface and the floating panel.
+- Decide which controls belong only in pre-record, which belong only in the active panel, and which must be mirrored because they affect a live session.
+- Remove or de-emphasize duplicated controls that create the feeling of two recorders.
+- Tighten the handoff from `RecordTab` into `PanelApp` so opening the panel feels like continuing the same session rather than entering a second app.
+
+#### First breakdown
+
+- **Pre-record in app:** source selection, mode selection, template/layout choice, device choice, readiness checks, trust cues.
+- **During-record panel:** stop/pause/resume, elapsed time, live state, limited device/offline diagnostics, safe-stop/recovery actions.
+- **Post-record back in app:** saved take review, playback confidence, sidebar authoring, timeline edits, export.
+
+#### First Steps
+
+- Inventory duplicated controls and labels between `RecordTab.tsx`, `BottomBar.tsx`, and `PanelApp.tsx`.
+- Write a single ownership map for every recording control: pre-record only, panel only, or shared live-session status.
+- Update the product wording in the UI and plan so the panel is framed as a focused in-session controller, not a second full recorder.
+- Land the first pass of simplification behind existing shared store/session plumbing rather than inventing a new state model.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `apps/desktop/src/renderer/features/record/BottomBar.tsx`
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
+- `apps/desktop/src/renderer/features/record/recording-store.ts`
+- `apps/desktop/src/main/index.mjs`
+
+#### Why this matters
+
+A user who senses redundancy between the app and the panel will hesitate before recording. Unifying the flow is core product trust work, not cosmetic polish.
+
+---
+
+### TASK-187: Record: Break down and redesign the floating recording panel UX
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- The recording panel currently mixes several jobs at once: readiness confirmation, live preview, in-session controls, device status, and miscellaneous settings.
+- Its design and interaction model are not yet broken down into a clear set of user responsibilities, which makes it harder to judge what should stay, what should move back to the main app, and what should disappear.
+- A panel that feels cluttered or semantically confused undermines confidence even if the underlying capture stack is improving.
+
+#### Goal
+
+Turn the floating panel into a sharply defined during-recording surface with a clear information hierarchy, predictable controls, and a minimal set of responsibilities.
+
+#### Scope
+
+- Break the panel into explicit modes or responsibilities: pre-start confirmation, recording-in-progress, paused/recovery, and failure/degraded states.
+- Define the minimum viable control set for each state.
+- Revisit panel sizing, layout density, preview prominence, and danger-action affordances.
+- Ensure the panel never implies that it is the primary authoring surface for post-record work.
+
+#### First Steps
+
+- Capture the current panel information architecture: what appears before start, during recording, after pause, and during error states.
+- Identify controls that belong in the panel versus the main app after TASK-186's ownership map exists.
+- Draft a state-by-state panel breakdown with explicit goals, visible elements, and forbidden clutter for each state.
+- Add acceptance criteria for the panel UX before deep visual polish starts.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
+- `apps/desktop/src/renderer/features/record/recording-panel.css` or adjacent styling modules if present
+- `apps/desktop/src/renderer/features/record/BottomBar.tsx`
+- `tests/electron/acceptance-record.spec.ts`
+- `tests/electron/record-readiness.spec.ts`
+
+#### Why this matters
+
+The panel is the user’s live safety surface during recording. If its design is muddy, the whole recording experience feels fragile even when capture succeeds.
+
+---
+
+### TASK-188: Product: Break down stabilization work across Projects/Record/Playback/Sidebar/Timeline/Export
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- Rough Cut has a lot of open work spread across the Projects tab, pre-record setup, the during-recording panel, post-record playback, Record-sidebar features, timeline editing, and export.
+- The master plan now has a better stability-first order, but it still does not give one concise end-user breakdown of the workflow surfaces that must become dependable before garnish features rise in priority.
+- Without that breakdown, work can drift back toward isolated feature tasks instead of the end-to-end user journey.
+
+#### Goal
+
+Create and maintain a product-area stabilization map that breaks the app into the exact end-user surfaces that must become trustworthy in sequence.
+
+#### Required areas
+
+1. Projects tab
+2. Record tab pre-record setup
+3. During-recording floating panel
+4. Post-record playback/review in Record
+5. Existing Record-sidebar features
+6. Timeline/editing depth needed for real review
+7. Export tab / export flow
+
+#### Scope
+
+- Tie the existing task backlog to these areas explicitly.
+- Identify missing stabilization tasks in each area.
+- Make it obvious which tasks are blockers for end-user usefulness versus additive feature breadth.
+- Keep new garnish work de-prioritized until each earlier area has a credible trust story.
+
+#### First Steps
+
+- Add the product-area stabilization map to this task's Active Work section instead of inventing a new top-level master-plan section that could break parser expectations.
+- Mark missing or weakly specified areas that need new tasks rather than assuming the current backlog is sufficient.
+- Use that area map to drive future sprint framing and task ordering.
+
+#### Product-area stabilization map (current output)
+
+##### 1. Projects tab
+
+**User goal:** create a project, reopen it later, move it on disk, and still trust that Rough Cut knows where everything is.
+
+**What "stable" means**
+- Creating or opening a project always lands in a sane working state.
+- Recent projects, relative paths, and moved-project recovery behave truthfully.
+- Recording destinations and imported assets remain coherent after relaunch.
+
+**Current task anchors**
+- ~~TASK-071~~ Project save/load with relative paths
+- ~~TASK-072~~ Recent projects workflow
+- ~~TASK-085~~ Persistent recording location + migration for stale `/tmp` references
+
+##### 2. Record tab pre-record setup
+
+**User goal:** choose what to record, choose devices, confirm readiness, and feel confident before clicking REC.
+
+**What "stable" means**
+- Source/mode/device selection is behaviorally real, not decorative.
+- The main app is clearly the place where pre-record setup happens.
+- There is one understandable path from setup into recording.
+
+**Current task anchors**
+- ~~TASK-086~~ Unified config store for main tab + recording panel
+- ~~BUG-007~~ Toolbar toggles drive the real session
+- ~~BUG-008~~ Source selection stays in sync across surfaces
+- ~~TASK-087~~ Persist config across panel opens and restarts
+- BUG-009 Record mode selector must affect capture
+- TASK-088 Device selectors for mic, camera, and system audio
+- TASK-143 Permission diagnostics + deep links + preflight test
+- TASK-152 Fear-reducing micro-affordances (DND, test clip, safe stop)
+- TASK-186 Unify in-app pre-record flow and floating recording panel
+
+##### 3. During-recording floating panel
+
+**User goal:** once recording starts, have a small, trustworthy control surface that keeps the session safe without duplicating the full app.
+
+**What "stable" means**
+- The panel has a narrow job: live state, elapsed time, stop/pause/resume, recovery cues, and only the minimum live-session diagnostics.
+- It does not feel like a redundant second recorder.
+- It stays visible/useful when needed and never pollutes the recorded output.
+
+**Current task anchors**
+- TASK-126 In-progress controller with finish, pause, restart, and delete
+- TASK-145 Floating controller hide/fade + never-in-video guarantee
+- BUG-004 Dock/taskbar icon shown during recording
+- BUG-011 Linux stop controls stay usable during recording
+- TASK-185 Stabilize camera preview track lifecycle
+- TASK-186 Unify in-app pre-record flow and floating recording panel
+- TASK-187 Break down and redesign the floating recording panel UX
+
+##### 4. Post-record playback/review in Record
+
+**User goal:** immediately after a take, review what was actually captured and trust the playback enough to decide whether to keep, retry, or continue editing/exporting.
+
+**What "stable" means**
+- Saved takes replay smoothly.
+- Screen/camera/audio presence in playback matches the artifact on disk.
+- Playback is a trustworthy review tool, not a source of ambiguity.
+
+**Current task anchors**
+- ~~BUG-012~~ Record replay bootstrap stalls on saved-session playback
+- BUG-006 Playback laggy — Canvas2D drawImage bottleneck
+- TASK-020 Audio playback via Web Audio API synced to playhead
+- FEATURE-076 Audio capture + playback in preview
+- TASK-124 Prove and harden saved-file system-audio capture
+- TASK-184 Eliminate Pixi video alpha CSP noise in the renderer
+
+##### 5. Existing Record-sidebar features
+
+**User goal:** use the controls that are already visible in the Record sidebar and expect them to be real, understandable, and preserved into playback/export.
+
+**What "stable" means**
+- Already-exposed sidebar controls are completed before new garnish work is added.
+- Placeholder sections are either made real or clearly de-scoped.
+- Record-authored changes survive into playback, timeline review, and export.
+
+**Current task anchors**
+- TASK-121 Restore template picker and preset application flow
+- TASK-032 VU meters for mic and system audio
+- TASK-157 Watermark/logo inspector with persistent branding controls
+- TASK-089 Keyboard shortcut overlays
+- TASK-090 Highlights and annotations
+- TASK-091 Titles and callouts
+- TASK-092 Dynamic camera layouts
+- TASK-130 Advanced cursor styles, click effects, and click sounds
+- TASK-131 Cinematic motion blur
+- TASK-132 Privacy blur masks and spotlight regions
+- TASK-150 Per-segment visibility toggles
+- TASK-155 AI captions in Record review
+- TASK-156 Smart Cut
+
+##### 6. Timeline / editing depth needed for real review
+
+**User goal:** once a take is worth keeping, make essential edits and inspect timing/content without the editor itself becoming the next trust gap.
+
+**What "stable" means**
+- Timeline playback and audio sync are believable.
+- Basic clip/effect/keyframe operations support real review and refinement.
+- Camera/layout/effect parity from Record into Edit remains truthful.
+
+**Current task anchors**
+- TASK-015 Serialize Record styling into resulting clips/effects
+- TASK-017 Clip drag-to-move
+- TASK-018 Cross-track clip dragging
+- TASK-019 Effects stack UI
+- TASK-020 Audio playback via Web Audio API synced to playhead
+- TASK-023 Keyframe editor
+- TASK-024 Transitions
+- TASK-026 Audio waveforms on timeline clips
+- TASK-065 Audio volume controls per clip/track
+- FEATURE-084 Timeline multi-select + snap additions
+- ~~TASK-077~~ Camera playback in Edit compositor
+- ~~TASK-114~~ Camera source/timing parity with Record preview
+- ~~TASK-115~~ Camera layout/visibility parity with Record preview
+- ~~TASK-116~~ Record/Edit camera parity regression coverage
+
+##### 7. Export tab / export flow
+
+**User goal:** export the reviewed recording and trust that the final file matches what Rough Cut showed.
+
+**What "stable" means**
+- Export starts, progresses, fails, or succeeds truthfully.
+- The exported artifact preserves the same screen/camera/audio/effect truth established earlier in the journey.
+- Performance work does not outrun correctness.
+
+**Current task anchors**
+- ~~TASK-021~~ Export progress bar + frame counter
+- ~~TASK-022~~ Output path selector
+- ~~TASK-028~~ Audio mixing in export pipeline
+- ~~TASK-029~~ Quality presets + editable settings
+- ~~TASK-067~~ Preview + export parity test
+- ~~TASK-112~~ File size + time estimates
+- TASK-050 Preview: Switch to PixiJS VideoSource
+- TASK-052 WebCodecs pipeline
+- TASK-054 NVENC hardware encoding
+- ~~BUG-014~~ WebCodecs bitrate config rejected
+
+#### Operating rule
+
+When choosing between tasks, prefer the earliest unstable product area in this map.
+
+Priority tie-breaker:
+1. Projects truth
+2. Pre-record truth
+3. During-recording truth
+4. Post-record playback truth
+5. Existing Record-sidebar truth
+6. Timeline/editing truth
+7. Export truth
+8. Only then garnish/new feature breadth
+
+#### Key files
+
+- `docs/MASTER_PLAN.md`
+- `docs/ARCHITECTURE.md`
+- Watchpost task views that consume the master plan ordering
+
+#### Why this matters
+
+This keeps Rough Cut focused on becoming useful and reliable for the end user across the whole workflow instead of looking locally polished in one surface while the rest of the journey still feels unstable.
 
 ---
 
@@ -2384,7 +2706,7 @@ All five of this task's Key files run green back-to-back. The 2026-04-22 full e2
 
 ### Record Completion Milestones
 
-#### Milestone 1: Trust the Record surface
+#### Milestone 1: Stable screen recording
 
 - `TASK-086` unified config store for main tab + panel
 - `BUG-007` toolbar toggles must drive the real session
@@ -2392,28 +2714,60 @@ All five of this task's Key files run green back-to-back. The 2026-04-22 full e2
 - `BUG-009` record mode selector must affect capture behavior
 - `BUG-010` camera controls must be surfaced consistently
 - `TASK-087` persist shared config across panel opens/restarts
-- `TASK-088` device selectors for mic/camera/system audio
+- `TASK-183` fix Linux X11 screen capture bounds on secondary displays
+- `TASK-126` in-progress controller with finish, pause, restart, and delete
+- `TASK-145` floating controller hide/fade + never-in-video guarantee
+- `TASK-148` crash-resilient autosave + partial-take recovery
+- `TASK-152` fear-reducing micro-affordances (DND, test clip, safe stop)
+- `BUG-004` dock/taskbar icon shown during recording
+- `BUG-011` Linux recording keeps usable stop controls
 
-#### Milestone 2: Preview and capture parity
+#### Milestone 2: Stable camera recording
 
 - `~~TASK-013~~` PixiJS live preview replaces raw video preview
 - `TASK-014` webcam PiP in compositor
-- `TASK-015` serialize Record styling into resulting clips/effects
 - `TASK-016` separate webcam/audio assets on stop
-- `~~TASK-030~~` configurable countdown
-- `~~TASK-031~~` pause/resume recording
+- `TASK-182` deterministic first-take camera sidecar capture
+- `~~BUG-013~~` reopen parity for camera template and visibility
+- `~~TASK-147~~` full reopen/project-move fidelity for templates and sidecars
+
+#### Milestone 3: Stable audio recording and sync truth
+
+- `TASK-088` device selectors for mic/camera/system audio
+- `FEATURE-076` audio capture + playback in preview
+- `TASK-124` saved-file system-audio capture hardening
 - `TASK-032` VU meters for mic and system audio
+- `TASK-143` permission diagnostics + deep links + preflight test
+- `TASK-015` serialize Record styling into resulting clips/effects
 - `TASK-100` disconnect recovery and warning toasts
 
-#### Milestone 3: Tutorial-authoring completeness
+#### Milestone 4: Stable playback and export
 
+- `BUG-006` playback fluency / lag fix for the real review path
+- `TASK-020` audio playback via Web Audio API synced to playhead
+- `TASK-021` export queue + preset foundation
+- `TASK-022` export progress + cancellation UX
+- `TASK-112` export pipeline parity/hardening
+- `TASK-052` export quality/performance polish
+- `TASK-054` export verification and artifact confidence
+
+#### Milestone 5: Existing Record-sidebar completion
+
+- `TASK-121` restore template picker and preset application flow
+- `TASK-157` watermark/logo inspector with persistent branding controls
 - `TASK-089` keyboard shortcut overlays
 - `TASK-090` highlights and annotations
 - `TASK-091` titles and callouts
 - `TASK-092` dynamic camera layouts
 - `TASK-101` cursor smoothing, idle hide, and loop-back polish
+- `TASK-130` advanced cursor styles, click effects, and click sounds
+- `TASK-131` cinematic motion blur for cursor, zoom, and camera movement
+- `TASK-132` privacy blur masks and spotlight regions
+- `TASK-150` per-segment visibility toggles for camera/cursor/clicks/overlays
+- `TASK-155` AI captions with timeline edit + styling in Record review
+- `TASK-156` Smart Cut for filler words, silence, breaths, and mouth clicks
 
-#### Milestone 4: Workflow polish and distribution
+#### Milestone 6: Workflow polish and distribution
 
 - `TASK-093` teleprompter
 - `TASK-094` shareable recording presets and profiles

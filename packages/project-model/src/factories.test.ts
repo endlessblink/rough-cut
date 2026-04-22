@@ -24,6 +24,7 @@ import {
   LibrarySourceSchema,
   ProjectLibraryReferenceSchema,
 } from './schemas.js';
+import { CURRENT_SCHEMA_VERSION } from './constants.js';
 import type { AssetId, TrackId } from './types.js';
 
 describe('factories', () => {
@@ -35,7 +36,7 @@ describe('factories', () => {
 
     it('has current schema version', () => {
       const project = createProject();
-      expect(project.version).toBe(7);
+      expect(project.version).toBe(CURRENT_SCHEMA_VERSION);
     });
 
     it('has 2 video + 2 audio tracks by default', () => {
@@ -187,7 +188,7 @@ describe('factories', () => {
 
     it('creates a persisted library document with current schema version', () => {
       const library = createLibraryDocument('Interview Selects');
-      expect(library.version).toBe(7);
+      expect(library.version).toBe(CURRENT_SCHEMA_VERSION);
       expect(library.name).toBe('Interview Selects');
       expect(() => LibraryDocumentSchema.parse(library)).not.toThrow();
     });

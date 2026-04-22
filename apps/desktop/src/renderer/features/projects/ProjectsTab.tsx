@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ProjectDocument } from '@rough-cut/project-model';
+import { migrate } from '@rough-cut/project-model';
 import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
 import { projectStore, transportStore } from '../../hooks/use-stores.js';
@@ -56,8 +57,8 @@ export function ProjectsTab({
   async function handleOpenPath(filePath: string) {
     try {
       getPlaybackManager().pause();
-      const project = await window.roughcut.projectOpenPath(filePath);
-      setSelectedProject({ project: project as ProjectDocument, filePath });
+      const rawProject = await window.roughcut.projectOpenPath(filePath);
+      setSelectedProject({ project: migrate(rawProject), filePath });
     } catch (err) {
       console.error('[ProjectsTab] Failed to load project:', err);
     }

@@ -6,4 +6,4 @@ export { snapToNearestEdge, snapToPlayhead, snapToGrid } from './snap.js';
 export { calculateCompositionDuration, rippleDelete } from './composition-utils.js';
 export { smootherStep, strengthToScale, getZoomTransformForMarker, getZoomTransformAtFrame } from './zoom-transform.js';
 export type { ZoomTransform, ZoomTransformOptions, ZoomCursorPosition } from './zoom-transform.js';
-export { generateAutoZoomMarkers } from './auto-zoom.js';
+export { generateAutoZoomMarkers, filterAutoMarkersAgainstManual } from './auto-zoom.js';

@@ -82,6 +82,16 @@ export async function loadZoomFixture(
     },
   );
 
-  await page.waitForSelector('[data-testid="zoom-host"]', { timeout: 10_000 });
+  await page.locator('[data-testid="tab-record"]').click();
+  await page.waitForSelector('[data-testid="record-tab-root"]', { timeout: 30_000 });
+
+  await page.waitForFunction(
+    () =>
+      Boolean(
+        document.querySelector('[data-testid="zoom-host"]') ||
+          document.querySelector('[data-testid="recording-playback-video"]'),
+      ),
+    { timeout: 30_000 },
+  );
   return recording.filePath as string;
 }

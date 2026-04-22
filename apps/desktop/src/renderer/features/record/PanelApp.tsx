@@ -1,20 +1,13 @@
 /**
- * PanelApp — Self-contained recording panel for the floating Electron window.
+ * PanelApp — Floating recording controls for the Electron panel window.
  *
- * Manages its own state, acquires its own MediaStream, runs its own
- * MediaRecorder, and communicates with the main process via window.roughcut.
+ * This is the single pre-record setup surface for capture. It owns source,
+ * mode, and device setup before recording starts, then narrows into live
+ * recording controls while the session is active.
  *
  * The screen-capture preview lives in the main Record tab (not here) — this
- * window is controls-only, with a small live camera PiP that overlays the
- * bottom-right corner when the camera is enabled.
- *
- * Layout (500 × 240, +44 when issues banner is shown):
- *   1. TitleBar          (32px)
- *   2. SourceSelector    (40px)
- *   3. DeviceControls    (40px + audio level meter when mic is on)
- *   4. RecordingControls (56px)
- *   + CameraPiPOverlay (bottom-right, absolute, only when camera is on)
- *   + CountdownOverlay (position:fixed — covers the whole window)
+ * window stays focused on setup and controls, with a small live camera PiP that
+ * overlays the bottom-right corner when the camera is enabled.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -28,7 +21,8 @@ import type {
 import { CountdownOverlay } from './CountdownOverlay.js';
 import { formatElapsed } from './format-elapsed.js';
 import { useRecordingConfig, updateRecordingConfig } from './recording-config.js';
-import { useRecordingDeviceOptions } from './use-recording-device-options.js';
+import { ModeSelectorRow } from './ModeSelectorRow.js';
+import { useRecordingDeviceOptions, getSelectedOptionLabel } from './use-recording-device-options.js';
 import { useToast } from '../../ui/toast.js';
 import { getRecordingPauseCapability } from '../../../shared/recording-pause-policy.mjs';
 
@@ -366,7 +360,15 @@ function PulsingDot() {
 
 // ─── TitleBar ───────────────────────────────────────────────────────────────
 
-function TitleBar({ onClose, accessory }: { onClose: () => void; accessory?: React.ReactNode }) {
+function TitleBar({
+  onClose,
+  accessory,
+  label = 'Record setup',
+}: {
+  onClose: () => void;
+  accessory?: React.ReactNode;
+  label?: string;
+}) {
   const [closeHovered, setCloseHovered] = useState(false);
 
   return (
@@ -394,7 +396,7 @@ function TitleBar({ onClose, accessory }: { onClose: () => void; accessory?: Rea
           textTransform: 'uppercase',
         }}
       >
-        ROUGH CUT
+        {label}
       </span>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -454,7 +456,7 @@ function SetupModeButton({ onClick }: { onClick: () => void }) {
         } as React.CSSProperties & { WebkitAppRegion?: 'drag' | 'no-drag' }
       }
     >
-      Compact
+      Back to live
     </button>
   );
 }
@@ -849,6 +851,25 @@ function DeviceControls({
           </span>
         )}
         <select
+          data-testid="panel-camera-select"
+          value={selectedCameraValue}
+          onChange={(event) => onSelectCameraDevice(event.target.value || null)}
+          style={panelSelectStyle}
+          aria-label="Camera device"
+        >
+          <option value="">Default camera</option>
+          {cameraOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {cameraIssue && (
+          <span data-testid="panel-camera-offline-badge" title={cameraIssue} style={offlineBadgeStyle}>
+            Offline
+          </span>
+        )}
+        <select
           data-testid="panel-system-audio-select"
           value={selectedSystemAudioValue}
           onChange={(event) => onSelectSystemAudioSource(event.target.value || null)}
@@ -871,29 +892,136 @@ function DeviceControls({
             Offline
           </span>
         )}
-        <select
-          data-testid="panel-camera-select"
-          value={selectedCameraValue}
-          onChange={(event) => onSelectCameraDevice(event.target.value || null)}
-          style={panelSelectStyle}
-          aria-label="Camera device"
-        >
-          <option value="">Default camera</option>
-          {cameraOptions.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        {cameraIssue && (
+      </div>
+    </div>
+  );
+}
+
+interface SetupSummaryCardProps {
+  modeLabel: string;
+  sourceName: string;
+  micName: string;
+  cameraName: string;
+  systemAudioName: string;
+  canRecord: boolean;
+  issueCount: number;
+  onEditSetup: () => void;
+}
+
+function SetupSummaryCard({
+  modeLabel,
+  sourceName,
+  micName,
+  cameraName,
+  systemAudioName,
+  canRecord,
+  issueCount,
+  onEditSetup,
+}: SetupSummaryCardProps) {
+  return (
+    <div
+      data-testid="panel-setup-summary"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        padding: '12px 12px 10px',
+        flexShrink: 0,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span
-            data-testid="panel-camera-offline-badge"
-            title={cameraIssue}
-            style={offlineBadgeStyle}
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              color: 'rgba(255,255,255,0.60)',
+            }}
           >
-            Offline
+            Review setup
           </span>
-        )}
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.78)', lineHeight: 1.45 }}>
+            This panel is where you choose what to record before starting. Review the current setup or
+            open the full setup controls below.
+          </span>
+        </div>
+        <button
+          data-testid="panel-edit-setup"
+          onClick={onEditSetup}
+          style={{
+            height: 28,
+            padding: '0 10px',
+            borderRadius: 8,
+            border: '1px solid rgba(255,255,255,0.12)',
+            background: 'rgba(255,255,255,0.05)',
+            color: 'rgba(255,255,255,0.88)',
+            fontSize: 12,
+            fontFamily: 'inherit',
+            flexShrink: 0,
+            cursor: 'pointer',
+          }}
+        >
+          Edit details
+        </button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+        {[
+          ['Mode', modeLabel],
+          ['Source', sourceName],
+          ['Mic', micName],
+          ['Camera', cameraName],
+          ['System audio', systemAudioName],
+        ].map(([label, value]) => (
+          <div
+            key={label}
+            style={{
+              minWidth: 0,
+              borderRadius: 8,
+              border: '1px solid rgba(255,255,255,0.08)',
+              background: 'rgba(255,255,255,0.03)',
+              padding: '8px 10px',
+            }}
+          >
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.52)', textTransform: 'uppercase' }}>
+              {label}
+            </div>
+            <div
+              style={{
+                marginTop: 3,
+                fontSize: 12,
+                color: 'rgba(255,255,255,0.88)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+              title={value}
+            >
+              {value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          fontSize: 11,
+          color: 'rgba(255,255,255,0.62)',
+        }}
+      >
+        <span>
+          {issueCount > 0
+            ? `${issueCount} setup issue${issueCount === 1 ? '' : 's'} need attention before recording.`
+            : canRecord
+              ? 'Ready to record.'
+              : 'Choose a source and devices below before recording.'}
+        </span>
       </div>
     </div>
   );
@@ -909,6 +1037,83 @@ const offlineBadgeStyle: React.CSSProperties = {
   padding: '2px 6px',
   flexShrink: 0,
 };
+
+function LiveSetupNotice({ onReturn }: { onReturn: () => void }) {
+  return (
+    <div
+      data-testid="panel-live-setup-notice"
+      style={{
+        margin: '0 12px 10px',
+        borderRadius: 10,
+        border: '1px solid rgba(255,90,95,0.22)',
+        background: 'rgba(255,90,95,0.08)',
+        padding: '10px 12px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.92)' }}>
+          Recording is live
+        </div>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.68)', marginTop: 2 }}>
+          You are editing setup details during an active recording. Return to the live controls when you
+          are done.
+        </div>
+      </div>
+      <button
+        data-testid="panel-live-setup-return"
+        onClick={onReturn}
+        style={{
+          height: 28,
+          padding: '0 10px',
+          borderRadius: 8,
+          border: '1px solid rgba(255,255,255,0.12)',
+          background: 'rgba(255,255,255,0.06)',
+          color: 'rgba(255,255,255,0.88)',
+          fontSize: 12,
+          fontFamily: 'inherit',
+          cursor: 'pointer',
+          flexShrink: 0,
+        }}
+      >
+        Live controls
+      </button>
+    </div>
+  );
+}
+
+function SetupSection({
+  recordMode,
+  onModeChange,
+  children,
+}: {
+  recordMode: 'fullscreen' | 'window' | 'region';
+  onModeChange: (mode: 'fullscreen' | 'window' | 'region') => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 12px 10px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            color: 'rgba(255,255,255,0.60)',
+          }}
+        >
+          Recording setup
+        </span>
+        <ModeSelectorRow mode={recordMode} onChange={onModeChange} />
+      </div>
+      {children}
+    </div>
+  );
+}
 
 const panelSelectStyle: React.CSSProperties = {
   flex: 1,
@@ -2598,6 +2803,23 @@ export function PanelApp() {
     void window.roughcut.closeRecordingPanel();
   };
 
+  const handlePanelModeChange = useCallback(
+    (mode: 'fullscreen' | 'window' | 'region') => {
+      if (mode === 'region') {
+        showToast({
+          title: 'Region capture is unavailable',
+          message: 'Rough Cut currently supports full screen or window capture only.',
+          tone: 'warning',
+        });
+        updateRecordingConfig({ recordMode: 'fullscreen' });
+        return;
+      }
+
+      updateRecordingConfig({ recordMode: mode });
+    },
+    [showToast],
+  );
+
   const handleOpenFixMode = useCallback(() => {
     setSetupModeDuringRecording(true);
     void window.roughcut.panelResize('setup');
@@ -2649,7 +2871,22 @@ export function PanelApp() {
   const issueMessages = Object.values(connectionIssues).filter((message): message is string =>
     Boolean(message),
   );
-  const setupPanelHeight = (issueMessages.length > 0 ? 284 : 240) + (recordingRecovery ? 86 : 0);
+  const selectedMicLabel = getSelectedOptionLabel(micOptions, selectedMicDeviceId, 'Default microphone');
+  const selectedSourceLabel =
+    sources.find((source) => source.id === selectedSourceId)?.name ?? 'Selected source unavailable';
+  const selectedCameraLabel = cameraEnabled
+    ? getSelectedOptionLabel(cameraOptions, selectedCameraDeviceId, 'Default camera')
+    : 'Off';
+  const selectedSystemAudioLabel = !sysAudioEnabled
+    ? 'Off'
+    : selectedSystemAudioSourceId
+      ? systemAudioOptions.find((option) => option.id === selectedSystemAudioSourceId)?.label ??
+        'Selected system audio'
+      : 'Default system audio';
+  const showDetailedSetup = setupModeDuringRecording;
+  const setupPanelHeight =
+    (showDetailedSetup ? (issueMessages.length > 0 ? 284 : 240) : issueMessages.length > 0 ? 252 : 208) +
+    (recordingRecovery ? 86 : 0);
   const miniIssueLabel = connectionIssues.source
     ? 'Source offline'
     : connectionIssues.mic
@@ -2698,11 +2935,8 @@ export function PanelApp() {
       {/* 1. Title bar */}
       <TitleBar
         onClose={handleClose}
-        accessory={
-          status === 'recording' && setupModeDuringRecording ? (
-            <SetupModeButton onClick={handleReturnMiniMode} />
-          ) : undefined
-        }
+        label={status === 'recording' && showDetailedSetup ? 'Recording details' : 'Record setup'}
+        accessory={showDetailedSetup ? <SetupModeButton onClick={handleReturnMiniMode} /> : undefined}
       />
 
       {recordingRecovery && (
@@ -2719,61 +2953,78 @@ export function PanelApp() {
         />
       )}
 
-      {/* 2. Source selector */}
-      <SourceSelector
-        sources={sources}
-        selectedSourceId={selectedSourceId}
-        issue={connectionIssues.source}
-        onSelectSource={handleSelectSource}
-        onRefreshSources={() => {
-          void refreshSources();
-        }}
-        onRetarget={handleRetargetSource}
-        canRetarget={sources.some(
-          (source) => source.type === (recordMode === 'window' ? 'window' : 'screen'),
-        )}
-      />
+      {/* 2. Setup summary or detailed setup */}
+      {showDetailedSetup ? (
+        <>
+          {status === 'recording' && <LiveSetupNotice onReturn={handleReturnMiniMode} />}
+          <SetupSection recordMode={recordMode} onModeChange={handlePanelModeChange}>
+            <SourceSelector
+              sources={sources}
+              selectedSourceId={selectedSourceId}
+              issue={connectionIssues.source}
+              onSelectSource={handleSelectSource}
+              onRefreshSources={() => {
+                void refreshSources();
+              }}
+              onRetarget={handleRetargetSource}
+              canRetarget={sources.some(
+                (source) => source.type === (recordMode === 'window' ? 'window' : 'screen'),
+              )}
+            />
 
-      <IssueNotice messages={issueMessages} />
+            <IssueNotice messages={issueMessages} />
 
-      <Divider />
+            <Divider />
 
-      {/* 3. Device controls */}
-      <DeviceControls
-        micEnabled={micEnabled}
-        sysAudioEnabled={sysAudioEnabled}
-        cameraEnabled={cameraEnabled}
-        micIssue={connectionIssues.mic}
-        cameraIssue={connectionIssues.camera}
-        systemAudioIssue={connectionIssues.systemAudio}
-        micOptions={micOptions}
-        selectedMicDeviceId={selectedMicDeviceId}
-        onSelectMicDevice={(id) =>
-          updateRecordingConfig({ selectedMicDeviceId: id, micEnabled: id ? true : micEnabled })
-        }
-        cameraOptions={cameraOptions}
-        selectedCameraDeviceId={selectedCameraDeviceId}
-        onSelectCameraDevice={(id) =>
-          updateRecordingConfig({
-            selectedCameraDeviceId: id,
-            cameraEnabled: id ? true : cameraEnabled,
-          })
-        }
-        systemAudioOptions={systemAudioOptions}
-        selectedSystemAudioSourceId={selectedSystemAudioSourceId}
-        onSelectSystemAudioSource={(id) =>
-          updateRecordingConfig({
-            selectedSystemAudioSourceId: id,
-            sysAudioEnabled: id ? true : sysAudioEnabled,
-          })
-        }
-        onMicToggle={handleMicToggle}
-        onSysAudioToggle={() => updateRecordingConfig({ sysAudioEnabled: !sysAudioEnabled })}
-        onCameraToggle={() => updateRecordingConfig({ cameraEnabled: !cameraEnabled })}
-      />
+            <DeviceControls
+              micEnabled={micEnabled}
+              sysAudioEnabled={sysAudioEnabled}
+              cameraEnabled={cameraEnabled}
+              micIssue={connectionIssues.mic}
+              cameraIssue={connectionIssues.camera}
+              systemAudioIssue={connectionIssues.systemAudio}
+              micOptions={micOptions}
+              selectedMicDeviceId={selectedMicDeviceId}
+              onSelectMicDevice={(id) =>
+                updateRecordingConfig({ selectedMicDeviceId: id, micEnabled: id ? true : micEnabled })
+              }
+              cameraOptions={cameraOptions}
+              selectedCameraDeviceId={selectedCameraDeviceId}
+              onSelectCameraDevice={(id) =>
+                updateRecordingConfig({
+                  selectedCameraDeviceId: id,
+                  cameraEnabled: id ? true : cameraEnabled,
+                })
+              }
+              systemAudioOptions={systemAudioOptions}
+              selectedSystemAudioSourceId={selectedSystemAudioSourceId}
+              onSelectSystemAudioSource={(id) =>
+                updateRecordingConfig({
+                  selectedSystemAudioSourceId: id,
+                  sysAudioEnabled: id ? true : sysAudioEnabled,
+                })
+              }
+              onMicToggle={handleMicToggle}
+              onSysAudioToggle={() => updateRecordingConfig({ sysAudioEnabled: !sysAudioEnabled })}
+              onCameraToggle={() => updateRecordingConfig({ cameraEnabled: !cameraEnabled })}
+            />
 
-      {/* Audio level meter — shows when mic is active */}
-      {micEnabled && <AudioLevelMeter level={audioLevel} />}
+            {/* Audio level meter — shows when mic is active */}
+            {micEnabled && <AudioLevelMeter level={audioLevel} />}
+          </SetupSection>
+        </>
+      ) : (
+        <SetupSummaryCard
+          modeLabel={recordMode === 'window' ? 'Window' : 'Full Screen'}
+          sourceName={selectedSourceId ? selectedSourceLabel : 'No source selected'}
+          micName={micEnabled ? selectedMicLabel : 'Off'}
+          cameraName={selectedCameraLabel}
+          systemAudioName={selectedSystemAudioLabel}
+          canRecord={canRecord}
+          issueCount={issueMessages.length}
+          onEditSetup={handleOpenFixMode}
+        />
+      )}
 
       <Divider />
 

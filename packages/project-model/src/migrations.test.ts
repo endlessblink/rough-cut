@@ -111,4 +111,96 @@ describe('migrations', () => {
     expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
     expect(result.settings.destinationPresetId).toBeNull();
   });
+
+  it('migrates version 1 documents with no aiAnnotations to a full default', () => {
+    const project = createProject();
+    const { aiAnnotations: _ai, libraryReferences: _lib, motionCompositions: _mc, ...base } =
+      project as unknown as Record<string, unknown>;
+    const legacy = { ...base, version: 1 };
+
+    const result = migrate(legacy);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    expect(result.aiAnnotations.captionSegments).toEqual([]);
+    expect(result.aiAnnotations.captionStyle).toMatchObject({
+      fontSize: 28,
+      position: 'bottom',
+      backgroundOpacity: 0.55,
+    });
+  });
+
+  it('migrates version 2 documents with no aiAnnotations to a full default', () => {
+    const project = createProject();
+    const { aiAnnotations: _ai, libraryReferences: _lib, motionCompositions: _mc, ...base } =
+      project as unknown as Record<string, unknown>;
+    const legacy = { ...base, version: 2 };
+
+    const result = migrate(legacy);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    expect(result.aiAnnotations.captionStyle.fontSize).toBe(28);
+  });
+
+  it('backfills captionStyle on version 3 documents that already have captionSegments', () => {
+    const project = createProject();
+    const legacy = {
+      ...project,
+      version: 3,
+      aiAnnotations: { captionSegments: [] },
+    };
+
+    const result = migrate(legacy);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    expect(result.aiAnnotations.captionStyle).toMatchObject({
+      fontSize: 28,
+      position: 'bottom',
+      backgroundOpacity: 0.55,
+    });
+  });
+
+  it('backfills captionStyle on version 4 documents without dropping existing captionSegments', () => {
+    const project = createProject();
+    const legacy = {
+      ...project,
+      version: 4,
+      aiAnnotations: {
+        captionSegments: [
+          {
+            id: 'seg-1',
+            assetId: 'asset-1',
+            status: 'pending',
+            confidence: 0.9,
+            startFrame: 0,
+            endFrame: 30,
+            text: 'hello',
+            words: [],
+          },
+        ],
+      },
+    };
+
+    const result = migrate(legacy);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    expect(result.aiAnnotations.captionSegments).toHaveLength(1);
+    expect(result.aiAnnotations.captionSegments[0]?.id).toBe('seg-1');
+    expect(result.aiAnnotations.captionStyle.fontSize).toBe(28);
+  });
+
+  it('preserves a pre-existing captionStyle when migrating to the current version', () => {
+    const project = createProject();
+    const legacy = {
+      ...project,
+      version: 7,
+      aiAnnotations: {
+        captionSegments: [],
+        captionStyle: { fontSize: 48, position: 'center', backgroundOpacity: 0.2 },
+      },
+    };
+
+    const result = migrate(legacy);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    expect(result.aiAnnotations.captionStyle).toEqual({
+      fontSize: 48,
+      position: 'center',
+      backgroundOpacity: 0.2,
+    });
+  });
 });

@@ -20,6 +20,7 @@ import {
   projectStore,
   transportStore,
 } from '../../hooks/use-stores.js';
+import { resolveProjectMediaPath } from '../../lib/media-sidecars.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
 import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 import { TimelineStrip } from './TimelineStrip.js';
@@ -43,6 +44,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const updateProject = useProjectStore((s) => s.updateProject);
   const tracks = useProjectStore((s) => s.project.composition.tracks);
   const assets = useProjectStore((s) => s.project.assets);
+  const projectFilePath = useProjectStore((s) => s.projectFilePath);
   const playheadFrame = useTransportStore((s) => s.playheadFrame);
   const selectedClipIds = useTransportStore((s) => s.selectedClipIds);
   const selectedClipId = selectedClipIds[0] ?? null;
@@ -419,13 +421,13 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
       ) ?? null;
 
     return {
-      filePath: cameraAsset.filePath,
+      filePath: resolveProjectMediaPath(cameraAsset.filePath, projectFilePath) ?? cameraAsset.filePath,
       clipTimelineIn: cameraClip.timelineIn,
       clipSourceIn: cameraClip.sourceIn,
       camera: recordingAsset?.presentation?.camera ?? createDefaultCameraPresentation(),
       cameraFrame: recordingAsset?.presentation?.cameraFrame,
     };
-  }, [playheadFrame, project]);
+  }, [playheadFrame, project, projectFilePath]);
 
   return (
     <EditScreenLayout>

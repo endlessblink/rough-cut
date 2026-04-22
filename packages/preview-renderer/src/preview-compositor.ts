@@ -20,6 +20,86 @@ import type { CompositorConfig, CompositorState, CompositorEvents } from './type
 import { CameraFrameDecoder } from './camera-frame-decoder.js';
 import { MediaBunnyVideoScrubber } from './media-bunny-video-scrubber.js';
 
+let videoSourceCspPatchApplied = false;
+
+function applyVideoSourceCspPatch(): void {
+  if (videoSourceCspPatchApplied) return;
+  videoSourceCspPatchApplied = true;
+
+  const proto = VideoSource.prototype as unknown as {
+    load: () => Promise<unknown>;
+    _load: Promise<unknown> | null;
+    resource: HTMLVideoElement;
+    options: { preload?: boolean; preloadTimeoutMs?: number };
+    _onPlayStart: () => void;
+    _onPlayStop: () => void;
+    _onSeeked: () => void;
+    _onCanPlay: () => void;
+    _onCanPlayThrough: () => void;
+    _onError: (event: Event) => void;
+    _isSourceReady: () => boolean;
+    _mediaReady: () => void;
+    isValid: boolean;
+    _resolve: ((value: unknown) => void) | null;
+    _reject: ((reason?: unknown) => void) | null;
+    _preloadTimeout?: ReturnType<typeof setTimeout>;
+    alphaMode: string;
+  };
+
+  proto.load = async function patchedVideoSourceLoad() {
+    if (this._load) {
+      return this._load;
+    }
+
+    const source = this.resource;
+    const options = this.options;
+    if (
+      (source.readyState === source.HAVE_ENOUGH_DATA || source.readyState === source.HAVE_FUTURE_DATA) &&
+      source.width &&
+      source.height
+    ) {
+      (source as HTMLVideoElement & { complete?: boolean }).complete = true;
+    }
+
+    source.addEventListener('play', this._onPlayStart);
+    source.addEventListener('pause', this._onPlayStop);
+    source.addEventListener('seeked', this._onSeeked);
+
+    if (!this._isSourceReady()) {
+      if (!options.preload) {
+        source.addEventListener('canplay', this._onCanPlay);
+      }
+      source.addEventListener('canplaythrough', this._onCanPlayThrough);
+      source.addEventListener('error', this._onError, true);
+    } else {
+      this._mediaReady();
+    }
+
+    // Pixi's default load() always probes a base64-encoded WebM via
+    // detectVideoAlphaMode(), which violates this app's strict CSP. We already
+    // force alphaMode explicitly on all preview VideoSource instances, so keep
+    // that value and skip the probe entirely.
+    this._load = new Promise((resolve, reject) => {
+      if (this.isValid) {
+        resolve(this);
+      } else {
+        this._resolve = resolve;
+        this._reject = reject;
+        if (options.preloadTimeoutMs !== undefined) {
+          this._preloadTimeout = setTimeout(() => {
+            this._onError(new ErrorEvent(`Preload exceeded timeout of ${options.preloadTimeoutMs}ms`));
+          });
+        }
+        source.load();
+      }
+    });
+
+    return this._load;
+  };
+}
+
+applyVideoSourceCspPatch();
+
 /** Color palette for layer placeholders — cycled deterministically by clipId hash */
 const LAYER_COLORS = [
   0x4a90d9, 0xe74c3c, 0x2ecc71, 0xf39c12, 0x9b59b6, 0x1abc9c, 0xe67e22, 0x3498db, 0xe91e63,
@@ -78,6 +158,8 @@ export class PreviewCompositor {
   private _playing = false;
   private lastLoggedPrimaryPlaybackAssetId: string | null = null;
   private preferredPlaybackAssetId: string | null = null;
+  private cursorDataByAssetId: Map<string, { frames: Float32Array; frameCount: number }> =
+    new Map();
 
   // Layer cache — reuse PixiJS objects to avoid GC pressure at 60fps
   private layerCache: Map<string, LayerCache> = new Map();
@@ -290,6 +372,18 @@ export class PreviewCompositor {
     this.preferredPlaybackAssetId = assetId;
   }
 
+  setCursorFrameData(
+    assetId: string,
+    cursorData: { frames: Float32Array; frameCount: number } | null,
+  ): void {
+    if (!cursorData) {
+      this.cursorDataByAssetId.delete(assetId);
+    } else {
+      this.cursorDataByAssetId.set(assetId, cursorData);
+    }
+    this.renderCurrentFrame(true);
+  }
+
   /** Clean up PixiJS resources */
   dispose(): void {
     this.pause();
@@ -333,7 +427,19 @@ export class PreviewCompositor {
       return;
     }
 
-    const renderFrame = resolveFrame(this.project, this.currentFrame);
+    const renderFrame = resolveFrame(this.project, this.currentFrame, {
+      getCursorPosition: (assetId, sourceFrame) => {
+        const data = this.cursorDataByAssetId.get(assetId);
+        if (!data) return null;
+        const frame = Math.max(0, Math.min(sourceFrame, data.frameCount - 1));
+        const idx = frame * 3;
+        if (idx + 1 >= data.frames.length) return null;
+        const x = data.frames[idx] ?? -1;
+        const y = data.frames[idx + 1] ?? -1;
+        if (x < 0 || y < 0) return null;
+        return { x, y };
+      },
+    });
     this.renderRenderFrame(renderFrame);
     this.app.render();
     this.lastRenderedFrame = this.currentFrame;
@@ -412,7 +518,11 @@ export class PreviewCompositor {
       () => {
         if (!vc) return;
         try {
-          const videoSource = new VideoSource({ resource: video, autoPlay: false });
+          const videoSource = new VideoSource({
+            resource: video,
+            autoPlay: false,
+            alphaMode: 'premultiply-alpha-on-upload',
+          });
           vc.texture = new Texture({ source: videoSource });
           vc.loaded = true;
           // If playback is active, auto-start this newly loaded video

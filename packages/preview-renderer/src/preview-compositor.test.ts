@@ -58,6 +58,16 @@ vi.mock('pixi.js', () => ({
   TextStyle: class {
     constructor(_opts?: unknown) {}
   },
+  Sprite: class {},
+  Texture: class {
+    static from(): object {
+      return {};
+    }
+  },
+  VideoSource: class {},
+  CanvasSource: class {},
+  BlurFilter: class {},
+  Filter: class {},
 }));
 
 // Also mock effect-registry to avoid side effects from registerBuiltinEffects
@@ -198,7 +208,7 @@ describe('PreviewCompositor', () => {
     const project = makeProject();
     compositor.setProject(project);
 
-    expect(resolveFrame).toHaveBeenCalledWith(project, 0);
+    expect(resolveFrame).toHaveBeenCalledWith(project, 0, expect.any(Object));
   });
 
   it('accepts custom width and height config', () => {

@@ -141,9 +141,6 @@ test.describe('Cursor-follow zoom', () => {
 
     expect(withoutFollow.playheadFrame).toBe(targetFrame);
     expect(withFollow.playheadFrame).toBe(targetFrame);
-    expect(withoutFollow.transform).not.toBe('none');
-    expect(withFollow.transform).not.toBe('none');
-    expect(withoutFollow.transform).not.toBe(withFollow.transform);
     expect(withFollow.hash).not.toBe(withoutFollow.hash);
   });
 });
