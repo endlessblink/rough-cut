@@ -793,11 +793,61 @@ function guardState(fnName, allowed) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Destroy the active recording tray icon. Idempotent and safe to call from
+ * any code path, including exit hooks. Uses an aggressive teardown sequence
+ * (clear context menu, replace image with an empty nativeImage, then destroy)
+ * because some Linux AppIndicator / StatusNotifierItem watchers cache the
+ * last-seen image and don't respond to destroy() alone.
+ *
+ * This is the single destruction path for the tray — anywhere the tray needs
+ * to go away, call this, not tray.destroy() directly.
+ */
+function destroyTrayIfAny() {
+  if (!tray) return;
+  const wasDestroyed = tray.isDestroyed();
+  try {
+    if (!wasDestroyed) {
+      try {
+        tray.removeAllListeners();
+      } catch {
+        // listeners may not exist — ignore
+      }
+      try {
+        tray.setContextMenu(null);
+      } catch {
+        // older Electron may reject null — ignore
+      }
+      try {
+        tray.setImage(nativeImage.createEmpty());
+      } catch {
+        // non-fatal — proceed to destroy
+      }
+      tray.destroy();
+    }
+    console.info(
+      '[session-manager] Tray destroyed — wasAlreadyDestroyed=' + wasDestroyed,
+    );
+  } catch (err) {
+    console.warn('[session-manager] destroyTrayIfAny() failed:', err?.message ?? err);
+  }
+  tray = null;
+}
+
+/**
  * Create the system tray icon with explicit pause-unavailable state and stop.
  * On Linux the tray is the PRIMARY recording control (no visible mini-controller).
- * @returns {Tray}
+ *
+ * DEFENSIVE: if a tray already exists (shouldn't happen in normal flow, but
+ * would leak an orphan icon if it did — e.g. back-to-back recordings where a
+ * prior cleanup was skipped), the old tray is destroyed first. This makes
+ * createTray idempotent with respect to the module-level `tray` binding.
+ * @returns {Tray | null}
  */
 function createTray() {
+  if (tray) {
+    console.warn('[session-manager] createTray called with existing tray — destroying prior tray first');
+    destroyTrayIfAny();
+  }
   try {
     const icon = nativeImage.createFromDataURL(RED_CIRCLE_DATA_URL);
     if (icon.isEmpty()) {
@@ -1384,8 +1434,17 @@ export async function stopRecording() {
 }
 
 async function handleBeforeQuit(event) {
-  if (allowAppQuit) return;
-  if (state === 'idle' && !panelWindow) return;
+  // Final safety net: no matter which branch we take from here, a leftover
+  // tray must not survive the quit. destroyTrayIfAny is idempotent and safe
+  // even when no tray exists.
+  if (allowAppQuit) {
+    destroyTrayIfAny();
+    return;
+  }
+  if (state === 'idle' && !panelWindow) {
+    destroyTrayIfAny();
+    return;
+  }
 
   event.preventDefault();
   void requestSessionShutdown('app-quit')
@@ -1393,6 +1452,7 @@ async function handleBeforeQuit(event) {
       console.error('[session-manager] stopRecording on quit failed:', err);
     })
     .finally(() => {
+      destroyTrayIfAny();
       allowAppQuit = true;
       const testQuitApplication = getTestHook('quitApplication');
       if (testQuitApplication) {
@@ -1541,34 +1601,8 @@ function _cleanup() {
     console.warn('[session-manager] globalShortcut.unregister failed:', err?.message ?? err);
   }
 
-  // Destroy tray. Known Electron quirk on some Linux status-notifier
-  // implementations: the visible icon can linger after destroy(). Clearing the
-  // image to 1x1 transparent first and then destroy() empirically removes the
-  // icon more reliably across KDE/GNOME-with-AppIndicator/Tuxedo DEs.
-  if (tray) {
-    const wasDestroyed = tray.isDestroyed();
-    try {
-      if (!wasDestroyed) {
-        try {
-          tray.setContextMenu(null);
-        } catch {
-          // older Electron may not accept null — ignore
-        }
-        try {
-          tray.setImage(nativeImage.createEmpty());
-        } catch {
-          // non-fatal — proceed to destroy
-        }
-        tray.destroy();
-      }
-      console.info(
-        '[session-manager] Tray destroyed — wasAlreadyDestroyed=' + wasDestroyed,
-      );
-    } catch (err) {
-      console.warn('[session-manager] tray.destroy() failed:', err?.message ?? err);
-    }
-    tray = null;
-  }
+  // Destroy tray via the single destruction path.
+  destroyTrayIfAny();
 }
 
 // ---------------------------------------------------------------------------
@@ -1767,6 +1801,15 @@ export function initSessionManager(win, sourceInfoGetter) {
   // ---- Safety net ----
 
   app.on('before-quit', handleBeforeQuit);
+
+  // Final safety net for tray cleanup. will-quit fires after before-quit and
+  // after all windows are closed — it's the last opportunity before the
+  // process exits. If anything slipped past the session-shutdown path, this
+  // guarantees the tray icon is removed so it can't linger visually after
+  // the app exits.
+  app.on('will-quit', () => {
+    destroyTrayIfAny();
+  });
 }
 
 export function getLastFinalizedRecordingResult() {
