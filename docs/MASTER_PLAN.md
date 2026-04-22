@@ -210,7 +210,7 @@ Parallel-start rule:
 | ~~TASK-172~~ | ~~Record: Real region capture or hide unsupported region mode~~          | P1       | ✅ DONE (2026-04-20)     | TASK-166           |
 | ~~TASK-179~~ | ~~Record: Append new takes to current project instead of replacing it~~  | P1       | ✅ DONE (2026-04-20)     | TASK-086           |
 | ~~TASK-177~~ | ~~Stabilize Record: restore truthful live preview canvas reliably~~      | P0       | ✅ DONE (2026-04-20)     | TASK-165, TASK-172 |
-| TASK-178     | Stabilize Tests: replace flaky record acceptance suite with release gate | P1       | TODO                     | TASK-173, TASK-177 |
+| ~~TASK-178~~ | ~~Stabilize Tests: replace flaky record acceptance suite with release gate~~ | P1   | ✅ DONE (2026-04-22)     | TASK-173, TASK-177 |
 | TASK-182     | Record: Make camera sidecar capture deterministic on first take         | P0       | IN PROGRESS (2026-04-21) | TASK-014, TASK-169 |
 | TASK-183     | Record: Fix Linux X11 screen capture bounds on secondary displays       | P0       | IN PROGRESS (2026-04-21) | TASK-010, TASK-167 |
 | TASK-184     | Record: Eliminate Pixi video alpha CSP noise in the renderer            | P1       | IN PROGRESS (2026-04-21) | TASK-013           |
@@ -2222,37 +2222,32 @@ Rough Cut is not client-tutorial ready until all three verification tasks are pa
 
 ---
 
-### TASK-178: Stabilize Tests: replace flaky record acceptance suite with release gate
+### ~~TASK-178~~: Stabilize Tests: replace flaky record acceptance suite with release gate
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-22)
 
-#### Goal
+#### Outcome
 
-- Replace the current broad-but-flaky Record acceptance suite with a smaller, deterministic release-gate suite that people can trust before client recordings.
+All five of this task's Key files run green back-to-back. The 2026-04-22 full e2e run had two failing cases in this scope — `acceptance-record.spec.ts:1.5.1` and `record-readiness.spec.ts:62` — both failing on a stale `[data-testid="live-preview-canvas"]` assertion. That element was intentionally removed from the main Record tab in commit 37836c6 ("drop live preview from main Record tab") to prevent recursive on-screen capture; the tests never got updated. A third broken case (`live-preview.spec.ts:106 "renders a live preview canvas for the selected source"`) combined the same stale-assertion issue with a setup path where source selection doesn't stabilize outside the panel — removed entirely because live-source→preview behaviour is now covered by `record-readiness.spec.ts` through the panel's own lifecycle.
 
-#### Problem
+#### What landed
 
-- Broad stabilization runs showed `acceptance-record.spec.ts` failing in ways that do not cleanly distinguish product regressions from test harness instability.
-- A flaky confidence suite is almost as bad as no suite because it trains the team to ignore failures.
+- `0ff5118` — dropped stale `live-preview-canvas` assertion in `acceptance-record.spec.ts:1.5.1` (kept `record-tab-root` + `record-card-chrome` checks) and in `record-readiness.spec.ts` (promoted the adjacent `record-preview-mode-badge` check to be the truthful "live" signal).
+- `1b51f8f` — removed the flaky `live-preview.spec.ts:106` "renders a live preview canvas" case. Live-source behaviour covered through `record-readiness.spec.ts`.
 
-#### Scope
+#### Release gate
 
-- Audit `tests/electron/acceptance-record.spec.ts` for environment-coupled and startup-flaky cases.
-- Split stable product-contract checks from exploratory or aspirational assertions.
-- Promote a smaller release-gate suite that answers: can I safely record a tutorial right now?
+- Primary gate: `tests/electron/record-readiness.spec.ts:62` — "golden path: blank project to saved take stays truthful" (from TASK-173).
+- Supporting checks: `acceptance-record.spec.ts` (12 tests on the Record tab shell), `live-preview.spec.ts` (3 tests on empty/acquiring/failed overlay states), `record-source-gating.spec.ts`, `record-recovery-relaunch.spec.ts`, `record-shutdown-paths.spec.ts`.
+- Combined: `pnpm exec playwright test tests/electron/record-readiness.spec.ts tests/electron/acceptance-record.spec.ts tests/electron/live-preview.spec.ts tests/electron/record-source-gating.spec.ts tests/electron/record-recovery-relaunch.spec.ts tests/electron/record-shutdown-paths.spec.ts --workers=1` — runs green on Linux/xvfb in ~45s.
 
-#### Key files
+#### Orphan code to clean up (separate task)
 
-- `tests/electron/acceptance-record.spec.ts`
-- `tests/electron/live-preview.spec.ts`
-- `tests/electron/record-source-gating.spec.ts`
-- `tests/electron/record-recovery-relaunch.spec.ts`
-- `tests/electron/record-shutdown-paths.spec.ts`
+- `apps/desktop/src/renderer/features/record/LivePreviewCanvas.tsx` is dead code since commit 37836c6 (no imports anywhere). Safe to delete; not in scope for this test-stabilization task.
 
-#### Verification
+#### Out of scope (broader suite health)
 
-- The release-gate suite runs green repeatedly on the target workstation.
-- A failing gate points to a real user-facing readiness issue, not harness noise.
+- 2026-04-22 full-suite run had ~41 failures across non-Record areas (`acceptance-ai`, `acceptance-edit`, `acceptance-motion`, `tab-switching`, `camera-replay`, `zoom-marker`, etc.). Those are outside this task's stated Key files and tracked separately.
 
 ---
 
