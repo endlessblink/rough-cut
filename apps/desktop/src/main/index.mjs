@@ -28,7 +28,7 @@ import {
   saveRecordingFromFile,
 } from './recording/capture-service.mjs';
 import { listSystemAudioSources } from './recording/audio-sources.mjs';
-import { initSessionManager } from './recording/recording-session-manager.mjs';
+import { initSessionManager, getLastFinalizedRecordingResult } from './recording/recording-session-manager.mjs';
 import {
   clearRecordingRecoveryMarker,
   readRecordingRecoveryMarker,
@@ -54,6 +54,20 @@ import { registerAIHandlers } from './ai/ai-service.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+if (!app.isPackaged) {
+  // Dev-only stability workaround: this workstation intermittently crashes
+  // Electron's GPU process before the app becomes usable. Disable GPU in dev
+  // so recorder debugging can proceed on a stable runtime.
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-gpu-compositing');
+  app.commandLine.appendSwitch('in-process-gpu');
+  app.commandLine.appendSwitch('use-angle', 'swiftshader');
+  app.commandLine.appendSwitch('use-gl', 'swiftshader');
+  // Forward renderer console (including errors) to stderr of the main process.
+  app.commandLine.appendSwitch('enable-logging', 'stderr');
+}
 
 let mainWindow = null;
 let currentExportFinalizeProcess = null;
@@ -251,6 +265,20 @@ function getDisplayCaptureBounds(display) {
   const scaleFactor =
     Number.isFinite(display?.scaleFactor) && display.scaleFactor > 0 ? display.scaleFactor : 1;
   const bounds = display?.bounds ?? { x: 0, y: 0, width: 0, height: 0 };
+  const useRawBoundsForX11 =
+    process.platform === 'linux' &&
+    (process.env.XDG_SESSION_TYPE === 'x11' ||
+      (process.env.DISPLAY !== undefined && process.env.DISPLAY !== ''));
+
+  if (useRawBoundsForX11) {
+    return {
+      x: Math.floor(bounds.x),
+      y: Math.floor(bounds.y),
+      width: Math.ceil(bounds.width),
+      height: Math.ceil(bounds.height),
+      scaleFactor,
+    };
+  }
 
   return {
     x: Math.floor(bounds.x * scaleFactor),
@@ -259,6 +287,31 @@ function getDisplayCaptureBounds(display) {
     height: Math.ceil(bounds.height * scaleFactor),
     scaleFactor,
   };
+}
+
+/**
+ * TASK-183: fetch X11's view of the monitor layout so logs can compare it to
+ * Electron's `screen.getAllDisplays()` output. If Electron and xrandr disagree,
+ * the FFmpeg `-video_size` and `+X,Y` offset derived from Electron bounds will
+ * crop or mis-position the capture on the physical display.
+ *
+ * @returns {Promise<string | null>} Raw stdout from `xrandr --listmonitors`, or
+ *   null when xrandr isn't available or this isn't Linux/X11.
+ */
+async function getX11MonitorsDiagnostic() {
+  if (
+    process.platform !== 'linux' ||
+    !(process.env.XDG_SESSION_TYPE === 'x11' ||
+      (process.env.DISPLAY !== undefined && process.env.DISPLAY !== ''))
+  ) {
+    return null;
+  }
+  try {
+    const { stdout } = await execFile('xrandr', ['--listmonitors'], { timeout: 2000 });
+    return stdout.trim();
+  } catch (err) {
+    return `xrandr unavailable: ${err instanceof Error ? err.message : String(err)}`;
+  }
 }
 
 function getDefaultProjectDir() {
@@ -288,6 +341,10 @@ function getRecordingSearchDirs() {
   if (!dirs.includes(legacyTmpDir)) dirs.push(legacyTmpDir);
 
   return dirs;
+}
+
+function shouldSkipAudioSourceDiscoveryInDev() {
+  return !app.isPackaged && process.env.ROUGH_CUT_SKIP_AUDIO_DISCOVERY === '1';
 }
 
 function toPortableProjectPath(projectDir, filePath) {
@@ -790,8 +847,54 @@ function createWindow() {
   // In dev, load from Vite dev server
   if (!app.isPackaged) {
     mainWindow.maximize();
-    mainWindow.loadURL('http://127.0.0.1:7544');
+    if (process.env.ROUGH_CUT_MINIMAL_BOOT === '1') {
+      mainWindow.loadURL(
+        'data:text/html;charset=utf-8,' +
+          encodeURIComponent(
+            '<!doctype html><html><body style="background:#111;color:#eee;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">Rough Cut minimal boot</body></html>',
+          ),
+      );
+    } else if (process.env.ROUGH_CUT_IMPORT_APP_ONLY === '1') {
+      mainWindow.loadURL('http://127.0.0.1:7544/?import-app-only=1');
+    } else if (process.env.ROUGH_CUT_MINIMAL_RENDER === '1') {
+      mainWindow.loadURL('http://127.0.0.1:7544/?minimal-render=1');
+    } else if (process.env.ROUGH_CUT_SHELL_ONLY === '1') {
+      mainWindow.loadURL('http://127.0.0.1:7544/?shell-only=1');
+    } else if (process.env.ROUGH_CUT_RECORD_SHELL_ONLY === '1') {
+      mainWindow.loadURL('http://127.0.0.1:7544/?start-tab=record&record-shell-only=1');
+    } else if (process.env.ROUGH_CUT_RECORD_ULTRA_MINIMAL === '1') {
+      mainWindow.loadURL('http://127.0.0.1:7544/?start-tab=record&record-ultra-minimal=1');
+    } else if (process.env.ROUGH_CUT_RECORD_STORE_ONLY === '1') {
+      mainWindow.loadURL('http://127.0.0.1:7544/?start-tab=record&record-store-only=1');
+    } else if (process.env.ROUGH_CUT_RECORD_RUNTIME_HOOKS === '1') {
+      mainWindow.loadURL('http://127.0.0.1:7544/?start-tab=record&record-runtime-hooks=1');
+    } else if (process.env.ROUGH_CUT_RECORD_CHROME_ONLY === '1') {
+      mainWindow.loadURL('http://127.0.0.1:7544/?start-tab=record&record-chrome-only=1');
+    } else if (process.env.ROUGH_CUT_RECORD_WORKSPACE_ONLY === '1') {
+      mainWindow.loadURL('http://127.0.0.1:7544/?start-tab=record&record-workspace-only=1');
+    } else if (process.env.ROUGH_CUT_START_TAB === 'record') {
+      mainWindow.loadURL('http://127.0.0.1:7544/?start-tab=record');
+    } else {
+      mainWindow.loadURL('http://127.0.0.1:7544');
+    }
     // mainWindow.webContents.openDevTools({ mode: 'detach' });
+    // Forward every renderer console message to the main-process stderr so
+    // debugging from the terminal is possible even before DevTools attaches.
+    mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+      const levels = ['LOG', 'WARN', 'ERROR', 'INFO'];
+      const label = levels[level] ?? `L${level}`;
+      process.stderr.write(`[renderer:${label}] ${message}  (${sourceId}:${line})\n`);
+    });
+    mainWindow.webContents.on('render-process-gone', (_event, details) => {
+      process.stderr.write(
+        `[renderer:CRASH] reason=${details.reason} exitCode=${details.exitCode}\n`,
+      );
+    });
+    mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+      process.stderr.write(
+        `[renderer:LOAD-FAIL] code=${errorCode} desc=${errorDescription} url=${validatedURL}\n`,
+      );
+    });
   } else {
     mainWindow.loadFile(join(__dirname, '../../dist/renderer/index.html'));
   }
@@ -1025,6 +1128,7 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => {
+    if (shouldSkipAudioSourceDiscoveryInDev()) return [];
     return listSystemAudioSources();
   });
 
@@ -1157,6 +1261,12 @@ function registerIpcHandlers() {
 
   // Debug: reload the most recent recording from disk (temporary — for camera decode testing)
   ipcMain.handle(IPC_CHANNELS.DEBUG_LOAD_LAST_RECORDING, async () => {
+    const latestResult = getLastFinalizedRecordingResult();
+    if (latestResult) {
+      console.log('[DEBUG] Returning last finalized in-memory recording result');
+      return latestResult;
+    }
+
     const recordingDirs = getRecordingSearchDirs();
     const files = recordingDirs
       .flatMap((recordingDir) => {
@@ -1180,14 +1290,19 @@ function registerIpcHandlers() {
 
     // Check for camera sidecar
     const baseName = latestName.replace('.webm', '');
-    const cameraPath = join(recordingDir, baseName + '-camera.mp4');
-    const hasCameraFile = existsSync(cameraPath);
+    const cameraCandidates = [
+      join(recordingDir, baseName + '-camera.webm'),
+      join(recordingDir, baseName + '-camera.mp4'),
+    ];
+    const cameraPath = cameraCandidates.find((candidate) => existsSync(candidate)) ?? null;
+    const hasCameraFile = Boolean(cameraPath);
 
     // Try to get duration via ffprobe, fallback to 3 seconds at 30fps
     let durationFrames = 90; // default 3s at 30fps
     let width = 1920;
     let height = 1080;
     let fps = 30;
+    let hasAudio = false;
 
     try {
       const { execSync } = await import('node:child_process');
@@ -1198,6 +1313,7 @@ function registerIpcHandlers() {
       const info = JSON.parse(probe);
       const videoStream = info.streams?.find((s) => s.codec_type === 'video');
       const audioStream = info.streams?.find((s) => s.codec_type === 'audio');
+      hasAudio = Boolean(audioStream);
       if (videoStream) {
         width = videoStream.width || width;
         height = videoStream.height || height;
@@ -1251,6 +1367,7 @@ function registerIpcHandlers() {
       fps,
       codec: 'vp8',
       fileSize: stat.size,
+      hasAudio,
       cameraFilePath: hasCameraFile ? cameraPath : undefined,
     };
     console.log(
@@ -1536,7 +1653,7 @@ protocol.registerSchemesAsPrivileged([
 // constraints, always delivers native camera resolution (1080p) which caps at
 // 5fps YUYV over USB. Without PipeWire, V4L2 direct access honors constraints
 // and can deliver 640x480 YUYV at 30fps.
-if (process.platform === 'linux') {
+if (process.platform === 'linux' && app.isPackaged) {
   app.commandLine.appendSwitch(
     'enable-features',
     'AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL',
@@ -1549,6 +1666,25 @@ if (process.platform === 'linux') {
 }
 
 app.whenReady().then(() => {
+  // TASK-183 diagnostic: log Electron's and X11's view of the display layout
+  // once at startup so secondary-display capture regressions have both
+  // perspectives in the record.
+  void getX11MonitorsDiagnostic().then((xrandrOutput) => {
+    if (xrandrOutput === null) return;
+    try {
+      const electronDisplays = screen.getAllDisplays().map((d) => ({
+        id: d.id,
+        label: d.label,
+        bounds: d.bounds,
+        scaleFactor: d.scaleFactor,
+      }));
+      console.info('[task-183] Electron displays at startup:', JSON.stringify(electronDisplays));
+      console.info('[task-183] xrandr --listmonitors:\n' + xrandrOutput);
+    } catch (err) {
+      console.warn('[task-183] Failed to log display diagnostic:', err);
+    }
+  });
+
   // Permission CHECK handler (synchronous pre-flight — getUserMedia needs this)
   session.defaultSession.setPermissionCheckHandler(
     (_webContents, permission, _requestingOrigin, details) => {
@@ -1654,6 +1790,20 @@ app.whenReady().then(() => {
 
     console.info('[session-source] Resolved capture display:', {
       selectedSourceId,
+      cachedSource: cachedSource
+        ? {
+            id: cachedSource.id,
+            name: cachedSource.name,
+            type: cachedSource.type,
+            displayId: cachedSource.displayId,
+          }
+        : null,
+      allDisplays: displays.map((display) => ({
+        id: display.id,
+        label: display.label,
+        bounds: display.bounds,
+        scaleFactor: display.scaleFactor,
+      })),
       displayId: resolvedDisplay.id,
       bounds: resolvedDisplay.bounds,
       captureBounds,
