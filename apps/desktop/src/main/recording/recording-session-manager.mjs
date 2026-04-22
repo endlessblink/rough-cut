@@ -836,9 +836,45 @@ function _rebuildTrayMenu(t) {
     {
       label: 'Stop Recording',
       click: () => {
-        stopRecording().catch((err) =>
-          console.error('[session-manager] stopRecording from tray failed:', err),
+        console.info(
+          '[session-manager] Tray Stop Recording clicked — state=' + state + ' panel=' + Boolean(panelWindow),
         );
+        stopRecording()
+          .then(() => console.info('[session-manager] Tray Stop Recording resolved'))
+          .catch((err) =>
+            console.error('[session-manager] stopRecording from tray failed:', err),
+          );
+      },
+    },
+    {
+      label: 'Force Cancel (discard)',
+      click: () => {
+        console.warn(
+          '[session-manager] Tray Force Cancel clicked — state=' + state + ' panel=' + Boolean(panelWindow),
+        );
+        // Escape hatch for when normal stop hangs. Destroys the panel window,
+        // stops capture resources, and transitions to idle without waiting
+        // for the renderer save handoff. The screen FFmpeg file already on
+        // disk is preserved but is NOT imported as an asset; recovery markers
+        // handle promoting it on next launch if the user wants.
+        try {
+          void stopActiveCaptureResources().catch((err) =>
+            console.warn('[session-manager] Force cancel: stopActiveCaptureResources failed:', err),
+          );
+        } catch (err) {
+          console.warn('[session-manager] Force cancel threw synchronously:', err);
+        }
+        _destroyPanel();
+        transitionToIdle();
+        if (stopCompletion) {
+          try {
+            stopCompletion.resolve(null);
+          } catch {
+            // ignore already-resolved
+          }
+          stopCompletion = null;
+        }
+        shutdownPromise = null;
       },
     },
   ]);
