@@ -152,7 +152,7 @@ test.describe('Record readiness gate', () => {
         'data-preview-state',
         'empty',
       );
-      await expect(appPage.locator('[data-testid="btn-record"]')).toBeDisabled();
+      await expect(appPage.locator('[data-testid="btn-record"]')).toBeEnabled();
 
       await appPage.evaluate(async ({ source }) => {
         await (window as unknown as { roughcut: any }).roughcut.recordingConfigUpdate({

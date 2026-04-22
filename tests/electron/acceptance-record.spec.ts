@@ -78,21 +78,36 @@ test.describe('Record Tab — MVP Acceptance', () => {
   });
 
   // ── 1.5.2: Source picker switches between screens/windows ──────────────
-  test('1.5.2 — source picker lists available sources', async ({ appPage }) => {
+  test('1.5.2 — source selection is handed off to the recording panel', async ({ appPage, electronApp }) => {
     await nav(appPage);
     const sourceBtn = appPage.locator('[data-testid="record-source-toggle"]');
     await expect(sourceBtn).toBeVisible();
     await expect(appPage.locator('[data-testid="record-start-guard-banner"]')).toBeVisible();
-    await expect(appPage.locator('[data-testid="record-start-guard-pick-source"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-start-guard-pick-source"]')).toContainText(
+      'Open recording setup',
+    );
+
+    const panelPromise = electronApp.waitForEvent('window');
+    await sourceBtn.click();
+    const panelPage = await panelPromise;
+    await panelPage.waitForLoadState('domcontentloaded');
+    await expect(panelPage.locator('[data-testid="panel-setup-summary"]')).toBeVisible();
+    await panelPage.locator('[data-testid="panel-edit-setup"]').click();
+    await expect(panelPage.locator('[data-testid="panel-source-select"]')).toBeVisible();
   });
 
   // ── 1.5.3: Custom region selection overlay ─────────────────────────────
-  test('1.5.3 — custom region selection with draggable overlay', async ({ appPage }) => {
+  test('1.5.3 — record mode setup is available in the recording panel', async ({ appPage, electronApp }) => {
     await nav(appPage);
-    // Check for region/crop mode UI
-    const cropToggle = appPage.locator('text=Crop').or(appPage.locator('text=Region'));
-    const hasCropUI = await cropToggle.count();
-    expect(hasCropUI, 'Custom region selection UI should exist').toBeGreaterThan(0);
+    const panelPromise = electronApp.waitForEvent('window');
+    await appPage.locator('[data-testid="record-source-toggle"]').click();
+    const panelPage = await panelPromise;
+    await panelPage.waitForLoadState('domcontentloaded');
+    await expect(panelPage.locator('[data-testid="panel-setup-summary"]')).toBeVisible();
+    await panelPage.locator('[data-testid="panel-edit-setup"]').click();
+    await expect(panelPage.getByText('Full Screen')).toBeVisible();
+    await expect(panelPage.getByText('Window')).toBeVisible();
+    await expect(panelPage.getByText('Region')).toBeVisible();
   });
 
   // ── 1.5.4: Webcam toggle with circular overlay ────────────────────────
@@ -102,15 +117,27 @@ test.describe('Record Tab — MVP Acceptance', () => {
   });
 
   // ── 1.5.5: Audio — mic select, system audio toggle, VU meters ─────────
-  test('1.5.5 — mic selector and system audio toggle exist', async ({ appPage }) => {
+  test('1.5.5 — mic, system audio, and camera setup is handed off to the recording panel', async ({
+    appPage,
+    electronApp,
+  }) => {
     await nav(appPage);
-    const mic = appPage.locator('[data-testid="record-mic-toggle"]');
-    await expect(mic).toBeVisible();
-    const sysAudio = appPage.locator('[data-testid="record-system-audio-toggle"]');
-    await expect(sysAudio).toBeVisible();
-    await expect(appPage.locator('[data-testid="record-mic-select"]')).toBeVisible();
-    await expect(appPage.locator('[data-testid="record-camera-select"]')).toBeVisible();
-    await expect(appPage.locator('[data-testid="record-system-audio-select"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-mic-toggle"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-system-audio-toggle"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-camera-toggle"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-mic-select"]')).toHaveCount(0);
+    await expect(appPage.locator('[data-testid="record-camera-select"]')).toHaveCount(0);
+    await expect(appPage.locator('[data-testid="record-system-audio-select"]')).toHaveCount(0);
+
+    const panelPromise = electronApp.waitForEvent('window');
+    await appPage.locator('[data-testid="record-mic-toggle"]').click();
+    const panelPage = await panelPromise;
+    await panelPage.waitForLoadState('domcontentloaded');
+    await expect(panelPage.locator('[data-testid="panel-setup-summary"]')).toBeVisible();
+    await panelPage.locator('[data-testid="panel-edit-setup"]').click();
+    await expect(panelPage.locator('[data-testid="panel-mic-select"]')).toBeVisible();
+    await expect(panelPage.locator('[data-testid="panel-camera-select"]')).toBeVisible();
+    await expect(panelPage.locator('[data-testid="panel-system-audio-select"]')).toBeVisible();
   });
 
   test('1.5.5 — VU meters are not yet exposed on the main Record surface', async ({ appPage }) => {
@@ -189,11 +216,14 @@ test.describe('Record Tab — MVP Acceptance', () => {
   test('1.5.9 — recording stop creates asset and clip', async ({ appPage }) => {
     await nav(appPage);
     // Can't test actual recording in E2E (no desktopCapturer in CI)
-    // But verify the recording button and stop flow exist
+    // But verify the recording button exists. Post-refactor the REC button
+    // is always enabled on the main tab and launches the recording panel
+    // for source selection when clicked (tooltip: "Open the recording panel
+    // to choose a screen before recording.").
     const recBtn = appPage.locator('[data-testid="btn-record"]');
     await expect(recBtn).toBeVisible();
     await expect(recBtn).toContainText('REC');
-    await expect(recBtn).toBeDisabled();
+    await expect(recBtn).toBeEnabled();
   });
 
   // ── 1.5.10: After recording, asset + clip in project model ────────────

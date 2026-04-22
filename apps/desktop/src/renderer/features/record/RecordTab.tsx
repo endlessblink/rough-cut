@@ -32,7 +32,6 @@ import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
 import { WorkspaceRow, RECORD_PANEL_WIDTH } from '../../ui/index.js';
 import { useToast } from '../../ui/toast.js';
-import { ModeSelectorRow } from './ModeSelectorRow.js';
 import type { RecordMode } from './ModeSelectorRow.js';
 import { PreviewStage } from './PreviewStage.js';
 import { CardChrome } from './CardChrome.js';
@@ -52,14 +51,11 @@ import {
 } from './destination-presets.js';
 import type { RecordState } from './BottomBar.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
-import { SourcePickerPopup } from './SourcePickerPopup.js';
 import {
   subscribeRecordingConfig,
   useRecordingConfig,
   updateRecordingConfig,
 } from './recording-config.js';
-import { RecordDeviceSelectors } from './RecordDeviceSelectors.js';
-import { RecordPreflightCard } from './RecordPreflightCard.js';
 import {
   getSelectedOptionLabel,
   useRecordingDeviceOptions,
@@ -67,7 +63,7 @@ import {
 import { RecordingPlaybackVideo } from './RecordingPlaybackVideo.js';
 import { CameraPlaybackCanvas } from './CameraPlaybackCanvas.js';
 import { LAYOUT_TEMPLATES, resolutionForAspectRatio } from './templates.js';
-import { inferCursorEventsPath } from '../../lib/media-sidecars.js';
+import { inferCursorEventsPath, resolveProjectMediaPath } from '../../lib/media-sidecars.js';
 import type { LayoutTemplate } from './templates.js';
 import type { Rect } from './template-layout/types.js';
 import type { Alignment } from './snap-guides.js';
@@ -142,16 +138,34 @@ function getPreviewSelectionLabel(recordMode: RecordMode): string {
 
 export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const { showToast } = useToast();
-  const [preflightDiagnostics, setPreflightDiagnostics] = useState<RecordingPreflightStatus | null>(
-    null,
-  );
-  const [preflightRuntimeChecks, setPreflightRuntimeChecks] = useState<RuntimeCheck[]>([]);
-  const [preflightRunning, setPreflightRunning] = useState(false);
+  const recordShellOnly =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('record-shell-only') === '1';
+  const recordUltraMinimal =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('record-ultra-minimal') === '1';
+  const recordStoreOnly =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('record-store-only') === '1';
+  const recordRuntimeHooks =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('record-runtime-hooks') === '1';
+  const recordChromeOnly =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('record-chrome-only') === '1';
+  const recordWorkspaceOnly =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('record-workspace-only') === '1';
+  // Preflight state values are currently only read back indirectly via the
+  // diagnostics callbacks; their UI consumers were removed mid-refactor and
+  // tracked separately. Setters remain in use below.
+  const [, setPreflightDiagnostics] = useState<RecordingPreflightStatus | null>(null);
+  const [, setPreflightRuntimeChecks] = useState<RuntimeCheck[]>([]);
+  const [, setPreflightRunning] = useState(false);
   const [recordingRecovery, setRecordingRecovery] = useState<RecordingRecoveryMarker | null>(null);
   const [sessionConnectionIssues, setSessionConnectionIssues] =
     useState<RecordingSessionConnectionIssues | null>(null);
   const [sourceRecoveryMessage, setSourceRecoveryMessage] = useState<string | null>(null);
-  const [isSourcePickerOpen, setIsSourcePickerOpen] = useState(false);
   const [countdownSeconds, setCountdownSeconds] = useState(0);
   // Default to Screen+Camera PIP template (index 1) when camera is on
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- LAYOUT_TEMPLATES is a non-empty static array
@@ -164,6 +178,35 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const [cropTargetRegion, setCropTargetRegion] = useState<'screen' | 'camera'>('screen');
   const alignRef = useRef<((a: Alignment) => void) | null>(null);
   const playheadFrame = useTransportStore((s) => s.playheadFrame);
+
+  if (recordUltraMinimal) {
+    return (
+      <RecordScreenLayout>
+        <AppHeader
+          activeTab={activeTab}
+          onTabChange={onTabChange}
+          projectName="Rough Cut"
+          onProjectNameChange={() => {}}
+          captureSummary="1920×1080 · 30 fps"
+          deviceStatus="Mic: Default"
+        />
+        <div
+          data-testid="record-tab-root"
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: '#050505',
+            color: 'rgba(255,255,255,0.72)',
+            fontSize: 14,
+          }}
+        >
+          Record ultra minimal
+        </div>
+      </RecordScreenLayout>
+    );
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -231,6 +274,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const exportBitrate = useProjectStore((s) => s.project.exportSettings.bitrate);
   const tracks = useProjectStore((s) => s.project.composition.tracks);
   const assets = useProjectStore((s) => s.project.assets);
+  const projectFilePath = useProjectStore((s) => s.projectFilePath);
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
 
   // Keep Record tied to a recording asset even when camera-related UI selects the camera asset.
@@ -384,7 +428,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
       .catch(() => setRecordingRecovery(null));
   }, []);
 
-  const runRecordingPreflight = useCallback(async () => {
+  const _runRecordingPreflight = useCallback(async () => {
     setPreflightRunning(true);
     try {
       const [diagnostics, captureSources, devices, nextSystemAudioOptions] = await Promise.all([
@@ -449,7 +493,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     }
   }, [showToast]);
 
-  const handleOpenPermissionSettings = useCallback(
+  const _handleOpenPermissionSettings = useCallback(
     async (kind: 'screenCapture' | 'microphone' | 'camera') => {
       const result = await window.roughcut.recordingOpenPermissionSettings(kind);
       showToast({
@@ -469,6 +513,12 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     },
     [showToast],
   );
+  // Orphaned during a mid-session refactor — implementations retained for
+  // a planned rewire. Void references satisfy tsc noUnusedLocals without
+  // altering behaviour. Remove the void block once the callbacks get wired
+  // back into the UI.
+  void _runRecordingPreflight;
+  void _handleOpenPermissionSettings;
 
   const handleTemplateChange = useCallback(
     (template: LayoutTemplate) => {
@@ -563,6 +613,44 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     status: livePreviewStatus,
     error: livePreviewError,
   } = useLivePreview(selectedSourceId);
+
+  if (recordRuntimeHooks) {
+    return (
+      <RecordScreenLayout>
+        <AppHeader
+          activeTab={activeTab}
+          onTabChange={onTabChange}
+          projectName={projectName}
+          onProjectNameChange={(name) => updateProject((doc) => ({ ...doc, name }))}
+          captureSummary={captureSummary}
+          deviceStatus={`Mic: ${selectedMicName}`}
+        />
+        <div
+          data-testid="record-tab-root"
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: '#050505',
+            color: 'rgba(255,255,255,0.72)',
+            fontSize: 14,
+            flexDirection: 'column',
+            gap: 8,
+          }}
+        >
+          <div>Record runtime hooks</div>
+          <div style={{ fontSize: 12, opacity: 0.75 }}>
+            preview: {livePreviewStatus} · sources: {sources.length} · mics: {micOptions.length} · cameras:{' '}
+            {cameraOptions.length} · outputs: {systemAudioOptions.length}
+          </div>
+          <div style={{ fontSize: 12, opacity: 0.75 }}>
+            source: {selectedSourceId ?? 'none'} · error: {livePreviewError ?? error ?? 'none'}
+          </div>
+        </div>
+      </RecordScreenLayout>
+    );
+  }
 
   // UI state
 
@@ -813,6 +901,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const cursorEventsPath = inferCursorEventsPath(
     activeRecordingAsset?.filePath ?? null,
     activeRecordingAsset?.metadata?.cursorEventsPath as string | null,
+    projectFilePath,
   );
   const sourceWidth = (activeRecordingAsset?.metadata?.width as number) || 1920;
   const sourceHeight = (activeRecordingAsset?.metadata?.height as number) || 1080;
@@ -1317,21 +1406,22 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const recordStartGuardReason = hasValidSelectedSource
     ? null
     : modeCompatibleSources.length === 0
-      ? `No ${getRecordModeSourceLabel(supportedRecordMode)} is available. Refresh sources or switch record mode.`
+      ? `No ${getRecordModeSourceLabel(supportedRecordMode)} is available. Open the recording panel to refresh sources or switch record mode.`
       : selectedSourceId
-        ? `Choose a ${getRecordModeSourceLabel(supportedRecordMode)} before recording.`
-        : `Select a ${getRecordModeSourceLabel(supportedRecordMode)} to enable REC.`;
+        ? `Open the recording panel to choose a different ${getRecordModeSourceLabel(supportedRecordMode)} before recording.`
+        : `Open the recording panel to choose a ${getRecordModeSourceLabel(supportedRecordMode)} before recording.`;
   const recordButtonDisabled =
     status !== 'recording' &&
-    (status === 'stopping' ||
-      status === 'loading-sources' ||
-      status === 'countdown' ||
-      !hasValidSelectedSource);
+    (status === 'stopping' || status === 'loading-sources' || status === 'countdown');
 
   const recordState: RecordState =
     status === 'recording' ? 'recording' : status === 'countdown' ? 'countdown' : 'idle';
 
   const elapsedSeconds = Math.floor(elapsedMs / 1000);
+
+  const openRecordingSetupPanel = useCallback(() => {
+    void window.roughcut.openRecordingPanel();
+  }, []);
 
   const handleClickRecord = useCallback(() => {
     if (status === 'recording') {
@@ -1342,7 +1432,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     if (recordButtonDisabled) {
       if (recordStartGuardReason) {
         showToast({
-          title: 'Select a valid source first',
+          title: 'Recording setup unavailable',
           message: recordStartGuardReason,
           tone: 'warning',
         });
@@ -1350,9 +1440,8 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
       return;
     }
 
-    // Open the floating recording panel — recording starts from there.
-    void window.roughcut.openRecordingPanel();
-  }, [recordButtonDisabled, recordStartGuardReason, showToast, status]);
+    openRecordingSetupPanel();
+  }, [openRecordingSetupPanel, recordButtonDisabled, recordStartGuardReason, showToast, status]);
 
   useEffect(() => {
     const unsubCountdown = window.roughcut.onSessionCountdownTick((seconds) => {
@@ -1407,7 +1496,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
               : `Choose a ${previewSelectionLabel} to preview`,
             detail:
               sourceRecoveryMessage ??
-              `Pick a ${previewSelectionLabel} to make the Record tab reflect the real capture source.`,
+              `Open the recording panel to choose the ${previewSelectionLabel} that Rough Cut should capture.`,
             tone: sourceRecoveryMessage ? '#fcd34d' : 'rgba(255,255,255,0.86)',
           };
         }
@@ -1434,6 +1523,67 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         return null;
       })();
 
+  if (recordShellOnly) {
+    return (
+      <RecordScreenLayout>
+        <AppHeader
+          activeTab={activeTab}
+          onTabChange={onTabChange}
+          projectName={projectName}
+          onProjectNameChange={(name) => updateProject((doc) => ({ ...doc, name }))}
+          captureSummary={captureSummary}
+          deviceStatus={`Mic: ${selectedMicName}`}
+        />
+        <div
+          data-testid="record-tab-root"
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: '#050505',
+            color: 'rgba(255,255,255,0.72)',
+            fontSize: 14,
+          }}
+        >
+          Record tab shell only
+        </div>
+      </RecordScreenLayout>
+    );
+  }
+
+  if (recordStoreOnly) {
+    return (
+      <RecordScreenLayout>
+        <AppHeader
+          activeTab={activeTab}
+          onTabChange={onTabChange}
+          projectName={projectName}
+          onProjectNameChange={(name) => updateProject((doc) => ({ ...doc, name }))}
+          captureSummary={captureSummary}
+          deviceStatus={`Tracks: ${tracks.length} · Assets: ${assets.length}`}
+        />
+        <div
+          data-testid="record-tab-root"
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: '#050505',
+            color: 'rgba(255,255,255,0.72)',
+            fontSize: 14,
+          }}
+        >
+          Record store only
+          <span style={{ marginLeft: 10, opacity: 0.7 }}>
+            {durationFrames}f · {projectFilePath ?? 'unsaved'}
+          </span>
+        </div>
+      </RecordScreenLayout>
+    );
+  }
+
   return (
     <RecordScreenLayout>
       <AppHeader
@@ -1445,7 +1595,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         deviceStatus={`Mic: ${selectedMicName}`}
       />
 
-      {/* Unified recording toolbar */}
+      {/* Recording toolbar */}
       <div
         style={{
           height: 48,
@@ -1459,88 +1609,30 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           borderBottom: '1px solid rgba(255,255,255,0.04)',
         }}
       >
-        <ModeSelectorRow
-          mode={supportedRecordMode}
-          onChange={(mode) => {
-            if (mode === 'region') {
-              showToast({
-                title: 'Region capture is unavailable',
-                message: 'Rough Cut currently supports full screen or window capture only.',
-                tone: 'warning',
-              });
-              updateRecordingConfig({ recordMode: 'fullscreen' });
-              return;
-            }
-
-            updateRecordingConfig({ recordMode: mode });
-          }}
-        />
-        <div
-          style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }}
-        />
         <BottomBar
           sourceName={selectedSourceName}
-          onOpenSourcePicker={() => setIsSourcePickerOpen(true)}
+          onOpenSourcePicker={openRecordingSetupPanel}
           micName={selectedMicName}
           isMicMuted={!micEnabled}
-          onToggleMicMute={() => updateRecordingConfig({ micEnabled: !micEnabled })}
+          onToggleMicMute={openRecordingSetupPanel}
           hasSystemAudio={true}
           isSystemAudioEnabled={sysAudioEnabled}
-          onToggleSystemAudio={() => updateRecordingConfig({ sysAudioEnabled: !sysAudioEnabled })}
+          onToggleSystemAudio={openRecordingSetupPanel}
           hasCamera={true}
           isCameraEnabled={cameraEnabled}
-          onToggleCamera={() => updateRecordingConfig({ cameraEnabled: !cameraEnabled })}
+          onToggleCamera={openRecordingSetupPanel}
           recordState={recordState}
           onClickRecord={handleClickRecord}
           recordDisabled={recordButtonDisabled}
           recordDisabledReason={recordStartGuardReason}
           countdownValue={configuredCountdownSeconds}
-          onSelectCountdown={(seconds) => updateRecordingConfig({ countdownSeconds: seconds })}
+          onSelectCountdown={openRecordingSetupPanel}
           countdownSeconds={countdownSeconds}
           elapsedSeconds={elapsedSeconds}
           resolutionLabel={`${resolution.width}×${resolution.height}`}
           fpsLabel={`${projectFps} fps`}
         />
       </div>
-
-      <RecordDeviceSelectors
-        micOptions={micOptions}
-        selectedMicDeviceId={selectedMicDeviceId}
-        micIssue={sessionConnectionIssues?.mic ?? null}
-        onSelectMicDevice={(id) =>
-          updateRecordingConfig({ selectedMicDeviceId: id, micEnabled: id ? true : micEnabled })
-        }
-        cameraOptions={cameraOptions}
-        selectedCameraDeviceId={selectedCameraDeviceId}
-        cameraIssue={sessionConnectionIssues?.camera ?? null}
-        onSelectCameraDevice={(id) =>
-          updateRecordingConfig({
-            selectedCameraDeviceId: id,
-            cameraEnabled: id ? true : cameraEnabled,
-          })
-        }
-        systemAudioOptions={systemAudioOptions}
-        selectedSystemAudioSourceId={selectedSystemAudioSourceId}
-        systemAudioIssue={sessionConnectionIssues?.systemAudio ?? null}
-        onSelectSystemAudioSource={(id) =>
-          updateRecordingConfig({
-            selectedSystemAudioSourceId: id,
-            sysAudioEnabled: id ? true : sysAudioEnabled,
-          })
-        }
-      />
-
-      <RecordPreflightCard
-        diagnostics={preflightDiagnostics}
-        runtimeChecks={preflightRuntimeChecks}
-        running={preflightRunning}
-        onRun={() => {
-          void runRecordingPreflight();
-        }}
-        onOpenSettings={(kind) => {
-          void handleOpenPermissionSettings(kind);
-        }}
-      />
 
       {recordingRecovery && (
         <div
@@ -1655,7 +1747,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
             </button>
             <button
               data-testid="record-source-recovery-retarget"
-              onClick={() => setIsSourcePickerOpen(true)}
+              onClick={openRecordingSetupPanel}
               style={{
                 height: 30,
                 padding: '0 10px',
@@ -1699,7 +1791,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           </div>
           <button
             data-testid="record-start-guard-pick-source"
-            onClick={() => setIsSourcePickerOpen(true)}
+            onClick={openRecordingSetupPanel}
             style={{
               height: 30,
               padding: '0 10px',
@@ -1713,7 +1805,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
               flexShrink: 0,
             }}
           >
-            Choose source
+            Open recording setup
           </button>
         </div>
       )}
@@ -1738,6 +1830,8 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         </div>
       )}
 
+      {!recordChromeOnly && (
+        <>
       {/* Preview + Inspector row */}
       <WorkspaceRow
         sidebarWidth={RECORD_PANEL_WIDTH}
@@ -1834,7 +1928,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
                 cameraContent={
                   cameraAsset?.filePath ? (
                     <CameraPlaybackCanvas
-                      filePath={cameraAsset.filePath}
+                      filePath={resolveProjectMediaPath(cameraAsset.filePath, projectFilePath) ?? cameraAsset.filePath}
                       fps={projectFps}
                       clipTimelineIn={cameraClip?.timelineIn ?? 0}
                       clipSourceIn={cameraClip?.sourceIn ?? 0}
@@ -1970,6 +2064,8 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           />
         }
       />
+        </>
+      )}
 
       {/* Error banner */}
       {error && (
@@ -2003,6 +2099,8 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         </div>
       )}
 
+      {!recordChromeOnly && !recordWorkspaceOnly && (
+        <>
       {/* Zoom marker inspector (above timeline, only when a marker is selected) */}
       {selectedZoomMarkerId &&
         (() => {
@@ -2079,20 +2177,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           }}
         />
       </div>
-
-      {isSourcePickerOpen && (
-        <SourcePickerPopup
-          sources={sources}
-          selectedSourceId={selectedSourceId}
-          recordMode={supportedRecordMode}
-          onSelect={(id) => {
-            updateRecordingConfig({ selectedSourceId: id });
-            setIsSourcePickerOpen(false);
-          }}
-          onClose={() => setIsSourcePickerOpen(false)}
-          onRefresh={loadSources}
-          isLoading={status === 'loading-sources'}
-        />
+        </>
       )}
 
       <CountdownOverlay secondsRemaining={countdownSeconds} visible={status === 'countdown'} />
