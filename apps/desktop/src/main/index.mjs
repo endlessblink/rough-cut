@@ -16,7 +16,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile, writeFile, rename, unlink } from 'node:fs/promises';
 import { existsSync, mkdirSync, statSync, createReadStream, readdirSync } from 'node:fs';
 import { promisify } from 'node:util';
-import { execFile as execFileCallback, spawn } from 'node:child_process';
+import { execFile as execFileCallback, execFileSync, spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import {
@@ -75,7 +75,88 @@ let cachedCaptureSources = [];
 let debugCaptureSourcesOverride = null;
 let debugDisplayBoundsOverride = null;
 let lastDisplayMediaSelection = null;
+let cachedX11MonitorLayout = null;
 const execFile = promisify(execFileCallback);
+
+function isLinuxX11Session() {
+  return (
+    process.platform === 'linux' &&
+    (process.env.XDG_SESSION_TYPE === 'x11' ||
+      (process.env.DISPLAY !== undefined && process.env.DISPLAY !== ''))
+  );
+}
+
+function normalizeX11DisplayName(displayName = process.env.DISPLAY || ':0') {
+  const trimmed = typeof displayName === 'string' ? displayName.trim() : '';
+  if (!trimmed) return ':0.0';
+  if (/\.\d+$/.test(trimmed)) return trimmed;
+  return `${trimmed}.0`;
+}
+
+function parseX11MonitorsDiagnostic(output) {
+  if (typeof output !== 'string' || output.trim() === '') return [];
+
+  return output
+    .split(/\r?\n/)
+    .slice(1)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^\d+:\s+\S+\s+(\d+)\/\d+x(\d+)\/\d+\+(-?\d+)\+(-?\d+)\s+(\S+)$/);
+      if (!match) return null;
+      return {
+        width: Number(match[1]),
+        height: Number(match[2]),
+        x: Number(match[3]),
+        y: Number(match[4]),
+        name: match[5],
+      };
+    })
+    .filter(Boolean);
+}
+
+function readX11MonitorLayoutSync() {
+  if (!isLinuxX11Session()) return null;
+
+  try {
+    const stdout = execFileSync('xrandr', ['--listmonitors'], {
+      encoding: 'utf-8',
+      timeout: 2000,
+    });
+    const parsed = parseX11MonitorsDiagnostic(stdout);
+    return parsed.length > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function getCurrentX11MonitorLayout() {
+  return cachedX11MonitorLayout ?? readX11MonitorLayoutSync();
+}
+
+function resolveX11MonitorBounds(display, allDisplays = []) {
+  const x11Monitors = getCurrentX11MonitorLayout();
+  if (!x11Monitors || x11Monitors.length === 0) return null;
+
+  const label = typeof display?.label === 'string' ? display.label.trim() : '';
+  if (label) {
+    const matchedByLabel = x11Monitors.find((monitor) => monitor.name === label);
+    if (matchedByLabel) return matchedByLabel;
+  }
+
+  if (Array.isArray(allDisplays) && allDisplays.length === x11Monitors.length) {
+    const sortedDisplays = [...allDisplays].sort(
+      (a, b) => a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y,
+    );
+    const sortedMonitors = [...x11Monitors].sort((a, b) => a.x - b.x || a.y - b.y);
+    const displayIndex = sortedDisplays.findIndex((candidate) => candidate.id === display?.id);
+    if (displayIndex >= 0) {
+      return sortedMonitors[displayIndex] ?? null;
+    }
+  }
+
+  return null;
+}
 
 function normalizeSupportedRecordMode(recordMode) {
   return recordMode === 'window' ? 'window' : 'fullscreen';
@@ -261,16 +342,24 @@ function matchDesktopCaptureSource(source, cachedSource) {
   return sourceType === cachedSource.type && source.name === cachedSource.name;
 }
 
-function getDisplayCaptureBounds(display) {
+function getDisplayCaptureBounds(display, allDisplays = []) {
   const scaleFactor =
     Number.isFinite(display?.scaleFactor) && display.scaleFactor > 0 ? display.scaleFactor : 1;
   const bounds = display?.bounds ?? { x: 0, y: 0, width: 0, height: 0 };
-  const useRawBoundsForX11 =
-    process.platform === 'linux' &&
-    (process.env.XDG_SESSION_TYPE === 'x11' ||
-      (process.env.DISPLAY !== undefined && process.env.DISPLAY !== ''));
+  const useRawBoundsForX11 = isLinuxX11Session();
 
   if (useRawBoundsForX11) {
+    const x11Bounds = resolveX11MonitorBounds(display, allDisplays);
+    if (x11Bounds) {
+      return {
+        x: x11Bounds.x,
+        y: x11Bounds.y,
+        width: x11Bounds.width,
+        height: x11Bounds.height,
+        scaleFactor,
+      };
+    }
+
     return {
       x: Math.floor(bounds.x),
       y: Math.floor(bounds.y),
@@ -299,11 +388,7 @@ function getDisplayCaptureBounds(display) {
  *   null when xrandr isn't available or this isn't Linux/X11.
  */
 async function getX11MonitorsDiagnostic() {
-  if (
-    process.platform !== 'linux' ||
-    !(process.env.XDG_SESSION_TYPE === 'x11' ||
-      (process.env.DISPLAY !== undefined && process.env.DISPLAY !== ''))
-  ) {
+  if (!isLinuxX11Session()) {
     return null;
   }
   try {
@@ -1124,7 +1209,8 @@ function registerIpcHandlers() {
 
   ipcMain.handle(IPC_CHANNELS.RECORDING_GET_DISPLAY_BOUNDS, () => {
     if (Array.isArray(debugDisplayBoundsOverride)) return debugDisplayBoundsOverride;
-    return screen.getAllDisplays().map((display) => getDisplayCaptureBounds(display));
+    const displays = screen.getAllDisplays();
+    return displays.map((display) => getDisplayCaptureBounds(display, displays));
   });
 
   ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => {
@@ -1672,6 +1758,7 @@ app.whenReady().then(() => {
   void getX11MonitorsDiagnostic().then((xrandrOutput) => {
     if (xrandrOutput === null) return;
     try {
+      cachedX11MonitorLayout = parseX11MonitorsDiagnostic(xrandrOutput);
       const electronDisplays = screen.getAllDisplays().map((d) => ({
         id: d.id,
         label: d.label,
@@ -1786,7 +1873,7 @@ app.whenReady().then(() => {
 
     if (!resolvedDisplay) return null;
 
-    const captureBounds = getDisplayCaptureBounds(resolvedDisplay);
+    const captureBounds = getDisplayCaptureBounds(resolvedDisplay, displays);
 
     console.info('[session-source] Resolved capture display:', {
       selectedSourceId,
@@ -1812,7 +1899,7 @@ app.whenReady().then(() => {
 
     return {
       sourceId: selectedSourceId,
-      display: `${process.env.DISPLAY || ':0'}.0+${captureBounds.x},${captureBounds.y}`,
+      display: `${normalizeX11DisplayName()}+${captureBounds.x},${captureBounds.y}`,
       width: captureBounds.width,
       height: captureBounds.height,
       offsetX: captureBounds.x,

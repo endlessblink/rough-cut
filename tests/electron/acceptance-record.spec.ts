@@ -107,11 +107,9 @@ test.describe('Record Tab — MVP Acceptance', () => {
     await appPage.locator('[data-testid="record-open-setup-panel"]').click();
     const panelPage = await panelPromise;
     await panelPage.waitForLoadState('domcontentloaded');
-    await expect(panelPage.locator('[data-testid="panel-setup-summary"]')).toBeVisible();
-    await panelPage.locator('[data-testid="panel-edit-setup"]').click();
-    await expect(panelPage.getByText('Full Screen')).toBeVisible();
-    await expect(panelPage.getByText('Window')).toBeVisible();
-    await expect(panelPage.getByText('Region')).toBeVisible();
+    await expect(panelPage.getByRole('button', { name: 'Full Screen' })).toBeVisible();
+    await expect(panelPage.getByRole('button', { name: 'Window' })).toBeVisible();
+    await expect(panelPage.getByRole('button', { name: 'Region' })).toBeVisible();
   });
 
   // ── 1.5.4: Webcam toggle with circular overlay ────────────────────────
@@ -143,11 +141,21 @@ test.describe('Record Tab — MVP Acceptance', () => {
         const stores = (window as unknown as { __roughcutStores?: Record<string, unknown> })
           .__roughcutStores;
         const store = stores?.recordingConfig as
-          | { getState: () => { micEnabled: boolean; sysAudioEnabled: boolean; cameraEnabled: boolean } }
+          | {
+              getState: () => {
+                micEnabled: boolean;
+                sysAudioEnabled: boolean;
+                cameraEnabled: boolean;
+              };
+            }
           | undefined;
         const s = store?.getState();
         return s
-          ? { micEnabled: s.micEnabled, sysAudioEnabled: s.sysAudioEnabled, cameraEnabled: s.cameraEnabled }
+          ? {
+              micEnabled: s.micEnabled,
+              sysAudioEnabled: s.sysAudioEnabled,
+              cameraEnabled: s.cameraEnabled,
+            }
           : null;
       });
 
@@ -156,9 +164,7 @@ test.describe('Record Tab — MVP Acceptance', () => {
     expect(before).not.toBeNull();
 
     await micToggle.click();
-    await expect
-      .poll(async () => (await readConfig())?.micEnabled)
-      .toBe(!before!.micEnabled);
+    await expect.poll(async () => (await readConfig())?.micEnabled).toBe(!before!.micEnabled);
     expect(electronApp.windows().length).toBe(windowCountBefore);
 
     await sysAudioToggle.click();
@@ -168,9 +174,7 @@ test.describe('Record Tab — MVP Acceptance', () => {
     expect(electronApp.windows().length).toBe(windowCountBefore);
 
     await cameraToggle.click();
-    await expect
-      .poll(async () => (await readConfig())?.cameraEnabled)
-      .toBe(!before!.cameraEnabled);
+    await expect.poll(async () => (await readConfig())?.cameraEnabled).toBe(!before!.cameraEnabled);
     expect(electronApp.windows().length).toBe(windowCountBefore);
   });
 
@@ -186,8 +190,6 @@ test.describe('Record Tab — MVP Acceptance', () => {
     await setupBtn.click();
     const panelPage = await panelPromise;
     await panelPage.waitForLoadState('domcontentloaded');
-    await expect(panelPage.locator('[data-testid="panel-setup-summary"]')).toBeVisible();
-    await panelPage.locator('[data-testid="panel-edit-setup"]').click();
     await expect(panelPage.locator('[data-testid="panel-mic-select"]')).toBeVisible();
     await expect(panelPage.locator('[data-testid="panel-camera-select"]')).toBeVisible();
     await expect(panelPage.locator('[data-testid="panel-system-audio-select"]')).toBeVisible();

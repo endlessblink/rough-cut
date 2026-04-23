@@ -58,7 +58,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const IS_LINUX = process.platform === 'linux';
-const PANEL_SETUP = { width: 500, height: 284 };
+const PANEL_SETUP = { width: 500, height: 520 };
 const PANEL_MINI = { width: 340, height: 56 };
 
 // ---------------------------------------------------------------------------
@@ -804,25 +804,49 @@ function guardState(fnName, allowed) {
  */
 function destroyTrayIfAny() {
   if (!tray) return;
-  const wasDestroyed = tray.isDestroyed();
+  const trayToDestroy = tray;
+  tray = null;
+  const wasDestroyed = trayToDestroy.isDestroyed();
   try {
     if (!wasDestroyed) {
       try {
-        tray.removeAllListeners();
+        trayToDestroy.removeAllListeners();
       } catch {
         // listeners may not exist — ignore
       }
       try {
-        tray.setContextMenu(null);
+        trayToDestroy.setToolTip('');
+      } catch {
+        // best-effort only
+      }
+      try {
+        trayToDestroy.setContextMenu(Menu.buildFromTemplate([]));
       } catch {
         // older Electron may reject null — ignore
       }
       try {
-        tray.setImage(nativeImage.createEmpty());
+        if (!IS_LINUX) {
+          trayToDestroy.setImage(nativeImage.createEmpty());
+        }
       } catch {
         // non-fatal — proceed to destroy
       }
-      tray.destroy();
+
+      // AppIndicator/StatusNotifier on Linux can keep showing a stale icon if
+      // destroy() happens inside the same click/menu event turn. Keep the real
+      // icon until destroy-time to avoid an empty placeholder square, then
+      // destroy it on the next tick.
+      if (IS_LINUX) {
+        setTimeout(() => {
+          try {
+            if (!trayToDestroy.isDestroyed()) trayToDestroy.destroy();
+          } catch (err) {
+            console.warn('[session-manager] deferred tray.destroy() failed:', err?.message ?? err);
+          }
+        }, 150);
+      } else {
+        trayToDestroy.destroy();
+      }
     }
     console.info(
       '[session-manager] Tray destroyed — wasAlreadyDestroyed=' + wasDestroyed,
@@ -830,7 +854,6 @@ function destroyTrayIfAny() {
   } catch (err) {
     console.warn('[session-manager] destroyTrayIfAny() failed:', err?.message ?? err);
   }
-  tray = null;
 }
 
 /**
@@ -854,7 +877,17 @@ function createTray() {
       console.warn('[session-manager] Tray icon decoded empty — tray may render blank');
     }
     const t = new Tray(icon);
-    t.setToolTip('Recording — 00:00');
+    t.setToolTip('Recording — 00:00 (click to stop)');
+    if (IS_LINUX) {
+      t.on('click', () => {
+        console.info(
+          '[session-manager] Tray icon clicked — state=' + state + ' panel=' + Boolean(panelWindow),
+        );
+        stopRecording().catch((err) =>
+          console.error('[session-manager] stopRecording from tray icon failed:', err),
+        );
+      });
+    }
     _rebuildTrayMenu(t);
     console.info(
       '[session-manager] Tray created — iconSize=' +
@@ -939,7 +972,7 @@ function updateTrayTooltip() {
   try {
     const elapsedMs = Date.now() - recordingStartMs;
     const elapsed = formatElapsed(elapsedMs);
-    tray.setToolTip(`Recording — ${elapsed}`);
+    tray.setToolTip(`Recording — ${elapsed} (click to stop)`);
   } catch {
     // Tray may have been destroyed concurrently — ignore
   }
@@ -1012,8 +1045,8 @@ export function openPanel() {
   if (!guardState('openPanel', ['idle'])) return;
   broadcastConnectionIssues(null);
 
-  const PANEL_W = 500;
-  const PANEL_H = 284;
+  const PANEL_W = PANEL_SETUP.width;
+  const PANEL_H = PANEL_SETUP.height;
   const { x, y } = getPanelPosition({ width: PANEL_W, height: PANEL_H });
 
   const preloadPath = join(__dirname, '..', '..', 'preload', 'index.mjs');

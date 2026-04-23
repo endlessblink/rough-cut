@@ -235,14 +235,14 @@ Parallel-start rule:
 | ~~TASK-177~~ | ~~Stabilize Record: restore truthful live preview canvas reliably~~      | P0       | ✅ DONE (2026-04-20)     | TASK-165, TASK-172 |
 | ~~TASK-178~~ | ~~Stabilize Tests: replace flaky record acceptance suite with release gate~~ | P1   | ✅ DONE (2026-04-22)     | TASK-173, TASK-177 |
 | TASK-182     | Record: Make camera sidecar capture deterministic on first take         | P0       | IN PROGRESS (2026-04-21) | TASK-014, TASK-169 |
-| TASK-183     | Record: Fix Linux X11 screen capture bounds on secondary displays       | P0       | IN PROGRESS (2026-04-21) | TASK-010, TASK-167 |
-| TASK-184     | Record: Eliminate Pixi video alpha CSP noise in the renderer            | P1       | IN PROGRESS (2026-04-21) | TASK-013           |
+| TASK-183     | Record: Fix Linux X11 screen capture bounds on secondary displays       | P0       | IN PROGRESS (2026-04-23) | TASK-010, TASK-167 |
+| ~~TASK-184~~ | ~~Record: Eliminate Pixi video alpha CSP noise in the renderer~~        | P1       | ✅ DONE (2026-04-23)     | TASK-013           |
 | TASK-176     | Record: Clarify camera layout marker add vs update UX                   | P2       | TODO                     | TASK-159           |
 | TASK-185     | Record: Stabilize camera preview track lifecycle                        | P2       | IN PROGRESS (2026-04-22) | TASK-182           |
 | ~~TASK-186~~ | Record: Unify in-app pre-record flow and floating recording panel       | P0       | ✅ DONE (2026-04-23)     | TASK-086, TASK-126 |
-| TASK-187     | Record: Break down and redesign the floating recording panel UX         | P1       | IN PROGRESS (2026-04-23) | TASK-186, TASK-145 |
+| ~~TASK-187~~ | ~~Record: Break down and redesign the floating recording panel UX~~     | P1       | ✅ DONE (2026-04-23)     | TASK-186, TASK-145 |
 | TASK-188     | Product: Break down stabilization work across Projects/Record/Playback/Sidebar/Timeline/Export | P1 | TODO | TASK-186, TASK-187 |
-| TASK-189     | Record: Fix stuck + obsolete pre-start floating panel (post-TASK-186 fallout)                  | P0 | TODO | TASK-186, TASK-187 |
+| ~~TASK-189~~ | ~~Record: Fix stuck + obsolete pre-start floating panel (post-TASK-186 fallout)~~              | P0 | ✅ DONE (2026-04-23) | TASK-186, TASK-187 |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
@@ -433,7 +433,14 @@ This is the current top blocker for using Rough Cut as a personal daily recordin
 
 ### TASK-183: Record: Fix Linux X11 screen capture bounds on secondary displays
 
-**Priority:** P0 | **Status:** IN PROGRESS (2026-04-21)
+**Priority:** P0 | **Status:** IN PROGRESS (2026-04-23)
+
+#### Progress (2026-04-23)
+
+- Added Linux/X11 monitor-layout parsing via `xrandr --listmonitors` in `apps/desktop/src/main/index.mjs` and now prefer real X11 monitor geometry when deriving capture bounds for FFmpeg/cursor sidecars.
+- Normalized X11 display-string construction so the FFmpeg target display stays a valid `:display.screen+X,Y` form instead of blindly appending `.0`.
+- Verification completed in this environment: `xrandr --listmonitors` matched the expected dual-monitor geometry (`DP-0` at `+0+0`, `DP-2` at `+1920+0`), `pnpm --filter @rough-cut/desktop test` passed, and `pnpm --filter @rough-cut/desktop build` passed.
+- Remaining before close: capture one fresh saved recording on the problematic secondary display and confirm the exported artifact matches the real screen dimensions with no crop.
 
 #### Problem
 
@@ -466,9 +473,16 @@ Screen crop on the actual saved file destroys the value of a tutorial recording 
 
 ---
 
-### TASK-184: Record: Eliminate Pixi video alpha CSP noise in the renderer
+### ~~TASK-184~~: Record: Eliminate Pixi video alpha CSP noise in the renderer
 
-**Priority:** P1 | **Status:** IN PROGRESS (2026-04-21)
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-23)
+
+#### Resolution (2026-04-23)
+
+- Confirmed the runtime fix lives in `packages/preview-renderer/src/preview-compositor.ts`: Rough Cut patches Pixi `VideoSource.load()` to bypass the internal alpha-probe path that tries to load `data:video/webm;base64,...`.
+- Kept CSP strict. No changes were needed in `apps/desktop/src/renderer/index.html` or `apps/desktop/src/renderer/panel.html`.
+- Added regression coverage in `packages/preview-renderer/src/preview-compositor.test.ts` so future Pixi integration changes do not silently reintroduce the CSP-noise path.
+- Verification completed: `pnpm --filter @rough-cut/preview-renderer test` passed (`28` tests), `pnpm --filter @rough-cut/preview-renderer typecheck` passed, and repo-level `pnpm typecheck` passed.
 
 #### Problem
 
@@ -552,7 +566,7 @@ The recorder is now immune (TASK-185 is not a data-loss risk). But an unexplaine
 
 ### ~~TASK-186~~: Record: Unify in-app pre-record flow and floating recording panel
 
-**Priority:** P0 | **Status:** ✅ DONE (2026-04-23) — Cuts A/B/C shipped. Panel redesign continues under TASK-187; stuck pre-start screen tracked as TASK-189.
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-23) — Cuts A/B/C shipped. Follow-on panel cleanup landed under TASK-187, and the stuck pre-start screen was closed under TASK-189.
 
 #### Problem
 
@@ -602,7 +616,7 @@ Define and implement one truthful recording workflow:
 - **Cut A shipped (commit 6453439):** deleted `RecordingPanel.tsx` (1052 lines of unimported dead code; panel window has long booted `PanelApp` via `panel-main.tsx`).
 - **Cut B shipped (commit 400a518):** BottomBar's mic/system-audio/camera toggles and countdown selector now flip `recording-config` directly via `updateRecordingConfig({...})`. Panel continues subscribing to the same store, so its state tracks the tab's writes. A visible "⚙ Setup" button (`data-testid="record-open-setup-panel"`) was added next to the BottomBar as the explicit affordance for the full setup screen. Acceptance suite 13/13 pass.
 - **Cut C shipped:** Wired the existing `SourcePickerPopup.tsx` into RecordTab as an in-window modal. Clicking the Source chip now opens the inline picker (no second Electron window); selection writes to `recording-config`. The start-guard banner button also routes to the inline picker and reads "Pick a source". The ⚙ Setup button remains the path to the full panel for device dropdowns, audio meter, diagnostics, recovery, and the mode selector (Full Screen / Window / Region still lives in the panel — SourcePickerPopup filters by mode but does not switch it). Acceptance suite 1.5.2 + 1.5.3 updated to reflect inline-picker-by-default + Setup-button-for-mode; 13/13 still pass.
-- **Status:** The tab now owns all pre-record intent for source + devices + countdown. The panel is an on-demand "advanced setup + during-recording" surface only. Next up is TASK-187 (panel UX redesign) or pivoting to Lane 2 (TASK-183 X11 screen capture bounds) under the parallel-start rule.
+- **Status:** The tab now owns all pre-record intent for source + devices + countdown. The panel is an on-demand "advanced setup + during-recording" surface only. TASK-187 shipped the first panel UX cleanup, and Lane 2 (`TASK-183`) remains the main open recording-core blocker in this slice.
 
 #### Why this matters
 
@@ -610,9 +624,17 @@ A user who senses redundancy between the app and the panel will hesitate before 
 
 ---
 
-### TASK-187: Record: Break down and redesign the floating recording panel UX
+### ~~TASK-187~~: Record: Break down and redesign the floating recording panel UX
 
-**Priority:** P1 | **Status:** IN PROGRESS (2026-04-23)
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-23)
+
+#### Resolution (2026-04-23)
+
+- Removed the obsolete pre-start summary-only card from `apps/desktop/src/renderer/features/record/PanelApp.tsx` so the floating panel now opens directly into actionable recording setup.
+- Added clearer setup guidance copy and renamed the primary CTA from `REC` to `Start recording`, which better matches the panel's pre-start responsibility after TASK-186.
+- Preserved the compact in-recording live-controller behavior while allowing the full setup surface only when the user explicitly enters setup during an active recording.
+- Updated Electron coverage to match the new UX flow in `tests/electron/acceptance-record.spec.ts`, `tests/electron/record-device-selection-runtime.spec.ts`, `tests/electron/record-source-gating.spec.ts`, and `tests/electron/record-tab.spec.ts`.
+- Verification completed: repo-level `pnpm typecheck` passed and `xvfb-run --auto-servernum pnpm exec playwright test tests/electron/record-device-selection-runtime.spec.ts tests/electron/record-source-gating.spec.ts tests/electron/record-tab.spec.ts tests/electron/acceptance-record.spec.ts` passed (`40 passed`).
 
 #### Problem
 
@@ -748,8 +770,8 @@ Create and maintain a product-area stabilization map that breaks the app into th
 - BUG-004 Dock/taskbar icon shown during recording
 - BUG-011 Linux stop controls stay usable during recording
 - TASK-185 Stabilize camera preview track lifecycle
-- TASK-186 Unify in-app pre-record flow and floating recording panel
-- TASK-187 Break down and redesign the floating recording panel UX
+- ~~TASK-186~~ Unify in-app pre-record flow and floating recording panel
+- ~~TASK-187~~ Break down and redesign the floating recording panel UX
 
 ##### 4. Post-record playback/review in Record
 
@@ -766,7 +788,7 @@ Create and maintain a product-area stabilization map that breaks the app into th
 - TASK-020 Audio playback via Web Audio API synced to playhead
 - FEATURE-076 Audio capture + playback in preview
 - TASK-124 Prove and harden saved-file system-audio capture
-- TASK-184 Eliminate Pixi video alpha CSP noise in the renderer
+- ~~TASK-184~~ Eliminate Pixi video alpha CSP noise in the renderer
 
 ##### 5. Existing Record-sidebar features
 
@@ -864,9 +886,15 @@ This keeps Rough Cut focused on becoming useful and reliable for the end user ac
 
 ---
 
-### TASK-189: Record: Fix stuck + obsolete pre-start floating panel (post-TASK-186 fallout)
+### ~~TASK-189~~: Record: Fix stuck + obsolete pre-start floating panel (post-TASK-186 fallout)
 
-**Priority:** P0 | **Status:** TODO | **Depends on:** TASK-186 (done), TASK-187 (in progress)
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-23) | **Depends on:** TASK-186 (done), TASK-187 (done)
+
+#### Resolution (2026-04-23)
+
+- Closed as part of TASK-187. `PanelApp.tsx` no longer renders the obsolete pre-start review/summary card.
+- The floating panel now opens directly into the actionable setup surface, which removes the inert "Edit details" path and the misleading copy about the panel being the primary pre-record setup flow.
+- Updated Electron coverage alongside TASK-187, and the focused Playwright suite passed (`40 passed`).
 
 #### Problem
 

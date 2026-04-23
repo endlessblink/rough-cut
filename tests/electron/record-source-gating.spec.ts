@@ -184,16 +184,20 @@ test.describe('Record source gating', () => {
       'Open the recording panel to choose a window before recording.',
     );
 
-    await appPage.locator('[data-testid="record-source-toggle"]').click();
+    await appPage.locator('[data-testid="record-open-setup-panel"]').click();
     await expect
-      .poll(async () => (await electronApp.windows()).some((page) => page !== appPage && !page.isClosed()))
+      .poll(async () =>
+        (await electronApp.windows()).some((page) => page !== appPage && !page.isClosed()),
+      )
       .toBe(true);
-    const panelPage = (await electronApp.windows()).find((page) => page !== appPage && !page.isClosed());
+    const panelPage = (await electronApp.windows()).find(
+      (page) => page !== appPage && !page.isClosed(),
+    );
     expect(panelPage, 'Expected recording panel window').toBeTruthy();
     await panelPage!.waitForLoadState('domcontentloaded');
-    await expect(panelPage!.locator('[data-testid="panel-setup-summary"]')).toBeVisible();
-    await panelPage!.locator('[data-testid="panel-edit-setup"]').click();
-    await panelPage!.locator('[data-testid="panel-source-select"]').selectOption({ label: 'Debug Window' });
+    await panelPage!
+      .locator('[data-testid="panel-source-select"]')
+      .selectOption({ label: 'Debug Window' });
 
     await expect
       .poll(async () =>
@@ -250,19 +254,17 @@ test.describe('Record source gating', () => {
 
     await expect(recordButton).toBeEnabled();
 
-    await appPage.locator('[data-testid="record-source-toggle"]').click();
+    await appPage.locator('[data-testid="record-open-setup-panel"]').click();
     await expect
-      .poll(async () => (await electronApp.windows()).some((page) => page !== appPage && !page.isClosed()))
+      .poll(async () =>
+        (await electronApp.windows()).some((page) => page !== appPage && !page.isClosed()),
+      )
       .toBe(true);
     const secondPanelPage = (await electronApp.windows()).find(
       (page) => page !== appPage && !page.isClosed(),
     );
     expect(secondPanelPage, 'Expected recording panel window').toBeTruthy();
     await secondPanelPage!.waitForLoadState('domcontentloaded');
-    const secondSummary = secondPanelPage!.locator('[data-testid="panel-setup-summary"]');
-    if (await secondSummary.count()) {
-      await secondPanelPage!.locator('[data-testid="panel-edit-setup"]').click();
-    }
     await secondPanelPage!.locator('[data-testid="panel-source-select"]').selectOption({
       label: 'Debug Screen',
     });
