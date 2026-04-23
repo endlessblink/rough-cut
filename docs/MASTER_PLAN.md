@@ -595,11 +595,12 @@ Define and implement one truthful recording workflow:
 - `apps/desktop/src/renderer/panel-main.tsx` (boots `panel.html` → `<PanelApp>`)
 - `apps/desktop/src/main/recording/recording-session-manager.mjs` (`PANEL_OPEN` / `PANEL_CLOSE` IPC; opens the panel as a separate BrowserWindow)
 
-#### Current progress (2026-04-22)
+#### Current progress (2026-04-23)
 
-- **Inventory pass complete.** Today the tab's BottomBar renders device/source/mic/camera segments but every click calls `openRecordingSetupPanel()` and pops the floating panel window. PanelApp owns all setup authority (source picker, device dropdowns, audio meter, offline badges, recovery notice) plus the during-record mini controller. RecordTab is a teaser; PanelApp is the real recorder.
-- **Cut A shipped:** deleted `RecordingPanel.tsx` (1052 lines of unimported dead code; panel window has long booted `PanelApp` via `panel-main.tsx`).
-- **Cut B planned:** make BottomBar's mic/camera/system-audio toggles flip `recording-config` directly instead of opening the panel. Source picker keeps its shunt-to-panel behavior for now (needs rich UI). Add a visible "Open setup panel" affordance so the full device dropdowns + audio meter + diagnostics stay reachable.
+- **Inventory pass complete.** Before Cut B, the tab's BottomBar rendered device/source/mic/camera segments but every click called `openRecordingSetupPanel()` and popped the floating panel window. PanelApp owns all setup authority (source picker, device dropdowns, audio meter, offline badges, recovery notice) plus the during-record mini controller. RecordTab was a teaser; PanelApp was the real recorder.
+- **Cut A shipped (commit 6453439):** deleted `RecordingPanel.tsx` (1052 lines of unimported dead code; panel window has long booted `PanelApp` via `panel-main.tsx`).
+- **Cut B shipped (commit 400a518):** BottomBar's mic/system-audio/camera toggles and countdown selector now flip `recording-config` directly via `updateRecordingConfig({...})`. Panel continues subscribing to the same store, so its state tracks the tab's writes. A visible "⚙ Setup" button (`data-testid="record-open-setup-panel"`) was added next to the BottomBar as the explicit affordance for the full setup screen (device dropdowns, audio meter, diagnostics, recovery notice). Source picker keeps its shunt-to-panel behavior — source selection still needs the rich picker UI. Acceptance suite `tests/electron/acceptance-record.spec.ts` updated: the 1.5.5 cases now assert that toggles flip store state without opening a new Electron window, and a new case asserts the Setup button opens the panel with full device pickers. 13/13 pass.
+- **Next:** Cut C — inline the source picker in the tab (the existing `SourcePickerPopup.tsx` is 525 lines and not wired in) so even source selection stops popping a second window. After that, the tab owns all pre-record intent; the panel becomes an on-demand "advanced setup + during-recording" surface only.
 
 #### Why this matters
 
