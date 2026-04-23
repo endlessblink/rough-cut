@@ -242,6 +242,7 @@ Parallel-start rule:
 | TASK-186     | Record: Unify in-app pre-record flow and floating recording panel       | P0       | IN PROGRESS (2026-04-22) | TASK-086, TASK-126 |
 | TASK-187     | Record: Break down and redesign the floating recording panel UX         | P1       | TODO                     | TASK-186, TASK-145 |
 | TASK-188     | Product: Break down stabilization work across Projects/Record/Playback/Sidebar/Timeline/Export | P1 | TODO | TASK-186, TASK-187 |
+| TASK-189     | Record: Fix stuck + obsolete pre-start floating panel (post-TASK-186 fallout)                  | P0 | TODO | TASK-186, TASK-187 |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
@@ -852,6 +853,49 @@ Priority tie-breaker:
 #### Why this matters
 
 This keeps Rough Cut focused on becoming useful and reliable for the end user across the whole workflow instead of looking locally polished in one surface while the rest of the journey still feels unstable.
+
+---
+
+### TASK-189: Record: Fix stuck + obsolete pre-start floating panel (post-TASK-186 fallout)
+
+**Priority:** P0 | **Status:** TODO | **Depends on:** TASK-186 (done), TASK-187 (in progress)
+
+#### Problem
+
+After TASK-186 Cut C shipped (Record tab now owns source + device + countdown selection inline), the floating panel's pre-start screen is both **obsolete in purpose** and **stuck in practice**. Visual evidence from 2026-04-23:
+
+1. **Obsolete copy.** The panel's pre-start screen shows the heading "RECORD SETUP" and the subtitle *"This panel is where you choose what to record before starting. Review the current setup or open the full setup controls below."* That was accurate before TASK-186. It is now a lie — pre-record setup happens in the tab; the panel is on-demand advanced setup + during-recording only.
+2. **Stuck panel.** The user reports "I can't do anything here" on the same screen. The REVIEW SETUP card and the "Edit details" button appear rendered but inert — clicks do not advance the panel from pre-start to a useful state. Needs repro + root cause (JS error, unhydrated store, missing handler, window focus/z-index issue, or broken stream acquisition on open).
+
+#### Goal
+
+Remove the dead pre-start screen from the panel entirely, OR reduce it to a thin "advanced setup" surface that never pretends to be the primary pre-record workflow. The panel must come up in a usable state whenever the tab's ⚙ Setup button opens it, regardless of whether the user has recorded before in this session.
+
+#### Scope
+
+- Audit `PanelApp.tsx` pre-start JSX (see TASK-187 inventory: `SetupSummaryCard` at L3017, `SetupSection` at L1088–1115, detailed mode selector + source picker + device controls + audio meter inside).
+- Decide one of two directions:
+  - **(a) Delete the pre-start REVIEW SETUP summary screen.** The panel opens directly into detailed setup (device dropdowns, audio meter, mode, recovery, source re-target). The summary card disappears; its copy disappears with it.
+  - **(b) Keep the summary but rewrite its copy and interactivity** so it is honestly "advanced setup / diagnostics" and every control on it actually works when clicked.
+- Repro the "can't do anything" state and fix the root cause (likely hydration, stream acquisition, or focus).
+- Remove the line: *"This panel is where you choose what to record before starting. Review the current setup or open the full setup controls below."*
+
+#### First Steps (for next session)
+
+1. Launch `pnpm dev`, open the tab, click ⚙ Setup, and reproduce the stuck pre-start panel. Capture the DevTools console + main-process log for any error.
+2. Grep `PanelApp.tsx` for the "This panel is where you choose" string and nearby `SetupSummaryCard` to locate the pre-start block. Line anchors: L3017 (`SetupSummaryCard` render), L2917–3047 (setup-mode JSX).
+3. Decide (a) vs (b) based on what still has a real job post-TASK-186. If (a), cut the summary-card branch and make detailed setup the default render for setup mode.
+4. Verify in app: open panel → immediate interactable state; close/reopen → same. Update acceptance tests for whichever affordances survive.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
+- `tests/electron/acceptance-record.spec.ts`
+- `tests/electron/record-readiness.spec.ts`
+
+#### Why this matters
+
+Right after TASK-186 Cut C, the panel shows the user a screen that contradicts the new workflow and does not respond to input. That is worse than pre-TASK-186 — the old redundancy at least worked. This is a stability regression induced by the unification work and must be addressed before TASK-187's deeper panel redesign, because TASK-187 will otherwise be built on top of a broken starting state.
 
 ---
 
