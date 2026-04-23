@@ -2794,107 +2794,117 @@ export function PanelApp() {
         boxShadow: '0 8px 40px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4)',
         display: 'flex',
         flexDirection: 'column',
-        overflowX: 'hidden',
-        overflowY: 'auto',
+        overflow: 'hidden',
         position: 'relative',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
         color: C.text,
         userSelect: 'none',
       }}
     >
-      {/* 1. Title bar */}
-      <TitleBar
-        onClose={handleClose}
-        label={status === 'recording' && showDetailedSetup ? 'Recording details' : 'Record setup'}
-        accessory={
-          showDetailedSetup ? <SetupModeButton onClick={handleReturnMiniMode} /> : undefined
-        }
-      />
-
-      {recordingRecovery && (
-        <RecoveryNotice
-          recovery={recordingRecovery}
-          busy={recoveringTake}
-          onRecover={handleRecoverTake}
-          onOpenFolder={() => {
-            void window.roughcut.shellOpenPath(recordingRecovery.recordingsDir);
-          }}
-          onDismiss={() => {
-            void window.roughcut.recordingRecoveryDismiss().then(() => setRecordingRecovery(null));
-          }}
-        />
-      )}
-
-      {/* 2. Detailed setup */}
-      {status === 'recording' && showDetailedSetup && (
-        <LiveSetupNotice onReturn={handleReturnMiniMode} />
-      )}
-      <SetupSection recordMode={recordMode} onModeChange={handlePanelModeChange}>
-        <SourceSelector
-          sources={sources}
-          selectedSourceId={selectedSourceId}
-          issue={connectionIssues.source}
-          onSelectSource={handleSelectSource}
-          onRefreshSources={() => {
-            void refreshSources();
-          }}
-          onRetarget={handleRetargetSource}
-          canRetarget={sources.some(
-            (source) => source.type === (recordMode === 'window' ? 'window' : 'screen'),
-          )}
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflowX: 'hidden',
+          overflowY: 'auto',
+        }}
+      >
+        {/* 1. Title bar */}
+        <TitleBar
+          onClose={handleClose}
+          label={status === 'recording' && showDetailedSetup ? 'Recording details' : 'Record setup'}
+          accessory={
+            showDetailedSetup ? <SetupModeButton onClick={handleReturnMiniMode} /> : undefined
+          }
         />
 
-        <IssueNotice messages={issueMessages} />
+        {recordingRecovery && (
+          <RecoveryNotice
+            recovery={recordingRecovery}
+            busy={recoveringTake}
+            onRecover={handleRecoverTake}
+            onOpenFolder={() => {
+              void window.roughcut.shellOpenPath(recordingRecovery.recordingsDir);
+            }}
+            onDismiss={() => {
+              void window.roughcut.recordingRecoveryDismiss().then(() => setRecordingRecovery(null));
+            }}
+          />
+        )}
+
+        {/* 2. Detailed setup */}
+        {status === 'recording' && showDetailedSetup && (
+          <LiveSetupNotice onReturn={handleReturnMiniMode} />
+        )}
+        <SetupSection recordMode={recordMode} onModeChange={handlePanelModeChange}>
+          <SourceSelector
+            sources={sources}
+            selectedSourceId={selectedSourceId}
+            issue={connectionIssues.source}
+            onSelectSource={handleSelectSource}
+            onRefreshSources={() => {
+              void refreshSources();
+            }}
+            onRetarget={handleRetargetSource}
+            canRetarget={sources.some(
+              (source) => source.type === (recordMode === 'window' ? 'window' : 'screen'),
+            )}
+          />
+
+          <IssueNotice messages={issueMessages} />
+
+          <Divider />
+
+          <DeviceControls
+            micEnabled={micEnabled}
+            sysAudioEnabled={sysAudioEnabled}
+            cameraEnabled={cameraEnabled}
+            micIssue={connectionIssues.mic}
+            cameraIssue={connectionIssues.camera}
+            systemAudioIssue={connectionIssues.systemAudio}
+            micOptions={micOptions}
+            selectedMicDeviceId={selectedMicDeviceId}
+            onSelectMicDevice={(id) =>
+              updateRecordingConfig({ selectedMicDeviceId: id, micEnabled: id ? true : micEnabled })
+            }
+            cameraOptions={cameraOptions}
+            selectedCameraDeviceId={selectedCameraDeviceId}
+            onSelectCameraDevice={(id) =>
+              updateRecordingConfig({
+                selectedCameraDeviceId: id,
+                cameraEnabled: id ? true : cameraEnabled,
+              })
+            }
+            systemAudioOptions={systemAudioOptions}
+            selectedSystemAudioSourceId={selectedSystemAudioSourceId}
+            onSelectSystemAudioSource={(id) =>
+              updateRecordingConfig({
+                selectedSystemAudioSourceId: id,
+                sysAudioEnabled: id ? true : sysAudioEnabled,
+              })
+            }
+            onMicToggle={handleMicToggle}
+            onSysAudioToggle={() => updateRecordingConfig({ sysAudioEnabled: !sysAudioEnabled })}
+            onCameraToggle={() => updateRecordingConfig({ cameraEnabled: !cameraEnabled })}
+          />
+
+          {/* Audio level meter — shows when mic is active */}
+          {micEnabled && <AudioLevelMeter level={audioLevel} />}
+        </SetupSection>
 
         <Divider />
 
-        <DeviceControls
-          micEnabled={micEnabled}
-          sysAudioEnabled={sysAudioEnabled}
-          cameraEnabled={cameraEnabled}
-          micIssue={connectionIssues.mic}
-          cameraIssue={connectionIssues.camera}
-          systemAudioIssue={connectionIssues.systemAudio}
-          micOptions={micOptions}
-          selectedMicDeviceId={selectedMicDeviceId}
-          onSelectMicDevice={(id) =>
-            updateRecordingConfig({ selectedMicDeviceId: id, micEnabled: id ? true : micEnabled })
-          }
-          cameraOptions={cameraOptions}
-          selectedCameraDeviceId={selectedCameraDeviceId}
-          onSelectCameraDevice={(id) =>
-            updateRecordingConfig({
-              selectedCameraDeviceId: id,
-              cameraEnabled: id ? true : cameraEnabled,
-            })
-          }
-          systemAudioOptions={systemAudioOptions}
-          selectedSystemAudioSourceId={selectedSystemAudioSourceId}
-          onSelectSystemAudioSource={(id) =>
-            updateRecordingConfig({
-              selectedSystemAudioSourceId: id,
-              sysAudioEnabled: id ? true : sysAudioEnabled,
-            })
-          }
-          onMicToggle={handleMicToggle}
-          onSysAudioToggle={() => updateRecordingConfig({ sysAudioEnabled: !sysAudioEnabled })}
-          onCameraToggle={() => updateRecordingConfig({ cameraEnabled: !cameraEnabled })}
+        {/* 4. Recording controls */}
+        <RecordingControls
+          status={status}
+          elapsedMs={elapsedMs}
+          canRecord={canRecord}
+          onStartRecording={handleStartRecording}
+          onStopRecording={handleStopRecording}
         />
-
-        {/* Audio level meter — shows when mic is active */}
-        {micEnabled && <AudioLevelMeter level={audioLevel} />}
-      </SetupSection>
-
-      <Divider />
-
-      {/* 4. Recording controls */}
-      <RecordingControls
-        status={status}
-        elapsedMs={elapsedMs}
-        canRecord={canRecord}
-        onStartRecording={handleStartRecording}
-        onStopRecording={handleStopRecording}
-      />
+      </div>
 
       {/* Live camera PiP — top-right overlay, only when camera is enabled */}
       <CameraPiPOverlay cameraStream={cameraStream} />
