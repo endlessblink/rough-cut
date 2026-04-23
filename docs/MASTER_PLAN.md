@@ -239,8 +239,8 @@ Parallel-start rule:
 | TASK-184     | Record: Eliminate Pixi video alpha CSP noise in the renderer            | P1       | IN PROGRESS (2026-04-21) | TASK-013           |
 | TASK-176     | Record: Clarify camera layout marker add vs update UX                   | P2       | TODO                     | TASK-159           |
 | TASK-185     | Record: Stabilize camera preview track lifecycle                        | P2       | IN PROGRESS (2026-04-22) | TASK-182           |
-| TASK-186     | Record: Unify in-app pre-record flow and floating recording panel       | P0       | IN PROGRESS (2026-04-22) | TASK-086, TASK-126 |
-| TASK-187     | Record: Break down and redesign the floating recording panel UX         | P1       | TODO                     | TASK-186, TASK-145 |
+| ~~TASK-186~~ | Record: Unify in-app pre-record flow and floating recording panel       | P0       | ✅ DONE (2026-04-23)     | TASK-086, TASK-126 |
+| TASK-187     | Record: Break down and redesign the floating recording panel UX         | P1       | IN PROGRESS (2026-04-23) | TASK-186, TASK-145 |
 | TASK-188     | Product: Break down stabilization work across Projects/Record/Playback/Sidebar/Timeline/Export | P1 | TODO | TASK-186, TASK-187 |
 | TASK-189     | Record: Fix stuck + obsolete pre-start floating panel (post-TASK-186 fallout)                  | P0 | TODO | TASK-186, TASK-187 |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
@@ -550,9 +550,9 @@ The recorder is now immune (TASK-185 is not a data-loss risk). But an unexplaine
 
 ---
 
-### TASK-186: Record: Unify in-app pre-record flow and floating recording panel
+### ~~TASK-186~~: Record: Unify in-app pre-record flow and floating recording panel
 
-**Priority:** P0 | **Status:** IN PROGRESS (2026-04-22)
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-23) — Cuts A/B/C shipped. Panel redesign continues under TASK-187; stuck pre-start screen tracked as TASK-189.
 
 #### Problem
 
@@ -612,7 +612,7 @@ A user who senses redundancy between the app and the panel will hesitate before 
 
 ### TASK-187: Record: Break down and redesign the floating recording panel UX
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-23)
 
 #### Problem
 
@@ -646,9 +646,17 @@ Turn the floating panel into a sharply defined during-recording surface with a c
 - `tests/electron/acceptance-record.spec.ts`
 - `tests/electron/record-readiness.spec.ts`
 
+#### Current progress (2026-04-23)
+
+- **Inventory pass complete.** PanelApp.tsx has an explicit state machine at L204: `type PanelStatus = 'idle' | 'ready' | 'countdown' | 'recording' | 'stopping'`. Rendering branches on `status` plus a `setupModeDuringRecording` boolean (L1807) that lets the user flip from the MiniController (L2901–2909) to full setup mid-record. Each state's JSX is already located — see TASK-189 for line anchors into the setup-mode block.
+- **Redundancy with tab mapped.** Post-TASK-186, these panel pre-record controls are redundant with RecordTab: `SourceSelector` (L516–633) vs tab's inline `SourcePickerPopup`; `DeviceControls` mic/camera/system-audio dropdowns (L762–898) vs tab's BottomBar toggles; countdown selector (also exists in BottomBar). Panel-only controls that should stay: `AudioLevelMeter` (L171–200), mode selector (`ModeSelectorRow` L1111), `RecoveryNotice` (L1629–1718), offline badges. The tab only has toggles; the panel still holds the richer device-picker UI.
+- **Responsibility smells logged for later cuts:** RecordingControls rendered with disabled REC button during `status === 'recording' && setupModeDuringRecording` (L3032–3038) — dead UI path. Single IPC useEffect (L2069–2078, empty deps) couples countdown/status/elapsed subscriptions and calls stale-closure `startMediaRecorder`/`stopMediaRecorder` via refs. `finalizePanelRecording` (L2453–2551) mixes recorder teardown + IPC + state mutation. Camera stream effect (L2094–2177) mixes preview lifecycle with track-ended error handling.
+- **Regression found and spun out:** After TASK-186 Cut C shipped, the panel's pre-start "RECORD SETUP / REVIEW SETUP" screen is obsolete in purpose (its copy still says the panel is where pre-record setup happens — it is not, after TASK-186) and stuck in practice (user reports inert clicks). Captured as TASK-189 (P0) for the next session because it blocks further TASK-187 redesign on a broken starting state.
+- **Next cut (after TASK-189 lands):** Early-exit guard in setup-mode JSX so `RecordingControls` is not rendered when `status === 'recording' && setupModeDuringRecording` — sharpens the state boundary between "setup" and "live" without touching layout. Reversible, single-file change in PanelApp.tsx around L3031–3038.
+
 #### Why this matters
 
-The panel is the user’s live safety surface during recording. If its design is muddy, the whole recording experience feels fragile even when capture succeeds.
+The panel is the user's live safety surface during recording. If its design is muddy, the whole recording experience feels fragile even when capture succeeds.
 
 ---
 
