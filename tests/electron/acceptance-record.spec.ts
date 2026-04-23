@@ -77,30 +77,34 @@ test.describe('Record Tab — MVP Acceptance', () => {
     await expect(appPage.locator('[data-testid="record-card-chrome"]')).toBeVisible();
   });
 
-  // ── 1.5.2: Source picker switches between screens/windows ──────────────
-  test('1.5.2 — source selection is handed off to the recording panel', async ({ appPage, electronApp }) => {
+  // ── 1.5.2: Source picker is inline in the tab (TASK-186 Cut C) ─────────
+  test('1.5.2 — clicking the source chip opens the inline source picker', async ({
+    appPage,
+    electronApp,
+  }) => {
     await nav(appPage);
     const sourceBtn = appPage.locator('[data-testid="record-source-toggle"]');
     await expect(sourceBtn).toBeVisible();
     await expect(appPage.locator('[data-testid="record-start-guard-banner"]')).toBeVisible();
     await expect(appPage.locator('[data-testid="record-start-guard-pick-source"]')).toContainText(
-      'Open recording setup',
+      'Pick a source',
     );
 
-    const panelPromise = electronApp.waitForEvent('window');
+    const windowCountBefore = electronApp.windows().length;
     await sourceBtn.click();
-    const panelPage = await panelPromise;
-    await panelPage.waitForLoadState('domcontentloaded');
-    await expect(panelPage.locator('[data-testid="panel-setup-summary"]')).toBeVisible();
-    await panelPage.locator('[data-testid="panel-edit-setup"]').click();
-    await expect(panelPage.locator('[data-testid="panel-source-select"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-inline-source-picker"]')).toBeVisible();
+    expect(electronApp.windows().length).toBe(windowCountBefore);
+    await expect(appPage.getByText('Choose source')).toBeVisible();
   });
 
-  // ── 1.5.3: Custom region selection overlay ─────────────────────────────
-  test('1.5.3 — record mode setup is available in the recording panel', async ({ appPage, electronApp }) => {
+  // ── 1.5.3: Record mode (Full Screen / Window / Region) still lives in panel ─
+  test('1.5.3 — record mode setup is available via the Setup button → panel', async ({
+    appPage,
+    electronApp,
+  }) => {
     await nav(appPage);
     const panelPromise = electronApp.waitForEvent('window');
-    await appPage.locator('[data-testid="record-source-toggle"]').click();
+    await appPage.locator('[data-testid="record-open-setup-panel"]').click();
     const panelPage = await panelPromise;
     await panelPage.waitForLoadState('domcontentloaded');
     await expect(panelPage.locator('[data-testid="panel-setup-summary"]')).toBeVisible();

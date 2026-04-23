@@ -43,6 +43,7 @@ import { ZoomMarkerInspector } from './ZoomMarkerInspector.js';
 import { useCursorEvents } from '../../hooks/use-cursor-events.js';
 import { generateAutoZoomMarkers, getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
 import { BottomBar } from './BottomBar.js';
+import { SourcePickerPopup } from './SourcePickerPopup.js';
 import type { DestinationPresetId } from './destination-presets.js';
 import {
   getDestinationPreset,
@@ -167,6 +168,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     useState<RecordingSessionConnectionIssues | null>(null);
   const [sourceRecoveryMessage, setSourceRecoveryMessage] = useState<string | null>(null);
   const [countdownSeconds, setCountdownSeconds] = useState(0);
+  const [isSourcePickerOpen, setIsSourcePickerOpen] = useState(false);
   // Default to Screen+Camera PIP template (index 1) when camera is on
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- LAYOUT_TEMPLATES is a non-empty static array
   const defaultTemplate = LAYOUT_TEMPLATES[1] ?? LAYOUT_TEMPLATES[0]!;
@@ -1611,7 +1613,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
       >
         <BottomBar
           sourceName={selectedSourceName}
-          onOpenSourcePicker={openRecordingSetupPanel}
+          onOpenSourcePicker={() => setIsSourcePickerOpen(true)}
           micName={selectedMicName}
           isMicMuted={!micEnabled}
           onToggleMicMute={() => updateRecordingConfig({ micEnabled: !micEnabled })}
@@ -1817,7 +1819,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           </div>
           <button
             data-testid="record-start-guard-pick-source"
-            onClick={openRecordingSetupPanel}
+            onClick={() => setIsSourcePickerOpen(true)}
             style={{
               height: 30,
               padding: '0 10px',
@@ -1831,7 +1833,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
               flexShrink: 0,
             }}
           >
-            Open recording setup
+            Pick a source
           </button>
         </div>
       )}
@@ -2207,6 +2209,21 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
       )}
 
       <CountdownOverlay secondsRemaining={countdownSeconds} visible={status === 'countdown'} />
+
+      {isSourcePickerOpen && (
+        <SourcePickerPopup
+          sources={sources}
+          selectedSourceId={selectedSourceId}
+          recordMode={recordMode}
+          isLoading={status === 'loading-sources'}
+          onRefresh={() => void loadSources()}
+          onSelect={(id) => {
+            updateRecordingConfig({ selectedSourceId: id });
+            setIsSourcePickerOpen(false);
+          }}
+          onClose={() => setIsSourcePickerOpen(false)}
+        />
+      )}
     </RecordScreenLayout>
   );
 }

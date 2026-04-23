@@ -248,6 +248,7 @@ export function SourcePickerPopup({
 
   return (
     <div
+      data-testid="record-inline-source-picker"
       onClick={onClose}
       style={{
         position: 'fixed',
