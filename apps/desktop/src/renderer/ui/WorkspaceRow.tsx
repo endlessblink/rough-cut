@@ -22,6 +22,7 @@ interface WorkspaceRowProps {
  */
 export function WorkspaceRow({ main, inspector, sidebarWidth }: WorkspaceRowProps) {
   const isCollapsed = useUiStore((s) => s.isRightSidebarCollapsed);
+  const hasInspector = Boolean(inspector);
   const toggleWidth = 12;
   const paddingX = 24;
   const gap = 16;
@@ -38,7 +39,7 @@ export function WorkspaceRow({ main, inspector, sidebarWidth }: WorkspaceRowProp
         display: 'flex',
         flexDirection: 'row',
         alignItems: 'stretch',
-        gap: isCollapsed ? 0 : gap,
+        gap: !hasInspector || isCollapsed ? 0 : gap,
 
         /* Padding included in width via border-box (global * rule) */
         paddingTop: 12,
@@ -66,39 +67,41 @@ export function WorkspaceRow({ main, inspector, sidebarWidth }: WorkspaceRowProp
       </div>
 
       {/* Sidebar: toggle + inspector panel */}
-      <div
-        data-testid="record-inspector"
-        style={{
-          position: 'relative',
-          zIndex: 10,
-          display: 'flex',
-          flexDirection: 'row',
-          flexShrink: 0,
-          width: isCollapsed ? toggleWidth : toggleWidth + sidebarWidth,
-        }}
-      >
-        {/* Toggle handle */}
-        <button
-          onClick={() => uiStore.getState().toggleRightSidebar()}
+      {hasInspector && (
+        <div
+          data-testid="record-inspector"
           style={{
-            width: toggleWidth,
-            border: 'none',
-            background: 'transparent',
-            cursor: 'pointer',
+            position: 'relative',
+            zIndex: 10,
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 0,
+            flexDirection: 'row',
             flexShrink: 0,
+            width: isCollapsed ? toggleWidth : toggleWidth + sidebarWidth,
           }}
         >
-          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', userSelect: 'none' }}>
-            {isCollapsed ? '◀' : '▶'}
-          </span>
-        </button>
+          {/* Toggle handle */}
+          <button
+            onClick={() => uiStore.getState().toggleRightSidebar()}
+            style={{
+              width: toggleWidth,
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', userSelect: 'none' }}>
+              {isCollapsed ? '◀' : '▶'}
+            </span>
+          </button>
 
-        {!isCollapsed && inspector}
-      </div>
+          {!isCollapsed && inspector}
+        </div>
+      )}
     </div>
   );
 }

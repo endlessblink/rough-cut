@@ -296,6 +296,9 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     return s.project.assets.find((a) => a.type === 'recording') ?? null;
   });
   const activeRecordingId = activeRecordingAsset?.id ?? null;
+  const hasRecordedTake = assets.some(
+    (asset) => asset.type === 'recording' && asset.filePath.trim().length > 0,
+  );
   const captionSegments = useProjectStore((s) => s.project.aiAnnotations.captionSegments);
   const captionStyle = useProjectStore((s) => s.project.aiAnnotations.captionStyle);
   const recordCaptionSegments = activeRecordingId
@@ -1522,7 +1525,11 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           };
         }
 
-        return null;
+        return {
+          title: 'No recording yet',
+          detail: 'Click Record to start.',
+          tone: 'rgba(255,255,255,0.86)',
+        };
       })();
 
   if (recordShellOnly) {
@@ -1867,8 +1874,8 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           <PreviewStage>
             <CardChrome
               aspectRatio={effectiveTemplate.aspectRatio}
-              bgColor={background.bgColor}
-              bgGradient={background.bgGradient}
+              bgColor={hasRecordedTake ? background.bgColor : '#050505'}
+              bgGradient={hasRecordedTake ? background.bgGradient : null}
               bgPadding={background.bgPadding}
               bgCornerRadius={background.bgCornerRadius}
               bgShadowEnabled={background.bgShadowEnabled}
@@ -1954,7 +1961,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
                   ) : undefined
                 }
                 cameraContent={
-                  cameraAsset?.filePath ? (
+                  hasRecordedTake && cameraAsset?.filePath ? (
                     <CameraPlaybackCanvas
                       filePath={resolveProjectMediaPath(cameraAsset.filePath, projectFilePath) ?? cameraAsset.filePath}
                       fps={projectFps}
@@ -2028,68 +2035,70 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           </PreviewStage>
         }
         inspector={
-          <RecordRightPanel
-            fps={projectFps}
-            zoomMarkerCount={zoomPresentation.markers.length}
-            zoomIntensity={zoomPresentation.autoIntensity}
-            onZoomIntensityChange={handleZoomIntensityChange}
-            zoomFollowCursor={zoomPresentation.followCursor}
-            onZoomFollowCursorChange={handleZoomFollowCursorChange}
-            zoomFollowAnimation={zoomPresentation.followAnimation}
-            onZoomFollowAnimationChange={handleZoomFollowAnimationChange}
-            zoomFollowPadding={zoomPresentation.followPadding}
-            onZoomFollowPaddingChange={handleZoomFollowPaddingChange}
-            canRegenerateAutoZoom={Boolean(cursorEventsPath)}
-            onRegenerateAutoZoom={regenerateAutoZoomMarkers}
-            onResetZoomMarkers={handleResetZoom}
-            onCreateZoomFromScreenFocus={handleCreateZoomFromScreenFocus}
-            cursor={cursorPresentation}
-            onCursorChange={handleCursorChange}
-            onCursorReset={handleCursorReset}
-            camera={cameraPresentation}
-            onCameraChange={handleCameraChange}
-            onCameraReset={handleCameraReset}
-            cameraLayoutSnapshotCount={
-              (activeRecordingAsset?.presentation as { cameraLayouts?: unknown[] } | undefined)
-                ?.cameraLayouts?.length ?? 0
-            }
-            onAddCameraLayoutSnapshot={handleAddCameraLayoutSnapshot}
-            onAddCameraLayoutPreset={handleAddCameraLayoutPreset}
-            selectedCameraLayoutMarkerId={selectedCameraLayoutMarkerId}
-            onDeleteSelectedCameraLayoutMarker={handleDeleteSelectedCameraLayoutMarker}
-            background={background}
-            onBackgroundChange={handleBackgroundChange}
-            onBackgroundReset={handleBackgroundReset}
-            screenCrop={screenCrop}
-            onScreenCropChange={handleScreenCropChange}
-            onScreenCropReset={handleScreenCropReset}
-            cameraCrop={cameraCrop}
-            onCameraCropChange={handleCameraCropChange}
-            onCameraCropReset={handleCameraCropReset}
-            screenSourceWidth={screenSourceWidth}
-            screenSourceHeight={screenSourceHeight}
-            cameraSourceWidth={cameraSourceWidth}
-            cameraSourceHeight={cameraSourceHeight}
-            cropModeActive={cropModeActive}
-            cropTargetRegion={cropTargetRegion}
-            onScreenCropModeChange={handleScreenCropModeChange}
-            onCameraCropModeChange={handleCameraCropModeChange}
-            selectedTemplateId={effectiveTemplate.id}
-            onTemplateChange={handleTemplateChange}
-            selectedDestinationPresetId={selectedDestinationPresetId}
-            onDestinationPresetChange={handleDestinationPresetChange}
-            selectedRegion={selectedRegion}
-            onAlign={handleAlign}
-            preferredCategoryId={preferredInspectorCategoryId}
-            captionSegments={recordCaptionSegments}
-            onUpdateCaptionText={handleUpdateRecordCaptionText}
-            canGenerateCaptions={Boolean(activeRecordingAsset?.filePath && activeRecordingId)}
-            isGeneratingCaptions={isGeneratingCaptions}
-            captionError={recordCaptionError}
-            onGenerateCaptions={handleGenerateRecordCaptions}
-            captionStyle={captionStyle}
-            onUpdateCaptionStyle={handleUpdateRecordCaptionStyle}
-          />
+          hasRecordedTake ? (
+            <RecordRightPanel
+              fps={projectFps}
+              zoomMarkerCount={zoomPresentation.markers.length}
+              zoomIntensity={zoomPresentation.autoIntensity}
+              onZoomIntensityChange={handleZoomIntensityChange}
+              zoomFollowCursor={zoomPresentation.followCursor}
+              onZoomFollowCursorChange={handleZoomFollowCursorChange}
+              zoomFollowAnimation={zoomPresentation.followAnimation}
+              onZoomFollowAnimationChange={handleZoomFollowAnimationChange}
+              zoomFollowPadding={zoomPresentation.followPadding}
+              onZoomFollowPaddingChange={handleZoomFollowPaddingChange}
+              canRegenerateAutoZoom={Boolean(cursorEventsPath)}
+              onRegenerateAutoZoom={regenerateAutoZoomMarkers}
+              onResetZoomMarkers={handleResetZoom}
+              onCreateZoomFromScreenFocus={handleCreateZoomFromScreenFocus}
+              cursor={cursorPresentation}
+              onCursorChange={handleCursorChange}
+              onCursorReset={handleCursorReset}
+              camera={cameraPresentation}
+              onCameraChange={handleCameraChange}
+              onCameraReset={handleCameraReset}
+              cameraLayoutSnapshotCount={
+                (activeRecordingAsset?.presentation as { cameraLayouts?: unknown[] } | undefined)
+                  ?.cameraLayouts?.length ?? 0
+              }
+              onAddCameraLayoutSnapshot={handleAddCameraLayoutSnapshot}
+              onAddCameraLayoutPreset={handleAddCameraLayoutPreset}
+              selectedCameraLayoutMarkerId={selectedCameraLayoutMarkerId}
+              onDeleteSelectedCameraLayoutMarker={handleDeleteSelectedCameraLayoutMarker}
+              background={background}
+              onBackgroundChange={handleBackgroundChange}
+              onBackgroundReset={handleBackgroundReset}
+              screenCrop={screenCrop}
+              onScreenCropChange={handleScreenCropChange}
+              onScreenCropReset={handleScreenCropReset}
+              cameraCrop={cameraCrop}
+              onCameraCropChange={handleCameraCropChange}
+              onCameraCropReset={handleCameraCropReset}
+              screenSourceWidth={screenSourceWidth}
+              screenSourceHeight={screenSourceHeight}
+              cameraSourceWidth={cameraSourceWidth}
+              cameraSourceHeight={cameraSourceHeight}
+              cropModeActive={cropModeActive}
+              cropTargetRegion={cropTargetRegion}
+              onScreenCropModeChange={handleScreenCropModeChange}
+              onCameraCropModeChange={handleCameraCropModeChange}
+              selectedTemplateId={effectiveTemplate.id}
+              onTemplateChange={handleTemplateChange}
+              selectedDestinationPresetId={selectedDestinationPresetId}
+              onDestinationPresetChange={handleDestinationPresetChange}
+              selectedRegion={selectedRegion}
+              onAlign={handleAlign}
+              preferredCategoryId={preferredInspectorCategoryId}
+              captionSegments={recordCaptionSegments}
+              onUpdateCaptionText={handleUpdateRecordCaptionText}
+              canGenerateCaptions={Boolean(activeRecordingAsset?.filePath && activeRecordingId)}
+              isGeneratingCaptions={isGeneratingCaptions}
+              captionError={recordCaptionError}
+              onGenerateCaptions={handleGenerateRecordCaptions}
+              captionStyle={captionStyle}
+              onUpdateCaptionStyle={handleUpdateRecordCaptionStyle}
+            />
+          ) : null
         }
       />
         </>
@@ -2127,7 +2136,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         </div>
       )}
 
-      {!recordChromeOnly && !recordWorkspaceOnly && (
+      {!recordChromeOnly && !recordWorkspaceOnly && hasRecordedTake && (
         <>
       {/* Zoom marker inspector (above timeline, only when a marker is selected) */}
       {selectedZoomMarkerId &&
