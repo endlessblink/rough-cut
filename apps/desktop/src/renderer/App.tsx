@@ -322,6 +322,17 @@ export function App() {
       }
     }
 
+    const defaultPresentation = createDefaultRecordingPresentation();
+    const truthFirstPresentation = {
+      ...defaultPresentation,
+      templateId: cameraAssetId ? 'screen-cam-br-16x9' : 'screen-only-16x9',
+      camera: {
+        ...defaultPresentation.camera,
+        visible: Boolean(cameraAssetId),
+      },
+      ...(generatedZoom ? { zoom: generatedZoom } : {}),
+    };
+
     const baseAsset = createAsset('recording', result.filePath, {
       duration: clipDuration,
       thumbnailPath: result.thumbnailPath,
@@ -335,14 +346,7 @@ export function App() {
         cursorEventsPath: result.cursorEventsPath || null,
         audioCapture: result.audioCapture ?? null,
       },
-      ...(generatedZoom
-        ? {
-            presentation: {
-              ...createDefaultRecordingPresentation(),
-              zoom: generatedZoom,
-            },
-          }
-        : {}),
+      presentation: truthFirstPresentation,
       ...(cameraAssetId ? { cameraAssetId } : {}),
     });
 

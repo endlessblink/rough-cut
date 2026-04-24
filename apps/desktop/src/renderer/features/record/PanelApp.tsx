@@ -150,20 +150,25 @@ async function warmCameraStream(stream: MediaStream): Promise<void> {
   }
 }
 
-async function waitForCameraStreamReady(
-  getStream: () => MediaStream | null,
-  timeoutMs = 1500,
-): Promise<MediaStream | null> {
-  const existing = getStream();
-  if (existing) return existing;
-
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    await new Promise((resolve) => window.setTimeout(resolve, 50));
-    const stream = getStream();
-    if (stream) return stream;
+async function probeCameraForRecording(selectedCameraDeviceId: string | null): Promise<boolean> {
+  let stream: MediaStream | null = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        ...(selectedCameraDeviceId ? { deviceId: { exact: selectedCameraDeviceId } } : {}),
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 30 },
+      },
+      audio: false,
+    });
+    const track = stream.getVideoTracks()[0] ?? null;
+    return !!track && track.readyState === 'live';
+  } catch {
+    return false;
+  } finally {
+    stream?.getTracks().forEach((track) => track.stop());
   }
-  return getStream();
 }
 
 // ─── Audio Level Meter ──────────────────────────────────────────────────────
@@ -468,12 +473,38 @@ function CameraPiPOverlay({ cameraStream }: { cameraStream: MediaStream | null }
 
   useEffect(() => {
     const node = cameraVideoRef.current;
-    if (!node || !cameraStream) {
+    if (!node) return;
+
+    if (!cameraStream) {
+      node.pause();
+      node.srcObject = null;
       return;
     }
 
-    node.srcObject = cameraStream;
-    void node.play().catch(() => {});
+    const sourceTrack = cameraStream.getVideoTracks()[0] ?? null;
+    if (!sourceTrack) {
+      node.pause();
+      node.srcObject = null;
+      return;
+    }
+
+    const previewTrack = sourceTrack.clone();
+    const previewStream = new MediaStream([previewTrack]);
+    node.srcObject = previewStream;
+
+    const play = () => {
+      void node.play().catch(() => {});
+    };
+
+    node.addEventListener('loadedmetadata', play);
+    play();
+
+    return () => {
+      node.removeEventListener('loadedmetadata', play);
+      node.pause();
+      node.srcObject = null;
+      previewTrack.stop();
+    };
   }, [cameraStream]);
 
   if (!cameraStream) {
@@ -986,7 +1017,11 @@ function SetupSection({
           Pick the screen or window first, then confirm mic, desktop audio, and camera before you
           start.
         </span>
-        <ModeSelectorRow mode={recordMode} onChange={onModeChange} />
+        <ModeSelectorRow
+          mode={recordMode}
+          onChange={onModeChange}
+          supportedModes={['fullscreen', 'window']}
+        />
       </div>
       {children}
     </div>
@@ -1874,6 +1909,7 @@ export function PanelApp() {
   const cameraRecordingStreamRef = useRef<MediaStream | null>(null);
   const cameraChunksRef = useRef<BlobPart[]>([]); // kept for fallback
   const screenRecorderStartFailedRef = useRef(false);
+  const displayAcquirePromiseRef = useRef<Promise<MediaStream | null> | null>(null);
   const activeCameraStreamKeyRef = useRef<string | null>(null);
   // Capture elapsed at the moment stop is triggered (recorder.onstop fires async)
   const elapsedMsAtStop = useRef(0);
@@ -1995,58 +2031,68 @@ export function PanelApp() {
       return;
     }
     let active = true;
-    console.info('[PanelApp] Requesting camera via getUserMedia...');
-    navigator.mediaDevices
-      .getUserMedia({
-        video: {
-          ...(selectedCameraDeviceId ? { deviceId: { exact: selectedCameraDeviceId } } : {}),
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30 },
-        },
-        audio: false,
-      })
-      .then(async (s) => {
-        const track = s.getVideoTracks()[0];
-        try {
-          await warmCameraStream(s);
-        } catch (err) {
-          console.warn('[PanelApp] Camera warmup failed:', err);
-        }
-        if (track) {
-          const settings = track.getSettings();
-          console.info(
-            `[PanelApp] Camera stream: ${settings.width}x${settings.height} @ ${settings.frameRate}fps`,
-          );
-          // TASK-185 diagnostic: log every preview track transition to ended with a
-          // stack trace. The 2026-04-22 bug happened because this track ended
-          // silently between preview setup and REC click. Leaving this as an
-          // always-on observability hook so the next reproduction has evidence of
-          // which code path ended it.
-          track.addEventListener('ended', () => {
-            console.warn(
-              '[PanelApp][task-185] Camera preview track ended unexpectedly',
-              'trackId=' + track.id,
-              'readyState=' + track.readyState,
-              new Error('preview-track-ended').stack,
+    const acquireCameraStream = () => {
+      console.info('[PanelApp] Requesting camera via getUserMedia...');
+      navigator.mediaDevices
+        .getUserMedia({
+          video: {
+            ...(selectedCameraDeviceId ? { deviceId: { exact: selectedCameraDeviceId } } : {}),
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 },
+          },
+          audio: false,
+        })
+        .then(async (s) => {
+          const track = s.getVideoTracks()[0];
+          try {
+            await warmCameraStream(s);
+          } catch (err) {
+            console.warn('[PanelApp] Camera warmup failed:', err);
+          }
+          if (track) {
+            const settings = track.getSettings();
+            console.info(
+              `[PanelApp] Camera stream: ${settings.width}x${settings.height} @ ${settings.frameRate}fps`,
             );
-          });
-        }
-        void refreshDeviceOptions();
-        if (active) {
-          activeCameraStreamKeyRef.current = desiredCameraKey;
-          setCameraStream((prev) => {
-            if (prev && prev !== s) {
-              prev.getTracks().forEach((t) => t.stop());
-            }
-            return s;
-          });
-        } else s.getTracks().forEach((t) => t.stop());
-      })
-      .catch((err) => {
-        console.error('[PanelApp] Camera getUserMedia FAILED:', err?.name, err?.message, err);
-        if (active) setCameraStream(null);
-      });
+            track.addEventListener('ended', () => {
+              console.warn(
+                '[PanelApp][task-185] Camera preview track ended unexpectedly',
+                'trackId=' + track.id,
+                'readyState=' + track.readyState,
+                new Error('preview-track-ended').stack,
+              );
+              if (!active || !cameraEnabledRef.current) return;
+              activeCameraStreamKeyRef.current = null;
+              setCameraStream((prev) => {
+                if (prev === s) return null;
+                return prev;
+              });
+              window.setTimeout(() => {
+                if (active && cameraEnabledRef.current) {
+                  acquireCameraStream();
+                }
+              }, 150);
+            });
+          }
+          void refreshDeviceOptions();
+          if (active) {
+            activeCameraStreamKeyRef.current = desiredCameraKey;
+            setCameraStream((prev) => {
+              if (prev && prev !== s) {
+                prev.getTracks().forEach((t) => t.stop());
+              }
+              return s;
+            });
+          } else s.getTracks().forEach((t) => t.stop());
+        })
+        .catch((err) => {
+          console.error('[PanelApp] Camera getUserMedia FAILED:', err?.name, err?.message, err);
+          if (active) setCameraStream(null);
+        });
+    };
+
+    acquireCameraStream();
     return () => {
       active = false;
     };
@@ -2188,44 +2234,65 @@ export function PanelApp() {
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
 
-      try {
-        const s = await navigator.mediaDevices.getDisplayMedia({
-          video: {
-            frameRate: { ideal: 15, max: 20 },
-          },
-          audio: true,
-        });
-        if (!active) {
-          s.getTracks().forEach((t) => t.stop());
-          return;
-        }
-
-        const videoTrack = s.getVideoTracks()[0];
-        if (videoTrack) {
-          void videoTrack.applyConstraints({ frameRate: { ideal: 15, max: 20 } }).catch(() => {});
-          const settings = videoTrack.getSettings();
-          console.info(
-            '[PanelApp] Screen track:',
-            settings.width,
-            'x',
-            settings.height,
-            '@',
-            settings.frameRate,
-            'fps',
-          );
-        }
-
-        streamRef.current = s;
-        setStream(s);
-        setStatus('ready');
-        console.info('[PanelApp] Stream acquired via getDisplayMedia');
-      } catch (err) {
-        if (!active) return;
-        console.error('[PanelApp] Failed to acquire stream:', err);
-        streamRef.current = null;
-        setStream(null);
-        setStatus('idle');
+      const pendingAcquire = displayAcquirePromiseRef.current;
+      if (pendingAcquire) {
+        await pendingAcquire;
+        return;
       }
+
+      const acquirePromise = (async () => {
+        try {
+          const s = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              frameRate: { ideal: 15, max: 20 },
+            },
+            audio: true,
+          });
+          if (!active) {
+            s.getTracks().forEach((t) => t.stop());
+            return null;
+          }
+
+          const videoTrack = s.getVideoTracks()[0];
+          if (videoTrack) {
+            void videoTrack.applyConstraints({ frameRate: { ideal: 15, max: 20 } }).catch(() => {});
+            const settings = videoTrack.getSettings();
+            console.info(
+              '[PanelApp] Screen track:',
+              settings.width,
+              'x',
+              settings.height,
+              '@',
+              settings.frameRate,
+              'fps',
+            );
+          }
+
+          streamRef.current = s;
+          setStream(s);
+          setStatus('ready');
+          console.info('[PanelApp] Stream acquired via getDisplayMedia');
+          return s;
+        } catch (err) {
+          if (!active) return null;
+          const name = (err as { name?: string })?.name ?? 'Error';
+          const message = (err as { message?: string })?.message ?? String(err);
+          console.error(
+            '[PanelApp] Failed to acquire display stream:',
+            `${name}: ${message}`,
+            err,
+          );
+          streamRef.current = null;
+          setStream(null);
+          setStatus('idle');
+          return null;
+        } finally {
+          displayAcquirePromiseRef.current = null;
+        }
+      })();
+
+      displayAcquirePromiseRef.current = acquirePromise;
+      await acquirePromise;
     };
 
     void acquireStream();
@@ -2506,14 +2573,13 @@ export function PanelApp() {
     (window as any).roughcut.panelMediaRecorderStarted(Date.now());
 
     // Record camera on a fresh getUserMedia stream so preview lifecycle doesn't affect capture.
-    const currentCameraStream = cameraStreamRef.current;
     console.info(
       '[PanelApp] Camera stream at record start:',
-      currentCameraStream ? 'ACTIVE' : 'NULL',
+      cameraStreamRef.current ? 'ACTIVE' : 'NULL',
       'cameraEnabled:',
       cameraEnabledRef.current,
     );
-    if (currentCameraStream && cameraEnabledRef.current) {
+    if (cameraEnabledRef.current) {
       void (async () => {
         let recordingCameraStream: MediaStream;
         try {
@@ -2650,13 +2716,60 @@ export function PanelApp() {
         : null;
 
     void (async () => {
+      if (!streamRef.current) {
+        const pendingAcquire = displayAcquirePromiseRef.current;
+        if (!pendingAcquire) {
+          try {
+            const s = await navigator.mediaDevices.getDisplayMedia({
+              video: {
+                frameRate: { ideal: 15, max: 20 },
+              },
+              audio: true,
+            });
+            const videoTrack = s.getVideoTracks()[0];
+            if (videoTrack) {
+              void videoTrack
+                .applyConstraints({ frameRate: { ideal: 15, max: 20 } })
+                .catch(() => {});
+            }
+            streamRef.current = s;
+            setStream(s);
+            setStatus('ready');
+          } catch (err) {
+            const name = (err as { name?: string })?.name ?? 'Error';
+            const message = (err as { message?: string })?.message ?? String(err);
+            console.error(
+              '[PanelApp] Failed to acquire stream at start:',
+              `${name}: ${message}`,
+              err,
+            );
+            showToast({
+              title: 'Capture unavailable',
+              message: 'Rough Cut could not acquire the selected screen or window. Try re-targeting the source, then start again.',
+              tone: 'warning',
+            });
+            return;
+          }
+        } else {
+          const acquiredStream = await pendingAcquire;
+          if (!acquiredStream) {
+            showToast({
+              title: 'Capture unavailable',
+              message: 'Rough Cut could not acquire the selected screen or window. Try re-targeting the source, then start again.',
+              tone: 'warning',
+            });
+            return;
+          }
+        }
+      }
+
       if (cameraEnabledRef.current) {
-        const readyCameraStream = await waitForCameraStreamReady(() => cameraStreamRef.current);
-        if (!readyCameraStream) {
-          console.warn('[PanelApp] Blocking recording start because camera stream is not ready');
+        const cameraReady = await probeCameraForRecording(selectedCameraDeviceId);
+        if (!cameraReady) {
+          console.warn('[PanelApp] Blocking recording start because camera could not be acquired');
           showToast({
-            title: 'Camera still warming up',
-            message: 'Wait a moment for the camera preview before starting the take.',
+            title: 'Camera unavailable',
+            message: 'Rough Cut could not acquire the camera. Close other apps using it, then try again.',
             tone: 'warning',
           });
           return;
@@ -2687,19 +2800,9 @@ export function PanelApp() {
 
   const handlePanelModeChange = useCallback(
     (mode: 'fullscreen' | 'window' | 'region') => {
-      if (mode === 'region') {
-        showToast({
-          title: 'Region capture is unavailable',
-          message: 'Rough Cut currently supports full screen or window capture only.',
-          tone: 'warning',
-        });
-        updateRecordingConfig({ recordMode: 'fullscreen' });
-        return;
-      }
-
       updateRecordingConfig({ recordMode: mode });
     },
-    [showToast],
+    [],
   );
 
   const handleOpenFixMode = useCallback(() => {
@@ -2749,7 +2852,12 @@ export function PanelApp() {
   }, [showToast]);
 
   // ─── Render ──────────────────────────────────────────────────────────────
-  const canRecord = hydrated && status === 'ready' && stream !== null;
+  const canRecord =
+    hydrated &&
+    Boolean(selectedSourceId) &&
+    status !== 'recording' &&
+    status !== 'stopping' &&
+    status !== 'countdown';
   const issueMessages = Object.values(connectionIssues).filter((message): message is string =>
     Boolean(message),
   );
@@ -2869,14 +2977,14 @@ export function PanelApp() {
             onSelectMicDevice={(id) =>
               updateRecordingConfig({ selectedMicDeviceId: id, micEnabled: id ? true : micEnabled })
             }
-            cameraOptions={cameraOptions}
-            selectedCameraDeviceId={selectedCameraDeviceId}
-            onSelectCameraDevice={(id) =>
-              updateRecordingConfig({
-                selectedCameraDeviceId: id,
-                cameraEnabled: id ? true : cameraEnabled,
-              })
-            }
+          cameraOptions={cameraOptions}
+          selectedCameraDeviceId={selectedCameraDeviceId}
+          onSelectCameraDevice={(id) =>
+            updateRecordingConfig({
+              selectedCameraDeviceId: id,
+              cameraEnabled: true,
+            })
+          }
             systemAudioOptions={systemAudioOptions}
             selectedSystemAudioSourceId={selectedSystemAudioSourceId}
             onSelectSystemAudioSource={(id) =>

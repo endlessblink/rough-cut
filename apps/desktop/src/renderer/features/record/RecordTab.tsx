@@ -75,14 +75,14 @@ import type {
 } from '../../env.js';
 
 const DEFAULT_BACKGROUND: BackgroundConfig = {
-  bgColor: '#4a1942',
-  bgGradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-  bgPadding: 40,
-  bgCornerRadius: 12,
+  bgColor: '#050505',
+  bgGradient: null,
+  bgPadding: 0,
+  bgCornerRadius: 0,
   bgInset: 0,
   bgInsetColor: '#ffffff',
-  bgShadowEnabled: true,
-  bgShadowBlur: 20,
+  bgShadowEnabled: false,
+  bgShadowBlur: 0,
 };
 
 function getActiveCameraLayoutSnapshot(

@@ -104,7 +104,7 @@ These lines define the stability-first orchestration view in Watchpost. `Sequenc
 The current sprint should stay inside the Record surface, but the priority is now stability-first rather than feature-first. The immediate next task is to eliminate the product-level redundancy between the in-app pre-record flow and the floating recording panel so Rough Cut reads as one coherent recorder before more capture hardening and polish continue. From there, the near-term job remains to make saved screen capture correct, camera capture deterministic, audio capture truthful, playback easy to inspect, those streams kept in sync, and export a faithful downstream result.
 
 1. **Lane 1 -- Unify the recording workflow**: TASK-186, TASK-187
-2. **Lane 2 -- Stable screen recording**: TASK-183, BUG-009, TASK-148, TASK-126
+2. **Lane 2 -- Stable screen recording**: TASK-183, BUG-009, TASK-148, TASK-126, TASK-190
 3. **Lane 3 -- Stable camera recording**: TASK-182, TASK-014, TASK-016, TASK-185
 4. **Lane 4 -- Stable audio recording**: TASK-088, TASK-124, FEATURE-076, TASK-032
 5. **Lane 5 -- Stable playback + sync + export**: BUG-006, TASK-020, TASK-015, TASK-021, TASK-022, TASK-112, TASK-052, TASK-054
@@ -235,7 +235,7 @@ Parallel-start rule:
 | ~~TASK-177~~ | ~~Stabilize Record: restore truthful live preview canvas reliably~~      | P0       | ✅ DONE (2026-04-20)     | TASK-165, TASK-172 |
 | ~~TASK-178~~ | ~~Stabilize Tests: replace flaky record acceptance suite with release gate~~ | P1   | ✅ DONE (2026-04-22)     | TASK-173, TASK-177 |
 | TASK-182     | Record: Make camera sidecar capture deterministic on first take         | P0       | IN PROGRESS (2026-04-21) | TASK-014, TASK-169 |
-| TASK-183     | Record: Fix Linux X11 screen capture bounds on secondary displays       | P0       | IN PROGRESS (2026-04-23) | TASK-010, TASK-167 |
+| ~~TASK-183~~ | ~~Record: Fix Linux X11 screen capture bounds on secondary displays~~   | P0       | ✅ DONE (2026-04-23)     | TASK-010, TASK-167 |
 | ~~TASK-184~~ | ~~Record: Eliminate Pixi video alpha CSP noise in the renderer~~        | P1       | ✅ DONE (2026-04-23)     | TASK-013           |
 | TASK-176     | Record: Clarify camera layout marker add vs update UX                   | P2       | TODO                     | TASK-159           |
 | TASK-185     | Record: Stabilize camera preview track lifecycle                        | P2       | IN PROGRESS (2026-04-22) | TASK-182           |
@@ -243,6 +243,7 @@ Parallel-start rule:
 | ~~TASK-187~~ | ~~Record: Break down and redesign the floating recording panel UX~~     | P1       | ✅ DONE (2026-04-23)     | TASK-186, TASK-145 |
 | TASK-188     | Product: Break down stabilization work across Projects/Record/Playback/Sidebar/Timeline/Export | P1 | TODO | TASK-186, TASK-187 |
 | ~~TASK-189~~ | ~~Record: Fix stuck + obsolete pre-start floating panel (post-TASK-186 fallout)~~              | P0 | ✅ DONE (2026-04-23) | TASK-186, TASK-187 |
+| TASK-190     | Record: Fix saved-take playback reset + visual artifacts on window resize | P1      | TODO                     | TASK-177           |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
@@ -431,16 +432,17 @@ This is the current top blocker for using Rough Cut as a personal daily recordin
 
 ---
 
-### TASK-183: Record: Fix Linux X11 screen capture bounds on secondary displays
+### ~~TASK-183~~: Record: Fix Linux X11 screen capture bounds on secondary displays
 
-**Priority:** P0 | **Status:** IN PROGRESS (2026-04-23)
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-23)
 
 #### Progress (2026-04-23)
 
 - Added Linux/X11 monitor-layout parsing via `xrandr --listmonitors` in `apps/desktop/src/main/index.mjs` and now prefer real X11 monitor geometry when deriving capture bounds for FFmpeg/cursor sidecars.
 - Normalized X11 display-string construction so the FFmpeg target display stays a valid `:display.screen+X,Y` form instead of blindly appending `.0`.
-- Verification completed in this environment: `xrandr --listmonitors` matched the expected dual-monitor geometry (`DP-0` at `+0+0`, `DP-2` at `+1920+0`), `pnpm --filter @rough-cut/desktop test` passed, and `pnpm --filter @rough-cut/desktop build` passed.
-- Remaining before close: capture one fresh saved recording on the problematic secondary display and confirm the exported artifact matches the real screen dimensions with no crop.
+- Tightened source resolution to prefer the actual `getDisplayMedia` granted screen source for the take, rather than only the persisted selected source ID.
+- Verification completed on the real secondary-display path: `xrandr --listmonitors` matched the expected dual-monitor geometry (`DP-0` at `+0+0`, `DP-2` at `+1920+0`), the session resolved `Screen 2` to display id `3` with capture bounds `{ x: 1920, y: 0, width: 1920, height: 1080 }`, and FFmpeg recorded `:0.0+1920,0` as a `1920x1080` artifact.
+- Direct frame extraction from the saved FFmpeg recording confirmed the raw capture is correct. Remaining visible framing issues were traced to Record-tab presentation chrome, not X11 capture bounds.
 
 #### Problem
 
@@ -516,24 +518,32 @@ This warning is currently polluting the debugging signal around camera failures.
 
 ### TASK-185: Record: Stabilize camera preview track lifecycle
 
-**Priority:** P2 | **Status:** IN PROGRESS (2026-04-22)
+**Priority:** P2 | **Status:** IN PROGRESS (2026-04-24)
 
-#### Progress (2026-04-22)
+#### Progress (2026-04-24)
 
 - **Diagnostic landed** (commit `8c8f04e`): preview camera track now logs an `[PanelApp][task-185] Camera preview track ended unexpectedly` warning with stack trace whenever it transitions to `ended`. Always-on observability for the next reproduction.
 - **Structural fix landed** (commit `9de2b7f`): removed `cameraStream` from the preview useEffect's dependency array and switched to reading via `cameraStreamRef.current`. This eliminates the self-retrigger loop where `setCameraStream(s)` inside the effect caused the effect to re-run and potentially re-acquire during transient non-live states — a plausible root cause for the 2026-04-22 ended-track state.
 - All camera-artifact (3) and camera-template-parity (5) specs still green with both changes.
+- **New reproduction isolated (2026-04-24):** on Linux, the panel preview camera can turn black immediately after selecting a screen source in the setup panel, before recording even starts. This is now a reliable UX-level repro for the task.
+- **Important split confirmed:** the saved camera capture path is healthy even when the live panel preview goes black. Direct extraction from the saved MP4 (`recording-2026-04-24T07-02-31-920Z-camera.mp4`) shows real camera video, so the remaining bug is preview lifecycle/rendering, not camera recording fidelity.
+- **Mitigations attempted:**
+- Added preview auto-heal on `track.onended` so the panel re-acquires camera when the preview track ends unexpectedly.
+- Switched the small circular PiP preview to a cloned camera track so the on-screen bubble is less coupled to the main preview stream lifecycle.
+- Adjusted the camera start gate so recording probes camera availability directly instead of blocking on a stale preview-warmup race.
+- **Current outcome:** recording is more truthful and camera sidecar capture works, but the panel's live preview can still black out after screen selection, so TASK-185 remains open.
 
 #### Remaining
 
-- **Reproduce the ended-track state** on the fix branch. If the diagnostic logger never fires in a few sessions of normal use, the structural fix may have eliminated the root cause and this task can close. If the warning fires, the stack trace identifies the culprit.
-- **(Optional) Track-ended auto-heal**: if the preview track can still end from an external cause (panel hide/show, device disconnect), add a re-acquire-on-end handler so preview self-heals. Hold on this until there's evidence the structural fix alone isn't enough.
+- **Identify the exact trigger on screen selection.** The repro now appears tied to the display-media acquisition path in the setup panel, not only to the REC transition. Need to determine whether `getDisplayMedia`, compositor/layout updates, or Chromium/X11 visibility changes are invalidating the preview track.
+- **Make panel camera preview resilient while setup changes.** The preview should stay live when switching screen/window sources and when the panel updates its setup state.
+- **Verify whether the track really ends or the `<video>` element simply stops painting.** The saved camera file proves the underlying camera pipeline can keep running, so the remaining bug may be in preview presentation rather than stream capture.
 
 #### Context
 
 During the 2026-04-22 camera-recording bug, the preview's camera `MediaStreamTrack` had already transitioned to `readyState === 'ended'` by the time the user clicked REC. The recorder fix (acquire a fresh `getUserMedia` stream at REC click, see `apps/desktop/src/renderer/features/record/PanelApp.tsx:2410-2463`) decouples recording from the preview's lifecycle, so this is no longer a functional blocker for capture. However, an ended preview track means the user sees a frozen/dead camera in the panel UI, which is still a real UX bug.
 
-Root cause of the preview track ending mid-session is **unconfirmed**. The diagnostic log only captured the already-ended state; there is no evidence identifying which code path stopped the track.
+Root cause of the preview track ending or blacking out mid-session is still **unconfirmed**. The 2026-04-24 work established a more precise symptom: camera preview can black out the moment a screen source is selected, while recording the same camera to disk still succeeds.
 
 #### Suspects
 
@@ -541,12 +551,14 @@ Root cause of the preview track ending mid-session is **unconfirmed**. The diagn
 - Panel `BrowserWindow` show/hide events around the REC transition may cause Chromium to pause/freeze the media stream for the hidden window, transitioning the track to ended.
 - `activeCameraStreamKeyRef.current` is assigned inside the `.then()` block at `:1968`, so there is a small window where the ref doesn't match `desiredCameraKey` even after a successful acquire.
 - `beforeunload` handler at `:2495-2497` calls `teardownLocalRecordingResources` which stops ALL `cameraStreamRef` tracks at `:2491`. If this fires spuriously (nav, soft-reload), preview dies.
+- Selecting a screen source triggers `getDisplayMedia` acquisition and setup-state updates; one of those transitions may be invalidating the live preview `<video>` element or the underlying track even when camera recording remains healthy.
+- The panel PiP `<video>` preview path may be more fragile than the recorder path under Linux/X11, especially when the screen preview/compositor and camera preview both update in the same panel state.
 
 #### First Steps
 
-- **Reproduce the ended-track state.** Until we can reliably reproduce it, any "fix" is speculative patching. Candidate repros: rapid toggle camera off/on, switch devices mid-session, minimize+restore the panel window, click between tabs while recording gate is live.
-- Add a `track.onended` listener in the preview effect that logs WHY (stack trace) the track ended. Leave it in as an always-on diagnostic.
-- Once reproduced, the minimum-viable fix is likely: remove `cameraStream` from the effect's dep array (self-referential; causes unnecessary re-runs) and keep a `cameraStreamRef` for intra-effect reads. Alternatively, make the preview effect auto-heal by re-acquiring on track `ended` events.
+- Reproduce with the simplest panel flow: open panel -> enable camera -> select a screen source. This is now the primary repro, simpler than the old REC-click timing repro.
+- Compare three states for the same take: live PiP preview in panel, saved camera MP4 extracted frame, and imported camera playback in Record. This separates preview bugs from capture bugs.
+- Inspect whether `[PanelApp][task-185] Camera preview track ended unexpectedly` fires on the black-preview repro. If not, focus on the PiP `<video>` painting path rather than only the track lifecycle.
 
 #### Key files
 
@@ -684,7 +696,7 @@ The panel is the user's live safety surface during recording. If its design is m
 
 ### TASK-188: Product: Break down stabilization work across Projects/Record/Playback/Sidebar/Timeline/Export
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-24)
 
 #### Problem
 
@@ -932,6 +944,50 @@ Remove the dead pre-start screen from the panel entirely, OR reduce it to a thin
 #### Why this matters
 
 Right after TASK-186 Cut C, the panel shows the user a screen that contradicts the new workflow and does not respond to input. That is worse than pre-TASK-186 — the old redundancy at least worked. This is a stability regression induced by the unification work and must be addressed before TASK-187's deeper panel redesign, because TASK-187 will otherwise be built on top of a broken starting state.
+
+---
+
+### TASK-190: Record: Fix saved-take playback reset + visual artifacts on window resize
+
+**Priority:** P1 | **Status:** TODO | **Depends on:** TASK-177
+
+#### Problem
+
+In the Record tab's saved-take review, resizing the app window causes two observable failures:
+
+1. **Playback resets to frame 0 when the resize-drag is released.** The `<video>` / preview compositor appears to be torn down and re-instantiated at the end of the drag, restarting the take from the beginning.
+2. **Visual artifacts appear in the preview area during/after resize.** Multiple screenshots from 2026-04-23 show persistent rectangles (purple, cyan-striped, black, orange) overlaying the rendered frame at fixed positions, independent of the underlying recording content. The artifacts do not match anything in the source recording.
+
+Both symptoms appear only in the saved-take review inside the Record tab. This is separate from TASK-182 (camera sidecar) and from the main-process panel-visibility work — it is purely a renderer-side playback lifecycle bug.
+
+#### Hypotheses to verify
+
+- The PreviewCompositor (PixiJS) is being disposed + recreated on each resize end instead of being resized in place, which resets video playback and may leave stale canvas content under a new renderer.
+- A React parent is using a `key` prop tied to window dimensions, forcing an unmount/remount of the compositor host on resize commit.
+- PixiJS `renderer.resize()` is being called without restoring inline styles, re-triggering the `!important` fill-style problem documented in `.claude/CLAUDE.md`, leaving artifacts where the canvas used to be.
+
+#### Scope
+
+- Resizing the window in the Record tab must NOT reset playback position of a saved take.
+- No visual artifacts should persist over the preview surface after a resize.
+- The PreviewCompositor must resize in place, not unmount/remount.
+
+#### First Steps
+
+- Identify the component tree that renders the Record-tab saved-take preview and confirm whether it shares the PreviewCompositor with the Edit tab or owns a separate instance.
+- Instrument the compositor lifecycle (`init`, `dispose`) and log any remount during resize to isolate whether this is a React key/prop issue or an internal compositor teardown.
+- Reproduce with devtools window-size drag; compare behavior to Edit tab to confirm scope is Record-only.
+
+#### Key files (likely — verify during investigation)
+
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `apps/desktop/src/renderer/features/record/` (saved-take review subcomponent — TBD)
+- `packages/preview-renderer/src/preview-compositor.ts`
+- Any `PreviewCanvas` adapter hosting the compositor
+
+#### Why this matters
+
+Saved-take review in the Record tab is the first place a user validates that a recording succeeded. If the review surface resets on resize and leaves visual garbage over the frame, the user cannot trust what they see — which undermines everything TASK-182 and TASK-183 are trying to fix at the capture layer. The capture can be correct and the user will still believe it is broken.
 
 ---
 
