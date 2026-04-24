@@ -78,11 +78,11 @@ function resolveCameraTransformForFrame(
     };
   }
 
-  // No active marker — apply auto-intensity as subtle center zoom (no pan)
-  const t = zoom.autoIntensity;
-  if (t <= 0) return DEFAULT_CAMERA_TRANSFORM;
-  const scale = 1 + t * 0.08; // subtle: 0→1x, 1→1.08x
-  return { scale, offsetX: 0, offsetY: 0 };
+  // Outside zoom markers: no zoom. The preview must show the full source
+  // edge-to-edge. autoIntensity only shapes auto-generated markers (see
+  // generateAutoZoomMarkers in timeline-engine); it must not apply a standing
+  // center zoom here because doing so silently crops ~4% of each edge.
+  return DEFAULT_CAMERA_TRANSFORM;
 }
 
 /**

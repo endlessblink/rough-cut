@@ -235,7 +235,7 @@ describe('resolveFrame', () => {
       });
     });
 
-    it('recording with auto zoom intensity → scale reflects intensity', () => {
+    it('recording with auto zoom intensity and no markers → scale = 1 (no background zoom)', () => {
       const asset = createAsset('recording', '/test.webm', {
         presentation: {
           zoom: {
@@ -251,8 +251,7 @@ describe('resolveFrame', () => {
       const project = createProject({ assets: [asset] });
       const result = resolveFrame(project, 0);
 
-      // autoIntensity=1 → scale = 1 + (1.08 - 1) * 1 = 1.08
-      expect(result.cameraTransform.scale).toBeCloseTo(1.08, 2);
+      expect(result.cameraTransform.scale).toBeCloseTo(1, 2);
     });
 
     it('recording with zero auto intensity → scale = 1', () => {
@@ -297,7 +296,7 @@ describe('resolveFrame', () => {
       expect(result.cameraTransform.scale).toBeCloseTo(1.75, 2);
     });
 
-    it('frame outside zoom marker → falls back to auto intensity', () => {
+    it('frame outside zoom marker → fully zoomed out (scale = 1)', () => {
       const asset = createAsset('recording', '/test.webm', {
         presentation: {
           zoom: {
@@ -314,10 +313,11 @@ describe('resolveFrame', () => {
       });
       const project = createProject({ assets: [asset] });
 
-      // Frame 60 is outside the marker
+      // Frame 60 is outside the marker — no zoom applied, content edge-to-edge.
       const result = resolveFrame(project, 60);
-      // autoIntensity=0.5 → scale = 1 + (1.08 - 1) * 0.5 = 1.04
-      expect(result.cameraTransform.scale).toBeCloseTo(1.04, 2);
+      expect(result.cameraTransform.scale).toBeCloseTo(1, 2);
+      expect(result.cameraTransform.offsetX).toBe(0);
+      expect(result.cameraTransform.offsetY).toBe(0);
     });
 
     it('recording with cursor settings → reflected in resolved cursor', () => {
