@@ -2795,7 +2795,9 @@ export function PanelApp() {
 
   const handleReturnMiniMode = useCallback(() => {
     setSetupModeDuringRecording(false);
-    void window.roughcut.panelResize('mini');
+    if (statusRef.current === 'recording') {
+      void window.roughcut.panelResize('mini');
+    }
   }, []);
 
   const handleRecoverTake = useCallback(() => {
@@ -2907,9 +2909,7 @@ export function PanelApp() {
           onClose={handleClose}
           label={status === 'recording' && showDetailedSetup ? 'Recording details' : 'Record setup'}
           accessory={
-            status === 'recording' && setupModeDuringRecording ? (
-              <SetupModeButton onClick={handleReturnMiniMode} />
-            ) : undefined
+            showDetailedSetup ? <SetupModeButton onClick={handleReturnMiniMode} /> : undefined
           }
         />
 
