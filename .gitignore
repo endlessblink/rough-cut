@@ -22,6 +22,7 @@ test-results/
 *.sqlite-shm
 .omc/
 .omx/
+.logs/
 
 # Local reference clones (third-party repos kept on disk for inspiration)
 refrences/

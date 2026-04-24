@@ -55,6 +55,17 @@ This rule was learned the hard way: 2026-04-22, camera recordings silently retur
 
 ---
 
+## MANDATORY: Check Runtime Log Before Asking For Logs
+
+Agents must treat `.logs/app-runtime.log` as the first place to inspect when diagnosing app behavior seen in the terminal.
+
+- Check `.logs/app-runtime.log` before asking the user for terminal output
+- Do not ask the user to paste logs from the terminal unless the needed output is missing from that file
+- Prefer tailing or reading `.logs/app-runtime.log` directly from the workspace
+- This file mirrors the Electron app runtime stream, including main-process output and renderer console forwarded through main
+
+---
+
 You are working on the Rough Cut project (desktop screen recording + editor).
 
 Before doing anything else in this session, read and obey these docs (collectively called **"the pillars"**):

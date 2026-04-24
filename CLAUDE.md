@@ -52,6 +52,13 @@ pnpm test             # unit tests
 pnpm lint
 ```
 
+## Runtime Logs
+
+- Terminal-equivalent app runtime output is mirrored to `.logs/app-runtime.log`
+- Agents should check `.logs/app-runtime.log` first when debugging runtime issues
+- Prefer reading/tailing that file directly over asking the user to paste logs from the terminal
+- This log reflects the Electron app runtime stream (main process output plus renderer console forwarded through main)
+
 ## Task Workflow
 
 Follow the MASTER_PLAN format in `docs/MASTER_PLAN.md`:
