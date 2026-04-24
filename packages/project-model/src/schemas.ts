@@ -187,6 +187,7 @@ export const AssetSchema = z.object({
   metadata: z.record(z.unknown()),
   thumbnailPath: z.string().optional(),
   presentation: RecordingPresentationSchema.optional(),
+  cameraAssetId: z.string().min(1).optional(),
 });
 
 // --- Tangent ---
