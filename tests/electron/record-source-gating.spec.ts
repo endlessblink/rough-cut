@@ -195,6 +195,7 @@ test.describe('Record source gating', () => {
     );
     expect(panelPage, 'Expected recording panel window').toBeTruthy();
     await panelPage!.waitForLoadState('domcontentloaded');
+    await expect(panelPage!.getByRole('button', { name: 'Region' })).toHaveCount(0);
     await panelPage!
       .locator('[data-testid="panel-source-select"]')
       .selectOption({ label: 'Debug Window' });
@@ -249,7 +250,7 @@ test.describe('Record source gating', () => {
       )
       .toMatchObject({
         recordMode: 'fullscreen',
-        selectedSourceId: null,
+        selectedSourceId: initialScreenSourceId,
       });
 
     await expect(recordButton).toBeEnabled();

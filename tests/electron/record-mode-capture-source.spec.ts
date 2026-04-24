@@ -207,7 +207,7 @@ test.describe('Record mode capture source selection', () => {
       )
       .toMatchObject({
         recordMode: 'fullscreen',
-        selectedSourceId: null,
+        selectedSourceId: initialScreenSourceId,
       });
 
     await appPage.evaluate(async () => {
@@ -229,9 +229,9 @@ test.describe('Record mode capture source selection', () => {
       )
       .toMatchObject({
         requestedRecordMode: 'fullscreen',
-        configuredSelectedSourceId: null,
-        grantedSourceId: null,
-        grantedSourceType: null,
+        configuredSelectedSourceId: expect.stringMatching(/^screen:/),
+        grantedSourceId: expect.stringMatching(/^screen:/),
+        grantedSourceType: 'screen',
       });
 
     await appPage.evaluate(

@@ -460,7 +460,7 @@ test.describe('Record tab', () => {
       )
       .toMatchObject({
         recordMode: 'fullscreen',
-        selectedSourceId: null,
+        selectedSourceId: initialScreenSourceId,
       });
 
     await expect(recordButton).toBeEnabled();

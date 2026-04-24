@@ -5,6 +5,7 @@ export type RecordMode = 'fullscreen' | 'window' | 'region';
 interface ModeSelectorRowProps {
   mode: RecordMode;
   onChange: (mode: RecordMode) => void;
+  supportedModes?: readonly RecordMode[];
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -44,9 +45,14 @@ const MODES: { id: RecordMode; label: string; icon: React.ReactNode }[] = [
 
 // ─── ModeSelectorRow ──────────────────────────────────────────────────────────
 
-export function ModeSelectorRow({ mode, onChange }: ModeSelectorRowProps) {
+export function ModeSelectorRow({
+  mode,
+  onChange,
+  supportedModes = MODES.map((modeOption) => modeOption.id),
+}: ModeSelectorRowProps) {
   const [hoveredMode, setHoveredMode] = useState<RecordMode | null>(null);
   const [pressedMode, setPressedMode] = useState<RecordMode | null>(null);
+  const visibleModes = MODES.filter((modeOption) => supportedModes.includes(modeOption.id));
 
   return (
     <div
@@ -61,7 +67,7 @@ export function ModeSelectorRow({ mode, onChange }: ModeSelectorRowProps) {
         padding: 2,
       }}
     >
-      {MODES.map(({ id, label, icon }) => {
+      {visibleModes.map(({ id, label, icon }) => {
         const isActive = mode === id;
         const isHovered = hoveredMode === id;
         const isPressed = pressedMode === id;

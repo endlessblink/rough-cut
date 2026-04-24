@@ -14,7 +14,14 @@ import {
 import { join, dirname, basename, extname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile, writeFile, rename, unlink } from 'node:fs/promises';
-import { existsSync, mkdirSync, statSync, createReadStream, readdirSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  statSync,
+  createReadStream,
+  readdirSync,
+  createWriteStream,
+} from 'node:fs';
 import { promisify } from 'node:util';
 import { execFile as execFileCallback, execFileSync, spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
@@ -54,6 +61,73 @@ import { registerAIHandlers } from './ai/ai-service.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const WORKSPACE_ROOT = resolve(__dirname, '../../../..');
+const DEFAULT_RUNTIME_LOG_PATH = join(WORKSPACE_ROOT, '.logs', 'app-runtime.log');
+
+let runtimeLogMirrorInstalled = false;
+let runtimeLogStream = null;
+
+function normalizeRuntimeLogChunk(chunk, encoding) {
+  if (typeof chunk === 'string') return chunk;
+  if (chunk instanceof Uint8Array) {
+    return Buffer.from(chunk).toString(typeof encoding === 'string' ? encoding : 'utf8');
+  }
+  return String(chunk);
+}
+
+function installRuntimeLogMirror() {
+  if (runtimeLogMirrorInstalled) return;
+  runtimeLogMirrorInstalled = true;
+
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+
+  const requestedPath = process.env.ROUGH_CUT_RUNTIME_LOG_PATH?.trim();
+  const logPath = requestedPath
+    ? (isAbsolute(requestedPath) ? requestedPath : resolve(WORKSPACE_ROOT, requestedPath))
+    : DEFAULT_RUNTIME_LOG_PATH;
+
+  try {
+    mkdirSync(dirname(logPath), { recursive: true });
+    runtimeLogStream = createWriteStream(logPath, { flags: 'a' });
+  } catch (error) {
+    originalStderrWrite(`[runtime-log] Failed to initialize ${logPath}: ${error?.message ?? error}\n`);
+    return;
+  }
+
+  runtimeLogStream.on('error', (error) => {
+    originalStderrWrite(`[runtime-log] Stream error for ${logPath}: ${error?.message ?? error}\n`);
+    runtimeLogStream = null;
+  });
+
+  const mirrorChunk = (chunk, encoding) => {
+    if (!runtimeLogStream) return;
+
+    try {
+      runtimeLogStream.write(normalizeRuntimeLogChunk(chunk, encoding));
+    } catch (error) {
+      originalStderrWrite(
+        `[runtime-log] Failed to append to ${logPath}: ${error?.message ?? error}\n`,
+      );
+    }
+  };
+
+  process.stdout.write = function patchedStdoutWrite(chunk, encoding, callback) {
+    mirrorChunk(chunk, encoding);
+    return originalStdoutWrite(chunk, encoding, callback);
+  };
+
+  process.stderr.write = function patchedStderrWrite(chunk, encoding, callback) {
+    mirrorChunk(chunk, encoding);
+    return originalStderrWrite(chunk, encoding, callback);
+  };
+
+  runtimeLogStream.write(`\n=== Rough Cut runtime started ${new Date().toISOString()} pid=${process.pid} ===\n`);
+  process.stderr.write(`[runtime-log] Mirroring app output to ${logPath}\n`);
+  process.on('exit', () => runtimeLogStream?.end());
+}
+
+installRuntimeLogMirror();
 
 if (!app.isPackaged) {
   // Dev-only stability workaround: this workstation intermittently crashes
@@ -292,6 +366,35 @@ function pickSourceForRecordMode(sources, recordMode, selectedSourceId, cachedSe
   return source ?? null;
 }
 
+function getDefaultSourceIdForRecordMode(sources, recordMode) {
+  if (recordMode !== 'fullscreen') {
+    return null;
+  }
+
+  return sources.find((source) => getSourceTypeFromId(source.id) === 'screen')?.id ?? null;
+}
+
+function applyDefaultSourceSelection(config, sources, options = {}) {
+  const { preferFullscreenDefault = false } = options;
+  if (config.selectedSourceId) {
+    return config;
+  }
+
+  if (!preferFullscreenDefault && config.recordMode !== 'fullscreen') {
+    return config;
+  }
+
+  const defaultSourceId = getDefaultSourceIdForRecordMode(sources, config.recordMode);
+  if (!defaultSourceId) {
+    return config;
+  }
+
+  return {
+    ...config,
+    selectedSourceId: defaultSourceId,
+  };
+}
+
 function broadcastRecordingConfig() {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
@@ -307,17 +410,26 @@ function applyRecordingConfigPatch(patch = {}) {
       nextPatch[key] = patch[key];
     }
   }
-  recordingConfig = normalizeSupportedRecordingConfig({ ...recordingConfig, ...nextPatch });
+  const normalizedConfig = normalizeSupportedRecordingConfig({ ...recordingConfig, ...nextPatch });
+  const shouldPreferFullscreenDefault =
+    Object.prototype.hasOwnProperty.call(nextPatch, 'recordMode') &&
+    normalizedConfig.recordMode === 'fullscreen';
+  recordingConfig = shouldPreferFullscreenDefault
+    ? applyDefaultSourceSelection(normalizedConfig, cachedCaptureSources, {
+        preferFullscreenDefault: true,
+      })
+    : normalizedConfig;
   setRecordingConfig(recordingConfig);
   return recordingConfig;
 }
 
 function reconcileCaptureSources(nextSources) {
-  const nextSelectedSourceId = reconcileSelectedSourceId(
+  const reconciledSelectedSourceId = reconcileSelectedSourceId(
     cachedCaptureSources,
     nextSources,
     recordingConfig.selectedSourceId,
   );
+  const nextSelectedSourceId = reconciledSelectedSourceId;
   cachedCaptureSources = nextSources;
 
   if (nextSelectedSourceId !== recordingConfig.selectedSourceId) {
@@ -1852,7 +1964,11 @@ app.whenReady().then(() => {
 
   // Pass source info getter so the session manager can use FFmpeg x11grab
   initSessionManager(mainWindow, () => {
-    const selectedSourceId = recordingConfig.selectedSourceId;
+    const selectedSourceId =
+      lastDisplayMediaSelection?.grantedSourceType === 'screen' &&
+      typeof lastDisplayMediaSelection.grantedSourceId === 'string'
+        ? lastDisplayMediaSelection.grantedSourceId
+        : recordingConfig.selectedSourceId;
     if (!selectedSourceId) return null;
     if (!selectedSourceId.startsWith('screen:')) return null; // x11grab can't target a window
 
@@ -1877,6 +1993,7 @@ app.whenReady().then(() => {
 
     console.info('[session-source] Resolved capture display:', {
       selectedSourceId,
+      lastDisplayMediaSelection,
       cachedSource: cachedSource
         ? {
             id: cachedSource.id,

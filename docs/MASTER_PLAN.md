@@ -61,7 +61,7 @@ For Rough Cut, user trust beats feature breadth. The order is: make screen recor
 | Order | Surface            | Goal                                                                 | Primary task focus                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ----- | ------------------ | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1     | Projects           | Stable project entry, reopen, and persistence foundation             | ~~TASK-072~~, ~~TASK-071~~, ~~TASK-085~~                                                                                                                                                                                                                                                                                                                                                                                                            |
-| 2     | Recording core     | Stable screen, camera, audio, and sync before feature expansion      | ~~TASK-013~~, TASK-014, TASK-015, TASK-016, TASK-086, ~~BUG-007~~, ~~BUG-008~~, TASK-087, TASK-088, BUG-009, FEATURE-076, BUG-004, BUG-011, TASK-124, TASK-126, TASK-143, TASK-145, TASK-148, TASK-152, TASK-182, TASK-183, TASK-184, ~~TASK-146~~, ~~TASK-147~~, ~~BUG-013~~                                                                                                                                                                 |
+| 2     | Recording core     | Stable screen, camera, audio, and sync before feature expansion      | ~~TASK-013~~, TASK-014, TASK-015, TASK-016, TASK-086, ~~BUG-007~~, ~~BUG-008~~, TASK-087, TASK-088, ~~BUG-009~~, FEATURE-076, BUG-004, BUG-011, TASK-124, TASK-126, TASK-143, TASK-145, TASK-148, TASK-152, TASK-182, TASK-183, TASK-184, ~~TASK-146~~, ~~TASK-147~~, ~~BUG-013~~                                                                                                                                                              |
 | 3     | Playback + export  | Stable replay and output flow for freshly recorded projects           | BUG-006, TASK-020, TASK-021, TASK-022, ~~TASK-028~~, ~~TASK-029~~, TASK-112, ~~TASK-067~~, TASK-052, TASK-054                                                                                                                                                                                                                                                                                                |
 | 4     | Record sidebar     | Build the full authoring toolset in the Record sidebar (templates, branding, overlays, annotations, titles, dynamic camera layouts, cursor FX, motion blur, privacy masks, per-segment visibility, AI captions, smart cut) | TASK-121, TASK-032, TASK-089, TASK-090, TASK-091, TASK-092, TASK-125, TASK-127, TASK-128, TASK-130, TASK-131, TASK-132, TASK-149, TASK-150, TASK-155, TASK-156, TASK-157, TASK-158, TASK-159, ~~TASK-122~~, ~~TASK-123~~, ~~TASK-129~~, ~~TASK-151~~, ~~TASK-162~~, ~~TASK-163~~, ~~TASK-160~~, ~~TASK-161~~                                                                                                                               |
 | 5     | Edit               | Deep timeline editing and refinement                                 | TASK-017, TASK-018, TASK-019, TASK-020, TASK-023, TASK-024, TASK-026, TASK-027, TASK-065                                                                                                                                                                                                                                                                                                                                                           |
@@ -77,7 +77,7 @@ These lines define the stability-first orchestration view in Watchpost. `Sequenc
    Supports: TASK-126, TASK-145, TASK-152
 
 2. **LINE B — Stable screen recording**
-   Sequence: TASK-183 -> BUG-009 -> TASK-148 -> TASK-126
+   Sequence: TASK-183 -> ~~BUG-009~~ -> TASK-148 -> TASK-126
    Supports: BUG-004, BUG-011, TASK-145, TASK-152
 
 3. **LINE C — Stable camera recording**
@@ -104,7 +104,7 @@ These lines define the stability-first orchestration view in Watchpost. `Sequenc
 The current sprint should stay inside the Record surface, but the priority is now stability-first rather than feature-first. The immediate next task is to eliminate the product-level redundancy between the in-app pre-record flow and the floating recording panel so Rough Cut reads as one coherent recorder before more capture hardening and polish continue. From there, the near-term job remains to make saved screen capture correct, camera capture deterministic, audio capture truthful, playback easy to inspect, those streams kept in sync, and export a faithful downstream result.
 
 1. **Lane 1 -- Unify the recording workflow**: TASK-186, TASK-187
-2. **Lane 2 -- Stable screen recording**: TASK-183, BUG-009, TASK-148, TASK-126, TASK-190
+2. **Lane 2 -- Stable screen recording**: TASK-183, ~~BUG-009~~, TASK-148, TASK-126, TASK-190
 3. **Lane 3 -- Stable camera recording**: TASK-182, TASK-014, TASK-016, TASK-185
 4. **Lane 4 -- Stable audio recording**: TASK-088, TASK-124, FEATURE-076, TASK-032
 5. **Lane 5 -- Stable playback + sync + export**: BUG-006, TASK-020, TASK-015, TASK-021, TASK-022, TASK-112, TASK-052, TASK-054
@@ -177,7 +177,7 @@ Parallel-start rule:
 | ~~BUG-008~~  | ~~Fix: Record source selection diverges from the floating panel source~~ | P0       | ✅ DONE (2026-04-16)     | TASK-086           |
 | ~~TASK-087~~ | ~~Record: Persist config across panel opens and app restarts~~           | P1       | ✅ DONE (2026-04-16)     | TASK-086           |
 | TASK-088     | Record: Device selectors for mic, camera, and system audio               | P1       | TODO                     | TASK-086, TASK-012 |
-| BUG-009      | Fix: Record mode selector is visual-only and does not affect capture     | P1       | TODO                     | TASK-086           |
+| ~~BUG-009~~  | Fix: Record mode selector is visual-only and does not affect capture     | P1       | ✅ DONE (2026-04-24)     | TASK-086           |
 | ~~BUG-010~~  | ~~Fix: Camera controls hidden in Record toolbar despite camera support~~ | P1       | ✅ **DONE** (2026-04-16) | TASK-086           |
 | ~~TASK-113~~ | Record: Camera aspect presets for shaped PiP                             | P1       | ✅ **DONE** (2026-04-15) | TASK-011           |
 | FEATURE-076  | Record: Audio capture + playback (FFmpeg pipeline + compositor unmute)   | P1       | IN PROGRESS              | TASK-020           |
@@ -761,7 +761,7 @@ Create and maintain a product-area stabilization map that breaks the app into th
 - ~~BUG-007~~ Toolbar toggles drive the real session
 - ~~BUG-008~~ Source selection stays in sync across surfaces
 - ~~TASK-087~~ Persist config across panel opens and restarts
-- BUG-009 Record mode selector must affect capture
+- ~~BUG-009~~ Record mode selector must affect capture
 - TASK-088 Device selectors for mic, camera, and system audio
 - TASK-143 Permission diagnostics + deep links + preflight test
 - TASK-152 Fear-reducing micro-affordances (DND, test clip, safe stop)
@@ -1242,7 +1242,7 @@ Ordered by the desired product flow: infrastructure first, then edge features, o
 | ~~BUG-008~~  | ~~Fix source selection divergence~~                         | Prevents wrong-capture regressions                 |
 | TASK-087     | Persist record config across opens and restarts             | Makes recording workflow dependable                |
 | TASK-088     | Device selectors for mic, camera, system audio              | Required for a production-ready record surface     |
-| BUG-009      | Fix mode selector so it affects capture                     | Core correctness issue                             |
+| ~~BUG-009~~  | Fix mode selector so it affects capture                     | Core correctness issue                             |
 | TASK-162     | Focus-first framing UX for screen and camera preview        | Removes a high-friction authoring flow             |
 | TASK-100     | Disconnect recovery and warning toasts                      | Hardens real recording sessions                    |
 | BUG-004      | Fix missing recording icon in dock/taskbar                  | Restores visible OS-level recording presence       |
@@ -1822,7 +1822,7 @@ The visible Record tab and the floating recording panel currently own separate s
 - Create a dedicated recording config store that is independent from the project document but shared by both the main Record tab and the floating panel.
 - Move source selection, record mode, mic/system-audio/camera enablement, selected devices, countdown duration, and last-used visual defaults into that store.
 - Make panel open/close reuse the shared state instead of reinitializing from panel-local defaults.
-- Ensure the store is the single source of truth for BUG-007, BUG-008, BUG-009, BUG-010, TASK-087, and TASK-088.
+- Ensure the store is the single source of truth for BUG-007, BUG-008, ~~BUG-009~~, BUG-010, TASK-087, and TASK-088.
 
 #### First Steps
 
@@ -2857,7 +2857,7 @@ All five of this task's Key files run green back-to-back. The 2026-04-22 full e2
 - `TASK-086` unified config store for main tab + panel
 - `BUG-007` toolbar toggles must drive the real session
 - `BUG-008` source selection must stay in sync across main tab and panel
-- `BUG-009` record mode selector must affect capture behavior
+- `~~BUG-009~~` record mode selector must affect capture behavior
 - `BUG-010` camera controls must be surfaced consistently
 - `TASK-087` persist shared config across panel opens/restarts
 - `TASK-183` fix Linux X11 screen capture bounds on secondary displays
@@ -2989,7 +2989,7 @@ Verification:
 - Add or update Playwright coverage to assert mic/system-audio toggles survive panel open
 - Fix stale acceptance assumptions in `tests/electron/acceptance-record.spec.ts` while preserving MVP intent
 
-#### Phase 3: Make mode and camera controls real (`BUG-009`, `BUG-010`)
+#### Phase 3: Make mode and camera controls real (`~~BUG-009~~`, `BUG-010`)
 
 - [ ] Wire `recordMode` to actual source/capture behavior instead of visual-only UI
 - [ ] Define exact mode behavior:

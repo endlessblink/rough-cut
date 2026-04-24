@@ -153,22 +153,52 @@ async function warmCameraStream(stream: MediaStream): Promise<void> {
 async function probeCameraForRecording(selectedCameraDeviceId: string | null): Promise<boolean> {
   let stream: MediaStream | null = null;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        ...(selectedCameraDeviceId ? { deviceId: { exact: selectedCameraDeviceId } } : {}),
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        frameRate: { ideal: 30 },
-      },
-      audio: false,
-    });
-    const track = stream.getVideoTracks()[0] ?? null;
+    stream = await acquireCameraStreamForRecording(selectedCameraDeviceId);
+    const track = stream?.getVideoTracks()[0] ?? null;
     return !!track && track.readyState === 'live';
   } catch {
     return false;
   } finally {
     stream?.getTracks().forEach((track) => track.stop());
   }
+}
+
+async function acquireCameraStreamForRecording(
+  selectedCameraDeviceId: string | null,
+): Promise<MediaStream | null> {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          ...(selectedCameraDeviceId ? { deviceId: { exact: selectedCameraDeviceId } } : {}),
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 },
+        },
+        audio: false,
+      });
+      const track = stream.getVideoTracks()[0] ?? null;
+      if (track && track.readyState === 'live') {
+        return stream;
+      }
+      console.warn(
+        '[PanelApp] Camera acquire returned non-live track; retrying:',
+        track?.readyState ?? 'no-track',
+        'attempt',
+        attempt,
+      );
+    } catch (error) {
+      console.warn('[PanelApp] Camera acquire attempt failed:', attempt, error);
+    }
+
+    stream?.getTracks().forEach((track) => track.stop());
+    if (attempt < 3) {
+      await new Promise((resolve) => window.setTimeout(resolve, 120));
+    }
+  }
+
+  return null;
 }
 
 // ─── Audio Level Meter ──────────────────────────────────────────────────────
@@ -2581,19 +2611,9 @@ export function PanelApp() {
     );
     if (cameraEnabledRef.current) {
       void (async () => {
-        let recordingCameraStream: MediaStream;
-        try {
-          recordingCameraStream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              ...(selectedCameraDeviceId ? { deviceId: { exact: selectedCameraDeviceId } } : {}),
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-              frameRate: { ideal: 30 },
-            },
-            audio: false,
-          });
-        } catch (err) {
-          console.error('[PanelApp] Camera acquire for recording failed:', err);
+        const recordingCameraStream = await acquireCameraStreamForRecording(selectedCameraDeviceId);
+        if (!recordingCameraStream) {
+          console.error('[PanelApp] Camera acquire for recording failed after retries');
           return;
         }
 
