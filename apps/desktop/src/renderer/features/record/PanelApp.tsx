@@ -485,7 +485,11 @@ function SetupModeButton({ onClick }: { onClick: () => void }) {
 
 // ─── Camera PiP ─────────────────────────────────────────────────────────────
 
-function CameraPiPOverlay({ cameraStream }: { cameraStream: MediaStream | null }) {
+function CameraPiPOverlay({
+  cameraStream,
+}: {
+  cameraStream: MediaStream | null;
+}) {
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
@@ -499,28 +503,33 @@ function CameraPiPOverlay({ cameraStream }: { cameraStream: MediaStream | null }
     }
 
     const sourceTrack = cameraStream.getVideoTracks()[0] ?? null;
-    if (!sourceTrack) {
+    if (!sourceTrack || sourceTrack.readyState !== 'live') {
       node.pause();
       node.srcObject = null;
       return;
     }
 
-    const previewTrack = sourceTrack.clone();
-    const previewStream = new MediaStream([previewTrack]);
-    node.srcObject = previewStream;
+    node.srcObject = null;
+    node.srcObject = cameraStream;
+    node.autoplay = true;
+    node.muted = true;
+    node.playsInline = true;
 
     const play = () => {
       void node.play().catch(() => {});
     };
 
     node.addEventListener('loadedmetadata', play);
+    node.addEventListener('loadeddata', play);
+    node.addEventListener('canplay', play);
     play();
 
     return () => {
       node.removeEventListener('loadedmetadata', play);
+      node.removeEventListener('loadeddata', play);
+      node.removeEventListener('canplay', play);
       node.pause();
       node.srcObject = null;
-      previewTrack.stop();
     };
   }, [cameraStream]);
 
@@ -2081,8 +2090,13 @@ export function PanelApp() {
     return () => {
       active = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- cameraStream read via ref (see comment above)
-  }, [cameraEnabled, hydrated, refreshDeviceOptions, selectedCameraDeviceId]);
+    // `stream` (screen capture) is in deps intentionally: on Linux V4L2, a new
+    // getDisplayMedia call silently flips the camera track's readyState to
+    // 'ended' without firing the 'ended' event, so after each screen-source
+    // change we need to re-run and let the readyState guard decide whether to
+    // re-acquire. cameraStream is read via ref (TASK-185 comment above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraEnabled, hydrated, refreshDeviceOptions, selectedCameraDeviceId, stream]);
 
   useEffect(() => {
     const track = micStream?.getAudioTracks()[0] ?? null;
@@ -2746,17 +2760,20 @@ export function PanelApp() {
       if (cameraEnabledRef.current) {
         preparedCameraRecordingStreamRef.current?.getTracks().forEach((track) => track.stop());
         preparedCameraRecordingStreamRef.current = null;
-        const preparedCameraStream = await acquireCameraStreamForRecording(selectedCameraDeviceId);
-        if (!preparedCameraStream) {
-          console.warn('[PanelApp] Blocking recording start because camera could not be acquired');
-          showToast({
-            title: 'Camera unavailable',
-            message: 'Rough Cut could not acquire the camera. Close other apps using it, then try again.',
-            tone: 'warning',
-          });
-          return;
+        const livePreviewTrack = cameraStreamRef.current?.getVideoTracks()[0] ?? null;
+        if (!livePreviewTrack || livePreviewTrack.readyState !== 'live') {
+          const preparedCameraStream = await acquireCameraStreamForRecording(selectedCameraDeviceId);
+          if (!preparedCameraStream) {
+            console.warn('[PanelApp] Blocking recording start because camera could not be acquired');
+            showToast({
+              title: 'Camera unavailable',
+              message: 'Rough Cut could not acquire the camera. Close other apps using it, then try again.',
+              tone: 'warning',
+            });
+            return;
+          }
+          preparedCameraRecordingStreamRef.current = preparedCameraStream;
         }
-        preparedCameraRecordingStreamRef.current = preparedCameraStream;
       }
 
       await window.roughcut.panelStartRecording({
@@ -2795,9 +2812,7 @@ export function PanelApp() {
 
   const handleReturnMiniMode = useCallback(() => {
     setSetupModeDuringRecording(false);
-    if (statusRef.current === 'recording') {
-      void window.roughcut.panelResize('mini');
-    }
+    void window.roughcut.panelResize('mini');
   }, []);
 
   const handleRecoverTake = useCallback(() => {

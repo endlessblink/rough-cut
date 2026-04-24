@@ -82,7 +82,7 @@ These lines define the stability-first orchestration view in Watchpost. `Sequenc
 
 3. **LINE C — Stable camera recording**
    Sequence: TASK-182 -> TASK-014 -> TASK-016
-   Supports: ~~BUG-013~~, ~~TASK-147~~, TASK-185
+   Supports: ~~BUG-013~~, ~~TASK-147~~, ~~TASK-185~~
 
 4. **LINE D — Stable audio recording**
    Sequence: TASK-088 -> TASK-124 -> FEATURE-076 -> TASK-032
@@ -104,10 +104,10 @@ These lines define the stability-first orchestration view in Watchpost. `Sequenc
 The current sprint should stay inside the Record surface, but the priority is now stability-first rather than feature-first. The immediate next task is to eliminate the product-level redundancy between the in-app pre-record flow and the floating recording panel so Rough Cut reads as one coherent recorder before more capture hardening and polish continue. From there, the near-term job remains to make saved screen capture correct, camera capture deterministic, audio capture truthful, playback easy to inspect, those streams kept in sync, and export a faithful downstream result.
 
 1. **Lane 1 -- Unify the recording workflow**: TASK-186, TASK-187
-2. **Lane 2 -- Stable screen recording**: TASK-183, ~~BUG-009~~, TASK-148, TASK-126, TASK-190
-3. **Lane 3 -- Stable camera recording**: TASK-182, TASK-014, TASK-016, TASK-185
+2. **Lane 2 -- Stable screen recording**: TASK-183, ~~BUG-009~~, TASK-148, TASK-126, ~~TASK-190~~
+3. **Lane 3 -- Stable camera recording**: TASK-182, TASK-014, TASK-016, ~~TASK-185~~
 4. **Lane 4 -- Stable audio recording**: TASK-088, TASK-124, FEATURE-076, TASK-032
-5. **Lane 5 -- Stable playback + sync + export**: BUG-006, TASK-020, TASK-015, TASK-021, TASK-022, TASK-112, TASK-052, TASK-054
+5. **Lane 5 -- Stable playback + sync + export**: BUG-006, TASK-020, TASK-015, TASK-021, TASK-022, TASK-112, TASK-052, TASK-054, TASK-191
 6. **Lane 6 -- Record sidebar authoring toolset**: TASK-121 (templates), TASK-157 (branding/watermark), TASK-089 (keyboard overlays), TASK-090 (highlights/annotations), TASK-091 (titles/callouts), TASK-092 (dynamic camera layouts), TASK-130 (cursor styles + click FX + sounds), TASK-131 (cinematic motion blur), TASK-132 (privacy blur + spotlight), TASK-150 (per-segment visibility toggles), TASK-155 (AI captions in Record review), TASK-156 (Smart Cut for fillers/silence/breaths). This is the full creative surface, not placeholder wiring.
 
 Practical order for lowest user-risk:
@@ -238,12 +238,14 @@ Parallel-start rule:
 | ~~TASK-183~~ | ~~Record: Fix Linux X11 screen capture bounds on secondary displays~~   | P0       | ✅ DONE (2026-04-23)     | TASK-010, TASK-167 |
 | ~~TASK-184~~ | ~~Record: Eliminate Pixi video alpha CSP noise in the renderer~~        | P1       | ✅ DONE (2026-04-23)     | TASK-013           |
 | TASK-176     | Record: Clarify camera layout marker add vs update UX                   | P2       | TODO                     | TASK-159           |
-| TASK-185     | Record: Stabilize camera preview track lifecycle                        | P2       | IN PROGRESS (2026-04-22) | TASK-182           |
+| ~~TASK-185~~ | ✅ ~~Record: Stabilize camera preview track lifecycle~~                 | P2       | ✅ **DONE** (2026-04-24) | TASK-182           |
 | ~~TASK-186~~ | Record: Unify in-app pre-record flow and floating recording panel       | P0       | ✅ DONE (2026-04-23)     | TASK-086, TASK-126 |
 | ~~TASK-187~~ | ~~Record: Break down and redesign the floating recording panel UX~~     | P1       | ✅ DONE (2026-04-23)     | TASK-186, TASK-145 |
 | TASK-188     | Product: Break down stabilization work across Projects/Record/Playback/Sidebar/Timeline/Export | P1 | TODO | TASK-186, TASK-187 |
 | ~~TASK-189~~ | ~~Record: Fix stuck + obsolete pre-start floating panel (post-TASK-186 fallout)~~              | P0 | ✅ DONE (2026-04-23) | TASK-186, TASK-187 |
-| TASK-190     | Record: Fix saved-take playback reset + visual artifacts on window resize | P1      | TODO                     | TASK-177           |
+| ~~TASK-190~~ | ~~Record: Fix saved-take playback reset + visual artifacts on window resize~~ | P1  | ✅ DONE (2026-04-24)     | TASK-177           |
+| ~~TASK-191~~ | ~~Record: Fix saved-take replay progression in Record review~~              | P1       | ✅ DONE (2026-04-24)     | TASK-190           |
+| TASK-192     | Tests: Stabilize space-playback specs by replacing in-loop screenshots with cheap signals | P2 | TODO | TASK-191 |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
@@ -518,7 +520,15 @@ This warning is currently polluting the debugging signal around camera failures.
 
 ### TASK-185: Record: Stabilize camera preview track lifecycle
 
-**Priority:** P2 | **Status:** IN PROGRESS (2026-04-24)
+**Priority:** P2 | **Status:** ✅ DONE (2026-04-24)
+
+#### Resolution (2026-04-24)
+
+Root cause confirmed via Playwright probe (`tests/electron/adhoc-camera-source-switch.spec.ts`): on Linux V4L2, calling `navigator.mediaDevices.getDisplayMedia` silently flips the camera track's `readyState` from `'live'` to `'ended'` within ~2ms of resolving — **without firing the `'ended'` event**. Every `ended`-listener recovery path (the per-track listener at PanelApp.tsx:2054, the "Camera disconnected" toast at :2228, the track-ended recorder pivot) therefore never ran. After each screen-source switch the dead track lingered and the `<video>` went black.
+
+Fix: added the screen capture `stream` to the camera acquisition useEffect's dep array. After each source change the effect re-runs; its existing `readyState === 'live'` guard short-circuits when the camera track is healthy and falls through to `getUserMedia` only when the V4L2 quirk has killed the track. Result: ~500ms recovery flicker instead of permanent black.
+
+Regression guard: `tests/electron/adhoc-camera-source-switch.spec.ts` asserts `trackReadyState === 'live'` and `videoPaused === false` after every source switch.
 
 #### Progress (2026-04-24)
 
@@ -730,6 +740,62 @@ Create and maintain a product-area stabilization map that breaks the app into th
 - Add the product-area stabilization map to this task's Active Work section instead of inventing a new top-level master-plan section that could break parser expectations.
 - Mark missing or weakly specified areas that need new tasks rather than assuming the current backlog is sufficient.
 - Use that area map to drive future sprint framing and task ordering.
+
+#### Current action list (aligned to active worktree)
+
+1. **During-recording floating panel truth first**
+   - Finish the live camera-preview stabilization lane before broadening sidebar or export work.
+   - Primary task anchors: `TASK-185`, `TASK-182`.
+2. **Then post-record playback/review truth**
+   - Fix saved-take replay progression only after the recording/panel path is trustworthy enough that playback bugs are not conflated with capture bugs.
+   - Primary task anchor: `TASK-191`.
+3. **Keep this task as the ordering contract**
+   - Use the product-area map here to justify why work stays in Record stability lanes instead of drifting to garnish work.
+
+#### Exact active files and how they map
+
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
+  - Area 3: During-recording floating panel
+  - Focus: camera preview lifecycle, source-selection transitions, truthful panel setup/live state
+- `apps/desktop/src/main/recording/ffmpeg-capture.mjs`
+  - Area 3: During-recording floating panel
+  - Focus: saved-artifact truth when the panel recording path hands off to native capture
+- `tests/electron/record-camera-artifact.spec.ts`
+  - Area 3 verification gate
+  - Focus: first-take camera sidecar presence and deterministic artifact truth
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+  - Area 4: Post-record playback/review in Record
+  - Focus: truthful saved-take review state and replay controls
+- `apps/desktop/src/renderer/features/record/RecordTimelineShell.tsx`
+  - Area 4: Post-record playback/review in Record
+  - Focus: transport/playhead truth during replay, pause, and seek
+- `packages/preview-renderer/src/playback-manager.ts`
+  - Area 4: Post-record playback/review in Record
+  - Focus: authoritative playback clock semantics and replay transitions
+- `packages/preview-renderer/src/preview-compositor.ts`
+  - Area 4: Post-record playback/review in Record
+  - Focus: visible frame progression staying aligned with transport state
+- `tests/electron/camera-replay.spec.ts`
+  - Area 4 verification gate
+  - Focus: deterministic replay, seek, and camera-progress regression coverage
+
+#### Immediate execution order for the current lane
+
+1. Stabilize panel camera preview behavior in `PanelApp.tsx` and prove it with `record-camera-artifact.spec.ts`.
+2. Keep `ffmpeg-capture.mjs` changes limited to saved-artifact truth needed by that lane.
+3. Once the panel/capture path is trustworthy, finish Record saved-take replay work across `RecordTab.tsx`, `RecordTimelineShell.tsx`, `playback-manager.ts`, and `preview-compositor.ts`.
+4. Keep `camera-replay.spec.ts` as the playback regression harness for the post-record lane.
+
+#### Working checklist (current implementation guide)
+
+- [ ] Reproduce the panel camera-preview failure while switching/confirming screen source selection.
+- [ ] Keep `PanelApp.tsx` as the primary fix surface for preview-track lifecycle and setup-to-record transitions.
+- [ ] Verify that any `ffmpeg-capture.mjs` changes are only supporting saved-artifact truth for the same lane.
+- [ ] Re-run `tests/electron/record-camera-artifact.spec.ts` until first-take camera sidecar behavior is deterministic.
+- [ ] Only after the panel/capture lane is trustworthy, continue Record saved-take replay fixes in `RecordTab.tsx`.
+- [ ] Use `RecordTimelineShell.tsx`, `playback-manager.ts`, and `preview-compositor.ts` to resolve transport/playhead/compositor drift.
+- [ ] Keep `tests/electron/camera-replay.spec.ts` green as the replay regression gate for the post-record review lane.
+- [ ] Avoid pulling in Record-sidebar, timeline-breadth, or export-breadth tasks until these two stability lanes are credible.
 
 #### Product-area stabilization map (current output)
 
@@ -947,9 +1013,9 @@ Right after TASK-186 Cut C, the panel shows the user a screen that contradicts t
 
 ---
 
-### TASK-190: Record: Fix saved-take playback reset + visual artifacts on window resize
+### ~~TASK-190~~: Record: Fix saved-take playback reset + visual artifacts on window resize
 
-**Priority:** P1 | **Status:** TODO | **Depends on:** TASK-177
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-24) | **Depends on:** TASK-177
 
 #### Problem
 
@@ -957,8 +1023,18 @@ In the Record tab's saved-take review, resizing the app window causes two observ
 
 1. **Playback resets to frame 0 when the resize-drag is released.** The `<video>` / preview compositor appears to be torn down and re-instantiated at the end of the drag, restarting the take from the beginning.
 2. **Visual artifacts appear in the preview area during/after resize.** Multiple screenshots from 2026-04-23 show persistent rectangles (purple, cyan-striped, black, orange) overlaying the rendered frame at fixed positions, independent of the underlying recording content. The artifacts do not match anything in the source recording.
+3. **Ghost camera frame above the live camera** (reproduction on 2026-04-24) when the floating setup panel is open over the Record tab — two camera images stacked vertically, the upper one stale, the lower one live.
 
 Both symptoms appear only in the saved-take review inside the Record tab. This is separate from TASK-182 (camera sidecar) and from the main-process panel-visibility work — it is purely a renderer-side playback lifecycle bug.
+
+#### Outcome (2026-04-24)
+
+Root cause: an in-progress change reintroduced camera layer rendering into the PixiJS `PreviewCompositor`. The uncommitted diff in `packages/preview-renderer/src/preview-compositor.ts` (+97/-43) contradicted the prior dual-renderer decision recorded in memory #41101 ("revert compositor camera rendering"). With that diff active, the compositor drew a colored placeholder rectangle at the camera's layout rect via `colorForClipId()` / `LAYER_COLORS` whenever the camera texture was not yet bound — producing the orange/black artifacts at the template's top-right camera slot. Simultaneously, the compositor's camera draw ran alongside the Record-tab's separate camera renderers (`LivePreviewVideo` / `LivePreviewCanvas`), creating the ghost-camera stack observed in the setup-panel repro.
+
+Fix:
+- Reverted the camera-rendering reintroduction in `packages/preview-renderer/src/preview-compositor.ts` back to HEAD — compositor skips camera layers entirely, camera rendering remains owned by the React template slot (`CameraPlaybackCanvas` for Export, `LivePreviewVideo`/`LivePreviewCanvas` for Record).
+- Reverted `packages/preview-renderer/src/preview-compositor.test.ts` to match.
+- Added canvas inline-style re-assertion in `PreviewCompositor.resize()` so PixiJS cannot overwrite the `!important` fill styles during an in-place resize (latent bug per `.claude/CLAUDE.md`).
 
 #### Hypotheses to verify
 
@@ -988,6 +1064,98 @@ Both symptoms appear only in the saved-take review inside the Record tab. This i
 #### Why this matters
 
 Saved-take review in the Record tab is the first place a user validates that a recording succeeded. If the review surface resets on resize and leaves visual garbage over the frame, the user cannot trust what they see — which undermines everything TASK-182 and TASK-183 are trying to fix at the capture layer. The capture can be correct and the user will still believe it is broken.
+
+---
+
+### TASK-191: Record: Fix saved-take replay progression in Record review
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-24) | **Depends on:** TASK-190
+
+#### Resolution (2026-04-24)
+
+The user-reported "playhead does not advance after replay" / "camera looks frozen" symptoms turned out to be entirely a test-side measurement bug, not a real Record-tab playback regression. Investigation:
+
+- Diagnostic instrumentation in `PlaybackManager._syncLoop` showed the transport playhead and `cameraVideo.currentTime` both advance correctly after a near-end → seek-to-0 → replay sequence (sampled frames went 8 → 29 → 51 → 70 → 88 across 1s of replay; camTime 0.34 → 1.04 → 1.75 → 2.37 → 2.96).
+- The `tests/electron/camera-replay.spec.ts` fixture was loading the wrong recording: `assets.find(asset.type === 'recording')` returned the first (stale) recording in the project file's asset list, not the recording actually wired into `composition.tracks`. With the wrong recording selected, `cameraAssetId` pointed at a camera asset that wasn't in the composition, so `hasCameraClip` was false and all 4 tests died in the fixture loader before any replay assertion ran.
+- Even after the fixture fix, the tests were highly flaky (0–4 passing across consecutive runs). The cause: `cameraVideo.screenshot({ timeout: 5_000 })` inside a tight sample loop hits GPU `ReadPixels` stalls against PixiJS's continuous rendering, taking 500–1400ms per screenshot. With a 1.6s sample window, only 1–2 samples completed → `distinctPlayheadFrames < 3` → false-negative failure.
+
+Fix:
+- `tests/electron/camera-replay.spec.ts` — fixture loader now picks the recording referenced by a clip in the composition, and binds `cameraAsset` via `recording.cameraAssetId` (applied at both the outer loader and the in-page `layoutState` evaluate). Done in two places.
+- `tests/electron/camera-replay.spec.ts` — replaced per-iteration `cameraVideo.screenshot` + pixel-hash diff with a cheap `cameraVideo.currentTime` reading. The new signal is "did the camera video element's clock advance" instead of "did the camera image pixels change", which is a stronger and faster proxy for the same intent. Sample interval reduced from 200ms → 100ms.
+
+Result: 8 consecutive runs pass 4/4 deterministically. No production code change was required — Record-tab playback was already correct.
+
+NOTE: `tests/electron/record-space-playback.spec.ts` and likely `tests/electron/edit-space-playback.spec.ts` use the same `canvas.screenshot` in tight-loop pattern and remain flaky for the same reason. Not in scope for TASK-191; tracked separately if useful.
+
+#### Original problem (kept for history)
+
+#### Problem
+
+- In the Record tab's saved-take review, playback can enter a broken state where the UI appears to be playing but the playhead does not advance correctly, replay from the start behaves inconsistently, and the camera overlay can look frozen even when the saved camera file itself is valid.
+- The same saved project can render camera playback correctly in Edit while Record review still stalls or resets, which suggests a Record-specific playback-control bug rather than a capture or import failure.
+
+#### What we learned (2026-04-24)
+
+- The latest camera recording file is **not frozen**. Direct frame extraction from the saved camera MP4 at multiple timestamps produced different images, so camera capture is healthy.
+- A direct Record-review bug was fixed: `RecordTab.tsx` had stopped passing `cameraContent` into `TemplatePreviewRenderer`, so `CameraPlaybackCanvas` never mounted even though camera files and clips existed.
+- Strengthened camera playback regressions exposed a second, separate issue: deterministic replay tests now fail primarily in the Record tab, while the Edit replay path passes.
+- Existing replay fixture coverage was partially invalid because the old Apr 14 fixture pointed to missing media on disk. The replay tests now use a real project with valid on-disk screen and camera media.
+- After fixture cleanup, the remaining failures point to Record-only playback progression problems:
+  - replaying from the start does not settle into a clean stopped/seeked state before replay
+  - camera/screen playback can remain logically "playing" while the playhead does not advance as expected
+  - seeking after replay does not always land on the requested frame in Record review
+
+#### Scope
+
+- Record saved-take review must pause, replay, and seek reliably using the same active playback clock semantics users see in Edit.
+- The transport store's `isPlaying` and `playheadFrame` must stay in sync with the actual visible playback state.
+- Camera playback in Record review must remain frame-progressive when the screen playback is progressing.
+
+#### Current hypotheses
+
+- `PlaybackManager` still has Record-review-specific end-of-playback / replay state drift even after removing some `pause(0)` resets.
+- `RecordTimelineShell` and `PlaybackManager` may still disagree about the authoritative playback state during replay transitions.
+- The shared compositor's primary playback asset selection can drop to "no primary playback asset" mid-review, which may be collapsing the playback clock in Record but not in Edit.
+
+#### First Steps
+
+- Instrument the Record replay path around `PlaybackManager.play()`, `pause()`, `seekToFrame()`, transport `isPlaying`, transport `playheadFrame`, and compositor `getPlaybackFrame()`.
+- Compare Record vs Edit behavior on the same project and same media to isolate the Record-only control path.
+- Keep the deterministic `tests/electron/camera-replay.spec.ts` suite as the main regression harness until all Record replay scenarios pass.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/RecordTimelineShell.tsx`
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `packages/preview-renderer/src/playback-manager.ts`
+- `packages/preview-renderer/src/preview-compositor.ts`
+- `tests/electron/camera-replay.spec.ts`
+
+#### Why this matters
+
+- A user can record a correct take and still believe Rough Cut is broken if saved-take review in Record cannot replay, pause, seek, and restart truthfully.
+- This is now separate from camera capture correctness and separate from the panel preview lifecycle bug tracked by TASK-185.
+
+---
+
+### TASK-192: Tests: Stabilize space-playback specs by replacing in-loop screenshots with cheap signals
+
+**Priority:** P2 | **Status:** TODO | **Depends on:** TASK-191
+
+#### Problem
+
+`tests/electron/record-space-playback.spec.ts` and `tests/electron/edit-space-playback.spec.ts` use the same `canvas.screenshot({ timeout: 5_000 })` / `cameraVideo.screenshot(...)` in-tight-loop pattern that TASK-191 eliminated from `camera-replay.spec.ts`. Each screenshot stalls on GPU `ReadPixels` against PixiJS's continuous rendering for 0.5–1.4s, so only 1–2 samples complete in the 1.0–1.2s sample windows. The `distinctCanvasHashes >= 3` / `distinctCameraHashes >= 2` assertions then false-fail.
+
+#### Scope
+
+- Drop per-iteration screenshots from `sampleRecordPlayback` and `samplePlayback` in both spec files.
+- Sample only `transport.playheadFrame` and (for camera) `cameraVideo.currentTime`. Both are pulled from `compositor.getPlaybackFrame()` / the `<video>` element directly — they are the same signals the canvas hash was indirectly proxying.
+- Keep monotonicity, advancement, and distinct-frame assertions on the cheap signals.
+- If a visual safety net is wanted, take exactly one start + one end screenshot and assert they differ — never inside the loop.
+
+#### Why this matters
+
+These tests guard the basic "Space resumes playback monotonically" contract. Flaky or unrunnable specs erode trust in regressions and let real bugs through.
 
 ---
 
