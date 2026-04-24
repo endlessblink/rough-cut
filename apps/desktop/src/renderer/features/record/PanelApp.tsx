@@ -2909,7 +2909,9 @@ export function PanelApp() {
           onClose={handleClose}
           label={status === 'recording' && showDetailedSetup ? 'Recording details' : 'Record setup'}
           accessory={
-            showDetailedSetup ? <SetupModeButton onClick={handleReturnMiniMode} /> : undefined
+            status === 'recording' && setupModeDuringRecording ? (
+              <SetupModeButton onClick={handleReturnMiniMode} />
+            ) : undefined
           }
         />
 
