@@ -93,6 +93,75 @@ test.describe('Record playback canvas', () => {
     expect(during.playheadFrame).toBeGreaterThan(before.playheadFrame);
     expect(during.canvasHash).not.toBe(before.canvasHash);
   });
+
+  test('window resize keeps the saved-take playback subtree alive', async ({
+    appPage,
+    electronApp,
+  }) => {
+    await loadPlaybackFixture(appPage, 'record');
+
+    await appPage.evaluate(() => {
+      const pm = (window as unknown as { __roughcutPlaybackManager?: any })
+        .__roughcutPlaybackManager;
+      pm?.play();
+
+      (window as unknown as { __task190PlaybackNode?: Element | null }).__task190PlaybackNode =
+        document.querySelector('[data-testid="recording-playback-video"]');
+    });
+
+    await appPage.waitForTimeout(400);
+    const beforeResizeFrame = await appPage.evaluate(() => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      return stores?.transport.getState().playheadFrame ?? -1;
+    });
+
+    const originalBounds = await electronApp.evaluate(async ({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed());
+      if (!win) throw new Error('No BrowserWindow available for resize test');
+      return win.getBounds();
+    });
+
+    await electronApp.evaluate(async ({ BrowserWindow }, bounds) => {
+      const win = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed());
+      if (!win) throw new Error('No BrowserWindow available for shrink step');
+      win.setBounds(bounds);
+    }, {
+      ...originalBounds,
+      width: Math.max(900, originalBounds.width - 220),
+      height: Math.max(700, originalBounds.height - 180),
+    });
+
+    await appPage.waitForTimeout(250);
+
+    await electronApp.evaluate(async ({ BrowserWindow }, bounds) => {
+      const win = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed());
+      if (!win) throw new Error('No BrowserWindow available for restore step');
+      win.setBounds(bounds);
+    }, originalBounds);
+
+    await appPage.waitForTimeout(500);
+
+    const afterResize = await appPage.evaluate(() => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      const playbackNode = document.querySelector('[data-testid="recording-playback-video"]');
+      return {
+        playheadFrame: stores?.transport.getState().playheadFrame ?? -1,
+        sameNode:
+          playbackNode ===
+          (window as unknown as { __task190PlaybackNode?: Element | null }).__task190PlaybackNode,
+      };
+    });
+
+    await appPage.evaluate(() => {
+      const pm = (window as unknown as { __roughcutPlaybackManager?: any })
+        .__roughcutPlaybackManager;
+      pm?.pause();
+    });
+
+    await expect(appPage.locator('[data-testid="recording-playback-canvas"]')).toBeVisible();
+    expect(afterResize.sameNode).toBe(true);
+    expect(afterResize.playheadFrame).toBeGreaterThan(beforeResizeFrame);
+  });
 });
 
 async function captureCanvasState(page: import('@playwright/test').Page): Promise<{

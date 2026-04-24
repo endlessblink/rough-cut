@@ -297,13 +297,27 @@ export function TemplatePreviewRenderer({
     const el = containerRef.current;
     if (!el) return;
 
-    // Measure immediately
-    setContainerSize({ width: el.clientWidth, height: el.clientHeight });
+    const updateContainerSize = (width: number, height: number) => {
+      if (width <= 0 || height <= 0) {
+        return;
+      }
+
+      setContainerSize((prev) => {
+        if (prev.width === width && prev.height === height) {
+          return prev;
+        }
+        return { width, height };
+      });
+    };
+
+    // Keep the current preview subtree mounted if ResizeObserver briefly reports
+    // 0x0 during a window resize gesture.
+    updateContainerSize(el.clientWidth, el.clientHeight);
 
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        setContainerSize({ width, height });
+        updateContainerSize(width, height);
       }
     });
     observer.observe(el);
