@@ -68,7 +68,13 @@ export function useLivePreview(selectedSourceId: string | null) {
           videoElementRef.current.srcObject = newStream;
         }
       } catch (err) {
-        console.error('[useLivePreview] Failed to acquire stream:', err);
+        const name = (err as { name?: string })?.name ?? 'Error';
+        const message = (err as { message?: string })?.message ?? String(err);
+        console.error(
+          '[useLivePreview] Failed to acquire stream:',
+          `${name}: ${message}`,
+          err,
+        );
         if (!cancelled) {
           streamRef.current = null;
           setStream(null);

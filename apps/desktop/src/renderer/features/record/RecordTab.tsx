@@ -62,9 +62,8 @@ import {
   useRecordingDeviceOptions,
 } from './use-recording-device-options.js';
 import { RecordingPlaybackVideo } from './RecordingPlaybackVideo.js';
-import { CameraPlaybackCanvas } from './CameraPlaybackCanvas.js';
 import { LAYOUT_TEMPLATES, resolutionForAspectRatio } from './templates.js';
-import { inferCursorEventsPath, resolveProjectMediaPath } from '../../lib/media-sidecars.js';
+import { inferCursorEventsPath } from '../../lib/media-sidecars.js';
 import type { LayoutTemplate } from './templates.js';
 import type { Rect } from './template-layout/types.js';
 import type { Alignment } from './snap-guides.js';
@@ -353,17 +352,6 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     if (!activeRecordingAsset?.cameraAssetId) return null;
     return s.project.assets.find((a) => a.id === activeRecordingAsset.cameraAssetId) ?? null;
   });
-  const cameraClip = useProjectStore((s) => {
-    if (!activeRecordingAsset?.cameraAssetId) return null;
-    for (const track of s.project.composition.tracks) {
-      for (const clip of track.clips) {
-        if (clip.assetId === activeRecordingAsset.cameraAssetId) {
-          return clip;
-        }
-      }
-    }
-    return null;
-  });
   const cameraSourceWidth = (cameraAsset?.metadata?.width as number) || 1920;
   const cameraSourceHeight = (cameraAsset?.metadata?.height as number) || 1080;
   const screenSourceWidth = (activeRecordingAsset?.metadata?.width as number) || resolution.width;
@@ -612,12 +600,20 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     [activeRecordingId],
   );
 
-  // Live preview stream — acquired when a source is selected, independent of recording
+  const selectedSourceName = sources.find((s) => s.id === selectedSourceId)?.name ?? null;
+  const expectedSourceType = getExpectedSourceType(supportedRecordMode);
+  const modeCompatibleSources = sources.filter((source) => source.type === expectedSourceType);
+  const selectedSource = sources.find((source) => source.id === selectedSourceId) ?? null;
+  const hasValidSelectedSource = Boolean(
+    selectedSource && selectedSource.type === expectedSourceType,
+  );
+
+  // Live preview stream — acquired when a valid source is selected, independent of recording
   const {
     stream: liveStream,
     status: livePreviewStatus,
     error: livePreviewError,
-  } = useLivePreview(selectedSourceId);
+  } = useLivePreview(hasValidSelectedSource ? selectedSourceId : null);
 
   if (recordRuntimeHooks) {
     return (
@@ -1401,13 +1397,6 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     };
   }, [liveStream, selectedSourceId, setStatus, showToast, status]);
 
-  const selectedSourceName = sources.find((s) => s.id === selectedSourceId)?.name ?? null;
-  const expectedSourceType = getExpectedSourceType(supportedRecordMode);
-  const modeCompatibleSources = sources.filter((source) => source.type === expectedSourceType);
-  const selectedSource = sources.find((source) => source.id === selectedSourceId) ?? null;
-  const hasValidSelectedSource = Boolean(
-    selectedSource && selectedSource.type === expectedSourceType,
-  );
   const recordStartGuardReason = hasValidSelectedSource
     ? null
     : modeCompatibleSources.length === 0
@@ -1494,7 +1483,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     ? null
     : (() => {
         const previewSelectionLabel = getPreviewSelectionLabel(supportedRecordMode);
-        if (!selectedSourceId) {
+        if (!hasValidSelectedSource) {
           return {
             title: sourceRecoveryMessage
               ? 'Source unavailable'
@@ -1909,7 +1898,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
                     <div
                       data-testid="record-preview-status"
                       data-preview-state={
-                        !selectedSourceId
+                        !hasValidSelectedSource
                           ? sourceRecoveryMessage
                             ? 'lost'
                             : 'empty'
@@ -1958,16 +1947,6 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
                         </div>
                       </div>
                     </div>
-                  ) : undefined
-                }
-                cameraContent={
-                  hasRecordedTake && cameraAsset?.filePath ? (
-                    <CameraPlaybackCanvas
-                      filePath={resolveProjectMediaPath(cameraAsset.filePath, projectFilePath) ?? cameraAsset.filePath}
-                      fps={projectFps}
-                      clipTimelineIn={cameraClip?.timelineIn ?? 0}
-                      clipSourceIn={cameraClip?.sourceIn ?? 0}
-                    />
                   ) : undefined
                 }
                 cameraAspect={4 / 3}

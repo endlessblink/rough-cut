@@ -150,19 +150,6 @@ async function warmCameraStream(stream: MediaStream): Promise<void> {
   }
 }
 
-async function probeCameraForRecording(selectedCameraDeviceId: string | null): Promise<boolean> {
-  let stream: MediaStream | null = null;
-  try {
-    stream = await acquireCameraStreamForRecording(selectedCameraDeviceId);
-    const track = stream?.getVideoTracks()[0] ?? null;
-    return !!track && track.readyState === 'live';
-  } catch {
-    return false;
-  } finally {
-    stream?.getTracks().forEach((track) => track.stop());
-  }
-}
-
 async function acquireCameraStreamForRecording(
   selectedCameraDeviceId: string | null,
 ): Promise<MediaStream | null> {
@@ -1106,7 +1093,6 @@ function RecordingControls({
       )}
       {status === 'countdown' && <StatusLabel text="Starting…" />}
       {status === 'recording' && <RecordingRow elapsedMs={elapsedMs} onStop={onStopRecording} />}
-      {status === 'stopping' && <StatusLabel text="Saving…" showSpinner />}
     </div>
   );
 }
@@ -1514,38 +1500,6 @@ function MiniController({
   );
 }
 
-// ─── MiniSavingIndicator ─────────────────────────────────────────────────────
-
-function MiniSavingIndicator() {
-  return (
-    <div
-      style={
-        {
-          width: 340,
-          height: 56,
-          background: C.bg,
-          borderRadius: 28,
-          border: `1px solid ${C.border}`,
-          boxShadow: '0 4px 24px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 8,
-          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
-          color: C.textSecondary,
-          fontSize: 13,
-          fontWeight: 500,
-          userSelect: 'none',
-          WebkitAppRegion: 'drag',
-        } as React.CSSProperties
-      }
-    >
-      <SpinnerDot />
-      Saving…
-    </div>
-  );
-}
-
 function IssueNotice({ messages }: { messages: string[] }) {
   if (messages.length === 0) return null;
 
@@ -1937,6 +1891,7 @@ export function PanelApp() {
   const cameraRecorderKindRef = useRef<'none' | 'mediabunny' | 'mediarecorder'>('none');
   const cameraRecorderMimeTypeRef = useRef<string>('video/webm');
   const cameraRecordingStreamRef = useRef<MediaStream | null>(null);
+  const preparedCameraRecordingStreamRef = useRef<MediaStream | null>(null);
   const cameraChunksRef = useRef<BlobPart[]>([]); // kept for fallback
   const screenRecorderStartFailedRef = useRef(false);
   const displayAcquirePromiseRef = useRef<Promise<MediaStream | null> | null>(null);
@@ -2611,7 +2566,10 @@ export function PanelApp() {
     );
     if (cameraEnabledRef.current) {
       void (async () => {
-        const recordingCameraStream = await acquireCameraStreamForRecording(selectedCameraDeviceId);
+        const recordingCameraStream =
+          preparedCameraRecordingStreamRef.current ??
+          (await acquireCameraStreamForRecording(selectedCameraDeviceId));
+        preparedCameraRecordingStreamRef.current = null;
         if (!recordingCameraStream) {
           console.error('[PanelApp] Camera acquire for recording failed after retries');
           return;
@@ -2711,6 +2669,8 @@ export function PanelApp() {
     cameraRecorderKindRef.current = 'none';
     cameraRecordingStreamRef.current?.getTracks().forEach((track) => track.stop());
     cameraRecordingStreamRef.current = null;
+    preparedCameraRecordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+    preparedCameraRecordingStreamRef.current = null;
 
     streamRef.current?.getTracks().forEach((track) => track.stop());
     micStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -2784,8 +2744,10 @@ export function PanelApp() {
       }
 
       if (cameraEnabledRef.current) {
-        const cameraReady = await probeCameraForRecording(selectedCameraDeviceId);
-        if (!cameraReady) {
+        preparedCameraRecordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+        preparedCameraRecordingStreamRef.current = null;
+        const preparedCameraStream = await acquireCameraStreamForRecording(selectedCameraDeviceId);
+        if (!preparedCameraStream) {
           console.warn('[PanelApp] Blocking recording start because camera could not be acquired');
           showToast({
             title: 'Camera unavailable',
@@ -2794,6 +2756,7 @@ export function PanelApp() {
           });
           return;
         }
+        preparedCameraRecordingStreamRef.current = preparedCameraStream;
       }
 
       await window.roughcut.panelStartRecording({
@@ -2906,7 +2869,7 @@ export function PanelApp() {
   }
 
   if (status === 'stopping') {
-    return <MiniSavingIndicator />;
+    return null;
   }
 
   // ─── Full setup panel ─────────────────────────────────────────────────
@@ -2944,7 +2907,9 @@ export function PanelApp() {
           onClose={handleClose}
           label={status === 'recording' && showDetailedSetup ? 'Recording details' : 'Record setup'}
           accessory={
-            showDetailedSetup ? <SetupModeButton onClick={handleReturnMiniMode} /> : undefined
+            status === 'recording' && setupModeDuringRecording ? (
+              <SetupModeButton onClick={handleReturnMiniMode} />
+            ) : undefined
           }
         />
 
