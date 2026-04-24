@@ -91,6 +91,9 @@ export function startFfmpegCapture({
   // No audio → no -map needed (single input, auto-mapped)
 
   // --- Codecs ---
+  // libvpx VP8 defaults single-threaded and cpu-used 4 can't sustain 1080p60
+  // on this pipeline — drops ~33% of input frames. -threads 8 + cpu-used 8
+  // closes the gap on multi-core hosts without changing codec/container.
   args.push(
     '-c:v',
     'libvpx', // VP8 — same codec as MediaRecorder WebM
@@ -99,7 +102,9 @@ export function startFfmpegCapture({
     '-deadline',
     'realtime', // Low-latency encoding
     '-cpu-used',
-    '4', // Fastest quality tradeoff
+    '8', // Realtime speed tier for VP8 (range -16..16, higher = faster)
+    '-threads',
+    '8', // Multi-threaded encode — VP8 scales well up to ~8
     '-auto-alt-ref',
     '0', // Disable alt-ref for realtime
   );
