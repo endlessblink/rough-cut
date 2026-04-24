@@ -33,8 +33,9 @@ import {
   app,
 } from 'electron';
 import { join, dirname } from 'node:path';
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../../shared/ipc-channels.mjs';
 import { getRecordingPauseCapability } from '../../shared/recording-pause-policy.mjs';
@@ -61,6 +62,12 @@ const IS_LINUX = process.platform === 'linux';
 const PANEL_SETUP = { width: 500, height: 520 };
 const PANEL_MINI = { width: 340, height: 56 };
 
+// Single source of truth for screen-capture fps on the X11/FFmpeg path.
+// Mirrors the 60 Hz target advertised in getDisplayMedia constraints and must
+// match the cursor sidecar's frame rate — the Edit-side consumer indexes
+// cursor events directly into the video's frame array.
+const TARGET_CAPTURE_FPS = 60;
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -80,6 +87,17 @@ let panelWindow = null;
 
 /** @type {Tray | null} */
 let tray = null;
+
+/**
+ * Linux-only floating "Stop Recording" pill. Replaces the tray on Linux
+ * because Electron's Tray.destroy() does not reliably remove the icon on
+ * KDE Plasma / libappindicator (Electron #17000, closed without fix), and
+ * Tray.setImage() can segfault or leak (#36274, #20850). A tiny frameless
+ * BrowserWindow positioned on a display OUTSIDE the captured region gives
+ * a reliably destroyable, capture-safe stop control.
+ * @type {import('electron').BrowserWindow | null}
+ */
+let stopPillWindow = null;
 
 /** @type {ReturnType<typeof setInterval> | null} */
 let elapsedTimer = null;
@@ -270,6 +288,42 @@ const RED_CIRCLE_DATA_URL =
   'data:image/png;base64,' +
   'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAWklEQVR4nGNgoAV4pqTECcTBQFwFxSA2J7GaQRr+48BVhDTj0oiCybEZv0ugfiZWMwxzIhsQTIYBweQ6H9Mb1DCAYi9QFogURyNVEhKRLsGflNHChLzMRCoAAEe1O6wqkYs0AAAAAElFTkSuQmCC';
 
+// 16×16 fully transparent RGBA PNG — same footprint as RED_CIRCLE_DATA_URL,
+// invisible content. Used to clear the Linux tray slot BEFORE destroying the
+// tray: AppIndicator/StatusNotifierItem watchers on several desktops cache
+// the last-rendered bitmap, so a plain destroy() can leave the red dot
+// stranded in the status bar. Repainting with a same-size transparent icon
+// and then destroying after a tick reliably removes it.
+const TRANSPARENT_16_DATA_URL =
+  'data:image/png;base64,' +
+  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAEklEQVR42mNgGAWjYBSMAggAAAQQAAGvRYgsAAAAAElFTkSuQmCC';
+
+// KDE Plasma's KStatusNotifierItem (and some libappindicator3 panels) caches
+// the last-loaded pixmap keyed by the icon *path or name* exposed over D-Bus.
+// Calling tray.setImage(nativeImage) updates bytes in place without changing
+// the path, so plasmashell keeps rendering the cached red dot after Stop.
+// Work around it by writing each icon transition to a NEW file with a unique
+// counter-suffixed filename, then calling tray.setImage(path) — the indicator
+// sees a different resource and actually repaints.
+const TRAY_ICON_DIR = join(tmpdir(), 'rough-cut-tray-icons');
+let trayIconCounter = 0;
+
+function writeTrayIconFile(dataUrl, tag) {
+  try {
+    mkdirSync(TRAY_ICON_DIR, { recursive: true });
+  } catch {
+    // ignore — subsequent write will surface any real error
+  }
+  trayIconCounter += 1;
+  const filePath = join(
+    TRAY_ICON_DIR,
+    `tray-${tag}-${process.pid}-${trayIconCounter}.png`,
+  );
+  const base64 = dataUrl.split(',')[1] ?? '';
+  writeFileSync(filePath, Buffer.from(base64, 'base64'));
+  return filePath;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -344,11 +398,11 @@ async function resolveProjectDir() {
 function buildFallbackRecordingMetadata() {
   const sourceInfo = getSourceInfo?.();
   return {
-    fps: 30,
+    fps: TARGET_CAPTURE_FPS,
     width: sourceInfo?.width ?? 1920,
     height: sourceInfo?.height ?? 1080,
     durationMs: getEffectiveElapsedMs(),
-    timelineFps: 30,
+    timelineFps: TARGET_CAPTURE_FPS,
   };
 }
 
@@ -804,55 +858,93 @@ function guardState(fnName, allowed) {
  */
 function destroyTrayIfAny() {
   if (!tray) return;
-  const trayToDestroy = tray;
-  tray = null;
-  const wasDestroyed = trayToDestroy.isDestroyed();
+  const current = tray;
+  const wasDestroyed = current.isDestroyed();
   try {
-    if (!wasDestroyed) {
-      try {
-        trayToDestroy.removeAllListeners();
-      } catch {
-        // listeners may not exist — ignore
-      }
-      try {
-        trayToDestroy.setToolTip('');
-      } catch {
-        // best-effort only
-      }
-      try {
-        trayToDestroy.setContextMenu(Menu.buildFromTemplate([]));
-      } catch {
-        // older Electron may reject null — ignore
-      }
-      try {
-        if (!IS_LINUX) {
-          trayToDestroy.setImage(nativeImage.createEmpty());
-        }
-      } catch {
-        // non-fatal — proceed to destroy
-      }
-
-      // AppIndicator/StatusNotifier on Linux can keep showing a stale icon if
-      // destroy() happens inside the same click/menu event turn. Keep the real
-      // icon until destroy-time to avoid an empty placeholder square, then
-      // destroy it on the next tick.
-      if (IS_LINUX) {
-        setTimeout(() => {
-          try {
-            if (!trayToDestroy.isDestroyed()) trayToDestroy.destroy();
-          } catch (err) {
-            console.warn('[session-manager] deferred tray.destroy() failed:', err?.message ?? err);
-          }
-        }, 150);
-      } else {
-        trayToDestroy.destroy();
-      }
+    if (wasDestroyed) {
+      tray = null;
+      return;
     }
+
+    try {
+      current.removeAllListeners();
+    } catch {
+      // listeners may not exist — ignore
+    }
+    try {
+      current.setToolTip('');
+    } catch {
+      // best-effort only
+    }
+    try {
+      current.setContextMenu(Menu.buildFromTemplate([]));
+    } catch {
+      // older Electron may reject null — ignore
+    }
+
+    if (IS_LINUX) {
+      // Linux: KEEP THE TRAY ALIVE and swap the icon via a NEW file path.
+      //
+      // tray.destroy() leaves the last-rendered bitmap stranded on many Linux
+      // panels (KDE KStatusNotifierItem confirmed in TASK-190 logs: xdgDesktop
+      // =KDE, `Tray hidden` fires but the red dot persists). And in-place
+      // setImage(nativeImage) doesn't force a repaint either, because KSNI /
+      // libappindicator3 cache the icon keyed on its path/name over D-Bus.
+      //
+      // Fix: write each transition to a fresh file (unique counter suffix) and
+      // pass the new path to setImage. The indicator sees a different resource
+      // identifier, invalidates its cache, and actually re-renders. The tray
+      // itself stays alive as a module-level singleton and is only truly
+      // destroyed in forceDestroyTrayOnQuit() at app quit.
+      try {
+        const hiddenPath = writeTrayIconFile(TRANSPARENT_16_DATA_URL, 'empty');
+        current.setImage(hiddenPath);
+      } catch (err) {
+        console.warn(
+          '[session-manager] tray.setImage(transparent path) failed:',
+          err?.message ?? err,
+        );
+      }
+      console.info('[session-manager] Tray hidden (Linux singleton kept alive)');
+      return;
+    }
+
+    // macOS / Windows — destroy is well-behaved here.
+    tray = null;
+    try {
+      current.setImage(nativeImage.createEmpty());
+    } catch {
+      // non-fatal — proceed to destroy
+    }
+    current.destroy();
     console.info(
       '[session-manager] Tray destroyed — wasAlreadyDestroyed=' + wasDestroyed,
     );
   } catch (err) {
     console.warn('[session-manager] destroyTrayIfAny() failed:', err?.message ?? err);
+  }
+}
+
+/**
+ * Actually destroy the tray, including on Linux. Use ONLY from the
+ * `before-quit` path — once the app is quitting we don't care about the
+ * AppIndicator stale-bitmap caching (the whole process is going away).
+ */
+function forceDestroyTrayOnQuit() {
+  if (!tray) return;
+  const current = tray;
+  tray = null;
+  try {
+    if (!current.isDestroyed()) {
+      try {
+        current.removeAllListeners();
+      } catch {
+        // ignore
+      }
+      current.destroy();
+    }
+  } catch (err) {
+    console.warn('[session-manager] forceDestroyTrayOnQuit() failed:', err?.message ?? err);
   }
 }
 
@@ -867,16 +959,54 @@ function destroyTrayIfAny() {
  * @returns {Tray | null}
  */
 function createTray() {
-  if (tray) {
-    console.warn('[session-manager] createTray called with existing tray — destroying prior tray first');
-    destroyTrayIfAny();
-  }
   try {
-    const icon = nativeImage.createFromDataURL(RED_CIRCLE_DATA_URL);
-    if (icon.isEmpty()) {
+    // On Linux, pass a fresh-unique file path to setImage / new Tray so that
+    // KStatusNotifierItem / libappindicator treats each recording session as
+    // a new icon resource (see writeTrayIconFile comment). On macOS/Windows
+    // the in-memory nativeImage path works fine.
+    const redIcon = IS_LINUX
+      ? writeTrayIconFile(RED_CIRCLE_DATA_URL, 'red')
+      : nativeImage.createFromDataURL(RED_CIRCLE_DATA_URL);
+    if (!IS_LINUX && redIcon.isEmpty?.()) {
       console.warn('[session-manager] Tray icon decoded empty — tray may render blank');
     }
-    const t = new Tray(icon);
+
+    // Linux singleton reuse: a tray instance survives between recordings
+    // (see destroyTrayIfAny). Re-arm it instead of creating a second one,
+    // which would leak an orphan AppIndicator slot.
+    if (IS_LINUX && tray && !tray.isDestroyed()) {
+      try {
+        tray.removeAllListeners();
+      } catch {
+        // ignore
+      }
+      tray.setImage(redIcon);
+      tray.setToolTip('Recording — 00:00 (click to stop)');
+      tray.on('click', () => {
+        console.info(
+          '[session-manager] Tray icon clicked — state=' + state + ' panel=' + Boolean(panelWindow),
+        );
+        stopRecording().catch((err) =>
+          console.error('[session-manager] stopRecording from tray icon failed:', err),
+        );
+      });
+      _rebuildTrayMenu(tray);
+      console.info(
+        '[session-manager] Tray reactivated (Linux singleton) via ' +
+          (typeof redIcon === 'string' ? redIcon : 'inline icon'),
+      );
+      return tray;
+    }
+
+    // Non-Linux or first-time on Linux: create a fresh Tray.
+    if (tray) {
+      console.warn(
+        '[session-manager] createTray called with existing tray — destroying prior tray first',
+      );
+      destroyTrayIfAny();
+    }
+
+    const t = new Tray(redIcon);
     t.setToolTip('Recording — 00:00 (click to stop)');
     if (IS_LINUX) {
       t.on('click', () => {
@@ -889,9 +1019,13 @@ function createTray() {
       });
     }
     _rebuildTrayMenu(t);
+    const iconDesc =
+      typeof redIcon === 'string'
+        ? 'path=' + redIcon
+        : 'iconSize=' + JSON.stringify(redIcon.getSize());
     console.info(
-      '[session-manager] Tray created — iconSize=' +
-        JSON.stringify(icon.getSize()) +
+      '[session-manager] Tray created — ' +
+        iconDesc +
         ' platform=' +
         process.platform +
         ' xdgDesktop=' +
@@ -975,6 +1109,192 @@ function updateTrayTooltip() {
     tray.setToolTip(`Recording — ${elapsed} (click to stop)`);
   } catch {
     // Tray may have been destroyed concurrently — ignore
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Floating Stop pill (Linux — replaces the tray)
+// ---------------------------------------------------------------------------
+
+/**
+ * Two rects intersect when they overlap in both dimensions.
+ * @param {{x:number,y:number,width:number,height:number}} a
+ * @param {{x:number,y:number,width:number,height:number}} b
+ */
+function rectsIntersect(a, b) {
+  return (
+    a.x < b.x + b.width &&
+    b.x < a.x + a.width &&
+    a.y < b.y + b.height &&
+    b.y < a.y + a.height
+  );
+}
+
+/**
+ * Find a connected display whose bounds do NOT intersect the captured region.
+ * Returns null when every display overlaps the capture (single-monitor setups
+ * or when the capture spans all displays).
+ * @param {{x:number,y:number,width:number,height:number} | null} captureBounds
+ * @returns {import('electron').Display | null}
+ */
+function findDisplayOutsideCapture(captureBounds) {
+  if (!captureBounds) return null;
+  try {
+    const displays = screen.getAllDisplays();
+    for (const d of displays) {
+      if (!rectsIntersect(d.bounds, captureBounds)) return d;
+    }
+  } catch (err) {
+    console.warn('[session-manager] findDisplayOutsideCapture failed:', err?.message ?? err);
+  }
+  return null;
+}
+
+const STOP_PILL_WIDTH = 180;
+const STOP_PILL_HEIGHT = 40;
+
+const STOP_PILL_HTML = `<!doctype html>
+<html><head><meta charset="utf-8"/>
+<style>
+  html,body{margin:0;padding:0;background:transparent;
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-user-select:none;user-select:none;overflow:hidden;}
+  button{display:flex;align-items:center;justify-content:center;gap:8px;
+    width:${STOP_PILL_WIDTH}px;height:${STOP_PILL_HEIGHT}px;
+    padding:0 14px;border:0;border-radius:20px;
+    background:#161616f2;color:#fff;cursor:pointer;
+    font-size:13px;font-weight:500;letter-spacing:.2px;
+    box-shadow:0 4px 14px rgba(0,0,0,.35);}
+  button:hover{background:#242424f2;}
+  button:active{background:#0e0e0ef2;}
+  .dot{width:10px;height:10px;border-radius:50%;background:#ef4444;
+    box-shadow:0 0 6px #ef4444aa;animation:pulse 1.2s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.55;}}
+</style></head>
+<body><button id="stop" type="button"><span class="dot"></span>Stop Recording</button>
+<script>
+  document.getElementById('stop').addEventListener('click', () => {
+    try { window.roughcut && window.roughcut.panelStopRecording && window.roughcut.panelStopRecording(); }
+    catch (e) { /* ignore */ }
+  });
+</script></body></html>`;
+
+/**
+ * Open the floating Stop Recording pill on a display OUTSIDE the captured
+ * region. No-ops when no such display exists (single-monitor capture) — the
+ * user stops via Ctrl+Shift+Esc / the "Recording" desktop notification.
+ */
+function createStopPillWindow() {
+  destroyStopPillWindow();
+
+  const sourceInfo = getSourceInfo?.();
+  const captureBounds = sourceInfo
+    ? {
+        x: sourceInfo.offsetX ?? 0,
+        y: sourceInfo.offsetY ?? 0,
+        width: sourceInfo.width ?? 0,
+        height: sourceInfo.height ?? 0,
+      }
+    : null;
+
+  const safeDisplay = findDisplayOutsideCapture(captureBounds);
+  if (!safeDisplay) {
+    console.info(
+      '[session-manager] Stop pill skipped — no capture-safe display (single-monitor or full-span capture). ' +
+        'User stops via Ctrl+Shift+Esc / notification.',
+    );
+    return;
+  }
+
+  // Top-center of the safe display's work area.
+  const { x: dx, y: dy, width: dw } = safeDisplay.workArea;
+  const x = Math.round(dx + (dw - STOP_PILL_WIDTH) / 2);
+  const y = dy + 16;
+
+  try {
+    const preloadPath = join(__dirname, '..', '..', 'preload', 'index.mjs');
+    stopPillWindow = new BrowserWindow({
+      x,
+      y,
+      width: STOP_PILL_WIDTH,
+      height: STOP_PILL_HEIGHT,
+      frame: false,
+      transparent: true,
+      backgroundColor: '#00000000',
+      alwaysOnTop: true,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      skipTaskbar: true,
+      hasShadow: false,
+      focusable: false,
+      show: false,
+      webPreferences: {
+        preload: preloadPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false,
+      },
+    });
+
+    stopPillWindow.setAlwaysOnTop(true, 'screen-saver');
+    stopPillWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+    // Write the HTML to a temp file and loadFile it. Using a `data:` URL
+    // here is brittle — preload + contextBridge + inline scripts don't always
+    // line up on data: origins across Electron versions, and then the Stop
+    // click is silent.
+    try {
+      mkdirSync(TRAY_ICON_DIR, { recursive: true });
+    } catch {
+      // ignore — write will surface real errors
+    }
+    const pillHtmlPath = join(TRAY_ICON_DIR, `stop-pill-${process.pid}.html`);
+    try {
+      writeFileSync(pillHtmlPath, STOP_PILL_HTML, 'utf8');
+    } catch (err) {
+      console.warn('[session-manager] writing Stop pill HTML failed:', err?.message ?? err);
+    }
+    stopPillWindow.loadFile(pillHtmlPath);
+
+    stopPillWindow.once('ready-to-show', () => {
+      if (stopPillWindow && !stopPillWindow.isDestroyed()) stopPillWindow.showInactive();
+    });
+    stopPillWindow.on('closed', () => {
+      stopPillWindow = null;
+    });
+
+    console.info(
+      '[session-manager] Stop pill created at (' +
+        x +
+        ',' +
+        y +
+        ') on display id=' +
+        safeDisplay.id +
+        ' (capture on ' +
+        JSON.stringify(captureBounds) +
+        ')',
+    );
+  } catch (err) {
+    console.warn('[session-manager] createStopPillWindow failed:', err?.message ?? err);
+    stopPillWindow = null;
+  }
+}
+
+/**
+ * Tear down the floating Stop pill. Idempotent.
+ */
+function destroyStopPillWindow() {
+  if (!stopPillWindow) return;
+  const w = stopPillWindow;
+  stopPillWindow = null;
+  try {
+    if (!w.isDestroyed()) w.destroy();
+    console.info('[session-manager] Stop pill destroyed.');
+  } catch (err) {
+    console.warn('[session-manager] destroyStopPillWindow failed:', err?.message ?? err);
   }
 }
 
@@ -1071,6 +1391,11 @@ export function openPanel() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // TASK-182: keep the renderer running at full speed even when the panel
+      // is hidden during recording. Without this, Chromium throttles the
+      // hidden page, which stalls MediaStreamTrack frame delivery and makes
+      // the mediabunny camera sidecar deliver ~0 fps for the duration of the
+      // take. The camera sidecar depends on live frames; throttling breaks it.
       backgroundThrottling: false,
     },
   });
@@ -1280,10 +1605,10 @@ export async function startRecording() {
       recordMode: deriveRecordModeFromSourceId(sourceId),
       sessionState: 'recording',
       captureMetadata: {
-        fps: 30,
+        fps: TARGET_CAPTURE_FPS,
         width: sourceInfo?.width ?? null,
         height: sourceInfo?.height ?? null,
-        timelineFps: 30,
+        timelineFps: TARGET_CAPTURE_FPS,
       },
       expectedArtifacts: {
         videoPath: ffmpegPath,
@@ -1292,7 +1617,7 @@ export async function startRecording() {
       },
     });
     try {
-      const fps = 30;
+      const fps = TARGET_CAPTURE_FPS;
       const initialPoint = screen.getCursorScreenPoint();
       cursorRecorder.start(fps, cursorPath, {
         offsetX: sourceInfo?.offsetX ?? 0,
@@ -1321,7 +1646,7 @@ export async function startRecording() {
         try {
           ffmpegHandle = startFfmpegCapture({
             outputPath: ffmpegPath,
-            fps: 30,
+            fps: TARGET_CAPTURE_FPS,
             display: sourceInfo.display,
             width: sourceInfo.width,
             height: sourceInfo.height,
@@ -1379,18 +1704,27 @@ export async function startRecording() {
 
     // On macOS/Windows: shrink to mini-controller (content-protected, invisible
     // to capture).  On Linux: setContentProtection is a no-op, so hide the
-    // panel entirely and rely on tray + global shortcut + notification.
+    // panel entirely. The visible stop control is the floating Stop pill
+    // (opened further below, only on Linux) placed on a display outside the
+    // captured region. Single-monitor captures get no visible stop control —
+    // the user relies on Ctrl+Shift+Esc and the notification.
     if (IS_LINUX) {
       if (panelWindow && !panelWindow.isDestroyed()) {
+        // TASK-182 (ongoing): hide() puts the renderer into Chromium's
+        // hidden-window path, which empirically stalls camera MediaStreamTrack
+        // frame delivery (OpenH264 observed ~0.01 fps input). Panel is created
+        // with `backgroundThrottling: false`, but that flag doesn't cover the
+        // MediaStream capture pipeline — verification still pending.
         panelWindow.hide();
         console.info('[session-manager] Panel hidden (Linux — no content protection).');
       }
-      // Show a persistent notification so the user knows how to stop
+      // Show a persistent notification so the user knows how to stop even when
+      // the Stop pill can't be shown (single-monitor capture).
       const { Notification } = await import('electron');
       if (Notification.isSupported()) {
         const n = new Notification({
           title: 'Rough Cut — Recording',
-          body: 'Press Ctrl+Shift+Esc to stop. Right-click tray icon for recording controls. Pause is unavailable for this pipeline.',
+          body: 'Press Ctrl+Shift+Esc to stop. Pause is unavailable for this pipeline.',
           silent: true,
         });
         n.show();
@@ -1434,8 +1768,16 @@ export async function startRecording() {
       console.warn('[session-manager] Failed to register global shortcut:', err?.message ?? err);
     }
 
-    // Tray icon
-    tray = createTray();
+    // Visible stop control.
+    // - macOS / Windows: system tray with a red-dot icon (reliable there).
+    // - Linux: the floating Stop pill on a capture-safe display. We skip the
+    //   Electron tray entirely on Linux because destroy() is unreliable on
+    //   KDE / libappindicator (Electron #17000) and leaves a stale red icon.
+    if (IS_LINUX) {
+      createStopPillWindow();
+    } else {
+      tray = createTray();
+    }
 
     console.info('[session-manager] Recording started.');
   } catch (err) {
@@ -1467,15 +1809,16 @@ export async function stopRecording() {
 }
 
 async function handleBeforeQuit(event) {
-  // Final safety net: no matter which branch we take from here, a leftover
-  // tray must not survive the quit. destroyTrayIfAny is idempotent and safe
-  // even when no tray exists.
+  // Final safety net: neither the tray nor the floating Stop pill may survive
+  // the quit. Both destroy paths are idempotent.
   if (allowAppQuit) {
-    destroyTrayIfAny();
+    forceDestroyTrayOnQuit();
+    destroyStopPillWindow();
     return;
   }
   if (state === 'idle' && !panelWindow) {
-    destroyTrayIfAny();
+    forceDestroyTrayOnQuit();
+    destroyStopPillWindow();
     return;
   }
 
@@ -1485,7 +1828,8 @@ async function handleBeforeQuit(event) {
       console.error('[session-manager] stopRecording on quit failed:', err);
     })
     .finally(() => {
-      destroyTrayIfAny();
+      forceDestroyTrayOnQuit();
+      destroyStopPillWindow();
       allowAppQuit = true;
       const testQuitApplication = getTestHook('quitApplication');
       if (testQuitApplication) {
@@ -1530,6 +1874,7 @@ export function __resetSessionManagerForTests() {
   mainWindow = null;
   panelWindow = null;
   tray = null;
+  stopPillWindow = null;
   elapsedTimer = null;
   countdownTimer = null;
   recordingStartMs = 0;
@@ -1634,8 +1979,11 @@ function _cleanup() {
     console.warn('[session-manager] globalShortcut.unregister failed:', err?.message ?? err);
   }
 
-  // Destroy tray via the single destruction path.
+  // Destroy tray (macOS/Windows) and the floating Stop pill (Linux). Both
+  // destroy paths are idempotent — either can run when the other's resource
+  // was never created this session.
   destroyTrayIfAny();
+  destroyStopPillWindow();
 }
 
 // ---------------------------------------------------------------------------
@@ -1835,13 +2183,12 @@ export function initSessionManager(win, sourceInfoGetter) {
 
   app.on('before-quit', handleBeforeQuit);
 
-  // Final safety net for tray cleanup. will-quit fires after before-quit and
-  // after all windows are closed — it's the last opportunity before the
-  // process exits. If anything slipped past the session-shutdown path, this
-  // guarantees the tray icon is removed so it can't linger visually after
-  // the app exits.
+  // Final safety net for tray + Stop pill cleanup. will-quit fires after
+  // before-quit and after all windows are closed — last chance before the
+  // process exits.
   app.on('will-quit', () => {
-    destroyTrayIfAny();
+    forceDestroyTrayOnQuit();
+    destroyStopPillWindow();
   });
 }
 
