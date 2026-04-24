@@ -35,7 +35,6 @@ import {
 import { join, dirname } from 'node:path';
 import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../../shared/ipc-channels.mjs';
 import { getRecordingPauseCapability } from '../../shared/recording-pause-policy.mjs';
@@ -54,6 +53,7 @@ import {
   startFfmpegCapture,
 } from './ffmpeg-capture.mjs';
 import { discoverAudioSources, ensureSourceAudible } from './audio-sources.mjs';
+import { writeTrayIconFile, getTrayIconDir } from './tray-icon-file.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -304,25 +304,8 @@ const TRANSPARENT_16_DATA_URL =
 // the path, so plasmashell keeps rendering the cached red dot after Stop.
 // Work around it by writing each icon transition to a NEW file with a unique
 // counter-suffixed filename, then calling tray.setImage(path) — the indicator
-// sees a different resource and actually repaints.
-const TRAY_ICON_DIR = join(tmpdir(), 'rough-cut-tray-icons');
-let trayIconCounter = 0;
-
-function writeTrayIconFile(dataUrl, tag) {
-  try {
-    mkdirSync(TRAY_ICON_DIR, { recursive: true });
-  } catch {
-    // ignore — subsequent write will surface any real error
-  }
-  trayIconCounter += 1;
-  const filePath = join(
-    TRAY_ICON_DIR,
-    `tray-${tag}-${process.pid}-${trayIconCounter}.png`,
-  );
-  const base64 = dataUrl.split(',')[1] ?? '';
-  writeFileSync(filePath, Buffer.from(base64, 'base64'));
-  return filePath;
-}
+// sees a different resource and actually repaints. Extracted to
+// `tray-icon-file.mjs` so the invariant can be unit-tested without Electron.
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1246,12 +1229,13 @@ function createStopPillWindow() {
     // here is brittle — preload + contextBridge + inline scripts don't always
     // line up on data: origins across Electron versions, and then the Stop
     // click is silent.
+    const trayIconDir = getTrayIconDir();
     try {
-      mkdirSync(TRAY_ICON_DIR, { recursive: true });
+      mkdirSync(trayIconDir, { recursive: true });
     } catch {
       // ignore — write will surface real errors
     }
-    const pillHtmlPath = join(TRAY_ICON_DIR, `stop-pill-${process.pid}.html`);
+    const pillHtmlPath = join(trayIconDir, `stop-pill-${process.pid}.html`);
     try {
       writeFileSync(pillHtmlPath, STOP_PILL_HTML, 'utf8');
     } catch (err) {

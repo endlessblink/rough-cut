@@ -36,6 +36,7 @@ import {
 } from './recording/capture-service.mjs';
 import { listSystemAudioSources } from './recording/audio-sources.mjs';
 import { initSessionManager, getLastFinalizedRecordingResult } from './recording/recording-session-manager.mjs';
+import { resolveCaptureSourceInfo } from './recording/resolve-capture-source-info.mjs';
 import {
   clearRecordingRecoveryMarker,
   readRecordingRecoveryMarker,
@@ -1969,59 +1970,20 @@ app.whenReady().then(() => {
       typeof lastDisplayMediaSelection.grantedSourceId === 'string'
         ? lastDisplayMediaSelection.grantedSourceId
         : recordingConfig.selectedSourceId;
-    if (!selectedSourceId) return null;
-    if (!selectedSourceId.startsWith('screen:')) return null; // x11grab can't target a window
 
-    const displays = screen.getAllDisplays();
-    // Electron's desktopCapturer gives each source a stable `display_id` that
-    // matches `screen.getAllDisplays()[i].id`. The second segment of the
-    // selectedSourceId (e.g. 'screen:2147483647:0') is the Electron display id,
-    // NOT the array index — on multi-monitor setups, treating it as an index
-    // silently falls back to the primary display.
-    const cachedSource = cachedCaptureSources.find((entry) => entry.id === selectedSourceId);
-    const displayIdFromCache = cachedSource?.displayId ? String(cachedSource.displayId) : null;
-    const displayIdFromId = selectedSourceId.split(':')[1] ?? null;
-
-    const resolvedDisplay =
-      (displayIdFromCache && displays.find((d) => String(d.id) === displayIdFromCache)) ||
-      (displayIdFromId && displays.find((d) => String(d.id) === displayIdFromId)) ||
-      displays[0];
-
-    if (!resolvedDisplay) return null;
-
-    const captureBounds = getDisplayCaptureBounds(resolvedDisplay, displays);
-
-    console.info('[session-source] Resolved capture display:', {
+    return resolveCaptureSourceInfo({
       selectedSourceId,
-      lastDisplayMediaSelection,
-      cachedSource: cachedSource
-        ? {
-            id: cachedSource.id,
-            name: cachedSource.name,
-            type: cachedSource.type,
-            displayId: cachedSource.displayId,
-          }
-        : null,
-      allDisplays: displays.map((display) => ({
-        id: display.id,
-        label: display.label,
-        bounds: display.bounds,
-        scaleFactor: display.scaleFactor,
-      })),
-      displayId: resolvedDisplay.id,
-      bounds: resolvedDisplay.bounds,
-      captureBounds,
-      scaleFactor: resolvedDisplay.scaleFactor,
+      displays: screen.getAllDisplays(),
+      cachedCaptureSources,
+      x11DisplayName: normalizeX11DisplayName(),
+      getDisplayCaptureBounds,
+      logDiagnostic: (info) => {
+        console.info('[session-source] Resolved capture display:', {
+          ...info,
+          lastDisplayMediaSelection,
+        });
+      },
     });
-
-    return {
-      sourceId: selectedSourceId,
-      display: `${normalizeX11DisplayName()}+${captureBounds.x},${captureBounds.y}`,
-      width: captureBounds.width,
-      height: captureBounds.height,
-      offsetX: captureBounds.x,
-      offsetY: captureBounds.y,
-    };
   });
 });
 

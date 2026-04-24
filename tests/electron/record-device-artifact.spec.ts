@@ -53,6 +53,47 @@ function ffprobeJson(filePath: string): Promise<any> {
   });
 }
 
+type VideoFrameStats = {
+  nbReadFrames: number;
+  rFrameRate: string;
+  durationSeconds: number;
+};
+
+function ffprobeVideoFrameStats(filePath: string): Promise<VideoFrameStats> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'ffprobe',
+      [
+        '-v',
+        'quiet',
+        '-count_frames',
+        '-select_streams',
+        'v:0',
+        '-show_entries',
+        'stream=nb_read_frames,r_frame_rate,duration',
+        '-of',
+        'json',
+        filePath,
+      ],
+      { timeout: 60000 },
+      (error, stdout) => {
+        if (error) return reject(error);
+        try {
+          const parsed = JSON.parse(stdout);
+          const stream = parsed.streams?.[0] ?? {};
+          resolve({
+            nbReadFrames: Number(stream.nb_read_frames ?? 0),
+            rFrameRate: String(stream.r_frame_rate ?? ''),
+            durationSeconds: Number(stream.duration ?? 0),
+          });
+        } catch (parseError) {
+          reject(parseError);
+        }
+      },
+    );
+  });
+}
+
 test.describe('Record device artifacts', () => {
   test('selected devices produce saved recording artifacts', async ({ appPage, electronApp }) => {
     const recordingDir = await mkdtemp(join(tmpdir(), 'rough-cut-task-088-'));
@@ -322,6 +363,20 @@ test.describe('Record device artifacts', () => {
       expect(screenAudio).toBeTruthy();
       expect(result!.hasAudio).toBe(Boolean(screenAudio));
       expect(result!.audioCapture?.final.hasAudio).toBe(Boolean(screenAudio));
+
+      // Regression guard for c319886f (VP8 realtime threads for 1080p60). Capture is
+      // hardcoded to TARGET_CAPTURE_FPS=60 in recording-session-manager.mjs. Without
+      // the encoder fix, sustained 60fps + audio drops a meaningful fraction of frames.
+      const frameStats = await ffprobeVideoFrameStats(result!.filePath);
+      const reportedFps = result!.fps || 60;
+      const probeDurationMs = frameStats.durationSeconds * 1000;
+      const recordedDurationMs = result!.durationMs || probeDurationMs;
+      const expectedFrames = (recordedDurationMs / 1000) * reportedFps;
+      // 15% drop tolerance. The pre-fix bug regularly dropped 30%+ at 1080p60+audio.
+      expect(frameStats.nbReadFrames).toBeGreaterThanOrEqual(Math.floor(expectedFrames * 0.85));
+      // TARGET_CAPTURE_FPS is hardcoded to 60; pin the rate so a silent fps regression
+      // (e.g. an FFmpeg arg drop reverting capture to 30fps) trips the test.
+      expect(frameStats.rFrameRate).toBe('60/1');
 
       const cameraProbe = await ffprobeJson(result!.cameraFilePath!);
       const cameraVideo = cameraProbe.streams?.find((stream: any) => stream.codec_type === 'video');
