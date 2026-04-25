@@ -77,6 +77,11 @@ test.describe('Export tab', () => {
 
     await appPage.evaluate(() => {
       const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      const projectState = stores?.project?.getState();
+      const activeAssetId = projectState?.activeAssetId;
+      if (activeAssetId) {
+        projectState.addRecordingZoomMarker?.(activeAssetId, 0, 20);
+      }
       stores?.transport.setState({ playheadFrame: 5 });
     });
     await navigateToTab(appPage, 'export');
