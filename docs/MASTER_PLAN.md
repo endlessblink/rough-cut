@@ -135,6 +135,14 @@ Parallel-start rule:
 - Export should be treated as downstream truth preservation, not as a separate polish lane after garnish features.
 - The full Record-sidebar authoring toolset (overlays, annotations, titles, cursor FX, motion blur, privacy masks, AI captions, smart cut, dynamic layouts) is what turns Rough Cut into a Screen Studio / Descript-class product, but it comes only after the capture -> playback -> export core path is reliable enough to trust. Until then, polish on the sidebar is wasted effort against an untrustworthy foundation.
 
+### Header tab visibility (2026-04-25)
+
+To match the stability-first sprint framing above, the app header currently exposes only **Projects, Record, Export**. **Edit, Motion, and AI tabs are hidden** in `apps/desktop/src/renderer/ui/AppHeader.tsx` (`APP_VIEW_TABS`).
+
+- The `AppView` union type and routing path for `'edit' | 'motion' | 'ai'` are intentionally **kept** so deep-link code paths and existing Playwright specs that reference `[data-testid="<tab>-tab-root"]` still resolve.
+- Re-exposing any of these tabs is a one-line uncomment in `APP_VIEW_TABS`. Re-add the matching entry in `tests/electron/tab-switching.spec.ts` at the same time.
+- Specs that click `[data-testid="tab-edit"]` / `tab-ai` / `tab-motion` from the header (e.g. `acceptance-edit`, `acceptance-ai`, `acceptance-motion`, `edit-tab`, `edit-track-headers`, `edit-track-management`, `edit-space-playback`, `camera-replay`, `camera-template-parity`) will fail their navigation step until the corresponding tab is unhidden. Treat them as expected-fail in this window or mark `test.fixme` if the sprint takes long enough for the noise to matter.
+
 ---
 
 ## Roadmap
@@ -252,14 +260,14 @@ Parallel-start rule:
 | ~~TASK-196~~ | ~~Record: Replace Linux recording tray with capture-safe floating Stop pill~~ | P1     | ✅ DONE (2026-04-25)     | TASK-010           |
 | ~~TASK-197~~ | ~~Record: Stop baking Rough Cut UI into Linux/X11 captures (notification + pre-capture hide)~~ | P1 | ✅ DONE (2026-04-25) | TASK-196 |
 | TASK-198     | Record: Migrate Linux screen capture from `ffmpeg -f x11grab` to PipeWire / `getDisplayMedia` for Wayland + content-protection support | P2 | TODO | TASK-197 |
-| TASK-199     | Record: Pre-record mic input gain slider in floating panel (umbrella)    | P2       | IN PROGRESS (2026-04-25) | TASK-219, TASK-220, TASK-221, TASK-222, TASK-223, TASK-224, TASK-225 |
-| TASK-219     | Record: Remove orphan post-record `previewVolume`/`previewMuted` scaffolding | P2   | TODO                     | —                  |
-| TASK-220     | Record: pactl source-volume helpers (get/set) + IPC bridge in main       | P2       | TODO                     | TASK-088           |
-| TASK-221     | Record: Snapshot/restore registry for touched PulseAudio source volumes  | P2       | TODO                     | TASK-220           |
-| TASK-222     | Record: `micInputGainPercent` in recording-config + persisted schema     | P2       | TODO                     | TASK-088           |
-| TASK-223     | Record: Mic gain slider UI in PanelApp next to VU meter                  | P2       | TODO                     | TASK-220, TASK-221, TASK-222 |
-| TASK-224     | Record: Reconcile `ensureSourceAudible` mic auto-bump with user gain     | P2       | TODO                     | TASK-220, TASK-222 |
-| TASK-225     | Tests: pactl percent parser + snapshot/restore registry unit tests       | P2       | TODO                     | TASK-220, TASK-221 |
+| ~~TASK-199~~ | ~~Record: Pre-record mic input gain slider in floating panel (umbrella)~~ | P2      | ✅ DONE (2026-04-25)     | TASK-219, TASK-220, TASK-221, TASK-222, TASK-223, TASK-224, TASK-225 |
+| ~~TASK-219~~ | ~~Record: Remove orphan post-record `previewVolume`/`previewMuted` scaffolding~~ | P2 | ✅ DONE (2026-04-25) | —                  |
+| ~~TASK-220~~ | ~~Record: pactl source-volume helpers (get/set) + IPC bridge in main~~   | P2       | ✅ DONE (2026-04-25)     | TASK-088           |
+| ~~TASK-221~~ | ~~Record: Snapshot/restore registry for touched PulseAudio source volumes~~ | P2    | ✅ DONE (2026-04-25)     | TASK-220           |
+| ~~TASK-222~~ | ~~Record: `micInputGainPercent` in recording-config + persisted schema~~ | P2       | ✅ DONE (2026-04-25)     | TASK-088           |
+| ~~TASK-223~~ | ~~Record: Mic gain slider UI in PanelApp next to VU meter~~              | P2       | ✅ DONE (2026-04-25)     | TASK-220, TASK-221, TASK-222 |
+| ~~TASK-224~~ | ~~Record: Reconcile `ensureSourceAudible` mic auto-bump with user gain~~ | P2       | ✅ DONE (2026-04-25 — no-op; helper only runs on monitor sources) | TASK-220, TASK-222 |
+| ~~TASK-225~~ | ~~Tests: pactl percent parser + snapshot/restore registry unit tests~~   | P2       | ✅ DONE (2026-04-25)     | TASK-220, TASK-221 |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
@@ -2155,9 +2163,9 @@ TASK-197 fully resolves the visible artifact with low cost and surgery. TASK-198
 
 ---
 
-### TASK-199: Record: Pre-record mic input gain slider in floating panel (umbrella)
+### ~~TASK-199~~: Record: Pre-record mic input gain slider in floating panel (umbrella)
 
-**Priority:** P2 | **Status:** IN PROGRESS (2026-04-25) | **Depends on:** TASK-219, TASK-220, TASK-221, TASK-222, TASK-223, TASK-224, TASK-225
+**Priority:** P2 | **Status:** ✅ DONE (2026-04-25, user-verified by ear) | **Depends on:** TASK-219, TASK-220, TASK-221, TASK-222, TASK-223, TASK-224, TASK-225
 
 #### Problem
 
