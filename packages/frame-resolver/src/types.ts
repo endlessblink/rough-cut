@@ -90,10 +90,13 @@ export interface CameraTransform {
  * The renderer uses this to style the cursor overlay.
  */
 export interface ResolvedCursorPresentation {
+  visible: boolean;
   style: CursorStyle;
   clickEffect: ClickEffect;
   sizePercent: number;
   clickSoundEnabled: boolean;
+  clicksVisible: boolean;
+  overlaysVisible: boolean;
 }
 
 /**

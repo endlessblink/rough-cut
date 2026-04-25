@@ -7,7 +7,8 @@
  */
 import React, { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import { transportStore, useProjectStore } from '../../hooks/use-stores.js';
-import type { ZoomMarker, ZoomMarkerId } from '@rough-cut/project-model';
+import { resolveRecordingVisibility } from '@rough-cut/project-model';
+import type { RecordingVisibility, ZoomMarker, ZoomMarkerId } from '@rough-cut/project-model';
 import { getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
 import { CursorOverlay } from '../../components/CursorOverlay.js';
 import type { CursorFrameData } from '../../components/CursorOverlay.js';
@@ -30,6 +31,7 @@ interface RecordingPlaybackVideoProps {
    *  render a focal-point reticle that the user can drag. */
   selectedZoomMarker?: ZoomMarker | null;
   onFocalPointChange?: (markerId: ZoomMarkerId, focalPoint: { x: number; y: number }) => void;
+  visibility?: RecordingVisibility;
 }
 
 export function RecordingPlaybackVideo({
@@ -39,6 +41,7 @@ export function RecordingPlaybackVideo({
   zoomMarkers = [],
   selectedZoomMarker = null,
   onFocalPointChange,
+  visibility,
 }: RecordingPlaybackVideoProps) {
   const asset = useProjectStore((s) => s.project.assets.find((a) => a.id === assetId) ?? null);
   const projectFilePath = useProjectStore((s) => s.projectFilePath);
@@ -67,7 +70,7 @@ export function RecordingPlaybackVideo({
     }
     return '0:0:0';
   });
-  const [clipTimelineIn = 0, clipTimelineOut = 0] = clipRangeKey.split(':').map(Number);
+  const [clipTimelineIn = 0, clipTimelineOut = 0, clipSourceIn = 0] = clipRangeKey.split(':').map(Number);
 
   const cursorPresentation = asset?.presentation?.cursor ?? {
     style: 'default' as const,
@@ -154,6 +157,14 @@ export function RecordingPlaybackVideo({
   }, [clipTimelineIn, clipTimelineOut]);
 
   const playheadFrame = pausedPlayheadFrame;
+  const sourcePlayheadFrame = clipSourceIn + Math.max(0, playheadFrame - clipTimelineIn);
+  const effectiveVisibility =
+    visibility ?? resolveRecordingVisibility(asset?.presentation?.visibilitySegments, sourcePlayheadFrame);
+  const effectiveCursorPresentation = {
+    ...cursorPresentation,
+    clickEffect: effectiveVisibility.clicksVisible ? cursorPresentation.clickEffect : 'none',
+    clickSoundEnabled: effectiveVisibility.clicksVisible && cursorPresentation.clickSoundEnabled,
+  };
   const inRange =
     clipTimelineOut > 0 && playheadFrame >= clipTimelineIn && playheadFrame < clipTimelineOut;
   const clickFrames = useMemo(
@@ -162,7 +173,7 @@ export function RecordingPlaybackVideo({
   );
 
   useClickSoundPlayback({
-    enabled: cursorPresentation.clickSoundEnabled,
+    enabled: effectiveCursorPresentation.clickSoundEnabled,
     clickFrames,
     isPlaying,
   });
@@ -244,11 +255,13 @@ export function RecordingPlaybackVideo({
       </div>
       <CursorOverlay
         cursorData={cursorData}
-        presentation={cursorPresentation}
+        presentation={effectiveCursorPresentation}
+        showCursor={effectiveVisibility.cursorVisible}
         clipTimelineIn={clipTimelineIn}
         zoomTransform={zt}
         getZoomTransform={getZoomTransformForFrame}
         crop={asset?.presentation?.screenCrop}
+        fps={projectFps}
       />
       {reticleVisible && selectedZoomMarker && onFocalPointChange && (
         <FocalPointReticle

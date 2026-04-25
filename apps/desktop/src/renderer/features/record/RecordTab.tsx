@@ -12,7 +12,9 @@ import {
   createDefaultRecordingBackgroundStyle,
   createDefaultRecordingPresentation,
   createDefaultRegionCrop,
+  getActiveRecordingVisibilitySegment,
   normalizeRegionCrop,
+  resolveRecordingVisibility,
 } from '@rough-cut/project-model';
 import type {
   CursorPresentation,
@@ -20,6 +22,7 @@ import type {
   RegionCrop,
   CaptionSegment,
   AIAnnotationId,
+  RecordingVisibility,
   RecordingPresentation,
 } from '@rough-cut/project-model';
 import { useRecordState } from './record-state.js';
@@ -50,6 +53,7 @@ import {
 import type { RecordState } from './BottomBar.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
 import { RecordDeviceSelectors } from './RecordDeviceSelectors.js';
+import { RecordPreflightCard } from './RecordPreflightCard.js';
 import {
   subscribeRecordingConfig,
   useRecordingConfig,
@@ -62,6 +66,7 @@ import {
 import { RecordingPlaybackVideo } from './RecordingPlaybackVideo.js';
 import { CameraPlaybackCanvas } from './CameraPlaybackCanvas.js';
 import { LiveCameraVideo } from './LiveCameraVideo.js';
+import { getRecordingAudioReview } from './audio-review.js';
 import { LAYOUT_TEMPLATES, resolutionForAspectRatio } from './templates.js';
 import { inferCursorEventsPath, resolveProjectMediaPath } from '../../lib/media-sidecars.js';
 import type { LayoutTemplate } from './templates.js';
@@ -182,6 +187,22 @@ function getPreviewSelectionLabel(recordMode: RecordMode): string {
   return normalizeSupportedRecordMode(recordMode) === 'window' ? 'window' : 'screen';
 }
 
+function detectRecordingPlatform(platformHint?: string | null): 'linux' | 'darwin' | 'win32' | 'other' {
+  const raw = (platformHint ?? navigator.platform ?? navigator.userAgent ?? '').toLowerCase();
+  if (raw.includes('linux')) return 'linux';
+  if (raw.includes('mac') || raw.includes('darwin')) return 'darwin';
+  if (raw.includes('win')) return 'win32';
+  return 'other';
+}
+
+function getDoNotDisturbAffordance(platformHint?: string | null): string {
+  const platform = detectRecordingPlatform(platformHint);
+  if (platform === 'linux') {
+    return 'Do Not Disturb is enabled automatically while recording so desktop banners stay out of the take.';
+  }
+  return 'Turn on Do Not Disturb before a real take so desktop banners do not interrupt the recording.';
+}
+
 export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const { showToast } = useToast();
   const recordShellOnly =
@@ -202,12 +223,9 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const recordWorkspaceOnly =
     typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('record-workspace-only') === '1';
-  // Preflight state values are currently only read back indirectly via the
-  // diagnostics callbacks; their UI consumers were removed mid-refactor and
-  // tracked separately. Setters remain in use below.
-  const [, setPreflightDiagnostics] = useState<RecordingPreflightStatus | null>(null);
-  const [, setPreflightRuntimeChecks] = useState<RuntimeCheck[]>([]);
-  const [, setPreflightRunning] = useState(false);
+  const [preflightDiagnostics, setPreflightDiagnostics] = useState<RecordingPreflightStatus | null>(null);
+  const [preflightRuntimeChecks, setPreflightRuntimeChecks] = useState<RuntimeCheck[]>([]);
+  const [preflightRunning, setPreflightRunning] = useState(false);
   const [recordingRecovery, setRecordingRecovery] = useState<RecordingRecoveryMarker | null>(null);
   const [sessionConnectionIssues, setSessionConnectionIssues] =
     useState<RecordingSessionConnectionIssues | null>(null);
@@ -361,6 +379,10 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     if (!activeRecordingId) return null;
     return s.project.assets.find((asset) => asset.id === activeRecordingId)?.presentation ?? null;
   });
+  const audioReview = getRecordingAudioReview(
+    activeRecordingAsset?.metadata?.audioCapture,
+    Boolean(activeRecordingAsset?.metadata?.hasAudio),
+  );
   const storedRecordingDefaults = useProjectStore((s) => s.project.settings.recordingDefaults);
   const fallbackRecordingPresentationRef = useRef<RecordingPresentation>(
     createDefaultRecordingPresentation(),
@@ -382,6 +404,14 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           templateId?: string;
         }[]
       | undefined,
+    playheadFrame,
+  );
+  const activeVisibilitySegment = getActiveRecordingVisibilitySegment(
+    activeRecordingPresentation?.visibilitySegments,
+    playheadFrame,
+  );
+  const activeSegmentVisibility = resolveRecordingVisibility(
+    activeRecordingPresentation?.visibilitySegments,
     playheadFrame,
   );
   const persistedTemplateId = editorPresentation.templateId;
@@ -463,7 +493,12 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     setCameraPresentation(editorPresentation.camera ?? createDefaultCameraPresentation());
   }, [activeCameraLayoutSnapshot?.camera, activeRecordingAsset?.id, editorPresentation.camera]);
   const [cameraCrop, setCameraCrop] = useState<RegionCrop>(() => createDefaultRegionCrop());
-  const effectiveCameraPresentation = activeCameraLayoutSnapshot?.camera ?? cameraPresentation;
+  const effectiveCameraPresentation = {
+    ...(activeCameraLayoutSnapshot?.camera ?? cameraPresentation),
+    visible:
+      activeSegmentVisibility.cameraVisible &&
+      (activeCameraLayoutSnapshot?.camera ?? cameraPresentation).visible,
+  };
   const effectiveCameraRectOverride = activeCameraLayoutSnapshot?.cameraFrame ?? cameraRectOverride;
 
   useEffect(() => {
@@ -536,7 +571,8 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
       .catch(() => setRecordingRecovery(null));
   }, []);
 
-  const _runRecordingPreflight = useCallback(async () => {
+  const runRecordingPreflight = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
     setPreflightRunning(true);
     try {
       const [diagnostics, captureSources, devices, nextSystemAudioOptions] = await Promise.all([
@@ -585,23 +621,27 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         },
       ]);
 
-      showToast({
-        title: 'Preflight complete',
-        message: 'Recording diagnostics were refreshed for this setup.',
-        tone: 'info',
-      });
+      if (!silent) {
+        showToast({
+          title: 'Preflight complete',
+          message: 'Recording diagnostics were refreshed for this setup.',
+          tone: 'info',
+        });
+      }
     } catch (err) {
-      showToast({
-        title: 'Preflight failed',
-        message: err instanceof Error ? err.message : String(err),
-        tone: 'error',
-      });
+      if (!silent) {
+        showToast({
+          title: 'Preflight failed',
+          message: err instanceof Error ? err.message : String(err),
+          tone: 'error',
+        });
+      }
     } finally {
       setPreflightRunning(false);
     }
   }, [showToast]);
 
-  const _handleOpenPermissionSettings = useCallback(
+  const handleOpenPermissionSettings = useCallback(
     async (kind: 'screenCapture' | 'microphone' | 'camera') => {
       const result = await window.roughcut.recordingOpenPermissionSettings(kind);
       showToast({
@@ -621,12 +661,10 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     },
     [showToast],
   );
-  // Orphaned during a mid-session refactor — implementations retained for
-  // a planned rewire. Void references satisfy tsc noUnusedLocals without
-  // altering behaviour. Remove the void block once the callbacks get wired
-  // back into the UI.
-  void _runRecordingPreflight;
-  void _handleOpenPermissionSettings;
+
+  useEffect(() => {
+    void runRecordingPreflight({ silent: true });
+  }, [runRecordingPreflight]);
 
   const handleTemplateChange = useCallback(
     (template: LayoutTemplate, options?: { preserveDestinationPreset?: boolean }) => {
@@ -871,7 +909,30 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   }, []);
 
   const openRecordingSetupPanel = useCallback(() => {
-    void window.roughcut.openRecordingPanel();
+    const store = projectStore.getState();
+    void (async () => {
+      let projectSnapshotPath = store.projectFilePath ?? null;
+      let projectSnapshotTakenAt: string | null = null;
+
+      try {
+        projectSnapshotPath = await window.roughcut.projectAutoSave(
+          store.project,
+          store.projectFilePath ?? undefined,
+        );
+        projectSnapshotTakenAt = new Date().toISOString();
+      } catch (error) {
+        console.warn('[RecordTab] Failed to autosave project before opening recording panel:', error);
+      }
+
+      await window.roughcut.recordingRecoverySetContext({
+        projectName: store.project.name,
+        projectFilePath: store.projectFilePath,
+        projectSnapshotPath,
+        projectSnapshotTakenAt,
+      });
+
+      await window.roughcut.openRecordingPanel();
+    })();
   }, []);
 
   const handleRetryTake = useCallback(() => {
@@ -1248,6 +1309,21 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     if (!activeRecordingId) return;
     projectStore.getState().resetCameraPresentation(activeRecordingId);
   }, [activeRecordingId, updateRecordingDefaults]);
+
+  const handleApplySegmentVisibility = useCallback(
+    (visibility: RecordingVisibility) => {
+      if (!activeRecordingId) return;
+      projectStore.getState().upsertRecordingVisibilitySegment(activeRecordingId, playheadFrame, visibility);
+    },
+    [activeRecordingId, playheadFrame],
+  );
+
+  const handleDeleteActiveSegmentVisibility = useCallback(() => {
+    if (!activeRecordingId || !activeVisibilitySegment) return;
+    projectStore
+      .getState()
+      .removeRecordingVisibilitySegment(activeRecordingId, activeVisibilitySegment.id);
+  }, [activeRecordingId, activeVisibilitySegment]);
 
   const handleAddCameraLayoutSnapshot = useCallback(() => {
     if (!activeRecordingId) return;
@@ -1686,6 +1762,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     : livePreviewStatus === 'live' && hasValidSelectedSource
       ? 'Live source preview'
       : null;
+  const doNotDisturbAffordance = getDoNotDisturbAffordance(preflightDiagnostics?.platform ?? null);
 
   const previewOverlay = activeRecordingAsset?.filePath
     ? null
@@ -1898,6 +1975,88 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         />
       )}
 
+      {recordState === 'idle' && !hasRecordedTake && (
+        <RecordPreflightCard
+          diagnostics={preflightDiagnostics}
+          runtimeChecks={preflightRuntimeChecks}
+          running={preflightRunning}
+          onRun={() => {
+            void runRecordingPreflight();
+          }}
+          onOpenSettings={(kind) => {
+            void handleOpenPermissionSettings(kind);
+          }}
+        />
+      )}
+
+      {recordState === 'idle' && !hasRecordedTake && (
+        <div
+          data-testid="record-confidence-banner"
+          style={{
+            margin: '0 24px 12px',
+            borderRadius: 14,
+            border: '1px solid rgba(96,165,250,0.2)',
+            background: 'rgba(15,23,42,0.9)',
+            padding: '14px 16px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: 16,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ minWidth: 260, flex: '1 1 360px' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#bfdbfe' }}>
+              Reduce recording risk before the real take
+            </div>
+            <div
+              style={{
+                marginTop: 8,
+                display: 'grid',
+                gap: 8,
+                fontSize: 11,
+                lineHeight: 1.45,
+                color: 'rgba(255,255,255,0.72)',
+              }}
+            >
+              <div>
+                <strong style={{ color: 'rgba(255,255,255,0.92)' }}>Do Not Disturb.</strong>{' '}
+                {doNotDisturbAffordance}
+              </div>
+              <div>
+                <strong style={{ color: 'rgba(255,255,255,0.92)' }}>Test clip.</strong> Open the
+                setup panel and run a 5-second test clip to confirm the source, mic, and camera
+                before a client session.
+              </div>
+              <div>
+                <strong style={{ color: 'rgba(255,255,255,0.92)' }}>Safe stop.</strong> Stop saves
+                the take before the session closes, even if you close the recording panel.
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            data-testid="record-confidence-open-setup"
+            onClick={openRecordingSetupPanel}
+            style={{
+              height: 34,
+              padding: '0 12px',
+              borderRadius: 9,
+              border: '1px solid rgba(96,165,250,0.28)',
+              background: 'rgba(59,130,246,0.14)',
+              color: '#bfdbfe',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontFamily: 'inherit',
+              fontWeight: 600,
+              flexShrink: 0,
+            }}
+          >
+            Open setup for a test clip
+          </button>
+        </div>
+      )}
+
       {recordingRecovery && (
         <div
           data-testid="record-recovery-banner"
@@ -2097,6 +2256,25 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         </div>
       )}
 
+      {status === 'stopping' && (
+        <div
+          data-testid="record-safe-stop-banner"
+          style={{
+            margin: '0 24px 12px',
+            borderRadius: 12,
+            border: '1px solid rgba(96,165,250,0.24)',
+            background: 'rgba(59,130,246,0.1)',
+            padding: '10px 12px',
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#bfdbfe' }}>Saving take safely</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.72)', marginTop: 2 }}>
+            Rough Cut is finishing the take before the session closes. Wait for the Record tab to
+            return to idle or show the saved take.
+          </div>
+        </div>
+      )}
+
       {showPostTakeDecision && (
         <div
           data-testid="record-post-take-decision"
@@ -2226,6 +2404,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
                           fps={projectFps}
                           assetId={activeRecordingAsset.id}
                           zoomMarkers={zoomPresentation.markers}
+                          visibility={activeSegmentVisibility}
                           selectedZoomMarker={
                             selectedZoomMarkerId
                               ? (zoomPresentation.markers.find(
@@ -2433,6 +2612,12 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
                 selectedRegion={selectedRegion}
                 onAlign={handleAlign}
                 preferredCategoryId={preferredInspectorCategoryId}
+                playheadFrame={playheadFrame}
+                activeSegmentVisibility={activeSegmentVisibility}
+                visibilitySegmentCount={activeRecordingPresentation?.visibilitySegments?.length ?? 0}
+                activeVisibilitySegmentFrame={activeVisibilitySegment?.frame ?? null}
+                onApplySegmentVisibility={handleApplySegmentVisibility}
+                onDeleteActiveSegmentVisibility={handleDeleteActiveSegmentVisibility}
                 captionSegments={recordCaptionSegments}
                 onUpdateCaptionText={handleUpdateRecordCaptionText}
                 canGenerateCaptions={Boolean(activeRecordingAsset?.filePath && activeRecordingId)}
@@ -2481,6 +2666,106 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
 
       {!recordChromeOnly && !recordWorkspaceOnly && (
         <>
+          {activeRecordingAsset?.filePath && (audioReview.tracks.length > 0 || audioReview.summary) && (
+            <div
+              data-testid="record-audio-review-card"
+              style={{
+                margin: '0 24px 12px',
+                borderRadius: 14,
+                border: '1px solid rgba(96,165,250,0.16)',
+                background: 'rgba(15,23,42,0.72)',
+                padding: '14px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#bfdbfe' }}>Audio review</div>
+                {audioReview.summary && (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      fontSize: 11,
+                      lineHeight: 1.45,
+                      color: 'rgba(255,255,255,0.72)',
+                    }}
+                  >
+                    {audioReview.summary}
+                  </div>
+                )}
+              </div>
+              {audioReview.tracks.length > 0 && (
+                <div
+                  data-testid="record-audio-review-tracks"
+                  style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}
+                >
+                  {audioReview.tracks.map((track) => (
+                    <div
+                      key={track.id}
+                      data-testid={`record-audio-review-track-${track.id}`}
+                      data-captured={track.captured ? 'true' : 'false'}
+                      style={{
+                        minWidth: 180,
+                        flex: '1 1 180px',
+                        borderRadius: 10,
+                        border: track.captured
+                          ? '1px solid rgba(74,222,128,0.22)'
+                          : '1px solid rgba(245,158,11,0.22)',
+                        background: track.captured
+                          ? 'rgba(20,83,45,0.22)'
+                          : 'rgba(120,53,15,0.18)',
+                        padding: '10px 12px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 8,
+                        }}
+                      >
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.92)' }}>
+                          {track.label}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: track.captured ? '#86efac' : '#fcd34d',
+                            letterSpacing: '0.03em',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          {track.captured ? 'Captured' : 'Missing'}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          marginTop: 4,
+                          fontSize: 10,
+                          lineHeight: 1.45,
+                          color: 'rgba(255,255,255,0.66)',
+                        }}
+                      >
+                        {track.detail}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {audioReview.mixedReview && (
+                <div
+                  data-testid="record-audio-review-mixed-note"
+                  style={{ fontSize: 10, color: 'rgba(191,219,254,0.9)' }}
+                >
+                  Multi-source capture is shown here as separate review lanes, but the saved take still replays as one mixed audio stream.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Zoom marker inspector (above timeline, only when a marker is selected) */}
           {selectedZoomMarkerId &&
             (() => {

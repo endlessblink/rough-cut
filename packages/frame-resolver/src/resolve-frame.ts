@@ -7,6 +7,8 @@ import type {
   CursorPresentation,
   CameraPresentation,
   CameraLayoutMarker,
+  RecordingVisibility,
+  RecordingVisibilitySegment,
 } from '@rough-cut/project-model';
 import { normalizeRegionCrop } from '@rough-cut/project-model';
 import { selectActiveClipsAtFrame, getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
@@ -28,10 +30,13 @@ const DEFAULT_CAMERA_TRANSFORM: CameraTransform = {
 };
 
 const DEFAULT_CURSOR_PRESENTATION: ResolvedCursorPresentation = {
+  visible: true,
   style: 'default',
   clickEffect: 'none',
   sizePercent: 100,
   clickSoundEnabled: false,
+  clicksVisible: true,
+  overlaysVisible: true,
 };
 
 export interface ResolveFrameOptions {
@@ -133,13 +138,24 @@ function resolveCameraTransformForFrame(
  */
 function resolveCursorPresentation(
   cursor: CursorPresentation | undefined,
+  visibility = resolveRecordingVisibility(undefined, 0),
 ): ResolvedCursorPresentation {
-  if (!cursor) return DEFAULT_CURSOR_PRESENTATION;
+  if (!cursor) {
+    return {
+      ...DEFAULT_CURSOR_PRESENTATION,
+      visible: visibility.cursorVisible,
+      clicksVisible: visibility.clicksVisible,
+      overlaysVisible: visibility.overlaysVisible,
+    };
+  }
   return {
+    visible: visibility.cursorVisible,
     style: cursor.style,
-    clickEffect: cursor.clickEffect,
+    clickEffect: visibility.clicksVisible ? cursor.clickEffect : 'none',
     sizePercent: cursor.sizePercent,
-    clickSoundEnabled: cursor.clickSoundEnabled,
+    clickSoundEnabled: visibility.clicksVisible && cursor.clickSoundEnabled,
+    clicksVisible: visibility.clicksVisible,
+    overlaysVisible: visibility.overlaysVisible,
   };
 }
 
@@ -163,6 +179,33 @@ function getActiveCameraLayoutMarker(
   return [...markers]
     .filter((marker) => marker.frame <= sourceFrame)
     .sort((left, right) => right.frame - left.frame)[0];
+}
+
+function resolveRecordingVisibility(
+  segments: readonly RecordingVisibilitySegment[] | undefined,
+  sourceFrame: number,
+): RecordingVisibility {
+  if (!segments || segments.length === 0) {
+    return {
+      cameraVisible: true,
+      cursorVisible: true,
+      clicksVisible: true,
+      overlaysVisible: true,
+    };
+  }
+
+  const active = [...segments]
+    .filter((segment) => segment.frame <= sourceFrame)
+    .sort((left, right) => right.frame - left.frame)[0];
+
+  return (
+    active ?? {
+      cameraVisible: true,
+      cursorVisible: true,
+      clicksVisible: true,
+      overlaysVisible: true,
+    }
+  );
 }
 
 function getAssetSourceSize(asset: ProjectDocument['assets'][number] | undefined): {
@@ -219,6 +262,10 @@ export function resolveFrame(
     : findActiveRecordingAsset(project);
   const presentation = activeRecording?.presentation;
   const activeRecordingSourceFrame = activeRecordingLayer?.sourceFrame ?? frame;
+  const recordingVisibility = resolveRecordingVisibility(
+    presentation?.visibilitySegments,
+    activeRecordingSourceFrame,
+  );
   const activeCameraLayout = getActiveCameraLayoutMarker(
     presentation?.cameraLayouts,
     activeRecordingSourceFrame,
@@ -238,7 +285,7 @@ export function resolveFrame(
       getCursorPosition: options?.getCursorPosition,
     },
   );
-  const cursor = resolveCursorPresentation(presentation?.cursor);
+  const cursor = resolveCursorPresentation(presentation?.cursor, recordingVisibility);
   const screenCrop = presentation?.screenCrop?.enabled
     ? normalizeRegionCrop(
         presentation.screenCrop,
@@ -257,7 +304,11 @@ export function resolveFrame(
     : undefined;
   const background = presentation?.background;
   const screenFrame = presentation?.screenFrame;
-  const cameraPresentation = activeCameraLayout?.camera ?? presentation?.camera ?? findCameraPresentation(project);
+  const baseCameraPresentation =
+    activeCameraLayout?.camera ?? presentation?.camera ?? findCameraPresentation(project);
+  const cameraPresentation = baseCameraPresentation
+    ? { ...baseCameraPresentation, visible: recordingVisibility.cameraVisible && baseCameraPresentation.visible }
+    : undefined;
   const cameraFrame = activeCameraLayout?.cameraFrame ?? presentation?.cameraFrame;
 
   return {

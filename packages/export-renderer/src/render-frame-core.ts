@@ -195,6 +195,7 @@ export async function renderFrameToCanvasAccurate(
         renderFrame.cameraTransform.offsetY,
         frameRate,
         renderFrame.screenCrop,
+        { showCursor: renderFrame.cursor.visible },
       );
     }
   }

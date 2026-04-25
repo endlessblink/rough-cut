@@ -229,10 +229,13 @@ describe('resolveFrame', () => {
 
       expect(result.cameraTransform).toEqual({ scale: 1, offsetX: 0, offsetY: 0 });
       expect(result.cursor).toEqual({
+        visible: true,
         style: 'default',
         clickEffect: 'none',
         sizePercent: 100,
         clickSoundEnabled: false,
+        clicksVisible: true,
+        overlaysVisible: true,
       });
     });
 
@@ -341,6 +344,59 @@ describe('resolveFrame', () => {
       expect(result.cursor.clickEffect).toBe('ripple');
       expect(result.cursor.sizePercent).toBe(120);
       expect(result.cursor.clickSoundEnabled).toBe(true);
+      expect(result.cursor.visible).toBe(true);
+      expect(result.cursor.clicksVisible).toBe(true);
+    });
+
+    it('applies the active visibility segment at the recording source frame', () => {
+      const recording = createAsset('recording', '/recording.webm', {
+        presentation: {
+          zoom: {
+            autoIntensity: 0,
+            followCursor: false,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
+          cursor: {
+            style: 'spotlight',
+            clickEffect: 'ripple',
+            sizePercent: 120,
+            clickSoundEnabled: true,
+          },
+          camera: createDefaultCameraPresentation(),
+          visibilitySegments: [
+            {
+              id: 'visibility-1' as import('@rough-cut/project-model').RecordingVisibilitySegmentId,
+              frame: 15,
+              cameraVisible: false,
+              cursorVisible: false,
+              clicksVisible: false,
+              overlaysVisible: true,
+            },
+          ],
+        },
+      });
+      const clip = createClip(recording.id, 'track-1' as TrackId, {
+        timelineIn: 100,
+        timelineOut: 160,
+        sourceIn: 10,
+        sourceOut: 70,
+      });
+      const track = createTrack('video', { id: 'track-1' as TrackId, clips: [clip], index: 0 });
+      const project = createProject({
+        assets: [recording],
+        composition: { duration: 160, tracks: [track], transitions: [] },
+      });
+
+      const result = resolveFrame(project, 105);
+
+      expect(result.cameraPresentation?.visible).toBe(false);
+      expect(result.cursor.visible).toBe(false);
+      expect(result.cursor.clickEffect).toBe('none');
+      expect(result.cursor.clickSoundEnabled).toBe(false);
+      expect(result.cursor.clicksVisible).toBe(false);
+      expect(result.cursor.overlaysVisible).toBe(true);
     });
 
     it('uses the active camera layout marker at the recording source frame', () => {

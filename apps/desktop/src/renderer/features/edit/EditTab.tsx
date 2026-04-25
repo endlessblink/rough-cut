@@ -424,8 +424,8 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
       filePath: resolveProjectMediaPath(cameraAsset.filePath, projectFilePath) ?? cameraAsset.filePath,
       clipTimelineIn: cameraClip.timelineIn,
       clipSourceIn: cameraClip.sourceIn,
-      camera: recordingAsset?.presentation?.camera ?? createDefaultCameraPresentation(),
-      cameraFrame: recordingAsset?.presentation?.cameraFrame,
+      camera: frame.cameraPresentation ?? recordingAsset?.presentation?.camera ?? createDefaultCameraPresentation(),
+      cameraFrame: frame.cameraFrame ?? recordingAsset?.presentation?.cameraFrame,
     };
   }, [playheadFrame, project, projectFilePath]);
 

@@ -28,6 +28,9 @@ import type {
   ZoomPresentation,
   CameraLayoutMarkerId,
   CameraLayoutMarker,
+  RecordingVisibilitySegmentId,
+  RecordingVisibility,
+  RecordingVisibilitySegment,
   CursorPresentation,
   CameraPresentation,
   RegionCrop,
@@ -84,6 +87,9 @@ function libraryTranscriptSegmentId(): LibraryTranscriptSegmentId {
 }
 function visualAnalysisEntryId(): VisualAnalysisEntryId {
   return generateId() as VisualAnalysisEntryId;
+}
+function recordingVisibilitySegmentId(): RecordingVisibilitySegmentId {
+  return generateId() as RecordingVisibilitySegmentId;
 }
 function zoomMarkerId(): ZoomMarkerId {
   return generateId() as ZoomMarkerId;
@@ -239,6 +245,27 @@ export function createCameraLayoutMarker(
     id: cameraLayoutMarkerId(),
     frame,
     camera,
+    ...overrides,
+  };
+}
+
+export function createDefaultRecordingVisibility(): RecordingVisibility {
+  return {
+    cameraVisible: true,
+    cursorVisible: true,
+    clicksVisible: true,
+    overlaysVisible: true,
+  };
+}
+
+export function createRecordingVisibilitySegment(
+  frame: number,
+  overrides?: Partial<RecordingVisibilitySegment>,
+): RecordingVisibilitySegment {
+  return {
+    id: recordingVisibilitySegmentId(),
+    frame,
+    ...createDefaultRecordingVisibility(),
     ...overrides,
   };
 }

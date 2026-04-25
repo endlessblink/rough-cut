@@ -1,4 +1,5 @@
-import type { Clip } from './types.js';
+import { createDefaultRecordingVisibility } from './factories.js';
+import type { Clip, RecordingVisibility, RecordingVisibilitySegment } from './types.js';
 
 /**
  * Convert a frame number to seconds at the given FPS.
@@ -59,4 +60,21 @@ export function clipDurationFrames(clip: Clip): number {
  */
 export function clipSourceDurationFrames(clip: Clip): number {
   return clip.sourceOut - clip.sourceIn;
+}
+
+export function getActiveRecordingVisibilitySegment(
+  segments: readonly RecordingVisibilitySegment[] | undefined,
+  sourceFrame: number,
+): RecordingVisibilitySegment | undefined {
+  if (!segments || segments.length === 0) return undefined;
+  return [...segments]
+    .filter((segment) => segment.frame <= sourceFrame)
+    .sort((left, right) => right.frame - left.frame)[0];
+}
+
+export function resolveRecordingVisibility(
+  segments: readonly RecordingVisibilitySegment[] | undefined,
+  sourceFrame: number,
+): RecordingVisibility {
+  return getActiveRecordingVisibilitySegment(segments, sourceFrame) ?? createDefaultRecordingVisibility();
 }

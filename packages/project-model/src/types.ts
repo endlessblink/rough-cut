@@ -66,6 +66,9 @@ export interface ProjectSettings {
 
 export type ZoomMarkerId = string & { readonly __brand: 'ZoomMarkerId' };
 export type CameraLayoutMarkerId = string & { readonly __brand: 'CameraLayoutMarkerId' };
+export type RecordingVisibilitySegmentId = string & {
+  readonly __brand: 'RecordingVisibilitySegmentId';
+};
 
 export interface ZoomFocalPoint {
   readonly x: number; // normalized 0–1 within source frame
@@ -101,6 +104,18 @@ export interface CameraLayoutMarker {
   readonly camera: CameraPresentation;
   readonly cameraFrame?: NormalizedRect;
   readonly templateId?: string;
+}
+
+export interface RecordingVisibility {
+  readonly cameraVisible: boolean;
+  readonly cursorVisible: boolean;
+  readonly clicksVisible: boolean;
+  readonly overlaysVisible: boolean;
+}
+
+export interface RecordingVisibilitySegment extends RecordingVisibility {
+  readonly id: RecordingVisibilitySegmentId;
+  readonly frame: Frame;
 }
 
 export type CursorStyle = 'subtle' | 'default' | 'spotlight';
@@ -170,6 +185,7 @@ export interface RecordingPresentation {
   readonly cursor: CursorPresentation;
   readonly camera: CameraPresentation;
   readonly cameraLayouts?: readonly CameraLayoutMarker[];
+  readonly visibilitySegments?: readonly RecordingVisibilitySegment[];
   readonly background?: RecordingBackgroundStyle;
   readonly screenFrame?: NormalizedRect;
   readonly cameraFrame?: NormalizedRect;

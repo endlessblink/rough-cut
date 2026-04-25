@@ -368,6 +368,7 @@ export function renderCursorOverlay(
   offsetY: number,
   frameRate: number,
   crop?: { enabled?: boolean; x: number; y: number; width: number; height: number },
+  options?: { showCursor?: boolean },
 ): void {
   const cursor = getCursorAtFrame(cursorData, sourceFrame);
   if (!cursor) return;
@@ -413,5 +414,7 @@ export function renderCursorOverlay(
     }
   }
 
-  drawCursor(ctx, point.x, point.y, cursorSize, presentation.style);
+  if (options?.showCursor !== false) {
+    drawCursor(ctx, point.x, point.y, cursorSize, presentation.style);
+  }
 }

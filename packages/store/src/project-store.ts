@@ -13,6 +13,7 @@ import type {
   ZoomMarkerId,
   ZoomPresentation,
   CameraLayoutMarker,
+  RecordingVisibility,
   CursorPresentation,
   CameraPresentation,
   RegionCrop,
@@ -27,6 +28,8 @@ import {
   createTrack,
   createZoomMarker,
   createCameraLayoutMarker,
+  createRecordingVisibilitySegment,
+  createDefaultRecordingVisibility,
   createDefaultRecordingPresentation,
   createDefaultCursorPresentation,
   createDefaultCameraPresentation,
@@ -136,6 +139,13 @@ export interface ProjectActions {
     markerId: string,
     patch: Partial<CameraLayoutMarker>,
   ) => void;
+  upsertRecordingVisibilitySegment: (
+    assetId: AssetId,
+    frame: number,
+    visibility: RecordingVisibility,
+  ) => void;
+  removeRecordingVisibilitySegment: (assetId: AssetId, markerId: string) => void;
+  resetRecordingVisibilitySegments: (assetId: AssetId) => void;
 
   // Recording presentation — crop
   updateScreenCrop: (assetId: AssetId, patch: Partial<RegionCrop>) => void;
@@ -830,6 +840,72 @@ export function createProjectStore() {
                         }
                       : marker,
                   ),
+                },
+              };
+            }),
+          }));
+        },
+
+        upsertRecordingVisibilitySegment: (
+          assetId: AssetId,
+          frame: number,
+          visibility: RecordingVisibility,
+        ) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              const existing = (pres.visibilitySegments ?? []).find((segment) => segment.frame === frame);
+              const nextSegment = existing
+                ? { ...existing, ...createDefaultRecordingVisibility(), ...visibility }
+                : createRecordingVisibilitySegment(frame, visibility);
+              const nextSegments = existing
+                ? (pres.visibilitySegments ?? []).map((segment) =>
+                    segment.id === existing.id ? nextSegment : segment,
+                  )
+                : [...(pres.visibilitySegments ?? []), nextSegment];
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  visibilitySegments: nextSegments.sort((left, right) => left.frame - right.frame),
+                },
+              };
+            }),
+          }));
+        },
+
+        removeRecordingVisibilitySegment: (assetId: AssetId, markerId: string) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  visibilitySegments: (pres.visibilitySegments ?? []).filter(
+                    (segment) => segment.id !== markerId,
+                  ),
+                },
+              };
+            }),
+          }));
+        },
+
+        resetRecordingVisibilitySegments: (assetId: AssetId) => {
+          get().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((a) => {
+              if (a.id !== assetId) return a;
+              const pres = a.presentation ?? createDefaultRecordingPresentation();
+              return {
+                ...a,
+                presentation: {
+                  ...pres,
+                  visibilitySegments: [],
                 },
               };
             }),

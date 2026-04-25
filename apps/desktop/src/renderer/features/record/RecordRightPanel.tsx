@@ -14,6 +14,7 @@ import type {
   ZoomFollowAnimation,
   CaptionSegment,
   AIAnnotationId,
+  RecordingVisibility,
 } from '@rough-cut/project-model';
 import { InspectorShell, RECORD_PANEL_WIDTH } from '../../ui/index.js';
 import type { InspectorCategory } from '../../ui/index.js';
@@ -25,6 +26,7 @@ import { RecordCropPanel } from './RecordCropPanel.js';
 import { RecordTemplatesPanel } from './RecordTemplatesPanel.js';
 import { RecordDestinationPresetsPanel } from './RecordDestinationPresetsPanel.js';
 import { RecordCaptionsPanel } from './RecordCaptionsPanel.js';
+import { RecordSegmentVisibilityPanel } from './RecordSegmentVisibilityPanel.js';
 import type { DestinationPresetId } from './destination-presets.js';
 import type { LayoutTemplate } from './templates.js';
 import { resolutionForAspectRatio } from './templates.js';
@@ -113,6 +115,12 @@ export interface RecordRightPanelProps {
   onUpdateCaptionStyle?: (
     patch: Partial<{ fontSize: number; position: 'bottom' | 'center'; backgroundOpacity: number }>,
   ) => void;
+  playheadFrame: number;
+  activeSegmentVisibility: RecordingVisibility;
+  visibilitySegmentCount?: number;
+  activeVisibilitySegmentFrame?: number | null;
+  onApplySegmentVisibility: (visibility: RecordingVisibility) => void;
+  onDeleteActiveSegmentVisibility?: () => void;
 }
 
 // ─── Inline SVG Icons ─────────────────────────────────────────────────────────
@@ -266,6 +274,26 @@ function CropIcon() {
   );
 }
 
+function VisibilityIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M2 8C3.7 5.2 5.7 3.8 8 3.8C10.3 3.8 12.3 5.2 14 8C12.3 10.8 10.3 12.2 8 12.2C5.7 12.2 3.7 10.8 2 8Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
+      <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
 function AlignIcon() {
   return (
     <svg
@@ -396,6 +424,12 @@ export function RecordRightPanel({
   onGenerateCaptions,
   captionStyle = { fontSize: 28, position: 'bottom', backgroundOpacity: 0.55 },
   onUpdateCaptionStyle,
+  playheadFrame,
+  activeSegmentVisibility,
+  visibilitySegmentCount = 0,
+  activeVisibilitySegmentFrame = null,
+  onApplySegmentVisibility,
+  onDeleteActiveSegmentVisibility,
 }: RecordRightPanelProps) {
   const handleSelectTemplate = useCallback(
     (template: LayoutTemplate) => {
@@ -536,6 +570,22 @@ export function RecordRightPanel({
       icon: <CursorIcon />,
       onReset: onCursorReset,
       panel: <RecordCursorPanel cursor={cursor} onCursorChange={onCursorChange} />,
+    },
+    {
+      id: 'visibility',
+      label: 'Visibility',
+      icon: <VisibilityIcon />,
+      panel: (
+        <RecordSegmentVisibilityPanel
+          fps={fps}
+          playheadFrame={playheadFrame}
+          visibility={activeSegmentVisibility}
+          segmentCount={visibilitySegmentCount}
+          activeSegmentFrame={activeVisibilitySegmentFrame}
+          onApply={onApplySegmentVisibility}
+          onDeleteActive={onDeleteActiveSegmentVisibility}
+        />
+      ),
     },
     {
       id: 'captions',

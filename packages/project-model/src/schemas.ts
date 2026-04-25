@@ -167,6 +167,18 @@ export const CameraLayoutMarkerSchema = z.object({
   templateId: z.string().min(1).optional(),
 });
 
+export const RecordingVisibilitySchema = z.object({
+  cameraVisible: z.boolean(),
+  cursorVisible: z.boolean(),
+  clicksVisible: z.boolean(),
+  overlaysVisible: z.boolean(),
+});
+
+export const RecordingVisibilitySegmentSchema = RecordingVisibilitySchema.extend({
+  id: z.string().min(1),
+  frame: nonNegativeInt,
+});
+
 export const RecordingBackgroundStyleSchema = z.object({
   bgColor: hexColor,
   bgGradient: z.string().nullable(),
@@ -187,6 +199,7 @@ export const RecordingPresentationSchema = z.object({
   cursor: CursorPresentationSchema,
   camera: CameraPresentationSchema,
   cameraLayouts: z.array(CameraLayoutMarkerSchema).optional(),
+  visibilitySegments: z.array(RecordingVisibilitySegmentSchema).optional(),
   background: RecordingBackgroundStyleSchema.optional(),
   screenFrame: NormalizedRectSchema.optional(),
   cameraFrame: NormalizedRectSchema.optional(),

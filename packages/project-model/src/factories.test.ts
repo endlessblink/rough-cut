@@ -8,7 +8,9 @@ import {
   createKeyframeTrack,
   createKeyframe,
   createDefaultCameraPresentation,
+  createDefaultRecordingVisibility,
   createDefaultRecordingPresentation,
+  createRecordingVisibilitySegment,
   createLibrary,
   createLibraryDocument,
   createLibrarySource,
@@ -179,6 +181,26 @@ describe('factories', () => {
     it('includes the default record layout template id', () => {
       const presentation = createDefaultRecordingPresentation();
       expect(presentation.templateId).toBe('screen-cam-br-16x9');
+    });
+  });
+
+  describe('recording visibility factories', () => {
+    it('creates enabled-by-default visibility settings', () => {
+      expect(createDefaultRecordingVisibility()).toEqual({
+        cameraVisible: true,
+        cursorVisible: true,
+        clicksVisible: true,
+        overlaysVisible: true,
+      });
+    });
+
+    it('creates a visibility segment with defaults and frame', () => {
+      const segment = createRecordingVisibilitySegment(42);
+      expect(segment.frame).toBe(42);
+      expect(segment.cameraVisible).toBe(true);
+      expect(segment.cursorVisible).toBe(true);
+      expect(segment.clicksVisible).toBe(true);
+      expect(segment.overlaysVisible).toBe(true);
     });
   });
 
