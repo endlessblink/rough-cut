@@ -10,6 +10,10 @@ import { useRef, useEffect } from 'react';
 import { transportStore } from '../hooks/use-stores.js';
 import type { CursorPresentation, RegionCrop } from '@rough-cut/project-model';
 import type { ZoomTransform } from '@rough-cut/timeline-engine';
+import {
+  INITIAL_BACKWARD_SUBFRAME_INTERPOLATION_STATE,
+  resolveBackwardSubframeInterpolation,
+} from './cursor-subframe-interpolation.js';
 
 /** Pre-indexed cursor data: [x0, y0, clickFlag0, x1, y1, clickFlag1, ...] */
 export interface CursorFrameData {
@@ -22,10 +26,13 @@ export interface CursorFrameData {
 interface CursorOverlayProps {
   cursorData: CursorFrameData | null;
   presentation: CursorPresentation;
+  showCursor?: boolean;
   clipTimelineIn: number;
   zoomTransform: ZoomTransform;
   getZoomTransform?: (sourceFrame: number, cursorData: CursorFrameData) => ZoomTransform;
   crop?: RegionCrop;
+  /** Project frame rate. Drives backward sub-frame interpolation timing. */
+  fps: number;
 }
 
 interface ClickEffect {
@@ -165,10 +172,12 @@ function applyCropToPoint(
 export function CursorOverlay({
   cursorData,
   presentation,
+  showCursor = true,
   clipTimelineIn,
   zoomTransform,
   getZoomTransform,
   crop,
+  fps,
 }: CursorOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -176,6 +185,13 @@ export function CursorOverlay({
   const lastClickFrameRef = useRef(-1);
   const sizeRef = useRef({ width: 0, height: 0 });
   const rafIdRef = useRef(0);
+
+  // Backward sub-frame interpolation timing. We lerp from cursor[N-1] to
+  // cursor[N] across the ~33 ms window the playhead holds at frame N. The
+  // cursor visually arrives at N right as the playhead advances to N+1 —
+  // never overshoots, never snaps back. (Forward interp does the opposite
+  // and looks like a stutter on fast moves.)
+  const interpolationStateRef = useRef(INITIAL_BACKWARD_SUBFRAME_INTERPOLATION_STATE);
 
   // Store props in refs so the rAF loop always reads current values
   // without restarting the effect.
@@ -189,8 +205,12 @@ export function CursorOverlay({
   zoomTransformRef.current = zoomTransform;
   const getZoomTransformRef = useRef(getZoomTransform);
   getZoomTransformRef.current = getZoomTransform;
+  const showCursorRef = useRef(showCursor);
+  showCursorRef.current = showCursor;
   const cropRef = useRef(crop);
   cropRef.current = crop;
+  const fpsRef = useRef(fps);
+  fpsRef.current = fps;
 
   // ResizeObserver — only updates CSS sizeRef. The actual canvas backing
   // store is sized inside the rAF loop, where it can pick up cursorData's
@@ -230,10 +250,14 @@ export function CursorOverlay({
       const clipIn = clipTimelineInRef.current;
       const activeCrop = cropRef.current;
 
-      // Nothing to draw — clear and wait
-      if (width === 0 || height === 0 || !data) {
-        rafIdRef.current = requestAnimationFrame(render);
-        return;
+      // Always sync the canvas size to the host CSS frame (so tests and
+      // tooling can rely on stable pixel dimensions even before cursor
+      // data arrives).
+      if (width > 0 && canvas.style.width !== `${width}px`) {
+        canvas.style.width = `${width}px`;
+      }
+      if (height > 0 && canvas.style.height !== `${height}px`) {
+        canvas.style.height = `${height}px`;
       }
 
       // Match the cursor canvas backing store to the source resolution
@@ -241,12 +265,19 @@ export function CursorOverlay({
       // uses. Sizing only by CSS pixels × devicePixelRatio leaves a 628-px
       // backing on a 1920-source preview, which the browser then bilinearly
       // upscales — that scaling is what produced the "blurry cursor" look.
-      const targetW = data.sourceWidth;
-      const targetH = data.sourceHeight;
+      // Falls back to cssW × DPR when cursor data hasn't loaded yet so the
+      // canvas always covers the host without smearing.
+      const dpr = window.devicePixelRatio || 1;
+      const targetW = data ? data.sourceWidth : Math.max(1, Math.round(width * dpr));
+      const targetH = data ? data.sourceHeight : Math.max(1, Math.round(height * dpr));
       if (canvas.width !== targetW) canvas.width = targetW;
       if (canvas.height !== targetH) canvas.height = targetH;
-      if (canvas.style.width !== `${width}px`) canvas.style.width = `${width}px`;
-      if (canvas.style.height !== `${height}px`) canvas.style.height = `${height}px`;
+
+      // Nothing more to draw if the cursor sidecar hasn't loaded yet.
+      if (width === 0 || height === 0 || !data) {
+        rafIdRef.current = requestAnimationFrame(render);
+        return;
+      }
 
       // Drawing coords are in CSS pixels; scale up to the backing store.
       const scaleX = canvas.width / width;
@@ -254,15 +285,40 @@ export function CursorOverlay({
       ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
       ctx.clearRect(0, 0, width, height);
 
-      const projectFrame = transportStore.getState().playheadFrame;
+      const transport = transportStore.getState();
+      const projectFrame = transport.playheadFrame;
+      const isPlaying = transport.isPlaying;
       const sourceFrame = projectFrame - clipIn;
       const zoom = getZoomTransformRef.current?.(sourceFrame, data) ?? zoomTransformRef.current;
 
-      const cursor = getCursorAtFrame(data, sourceFrame);
-      if (!cursor) {
+      // Track when the integer playhead last advanced so we can lerp the
+      // cursor BACKWARD from cursor[N-1] toward cursor[N] across the
+      // ~1/fps window the playhead holds. By the time the playhead jumps
+      // to N+1, the cursor has just arrived at N — no overshoot.
+      const now = performance.now();
+      const interpolation = resolveBackwardSubframeInterpolation(interpolationStateRef.current, {
+        projectFrame,
+        isPlaying,
+        nowMs: now,
+        fps: fpsRef.current,
+      });
+      interpolationStateRef.current = interpolation.nextState;
+
+      const currCursor = getCursorAtFrame(data, sourceFrame);
+      if (!currCursor) {
         rafIdRef.current = requestAnimationFrame(render);
         return;
       }
+      const prevCursor = sourceFrame > 0 ? getCursorAtFrame(data, sourceFrame - 1) : null;
+
+      const cursor =
+        prevCursor && interpolation.shouldInterpolate
+          ? {
+              x: prevCursor.x + (currCursor.x - prevCursor.x) * interpolation.lerpT,
+              y: prevCursor.y + (currCursor.y - prevCursor.y) * interpolation.lerpT,
+              isClick: currCursor.isClick,
+            }
+          : currCursor;
 
       const croppedCursor = applyCropToPoint(cursor.x, cursor.y, data, activeCrop);
       if (!croppedCursor) {
@@ -274,12 +330,11 @@ export function CursorOverlay({
       const px = point.x;
       const py = point.y;
 
-      // Click effects
-      const now = performance.now();
-      if (cursor.isClick && sourceFrame !== lastClickFrameRef.current) {
+      // Click effects (anchored to the integer source frame so they fire once)
+      if (currCursor.isClick && sourceFrame !== lastClickFrameRef.current) {
         lastClickFrameRef.current = sourceFrame;
         if (pres.clickEffect !== 'none') {
-          clickEffectsRef.current.push({ x: cursor.x, y: cursor.y, startTime: now });
+          clickEffectsRef.current.push({ x: currCursor.x, y: currCursor.y, startTime: now });
         }
       }
 
@@ -299,9 +354,10 @@ export function CursorOverlay({
         );
       }
 
-      // Draw cursor
-      const cursorSize = (pres.sizePercent / 100) * 20 * croppedCursor.scale * zoom.scale;
-      drawCursor(ctx, px, py, cursorSize, pres.style);
+      if (showCursorRef.current) {
+        const cursorSize = (pres.sizePercent / 100) * 20 * croppedCursor.scale * zoom.scale;
+        drawCursor(ctx, px, py, cursorSize, pres.style);
+      }
 
       rafIdRef.current = requestAnimationFrame(render);
     }
