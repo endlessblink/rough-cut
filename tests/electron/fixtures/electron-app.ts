@@ -4,43 +4,130 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 type ElectronFixtures = {
   electronApp: ElectronApplication;
   appPage: Page;
 };
 
-export const test = base.extend<ElectronFixtures>({
-  electronApp: async ({}, use) => {
+type WorkerFixtures = {
+  rendererUrl: string;
+};
+
+async function getFreePort(): Promise<number> {
+  const { createServer } = await import('node:net');
+
+  return await new Promise((resolvePort, reject) => {
+    const server = createServer();
+    server.unref();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        server.close(() => reject(new Error('Failed to allocate a free port')));
+        return;
+      }
+
+      server.close((closeError) => {
+        if (closeError) reject(closeError);
+        else resolvePort(address.port);
+      });
+    });
+  });
+}
+
+async function waitForServer(url: string, child: ChildProcessWithoutNullStreams): Promise<void> {
+  const startedAt = Date.now();
+  let stderr = '';
+
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString();
+    if (stderr.length > 4000) stderr = stderr.slice(-4000);
+  });
+
+  while (Date.now() - startedAt < 30_000) {
+    if (child.exitCode !== null) {
+      throw new Error(`Vite exited before becoming ready: ${stderr}`);
+    }
+
+    try {
+      const response = await fetch(url);
+      if (response.ok) return;
+    } catch {}
+
+    await delay(250);
+  }
+
+  throw new Error(`Timed out waiting for Vite at ${url}: ${stderr}`);
+}
+
+export const test = base.extend<ElectronFixtures, WorkerFixtures>({
+  rendererUrl: [
+    async ({}, use) => {
+      const port = await getFreePort();
+      const rendererUrl = `http://127.0.0.1:${port}`;
+      const viteBin = resolve(process.cwd(), 'apps/desktop/node_modules/.bin/vite');
+      const viteProcess = spawn(
+        viteBin,
+        [
+          '--config',
+          resolve(process.cwd(), 'apps/desktop/vite.config.ts'),
+          '--host',
+          '127.0.0.1',
+          '--port',
+          String(port),
+          '--strictPort',
+        ],
+        {
+          cwd: process.cwd(),
+          env: process.env,
+          stdio: 'pipe',
+        },
+      );
+
+      try {
+        await waitForServer(rendererUrl, viteProcess);
+        await use(rendererUrl);
+      } finally {
+        viteProcess.kill('SIGTERM');
+        await Promise.race([
+          new Promise((resolveExit) => viteProcess.once('exit', resolveExit)),
+          delay(5_000).then(() => viteProcess.kill('SIGKILL')),
+        ]);
+      }
+    },
+    { scope: 'worker' },
+  ],
+
+  electronApp: async ({ rendererUrl }, use) => {
     const app = await electron.launch({
       args: ['--no-sandbox', 'apps/desktop'],
       cwd: process.cwd(),
+      env: {
+        ...process.env,
+        ROUGH_CUT_RENDERER_URL: rendererUrl,
+      },
     });
     await use(app);
     await app.close();
   },
 
-  appPage: async ({ electronApp }, use) => {
+  appPage: async ({ electronApp, rendererUrl }, use) => {
     const page = await electronApp.firstWindow();
 
-    await page.waitForURL(/127\.0\.0\.1:7544/, { timeout: 30_000 });
+    await page.waitForURL((url) => url.href.startsWith(rendererUrl), { timeout: 30_000 });
     await page.waitForLoadState('domcontentloaded', { timeout: 30_000 });
 
-    // Wait for React to mount any app shell/tab content, not one specific header.
+    // Wait for React to mount something into the app root. Individual tests
+    // already wait for their own tab-specific UI, so the shared fixture should
+    // avoid baking in assumptions about which surface renders first.
     await page.waitForFunction(
       () => {
         const root = document.getElementById('root');
-        if (!root || root.childElementCount === 0) return false;
-
-        return Boolean(
-          document.querySelector('[data-testid="app-header"]') ||
-          document.querySelector('[data-testid="projects-tab-root"]') ||
-          document.querySelector('[data-testid="record-tab-root"]') ||
-          document.querySelector('[data-testid="edit-tab-root"]') ||
-          document.querySelector('[data-testid="export-tab-root"]') ||
-          document.querySelector('[data-testid="motion-tab-root"]') ||
-          document.querySelector('[data-testid="ai-tab-root"]'),
-        );
+        return Boolean(root && root.childElementCount > 0);
       },
       { timeout: 30_000 },
     );

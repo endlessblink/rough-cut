@@ -77,8 +77,8 @@ test.describe('Record Tab — MVP Acceptance', () => {
     await expect(appPage.locator('[data-testid="record-card-chrome"]')).toBeVisible();
   });
 
-  // ── 1.5.2: Source picker is inline in the tab (TASK-186 Cut C) ─────────
-  test('1.5.2 — clicking the source chip opens the inline source picker', async ({
+  // ── 1.5.2: Source selection is unified through the pre-recording panel ───
+  test('1.5.2 — clicking the source chip opens the pre-recording panel', async ({
     appPage,
     electronApp,
   }) => {
@@ -91,10 +91,11 @@ test.describe('Record Tab — MVP Acceptance', () => {
     );
 
     const windowCountBefore = electronApp.windows().length;
+    const panelPromise = electronApp.waitForEvent('window');
     await sourceBtn.click();
-    await expect(appPage.locator('[data-testid="record-inline-source-picker"]')).toBeVisible();
-    expect(electronApp.windows().length).toBe(windowCountBefore);
-    await expect(appPage.getByText('Choose source')).toBeVisible();
+    const panelPage = await panelPromise;
+    await expect(panelPage.locator('[data-testid="panel-source-select"]')).toBeVisible();
+    expect(electronApp.windows().length).toBeGreaterThan(windowCountBefore);
   });
 
   // ── 1.5.3: Record mode (Full Screen / Window / Region) still lives in panel ─

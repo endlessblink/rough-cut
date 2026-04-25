@@ -32,7 +32,7 @@ test.describe('Record post-take review flow', () => {
     await expect(reviewCard).toBeHidden();
   });
 
-  test('retry opens source selection without discarding the current take', async ({
+  test('retry opens the pre-recording panel without discarding the current take', async ({
     electronApp,
     appPage,
   }) => {
@@ -42,8 +42,10 @@ test.describe('Record post-take review flow', () => {
 
     await expect(appPage.locator('[data-testid="record-post-take-decision"]')).toBeVisible();
 
+    const panelPromise = electronApp.waitForEvent('window');
     await appPage.locator('[data-testid="record-post-take-retry"]').click();
-    await expect(appPage.locator('[data-testid="record-inline-source-picker"]')).toBeVisible();
+    const panelPage = await panelPromise;
+    await expect(panelPage.locator('[data-testid="panel-source-select"]')).toBeVisible();
   });
 
   test('can continue directly into Edit from the post-take review card', async ({
