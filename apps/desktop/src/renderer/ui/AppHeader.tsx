@@ -185,7 +185,10 @@ const APP_VIEW_TABS: { id: AppView; label: string }[] = [
   { id: 'projects', label: 'Projects' },
   { id: 'record', label: 'Record' },
   { id: 'edit', label: 'Edit' },
-  { id: 'motion', label: 'Motion' },
+  // Motion tab hidden until the template browser/parameter editor lands.
+  // The 'motion' AppView and routing path are kept so deep-links / tests that
+  // reference it still resolve; the user just can't reach it from the header.
+  // { id: 'motion', label: 'Motion' },
   { id: 'ai', label: 'AI' },
   { id: 'export', label: 'Export' },
 ];

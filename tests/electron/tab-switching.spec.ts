@@ -4,7 +4,8 @@ test.describe('Tab switching', () => {
   const tabs = [
     { id: 'record', root: 'record-tab-root' },
     { id: 'edit', root: 'edit-tab-root' },
-    { id: 'motion', root: 'motion-tab-root' },
+    // 'motion' tab is hidden from the header (AppHeader.tsx APP_VIEW_TABS) until
+    // the Motion MVP UI lands. Re-add this entry when the tab is visible again.
     { id: 'ai', root: 'ai-tab-root' },
     { id: 'export', root: 'export-tab-root' },
     { id: 'projects', root: 'projects-tab-root' },
