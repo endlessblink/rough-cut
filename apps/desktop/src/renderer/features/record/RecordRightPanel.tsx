@@ -182,28 +182,6 @@ function CursorIcon() {
   );
 }
 
-function HighlightIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      {/* Sparkle / star */}
-      <path
-        d="M8 2L9 6.5L13.5 8L9 9.5L8 14L7 9.5L2.5 8L7 6.5L8 2Z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-        fill="none"
-      />
-    </svg>
-  );
-}
-
 function TitleIcon() {
   return (
     <svg
@@ -355,16 +333,6 @@ function BackgroundIcon() {
         strokeDasharray="1.5 1"
       />
     </svg>
-  );
-}
-
-// ─── Placeholder panel ────────────────────────────────────────────────────────
-
-function PlaceholderText() {
-  return (
-    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.40)', userSelect: 'none' }}>
-      Coming soon
-    </span>
   );
 }
 
@@ -586,18 +554,6 @@ export function RecordRightPanel({
           onUpdateStyle={(patch) => onUpdateCaptionStyle?.(patch)}
         />
       ),
-    },
-    {
-      id: 'highlights',
-      label: 'Highlights',
-      icon: <HighlightIcon />,
-      panel: <PlaceholderText />,
-    },
-    {
-      id: 'titles',
-      label: 'Titles',
-      icon: <TitleIcon />,
-      panel: <PlaceholderText />,
     },
   ];
 
