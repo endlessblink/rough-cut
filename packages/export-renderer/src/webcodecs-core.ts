@@ -2,7 +2,6 @@ import type { ProjectDocument, ExportSettings } from '@rough-cut/project-model';
 import { resolveFrame } from '@rough-cut/frame-resolver';
 import { Output, Mp4OutputFormat, BufferTarget, CanvasSource } from 'mediabunny';
 import { addAudioTracksToOutput } from './audio-export.js';
-import { collectClickTimestamps } from './click-sound-mix.js';
 import { loadCursorFrameData, type CursorFrameData } from './cursor-render.js';
 import { renderFrameToCanvasAccurate } from './render-frame-core.js';
 import type { ExportEventHandlers, ExportProgress, ExportResult } from './types.js';
@@ -57,9 +56,11 @@ export async function runWebCodecsExportToBuffer(
     format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
     target,
   });
+  const disposeAudio = await addAudioTracksToOutput(project, output, settings.frameRate);
 
   const { config, hardwareAcceleration } = await resolveVideoEncodingConfig(settings);
   const videoSource = new CanvasSource(canvas, config);
+  output.addVideoTrack(videoSource, { frameRate: settings.frameRate });
   const frameSources = new Map<string, MediaBunnyFrameSource>();
   const cursorDataByAssetId = new Map<string, CursorFrameData>();
 
@@ -83,6 +84,17 @@ export async function runWebCodecsExportToBuffer(
         ? (asset.metadata['cursorEventsFps'] as number)
         : 60; // Legacy takes (no field) sampled at TARGET_CAPTURE_FPS = 60.
     const projectFps = project.settings.frameRate;
+    // Wall-clock ms the cursor recorder ran ahead of the file's first frame
+    // (FFmpeg startup gap on Linux/X11). Loader subtracts this from each
+    // event's frame index so cursor[N] aligns with file frame N. Reject
+    // implausibly large stored values (>500ms is almost certainly a buggy
+    // save-time computation that confused frame drops with startup gap).
+    const rawEventsLeadMs =
+      typeof asset.metadata?.['cursorEventsLeadMs'] === 'number'
+        ? (asset.metadata['cursorEventsLeadMs'] as number)
+        : 0;
+    const eventsLeadMs = rawEventsLeadMs > 0 && rawEventsLeadMs <= 500 ? rawEventsLeadMs : 0;
+    const eventsLeadFrames = Math.round((eventsLeadMs * eventsFps) / 1000);
     const cursorData = await loadCursorFrameData(
       cursorEventsPath,
       asset.duration,
@@ -91,24 +103,12 @@ export async function runWebCodecsExportToBuffer(
       asset.filePath,
       eventsFps,
       projectFps,
+      eventsLeadFrames,
     );
     if (cursorData) {
       cursorDataByAssetId.set(asset.id, cursorData);
     }
   }
-
-  const clickTimestamps = collectClickTimestamps(
-    project,
-    cursorDataByAssetId,
-    settings.frameRate,
-  );
-  const disposeAudio = await addAudioTracksToOutput(
-    project,
-    output,
-    settings.frameRate,
-    clickTimestamps.timestampsSec,
-  );
-  output.addVideoTrack(videoSource, { frameRate: settings.frameRate });
 
   const resolveVideoFrame = async (
     assetId: string,

@@ -16,6 +16,7 @@ export interface RenderContext2DLike {
   textAlign: CanvasTextAlign;
   textBaseline: CanvasTextBaseline;
   globalAlpha: number;
+  createLinearGradient?(x0: number, y0: number, x1: number, y1: number): CanvasGradient;
   save(): void;
   restore(): void;
   translate(x: number, y: number): void;
@@ -54,6 +55,54 @@ function getLayerColor(trackIndex: number): string {
   return LAYER_COLORS[trackIndex % LAYER_COLORS.length] ?? '#888888';
 }
 
+function applyBackgroundFill(
+  ctx: RenderContext2DLike,
+  renderFrame: RenderFrame,
+  width: number,
+  height: number,
+): void {
+  const gradientSpec = renderFrame.background?.bgGradient;
+  const gradientMatch = gradientSpec?.match(/^linear-gradient\(([^,]+),\s*(.+)\)$/i);
+  if (gradientMatch && typeof ctx.createLinearGradient === 'function') {
+    const colorSpec = gradientMatch[2];
+    if (!colorSpec) {
+      ctx.fillStyle = renderFrame.background?.bgColor ?? renderFrame.backgroundColor;
+      ctx.fillRect(0, 0, width, height);
+      return;
+    }
+    const colorTokens = colorSpec
+      .split(',')
+      .map((token) => token.trim())
+      .filter(Boolean);
+    const angleToken = gradientMatch[1]?.trim() ?? '135deg';
+    const angleDeg = Number.parseFloat(angleToken.replace(/deg$/i, ''));
+    if (Number.isFinite(angleDeg) && colorTokens.length >= 2) {
+      const theta = ((angleDeg - 90) * Math.PI) / 180;
+      const dx = Math.cos(theta);
+      const dy = Math.sin(theta);
+      const halfSpan = (Math.abs(width * dx) + Math.abs(height * dy)) / 2;
+      const cx = width / 2;
+      const cy = height / 2;
+      const gradient = ctx.createLinearGradient(
+        cx - dx * halfSpan,
+        cy - dy * halfSpan,
+        cx + dx * halfSpan,
+        cy + dy * halfSpan,
+      );
+      colorTokens.forEach((color, index) => {
+        const stop = colorTokens.length === 1 ? 0 : index / (colorTokens.length - 1);
+        gradient.addColorStop(stop, color);
+      });
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+      return;
+    }
+  }
+
+  ctx.fillStyle = renderFrame.background?.bgColor ?? renderFrame.backgroundColor;
+  ctx.fillRect(0, 0, width, height);
+}
+
 /**
  * Create a reusable canvas for frame rendering.
  */
@@ -88,7 +137,7 @@ export function renderFrameToCanvas(
   ctx: RenderContext2DLike,
   renderFrame: RenderFrame,
 ): void {
-  const { backgroundColor, layers } = renderFrame;
+  const { layers } = renderFrame;
 
   // Use the canvas's actual pixel dimensions for all rendering.
   // renderFrame.width/height reflect the project's logical resolution
@@ -97,9 +146,7 @@ export function renderFrameToCanvas(
   const width = canvas.width;
   const height = canvas.height;
 
-  // Clear with background
-  ctx.fillStyle = backgroundColor;
-  ctx.fillRect(0, 0, width, height);
+  applyBackgroundFill(ctx, renderFrame, width, height);
 
   // Render each layer (z-ordered: index 0 = bottom)
   for (const layer of layers) {
@@ -133,12 +180,11 @@ export async function renderFrameToCanvasAccurate(
   frameRate: number,
   resolveLayerVideoFrame: ResolveLayerVideoFrame,
 ): Promise<void> {
-  const { backgroundColor, layers } = renderFrame;
+  const { layers } = renderFrame;
   const width = canvas.width;
   const height = canvas.height;
 
-  ctx.fillStyle = backgroundColor;
-  ctx.fillRect(0, 0, width, height);
+  applyBackgroundFill(ctx, renderFrame, width, height);
 
   for (const layer of layers) {
     const videoFrame = await resolveLayerVideoFrame(layer, {

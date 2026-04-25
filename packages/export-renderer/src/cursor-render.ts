@@ -116,6 +116,7 @@ export function buildCursorFrameData(
   sourceHeight: number,
   eventsFps?: number,
   projectFps?: number,
+  eventsLeadFrames?: number,
 ): CursorFrameData {
   const frames = new Float32Array(totalFrames * 3);
   frames.fill(-1);
@@ -127,11 +128,15 @@ export function buildCursorFrameData(
     eventsFps !== projectFps
       ? (projectFps as number) / (eventsFps as number)
       : 1;
+  const lead =
+    Number.isFinite(eventsLeadFrames) && (eventsLeadFrames as number) > 0
+      ? Math.round(eventsLeadFrames as number)
+      : 0;
   const normalized = normalizeCursorEvents(events, sourceWidth, sourceHeight);
   const sorted = (
-    scale === 1
+    lead === 0 && scale === 1
       ? [...normalized]
-      : normalized.map((e) => ({ ...e, frame: Math.round(e.frame * scale) }))
+      : normalized.map((e) => ({ ...e, frame: Math.round((e.frame - lead) * scale) }))
   ).sort((a, b) => a.frame - b.frame);
 
   for (const e of sorted) {
@@ -203,6 +208,7 @@ export async function loadCursorFrameData(
   recordingFilePath?: string | null,
   eventsFps?: number,
   projectFps?: number,
+  eventsLeadFrames?: number,
 ): Promise<CursorFrameData | null> {
   const candidatePaths = new Set<string>();
   if (cursorEventsPath) {
@@ -230,6 +236,7 @@ export async function loadCursorFrameData(
       sourceHeight,
       eventsFps,
       projectFps,
+      eventsLeadFrames,
     );
   }
 
