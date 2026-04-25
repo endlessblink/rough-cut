@@ -25,6 +25,8 @@ interface CursorOverlayProps {
   clipTimelineIn: number;
   zoomTransform: ZoomTransform;
   crop?: RegionCrop;
+  /** Project frame rate — used for sub-frame interpolation between samples. */
+  fps: number;
 }
 
 interface ClickEffect {
@@ -48,6 +50,28 @@ function getCursorAtFrame(
   const isClick = data.frames[idx + 2]! > 0.5;
   if (x < 0 || y < 0) return null;
   return { x, y, isClick };
+}
+
+/**
+ * Linear interpolation between two adjacent integer-frame samples. Returns
+ * null if the floor frame has no usable sample. Sub-frame `t` is clamped 0..1.
+ */
+function getCursorAtSubFrame(
+  data: CursorFrameData,
+  sourceFrameFloat: number,
+): { x: number; y: number; isClick: boolean } | null {
+  const floor = Math.floor(sourceFrameFloat);
+  const t = Math.max(0, Math.min(1, sourceFrameFloat - floor));
+  const a = getCursorAtFrame(data, floor);
+  if (!a) return null;
+  if (t <= 0) return a;
+  const b = getCursorAtFrame(data, floor + 1);
+  if (!b) return a;
+  return {
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+    isClick: a.isClick,
+  };
 }
 
 function drawCursor(
@@ -163,6 +187,7 @@ export function CursorOverlay({
   clipTimelineIn,
   zoomTransform,
   crop,
+  fps,
 }: CursorOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -170,6 +195,11 @@ export function CursorOverlay({
   const lastClickFrameRef = useRef(-1);
   const sizeRef = useRef({ width: 0, height: 0 });
   const rafIdRef = useRef(0);
+
+  // Sub-frame interpolation: track when the integer playheadFrame last
+  // changed so we can lerp smoothly to the next sample during playback.
+  const lastSeenPlayheadRef = useRef(-1);
+  const lastFrameChangeMsRef = useRef(0);
 
   // Store props in refs so the rAF loop always reads current values
   // without restarting the effect.
@@ -183,6 +213,8 @@ export function CursorOverlay({
   zoomTransformRef.current = zoomTransform;
   const cropRef = useRef(crop);
   cropRef.current = crop;
+  const fpsRef = useRef(fps);
+  fpsRef.current = fps;
 
   // ResizeObserver — always active since DOM is always mounted
   useEffect(() => {
@@ -238,10 +270,29 @@ export function CursorOverlay({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
 
-      const projectFrame = transportStore.getState().playheadFrame;
-      const sourceFrame = projectFrame - clipIn;
+      const transport = transportStore.getState();
+      const projectFrame = transport.playheadFrame;
+      const isPlaying = transport.isPlaying;
+      const now = performance.now();
 
-      const cursor = getCursorAtFrame(data, sourceFrame);
+      // Detect frame transitions for sub-frame interpolation timing
+      if (projectFrame !== lastSeenPlayheadRef.current) {
+        lastSeenPlayheadRef.current = projectFrame;
+        lastFrameChangeMsRef.current = now;
+      }
+
+      const activeFps = fpsRef.current > 0 ? fpsRef.current : 30;
+      const framePeriodMs = 1000 / activeFps;
+      // Only interpolate during playback. When paused the user expects the
+      // cursor to sit on the exact sample for the current frame.
+      const subFrameT = isPlaying
+        ? Math.max(0, Math.min(1, (now - lastFrameChangeMsRef.current) / framePeriodMs))
+        : 0;
+
+      const sourceFrameFloat = projectFrame - clipIn + subFrameT;
+      const sourceFrame = Math.floor(sourceFrameFloat);
+
+      const cursor = getCursorAtSubFrame(data, sourceFrameFloat);
       if (!cursor) {
         rafIdRef.current = requestAnimationFrame(render);
         return;
@@ -257,8 +308,7 @@ export function CursorOverlay({
       const px = point.x;
       const py = point.y;
 
-      // Click effects
-      const now = performance.now();
+      // Click effects (anchored on integer source frame so they fire once)
       if (cursor.isClick && sourceFrame !== lastClickFrameRef.current) {
         lastClickFrameRef.current = sourceFrame;
         if (pres.clickEffect !== 'none') {
@@ -282,8 +332,39 @@ export function CursorOverlay({
         );
       }
 
-      // Draw cursor
       const cursorSize = (pres.sizePercent / 100) * 20 * croppedCursor.scale * zoom.scale;
+
+      // Motion-blur trail: sample backwards along the recent motion path and
+      // draw faded copies before the main cursor. Only render during playback
+      // (otherwise a trail at a paused frame is misleading) and skip when the
+      // user has the slider at zero.
+      const blur = Math.max(0, Math.min(100, pres.motionBlur ?? 0));
+      if (blur > 0 && isPlaying) {
+        const blurStrength = blur / 100;
+        const trailSamples = Math.max(2, Math.ceil(blurStrength * 8));
+        const trailSpanFrames = 0.5 + blurStrength * 1.5; // up to 2 frames back
+        for (let i = trailSamples; i >= 1; i--) {
+          const stepBack = (i / trailSamples) * trailSpanFrames;
+          const sampleFrameFloat = sourceFrameFloat - stepBack;
+          if (sampleFrameFloat < 0) continue;
+          const sampled = getCursorAtSubFrame(data, sampleFrameFloat);
+          if (!sampled) continue;
+          const cropped = applyCropToPoint(sampled.x, sampled.y, data, activeCrop);
+          if (!cropped) continue;
+          const sp = applyZoomToPoint(cropped.x, cropped.y, width, height, zoom);
+          // Skip trail samples that haven't actually moved — avoids a smear
+          // when the cursor is stationary.
+          const dxPx = (sp.x - px) * (sp.x - px) + (sp.y - py) * (sp.y - py);
+          if (dxPx < 1) continue;
+          const trailAlpha = (1 - i / (trailSamples + 1)) * 0.55 * blurStrength;
+          ctx.save();
+          ctx.globalAlpha = trailAlpha;
+          drawCursor(ctx, sp.x, sp.y, cursorSize, pres.style);
+          ctx.restore();
+        }
+      }
+
+      // Main cursor on top
       drawCursor(ctx, px, py, cursorSize, pres.style);
 
       rafIdRef.current = requestAnimationFrame(render);

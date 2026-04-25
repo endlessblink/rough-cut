@@ -71,6 +71,7 @@ describe('migrations', () => {
               clickEffect: 'ripple',
               sizePercent: 100,
               clickSoundEnabled: false,
+              motionBlur: 0,
             },
             camera: {
               shape: 'rounded',

@@ -102,6 +102,7 @@ export const CursorPresentationSchema = z.object({
   clickEffect: ClickEffectSchema,
   sizePercent: z.number().min(50).max(150),
   clickSoundEnabled: z.boolean(),
+  motionBlur: z.number().min(0).max(100).default(0),
 });
 
 export const CursorEventTypeSchema = z.enum(['move', 'down', 'up', 'scroll']);

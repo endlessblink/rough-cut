@@ -93,6 +93,7 @@ export interface ResolvedCursorPresentation {
   clickEffect: ClickEffect;
   sizePercent: number;
   clickSoundEnabled: boolean;
+  motionBlur: number;
 }
 
 /**

@@ -110,6 +110,7 @@ export interface CursorPresentation {
   readonly clickEffect: ClickEffect;
   readonly sizePercent: number; // 50–150
   readonly clickSoundEnabled: boolean;
+  readonly motionBlur: number; // 0–100
 }
 
 export interface CursorEvent {

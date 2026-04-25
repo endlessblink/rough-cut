@@ -6,6 +6,7 @@ import type {
   ZoomPresentation,
   CursorPresentation,
   CameraPresentation,
+  CameraLayoutMarker,
 } from '@rough-cut/project-model';
 import { normalizeRegionCrop } from '@rough-cut/project-model';
 import { selectActiveClipsAtFrame, getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
@@ -31,6 +32,7 @@ const DEFAULT_CURSOR_PRESENTATION: ResolvedCursorPresentation = {
   clickEffect: 'none',
   sizePercent: 100,
   clickSoundEnabled: false,
+  motionBlur: 0,
 };
 
 export interface ResolveFrameOptions {
@@ -98,6 +100,7 @@ function resolveCursorPresentation(
     clickEffect: cursor.clickEffect,
     sizePercent: cursor.sizePercent,
     clickSoundEnabled: cursor.clickSoundEnabled,
+    motionBlur: cursor.motionBlur ?? 0,
   };
 }
 
@@ -111,6 +114,16 @@ function findActiveRecordingAsset(project: ProjectDocument) {
 
 function findCameraPresentation(project: ProjectDocument): CameraPresentation | undefined {
   return findActiveRecordingAsset(project)?.presentation?.camera;
+}
+
+function getActiveCameraLayoutMarker(
+  markers: readonly CameraLayoutMarker[] | undefined,
+  sourceFrame: number,
+): CameraLayoutMarker | undefined {
+  if (!markers || markers.length === 0) return undefined;
+  return [...markers]
+    .filter((marker) => marker.frame <= sourceFrame)
+    .sort((left, right) => right.frame - left.frame)[0];
 }
 
 function getAssetSourceSize(asset: ProjectDocument['assets'][number] | undefined): {
@@ -161,6 +174,11 @@ export function resolveFrame(
     ? assetMap.get(activeRecordingLayer.assetId)
     : findActiveRecordingAsset(project);
   const presentation = activeRecording?.presentation;
+  const activeRecordingSourceFrame = activeRecordingLayer?.sourceFrame ?? frame;
+  const activeCameraLayout = getActiveCameraLayoutMarker(
+    presentation?.cameraLayouts,
+    activeRecordingSourceFrame,
+  );
   const screenSourceSize = getAssetSourceSize(activeRecording);
   const cameraAsset = activeRecording?.cameraAssetId
     ? project.assets.find((asset) => asset.id === activeRecording.cameraAssetId)
@@ -168,7 +186,7 @@ export function resolveFrame(
   const cameraSourceSize = getAssetSourceSize(cameraAsset);
   const cameraTransform = resolveCameraTransformForFrame(
     presentation?.zoom,
-    activeRecordingLayer?.sourceFrame ?? frame,
+    activeRecordingSourceFrame,
     screenSourceSize.width,
     screenSourceSize.height,
     {
@@ -193,8 +211,8 @@ export function resolveFrame(
         cameraSourceSize.height,
       )
     : undefined;
-  const cameraPresentation = findCameraPresentation(project);
-  const cameraFrame = presentation?.cameraFrame;
+  const cameraPresentation = activeCameraLayout?.camera ?? presentation?.camera ?? findCameraPresentation(project);
+  const cameraFrame = activeCameraLayout?.cameraFrame ?? presentation?.cameraFrame;
 
   return {
     frame,

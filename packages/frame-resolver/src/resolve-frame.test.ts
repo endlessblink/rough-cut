@@ -7,6 +7,7 @@ import {
   createEffectInstance,
   createKeyframeTrack,
   createKeyframe,
+  createDefaultCameraPresentation,
 } from '@rough-cut/project-model';
 import type {
   ProjectDocument,
@@ -232,6 +233,7 @@ describe('resolveFrame', () => {
         clickEffect: 'none',
         sizePercent: 100,
         clickSoundEnabled: false,
+        motionBlur: 0,
       });
     });
 
@@ -245,7 +247,7 @@ describe('resolveFrame', () => {
             followPadding: 0.18,
             markers: [],
           },
-          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false, motionBlur: 0 },
         },
       });
       const project = createProject({ assets: [asset] });
@@ -264,7 +266,7 @@ describe('resolveFrame', () => {
             followPadding: 0.18,
             markers: [],
           },
-          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false, motionBlur: 0 },
         },
       });
       const project = createProject({ assets: [asset] });
@@ -285,7 +287,7 @@ describe('resolveFrame', () => {
               { id: 'zm-1' as import('@rough-cut/project-model').ZoomMarkerId, startFrame: 10, endFrame: 50, kind: 'manual' as const, strength: 0.5, focalPoint: { x: 0.5, y: 0.5 }, zoomInDuration: 0, zoomOutDuration: 0 },
             ],
           },
-          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false, motionBlur: 0 },
         },
       });
       const project = createProject({ assets: [asset] });
@@ -308,7 +310,7 @@ describe('resolveFrame', () => {
               { id: 'zm-1' as import('@rough-cut/project-model').ZoomMarkerId, startFrame: 10, endFrame: 50, kind: 'manual' as const, strength: 1, focalPoint: { x: 0.5, y: 0.5 }, zoomInDuration: 0, zoomOutDuration: 0 },
             ],
           },
-          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false, motionBlur: 0 },
         },
       });
       const project = createProject({ assets: [asset] });
@@ -330,7 +332,7 @@ describe('resolveFrame', () => {
             followPadding: 0.18,
             markers: [],
           },
-          cursor: { style: 'spotlight', clickEffect: 'ripple', sizePercent: 120, clickSoundEnabled: true },
+          cursor: { style: 'spotlight', clickEffect: 'ripple', sizePercent: 120, clickSoundEnabled: true, motionBlur: 0 },
         },
       });
       const project = createProject({ assets: [asset] });
@@ -340,6 +342,58 @@ describe('resolveFrame', () => {
       expect(result.cursor.clickEffect).toBe('ripple');
       expect(result.cursor.sizePercent).toBe(120);
       expect(result.cursor.clickSoundEnabled).toBe(true);
+    });
+
+    it('uses the active camera layout marker at the recording source frame', () => {
+      const recording = createAsset('recording', '/recording.webm', {
+        presentation: {
+          zoom: {
+            autoIntensity: 0,
+            followCursor: false,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
+          cursor: {
+            style: 'default',
+            clickEffect: 'none',
+            sizePercent: 100,
+            clickSoundEnabled: false,
+            motionBlur: 0,
+          },
+          camera: createDefaultCameraPresentation(),
+          cameraLayouts: [
+            {
+              id: 'layout-1' as import('@rough-cut/project-model').CameraLayoutMarkerId,
+              frame: 15,
+              camera: {
+                ...createDefaultCameraPresentation(),
+                visible: false,
+                position: 'center',
+              },
+              cameraFrame: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 },
+              templateId: 'presentation-16x9',
+            },
+          ],
+        },
+      });
+      const clip = createClip(recording.id, 'track-1' as TrackId, {
+        timelineIn: 100,
+        timelineOut: 160,
+        sourceIn: 10,
+        sourceOut: 70,
+      });
+      const track = createTrack('video', { id: 'track-1' as TrackId, clips: [clip], index: 0 });
+      const project = createProject({
+        assets: [recording],
+        composition: { duration: 160, tracks: [track], transitions: [] },
+      });
+
+      const result = resolveFrame(project, 105);
+
+      expect(result.cameraPresentation?.visible).toBe(false);
+      expect(result.cameraPresentation?.position).toBe('center');
+      expect(result.cameraFrame).toEqual({ x: 0.1, y: 0.2, w: 0.3, h: 0.4 });
     });
   });
 

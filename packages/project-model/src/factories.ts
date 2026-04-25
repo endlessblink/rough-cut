@@ -226,6 +226,7 @@ export function createDefaultCursorPresentation(): CursorPresentation {
     clickEffect: 'none',
     sizePercent: 100,
     clickSoundEnabled: false,
+    motionBlur: 0,
   };
 }
 
