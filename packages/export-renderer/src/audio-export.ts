@@ -32,8 +32,37 @@ interface LoadedClickSound {
   channelData: readonly Float32Array[];
 }
 
+export interface AudioStemPaths {
+  micFilePath: string | null;
+  systemAudioFilePath: string | null;
+}
+
 export interface ClickSoundExportEvent {
   timestampSeconds: number;
+}
+
+function getStringPath(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function getObject(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+export function resolveAudioStemPaths(asset: Asset): AudioStemPaths | null {
+  const direct = getObject(asset.metadata?.['audioStemPaths']);
+  const audioCapture = getObject(asset.metadata?.['audioCapture']);
+  const final = getObject(audioCapture?.['final']);
+  const captureStems = getObject(final?.['stems']);
+  const stems = direct ?? captureStems;
+  if (!stems) return null;
+
+  const paths = {
+    micFilePath: getStringPath(stems['micFilePath']),
+    systemAudioFilePath: getStringPath(stems['systemAudioFilePath']),
+  };
+
+  return paths.micFilePath || paths.systemAudioFilePath ? paths : null;
 }
 
 function getCameraAssetIds(project: ProjectDocument): Set<string> {

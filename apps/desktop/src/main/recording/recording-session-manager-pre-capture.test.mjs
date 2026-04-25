@@ -110,6 +110,25 @@ test('TASK-197: suspendNotificationsForRecording runs before startFfmpegCapture(
   );
 });
 
+test('TASK-197: moveRoughCutWindowsOffCapture runs before mainWindow.hide()', () => {
+  const moveLine = findLine(
+    (line) => /moveRoughCutWindowsOffCapture\s*\(/.test(line) && !/^\s*function/.test(line),
+  );
+  const hideLine = findLine((line) => /mainWindow\.hide\s*\(\s*\)/.test(line));
+
+  assert.notEqual(
+    moveLine,
+    -1,
+    'expected the Linux pre-capture flow to relocate Rough Cut windows off the capture display.',
+  );
+  assert.notEqual(hideLine, -1, 'expected at least one mainWindow.hide() call in source');
+  assert.ok(
+    moveLine < hideLine,
+    `moveRoughCutWindowsOffCapture() at line ${moveLine} must precede mainWindow.hide() at line ${hideLine}. ` +
+      'Moving the app off the recorded monitor is the fallback when X11 hide timing is not enough.',
+  );
+});
+
 test('TASK-197: resumeNotificationsAfterRecording runs in transitionToIdle', () => {
   const resumeCall = findLine(
     (line) => /\bresumeNotificationsAfterRecording\s*\(/.test(line) && !/^\s*(async\s+)?function/.test(line),
@@ -173,5 +192,28 @@ test('recording shutdown stops capture resources even when already stopping', ()
     SOURCE,
     /let captureResourcesStopped = false;/,
     'stopActiveCaptureResources() should be guarded so duplicate stop requests remain safe.',
+  );
+});
+
+test('TASK-228: mic and system-audio stems are persisted separately from mixed audio', () => {
+  assert.match(
+    SOURCE,
+    /recording-\$\{cursorTimestamp\}-mic\.webm/,
+    'recording sessions should reserve a mic stem path next to the take.',
+  );
+  assert.match(
+    SOURCE,
+    /recording-\$\{cursorTimestamp\}-system-audio\.webm/,
+    'recording sessions should reserve a system-audio stem path next to the take.',
+  );
+  assert.match(
+    SOURCE,
+    /result\.audioStemPaths = await collectAudioStemPaths\(\)/,
+    'finalized recording results should carry persisted stem paths into the renderer import path.',
+  );
+  assert.match(
+    SOURCE,
+    /stems: result\.audioStemPaths \?\? null/,
+    'audioCapture.final should record the stem paths alongside final mixed-audio truth.',
   );
 });

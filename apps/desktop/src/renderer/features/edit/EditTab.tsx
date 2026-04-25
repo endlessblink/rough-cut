@@ -13,6 +13,7 @@ import {
   type EffectInstance,
   type AIAnnotationId,
 } from '@rough-cut/project-model';
+import type { AudioStemMixerSettings } from '@rough-cut/preview-renderer';
 import { resolveFrame } from '@rough-cut/frame-resolver';
 import {
   useProjectStore,
@@ -53,7 +54,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   const [soloTrackIds, setSoloTrackIds] = useState<Set<string>>(() => new Set());
 
   // PixiJS compositor — renders clips with transforms and effects
-  const { previewRef } = useCompositor();
+  const { previewRef, setSoloTrackIds: setCompositorSoloTrackIds } = useCompositor();
 
   // Undo/redo availability
   const canUndo = useProjectStore(() => projectStore.temporal.getState().pastStates.length > 0);
@@ -78,6 +79,9 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
   // Check if split is valid: selected clip exists and playhead is inside it
   const selectedClipTrack = selectedClipId ? findTrackForClip(selectedClipId) : null;
   const selectedClip = selectedClipTrack?.clips.find((c) => c.id === selectedClipId) ?? null;
+  const selectedAsset = selectedClip
+    ? (assets.find((asset) => asset.id === selectedClip.assetId) ?? null)
+    : null;
   const canSplit =
     selectedClip !== null &&
     playheadFrame > selectedClip.timelineIn &&
@@ -164,6 +168,17 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
     projectStore.getState().setTrackVolume(trackId, volume);
   }, []);
 
+  const handleSetStemMixer = useCallback((assetId: string, settings: AudioStemMixerSettings) => {
+    projectStore.getState().updateProject((doc) => ({
+      ...doc,
+      assets: doc.assets.map((asset) =>
+        asset.id === assetId
+          ? { ...asset, metadata: { ...asset.metadata, audioMixer: settings } }
+          : asset,
+      ),
+    }));
+  }, []);
+
   const handleToggleTrackMute = useCallback((trackId: string, currentlyVisible: boolean) => {
     projectStore.getState().setTrackVisible(trackId as TrackId, !currentlyVisible);
   }, []);
@@ -183,6 +198,11 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    setCompositorSoloTrackIds([...soloTrackIds]);
+    return () => setCompositorSoloTrackIds([]);
+  }, [setCompositorSoloTrackIds, soloTrackIds]);
 
   const handleAddVideoTrack = useCallback(() => {
     projectStore.getState().addTrack('video');
@@ -312,12 +332,15 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
     ): 'text-entry' | 'interactive-control' | 'generic' => {
       if (!(target instanceof HTMLElement)) return 'generic';
       if (target.isContentEditable) return 'text-entry';
-      if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return 'text-entry';
+      if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement)
+        return 'text-entry';
       if (target instanceof HTMLButtonElement) return 'interactive-control';
       if (!(target instanceof HTMLInputElement)) return 'generic';
 
       const type = target.type.toLowerCase();
-      if (['button', 'checkbox', 'color', 'file', 'hidden', 'radio', 'reset', 'submit'].includes(type)) {
+      if (
+        ['button', 'checkbox', 'color', 'file', 'hidden', 'radio', 'reset', 'submit'].includes(type)
+      ) {
         return 'interactive-control';
       }
 
@@ -374,7 +397,11 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
           break;
       }
 
-      if ((e.code === 'Space' || e.key === ' ') && !e.repeat && targetKind !== 'interactive-control') {
+      if (
+        (e.code === 'Space' || e.key === ' ') &&
+        !e.repeat &&
+        targetKind !== 'interactive-control'
+      ) {
         e.preventDefault();
         getPlaybackManager().togglePlay();
         return;
@@ -421,10 +448,14 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
       ) ?? null;
 
     return {
-      filePath: resolveProjectMediaPath(cameraAsset.filePath, projectFilePath) ?? cameraAsset.filePath,
+      filePath:
+        resolveProjectMediaPath(cameraAsset.filePath, projectFilePath) ?? cameraAsset.filePath,
       clipTimelineIn: cameraClip.timelineIn,
       clipSourceIn: cameraClip.sourceIn,
-      camera: frame.cameraPresentation ?? recordingAsset?.presentation?.camera ?? createDefaultCameraPresentation(),
+      camera:
+        frame.cameraPresentation ??
+        recordingAsset?.presentation?.camera ??
+        createDefaultCameraPresentation(),
       cameraFrame: frame.cameraFrame ?? recordingAsset?.presentation?.cameraFrame,
     };
   }, [playheadFrame, project, projectFilePath]);
@@ -510,6 +541,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
           {!isRightSidebarCollapsed && (
             <EditRightPanel
               selectedClip={selectedClip}
+              selectedAsset={selectedAsset}
               fps={projectFps}
               onUpdateClip={handleUpdateClipField}
               onUpdateTransform={handleUpdateTransform}
@@ -519,6 +551,7 @@ export function EditTab({ activeTab, onTabChange }: EditTabProps) {
               onRemoveEffect={handleRemoveEffect}
               trackVolume={trackVolume}
               onSetTrackVolume={handleSetTrackVolume}
+              onSetStemMixer={handleSetStemMixer}
               captionSegments={captionSegments}
               onUpdateCaptionText={handleUpdateCaptionText}
             />

@@ -149,7 +149,16 @@ test.describe('camera replay', () => {
 
     const beforePause = await captureCameraState(appPage);
     await appPage.locator(TIMELINE_PLAY_BUTTON).last().click();
-    await appPage.waitForTimeout(250);
+    await expect
+      .poll(
+        async () =>
+          appPage.evaluate(() => {
+            const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+            return stores?.transport.getState().isPlaying ?? null;
+          }),
+        { timeout: 5_000 },
+      )
+      .toBe(false);
 
     const pausedA = await captureCameraState(appPage);
     await appPage.waitForTimeout(300);

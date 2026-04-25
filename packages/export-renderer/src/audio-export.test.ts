@@ -6,6 +6,7 @@ import {
   collectClickSoundExportEvents,
   createClickAudioSamples,
   parsePcm16Wav,
+  resolveAudioStemPaths,
 } from './audio-export.js';
 
 class TestAudioBuffer {
@@ -130,6 +131,44 @@ describe('collectAudioExportSegments', () => {
     expect(segments).toHaveLength(2);
     expect(segments[0]?.asset.id).toBe(assetA.id);
     expect(segments[1]?.asset.id).toBe(assetB.id);
+  });
+});
+
+describe('resolveAudioStemPaths', () => {
+  it('reads persisted stem paths from recording asset metadata', () => {
+    const asset = createAsset('recording', '/tmp/screen.webm', {
+      metadata: {
+        audioStemPaths: {
+          micFilePath: '/tmp/screen.mic.webm',
+          systemAudioFilePath: '/tmp/screen.system.webm',
+        },
+      },
+    });
+
+    expect(resolveAudioStemPaths(asset)).toEqual({
+      micFilePath: '/tmp/screen.mic.webm',
+      systemAudioFilePath: '/tmp/screen.system.webm',
+    });
+  });
+
+  it('falls back to audioCapture.final.stems for recovered takes', () => {
+    const asset = createAsset('recording', '/tmp/screen.webm', {
+      metadata: {
+        audioCapture: {
+          final: {
+            stems: {
+              micFilePath: '/tmp/recovered.mic.webm',
+              systemAudioFilePath: null,
+            },
+          },
+        },
+      },
+    });
+
+    expect(resolveAudioStemPaths(asset)).toEqual({
+      micFilePath: '/tmp/recovered.mic.webm',
+      systemAudioFilePath: null,
+    });
   });
 });
 

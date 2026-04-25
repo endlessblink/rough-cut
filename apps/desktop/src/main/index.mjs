@@ -684,10 +684,20 @@ function zoomSidecarPath(recordingFilePath) {
   return recordingFilePath.replace(/\.(webm|mp4)$/i, '.zoom.json');
 }
 
-async function loadZoomSidecar(recordingFilePath) {
+function resolveProjectRelativeMediaPath(filePath, projectFilePath = null) {
+  if (!filePath) return filePath;
+  if (isAbsolute(filePath) || !projectFilePath) return filePath;
+  return resolve(dirname(projectFilePath), filePath);
+}
+
+async function loadZoomSidecar(recordingFilePath, projectFilePath = null) {
   try {
     if (!recordingFilePath) return null;
-    const path = zoomSidecarPath(recordingFilePath);
+    const resolvedRecordingFilePath = resolveProjectRelativeMediaPath(
+      recordingFilePath,
+      projectFilePath,
+    );
+    const path = zoomSidecarPath(resolvedRecordingFilePath);
     if (!existsSync(path)) return null;
     const content = await readFile(path, 'utf-8');
     const parsed = JSON.parse(content);
@@ -844,6 +854,30 @@ function collectExportAudioSegments(project) {
     .sort((a, b) => a.clip.timelineIn - b.clip.timelineIn || a.track.index - b.track.index);
 
   return segments;
+}
+
+function getStringPath(value) {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function getObject(value) {
+  return typeof value === 'object' && value !== null ? value : null;
+}
+
+function resolveAudioStemPaths(asset) {
+  const direct = getObject(asset?.metadata?.audioStemPaths);
+  const audioCapture = getObject(asset?.metadata?.audioCapture);
+  const final = getObject(audioCapture?.final);
+  const captureStems = getObject(final?.stems);
+  const stems = direct ?? captureStems;
+  if (!stems) return null;
+
+  const paths = {
+    micFilePath: getStringPath(stems.micFilePath),
+    systemAudioFilePath: getStringPath(stems.systemAudioFilePath),
+  };
+
+  return paths.micFilePath || paths.systemAudioFilePath ? paths : null;
 }
 
 async function hasPrimaryAudioStream(filePath) {
@@ -1067,7 +1101,8 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
   const repairedProject = repairProjectMediaPaths(project);
   const segments = collectExportAudioSegments(repairedProject);
   const frameRate = repairedProject?.settings?.frameRate ?? 30;
-  const usableSegments = [];
+  const audioInputs = [];
+  const stemGroups = [];
   const clickTrackPath = await buildExportClickTrack(repairedProject, outputPath, range, frameRate);
   const selectedDurationSeconds = Math.max(
     0,
@@ -1075,31 +1110,54 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
   );
 
   for (const segment of segments) {
+    const stems = resolveAudioStemPaths(segment.asset);
+    const group = { segment, mic: null, system: null };
+
+    if (stems?.micFilePath && await hasPrimaryAudioStream(stems.micFilePath)) {
+      group.mic = { segment, filePath: stems.micFilePath, role: 'mic' };
+      audioInputs.push(group.mic);
+    }
+    if (stems?.systemAudioFilePath && await hasPrimaryAudioStream(stems.systemAudioFilePath)) {
+      group.system = { segment, filePath: stems.systemAudioFilePath, role: 'system' };
+      audioInputs.push(group.system);
+    }
+
+    if (group.mic || group.system) {
+      stemGroups.push(group);
+      continue;
+    }
+
     if (await hasPrimaryAudioStream(segment.asset.filePath)) {
-      usableSegments.push(segment);
+      audioInputs.push({ segment, filePath: segment.asset.filePath, role: 'mixed' });
     }
   }
 
-  if (usableSegments.length === 0 && !clickTrackPath) {
+  if (audioInputs.length === 0 && !clickTrackPath) {
     await rename(videoPath, outputPath);
     return { outputPath, audioIncluded: false };
   }
 
   const tempOutputPath = `${outputPath}.muxing.mp4`;
   const ffmpegArgs = ['-y', '-i', videoPath];
-  for (const segment of usableSegments) {
-    ffmpegArgs.push('-i', segment.asset.filePath);
+  for (const input of audioInputs) {
+    ffmpegArgs.push('-i', input.filePath);
   }
   if (clickTrackPath) {
     ffmpegArgs.push('-i', clickTrackPath);
   }
 
-  const filterParts = usableSegments
-    .map((segment, index) => {
-      const overlapStartFrame = Math.max(segment.clip.timelineIn, range?.startFrame ?? 0);
+  const filterParts = [];
+  const inputLabels = new Map();
+  const mixLabels = [];
+  const consumedInputs = new Set();
+  const rangeStartFrame = range?.startFrame ?? 0;
+  const rangeEndFrame = range?.endFrame ?? repairedProject.composition.duration;
+  const appendTimedAudioFilter = (input, inputIndex, outputLabel) => {
+      const segment = input.segment;
+      const overlapStartFrame = Math.max(segment.clip.timelineIn, rangeStartFrame);
       const overlapEndFrame = Math.min(
         segment.clip.timelineOut,
-        range?.endFrame ?? repairedProject.composition.duration,
+        rangeEndFrame,
       );
       if (overlapEndFrame <= overlapStartFrame) {
         return null;
@@ -1110,15 +1168,54 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
       const sourceEnd = sourceStart + (overlapEndFrame - overlapStartFrame) / frameRate;
       const delayMs = Math.max(
         0,
-        Math.round(((overlapStartFrame - (range?.startFrame ?? 0)) / frameRate) * 1000),
+        Math.round(((overlapStartFrame - rangeStartFrame) / frameRate) * 1000),
       );
-      return `[${index + 1}:a:0]atrim=start=${sourceStart}:end=${sourceEnd},asetpts=PTS-STARTPTS,adelay=${delayMs}:all=1[a${index}]`;
-    })
-    .filter(Boolean);
+      filterParts.push(`[${inputIndex}:a:0]atrim=start=${sourceStart}:end=${sourceEnd},asetpts=PTS-STARTPTS,adelay=${delayMs}:all=1[${outputLabel}]`);
+      return outputLabel;
+  };
+
+  audioInputs.forEach((input, index) => {
+    const label = appendTimedAudioFilter(input, index + 1, `src${index}`);
+    if (label) {
+      inputLabels.set(input, label);
+    }
+  });
+
+  stemGroups.forEach((group, index) => {
+    const micLabel = group.mic ? inputLabels.get(group.mic) : null;
+    const systemLabel = group.system ? inputLabels.get(group.system) : null;
+    if (micLabel && systemLabel) {
+      const micMixLabel = `mic${index}`;
+      const duckKeyLabel = `duckkey${index}`;
+      const duckedSystemLabel = `ducked${index}`;
+      filterParts.push(`[${micLabel}]asplit=2[${micMixLabel}][${duckKeyLabel}]`);
+      filterParts.push(`[${systemLabel}][${duckKeyLabel}]sidechaincompress=threshold=0.02:ratio=8:attack=20:release=250:makeup=1[${duckedSystemLabel}]`);
+      mixLabels.push(`[${micMixLabel}]`, `[${duckedSystemLabel}]`);
+      consumedInputs.add(group.mic);
+      consumedInputs.add(group.system);
+    } else if (micLabel && group.mic) {
+      mixLabels.push(`[${micLabel}]`);
+      consumedInputs.add(group.mic);
+    } else if (systemLabel && group.system) {
+      mixLabels.push(`[${systemLabel}]`);
+      consumedInputs.add(group.system);
+    }
+  });
+
+  for (const input of audioInputs) {
+    if (consumedInputs.has(input)) continue;
+    const label = inputLabels.get(input);
+    if (label) {
+      mixLabels.push(`[${label}]`);
+    }
+  }
+
   if (clickTrackPath) {
+    const clickLabel = `click${mixLabels.length}`;
     filterParts.push(
-      `[${usableSegments.length + 1}:a:0]atrim=start=0:end=${selectedDurationSeconds},asetpts=PTS-STARTPTS[a${usableSegments.length}]`,
+      `[${audioInputs.length + 1}:a:0]atrim=start=0:end=${selectedDurationSeconds},asetpts=PTS-STARTPTS[${clickLabel}]`,
     );
+    mixLabels.push(`[${clickLabel}]`);
   }
   if (filterParts.length === 0) {
     if (clickTrackPath) {
@@ -1127,8 +1224,8 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
     await rename(videoPath, outputPath);
     return { outputPath, audioIncluded: false };
   }
-  const mixInputs = filterParts.map((_, index) => `[a${index}]`).join('');
-  const filterComplex = `${filterParts.join(';')};${mixInputs}amix=inputs=${filterParts.length}:normalize=0:dropout_transition=0[aout]`;
+  const mixInputs = mixLabels.join('');
+  const filterComplex = `${filterParts.join(';')};${mixInputs}amix=inputs=${mixLabels.length}:normalize=0:dropout_transition=0[aout]`;
 
   ffmpegArgs.push(
     '-filter_complex',
@@ -1562,7 +1659,8 @@ function registerIpcHandlers() {
 
   // Recording: Get available capture sources (screens + windows)
   ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SOURCES, async () => {
-    const nextSources = debugCaptureSourcesOverride ?? (await getSources());
+    const probedSources = debugCaptureSourcesOverride ? null : await getSources();
+    const nextSources = debugCaptureSourcesOverride ?? probedSources;
     reconcileCaptureSources(nextSources);
     return nextSources;
   });
@@ -1645,6 +1743,12 @@ function registerIpcHandlers() {
 
     if (recovery.recoveryCandidate.audioPath) {
       await muxAudioIntoRecording(result.filePath, recovery.recoveryCandidate.audioPath);
+    }
+    if (recovery.recoveryCandidate.micAudioPath || recovery.recoveryCandidate.systemAudioPath) {
+      result.audioStemPaths = {
+        micFilePath: recovery.recoveryCandidate.micAudioPath ?? null,
+        systemAudioFilePath: recovery.recoveryCandidate.systemAudioPath ?? null,
+      };
     }
     if (recovery.recoveryCandidate.cursorPath) {
       result.cursorEventsPath = recovery.recoveryCandidate.cursorPath;
@@ -1877,16 +1981,20 @@ function registerIpcHandlers() {
     },
   );
 
-  ipcMain.handle(IPC_CHANNELS.ZOOM_LOAD_SIDECAR, async (_e, { recordingFilePath }) => {
-    return loadZoomSidecar(recordingFilePath);
+  ipcMain.handle(IPC_CHANNELS.ZOOM_LOAD_SIDECAR, async (_e, { recordingFilePath, projectFilePath }) => {
+    return loadZoomSidecar(recordingFilePath, projectFilePath ?? null);
   });
 
   ipcMain.handle(
     IPC_CHANNELS.ZOOM_SAVE_SIDECAR,
-    async (_e, { recordingFilePath, presentation }) => {
+    async (_e, { recordingFilePath, projectFilePath, presentation }) => {
       try {
         if (!recordingFilePath || !presentation) return false;
-        const path = zoomSidecarPath(recordingFilePath);
+        const resolvedRecordingFilePath = resolveProjectRelativeMediaPath(
+          recordingFilePath,
+          projectFilePath ?? null,
+        );
+        const path = zoomSidecarPath(resolvedRecordingFilePath);
         const payload = {
           version: 1,
           autoIntensity:

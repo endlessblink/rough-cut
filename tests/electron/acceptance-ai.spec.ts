@@ -6,6 +6,18 @@
  */
 import { test, expect } from './fixtures/electron-app.js';
 
+async function skipWhileAiHeaderTabHidden(appPage: import('@playwright/test').Page) {
+  const isHeaderTabVisible = await appPage
+    .locator('[data-testid="tab-ai"]')
+    .isVisible()
+    .catch(() => false);
+
+  test.skip(
+    !isHeaderTabVisible,
+    'AI acceptance is gated while the AI tab is hidden from the app header.',
+  );
+}
+
 function nav(appPage: import('@playwright/test').Page) {
   return appPage.click('[data-testid="tab-ai"]').then(() =>
     appPage.waitForSelector('[data-testid="ai-tab-root"]', { timeout: 5_000 })
@@ -13,6 +25,9 @@ function nav(appPage: import('@playwright/test').Page) {
 }
 
 test.describe('AI Tab — MVP Acceptance', () => {
+  test.beforeEach(async ({ appPage }) => {
+    await skipWhileAiHeaderTabHidden(appPage);
+  });
 
   // Note: AI and Motion are currently merged as "AI Motion" placeholder.
   // MVP spec requires them as separate tabs (TASK-033).

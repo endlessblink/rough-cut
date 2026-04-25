@@ -71,10 +71,9 @@ test.describe('Retroactive cursor repair', () => {
       }, '[data-testid="recording-playback-video"]');
 
       await appPage.waitForFunction(() => {
-        const canvas = document.querySelector(
-          '[data-testid="zoom-host"]',
-        )?.parentElement?.querySelector(':scope > div > canvas') as HTMLCanvasElement | null;
+        const canvas = document.querySelector('canvas[data-source-frame]') as HTMLCanvasElement | null;
         if (!canvas) return false;
+        if (canvas.dataset.cursorVisible !== 'true') return false;
         const ctx = canvas.getContext('2d');
         if (!ctx) return false;
         const sample = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -85,9 +84,7 @@ test.describe('Retroactive cursor repair', () => {
       }, undefined, { timeout: 10000 });
 
       const diag = await appPage.evaluate(() => {
-        const canvas = document.querySelector(
-          '[data-testid="zoom-host"]',
-        )?.parentElement?.querySelector(':scope > div > canvas') as HTMLCanvasElement | null;
+        const canvas = document.querySelector('canvas[data-source-frame]') as HTMLCanvasElement | null;
         const ctx = canvas?.getContext('2d');
         if (!canvas || !ctx) return null;
 

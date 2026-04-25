@@ -221,7 +221,7 @@ To match the stability-first sprint framing above, the app header currently expo
 | TASK-152     | Record: Fear-reducing micro-affordances (DND, test clip, safe stop)      | P1       | TODO                     | TASK-126, TASK-100 |
 | TASK-153     | Record: Auto desktop icon hide + Do Not Disturb during recording         | P2       | TODO                     | TASK-152           |
 | TASK-154     | Record: Replay buffer hotkey to save the last 30 seconds                 | P2       | TODO                     | TASK-010, TASK-148 |
-| TASK-228     | Record: Persist separate mic and system-audio stems with takes           | P1       | TODO                     | TASK-167, TASK-149 |
+| ~~TASK-228~~ | ~~Record: Persist separate mic and system-audio stems with takes~~       | P1       | ✅ DONE (2026-04-25)     | TASK-167, TASK-149 |
 | TASK-229     | Record/Edit: Multi-stem playback mixer with mute/solo/ducking            | P1       | TODO                     | TASK-228, TASK-020 |
 | TASK-230     | Export: Re-mix persisted audio stems with ducking automation             | P1       | TODO                     | TASK-228, TASK-229 |
 | TASK-158     | Record: Camera auto-shrink and reposition during zoom activation         | P0       | TODO                     | TASK-122, TASK-092 |
@@ -421,23 +421,49 @@ To match the stability-first sprint framing above, the app header currently expo
 | TASK-213     | Record: Audit visible sidebar controls for real vs placeholder behavior | P3   | TODO                     | TASK-188           |
 | ~~TASK-214~~ | ~~Record: Make post-take keep/retry/continue review path explicit~~ | P1      | ✅ DONE (2026-04-25)     | TASK-191           |
 | TASK-215     | Export: Gate fresh-take review-to-export truth after Record fixes  | P1       | TODO                     | TASK-175, TASK-191 |
-| TASK-231     | Tests: Gate hidden-tab acceptance failures                        | P1       | TODO                     | TASK-206           |
-| TASK-232     | Record: Stabilize camera source-switch preview e2e                | P1       | TODO                     | TASK-194, TASK-195 |
-| TASK-233     | Record: Fix rounded camera visual e2e regressions                 | P1       | TODO                     | TASK-113, BUG-005  |
+| ~~TASK-231~~ | ~~Tests: Gate hidden-tab acceptance failures~~                    | P1       | ✅ DONE (2026-04-25)     | TASK-206           |
+| ~~TASK-232~~ | ~~Record: Stabilize camera source-switch preview e2e~~            | P1       | ✅ DONE (2026-04-25)     | TASK-194, TASK-195 |
+| ~~TASK-233~~ | ~~Record: Fix rounded camera visual e2e regressions~~             | P1       | ✅ DONE (2026-04-25)     | TASK-113, BUG-005  |
 | TASK-234     | Record: Repair cursor visual timing e2e failures                  | P1       | TODO                     | TASK-216, TASK-218, TASK-226 |
-| TASK-235     | Edit: Fix dynamic track management e2e                            | P1       | TODO                     | TASK-117           |
-| TASK-236     | Export: Fix destination preset export-default e2e                 | P1       | TODO                     | TASK-151, TASK-096 |
-| TASK-237     | Record: Restore inspector rail category e2e                       | P1       | TODO                     | TASK-206, TASK-209 |
-| TASK-238     | Record: Fix failed live-preview state e2e                         | P1       | TODO                     | TASK-165, TASK-166 |
+| ~~TASK-235~~ | ~~Edit: Fix dynamic track management e2e~~                        | P1       | ✅ DONE (2026-04-25)     | TASK-117           |
+| ~~TASK-236~~ | ~~Export: Fix destination preset export-default e2e~~             | P1       | ✅ DONE (2026-04-25)     | TASK-151, TASK-096 |
+| ~~TASK-237~~ | ~~Record: Restore inspector rail category e2e~~                   | P1       | ✅ DONE (2026-04-25)     | TASK-206, TASK-209 |
+| ~~TASK-238~~ | ~~Record: Fix failed live-preview state e2e~~                     | P1       | ✅ DONE (2026-04-25)     | TASK-165, TASK-166 |
 | TASK-239     | Tests: Complete full e2e sweep after timeout                      | P1       | TODO                     | TASK-231, TASK-232, TASK-233, TASK-234, TASK-235, TASK-236, TASK-237, TASK-238 |
 
 ---
 
 ## Active Work
 
-### TASK-231: Tests: Gate hidden-tab acceptance failures
+### ~~TASK-228~~: Record: Persist separate mic and system-audio stems with takes
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25)
+
+#### Completed
+
+- Added persistent per-source FFmpeg sidecar capture for microphone and system audio stems next to the saved take.
+- Stored stem paths on `RecordingResult`, recording asset metadata, and `audioCapture.final.stems` while preserving the existing mixed-audio playback path.
+- Extended partial-take recovery so recovered takes keep available mic/system-audio stem sidecars.
+
+#### Verification
+
+- `node --test apps/desktop/src/main/recording/recording-session-manager-pre-capture.test.mjs`
+- `node --test apps/desktop/src/main/recording/recovery-state.test.mjs`
+- `pnpm typecheck`
+
+### ~~TASK-231~~: Tests: Gate hidden-tab acceptance failures
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25)
+
+#### Completed
+
+- Added dynamic `test.skip` gates to `acceptance-ai.spec.ts` and `acceptance-edit.spec.ts` when their header tabs are absent.
+- Kept the gate tied to actual header visibility so the specs automatically become active again when AI/Edit are restored to `APP_VIEW_TABS`.
+- Left Record and Export acceptance coverage untouched.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/acceptance-ai.spec.ts tests/electron/acceptance-edit.spec.ts --workers=1`
 
 #### Problem
 
@@ -458,9 +484,15 @@ To match the stability-first sprint framing above, the app header currently expo
 
 ---
 
-### TASK-232: Record: Stabilize camera source-switch preview e2e
+### ~~TASK-232~~: Record: Stabilize camera source-switch preview e2e
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25)
+
+#### Completed
+
+- Replaced the hardware-dependent ad-hoc probe with a deterministic regression test using debug capture sources and mocked media streams.
+- Kept the behavioral assertion focused on the unified recording workflow: setup-time source changes must not call `getDisplayMedia`, and the panel camera preview must remain live.
+- Verified the spec both directly and through the same `xvfb-run` path used by `pnpm test:e2e`.
 
 #### Problem
 
@@ -480,9 +512,9 @@ To match the stability-first sprint framing above, the app header currently expo
 
 ---
 
-### TASK-233: Record: Fix rounded camera visual e2e regressions
+### ~~TASK-233~~: Record: Fix rounded camera visual e2e regressions
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25)
 
 #### Problem
 
@@ -499,6 +531,17 @@ To match the stability-first sprint framing above, the app header currently expo
 
 - `pnpm exec playwright test tests/electron/camera-rounded-visual.spec.ts --reporter=line` passes.
 - Existing `camera-template-parity.spec.ts` coverage remains green.
+
+#### Completed
+
+- Fixed Record preview camera presentation reads so project-store patches render without stale local camera state.
+- Changed camera aspect/shape edits to reshape saved camera frame overrides inside the existing bounds instead of clearing or expanding them.
+- Isolated the rounded-camera visual e2e fixture with a temp project copy and refreshed the presentation-layout snapshots.
+
+#### Verified
+
+- `pnpm exec playwright test tests/electron/camera-rounded-visual.spec.ts --reporter=line`
+- `pnpm exec playwright test tests/electron/camera-template-parity.spec.ts --reporter=line`
 
 ---
 
@@ -524,9 +567,9 @@ To match the stability-first sprint framing above, the app header currently expo
 
 ---
 
-### TASK-235: Edit: Fix dynamic track management e2e
+### ~~TASK-235: Edit: Fix dynamic track management e2e~~
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25)
 
 #### Problem
 
@@ -543,11 +586,22 @@ To match the stability-first sprint framing above, the app header currently expo
 
 - `pnpm exec playwright test tests/electron/edit-track-management.spec.ts --reporter=line` passes or is explicitly gated with the hidden Edit surface.
 
+#### Completed
+
+- Reproduced the failure as a stale fixture assumption: the loaded recorded project now starts with an existing empty `Video 3`, so fixed 4-track and `Video 3` post-add expectations were no longer valid.
+- Updated `tests/electron/edit-track-management.spec.ts` to assert add/remove behavior relative to the current project's video/audio counts while still proving the new empty audio channel can be removed and track ordering is preserved.
+- Verified the focused dynamic track management spec passes.
+
 ---
 
-### TASK-236: Export: Fix destination preset export-default e2e
+### ~~TASK-236~~: Export: Fix destination preset export-default e2e
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25)
+
+#### Completed
+
+- Verified the Record destination preset linkage now carries the Reels/TikTok preset into Export defaults.
+- Confirmed the focused regression and the full Export tab e2e suite are passing in the current workspace.
 
 #### Problem
 
@@ -567,9 +621,15 @@ To match the stability-first sprint framing above, the app header currently expo
 
 ---
 
-### TASK-237: Record: Restore inspector rail category e2e
+### ~~TASK-237~~: Record: Restore inspector rail category e2e
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25)
+
+#### Completed
+
+- Synced `tests/electron/inspector-rail.spec.ts` with the current Record inspector rail by adding the existing `visibility` category.
+- Kept removed `highlights` and `titles` categories out of the test expectation.
+- Re-ran the rail width, viewport fit, inspector width, and horizontal-overflow checks; no product-side layout fix was needed.
 
 #### Problem
 
@@ -585,13 +645,19 @@ To match the stability-first sprint framing above, the app header currently expo
 #### Verification
 
 - `pnpm exec playwright test tests/electron/inspector-rail.spec.ts --reporter=line` passes.
-- `record-layout.spec.ts` remains green.
+- `pnpm exec playwright test tests/electron/record-layout.spec.ts --reporter=line` passes.
 
 ---
 
-### TASK-238: Record: Fix failed live-preview state e2e
+### ~~TASK-238~~: Record: Fix failed live-preview state e2e
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25)
+
+#### Completed
+
+- Reproduced the focused live-preview suite and confirmed the failed-source path now reaches the explicit Record-tab preview failure state.
+- Verified the failed overlay preserves the source selection, reports `data-preview-state="failed"`, and surfaces the rejected preview error instead of being hidden by source recovery.
+- Fixed a source-refresh race where an older real desktop source probe could finish after a deterministic debug source override and clear the selected source before the failed-preview state assertion completed.
 
 #### Problem
 

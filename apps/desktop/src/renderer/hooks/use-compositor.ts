@@ -52,6 +52,7 @@ export function useCompositor(): {
   previewRef: (node: HTMLDivElement | null) => void;
   isReady: boolean;
   setPreferredPlaybackAssetId: (assetId: string | null) => void;
+  setSoloTrackIds: (trackIds: readonly string[]) => void;
   setRenderSize: (width: number, height: number) => void;
   setCursorFrameData: (
     assetId: string,
@@ -69,6 +70,10 @@ export function useCompositor(): {
 
   const setPreferredPlaybackAssetId = useCallback((assetId: string | null) => {
     sharedCompositor?.setPreferredPlaybackAssetId(assetId);
+  }, []);
+
+  const setSoloTrackIds = useCallback((trackIds: readonly string[]) => {
+    sharedCompositor?.setSoloTrackIds(trackIds);
   }, []);
 
   const setRenderSize = useCallback((width: number, height: number) => {
@@ -120,7 +125,14 @@ export function useCompositor(): {
     };
   }, [hostNode]);
 
-  return { previewRef, isReady, setPreferredPlaybackAssetId, setRenderSize, setCursorFrameData };
+  return {
+    previewRef,
+    isReady,
+    setPreferredPlaybackAssetId,
+    setSoloTrackIds,
+    setRenderSize,
+    setCursorFrameData,
+  };
 }
 
 export function getVideoCurrentTime(): number {

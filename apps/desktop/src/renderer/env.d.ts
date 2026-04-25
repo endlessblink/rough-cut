@@ -75,6 +75,10 @@ export interface RecordingResult {
   cursorEventsPath?: string;
   thumbnailPath?: string;
   cameraFilePath?: string;
+  audioStemPaths?: {
+    micFilePath: string | null;
+    systemAudioFilePath: string | null;
+  } | null;
   recoveredProjectSnapshotPath?: string;
   audioCapture?: {
     requested: {
@@ -90,6 +94,10 @@ export interface RecordingResult {
     };
     final: {
       hasAudio: boolean;
+      stems?: {
+        micFilePath: string | null;
+        systemAudioFilePath: string | null;
+      } | null;
     };
   };
 }
@@ -376,7 +384,7 @@ export interface RoughCutAPI {
   >;
 
   // Zoom sidecar persistence (next to the recording .webm)
-  zoomLoadSidecar(recordingFilePath: string): Promise<{
+  zoomLoadSidecar(recordingFilePath: string, projectFilePath?: string | null): Promise<{
     autoIntensity: number;
     followCursor: boolean;
     followAnimation: 'focused' | 'smooth';
@@ -385,6 +393,7 @@ export interface RoughCutAPI {
   } | null>;
   zoomSaveSidecar(
     recordingFilePath: string,
+    projectFilePath: string | null | undefined,
     presentation: {
       autoIntensity: number;
       followCursor: boolean;

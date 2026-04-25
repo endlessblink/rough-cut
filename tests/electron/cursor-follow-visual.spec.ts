@@ -85,9 +85,11 @@ test.describe('Cursor-follow zoom', () => {
       const recordRoot = appPage.locator('[data-testid="record-tab-root"]');
       const card = recordRoot.locator('[data-testid="record-card-content"]').first();
       const zoomSurface = recordRoot.locator('[data-testid="recording-playback-canvas"]').first();
+      const box = await card.boundingBox();
+      expect(box).not.toBeNull();
       const [transform, screenshot, playheadFrame] = await Promise.all([
         zoomSurface.evaluate((el) => getComputedStyle(el as HTMLElement).transform),
-        card.screenshot({ timeout: 5_000 }),
+        appPage.screenshot({ clip: box!, timeout: 5_000 }),
         appPage.evaluate(() => {
           const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
           const playheadFrame = stores?.transport.getState().playheadFrame ?? -1;

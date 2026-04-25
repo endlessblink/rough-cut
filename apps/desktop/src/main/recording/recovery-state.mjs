@@ -71,6 +71,8 @@ export function normalizeRecordingRecoveryManifest(payload = {}, now = () => new
     expectedArtifacts: {
       videoPath: toNonEmptyPath(expectedArtifacts.videoPath),
       audioPath: toNonEmptyPath(expectedArtifacts.audioPath),
+      micAudioPath: toNonEmptyPath(expectedArtifacts.micAudioPath),
+      systemAudioPath: toNonEmptyPath(expectedArtifacts.systemAudioPath),
       cursorPath: toNonEmptyPath(expectedArtifacts.cursorPath),
     },
   };
@@ -84,6 +86,11 @@ export function buildActionableRecoveryState(manifest, deps = {}) {
   if (!videoArtifact) return null;
 
   const audioArtifact = getArtifactCandidate(normalized.expectedArtifacts.audioPath, deps);
+  const micAudioArtifact = getArtifactCandidate(normalized.expectedArtifacts.micAudioPath, deps);
+  const systemAudioArtifact = getArtifactCandidate(
+    normalized.expectedArtifacts.systemAudioPath,
+    deps,
+  );
   const cursorArtifact = getArtifactCandidate(normalized.expectedArtifacts.cursorPath, deps);
   const projectSnapshotArtifact = getArtifactCandidate(normalized.projectSnapshotPath, deps);
 
@@ -96,6 +103,8 @@ export function buildActionableRecoveryState(manifest, deps = {}) {
       videoFileSize: videoArtifact.size,
       videoModifiedAt: videoArtifact.modifiedAt,
       audioPath: audioArtifact?.path ?? null,
+      micAudioPath: micAudioArtifact?.path ?? null,
+      systemAudioPath: systemAudioArtifact?.path ?? null,
       cursorPath: cursorArtifact?.path ?? null,
       projectSnapshotPath: projectSnapshotArtifact?.path ?? null,
     },

@@ -14,6 +14,10 @@ import { useRef, useCallback, useMemo, useEffect } from 'react';
 import type { Track, Asset, ZoomMarker, ZoomMarkerId } from '@rough-cut/project-model';
 import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 import { transportStore, useTransportStore } from '../../hooks/use-stores.js';
+import {
+  INITIAL_BACKWARD_SUBFRAME_INTERPOLATION_STATE,
+  resolveBackwardSubframeInterpolation,
+} from '../../components/cursor-subframe-interpolation.js';
 
 /* ── Types ─────────────────────────────────────────────────────────────────── */
 
@@ -744,10 +748,66 @@ export function RecordTimelineShell({
   useEffect(() => {
     const unsubscribe = transportStore.subscribe((state, prevState) => {
       if (state.playheadFrame === prevState.playheadFrame) return;
+      // While playing, the rAF loop below handles needle movement at display
+      // refresh rate using sub-frame interpolation. Calling
+      // syncDisplayedFrame here would also update the timecode label, which
+      // we want regardless. The needle will be re-positioned by the rAF on
+      // its next tick, so the label-only path is fine to invoke too — the
+      // `style.left` write inside moveNeedle is idempotent.
       syncDisplayedFrame(state.playheadFrame);
     });
     return unsubscribe;
   }, [syncDisplayedFrame]);
+
+  /* ── Sub-frame interpolation for the needle during playback ────────────── */
+  // playheadFrame in transportStore is integer and updates at ~30 Hz (tied
+  // to requestVideoFrameCallback). On a 60+ Hz display the needle would
+  // hold for a full project frame then jump — perceived as a stutter.
+  // This rAF loop runs ONLY while isPlaying and lerps the needle position
+  // between cursor[N-1] → cursor[N] using the same backward sub-frame
+  // interpolation the cursor sprite uses. Stops on pause to avoid wasted
+  // work and to let the playhead-change subscription own the needle when
+  // the user scrubs.
+  const fpsRef = useRef(fps);
+  fpsRef.current = fps;
+
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    let running = true;
+    let rafId = 0;
+    let interpState = INITIAL_BACKWARD_SUBFRAME_INTERPOLATION_STATE;
+
+    const tick = () => {
+      if (!running) return;
+      const now = performance.now();
+      const projectFrame = transportStore.getState().playheadFrame;
+      const result = resolveBackwardSubframeInterpolation(interpState, {
+        projectFrame,
+        isPlaying: true,
+        nowMs: now,
+        fps: fpsRef.current,
+      });
+      interpState = result.nextState;
+
+      // Lerp from (projectFrame - 1) to projectFrame across the frame-hold
+      // window. By the time the playhead ticks to projectFrame+1 the needle
+      // has just arrived at projectFrame — no overshoot.
+      const displayed =
+        result.shouldInterpolate && projectFrame > 0
+          ? projectFrame - 1 + result.lerpT
+          : projectFrame;
+      moveNeedle(displayed);
+
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      running = false;
+      cancelAnimationFrame(rafId);
+    };
+  }, [isPlaying, moveNeedle]);
 
   /* ── toggle ────────────────────────────────────────────────────────────── */
 

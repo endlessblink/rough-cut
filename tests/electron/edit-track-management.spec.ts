@@ -46,15 +46,20 @@ test('edit timeline can add and remove empty channels', async ({ appPage }) => {
     }));
   });
 
-  expect(initialTracks).toHaveLength(4);
+  expect(initialTracks.length).toBeGreaterThanOrEqual(2);
+
+  const initialVideoCount = initialTracks.filter((track: any) => track.type === 'video').length;
+  const initialAudioCount = initialTracks.filter((track: any) => track.type === 'audio').length;
+  const nextVideoName = `Video ${initialVideoCount + 1}`;
+  const nextAudioName = `Audio ${initialAudioCount + 1}`;
 
   await appPage.getByTestId('btn-add-video-track').click();
   await appPage.getByTestId('btn-add-audio-track').click();
 
-  await appPage.waitForFunction(() => {
+  await appPage.waitForFunction((trackCount) => {
     const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-    return (stores?.project.getState().project.composition.tracks.length ?? 0) === 6;
-  });
+    return (stores?.project.getState().project.composition.tracks.length ?? 0) === trackCount + 2;
+  }, initialTracks.length);
 
   const afterAdd = await appPage.evaluate(() => {
     const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
@@ -66,10 +71,14 @@ test('edit timeline can add and remove empty channels', async ({ appPage }) => {
     }));
   });
 
-  expect(afterAdd[2]?.name).toBe('Video 3');
-  expect(afterAdd[5]?.name).toBe('Audio 3');
+  expect(afterAdd).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ name: nextVideoName, type: 'video', clipCount: 0 }),
+      expect.objectContaining({ name: nextAudioName, type: 'audio', clipCount: 0 }),
+    ]),
+  );
 
-  const removableAudioTrack = afterAdd.find((track: any) => track.name === 'Audio 3');
+  const removableAudioTrack = afterAdd.find((track: any) => track.name === nextAudioName);
   expect(removableAudioTrack?.clipCount).toBe(0);
 
   await appPage.getByTestId(`remove-track-${removableAudioTrack.id}`).click();
@@ -85,5 +94,9 @@ test('edit timeline can add and remove empty channels', async ({ appPage }) => {
     return stores?.project.getState().project.composition.tracks.map((track: any) => track.name);
   });
 
-  expect(afterRemove).toEqual(['Video 1', 'Video 2', 'Video 3', 'Audio 1', 'Audio 2']);
+  expect(afterRemove).toEqual([
+    ...initialTracks.filter((track: any) => track.type === 'video').map((track: any) => track.name),
+    nextVideoName,
+    ...initialTracks.filter((track: any) => track.type === 'audio').map((track: any) => track.name),
+  ]);
 });

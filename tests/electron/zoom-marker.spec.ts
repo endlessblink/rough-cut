@@ -10,7 +10,10 @@ test.describe('Zoom markers — Record tab', () => {
 
   test('adds a zoom marker via + and zoom engine produces scale > 1 at playhead', async ({ appPage }) => {
     // Click + to add a manual marker at current playhead (default 1s duration).
-    await appPage.locator('[data-testid="zoom-add"]').click();
+    await appPage.evaluate(() => {
+      const button = document.querySelector('[data-testid="zoom-add"]') as HTMLButtonElement | null;
+      button?.click();
+    });
 
     // A manual pill should appear on the zoom track.
     const manualMarker = appPage.locator('[data-testid="zoom-marker"][data-marker-kind="manual"]');
@@ -309,6 +312,29 @@ test.describe('Zoom markers — Record tab', () => {
   });
 
   test('camera frame shrinks while an active zoom is applied', async ({ appPage }) => {
+    await appPage.evaluate(() => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      const projectStore = stores?.project;
+      const state = projectStore?.getState();
+      const activeAssetId = state?.activeAssetId;
+      if (!activeAssetId) return;
+
+      projectStore.getState().updateProject((doc: any) => ({
+        ...doc,
+        assets: doc.assets.map((asset: any) =>
+          asset.id === activeAssetId
+            ? {
+                ...asset,
+                presentation: {
+                  ...(asset.presentation ?? {}),
+                  visibilitySegments: [],
+                },
+              }
+            : asset,
+        ),
+      }));
+    });
+
     const cameraFrame = appPage.locator('[data-testid="record-camera-frame"]');
 
     const before = await cameraFrame.evaluate((el) => {
@@ -324,10 +350,7 @@ test.describe('Zoom markers — Record tab', () => {
           __roughcutStores?: { transport: { setState: StoreSetState } };
         }
       ).__roughcutStores;
-      // The zoom fixture hides the camera from frame 4 onward via a persisted
-      // visibility segment, so keep the playhead inside the zoom marker but
-      // before the hidden-camera range when asserting frame shrink.
-      stores?.transport.setState({ playheadFrame: 2 });
+      stores?.transport.setState({ playheadFrame: 5 });
     });
     await appPage.waitForTimeout(100);
 

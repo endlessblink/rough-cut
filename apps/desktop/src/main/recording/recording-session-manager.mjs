@@ -204,13 +204,25 @@ let ffmpegHandle = null;
 /** @type {import('./ffmpeg-capture.mjs').FfmpegCaptureHandle | null} */
 let ffmpegAudioHandle = null;
 
+/** @type {import('./ffmpeg-capture.mjs').FfmpegCaptureHandle | null} */
+let ffmpegMicStemHandle = null;
+
+/** @type {import('./ffmpeg-capture.mjs').FfmpegCaptureHandle | null} */
+let ffmpegSystemAudioStemHandle = null;
+
 /** @type {string | null} */
 let ffmpegOutputPath = null;
 
 /** @type {string | null} */
 let ffmpegAudioOutputPath = null;
 
-/** @type {{ version?: number, startedAt: string, recordingsDir: string, sourceId?: string | null, recordMode?: string | null, sessionState?: string | null, interruptionReason?: string | null, interruptedAt?: string | null, captureMetadata?: { fps?: number | null, width?: number | null, height?: number | null, timelineFps?: number | null } | null, expectedArtifacts?: { videoPath?: string | null, audioPath?: string | null, cursorPath?: string | null } | null } | null} */
+/** @type {string | null} */
+let ffmpegMicStemOutputPath = null;
+
+/** @type {string | null} */
+let ffmpegSystemAudioStemOutputPath = null;
+
+/** @type {{ version?: number, startedAt: string, recordingsDir: string, sourceId?: string | null, recordMode?: string | null, sessionState?: string | null, interruptionReason?: string | null, interruptedAt?: string | null, captureMetadata?: { fps?: number | null, width?: number | null, height?: number | null, timelineFps?: number | null } | null, expectedArtifacts?: { videoPath?: string | null, audioPath?: string | null, micAudioPath?: string | null, systemAudioPath?: string | null, cursorPath?: string | null } | null } | null} */
 let activeRecoveryMarker = null;
 
 /** @type {{ projectName?: string | null, projectFilePath?: string | null, projectSnapshotPath?: string | null, projectSnapshotTakenAt?: string | null } | null} */
@@ -497,8 +509,31 @@ function rejectStopCompletion(error) {
 function resetCaptureRefs() {
   ffmpegHandle = null;
   ffmpegAudioHandle = null;
+  ffmpegMicStemHandle = null;
+  ffmpegSystemAudioStemHandle = null;
   ffmpegOutputPath = null;
   ffmpegAudioOutputPath = null;
+  ffmpegMicStemOutputPath = null;
+  ffmpegSystemAudioStemOutputPath = null;
+}
+
+async function collectAudioStemPaths() {
+  const micFilePath =
+    pendingAudioConfig.micEnabled && (await waitForCaptureFile(ffmpegMicStemOutputPath, 2500))
+      ? ffmpegMicStemOutputPath
+      : null;
+  const systemAudioFilePath =
+    pendingAudioConfig.sysAudioEnabled &&
+    (await waitForCaptureFile(ffmpegSystemAudioStemOutputPath, 2500))
+      ? ffmpegSystemAudioStemOutputPath
+      : null;
+
+  if (!micFilePath && !systemAudioFilePath) return null;
+
+  return {
+    micFilePath,
+    systemAudioFilePath,
+  };
 }
 
 function transitionToIdle() {
@@ -571,6 +606,31 @@ async function stopActiveCaptureResources() {
       console.warn('[session-manager] FFmpeg audio-only stop failed:', err?.message ?? err);
     } finally {
       ffmpegAudioHandle = null;
+    }
+  }
+
+  if (ffmpegMicStemHandle) {
+    try {
+      await ffmpegMicStemHandle.stop();
+      console.info('[session-manager] FFmpeg mic stem capture stopped →', ffmpegMicStemHandle.outputPath);
+    } catch (err) {
+      console.warn('[session-manager] FFmpeg mic stem stop failed:', err?.message ?? err);
+    } finally {
+      ffmpegMicStemHandle = null;
+    }
+  }
+
+  if (ffmpegSystemAudioStemHandle) {
+    try {
+      await ffmpegSystemAudioStemHandle.stop();
+      console.info(
+        '[session-manager] FFmpeg system-audio stem capture stopped →',
+        ffmpegSystemAudioStemHandle.outputPath,
+      );
+    } catch (err) {
+      console.warn('[session-manager] FFmpeg system-audio stem stop failed:', err?.message ?? err);
+    } finally {
+      ffmpegSystemAudioStemHandle = null;
     }
   }
 }
@@ -728,6 +788,7 @@ async function decorateSavedResult(result, metadata) {
     },
     final: {
       hasAudio: result.hasAudio,
+      stems: result.audioStemPaths ?? null,
     },
   };
 
@@ -805,6 +866,7 @@ async function trySaveFromCaptureFiles(metadata) {
   if (hasFfmpegAudioOutput) {
     await muxAudioIntoRecording(result.filePath, ffmpegAudioOutputPath);
   }
+  result.audioStemPaths = await collectAudioStemPaths();
   resetCaptureRefs();
   return result;
 }
@@ -865,6 +927,8 @@ async function requestSessionShutdown(reason, options = {}) {
         panelWindow.showInactive();
         console.info('[session-manager] Panel restored for renderer shutdown.');
       }
+
+      restoreRoughCutWindowBounds();
 
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.show();
@@ -1270,15 +1334,7 @@ const STOP_PILL_HTML = `<!doctype html>
 function createStopPillWindow() {
   destroyStopPillWindow();
 
-  const sourceInfo = getSourceInfo?.();
-  const captureBounds = sourceInfo
-    ? {
-        x: sourceInfo.offsetX ?? 0,
-        y: sourceInfo.offsetY ?? 0,
-        width: sourceInfo.width ?? 0,
-        height: sourceInfo.height ?? 0,
-      }
-    : null;
+  const captureBounds = getCurrentCaptureBounds();
 
   const safeDisplay = findDisplayOutsideCapture(captureBounds);
   if (!safeDisplay) {
@@ -1710,6 +1766,12 @@ export async function startRecording() {
       pendingAudioConfig.micEnabled || pendingAudioConfig.sysAudioEnabled
         ? join(recordingsDir, `recording-${cursorTimestamp}-audio.webm`)
         : null;
+    const ffmpegMicStemPath = pendingAudioConfig.micEnabled
+      ? join(recordingsDir, `recording-${cursorTimestamp}-mic.webm`)
+      : null;
+    const ffmpegSystemAudioStemPath = pendingAudioConfig.sysAudioEnabled
+      ? join(recordingsDir, `recording-${cursorTimestamp}-system-audio.webm`)
+      : null;
     console.info('[session-manager] Cursor sidecar path:', cursorPath);
     activeRecoveryMarker = await writeRecordingRecoveryMarker({
       startedAt: new Date().toISOString(),
@@ -1731,6 +1793,8 @@ export async function startRecording() {
       expectedArtifacts: {
         videoPath: ffmpegPath,
         audioPath: ffmpegAudioPath,
+        micAudioPath: ffmpegMicStemPath,
+        systemAudioPath: ffmpegSystemAudioStemPath,
         cursorPath,
       },
     });
@@ -1759,6 +1823,7 @@ export async function startRecording() {
     // first frames don't capture the main preview / panel / camera PiP.
     // Electron's `hide()` maps to async XUnmapWindow; we poll isVisible() then
     // add a 200ms compositor-repaint margin (Mutter/KWin/Picom).
+    moveRoughCutWindowsOffCapture();
     const hiddenWindows = [];
     if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
       mainWindow.hide();
@@ -1782,8 +1847,12 @@ export async function startRecording() {
     // Start FFmpeg x11grab capture (cursor-free) on Linux/X11
     ffmpegHandle = null;
     ffmpegAudioHandle = null;
+    ffmpegMicStemHandle = null;
+    ffmpegSystemAudioStemHandle = null;
     ffmpegOutputPath = null;
     ffmpegAudioOutputPath = null;
+    ffmpegMicStemOutputPath = null;
+    ffmpegSystemAudioStemOutputPath = null;
     if (isFfmpegCaptureAvailable() && getSourceInfo) {
       if (sourceInfo) {
         const micSource = activeAudioCapturePlan.micSource;
@@ -1859,6 +1928,54 @@ export async function startRecording() {
           err?.message ?? err,
         );
         ffmpegAudioHandle = null;
+      }
+    }
+
+    if (pendingAudioConfig.micEnabled && activeAudioCapturePlan.micSource && ffmpegMicStemPath) {
+      try {
+        ffmpegMicStemHandle = startFfmpegAudioCapture({
+          outputPath: ffmpegMicStemPath,
+          micSource: activeAudioCapturePlan.micSource,
+          systemAudioSource: null,
+        });
+        if (ffmpegMicStemHandle) {
+          ffmpegMicStemOutputPath = ffmpegMicStemPath;
+          console.info('[session-manager] FFmpeg mic stem capture started →', ffmpegMicStemPath, {
+            micSource: activeAudioCapturePlan.micSource,
+          });
+        }
+      } catch (err) {
+        console.warn('[session-manager] FFmpeg mic stem capture failed to start:', err?.message ?? err);
+        ffmpegMicStemHandle = null;
+      }
+    }
+
+    if (
+      pendingAudioConfig.sysAudioEnabled &&
+      activeAudioCapturePlan.systemAudioSource &&
+      ffmpegSystemAudioStemPath
+    ) {
+      try {
+        ffmpegSystemAudioStemHandle = startFfmpegAudioCapture({
+          outputPath: ffmpegSystemAudioStemPath,
+          micSource: null,
+          systemAudioSource: activeAudioCapturePlan.systemAudioSource,
+          systemAudioGainPercent: pendingAudioConfig.systemAudioGainPercent,
+        });
+        if (ffmpegSystemAudioStemHandle) {
+          ffmpegSystemAudioStemOutputPath = ffmpegSystemAudioStemPath;
+          console.info(
+            '[session-manager] FFmpeg system-audio stem capture started →',
+            ffmpegSystemAudioStemPath,
+            { systemAudioSource: activeAudioCapturePlan.systemAudioSource },
+          );
+        }
+      } catch (err) {
+        console.warn(
+          '[session-manager] FFmpeg system-audio stem capture failed to start:',
+          err?.message ?? err,
+        );
+        ffmpegSystemAudioStemHandle = null;
       }
     }
 
@@ -2028,10 +2145,15 @@ export function __resetSessionManagerForTests() {
   lastCursorResult = null;
   ffmpegHandle = null;
   ffmpegAudioHandle = null;
+  ffmpegMicStemHandle = null;
+  ffmpegSystemAudioStemHandle = null;
   ffmpegOutputPath = null;
   ffmpegAudioOutputPath = null;
+  ffmpegMicStemOutputPath = null;
+  ffmpegSystemAudioStemOutputPath = null;
   activeRecoveryMarker = null;
   getSourceInfo = null;
+  preCaptureWindowRestoreState = null;
   pendingAudioConfig = {
     micEnabled: false,
     sysAudioEnabled: false,
@@ -2039,6 +2161,7 @@ export function __resetSessionManagerForTests() {
     selectedMicDeviceId: null,
     selectedMicLabel: null,
     selectedSystemAudioSourceId: null,
+    systemAudioGainPercent: 100,
   };
   activeAudioCapturePlan = { micSource: null, systemAudioSource: null };
   stopCompletion = null;
@@ -2284,6 +2407,7 @@ export function initSessionManager(win, sourceInfoGetter) {
           if (hasFfmpegAudioOutput) {
             await muxAudioIntoRecording(result.filePath, ffmpegAudioOutputPath);
           }
+          result.audioStemPaths = await collectAudioStemPaths();
           // Save camera recording if present (MediaRecorder path — no FFmpeg for camera)
           if (camBuf) {
             const { saveCameraRecording } = await import('./capture-service.mjs');
@@ -2298,6 +2422,7 @@ export function initSessionManager(win, sourceInfoGetter) {
           if (hasFfmpegAudioOutput) {
             await muxAudioIntoRecording(result.filePath, ffmpegAudioOutputPath);
           }
+          result.audioStemPaths = await collectAudioStemPaths();
           const fallbackProbe = (() => {
             try {
               return probeRecordingFile(result.filePath);
@@ -2323,6 +2448,7 @@ export function initSessionManager(win, sourceInfoGetter) {
             if (hasFfmpegAudioOutput) {
               await muxAudioIntoRecording(result.filePath, ffmpegAudioOutputPath);
             }
+            result.audioStemPaths = await collectAudioStemPaths();
           }
           // Save camera as MP4 separately (WebCodecs H.264 output, not WebM)
           if (camBuf) {

@@ -413,6 +413,7 @@ export function App() {
         codec: result.codec,
         fileSize: result.fileSize,
         hasAudio: result.hasAudio,
+        audioStemPaths: result.audioStemPaths ?? null,
         cursorEventsPath: result.cursorEventsPath || null,
         // Frame rate the .cursor.ndjson was sampled at. Defaults to the
         // project's timeline fps for new takes (recorder runs at that rate);
@@ -427,7 +428,10 @@ export function App() {
     // Hydrate zoom markers from the sidecar (if the user worked on this recording before).
     let asset = baseAsset;
     try {
-      const loadedZoom = await window.roughcut.zoomLoadSidecar(result.filePath);
+      const loadedZoom = await window.roughcut.zoomLoadSidecar(
+        result.filePath,
+        projectStore.getState().projectFilePath,
+      );
       if (loadedZoom) {
         const basePres =
           (baseAsset as unknown as { presentation?: Record<string, unknown> }).presentation ?? {};

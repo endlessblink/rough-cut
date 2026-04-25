@@ -382,12 +382,16 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.DEBUG_APPLY_AUTO_ZOOM, payload),
 
   /** Load the zoom sidecar (recording-xxx.zoom.json). Returns ZoomPresentation or null. */
-  zoomLoadSidecar: (recordingFilePath) =>
-    ipcRenderer.invoke(IPC_CHANNELS.ZOOM_LOAD_SIDECAR, { recordingFilePath }),
+  zoomLoadSidecar: (recordingFilePath, projectFilePath = null) =>
+    ipcRenderer.invoke(IPC_CHANNELS.ZOOM_LOAD_SIDECAR, { recordingFilePath, projectFilePath }),
 
   /** Save the zoom sidecar next to the recording file. Returns true on success. */
-  zoomSaveSidecar: (recordingFilePath, presentation) =>
-    ipcRenderer.invoke(IPC_CHANNELS.ZOOM_SAVE_SIDECAR, { recordingFilePath, presentation }),
+  zoomSaveSidecar: (recordingFilePath, projectFilePath, presentation) =>
+    ipcRenderer.invoke(IPC_CHANNELS.ZOOM_SAVE_SIDECAR, {
+      recordingFilePath,
+      projectFilePath,
+      presentation,
+    }),
 };
 
 contextBridge.exposeInMainWorld('roughcut', api);

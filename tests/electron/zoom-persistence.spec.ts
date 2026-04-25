@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
-import { loadZoomFixture } from './fixtures/zoom-fixture.js';
+import { loadZoomFixture, ZOOM_FIXTURE_PROJECT_PATH } from './fixtures/zoom-fixture.js';
 
 /**
  * Zoom sidecar persistence:
@@ -19,7 +20,10 @@ test.describe('Zoom persistence — sidecar', () => {
 
     expect(filePath, 'active recording filePath should be set').toBeTruthy();
 
-    const sidecarPath = filePath!.replace(/\.(webm|mp4)$/i, '.zoom.json');
+    const resolvedRecordingPath = filePath!.startsWith('/')
+      ? filePath!
+      : resolve(dirname(ZOOM_FIXTURE_PROJECT_PATH), filePath!);
+    const sidecarPath = resolvedRecordingPath.replace(/\.(webm|mp4)$/i, '.zoom.json');
 
     // Add a manual marker.
     await appPage.locator('[data-testid="zoom-add"]').click();

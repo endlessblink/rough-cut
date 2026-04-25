@@ -1,7 +1,8 @@
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
 
 // Mirrors the inspector rail in apps/desktop/src/renderer/features/record/RecordRightPanel.tsx.
-// `highlights` and `titles` were dropped (TASK-213); `destinations` and `captions` are current.
+// `highlights` and `titles` were dropped (TASK-213); `destinations`, `visibility`,
+// and `captions` are current.
 const CATEGORIES = [
   'destinations',
   'templates',
@@ -11,6 +12,7 @@ const CATEGORIES = [
   'crop',
   'zoom',
   'cursor',
+  'visibility',
   'captions',
 ] as const;
 

@@ -2,7 +2,7 @@ import { test, expect } from './fixtures/electron-app.js';
 import { loadZoomFixture } from './fixtures/zoom-fixture.js';
 
 test.describe('Cursor sub-frame interpolation', () => {
-  test('moves within a held sequential frame but stays stable after a jump', async ({ appPage }) => {
+  test('moves within held frames during sequential playback and forward jumps', async ({ appPage }) => {
     test.setTimeout(90_000);
 
     await loadZoomFixture(appPage, { preserveCursorEvents: true });
@@ -61,8 +61,14 @@ test.describe('Cursor sub-frame interpolation', () => {
         const delta = Math.hypot(curr.x - prev.x, curr.y - prev.y);
         if (delta < 0.03) continue;
 
-        const jump = visibleSamples.slice(i + 1).find((candidate) => candidate.frame >= curr.frame + 3);
-        if (!jump) continue;
+        const jumpIndex = visibleSamples.findIndex((candidate, index) => {
+          if (index <= i || candidate.frame < curr.frame + 3) return false;
+          const previous = visibleSamples[index - 1];
+          if (!previous || candidate.frame !== previous.frame + 1) return false;
+          return Math.hypot(candidate.x - previous.x, candidate.y - previous.y) >= 0.03;
+        });
+        if (jumpIndex < 0) continue;
+        const jump = visibleSamples[jumpIndex]!;
 
         return {
           found: true as const,
@@ -185,9 +191,9 @@ test.describe('Cursor sub-frame interpolation', () => {
 
     expect(dist(samples.pausedPrev, target.prevNorm)).toBeLessThan(0.03);
     expect(sequentialMotion).toBeGreaterThan(0.005);
-    expect(jumpMotion).toBeLessThan(0.003);
+    expect(jumpMotion).toBeGreaterThan(0.005);
     expect(samples.sequentialEarly.interpolating).toBe(true);
-    expect(samples.jumpedEarly.interpolating).toBe(false);
+    expect(samples.jumpedEarly.interpolating).toBe(true);
     expect(earlyToPrev).toBeLessThan(lateToPrev);
     expect(lateToCurr).toBeLessThan(earlyToCurr);
     expect(dist(samples.jumpedLate, target.jumpNorm)).toBeLessThan(0.03);

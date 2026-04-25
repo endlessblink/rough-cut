@@ -53,8 +53,12 @@ test('readRecordingRecoveryMarker keeps valid video artifacts and ignores broken
   const { root, service } = await createService();
   const videoPath = join(root, 'partial.webm');
   const missingAudioPath = join(root, 'missing.wav');
+  const micAudioPath = join(root, 'partial-mic.webm');
+  const systemAudioPath = join(root, 'partial-system-audio.webm');
   const emptyCursorPath = join(root, 'cursor.ndjson');
   await writeFile(videoPath, Buffer.from('video-data'));
+  await writeFile(micAudioPath, Buffer.from('mic-data'));
+  await writeFile(systemAudioPath, Buffer.from('system-audio-data'));
   await writeFile(emptyCursorPath, Buffer.alloc(0));
 
   await service.writeRecordingRecoveryMarker({
@@ -64,6 +68,8 @@ test('readRecordingRecoveryMarker keeps valid video artifacts and ignores broken
     expectedArtifacts: {
       videoPath,
       audioPath: missingAudioPath,
+      micAudioPath,
+      systemAudioPath,
       cursorPath: emptyCursorPath,
     },
   });
@@ -74,6 +80,8 @@ test('readRecordingRecoveryMarker keeps valid video artifacts and ignores broken
   assert.equal(recovery.canRecover, true);
   assert.equal(recovery.recoveryCandidate.videoPath, videoPath);
   assert.equal(recovery.recoveryCandidate.audioPath, null);
+  assert.equal(recovery.recoveryCandidate.micAudioPath, micAudioPath);
+  assert.equal(recovery.recoveryCandidate.systemAudioPath, systemAudioPath);
   assert.equal(recovery.recoveryCandidate.cursorPath, null);
   const videoStats = await stat(videoPath);
   assert.equal(recovery.recoveryCandidate.videoFileSize, videoStats.size);

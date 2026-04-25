@@ -1,12 +1,34 @@
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
 import type { CameraAspectRatio } from '@rough-cut/project-model';
+import { copyFileSync, existsSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-const RECORDED_PROJECT_PATH =
+const SOURCE_PROJECT_PATH =
   process.env.ROUGH_CUT_SESSION_PATH ??
   '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
+let recordedProjectPath = SOURCE_PROJECT_PATH;
 
 const RECORD_CAMERA_VIDEO = '[data-testid="camera-playback-video"]';
 const RECORD_CAMERA_FRAME = '[data-testid="record-camera-frame"]';
+
+test.beforeEach(() => {
+  recordedProjectPath = join(
+    tmpdir(),
+    `rough-cut-rounded-camera-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.roughcut`,
+  );
+  copyFileSync(SOURCE_PROJECT_PATH, recordedProjectPath);
+});
+
+test.afterEach(() => {
+  if (!recordedProjectPath || recordedProjectPath === SOURCE_PROJECT_PATH) return;
+  if (!existsSync(recordedProjectPath)) return;
+  try {
+    unlinkSync(recordedProjectPath);
+  } catch {
+    // Best-effort cleanup only; failed deletion should not mask test results.
+  }
+});
 
 test('rounded camera stays a rounded square at max roundness for 1:1', async ({ appPage }) => {
   test.setTimeout(45_000);
@@ -28,7 +50,7 @@ test('camera aspect control updates a saved camera frame override', async ({ app
       (
         window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
       ).roughcut.projectOpenPath(projectPath),
-    RECORDED_PROJECT_PATH,
+    recordedProjectPath,
   )) as Record<string, any>;
 
   const recording = project.assets.find(
@@ -70,7 +92,7 @@ test('camera aspect control updates a saved camera frame override', async ({ app
     },
     {
       nextProject: project,
-      projectPath: RECORDED_PROJECT_PATH,
+      projectPath: recordedProjectPath,
       activeAssetId: recording?.id ?? null,
     },
   );
@@ -101,7 +123,7 @@ async function assertRoundedCameraVisual(
       (
         window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
       ).roughcut.projectOpenPath(projectPath),
-    RECORDED_PROJECT_PATH,
+    recordedProjectPath,
   )) as Record<string, any>;
 
   const recording = project.assets.find(
@@ -146,7 +168,7 @@ async function assertRoundedCameraVisual(
     },
     {
       nextProject: project,
-      projectPath: RECORDED_PROJECT_PATH,
+      projectPath: recordedProjectPath,
       activeAssetId: recording?.id ?? null,
       aspectRatio,
     },

@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { readFile, unlink } from 'node:fs/promises';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import type { Page } from '@playwright/test';
 import { navigateToTab } from './electron-app.js';
 
@@ -39,6 +40,12 @@ export async function loadZoomFixture(
     join('/home/endlessblink/Documents/Rough Cut/recordings', `${recordingBaseName}.cursor.ndjson`),
   ].find((candidate): candidate is string => Boolean(candidate) && existsSync(candidate));
 
+  let cursorEventsPath = inferredCursorEventsPath ?? null;
+  if (options.preserveCursorEvents && !cursorEventsPath) {
+    cursorEventsPath = join(tmpdir(), 'rough-cut-e2e-cursor-fixture.ndjson');
+    await writeFile(cursorEventsPath, buildSyntheticCursorSidecar(recording.duration ?? 180), 'utf-8');
+  }
+
   const sanitizedProject = {
     ...project,
     assets: project.assets.map((asset: any) => {
@@ -48,7 +55,7 @@ export async function loadZoomFixture(
         metadata: {
           ...asset.metadata,
           cursorEventsPath: options.preserveCursorEvents
-            ? (inferredCursorEventsPath ?? null)
+            ? cursorEventsPath
             : null,
         },
         presentation: {
@@ -94,4 +101,21 @@ export async function loadZoomFixture(
     { timeout: 30_000 },
   );
   return recording.filePath as string;
+}
+
+function buildSyntheticCursorSidecar(durationFrames: number): string {
+  const frameCount = Math.max(90, Math.min(Number(durationFrames) || 180, 240));
+  const lines: string[] = [];
+
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    const phase = frame % 24;
+    const x = Math.round(180 + phase * 58);
+    const y = Math.round(180 + ((frame * 37) % 620));
+    lines.push(JSON.stringify({ frame, x, y, type: 'move', button: 0 }));
+    if (frame === 24 || frame === 72) {
+      lines.push(JSON.stringify({ frame, x, y, type: 'down', button: 1 }));
+    }
+  }
+
+  return `${lines.join('\n')}\n`;
 }

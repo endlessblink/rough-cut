@@ -19,6 +19,7 @@ import type { RenderFrame, RenderLayer } from '@rough-cut/frame-resolver';
 import type { CompositorConfig, CompositorState, CompositorEvents } from './types.js';
 import { CameraFrameDecoder } from './camera-frame-decoder.js';
 import { MediaBunnyVideoScrubber } from './media-bunny-video-scrubber.js';
+import { collectActiveAudioStemSources, getAudioStemPaths } from './audio-mixer.js';
 
 let videoSourceCspPatchApplied = false;
 
@@ -54,7 +55,8 @@ function applyVideoSourceCspPatch(): void {
     const source = this.resource;
     const options = this.options;
     if (
-      (source.readyState === source.HAVE_ENOUGH_DATA || source.readyState === source.HAVE_FUTURE_DATA) &&
+      (source.readyState === source.HAVE_ENOUGH_DATA ||
+        source.readyState === source.HAVE_FUTURE_DATA) &&
       source.width &&
       source.height
     ) {
@@ -87,7 +89,9 @@ function applyVideoSourceCspPatch(): void {
         this._reject = reject;
         if (options.preloadTimeoutMs !== undefined) {
           this._preloadTimeout = setTimeout(() => {
-            this._onError(new ErrorEvent(`Preload exceeded timeout of ${options.preloadTimeoutMs}ms`));
+            this._onError(
+              new ErrorEvent(`Preload exceeded timeout of ${options.preloadTimeoutMs}ms`),
+            );
           });
         }
         source.load();
@@ -137,6 +141,12 @@ interface VideoCache {
   pendingScrubSourceFrame: number | null;
 }
 
+interface StemAudioCache {
+  audio: HTMLAudioElement;
+  filePath: string;
+  loaded: boolean;
+}
+
 /**
  * PreviewCompositor — renders RenderFrames to a PixiJS canvas.
  *
@@ -158,6 +168,7 @@ export class PreviewCompositor {
   private _playing = false;
   private lastLoggedPrimaryPlaybackAssetId: string | null = null;
   private preferredPlaybackAssetId: string | null = null;
+  private soloTrackIds: Set<string> = new Set();
   private cursorDataByAssetId: Map<string, { frames: Float32Array; frameCount: number }> =
     new Map();
 
@@ -166,6 +177,7 @@ export class PreviewCompositor {
 
   // Video element cache — one per asset, reused across frames
   private videoCache: Map<string, VideoCache> = new Map();
+  private stemAudioCache: Map<string, StemAudioCache> = new Map();
 
   // Camera decoder cache — WebCodecs-based, frame-locked to screen
   private cameraDecoders: Map<
@@ -250,6 +262,11 @@ export class PreviewCompositor {
         vc.scrubber?.dispose();
       }
       this.videoCache.clear();
+      for (const stem of this.stemAudioCache.values()) {
+        stem.audio.pause();
+        stem.audio.src = '';
+      }
+      this.stemAudioCache.clear();
       for (const entry of this.cameraDecoders.values()) {
         entry.decoder.dispose();
         entry.texture?.destroy();
@@ -289,7 +306,7 @@ export class PreviewCompositor {
         video
           .play()
           .then(() => {
-            video.muted = false;
+            video.muted = this.shouldMuteAssetVideoAudio(assetId);
           })
           .catch((e) => {
             console.error('[compositor] play() FAILED:', e);
@@ -299,6 +316,7 @@ export class PreviewCompositor {
         }
       }
     }
+    this.syncStemAudio();
   }
 
   /** Pause native video playback — return to frame-accurate seeking mode */
@@ -309,6 +327,9 @@ export class PreviewCompositor {
       if (vc.texture?.source) {
         (vc.texture.source as VideoSource).autoUpdate = false;
       }
+    }
+    for (const stem of this.stemAudioCache.values()) {
+      stem.audio.pause();
     }
   }
 
@@ -378,6 +399,11 @@ export class PreviewCompositor {
     this.preferredPlaybackAssetId = assetId;
   }
 
+  setSoloTrackIds(trackIds: readonly string[]): void {
+    this.soloTrackIds = new Set(trackIds);
+    this.syncStemAudio();
+  }
+
   setCursorFrameData(
     assetId: string,
     cursorData: { frames: Float32Array; frameCount: number } | null,
@@ -404,6 +430,11 @@ export class PreviewCompositor {
       vc.scrubber?.dispose();
     }
     this.videoCache.clear();
+    for (const stem of this.stemAudioCache.values()) {
+      stem.audio.pause();
+      stem.audio.src = '';
+    }
+    this.stemAudioCache.clear();
     for (const entry of this.cameraDecoders.values()) {
       entry.decoder.dispose();
       entry.texture?.destroy();
@@ -448,6 +479,7 @@ export class PreviewCompositor {
       preferredPlaybackAssetId: this.preferredPlaybackAssetId,
     });
     this.renderRenderFrame(renderFrame);
+    this.syncStemAudio();
     this.app.render();
     this.lastRenderedFrame = this.currentFrame;
     this.lastRenderedProject = this.project;
@@ -541,7 +573,7 @@ export class PreviewCompositor {
             video
               .play()
               .then(() => {
-                video.muted = false;
+                video.muted = this.shouldMuteAssetVideoAudio(assetId);
               })
               .catch(() => {});
             videoSource.autoUpdate = true;
@@ -565,6 +597,90 @@ export class PreviewCompositor {
 
     this.videoCache.set(assetId, vc);
     return vc;
+  }
+
+  private getOrCreateStemAudio(key: string, filePath: string): StemAudioCache {
+    const cached = this.stemAudioCache.get(key);
+    if (cached && cached.filePath === filePath) return cached;
+
+    if (cached) {
+      cached.audio.pause();
+      cached.audio.src = '';
+      this.stemAudioCache.delete(key);
+    }
+
+    const audio = document.createElement('audio');
+    audio.src = `media://${filePath}`;
+    audio.preload = 'auto';
+    audio.muted = true;
+
+    const next: StemAudioCache = { audio, filePath, loaded: false };
+    audio.addEventListener('loadeddata', () => {
+      next.loaded = true;
+      if (this._playing) {
+        this.syncStemAudio();
+      }
+    });
+    audio.addEventListener(
+      'error',
+      () => {
+        console.warn(`[compositor] Failed to load audio stem: ${filePath}`, audio.error);
+        next.loaded = false;
+      },
+      { once: true },
+    );
+
+    this.stemAudioCache.set(key, next);
+    return next;
+  }
+
+  private syncStemAudio(): void {
+    if (!this.project) return;
+
+    const fps = this.project.settings.frameRate ?? 30;
+    const active = collectActiveAudioStemSources(
+      this.project,
+      this.currentFrame,
+      this.soloTrackIds,
+    );
+    const activeKeys = new Set(active.map((source) => source.key));
+
+    for (const source of active) {
+      const cache = this.getOrCreateStemAudio(source.key, source.filePath);
+      const targetTime = source.sourceFrame / fps;
+      cache.audio.volume = source.gain;
+
+      if (cache.audio.readyState >= 1 && Math.abs(cache.audio.currentTime - targetTime) > 0.05) {
+        cache.audio.currentTime = targetTime;
+      }
+
+      if (this._playing && cache.audio.readyState >= 2 && cache.audio.paused) {
+        const audio = cache.audio;
+        audio
+          .play()
+          .then(() => {
+            audio.muted = false;
+          })
+          .catch((e) => {
+            console.error('[compositor] audio stem play() FAILED:', e);
+          });
+      } else if (!this._playing) {
+        cache.audio.pause();
+        cache.audio.muted = true;
+      }
+    }
+
+    for (const [key, cache] of this.stemAudioCache) {
+      if (activeKeys.has(key)) continue;
+      cache.audio.pause();
+      cache.audio.muted = true;
+    }
+  }
+
+  private shouldMuteAssetVideoAudio(assetId: string): boolean {
+    if (!this.project) return false;
+    const asset = this.project.assets.find((entry) => entry.id === assetId);
+    return Boolean(asset && getAudioStemPaths(asset));
   }
 
   // Camera rendering is handled by CameraPlaybackCanvas (React template slot).
@@ -597,6 +713,7 @@ export class PreviewCompositor {
     } else if (isVideoAsset && asset.filePath) {
       // Screen/other video: HTMLVideoElement path (unchanged)
       videoCache = this.getOrCreateVideo(assetId, asset.filePath);
+      videoCache.video.muted = this.shouldMuteAssetVideoAudio(assetId);
 
       // Native video playback stays on the HTMLVideoElement path. Paused scrubbing
       // requests an exact decoded frame through MediaBunny to avoid seek drift.
