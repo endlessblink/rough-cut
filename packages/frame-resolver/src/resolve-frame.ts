@@ -253,6 +253,7 @@ function resolveClipLayer(
 function resolveTransform(clip: Clip, clipLocalFrame: number): ResolvedTransform {
   // Static defaults from the clip transform
   const staticTransform = clip.transform;
+  const clipKeyframes = clip.keyframes ?? [];
 
   // Build defaults map for evaluateKeyframeTracks
   const defaults: Record<string, number | string | boolean> = {
@@ -267,7 +268,7 @@ function resolveTransform(clip: Clip, clipLocalFrame: number): ResolvedTransform
   };
 
   // Filter clip keyframes to only transform.* tracks
-  const transformKeyframeTracks = clip.keyframes.filter((kft) =>
+  const transformKeyframeTracks = clipKeyframes.filter((kft) =>
     kft.property.startsWith('transform.'),
   );
 
@@ -289,7 +290,7 @@ function resolveTransform(clip: Clip, clipLocalFrame: number): ResolvedTransform
 }
 
 function resolveEffects(clip: Clip, clipLocalFrame: number): ResolvedEffect[] {
-  return clip.effects.map((effect) => {
+  return (clip.effects ?? []).map((effect) => {
     // Get registered defaults for this effect type (fallback to static params)
     const registryDefaults = getDefaultParams(effect.effectType);
 
