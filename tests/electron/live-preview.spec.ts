@@ -21,6 +21,27 @@ const DEBUG_SCREEN_SOURCE = {
   thumbnailDataUrl: '',
 };
 
+async function waitForSelectedSourceId(
+  page: import('@playwright/test').Page,
+  expected: string | null,
+): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+        return stores?.recordingConfig?.getState?.().selectedSourceId ?? null;
+      }),
+    )
+    .toBe(expected);
+}
+
+async function refreshRecordSources(page: import('@playwright/test').Page): Promise<void> {
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+}
+
 test.describe('Live preview states', () => {
   test.beforeEach(async ({ appPage }) => {
     await appPage.evaluate(async () => {
@@ -44,11 +65,15 @@ test.describe('Live preview states', () => {
   });
 
   test('shows an empty preview state when no source is selected', async ({ appPage }) => {
+    await waitForSelectedSourceId(appPage, null);
+
     const preview = appPage.locator('[data-testid="record-preview-status"]');
 
     await expect(preview).toHaveAttribute('data-preview-state', 'empty');
     await expect(preview).toContainText('Choose a screen to preview');
-    await expect(preview).toContainText('Pick a screen to make the Record tab reflect the real capture source.');
+    await expect(preview).toContainText(
+      'Choose the screen that Rough Cut should capture before you record.',
+    );
     await expect(appPage.locator('[data-testid="record-preview-mode-badge"]')).toHaveCount(0);
   });
 
@@ -71,6 +96,9 @@ test.describe('Live preview states', () => {
         selectedSourceId: debugSource.id,
       });
     }, { debugSource: DEBUG_SCREEN_SOURCE });
+
+    await refreshRecordSources(appPage);
+    await waitForSelectedSourceId(appPage, DEBUG_SCREEN_SOURCE.id);
 
     const preview = appPage.locator('[data-testid="record-preview-status"]');
     await expect(preview).toHaveAttribute('data-preview-state', 'acquiring');
@@ -96,6 +124,9 @@ test.describe('Live preview states', () => {
         selectedSourceId: debugSource.id,
       });
     }, { debugSource: DEBUG_SCREEN_SOURCE });
+
+    await refreshRecordSources(appPage);
+    await waitForSelectedSourceId(appPage, DEBUG_SCREEN_SOURCE.id);
 
     const preview = appPage.locator('[data-testid="record-preview-status"]');
     await expect(preview).toHaveAttribute('data-preview-state', 'failed');

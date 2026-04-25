@@ -87,6 +87,201 @@ async function waitForRecordedResult(
 }
 
 test.describe('Record camera artifact', () => {
+  test('disabling panel camera preview releases the live camera stream', async ({
+    appPage,
+    electronApp,
+  }) => {
+    test.setTimeout(120_000);
+    let panelPage: import('@playwright/test').Page | null = null;
+
+    try {
+      await appPage.evaluate(async ({ debugSource }) => {
+        const api = (window as unknown as { roughcut: any }).roughcut;
+        await api.debugSetCaptureSources?.([debugSource]);
+        await api.recordingConfigUpdate({
+          recordMode: 'fullscreen',
+          selectedSourceId: debugSource.id,
+          selectedMicDeviceId: null,
+          selectedCameraDeviceId: null,
+          selectedSystemAudioSourceId: null,
+          micEnabled: false,
+          sysAudioEnabled: false,
+          cameraEnabled: true,
+          countdownSeconds: 0,
+        });
+      }, { debugSource: DEBUG_SOURCE });
+
+      await navigateToTab(appPage, 'record');
+
+      const panelPromise = electronApp.waitForEvent('window');
+      await appPage.evaluate(() => (window as unknown as { roughcut: any }).roughcut.openRecordingPanel());
+      panelPage = await panelPromise;
+      await panelPage.waitForLoadState('domcontentloaded');
+
+      await panelPage.evaluate(async ({ debugSource }) => {
+        const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+        navigator.mediaDevices.getUserMedia = async (constraints?: MediaStreamConstraints) => {
+          const mandatory = (constraints?.video as { mandatory?: { chromeMediaSource?: string } })?.mandatory;
+          if (mandatory?.chromeMediaSource === 'desktop') {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1280;
+            canvas.height = 720;
+            return canvas.captureStream(30);
+          }
+          if (constraints?.video) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 480;
+            const ctx = canvas.getContext('2d');
+            let frame = 0;
+            const paint = () => {
+              if (!ctx) return;
+              frame += 1;
+              ctx.fillStyle = '#020617';
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              ctx.fillStyle = '#38bdf8';
+              ctx.beginPath();
+              ctx.arc(canvas.width / 2, canvas.height / 2, 40 + (frame % 20), 0, Math.PI * 2);
+              ctx.fill();
+            };
+            paint();
+            window.setInterval(paint, 100);
+            return canvas.captureStream(30);
+          }
+          return originalGetUserMedia(constraints);
+        };
+
+        const api = (window as unknown as { roughcut: any }).roughcut;
+        await api.debugSetCaptureSources?.([debugSource]);
+        await api.recordingConfigUpdate({
+          recordMode: 'fullscreen',
+          selectedSourceId: debugSource.id,
+          selectedCameraDeviceId: null,
+          cameraEnabled: true,
+        });
+      }, { debugSource: DEBUG_SOURCE });
+
+      await expect(panelPage.locator('button[aria-label="Camera"]')).toHaveAttribute(
+        'aria-pressed',
+        'true',
+        { timeout: 15_000 },
+      );
+      await expect(panelPage.locator('[data-testid="panel-camera-preview-video"]')).toBeVisible({ timeout: 15_000 });
+
+      await expect
+        .poll(
+          () =>
+            panelPage.evaluate(() => {
+              const hooks = (window as unknown as {
+                __panelTestHooks: { getCameraStreamTrackStates: () => string[] };
+              }).__panelTestHooks;
+              return hooks.getCameraStreamTrackStates();
+            }),
+          { timeout: 10_000 },
+        )
+        .toContain('live');
+
+      await panelPage.locator('button[aria-label="Camera"]').click();
+
+      await expect(panelPage.locator('button[aria-label="Camera"]')).toHaveAttribute(
+        'aria-pressed',
+        'false',
+        { timeout: 15_000 },
+      );
+      await expect(panelPage.locator('[data-testid="panel-camera-preview-video"]')).toHaveCount(0);
+      await expect
+        .poll(
+          () =>
+            panelPage.evaluate(() => {
+              const hooks = (window as unknown as {
+                __panelTestHooks: { getCameraStreamTrackStates: () => string[] };
+              }).__panelTestHooks;
+              return hooks.getCameraStreamTrackStates();
+            }),
+          { timeout: 10_000 },
+        )
+        .toEqual([]);
+    } finally {
+      if (panelPage && !panelPage.isClosed()) {
+        await panelPage.close().catch(() => {});
+      }
+    }
+  });
+
+  test('closing the panel releases the live camera preview stream', async ({ appPage, electronApp }) => {
+    test.setTimeout(120_000);
+    let panelPage: import('@playwright/test').Page | null = null;
+
+    try {
+      await appPage.evaluate(async ({ debugSource }) => {
+        const api = (window as unknown as { roughcut: any }).roughcut;
+        await api.debugSetCaptureSources?.([debugSource]);
+        await api.recordingConfigUpdate({
+          recordMode: 'fullscreen',
+          selectedSourceId: debugSource.id,
+          selectedMicDeviceId: null,
+          selectedCameraDeviceId: null,
+          selectedSystemAudioSourceId: null,
+          micEnabled: false,
+          sysAudioEnabled: false,
+          cameraEnabled: true,
+          countdownSeconds: 0,
+        });
+      }, { debugSource: DEBUG_SOURCE });
+
+      await navigateToTab(appPage, 'record');
+
+      const panelPromise = electronApp.waitForEvent('window');
+      await appPage.evaluate(() => (window as unknown as { roughcut: any }).roughcut.openRecordingPanel());
+      panelPage = await panelPromise;
+      await panelPage.waitForLoadState('domcontentloaded');
+
+      await panelPage.evaluate(async ({ debugSource }) => {
+        const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+        navigator.mediaDevices.getUserMedia = async (constraints?: MediaStreamConstraints) => {
+          if (constraints?.video) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 480;
+            return canvas.captureStream(30);
+          }
+          return originalGetUserMedia(constraints);
+        };
+
+        const api = (window as unknown as { roughcut: any }).roughcut;
+        await api.debugSetCaptureSources?.([debugSource]);
+        await api.recordingConfigUpdate({
+          recordMode: 'fullscreen',
+          selectedSourceId: debugSource.id,
+          selectedCameraDeviceId: null,
+          cameraEnabled: true,
+        });
+      }, { debugSource: DEBUG_SOURCE });
+
+      await expect(panelPage.locator('[data-testid="panel-camera-preview-video"]')).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(
+          () =>
+            panelPage!.evaluate(() => {
+              const hooks = (window as unknown as {
+                __panelTestHooks: { getCameraStreamTrackStates: () => string[] };
+              }).__panelTestHooks;
+              return hooks.getCameraStreamTrackStates();
+            }),
+          { timeout: 10_000 },
+        )
+        .toContain('live');
+
+      const closePromise = panelPage.waitForEvent('close');
+      await panelPage.locator('button[aria-label="Close recording panel"]').click();
+      await closePromise;
+    } finally {
+      if (panelPage && !panelPage.isClosed()) {
+        await panelPage.close().catch(() => {});
+      }
+    }
+  });
+
   test('panel source changes do not trigger display capture or kill camera preview before REC', async ({
     appPage,
     electronApp,

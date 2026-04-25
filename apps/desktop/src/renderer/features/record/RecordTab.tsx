@@ -4,16 +4,12 @@
  * background/look presets. No clip edits (no cutting, trimming, reordering, track management).
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  useProjectStore,
-  useTransportStore,
-  transportStore,
-  projectStore,
-} from '../../hooks/use-stores.js';
+import { useProjectStore, transportStore, projectStore } from '../../hooks/use-stores.js';
 import {
   createDefaultZoomPresentation,
   createDefaultCursorPresentation,
   createDefaultCameraPresentation,
+  createDefaultRecordingBackgroundStyle,
   createDefaultRecordingPresentation,
   createDefaultRegionCrop,
   normalizeRegionCrop,
@@ -24,6 +20,7 @@ import type {
   RegionCrop,
   CaptionSegment,
   AIAnnotationId,
+  RecordingPresentation,
 } from '@rough-cut/project-model';
 import { useRecordState } from './record-state.js';
 import { useLivePreview } from './use-live-preview.js';
@@ -87,6 +84,54 @@ const DEFAULT_BACKGROUND: BackgroundConfig = {
   bgShadowEnabled: false,
   bgShadowBlur: 0,
 };
+
+const RECORD_PLAYHEAD_REACT_UPDATE_MS = 100;
+
+function useThrottledRecordPlayheadFrame(): number {
+  const [playheadFrame, setPlayheadFrame] = useState(
+    () => transportStore.getState().playheadFrame,
+  );
+  const latestFrameRef = useRef(playheadFrame);
+  const lastEmitAtRef = useRef(0);
+  const timeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const emit = () => {
+      timeoutRef.current = null;
+      lastEmitAtRef.current = performance.now();
+      setPlayheadFrame((current) =>
+        current === latestFrameRef.current ? current : latestFrameRef.current,
+      );
+    };
+
+    const unsubscribe = transportStore.subscribe((state, previousState) => {
+      if (state.playheadFrame === previousState.playheadFrame) return;
+      latestFrameRef.current = state.playheadFrame;
+
+      const now = performance.now();
+      const elapsed = now - lastEmitAtRef.current;
+      if (elapsed >= RECORD_PLAYHEAD_REACT_UPDATE_MS) {
+        if (timeoutRef.current !== null) {
+          window.clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+        emit();
+        return;
+      }
+
+      if (timeoutRef.current === null) {
+        timeoutRef.current = window.setTimeout(emit, RECORD_PLAYHEAD_REACT_UPDATE_MS - elapsed);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  return playheadFrame;
+}
 
 function getActiveCameraLayoutSnapshot(
   markers:
@@ -183,7 +228,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const [selectedRegion, setSelectedRegion] = useState<'screen' | 'camera' | null>(null);
   const [cropTargetRegion, setCropTargetRegion] = useState<'screen' | 'camera'>('screen');
   const alignRef = useRef<((a: Alignment) => void) | null>(null);
-  const playheadFrame = useTransportStore((s) => s.playheadFrame);
+  const playheadFrame = useThrottledRecordPlayheadFrame();
 
   if (recordUltraMinimal) {
     return (
@@ -249,6 +294,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const selectedMicDeviceId = useRecordingConfig((s) => s.selectedMicDeviceId);
   const selectedCameraDeviceId = useRecordingConfig((s) => s.selectedCameraDeviceId);
   const selectedSystemAudioSourceId = useRecordingConfig((s) => s.selectedSystemAudioSourceId);
+  const systemAudioGainPercent = useRecordingConfig((s) => s.systemAudioGainPercent);
   const { micOptions, cameraOptions, systemAudioOptions } = useRecordingDeviceOptions();
   const warnedSelectionRef = useRef<Record<string, string | null>>({
     mic: null,
@@ -304,7 +350,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     (asset) => asset.type === 'recording' && asset.filePath.trim().length > 0,
   );
   const showLiveCameraPreview = cameraEnabled && !hasRecordedTake;
-  const { stream: liveCameraStream, aspectRatio: liveCameraAspectRatio } = useLiveCameraPreview({
+  const { stream: liveCameraStream } = useLiveCameraPreview({
     enabled: showLiveCameraPreview,
     deviceId: selectedCameraDeviceId,
   });
@@ -319,7 +365,15 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     if (!activeRecordingId) return null;
     return s.project.assets.find((asset) => asset.id === activeRecordingId)?.presentation ?? null;
   });
-  const zoomPresentation = activeRecordingPresentation?.zoom ?? createDefaultZoomPresentation();
+  const storedRecordingDefaults = useProjectStore((s) => s.project.settings.recordingDefaults);
+  const fallbackRecordingPresentationRef = useRef<RecordingPresentation>(
+    createDefaultRecordingPresentation(),
+  );
+  const editorPresentation: RecordingPresentation =
+    activeRecordingPresentation ??
+    storedRecordingDefaults ??
+    fallbackRecordingPresentationRef.current;
+  const zoomPresentation = editorPresentation.zoom ?? createDefaultZoomPresentation();
   const activeZoomScale = activeRecordingAsset?.filePath
     ? getZoomTransformAtFrame(playheadFrame, zoomPresentation.markers).scale
     : 1;
@@ -334,7 +388,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
       | undefined,
     playheadFrame,
   );
-  const persistedTemplateId = activeRecordingPresentation?.templateId;
+  const persistedTemplateId = editorPresentation.templateId;
   const effectiveTemplate = getTemplateById(activeCameraLayoutSnapshot?.templateId, activeTemplate);
   const persistedDestinationPreset = isDestinationPresetId(persistedDestinationPresetId)
     ? getDestinationPreset(persistedDestinationPresetId)
@@ -351,8 +405,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     })?.id ?? null;
   const selectedDestinationPresetId =
     persistedDestinationPreset?.id ?? inferredDestinationPresetId ?? null;
-  const cursorPresentation =
-    activeRecordingPresentation?.cursor ?? createDefaultCursorPresentation();
+  const cursorPresentation = editorPresentation.cursor ?? createDefaultCursorPresentation();
   // screenCrop from store is read but we use local state for immediate responsiveness
   // (store crop requires an active recording asset which may not exist yet)
 
@@ -374,22 +427,48 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     createDefaultCameraPresentation(),
   );
 
+  const updateRecordingDefaults = useCallback(
+    (updater: (current: RecordingPresentation) => RecordingPresentation) => {
+      projectStore.getState().updateProject((doc) => ({
+        ...doc,
+        settings: {
+          ...doc.settings,
+          recordingDefaults: updater(
+            doc.settings.recordingDefaults ?? createDefaultRecordingPresentation(),
+          ),
+        },
+      }));
+    },
+    [],
+  );
+
   // Crop state — local like background, works without a recording asset
   const [screenCrop, setScreenCrop] = useState<RegionCrop>(() =>
     createDefaultRegionCrop(screenSourceWidth, screenSourceHeight),
   );
 
   useEffect(() => {
+    const persistedBackground = editorPresentation.background;
+    if (!persistedBackground) {
+      setBackground(DEFAULT_BACKGROUND);
+      return;
+    }
+    setBackground({
+      ...DEFAULT_BACKGROUND,
+      ...persistedBackground,
+    });
+  }, [activeRecordingAsset?.id, editorPresentation.background]);
+
+  useEffect(() => {
     if (activeCameraLayoutSnapshot?.camera) {
       setCameraPresentation(activeCameraLayoutSnapshot.camera);
       return;
     }
-    if (!activeRecordingAsset?.presentation?.camera) return;
-    setCameraPresentation(activeRecordingAsset.presentation.camera);
+    setCameraPresentation(editorPresentation.camera ?? createDefaultCameraPresentation());
   }, [
     activeCameraLayoutSnapshot?.camera,
     activeRecordingAsset?.id,
-    activeRecordingAsset?.presentation?.camera,
+    editorPresentation.camera,
   ]);
   const [cameraCrop, setCameraCrop] = useState<RegionCrop>(() => createDefaultRegionCrop());
   const effectiveCameraPresentation = activeCameraLayoutSnapshot?.camera ?? cameraPresentation;
@@ -400,16 +479,50 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   }, [activeRecordingId, defaultTemplate, persistedTemplateId]);
 
   useEffect(() => {
+    setScreenRectOverride(undefined);
     setCameraRectOverride(undefined);
   }, [activeRecordingId]);
 
-  const handleBackgroundChange = useCallback((patch: Partial<BackgroundConfig>) => {
-    setBackground((prev) => ({ ...prev, ...patch }));
-  }, []);
+  const handleBackgroundChange = useCallback(
+    (patch: Partial<BackgroundConfig>) => {
+      setBackground((prev) => {
+        const next = { ...prev, ...patch };
+        updateRecordingDefaults((current) => ({
+          ...current,
+          background: {
+            ...createDefaultRecordingBackgroundStyle(),
+            ...(current.background ?? {}),
+            ...next,
+          },
+        }));
+        if (activeRecordingId) {
+          projectStore.getState().updateProject((doc) => ({
+            ...doc,
+            assets: doc.assets.map((asset) =>
+              asset.id === activeRecordingId
+                ? {
+                    ...asset,
+                    presentation: {
+                      ...(asset.presentation ?? createDefaultRecordingPresentation()),
+                      background: {
+                        ...createDefaultRecordingBackgroundStyle(),
+                        ...next,
+                      },
+                    },
+                  }
+                : asset,
+            ),
+          }));
+        }
+        return next;
+      });
+    },
+    [activeRecordingId, updateRecordingDefaults],
+  );
 
   const handleBackgroundReset = useCallback(() => {
-    setBackground(DEFAULT_BACKGROUND);
-  }, []);
+    handleBackgroundChange(DEFAULT_BACKGROUND);
+  }, [handleBackgroundChange]);
 
   useEffect(() => {
     return subscribeRecordingConfig((nextState, previousState) => {
@@ -524,32 +637,39 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   void _handleOpenPermissionSettings;
 
   const handleTemplateChange = useCallback(
-    (template: LayoutTemplate) => {
+    (template: LayoutTemplate, options?: { preserveDestinationPreset?: boolean }) => {
       setActiveTemplate(template);
       setScreenRectOverride(undefined);
       setCameraRectOverride(undefined);
       setCropModeActive(false);
-      if (activeRecordingId) {
-        projectStore.getState().updateProject((doc) => ({
-          ...doc,
-          assets: doc.assets.map((asset) =>
-            asset.id === activeRecordingId
-              ? {
-                  ...asset,
-                  presentation: {
-                    ...(asset.presentation ?? createDefaultRecordingPresentation()),
-                    templateId: template.id,
-                    cameraFrame: undefined,
-                  },
-                }
-              : asset,
-          ),
-          settings: {
-            ...doc.settings,
-            destinationPresetId: null,
+      updateProject((doc) => ({
+        ...doc,
+        assets: doc.assets.map((asset) =>
+          asset.id === activeRecordingId
+            ? {
+                ...asset,
+                presentation: {
+                  ...(asset.presentation ?? createDefaultRecordingPresentation()),
+                  templateId: template.id,
+                  screenFrame: undefined,
+                  cameraFrame: undefined,
+                },
+              }
+            : asset,
+        ),
+        settings: {
+          ...doc.settings,
+          recordingDefaults: {
+            ...(doc.settings.recordingDefaults ?? createDefaultRecordingPresentation()),
+            templateId: template.id,
+            screenFrame: undefined,
+            cameraFrame: undefined,
           },
-        }));
-      }
+          destinationPresetId: options?.preserveDestinationPreset
+            ? doc.settings.destinationPresetId ?? null
+            : null,
+        },
+      }));
       setScreenCrop(
         createDefaultRegionCrop(
           resolutionForAspectRatio(template.aspectRatio).width,
@@ -557,7 +677,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         ),
       );
     },
-    [activeRecordingId],
+    [activeRecordingId, updateProject],
   );
 
   const handleDestinationPresetChange = useCallback(
@@ -579,7 +699,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           bitrate: preset.exportBitrate,
         },
       }));
-      handleTemplateChange(template);
+      handleTemplateChange(template, { preserveDestinationPreset: true });
     },
     [defaultTemplate, handleTemplateChange, updateProject],
   );
@@ -589,8 +709,31 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     else setCameraRectOverride(rect);
   }, []);
 
+  const handleScreenNormalizedFrameChange = useCallback(
+    (screenFrame: { x: number; y: number; w: number; h: number }) => {
+      updateRecordingDefaults((current) => ({ ...current, screenFrame }));
+      if (!activeRecordingId) return;
+      projectStore.getState().updateProject((doc) => ({
+        ...doc,
+        assets: doc.assets.map((asset) =>
+          asset.id === activeRecordingId
+            ? {
+                ...asset,
+                presentation: {
+                  ...(asset.presentation ?? createDefaultRecordingPresentation()),
+                  screenFrame,
+                },
+              }
+            : asset,
+        ),
+      }));
+    },
+    [activeRecordingId, updateRecordingDefaults],
+  );
+
   const handleCameraNormalizedFrameChange = useCallback(
     (cameraFrame: { x: number; y: number; w: number; h: number }) => {
+      updateRecordingDefaults((current) => ({ ...current, cameraFrame }));
       if (!activeRecordingId) return;
       projectStore.getState().updateProject((doc) => ({
         ...doc,
@@ -607,7 +750,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         ),
       }));
     },
-    [activeRecordingId],
+    [activeRecordingId, updateRecordingDefaults],
   );
 
   const selectedSourceName = sources.find((s) => s.id === selectedSourceId)?.name ?? null;
@@ -1032,25 +1175,43 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
 
   const handleCursorChange = useCallback(
     (patch: Partial<CursorPresentation>) => {
+      updateRecordingDefaults((current) => ({
+        ...current,
+        cursor: {
+          ...(current.cursor ?? createDefaultCursorPresentation()),
+          ...patch,
+        },
+      }));
       if (!activeRecordingId) return;
       projectStore.getState().updateRecordingCursor(activeRecordingId, patch);
     },
-    [activeRecordingId],
+    [activeRecordingId, updateRecordingDefaults],
   );
 
   const handleCursorReset = useCallback(() => {
+    updateRecordingDefaults((current) => ({
+      ...current,
+      cursor: createDefaultCursorPresentation(),
+    }));
     if (!activeRecordingId) return;
     projectStore.getState().resetRecordingCursor(activeRecordingId);
-  }, [activeRecordingId]);
+  }, [activeRecordingId, updateRecordingDefaults]);
 
   const handleCameraChange = useCallback(
     (patch: Partial<CameraPresentation>) => {
       setCameraPresentation((prev) => ({ ...prev, ...patch }));
-      if (!activeRecordingId) return;
-
       const shapeOrAspectChanged =
         Object.prototype.hasOwnProperty.call(patch, 'shape') ||
         Object.prototype.hasOwnProperty.call(patch, 'aspectRatio');
+      updateRecordingDefaults((current) => ({
+        ...current,
+        camera: {
+          ...(current.camera ?? createDefaultCameraPresentation()),
+          ...patch,
+        },
+        ...(shapeOrAspectChanged ? { cameraFrame: undefined } : {}),
+      }));
+      if (!activeRecordingId) return;
 
       if (shapeOrAspectChanged) {
         setCameraRectOverride(undefined);
@@ -1078,18 +1239,24 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
 
       projectStore.getState().updateCameraPresentation(activeRecordingId, patch);
     },
-    [activeRecordingId],
+    [activeRecordingId, updateRecordingDefaults],
   );
 
   const handleCameraReset = useCallback(() => {
     const defaults = createDefaultCameraPresentation();
     setCameraPresentation(defaults);
+    updateRecordingDefaults((current) => ({
+      ...current,
+      camera: defaults,
+      cameraFrame: undefined,
+    }));
     if (!activeRecordingId) return;
     projectStore.getState().resetCameraPresentation(activeRecordingId);
-  }, [activeRecordingId]);
+  }, [activeRecordingId, updateRecordingDefaults]);
 
   const handleAddCameraLayoutSnapshot = useCallback(() => {
     if (!activeRecordingId) return;
+    const frame = transportStore.getState().playheadFrame;
     const store = projectStore.getState() as unknown as {
       project: {
         assets: ReadonlyArray<{ id: string; presentation?: { camera?: CameraPresentation } }>;
@@ -1098,13 +1265,12 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     };
     const liveAsset = store.project.assets.find((asset) => asset.id === activeRecordingId);
     const snapshotCamera = liveAsset?.presentation?.camera ?? effectiveCameraPresentation;
-    store.addRecordingCameraLayoutSnapshot?.(activeRecordingId, playheadFrame, {
+    store.addRecordingCameraLayoutSnapshot?.(activeRecordingId, frame, {
       camera: snapshotCamera,
       templateId: activeTemplate.id,
     });
   }, [
     activeRecordingId,
-    playheadFrame,
     effectiveCameraPresentation,
     effectiveCameraRectOverride,
     activeTemplate.id,
@@ -1113,7 +1279,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const handleAddCameraLayoutPreset = useCallback(
     (preset: 'hide-camera' | 'top-left' | 'presentation' | 'talking-head') => {
       if (!activeRecordingId) return;
-      const frame = playheadFrame;
+      const frame = transportStore.getState().playheadFrame;
       const store = projectStore.getState() as unknown as {
         project: {
           assets: ReadonlyArray<{ id: string; presentation?: { camera?: CameraPresentation } }>;
@@ -1168,7 +1334,6 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     },
     [
       activeRecordingId,
-      playheadFrame,
       effectiveCameraPresentation,
       activeTemplate.id,
       selectedCameraLayoutMarkerId,
@@ -1179,6 +1344,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     (patch: Partial<RegionCrop>) => {
       setScreenCrop((prev) => {
         const next = { ...prev, ...patch };
+        updateRecordingDefaults((current) => ({ ...current, screenCrop: next }));
         // Sync to store so Edit/Export can read it
         if (activeRecordingId) {
           projectStore.getState().updateScreenCrop(activeRecordingId, next);
@@ -1186,42 +1352,45 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         return next;
       });
     },
-    [activeRecordingId],
+    [activeRecordingId, updateRecordingDefaults],
   );
 
   const handleScreenCropReset = useCallback(() => {
     const def = createDefaultRegionCrop(screenSourceWidth, screenSourceHeight);
     setScreenCrop(def);
+    updateRecordingDefaults((current) => ({ ...current, screenCrop: def }));
     if (activeRecordingId) {
       projectStore.getState().resetScreenCrop(activeRecordingId);
     }
-  }, [screenSourceWidth, screenSourceHeight, activeRecordingId]);
+  }, [screenSourceWidth, screenSourceHeight, activeRecordingId, updateRecordingDefaults]);
 
   const handleCameraCropChange = useCallback(
     (patch: Partial<RegionCrop>) => {
       setCameraCrop((prev) => {
         const next = { ...prev, ...patch };
+        updateRecordingDefaults((current) => ({ ...current, cameraCrop: next }));
         if (activeRecordingId) {
           projectStore.getState().updateCameraCrop(activeRecordingId, next);
         }
         return next;
       });
     },
-    [activeRecordingId],
+    [activeRecordingId, updateRecordingDefaults],
   );
 
   const handleCameraCropReset = useCallback(() => {
     const def = createDefaultRegionCrop(cameraSourceWidth, cameraSourceHeight);
     setCameraCrop(def);
+    updateRecordingDefaults((current) => ({ ...current, cameraCrop: def }));
     if (activeRecordingId) {
       projectStore.getState().resetCameraCrop(activeRecordingId);
     }
-  }, [cameraSourceWidth, cameraSourceHeight, activeRecordingId]);
+  }, [cameraSourceWidth, cameraSourceHeight, activeRecordingId, updateRecordingDefaults]);
 
   useEffect(() => {
     setScreenCrop(
       normalizeRegionCrop(
-        activeRecordingAsset?.presentation?.screenCrop,
+        editorPresentation.screenCrop,
         screenSourceWidth,
         screenSourceHeight,
         resolution.width,
@@ -1230,15 +1399,15 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     );
     setCameraCrop(
       normalizeRegionCrop(
-        activeRecordingAsset?.presentation?.cameraCrop,
+        editorPresentation.cameraCrop,
         cameraSourceWidth,
         cameraSourceHeight,
       ) ?? createDefaultRegionCrop(cameraSourceWidth, cameraSourceHeight),
     );
   }, [
     activeRecordingAsset?.id,
-    activeRecordingAsset?.presentation?.screenCrop,
-    activeRecordingAsset?.presentation?.cameraCrop,
+    editorPresentation.screenCrop,
+    editorPresentation.cameraCrop,
     resolution.width,
     resolution.height,
     screenSourceWidth,
@@ -1723,12 +1892,16 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           }
           systemAudioOptions={systemAudioOptions}
           selectedSystemAudioSourceId={selectedSystemAudioSourceId}
+          systemAudioGainPercent={systemAudioGainPercent}
           systemAudioIssue={sessionConnectionIssues?.systemAudio ?? null}
           onSelectSystemAudioSource={(id) =>
             updateRecordingConfig({
               selectedSystemAudioSourceId: id,
               sysAudioEnabled: true,
             })
+          }
+          onSystemAudioGainChange={(percent) =>
+            updateRecordingConfig({ systemAudioGainPercent: percent })
           }
         />
       )}
@@ -2127,11 +2300,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
                     <LiveCameraVideo stream={liveCameraStream} testId="record-live-camera-video" />
                   ) : undefined
                 }
-                cameraAspect={
-                  hasRecordedTake
-                    ? cameraSourceWidth / cameraSourceHeight
-                    : liveCameraAspectRatio
-                }
+                cameraAspect={cameraSourceWidth / cameraSourceHeight}
                 cameraPresentation={effectiveCameraPresentation}
                 screenAspect={screenSourceWidth / screenSourceHeight}
                 screenCornerRadius={background.bgCornerRadius}
@@ -2145,8 +2314,10 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
                 screenInsetColor={background.bgInsetColor}
                 interactionEnabled={true}
                 onRegionChange={handleRegionChange}
+                onScreenNormalizedFrameChange={handleScreenNormalizedFrameChange}
                 onCameraNormalizedFrameChange={handleCameraNormalizedFrameChange}
                 screenRectOverride={screenRectOverride}
+                screenNormalizedFrameOverride={activeRecordingPresentation?.screenFrame}
                 cameraRectOverride={effectiveCameraRectOverride}
                 cameraNormalizedFrameOverride={activeRecordingPresentation?.cameraFrame}
                 screenCrop={screenCrop}

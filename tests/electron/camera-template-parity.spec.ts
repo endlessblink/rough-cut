@@ -10,6 +10,7 @@ const RECORD_CAMERA_FRAME = '[data-testid="record-camera-frame"]';
 const PREVIEW_CONTENT = '[data-testid="record-card-content"]';
 const RECORD_ROOT = '[data-testid="record-tab-root"]';
 const EDIT_ROOT = '[data-testid="edit-tab-root"]';
+const EXPORT_ROOT = '[data-testid="export-tab-root"]';
 const DEFAULT_PERSISTED_CAMERA_FRAME = { x: 0.02, y: 0.1, w: 0.34, h: 0.8 };
 
 test('persisted camera template/frame render the same in Record and Edit', async ({ appPage }) => {
@@ -207,6 +208,59 @@ test('saved project preserves camera template/frame parity after reopen', async 
   expect(diffs.y).toBeLessThanOrEqual(0.01);
   expect(diffs.w).toBeLessThanOrEqual(0.01);
   expect(diffs.h).toBeLessThanOrEqual(0.01);
+});
+
+test('persisted camera template/frame render the same in Record and Export', async ({ appPage }) => {
+  test.setTimeout(45_000);
+
+  await navigateToTab(appPage, 'record');
+
+  const project = (await appPage.evaluate(
+    (projectPath) =>
+      (
+        window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
+      ).roughcut.projectOpenPath(projectPath),
+    RECORDED_PROJECT_PATH,
+  )) as Record<string, any>;
+
+  const recording = project.assets.find((asset: any) => asset.type === 'recording');
+  expect(recording).toBeTruthy();
+
+  await applyRecordingPresentationPatch(appPage, {
+    nextProject: project,
+    projectPath: RECORDED_PROJECT_PATH,
+    activeAssetId: recording?.id ?? null,
+    persistedFrame: DEFAULT_PERSISTED_CAMERA_FRAME,
+    cameraVisible: true,
+  });
+
+  const recordRect = await captureNormalizedRect(appPage, {
+    rootSelector: RECORD_ROOT,
+    mediaSelector: RECORD_CAMERA_FRAME,
+    previewSelector: PREVIEW_CONTENT,
+    settleSelector: RECORD_CAMERA_VIDEO,
+  });
+
+  await navigateToTab(appPage, 'export');
+
+  const exportRect = await captureNormalizedRect(appPage, {
+    rootSelector: EXPORT_ROOT,
+    mediaSelector: RECORD_CAMERA_FRAME,
+    previewSelector: PREVIEW_CONTENT,
+    settleSelector: RECORD_CAMERA_VIDEO,
+  });
+
+  const diffs = {
+    x: Math.abs(exportRect.x - recordRect.x),
+    y: Math.abs(exportRect.y - recordRect.y),
+    w: Math.abs(exportRect.w - recordRect.w),
+    h: Math.abs(exportRect.h - recordRect.h),
+  };
+
+  expect(diffs.x).toBeLessThanOrEqual(0.02);
+  expect(diffs.y).toBeLessThanOrEqual(0.02);
+  expect(diffs.w).toBeLessThanOrEqual(0.02);
+  expect(diffs.h).toBeLessThanOrEqual(0.02);
 });
 
 test('dragging the Record camera frame persists after save and reopen', async ({ appPage }) => {

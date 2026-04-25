@@ -14,6 +14,8 @@ export interface RecordingConfigState {
   selectedSystemAudioSourceId: string | null;
   /** PulseAudio mic source volume the user picked, 0–100. Default 100. */
   micInputGainPercent: number;
+  /** Pre-record system-audio mix volume, 0–100. Default 100. */
+  systemAudioGainPercent: number;
   hydrated: boolean;
 }
 
@@ -38,6 +40,7 @@ export const DEFAULT_RECORDING_CONFIG_STATE: RecordingConfigState = {
   selectedCameraDeviceId: null,
   selectedSystemAudioSourceId: null,
   micInputGainPercent: 100,
+  systemAudioGainPercent: 100,
   hydrated: false,
 };
 

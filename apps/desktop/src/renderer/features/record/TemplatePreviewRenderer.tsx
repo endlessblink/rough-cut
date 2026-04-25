@@ -62,7 +62,9 @@ export interface TemplatePreviewRendererProps {
   /** User-supplied rect overrides (pixel space) — supersede computed rects */
   screenRectOverride?: Rect;
   cameraRectOverride?: Rect;
+  screenNormalizedFrameOverride?: NormalizedRect;
   cameraNormalizedFrameOverride?: NormalizedRect;
+  onScreenNormalizedFrameChange?: (rect: NormalizedRect) => void;
   /** Persisted normalized camera frame updates for save/reopen fidelity */
   onCameraNormalizedFrameChange?: (rect: NormalizedRect) => void;
   /** Force the debug overlay on (Ctrl+Shift+D also toggles it) */
@@ -250,7 +252,9 @@ export function TemplatePreviewRenderer({
   onRegionChange,
   screenRectOverride,
   cameraRectOverride,
+  screenNormalizedFrameOverride,
   cameraNormalizedFrameOverride,
+  onScreenNormalizedFrameChange,
   onCameraNormalizedFrameChange,
   showDebugOverlay = false,
   screenCrop,
@@ -346,14 +350,29 @@ export function TemplatePreviewRenderer({
   const handleRegionChange = useCallback(
     (region: 'screen' | 'camera', rect: Rect) => {
       onRegionChange?.(region, rect);
-      if (region === 'camera' && containerW > 0 && containerH > 0) {
+      if (containerW <= 0 || containerH <= 0) {
+        return;
+      }
+      if (region === 'screen') {
+        onScreenNormalizedFrameChange?.(canvasRectToNormalizedRect(rect, containerW, containerH));
+      }
+      if (region === 'camera') {
         onCameraNormalizedFrameChange?.(canvasRectToNormalizedRect(rect, containerW, containerH));
       }
     },
-    [containerH, containerW, onCameraNormalizedFrameChange, onRegionChange],
+    [
+      containerH,
+      containerW,
+      onCameraNormalizedFrameChange,
+      onRegionChange,
+      onScreenNormalizedFrameChange,
+    ],
   );
 
-  const rawScreenRect = screenRectOverride ?? computed.screenFrame;
+  const normalizedScreenFrame = screenNormalizedFrameOverride
+    ? normalizedRectToCanvasRect(screenNormalizedFrameOverride, containerW, containerH)
+    : null;
+  const rawScreenRect = screenRectOverride ?? normalizedScreenFrame ?? computed.screenFrame;
   const normalizedCameraFrameRaw = cameraNormalizedFrameOverride
     ? normalizedRectToCanvasRect(cameraNormalizedFrameOverride, containerW, containerH)
     : null;

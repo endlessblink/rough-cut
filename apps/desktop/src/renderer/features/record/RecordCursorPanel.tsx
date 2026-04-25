@@ -58,20 +58,6 @@ export function RecordCursorPanel({ cursor, onCursorChange }: RecordCursorPanelP
         />
       </div>
 
-      <div>
-        <ControlLabel
-          label="Motion blur"
-          value={cursor.motionBlur === 0 ? 'Off' : `${cursor.motionBlur}%`}
-        />
-        <RcSlider
-          min={0}
-          max={100}
-          step={5}
-          value={cursor.motionBlur ?? 0}
-          onChange={(v) => onCursorChange({ motionBlur: v })}
-        />
-      </div>
-
       <RcToggleButton
         label="Click sound"
         value={cursor.clickSoundEnabled}

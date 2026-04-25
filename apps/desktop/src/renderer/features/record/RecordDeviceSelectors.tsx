@@ -14,8 +14,63 @@ interface RecordDeviceSelectorsProps {
   onSelectCameraDevice: (id: string | null) => void;
   systemAudioOptions: DeviceOption[];
   selectedSystemAudioSourceId: string | null;
+  systemAudioGainPercent: number;
   systemAudioIssue?: string | null;
   onSelectSystemAudioSource: (id: string | null) => void;
+  onSystemAudioGainChange: (percent: number) => void;
+}
+
+function GainSlider({
+  testId,
+  value,
+  accentColor,
+  ariaLabel,
+  onChange,
+}: {
+  testId: string;
+  value: number;
+  accentColor: string;
+  ariaLabel: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+      <span
+        style={{
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          color: 'rgba(255,255,255,0.48)',
+          minWidth: 26,
+        }}
+      >
+        VOL
+      </span>
+      <input
+        data-testid={testId}
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={value}
+        aria-label={ariaLabel}
+        onChange={(event) => onChange(Number(event.target.value))}
+        style={{ flex: 1, height: 4, accentColor, cursor: 'pointer' }}
+      />
+      <span
+        style={{
+          fontSize: 10,
+          fontFamily: 'monospace',
+          color: 'rgba(255,255,255,0.55)',
+          minWidth: 28,
+          textAlign: 'right',
+        }}
+      >
+        {value}%
+      </span>
+    </label>
+  );
 }
 
 function Selector({
@@ -120,8 +175,10 @@ export function RecordDeviceSelectors({
   onSelectCameraDevice,
   systemAudioOptions,
   selectedSystemAudioSourceId,
+  systemAudioGainPercent,
   systemAudioIssue,
   onSelectSystemAudioSource,
+  onSystemAudioGainChange,
 }: RecordDeviceSelectorsProps) {
   return (
     <div
@@ -153,15 +210,24 @@ export function RecordDeviceSelectors({
         defaultLabel="Default camera"
         onChange={onSelectCameraDevice}
       />
-      <Selector
-        testId="record-system-audio-select"
-        label="System Audio"
-        value={selectedSystemAudioSourceId}
-        issue={systemAudioIssue}
-        options={systemAudioOptions}
-        defaultLabel="Default system audio"
-        onChange={onSelectSystemAudioSource}
-      />
+      <div style={{ minWidth: 180, flex: 1 }}>
+        <Selector
+          testId="record-system-audio-select"
+          label="System Audio"
+          value={selectedSystemAudioSourceId}
+          issue={systemAudioIssue}
+          options={systemAudioOptions}
+          defaultLabel="Default system audio"
+          onChange={onSelectSystemAudioSource}
+        />
+        <GainSlider
+          testId="record-system-audio-gain-slider"
+          value={systemAudioGainPercent}
+          accentColor="#60a5fa"
+          ariaLabel="System audio volume"
+          onChange={onSystemAudioGainChange}
+        />
+      </div>
     </div>
   );
 }

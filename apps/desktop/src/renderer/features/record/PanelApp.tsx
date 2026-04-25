@@ -326,6 +326,75 @@ function MicGainSlider({ enabled }: { enabled: boolean }) {
   );
 }
 
+function SystemAudioGainSlider({
+  enabled,
+  percent,
+  onChange,
+}: {
+  enabled: boolean;
+  percent: number;
+  onChange: (next: number) => void;
+}) {
+  if (!enabled) return null;
+
+  return (
+    <div
+      data-testid="panel-system-audio-gain"
+      style={{
+        marginLeft: 12,
+        marginRight: 12,
+        marginTop: 4,
+        marginBottom: 2,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        flexShrink: 0,
+      }}
+    >
+      <span
+        style={{
+          fontSize: 10,
+          color: 'rgba(255,255,255,0.55)',
+          letterSpacing: '0.04em',
+          minWidth: 30,
+          userSelect: 'none',
+        }}
+      >
+        VOL
+      </span>
+      <input
+        data-testid="panel-system-audio-gain-slider"
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={percent}
+        aria-label="System audio volume"
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{
+          flex: 1,
+          height: 4,
+          accentColor: '#60a5fa',
+          cursor: 'pointer',
+        }}
+      />
+      <span
+        data-testid="panel-system-audio-gain-value"
+        style={{
+          fontSize: 10,
+          fontFamily: 'monospace',
+          color: 'rgba(255,255,255,0.55)',
+          minWidth: 28,
+          textAlign: 'right',
+          userSelect: 'none',
+        }}
+      >
+        {percent}%
+      </span>
+    </div>
+  );
+}
+
 // ─── Status type ────────────────────────────────────────────────────────────
 
 type PanelStatus = 'idle' | 'ready' | 'countdown' | 'recording' | 'stopping';
@@ -916,10 +985,12 @@ interface DeviceControlsProps {
   onSelectCameraDevice: (id: string | null) => void;
   systemAudioOptions: SystemAudioSourceOption[];
   selectedSystemAudioSourceId: string | null;
+  systemAudioGainPercent: number;
   onSelectSystemAudioSource: (id: string | null) => void;
   onMicToggle: () => void;
   onSysAudioToggle: () => void;
   onCameraToggle: () => void;
+  onSystemAudioGainChange: (percent: number) => void;
 }
 
 function DeviceControls({
@@ -937,10 +1008,12 @@ function DeviceControls({
   onSelectCameraDevice,
   systemAudioOptions,
   selectedSystemAudioSourceId,
+  systemAudioGainPercent,
   onSelectSystemAudioSource,
   onMicToggle,
   onSysAudioToggle,
   onCameraToggle,
+  onSystemAudioGainChange,
 }: DeviceControlsProps) {
   const selectedMicValue =
     selectedMicDeviceId && micOptions.some((option) => option.id === selectedMicDeviceId)
@@ -1063,6 +1136,11 @@ function DeviceControls({
           </span>
         )}
       </div>
+      <SystemAudioGainSlider
+        enabled={sysAudioEnabled}
+        percent={systemAudioGainPercent}
+        onChange={onSystemAudioGainChange}
+      />
     </div>
   );
 }
@@ -1743,12 +1821,14 @@ function buildRecordingStream(
   micStream: MediaStream | null,
   sysAudioEnabled: boolean,
   micEnabled: boolean,
+  systemAudioGainPercent: number,
 ): { stream: MediaStream; cleanup: () => void } {
   const videoTrack = displayStream.getVideoTracks()[0];
   if (!videoTrack) throw new Error('No video track in display stream');
 
   const sysAudioTracks = sysAudioEnabled ? displayStream.getAudioTracks() : [];
   const micAudioTrack = micEnabled && micStream ? (micStream.getAudioTracks()[0] ?? null) : null;
+  const systemAudioGain = Math.max(0, Math.min(1, systemAudioGainPercent / 100 || 0));
 
   // No audio at all
   if (sysAudioTracks.length === 0 && !micAudioTrack) {
@@ -1759,23 +1839,29 @@ function buildRecordingStream(
   if (sysAudioTracks.length === 0 && micAudioTrack) {
     return { stream: new MediaStream([videoTrack, micAudioTrack]), cleanup: () => {} };
   }
-  if (sysAudioTracks.length > 0 && !micAudioTrack) {
+  if (sysAudioTracks.length > 0 && !micAudioTrack && Math.abs(systemAudioGain - 1) <= 0.001) {
     return { stream: new MediaStream([videoTrack, ...sysAudioTracks]), cleanup: () => {} };
   }
 
-  // Both system + mic — mix via AudioContext
+  // System-audio gain adjustment and/or system+mic mixing — use AudioContext.
   const ctx = new AudioContext();
   const dest = ctx.createMediaStreamDestination();
   const sysSource = ctx.createMediaStreamSource(new MediaStream(sysAudioTracks));
-  const micSource = ctx.createMediaStreamSource(new MediaStream([micAudioTrack!]));
-  sysSource.connect(dest);
-  micSource.connect(dest);
+  const sysGainNode = ctx.createGain();
+  sysGainNode.gain.value = systemAudioGain;
+  sysSource.connect(sysGainNode);
+  sysGainNode.connect(dest);
+  const micSource = micAudioTrack
+    ? ctx.createMediaStreamSource(new MediaStream([micAudioTrack]))
+    : null;
+  micSource?.connect(dest);
 
   const mixedAudioTrack = dest.stream.getAudioTracks()[0]!;
   const combined = new MediaStream([videoTrack, mixedAudioTrack]);
   const cleanup = () => {
     sysSource.disconnect();
-    micSource.disconnect();
+    sysGainNode.disconnect();
+    micSource?.disconnect();
     void ctx.close();
   };
   return { stream: combined, cleanup };
@@ -1802,6 +1888,7 @@ export function PanelApp() {
   const selectedMicDeviceId = useRecordingConfig((s) => s.selectedMicDeviceId);
   const selectedCameraDeviceId = useRecordingConfig((s) => s.selectedCameraDeviceId);
   const selectedSystemAudioSourceId = useRecordingConfig((s) => s.selectedSystemAudioSourceId);
+  const systemAudioGainPercent = useRecordingConfig((s) => s.systemAudioGainPercent);
   const {
     micOptions,
     cameraOptions,
@@ -2017,11 +2104,13 @@ export function PanelApp() {
   // Capture elapsed at the moment stop is triggered (recorder.onstop fires async)
   const elapsedMsAtStop = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
 
   // Refs for audio state — needed because startMediaRecorder is called from a stale IPC closure
   const micStreamRef = useRef<MediaStream | null>(null);
   const micEnabledRef = useRef(micEnabled);
   const sysAudioEnabledRef = useRef(sysAudioEnabled);
+  const systemAudioGainPercentRef = useRef(systemAudioGainPercent);
   const audioMixCleanupRef = useRef<(() => void) | null>(null);
 
   // Keep streamRef in sync so onstop closure can access current value
@@ -2029,12 +2118,37 @@ export function PanelApp() {
     streamRef.current = stream;
   }, [stream]);
 
+  useEffect(() => {
+    cameraStreamRef.current = cameraStream;
+  }, [cameraStream]);
+
+  const replaceCameraPreviewStream = useCallback(
+    (nextStream: MediaStream | null, nextKey: string | null) => {
+      const previousStream = cameraStreamRef.current;
+      if (previousStream && previousStream !== nextStream) {
+        previousStream.getTracks().forEach((track) => track.stop());
+      }
+      cameraStreamRef.current = nextStream;
+      activeCameraStreamKeyRef.current = nextKey;
+      setCameraStream(nextStream);
+    },
+    [],
+  );
+
   const releaseDisplayCapture = useCallback(() => {
     displayAcquirePromiseRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     setStream(null);
   }, []);
+
+  const releasePanelPreviewStreams = useCallback(() => {
+    releaseDisplayCapture();
+    micStreamRef.current?.getTracks().forEach((track) => track.stop());
+    micStreamRef.current = null;
+    setMicStream(null);
+    replaceCameraPreviewStream(null, null);
+  }, [releaseDisplayCapture, replaceCameraPreviewStream]);
 
   const acquireDisplayCaptureForStart = useCallback(async (): Promise<MediaStream | null> => {
     const pendingAcquire = displayAcquirePromiseRef.current;
@@ -2090,6 +2204,10 @@ export function PanelApp() {
   useEffect(() => {
     sysAudioEnabledRef.current = sysAudioEnabled;
   }, [sysAudioEnabled]);
+
+  useEffect(() => {
+    systemAudioGainPercentRef.current = systemAudioGainPercent;
+  }, [systemAudioGainPercent]);
 
   const refreshSources = useCallback(async () => {
     try {
@@ -2162,11 +2280,7 @@ export function PanelApp() {
   useEffect(() => {
     if (!hydrated) return;
     if (!cameraEnabled) {
-      activeCameraStreamKeyRef.current = null;
-      setCameraStream((prev) => {
-        prev?.getTracks().forEach((t) => t.stop());
-        return null;
-      });
+      replaceCameraPreviewStream(null, null);
       return;
     }
     const desiredCameraKey = selectedCameraDeviceId ?? '__default__';
@@ -2217,11 +2331,7 @@ export function PanelApp() {
                 new Error('preview-track-ended').stack,
               );
               if (!active || !cameraEnabledRef.current) return;
-              activeCameraStreamKeyRef.current = null;
-              setCameraStream((prev) => {
-                if (prev === s) return null;
-                return prev;
-              });
+              replaceCameraPreviewStream(null, null);
               window.setTimeout(() => {
                 if (active && cameraEnabledRef.current) {
                   acquireCameraStream();
@@ -2231,18 +2341,12 @@ export function PanelApp() {
           }
           void refreshDeviceOptions();
           if (active) {
-            activeCameraStreamKeyRef.current = desiredCameraKey;
-            setCameraStream((prev) => {
-              if (prev && prev !== s) {
-                prev.getTracks().forEach((t) => t.stop());
-              }
-              return s;
-            });
+            replaceCameraPreviewStream(s, desiredCameraKey);
           } else s.getTracks().forEach((t) => t.stop());
         })
         .catch((err) => {
           console.error('[PanelApp] Camera getUserMedia FAILED:', err?.name, err?.message, err);
-          if (active) setCameraStream(null);
+          if (active) replaceCameraPreviewStream(null, null);
         });
     };
 
@@ -2256,7 +2360,7 @@ export function PanelApp() {
     // change we need to re-run and let the readyState guard decide whether to
     // re-acquire. cameraStream is read via ref (TASK-185 comment above).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraEnabled, hydrated, refreshDeviceOptions, selectedCameraDeviceId, stream]);
+  }, [cameraEnabled, hydrated, refreshDeviceOptions, replaceCameraPreviewStream, selectedCameraDeviceId, stream]);
 
   useEffect(() => {
     const track = micStream?.getAudioTracks()[0] ?? null;
@@ -2438,9 +2542,6 @@ export function PanelApp() {
   // ── MediaRecorder helpers ────────────────────────────────────────────────
   // Store latest camera stream in a ref so the IPC callback (which uses [] deps)
   // always sees the current value instead of the stale closure from first render.
-  const cameraStreamRef = useRef(cameraStream);
-  cameraStreamRef.current = cameraStream;
-
   const cameraEnabledRef = useRef(cameraEnabled);
   cameraEnabledRef.current = cameraEnabled;
 
@@ -2457,14 +2558,10 @@ export function PanelApp() {
       injectCameraStream: (stream: MediaStream | null) => {
         // Match the preview useEffect's key so its early-bail guard passes and it
         // doesn't immediately re-acquire via getUserMedia.
-        activeCameraStreamKeyRef.current = stream
-          ? (selectedCameraDeviceIdRef.current ?? '__default__')
-          : null;
-        // Update the ref synchronously so immediate follow-up calls (e.g. killing
-        // tracks in the same microtask from a test) see the injected stream
-        // without waiting for a React render pass.
-        cameraStreamRef.current = stream;
-        setCameraStream(stream);
+        replaceCameraPreviewStream(
+          stream,
+          stream ? (selectedCameraDeviceIdRef.current ?? '__default__') : null,
+        );
       },
       killCameraStreamTracks: () => {
         cameraStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -2476,7 +2573,7 @@ export function PanelApp() {
     return () => {
       delete (window as unknown as { __panelTestHooks?: typeof hooks }).__panelTestHooks;
     };
-  }, []);
+  }, [replaceCameraPreviewStream]);
 
   const finalizePanelRecording = async (currentStream: MediaStream) => {
     setStatus('stopping');
@@ -2603,6 +2700,7 @@ export function PanelApp() {
       micStreamRef.current,
       sysAudioEnabledRef.current,
       micEnabledRef.current,
+      systemAudioGainPercentRef.current,
     );
     audioMixCleanupRef.current = audioCleanup;
 
@@ -2832,6 +2930,7 @@ export function PanelApp() {
         selectedMicDeviceId,
         selectedMicLabel,
         selectedSystemAudioSourceId,
+        systemAudioGainPercent: systemAudioGainPercentRef.current,
       });
     })();
   };
@@ -2847,6 +2946,8 @@ export function PanelApp() {
   const handleClose = () => {
     if (statusRef.current === 'recording' || statusRef.current === 'stopping') {
       setStatus('stopping');
+    } else {
+      releasePanelPreviewStreams();
     }
     void window.roughcut.closeRecordingPanel();
   };
@@ -3042,6 +3143,7 @@ export function PanelApp() {
           }
             systemAudioOptions={systemAudioOptions}
             selectedSystemAudioSourceId={selectedSystemAudioSourceId}
+            systemAudioGainPercent={systemAudioGainPercent}
             onSelectSystemAudioSource={(id) =>
               updateRecordingConfig({
                 selectedSystemAudioSourceId: id,
@@ -3051,6 +3153,9 @@ export function PanelApp() {
             onMicToggle={handleMicToggle}
             onSysAudioToggle={() => updateRecordingConfig({ sysAudioEnabled: !sysAudioEnabled })}
             onCameraToggle={() => updateRecordingConfig({ cameraEnabled: !cameraEnabled })}
+            onSystemAudioGainChange={(percent) =>
+              updateRecordingConfig({ systemAudioGainPercent: percent })
+            }
           />
 
           {/* Audio level meter — shows when mic is active */}

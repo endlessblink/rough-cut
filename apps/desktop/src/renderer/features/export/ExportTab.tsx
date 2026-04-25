@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { createDefaultCameraPresentation } from '@rough-cut/project-model';
+import { createDefaultCameraPresentation, createDefaultRecordingBackgroundStyle } from '@rough-cut/project-model';
 import type { ProjectDocument } from '@rough-cut/project-model';
 import { resolveFrame } from '@rough-cut/frame-resolver';
 import { getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
@@ -357,6 +357,8 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const activeScreenCrop = activeRecordingAsset?.presentation?.screenCrop;
   const activeCameraCrop = activeRecordingAsset?.presentation?.cameraCrop;
   const activeZoomMarkers = activeRecordingAsset?.presentation?.zoom?.markers ?? [];
+  const activeBackground =
+    activeRecordingAsset?.presentation?.background ?? createDefaultRecordingBackgroundStyle();
   const activeCameraSourceWidth =
     (project.assets.find((asset) => asset.id === activeRecordingAsset?.cameraAssetId)?.metadata
       ?.width as number | undefined) ?? 1280;
@@ -711,7 +713,11 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
         >
           <div style={{ width: '100%', maxWidth: 1040 }}>
             <div style={{ height: 585 }}>
-              <CardChrome aspectRatio={activeTemplate?.aspectRatio ?? '16:9'}>
+              <CardChrome
+                aspectRatio={activeTemplate?.aspectRatio ?? '16:9'}
+                bgColor={activeBackground.bgColor}
+                bgGradient={activeBackground.bgGradient}
+              >
                 <TemplatePreviewRenderer
                   template={effectiveTemplate ?? LAYOUT_TEMPLATES[1] ?? LAYOUT_TEMPLATES[0]!}
                   screenContent={
@@ -749,10 +755,21 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
                     ) : undefined
                   }
                   screenAspect={activeScreenAspect}
-                  cameraAspect={4 / 3}
+                  cameraAspect={activeCameraSourceWidth / activeCameraSourceHeight}
                   cameraPresentation={
                     activeCameraLayoutSnapshot?.camera ?? activeCameraPreview?.camera
                   }
+                  screenPadding={activeBackground.bgPadding}
+                  screenCornerRadius={activeBackground.bgCornerRadius}
+                  screenShadow={
+                    activeBackground.bgShadowEnabled
+                      ? `0 ${Math.round(activeBackground.bgShadowBlur * 0.2)}px ${activeBackground.bgShadowBlur}px rgba(0,0,0,${activeBackground.bgShadowOpacity ?? 0.25})`
+                      : undefined
+                  }
+                  screenInset={activeBackground.bgInset}
+                  screenInsetColor={activeBackground.bgInsetColor}
+                  screenNormalizedFrameOverride={activeRecordingAsset?.presentation?.screenFrame}
+                  cameraNormalizedFrameOverride={activeRecordingAsset?.presentation?.cameraFrame}
                   screenCrop={activeScreenCrop}
                   cameraCrop={activeCameraCrop}
                   screenSourceWidth={
@@ -962,48 +979,6 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
             </select>
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.52)', marginTop: 6 }}>
               Lower CRF means higher quality and larger files.
-            </div>
-          </div>
-
-          <div>
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 500,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                color: 'rgba(255,255,255,0.68)',
-                marginBottom: 8,
-              }}
-            >
-              Click sounds
-            </div>
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '8px 10px',
-                borderRadius: 8,
-                border: '1px solid rgba(255,255,255,0.08)',
-                background: 'rgba(255,255,255,0.03)',
-                cursor: 'pointer',
-                userSelect: 'none',
-              }}
-            >
-              <input
-                data-testid="export-keep-click-sounds"
-                type="checkbox"
-                checked={normalizedExportSettings.keepClickSounds}
-                onChange={(e) => patchExportSettings({ keepClickSounds: e.target.checked })}
-              />
-              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.86)' }}>
-                Keep mouse-click sounds in export
-              </span>
-            </label>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.52)', marginTop: 6 }}>
-              Only takes effect when click sound is enabled on the recording. Turn off to render
-              a clean track.
             </div>
           </div>
 

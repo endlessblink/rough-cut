@@ -148,9 +148,17 @@ test.describe('Record readiness gate', () => {
         { recordingDir },
       );
 
-      await expect(appPage.locator('[data-testid="record-preview-status"]')).toHaveAttribute(
-        'data-preview-state',
-        'empty',
+      await expect
+        .poll(() =>
+          appPage.evaluate(() => {
+            const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+            return stores?.recordingConfig?.getState?.().selectedSourceId ?? null;
+          }),
+        )
+        .toBe(DEBUG_SOURCE.id);
+
+      await expect(appPage.locator('[data-testid="record-preview-mode-badge"]')).toContainText(
+        'Live source preview',
       );
       await expect(appPage.locator('[data-testid="btn-record"]')).toBeEnabled();
 
