@@ -213,6 +213,9 @@ let ffmpegAudioOutputPath = null;
 /** @type {{ version?: number, startedAt: string, recordingsDir: string, sourceId?: string | null, recordMode?: string | null, sessionState?: string | null, interruptionReason?: string | null, interruptedAt?: string | null, captureMetadata?: { fps?: number | null, width?: number | null, height?: number | null, timelineFps?: number | null } | null, expectedArtifacts?: { videoPath?: string | null, audioPath?: string | null, cursorPath?: string | null } | null } | null} */
 let activeRecoveryMarker = null;
 
+/** @type {{ projectName?: string | null, projectFilePath?: string | null, projectSnapshotPath?: string | null, projectSnapshotTakenAt?: string | null } | null} */
+let pendingRecoveryContext = null;
+
 /** @type {(() => { sourceId: string, display: string, width: number, height: number, offsetX?: number, offsetY?: number } | null) | null} */
 let getSourceInfo = null;
 
@@ -1358,6 +1361,13 @@ function resizePanel(mode) {
   console.info(`[session-manager] Panel resized to ${mode} mode`);
 }
 
+function hidePanelWindowForCapture() {
+  if (!panelWindow || panelWindow.isDestroyed() || !panelWindow.isVisible()) return false;
+  panelWindow.hide();
+  console.info('[session-manager][pre-capture] Panel hide() called.');
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Public API — Panel lifecycle
 // ---------------------------------------------------------------------------
@@ -1629,6 +1639,10 @@ export async function startRecording() {
     activeRecoveryMarker = await writeRecordingRecoveryMarker({
       startedAt: new Date().toISOString(),
       recordingsDir,
+      projectName: pendingRecoveryContext?.projectName ?? null,
+      projectFilePath: pendingRecoveryContext?.projectFilePath ?? null,
+      projectSnapshotPath: pendingRecoveryContext?.projectSnapshotPath ?? null,
+      projectSnapshotTakenAt: pendingRecoveryContext?.projectSnapshotTakenAt ?? null,
       sourceId,
       recordMode: deriveRecordModeFromSourceId(sourceId),
       sessionState: 'recording',
@@ -1676,10 +1690,8 @@ export async function startRecording() {
       hiddenWindows.push(['main', mainWindow]);
       console.info('[session-manager][pre-capture] Main window hide() called.');
     }
-    if (IS_LINUX && panelWindow && !panelWindow.isDestroyed() && panelWindow.isVisible()) {
-      panelWindow.hide();
+    if (hidePanelWindowForCapture() && panelWindow) {
       hiddenWindows.push(['panel', panelWindow]);
-      console.info('[session-manager][pre-capture] Panel hide() called (Linux).');
     }
     {
       const hideDeadline = Date.now() + 500;
@@ -1775,13 +1787,13 @@ export async function startRecording() {
       }
     }
 
-    // [TASK-197] Main window + panel are already hidden by the pre-capture
-    // block above, before ffmpeg started. On macOS/Windows: shrink to mini-
-    // controller (content-protected, invisible to capture). On Linux: panel
-    // stays hidden; setContentProtection is a no-op on X11 (Electron #12973),
-    // and the OS notification cannot be excluded from x11grab — both would
-    // bake into the take. Visible stop controls: Stop pill on a non-captured
-    // display (created below) + global Ctrl+Shift+Esc shortcut.
+    // Main window + panel are hidden before capture starts on every platform,
+    // so the first captured frames never race a visible Rough Cut surface.
+    // On macOS/Windows we then re-show only the content-protected mini
+    // controller. On Linux the panel stays hidden; setContentProtection is a
+    // no-op on X11 (Electron #12973), and any visible panel would bake into the
+    // take. Visible stop controls there are the safe-display stop pill plus the
+    // global Ctrl+Shift+Esc shortcut.
     if (IS_LINUX) {
       // Deliberately not creating a Notification here — see TASK-197.
       console.info(
@@ -1789,6 +1801,9 @@ export async function startRecording() {
       );
     } else {
       resizePanel('mini');
+      if (panelWindow && !panelWindow.isDestroyed()) {
+        panelWindow.showInactive();
+      }
       console.info('[session-manager] Panel resized to mini-controller.');
     }
 
@@ -2064,6 +2079,11 @@ export function initSessionManager(win, sourceInfoGetter) {
 
   ipcMain.handle(IPC_CHANNELS.PANEL_OPEN, () => {
     openPanel();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_SET_CONTEXT, (_event, context) => {
+    pendingRecoveryContext = context && typeof context === 'object' ? { ...context } : null;
+    return true;
   });
 
   ipcMain.handle(IPC_CHANNELS.PANEL_CLOSE, async () => {

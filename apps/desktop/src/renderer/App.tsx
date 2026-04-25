@@ -259,6 +259,21 @@ export function App() {
 
   // --- Recording integration ---
   const handleRecordingComplete = useCallback(async (result: RecordingResult) => {
+    if (result.recoveredProjectSnapshotPath) {
+      try {
+        const recoveredProject = await window.roughcut.projectOpenPath(
+          result.recoveredProjectSnapshotPath,
+        );
+        getPlaybackManager().pause();
+        projectStore.getState().setProject(migrate(recoveredProject));
+        projectStore.getState().setProjectFilePath(result.recoveredProjectSnapshotPath);
+        projectStore.getState().setActiveAssetId(null);
+        transportStore.getState().seekToFrame(0);
+      } catch (error) {
+        console.error('[App] Failed to restore autosaved project before take recovery:', error);
+      }
+    }
+
     const lastHandled = lastHandledRecordingRef.current;
     if (lastHandled?.filePath === result.filePath) {
       console.info('[App] Ignoring duplicate recording result for same file:', result.filePath);

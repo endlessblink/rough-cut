@@ -78,6 +78,19 @@ test('TASK-197: mainWindow.hide() runs before startFfmpegCapture(', () => {
   );
 });
 
+test('TASK-145: panelWindow.hide() runs before startFfmpegCapture(', () => {
+  const firstHide = findLine((line) => /panelWindow\.hide\s*\(\s*\)/.test(line));
+  const firstStart = findLine((line) => /startFfmpegCapture\s*\(/.test(line) && !/^\s*import/.test(line));
+
+  assert.notEqual(firstHide, -1, 'expected at least one panelWindow.hide() call in source');
+  assert.notEqual(firstStart, -1, 'expected at least one startFfmpegCapture() call in source');
+  assert.ok(
+    firstHide < firstStart,
+    `panelWindow.hide() at line ${firstHide} must precede startFfmpegCapture() at line ${firstStart}. ` +
+      'If the floating controller is still visible when capture begins, it can leak into the take.',
+  );
+});
+
 test('TASK-197: suspendNotificationsForRecording runs before startFfmpegCapture(', () => {
   const suspendCall = findLine(
     (line) => /\bsuspendNotificationsForRecording\s*\(/.test(line) && !/^\s*(async\s+)?function/.test(line),
@@ -107,6 +120,37 @@ test('TASK-197: resumeNotificationsAfterRecording runs in transitionToIdle', () 
     -1,
     'expected resumeNotificationsAfterRecording() to be called from transitionToIdle (TASK-197). ' +
       'Without this, the suspend leaks across sessions.',
+  );
+});
+
+test('TASK-145: non-Linux recording path re-shows only the mini controller', () => {
+  const resizeLine = findLine((line) => /resizePanel\('mini'\)/.test(line));
+  const showLines = findAllLines((line) => /panelWindow\.showInactive\(\)/.test(line));
+  const statusLine = findLine((line) => /Sent recording status to panel/.test(line));
+  const showLine = showLines.find((lineNum) => lineNum > resizeLine) ?? -1;
+
+  assert.notEqual(
+    resizeLine,
+    -1,
+    'expected the non-Linux recording path to shrink the panel into mini-controller mode',
+  );
+  assert.notEqual(
+    showLine,
+    -1,
+    'expected the non-Linux recording path to re-show the protected mini controller',
+  );
+  assert.notEqual(statusLine, -1, 'expected to find the recording-status broadcast log anchor');
+  assert.ok(
+    resizeLine < showLine,
+    `resizePanel('mini') at line ${resizeLine} should precede panelWindow.showInactive() at line ${showLine}.`,
+  );
+  assert.ok(
+    showLine < statusLine,
+    `panelWindow.showInactive() at line ${showLine} should happen before recording status is broadcast at line ${statusLine}.`,
+  );
+  assert.ok(
+    statusLine - showLine < 12,
+    'panelWindow.showInactive() should stay coupled to the mini-controller handoff in the recording branch.',
   );
 });
 

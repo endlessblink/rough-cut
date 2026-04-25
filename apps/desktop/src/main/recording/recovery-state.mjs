@@ -40,6 +40,10 @@ export function normalizeRecordingRecoveryManifest(payload = {}, now = () => new
         ? payload.startedAt
         : now(),
     recordingsDir: toNonEmptyPath(payload.recordingsDir) ?? '',
+    projectName: toNonEmptyPath(payload.projectName),
+    projectFilePath: toNonEmptyPath(payload.projectFilePath),
+    projectSnapshotPath: toNonEmptyPath(payload.projectSnapshotPath),
+    projectSnapshotTakenAt: toNonEmptyPath(payload.projectSnapshotTakenAt),
     sourceId: toNonEmptyPath(payload.sourceId),
     recordMode: toNonEmptyPath(payload.recordMode),
     sessionState: toNonEmptyPath(payload.sessionState) ?? 'recording',
@@ -81,6 +85,7 @@ export function buildActionableRecoveryState(manifest, deps = {}) {
 
   const audioArtifact = getArtifactCandidate(normalized.expectedArtifacts.audioPath, deps);
   const cursorArtifact = getArtifactCandidate(normalized.expectedArtifacts.cursorPath, deps);
+  const projectSnapshotArtifact = getArtifactCandidate(normalized.projectSnapshotPath, deps);
 
   return {
     ...normalized,
@@ -92,6 +97,7 @@ export function buildActionableRecoveryState(manifest, deps = {}) {
       videoModifiedAt: videoArtifact.modifiedAt,
       audioPath: audioArtifact?.path ?? null,
       cursorPath: cursorArtifact?.path ?? null,
+      projectSnapshotPath: projectSnapshotArtifact?.path ?? null,
     },
   };
 }

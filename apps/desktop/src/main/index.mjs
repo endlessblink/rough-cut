@@ -170,6 +170,8 @@ let currentExportFinalizeProcess = null;
 let cachedCaptureSources = [];
 let debugCaptureSourcesOverride = null;
 let debugDisplayBoundsOverride = null;
+let debugRecordingPreflightStatusOverride = null;
+let debugRecordingPermissionSettingsResultOverride = null;
 let lastDisplayMediaSelection = null;
 let cachedX11MonitorLayout = null;
 const execFile = promisify(execFileCallback);
@@ -352,6 +354,10 @@ function normalizePermissionDiagnostic(kind, status) {
 }
 
 function buildRecordingPreflightStatus() {
+  if (debugRecordingPreflightStatusOverride) {
+    return debugRecordingPreflightStatusOverride;
+  }
+
   const screenStatus =
     process.platform === 'darwin' ? getMediaPermissionStatus('screen') : 'granted';
   const microphoneStatus = getMediaPermissionStatus('microphone');
@@ -1577,6 +1583,18 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle(IPC_CHANNELS.RECORDING_OPEN_PERMISSION_SETTINGS, async (_e, { kind }) => {
+    if (debugRecordingPermissionSettingsResultOverride) {
+      const override =
+        typeof debugRecordingPermissionSettingsResultOverride === 'function'
+          ? debugRecordingPermissionSettingsResultOverride(kind)
+          : debugRecordingPermissionSettingsResultOverride[kind] ??
+            debugRecordingPermissionSettingsResultOverride.default ??
+            debugRecordingPermissionSettingsResultOverride;
+      if (override) {
+        return override;
+      }
+    }
+
     const url = getPermissionSettingsUrl(kind);
     if (!url) {
       return {
@@ -1630,6 +1648,9 @@ function registerIpcHandlers() {
     }
     if (recovery.recoveryCandidate.cursorPath) {
       result.cursorEventsPath = recovery.recoveryCandidate.cursorPath;
+    }
+    if (recovery.recoveryCandidate.projectSnapshotPath) {
+      result.recoveredProjectSnapshotPath = recovery.recoveryCandidate.projectSnapshotPath;
     }
 
     await clearRecordingRecoveryMarker();
@@ -1842,6 +1863,19 @@ function registerIpcHandlers() {
     debugDisplayBoundsOverride = Array.isArray(payload) ? payload : null;
     return debugDisplayBoundsOverride;
   });
+
+  ipcMain.handle(IPC_CHANNELS.DEBUG_SET_RECORDING_PREFLIGHT_STATUS, async (_e, payload) => {
+    debugRecordingPreflightStatusOverride = payload ?? null;
+    return debugRecordingPreflightStatusOverride;
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.DEBUG_SET_RECORDING_PERMISSION_SETTINGS_RESULT,
+    async (_e, payload) => {
+      debugRecordingPermissionSettingsResultOverride = payload ?? null;
+      return debugRecordingPermissionSettingsResultOverride;
+    },
+  );
 
   ipcMain.handle(IPC_CHANNELS.ZOOM_LOAD_SIDECAR, async (_e, { recordingFilePath }) => {
     return loadZoomSidecar(recordingFilePath);

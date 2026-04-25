@@ -101,6 +101,10 @@ const api = {
   /** Dismiss the interrupted-recording recovery marker. */
   recordingRecoveryDismiss: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_RECOVERY_DISMISS),
 
+  /** Publish the current project snapshot used if recording recovery is needed. */
+  recordingRecoverySetContext: (context) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RECORDING_RECOVERY_SET_CONTEXT, context),
+
   /** Save a finished recording. Buffer is an ArrayBuffer, metadata has fps/width/height/durationMs. */
   recordingSaveRecording: (buffer, metadata) =>
     ipcRenderer.invoke(IPC_CHANNELS.RECORDING_STOP, { buffer, metadata }),
@@ -364,6 +368,14 @@ const api = {
   /** [DEBUG] Override display bounds for deterministic cursor tests. */
   debugSetDisplayBounds: (payload) =>
     ipcRenderer.invoke(IPC_CHANNELS.DEBUG_SET_DISPLAY_BOUNDS, payload),
+
+  /** [DEBUG] Override recording preflight diagnostics for deterministic tests. */
+  debugSetRecordingPreflightStatus: (payload) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEBUG_SET_RECORDING_PREFLIGHT_STATUS, payload),
+
+  /** [DEBUG] Override permission-settings results for deterministic tests. */
+  debugSetRecordingPermissionSettingsResult: (payload) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DEBUG_SET_RECORDING_PERMISSION_SETTINGS_RESULT, payload),
 
   /** [DEBUG] Trigger auto-zoom generation from a cursor NDJSON file, bypassing a real recording session. */
   debugApplyAutoZoom: (payload) =>

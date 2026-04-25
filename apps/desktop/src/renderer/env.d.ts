@@ -75,6 +75,7 @@ export interface RecordingResult {
   cursorEventsPath?: string;
   thumbnailPath?: string;
   cameraFilePath?: string;
+  recoveredProjectSnapshotPath?: string;
   audioCapture?: {
     requested: {
       micEnabled: boolean;
@@ -124,6 +125,10 @@ export interface RecordingRecoveryMarker {
   version: number;
   startedAt: string;
   recordingsDir: string;
+  projectName?: string | null;
+  projectFilePath?: string | null;
+  projectSnapshotPath?: string | null;
+  projectSnapshotTakenAt?: string | null;
   sourceId?: string | null;
   recordMode?: string | null;
   sessionState?: string | null;
@@ -147,6 +152,7 @@ export interface RecordingRecoveryMarker {
     videoModifiedAt: string;
     audioPath: string | null;
     cursorPath: string | null;
+    projectSnapshotPath?: string | null;
   };
 }
 
@@ -206,6 +212,12 @@ export interface RoughCutAPI {
   recordingRecoveryGet(): Promise<RecordingRecoveryMarker | null>;
   recordingRecoveryRecover(): Promise<RecordingResult | null>;
   recordingRecoveryDismiss(): Promise<boolean>;
+  recordingRecoverySetContext(context: {
+    projectName?: string | null;
+    projectFilePath?: string | null;
+    projectSnapshotPath?: string | null;
+    projectSnapshotTakenAt?: string | null;
+  }): Promise<boolean>;
   recordingSaveRecording(
     buffer: ArrayBuffer,
     metadata: RecordingMetadata,
@@ -349,6 +361,19 @@ export interface RoughCutAPI {
   debugSetDisplayBounds(
     payload: CaptureDisplayBounds[] | null,
   ): Promise<CaptureDisplayBounds[] | null>;
+  debugSetRecordingPreflightStatus(
+    payload: RecordingPreflightStatus | null,
+  ): Promise<RecordingPreflightStatus | null>;
+  debugSetRecordingPermissionSettingsResult(
+    payload:
+      | RecordingPermissionSettingsResult
+      | Partial<Record<'screenCapture' | 'microphone' | 'camera' | 'default', RecordingPermissionSettingsResult>>
+      | null,
+  ): Promise<
+    | RecordingPermissionSettingsResult
+    | Partial<Record<'screenCapture' | 'microphone' | 'camera' | 'default', RecordingPermissionSettingsResult>>
+    | null
+  >;
 
   // Zoom sidecar persistence (next to the recording .webm)
   zoomLoadSidecar(recordingFilePath: string): Promise<{

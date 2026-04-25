@@ -79,6 +79,32 @@ test('readRecordingRecoveryMarker keeps valid video artifacts and ignores broken
   assert.equal(recovery.recoveryCandidate.videoFileSize, videoStats.size);
 });
 
+test('readRecordingRecoveryMarker keeps a valid autosaved project snapshot for recovery context', async () => {
+  const { root, service } = await createService();
+  const videoPath = join(root, 'partial.webm');
+  const snapshotPath = join(root, 'project.roughcut');
+  await writeFile(videoPath, Buffer.from('video-data'));
+  await writeFile(snapshotPath, Buffer.from('{"name":"Recovered Context"}'));
+
+  await service.writeRecordingRecoveryMarker({
+    recordingsDir: root,
+    projectName: 'Recovered Context',
+    projectSnapshotPath: snapshotPath,
+    projectSnapshotTakenAt: '2026-04-25T10:00:00.000Z',
+    expectedArtifacts: {
+      videoPath,
+      audioPath: null,
+      cursorPath: null,
+    },
+  });
+
+  const recovery = await service.readRecordingRecoveryMarker();
+
+  assert.ok(recovery);
+  assert.equal(recovery.projectName, 'Recovered Context');
+  assert.equal(recovery.recoveryCandidate.projectSnapshotPath, snapshotPath);
+});
+
 test('clearRecordingRecoveryMarker is safe when the file is already gone', async () => {
   const { markerPath, service } = await createService();
 

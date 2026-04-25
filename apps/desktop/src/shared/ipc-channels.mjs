@@ -39,6 +39,7 @@ export const IPC_CHANNELS = {
   RECORDING_RECOVERY_GET: 'recording:recovery-get',
   RECORDING_RECOVERY_RECOVER: 'recording:recovery-recover',
   RECORDING_RECOVERY_DISMISS: 'recording:recovery-dismiss',
+  RECORDING_RECOVERY_SET_CONTEXT: 'recording:recovery-set-context',
   RECORDING_START: 'recording:start',
   RECORDING_STOP: 'recording:stop',
   RECORDING_STATUS: 'recording:status',
@@ -111,6 +112,8 @@ export const IPC_CHANNELS = {
   DEBUG_SET_RECORDING_RECOVERY: 'debug:set-recording-recovery',
   DEBUG_SET_CAPTURE_SOURCES: 'debug:set-capture-sources',
   DEBUG_SET_DISPLAY_BOUNDS: 'debug:set-display-bounds',
+  DEBUG_SET_RECORDING_PREFLIGHT_STATUS: 'debug:set-recording-preflight-status',
+  DEBUG_SET_RECORDING_PERMISSION_SETTINGS_RESULT: 'debug:set-recording-permission-settings-result',
   DEBUG_APPLY_AUTO_ZOOM: 'debug:apply-auto-zoom',
 
   // Zoom marker persistence (sidecar alongside the recording .webm)
