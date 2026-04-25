@@ -60,6 +60,7 @@ export interface ProjectSettings {
   readonly backgroundColor: string;
   readonly sampleRate: SampleRate;
   readonly backgroundConfig?: BackgroundConfig;
+  readonly recordingDefaults?: RecordingPresentation;
   readonly destinationPresetId?: string | null;
 }
 
@@ -110,7 +111,6 @@ export interface CursorPresentation {
   readonly clickEffect: ClickEffect;
   readonly sizePercent: number; // 50–150
   readonly clickSoundEnabled: boolean;
-  readonly motionBlur: number; // 0–100
 }
 
 export interface CursorEvent {
@@ -140,6 +140,18 @@ export interface CameraPresentation {
   readonly shadowOpacity: number;
 }
 
+export interface RecordingBackgroundStyle {
+  readonly bgColor: string;
+  readonly bgGradient: string | null;
+  readonly bgPadding: number;
+  readonly bgCornerRadius: number;
+  readonly bgInset: number;
+  readonly bgInsetColor: string;
+  readonly bgShadowEnabled: boolean;
+  readonly bgShadowBlur: number;
+  readonly bgShadowOpacity: number;
+}
+
 export type CropAspectRatio = 'free' | '16:9' | '9:16' | '1:1' | '4:3';
 
 /** Static crop viewport into source content. Coordinates are in source pixels. */
@@ -158,6 +170,8 @@ export interface RecordingPresentation {
   readonly cursor: CursorPresentation;
   readonly camera: CameraPresentation;
   readonly cameraLayouts?: readonly CameraLayoutMarker[];
+  readonly background?: RecordingBackgroundStyle;
+  readonly screenFrame?: NormalizedRect;
   readonly cameraFrame?: NormalizedRect;
   readonly screenCrop?: RegionCrop;
   readonly cameraCrop?: RegionCrop;
@@ -372,12 +386,6 @@ export interface ExportSettings {
   readonly bitrate: number;
   readonly resolution: Resolution;
   readonly frameRate: number;
-  /**
-   * Per-export override: when true, mouse-click sound effects (gated by
-   * `cursor.clickSoundEnabled` on the source recording) are mixed into the
-   * export's audio. Set to false to strip click sounds at render time.
-   */
-  readonly keepClickSounds: boolean;
 }
 
 export interface ProjectDocument {

@@ -4,6 +4,7 @@ import type {
   AssetId,
   CameraPresentation,
   NormalizedRect,
+  RecordingBackgroundStyle,
   CursorStyle,
   ClickEffect,
   RegionCrop,
@@ -93,7 +94,6 @@ export interface ResolvedCursorPresentation {
   clickEffect: ClickEffect;
   sizePercent: number;
   clickSoundEnabled: boolean;
-  motionBlur: number;
 }
 
 /**
@@ -108,6 +108,8 @@ export interface RenderFrame {
   height: number;
   /** Background color */
   backgroundColor: string;
+  /** Full Record-tab background styling for parity-sensitive renderers */
+  background?: RecordingBackgroundStyle;
   /** Layers to render, sorted by z-order (index 0 = bottom) */
   layers: RenderLayer[];
   /** Active transitions at this frame */
@@ -122,6 +124,8 @@ export interface RenderFrame {
   cameraCrop?: RegionCrop;
   /** Camera presentation settings from the recording */
   cameraPresentation?: CameraPresentation;
+  /** Exact screen frame resolved in Record tab (normalized 0-1 canvas rect) */
+  screenFrame?: NormalizedRect;
   /** Exact camera frame resolved in Record tab (normalized 0-1 canvas rect) */
   cameraFrame?: NormalizedRect;
 }

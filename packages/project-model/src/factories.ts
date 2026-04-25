@@ -32,6 +32,7 @@ import type {
   CameraPresentation,
   RegionCrop,
   RecordingPresentation,
+  RecordingBackgroundStyle,
   BackgroundConfig,
   AIAnnotationId,
   AIAnnotations,
@@ -226,7 +227,6 @@ export function createDefaultCursorPresentation(): CursorPresentation {
     clickEffect: 'none',
     sizePercent: 100,
     clickSoundEnabled: false,
-    motionBlur: 0,
   };
 }
 
@@ -265,12 +265,27 @@ export function createDefaultRegionCrop(sourceW = 1920, sourceH = 1080): RegionC
   return { enabled: false, x: 0, y: 0, width: sourceW, height: sourceH, aspectRatio: 'free' };
 }
 
+export function createDefaultRecordingBackgroundStyle(): RecordingBackgroundStyle {
+  return {
+    bgColor: '#050505',
+    bgGradient: null,
+    bgPadding: 0,
+    bgCornerRadius: 0,
+    bgInset: 0,
+    bgInsetColor: '#ffffff',
+    bgShadowEnabled: false,
+    bgShadowBlur: 0,
+    bgShadowOpacity: 0.25,
+  };
+}
+
 export function createDefaultRecordingPresentation(): RecordingPresentation {
   return {
     templateId: 'screen-cam-br-16x9',
     zoom: createDefaultZoomPresentation(),
     cursor: createDefaultCursorPresentation(),
     camera: createDefaultCameraPresentation(),
+    background: createDefaultRecordingBackgroundStyle(),
   };
 }
 
@@ -443,6 +458,7 @@ export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocu
       frameRate: DEFAULT_FRAME_RATE,
       backgroundColor: DEFAULT_BACKGROUND_COLOR,
       sampleRate: DEFAULT_SAMPLE_RATE,
+      recordingDefaults: createDefaultRecordingPresentation(),
       destinationPresetId: null,
     },
     assets: [],
@@ -463,7 +479,6 @@ export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocu
       bitrate: 10_000_000,
       resolution: { ...DEFAULT_RESOLUTION },
       frameRate: DEFAULT_FRAME_RATE,
-      keepClickSounds: true,
     },
     aiAnnotations: createDefaultAIAnnotations(),
     motionCompositions: [],

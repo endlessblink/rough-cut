@@ -61,6 +61,11 @@ describe('factories', () => {
       const project = createProject();
       expect(project.settings.destinationPresetId).toBeNull();
     });
+
+    it('stores default recording presentation settings', () => {
+      const project = createProject();
+      expect(project.settings.recordingDefaults).toEqual(createDefaultRecordingPresentation());
+    });
   });
 
   describe('createClip', () => {

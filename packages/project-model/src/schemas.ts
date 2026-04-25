@@ -56,6 +56,7 @@ export const ProjectSettingsSchema = z.object({
   backgroundColor: hexColor,
   sampleRate: SampleRateSchema,
   backgroundConfig: BackgroundConfigSchema.optional(),
+  recordingDefaults: z.lazy(() => RecordingPresentationSchema).optional(),
   destinationPresetId: z.string().nullable().optional(),
 });
 
@@ -102,7 +103,6 @@ export const CursorPresentationSchema = z.object({
   clickEffect: ClickEffectSchema,
   sizePercent: z.number().min(50).max(150),
   clickSoundEnabled: z.boolean(),
-  motionBlur: z.number().min(0).max(100).default(0),
 });
 
 export const CursorEventTypeSchema = z.enum(['move', 'down', 'up', 'scroll']);
@@ -167,6 +167,18 @@ export const CameraLayoutMarkerSchema = z.object({
   templateId: z.string().min(1).optional(),
 });
 
+export const RecordingBackgroundStyleSchema = z.object({
+  bgColor: hexColor,
+  bgGradient: z.string().nullable(),
+  bgPadding: nonNegativeInt,
+  bgCornerRadius: nonNegativeInt,
+  bgInset: nonNegativeInt,
+  bgInsetColor: hexColor,
+  bgShadowEnabled: z.boolean(),
+  bgShadowBlur: nonNegativeInt,
+  bgShadowOpacity: unit,
+});
+
 // --- RecordingPresentation ---
 
 export const RecordingPresentationSchema = z.object({
@@ -175,6 +187,8 @@ export const RecordingPresentationSchema = z.object({
   cursor: CursorPresentationSchema,
   camera: CameraPresentationSchema,
   cameraLayouts: z.array(CameraLayoutMarkerSchema).optional(),
+  background: RecordingBackgroundStyleSchema.optional(),
+  screenFrame: NormalizedRectSchema.optional(),
   cameraFrame: NormalizedRectSchema.optional(),
   screenCrop: RegionCropSchema.optional(),
   cameraCrop: RegionCropSchema.optional(),
@@ -306,7 +320,6 @@ export const ExportSettingsSchema = z.object({
   bitrate: z.number().positive(),
   resolution: ResolutionSchema,
   frameRate: z.number().positive(),
-  keepClickSounds: z.boolean(),
 });
 
 // --- AI Annotations ---
