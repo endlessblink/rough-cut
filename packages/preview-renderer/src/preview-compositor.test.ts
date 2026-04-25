@@ -150,6 +150,7 @@ function makeProject(overrides: Partial<ProjectDocument['settings']> = {}): Proj
       bitrate: 8000000,
       resolution: { width: 1920, height: 1080 },
       frameRate: 30,
+      keepClickSounds: true,
     },
   } as unknown as ProjectDocument;
 }
