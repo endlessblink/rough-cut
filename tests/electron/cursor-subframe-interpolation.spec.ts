@@ -1,12 +1,10 @@
-import { test, expect, navigateToTab } from './fixtures/electron-app.js';
+import { test, expect } from './fixtures/electron-app.js';
 import { loadZoomFixture } from './fixtures/zoom-fixture.js';
 
 test.describe('Cursor sub-frame interpolation', () => {
   test('moves within a held sequential frame but stays stable after a jump', async ({ appPage }) => {
     test.setTimeout(90_000);
 
-    await appPage.waitForSelector('[data-testid="tab-record"]', { timeout: 60_000 });
-    await navigateToTab(appPage, 'record');
     await loadZoomFixture(appPage, { preserveCursorEvents: true });
 
     await appPage.waitForFunction(
