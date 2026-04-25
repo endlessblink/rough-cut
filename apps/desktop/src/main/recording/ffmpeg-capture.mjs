@@ -54,9 +54,16 @@ export function startFfmpegCapture({
   const audioInputCount = (hasMic ? 1 : 0) + (hasSysAudio ? 1 : 0);
 
   // --- Build args ---
+  // -thread_queue_size 512: with multiple inputs (video + audio), ffmpeg's
+  // demuxer uses a bounded inter-thread packet queue (default 8). When libvpx
+  // stalls briefly, the x11grab thread blocks on enqueue and silently drops
+  // frames — observed as captured-at-60 files that actually contain ~40 fps.
+  // Applying to every input keeps audio packets from backpressuring video too.
   const args = [
     '-y', // Overwrite output
     // Input 0: x11grab video
+    '-thread_queue_size',
+    '512',
     '-f',
     'x11grab',
     '-draw_mouse',
@@ -71,12 +78,34 @@ export function startFfmpegCapture({
 
   // Input 1 (if present): system audio monitor
   if (hasSysAudio) {
-    args.push('-f', 'pulse', '-ac', '2', '-ar', '48000', '-i', systemAudioSource);
+    args.push(
+      '-thread_queue_size',
+      '512',
+      '-f',
+      'pulse',
+      '-ac',
+      '2',
+      '-ar',
+      '48000',
+      '-i',
+      systemAudioSource,
+    );
   }
 
   // Input 2 (or 1 if no system audio): microphone
   if (hasMic) {
-    args.push('-f', 'pulse', '-ac', '2', '-ar', '48000', '-i', micSource);
+    args.push(
+      '-thread_queue_size',
+      '512',
+      '-f',
+      'pulse',
+      '-ac',
+      '2',
+      '-ar',
+      '48000',
+      '-i',
+      micSource,
+    );
   }
 
   // --- Filter + mapping ---
@@ -122,8 +151,11 @@ export function startFfmpegCapture({
   });
 
   let stderr = '';
+  const stderrState = createStderrDropWatcher('[ffmpeg-capture]');
   proc.stderr?.on('data', (chunk) => {
-    stderr += chunk.toString();
+    const text = chunk.toString();
+    stderr += text;
+    stderrState.observe(text);
   });
 
   proc.on('error', (err) => {
@@ -176,6 +208,42 @@ export function startFfmpegCapture({
 }
 
 /**
+ * Watch an ffmpeg stderr stream for signs of silent frame drops or
+ * demuxer backpressure. FFmpeg buffers these warnings to stderr only —
+ * without this, a "captured at 60 fps" file that actually contains 40 fps
+ * leaves no log trail. Emits at most one warning per distinct condition
+ * after a 2 s grace period (to skip normal startup jitter).
+ *
+ * @param {string} tag  Log prefix, e.g. '[ffmpeg-capture]'.
+ */
+function createStderrDropWatcher(tag) {
+  const startMs = Date.now();
+  const GRACE_MS = 2000;
+  let lastDropCount = 0;
+  let queueWarningLogged = false;
+  return {
+    /** @param {string} text */
+    observe(text) {
+      if (!queueWarningLogged && text.includes('Thread message queue blocking')) {
+        queueWarningLogged = true;
+        console.warn(
+          `${tag} thread_queue_size too small — input backpressure detected; frames may drop.`,
+        );
+      }
+      const match = text.match(/drop=(\d+)/);
+      if (!match) return;
+      const n = Number(match[1]);
+      if (n <= lastDropCount) return;
+      const delta = n - lastDropCount;
+      lastDropCount = n;
+      if (Date.now() - startMs > GRACE_MS) {
+        console.warn(`${tag} frame drops: +${delta} (total ${n}).`);
+      }
+    },
+  };
+}
+
+/**
  * Start an FFmpeg audio-only capture process using PulseAudio/PipeWire sources.
  *
  * @param {{ outputPath: string, micSource?: string | null, systemAudioSource?: string | null }} options
@@ -195,10 +263,32 @@ export function startFfmpegAudioCapture({
   const args = ['-y'];
 
   if (hasSysAudio) {
-    args.push('-f', 'pulse', '-ac', '2', '-ar', '48000', '-i', systemAudioSource);
+    args.push(
+      '-thread_queue_size',
+      '512',
+      '-f',
+      'pulse',
+      '-ac',
+      '2',
+      '-ar',
+      '48000',
+      '-i',
+      systemAudioSource,
+    );
   }
   if (hasMic) {
-    args.push('-f', 'pulse', '-ac', '2', '-ar', '48000', '-i', micSource);
+    args.push(
+      '-thread_queue_size',
+      '512',
+      '-f',
+      'pulse',
+      '-ac',
+      '2',
+      '-ar',
+      '48000',
+      '-i',
+      micSource,
+    );
   }
 
   if (hasSysAudio && hasMic) {
@@ -216,8 +306,11 @@ export function startFfmpegAudioCapture({
   });
 
   let stderr = '';
+  const stderrState = createStderrDropWatcher('[ffmpeg-audio-capture]');
   proc.stderr?.on('data', (chunk) => {
-    stderr += chunk.toString();
+    const text = chunk.toString();
+    stderr += text;
+    stderrState.observe(text);
   });
 
   proc.on('error', (err) => {

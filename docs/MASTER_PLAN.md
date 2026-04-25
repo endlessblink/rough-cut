@@ -245,7 +245,10 @@ Parallel-start rule:
 | ~~TASK-189~~ | ~~Record: Fix stuck + obsolete pre-start floating panel (post-TASK-186 fallout)~~              | P0 | ✅ DONE (2026-04-23) | TASK-186, TASK-187 |
 | ~~TASK-190~~ | ~~Record: Fix saved-take playback reset + visual artifacts on window resize~~ | P1  | ✅ DONE (2026-04-24)     | TASK-177           |
 | ~~TASK-191~~ | ~~Record: Fix saved-take replay progression in Record review~~              | P1       | ✅ DONE (2026-04-24)     | TASK-190           |
-| TASK-192     | Tests: Stabilize space-playback specs by replacing in-loop screenshots with cheap signals | P2 | TODO | TASK-191 |
+| ~~TASK-192~~ | ~~Tests: Stabilize space-playback specs by replacing in-loop screenshots with cheap signals~~ | P2 | ✅ DONE (2026-04-24) | TASK-191 |
+| ~~TASK-193~~ | ~~Record: Capture screen at full 60 fps on Linux/X11 (was choppy 30→25 fps)~~ | P1 | ✅ DONE (2026-04-25) | —        |
+| TASK-194     | Record: Keep panel setup source changes free of eager display capture      | P1       | TODO                     | TASK-185, TASK-186 |
+| TASK-195     | Tests: Gate panel source-switch camera-preview regression on Linux         | P1       | TODO                     | TASK-194           |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
@@ -1140,22 +1143,129 @@ NOTE: `tests/electron/record-space-playback.spec.ts` and likely `tests/electron/
 
 ### TASK-192: Tests: Stabilize space-playback specs by replacing in-loop screenshots with cheap signals
 
-**Priority:** P2 | **Status:** TODO | **Depends on:** TASK-191
+**Priority:** P2 | **Status:** ✅ DONE (2026-04-24) | **Depends on:** TASK-191
 
-#### Problem
+#### Resolution (2026-04-24)
+
+Three stacked issues had to be fixed in order before the specs were green:
+
+1. **`edit-space-playback.spec.ts` fixture pointed at missing media.** `RECORDED_PROJECT_PATH` was the Apr 14 `.roughcut`, whose referenced `recording-2026-04-14T15-25-05-444Z.webm` no longer exists on disk. The Edit tab couldn't load the active recording, so `navigateToTab(page, 'edit')` timed out at 30s waiting for `[data-testid="edit-tab-root"]`. Fix: switch to the Apr 23 fixture used by `camera-replay.spec.ts` (both screen + camera media present on disk).
+2. **Same wrong-recording-asset picker bug as TASK-191.** `loadRecordedProjectIntoEdit` did `assets.find(asset.type === 'recording')`, which returns the first stale recording in the asset list, not the one wired into a composition clip. Replaced with a clip-owner lookup, identical to the camera-replay fix.
+3. **Per-iteration screenshot loop.** `sampleRecordPlayback` (record) and `samplePlayback` (edit) called `canvas.screenshot` / `cameraVideo.screenshot` inside a tight loop, hitting GPU `ReadPixels` stalls (~0.5–1.4s each) against PixiJS's continuous rendering. Replaced with cheap state queries: `transport.playheadFrame` and `cameraVideo.currentTime`. The `distinctCanvasHashes` assertion in record-space was redundant with the existing playhead-frame check (PlaybackManager's `_syncLoop` writes `playheadFrame` directly from `compositor.getPlaybackFrame()`, which reads the underlying screen `<video>.currentTime`); replaced with `distinctPlayheadFrames >= 3`. The `distinctCameraHashes` assertion in edit-space was replaced with `distinctCameraTimes >= 2` (same intent: camera frame is visibly progressing).
+
+A fourth incidental fix landed in `playwright.config.ts`: bumped global `timeout` from 30s → 60s. Cold Electron + Vite startup on the first test in a run can take 25–35s, blowing the 30s default during fixture setup before the test body's `test.setTimeout` has a chance to apply. Per-test timeout option and `test.describe.configure({ timeout })` did not extend fixture setup in Playwright 1.58 — only the global config did.
+
+Result: 5 consecutive runs of `record-space-playback.spec.ts + edit-space-playback.spec.ts` pass 3/3 deterministically (~14s per run). Combined run with `camera-replay.spec.ts` passes 7/7.
+
+#### Original problem (kept for history)
 
 `tests/electron/record-space-playback.spec.ts` and `tests/electron/edit-space-playback.spec.ts` use the same `canvas.screenshot({ timeout: 5_000 })` / `cameraVideo.screenshot(...)` in-tight-loop pattern that TASK-191 eliminated from `camera-replay.spec.ts`. Each screenshot stalls on GPU `ReadPixels` against PixiJS's continuous rendering for 0.5–1.4s, so only 1–2 samples complete in the 1.0–1.2s sample windows. The `distinctCanvasHashes >= 3` / `distinctCameraHashes >= 2` assertions then false-fail.
 
+---
+
+### TASK-193: Record: Capture screen at full 60 fps on Linux/X11 (was choppy 30→25 fps)
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25) | **Depends on:** —
+
+#### Problem
+
+User report: "the screen recording is not full fps". Probing the latest output (`/tmp/rough-cut/recordings/recording-2026-04-24T07-02-31-920Z.webm`) showed `r_frame_rate=30/1, avg_frame_rate=30/1` on a 60 Hz display. After bumping the cap to 60, recordings still played choppily — `ffprobe -count_frames` exposed that the file was *tagged* 60 fps but actually contained ~40 fps worth of frames, and ffmpeg was silently dropping ~33% of input.
+
+#### Root cause
+
+Three stacked issues, only the third was the real bottleneck:
+
+1. **Hardcoded 30 fps in the X11 capture path.** `recording-session-manager.mjs` had six call sites pinned at 30 (the `startFfmpegCapture()` invocation, the `cursorRecorder.start()` invocation, the recovery-marker `captureMetadata`, and `buildFallbackRecordingMetadata`). All flowed into x11grab's `-framerate` and the cursor sidecar's frame-index math, which must match each other or the Edit-side cursor overlay desyncs.
+2. **VP8 libvpx single-threaded by default.** `-cpu-used 4` with no `-threads` was theoretically slow at 1080p60. Tuned but turned out not to be the binding constraint.
+3. **(Real cause) ffmpeg's per-input demuxer queue defaults to 8 packets.** With three inputs (x11grab + system audio + mic) the audio threads filled the queue and back-pressured the x11grab thread whenever libvpx stalled momentarily — frames silently dropped before reaching the encoder. ffmpeg's stderr printed `Thread message queue blocking; consider raising the thread_queue_size option (current value: 8)`, but `ffmpeg-capture.mjs` buffered stderr and only logged it on non-zero exit, so we never saw the warning.
+
+#### Resolution
+
+- `apps/desktop/src/main/recording/recording-session-manager.mjs`: replaced six hardcoded `30`s with a single `TARGET_CAPTURE_FPS = 60` module-level constant.
+- `apps/desktop/src/main/recording/ffmpeg-capture.mjs`:
+  - Prepended `-thread_queue_size 512` to every `-i` input in both `startFfmpegCapture()` and `startFfmpegAudioCapture()`. **This is the fix that mattered.**
+  - Bumped `-cpu-used 4 → 8`, added `-threads 8` (encoder headroom; not the binding constraint but cheap insurance).
+  - Added `createStderrDropWatcher()` — parses stderr on the fly for the queue-blocking warning and for an increasing `drop=N` counter (with a 2 s grace period to skip startup jitter), and emits `console.warn` lines so `.logs/app-runtime.log` will surface future regressions immediately instead of only on bad exit.
+
+#### Verification
+
+Standalone 10 s ffmpeg run with the exact final args produces 591 frames over 10.007 s = **59.06 fps average**, with 8 startup drops in the first 0.56 s and zero drops thereafter. In-app recording (mic + system audio + camera, 2.744 s) probed at 155 frames = 56.5 fps actual — explained exactly by the same 8-frame startup gap (164.6 expected − 8 = 156.6, matched within a frame). Visual check by user: smoother than before.
+
+`pnpm -F @rough-cut/desktop typecheck` clean. Existing unit tests (`cursor-recorder`, `cursor-overlay-state`, `recording-pause-policy`) pass unchanged.
+
+#### Out of scope (deliberate)
+
+- MediaRecorder / Wayland / macOS / Windows fallback paths untouched. `getDisplayMedia` constraints already advertise `maxFrameRate: 60`; this user wasn't hitting those paths.
+- VP8 bitrate left at 8 Mbps. At 1080p60 it's effectively half the per-frame budget vs 30 fps, so motion-heavy content may show more compression artefacts than before — bump to 12 Mbps in a follow-up if needed.
+- VAAPI / Quick Sync hardware encoding on the i9's iGPU would drop encoder CPU to near zero but is a codec/container change (probably .mp4 instead of .webm) — orthogonal to this bug.
+
+---
+
+### TASK-194: Record: Keep panel setup source changes free of eager display capture
+
+**Priority:** P1 | **Status:** TODO | **Depends on:** TASK-185, TASK-186
+
+#### Problem
+
+- The floating panel no longer owns the main screen preview, but it can still regress if setup-time source changes trigger `getDisplayMedia()` before the user clicks `REC`.
+- On Linux/X11, that eager display acquisition can black out or invalidate the live camera preview even though the user is only changing setup state.
+- This is a trust regression risk: the app can look broken before recording starts even when saved capture still works.
+
 #### Scope
 
-- Drop per-iteration screenshots from `sampleRecordPlayback` and `samplePlayback` in both spec files.
-- Sample only `transport.playheadFrame` and (for camera) `cameraVideo.currentTime`. Both are pulled from `compositor.getPlaybackFrame()` / the `<video>` element directly — they are the same signals the canvas hash was indirectly proxying.
-- Keep monotonicity, advancement, and distinct-frame assertions on the cheap signals.
-- If a visual safety net is wanted, take exactly one start + one end screenshot and assert they differ — never inside the loop.
+- Treat panel source changes during setup as config-only state updates unless recording is actually starting.
+- Keep display-capture acquisition behind the `Start recording` path.
+- Preserve correct cleanup when the selected source is cleared or recording stops.
+- Avoid reintroducing hidden setup-time display acquisition through refactors or fallback branches.
+
+#### First Steps
+
+- Audit `PanelApp.tsx` for any setup-mode `getDisplayMedia()` path outside the explicit recording-start flow.
+- Keep the panel state machine honest: setup can be ready-to-record without already holding a display stream.
+- Add comments/guards where future refactors might be tempted to reacquire display capture on source change.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
 
 #### Why this matters
 
-These tests guard the basic "Space resumes playback monotonically" contract. Flaky or unrunnable specs erode trust in regressions and let real bugs through.
+- The panel should feel stable while the user is still deciding what to record.
+- A setup-only source change must not silently trip the same Linux camera-preview failure mode again.
+
+---
+
+### TASK-195: Tests: Gate panel source-switch camera-preview regression on Linux
+
+**Priority:** P1 | **Status:** TODO | **Depends on:** TASK-194
+
+#### Problem
+
+- The specific regression is subtle: changing the selected source in the panel setup flow can look harmless in code review while reintroducing a Linux-only camera-preview blackout before `REC`.
+- Without a focused regression gate, this could easily come back during unrelated panel cleanup or recording-start refactors.
+
+#### Scope
+
+- Keep a focused Playwright regression that proves panel source changes do not call `getDisplayMedia()` before recording starts.
+- Assert the camera preview track remains live after changing the selected source in setup.
+- Assert display capture is only acquired once the user actually starts recording.
+- Make this check part of the stable camera-recording lane rather than leaving it as an ad-hoc one-off test.
+
+#### First Steps
+
+- Keep the focused source-switch regression in `tests/electron/record-camera-artifact.spec.ts` or extract it into a dedicated panel-lifecycle spec if that becomes clearer.
+- Decide whether it belongs in the camera artifact lane, the readiness gate bundle, or both.
+- Re-run it on the real Linux workstation whenever panel setup or recording-start logic changes.
+
+#### Key files
+
+- `tests/electron/record-camera-artifact.spec.ts`
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
+
+#### Why this matters
+
+- This is exactly the kind of regression that damages trust fast and is annoying to rediscover manually.
+- A small, explicit gate is cheaper than repeatedly re-debugging Linux camera-preview breakage.
 
 ---
 
