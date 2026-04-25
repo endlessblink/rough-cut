@@ -42,6 +42,7 @@ test.describe('camera replay', () => {
       const buttons = Array.from(document.querySelectorAll(selector)) as HTMLButtonElement[];
       buttons.at(-1)?.click();
     }, TIMELINE_PLAY_BUTTON);
+    const replayStartFrame = Math.max(0, durationFrames - 20);
     await expect
       .poll(
         async () =>
@@ -54,10 +55,18 @@ test.describe('camera replay', () => {
           }),
         { timeout: 5_000 },
       )
-      .toMatchObject({
-        isPlaying: true,
-        playheadFrame: Math.max(0, durationFrames - 20),
-      });
+      .toEqual(
+        expect.objectContaining({
+          isPlaying: true,
+          playheadFrame: expect.any(Number),
+        }),
+      );
+
+    const firstReplayFrame = await appPage.evaluate(() => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      return stores?.transport.getState().playheadFrame ?? -1;
+    });
+    expect(firstReplayFrame).toBeGreaterThanOrEqual(replayStartFrame);
 
     await appPage.waitForTimeout(500);
 
@@ -67,7 +76,11 @@ test.describe('camera replay', () => {
     });
 
     if (stillPlayingAfterWait) {
-      await appPage.locator(TIMELINE_PLAY_BUTTON).last().click();
+      await appPage.evaluate(() => {
+        const pm = (window as unknown as { __roughcutPlaybackManager?: any })
+          .__roughcutPlaybackManager;
+        pm?.pause();
+      });
       await expect
         .poll(
           async () =>

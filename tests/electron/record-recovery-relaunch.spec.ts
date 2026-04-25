@@ -6,9 +6,49 @@ import {
   type Page,
 } from '@playwright/test';
 import { execFile } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+
+let rendererUrl = '';
+let viteProcess: ChildProcessWithoutNullStreams | null = null;
+
+test.beforeAll(async () => {
+  const port = await getFreePort();
+  rendererUrl = `http://127.0.0.1:${port}`;
+  const viteBin = resolve(process.cwd(), 'apps/desktop/node_modules/.bin/vite');
+  viteProcess = spawn(
+    viteBin,
+    [
+      '--config',
+      resolve(process.cwd(), 'apps/desktop/vite.config.ts'),
+      '--host',
+      '127.0.0.1',
+      '--port',
+      String(port),
+      '--strictPort',
+    ],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: 'pipe',
+    },
+  );
+
+  await waitForServer(rendererUrl, viteProcess);
+});
+
+test.afterAll(async () => {
+  if (!viteProcess) return;
+  viteProcess.kill('SIGTERM');
+  await Promise.race([
+    new Promise((resolveExit) => viteProcess?.once('exit', resolveExit)),
+    delay(5_000).then(() => viteProcess?.kill('SIGKILL')),
+  ]);
+  viteProcess = null;
+});
 
 test.describe('Record recovery relaunch', () => {
   test('relaunch detects and recovers a partial take', async () => {
@@ -223,12 +263,16 @@ async function launchApp(): Promise<ElectronApplication> {
   return electron.launch({
     args: ['--no-sandbox', 'apps/desktop'],
     cwd: process.cwd(),
+    env: {
+      ...process.env,
+      ROUGH_CUT_RENDERER_URL: rendererUrl,
+    },
   });
 }
 
 async function waitForAppReady(app: ElectronApplication): Promise<Page> {
   const page = await app.firstWindow();
-  await page.waitForURL(/127\.0\.0\.1:7544/, { timeout: 30_000 });
+  await page.waitForURL((url) => url.href.startsWith(rendererUrl), { timeout: 30_000 });
   await page.waitForLoadState('domcontentloaded', { timeout: 30_000 });
   await page.waitForFunction(
     () => {
@@ -239,6 +283,53 @@ async function waitForAppReady(app: ElectronApplication): Promise<Page> {
     { timeout: 30_000 },
   );
   return page;
+}
+
+async function getFreePort(): Promise<number> {
+  const { createServer } = await import('node:net');
+
+  return await new Promise((resolvePort, reject) => {
+    const server = createServer();
+    server.unref();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        server.close(() => reject(new Error('Failed to allocate a free port')));
+        return;
+      }
+
+      server.close((closeError) => {
+        if (closeError) reject(closeError);
+        else resolvePort(address.port);
+      });
+    });
+  });
+}
+
+async function waitForServer(url: string, child: ChildProcessWithoutNullStreams): Promise<void> {
+  const startedAt = Date.now();
+  let stderr = '';
+
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString();
+    if (stderr.length > 4000) stderr = stderr.slice(-4000);
+  });
+
+  while (Date.now() - startedAt < 30_000) {
+    if (child.exitCode !== null) {
+      throw new Error(`Vite exited before becoming ready: ${stderr}`);
+    }
+
+    try {
+      const response = await fetch(url);
+      if (response.ok) return;
+    } catch {}
+
+    await delay(250);
+  }
+
+  throw new Error(`Timed out waiting for Vite at ${url}: ${stderr}`);
 }
 
 function execFileAsync(command: string, args: string[]): Promise<void> {
