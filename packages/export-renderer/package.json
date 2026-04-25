@@ -13,6 +13,10 @@
     "./webcodecs": {
       "types": "./dist/webcodecs.d.ts",
       "import": "./dist/webcodecs.js"
+    },
+    "./click-sound-synth": {
+      "types": "./dist/click-sound-synth.d.ts",
+      "import": "./dist/click-sound-synth.js"
     }
   },
   "scripts": {

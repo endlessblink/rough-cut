@@ -14,6 +14,7 @@ import type { CursorFrameData } from '../../components/CursorOverlay.js';
 import { buildCursorFrameData } from '../../components/cursor-data-loader.js';
 import { useCursorEvents } from '../../hooks/use-cursor-events.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
+import { useClickSoundPlayback } from '../../hooks/use-click-sound-playback.js';
 import { inferCursorEventsPath, resolveProjectMediaPath } from '../../lib/media-sidecars.js';
 
 interface RecordingPlaybackVideoProps {
@@ -70,6 +71,7 @@ export function RecordingPlaybackVideo({
     clickEffect: 'ripple' as const,
     sizePercent: 100,
     clickSoundEnabled: false,
+    motionBlur: 0,
   };
 
   const assetDuration = asset?.duration || 900;
@@ -125,6 +127,16 @@ export function RecordingPlaybackVideo({
   const playheadFrame = useTransportStore((s) => s.playheadFrame);
   const inRange =
     clipTimelineOut > 0 && playheadFrame >= clipTimelineIn && playheadFrame < clipTimelineOut;
+
+  useClickSoundPlayback({
+    cursorEvents,
+    cursorEventsFps,
+    projectFps,
+    clipTimelineIn,
+    playheadFrame,
+    isPlaying: isPlaying && inRange,
+    enabled: cursorPresentation.clickSoundEnabled,
+  });
 
   const zt =
     zoomMarkers.length > 0
@@ -189,6 +201,7 @@ export function RecordingPlaybackVideo({
         clipTimelineIn={clipTimelineIn}
         zoomTransform={zt}
         crop={asset?.presentation?.screenCrop}
+        fps={fps}
       />
       {reticleVisible && selectedZoomMarker && onFocalPointChange && (
         <FocalPointReticle

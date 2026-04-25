@@ -9,6 +9,8 @@ import {
   Output,
   canEncodeAudio,
 } from 'mediabunny';
+import { mixClicksIntoFloat32 } from './click-sound-mix.js';
+import { synthesizeClickPcm } from './click-sound-synth.js';
 
 const AUDIO_BITRATE = 128_000;
 
@@ -93,6 +95,8 @@ async function cloneSampleWindow(
   clipStartSeconds: number,
   clipEndSeconds: number,
   timelineStartSeconds: number,
+  clickTimestampsSec: readonly number[],
+  clickPcmCache: Map<number, Float32Array>,
 ): Promise<AudioSample[]> {
   const sampleStart = sample.timestamp;
   const sampleEnd = sample.timestamp + sample.duration;
@@ -102,9 +106,20 @@ async function cloneSampleWindow(
     return [];
   }
 
-  if (overlapStart <= sampleStart && overlapEnd >= sampleEnd) {
+  const outputStartSec = timelineStartSeconds + (overlapStart - clipStartSeconds);
+  const fullPass = overlapStart <= sampleStart && overlapEnd >= sampleEnd;
+  const sampleDuration = sampleEnd - sampleStart;
+  const outputEndSec = outputStartSec + (fullPass ? sampleDuration : overlapEnd - overlapStart);
+
+  // Detect any clicks that intersect this output window. We need to expand
+  // the search left by the click duration to catch tails of earlier clicks.
+  const hasClickInWindow =
+    clickTimestampsSec.length > 0 &&
+    clickTimestampsSec.some((t) => t < outputEndSec && t > outputStartSec - 0.1);
+
+  if (fullPass && !hasClickInWindow) {
     const cloned = sample.clone();
-    cloned.setTimestamp(timelineStartSeconds + (sampleStart - clipStartSeconds));
+    cloned.setTimestamp(outputStartSec);
     return [cloned];
   }
 
@@ -133,16 +148,27 @@ async function cloneSampleWindow(
     trimmedBuffer.copyToChannel(source, channel, 0);
   }
 
-  return AudioSample.fromAudioBuffer(
-    trimmedBuffer,
-    timelineStartSeconds + (overlapStart - clipStartSeconds),
-  );
+  if (hasClickInWindow) {
+    let clickPcm = clickPcmCache.get(trimmedBuffer.sampleRate);
+    if (!clickPcm) {
+      clickPcm = synthesizeClickPcm(trimmedBuffer.sampleRate);
+      clickPcmCache.set(trimmedBuffer.sampleRate, clickPcm);
+    }
+    for (let channel = 0; channel < trimmedBuffer.numberOfChannels; channel++) {
+      const data = trimmedBuffer.getChannelData(channel);
+      mixClicksIntoFloat32(data, clickPcm, trimmedBuffer.sampleRate, outputStartSec, clickTimestampsSec);
+      trimmedBuffer.copyToChannel(data, channel, 0);
+    }
+  }
+
+  return AudioSample.fromAudioBuffer(trimmedBuffer, outputStartSec);
 }
 
 export async function addAudioTracksToOutput(
   project: ProjectDocument,
   output: Output,
   frameRate: number,
+  clickTimestampsSec: readonly number[] = [],
 ): Promise<(() => void) | null> {
   const segments = collectAudioExportSegments(project);
   if (segments.length === 0) {
@@ -151,6 +177,7 @@ export async function addAudioTracksToOutput(
 
   const loadedAssets = new Map<string, LoadedAudioAsset>();
   let audioSource: AudioSampleSource | null = null;
+  const clickPcmCache = new Map<number, Float32Array>();
 
   try {
     for (const segment of segments) {
@@ -199,6 +226,8 @@ export async function addAudioTracksToOutput(
             clipStartSeconds,
             clipEndSeconds,
             timelineStartSeconds,
+            clickTimestampsSec,
+            clickPcmCache,
           );
           for (const adjustedSample of adjustedSamples) {
             try {

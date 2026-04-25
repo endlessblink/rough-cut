@@ -965,6 +965,48 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
             </div>
           </div>
 
+          <div>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: 'rgba(255,255,255,0.68)',
+                marginBottom: 8,
+              }}
+            >
+              Click sounds
+            </div>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '8px 10px',
+                borderRadius: 8,
+                border: '1px solid rgba(255,255,255,0.08)',
+                background: 'rgba(255,255,255,0.03)',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+            >
+              <input
+                data-testid="export-keep-click-sounds"
+                type="checkbox"
+                checked={normalizedExportSettings.keepClickSounds}
+                onChange={(e) => patchExportSettings({ keepClickSounds: e.target.checked })}
+              />
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.86)' }}>
+                Keep mouse-click sounds in export
+              </span>
+            </label>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.52)', marginTop: 6 }}>
+              Only takes effect when click sound is enabled on the recording. Turn off to render
+              a clean track.
+            </div>
+          </div>
+
           <div
             style={{
               borderRadius: 10,

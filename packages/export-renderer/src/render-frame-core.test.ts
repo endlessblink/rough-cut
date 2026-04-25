@@ -38,6 +38,7 @@ function makeFrame(): RenderFrame {
       clickEffect: 'none',
       sizePercent: 100,
       clickSoundEnabled: false,
+      motionBlur: 0,
     },
     cameraPresentation: {
       shape: 'rounded',
@@ -127,6 +128,7 @@ describe('renderFrameToCanvasAccurate', () => {
         clickEffect: 'none',
         sizePercent: 100,
         clickSoundEnabled: false,
+        motionBlur: 0,
       },
     };
 
@@ -145,5 +147,33 @@ describe('renderFrameToCanvasAccurate', () => {
     expect(left[1]).toBeLessThan(50);
     expect(right[1]).toBeGreaterThan(200);
     expect(right[0]).toBeLessThan(50);
+  });
+
+  it('skips rendering camera layers when the camera is hidden', async () => {
+    const canvas = createCanvas(200, 100);
+    const ctx = canvas.getContext('2d');
+    const source = createCanvas(50, 50);
+    const sourceCtx = source.getContext('2d');
+    sourceCtx.fillStyle = '#ff0000';
+    sourceCtx.fillRect(0, 0, 50, 50);
+
+    const frame = makeFrame();
+    frame.cameraPresentation = {
+      ...frame.cameraPresentation!,
+      visible: false,
+    };
+
+    await renderFrameToCanvasAccurate(
+      canvas,
+      ctx,
+      frame,
+      30,
+      async () => source as unknown as CanvasImageSource,
+    );
+
+    const inside = ctx.getImageData(170, 70, 1, 1).data;
+    expect(inside[0]).toBe(0);
+    expect(inside[1]).toBe(0);
+    expect(inside[2]).toBe(0);
   });
 });

@@ -182,6 +182,10 @@ function renderLayer(
   renderFrame?: RenderFrame,
   videoFrame?: CanvasImageSource | null,
 ): void {
+  if (layer.isCamera && renderFrame?.cameraPresentation?.visible === false) {
+    return;
+  }
+
   const { transform, effects, clipId, trackIndex } = layer;
 
   ctx.save();

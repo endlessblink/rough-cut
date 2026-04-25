@@ -2,6 +2,7 @@ import type { ProjectDocument, ExportSettings } from '@rough-cut/project-model';
 import { resolveFrame } from '@rough-cut/frame-resolver';
 import { Output, Mp4OutputFormat, BufferTarget, CanvasSource } from 'mediabunny';
 import { addAudioTracksToOutput } from './audio-export.js';
+import { collectClickTimestamps } from './click-sound-mix.js';
 import { loadCursorFrameData, type CursorFrameData } from './cursor-render.js';
 import { renderFrameToCanvasAccurate } from './render-frame-core.js';
 import type { ExportEventHandlers, ExportProgress, ExportResult } from './types.js';
@@ -56,11 +57,9 @@ export async function runWebCodecsExportToBuffer(
     format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
     target,
   });
-  const disposeAudio = await addAudioTracksToOutput(project, output, settings.frameRate);
 
   const { config, hardwareAcceleration } = await resolveVideoEncodingConfig(settings);
   const videoSource = new CanvasSource(canvas, config);
-  output.addVideoTrack(videoSource, { frameRate: settings.frameRate });
   const frameSources = new Map<string, MediaBunnyFrameSource>();
   const cursorDataByAssetId = new Map<string, CursorFrameData>();
 
@@ -97,6 +96,19 @@ export async function runWebCodecsExportToBuffer(
       cursorDataByAssetId.set(asset.id, cursorData);
     }
   }
+
+  const clickTimestamps = collectClickTimestamps(
+    project,
+    cursorDataByAssetId,
+    settings.frameRate,
+  );
+  const disposeAudio = await addAudioTracksToOutput(
+    project,
+    output,
+    settings.frameRate,
+    clickTimestamps.timestampsSec,
+  );
+  output.addVideoTrack(videoSource, { frameRate: settings.frameRate });
 
   const resolveVideoFrame = async (
     assetId: string,
