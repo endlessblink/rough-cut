@@ -9,10 +9,11 @@ import {
   Output,
   canEncodeAudio,
 } from 'mediabunny';
-import { mixClicksIntoFloat32 } from './click-sound-mix.js';
-import { synthesizeClickPcm } from './click-sound-synth.js';
+import { parseNdjsonCursorEvents } from './cursor-render.js';
 
 const AUDIO_BITRATE = 128_000;
+const DEFAULT_CLICK_SAMPLE_RATE = 48_000;
+const CLICK_SOUND_FILE_URL = new URL('../../../aseets/mouse-click-1.wav', import.meta.url).href;
 
 interface AudioExportSegment {
   asset: Asset;
@@ -23,6 +24,15 @@ interface AudioExportSegment {
 interface LoadedAudioAsset {
   input: Input;
   sink: AudioSampleSink;
+}
+
+interface LoadedClickSound {
+  sampleRate: number;
+  channelData: readonly Float32Array[];
+}
+
+export interface ClickSoundExportEvent {
+  timestampSeconds: number;
 }
 
 function getCameraAssetIds(project: ProjectDocument): Set<string> {
@@ -70,6 +80,247 @@ export function collectAudioExportSegments(project: ProjectDocument): AudioExpor
   return segments;
 }
 
+export function collectClickSoundExportEvents(
+  project: ProjectDocument,
+  cursorEventsByAssetId: ReadonlyMap<string, readonly { frame: number; type: string }[]>,
+  frameRate: number,
+): ClickSoundExportEvent[] {
+  if (frameRate <= 0) return [];
+
+  const assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
+  const cameraAssetIds = getCameraAssetIds(project);
+  const events: ClickSoundExportEvent[] = [];
+
+  for (const track of project.composition.tracks) {
+    if (!track.visible || track.type !== 'video') continue;
+
+    for (const clip of track.clips) {
+      if (!clip.enabled || clip.timelineOut <= clip.timelineIn) continue;
+
+      const asset = assetsById.get(clip.assetId);
+      if (!asset || !asset.presentation?.cursor.clickSoundEnabled) continue;
+      if (cameraAssetIds.has(asset.id) || asset.metadata['isCamera'] === true) continue;
+      if (asset.type !== 'recording' && asset.type !== 'video') continue;
+
+      const cursorEvents = cursorEventsByAssetId.get(asset.id);
+      if (!cursorEvents || cursorEvents.length === 0) continue;
+
+      const eventsFps =
+        typeof asset.metadata?.['cursorEventsFps'] === 'number'
+          ? (asset.metadata['cursorEventsFps'] as number)
+          : 60;
+      if (eventsFps <= 0) continue;
+
+      for (const event of cursorEvents) {
+        if (event.type !== 'down') continue;
+        const sourceProjectFrame = Math.round((event.frame / eventsFps) * frameRate);
+        if (sourceProjectFrame < clip.sourceIn || sourceProjectFrame >= clip.sourceOut) continue;
+
+        const timelineFrame = clip.timelineIn + (sourceProjectFrame - clip.sourceIn);
+        if (timelineFrame < clip.timelineIn || timelineFrame >= clip.timelineOut) continue;
+        events.push({ timestampSeconds: timelineFrame / frameRate });
+      }
+    }
+  }
+
+  return events.sort((a, b) => a.timestampSeconds - b.timestampSeconds);
+}
+
+async function loadCursorEventsForClickSounds(project: ProjectDocument) {
+  const result = new Map<string, readonly { frame: number; type: string }[]>();
+
+  await Promise.all(
+    project.assets.map(async (asset) => {
+      if (!asset.presentation?.cursor.clickSoundEnabled) return;
+
+      const candidatePaths = new Set<string>();
+      const rawCursorEventsPath = asset.metadata?.['cursorEventsPath'];
+      if (typeof rawCursorEventsPath === 'string' && rawCursorEventsPath.length > 0) {
+        candidatePaths.add(rawCursorEventsPath);
+      }
+      if (asset.filePath) {
+        candidatePaths.add(asset.filePath.replace(/\.(webm|mp4)$/i, '.cursor.ndjson'));
+      }
+
+      for (const path of candidatePaths) {
+        const response = await fetch(`media://${path}`);
+        if (!response.ok) continue;
+        const text = await response.text();
+        if (!text.trim()) continue;
+        result.set(asset.id, parseNdjsonCursorEvents(text));
+        return;
+      }
+    }),
+  );
+
+  return result;
+}
+
+async function createAudioSource(
+  output: Output,
+  numberOfChannels: number,
+  sampleRate: number,
+): Promise<AudioSampleSource | null> {
+  const canEncodeAac = await canEncodeAudio('aac', {
+    numberOfChannels,
+    sampleRate,
+    bitrate: AUDIO_BITRATE,
+    bitrateMode: 'variable',
+  });
+  if (!canEncodeAac) return null;
+
+  const audioSource = new AudioSampleSource({
+    codec: 'aac',
+    bitrate: AUDIO_BITRATE,
+    bitrateMode: 'variable',
+  });
+  output.addAudioTrack(audioSource);
+  return audioSource;
+}
+
+export function parsePcm16Wav(bytes: ArrayBuffer): LoadedClickSound {
+  const view = new DataView(bytes);
+  const readTag = (offset: number) =>
+    String.fromCharCode(
+      view.getUint8(offset),
+      view.getUint8(offset + 1),
+      view.getUint8(offset + 2),
+      view.getUint8(offset + 3),
+    );
+
+  if (bytes.byteLength < 44 || readTag(0) !== 'RIFF' || readTag(8) !== 'WAVE') {
+    throw new Error('Unsupported click sound WAV file');
+  }
+
+  let offset = 12;
+  let channels = 0;
+  let sampleRate = 0;
+  let bitsPerSample = 0;
+  let dataOffset = -1;
+  let dataSize = 0;
+
+  while (offset + 8 <= view.byteLength) {
+    const chunkId = readTag(offset);
+    const chunkSize = view.getUint32(offset + 4, true);
+    const chunkDataOffset = offset + 8;
+
+    if (chunkId === 'fmt ') {
+      const format = view.getUint16(chunkDataOffset, true);
+      channels = view.getUint16(chunkDataOffset + 2, true);
+      sampleRate = view.getUint32(chunkDataOffset + 4, true);
+      bitsPerSample = view.getUint16(chunkDataOffset + 14, true);
+      if (format !== 1) {
+        throw new Error(`Unsupported click sound WAV encoding: ${format}`);
+      }
+    } else if (chunkId === 'data') {
+      dataOffset = chunkDataOffset;
+      dataSize = chunkSize;
+      break;
+    }
+
+    offset = chunkDataOffset + chunkSize + (chunkSize % 2);
+  }
+
+  if (channels <= 0 || sampleRate <= 0 || bitsPerSample !== 16 || dataOffset < 0 || dataSize <= 0) {
+    throw new Error('Invalid click sound WAV metadata');
+  }
+
+  const frameCount = Math.floor(dataSize / (channels * 2));
+  const channelData = Array.from({ length: channels }, () => new Float32Array(frameCount));
+  let byteOffset = dataOffset;
+  for (let frame = 0; frame < frameCount; frame++) {
+    for (let channel = 0; channel < channels; channel++) {
+      channelData[channel]![frame] = view.getInt16(byteOffset, true) / 32768;
+      byteOffset += 2;
+    }
+  }
+
+  return { sampleRate, channelData };
+}
+
+let clickSoundPromise: Promise<LoadedClickSound> | null = null;
+
+async function loadClickSoundAsset(): Promise<LoadedClickSound> {
+  if (!clickSoundPromise) {
+    clickSoundPromise = fetch(CLICK_SOUND_FILE_URL)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to fetch click sound asset: ${response.status}`);
+        }
+        return parsePcm16Wav(await response.arrayBuffer());
+      });
+  }
+  return clickSoundPromise;
+}
+
+function resampleChannelLinear(
+  source: Float32Array,
+  sourceSampleRate: number,
+  targetSampleRate: number,
+): Float32Array {
+  if (sourceSampleRate === targetSampleRate) {
+    return source.slice();
+  }
+
+  const targetLength = Math.max(1, Math.round((source.length * targetSampleRate) / sourceSampleRate));
+  const out = new Float32Array(targetLength);
+  for (let i = 0; i < targetLength; i++) {
+    const sourceIndex = (i * sourceSampleRate) / targetSampleRate;
+    const left = Math.floor(sourceIndex);
+    const right = Math.min(source.length - 1, left + 1);
+    const t = sourceIndex - left;
+    const leftValue = source[left] ?? 0;
+    const rightValue = source[right] ?? leftValue;
+    out[i] = leftValue + (rightValue - leftValue) * t;
+  }
+  return out;
+}
+
+export function createClickAudioSamples(
+  clickSound: LoadedClickSound,
+  timestampSeconds: number,
+  targetSampleRate: number,
+  targetChannels: number,
+): AudioSample[] {
+  const sourceChannels = clickSound.channelData.length;
+  const resampledChannels = Array.from({ length: targetChannels }, (_, channelIndex) => {
+    const source = clickSound.channelData[Math.min(channelIndex, sourceChannels - 1)]!;
+    return resampleChannelLinear(source, clickSound.sampleRate, targetSampleRate);
+  });
+  const frameCount = resampledChannels[0]?.length ?? 0;
+  const buffer = new AudioBuffer({
+    numberOfChannels: targetChannels,
+    length: frameCount,
+    sampleRate: targetSampleRate,
+  });
+
+  for (let channel = 0; channel < targetChannels; channel++) {
+    const data = resampledChannels[channel];
+    if (data) {
+      buffer.copyToChannel(new Float32Array(data), channel, 0);
+    }
+  }
+
+  return AudioSample.fromAudioBuffer(buffer, timestampSeconds);
+}
+
+async function addClickSoundSamples(
+  audioSource: AudioSampleSource,
+  timestampSeconds: number,
+  clickSound: LoadedClickSound,
+  sampleRate: number,
+  numberOfChannels: number,
+) {
+  const samples = createClickAudioSamples(clickSound, timestampSeconds, sampleRate, numberOfChannels);
+  for (const sample of samples) {
+    try {
+      await audioSource.add(sample);
+    } finally {
+      sample.close();
+    }
+  }
+}
+
 async function loadAudioAsset(filePath: string): Promise<LoadedAudioAsset | null> {
   const response = await fetch(`media://${filePath}`);
   if (!response.ok) {
@@ -95,8 +346,6 @@ async function cloneSampleWindow(
   clipStartSeconds: number,
   clipEndSeconds: number,
   timelineStartSeconds: number,
-  clickTimestampsSec: readonly number[],
-  clickPcmCache: Map<number, Float32Array>,
 ): Promise<AudioSample[]> {
   const sampleStart = sample.timestamp;
   const sampleEnd = sample.timestamp + sample.duration;
@@ -106,20 +355,9 @@ async function cloneSampleWindow(
     return [];
   }
 
-  const outputStartSec = timelineStartSeconds + (overlapStart - clipStartSeconds);
-  const fullPass = overlapStart <= sampleStart && overlapEnd >= sampleEnd;
-  const sampleDuration = sampleEnd - sampleStart;
-  const outputEndSec = outputStartSec + (fullPass ? sampleDuration : overlapEnd - overlapStart);
-
-  // Detect any clicks that intersect this output window. We need to expand
-  // the search left by the click duration to catch tails of earlier clicks.
-  const hasClickInWindow =
-    clickTimestampsSec.length > 0 &&
-    clickTimestampsSec.some((t) => t < outputEndSec && t > outputStartSec - 0.1);
-
-  if (fullPass && !hasClickInWindow) {
+  if (overlapStart <= sampleStart && overlapEnd >= sampleEnd) {
     const cloned = sample.clone();
-    cloned.setTimestamp(outputStartSec);
+    cloned.setTimestamp(timelineStartSeconds + (sampleStart - clipStartSeconds));
     return [cloned];
   }
 
@@ -148,36 +386,30 @@ async function cloneSampleWindow(
     trimmedBuffer.copyToChannel(source, channel, 0);
   }
 
-  if (hasClickInWindow) {
-    let clickPcm = clickPcmCache.get(trimmedBuffer.sampleRate);
-    if (!clickPcm) {
-      clickPcm = synthesizeClickPcm(trimmedBuffer.sampleRate);
-      clickPcmCache.set(trimmedBuffer.sampleRate, clickPcm);
-    }
-    for (let channel = 0; channel < trimmedBuffer.numberOfChannels; channel++) {
-      const data = trimmedBuffer.getChannelData(channel);
-      mixClicksIntoFloat32(data, clickPcm, trimmedBuffer.sampleRate, outputStartSec, clickTimestampsSec);
-      trimmedBuffer.copyToChannel(data, channel, 0);
-    }
-  }
-
-  return AudioSample.fromAudioBuffer(trimmedBuffer, outputStartSec);
+  return AudioSample.fromAudioBuffer(
+    trimmedBuffer,
+    timelineStartSeconds + (overlapStart - clipStartSeconds),
+  );
 }
 
 export async function addAudioTracksToOutput(
   project: ProjectDocument,
   output: Output,
   frameRate: number,
-  clickTimestampsSec: readonly number[] = [],
 ): Promise<(() => void) | null> {
   const segments = collectAudioExportSegments(project);
-  if (segments.length === 0) {
+  const cursorEventsByAssetId = await loadCursorEventsForClickSounds(project);
+  const clickSoundEvents = collectClickSoundExportEvents(project, cursorEventsByAssetId, frameRate);
+  const clickSound = clickSoundEvents.length > 0 ? await loadClickSoundAsset() : null;
+  if (segments.length === 0 && clickSoundEvents.length === 0) {
     return null;
   }
 
   const loadedAssets = new Map<string, LoadedAudioAsset>();
   let audioSource: AudioSampleSource | null = null;
-  const clickPcmCache = new Map<number, Float32Array>();
+  let audioSampleRate = DEFAULT_CLICK_SAMPLE_RATE;
+  let audioChannels = Math.max(1, clickSound?.channelData.length ?? 1);
+  let nextClickIndex = 0;
 
   try {
     for (const segment of segments) {
@@ -197,22 +429,16 @@ export async function addAudioTracksToOutput(
       }
 
       if (audioSource === null) {
-        const canEncodeAac = await canEncodeAudio('aac', {
-          numberOfChannels: audioTrack.numberOfChannels,
-          sampleRate: audioTrack.sampleRate,
-          bitrate: AUDIO_BITRATE,
-          bitrateMode: 'variable',
-        });
-        if (!canEncodeAac) {
+        audioSampleRate = audioTrack.sampleRate;
+        audioChannels = audioTrack.numberOfChannels;
+        audioSource = await createAudioSource(
+          output,
+          audioTrack.numberOfChannels,
+          audioTrack.sampleRate,
+        );
+        if (audioSource === null) {
           return null;
         }
-
-        audioSource = new AudioSampleSource({
-          codec: 'aac',
-          bitrate: AUDIO_BITRATE,
-          bitrateMode: 'variable',
-        });
-        output.addAudioTrack(audioSource);
       }
 
       const clipStartSeconds = segment.clip.sourceIn / frameRate;
@@ -226,11 +452,22 @@ export async function addAudioTracksToOutput(
             clipStartSeconds,
             clipEndSeconds,
             timelineStartSeconds,
-            clickTimestampsSec,
-            clickPcmCache,
           );
           for (const adjustedSample of adjustedSamples) {
             try {
+              while (
+                nextClickIndex < clickSoundEvents.length &&
+                clickSoundEvents[nextClickIndex]!.timestampSeconds <= adjustedSample.timestamp
+              ) {
+                await addClickSoundSamples(
+                  audioSource,
+                  clickSoundEvents[nextClickIndex]!.timestampSeconds,
+                  clickSound ?? { sampleRate: DEFAULT_CLICK_SAMPLE_RATE, channelData: [new Float32Array(0)] },
+                  audioSampleRate,
+                  audioChannels,
+                );
+                nextClickIndex += 1;
+              }
               await audioSource.add(adjustedSample);
             } finally {
               adjustedSample.close();
@@ -240,6 +477,24 @@ export async function addAudioTracksToOutput(
           sample.close();
         }
       }
+    }
+
+    if (audioSource === null && clickSoundEvents.length > 0) {
+      audioChannels = Math.max(1, clickSound?.channelData.length ?? 1);
+      audioSource = await createAudioSource(output, audioChannels, DEFAULT_CLICK_SAMPLE_RATE);
+      audioSampleRate = DEFAULT_CLICK_SAMPLE_RATE;
+      if (audioSource === null) return null;
+    }
+
+    while (audioSource !== null && nextClickIndex < clickSoundEvents.length) {
+      await addClickSoundSamples(
+        audioSource,
+        clickSoundEvents[nextClickIndex]!.timestampSeconds,
+        clickSound ?? { sampleRate: DEFAULT_CLICK_SAMPLE_RATE, channelData: [new Float32Array(0)] },
+        audioSampleRate,
+        audioChannels,
+      );
+      nextClickIndex += 1;
     }
   } catch (error) {
     for (const loaded of loadedAssets.values()) {

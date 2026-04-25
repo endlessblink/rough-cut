@@ -5,16 +5,19 @@
  * Edit stay on the same render path, while Record-specific cursor and focal
  * point overlays continue to layer above it.
  */
-import React, { useRef, useEffect, useCallback, useState } from 'react';
-import { useProjectStore, useTransportStore } from '../../hooks/use-stores.js';
+import React, { useRef, useEffect, useCallback, useMemo, useState } from 'react';
+import { transportStore, useProjectStore } from '../../hooks/use-stores.js';
 import type { ZoomMarker, ZoomMarkerId } from '@rough-cut/project-model';
 import { getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
 import { CursorOverlay } from '../../components/CursorOverlay.js';
 import type { CursorFrameData } from '../../components/CursorOverlay.js';
 import { buildCursorFrameData } from '../../components/cursor-data-loader.js';
+import {
+  buildClickFrameTimeline,
+  useClickSoundPlayback,
+} from '../../hooks/use-click-sound-playback.js';
 import { useCursorEvents } from '../../hooks/use-cursor-events.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
-import { useClickSoundPlayback } from '../../hooks/use-click-sound-playback.js';
 import { inferCursorEventsPath, resolveProjectMediaPath } from '../../lib/media-sidecars.js';
 
 interface RecordingPlaybackVideoProps {
@@ -71,7 +74,6 @@ export function RecordingPlaybackVideo({
     clickEffect: 'ripple' as const,
     sizePercent: 100,
     clickSoundEnabled: false,
-    motionBlur: 0,
   };
 
   const assetDuration = asset?.duration || 900;
@@ -84,6 +86,20 @@ export function RecordingPlaybackVideo({
   // before this fix.
   const cursorEventsFps =
     (asset?.metadata?.cursorEventsFps as number | undefined) ?? 60;
+  // Wall-clock ms the cursor recorder ran ahead of the file's first frame
+  // (FFmpeg startup gap on Linux/X11). Persisted by capture-service. Convert
+  // to event-frame units so the loader can subtract it from each event's
+  // frame index. Legacy takes default to 0 — they relied on the prior
+  // MediaRecorder rebase, which was the best alignment available then.
+  //
+  // Reject implausibly large stored values: anything above 500 ms is almost
+  // certainly a save-time bug (e.g., the early version of computeCursorEvents
+  // LeadMs that conflated FFmpeg frame drops with startup gap and persisted
+  // 2000 ms shifts that wiped the first 2 s of cursor data). This guard lets
+  // already-saved projects recover without a re-record.
+  const rawLeadMs = (asset?.metadata?.cursorEventsLeadMs as number | undefined) ?? 0;
+  const cursorEventsLeadMs = rawLeadMs > 0 && rawLeadMs <= 500 ? rawLeadMs : 0;
+  const cursorEventsLeadFrames = Math.round((cursorEventsLeadMs * cursorEventsFps) / 1000);
   const cursorPath = inferCursorEventsPath(
     resolveProjectMediaPath(asset?.filePath ?? null, projectFilePath),
     asset?.metadata?.cursorEventsPath as string | null,
@@ -104,6 +120,7 @@ export function RecordingPlaybackVideo({
       assetHeight,
       cursorEventsFps,
       projectFps,
+      cursorEventsLeadFrames,
     );
     console.info(
       '[RecordingPlaybackVideo] Cursor overlay ready:',
@@ -111,10 +128,18 @@ export function RecordingPlaybackVideo({
       'frames,',
       cursorEvents.length,
       'events,',
-      `eventsFps=${cursorEventsFps} projectFps=${projectFps}`,
+      `eventsFps=${cursorEventsFps} projectFps=${projectFps} leadFrames=${cursorEventsLeadFrames}`,
     );
     setCursorData(data);
-  }, [cursorEvents, assetDuration, assetWidth, assetHeight, cursorEventsFps, projectFps]);
+  }, [
+    cursorEvents,
+    assetDuration,
+    assetWidth,
+    assetHeight,
+    cursorEventsFps,
+    projectFps,
+    cursorEventsLeadFrames,
+  ]);
 
   useEffect(() => {
     setCursorFrameData(assetId, cursorData);
@@ -123,39 +148,83 @@ export function RecordingPlaybackVideo({
     };
   }, [assetId, cursorData, setCursorFrameData]);
 
-  const isPlaying = useTransportStore((s) => s.isPlaying);
-  const playheadFrame = useTransportStore((s) => s.playheadFrame);
+  const [isPlaying, setIsPlaying] = useState(() => transportStore.getState().isPlaying);
+  const [pausedPlayheadFrame, setPausedPlayheadFrame] = useState(
+    () => transportStore.getState().playheadFrame,
+  );
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const syncVisibility = (frame: number) => {
+      if (!rootRef.current) return;
+      const visible = clipTimelineOut > 0 && frame >= clipTimelineIn && frame < clipTimelineOut;
+      rootRef.current.style.visibility = visible ? 'visible' : 'hidden';
+    };
+
+    syncVisibility(transportStore.getState().playheadFrame);
+
+    return transportStore.subscribe((state, previousState) => {
+      if (state.isPlaying !== previousState.isPlaying) {
+        setIsPlaying(state.isPlaying);
+      }
+      if (state.playheadFrame !== previousState.playheadFrame) {
+        syncVisibility(state.playheadFrame);
+      }
+      if (!state.isPlaying && state.playheadFrame !== previousState.playheadFrame) {
+        setPausedPlayheadFrame(state.playheadFrame);
+      }
+    });
+  }, [clipTimelineIn, clipTimelineOut]);
+
+  const playheadFrame = pausedPlayheadFrame;
   const inRange =
     clipTimelineOut > 0 && playheadFrame >= clipTimelineIn && playheadFrame < clipTimelineOut;
+  const clickFrames = useMemo(
+    () => buildClickFrameTimeline(cursorEvents, cursorEventsFps, projectFps, clipTimelineIn),
+    [clipTimelineIn, cursorEvents, cursorEventsFps, projectFps],
+  );
 
   useClickSoundPlayback({
-    cursorEvents,
-    cursorEventsFps,
-    projectFps,
-    clipTimelineIn,
-    playheadFrame,
-    isPlaying: isPlaying && inRange,
     enabled: cursorPresentation.clickSoundEnabled,
+    clickFrames,
+    isPlaying,
   });
 
-  const zt =
-    zoomMarkers.length > 0
-      ? getZoomTransformAtFrame(playheadFrame - clipTimelineIn, zoomMarkers, {
-          followCursor: asset?.presentation?.zoom?.followCursor ?? true,
-          followAnimation: asset?.presentation?.zoom?.followAnimation ?? 'focused',
-          followPadding: asset?.presentation?.zoom?.followPadding ?? 0.18,
-          getCursorPosition: (frame) => {
-            if (!cursorData) return null;
-            const clampedFrame = Math.max(0, Math.min(frame, cursorData.frameCount - 1));
-            const idx = clampedFrame * 3;
-            if (idx + 1 >= cursorData.frames.length) return null;
-            const x = cursorData.frames[idx] ?? -1;
-            const y = cursorData.frames[idx + 1] ?? -1;
-            if (x < 0 || y < 0) return null;
-            return { x, y };
-          },
-        })
-      : { scale: 1, translateX: 0, translateY: 0 };
+  const getCursorPosition = useCallback(
+    (frame: number, data: CursorFrameData | null = cursorData) => {
+      if (!data) return null;
+      const clampedFrame = Math.max(0, Math.min(frame, data.frameCount - 1));
+      const idx = clampedFrame * 3;
+      if (idx + 1 >= data.frames.length) return null;
+      const x = data.frames[idx] ?? -1;
+      const y = data.frames[idx + 1] ?? -1;
+      if (x < 0 || y < 0) return null;
+      return { x, y };
+    },
+    [cursorData],
+  );
+
+  const getZoomTransformForFrame = useCallback(
+    (sourceFrame: number, data: CursorFrameData | null = cursorData) => {
+      if (zoomMarkers.length === 0) return { scale: 1, translateX: 0, translateY: 0 };
+      return getZoomTransformAtFrame(sourceFrame, zoomMarkers, {
+        followCursor: asset?.presentation?.zoom?.followCursor ?? true,
+        followAnimation: asset?.presentation?.zoom?.followAnimation ?? 'focused',
+        followPadding: asset?.presentation?.zoom?.followPadding ?? 0.18,
+        getCursorPosition: (frame) => getCursorPosition(frame, data),
+      });
+    },
+    [
+      asset?.presentation?.zoom?.followAnimation,
+      asset?.presentation?.zoom?.followCursor,
+      asset?.presentation?.zoom?.followPadding,
+      cursorData,
+      getCursorPosition,
+      zoomMarkers,
+    ],
+  );
+
+  const zt = getZoomTransformForFrame(playheadFrame - clipTimelineIn);
 
   const reticleVisible =
     !!selectedZoomMarker &&
@@ -165,6 +234,7 @@ export function RecordingPlaybackVideo({
 
   return (
     <div
+      ref={rootRef}
       style={{
         position: 'absolute',
         inset: 0,
@@ -200,8 +270,8 @@ export function RecordingPlaybackVideo({
         presentation={cursorPresentation}
         clipTimelineIn={clipTimelineIn}
         zoomTransform={zt}
+        getZoomTransform={getZoomTransformForFrame}
         crop={asset?.presentation?.screenCrop}
-        fps={fps}
       />
       {reticleVisible && selectedZoomMarker && onFocalPointChange && (
         <FocalPointReticle
