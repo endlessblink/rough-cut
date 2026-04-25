@@ -83,10 +83,19 @@ export async function loadPlaybackFixture(
 
   await navigateToTab(page, tab);
 
-  await page.waitForFunction((selector) => {
-    const video = document.querySelector(selector) as HTMLVideoElement | null;
-    return video?.getAttribute('data-ready') === 'true';
-  }, '[data-testid="recording-playback-video"]');
-
   await expect(page.locator('[data-testid="recording-playback-canvas"]')).toBeVisible();
+  await page.waitForSelector('[data-testid="recording-playback-video"]', {
+    timeout: 30_000,
+    state: 'attached',
+  });
+  await expect
+    .poll(
+      async () =>
+        page.evaluate((selector) => {
+          const video = document.querySelector(selector) as HTMLElement | null;
+          return video?.getAttribute('data-ready') ?? null;
+        }, '[data-testid="recording-playback-video"]'),
+      { timeout: 10_000 },
+    )
+    .toBe('true');
 }

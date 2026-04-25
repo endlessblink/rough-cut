@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { readFile, unlink } from 'node:fs/promises';
 import type { Page } from '@playwright/test';
+import { navigateToTab } from './electron-app.js';
 
 export const ZOOM_FIXTURE_PROJECT_PATH =
   process.env.ROUGH_CUT_SESSION_PATH ??
@@ -82,8 +83,7 @@ export async function loadZoomFixture(
     },
   );
 
-  await page.locator('[data-testid="tab-record"]').click();
-  await page.waitForSelector('[data-testid="record-tab-root"]', { timeout: 30_000 });
+  await navigateToTab(page, 'record');
 
   await page.waitForFunction(
     () =>

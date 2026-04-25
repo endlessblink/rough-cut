@@ -324,7 +324,10 @@ test.describe('Zoom markers — Record tab', () => {
           __roughcutStores?: { transport: { setState: StoreSetState } };
         }
       ).__roughcutStores;
-      stores?.transport.setState({ playheadFrame: 5 });
+      // The zoom fixture hides the camera from frame 4 onward via a persisted
+      // visibility segment, so keep the playhead inside the zoom marker but
+      // before the hidden-camera range when asserting frame shrink.
+      stores?.transport.setState({ playheadFrame: 2 });
     });
     await appPage.waitForTimeout(100);
 

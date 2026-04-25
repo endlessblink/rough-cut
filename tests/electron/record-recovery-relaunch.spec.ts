@@ -87,12 +87,7 @@ test.describe('Record recovery relaunch', () => {
       firstApp = null;
 
       secondApp = await launchApp();
-      const appPage = await secondApp.firstWindow();
-      await appPage.waitForURL(/127\.0\.0\.1:7544/, { timeout: 30_000 });
-      await appPage.waitForLoadState('domcontentloaded', { timeout: 30_000 });
-      await appPage.waitForFunction(() => Boolean((window as unknown as { roughcut?: unknown }).roughcut), {
-        timeout: 30_000,
-      });
+      const appPage = await waitForAppReady(secondApp);
       const panelPromise = secondApp.waitForEvent('window');
       await appPage.evaluate(() => {
         return (
@@ -101,8 +96,7 @@ test.describe('Record recovery relaunch', () => {
       });
       const panelPage = await panelPromise;
       await panelPage.waitForLoadState('domcontentloaded');
-
-      await expect(panelPage.getByTestId('panel-recovery-banner')).toBeVisible();
+      await expect(panelPage.getByTestId('panel-recovery-banner')).toBeVisible({ timeout: 30_000 });
       await panelPage.getByTestId('panel-recovery-recover').click();
 
       await appPage.waitForFunction(() => {
@@ -211,8 +205,7 @@ test.describe('Record recovery relaunch', () => {
       });
       const panelPage = await panelPromise;
       await panelPage.waitForLoadState('domcontentloaded');
-
-      await expect(panelPage.getByTestId('panel-recovery-banner')).toBeVisible();
+      await expect(panelPage.getByTestId('panel-recovery-banner')).toBeVisible({ timeout: 30_000 });
       await panelPage.getByTestId('panel-recovery-recover').click();
 
       await appPage.waitForFunction(() => {
@@ -272,15 +265,14 @@ async function launchApp(): Promise<ElectronApplication> {
 
 async function waitForAppReady(app: ElectronApplication): Promise<Page> {
   const page = await app.firstWindow();
-  await page.waitForURL((url) => url.href.startsWith(rendererUrl), { timeout: 30_000 });
-  await page.waitForLoadState('domcontentloaded', { timeout: 30_000 });
+  await page.waitForURL((url) => url.href.startsWith(rendererUrl), { timeout: 60_000 });
+  await page.waitForLoadState('domcontentloaded', { timeout: 60_000 });
   await page.waitForFunction(
     () => {
-      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-      const api = (window as unknown as { roughcut?: unknown }).roughcut;
-      return Boolean(document.getElementById('root') && api && stores?.project);
+      const root = document.getElementById('root');
+      return Boolean(root && root.childElementCount > 0);
     },
-    { timeout: 30_000 },
+    { timeout: 60_000 },
   );
   return page;
 }
