@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PreviewCompositor } from '@rough-cut/preview-renderer';
-import { projectStore } from './use-stores.js';
+import { projectStore, transportStore } from './use-stores.js';
 import { getPlaybackManager } from './use-playback-manager.js';
 
 // Module-level singletons — survive tab switches
@@ -20,11 +20,24 @@ function ensureCompositor(): void {
         sharedCompositor?.setProject(state.project);
       });
 
+      // Wire transport store -> compositor (preview volume / mute)
+      transportStore.subscribe((state, prev) => {
+        if (state.previewVolume !== prev.previewVolume) {
+          sharedCompositor?.setPlaybackVolume(state.previewVolume);
+        }
+        if (state.previewMuted !== prev.previewMuted) {
+          sharedCompositor?.setPlaybackMuted(state.previewMuted);
+        }
+      });
+
       // Register compositor with PlaybackManager (single owner of playback)
       getPlaybackManager().registerCompositor(sharedCompositor!);
 
       // Apply current state
       sharedCompositor?.setProject(projectStore.getState().project);
+      const transport = transportStore.getState();
+      sharedCompositor?.setPlaybackVolume(transport.previewVolume);
+      sharedCompositor?.setPlaybackMuted(transport.previewMuted);
     });
   }
 }

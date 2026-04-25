@@ -156,6 +156,8 @@ export class PreviewCompositor {
   private lastRenderedFrame = -1;
   private lastRenderedProject: ProjectDocument | null = null;
   private _playing = false;
+  private _playbackVolume = 1;
+  private _playbackMuted = false;
   private lastLoggedPrimaryPlaybackAssetId: string | null = null;
   private preferredPlaybackAssetId: string | null = null;
   private cursorDataByAssetId: Map<string, { frames: Float32Array; frameCount: number }> =
@@ -289,7 +291,8 @@ export class PreviewCompositor {
         video
           .play()
           .then(() => {
-            video.muted = false;
+            video.volume = this._playbackVolume;
+            video.muted = this._playbackMuted;
           })
           .catch((e) => {
             console.error('[compositor] play() FAILED:', e);
@@ -309,6 +312,25 @@ export class PreviewCompositor {
       if (vc.texture?.source) {
         (vc.texture.source as VideoSource).autoUpdate = false;
       }
+    }
+  }
+
+  /** Set playback monitor volume (0–1). Buffered for videos not yet loaded. */
+  setPlaybackVolume(volume: number): void {
+    const v = Math.min(1, Math.max(0, volume));
+    this._playbackVolume = v;
+    for (const vc of this.videoCache.values()) {
+      vc.video.volume = v;
+    }
+  }
+
+  /** Mute/unmute playback monitor. Buffered for videos not yet loaded. */
+  setPlaybackMuted(muted: boolean): void {
+    this._playbackMuted = muted;
+    for (const vc of this.videoCache.values()) {
+      // Only override videos that have entered playback (post-unmute).
+      // Videos still in the muted-autoplay phase (loaded=false) stay muted regardless.
+      if (vc.loaded) vc.video.muted = muted;
     }
   }
 
@@ -365,6 +387,12 @@ export class PreviewCompositor {
     this.config.width = width;
     this.config.height = height;
     this.app?.renderer.resize(width, height);
+    // PixiJS overwrites inline styles after renderer.resize(); re-assert !important fill.
+    const canvas = this.app?.canvas as HTMLCanvasElement | undefined;
+    if (canvas?.style) {
+      canvas.style.cssText =
+        'position:absolute !important;inset:0 !important;width:100% !important;height:100% !important;display:block !important;';
+    }
     this.renderCurrentFrame(true);
   }
 
@@ -534,7 +562,8 @@ export class PreviewCompositor {
             video
               .play()
               .then(() => {
-                video.muted = false;
+                video.volume = this._playbackVolume;
+                video.muted = this._playbackMuted;
               })
               .catch(() => {});
             videoSource.autoUpdate = true;
