@@ -109,3 +109,25 @@ test('TASK-197: resumeNotificationsAfterRecording runs in transitionToIdle', () 
       'Without this, the suspend leaks across sessions.',
   );
 });
+
+test('recording shutdown stops capture resources even when already stopping', () => {
+  const alreadyStoppingBranch = SOURCE.match(
+    /if \(state === 'recording'\) \{[\s\S]*?await stopActiveCaptureResources\(\);[\s\S]*?\} else \{([\s\S]*?)\n\s*\}/,
+  );
+
+  assert.ok(
+    alreadyStoppingBranch,
+    'expected requestSessionShutdown() to handle both recording and already-stopping states.',
+  );
+  assert.match(
+    alreadyStoppingBranch[1],
+    /await stopActiveCaptureResources\(\)/,
+    'when state is already stopping, shutdown must still stop FFmpeg/cursor capture before fallback import. ' +
+      'Otherwise panel reload/HMR during stop can complete without importing the take.',
+  );
+  assert.match(
+    SOURCE,
+    /let captureResourcesStopped = false;/,
+    'stopActiveCaptureResources() should be guarded so duplicate stop requests remain safe.',
+  );
+});

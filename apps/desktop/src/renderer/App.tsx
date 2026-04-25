@@ -81,6 +81,33 @@ function useShellOnlyMode(): boolean {
   return new URLSearchParams(window.location.search).get('shell-only') === '1';
 }
 
+function getSeedRecordingPresentation(
+  project: ProjectDocument,
+  activeAssetId: string | null | undefined,
+) {
+  const activeAsset = activeAssetId
+    ? project.assets.find((asset) => asset.id === activeAssetId) ?? null
+    : null;
+  if (activeAsset?.type === 'recording' && activeAsset.presentation) {
+    return activeAsset.presentation;
+  }
+  if (activeAsset?.metadata?.isCamera) {
+    const pairedRecording = project.assets.find(
+      (asset) => asset.type === 'recording' && asset.cameraAssetId === activeAsset.id,
+    );
+    if (pairedRecording?.presentation) {
+      return pairedRecording.presentation;
+    }
+  }
+  for (let index = project.assets.length - 1; index >= 0; index -= 1) {
+    const asset = project.assets[index];
+    if (asset?.type === 'recording' && asset.presentation) {
+      return asset.presentation;
+    }
+  }
+  return project.settings.recordingDefaults ?? null;
+}
+
 export function App() {
   const [projectName, setProjectName] = useState('Untitled Project');
   const [activeTab, setActiveTab] = useState<TabId>(() => getInitialTab());
@@ -347,12 +374,16 @@ export function App() {
     }
 
     const defaultPresentation = createDefaultRecordingPresentation();
+    const seedPresentation = getSeedRecordingPresentation(preStore.project, preStore.activeAssetId);
     const truthFirstPresentation = {
       ...defaultPresentation,
-      templateId: cameraAssetId ? 'screen-cam-br-16x9' : 'screen-only-16x9',
+      ...(seedPresentation ?? {}),
+      templateId:
+        seedPresentation?.templateId ?? (cameraAssetId ? 'screen-cam-br-16x9' : 'screen-only-16x9'),
       camera: {
         ...defaultPresentation.camera,
-        visible: Boolean(cameraAssetId),
+        ...(seedPresentation?.camera ?? {}),
+        visible: cameraAssetId ? (seedPresentation?.camera?.visible ?? true) : false,
       },
       ...(generatedZoom ? { zoom: generatedZoom } : {}),
     };
@@ -372,6 +403,10 @@ export function App() {
         // project's timeline fps for new takes (recorder runs at that rate);
         // explicit field lets the loader rescale legacy / off-rate sidecars.
         cursorEventsFps: result.cursorEventsFps ?? timelineFps,
+        // Wall-clock ms the cursor recorder ran longer than the captured
+        // file (FFmpeg startup gap on Linux/X11). Loader subtracts this from
+        // each event's timestamp so cursor[N] aligns with file frame N.
+        cursorEventsLeadMs: result.cursorEventsLeadMs ?? 0,
         audioCapture: result.audioCapture ?? null,
       },
       presentation: truthFirstPresentation,

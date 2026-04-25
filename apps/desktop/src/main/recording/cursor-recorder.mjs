@@ -36,6 +36,8 @@ export class CursorRecorder {
   #offsetX = 0;
   /** @type {number} */
   #offsetY = 0;
+  /** @type {number | null} */
+  #stopTimeMs = null;
 
   #pushEvent(event) {
     this.#events.push(event);
@@ -114,6 +116,7 @@ export class CursorRecorder {
     this.#frameRate = frameRate;
     this.#outputPath = outputPath;
     this.#startTime = Date.now();
+    this.#stopTimeMs = null;
     this.#lastMoveFrame = -1;
     this.#offsetX = Number.isFinite(captureBounds.offsetX) ? captureBounds.offsetX : 0;
     this.#offsetY = Number.isFinite(captureBounds.offsetY) ? captureBounds.offsetY : 0;
@@ -160,6 +163,9 @@ export class CursorRecorder {
   stop() {
     if (!this.#recording) return null;
 
+    // Capture stop wall-clock first so getDurationMs() reflects the actual
+    // recording window (used to compute the FFmpeg-startup gap at save time).
+    this.#stopTimeMs = Date.now();
     this.#recording = false;
 
     if (!this.#outputPath || this.#events.length === 0) {
@@ -205,6 +211,19 @@ export class CursorRecorder {
       .filter(e => e !== null);
 
     console.info('[CursorRecorder] Rebased start time, delta:', newStartTimeMs - oldStart, 'ms, events:', this.#events.length);
+  }
+
+  /**
+   * Effective recorder duration in milliseconds: stopTime − startTime, where
+   * startTime reflects the most recent rebase (e.g. MediaRecorder.start). The
+   * session manager subtracts file.durationMs from this to derive the residual
+   * FFmpeg startup gap and persist it as `cursorEventsLeadMs` on the asset.
+   * @returns {number}
+   */
+  getDurationMs() {
+    if (!this.#startTime) return 0;
+    const stop = this.#stopTimeMs ?? Date.now();
+    return Math.max(0, stop - this.#startTime);
   }
 
   /**

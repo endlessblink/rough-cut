@@ -220,6 +220,7 @@ let pendingAudioConfig = {
   selectedMicDeviceId: null,
   selectedMicLabel: null,
   selectedSystemAudioSourceId: null,
+  systemAudioGainPercent: 100,
 };
 
 let activeAudioCapturePlan = {
@@ -229,6 +230,7 @@ let activeAudioCapturePlan = {
 
 let stopCompletion = null;
 let shutdownPromise = null;
+let captureResourcesStopped = false;
 let panelDestroyInProgress = false;
 let allowAppQuit = false;
 let testHooks = null;
@@ -504,6 +506,12 @@ function transitionToIdle() {
 }
 
 async function stopActiveCaptureResources() {
+  if (captureResourcesStopped) {
+    _cleanup();
+    return;
+  }
+  captureResourcesStopped = true;
+
   const testStopActiveCaptureResources = getTestHook('stopActiveCaptureResources');
   if (testStopActiveCaptureResources) {
     await testStopActiveCaptureResources();
@@ -836,7 +844,7 @@ async function requestSessionShutdown(reason, options = {}) {
         });
         await stopActiveCaptureResources();
       } else {
-        _cleanup();
+        await stopActiveCaptureResources();
       }
 
       if (IS_LINUX && isWindowAlive(panelWindow)) {
@@ -1544,6 +1552,7 @@ export async function startRecording() {
     state = 'recording';
     broadcastConnectionIssues(null);
     recordingStartMs = Date.now();
+    captureResourcesStopped = false;
     console.info(
       '[session-manager] Recording phase started. Platform:',
       process.platform,
@@ -1670,6 +1679,7 @@ export async function startRecording() {
         console.info('[session-manager] Audio sources for FFmpeg:', {
           micSource,
           systemAudioSource,
+          systemAudioGainPercent: pendingAudioConfig.systemAudioGainPercent,
         });
 
         try {
@@ -1681,6 +1691,7 @@ export async function startRecording() {
             height: sourceInfo.height,
             micSource,
             systemAudioSource,
+            systemAudioGainPercent: pendingAudioConfig.systemAudioGainPercent,
           });
           ffmpegOutputPath = ffmpegPath;
           console.info(
@@ -1708,6 +1719,7 @@ export async function startRecording() {
           outputPath: audioPath,
           micSource,
           systemAudioSource,
+          systemAudioGainPercent: pendingAudioConfig.systemAudioGainPercent,
         });
         if (ffmpegAudioHandle) {
           ffmpegAudioOutputPath = audioPath;
@@ -1903,6 +1915,7 @@ export function __resetSessionManagerForTests() {
   activeAudioCapturePlan = { micSource: null, systemAudioSource: null };
   stopCompletion = null;
   shutdownPromise = null;
+  captureResourcesStopped = false;
   panelDestroyInProgress = false;
   allowAppQuit = false;
   pauseCapability = getRecordingPauseCapability({ capturesCursor: true });
@@ -2033,6 +2046,7 @@ export function initSessionManager(win, sourceInfoGetter) {
       selectedMicDeviceId: audioConfig?.selectedMicDeviceId ?? null,
       selectedMicLabel: audioConfig?.selectedMicLabel ?? null,
       selectedSystemAudioSourceId: audioConfig?.selectedSystemAudioSourceId ?? null,
+      systemAudioGainPercent: audioConfig?.systemAudioGainPercent ?? 100,
     };
     console.info('[session-manager] Recording config from panel:', pendingAudioConfig);
     await startRecording();
@@ -2097,11 +2111,15 @@ export function initSessionManager(win, sourceInfoGetter) {
         // metadata.timelineFps as a hardcoded fallback. Override with the
         // value the session manager actually used to start the cursor
         // recorder so duration math and cursor lookup share one frame rate.
+        // Also forward the cursor recorder's effective wall-clock duration so
+        // capture-service can derive `cursorEventsLeadMs` (the residual
+        // FFmpeg startup gap) by subtracting the probed file duration.
         if (metadata && typeof metadata === 'object') {
           metadata = {
             ...metadata,
             timelineFps: currentTimelineFps,
             cursorEventsFps: currentTimelineFps,
+            cursorRecorderDurationMs: cursorRecorder.getDurationMs(),
           };
         }
 

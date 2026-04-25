@@ -66,4 +66,65 @@ describe('buildCursorFrameData fps rescaling', () => {
     );
     expect(data.frames[30 * 3]).toBeCloseTo(960 / 1920, 5);
   });
+
+  it('subtracts eventsLeadFrames so cursor[0] aligns with file frame 0', () => {
+    // Linux/X11 case: cursor recorder ran 200 ms before FFmpeg's first
+    // captured frame. At fps=60 that's 12 lead frames. An event recorded at
+    // wall-clock t=200ms (frame 12) was actually captured at file-time t=0,
+    // so it must end up in cursor[0] — not cursor[12].
+    const data = buildCursorFrameData(
+      [
+        { frame: 12, x: 100, y: 200, type: 'move', button: 0 },
+        { frame: 72, x: 300, y: 400, type: 'move', button: 0 },
+      ],
+      120,
+      1920,
+      1080,
+      60,
+      60,
+      12,
+    );
+    expect(data.frames[0]).toBeCloseTo(100 / 1920, 5);
+    expect(data.frames[1]).toBeCloseTo(200 / 1080, 5);
+    // The frame-72 event lands at frame 60 after the 12-frame shift.
+    expect(data.frames[60 * 3]).toBeCloseTo(300 / 1920, 5);
+  });
+
+  it('drops events whose original frame falls inside the lead window', () => {
+    // Events captured during the FFmpeg-startup gap correspond to wall-clock
+    // moments BEFORE the file's first frame — they should not render at all.
+    const data = buildCursorFrameData(
+      [
+        { frame: 5, x: 100, y: 200, type: 'down', button: 1 }, // dropped (inside lead)
+        { frame: 30, x: 500, y: 600, type: 'move', button: 0 },
+      ],
+      120,
+      1920,
+      1080,
+      60,
+      60,
+      10,
+    );
+    // frame 30 - 10 = 20 ⇒ position written at index 20.
+    expect(data.frames[20 * 3]).toBeCloseTo(500 / 1920, 5);
+    // The dropped down-click event's click flag must NOT appear at frame -5
+    // (it's negative) and must NOT appear at the only known frame either.
+    expect(data.frames[20 * 3 + 2]).toBe(0);
+  });
+
+  it('combines lead-shift and fps rescale correctly', () => {
+    // 60Hz cursor sampling, 30fps project, 200ms lead (12 cursor frames).
+    // Event at recording frame 72 → after shift -12 = 60 → after rescale
+    // *0.5 = project frame 30.
+    const data = buildCursorFrameData(
+      [{ frame: 72, x: 800, y: 400, type: 'move', button: 0 }],
+      120,
+      1920,
+      1080,
+      60,
+      30,
+      12,
+    );
+    expect(data.frames[30 * 3]).toBeCloseTo(800 / 1920, 5);
+  });
 });

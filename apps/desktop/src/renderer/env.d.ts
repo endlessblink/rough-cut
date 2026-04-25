@@ -271,6 +271,7 @@ export interface RoughCutAPI {
     selectedMicDeviceId?: string | null;
     selectedMicLabel?: string | null;
     selectedSystemAudioSourceId?: string | null;
+    systemAudioGainPercent?: number;
   }): Promise<void>;
   panelStopRecording(): Promise<void>;
   panelReportConnectionIssues(issues: RecordingSessionConnectionIssues | null): void;

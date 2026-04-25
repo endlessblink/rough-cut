@@ -262,7 +262,7 @@ const api = {
   },
 
   /** Start recording (triggers countdown in session manager).
-   *  @param {{ micEnabled?: boolean, sysAudioEnabled?: boolean, countdownSeconds?: number, selectedMicDeviceId?: string | null, selectedMicLabel?: string | null, selectedSystemAudioSourceId?: string | null }} [audioConfig] */
+   *  @param {{ micEnabled?: boolean, sysAudioEnabled?: boolean, countdownSeconds?: number, selectedMicDeviceId?: string | null, selectedMicLabel?: string | null, selectedSystemAudioSourceId?: string | null, systemAudioGainPercent?: number }} [audioConfig] */
   panelStartRecording: (audioConfig) =>
     ipcRenderer.invoke(IPC_CHANNELS.PANEL_START_RECORDING, audioConfig),
 

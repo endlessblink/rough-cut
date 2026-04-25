@@ -111,6 +111,24 @@ test('cursor sync: RECORDING_SET_TIMELINE_FPS handler exists and assigns current
   );
 });
 
+test('cursor sync: PANEL_SAVE_RECORDING forwards cursorRecorderDurationMs for FFmpeg-gap correction', () => {
+  // Without this, capture-service can't compute `cursorEventsLeadMs` and
+  // the renderer loader has nothing to subtract — the constant ~150-300 ms
+  // FFmpeg startup gap reappears as cursor lag during playback.
+  const channelLine = LINES.findIndex((line) =>
+    /IPC_CHANNELS\.PANEL_SAVE_RECORDING\b/.test(line) && !/^\s*\/\//.test(line),
+  );
+  assert.notEqual(channelLine, -1, 'expected an IPC_CHANNELS.PANEL_SAVE_RECORDING reference.');
+
+  const body = LINES.slice(channelLine, channelLine + 60).join('\n');
+  assert.match(
+    body,
+    /cursorRecorderDurationMs\s*:\s*cursorRecorder\.getDurationMs\(\)/,
+    'PANEL_SAVE_RECORDING handler must forward cursorRecorder.getDurationMs() as ' +
+      'metadata.cursorRecorderDurationMs so capture-service can derive cursorEventsLeadMs.',
+  );
+});
+
 test('cursor sync: PANEL_SAVE_RECORDING overrides metadata.timelineFps and cursorEventsFps', () => {
   // The handler is split across multiple lines (`ipcMain.handle(\n  IPC_CHANNELS.PANEL_SAVE_RECORDING,\n  ...`).
   // Anchor on the channel reference and verify it sits inside an ipcMain.handle invocation.
