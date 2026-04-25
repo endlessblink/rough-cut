@@ -1,5 +1,6 @@
 // @ts-check
 import { uIOhook } from 'uiohook-napi';
+import { screen } from 'electron';
 import { writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { mkdirSync, existsSync } from 'node:fs';
@@ -31,27 +32,24 @@ export class CursorRecorder {
   /** @type {boolean} */
   #recording = false;
   /** @type {number} */
-  #lastMoveFrame = -1;
-  /** @type {number} */
   #offsetX = 0;
   /** @type {number} */
   #offsetY = 0;
 
   #pushEvent(event) {
     this.#events.push(event);
-    if (event.type === 'move') {
-      this.#lastMoveFrame = event.frame;
-    }
   }
 
   constructor() {
     // Register listeners once — they check #recording internally
     uIOhook.on('mousemove', /** @param {import('uiohook-napi').UiohookMouseEvent} e */ (e) => {
       if (!this.#recording) return;
-      const frame = this.#currentFrame();
-      if (frame === this.#lastMoveFrame) return;
+      // Push every event — the loader is last-wins for position so
+      // cursor[N] ends up holding the LATEST mouse position in the frame
+      // window instead of the first. Cuts up to one frame period of
+      // intra-frame staleness for free.
       this.#pushEvent({
-        frame,
+        frame: this.#currentFrame(),
         x: e.x - this.#offsetX,
         y: e.y - this.#offsetY,
         type: 'move',
@@ -114,7 +112,6 @@ export class CursorRecorder {
     this.#frameRate = frameRate;
     this.#outputPath = outputPath;
     this.#startTime = Date.now();
-    this.#lastMoveFrame = -1;
     this.#offsetX = Number.isFinite(captureBounds.offsetX) ? captureBounds.offsetX : 0;
     this.#offsetY = Number.isFinite(captureBounds.offsetY) ? captureBounds.offsetY : 0;
     this.#recording = true;
@@ -207,14 +204,53 @@ export class CursorRecorder {
    *
    * Re-indexes already-captured events the same way `rebaseStartTime` does;
    * any event whose new frame is negative is dropped.
+   *
+   * If the rebase leaves frame 0 with no event (typical: the original
+   * frame-0 seed had absolute time before newStartTimeMs and got filtered),
+   * inject a fresh seed using the live OS cursor position. Without this the
+   * loader's "fill-before-first-known" logic would paint the first surviving
+   * event's position across cursor[0..firstEventFrame] — visually a wrong-
+   * place teleport at the start of playback.
    */
   setStartTime(newStartTimeMs) {
     if (!this.#recording) return;
     if (!this.#startTime) {
       this.#startTime = newStartTimeMs;
+      this.#seedInitialPositionIfMissing();
       return;
     }
     this.#applyStartTime(newStartTimeMs, '[CursorRecorder] Set start time');
+    this.#seedInitialPositionIfMissing();
+  }
+
+  #seedInitialPositionIfMissing() {
+    const hasFrameZero = this.#events.some((e) => e.frame === 0);
+    if (hasFrameZero) return;
+    let point;
+    try {
+      point = screen.getCursorScreenPoint();
+    } catch (err) {
+      console.warn(
+        '[CursorRecorder] screen.getCursorScreenPoint() unavailable for seed:',
+        err?.message ?? err,
+      );
+      return;
+    }
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+    const seeded = {
+      frame: 0,
+      x: point.x - this.#offsetX,
+      y: point.y - this.#offsetY,
+      type: /** @type {'move'} */ ('move'),
+      button: 0,
+    };
+    // Push at the front so frame 0 sorts first (loader sorts by frame anyway,
+    // so order doesn't strictly matter — keeping it deterministic for tests).
+    this.#events.unshift(seeded);
+    console.info(
+      '[CursorRecorder] Re-seeded initial position at frame 0:',
+      `(${seeded.x},${seeded.y})`,
+    );
   }
 
   #applyStartTime(newStartTimeMs, logTag) {

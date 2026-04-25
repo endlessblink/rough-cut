@@ -216,6 +216,9 @@ let activeRecoveryMarker = null;
 /** @type {{ projectName?: string | null, projectFilePath?: string | null, projectSnapshotPath?: string | null, projectSnapshotTakenAt?: string | null } | null} */
 let pendingRecoveryContext = null;
 
+/** @type {{ mainBounds?: import('electron').Rectangle | null, panelBounds?: import('electron').Rectangle | null } | null} */
+let preCaptureWindowRestoreState = null;
+
 /** @type {(() => { sourceId: string, display: string, width: number, height: number, offsetX?: number, offsetY?: number } | null) | null} */
 let getSourceInfo = null;
 
@@ -459,9 +462,11 @@ async function resolveProjectDir() {
 
   try {
     const { getRecordingLocation } = await import('../recent-projects-service.mjs');
-    return getRecordingLocation() || null;
+    const configuredLocation = getRecordingLocation();
+    if (configuredLocation) return configuredLocation;
+    return join(app.getPath('documents'), 'Rough Cut');
   } catch {
-    return null;
+    return join(app.getPath('documents'), 'Rough Cut');
   }
 }
 
@@ -506,6 +511,8 @@ function transitionToIdle() {
 
   // [TASK-197] Restore the user's notification daemon if we suspended it.
   void resumeNotificationsAfterRecording();
+
+  restoreRoughCutWindowBounds();
 
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show();
@@ -1156,6 +1163,74 @@ function findDisplayOutsideCapture(captureBounds) {
     console.warn('[session-manager] findDisplayOutsideCapture failed:', err?.message ?? err);
   }
   return null;
+}
+
+function getCurrentCaptureBounds() {
+  const sourceInfo = getSourceInfo?.();
+  if (!sourceInfo) return null;
+  return {
+    x: sourceInfo.offsetX ?? 0,
+    y: sourceInfo.offsetY ?? 0,
+    width: sourceInfo.width ?? 0,
+    height: sourceInfo.height ?? 0,
+  };
+}
+
+function moveWindowToDisplay(window, display) {
+  if (!window || window.isDestroyed() || !display) return false;
+  try {
+    const bounds = window.getBounds();
+    const width = Math.min(bounds.width, display.workArea.width);
+    const height = Math.min(bounds.height, display.workArea.height);
+    const x = Math.round(display.workArea.x + (display.workArea.width - width) / 2);
+    const y = Math.round(display.workArea.y + (display.workArea.height - height) / 2);
+    window.setBounds({ x, y, width, height });
+    return true;
+  } catch (err) {
+    console.warn('[session-manager] moveWindowToDisplay failed:', err?.message ?? err);
+    return false;
+  }
+}
+
+function moveRoughCutWindowsOffCapture() {
+  if (process.platform !== 'linux') return;
+  const captureBounds = getCurrentCaptureBounds();
+  const safeDisplay = findDisplayOutsideCapture(captureBounds);
+  if (!safeDisplay) {
+    preCaptureWindowRestoreState = null;
+    return;
+  }
+
+  const restoreState = {};
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    restoreState.mainBounds = mainWindow.getBounds();
+    if (moveWindowToDisplay(mainWindow, safeDisplay)) {
+      console.info('[session-manager][pre-capture] Main window moved off capture display.');
+    }
+  }
+  if (panelWindow && !panelWindow.isDestroyed()) {
+    restoreState.panelBounds = panelWindow.getBounds();
+    if (moveWindowToDisplay(panelWindow, safeDisplay)) {
+      console.info('[session-manager][pre-capture] Panel window moved off capture display.');
+    }
+  }
+  preCaptureWindowRestoreState = restoreState;
+}
+
+function restoreRoughCutWindowBounds() {
+  if (!preCaptureWindowRestoreState) return;
+  try {
+    if (mainWindow && !mainWindow.isDestroyed() && preCaptureWindowRestoreState.mainBounds) {
+      mainWindow.setBounds(preCaptureWindowRestoreState.mainBounds);
+    }
+    if (panelWindow && !panelWindow.isDestroyed() && preCaptureWindowRestoreState.panelBounds) {
+      panelWindow.setBounds(preCaptureWindowRestoreState.panelBounds);
+    }
+  } catch (err) {
+    console.warn('[session-manager] restoreRoughCutWindowBounds failed:', err?.message ?? err);
+  } finally {
+    preCaptureWindowRestoreState = null;
+  }
 }
 
 const STOP_PILL_WIDTH = 180;
