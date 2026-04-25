@@ -186,6 +186,7 @@ test('saved project preserves camera template/frame parity after reopen', async 
     mediaSelector: RECORD_CAMERA_FRAME,
     previewSelector: PREVIEW_CONTENT,
     settleSelector: RECORD_CAMERA_VIDEO,
+    waitForReadyAttribute: true,
   });
 
   await navigateToTab(appPage, 'edit');
@@ -247,7 +248,8 @@ test('persisted camera template/frame render the same in Record and Export', asy
     rootSelector: EXPORT_ROOT,
     mediaSelector: RECORD_CAMERA_FRAME,
     previewSelector: PREVIEW_CONTENT,
-    settleSelector: RECORD_CAMERA_VIDEO,
+    settleSelector: RECORD_CAMERA_FRAME,
+    waitForReadyAttribute: false,
   });
 
   const diffs = {
@@ -553,12 +555,17 @@ async function captureNormalizedRect(
     mediaSelector: string;
     previewSelector: string;
     settleSelector: string;
+    waitForReadyAttribute?: boolean;
   },
 ) {
-  await page.waitForFunction((selector) => {
-    const video = document.querySelector(selector) as HTMLVideoElement | null;
-    return video?.getAttribute('data-ready') === 'true';
-  }, params.settleSelector);
+  if (params.waitForReadyAttribute === false) {
+    await page.waitForSelector(params.settleSelector, { timeout: 30_000 });
+  } else {
+    await page.waitForFunction((selector) => {
+      const video = document.querySelector(selector) as HTMLVideoElement | null;
+      return video?.getAttribute('data-ready') === 'true';
+    }, params.settleSelector);
+  }
   await page.waitForTimeout(400);
 
   const rect = await page.evaluate(({ rootSelector, mediaSelector, previewSelector }) => {

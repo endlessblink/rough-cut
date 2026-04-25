@@ -10,6 +10,23 @@ declare global {
   interface Window {
     __roughcutTestOverrides?: {
       exportOutputPath?: string;
+      pickDesktopExportOutputPath?: (
+        project: ProjectDocument,
+      ) => string | null | Promise<string | null>;
+      runDesktopExport?: (
+        project: ProjectDocument,
+        range: ExportFrameRange,
+        outputPath: string,
+        signal: AbortSignal,
+      ) => Promise<ExportResult | null>;
+      cancelDesktopExport?: () => Promise<void> | void;
+      storageGetRecordingLocation?: () => Promise<string>;
+      storageGetMountedVolumes?: () => Promise<Array<{ path: string; name: string }>>;
+      storageGetFavorites?: () => Promise<string[]>;
+      storageSetRecordingLocation?: (path: string) => Promise<void>;
+      storagePickDirectory?: () => Promise<string | null>;
+      storageAddFavorite?: (path: string) => Promise<void>;
+      storageRemoveFavorite?: (path: string) => Promise<void>;
     };
   }
 }
@@ -28,6 +45,10 @@ export interface ExportFrameRange {
 export async function pickDesktopExportOutputPath(
   project: ProjectDocument,
 ): Promise<string | null> {
+  const override = window.__roughcutTestOverrides?.pickDesktopExportOutputPath;
+  if (override) {
+    return await override(project);
+  }
   const settings = project.exportSettings;
   return (
     window.__roughcutTestOverrides?.exportOutputPath ??
@@ -38,6 +59,7 @@ export async function pickDesktopExportOutputPath(
 export async function cancelDesktopExport(): Promise<void> {
   activeExportAbortController?.abort();
   activeExportAbortController = null;
+  await window.__roughcutTestOverrides?.cancelDesktopExport?.();
   await window.roughcut.exportCancel();
 }
 
@@ -79,6 +101,15 @@ export async function runDesktopExport(
         totalFrames: project.composition.duration,
         durationMs: 0,
       };
+    }
+
+    const override = window.__roughcutTestOverrides?.runDesktopExport;
+    if (override) {
+      const result = await override(project, effectiveRange, outputPath, abortController.signal);
+      if (result) {
+        window.roughcut.exportEmitComplete(result);
+      }
+      return result;
     }
 
     if (!canUseWebCodecsExport(settings)) {

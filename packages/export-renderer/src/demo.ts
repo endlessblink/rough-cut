@@ -53,6 +53,7 @@ async function main(): Promise<void> {
     bitrate: 5_000_000,
     resolution: { width: 640, height: 360 },
     frameRate: 30,
+    keepClickSounds: true,
   };
 
   const outputPath = join(__dirname, '..', 'test-output.mp4');

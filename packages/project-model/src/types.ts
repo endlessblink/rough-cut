@@ -386,6 +386,7 @@ export interface ExportSettings {
   readonly bitrate: number;
   readonly resolution: Resolution;
   readonly frameRate: number;
+  readonly keepClickSounds: boolean;
 }
 
 export interface ProjectDocument {

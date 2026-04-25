@@ -182,6 +182,25 @@ const migrations: readonly Migration[] = [
       };
     },
   },
+  {
+    // v9 → v10: add ExportSettings.keepClickSounds (default true).
+    fromVersion: 9,
+    toVersion: 10,
+    migrate: (doc) => {
+      const exportSettings = (doc['exportSettings'] as Record<string, unknown> | undefined) ?? {};
+      return {
+        ...doc,
+        version: 10,
+        exportSettings: {
+          ...exportSettings,
+          keepClickSounds:
+            typeof exportSettings['keepClickSounds'] === 'boolean'
+              ? exportSettings['keepClickSounds']
+              : true,
+        },
+      };
+    },
+  },
 ];
 
 /**

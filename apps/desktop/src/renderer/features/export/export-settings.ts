@@ -3,6 +3,7 @@ import type { ProjectDocument } from '@rough-cut/project-model';
 type ExportSettingsWithLegacyBitrate = ProjectDocument['exportSettings'] & {
   videoBitrate?: unknown;
   crf?: unknown;
+  keepClickSounds?: unknown;
 };
 
 export function bitrateFromCrf(crf: number): number {
@@ -40,12 +41,18 @@ export function resolveExportBitrate(settings: ExportSettingsWithLegacyBitrate):
 
 export function normalizeExportSettings<T extends ExportSettingsWithLegacyBitrate>(settings: T): T {
   const bitrate = resolveExportBitrate(settings);
-  if (bitrate === null || bitrate === settings.bitrate) {
+  const keepClickSounds =
+    typeof settings.keepClickSounds === 'boolean' ? settings.keepClickSounds : true;
+  const bitrateChanged = bitrate !== null && bitrate !== settings.bitrate;
+  const clickSoundsChanged = keepClickSounds !== settings.keepClickSounds;
+
+  if (!bitrateChanged && !clickSoundsChanged) {
     return settings;
   }
 
   return {
     ...settings,
-    bitrate,
+    ...(bitrateChanged ? { bitrate } : {}),
+    keepClickSounds,
   };
 }

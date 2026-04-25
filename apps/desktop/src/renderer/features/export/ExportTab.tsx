@@ -566,6 +566,22 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
               : job,
           ),
         );
+      } else {
+        setExportJobs((jobs) =>
+          jobs.map((job) =>
+            job.id === nextJob.id
+              ? {
+                  ...job,
+                  status: mapExportResultToJobStatus(result),
+                  progress: result.status === 'complete' ? 100 : job.progress,
+                  progressLabel: getResultLabel(result),
+                  error: result.status === 'failed' ? (result.error ?? 'Export failed') : null,
+                  outputFilePath:
+                    result.status === 'complete' ? (result.outputPath ?? job.outputPath) : null,
+                }
+              : job,
+          ),
+        );
       }
     } finally {
       activeJobIdRef.current = null;
@@ -982,6 +998,57 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
             </div>
           </div>
 
+          <div>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: 'rgba(255,255,255,0.68)',
+                marginBottom: 8,
+              }}
+            >
+              Audio Extras
+            </div>
+            <button
+              data-testid="export-keep-click-sounds-toggle"
+              onClick={() =>
+                patchExportSettings({ keepClickSounds: !normalizedExportSettings.keepClickSounds })
+              }
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                borderRadius: 10,
+                border: '1px solid rgba(255,255,255,0.08)',
+                background: normalizedExportSettings.keepClickSounds
+                  ? 'rgba(255,255,255,0.08)'
+                  : 'rgba(255,255,255,0.03)',
+                color: 'rgba(255,255,255,0.86)',
+                fontSize: 12,
+                fontFamily: 'inherit',
+                padding: '10px 12px',
+                cursor: 'pointer',
+              }}
+            >
+              <span>Keep click sounds</span>
+              <span
+                style={{
+                  color: normalizedExportSettings.keepClickSounds
+                    ? 'rgba(255,255,255,0.92)'
+                    : 'rgba(255,255,255,0.50)',
+                }}
+              >
+                {normalizedExportSettings.keepClickSounds ? 'On' : 'Off'}
+              </span>
+            </button>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.52)', marginTop: 6 }}>
+              Keeps or strips synthesized cursor click SFX without changing the source take.
+            </div>
+          </div>
+
           <div
             style={{
               borderRadius: 10,
@@ -1118,6 +1185,8 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
                   return (
                     <div
                       key={job.id}
+                      data-testid="export-queue-item"
+                      data-status={job.status}
                       style={{
                         borderRadius: 10,
                         border: '1px solid rgba(255,255,255,0.08)',
@@ -1205,12 +1274,14 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
                       {job.status === 'complete' && resolvedOutputPath ? (
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button
+                            data-testid="export-queue-open"
                             onClick={() => void window.roughcut.shellOpenPath(resolvedOutputPath)}
                             style={miniActionStyle}
                           >
                             Open
                           </button>
                           <button
+                            data-testid="export-queue-folder"
                             onClick={() =>
                               void window.roughcut.shellShowItemInFolder(resolvedOutputPath)
                             }
@@ -1221,7 +1292,11 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
                         </div>
                       ) : null}
                       {canRemove ? (
-                        <button onClick={() => handleRemoveJob(job.id)} style={miniTextButtonStyle}>
+                        <button
+                          data-testid="export-queue-remove"
+                          onClick={() => handleRemoveJob(job.id)}
+                          style={miniTextButtonStyle}
+                        >
                           Remove
                         </button>
                       ) : null}

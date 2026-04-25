@@ -320,6 +320,7 @@ export const ExportSettingsSchema = z.object({
   bitrate: z.number().positive(),
   resolution: ResolutionSchema,
   frameRate: z.number().positive(),
+  keepClickSounds: z.boolean().default(true),
 });
 
 // --- AI Annotations ---

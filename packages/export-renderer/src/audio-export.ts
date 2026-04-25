@@ -85,7 +85,7 @@ export function collectClickSoundExportEvents(
   cursorEventsByAssetId: ReadonlyMap<string, readonly { frame: number; type: string }[]>,
   frameRate: number,
 ): ClickSoundExportEvent[] {
-  if (frameRate <= 0) return [];
+  if (frameRate <= 0 || project.exportSettings.keepClickSounds === false) return [];
 
   const assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
   const cameraAssetIds = getCameraAssetIds(project);
@@ -128,6 +128,10 @@ export function collectClickSoundExportEvents(
 
 async function loadCursorEventsForClickSounds(project: ProjectDocument) {
   const result = new Map<string, readonly { frame: number; type: string }[]>();
+
+  if (project.exportSettings.keepClickSounds === false) {
+    return result;
+  }
 
   await Promise.all(
     project.assets.map(async (asset) => {

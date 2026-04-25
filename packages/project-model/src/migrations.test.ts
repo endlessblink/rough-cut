@@ -244,4 +244,31 @@ describe('migrations', () => {
     expect(clip?.keyframes).toEqual([]);
     expect(clip?.transform).toBeDefined();
   });
+
+  it('backfills exportSettings.keepClickSounds on legacy v9 saves', () => {
+    const project = createProject();
+    const { keepClickSounds: _drop, ...legacyExport } = project.exportSettings;
+    const legacy = {
+      ...project,
+      version: 9,
+      exportSettings: legacyExport,
+    };
+
+    const result = migrate(legacy);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    expect(result.exportSettings.keepClickSounds).toBe(true);
+  });
+
+  it('preserves an existing keepClickSounds=false on v9 -> v10', () => {
+    const project = createProject();
+    const legacy = {
+      ...project,
+      version: 9,
+      exportSettings: { ...project.exportSettings, keepClickSounds: false },
+    };
+
+    const result = migrate(legacy);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    expect(result.exportSettings.keepClickSounds).toBe(false);
+  });
 });

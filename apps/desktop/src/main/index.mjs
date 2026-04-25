@@ -73,6 +73,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const WORKSPACE_ROOT = resolve(__dirname, '../../../..');
 const DEFAULT_RUNTIME_LOG_PATH = join(WORKSPACE_ROOT, '.logs', 'app-runtime.log');
+const CLICK_SOUND_ASSET_PATH = join(WORKSPACE_ROOT, 'aseets', 'mouse-click-1.wav');
+const CLICK_SOUND_SAMPLE_RATE = 48_000;
+
+function getRendererBaseUrl() {
+  return (process.env.ROUGH_CUT_RENDERER_URL ?? 'http://127.0.0.1:7544').replace(/\/+$/, '');
+}
+
+function getRendererUrl(path = '/') {
+  const baseUrl = getRendererBaseUrl();
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${baseUrl}${normalizedPath}`;
+}
 
 let runtimeLogMirrorInstalled = false;
 let runtimeLogStream = null;
@@ -847,11 +859,214 @@ async function hasPrimaryAudioStream(filePath) {
   }
 }
 
+function parsePcm16Wav(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const readTag = (offset) =>
+    String.fromCharCode(
+      view.getUint8(offset),
+      view.getUint8(offset + 1),
+      view.getUint8(offset + 2),
+      view.getUint8(offset + 3),
+    );
+
+  if (bytes.byteLength < 44 || readTag(0) !== 'RIFF' || readTag(8) !== 'WAVE') {
+    throw new Error('Unsupported click sound WAV file');
+  }
+
+  let offset = 12;
+  let channels = 0;
+  let sampleRate = 0;
+  let bitsPerSample = 0;
+  let dataOffset = -1;
+  let dataSize = 0;
+
+  while (offset + 8 <= view.byteLength) {
+    const chunkId = readTag(offset);
+    const chunkSize = view.getUint32(offset + 4, true);
+    const chunkDataOffset = offset + 8;
+
+    if (chunkId === 'fmt ') {
+      const format = view.getUint16(chunkDataOffset, true);
+      channels = view.getUint16(chunkDataOffset + 2, true);
+      sampleRate = view.getUint32(chunkDataOffset + 4, true);
+      bitsPerSample = view.getUint16(chunkDataOffset + 14, true);
+      if (format !== 1) {
+        throw new Error(`Unsupported click sound WAV encoding: ${format}`);
+      }
+    } else if (chunkId === 'data') {
+      dataOffset = chunkDataOffset;
+      dataSize = chunkSize;
+      break;
+    }
+
+    offset = chunkDataOffset + chunkSize + (chunkSize % 2);
+  }
+
+  if (channels <= 0 || sampleRate <= 0 || bitsPerSample !== 16 || dataOffset < 0 || dataSize <= 0) {
+    throw new Error('Invalid click sound WAV metadata');
+  }
+
+  const frameCount = Math.floor(dataSize / (channels * 2));
+  const channelData = Array.from({ length: channels }, () => new Float32Array(frameCount));
+  let byteOffset = dataOffset;
+  for (let frame = 0; frame < frameCount; frame++) {
+    for (let channel = 0; channel < channels; channel++) {
+      channelData[channel][frame] = view.getInt16(byteOffset, true) / 32768;
+      byteOffset += 2;
+    }
+  }
+
+  return { sampleRate, channelData };
+}
+
+function parseCursorEventsNdjson(text) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter((event) => event && typeof event.frame === 'number' && typeof event.type === 'string');
+}
+
+async function loadCursorEventsForExportAsset(asset) {
+  const candidatePaths = [];
+  if (typeof asset?.metadata?.cursorEventsPath === 'string' && asset.metadata.cursorEventsPath.length > 0) {
+    candidatePaths.push(asset.metadata.cursorEventsPath);
+  }
+  if (asset?.filePath) {
+    candidatePaths.push(asset.filePath.replace(/\.(webm|mp4)$/i, '.cursor.ndjson'));
+  }
+
+  for (const path of candidatePaths) {
+    try {
+      const ndjson = await readFile(path, 'utf-8');
+      if (!ndjson.trim()) continue;
+      return parseCursorEventsNdjson(ndjson);
+    } catch {}
+  }
+
+  return [];
+}
+
+async function buildExportClickTrack(project, outputPath, range, frameRate) {
+  if (project?.exportSettings?.keepClickSounds === false || frameRate <= 0) {
+    return null;
+  }
+
+  const assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
+  const cameraAssetIds = new Set(
+    project.assets
+      .map((asset) => asset.cameraAssetId)
+      .filter((assetId) => typeof assetId === 'string' && assetId.length > 0),
+  );
+  const rangeStartFrame = range?.startFrame ?? 0;
+  const rangeEndFrame = range?.endFrame ?? project.composition.duration;
+  const clickEvents = [];
+
+  for (const track of project.composition.tracks) {
+    if (!track.visible || track.type !== 'video') continue;
+
+    for (const clip of track.clips) {
+      if (!clip.enabled || clip.timelineOut <= clip.timelineIn) continue;
+      const asset = assetsById.get(clip.assetId);
+      if (!asset || !asset.presentation?.cursor?.clickSoundEnabled) continue;
+      if (cameraAssetIds.has(asset.id) || asset.metadata?.isCamera === true) continue;
+      if (asset.type !== 'recording' && asset.type !== 'video') continue;
+
+      const cursorEvents = await loadCursorEventsForExportAsset(asset);
+      if (cursorEvents.length === 0) continue;
+      const eventsFps = typeof asset.metadata?.cursorEventsFps === 'number' ? asset.metadata.cursorEventsFps : 60;
+      if (eventsFps <= 0) continue;
+
+      for (const event of cursorEvents) {
+        if (event.type !== 'down') continue;
+        const sourceProjectFrame = Math.round((event.frame / eventsFps) * frameRate);
+        if (sourceProjectFrame < clip.sourceIn || sourceProjectFrame >= clip.sourceOut) continue;
+
+        const timelineFrame = clip.timelineIn + (sourceProjectFrame - clip.sourceIn);
+        if (
+          timelineFrame < clip.timelineIn ||
+          timelineFrame >= clip.timelineOut ||
+          timelineFrame < rangeStartFrame ||
+          timelineFrame >= rangeEndFrame
+        ) {
+          continue;
+        }
+
+        clickEvents.push((timelineFrame - rangeStartFrame) / frameRate);
+      }
+    }
+  }
+
+  if (clickEvents.length === 0) {
+    return null;
+  }
+
+  const clickBytes = await readFile(CLICK_SOUND_ASSET_PATH);
+  const clickSound = parsePcm16Wav(clickBytes);
+  const waveform = clickSound.channelData[0] ?? new Float32Array(0);
+  if (waveform.length === 0) {
+    return null;
+  }
+
+  const selectedDurationSeconds = Math.max(0, (rangeEndFrame - rangeStartFrame) / frameRate);
+  const totalFrames = Math.max(
+    1,
+    Math.ceil(selectedDurationSeconds * CLICK_SOUND_SAMPLE_RATE) + waveform.length,
+  );
+  const mixed = new Float32Array(totalFrames);
+
+  for (const timestampSeconds of clickEvents.sort((left, right) => left - right)) {
+    const startFrame = Math.max(0, Math.round(timestampSeconds * CLICK_SOUND_SAMPLE_RATE));
+    for (let i = 0; i < waveform.length && startFrame + i < mixed.length; i++) {
+      mixed[startFrame + i] += waveform[i];
+    }
+  }
+
+  const pcm = Buffer.allocUnsafe(mixed.length * 2);
+  for (let i = 0; i < mixed.length; i++) {
+    const sample = Math.max(-1, Math.min(1, mixed[i]));
+    const int16 = sample < 0 ? Math.round(sample * 32768) : Math.round(sample * 32767);
+    pcm.writeInt16LE(int16, i * 2);
+  }
+
+  const header = Buffer.alloc(44);
+  const dataSize = pcm.length;
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write('WAVE', 8, 'ascii');
+  header.write('fmt ', 12, 'ascii');
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(CLICK_SOUND_SAMPLE_RATE, 24);
+  header.writeUInt32LE(CLICK_SOUND_SAMPLE_RATE * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(dataSize, 40);
+
+  const clickTrackPath = `${outputPath}.click-sounds.wav`;
+  await writeFile(clickTrackPath, Buffer.concat([header, pcm]));
+  return clickTrackPath;
+}
+
 async function finalizeExportMedia(project, videoPath, outputPath, range) {
   const repairedProject = repairProjectMediaPaths(project);
   const segments = collectExportAudioSegments(repairedProject);
   const frameRate = repairedProject?.settings?.frameRate ?? 30;
   const usableSegments = [];
+  const clickTrackPath = await buildExportClickTrack(repairedProject, outputPath, range, frameRate);
+  const selectedDurationSeconds = Math.max(
+    0,
+    ((range?.endFrame ?? repairedProject.composition.duration) - (range?.startFrame ?? 0)) / frameRate,
+  );
 
   for (const segment of segments) {
     if (await hasPrimaryAudioStream(segment.asset.filePath)) {
@@ -859,7 +1074,7 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
     }
   }
 
-  if (usableSegments.length === 0) {
+  if (usableSegments.length === 0 && !clickTrackPath) {
     await rename(videoPath, outputPath);
     return { outputPath, audioIncluded: false };
   }
@@ -868,6 +1083,9 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
   const ffmpegArgs = ['-y', '-i', videoPath];
   for (const segment of usableSegments) {
     ffmpegArgs.push('-i', segment.asset.filePath);
+  }
+  if (clickTrackPath) {
+    ffmpegArgs.push('-i', clickTrackPath);
   }
 
   const filterParts = usableSegments
@@ -891,7 +1109,15 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
       return `[${index + 1}:a:0]atrim=start=${sourceStart}:end=${sourceEnd},asetpts=PTS-STARTPTS,adelay=${delayMs}:all=1[a${index}]`;
     })
     .filter(Boolean);
+  if (clickTrackPath) {
+    filterParts.push(
+      `[${usableSegments.length + 1}:a:0]atrim=start=0:end=${selectedDurationSeconds},asetpts=PTS-STARTPTS[a${usableSegments.length}]`,
+    );
+  }
   if (filterParts.length === 0) {
+    if (clickTrackPath) {
+      await unlink(clickTrackPath).catch(() => {});
+    }
     await rename(videoPath, outputPath);
     return { outputPath, audioIncluded: false };
   }
@@ -938,10 +1164,16 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
         reject(new Error(stderr || `ffmpeg exited with code ${code}`));
       });
     });
+    if (clickTrackPath) {
+      await unlink(clickTrackPath).catch(() => {});
+    }
     await unlink(videoPath).catch(() => {});
     await rename(tempOutputPath, outputPath);
     return { outputPath, audioIncluded: true };
   } catch {
+    if (clickTrackPath) {
+      await unlink(clickTrackPath).catch(() => {});
+    }
     await unlink(tempOutputPath).catch(() => {});
     await rename(videoPath, outputPath);
     return { outputPath, audioIncluded: false };
@@ -1062,27 +1294,27 @@ function createWindow() {
           ),
       );
     } else if (process.env.ROUGH_CUT_IMPORT_APP_ONLY === '1') {
-      mainWindow.loadURL('http://127.0.0.1:7544/?import-app-only=1');
+      mainWindow.loadURL(getRendererUrl('/?import-app-only=1'));
     } else if (process.env.ROUGH_CUT_MINIMAL_RENDER === '1') {
-      mainWindow.loadURL('http://127.0.0.1:7544/?minimal-render=1');
+      mainWindow.loadURL(getRendererUrl('/?minimal-render=1'));
     } else if (process.env.ROUGH_CUT_SHELL_ONLY === '1') {
-      mainWindow.loadURL('http://127.0.0.1:7544/?shell-only=1');
+      mainWindow.loadURL(getRendererUrl('/?shell-only=1'));
     } else if (process.env.ROUGH_CUT_RECORD_SHELL_ONLY === '1') {
-      mainWindow.loadURL('http://127.0.0.1:7544/?start-tab=record&record-shell-only=1');
+      mainWindow.loadURL(getRendererUrl('/?start-tab=record&record-shell-only=1'));
     } else if (process.env.ROUGH_CUT_RECORD_ULTRA_MINIMAL === '1') {
-      mainWindow.loadURL('http://127.0.0.1:7544/?start-tab=record&record-ultra-minimal=1');
+      mainWindow.loadURL(getRendererUrl('/?start-tab=record&record-ultra-minimal=1'));
     } else if (process.env.ROUGH_CUT_RECORD_STORE_ONLY === '1') {
-      mainWindow.loadURL('http://127.0.0.1:7544/?start-tab=record&record-store-only=1');
+      mainWindow.loadURL(getRendererUrl('/?start-tab=record&record-store-only=1'));
     } else if (process.env.ROUGH_CUT_RECORD_RUNTIME_HOOKS === '1') {
-      mainWindow.loadURL('http://127.0.0.1:7544/?start-tab=record&record-runtime-hooks=1');
+      mainWindow.loadURL(getRendererUrl('/?start-tab=record&record-runtime-hooks=1'));
     } else if (process.env.ROUGH_CUT_RECORD_CHROME_ONLY === '1') {
-      mainWindow.loadURL('http://127.0.0.1:7544/?start-tab=record&record-chrome-only=1');
+      mainWindow.loadURL(getRendererUrl('/?start-tab=record&record-chrome-only=1'));
     } else if (process.env.ROUGH_CUT_RECORD_WORKSPACE_ONLY === '1') {
-      mainWindow.loadURL('http://127.0.0.1:7544/?start-tab=record&record-workspace-only=1');
+      mainWindow.loadURL(getRendererUrl('/?start-tab=record&record-workspace-only=1'));
     } else if (process.env.ROUGH_CUT_START_TAB === 'record') {
-      mainWindow.loadURL('http://127.0.0.1:7544/?start-tab=record');
+      mainWindow.loadURL(getRendererUrl('/?start-tab=record'));
     } else {
-      mainWindow.loadURL('http://127.0.0.1:7544');
+      mainWindow.loadURL(getRendererUrl('/'));
     }
     // mainWindow.webContents.openDevTools({ mode: 'detach' });
     // Forward every renderer console message to the main-process stderr so
