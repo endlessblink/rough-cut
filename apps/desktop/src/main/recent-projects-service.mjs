@@ -67,6 +67,107 @@ function normalizeRecordingConfig(config) {
   };
 }
 
+export function createRecentProjectsService(store) {
+  return {
+    getRecentProjects() {
+      const all = store.get('recentProjects');
+      const valid = all.filter((entry) => existsSync(entry.filePath));
+      if (valid.length !== all.length) {
+        store.set('recentProjects', valid);
+      }
+      return valid;
+    },
+
+    addRecentProject({
+      filePath,
+      name,
+      modifiedAt,
+      resolution,
+      assetCount,
+      thumbnailPath,
+    }) {
+      const all = store.get('recentProjects');
+      const filtered = all.filter((e) => e.filePath !== filePath);
+      const updated = [
+        {
+          filePath,
+          name,
+          modifiedAt,
+          ...(resolution !== undefined && { resolution }),
+          ...(assetCount !== undefined && { assetCount }),
+          ...(thumbnailPath !== undefined && { thumbnailPath }),
+        },
+        ...filtered,
+      ].slice(0, MAX_RECENT);
+      store.set('recentProjects', updated);
+    },
+
+    removeRecentProject(filePath) {
+      const all = store.get('recentProjects');
+      store.set(
+        'recentProjects',
+        all.filter((e) => e.filePath !== filePath),
+      );
+    },
+
+    clearRecentProjects() {
+      store.set('recentProjects', []);
+    },
+
+    getRecordingLocation() {
+      const location = store.get('recordingLocation') || '';
+      if (location && !existsSync(location)) {
+        store.set('recordingLocation', '');
+        return '';
+      }
+      return location;
+    },
+
+    setRecordingLocation(path) {
+      store.set('recordingLocation', path);
+    },
+
+    getAutoZoomIntensity() {
+      const value = store.get('autoZoomIntensity');
+      if (typeof value === 'number' && value >= 0 && value <= 1) return value;
+      return 0.5;
+    },
+
+    setAutoZoomIntensity(intensity) {
+      store.set('autoZoomIntensity', intensity);
+    },
+
+    getFavoriteLocations() {
+      return store.get('favoriteLocations');
+    },
+
+    addFavoriteLocation(path) {
+      const favs = store.get('favoriteLocations');
+      if (!favs.includes(path)) {
+        store.set('favoriteLocations', [...favs, path]);
+      }
+    },
+
+    removeFavoriteLocation(path) {
+      const favs = store.get('favoriteLocations');
+      store.set(
+        'favoriteLocations',
+        favs.filter((f) => f !== path),
+      );
+    },
+
+    getRecordingConfig() {
+      const normalized = normalizeRecordingConfig(store.get('recordingConfig'));
+      store.set('recordingConfig', normalized);
+      return normalized;
+    },
+
+    setRecordingConfig(config) {
+      store.set('recordingConfig', normalizeRecordingConfig(config));
+    },
+  };
+}
+
 const schema = {
   recentProjects: {
     type: 'array',
@@ -112,7 +213,8 @@ const schema = {
   },
 };
 
-const store = new Store({ name: 'app-settings', schema });
+const store = new Store({ name: 'app-settings', projectName: 'rough-cut', schema });
+const service = createRecentProjectsService(store);
 
 /**
  * Get the list of recent projects. Stale entries (file no longer on disk) are
@@ -120,12 +222,7 @@ const store = new Store({ name: 'app-settings', schema });
  * @returns {Array<{filePath: string, name: string, modifiedAt: string, resolution?: string, assetCount?: number}>}
  */
 export function getRecentProjects() {
-  const all = store.get('recentProjects');
-  const valid = all.filter((entry) => existsSync(entry.filePath));
-  if (valid.length !== all.length) {
-    store.set('recentProjects', valid);
-  }
-  return valid;
+  return service.getRecentProjects();
 }
 
 /**
@@ -141,20 +238,14 @@ export function addRecentProject({
   assetCount,
   thumbnailPath,
 }) {
-  const all = store.get('recentProjects');
-  const filtered = all.filter((e) => e.filePath !== filePath);
-  const updated = [
-    {
-      filePath,
-      name,
-      modifiedAt,
-      ...(resolution !== undefined && { resolution }),
-      ...(assetCount !== undefined && { assetCount }),
-      ...(thumbnailPath !== undefined && { thumbnailPath }),
-    },
-    ...filtered,
-  ].slice(0, MAX_RECENT);
-  store.set('recentProjects', updated);
+  service.addRecentProject({
+    filePath,
+    name,
+    modifiedAt,
+    resolution,
+    assetCount,
+    thumbnailPath,
+  });
 }
 
 /**
@@ -162,18 +253,14 @@ export function addRecentProject({
  * @param {string} filePath
  */
 export function removeRecentProject(filePath) {
-  const all = store.get('recentProjects');
-  store.set(
-    'recentProjects',
-    all.filter((e) => e.filePath !== filePath),
-  );
+  service.removeRecentProject(filePath);
 }
 
 /**
  * Clear all recent projects.
  */
 export function clearRecentProjects() {
-  store.set('recentProjects', []);
+  service.clearRecentProjects();
 }
 
 /**
@@ -183,13 +270,7 @@ export function clearRecentProjects() {
  * @returns {string}
  */
 export function getRecordingLocation() {
-  const location = store.get('recordingLocation') || '';
-  // If the stored path doesn't exist, reset to default
-  if (location && !existsSync(location)) {
-    store.set('recordingLocation', '');
-    return '';
-  }
-  return location;
+  return service.getRecordingLocation();
 }
 
 /**
@@ -197,7 +278,7 @@ export function getRecordingLocation() {
  * @param {string} path
  */
 export function setRecordingLocation(path) {
-  store.set('recordingLocation', path);
+  service.setRecordingLocation(path);
 }
 
 /**
@@ -205,9 +286,7 @@ export function setRecordingLocation(path) {
  * @returns {number} Value between 0 and 1, default 0.5
  */
 export function getAutoZoomIntensity() {
-  const value = store.get('autoZoomIntensity');
-  if (typeof value === 'number' && value >= 0 && value <= 1) return value;
-  return 0.5;
+  return service.getAutoZoomIntensity();
 }
 
 /**
@@ -215,7 +294,7 @@ export function getAutoZoomIntensity() {
  * @param {number} intensity Value between 0 and 1
  */
 export function setAutoZoomIntensity(intensity) {
-  store.set('autoZoomIntensity', intensity);
+  service.setAutoZoomIntensity(intensity);
 }
 
 /**
@@ -223,7 +302,7 @@ export function setAutoZoomIntensity(intensity) {
  * @returns {string[]}
  */
 export function getFavoriteLocations() {
-  return store.get('favoriteLocations');
+  return service.getFavoriteLocations();
 }
 
 /**
@@ -231,10 +310,7 @@ export function getFavoriteLocations() {
  * @param {string} path
  */
 export function addFavoriteLocation(path) {
-  const favs = store.get('favoriteLocations');
-  if (!favs.includes(path)) {
-    store.set('favoriteLocations', [...favs, path]);
-  }
+  service.addFavoriteLocation(path);
 }
 
 /**
@@ -242,19 +318,15 @@ export function addFavoriteLocation(path) {
  * @param {string} path
  */
 export function removeFavoriteLocation(path) {
-  const favs = store.get('favoriteLocations');
-  store.set(
-    'favoriteLocations',
-    favs.filter((f) => f !== path),
-  );
+  service.removeFavoriteLocation(path);
 }
 
 export function getRecordingConfig() {
-  const normalized = normalizeRecordingConfig(store.get('recordingConfig'));
-  store.set('recordingConfig', normalized);
-  return normalized;
+  return service.getRecordingConfig();
 }
 
 export function setRecordingConfig(config) {
-  store.set('recordingConfig', normalizeRecordingConfig(config));
+  service.setRecordingConfig(config);
 }
+
+export { normalizeRecordingConfig };

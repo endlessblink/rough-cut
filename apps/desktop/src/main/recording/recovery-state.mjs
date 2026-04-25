@@ -1,7 +1,9 @@
-import { app } from 'electron';
+import electron from 'electron';
 import { join } from 'node:path';
 import { existsSync, statSync } from 'node:fs';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
+
+const { app } = electron;
 
 function getRecoveryFilePath() {
   return join(app.getPath('userData'), 'recording-recovery.json');
@@ -11,12 +13,13 @@ function toNonEmptyPath(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
-function getArtifactCandidate(filePath) {
+function getArtifactCandidate(filePath, deps = {}) {
+  const { existsSyncFn = existsSync, statSyncFn = statSync } = deps;
   const normalizedPath = toNonEmptyPath(filePath);
-  if (!normalizedPath || !existsSync(normalizedPath)) return null;
+  if (!normalizedPath || !existsSyncFn(normalizedPath)) return null;
 
   try {
-    const stats = statSync(normalizedPath);
+    const stats = statSyncFn(normalizedPath);
     if (!stats.isFile() || stats.size <= 0) return null;
     return {
       path: normalizedPath,
@@ -28,14 +31,14 @@ function getArtifactCandidate(filePath) {
   }
 }
 
-function normalizeRecordingRecoveryManifest(payload = {}) {
+export function normalizeRecordingRecoveryManifest(payload = {}, now = () => new Date().toISOString()) {
   const expectedArtifacts = payload.expectedArtifacts ?? {};
   return {
     version: 2,
     startedAt:
       typeof payload.startedAt === 'string' && payload.startedAt.trim().length > 0
         ? payload.startedAt
-        : new Date().toISOString(),
+        : now(),
     recordingsDir: toNonEmptyPath(payload.recordingsDir) ?? '',
     sourceId: toNonEmptyPath(payload.sourceId),
     recordMode: toNonEmptyPath(payload.recordMode),
@@ -69,15 +72,15 @@ function normalizeRecordingRecoveryManifest(payload = {}) {
   };
 }
 
-function buildActionableRecoveryState(manifest) {
+export function buildActionableRecoveryState(manifest, deps = {}) {
   if (!manifest || typeof manifest !== 'object') return null;
 
-  const normalized = normalizeRecordingRecoveryManifest(manifest);
-  const videoArtifact = getArtifactCandidate(normalized.expectedArtifacts.videoPath);
+  const normalized = normalizeRecordingRecoveryManifest(manifest, deps.now);
+  const videoArtifact = getArtifactCandidate(normalized.expectedArtifacts.videoPath, deps);
   if (!videoArtifact) return null;
 
-  const audioArtifact = getArtifactCandidate(normalized.expectedArtifacts.audioPath);
-  const cursorArtifact = getArtifactCandidate(normalized.expectedArtifacts.cursorPath);
+  const audioArtifact = getArtifactCandidate(normalized.expectedArtifacts.audioPath, deps);
+  const cursorArtifact = getArtifactCandidate(normalized.expectedArtifacts.cursorPath, deps);
 
   return {
     ...normalized,
@@ -93,32 +96,63 @@ function buildActionableRecoveryState(manifest) {
   };
 }
 
+export function createRecoveryStateService({
+  getRecoveryFilePath,
+  existsSyncFn = existsSync,
+  statSyncFn = statSync,
+  readFileFn = readFile,
+  writeFileFn = writeFile,
+  unlinkFn = unlink,
+  now = () => new Date().toISOString(),
+}) {
+  return {
+    async writeRecordingRecoveryMarker(payload) {
+      const data = normalizeRecordingRecoveryManifest(payload, now);
+      await writeFileFn(getRecoveryFilePath(), JSON.stringify(data, null, 2), 'utf-8');
+      return data;
+    },
+
+    async readRecordingRecoveryMarker() {
+      const filePath = getRecoveryFilePath();
+      if (!existsSyncFn(filePath)) return null;
+      try {
+        const raw = await readFileFn(filePath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        const recovery = buildActionableRecoveryState(parsed, {
+          existsSyncFn,
+          statSyncFn,
+          now,
+        });
+        if (recovery) return recovery;
+
+        await this.clearRecordingRecoveryMarker();
+        return null;
+      } catch {
+        await this.clearRecordingRecoveryMarker();
+        return null;
+      }
+    },
+
+    async clearRecordingRecoveryMarker() {
+      try {
+        await unlinkFn(getRecoveryFilePath());
+      } catch {
+        /* ignore */
+      }
+    },
+  };
+}
+
+const recoveryStateService = createRecoveryStateService({ getRecoveryFilePath });
+
 export async function writeRecordingRecoveryMarker(payload) {
-  const data = normalizeRecordingRecoveryManifest(payload);
-  await writeFile(getRecoveryFilePath(), JSON.stringify(data, null, 2), 'utf-8');
-  return data;
+  return recoveryStateService.writeRecordingRecoveryMarker(payload);
 }
 
 export async function readRecordingRecoveryMarker() {
-  const filePath = getRecoveryFilePath();
-  if (!existsSync(filePath)) return null;
-  try {
-    const raw = await readFile(filePath, 'utf-8');
-    const parsed = JSON.parse(raw);
-    const recovery = buildActionableRecoveryState(parsed);
-    if (recovery) return recovery;
-
-    await clearRecordingRecoveryMarker();
-    return null;
-  } catch {
-    return null;
-  }
+  return recoveryStateService.readRecordingRecoveryMarker();
 }
 
 export async function clearRecordingRecoveryMarker() {
-  try {
-    await unlink(getRecoveryFilePath());
-  } catch {
-    /* ignore */
-  }
+  return recoveryStateService.clearRecordingRecoveryMarker();
 }
