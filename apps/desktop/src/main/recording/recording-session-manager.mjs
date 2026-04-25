@@ -54,6 +54,71 @@ import {
 } from './ffmpeg-capture.mjs';
 import { discoverAudioSources, ensureSourceAudible } from './audio-sources.mjs';
 import { writeTrayIconFile, getTrayIconDir } from './tray-icon-file.mjs';
+import { spawn } from 'node:child_process';
+
+// ---------------------------------------------------------------------------
+// Notification daemon suspension (Linux) — TASK-197
+// ---------------------------------------------------------------------------
+// During screen recording on Linux, x11grab captures the entire X root window.
+// Any desktop notification (from Rough Cut OR any other app) gets baked into
+// the take. Best-effort pause the user's notification daemon for the session;
+// resume on stop. Tries dunst, mako, then GNOME's show-banners gsetting.
+// If none respond, we log and proceed — the user can disable notifications
+// manually. See TASK-198 for the structural Wayland/PipeWire migration.
+
+let notificationDaemonSuspended = false;
+
+function runSilent(cmd, args) {
+  return new Promise((resolve) => {
+    try {
+      const p = spawn(cmd, args, { stdio: 'ignore' });
+      p.on('close', (code) => resolve(code === 0));
+      p.on('error', () => resolve(false));
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+async function suspendNotificationsForRecording() {
+  if (process.platform !== 'linux' || notificationDaemonSuspended) return;
+  let handled = false;
+  if (await runSilent('dunstctl', ['set-paused', 'true'])) {
+    console.info('[session-manager] dunst paused for recording.');
+    handled = true;
+  }
+  if (!handled && (await runSilent('makoctl', ['mode', '-a', 'do-not-disturb']))) {
+    console.info('[session-manager] mako DND enabled for recording.');
+    handled = true;
+  }
+  if (
+    !handled &&
+    (await runSilent('gsettings', [
+      'set',
+      'org.gnome.desktop.notifications',
+      'show-banners',
+      'false',
+    ]))
+  ) {
+    console.info('[session-manager] GNOME banners disabled for recording.');
+    handled = true;
+  }
+  if (!handled) {
+    console.info(
+      '[session-manager] No notification daemon found to suspend — desktop notifications may bake into capture.',
+    );
+  }
+  notificationDaemonSuspended = handled;
+}
+
+async function resumeNotificationsAfterRecording() {
+  if (process.platform !== 'linux' || !notificationDaemonSuspended) return;
+  await runSilent('dunstctl', ['set-paused', 'false']);
+  await runSilent('makoctl', ['mode', '-r', 'do-not-disturb']);
+  await runSilent('gsettings', ['set', 'org.gnome.desktop.notifications', 'show-banners', 'true']);
+  notificationDaemonSuspended = false;
+  console.info('[session-manager] Notification daemons resumed.');
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -63,10 +128,23 @@ const PANEL_SETUP = { width: 500, height: 520 };
 const PANEL_MINI = { width: 340, height: 56 };
 
 // Single source of truth for screen-capture fps on the X11/FFmpeg path.
-// Mirrors the 60 Hz target advertised in getDisplayMedia constraints and must
-// match the cursor sidecar's frame rate — the Edit-side consumer indexes
-// cursor events directly into the video's frame array.
+// Mirrors the 60 Hz target advertised in getDisplayMedia constraints. The
+// cursor recorder is no longer locked to this — it samples at the project's
+// timeline frameRate (see currentTimelineFps below) so cursor[N] and
+// playheadFrame N share the same unit at lookup time.
 const TARGET_CAPTURE_FPS = 60;
+
+// Active project's timeline frame rate, published by the renderer via
+// IPC_CHANNELS.RECORDING_SET_TIMELINE_FPS whenever the project loads or
+// settings.frameRate changes. Default 30 matches the renderer fallback in
+// PanelApp.tsx and App.tsx.
+let currentTimelineFps = 30;
+
+function clampTimelineFps(fps) {
+  const n = Number(fps);
+  if (!Number.isFinite(n) || n <= 0 || n > 120) return currentTimelineFps;
+  return n;
+}
 
 // ---------------------------------------------------------------------------
 // State
@@ -385,7 +463,8 @@ function buildFallbackRecordingMetadata() {
     width: sourceInfo?.width ?? 1920,
     height: sourceInfo?.height ?? 1080,
     durationMs: getEffectiveElapsedMs(),
-    timelineFps: TARGET_CAPTURE_FPS,
+    timelineFps: currentTimelineFps,
+    cursorEventsFps: currentTimelineFps,
   };
 }
 
@@ -415,6 +494,9 @@ function transitionToIdle() {
   state = 'idle';
   broadcastConnectionIssues(null);
   broadcastSessionEvent(IPC_CHANNELS.RECORDING_SESSION_STATUS_CHANGED, 'idle');
+
+  // [TASK-197] Restore the user's notification daemon if we suspended it.
+  void resumeNotificationsAfterRecording();
 
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show();
@@ -1592,7 +1674,8 @@ export async function startRecording() {
         fps: TARGET_CAPTURE_FPS,
         width: sourceInfo?.width ?? null,
         height: sourceInfo?.height ?? null,
-        timelineFps: TARGET_CAPTURE_FPS,
+        timelineFps: currentTimelineFps,
+        cursorEventsFps: currentTimelineFps,
       },
       expectedArtifacts: {
         videoPath: ffmpegPath,
@@ -1601,9 +1684,13 @@ export async function startRecording() {
       },
     });
     try {
-      const fps = TARGET_CAPTURE_FPS;
+      // Cursor frames are indexed at the project's timeline fps so that
+      // cursor[playheadFrame] is a direct lookup at playback time. See the
+      // RECORDING_SET_TIMELINE_FPS handler below — currentTimelineFps is kept
+      // in sync with project.settings.frameRate by the renderer.
+      const cursorFps = currentTimelineFps;
       const initialPoint = screen.getCursorScreenPoint();
-      cursorRecorder.start(fps, cursorPath, {
+      cursorRecorder.start(cursorFps, cursorPath, {
         offsetX: sourceInfo?.offsetX ?? 0,
         offsetY: sourceInfo?.offsetY ?? 0,
         initialX: initialPoint?.x,
@@ -1611,6 +1698,36 @@ export async function startRecording() {
       });
     } catch (err) {
       console.warn('[session-manager] CursorRecorder failed to start:', err?.message ?? err);
+    }
+
+    // [TASK-197] Suspend the notification daemon so popups (Rough Cut's or any
+    // other app's) can't bake into the capture. Best-effort.
+    await suspendNotificationsForRecording();
+
+    // [TASK-197] Hide all Rough Cut UI BEFORE ffmpeg x11grab begins so the
+    // first frames don't capture the main preview / panel / camera PiP.
+    // Electron's `hide()` maps to async XUnmapWindow; we poll isVisible() then
+    // add a 200ms compositor-repaint margin (Mutter/KWin/Picom).
+    const hiddenWindows = [];
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+      mainWindow.hide();
+      hiddenWindows.push(['main', mainWindow]);
+      console.info('[session-manager][pre-capture] Main window hide() called.');
+    }
+    if (IS_LINUX && panelWindow && !panelWindow.isDestroyed() && panelWindow.isVisible()) {
+      panelWindow.hide();
+      hiddenWindows.push(['panel', panelWindow]);
+      console.info('[session-manager][pre-capture] Panel hide() called (Linux).');
+    }
+    {
+      const hideDeadline = Date.now() + 500;
+      while (Date.now() < hideDeadline) {
+        const stillVisible = hiddenWindows.filter(([, w]) => !w.isDestroyed() && w.isVisible());
+        if (stillVisible.length === 0) break;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      await new Promise((r) => setTimeout(r, 200));
+      console.info('[session-manager][pre-capture] Hide confirmed, starting ffmpeg.');
     }
 
     // Start FFmpeg x11grab capture (cursor-free) on Linux/X11
@@ -1680,40 +1797,18 @@ export async function startRecording() {
       }
     }
 
-    // Hide main window so it cannot appear in the recording.
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.hide();
-      console.info('[session-manager] Main window hidden.');
-    }
-
-    // On macOS/Windows: shrink to mini-controller (content-protected, invisible
-    // to capture).  On Linux: setContentProtection is a no-op, so hide the
-    // panel entirely. The visible stop control is the floating Stop pill
-    // (opened further below, only on Linux) placed on a display outside the
-    // captured region. Single-monitor captures get no visible stop control —
-    // the user relies on Ctrl+Shift+Esc and the notification.
+    // [TASK-197] Main window + panel are already hidden by the pre-capture
+    // block above, before ffmpeg started. On macOS/Windows: shrink to mini-
+    // controller (content-protected, invisible to capture). On Linux: panel
+    // stays hidden; setContentProtection is a no-op on X11 (Electron #12973),
+    // and the OS notification cannot be excluded from x11grab — both would
+    // bake into the take. Visible stop controls: Stop pill on a non-captured
+    // display (created below) + global Ctrl+Shift+Esc shortcut.
     if (IS_LINUX) {
-      if (panelWindow && !panelWindow.isDestroyed()) {
-        // TASK-182 (ongoing): hide() puts the renderer into Chromium's
-        // hidden-window path, which empirically stalls camera MediaStreamTrack
-        // frame delivery (OpenH264 observed ~0.01 fps input). Panel is created
-        // with `backgroundThrottling: false`, but that flag doesn't cover the
-        // MediaStream capture pipeline — verification still pending.
-        panelWindow.hide();
-        console.info('[session-manager] Panel hidden (Linux — no content protection).');
-      }
-      // Show a persistent notification so the user knows how to stop even when
-      // the Stop pill can't be shown (single-monitor capture).
-      const { Notification } = await import('electron');
-      if (Notification.isSupported()) {
-        const n = new Notification({
-          title: 'Rough Cut — Recording',
-          body: 'Press Ctrl+Shift+Esc to stop. Pause is unavailable for this pipeline.',
-          silent: true,
-        });
-        n.show();
-        console.info('[session-manager] Recording notification shown.');
-      }
+      // Deliberately not creating a Notification here — see TASK-197.
+      console.info(
+        '[session-manager] Skipped OS notification (Linux — would bake into x11grab capture).',
+      );
     } else {
       resizePanel('mini');
       console.info('[session-manager] Panel resized to mini-controller.');
@@ -2035,6 +2130,19 @@ export function initSessionManager(win, sourceInfoGetter) {
     }
   });
 
+  // Renderer publishes the active project's timeline frameRate so cursor
+  // sampling matches what the playback transport will use to look it up.
+  ipcMain.on(IPC_CHANNELS.RECORDING_SET_TIMELINE_FPS, (_event, payload) => {
+    const next = clampTimelineFps(payload?.fps);
+    if (next !== currentTimelineFps) {
+      currentTimelineFps = next;
+      console.info('[session-manager] Timeline fps set to', currentTimelineFps);
+      safeSend(panelWindow, IPC_CHANNELS.RECORDING_SET_TIMELINE_FPS, {
+        fps: currentTimelineFps,
+      });
+    }
+  });
+
   // Rebase cursor recorder start time to match the actual MediaRecorder start
   ipcMain.on(IPC_CHANNELS.PANEL_MEDIA_RECORDER_STARTED, (_event, { timestampMs }) => {
     if (state === 'recording') {
@@ -2055,6 +2163,18 @@ export function initSessionManager(win, sourceInfoGetter) {
         if (state !== 'stopping') {
           console.warn('[session-manager] Ignoring late panel save while state is', state);
           return null;
+        }
+
+        // The panel doesn't have access to the project store, so it ships
+        // metadata.timelineFps as a hardcoded fallback. Override with the
+        // value the session manager actually used to start the cursor
+        // recorder so duration math and cursor lookup share one frame rate.
+        if (metadata && typeof metadata === 'object') {
+          metadata = {
+            ...metadata,
+            timelineFps: currentTimelineFps,
+            cursorEventsFps: currentTimelineFps,
+          };
         }
 
         const projectDir = await resolveProjectDir();

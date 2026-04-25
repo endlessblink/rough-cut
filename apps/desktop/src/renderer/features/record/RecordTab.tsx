@@ -63,8 +63,9 @@ import {
   useRecordingDeviceOptions,
 } from './use-recording-device-options.js';
 import { RecordingPlaybackVideo } from './RecordingPlaybackVideo.js';
+import { CameraPlaybackCanvas } from './CameraPlaybackCanvas.js';
 import { LAYOUT_TEMPLATES, resolutionForAspectRatio } from './templates.js';
-import { inferCursorEventsPath } from '../../lib/media-sidecars.js';
+import { inferCursorEventsPath, resolveProjectMediaPath } from '../../lib/media-sidecars.js';
 import type { LayoutTemplate } from './templates.js';
 import type { Rect } from './template-layout/types.js';
 import type { Alignment } from './snap-guides.js';
@@ -169,6 +170,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const [sourceRecoveryMessage, setSourceRecoveryMessage] = useState<string | null>(null);
   const [countdownSeconds, setCountdownSeconds] = useState(0);
   const [isSourcePickerOpen, setIsSourcePickerOpen] = useState(false);
+  const [isFloatingPanelActive, setIsFloatingPanelActive] = useState(false);
   // Default to Screen+Camera PIP template (index 1) when camera is on
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- LAYOUT_TEMPLATES is a non-empty static array
   const defaultTemplate = LAYOUT_TEMPLATES[1] ?? LAYOUT_TEMPLATES[0]!;
@@ -614,7 +616,9 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     stream: liveStream,
     status: livePreviewStatus,
     error: livePreviewError,
-  } = useLivePreview(hasValidSelectedSource ? selectedSourceId : null);
+  } = useLivePreview(
+    !isFloatingPanelActive && hasValidSelectedSource ? selectedSourceId : null,
+  );
 
   if (recordRuntimeHooks) {
     return (
@@ -1445,6 +1449,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     });
 
     const unsubStatus = window.roughcut.onSessionStatusChanged((sessionStatus) => {
+      setIsFloatingPanelActive(sessionStatus !== 'idle');
       if (sessionStatus === 'recording') {
         setStatus('recording');
       } else if (sessionStatus === 'stopping') {
@@ -1972,6 +1977,14 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
                         </div>
                       </div>
                     </div>
+                  ) : undefined
+                }
+                cameraContent={
+                  hasRecordedTake && cameraAsset?.filePath ? (
+                    <CameraPlaybackCanvas
+                      filePath={resolveProjectMediaPath(cameraAsset.filePath, projectFilePath) ?? cameraAsset.filePath}
+                      fps={projectFps}
+                    />
                   ) : undefined
                 }
                 cameraAspect={4 / 3}

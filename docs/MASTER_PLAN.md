@@ -104,7 +104,7 @@ These lines define the stability-first orchestration view in Watchpost. `Sequenc
 The current sprint should stay inside the Record surface, but the priority is now stability-first rather than feature-first. The immediate next task is to eliminate the product-level redundancy between the in-app pre-record flow and the floating recording panel so Rough Cut reads as one coherent recorder before more capture hardening and polish continue. From there, the near-term job remains to make saved screen capture correct, camera capture deterministic, audio capture truthful, playback easy to inspect, those streams kept in sync, and export a faithful downstream result.
 
 1. **Lane 1 -- Unify the recording workflow**: TASK-186, TASK-187
-2. **Lane 2 -- Stable screen recording**: TASK-183, ~~BUG-009~~, TASK-148, TASK-126, ~~TASK-190~~
+2. **Lane 2 -- Stable screen recording**: TASK-183, ~~BUG-009~~, TASK-148, TASK-126, TASK-197, TASK-198, ~~TASK-190~~
 3. **Lane 3 -- Stable camera recording**: TASK-182, TASK-014, TASK-016, ~~TASK-185~~
 4. **Lane 4 -- Stable audio recording**: ~~TASK-088~~, TASK-124, FEATURE-076, TASK-032
 5. **Lane 5 -- Stable playback + sync + export**: BUG-006, TASK-020, TASK-015, TASK-021, TASK-022, TASK-112, TASK-052, TASK-054, TASK-191
@@ -241,7 +241,7 @@ Parallel-start rule:
 | ~~TASK-185~~ | ✅ ~~Record: Stabilize camera preview track lifecycle~~                 | P2       | ✅ **DONE** (2026-04-24) | TASK-182           |
 | ~~TASK-186~~ | Record: Unify in-app pre-record flow and floating recording panel       | P0       | ✅ DONE (2026-04-23)     | TASK-086, TASK-126 |
 | ~~TASK-187~~ | ~~Record: Break down and redesign the floating recording panel UX~~     | P1       | ✅ DONE (2026-04-23)     | TASK-186, TASK-145 |
-| TASK-188     | Product: Break down stabilization work across Projects/Record/Playback/Sidebar/Timeline/Export | P1 | TODO | TASK-186, TASK-187 |
+| TASK-188     | Product: Break down stabilization work across Projects/Record/Playback/Sidebar/Timeline/Export | P1 | IN PROGRESS | TASK-186, TASK-187 |
 | ~~TASK-189~~ | ~~Record: Fix stuck + obsolete pre-start floating panel (post-TASK-186 fallout)~~              | P0 | ✅ DONE (2026-04-23) | TASK-186, TASK-187 |
 | ~~TASK-190~~ | ~~Record: Fix saved-take playback reset + visual artifacts on window resize~~ | P1  | ✅ DONE (2026-04-24)     | TASK-177           |
 | ~~TASK-191~~ | ~~Record: Fix saved-take replay progression in Record review~~              | P1       | ✅ DONE (2026-04-24)     | TASK-190           |
@@ -250,6 +250,9 @@ Parallel-start rule:
 | TASK-194     | Record: Keep panel setup source changes free of eager display capture      | P1       | TODO                     | TASK-185, TASK-186 |
 | TASK-195     | Tests: Gate panel source-switch camera-preview regression on Linux         | P1       | TODO                     | TASK-194           |
 | TASK-196     | Record: Replace Linux recording tray with capture-safe floating Stop pill  | P1       | IN PROGRESS              | TASK-010           |
+| TASK-197     | Record: Stop baking Rough Cut UI into Linux/X11 captures (notification + pre-capture hide) | P1 | IN PROGRESS (2026-04-25) | TASK-196 |
+| TASK-198     | Record: Migrate Linux screen capture from `ffmpeg -f x11grab` to PipeWire / `getDisplayMedia` for Wayland + content-protection support | P2 | TODO | TASK-197 |
+| TASK-199     | Record: Volume slider on the recording preview screen                    | P2       | TODO                     | TASK-088, FEATURE-076 |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
@@ -385,6 +388,13 @@ Parallel-start rule:
 | ~~TASK-173~~ | ~~Tests: Golden-path record-stop-save readiness suite~~           | P0       | ✅ DONE (2026-04-20)     | TASK-165, TASK-166, TASK-168, TASK-169 |
 | ~~TASK-174~~ | ~~Tests: Audio route fidelity and post-save import suite~~        | P0       | ✅ DONE (2026-04-20)     | TASK-167, TASK-168 |
 | ~~TASK-175~~ | ~~Tests: Recovery, reopen, and export-from-fresh-recording suite~~ | P0       | ✅ DONE (2026-04-20)     | TASK-171, TASK-173 |
+| TASK-206     | Tests: Re-baseline e2e under updated 60s test.timeout              | P0       | TODO                     | -                  |
+| TASK-207     | Record: Investigate record-tab.spec.ts 13-failure cluster          | P1       | TODO                     | TASK-206           |
+| TASK-208     | Export: Investigate export-tab.spec.ts 8-failure cluster           | P1       | TODO                     | TASK-206           |
+| TASK-209     | Edit: Investigate inspector-rail.spec.ts 8-failure layout cluster  | P2       | TODO                     | TASK-206           |
+| TASK-210     | Tests: Investigate tab-switching.spec.ts 6-failure cluster         | P2       | TODO                     | TASK-206           |
+| TASK-211     | Tests: Triage MVP acceptance specs (19 failures across 4 files)    | P3       | TODO                     | TASK-206           |
+| TASK-212     | Infra: Replace no-op `lint` echo scripts with real ESLint config   | P3       | TODO                     | -                  |
 
 ---
 
@@ -522,7 +532,7 @@ This warning is currently polluting the debugging signal around camera failures.
 
 ---
 
-### TASK-185: Record: Stabilize camera preview track lifecycle
+### ~~TASK-185~~: Record: Stabilize camera preview track lifecycle
 
 **Priority:** P2 | **Status:** ✅ DONE (2026-04-24)
 
@@ -545,13 +555,11 @@ Regression guard: `tests/electron/adhoc-camera-source-switch.spec.ts` asserts `t
 - Added preview auto-heal on `track.onended` so the panel re-acquires camera when the preview track ends unexpectedly.
 - Switched the small circular PiP preview to a cloned camera track so the on-screen bubble is less coupled to the main preview stream lifecycle.
 - Adjusted the camera start gate so recording probes camera availability directly instead of blocking on a stale preview-warmup race.
-- **Current outcome:** recording is more truthful and camera sidecar capture works, but the panel's live preview can still black out after screen selection, so TASK-185 remains open.
+- **Current outcome:** recording is more truthful and camera sidecar capture works, and the live panel preview now stays usable through source selection in the validated manual flow. Remaining saved-take replay issues are tracked separately under TASK-191.
 
 #### Remaining
 
-- **Identify the exact trigger on screen selection.** The repro now appears tied to the display-media acquisition path in the setup panel, not only to the REC transition. Need to determine whether `getDisplayMedia`, compositor/layout updates, or Chromium/X11 visibility changes are invalidating the preview track.
-- **Make panel camera preview resilient while setup changes.** The preview should stay live when switching screen/window sources and when the panel updates its setup state.
-- **Verify whether the track really ends or the `<video>` element simply stops painting.** The saved camera file proves the underlying camera pipeline can keep running, so the remaining bug may be in preview presentation rather than stream capture.
+- TASK-185 is complete. Remaining replay/progression issues in Record review are tracked separately under TASK-191.
 
 #### Context
 
@@ -1866,6 +1874,315 @@ Several downstream tasks depend on this being the AI paradigm:
 - TASK-042 (Whisper) subsumed by TASK-080
 - TASK-073 (Auto-Edit) becomes trivial once library + rough cut generator exist
 - TASK-074 (Silence Removal) becomes a filter over the transcript, not a new pipeline
+
+---
+
+### TASK-197: Record: Stop baking Rough Cut UI into Linux/X11 captures
+
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-25) | **Depends on:** TASK-196
+
+#### Problem
+
+`ffmpeg -f x11grab` captures the entire X root window during recording. Anything visible at recording start gets baked into the resulting `.webm` permanently — there is no way to remove pixels from the file after capture.
+
+Two pieces of Rough Cut UI consistently leak into every Linux take:
+
+1. **The OS notification** created at `recording-session-manager.mjs:1707-1716`. The Linux notification daemon (dunst / mako / GNOME / KDE) renders the popup at top-right of the primary display — inside the x11grab capture rect — and there is no API to position or exclude it from capture.
+2. **The main window + floating panel** are hidden via `mainWindow.hide()` / `panelWindow.hide()` at `recording-session-manager.mjs:1684-1703` — but these calls happen *after* `startFfmpegCapture()` at line 1631. The first frames of every recording capture the still-visible UI.
+
+User reproduction (2026-04-24): a "Rough Cut — Recording / Press Ctrl+Shift+Esc to stop. Pause is unavailable for this pipeline." dialog appears at top-right of every saved-take playback, plus a stale camera frame from the main preview that was visible during the capture-start race.
+
+#### Root cause is structural, not visual
+
+This is not a renderer bug. It is two pieces of Rough Cut UI that the X11 capture pipeline cannot exclude: notifications and pre-hide windows. `setContentProtection(true)` is documented as a no-op on Linux/X11 (Electron #12973). The only fix is to not render the UI on screen at all when capture is active.
+
+#### Scope
+
+- Skip `new Notification(...)` creation entirely on Linux during recording. Stop control remains available through the floating Stop pill on the secondary display + the global `Ctrl+Shift+Esc` shortcut. Single-monitor users rely on the shortcut alone — same trade-off OBS/SimpleScreenRecorder make.
+- Move `mainWindow.hide()` and `panelWindow.hide()` to **before** `startFfmpegCapture()`. Poll `isVisible()` until both windows return false (up to ~500 ms), then add a 200 ms compositor-repaint margin so X11 has actually unmapped them.
+- Best-effort suspend the user's notification daemon (`dunstctl set-paused true` / `makoctl mode -a do-not-disturb` / `gsettings org.gnome.desktop.notifications show-banners false`) for the duration of the session, restored on stop. This catches notifications from *other apps* during recording, not just Rough Cut's.
+- Add regression tests so the fix cannot be silently reverted again (it was, in commit `4881fd8`).
+
+#### Cost
+
+- No popup feedback when recording starts on Linux. Visible feedback is the Rough Cut window auto-hiding plus the Stop pill on the secondary monitor.
+- A one-time ~300 ms delay between clicking REC and the first captured frame, while windows unmap and the compositor repaints.
+- Single-monitor users lose any visible reminder that recording is active. They press `Ctrl+Shift+Esc` to stop. (Long-term solved by TASK-198.)
+
+#### Regression tests
+
+- **Static-source test** (`tests/electron/recording-session-manager-pre-capture.test.ts`): a small unit test that reads `recording-session-manager.mjs` source and asserts:
+  1. There is no `new Notification(...)` followed by `.show()` inside the `IS_LINUX` branch around the start-recording flow.
+  2. The first `mainWindow.hide()` line number is *less than* the first `startFfmpegCapture` line number in that flow.
+  3. A `suspendNotificationsForRecording` (or equivalent) call exists before `startFfmpegCapture`.
+  Brittle but reliable in CI. Catches future reverts.
+- **Integration test** (`tests/electron/record-no-baked-ui.spec.ts`): in xvfb, run a 1.5 s recording, then `ffprobe`/`ffmpeg` extract frame 0 and frame 30 of the resulting `.webm`. Sample a 100×100 box at the top-right corner. Assert all sampled pixels have brightness < 32 (effectively black). Skipped on `process.platform !== 'linux'`.
+
+#### Critical files
+
+- `apps/desktop/src/main/recording/recording-session-manager.mjs` — pre-capture hide ordering, notification suppression, daemon suspend/resume
+- `tests/electron/recording-session-manager-pre-capture.test.ts` — new static guard
+- `tests/electron/record-no-baked-ui.spec.ts` — new integration guard
+
+#### Why this matters
+
+This regression has been hit at least twice (TASK-190 saved-take review + reuser report 2026-04-24). Without a guard, my fix was reverted in `4881fd8` without anyone noticing because no test went red. The artifact is not subtle — every Linux user sees it on every recording forever — and there is no fix in post-production.
+
+---
+
+### TASK-198: Record: Migrate Linux screen capture from `ffmpeg -f x11grab` to PipeWire / `getDisplayMedia`
+
+**Priority:** P2 | **Status:** TODO | **Depends on:** TASK-197
+
+#### Problem
+
+`ffmpeg -f x11grab` is fundamentally incompatible with content protection and selective window exclusion. Every "thing baked into capture" class of bug (TASK-190, TASK-197, future TASK-Xs) exists because x11grab captures the X root window with no ability to filter. The fix in TASK-197 is a band-aid: hide the windows manually, suspend the notification daemon manually. It works but is fragile.
+
+It also does not work on Wayland sessions. Modern Linux distros default to Wayland (Fedora, Ubuntu 22.10+, GNOME 42+). Rough Cut on a Wayland session today either captures only XWayland surfaces (partial/black output) or fails entirely.
+
+#### Scope
+
+Replace the x11grab capture path on Linux with PipeWire-backed capture, accessed through one of:
+
+1. **`getDisplayMedia()` in the renderer.** Electron 22+ uses Chromium's PipeWire integration on Wayland and X11. The user picks a screen/window via `xdg-desktop-portal-screencast`, the OS hands back a `MediaStream`, we encode via `MediaRecorder` or pipe to ffmpeg via stdin. This is the supported path going forward.
+2. **`ffmpeg -f pipewire` subprocess.** Newer ffmpeg builds (≥ 6.0 with `--enable-libpipewire`) support direct PipeWire capture. Cleaner from a process-isolation perspective but adds a hard ffmpeg version requirement.
+
+Either way, the entire pre-capture-hide dance from TASK-197 becomes unnecessary: PipeWire delivers a stream of *only* the source the user picked, and notifications/protected windows are excluded by the compositor before pixels enter the stream.
+
+#### Open questions
+
+- Audio sync: PipeWire delivers screen and audio as separate streams with separate timestamps. Need to verify the muxing path keeps them in sync as well as today's single-ffmpeg-process pipeline does.
+- xdg-desktop-portal source picker UX: portal dialog appears every time `getDisplayMedia()` is called, instead of Rough Cut's own picker. Either accept the OS picker (consistent with browser apps), or use the persistent-permission API (Chromium 116+) to pick once per session.
+- ffmpeg-as-encoder vs `MediaRecorder` for the encoded output: MediaRecorder produces VP8/VP9 in a `.webm` directly; ffmpeg path lets us match the existing 60 fps + `libvpx -b:v 8M` profile bit-for-bit.
+- Distro coverage: GNOME 42+, KDE Plasma 5.27+, sway/Hyprland with `wlr-screencopy`. Test on each.
+- Fallback: keep x11grab path for users on older distros / when `xdg-desktop-portal-screencast` is unavailable.
+
+#### Why this is P2 not P1
+
+TASK-197 fully resolves the visible artifact with low cost and surgery. TASK-198 is the structurally correct fix but is a multi-week migration with new failure modes (portal denial, audio sync, encoder change). Right time is when Wayland support becomes a user-visible request, not as an emergency.
+
+#### Critical files (anticipated)
+
+- `apps/desktop/src/main/recording/ffmpeg-capture.mjs` — current x11grab implementation; gains a PipeWire branch or is replaced
+- `apps/desktop/src/main/recording/recording-session-manager.mjs` — capture-start flow no longer needs pre-capture hide
+- `apps/desktop/src/renderer/features/record/use-live-preview.ts` — `getDisplayMedia` already used here; reuse for the capture path
+- New: `apps/desktop/src/main/recording/pipewire-capture.mjs`
+
+#### What this unblocks
+
+- Wayland users (currently broken).
+- All future "thing baked into capture" bugs (becomes structurally impossible).
+- Migration off the manual notification-daemon suspension hack from TASK-197.
+
+---
+
+### TASK-206: Tests: Re-baseline e2e under updated 60s test.timeout
+
+**Priority:** P0 | **Status:** TODO | **Depends on:** -
+
+#### Problem
+
+Full Playwright suite was run on 2026-04-25 (`.logs/e2e-2026-04-25.log`, 32.9 min): **104 passed, 101 failed, 4 skipped**. Of the 101 failures, **50 ended at exactly 30.0–31.6 s** — the global `test.timeout` cliff.
+
+`playwright.config.ts` was updated to `test.timeout: 60_000` AFTER the e2e run was started. Playwright loads the config at process start, so the run used the old 30 s timeout. Some failures are timeout-only and may already be fixed.
+
+#### Scope
+
+- Re-run `pnpm test:e2e` (or `xvfb-run` if headless) with the current `playwright.config.ts`.
+- Diff the new failure list against `.logs/e2e-2026-04-25.log` to identify which clusters were timeout-only.
+- Update the dependent tasks (TASK-207..TASK-211) — close clusters that disappear, narrow scope on the rest.
+
+#### Key files
+
+- `.logs/e2e-2026-04-25.log` — pre-fix baseline
+- `playwright.config.ts` — current `timeout: 60_000`
+
+#### Why this matters
+
+Five downstream investigations (TASK-207..204) are sized off this baseline. Without re-running, the team will spend cycles on failures that are already gone.
+
+---
+
+### TASK-207: Record: Investigate record-tab.spec.ts 13-failure cluster
+
+**Priority:** P1 | **Status:** TODO | **Depends on:** TASK-206
+
+#### Problem
+
+`tests/electron/record-tab.spec.ts` has **13 failing subtests** in the 2026-04-25 baseline — the largest single-file cluster. Affected areas span the core Record surface:
+
+- `renders the record tab root`
+- `shows the zoom-to-cursor control` / `shows the record button`
+- `record controls update the shared recording config store`
+- `record mode switches clear incompatible capture source and gate REC`
+- `camera layout snapshots change the preview by playhead position`
+- `clicking a camera layout marker activates the Camera inspector`
+- `camera layout preset buttons add template-driven snapshots`
+- `delete removes the selected camera layout marker`
+- `dragging a camera layout marker updates its frame`
+- `preset buttons update the selected camera layout marker instead of adding a new one`
+- `captions are available in the Record inspector for the active recording`
+- `timeline section is visible`
+
+The breadth suggests a regression in the recent Record-tab refactors (TASK-186, TASK-187, TASK-189) rather than 13 independent bugs.
+
+#### First steps
+
+- Re-run the spec under the new `test.timeout: 60_000` to drop any timeout-only victims.
+- Pick one failing subtest (`renders the record tab root` is the cheapest), reproduce locally with `--headed`, identify the missing/changed selector or store key.
+- Check whether one root cause (e.g. a renamed test-id, a missing `__roughcutStores` hook, a removed default mount) explains the whole cluster.
+
+#### Key files
+
+- `tests/electron/record-tab.spec.ts`
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
+
+---
+
+### TASK-208: Export: Investigate export-tab.spec.ts 8-failure cluster
+
+**Priority:** P1 | **Status:** TODO | **Depends on:** TASK-206
+
+#### Problem
+
+`tests/electron/export-tab.spec.ts` has **8 failing subtests** in the 2026-04-25 baseline. Export is a critical surface — every shipped recording goes through it.
+
+Companion failures elsewhere in the export pipeline:
+
+- `export-smoke.spec.ts` — 1 failure
+- `record-reopen-export.spec.ts` — 1 failure
+
+#### First steps
+
+- Re-run under TASK-206's updated config first.
+- If the cluster persists, inspect for a shared cause (renamed export trigger, broken IPC handler, missing format dropdown).
+- Cross-check against the recent export-presets work (commits `849ba13` "feat(export): add file size and time estimates", `98fdc1a` "feat(export): add editable export presets").
+
+#### Key files
+
+- `tests/electron/export-tab.spec.ts`
+- `tests/electron/export-smoke.spec.ts`
+- `apps/desktop/src/renderer/features/export/`
+- `packages/export-renderer/src/`
+
+---
+
+### TASK-209: Edit: Investigate inspector-rail.spec.ts 8-failure layout cluster
+
+**Priority:** P2 | **Status:** TODO | **Depends on:** TASK-206
+
+#### Problem
+
+`tests/electron/inspector-rail.spec.ts` has **8 failing subtests** focused on inspector layout invariants — viewport bounds, fixed width, no horizontal overflow during category switches. Sample failing titles:
+
+- `inspector stays within viewport during category changes`
+- `inspector width stays fixed during category changes`
+- `no new horizontal overflow after switching categories`
+
+Likely a single layout regression in the Inspector shell (CSS overflow / flex / grid) that breaks every assertion in the suite.
+
+#### First steps
+
+- Open the Inspector visually under `pnpm dev`, switch between categories, watch for overflow.
+- Bisect against the recent Inspector / sidebar / record-tab work.
+
+#### Key files
+
+- `tests/electron/inspector-rail.spec.ts`
+- `apps/desktop/src/renderer/features/record/RecordTimelineShell.tsx`
+- Inspector shell components
+
+---
+
+### TASK-210: Tests: Investigate tab-switching.spec.ts 6-failure cluster
+
+**Priority:** P2 | **Status:** TODO | **Depends on:** TASK-206
+
+#### Problem
+
+`tests/electron/tab-switching.spec.ts` has **6 failing subtests** — every parameterized tab navigation (record, edit, motion, ai, export, projects). All 6 share the same source line (`tab-switching.spec.ts:14:9`), suggesting a single shared `for`/`describe.each` driver.
+
+Either:
+1. The shared fixture is broken (one root cause, one-line fix).
+2. Tab navigation actually broke globally in the AppShell (worse, but unlikely if other specs nav between tabs successfully).
+
+#### First steps
+
+- Read `tab-switching.spec.ts` fixture/loop.
+- Try a single tab nav manually in `pnpm dev` to rule out option 2.
+
+#### Key files
+
+- `tests/electron/tab-switching.spec.ts`
+- `apps/desktop/src/renderer/components/AppShell.tsx` (or wherever tab routing lives)
+
+---
+
+### TASK-211: Tests: Triage MVP acceptance specs (19 failures across 4 files)
+
+**Priority:** P3 | **Status:** TODO | **Depends on:** TASK-206
+
+#### Problem
+
+The MVP acceptance suites are forward-looking — many test features that may not be built yet. The 2026-04-25 baseline shows:
+
+- `acceptance-edit.spec.ts` — 8 failures
+- `acceptance-motion.spec.ts` — 6 failures
+- `acceptance-ai.spec.ts` — 3 failures
+- `acceptance-record.spec.ts` — 2 failures
+
+Without triage, every full e2e run reports 19 failures that are noise vs signal mixed together.
+
+#### Scope
+
+For each failing acceptance test:
+
+1. **Feature gap** — feature genuinely not built. Mark `test.fixme()` with a comment pointing at the planned TASK.
+2. **Real bug** — feature shipped but spec catches a regression. Open a focused TASK.
+3. **Obsolete** — feature pivoted; spec no longer reflects intended UX. Delete or rewrite.
+
+#### Why this matters
+
+A noisy red e2e baseline trains the team to ignore failures. Every new regression risks getting buried.
+
+#### Key files
+
+- `tests/electron/acceptance-{record,edit,motion,ai}.spec.ts`
+
+---
+
+### TASK-212: Infra: Replace no-op `lint` echo scripts with real ESLint config
+
+**Priority:** P3 | **Status:** TODO | **Depends on:** -
+
+#### Problem
+
+`pnpm lint` succeeds in CI but does not actually lint anything. All 7 lintable packages have:
+
+```json
+"lint": "echo 'no lint configured yet'"
+```
+
+There is no `.eslintrc*` / `eslint.config.*` in `apps/desktop` or any `packages/*`. (Only `refrences/Recordly` and `refrences/CursorLens` have configs, and those are vendored reference implementations, not project code.) The `pnpm lint` step the new CI workflow is structured to support is meaningless until this is fixed.
+
+The earlier "ESLint couldn't find a configuration file" error reported during `/done` was RTK proxy noise misattributed to the project — the real lint pipeline silently passes.
+
+#### Scope
+
+Either:
+
+1. **Set up ESLint properly** — single root `eslint.config.mjs` (flat config, ESLint 9+) with `@typescript-eslint`, project-aware parsing, import sorting. Enable per-package via the existing `lint` script. Reasonable rule set: ban `any`, enforce naming for branded ID types, etc.
+2. **Remove the dummy scripts** — drop `lint` from each package's `scripts` and the root `pnpm lint` / `turbo run lint` entries. CI no longer falsely advertises a lint step.
+
+Option 1 is preferable but a larger lift. Option 2 is honest.
+
+#### Key files
+
+- `apps/desktop/package.json`, `packages/*/package.json` — lint scripts
+- `package.json` — root `lint` script
+- `turbo.json` — `lint` task
+- New: `eslint.config.mjs` (if option 1)
 
 ---
 
