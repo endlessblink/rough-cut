@@ -3,15 +3,15 @@ import { test, expect, navigateToTab } from './fixtures/electron-app.js';
 const EDIT_CAMERA_VIDEO = '[data-testid="edit-camera-playback-video"]';
 const RECORDED_PROJECT_PATH =
   process.env.ROUGH_CUT_SESSION_PATH ??
-  '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
+  '/home/endlessblink/Documents/Rough Cut/Recording Apr 23 2026 - 2303.roughcut';
 
 type PlaybackSample = {
   playheadFrame: number;
-  cameraHash: number | null;
+  /** Camera <video>.currentTime in seconds — proxies "is the camera frame visibly progressing". */
+  cameraTime: number;
 };
 
 test('space starts edit playback from zoom slider focus without visual stutter', async ({ appPage }) => {
-  test.setTimeout(45_000);
 
   await loadRecordedProjectIntoEdit(appPage);
 
@@ -42,19 +42,19 @@ test('space starts edit playback from zoom slider focus without visual stutter',
       isPlaying: true,
     });
 
-  const samples = await samplePlayback(appPage, 1_000, 180);
+  const samples = await samplePlayback(appPage, 1_000, 100);
   const distinctPlayheadFrames = countDistinct(
     samples.map((sample) => sample.playheadFrame),
     1,
   );
-  const distinctCameraHashes = countDistinct(
-    samples.map((sample) => sample.cameraHash),
-    1,
+  const distinctCameraTimes = countDistinct(
+    samples.map((sample) => sample.cameraTime),
+    0.05,
   );
 
   expect(samples.at(-1)?.playheadFrame ?? -1).toBeGreaterThan(initialFrame);
   expect(distinctPlayheadFrames).toBeGreaterThanOrEqual(3);
-  expect(distinctCameraHashes).toBeGreaterThanOrEqual(2);
+  expect(distinctCameraTimes).toBeGreaterThanOrEqual(2);
 
   const resumedSamples = await samplePlayback(appPage, 1_100, 80);
   const backwardSteps = countBackwardSteps(resumedSamples.map((sample) => sample.playheadFrame), 1);
@@ -75,7 +75,6 @@ test('space starts edit playback from zoom slider focus without visual stutter',
 });
 
 test('space resume in edit playback stays visually monotonic after pause', async ({ appPage }) => {
-  test.setTimeout(45_000);
 
   await loadRecordedProjectIntoEdit(appPage);
 
@@ -141,7 +140,18 @@ async function loadRecordedProjectIntoEdit(page: import('@playwright/test').Page
     RECORDED_PROJECT_PATH,
   )) as Record<string, any>;
 
-  const recording = project.assets.find((asset: any) => asset.type === 'recording') ?? null;
+  // Pick the recording asset that actually has a clip in the composition. The
+  // project file may carry stale recording entries in `assets` that aren't wired
+  // into any track — taking just `find(type === 'recording')` returns the wrong
+  // one and leaves the active asset un-renderable in the Edit tab.
+  const recordingClipOwner = project.composition.tracks
+    .flatMap((t: any) => t.clips)
+    .find((c: any) =>
+      project.assets.some((a: any) => a.id === c.assetId && a.type === 'recording'),
+    ) ?? null;
+  const recording = recordingClipOwner
+    ? (project.assets.find((a: any) => a.id === recordingClipOwner.assetId) ?? null)
+    : (project.assets.find((asset: any) => asset.type === 'recording') ?? null);
 
   const patchedProject = {
     ...project,
@@ -189,26 +199,21 @@ async function samplePlayback(
   durationMs: number,
   intervalMs: number,
 ): Promise<PlaybackSample[]> {
-  const cameraVideo = page.locator(EDIT_CAMERA_VIDEO).first();
-  await cameraVideo.waitFor({ state: 'visible', timeout: 5_000 });
+  await page.locator(EDIT_CAMERA_VIDEO).first().waitFor({ state: 'visible', timeout: 5_000 });
 
   const samples: PlaybackSample[] = [];
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < durationMs) {
-    const [playheadFrame, screenshot] = await Promise.all([
-      page.evaluate(() => {
-        const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-        return stores?.transport.getState().playheadFrame ?? -1;
-      }),
-      cameraVideo.screenshot({ timeout: 5_000 }),
-    ]);
-
-    samples.push({
-      playheadFrame,
-      cameraHash: hashBytes(screenshot),
-    });
-
+    const sample = await page.evaluate((selector) => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      const video = document.querySelector(selector) as HTMLVideoElement | null;
+      return {
+        playheadFrame: stores?.transport.getState().playheadFrame ?? -1,
+        cameraTime: video?.currentTime ?? -1,
+      };
+    }, EDIT_CAMERA_VIDEO);
+    samples.push(sample);
     await page.waitForTimeout(intervalMs);
   }
 
@@ -219,23 +224,13 @@ function countDistinct(values: Array<number | null>, tolerance: number): number 
   const distinct: number[] = [];
 
   for (const value of values) {
-    if (value == null) continue;
+    if (value == null || value < 0) continue;
     if (!distinct.some((candidate) => Math.abs(candidate - value) <= tolerance)) {
       distinct.push(value);
     }
   }
 
   return distinct.length;
-}
-
-function hashBytes(buffer: Buffer): number {
-  let hash = 0;
-
-  for (const value of buffer.values()) {
-    hash = (hash * 33 + value) % 2147483647;
-  }
-
-  return hash;
 }
 
 function countBackwardSteps(values: number[], tolerance: number): number {

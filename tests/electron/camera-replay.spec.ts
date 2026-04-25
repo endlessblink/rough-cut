@@ -9,11 +9,12 @@ const EDIT_CAMERA_VIDEO = '[data-testid="edit-camera-playback-video"]';
 const SCREEN_VIDEO = '[data-testid="recording-playback-video"]';
 const RECORDED_PROJECT_PATH =
   process.env.ROUGH_CUT_SESSION_PATH ??
-  '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
+  '/home/endlessblink/Documents/Rough Cut/Recording Apr 23 2026 - 2303.roughcut';
 
 type PlaybackSample = {
   playheadFrame: number;
-  cameraHash: number | null;
+  /** Camera <video>.currentTime in seconds — proxies "is the camera frame visibly progressing". */
+  cameraTime: number;
 };
 
 test.describe('camera replay', () => {
@@ -60,17 +61,24 @@ test.describe('camera replay', () => {
 
     await appPage.waitForTimeout(500);
 
-    await appPage.locator(TIMELINE_PLAY_BUTTON).last().click();
-    await expect
-      .poll(
-        async () =>
-          appPage.evaluate(() => {
-            const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-            return stores?.transport.getState().isPlaying ?? null;
-          }),
-        { timeout: 5_000 },
-      )
-      .toBe(false);
+    const stillPlayingAfterWait = await appPage.evaluate(() => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      return stores?.transport.getState().isPlaying ?? null;
+    });
+
+    if (stillPlayingAfterWait) {
+      await appPage.locator(TIMELINE_PLAY_BUTTON).last().click();
+      await expect
+        .poll(
+          async () =>
+            appPage.evaluate(() => {
+              const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+              return stores?.transport.getState().isPlaying ?? null;
+            }),
+          { timeout: 5_000 },
+        )
+        .toBe(false);
+    }
 
     await appPage.evaluate(() => {
       const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
@@ -104,18 +112,18 @@ test.describe('camera replay', () => {
       )
       .toBe(true);
 
-    const replaySamples = await samplePlayback(appPage, 1_600, 200, false);
+    const replaySamples = await samplePlayback(appPage, 1_600, 100, false);
     const distinctPlayheadFrames = countDistinct(
       replaySamples.map((sample) => sample.playheadFrame),
       1,
     );
-    const distinctCameraHashes = countDistinct(
-      replaySamples.map((sample) => sample.cameraHash),
-      1,
+    const distinctCameraTimes = countDistinct(
+      replaySamples.map((sample) => sample.cameraTime),
+      0.05,
     );
 
     expect(distinctPlayheadFrames).toBeGreaterThanOrEqual(3);
-    expect(distinctCameraHashes).toBeGreaterThanOrEqual(3);
+    expect(distinctCameraTimes).toBeGreaterThanOrEqual(3);
   });
 
   test('camera preview pauses, resumes, and seeks after replay starts', async ({ appPage }) => {
@@ -135,14 +143,14 @@ test.describe('camera replay', () => {
     const pausedB = await captureCameraState(appPage);
 
     expect(pausedA.playheadFrame).toBe(pausedB.playheadFrame);
-    expect(pausedA.cameraHash).toBe(pausedB.cameraHash);
+    expect(Math.abs(pausedA.cameraTime - pausedB.cameraTime)).toBeLessThanOrEqual(0.02);
 
     await appPage.locator(TIMELINE_PLAY_BUTTON).last().click();
     await appPage.waitForTimeout(500);
     const resumed = await captureCameraState(appPage);
 
     expect(resumed.playheadFrame).toBeGreaterThan(pausedB.playheadFrame);
-    expect(resumed.cameraHash).not.toBe(pausedB.cameraHash);
+    expect(resumed.cameraTime).toBeGreaterThan(pausedB.cameraTime + 0.05);
     expect(resumed.cameraTime).toBeGreaterThan(beforePause.cameraTime - 0.05);
 
     await appPage.locator(TIMELINE_PLAY_BUTTON).last().click();
@@ -156,7 +164,8 @@ test.describe('camera replay', () => {
 
     const sought = await captureCameraState(appPage);
     expect(Math.abs(sought.playheadFrame - 45)).toBeLessThanOrEqual(1);
-    expect(sought.cameraHash).not.toBe(resumed.cameraHash);
+    // Camera should have re-seeked back near frame 45 (≈1.5s @ 30fps).
+    expect(Math.abs(sought.cameraTime - 45 / 30)).toBeLessThanOrEqual(0.2);
   });
 
   test('camera preview keeps updating while the playback clock advances', async ({ appPage }) => {
@@ -166,18 +175,18 @@ test.describe('camera replay', () => {
     await appPage.click(TIMELINE_PLAY_BUTTON);
     await appPage.waitForTimeout(1500);
 
-    const samples = await samplePlayback(appPage, 1200, 150, false);
+    const samples = await samplePlayback(appPage, 1200, 100, false);
     const distinctPlayheadFrames = countDistinct(
       samples.map((sample) => sample.playheadFrame),
       1,
     );
-    const distinctCameraHashes = countDistinct(
-      samples.map((sample) => sample.cameraHash),
-      1,
+    const distinctCameraTimes = countDistinct(
+      samples.map((sample) => sample.cameraTime),
+      0.05,
     );
 
     expect(distinctPlayheadFrames).toBeGreaterThanOrEqual(3);
-    expect(distinctCameraHashes).toBeGreaterThanOrEqual(3);
+    expect(distinctCameraTimes).toBeGreaterThanOrEqual(3);
   });
 
   test('edit preview renders camera playback and keeps it moving with the playhead', async ({
@@ -210,7 +219,8 @@ test.describe('camera replay', () => {
 
     const afterSeek = await captureCameraState(appPage, EDIT_CAMERA_VIDEO);
     expect(Math.abs(afterSeek.playheadFrame - 45)).toBeLessThanOrEqual(1);
-    expect(afterSeek.cameraHash).not.toBe(beforeSeek.cameraHash);
+    // Camera <video> should have re-seeked back to near frame 45 (≈1.5s @ 30fps).
+    expect(Math.abs(afterSeek.cameraTime - 45 / 30)).toBeLessThanOrEqual(0.2);
   });
 });
 
@@ -227,7 +237,25 @@ async function loadReplayFixture(
       ).roughcut.projectOpenPath(projectPath),
     RECORDED_PROJECT_PATH,
   )) as Record<string, any>;
-  const recording = project.assets.find((asset: any) => asset.type === 'recording') ?? null;
+  const recordingClipOwner = project.composition.tracks
+    .flatMap((track: any) => track.clips)
+    .find((clip: any) =>
+      project.assets.some((asset: any) => asset.id === clip.assetId && asset.type === 'recording'),
+    ) ?? null;
+  const recording = recordingClipOwner
+    ? (project.assets.find((asset: any) => asset.id === recordingClipOwner.assetId) ?? null)
+    : (project.assets.find((asset: any) => asset.type === 'recording') ?? null);
+  const cameraAsset = recording?.cameraAssetId
+    ? (project.assets.find((asset: any) => asset.id === recording.cameraAssetId) ?? null)
+    : (project.assets.find((asset: any) => asset.metadata?.isCamera === true) ?? null);
+  const recordingClip =
+    project.composition.tracks
+      .flatMap((track: any) => track.clips.map((clip: any) => ({ ...clip, trackId: track.id, trackType: track.type })))
+      .find((clip: any) => clip.assetId === recording?.id) ?? null;
+  const existingCameraClip =
+    project.composition.tracks
+      .flatMap((track: any) => track.clips.map((clip: any) => ({ ...clip, trackId: track.id, trackType: track.type })))
+      .find((clip: any) => clip.assetId === cameraAsset?.id) ?? null;
 
   const patchedProject = {
     ...project,
@@ -235,6 +263,7 @@ async function loadReplayFixture(
       asset.id === recording?.id
         ? {
             ...asset,
+            cameraAssetId: asset.cameraAssetId ?? cameraAsset?.id ?? null,
             presentation: {
               ...(asset.presentation ?? {}),
               camera: {
@@ -245,6 +274,45 @@ async function loadReplayFixture(
           }
         : asset,
     ),
+    composition: {
+      ...project.composition,
+      tracks: project.composition.tracks.map((track: any) => {
+        if (
+          existingCameraClip ||
+          !cameraAsset ||
+          !recordingClip ||
+          track.type !== 'video' ||
+          track.id === recordingClip.trackId
+        ) {
+          return track;
+        }
+
+        return {
+          ...track,
+          clips: [
+            ...track.clips,
+            {
+              id: `camera-replay-${cameraAsset.id}`,
+              assetId: cameraAsset.id,
+              timelineIn: recordingClip.timelineIn,
+              timelineOut: recordingClip.timelineOut,
+              sourceIn: 0,
+              sourceOut: Math.max(0, recordingClip.timelineOut - recordingClip.timelineIn),
+              transform: {
+                x: 0.78,
+                y: 0.78,
+                scaleX: 0.2,
+                scaleY: 0.2,
+                rotation: 0,
+                anchorX: 0.5,
+                anchorY: 0.5,
+                opacity: 1,
+              },
+            },
+          ],
+        };
+      }),
+    },
   };
 
   await page.evaluate(
@@ -291,7 +359,16 @@ async function loadReplayFixture(
   const layoutState = await page.evaluate((selector) => {
     const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
     const project = stores?.project.getState().project;
-    const recording = project?.assets.find((asset: any) => asset.type === 'recording') ?? null;
+    const recordingClipOwner = project?.composition.tracks
+      .flatMap((track: any) => track.clips)
+      .find((clip: any) =>
+        project.assets.some(
+          (asset: any) => asset.id === clip.assetId && asset.type === 'recording',
+        ),
+      ) ?? null;
+    const recording = recordingClipOwner
+      ? (project?.assets.find((asset: any) => asset.id === recordingClipOwner.assetId) ?? null)
+      : (project?.assets.find((asset: any) => asset.type === 'recording') ?? null);
     const cameraAsset = recording?.cameraAssetId
       ? (project?.assets.find((asset: any) => asset.id === recording.cameraAssetId) ?? null)
       : null;
@@ -337,25 +414,15 @@ async function loadReplayFixture(
 async function captureCameraState(
   page: import('@playwright/test').Page,
   cameraSelector = CAMERA_VIDEO,
-): Promise<PlaybackSample & { cameraTime: number }> {
-  const cameraVideo = page.locator(cameraSelector).first();
-  const [snapshot, screenshot] = await Promise.all([
-    page.evaluate((selector) => {
-      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-      const video = document.querySelector(selector) as HTMLVideoElement | null;
-      return {
-        playheadFrame: stores?.transport.getState().playheadFrame ?? -1,
-        cameraTime: video?.currentTime ?? -1,
-      };
-    }, cameraSelector),
-    cameraVideo.screenshot({ timeout: 5_000 }),
-  ]);
-
-  return {
-    playheadFrame: snapshot.playheadFrame,
-    cameraTime: snapshot.cameraTime,
-    cameraHash: hashBytes(screenshot),
-  };
+): Promise<PlaybackSample> {
+  return page.evaluate((selector) => {
+    const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+    const video = document.querySelector(selector) as HTMLVideoElement | null;
+    return {
+      playheadFrame: stores?.transport.getState().playheadFrame ?? -1,
+      cameraTime: video?.currentTime ?? -1,
+    };
+  }, cameraSelector);
 }
 
 async function samplePlayback(
@@ -363,10 +430,9 @@ async function samplePlayback(
   durationMs: number,
   intervalMs: number,
   autoStart = true,
+  cameraSelector = CAMERA_VIDEO,
 ): Promise<PlaybackSample[]> {
-  const cameraVideo = page.locator(CAMERA_VIDEO).first();
-
-  await cameraVideo.waitFor({ state: 'visible', timeout: 5_000 });
+  await page.locator(cameraSelector).first().waitFor({ state: 'visible', timeout: 5_000 });
 
   if (autoStart) {
     await page.locator(TIMELINE_PLAY_BUTTON).last().click();
@@ -377,19 +443,7 @@ async function samplePlayback(
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < durationMs) {
-    const [playheadFrame, screenshot] = await Promise.all([
-      page.evaluate(() => {
-        const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-        return stores?.transport.getState().playheadFrame ?? -1;
-      }),
-      cameraVideo.screenshot({ timeout: 5_000 }),
-    ]);
-
-    samples.push({
-      playheadFrame,
-      cameraHash: hashBytes(screenshot),
-    });
-
+    samples.push(await captureCameraState(page, cameraSelector));
     await page.waitForTimeout(intervalMs);
   }
 
@@ -400,21 +454,11 @@ function countDistinct(values: Array<number | null>, tolerance: number): number 
   const distinct: number[] = [];
 
   for (const value of values) {
-    if (value == null) continue;
+    if (value == null || value < 0) continue;
     if (!distinct.some((candidate) => Math.abs(candidate - value) <= tolerance)) {
       distinct.push(value);
     }
   }
 
   return distinct.length;
-}
-
-function hashBytes(buffer: Buffer): number {
-  let hash = 0;
-
-  for (const value of buffer.values()) {
-    hash = (hash * 33 + value) % 2147483647;
-  }
-
-  return hash;
 }

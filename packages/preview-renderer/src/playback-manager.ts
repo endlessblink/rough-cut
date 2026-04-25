@@ -163,9 +163,19 @@ export class PlaybackManager {
     this._pauseSettleToken += 1;
 
     const fps = this.projectStore.getState().project.settings.frameRate;
-    const startFrame = this.transportStore.getState().playheadFrame;
-    const startTime = startFrame / fps;
+    const duration = this.projectStore.getState().project.composition.duration;
+    let startFrame = this.transportStore.getState().playheadFrame;
 
+    // Standard media-player UX: pressing play when the playhead is at (or past)
+    // the end rewinds to 0 and plays from there. Without this, _syncLoop
+    // immediately hits the timeline-boundary check and pauses, so the user has
+    // to press play multiple times before anything visible happens.
+    if (duration > 0 && startFrame >= duration - 1) {
+      startFrame = 0;
+      this.transportStore.setState({ playheadFrame: 0 });
+    }
+
+    const startTime = startFrame / fps;
     this._playing = true;
     this.transportStore.setState({ isPlaying: true });
 
@@ -173,7 +183,7 @@ export class PlaybackManager {
   }
 
   pause(nextFrame?: number): void {
-    if (!this._playing) return;
+    if (!this._playing && !this.transportStore.getState().isPlaying) return;
     this._playToken += 1;
     const pauseSettleToken = ++this._pauseSettleToken;
     this._playing = false;
@@ -224,7 +234,7 @@ export class PlaybackManager {
   }
 
   togglePlay(): void {
-    if (this._playing) {
+    if (this._playing || this.transportStore.getState().isPlaying) {
       this.pause();
     } else {
       this.play();
@@ -333,7 +343,7 @@ export class PlaybackManager {
         compositorEnded: this.compositor?.hasPlaybackEnded() ?? false,
         mediaTime: metadata.mediaTime,
       });
-      this.pause(0);
+      this.pause();
       return;
     }
 
@@ -367,7 +377,7 @@ export class PlaybackManager {
         screenEnded: this.screenVideo?.ended ?? false,
         compositorEnded,
       });
-      this.pause(0);
+      this.pause();
       return;
     }
 
@@ -391,7 +401,7 @@ export class PlaybackManager {
         screenEnded: this.screenVideo?.ended ?? false,
         compositorEnded: compositorEndedAtLoopStart,
       });
-      this.pause(0);
+      this.pause();
       return;
     }
 
@@ -437,7 +447,7 @@ export class PlaybackManager {
         duration,
         compositorEnded,
       });
-      this.pause(0);
+      this.pause();
       return;
     }
 
