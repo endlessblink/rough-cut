@@ -249,6 +249,7 @@ Parallel-start rule:
 | ~~TASK-193~~ | ~~Record: Capture screen at full 60 fps on Linux/X11 (was choppy 30→25 fps)~~ | P1 | ✅ DONE (2026-04-25) | —        |
 | TASK-194     | Record: Keep panel setup source changes free of eager display capture      | P1       | TODO                     | TASK-185, TASK-186 |
 | TASK-195     | Tests: Gate panel source-switch camera-preview regression on Linux         | P1       | TODO                     | TASK-194           |
+| TASK-196     | Record: Replace Linux recording tray with capture-safe floating Stop pill  | P1       | IN PROGRESS              | TASK-010           |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
@@ -1266,6 +1267,56 @@ Standalone 10 s ffmpeg run with the exact final args produces 591 frames over 10
 
 - This is exactly the kind of regression that damages trust fast and is annoying to rediscover manually.
 - A small, explicit gate is cheaper than repeatedly re-debugging Linux camera-preview breakage.
+
+---
+
+### TASK-196: Record: Replace Linux recording tray with capture-safe floating Stop pill
+
+**Priority:** P1 | **Status:** IN PROGRESS (implemented 2026-04-25, awaiting visual verify) | **Depends on:** TASK-010
+
+#### Problem
+
+- On Linux/KDE Plasma the recording tray icon (a red circle) does not disappear when recording stops. Confirmed in the runtime log: `[session-manager] Tray hidden (Linux singleton kept alive)` fires correctly on every stop, but plasmashell continues to render the cached red bitmap in the panel after the underlying tray has been told to clear.
+- Tested four progressively more aggressive workarounds, each visually verified by the user as still leaving the red dot stranded:
+  1. `setImage(empty)` followed by `tray.destroy()` after 150 ms.
+  2. Same, but with a 16×16 transparent PNG and 300 ms delay (avoids "empty placeholder square" artifact).
+  3. Linux singleton tray — never destroy, just `setImage(transparent)` in place to hide.
+  4. File-path-based icon swap with a unique filename per transition, to defeat path-keyed icon caches.
+- All four still left the dot visible, which matches the symptom reported in the closed-without-fix Electron issue [#17000 "[KDE Plasma] tray can't actually destroy"](https://github.com/electron/electron/issues/17000). Related upstream: [#36274 (setImage segfaults on Linux)](https://github.com/electron/electron/issues/36274), [#20850 (setImage memory leak)](https://github.com/electron/electron/issues/20850).
+
+#### Decision
+
+- Stop relying on `Tray` for transient recording state on Linux. The Electron Tray API is not reliable enough on KDE Plasma (and other libappindicator-backed panels) to destroy or refresh on demand in Electron 35.
+- Replace it with a small frameless `BrowserWindow` ("Stop pill"): 180×40, always-on-top, transparent background, red pulsing dot + "Stop Recording" button. `BrowserWindow.destroy()` is rock-solid on every desktop environment, sidestepping the bug entirely.
+- Place the pill on a display whose bounds do NOT intersect the captured region, so it never appears in the recording. Single-monitor users (no capture-safe display) get no visible pill — they still have the existing global shortcut `Ctrl+Shift+Esc` and the desktop notification.
+- Keep the existing `Tray` path for macOS / Windows where it works correctly.
+
+#### Scope of this commit
+
+- `apps/desktop/src/main/recording/recording-session-manager.mjs`:
+  - New `stopPillWindow` module binding.
+  - Helpers: `rectsIntersect`, `findDisplayOutsideCapture`, `createStopPillWindow`, `destroyStopPillWindow`.
+  - On Linux, `startRecording()` now calls `createStopPillWindow()` instead of `createTray()`.
+  - `_cleanup()`, `handleBeforeQuit`, `will-quit` all destroy the pill (idempotent).
+  - The pill click invokes `window.roughcut.panelStopRecording()` via the existing preload, so it routes through the same IPC path as every other Stop surface.
+  - Recording notification body no longer references the (non-existent on Linux) tray icon.
+
+#### Awaiting visual verify
+
+- DP-0 capture → pill appears top-center on DP-2; click stop → pill disappears, no stray indicator.
+- DP-2 capture → pill appears on DP-0.
+- Single-display fallback (one monitor) → log line `Stop pill skipped — no capture-safe display` and Ctrl+Shift+Esc still stops cleanly.
+- App quit (Ctrl+Q) during recording → pill disappears before the process exits.
+
+#### Follow-ups (after verify lands DONE)
+
+- Remove the now-dead Linux branches inside `createTray()` / `destroyTrayIfAny()` (file-path swap, transparent-image hide path, singleton reuse) and the `writeTrayIconFile` / `RED_CIRCLE_DATA_URL` / `TRANSPARENT_16_DATA_URL` helpers if no other call site needs them.
+- Decide whether the pill should expand to expose timer + pause when those features land.
+
+#### Key files
+
+- `apps/desktop/src/main/recording/recording-session-manager.mjs`
+- `apps/desktop/src/preload/index.mjs` (already exposes `panelStopRecording`)
 
 ---
 
