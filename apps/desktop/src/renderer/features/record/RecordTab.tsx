@@ -52,6 +52,7 @@ import {
 } from './destination-presets.js';
 import type { RecordState } from './BottomBar.js';
 import { CountdownOverlay } from './CountdownOverlay.js';
+import { RecordDeviceSelectors } from './RecordDeviceSelectors.js';
 import {
   subscribeRecordingConfig,
   useRecordingConfig,
@@ -1400,10 +1401,10 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const recordStartGuardReason = hasValidSelectedSource
     ? null
     : modeCompatibleSources.length === 0
-      ? `No ${getRecordModeSourceLabel(supportedRecordMode)} is available. Open the recording panel to refresh sources or switch record mode.`
+      ? `No ${getRecordModeSourceLabel(supportedRecordMode)} is available. Refresh sources or switch record mode.`
       : selectedSourceId
-        ? `Open the recording panel to choose a different ${getRecordModeSourceLabel(supportedRecordMode)} before recording.`
-        : `Open the recording panel to choose a ${getRecordModeSourceLabel(supportedRecordMode)} before recording.`;
+        ? `Choose a different ${getRecordModeSourceLabel(supportedRecordMode)} before recording.`
+        : `Choose a ${getRecordModeSourceLabel(supportedRecordMode)} before recording.`;
   const recordButtonDisabled =
     status !== 'recording' &&
     (status === 'stopping' || status === 'loading-sources' || status === 'countdown');
@@ -1490,7 +1491,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
               : `Choose a ${previewSelectionLabel} to preview`,
             detail:
               sourceRecoveryMessage ??
-              `Open the recording panel to choose the ${previewSelectionLabel} that Rough Cut should capture.`,
+              `Choose the ${previewSelectionLabel} that Rough Cut should capture before you record.`,
             tone: sourceRecoveryMessage ? '#fcd34d' : 'rgba(255,255,255,0.86)',
           };
         }
@@ -1634,7 +1635,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           type="button"
           data-testid="record-open-setup-panel"
           onClick={openRecordingSetupPanel}
-          title="Open recording setup panel — device pickers, audio meter, diagnostics"
+          title="Open recording panel diagnostics and live controls"
           style={{
             height: 32,
             padding: '0 12px',
@@ -1657,6 +1658,30 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           Setup
         </button>
       </div>
+
+      {recordState === 'idle' && (
+        <RecordDeviceSelectors
+          micOptions={micOptions}
+          selectedMicDeviceId={selectedMicDeviceId}
+          micIssue={sessionConnectionIssues?.mic ?? null}
+          onSelectMicDevice={(id) => updateRecordingConfig({ selectedMicDeviceId: id, micEnabled: true })}
+          cameraOptions={cameraOptions}
+          selectedCameraDeviceId={selectedCameraDeviceId}
+          cameraIssue={sessionConnectionIssues?.camera ?? null}
+          onSelectCameraDevice={(id) =>
+            updateRecordingConfig({ selectedCameraDeviceId: id, cameraEnabled: true })
+          }
+          systemAudioOptions={systemAudioOptions}
+          selectedSystemAudioSourceId={selectedSystemAudioSourceId}
+          systemAudioIssue={sessionConnectionIssues?.systemAudio ?? null}
+          onSelectSystemAudioSource={(id) =>
+            updateRecordingConfig({
+              selectedSystemAudioSourceId: id,
+              sysAudioEnabled: true,
+            })
+          }
+        />
+      )}
 
       {recordingRecovery && (
         <div

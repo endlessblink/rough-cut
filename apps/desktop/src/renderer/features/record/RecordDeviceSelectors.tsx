@@ -84,6 +84,7 @@ function Selector({
       <select
         data-testid={testId}
         value={hasSelectedOption ? (value ?? '') : ''}
+        onPointerDown={() => onChange(hasSelectedOption ? value : null)}
         onChange={(event) => onChange(event.target.value || null)}
         style={{
           height: 32,

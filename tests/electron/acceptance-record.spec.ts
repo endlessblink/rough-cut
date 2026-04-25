@@ -118,8 +118,8 @@ test.describe('Record Tab — MVP Acceptance', () => {
     await expect(appPage.locator('[data-testid="record-camera-toggle"]')).toBeVisible();
   });
 
-  // ── 1.5.5: Audio — mic/camera/system-audio toggles flip inline (TASK-186 Cut B) ─
-  test('1.5.5 — mic, system audio, and camera toggles flip inline without opening the panel', async ({
+  // ── 1.5.5: Audio — toggles + selectors live inline on the Record tab ─
+  test('1.5.5 — mic, system audio, and camera controls stay inline without opening the panel', async ({
     appPage,
     electronApp,
   }) => {
@@ -132,9 +132,9 @@ test.describe('Record Tab — MVP Acceptance', () => {
     await expect(micToggle).toBeVisible();
     await expect(sysAudioToggle).toBeVisible();
     await expect(cameraToggle).toBeVisible();
-    await expect(appPage.locator('[data-testid="record-mic-select"]')).toHaveCount(0);
-    await expect(appPage.locator('[data-testid="record-camera-select"]')).toHaveCount(0);
-    await expect(appPage.locator('[data-testid="record-system-audio-select"]')).toHaveCount(0);
+    await expect(appPage.locator('[data-testid="record-mic-select"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-camera-select"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-system-audio-select"]')).toBeVisible();
 
     const readConfig = () =>
       appPage.evaluate(() => {
