@@ -5,7 +5,6 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "test:e2e": "xvfb-run --auto-servernum playwright test",
-    "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "logs:app": "tail -F .logs/app-runtime.log",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
