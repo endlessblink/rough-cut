@@ -185,7 +185,7 @@ Parallel-start rule:
 | BUG-011      | Fix: Linux recording hides all dock/taskbar stop controls                | P1       | TODO                     | TASK-010           |
 | ~~BUG-012~~  | ~~Fix: Record replay bootstrap stalls on saved-session playback~~        | P1       | ✅ DONE (2026-04-17)     | TASK-075           |
 | ~~TASK-120~~ | ~~Record: Decouple timeline playhead from per-frame React rerenders~~    | P1       | ✅ DONE (2026-04-16)     | TASK-075           |
-| TASK-124     | Record: Prove and harden saved-file system-audio capture                 | P1       | TODO                     | TASK-012, TASK-088 |
+| ~~TASK-124~~ | ~~Record: Prove and harden saved-file system-audio capture~~             | P1       | ✅ DONE (2026-04-25)     | TASK-012, TASK-088 |
 | ~~BUG-013~~  | ~~Fix: Record/Edit camera template and visibility regressions after reopen~~ | P1       | ✅ DONE (2026-04-21)     | TASK-119, TASK-115 |
 | ~~TASK-030~~ | ~~Record: Countdown timer (0/3/5/10s configurable)~~                     | P2       | ✅ DONE (2026-04-16)     | TASK-011           |
 | ~~TASK-031~~ | ~~Record: Pause/resume recording (MediaRecorder pause)~~                 | P2       | ✅ DONE (2026-04-16)     | TASK-012           |
@@ -247,17 +247,25 @@ Parallel-start rule:
 | ~~TASK-191~~ | ~~Record: Fix saved-take replay progression in Record review~~              | P1       | ✅ DONE (2026-04-24)     | TASK-190           |
 | ~~TASK-192~~ | ~~Tests: Stabilize space-playback specs by replacing in-loop screenshots with cheap signals~~ | P2 | ✅ DONE (2026-04-24) | TASK-191 |
 | ~~TASK-193~~ | ~~Record: Capture screen at full 60 fps on Linux/X11 (was choppy 30→25 fps)~~ | P1 | ✅ DONE (2026-04-25) | —        |
-| TASK-194     | Record: Keep panel setup source changes free of eager display capture      | P1       | TODO                     | TASK-185, TASK-186 |
+| ~~TASK-194~~ | ~~Record: Keep panel setup source changes free of eager display capture~~  | P1       | ✅ DONE (2026-04-25)     | TASK-185, TASK-186 |
 | TASK-195     | Tests: Gate panel source-switch camera-preview regression on Linux         | P1       | TODO                     | TASK-194           |
 | ~~TASK-196~~ | ~~Record: Replace Linux recording tray with capture-safe floating Stop pill~~ | P1     | ✅ DONE (2026-04-25)     | TASK-010           |
 | ~~TASK-197~~ | ~~Record: Stop baking Rough Cut UI into Linux/X11 captures (notification + pre-capture hide)~~ | P1 | ✅ DONE (2026-04-25) | TASK-196 |
 | TASK-198     | Record: Migrate Linux screen capture from `ffmpeg -f x11grab` to PipeWire / `getDisplayMedia` for Wayland + content-protection support | P2 | TODO | TASK-197 |
-| TASK-199     | Record: Volume slider on the recording preview screen                    | P2       | IN PROGRESS (2026-04-25) | TASK-088, FEATURE-076 |
+| TASK-199     | Record: Pre-record mic input gain slider in floating panel (umbrella)    | P2       | IN PROGRESS (2026-04-25) | TASK-219, TASK-220, TASK-221, TASK-222, TASK-223, TASK-224, TASK-225 |
+| TASK-219     | Record: Remove orphan post-record `previewVolume`/`previewMuted` scaffolding | P2   | TODO                     | —                  |
+| TASK-220     | Record: pactl source-volume helpers (get/set) + IPC bridge in main       | P2       | TODO                     | TASK-088           |
+| TASK-221     | Record: Snapshot/restore registry for touched PulseAudio source volumes  | P2       | TODO                     | TASK-220           |
+| TASK-222     | Record: `micInputGainPercent` in recording-config + persisted schema     | P2       | TODO                     | TASK-088           |
+| TASK-223     | Record: Mic gain slider UI in PanelApp next to VU meter                  | P2       | TODO                     | TASK-220, TASK-221, TASK-222 |
+| TASK-224     | Record: Reconcile `ensureSourceAudible` mic auto-bump with user gain     | P2       | TODO                     | TASK-220, TASK-222 |
+| TASK-225     | Tests: pactl percent parser + snapshot/restore registry unit tests       | P2       | TODO                     | TASK-220, TASK-221 |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
-| TASK-216     | Record: Mouse/cursor movement not smooth — drops frames during recording | P2       | TODO                     | TASK-010, TASK-193 |
+| TASK-216     | Record: Mouse/cursor movement not smooth — drops frames during recording | P2       | IN PROGRESS (2026-04-25) | TASK-010, TASK-193 |
 | TASK-217     | Record: Mouse click sound effect (settings toggle + export keep/disable) | P2       | IN PROGRESS (2026-04-25) | TASK-010, TASK-130    |
+| ~~TASK-218~~ | ~~Record: Cursor sprite desynced from recorded video (fps unit mismatch)~~ | P0     | ✅ DONE (2026-04-25)     | TASK-010, TASK-101 |
 
 ### Recording Edge Features
 
@@ -267,11 +275,11 @@ Parallel-start rule:
 | TASK-015 | Record: Serialize recording effects to clips (bg, corners, shadow → Effect entries) | P0       | TODO   | TASK-011           |
 | TASK-016 | Record: Create separate Assets for webcam + audio on stop                           | P0       | TODO   | TASK-012, TASK-014 |
 | ~~BUG-005~~ | ~~Camera PiP renders as ellipse instead of circle (CSS/template shape not applied)~~ | P1     | ✅ DONE (2026-04-21) | TASK-014           |
-| TASK-090 | Record: Highlights and annotations overlay system                                   | P1       | IN PROGRESS | TASK-015      |
 | TASK-089 | Record: Keyboard shortcut capture + on-video overlays                               | P1       | TODO   | TASK-015, TASK-090 |
 | TASK-091 | Record: Titles and callouts overlay system                                          | P1       | TODO   | TASK-015, TASK-107 |
 | TASK-092 | Record: Dynamic camera layout changes within one recording                          | P1       | TODO   | TASK-014, TASK-015 |
 | ~~TASK-101~~ | ~~Record: Cursor smoothing, idle hide, and loop-back polish~~                   | P2       | ✅ DONE (2026-04-21) | TASK-015, TASK-075 |
+| TASK-090 | Record: Highlights and annotations overlay system                                   | P1       | TODO   | TASK-015      |
 
 ### Export Core
 
@@ -338,10 +346,10 @@ Parallel-start rule:
 | ID           | Title                                                                                  | Priority | Status               | Dependencies       |
 | ------------ | -------------------------------------------------------------------------------------- | -------- | -------------------- | ------------------ |
 | FEATURE-078  | AI: ButterCut-inspired library + rough cut generation (epic)                           | P1       | PLANNED              | TASK-040           |
-| TASK-079     | AI: Library data model — footage + transcripts + visual analysis as first-class entity | P1       | IN PROGRESS          | TASK-002           |
 | TASK-080     | AI: WhisperX audio transcription pipeline (batch ingest, word-level timestamps)        | P1       | IN PROGRESS          | TASK-040, TASK-079 |
 | TASK-081     | AI: Visual frame analysis pipeline (sample frames, describe via vision LLM)            | P1       | PLANNED              | TASK-040, TASK-079 |
 | TASK-082     | AI: Rough cut generator — LLM produces timeline from library + user prompt             | P1       | PLANNED              | TASK-080, TASK-081 |
+| TASK-079     | AI: Library data model — footage + transcripts + visual analysis as first-class entity | P1       | PLANNED              | TASK-002           |
 | ~~TASK-083~~ | Compliance: Third-party attribution (WhisperX BSD-4, FFmpeg LGPL) in About/credits     | P2       | ✅ DONE (2026-04-19) | -                  |
 | TASK-040     | AI: Create @rough-cut/ai-bridge package + AIProvider interface                         | P3       | TODO                 | TASK-002           |
 | TASK-041     | AI: AIAnnotation type in project-model                                                 | P3       | TODO                 | TASK-002           |
@@ -393,8 +401,8 @@ Parallel-start rule:
 | ~~TASK-206~~ | ~~Tests: Re-baseline e2e under updated 60s test.timeout~~          | P0       | ✅ DONE (2026-04-25)     | -                  |
 | ~~TASK-207~~ | ~~Record: Investigate record-tab.spec.ts 9-failure cluster~~       | P1       | ✅ DONE (2026-04-25)     | TASK-206           |
 | ~~TASK-208~~ | ~~Export: Investigate export-tab.spec.ts 3-failure cluster~~       | P1       | ✅ DONE (2026-04-25)     | TASK-206           |
-| TASK-209     | Edit: Investigate inspector-rail.spec.ts 8-failure layout cluster  | P2       | TODO                     | TASK-206           |
-| TASK-210     | Tests: Investigate tab-switching.spec.ts 6-failure cluster         | P2       | TODO                     | TASK-206           |
+| ~~TASK-209~~ | ~~Edit: Inspector-rail spec — sync CATEGORIES with current rail (highlights/titles dropped, destinations/captions added)~~ | P2 | ✅ DONE (2026-04-25) | TASK-206 |
+| ~~TASK-210~~ | ~~Tests: Tab-switching — fix Motion fps→NaN→CSS leak + refine console-error filter~~ | P2 | ✅ DONE (2026-04-25) | TASK-206 |
 | TASK-211     | Tests: Triage MVP acceptance specs (19 failures across 4 files)    | P3       | TODO                     | TASK-206           |
 | TASK-212     | Infra: Replace no-op `lint` echo scripts with real ESLint config   | P3       | TODO                     | -                  |
 | TASK-213     | Record: Audit visible sidebar controls for real vs placeholder behavior | P3   | TODO                     | TASK-188           |
@@ -1325,9 +1333,17 @@ Standalone 10 s ffmpeg run with the exact final args produces 591 frames over 10
 
 ---
 
-### TASK-194: Record: Keep panel setup source changes free of eager display capture
+### ~~TASK-194~~: Record: Keep panel setup source changes free of eager display capture
 
-**Priority:** P1 | **Status:** TODO | **Depends on:** TASK-185, TASK-186
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25) | **Depends on:** TASK-185, TASK-186
+
+#### Completed
+
+- Audited `PanelApp.tsx` and confirmed display capture is only acquired from the explicit start-recording flow.
+- Added shared helpers to serialize start-time display acquisition and release any stale setup-only display stream.
+- Routed panel source changes and fallback re-targeting through the same guarded path so setup edits remain config-only until recording actually starts.
+- Reused the same cleanup path when the selected source is cleared, preventing hidden setup-time display capture from lingering across source changes.
+- Verified the focused regression stays green with `tests/electron/record-camera-artifact.spec.ts` covering the exact pre-REC source-switch case.
 
 #### Problem
 
@@ -1679,6 +1695,55 @@ Verification:
 
 ---
 
+### ~~TASK-218~~: Record: Cursor sprite desynced from recorded video (fps unit mismatch)
+
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-25)
+
+#### Problem
+
+- During playback, on-screen elements showed real hover/click highlights (proving the OS cursor really was there at capture time), but the cursor sprite drawn over the video appeared in a different position. The cursor visibly lagged the video and froze partway through long takes.
+- Reproduced from data on disk: project `settings.frameRate=30`, asset `duration=210` frames, video file 7.004 s @ 60/1 fps, cursor sidecar 229 events with `max frame=391`. The click that landed on a button at recording frame 363 (`x=1623, y=527`, in-bounds) was being silently dropped by the loader because `363 ≥ 210`.
+
+#### Root cause
+
+- `cursor-recorder.mjs` timestamped events at `TARGET_CAPTURE_FPS = 60` Hz wall-clock cadence (`frame = round((Date.now() - startTime) / 1000 * 60)`). The renderer indexed `cursor[playheadFrame]` at the project's 30 fps cadence in `CursorOverlay.tsx`. So `cursor[N]` represented wall-clock `t = N/60 s` while `playheadFrame=N` represented `t = N/30 s` — cursor lagged 2× and the back half of events fell off the array (`cursor-data-loader.ts:40` clipped `frame >= totalFrames`).
+
+#### Fix
+
+- Added IPC channel `RECORDING_SET_TIMELINE_FPS`. Renderer (`App.tsx`) publishes `project.settings.frameRate` to the main process on every project/settings change.
+- `recording-session-manager.mjs` keeps `currentTimelineFps` in sync and passes it (not `TARGET_CAPTURE_FPS`) to `cursorRecorder.start()`. The recovery marker's `captureMetadata` and the `PANEL_SAVE_RECORDING` handler also overwrite `metadata.timelineFps` and `metadata.cursorEventsFps` with the same value, so the panel's hardcoded `timelineFps: 30` no longer wins.
+- New takes persist `metadata.cursorEventsFps` on the recording asset (set in `App.tsx` from the result; `capture-service.mjs` and `recording-file-utils.mjs` propagate it through save/probe).
+- `cursor-data-loader.ts` (renderer) and `packages/export-renderer/src/cursor-render.ts` accept `eventsFps` / `projectFps` params and rescale `event.frame * projectFps / eventsFps` before indexing. `RecordingPlaybackVideo.tsx` and `webcodecs-core.ts` pass both values through. Legacy takes (no `cursorEventsFps`) default to `60` since every recording made before this fix sampled at `TARGET_CAPTURE_FPS = 60` — they self-correct on load with no migration step.
+
+#### Key files
+
+- `apps/desktop/src/main/recording/recording-session-manager.mjs`
+- `apps/desktop/src/main/recording/capture-service.mjs`
+- `apps/desktop/src/main/recording/recording-file-utils.mjs`
+- `apps/desktop/src/preload/index.mjs`
+- `apps/desktop/src/renderer/App.tsx`
+- `apps/desktop/src/renderer/components/cursor-data-loader.ts`
+- `apps/desktop/src/renderer/features/record/RecordingPlaybackVideo.tsx`
+- `apps/desktop/src/renderer/env.d.ts`
+- `apps/desktop/src/shared/ipc-channels.mjs`
+- `packages/export-renderer/src/cursor-render.ts`
+- `packages/export-renderer/src/webcodecs-core.ts`
+
+#### Verification
+
+- Unit: `apps/desktop/src/renderer/components/cursor-data-loader.test.ts` (renderer rescaling, 4 tests). `packages/export-renderer/src/cursor-render.test.ts` extended with three rescale cases (60→30, fps-match passthrough, omitted-params passthrough).
+- Static-source regression guard: `apps/desktop/src/main/recording/recording-session-manager-cursor-fps.test.mjs` asserts the four wiring invariants (cursorRecorder.start uses `currentTimelineFps`, IPC handler exists and assigns the variable, `PANEL_SAVE_RECORDING` overrides metadata, recovery marker carries the value).
+- Live-data Playwright spec: `tests/electron/cursor-fps-rescale-verify.spec.ts` loads the original broken Apr 25 0924 take, seeks to project frame 182 (the rescaled location of the recorded click), and confirms the cursor sprite renders with centroid at normalized (0.850, 0.506) — within 1.8% of the predicted click target (0.846, 0.488). Skips gracefully when the user-local fixture is absent (override with `ROUGH_CUT_CURSOR_FIX_PROJECT_PATH`).
+- Legacy takes work without migration: confirmed by the live-data spec (the take has no `cursorEventsFps` field — the loader's `?? 60` fallback kicks in).
+- `pnpm test` passes all 18 packages; `pnpm typecheck` clean.
+
+#### Out of scope (separate follow-ups)
+
+- `clip.sourceIn` is parsed but discarded at `RecordingPlaybackVideo.tsx:67`; `CursorOverlay` then computes `sourceFrame = projectFrame - clipIn` without `+ sourceIn`. Only desyncs trimmed clips. Not the user's reported bug.
+- Cursor `x` can exceed asset width on multi-monitor setups (today's take had `max_x = 3305` vs asset width 1920). Indicates capture-region `offsetX` doesn't reach `cursorRecorder.start()` for some source types. Produces a constant XY offset, not a time desync.
+
+---
+
 ## Unified Delivery Sprints
 
 Ordered by the desired product flow: infrastructure first, then edge features, one view at a time.
@@ -1714,10 +1779,10 @@ Ordered by the desired product flow: infrastructure first, then edge features, o
 | TASK-122 | Fix zoom marker transform and paused-selection     | Playback trust breaks when zoom state is wrong     |
 | TASK-123 | Persist zoom sidecar and cursor continuity         | Reopened recordings must keep authored zoom data   |
 | TASK-089 | Keyboard shortcut capture + overlays               | High-value record-time feature                     |
-| TASK-090 | Highlights and annotations overlay system          | High-value record-time feature                     |
 | TASK-091 | Titles and callouts overlay system                 | Finishes the record-time storytelling layer        |
 | TASK-092 | Dynamic camera layout changes within one recording | Advanced but flow-defining record feature          |
 | TASK-101 | Cursor smoothing, idle hide, and loop-back polish  | Record polish after backbone is stable             |
+| TASK-090 | Highlights and annotations overlay system          | High-value record-time feature                     |
 
 ### Sprint C — Export Core Flow
 
@@ -1806,7 +1871,6 @@ Ordered by the desired product flow: infrastructure first, then edge features, o
 | Task     | Title                                               | Why later                                     |
 | -------- | --------------------------------------------------- | --------------------------------------------- |
 | TASK-040 | AI bridge package + provider interface              | Infrastructure first                          |
-| TASK-079 | Library data model                                  | Needed before ingest workflows                |
 | TASK-080 | WhisperX transcription pipeline                     | Core AI ingest capability                     |
 | TASK-081 | Visual frame analysis pipeline                      | Core AI ingest capability                     |
 | TASK-082 | Rough cut generator                                 | Depends on transcript + vision metadata       |
@@ -1815,6 +1879,7 @@ Ordered by the desired product flow: infrastructure first, then edge features, o
 | TASK-047 | Apply accepted AI output to timeline                | Connects AI back to core workflow             |
 | TASK-083 | Compliance: third-party attribution                 | Required before shipping marketed AI features |
 | TASK-097 | Record-first captions workflow from captured assets | Bridges Record into AI surface                |
+| TASK-079 | Library data model                                  | Needed before ingest workflows                |
 
 ### Sprint H — Motion Surface
 
@@ -2090,6 +2155,62 @@ TASK-197 fully resolves the visible artifact with low cost and surgery. TASK-198
 
 ---
 
+### TASK-199: Record: Pre-record mic input gain slider in floating panel (umbrella)
+
+**Priority:** P2 | **Status:** IN PROGRESS (2026-04-25) | **Depends on:** TASK-219, TASK-220, TASK-221, TASK-222, TASK-223, TASK-224, TASK-225
+
+#### Problem
+
+User sees the mic VU meter peak during pre-record and hears the input through an external monitor (PulseAudio loopback / hardware monitor / OS-level passthrough — there is no audible monitor inside Rough Cut). They want a slider in the floating panel that reduces both what they hear and what FFmpeg captures.
+
+#### Decision (2026-04-25)
+
+**Approach: PulseAudio source-volume control (`pactl set-source-volume`)**, restored on app quit. Picked over (a) FFmpeg `-filter:a volume=` (doesn't affect what the user hears outside the app) and (b) Web Audio GainNode (doesn't reach external monitors and doesn't apply to FFmpeg's pulse capture). Tradeoff accepted: while the slider is non-100%, every other app on the system using that mic is also attenuated.
+
+#### Sub-tasks
+
+- TASK-219 — clean up orphan post-record `previewVolume`/`previewMuted` scaffolding from earlier scope misread
+- TASK-220 — pactl get/set source-volume helpers + IPC bridge in main
+- TASK-221 — module-level snapshot/restore registry; `before-quit` cleanup
+- TASK-222 — `micInputGainPercent` field in recording-config + persisted schema
+- TASK-223 — slider UI in PanelApp adjacent to VU meter (debounced; hidden when no pactl source resolves)
+- TASK-224 — reconcile with `ensureSourceAudible` mic auto-bump (drop or gate when user has set explicit gain)
+- TASK-225 — unit tests for pactl percent parser + snapshot registry
+
+#### Acceptance criteria (only DONE when all hold)
+
+1. Slider visible next to mic VU meter in floating panel when mic is enabled and a pactl mic source resolves
+2. Dragging slider changes pactl source volume — verifiable via `pactl get-source-volume <mic>` from a separate terminal
+3. VU meter reflects slider position (because pactl source volume is the input to the meter analyser stream)
+4. Recording made with slider at 50% sounds half as loud as one made at 100% (user verifies by ear)
+5. After app quit, `pactl get-source-volume <mic>` returns to whatever value it had before the app started
+6. Slider value persists across panel close/reopen
+7. On non-Linux platforms or when pactl is missing: slider is hidden, no errors
+
+#### Critical files
+
+- `apps/desktop/src/main/recording/audio-sources.mjs` — pactl helpers (get/set + parser already partially present)
+- `apps/desktop/src/main/index.mjs` — IPC handler registration
+- `apps/desktop/src/preload/index.mjs` — bridge expose
+- `apps/desktop/src/renderer/env.d.ts` — type declarations
+- `packages/store/src/recording-config-store.ts` — `micInputGainPercent` field
+- `apps/desktop/src/main/recent-projects-service.mjs` — schema mirror for persistence
+- `apps/desktop/src/renderer/features/record/PanelApp.tsx` — slider UI, mount/unmount lifecycle
+- `apps/desktop/src/main/recording/recording-session-manager.mjs` — `before-quit` hook for restore registry
+
+#### Out of scope (for this round)
+
+- In-app FFmpeg `volume=` filter alternative (defer; only if Option 3 turns out to be too invasive)
+- System-audio (loopback) gain — slider is mic-only
+- VU meter calibration / target peak hints (-12 to -6 dB OBS-style) — separate task if requested
+- Boost (>100% slider range) — clamp to 0–100%; would worsen peaking
+
+#### Verification
+
+Visual+audible. Cannot be machine-verified end to end — Playwright can confirm slider→pactl plumbing, but only ear can confirm "doesn't peak" and "user hears the change." Do not mark DONE without explicit user confirmation.
+
+---
+
 ### ~~TASK-206~~: Tests: Re-baseline e2e under updated 60s test.timeout
 
 **Priority:** P0 | **Status:** ✅ DONE (2026-04-25) | **Depends on:** -
@@ -2179,49 +2300,47 @@ The rerun removed the timeout-only noise floor and gives the team a trustworthy 
 
 ---
 
-### TASK-209: Edit: Investigate inspector-rail.spec.ts 8-failure layout cluster
+### ~~TASK-209~~: Edit: Inspector-rail spec — sync CATEGORIES with current rail
 
-**Priority:** P2 | **Status:** TODO | **Depends on:** TASK-206
+**Priority:** P2 | **Status:** ✅ DONE (2026-04-25) | **Depends on:** TASK-206
 
-#### Problem
+#### Resolution
 
-`tests/electron/inspector-rail.spec.ts` has **8 failing subtests** focused on inspector layout invariants — viewport bounds, fixed width, no horizontal overflow during category switches. Sample failing titles:
+Re-run under the 60s `test.timeout` reduced the cluster from 8 → 6 failures. The remaining 6 all failed at the same line (`page.click([data-testid="inspector-rail-item"][data-category="highlights"])`) with `Timeout 30000ms exceeded` — `highlights` no longer exists.
 
-- `inspector stays within viewport during category changes`
-- `inspector width stays fixed during category changes`
-- `no new horizontal overflow after switching categories`
+Root cause: not a layout regression. The spec's hard-coded `CATEGORIES` array still listed `highlights` (dropped in commit `0ba9076` / TASK-213) and `titles` (never present), and was missing the current `destinations` and `captions`. Every test that iterated `CATEGORIES` to click each rail item failed at the missing `highlights`.
 
-Likely a single layout regression in the Inspector shell (CSS overflow / flex / grid) that breaks every assertion in the suite.
+Fix: synced `tests/electron/inspector-rail.spec.ts` `CATEGORIES` array to mirror `apps/desktop/src/renderer/features/record/RecordRightPanel.tsx` (`destinations, templates, align, background, camera, crop, zoom, cursor, captions`). Added a comment pointing back at the source.
 
-#### First steps
-
-- Open the Inspector visually under `pnpm dev`, switch between categories, watch for overflow.
-- Bisect against the recent Inspector / sidebar / record-tab work.
+Verification: `inspector-rail.spec.ts` now passes **8/8 in 17.4s**.
 
 #### Key files
 
-- `tests/electron/inspector-rail.spec.ts`
-- `apps/desktop/src/renderer/features/record/RecordTimelineShell.tsx`
-- Inspector shell components
+- `tests/electron/inspector-rail.spec.ts` (CATEGORIES list + 1-line provenance comment)
+- `apps/desktop/src/renderer/features/record/RecordRightPanel.tsx` (source of truth)
 
 ---
 
-### TASK-210: Tests: Investigate tab-switching.spec.ts 6-failure cluster
+### ~~TASK-210~~: Tests: Tab-switching — fix Motion fps→NaN→CSS leak + refine console-error filter
 
-**Priority:** P2 | **Status:** TODO | **Depends on:** TASK-206
+**Priority:** P2 | **Status:** ✅ DONE (2026-04-25) | **Depends on:** TASK-206
 
-#### Problem
+#### Resolution
 
-`tests/electron/tab-switching.spec.ts` has **6 failing subtests** — every parameterized tab navigation (record, edit, motion, ai, export, projects). All 6 share the same source line (`tab-switching.spec.ts:14:9`), suggesting a single shared `for`/`describe.each` driver.
+The 6 failures had two unrelated root causes:
 
-Either:
-1. The shared fixture is broken (one root cause, one-line fix).
-2. Tab navigation actually broke globally in the AppShell (worse, but unlikely if other specs nav between tabs successfully).
+1. **Filter false-positive (5 tabs).** Spec filtered console errors by `text.includes('media://')`, but Chromium puts the resource URL in `msg.location()`, NOT the text. Result: every benign `media:///tmp/.../thumb.jpg` 404 (missing recording thumbnails) leaked through. Switched the filter to inspect both `msg.text()` and `msg.location().url`.
+2. **Real bug in Motion tab (1 tab).** `MotionTab.tsx:223` passed `fps={fps}` straight from `useProjectStore` to `<Player>`. Initial mount sometimes provides `fps=undefined`, which Remotion's `spring()` divides by, producing NaN. NaN propagated through `interpolate()` to CSS `width` and `opacity` in `TitleCard.tsx` and `IntroBumper.tsx`, logging React warnings on every Motion-tab visit.
+3. **CSP noise.** Remotion's Player loads a silent `data:audio/mp3;base64,...` on mount; renderer CSP blocks `data:` for media-src. Cosmetic; added to the filter.
 
-#### First steps
+Verification: `tab-switching.spec.ts` now passes **7/7 in 16.3 s**.
 
-- Read `tab-switching.spec.ts` fixture/loop.
-- Try a single tab nav manually in `pnpm dev` to rule out option 2.
+#### Key files
+
+- `tests/electron/tab-switching.spec.ts` — improved error filter
+- `apps/desktop/src/renderer/features/motion/MotionTab.tsx` — `fps={fps || 30}` fallback
+- `apps/desktop/src/renderer/features/motion/compositions/TitleCard.tsx` — `safe()` clamp on spring/interpolate outputs
+- `apps/desktop/src/renderer/features/motion/compositions/IntroBumper.tsx` — same `safe()` clamp
 
 #### Key files
 
@@ -2297,28 +2416,6 @@ Option 1 is preferable but a larger lift. Option 2 is honest.
 
 ---
 
-### TASK-079: AI: Library data model — footage + transcripts + visual analysis as first-class entity
-
-**Priority:** P1 | **Status:** IN PROGRESS (2026-04-15)
-
-Add the first standalone library primitives to `@rough-cut/project-model` so AI ingest work has a stable shape before pipeline code lands.
-
-**Scope:**
-
-- Add `Library`, `LibrarySource`, transcript-segment, and visual-analysis model types
-- Keep libraries separate from `ProjectDocument`, but allow projects to reference external libraries
-- Update Zod schemas, factories, and migrations so older projects keep loading cleanly
-
-**Initial implementation (2026-04-15):**
-
-- Added standalone library-related types and factory helpers in `packages/project-model/src`
-- Added `project.libraryReferences` so projects can point at external library documents without embedding them
-- Bumped schema version and added a migration that backfills empty library references for existing project files
-
-**Key files:** `packages/project-model/src/{types,schemas,factories,migrations}.ts`
-
----
-
 ### TASK-080: AI: WhisperX audio transcription pipeline (batch ingest, word-level timestamps)
 
 **Priority:** P1 | **Status:** IN PROGRESS (2026-04-15)
@@ -2340,6 +2437,28 @@ Start the transcription pipeline on top of the new library model without committ
 - Added the initial `@rough-cut/ai-bridge` package scaffold with WhisperX word parsing helpers for future extraction from the desktop-specific runtime
 
 **Key files:** `apps/desktop/src/main/ai/ai-service.mjs`, `packages/project-model/src/library-utils.ts`
+
+---
+
+### TASK-079: AI: Library data model — footage + transcripts + visual analysis as first-class entity
+
+**Priority:** P1 | **Status:** PLANNED
+
+Add the first standalone library primitives to `@rough-cut/project-model` so AI ingest work has a stable shape before pipeline code lands.
+
+**Scope:**
+
+- Add `Library`, `LibrarySource`, transcript-segment, and visual-analysis model types
+- Keep libraries separate from `ProjectDocument`, but allow projects to reference external libraries
+- Update Zod schemas, factories, and migrations so older projects keep loading cleanly
+
+**Initial implementation (2026-04-15):**
+
+- Added standalone library-related types and factory helpers in `packages/project-model/src`
+- Added `project.libraryReferences` so projects can point at external library documents without embedding them
+- Bumped schema version and added a migration that backfills empty library references for existing project files
+
+**Key files:** `packages/project-model/src/{types,schemas,factories,migrations}.ts`
 
 ---
 
@@ -2722,42 +2841,6 @@ The Record preview and Edit overlay now both respect the selected camera aspect 
 
 ---
 
-### TASK-090: Record: Highlights and annotations overlay system
-
-**Priority:** P1 | **Status:** IN PROGRESS (2026-04-19)
-
-#### Problem
-
-The Record inspector already exposes a `Highlights` category, but it is currently a placeholder. Competitive tools use spotlights, arrows, blur masks, and lightweight annotations to make tutorials understandable without requiring a full trip into the Edit tab for every emphasis moment.
-
-#### Scope
-
-- Add a lightweight annotation model for Record-authored overlays that can be created quickly and refined later in Edit.
-- Support first-pass primitives: spotlight, arrow, rectangle, and blur/privacy mask.
-- Make annotations visible in the composed preview and serializable onto resulting assets/clips so the Edit and Export tabs can render them consistently.
-- Keep the interaction model simple: create in Record, refine in Edit if needed.
-
-#### First Steps
-
-- Define the minimal persisted data shape for Record annotations.
-- Replace the `Highlights` placeholder panel with controls for creating and selecting overlays.
-- Render overlays in the preview/compositor path with timeline-aware visibility.
-- Add preview/export parity tests for spotlight and blur-mask rendering.
-
-#### Key files
-
-- `apps/desktop/src/renderer/features/record/RecordRightPanel.tsx`
-- `apps/desktop/src/renderer/features/record/TemplatePreviewRenderer.tsx`
-- `packages/project-model/**`
-- `packages/preview-renderer/**`
-- `packages/export-renderer/**`
-
-#### Why this matters
-
-This closes one of the most obvious “coming soon” gaps in the Record tab and gives rough-cut a Record-native explanation layer without collapsing Edit and Record into the same surface.
-
----
-
 ### TASK-089: Record: Keyboard shortcut capture + on-video overlays
 
 **Priority:** P1 | **Status:** TODO
@@ -2866,6 +2949,42 @@ This is one of the clearest competitive gaps versus FocuSee-style storytelling, 
 
 ---
 
+### TASK-090: Record: Highlights and annotations overlay system
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+The Record inspector already exposes a `Highlights` category, but it is currently a placeholder. Competitive tools use spotlights, arrows, blur masks, and lightweight annotations to make tutorials understandable without requiring a full trip into the Edit tab for every emphasis moment.
+
+#### Scope
+
+- Add a lightweight annotation model for Record-authored overlays that can be created quickly and refined later in Edit.
+- Support first-pass primitives: spotlight, arrow, rectangle, and blur/privacy mask.
+- Make annotations visible in the composed preview and serializable onto resulting assets/clips so the Edit and Export tabs can render them consistently.
+- Keep the interaction model simple: create in Record, refine in Edit if needed.
+
+#### First Steps
+
+- Define the minimal persisted data shape for Record annotations.
+- Replace the `Highlights` placeholder panel with controls for creating and selecting overlays.
+- Render overlays in the preview/compositor path with timeline-aware visibility.
+- Add preview/export parity tests for spotlight and blur-mask rendering.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/RecordRightPanel.tsx`
+- `apps/desktop/src/renderer/features/record/TemplatePreviewRenderer.tsx`
+- `packages/project-model/**`
+- `packages/preview-renderer/**`
+- `packages/export-renderer/**`
+
+#### Why this matters
+
+This closes one of the most obvious "coming soon" gaps in the Record tab and gives rough-cut a Record-native explanation layer without collapsing Edit and Record into the same surface.
+
+---
+
 ### TASK-176: Record: Clarify camera layout marker add vs update UX
 
 **Priority:** P2 | **Status:** TODO
@@ -2900,6 +3019,41 @@ Camera layout markers are currently editable, but the distinction between creati
 #### Why this matters
 
 This is quality-of-life work, not a recording-readiness blocker. But it removes a subtle authoring trap in the Record timeline and makes camera layout editing feel intentional instead of fragile.
+
+---
+
+### TASK-217: Record: Mouse click sound effect (settings toggle + export keep/disable)
+
+**Priority:** P2 | **Status:** IN PROGRESS (2026-04-25) | **Depends on:** TASK-010, TASK-130
+
+#### Progress
+
+- Added a Record-side cursor toggle for `clickSoundEnabled` so the sound can be enabled per recording presentation.
+- Wired Record playback to the new click-sound playback hook so review playback can emit the same synthesized click sound users hear in export.
+- Added an Export-side `keepClickSounds` checkbox so exports can keep or suppress synthesized click SFX without mutating the source recording's cursor settings.
+- Mixed synthesized click audio directly into exported PCM windows, gated by both `cursor.clickSoundEnabled` and `exportSettings.keepClickSounds`.
+- Added focused coverage for the desktop click-frame timeline helper and kept the export-renderer click-sound tests green.
+
+#### Verification
+
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm --filter @rough-cut/export-renderer test`
+- `pnpm --filter @rough-cut/export-renderer typecheck`
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/RecordCursorPanel.tsx`
+- `apps/desktop/src/renderer/features/record/RecordingPlaybackVideo.tsx`
+- `apps/desktop/src/renderer/hooks/use-click-sound-playback.ts`
+- `apps/desktop/src/renderer/hooks/use-click-sound-playback.test.ts`
+- `apps/desktop/src/renderer/features/export/ExportTab.tsx`
+- `packages/export-renderer/src/{audio-export,click-sound-mix,click-sound-synth}.ts`
+- `packages/export-renderer/src/click-sound-mix.test.ts`
+
+#### Remaining follow-up
+
+- Add end-to-end coverage that proves a click-enabled take previews audibly in Record and respects the Export keep/disable checkbox in a real render flow.
 
 ---
 
@@ -3662,7 +3816,6 @@ The full creative surface that turns Rough Cut from a capture utility into a Scr
 - `TASK-121` restore template picker and preset application flow
 - `TASK-157` watermark/logo inspector with persistent branding controls
 - `TASK-089` keyboard shortcut overlays
-- `TASK-090` highlights and annotations
 - `TASK-091` titles and callouts
 - `TASK-092` dynamic camera layouts
 - `TASK-101` cursor smoothing, idle hide, and loop-back polish
@@ -3672,6 +3825,7 @@ The full creative surface that turns Rough Cut from a capture utility into a Scr
 - `TASK-150` per-segment visibility toggles for camera/cursor/clicks/overlays
 - `TASK-155` AI captions with timeline edit + styling in Record review
 - `TASK-156` Smart Cut for filler words, silence, breaths, and mouth clicks
+- `TASK-090` highlights and annotations
 
 #### Milestone 6: Workflow polish and distribution
 
@@ -3835,6 +3989,7 @@ Verification:
 - ~~TASK-114~~ Edit: Camera source/timing parity with Record preview
 - ~~TASK-118~~ Export: Camera PiP preview parity with Record + Edit tabs
 - ~~TASK-120~~ Record: Decouple timeline playhead from per-frame React rerenders
+- ~~TASK-218~~ Record: Cursor sprite desynced from recorded video (fps unit mismatch)
 - ~~BUG-001~~ Fix: Compositor canvas sizing + video sprite positioning
 - ~~BUG-002~~ Fix: Compositor resizing to template resolution + debug logging cleanup
 - ~~BUG-003~~ Fix: Video playback + timeline sync across all tabs
