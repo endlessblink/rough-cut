@@ -1,9 +1,9 @@
 import { expect, navigateToTab } from './electron-app.js';
 
-const PLAYBACK_PROJECT_PATH =
+export const PLAYBACK_PROJECT_PATH =
   process.env.ROUGH_CUT_PLAYBACK_PROJECT_PATH ??
   '/home/endlessblink/Documents/Rough Cut/Recording Apr 16 2026 - 1855.roughcut';
-const PLAYBACK_RECORDING_BASENAME = 'recording-2026-04-16T15-55-28-323Z.webm';
+export const PLAYBACK_RECORDING_BASENAME = 'recording-2026-04-16T15-55-28-323Z.webm';
 
 /**
  * Loads a real on-disk playback project and normalizes it to one screen clip.

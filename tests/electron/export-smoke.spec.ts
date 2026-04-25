@@ -4,12 +4,15 @@ import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
-import { ZOOM_FIXTURE_PROJECT_PATH } from './fixtures/zoom-fixture.js';
+import {
+  PLAYBACK_PROJECT_PATH,
+  PLAYBACK_RECORDING_BASENAME,
+} from './fixtures/playback-fixture.js';
 
 test.describe('export smoke', () => {
   test('exports a playable mp4 file with audio', async ({ appPage }, testInfo) => {
     test.setTimeout(240_000);
-    expect(existsSync(ZOOM_FIXTURE_PROJECT_PATH), 'Recorded project fixture is not available').toBe(
+    expect(existsSync(PLAYBACK_PROJECT_PATH), 'Recorded project fixture is not available').toBe(
       true,
     );
 
@@ -22,11 +25,14 @@ test.describe('export smoke', () => {
             roughcut: { projectOpenPath: (filePath: string) => Promise<Record<string, unknown>> };
           }
         ).roughcut.projectOpenPath(projectPath),
-      ZOOM_FIXTURE_PROJECT_PATH,
+      PLAYBACK_PROJECT_PATH,
     );
 
     const recording = (project.assets as Array<Record<string, unknown>>).find(
-      (asset) => asset.type === 'recording',
+      (asset) =>
+        asset.type === 'recording' &&
+        typeof asset.filePath === 'string' &&
+        asset.filePath.includes(PLAYBACK_RECORDING_BASENAME),
     );
     const recordingPath = typeof recording?.filePath === 'string' ? recording.filePath : null;
 
@@ -45,7 +51,7 @@ test.describe('export smoke', () => {
       },
       {
         nextProject: project,
-        projectPath: ZOOM_FIXTURE_PROJECT_PATH,
+        projectPath: PLAYBACK_PROJECT_PATH,
         activeAssetId: recording?.id ?? null,
         exportPath: outputPath,
       },
