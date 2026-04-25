@@ -256,6 +256,8 @@ Parallel-start rule:
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
+| TASK-216     | Record: Mouse/cursor movement not smooth — drops frames during recording | P2       | TODO                     | TASK-010, TASK-193 |
+| TASK-217     | Record: Mouse click sound effect (settings toggle + export keep/disable) | P2       | IN PROGRESS (2026-04-25) | TASK-010, TASK-130    |
 
 ### Recording Edge Features
 
@@ -390,13 +392,13 @@ Parallel-start rule:
 | ~~TASK-175~~ | ~~Tests: Recovery, reopen, and export-from-fresh-recording suite~~ | P0       | ✅ DONE (2026-04-20)     | TASK-171, TASK-173 |
 | ~~TASK-206~~ | ~~Tests: Re-baseline e2e under updated 60s test.timeout~~          | P0       | ✅ DONE (2026-04-25)     | -                  |
 | ~~TASK-207~~ | ~~Record: Investigate record-tab.spec.ts 9-failure cluster~~       | P1       | ✅ DONE (2026-04-25)     | TASK-206           |
-| TASK-208     | Export: Investigate export-tab.spec.ts 3-failure cluster           | P1       | TODO                     | TASK-206           |
+| ~~TASK-208~~ | ~~Export: Investigate export-tab.spec.ts 3-failure cluster~~       | P1       | ✅ DONE (2026-04-25)     | TASK-206           |
 | TASK-209     | Edit: Investigate inspector-rail.spec.ts 8-failure layout cluster  | P2       | TODO                     | TASK-206           |
 | TASK-210     | Tests: Investigate tab-switching.spec.ts 6-failure cluster         | P2       | TODO                     | TASK-206           |
 | TASK-211     | Tests: Triage MVP acceptance specs (19 failures across 4 files)    | P3       | TODO                     | TASK-206           |
 | TASK-212     | Infra: Replace no-op `lint` echo scripts with real ESLint config   | P3       | TODO                     | -                  |
-| TASK-213     | Record: Audit visible sidebar controls for real vs placeholder behavior | P1   | IN PROGRESS              | TASK-188           |
-| TASK-214     | Record: Make post-take keep/retry/continue review path explicit    | P1       | TODO                     | TASK-191           |
+| TASK-213     | Record: Audit visible sidebar controls for real vs placeholder behavior | P3   | TODO                     | TASK-188           |
+| ~~TASK-214~~ | ~~Record: Make post-take keep/retry/continue review path explicit~~ | P1      | ✅ DONE (2026-04-25)     | TASK-191           |
 | TASK-215     | Export: Gate fresh-take review-to-export truth after Record fixes  | P1       | TODO                     | TASK-175, TASK-191 |
 
 ---
@@ -772,14 +774,12 @@ Create and maintain a product-area stabilization map that breaks the app into th
 3. **Post-record review is the next blocker after capture pollution is closed**
    - Pull `BUG-006`, `TASK-020`, `FEATURE-076`, `TASK-124`, and new `TASK-214` ahead of sidebar breadth.
 4. **Record-sidebar work must be honesty-first, not garnish-first**
-   - Use new `TASK-213` to separate already-visible but weak controls from not-yet-exposed creative breadth.
+   - Prioritize real playback/export-preserving sidebar work before optional cleanup audits.
 5. **Timeline and export remain downstream trust consumers**
    - Treat `TASK-208`, `TASK-209`, and new `TASK-215` as verification gates that should only move up once earlier Record truth is credible.
 
 #### Missing stabilization tasks added by this pass
 
-- `TASK-213` Record: Audit visible sidebar controls for real vs placeholder behavior
-  - Needed because the plan said visible sidebar controls must become real or be de-scoped, but no task explicitly owned that audit.
 - `TASK-214` Record: Make post-take keep/retry/continue review path explicit
   - Needed because Area 4 described the user decision point after a take, but the backlog did not isolate that workflow as its own trust task.
 - `TASK-215` Export: Gate fresh-take review-to-export truth after Record fixes
@@ -789,9 +789,8 @@ Create and maintain a product-area stabilization map that breaks the app into th
 
 1. Finish the current capture-safe panel lane (`TASK-196`, `TASK-197`, `TASK-194`, `TASK-195`).
 2. Make the post-take review path explicit and trustworthy (`TASK-214`, `BUG-006`, `TASK-020`, `FEATURE-076`, `TASK-124`).
-3. Audit the already-visible Record sidebar for honesty before adding more breadth (`TASK-213`).
-4. Re-gate export truth from a freshly reviewed take (`TASK-215`, `TASK-208`).
-5. Keep broader timeline depth and sidebar garnish behind those earlier trust gates.
+3. Re-gate export truth from a freshly reviewed take (`TASK-215`, `TASK-208`).
+4. Keep broader timeline depth and sidebar garnish behind those earlier trust gates.
 
 #### Product-area stabilization map (current output)
 
@@ -881,7 +880,6 @@ Create and maintain a product-area stabilization map that breaks the app into th
 - Record-authored changes survive into playback, timeline review, and export.
 
 **Current task anchors**
-- TASK-213 Audit visible sidebar controls for real vs placeholder behavior
 - TASK-121 Restore template picker and preset application flow
 - TASK-032 VU meters for mic and system audio
 - TASK-157 Watermark/logo inspector with persistent branding controls
@@ -973,7 +971,13 @@ This keeps Rough Cut focused on becoming useful and reliable for the end user ac
 
 ### TASK-213: Record: Audit visible sidebar controls for real vs placeholder behavior
 
-**Priority:** P1 | **Status:** IN PROGRESS (2026-04-25) | **Depends on:** ~~TASK-188~~
+**Priority:** P3 | **Status:** TODO | **Depends on:** ~~TASK-188~~
+
+#### Reclassification (2026-04-25)
+
+- Moved back to low-priority backlog work.
+- This is no longer treated as part of the stabilization critical path.
+- The visible placeholder cleanup already shipped by removing `Highlights` and `Titles` from the Record inspector, so any further audit work here is optional follow-up rather than urgent product-trust work.
 
 #### Problem
 
@@ -1043,9 +1047,9 @@ Produce a concrete inventory of the currently visible Record sidebar categories,
 - Explicit placeholder rendering lives at the `highlights` and `titles` category entries, both using `PlaceholderText` (`Coming soon`)
 - The live sidebar is only shown for saved takes in `apps/desktop/src/renderer/features/record/RecordTab.tsx`
 
-#### Follow-up Ordering From This Audit
+#### Follow-up Notes
 
-1. Treat `Highlights` and `Titles` as the clearest visible honesty debt because they are literal placeholders in a visible inspector.
+1. `Highlights` and `Titles` were removed from the visible inspector, which reduces the immediate honesty problem.
 2. Keep `TASK-121`, `TASK-092`, `TASK-159`, and caption-path work focused on making already-exposed controls trustworthy before adding new sidebar breadth.
 3. When a control is conditionally unavailable, prefer truthful disabled states and copy over vague affordances that look implemented.
 4. Do not count a sidebar category as “done” until its output survives into playback and export, not just local inspector state.
@@ -1059,6 +1063,31 @@ Produce a concrete inventory of the currently visible Record sidebar categories,
 #### Why this matters
 
 The sidebar is already part of the product the user can see and click. Literal placeholders in that surface are more damaging than missing hidden features, because they teach the user not to trust the inspector. This task keeps the visible sidebar honest before more breadth is added.
+
+---
+
+### ~~TASK-214~~: Record: Make post-take keep/retry/continue review path explicit
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25) | **Depends on:** ~~TASK-191~~
+
+#### Resolution (2026-04-25)
+
+- Added an explicit post-take decision card to `RecordTab.tsx` when a saved take is active in the Record review flow.
+- The card now presents three concrete actions instead of dropping the user straight into an implicit review/editor state:
+  - `Keep reviewing`
+  - `Retry with another take`
+  - `Continue in Edit`
+- `Retry with another take` opens the source picker and preserves the current take, which keeps the flow truthful after `TASK-179` changed new recordings to append instead of replace.
+- `Continue in Edit` now gives the user a direct next-step handoff into the Edit tab.
+- The prompt is shown per active take and can be dismissed locally with `Keep reviewing`, making the post-record decision point explicit without forcing destructive behavior.
+
+#### Key files
+
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+
+#### Why this matters
+
+The Record surface is supposed to be a trustworthy post-take review step, not an ambiguous jump from recording into a full editor. Making the keep/retry/continue decision explicit reduces hesitation after capture and clarifies that retrying does not silently throw away the take that was just captured.
 
 ---
 
@@ -2124,31 +2153,29 @@ The rerun removed the timeout-only noise floor and gives the team a trustworthy 
 
 ---
 
-### TASK-208: Export: Investigate export-tab.spec.ts 3-failure cluster
+### ~~TASK-208~~: Export: Investigate export-tab.spec.ts 3-failure cluster
 
-**Priority:** P1 | **Status:** TODO | **Depends on:** TASK-206
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25) | **Depends on:** TASK-206
 
-#### Problem
+#### Resolution
 
-`tests/electron/export-tab.spec.ts` now has **3 failing subtests** in the rerun baseline after TASK-206. The basic export tab surface is green again; the remaining failures are concentrated in richer behavior:
+- Restored the Record inspector on fresh projects so destination presets are reachable before the first take. That fixed the Export test that links Record destination presets into export defaults.
+- Fixed the stale Export zoom-preview regression in the test itself: the previous assertion was using the plain playback fixture, which contained no zoom markers. The spec now adds a real zoom marker before validating the before/after preview change.
+- Fixed the companion `export-smoke.spec.ts` failure by switching it off the stale Apr 14 project whose recording path still pointed into `/tmp` and produced a `media://...404`. The smoke test now uses the valid playback fixture with a real on-disk recording asset.
+- Verification: `tests/electron/export-tab.spec.ts` now passes **12/12** and `tests/electron/export-smoke.spec.ts` passes **1/1**.
 
-Companion failures elsewhere in the export pipeline:
+#### Root causes
 
-- `export-smoke.spec.ts` — 1 failure
-- `record-reopen-export.spec.ts` flipped green in the rerun
-
-#### First steps
-
-- Start with `record destination presets link social framing into export defaults`, because it is the only remaining settings-side failure.
-- Then treat the two preview failures (`active zoom markers`, `camera layout snapshots`) as a shared export-preview parity bug.
-- Keep `export-smoke.spec.ts` in scope because the remaining smoke failure may share the same downstream render/export root cause.
+- One real UI regression: destination controls were hidden on a fresh Record tab because the inspector panel only rendered after a saved take existed.
+- One stale test setup: the zoom-preview assertion never created any zoom state, so the screenshot hash could not change.
+- One stale fixture path: the smoke test was opening an old project with recording assets still rooted in `/tmp`, so export never had valid source media to read.
 
 #### Key files
 
+- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
 - `tests/electron/export-tab.spec.ts`
 - `tests/electron/export-smoke.spec.ts`
-- `apps/desktop/src/renderer/features/export/`
-- `packages/export-renderer/src/`
+- `tests/electron/fixtures/playback-fixture.ts`
 
 ---
 
