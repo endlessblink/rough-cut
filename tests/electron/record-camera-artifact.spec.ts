@@ -87,6 +87,200 @@ async function waitForRecordedResult(
 }
 
 test.describe('Record camera artifact', () => {
+  test('panel source changes do not trigger display capture or kill camera preview before REC', async ({
+    appPage,
+    electronApp,
+  }) => {
+    test.setTimeout(120_000);
+
+    const debugSources = [
+      DEBUG_SOURCE,
+      {
+        ...DEBUG_SOURCE,
+        id: 'screen:camera-artifact:1',
+        name: 'Camera Artifact Debug Screen 2',
+        displayId: 'camera-artifact-display-2',
+      },
+    ];
+
+    try {
+      await appPage.evaluate(async ({ debugSources }) => {
+        const api = (window as unknown as { roughcut: any }).roughcut;
+        await api.debugSetCaptureSources?.(debugSources);
+        await api.recordingConfigUpdate({
+          recordMode: 'fullscreen',
+          selectedSourceId: debugSources[0]!.id,
+          selectedMicDeviceId: null,
+          selectedCameraDeviceId: null,
+          selectedSystemAudioSourceId: null,
+          micEnabled: false,
+          sysAudioEnabled: false,
+          cameraEnabled: true,
+          countdownSeconds: 0,
+        });
+      }, { debugSources });
+
+      await navigateToTab(appPage, 'record');
+
+      const panelPromise = electronApp.waitForEvent('window');
+      await appPage.evaluate(() => (window as unknown as { roughcut: any }).roughcut.openRecordingPanel());
+      const panelPage = await panelPromise;
+      await panelPage.waitForLoadState('domcontentloaded');
+
+      await panelPage.evaluate(async ({ debugSources }) => {
+        (window as unknown as { __panelDisplayGumCalls: number }).__panelDisplayGumCalls = 0;
+
+        const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+        navigator.mediaDevices.getDisplayMedia = async () => {
+          (window as unknown as { __panelDisplayGumCalls: number }).__panelDisplayGumCalls += 1;
+          const canvas = document.createElement('canvas');
+          canvas.width = 1280;
+          canvas.height = 720;
+          const ctx = canvas.getContext('2d');
+          let frame = 0;
+          const paint = () => {
+            if (!ctx) return;
+            frame += 1;
+            ctx.fillStyle = '#111827';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#22c55e';
+            ctx.fillRect(20 + (frame % 80), 20, Math.max(40, canvas.width / 3), Math.max(30, canvas.height / 3));
+          };
+          paint();
+          window.setInterval(paint, 100);
+          return canvas.captureStream(30);
+        };
+        navigator.mediaDevices.getUserMedia = async (constraints?: MediaStreamConstraints) => {
+          const mandatory = (constraints?.video as { mandatory?: { chromeMediaSource?: string } })?.mandatory;
+          if (mandatory?.chromeMediaSource === 'desktop') {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1280;
+            canvas.height = 720;
+            return canvas.captureStream(30);
+          }
+          if (constraints?.video) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 480;
+            const ctx = canvas.getContext('2d');
+            let frame = 0;
+            const paint = () => {
+              if (!ctx) return;
+              frame += 1;
+              ctx.fillStyle = '#020617';
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              ctx.fillStyle = '#38bdf8';
+              ctx.beginPath();
+              ctx.arc(canvas.width / 2, canvas.height / 2, 40 + (frame % 20), 0, Math.PI * 2);
+              ctx.fill();
+            };
+            paint();
+            window.setInterval(paint, 100);
+            return canvas.captureStream(30);
+          }
+          return originalGetUserMedia(constraints);
+        };
+
+        const api = (window as unknown as { roughcut: any }).roughcut;
+        await api.debugSetCaptureSources?.(debugSources);
+        await api.recordingConfigUpdate({
+          recordMode: 'fullscreen',
+          selectedSourceId: debugSources[0]!.id,
+          selectedCameraDeviceId: null,
+          cameraEnabled: true,
+        });
+      }, { debugSources });
+
+      await expect(panelPage.locator('button[aria-label="Camera"]')).toHaveAttribute(
+        'aria-pressed',
+        'true',
+        { timeout: 15_000 },
+      );
+      await expect(panelPage.locator('[data-testid="panel-source-select"]')).toHaveValue(
+        debugSources[0]!.id,
+        { timeout: 15_000 },
+      );
+
+      await expect
+        .poll(
+          () =>
+            panelPage.evaluate(
+              () => Boolean((window as unknown as { __panelTestHooks?: unknown }).__panelTestHooks),
+            ),
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+
+      await expect
+        .poll(
+          () =>
+            panelPage.evaluate(() => {
+              const hooks = (window as unknown as {
+                __panelTestHooks: { getCameraStreamTrackStates: () => string[] };
+              }).__panelTestHooks;
+              return hooks.getCameraStreamTrackStates();
+            }),
+          { timeout: 10_000 },
+        )
+        .toContain('live');
+
+      expect(
+        await panelPage.evaluate(
+          () => (window as unknown as { __panelDisplayGumCalls: number }).__panelDisplayGumCalls,
+        ),
+      ).toBe(0);
+
+      await panelPage.locator('[data-testid="panel-source-select"]').selectOption(debugSources[1]!.id);
+      await expect(panelPage.locator('[data-testid="panel-source-select"]')).toHaveValue(
+        debugSources[1]!.id,
+        { timeout: 10_000 },
+      );
+
+      await expect
+        .poll(
+          () =>
+            panelPage.evaluate(() => {
+              const hooks = (window as unknown as {
+                __panelTestHooks: { getCameraStreamTrackStates: () => string[] };
+              }).__panelTestHooks;
+              return hooks.getCameraStreamTrackStates();
+            }),
+          { timeout: 10_000 },
+        )
+        .toContain('live');
+
+      expect(
+        await panelPage.evaluate(
+          () => (window as unknown as { __panelDisplayGumCalls: number }).__panelDisplayGumCalls,
+        ),
+      ).toBe(0);
+
+      await expect(panelPage.locator('button[aria-label="Start recording"]')).toBeEnabled({ timeout: 30_000 });
+      await panelPage.locator('button[aria-label="Start recording"]').click();
+      await expect(panelPage.locator('button[aria-label="Stop recording"]')).toBeVisible({ timeout: 30_000 });
+
+      await expect
+        .poll(
+          () =>
+            panelPage.evaluate(
+              () => (window as unknown as { __panelDisplayGumCalls: number }).__panelDisplayGumCalls,
+            ),
+          { timeout: 10_000 },
+        )
+        .toBe(1);
+
+      await panelPage.locator('button[aria-label="Stop recording"]').click().catch(() => {});
+    } finally {
+      await appPage
+        .evaluate(async () => {
+          const api = (window as unknown as { roughcut: any }).roughcut;
+          await api.debugSetCaptureSources?.(null);
+          await api.recordingConfigUpdate({ selectedSourceId: null, selectedCameraDeviceId: null, cameraEnabled: false });
+        })
+        .catch(() => {});
+    }
+  });
+
   test('synthetic camera recording saves a separate camera file and imports camera asset', async ({
     appPage,
     electronApp,
@@ -267,6 +461,16 @@ test.describe('Record camera artifact', () => {
         });
       }, { debugSource: DEBUG_SOURCE });
 
+      await expect(panelPage.locator('button[aria-label="Camera"]')).toHaveAttribute(
+        'aria-pressed',
+        'true',
+        { timeout: 15_000 },
+      );
+      await expect(panelPage.locator('[data-testid="panel-source-select"]')).toHaveValue(
+        DEBUG_SOURCE.id,
+        { timeout: 15_000 },
+      );
+
       await expect(panelPage.locator('button[aria-label="Start recording"]')).toBeEnabled({ timeout: 30_000 });
       // Count calls before clicking REC so we can isolate the recorder's getUserMedia call.
       const cameraGumCallsBeforeRec = await panelPage.evaluate(
@@ -309,6 +513,30 @@ test.describe('Record camera artifact', () => {
       expect(snapshot.recordingAssetId).toBeTruthy();
       expect(snapshot.cameraAssetId).toBeTruthy();
       expect(snapshot.cameraAssetPath).toBe(result.cameraFilePath);
+
+      const activeReviewState = await appPage.evaluate(() => {
+        const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+        const projectState = stores?.project.getState();
+        const activeAssetId = projectState?.activeAssetId ?? null;
+        const activeAsset = activeAssetId
+          ? projectState?.project.assets.find((asset: any) => asset.id === activeAssetId) ?? null
+          : null;
+        return {
+          activeAssetId,
+          activeAssetType: activeAsset?.type ?? null,
+          cameraAssetId: activeAsset?.cameraAssetId ?? null,
+          templateId: activeAsset?.presentation?.templateId ?? null,
+          cameraVisible: activeAsset?.presentation?.camera?.visible ?? null,
+        };
+      });
+
+      expect(activeReviewState.activeAssetId).toBe(snapshot.recordingAssetId);
+      expect(activeReviewState.activeAssetType).toBe('recording');
+      expect(activeReviewState.cameraAssetId).toBe(snapshot.cameraAssetId);
+      expect(activeReviewState.templateId).toBe('screen-cam-br-16x9');
+      expect(activeReviewState.cameraVisible).toBe(true);
+
+      await expect(appPage.locator('[data-testid="record-camera-frame"]')).toBeVisible();
 
       await expect
         .poll(
@@ -602,6 +830,16 @@ test.describe('Record camera artifact', () => {
         },
       );
 
+      await expect(panelPage.locator('button[aria-label="Camera"]')).toHaveAttribute(
+        'aria-pressed',
+        'true',
+        { timeout: 15_000 },
+      );
+      await expect(panelPage.locator('[data-testid="panel-source-select"]')).toHaveValue(
+        DEBUG_SOURCE.id,
+        { timeout: 15_000 },
+      );
+
       await expect(panelPage.locator('button[aria-label="Start recording"]')).toBeEnabled({
         timeout: 30_000,
       });
@@ -820,6 +1058,16 @@ test.describe('Record camera artifact', () => {
           cameraEnabled: true,
         });
       }, { debugSource: DEBUG_SOURCE });
+
+      await expect(panelPage.locator('button[aria-label="Camera"]')).toHaveAttribute(
+        'aria-pressed',
+        'true',
+        { timeout: 15_000 },
+      );
+      await expect(panelPage.locator('[data-testid="panel-source-select"]')).toHaveValue(
+        DEBUG_SOURCE.id,
+        { timeout: 15_000 },
+      );
 
       await expect(panelPage.locator('button[aria-label="Start recording"]')).toBeEnabled({ timeout: 30_000 });
 

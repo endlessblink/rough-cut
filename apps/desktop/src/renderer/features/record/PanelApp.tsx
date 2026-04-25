@@ -539,6 +539,7 @@ function CameraPiPOverlay({
 
   return (
     <video
+      data-testid="panel-camera-preview-video"
       ref={cameraVideoRef}
       muted
       playsInline
@@ -891,6 +892,7 @@ function DeviceControls({
         <select
           data-testid="panel-mic-select"
           value={selectedMicValue}
+          onPointerDown={() => onSelectMicDevice(selectedMicValue || null)}
           onChange={(event) => onSelectMicDevice(event.target.value || null)}
           style={panelSelectStyle}
           aria-label="Microphone device"
@@ -910,6 +912,7 @@ function DeviceControls({
         <select
           data-testid="panel-camera-select"
           value={selectedCameraValue}
+          onPointerDown={() => onSelectCameraDevice(selectedCameraValue || null)}
           onChange={(event) => onSelectCameraDevice(event.target.value || null)}
           style={panelSelectStyle}
           aria-label="Camera device"
@@ -933,6 +936,7 @@ function DeviceControls({
         <select
           data-testid="panel-system-audio-select"
           value={selectedSystemAudioValue}
+          onPointerDown={() => onSelectSystemAudioSource(selectedSystemAudioValue || null)}
           onChange={(event) => onSelectSystemAudioSource(event.target.value || null)}
           style={panelSelectStyle}
           aria-label="System audio source"
@@ -2154,14 +2158,16 @@ export function PanelApp() {
     };
   }, [cameraStream, showToast]);
 
-  // Cleanup streams on unmount
+  // Cleanup streams on unmount only. Do not depend on stream state here: React
+  // runs effect cleanup before dependency changes, which would stop unrelated
+  // live tracks when mic/camera/screen streams are acquired independently.
   useEffect(() => {
     return () => {
-      stream?.getTracks().forEach((t) => t.stop());
-      micStream?.getTracks().forEach((t) => t.stop());
-      cameraStream?.getTracks().forEach((t) => t.stop());
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      micStreamRef.current?.getTracks().forEach((t) => t.stop());
+      cameraStreamRef.current?.getTracks().forEach((t) => t.stop());
     };
-  }, [cameraStream, micStream, stream]);
+  }, []);
 
   // ── Source selection ─────────────────────────────────────────────────────
   const handleSelectSource = useCallback((id: string) => {
@@ -2206,99 +2212,19 @@ export function PanelApp() {
   }, [hydrated, recordMode, selectedSourceId, sources]);
 
   useEffect(() => {
-    let active = true;
+    if (!hydrated) return;
 
-    if (!hydrated) {
-      return () => {
-        active = false;
-      };
+    if (selectedSourceId) {
+      setStatus((current) => (current === 'recording' || current === 'stopping' ? current : 'idle'));
+      return;
     }
 
-    if (!selectedSourceId) {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-      }
-      streamRef.current = null;
-      setStream(null);
-      setStatus((current) =>
-        current === 'recording' || current === 'stopping' ? current : 'idle',
-      );
-      return () => {
-        active = false;
-      };
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
     }
-
-    const acquireStream = async () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-      }
-
-      const pendingAcquire = displayAcquirePromiseRef.current;
-      if (pendingAcquire) {
-        await pendingAcquire;
-        return;
-      }
-
-      const acquirePromise = (async () => {
-        try {
-          const s = await navigator.mediaDevices.getDisplayMedia({
-            video: {
-              frameRate: { ideal: 15, max: 20 },
-            },
-            audio: true,
-          });
-          if (!active) {
-            s.getTracks().forEach((t) => t.stop());
-            return null;
-          }
-
-          const videoTrack = s.getVideoTracks()[0];
-          if (videoTrack) {
-            void videoTrack.applyConstraints({ frameRate: { ideal: 15, max: 20 } }).catch(() => {});
-            const settings = videoTrack.getSettings();
-            console.info(
-              '[PanelApp] Screen track:',
-              settings.width,
-              'x',
-              settings.height,
-              '@',
-              settings.frameRate,
-              'fps',
-            );
-          }
-
-          streamRef.current = s;
-          setStream(s);
-          setStatus('ready');
-          console.info('[PanelApp] Stream acquired via getDisplayMedia');
-          return s;
-        } catch (err) {
-          if (!active) return null;
-          const name = (err as { name?: string })?.name ?? 'Error';
-          const message = (err as { message?: string })?.message ?? String(err);
-          console.error(
-            '[PanelApp] Failed to acquire display stream:',
-            `${name}: ${message}`,
-            err,
-          );
-          streamRef.current = null;
-          setStream(null);
-          setStatus('idle');
-          return null;
-        } finally {
-          displayAcquirePromiseRef.current = null;
-        }
-      })();
-
-      displayAcquirePromiseRef.current = acquirePromise;
-      await acquirePromise;
-    };
-
-    void acquireStream();
-
-    return () => {
-      active = false;
-    };
+    streamRef.current = null;
+    setStream(null);
+    setStatus((current) => (current === 'recording' || current === 'stopping' ? current : 'idle'));
   }, [hydrated, selectedSourceId]);
 
   useEffect(() => {
@@ -2977,7 +2903,7 @@ export function PanelApp() {
             micOptions={micOptions}
             selectedMicDeviceId={selectedMicDeviceId}
             onSelectMicDevice={(id) =>
-              updateRecordingConfig({ selectedMicDeviceId: id, micEnabled: id ? true : micEnabled })
+              updateRecordingConfig({ selectedMicDeviceId: id, micEnabled: true })
             }
           cameraOptions={cameraOptions}
           selectedCameraDeviceId={selectedCameraDeviceId}
@@ -2992,7 +2918,7 @@ export function PanelApp() {
             onSelectSystemAudioSource={(id) =>
               updateRecordingConfig({
                 selectedSystemAudioSourceId: id,
-                sysAudioEnabled: id ? true : sysAudioEnabled,
+                sysAudioEnabled: true,
               })
             }
             onMicToggle={handleMicToggle}
