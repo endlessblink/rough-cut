@@ -5,7 +5,12 @@ import {
 } from './cursor-subframe-interpolation.js';
 
 describe('resolveBackwardSubframeInterpolation', () => {
-  it('interpolates only after a sequential frame advance while playing', () => {
+  it('interpolates within the frame-hold window during playback', () => {
+    // First tick: lerpT = 0. The caller (CursorOverlay) handles the
+    // no-prev-cursor edge case independently of this flag — so it's safe
+    // and useful to report `shouldInterpolate=true` here. At lerpT=0 the
+    // lerp result equals `prevCursor`, which when no prev exists falls
+    // through to `currCursor`. Either way: visually correct.
     const advanced = resolveBackwardSubframeInterpolation(
       INITIAL_BACKWARD_SUBFRAME_INTERPOLATION_STATE,
       {
@@ -15,22 +20,16 @@ describe('resolveBackwardSubframeInterpolation', () => {
         fps: 30,
       },
     );
-    expect(advanced.shouldInterpolate).toBe(false);
+    expect(advanced.lerpT).toBe(0);
+    expect(advanced.shouldInterpolate).toBe(true);
 
-    const held = resolveBackwardSubframeInterpolation(advanced.nextState, {
-      projectFrame: 11,
+    // Same frame, halfway into its hold window — interp midpoint.
+    const halfway = resolveBackwardSubframeInterpolation(advanced.nextState, {
+      projectFrame: 10,
       isPlaying: true,
-      nowMs: 200,
+      nowMs: 100 + 1000 / 60,
       fps: 30,
     });
-
-    const halfway = resolveBackwardSubframeInterpolation(held.nextState, {
-      projectFrame: 11,
-      isPlaying: true,
-      nowMs: 200 + 1000 / 60,
-      fps: 30,
-    });
-
     expect(halfway.shouldInterpolate).toBe(true);
     expect(halfway.lerpT).toBeCloseTo(0.5, 5);
   });
@@ -71,7 +70,11 @@ describe('resolveBackwardSubframeInterpolation', () => {
     expect(result.lerpT).toBe(1);
   });
 
-  it('does not interpolate after non-sequential jumps', () => {
+  it('still interpolates after multi-frame forward jumps (GPU-stall recovery)', () => {
+    // requestVideoFrameCallback can deliver multi-frame jumps when the
+    // decoder catches up after a stall. The cursor sprite must keep
+    // smoothing instead of snapping — that snap is what the user perceives
+    // as jerks during continuous motion.
     const jumped = resolveBackwardSubframeInterpolation(
       {
         lastSeenPlayheadFrame: 20,
@@ -85,18 +88,19 @@ describe('resolveBackwardSubframeInterpolation', () => {
         fps: 30,
       },
     );
+    expect(jumped.nextState.lastAdvanceWasSequential).toBe(false);
 
     const held = resolveBackwardSubframeInterpolation(jumped.nextState, {
       projectFrame: 24,
       isPlaying: true,
-      nowMs: 210,
+      nowMs: 200 + 1000 / 60,
       fps: 30,
     });
-
-    expect(held.shouldInterpolate).toBe(false);
+    expect(held.shouldInterpolate).toBe(true);
+    expect(held.lerpT).toBeCloseTo(0.5, 5);
   });
 
-  it('does not interpolate after backward jumps', () => {
+  it('records non-sequential advances in nextState for callers that care', () => {
     const jumped = resolveBackwardSubframeInterpolation(
       {
         lastSeenPlayheadFrame: 20,
@@ -104,20 +108,13 @@ describe('resolveBackwardSubframeInterpolation', () => {
         lastAdvanceWasSequential: true,
       },
       {
-        projectFrame: 10,
+        projectFrame: 22,
         isPlaying: true,
         nowMs: 200,
         fps: 30,
       },
     );
-
-    const held = resolveBackwardSubframeInterpolation(jumped.nextState, {
-      projectFrame: 10,
-      isPlaying: true,
-      nowMs: 210,
-      fps: 30,
-    });
-
-    expect(held.shouldInterpolate).toBe(false);
+    expect(jumped.nextState.lastAdvanceWasSequential).toBe(false);
+    expect(jumped.nextState.lastSeenPlayheadFrame).toBe(22);
   });
 });
