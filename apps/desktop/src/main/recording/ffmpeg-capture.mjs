@@ -38,6 +38,14 @@ export function isFfmpegCaptureAvailable() {
  * Uses `-draw_mouse 0` to exclude the system cursor from the capture.
  * The user still sees their cursor on screen.
  *
+ * `onFirstFrame` (optional): invoked exactly once with a wall-clock millisecond
+ * timestamp estimating when FFmpeg captured its first frame. Derived by
+ * parsing `-progress pipe:1` blocks on stdout: each block satisfies
+ * `firstFrameWallClock <= arrival_wallclock - out_time_us/1000`, so we take
+ * the minimum across the first few blocks. The session manager uses this to
+ * anchor the cursor sidecar to the actual file frame 0 (not to MediaRecorder
+ * start, which fires later than FFmpeg's first capture on Linux/X11).
+ *
  * @param {FfmpegCaptureOptions} options
  * @returns {FfmpegCaptureHandle}
  */
@@ -50,6 +58,7 @@ export function startFfmpegCapture({
   micSource = null,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
+  onFirstFrame = null,
 }) {
   const hasMic = typeof micSource === 'string' && micSource.length > 0;
   const hasSysAudio = typeof systemAudioSource === 'string' && systemAudioSource.length > 0;
@@ -63,6 +72,13 @@ export function startFfmpegCapture({
   // Applying to every input keeps audio packets from backpressuring video too.
   const args = [
     '-y', // Overwrite output
+    // Realtime progress to stdout. Used by the cursor-sync first-frame parser
+    // (see createFirstFrameDetector + onFirstFrame option) to derive the
+    // wall-clock of the actual first captured frame.
+    '-progress',
+    'pipe:1',
+    '-stats_period',
+    '0.05',
     // Input 0: x11grab video
     '-thread_queue_size',
     '512',
@@ -170,6 +186,22 @@ export function startFfmpegCapture({
     stderrState.observe(text);
   });
 
+  // Wall-clock anchor for cursor sync. The first few `-progress pipe:1`
+  // blocks let us bound when FFmpeg actually muxed frame 0; see
+  // createFirstFrameDetector for the math. Fires at most once.
+  if (typeof onFirstFrame === 'function') {
+    const detector = createFirstFrameDetector({
+      onFirstFrame: (ms) => {
+        try {
+          onFirstFrame(ms);
+        } catch (err) {
+          console.warn('[ffmpeg-capture] onFirstFrame callback threw:', err?.message ?? err);
+        }
+      },
+    });
+    proc.stdout?.on('data', (chunk) => detector.observe(chunk.toString(), Date.now()));
+  }
+
   proc.on('error', (err) => {
     console.error('[ffmpeg-capture] Process error:', err.message);
   });
@@ -251,6 +283,101 @@ function createStderrDropWatcher(tag) {
       if (Date.now() - startMs > GRACE_MS) {
         console.warn(`${tag} frame drops: +${delta} (total ${n}).`);
       }
+    },
+  };
+}
+
+/**
+ * First-frame wall-clock detector for FFmpeg `-progress pipe:1` output.
+ *
+ * Each progress block emitted by ffmpeg contains an `out_time_us` field — the
+ * PTS (in microseconds) of the most recently encoded frame. For x11grab with
+ * `-framerate F`, frame N has PTS `(N-1)/F * 1e6`. Crucially, `out_time_us`
+ * tracks ENCODED-timeline progress, not wall-clock; ffmpeg's progress timer
+ * fires on its own cadence (`-stats_period`) regardless of when frames mux.
+ *
+ * Invariant for every block where `out_time_us > 0`:
+ *
+ *     first_frame_wall_clock <= block_arrival_wall_clock - out_time_us / 1000
+ *
+ * Reasoning: by the moment the block is emitted, ffmpeg has produced
+ * `out_time_us` µs of encoded timeline, so the first frame must have been
+ * captured at least that long before. The expression is therefore a strict
+ * upper bound on the true first-frame wall-clock. Taking the minimum across
+ * the early blocks converges to the truth quickly — empirically within
+ * ~250 ms (libvpx realtime, 1080p60 on this machine).
+ *
+ * Blocks with `out_time_us === 0` are timer ticks before frame 1 muxed and
+ * are ignored. Fires `onFirstFrame(minMs)` exactly once after `maxBlocks`
+ * non-zero blocks have been observed OR `maxWindowMs` ms have elapsed since
+ * the first non-zero block (whichever first).
+ *
+ * Stateless wrt time: the caller passes wall-clock at observe-time. This
+ * keeps the helper deterministic for unit testing.
+ *
+ * @param {{
+ *   onFirstFrame: (firstFrameWallClockMs: number) => void,
+ *   maxBlocks?: number,
+ *   maxWindowMs?: number,
+ * }} options
+ */
+export function createFirstFrameDetector({
+  onFirstFrame,
+  maxBlocks = 5,
+  maxWindowMs = 500,
+}) {
+  let buffer = '';
+  let pendingOutTimeUs = null;
+  let bestMs = Number.POSITIVE_INFINITY;
+  let nonZeroBlocks = 0;
+  let firstNonZeroAt = null;
+  let fired = false;
+
+  function emitIfReady(now) {
+    if (fired) return;
+    if (!Number.isFinite(bestMs)) return;
+    const enoughBlocks = nonZeroBlocks >= maxBlocks;
+    const elapsedEnough =
+      firstNonZeroAt !== null && now - firstNonZeroAt >= maxWindowMs;
+    if (enoughBlocks || elapsedEnough) {
+      fired = true;
+      onFirstFrame(bestMs);
+    }
+  }
+
+  return {
+    /**
+     * Feed a chunk of stdout text plus the wall-clock at receive-time.
+     * @param {string} chunk
+     * @param {number} arrivalMs
+     */
+    observe(chunk, arrivalMs) {
+      if (fired) return;
+      buffer += chunk;
+      let nl;
+      while ((nl = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
+        if (line.startsWith('out_time_us=')) {
+          const v = Number(line.slice('out_time_us='.length));
+          pendingOutTimeUs = Number.isFinite(v) ? v : null;
+          continue;
+        }
+        if (line === 'progress=continue' || line === 'progress=end') {
+          if (pendingOutTimeUs !== null && pendingOutTimeUs > 0) {
+            const candidate = arrivalMs - pendingOutTimeUs / 1000;
+            if (candidate < bestMs) bestMs = candidate;
+            if (firstNonZeroAt === null) firstNonZeroAt = arrivalMs;
+            nonZeroBlocks += 1;
+          }
+          pendingOutTimeUs = null;
+          emitIfReady(arrivalMs);
+          if (fired) return;
+        }
+      }
+      // After processing all complete lines in this chunk, an in-flight
+      // block could still be ready by elapsed time alone.
+      emitIfReady(arrivalMs);
     },
   };
 }

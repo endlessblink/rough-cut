@@ -36,8 +36,6 @@ export class CursorRecorder {
   #offsetX = 0;
   /** @type {number} */
   #offsetY = 0;
-  /** @type {number | null} */
-  #stopTimeMs = null;
 
   #pushEvent(event) {
     this.#events.push(event);
@@ -116,7 +114,6 @@ export class CursorRecorder {
     this.#frameRate = frameRate;
     this.#outputPath = outputPath;
     this.#startTime = Date.now();
-    this.#stopTimeMs = null;
     this.#lastMoveFrame = -1;
     this.#offsetX = Number.isFinite(captureBounds.offsetX) ? captureBounds.offsetX : 0;
     this.#offsetY = Number.isFinite(captureBounds.offsetY) ? captureBounds.offsetY : 0;
@@ -163,9 +160,6 @@ export class CursorRecorder {
   stop() {
     if (!this.#recording) return null;
 
-    // Capture stop wall-clock first so getDurationMs() reflects the actual
-    // recording window (used to compute the FFmpeg-startup gap at save time).
-    this.#stopTimeMs = Date.now();
     this.#recording = false;
 
     if (!this.#outputPath || this.#events.length === 0) {
@@ -192,38 +186,55 @@ export class CursorRecorder {
    * Rebase the start time to align cursor events with the actual MediaRecorder start.
    * Recalculates frame numbers for events captured in the gap and discards
    * events that occurred before the new start time (negative frames).
+   *
+   * Guarded against backward rebases (`newStartTimeMs <= oldStart` is a
+   * no-op) — used for the macOS/Windows MediaRecorder path where the new
+   * anchor is necessarily later than the original cursor.start.
    */
   rebaseStartTime(newStartTimeMs) {
     if (!this.#recording) return;
     const oldStart = this.#startTime;
     if (!oldStart || newStartTimeMs <= oldStart) return;
-
-    this.#startTime = newStartTimeMs;
-
-    // Recalculate frame numbers for existing events
-    this.#events = this.#events
-      .map(e => {
-        // Convert frame back to absolute time, then to new frame number
-        const absoluteTimeMs = oldStart + (e.frame / this.#frameRate) * 1000;
-        const newFrame = Math.round(((absoluteTimeMs - newStartTimeMs) / 1000) * this.#frameRate);
-        return newFrame >= 0 ? { ...e, frame: newFrame } : null;
-      })
-      .filter(e => e !== null);
-
-    console.info('[CursorRecorder] Rebased start time, delta:', newStartTimeMs - oldStart, 'ms, events:', this.#events.length);
+    this.#applyStartTime(newStartTimeMs, '[CursorRecorder] Rebased');
   }
 
   /**
-   * Effective recorder duration in milliseconds: stopTime − startTime, where
-   * startTime reflects the most recent rebase (e.g. MediaRecorder.start). The
-   * session manager subtracts file.durationMs from this to derive the residual
-   * FFmpeg startup gap and persist it as `cursorEventsLeadMs` on the asset.
-   * @returns {number}
+   * Force-set the start anchor regardless of direction. Used on the
+   * Linux/X11 FFmpeg path where the precise first-frame wall-clock comes
+   * from `-progress pipe:1` parsing — that estimate is *earlier* than the
+   * cursor recorder's original `Date.now()` only by the FFmpeg startup gap,
+   * but it can also be earlier than a stale rebase, so we bypass the guard.
+   *
+   * Re-indexes already-captured events the same way `rebaseStartTime` does;
+   * any event whose new frame is negative is dropped.
    */
-  getDurationMs() {
-    if (!this.#startTime) return 0;
-    const stop = this.#stopTimeMs ?? Date.now();
-    return Math.max(0, stop - this.#startTime);
+  setStartTime(newStartTimeMs) {
+    if (!this.#recording) return;
+    if (!this.#startTime) {
+      this.#startTime = newStartTimeMs;
+      return;
+    }
+    this.#applyStartTime(newStartTimeMs, '[CursorRecorder] Set start time');
+  }
+
+  #applyStartTime(newStartTimeMs, logTag) {
+    const oldStart = this.#startTime;
+    this.#startTime = newStartTimeMs;
+    this.#events = this.#events
+      .map((e) => {
+        const absoluteTimeMs = oldStart + (e.frame / this.#frameRate) * 1000;
+        const newFrame = Math.round(
+          ((absoluteTimeMs - newStartTimeMs) / 1000) * this.#frameRate,
+        );
+        return newFrame >= 0 ? { ...e, frame: newFrame } : null;
+      })
+      .filter((e) => e !== null);
+    console.info(
+      `${logTag}, delta:`,
+      newStartTimeMs - oldStart,
+      'ms, events:',
+      this.#events.length,
+    );
   }
 
   /**

@@ -35,8 +35,8 @@ interface ClickEffect {
 }
 
 const CLICK_EFFECT_DURATION_MS = 400;
-const CURSOR_COLOR = 'rgba(255, 255, 255, 0.95)';
-const CURSOR_SHADOW_COLOR = 'rgba(0, 0, 0, 0.4)';
+const CURSOR_COLOR = 'rgba(255, 255, 255, 1)';
+const CURSOR_SHADOW_COLOR = 'rgba(0, 0, 0, 0.55)';
 function getCursorAtFrame(
   data: CursorFrameData,
   sourceFrame: number,
@@ -62,8 +62,11 @@ function drawCursor(
   ctx.translate(px, py);
   const s = size / 20;
 
+  // Crisp drop-shadow: tiny blur, small offset, opaque enough to read on
+  // light backgrounds. The previous 3·s blur was the source of the
+  // "blurry cursor" look — kept only as a 1·s depth cue.
   ctx.shadowColor = CURSOR_SHADOW_COLOR;
-  ctx.shadowBlur = 3 * s;
+  ctx.shadowBlur = 1 * s;
   ctx.shadowOffsetX = 1 * s;
   ctx.shadowOffsetY = 1 * s;
 
@@ -81,8 +84,9 @@ function drawCursor(
   ctx.fillStyle = CURSOR_COLOR;
   ctx.fill();
   ctx.shadowColor = 'transparent';
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
-  ctx.lineWidth = 1 * s;
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+  ctx.lineWidth = 1.5 * s;
+  ctx.lineJoin = 'round';
   ctx.stroke();
 
   if (style === 'spotlight') {
@@ -188,7 +192,10 @@ export function CursorOverlay({
   const cropRef = useRef(crop);
   cropRef.current = crop;
 
-  // ResizeObserver — always active since DOM is always mounted
+  // ResizeObserver — only updates CSS sizeRef. The actual canvas backing
+  // store is sized inside the rAF loop, where it can pick up cursorData's
+  // sourceWidth/Height as soon as that arrives without effect-ordering
+  // gymnastics.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -198,14 +205,6 @@ export function CursorOverlay({
       if (!entry) return;
       const { width, height } = entry.contentRect;
       sizeRef.current = { width, height };
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
-        canvas.style.width = `${width}px`;
-        canvas.style.height = `${height}px`;
-      }
     });
 
     observer.observe(container);
@@ -237,8 +236,22 @@ export function CursorOverlay({
         return;
       }
 
-      const dpr = window.devicePixelRatio || 1;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // Match the cursor canvas backing store to the source resolution
+      // (e.g. 1920×1080), the same approach the Pixi compositor sibling
+      // uses. Sizing only by CSS pixels × devicePixelRatio leaves a 628-px
+      // backing on a 1920-source preview, which the browser then bilinearly
+      // upscales — that scaling is what produced the "blurry cursor" look.
+      const targetW = data.sourceWidth;
+      const targetH = data.sourceHeight;
+      if (canvas.width !== targetW) canvas.width = targetW;
+      if (canvas.height !== targetH) canvas.height = targetH;
+      if (canvas.style.width !== `${width}px`) canvas.style.width = `${width}px`;
+      if (canvas.style.height !== `${height}px`) canvas.style.height = `${height}px`;
+
+      // Drawing coords are in CSS pixels; scale up to the backing store.
+      const scaleX = canvas.width / width;
+      const scaleY = canvas.height / height;
+      ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
       ctx.clearRect(0, 0, width, height);
 
       const projectFrame = transportStore.getState().playheadFrame;

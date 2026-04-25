@@ -21,12 +21,6 @@ interface RawCursorEvent {
  * @param sourceHeight  Recording height in pixels
  * @param eventsFps  Frame rate the events were sampled at. Defaults to projectFps.
  * @param projectFps  Frame rate the timeline plays at. Defaults to eventsFps.
- * @param eventsLeadFrames  Frames to subtract from each event before indexing.
- *   Compensates for the FFmpeg startup gap: the cursor recorder begins
- *   sampling before the file's first captured frame, so cursor[0] really
- *   represents wall-clock time `leadFrames/eventsFps` BEFORE file frame 0.
- *   Subtracting shifts cursor[0] forward to align with file frame 0.
- *   Defaults to 0.
  * @returns Frame-indexed cursor data for the overlay
  *
  * When `eventsFps` and `projectFps` differ, each event's frame is rescaled
@@ -34,6 +28,11 @@ interface RawCursorEvent {
  * sample from the same wall-clock moment the video frame represents. Without
  * this, takes recorded at one cadence and replayed at another (e.g. 60Hz
  * cursor sampling against a 30fps timeline) drift linearly with playback.
+ *
+ * Note: anchoring cursor[0] to the video file's first captured frame is
+ * handled at recording time by the session manager (FFmpeg `-progress
+ * pipe:1` first-frame detection → cursorRecorder.setStartTime). The loader
+ * trusts that event.frame is already aligned with file frame 0.
  */
 export function buildCursorFrameData(
   events: readonly RawCursorEvent[],
@@ -42,7 +41,6 @@ export function buildCursorFrameData(
   sourceHeight: number,
   eventsFps?: number,
   projectFps?: number,
-  eventsLeadFrames?: number,
 ): CursorFrameData {
   // 3 values per frame: normalizedX, normalizedY, isClick (0 or 1)
   const frames = new Float32Array(totalFrames * 3);
@@ -58,19 +56,10 @@ export function buildCursorFrameData(
       ? (projectFps as number) / (eventsFps as number)
       : 1;
 
-  const lead =
-    Number.isFinite(eventsLeadFrames) && (eventsLeadFrames as number) > 0
-      ? Math.round(eventsLeadFrames as number)
-      : 0;
-
-  // Sort events by frame (after rescaling and lead-shift so frame ordering
-  // and any negative-frame drops happen on the final indexing values).
+  // Sort events by frame (after rescaling so frame ordering reflects the
+  // final indexing values).
   const sorted = [...events]
-    .map((e) =>
-      lead === 0 && scale === 1
-        ? e
-        : { ...e, frame: Math.round((e.frame - lead) * scale) },
-    )
+    .map((e) => (scale === 1 ? e : { ...e, frame: Math.round(e.frame * scale) }))
     .sort((a, b) => a.frame - b.frame);
 
   // Assign positions and click flags at exact frames

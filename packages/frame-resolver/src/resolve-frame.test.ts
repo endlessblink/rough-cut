@@ -393,6 +393,68 @@ describe('resolveFrame', () => {
       expect(result.cameraPresentation?.position).toBe('center');
       expect(result.cameraFrame).toEqual({ x: 0.1, y: 0.2, w: 0.3, h: 0.4 });
     });
+
+    it('prefers the selected playback asset over the composition recording layer', () => {
+      const primaryRecording = createAsset('recording', '/primary.webm', {
+        duration: 365,
+        presentation: {
+          zoom: {
+            autoIntensity: 0,
+            followCursor: false,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
+          cursor: {
+            style: 'default',
+            clickEffect: 'none',
+            sizePercent: 100,
+            clickSoundEnabled: false,
+          },
+        },
+      });
+      const selectedRecording = createAsset('recording', '/selected.webm', {
+        duration: 111,
+        presentation: {
+          zoom: {
+            autoIntensity: 0,
+            followCursor: false,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
+          cursor: {
+            style: 'spotlight',
+            clickEffect: 'ripple',
+            sizePercent: 135,
+            clickSoundEnabled: true,
+          },
+        },
+      });
+      const clip = createClip(primaryRecording.id, 'track-1' as TrackId, {
+        timelineIn: 0,
+        timelineOut: 365,
+        sourceIn: 0,
+        sourceOut: 365,
+      });
+      const track = createTrack('video', { id: 'track-1' as TrackId, clips: [clip], index: 0 });
+      const project = createProject({
+        assets: [primaryRecording, selectedRecording],
+        composition: { duration: 365, tracks: [track], transitions: [] },
+      });
+
+      const result = resolveFrame(project, 150, {
+        preferredPlaybackAssetId: selectedRecording.id,
+      });
+
+      expect(result.layers).toHaveLength(1);
+      expect(result.layers[0]?.assetId).toBe(selectedRecording.id);
+      expect(result.layers[0]?.sourceFrame).toBe(110);
+      expect(result.cursor.style).toBe('spotlight');
+      expect(result.cursor.clickEffect).toBe('ripple');
+      expect(result.cursor.sizePercent).toBe(135);
+      expect(result.cursor.clickSoundEnabled).toBe(true);
+    });
   });
 
   it('transition — two clips with transition, resolve at midpoint → progress ≈ 0.5', () => {

@@ -111,21 +111,41 @@ test('cursor sync: RECORDING_SET_TIMELINE_FPS handler exists and assigns current
   );
 });
 
-test('cursor sync: PANEL_SAVE_RECORDING forwards cursorRecorderDurationMs for FFmpeg-gap correction', () => {
-  // Without this, capture-service can't compute `cursorEventsLeadMs` and
-  // the renderer loader has nothing to subtract — the constant ~150-300 ms
-  // FFmpeg startup gap reappears as cursor lag during playback.
-  const channelLine = LINES.findIndex((line) =>
-    /IPC_CHANNELS\.PANEL_SAVE_RECORDING\b/.test(line) && !/^\s*\/\//.test(line),
+test('cursor sync: startFfmpegCapture call wires onFirstFrame -> cursorRecorder.setStartTime', () => {
+  // The FFmpeg first-frame anchor (derived from `-progress pipe:1`) is the
+  // only signal that pins cursor[0] to the actual file frame 0 on Linux/X11.
+  // Without this wiring the cursor sidecar would re-anchor to MediaRecorder
+  // start (later than first frame), reproducing the constant cursor lag.
+  // Find a startFfmpegCapture( callsite that's not the import line.
+  const startCalls = LINES.map((line, idx) => ({ line, idx }))
+    .filter(({ line }) => /startFfmpegCapture\s*\(/.test(line) && !/^\s*import|from\s+['"]/.test(line));
+  assert.ok(startCalls.length > 0, 'expected a startFfmpegCapture( invocation.');
+  const matchedAny = startCalls.some(({ idx }) => {
+    const body = LINES.slice(idx, idx + 40).join('\n');
+    return /onFirstFrame\s*:[\s\S]{0,500}cursorRecorder\.setStartTime\s*\(/.test(body);
+  });
+  assert.ok(
+    matchedAny,
+    'startFfmpegCapture must pass onFirstFrame that calls cursorRecorder.setStartTime() — ' +
+      'this is the FFmpeg first-frame cursor anchor.',
   );
-  assert.notEqual(channelLine, -1, 'expected an IPC_CHANNELS.PANEL_SAVE_RECORDING reference.');
+});
 
-  const body = LINES.slice(channelLine, channelLine + 60).join('\n');
+test('cursor sync: MediaRecorder rebase is gated off when FFmpeg path is active', () => {
+  // The PANEL_MEDIA_RECORDER_STARTED handler must NOT rebase the cursor
+  // recorder when FFmpeg is the actual screen recorder, because MediaRecorder
+  // start fires later than FFmpeg's first frame and would shove cursor[0]
+  // past the real anchor.
+  const handlerLine = LINES.findIndex((line) =>
+    /ipcMain\.on\s*\(\s*IPC_CHANNELS\.PANEL_MEDIA_RECORDER_STARTED/.test(line),
+  );
+  assert.notEqual(handlerLine, -1, 'expected PANEL_MEDIA_RECORDER_STARTED handler.');
+  const body = LINES.slice(handlerLine, handlerLine + 15).join('\n');
   assert.match(
     body,
-    /cursorRecorderDurationMs\s*:\s*cursorRecorder\.getDurationMs\(\)/,
-    'PANEL_SAVE_RECORDING handler must forward cursorRecorder.getDurationMs() as ' +
-      'metadata.cursorRecorderDurationMs so capture-service can derive cursorEventsLeadMs.',
+    /isFfmpegCaptureAvailable\s*\(\s*\)/,
+    'PANEL_MEDIA_RECORDER_STARTED handler must check isFfmpegCaptureAvailable() so the ' +
+      'MediaRecorder rebase is skipped when FFmpeg is the played-back source.',
   );
 });
 

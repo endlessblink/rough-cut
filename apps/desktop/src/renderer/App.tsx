@@ -403,10 +403,6 @@ export function App() {
         // project's timeline fps for new takes (recorder runs at that rate);
         // explicit field lets the loader rescale legacy / off-rate sidecars.
         cursorEventsFps: result.cursorEventsFps ?? timelineFps,
-        // Wall-clock ms the cursor recorder ran longer than the captured
-        // file (FFmpeg startup gap on Linux/X11). Loader subtracts this from
-        // each event's timestamp so cursor[N] aligns with file frame N.
-        cursorEventsLeadMs: result.cursorEventsLeadMs ?? 0,
         audioCapture: result.audioCapture ?? null,
       },
       presentation: truthFirstPresentation,

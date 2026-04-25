@@ -39,6 +39,47 @@ export interface ResolveFrameOptions {
     assetId: string,
     sourceFrame: number,
   ) => { x: number; y: number } | null;
+  readonly preferredPlaybackAssetId?: string | null;
+}
+
+function isPlayableScreenAsset(
+  asset: ProjectDocument['assets'][number] | undefined,
+): boolean {
+  return Boolean(asset && (asset.type === 'recording' || asset.type === 'video') && !asset.metadata?.isCamera);
+}
+
+function clampSourceFrameToAssetDuration(
+  sourceFrame: number,
+  asset: ProjectDocument['assets'][number],
+): number {
+  const duration = Number(asset.duration);
+  if (!Number.isFinite(duration) || duration <= 0) return sourceFrame;
+  return Math.max(0, Math.min(sourceFrame, duration - 1));
+}
+
+function applyPreferredPlaybackAsset(
+  layers: RenderLayer[],
+  assetMap: ReadonlyMap<string, ProjectDocument['assets'][number]>,
+  preferredPlaybackAssetId: string | null | undefined,
+): RenderLayer[] {
+  if (!preferredPlaybackAssetId) return layers;
+
+  const preferredAsset = assetMap.get(preferredPlaybackAssetId);
+  if (!isPlayableScreenAsset(preferredAsset)) return layers;
+  if (layers.some((layer) => layer.assetId === preferredPlaybackAssetId)) return layers;
+
+  const targetIndex = layers.findIndex((layer) => isPlayableScreenAsset(assetMap.get(layer.assetId)));
+  if (targetIndex < 0) return layers;
+
+  return layers.map((layer, index) => {
+    if (index !== targetIndex || !preferredAsset) return layer;
+    return {
+      ...layer,
+      assetId: preferredAsset.id,
+      sourceFrame: clampSourceFrameToAssetDuration(layer.sourceFrame, preferredAsset),
+      isCamera: false,
+    };
+  });
 }
 
 /**
@@ -159,12 +200,17 @@ export function resolveFrame(
   const layers: RenderLayer[] = activeClips
     .map((clip) => resolveClipLayer(clip, tracks, frame, assetMap))
     .sort((a, b) => a.trackIndex - b.trackIndex); // z-order: low index = bottom
+  const previewLayers = applyPreferredPlaybackAsset(
+    layers,
+    assetMap,
+    options?.preferredPlaybackAssetId,
+  );
 
   // 3. Find active transitions
   const transitions = resolveTransitions(composition.transitions, tracks, frame);
 
   // 4. Resolve recording presentation (zoom + cursor)
-  const activeRecordingLayer = layers.find((layer) => {
+  const activeRecordingLayer = previewLayers.find((layer) => {
     const asset = assetMap.get(layer.assetId);
     return asset?.type === 'recording' && !asset.metadata?.isCamera;
   });
@@ -220,7 +266,7 @@ export function resolveFrame(
     height: settings.resolution.height,
     backgroundColor: background?.bgColor ?? settings.backgroundColor,
     background,
-    layers,
+    layers: previewLayers,
     transitions,
     cameraTransform,
     cursor,

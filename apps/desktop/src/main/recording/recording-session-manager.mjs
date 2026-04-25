@@ -123,6 +123,10 @@ async function resumeNotificationsAfterRecording() {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+function getRendererBaseUrl() {
+  return (process.env.ROUGH_CUT_RENDERER_URL ?? 'http://127.0.0.1:7544').replace(/\/+$/, '');
+}
+
 const IS_LINUX = process.platform === 'linux';
 const PANEL_SETUP = { width: 500, height: 520 };
 const PANEL_MINI = { width: 340, height: 56 };
@@ -1364,6 +1368,19 @@ function resizePanel(mode) {
  */
 export function openPanel() {
   console.info('[session-manager] openPanel() called, state:', state);
+  if (state === 'panel-open') {
+    if (isWindowAlive(panelWindow)) {
+      resizePanel('setup');
+      panelWindow.show();
+      panelWindow.focus();
+      console.info('[session-manager] Existing panel focused.');
+      return;
+    }
+
+    console.warn('[session-manager] Recovering stale panel-open state before reopening panel.');
+    transitionToIdle();
+  }
+
   if (!guardState('openPanel', ['idle'])) return;
   broadcastConnectionIssues(null);
 
@@ -1407,16 +1424,21 @@ export function openPanel() {
 
   // Load panel renderer
   const panelUrl = !app.isPackaged
-    ? 'http://127.0.0.1:7544/panel.html'
+    ? `${getRendererBaseUrl()}/panel.html`
     : join(__dirname, '../../../dist/renderer/panel.html');
 
   console.info('[session-manager] Loading panel from:', panelUrl);
 
-  if (!app.isPackaged) {
-    panelWindow.loadURL(panelUrl);
-  } else {
-    panelWindow.loadFile(panelUrl);
-  }
+  const loadPanelRenderer = () => {
+    if (!panelWindow || panelWindow.isDestroyed()) return;
+    if (!app.isPackaged) {
+      panelWindow.loadURL(panelUrl);
+    } else {
+      panelWindow.loadFile(panelUrl);
+    }
+  };
+
+  loadPanelRenderer();
 
   // Pipe panel renderer console logs to main process terminal
   panelWindow.webContents.on('console-message', (_e, level, message) => {
@@ -1426,6 +1448,9 @@ export function openPanel() {
 
   panelWindow.webContents.on('did-fail-load', (_e, code, desc) => {
     console.error('[session-manager] Panel failed to load:', code, desc);
+    if (!app.isPackaged && code === -102) {
+      setTimeout(loadPanelRenderer, 250);
+    }
   });
 
   panelWindow.webContents.on('did-finish-load', () => {
@@ -1692,6 +1717,19 @@ export async function startRecording() {
             micSource,
             systemAudioSource,
             systemAudioGainPercent: pendingAudioConfig.systemAudioGainPercent,
+            // Anchor the cursor sidecar to FFmpeg's actual first-captured-
+            // frame wall-clock (derived from `-progress pipe:1`). This is the
+            // reliable signal on Linux/X11 — the played-back video is the
+            // FFmpeg file, so cursor[0] must match file frame 0 not
+            // MediaRecorder.start (which fires later in the panel renderer).
+            onFirstFrame: (firstFrameMs) => {
+              cursorRecorder.setStartTime(firstFrameMs);
+              recordingStartMs = firstFrameMs;
+              console.info(
+                '[session-manager] FFmpeg first frame anchored at',
+                new Date(firstFrameMs).toISOString(),
+              );
+            },
           });
           ffmpegOutputPath = ffmpegPath;
           console.info(
@@ -2085,13 +2123,19 @@ export function initSessionManager(win, sourceInfoGetter) {
     }
   });
 
-  // Rebase cursor recorder start time to match the actual MediaRecorder start
+  // Rebase cursor recorder start time to match the actual MediaRecorder
+  // start. On Linux/X11 we instead anchor to FFmpeg's first captured frame
+  // (see startFfmpegCapture's onFirstFrame above) — that signal is later
+  // than MediaRecorder.start would suggest is the correct anchor here, and
+  // the FFmpeg file is the one we actually play back. The MediaRecorder
+  // rebase is the right anchor only when the played-back file IS the
+  // MediaRecorder buffer, i.e., the non-FFmpeg path.
   ipcMain.on(IPC_CHANNELS.PANEL_MEDIA_RECORDER_STARTED, (_event, { timestampMs }) => {
-    if (state === 'recording') {
-      cursorRecorder.rebaseStartTime(timestampMs);
-      // Also rebase the elapsed timer origin for the toolbar
-      recordingStartMs = timestampMs;
-    }
+    if (state !== 'recording') return;
+    if (isFfmpegCaptureAvailable()) return;
+    cursorRecorder.rebaseStartTime(timestampMs);
+    // Also rebase the elapsed timer origin for the toolbar
+    recordingStartMs = timestampMs;
   });
 
   /**
@@ -2111,15 +2155,11 @@ export function initSessionManager(win, sourceInfoGetter) {
         // metadata.timelineFps as a hardcoded fallback. Override with the
         // value the session manager actually used to start the cursor
         // recorder so duration math and cursor lookup share one frame rate.
-        // Also forward the cursor recorder's effective wall-clock duration so
-        // capture-service can derive `cursorEventsLeadMs` (the residual
-        // FFmpeg startup gap) by subtracting the probed file duration.
         if (metadata && typeof metadata === 'object') {
           metadata = {
             ...metadata,
             timelineFps: currentTimelineFps,
             cursorEventsFps: currentTimelineFps,
-            cursorRecorderDurationMs: cursorRecorder.getDurationMs(),
           };
         }
 

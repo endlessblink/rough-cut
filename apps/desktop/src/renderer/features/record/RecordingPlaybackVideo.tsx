@@ -86,20 +86,6 @@ export function RecordingPlaybackVideo({
   // before this fix.
   const cursorEventsFps =
     (asset?.metadata?.cursorEventsFps as number | undefined) ?? 60;
-  // Wall-clock ms the cursor recorder ran ahead of the file's first frame
-  // (FFmpeg startup gap on Linux/X11). Persisted by capture-service. Convert
-  // to event-frame units so the loader can subtract it from each event's
-  // frame index. Legacy takes default to 0 — they relied on the prior
-  // MediaRecorder rebase, which was the best alignment available then.
-  //
-  // Reject implausibly large stored values: anything above 500 ms is almost
-  // certainly a save-time bug (e.g., the early version of computeCursorEvents
-  // LeadMs that conflated FFmpeg frame drops with startup gap and persisted
-  // 2000 ms shifts that wiped the first 2 s of cursor data). This guard lets
-  // already-saved projects recover without a re-record.
-  const rawLeadMs = (asset?.metadata?.cursorEventsLeadMs as number | undefined) ?? 0;
-  const cursorEventsLeadMs = rawLeadMs > 0 && rawLeadMs <= 500 ? rawLeadMs : 0;
-  const cursorEventsLeadFrames = Math.round((cursorEventsLeadMs * cursorEventsFps) / 1000);
   const cursorPath = inferCursorEventsPath(
     resolveProjectMediaPath(asset?.filePath ?? null, projectFilePath),
     asset?.metadata?.cursorEventsPath as string | null,
@@ -120,7 +106,6 @@ export function RecordingPlaybackVideo({
       assetHeight,
       cursorEventsFps,
       projectFps,
-      cursorEventsLeadFrames,
     );
     console.info(
       '[RecordingPlaybackVideo] Cursor overlay ready:',
@@ -128,18 +113,10 @@ export function RecordingPlaybackVideo({
       'frames,',
       cursorEvents.length,
       'events,',
-      `eventsFps=${cursorEventsFps} projectFps=${projectFps} leadFrames=${cursorEventsLeadFrames}`,
+      `eventsFps=${cursorEventsFps} projectFps=${projectFps}`,
     );
     setCursorData(data);
-  }, [
-    cursorEvents,
-    assetDuration,
-    assetWidth,
-    assetHeight,
-    cursorEventsFps,
-    projectFps,
-    cursorEventsLeadFrames,
-  ]);
+  }, [cursorEvents, assetDuration, assetWidth, assetHeight, cursorEventsFps, projectFps]);
 
   useEffect(() => {
     setCursorFrameData(assetId, cursorData);

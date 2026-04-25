@@ -112,6 +112,13 @@ test.describe('Record tab', () => {
     await expect(appPage.locator('[data-testid="btn-record"]')).toBeVisible();
   });
 
+  test('record button opens the pre-recording panel', async ({ appPage, electronApp }) => {
+    const panelPromise = electronApp.waitForEvent('window');
+    await appPage.locator('[data-testid="btn-record"]').click();
+    const panelPage = await panelPromise;
+    await expect(panelPage.locator('[data-testid="panel-source-select"]')).toBeVisible();
+  });
+
   test('renders the live camera stream inside the Record PiP frame before recording', async ({
     appPage,
   }) => {

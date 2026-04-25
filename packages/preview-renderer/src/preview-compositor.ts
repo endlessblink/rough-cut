@@ -445,6 +445,7 @@ export class PreviewCompositor {
         if (x < 0 || y < 0) return null;
         return { x, y };
       },
+      preferredPlaybackAssetId: this.preferredPlaybackAssetId,
     });
     this.renderRenderFrame(renderFrame);
     this.app.render();
@@ -853,7 +854,9 @@ export class PreviewCompositor {
     if (!this.project) return null;
 
     const fps = this.project.settings.frameRate ?? 30;
-    const renderFrame = resolveFrame(this.project, timelineFrame);
+    const renderFrame = resolveFrame(this.project, timelineFrame, {
+      preferredPlaybackAssetId: this.preferredPlaybackAssetId,
+    });
     const layer = renderFrame.layers.find((entry) => entry.assetId === assetId);
     return layer ? layer.sourceFrame / fps : null;
   }
@@ -892,7 +895,9 @@ export class PreviewCompositor {
   private getPrimaryPlaybackVideoCache(): { assetId: string; video: VideoCache } | null {
     if (!this.project) return null;
 
-    const renderFrame = resolveFrame(this.project, this.currentFrame);
+    const renderFrame = resolveFrame(this.project, this.currentFrame, {
+      preferredPlaybackAssetId: this.preferredPlaybackAssetId,
+    });
     const preferredLayer = this.preferredPlaybackAssetId
       ? renderFrame.layers.find((layer) => layer.assetId === this.preferredPlaybackAssetId)
       : null;

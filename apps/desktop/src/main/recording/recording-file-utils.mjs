@@ -48,23 +48,6 @@ export function probeRecordingResult(filePath, metadata = {}) {
     Number.isFinite(metadata?.cursorEventsFps) && metadata.cursorEventsFps > 0
       ? metadata.cursorEventsFps
       : timelineFps;
-  // Mirror capture-service's computeCursorEventsLeadMs so a recovery /
-  // late-probe path does not silently drop the FFmpeg-startup correction.
-  // Values above 500 ms are almost certainly frame drops (not startup gap)
-  // and should not trigger an event shift — see capture-service for the
-  // full rationale.
-  const recorderMs = Number(metadata?.cursorRecorderDurationMs);
-  let cursorEventsLeadMs = 0;
-  if (
-    Number.isFinite(recorderMs) &&
-    recorderMs > 0 &&
-    Number.isFinite(durationMs) &&
-    durationMs > 0
-  ) {
-    const lead = recorderMs - durationMs;
-    if (lead > 0 && lead <= 500) cursorEventsLeadMs = lead;
-  }
-
   return {
     durationFrames,
     durationMs,
@@ -73,7 +56,6 @@ export function probeRecordingResult(filePath, metadata = {}) {
     fps,
     timelineFps,
     cursorEventsFps,
-    cursorEventsLeadMs,
     codec: probedMeta.codec,
     fileSize,
     hasAudio: probedMeta.hasAudio,

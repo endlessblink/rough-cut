@@ -57,7 +57,6 @@ export interface RecordingMetadata {
   durationMs: number;
   timelineFps?: number;
   cursorEventsFps?: number;
-  cursorRecorderDurationMs?: number;
   projectDir?: string;
 }
 
@@ -70,7 +69,6 @@ export interface RecordingResult {
   fps: number;
   timelineFps?: number;
   cursorEventsFps?: number;
-  cursorEventsLeadMs?: number;
   codec: string;
   fileSize: number;
   hasAudio: boolean;

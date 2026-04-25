@@ -84,17 +84,6 @@ export async function runWebCodecsExportToBuffer(
         ? (asset.metadata['cursorEventsFps'] as number)
         : 60; // Legacy takes (no field) sampled at TARGET_CAPTURE_FPS = 60.
     const projectFps = project.settings.frameRate;
-    // Wall-clock ms the cursor recorder ran ahead of the file's first frame
-    // (FFmpeg startup gap on Linux/X11). Loader subtracts this from each
-    // event's frame index so cursor[N] aligns with file frame N. Reject
-    // implausibly large stored values (>500ms is almost certainly a buggy
-    // save-time computation that confused frame drops with startup gap).
-    const rawEventsLeadMs =
-      typeof asset.metadata?.['cursorEventsLeadMs'] === 'number'
-        ? (asset.metadata['cursorEventsLeadMs'] as number)
-        : 0;
-    const eventsLeadMs = rawEventsLeadMs > 0 && rawEventsLeadMs <= 500 ? rawEventsLeadMs : 0;
-    const eventsLeadFrames = Math.round((eventsLeadMs * eventsFps) / 1000);
     const cursorData = await loadCursorFrameData(
       cursorEventsPath,
       asset.duration,
@@ -103,7 +92,6 @@ export async function runWebCodecsExportToBuffer(
       asset.filePath,
       eventsFps,
       projectFps,
-      eventsLeadFrames,
     );
     if (cursorData) {
       cursorDataByAssetId.set(asset.id, cursorData);

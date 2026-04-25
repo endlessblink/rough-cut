@@ -66,7 +66,7 @@ function applyBackgroundFill(
   const gradientSpec = renderFrame.background?.bgGradient;
   const gradientMatch = gradientSpec?.match(/^linear-gradient\(([^,]+),\s*(.+)\)$/i);
   if (gradientMatch && typeof ctx.createLinearGradient === 'function') {
-    const colorSpec = gradientMatch[2];
+    const colorSpec = gradientMatch[2] ?? '';
     if (!colorSpec) {
       ctx.fillStyle = renderFrame.background?.bgColor ?? renderFrame.backgroundColor;
       ctx.fillRect(0, 0, width, height);
@@ -76,7 +76,7 @@ function applyBackgroundFill(
       .split(',')
       .map((token) => token.trim())
       .filter(Boolean);
-    const angleToken = gradientMatch[1]?.trim() ?? '135deg';
+    const angleToken = (gradientMatch[1] ?? '135deg').trim();
     const angleDeg = Number.parseFloat(angleToken.replace(/deg$/i, ''));
     if (Number.isFinite(angleDeg) && colorTokens.length >= 2) {
       const theta = ((angleDeg - 90) * Math.PI) / 180;

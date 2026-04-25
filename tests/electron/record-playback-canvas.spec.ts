@@ -38,6 +38,40 @@ test.describe('Record playback canvas', () => {
     expect(surfaceMetrics?.pixiCanvasHeight ?? 0).toBeGreaterThan(100);
   });
 
+  test('saved-take review keeps the recording large enough to read', async ({ appPage }) => {
+    await loadPlaybackFixture(appPage, 'record');
+
+    const metrics = await appPage.evaluate(() => {
+      const card = document.querySelector(
+        '[data-testid="record-card-chrome"]',
+      ) as HTMLElement | null;
+      const screen = document.querySelector(
+        '[data-testid="record-screen-frame"]',
+      ) as HTMLElement | null;
+      const setupSelectors = document.querySelector('[data-testid="record-device-selectors"]');
+      const sourceGuard = document.querySelector('[data-testid="record-start-guard-banner"]');
+
+      const cardRect = card?.getBoundingClientRect();
+      const screenRect = screen?.getBoundingClientRect();
+
+      return {
+        cardWidth: cardRect?.width ?? 0,
+        cardHeight: cardRect?.height ?? 0,
+        screenWidth: screenRect?.width ?? 0,
+        screenHeight: screenRect?.height ?? 0,
+        hasSetupSelectors: Boolean(setupSelectors),
+        hasSourceGuard: Boolean(sourceGuard),
+      };
+    });
+
+    expect(metrics.hasSetupSelectors).toBe(false);
+    expect(metrics.hasSourceGuard).toBe(false);
+    expect(metrics.cardWidth).toBeGreaterThan(700);
+    expect(metrics.cardHeight).toBeGreaterThan(390);
+    expect(metrics.screenWidth).toBeGreaterThan(700);
+    expect(metrics.screenHeight).toBeGreaterThan(390);
+  });
+
   test('canvas frame updates when the paused playhead seeks', async ({ appPage }) => {
     await loadPlaybackFixture(appPage, 'record');
 
@@ -121,15 +155,18 @@ test.describe('Record playback canvas', () => {
       return win.getBounds();
     });
 
-    await electronApp.evaluate(async ({ BrowserWindow }, bounds) => {
-      const win = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed());
-      if (!win) throw new Error('No BrowserWindow available for shrink step');
-      win.setBounds(bounds);
-    }, {
-      ...originalBounds,
-      width: Math.max(900, originalBounds.width - 220),
-      height: Math.max(700, originalBounds.height - 180),
-    });
+    await electronApp.evaluate(
+      async ({ BrowserWindow }, bounds) => {
+        const win = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed());
+        if (!win) throw new Error('No BrowserWindow available for shrink step');
+        win.setBounds(bounds);
+      },
+      {
+        ...originalBounds,
+        width: Math.max(900, originalBounds.width - 220),
+        height: Math.max(700, originalBounds.height - 180),
+      },
+    );
 
     await appPage.waitForTimeout(250);
 

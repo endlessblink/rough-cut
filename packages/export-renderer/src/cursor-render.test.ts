@@ -151,40 +151,6 @@ describe('renderCursorOverlay', () => {
     expect(data.frames[idx]).toBeCloseTo(960 / 1920, 5);
   });
 
-  it('subtracts eventsLeadFrames so cursor[0] aligns with file frame 0', () => {
-    // Linux/X11: cursor recorder ran ahead of FFmpeg's first captured frame
-    // by 12 frames at 60Hz (200 ms). The event at original frame 12 must
-    // shift to cursor[0]; the event at frame 72 must shift to cursor[60].
-    const data = buildCursorFrameData(
-      [
-        { frame: 12, x: 100, y: 200, type: 'move', button: 0 },
-        { frame: 72, x: 300, y: 400, type: 'move', button: 0 },
-      ],
-      120,
-      1920,
-      1080,
-      60,
-      60,
-      12,
-    );
-    expect(data.frames[0]).toBeCloseTo(100 / 1920, 5);
-    expect(data.frames[60 * 3]).toBeCloseTo(300 / 1920, 5);
-  });
-
-  it('combines lead-shift and fps rescale (60→30 with 12-frame lead)', () => {
-    // Recording frame 72 - 12 = 60, then * 30/60 = project frame 30.
-    const data = buildCursorFrameData(
-      [{ frame: 72, x: 800, y: 400, type: 'move', button: 0 }],
-      120,
-      1920,
-      1080,
-      60,
-      30,
-      12,
-    );
-    expect(data.frames[30 * 3]).toBeCloseTo(800 / 1920, 5);
-  });
-
   it('falls back to inferred cursor sidecar during export loading', async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url === 'media:///tmp/example.cursor.ndjson') {

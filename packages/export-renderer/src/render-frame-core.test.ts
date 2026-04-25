@@ -249,4 +249,40 @@ describe('renderFrameToCanvasAccurate', () => {
     expect(inside[1]).toBe(0);
     expect(inside[2]).toBe(0);
   });
+
+  it('renders camera video inside the persisted camera frame instead of layout fallback', async () => {
+    const canvas = createCanvas(200, 100);
+    const ctx = canvas.getContext('2d');
+    const source = createCanvas(40, 40);
+    const sourceCtx = source.getContext('2d');
+    sourceCtx.fillStyle = '#ff0000';
+    sourceCtx.fillRect(0, 0, 40, 40);
+
+    const frame = makeFrame();
+    frame.cameraPresentation = {
+      ...frame.cameraPresentation!,
+      position: 'corner-br',
+      size: 100,
+    };
+    frame.cameraFrame = { x: 0.05, y: 0.1, w: 0.2, h: 0.4 };
+
+    await renderFrameToCanvasAccurate(
+      canvas,
+      ctx,
+      frame,
+      30,
+      async () => source as unknown as CanvasImageSource,
+    );
+
+    const insidePersistedFrame = ctx.getImageData(20, 25, 1, 1).data;
+    const insideLayoutFallback = ctx.getImageData(170, 70, 1, 1).data;
+
+    expect(insidePersistedFrame[0]).toBeGreaterThan(200);
+    expect(insidePersistedFrame[1]).toBeLessThan(50);
+    expect(insidePersistedFrame[2]).toBeLessThan(50);
+
+    expect(insideLayoutFallback[0]).toBe(0);
+    expect(insideLayoutFallback[1]).toBe(0);
+    expect(insideLayoutFallback[2]).toBe(0);
+  });
 });

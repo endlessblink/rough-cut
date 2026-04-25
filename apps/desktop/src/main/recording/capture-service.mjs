@@ -170,49 +170,12 @@ export async function saveRecording(buffer, projectDir, metadata, cameraBuffer) 
       Number.isFinite(metadata?.cursorEventsFps) && metadata.cursorEventsFps > 0
         ? metadata.cursorEventsFps
         : resolveTimelineFps(metadata),
-    cursorEventsLeadMs: computeCursorEventsLeadMs(metadata, durationMs),
     codec: probedMeta.codec,
     fileSize: Buffer.from(buffer).byteLength,
     hasAudio: probedMeta.hasAudio,
     thumbnailPath,
     ...(cameraFilePath ? { cameraFilePath } : {}),
   };
-}
-
-/**
- * Residual lead the cursor recorder has over the captured video file. On
- * Linux/X11 the cursor recorder starts before FFmpeg produces its first
- * frame, so cursor[0] represents wall-clock time (FFmpeg first-frame − G).
- * The renderer loader subtracts this many ms (converted to frames) from
- * each cursor event so cursor[N] aligns with file frame N.
- *
- * The naïve diff `cursorRecorderDurationMs − fileDurationMs` conflates two
- * causes:
- *   1. Real FFmpeg startup gap (≈100-300 ms; the case we want to correct).
- *   2. FFmpeg frame drops (file plays in less wall-clock time than the
- *      recording window — but each captured frame is still spaced at the
- *      requested PTS cadence so cursor[N] already aligns with file frame N
- *      and no shift is wanted).
- *
- * Differentiate by magnitude: anything beyond a generous startup-gap upper
- * bound (500 ms) is overwhelmingly frame drops, so we return 0 in that
- * range. Values inside the band get capped at the upper bound to defend
- * against a buggy probe.
- *
- * @param {{cursorRecorderDurationMs?: number}|null|undefined} metadata
- * @param {number} fileDurationMs
- * @returns {number}
- */
-function computeCursorEventsLeadMs(metadata, fileDurationMs) {
-  const recorderMs = Number(metadata?.cursorRecorderDurationMs);
-  if (!Number.isFinite(recorderMs) || recorderMs <= 0) return 0;
-  if (!Number.isFinite(fileDurationMs) || fileDurationMs <= 0) return 0;
-  const lead = recorderMs - fileDurationMs;
-  if (lead <= 0) return 0;
-  // Suspected frame-drop regime — don't shift cursor; the file's PTS already
-  // covers the full capture window.
-  if (lead > 500) return 0;
-  return lead;
 }
 
 /**
@@ -318,7 +281,6 @@ export async function saveRecordingFromFile(srcFilePath, projectDir, metadata) {
       Number.isFinite(metadata?.cursorEventsFps) && metadata.cursorEventsFps > 0
         ? metadata.cursorEventsFps
         : resolveTimelineFps(metadata),
-    cursorEventsLeadMs: computeCursorEventsLeadMs(metadata, durationMs),
     codec: probedMeta.codec,
     fileSize,
     hasAudio: probedMeta.hasAudio,
