@@ -79,12 +79,19 @@ export async function runWebCodecsExportToBuffer(
       continue;
     }
 
+    const eventsFps =
+      typeof asset.metadata?.['cursorEventsFps'] === 'number'
+        ? (asset.metadata['cursorEventsFps'] as number)
+        : 60; // Legacy takes (no field) sampled at TARGET_CAPTURE_FPS = 60.
+    const projectFps = project.settings.frameRate;
     const cursorData = await loadCursorFrameData(
       cursorEventsPath,
       asset.duration,
       sourceWidth,
       sourceHeight,
       asset.filePath,
+      eventsFps,
+      projectFps,
     );
     if (cursorData) {
       cursorDataByAssetId.set(asset.id, cursorData);

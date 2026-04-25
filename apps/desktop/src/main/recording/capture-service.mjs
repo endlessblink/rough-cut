@@ -165,6 +165,11 @@ export async function saveRecording(buffer, projectDir, metadata, cameraBuffer) 
     width: probedMeta.width || metadata.width || 1920,
     height: probedMeta.height || metadata.height || 1080,
     fps,
+    timelineFps: resolveTimelineFps(metadata),
+    cursorEventsFps:
+      Number.isFinite(metadata?.cursorEventsFps) && metadata.cursorEventsFps > 0
+        ? metadata.cursorEventsFps
+        : resolveTimelineFps(metadata),
     codec: probedMeta.codec,
     fileSize: Buffer.from(buffer).byteLength,
     hasAudio: probedMeta.hasAudio,
@@ -271,6 +276,11 @@ export async function saveRecordingFromFile(srcFilePath, projectDir, metadata) {
     width: probedMeta.width || metadata.width || 1920,
     height: probedMeta.height || metadata.height || 1080,
     fps,
+    timelineFps: resolveTimelineFps(metadata),
+    cursorEventsFps:
+      Number.isFinite(metadata?.cursorEventsFps) && metadata.cursorEventsFps > 0
+        ? metadata.cursorEventsFps
+        : resolveTimelineFps(metadata),
     codec: probedMeta.codec,
     fileSize,
     hasAudio: probedMeta.hasAudio,

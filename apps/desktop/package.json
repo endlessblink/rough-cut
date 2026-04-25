@@ -30,7 +30,7 @@
     "dev:record-workspace-only:reuse": "wait-on http://127.0.0.1:7544 && ROUGH_CUT_RECORD_WORKSPACE_ONLY=1 ROUGH_CUT_SKIP_AUDIO_DISCOVERY=1 electron --no-sandbox --force-color-profile=srgb .",
     "dev:record-only:reuse": "wait-on http://127.0.0.1:7544 && ROUGH_CUT_START_TAB=record ROUGH_CUT_SKIP_AUDIO_DISCOVERY=1 electron --no-sandbox --force-color-profile=srgb .",
     "build": "vite build",
-    "test": "node --test src/shared/recording-pause-policy.test.mjs src/main/recording/resolve-capture-source-info.test.mjs src/main/recording/tray-icon-file.test.mjs && vitest run src/renderer/components/cursor-overlay-state.test.ts",
+    "test": "node --test src/shared/recording-pause-policy.test.mjs src/main/recording/resolve-capture-source-info.test.mjs src/main/recording/tray-icon-file.test.mjs src/main/recording/recording-session-manager-pre-capture.test.mjs src/main/recording/recording-session-manager-cursor-fps.test.mjs src/main/recording/recording-session-manager-stop-pill.test.mjs && vitest run src/renderer/components/cursor-overlay-state.test.ts src/renderer/components/cursor-data-loader.test.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },

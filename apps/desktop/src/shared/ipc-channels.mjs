@@ -66,6 +66,10 @@ export const IPC_CHANNELS = {
   RECORDING_CONFIG_GET: 'recording-config:get',
   RECORDING_CONFIG_UPDATE: 'recording-config:update',
   RECORDING_CONFIG_CHANGED: 'recording-config:changed',
+  // Renderer publishes the active project's timeline frameRate so the main
+  // process (and its panel) can record cursor samples at the same cadence the
+  // playback transport will use to look them up.
+  RECORDING_SET_TIMELINE_FPS: 'recording:set-timeline-fps',
 
   // App
   APP_GET_VERSION: 'app:get-version',

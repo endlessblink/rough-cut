@@ -73,6 +73,15 @@ export function RecordingPlaybackVideo({
   };
 
   const assetDuration = asset?.duration || 900;
+  const projectFps = useProjectStore((s) => s.project.settings.frameRate);
+  // Frame rate the cursor sidecar was sampled at. New takes record this as
+  // metadata.cursorEventsFps; legacy takes (no field) sampled at
+  // TARGET_CAPTURE_FPS = 60. Falling back to the asset's recording fps is
+  // wrong because the cursor recorder did not necessarily run at the file
+  // fps — the assumption "60 if missing" matches every recording produced
+  // before this fix.
+  const cursorEventsFps =
+    (asset?.metadata?.cursorEventsFps as number | undefined) ?? 60;
   const cursorPath = inferCursorEventsPath(
     resolveProjectMediaPath(asset?.filePath ?? null, projectFilePath),
     asset?.metadata?.cursorEventsPath as string | null,
@@ -86,16 +95,24 @@ export function RecordingPlaybackVideo({
       setCursorData(null);
       return;
     }
-    const data = buildCursorFrameData(cursorEvents, assetDuration, assetWidth, assetHeight);
+    const data = buildCursorFrameData(
+      cursorEvents,
+      assetDuration,
+      assetWidth,
+      assetHeight,
+      cursorEventsFps,
+      projectFps,
+    );
     console.info(
       '[RecordingPlaybackVideo] Cursor overlay ready:',
       data.frameCount,
       'frames,',
       cursorEvents.length,
-      'events',
+      'events,',
+      `eventsFps=${cursorEventsFps} projectFps=${projectFps}`,
     );
     setCursorData(data);
-  }, [cursorEvents, assetDuration, assetWidth, assetHeight]);
+  }, [cursorEvents, assetDuration, assetWidth, assetHeight, cursorEventsFps, projectFps]);
 
   useEffect(() => {
     setCursorFrameData(assetId, cursorData);

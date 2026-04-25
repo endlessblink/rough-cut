@@ -122,6 +122,30 @@ export function App() {
     };
   }, []);
 
+  // Publish the active project's timeline frameRate to the main process so
+  // the cursor recorder samples at the same cadence the playback transport
+  // will use to look up cursor[playheadFrame]. Without this, takes recorded
+  // when project fps != capture fps suffer linear-time cursor desync.
+  useEffect(() => {
+    const publish = (fps: number) => {
+      if (Number.isFinite(fps) && fps > 0) {
+        window.roughcut.setRecordingTimelineFps(fps);
+      }
+    };
+    publish(projectStore.getState().project.settings.frameRate);
+    let lastFps = projectStore.getState().project.settings.frameRate;
+    const unsub = projectStore.subscribe((state) => {
+      const next = state.project.settings.frameRate;
+      if (next !== lastFps) {
+        lastFps = next;
+        publish(next);
+      }
+    });
+    return () => {
+      unsub();
+    };
+  }, []);
+
   useEffect(() => {
     const clearPendingAutoSave = () => {
       if (autoSaveTimerRef.current) {
@@ -344,6 +368,10 @@ export function App() {
         fileSize: result.fileSize,
         hasAudio: result.hasAudio,
         cursorEventsPath: result.cursorEventsPath || null,
+        // Frame rate the .cursor.ndjson was sampled at. Defaults to the
+        // project's timeline fps for new takes (recorder runs at that rate);
+        // explicit field lets the loader rescale legacy / off-rate sidecars.
+        cursorEventsFps: result.cursorEventsFps ?? timelineFps,
         audioCapture: result.audioCapture ?? null,
       },
       presentation: truthFirstPresentation,

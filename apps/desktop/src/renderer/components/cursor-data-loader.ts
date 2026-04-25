@@ -16,24 +16,45 @@ interface RawCursorEvent {
  * Build a CursorFrameData from raw cursor events.
  *
  * @param events  Raw cursor events from the NDJSON sidecar
- * @param totalFrames  Total frame count of the recording
+ * @param totalFrames  Total frame count of the recording (in project fps)
  * @param sourceWidth  Recording width in pixels
  * @param sourceHeight  Recording height in pixels
+ * @param eventsFps  Frame rate the events were sampled at. Defaults to projectFps.
+ * @param projectFps  Frame rate the timeline plays at. Defaults to eventsFps.
  * @returns Frame-indexed cursor data for the overlay
+ *
+ * When `eventsFps` and `projectFps` differ, each event's frame is rescaled
+ * by `projectFps / eventsFps` so cursor[playheadFrame] returns the cursor
+ * sample from the same wall-clock moment the video frame represents. Without
+ * this, takes recorded at one cadence and replayed at another (e.g. 60Hz
+ * cursor sampling against a 30fps timeline) drift linearly with playback.
  */
 export function buildCursorFrameData(
   events: readonly RawCursorEvent[],
   totalFrames: number,
   sourceWidth: number,
   sourceHeight: number,
+  eventsFps?: number,
+  projectFps?: number,
 ): CursorFrameData {
   // 3 values per frame: normalizedX, normalizedY, isClick (0 or 1)
   const frames = new Float32Array(totalFrames * 3);
   // Initialize all to -1 (no data)
   frames.fill(-1);
 
-  // Sort events by frame
-  const sorted = [...events].sort((a, b) => a.frame - b.frame);
+  const scale =
+    Number.isFinite(eventsFps) &&
+    Number.isFinite(projectFps) &&
+    (eventsFps as number) > 0 &&
+    (projectFps as number) > 0 &&
+    eventsFps !== projectFps
+      ? (projectFps as number) / (eventsFps as number)
+      : 1;
+
+  // Sort events by frame (after rescaling so frame ordering is preserved)
+  const sorted = [...events]
+    .map((e) => (scale === 1 ? e : { ...e, frame: Math.round(e.frame * scale) }))
+    .sort((a, b) => a.frame - b.frame);
 
   // Assign positions and click flags at exact frames
   for (const e of sorted) {

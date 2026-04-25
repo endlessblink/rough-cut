@@ -41,8 +41,13 @@ export function probeRecordingResult(filePath, metadata = {}) {
   const probedMeta = probeRecordingFile(filePath);
   const fps = probedMeta.fps || metadata.fps || 30;
   const durationMs = probedMeta.durationMs || metadata.durationMs || 0;
-  const durationFrames = Math.round((durationMs / 1000) * resolveTimelineFps(metadata));
+  const timelineFps = resolveTimelineFps(metadata);
+  const durationFrames = Math.round((durationMs / 1000) * timelineFps);
   const fileSize = existsSync(filePath) ? statSync(filePath).size : 0;
+  const cursorEventsFps =
+    Number.isFinite(metadata?.cursorEventsFps) && metadata.cursorEventsFps > 0
+      ? metadata.cursorEventsFps
+      : timelineFps;
 
   return {
     durationFrames,
@@ -50,6 +55,8 @@ export function probeRecordingResult(filePath, metadata = {}) {
     width: probedMeta.width || metadata.width || 1920,
     height: probedMeta.height || metadata.height || 1080,
     fps,
+    timelineFps,
+    cursorEventsFps,
     codec: probedMeta.codec,
     fileSize,
     hasAudio: probedMeta.hasAudio,

@@ -103,6 +103,54 @@ describe('renderCursorOverlay', () => {
     expect(sampleWindow(104, 18, 8)).toBe(0);
   });
 
+  it('rescales cursor frames when eventsFps and projectFps differ', () => {
+    // Today's broken take had cursor sampled at 60Hz wall-clock with the
+    // project running at 30 fps. Cursor[playheadFrame=30] (= 1 s of timeline)
+    // must return the event recorded at wall-clock t=1s — i.e., recording
+    // frame 60 — not frame 30 (which is half a second of actual content).
+    const data = buildCursorFrameData(
+      [
+        { frame: 60, x: 960, y: 540, type: 'move', button: 0 },
+        // A second event later in time so frame 60 is unambiguous.
+        { frame: 120, x: 1500, y: 700, type: 'move', button: 0 },
+      ],
+      210,
+      1920,
+      1080,
+      60,
+      30,
+    );
+
+    // Frame 60 in recording units → frame 30 in project units (60 * 30/60).
+    const idx = 30 * 3;
+    expect(data.frames[idx]).toBeCloseTo(960 / 1920, 5);
+    expect(data.frames[idx + 1]).toBeCloseTo(540 / 1080, 5);
+  });
+
+  it('passes events through unchanged when fps params match', () => {
+    const data = buildCursorFrameData(
+      [{ frame: 30, x: 960, y: 540, type: 'move', button: 0 }],
+      210,
+      1920,
+      1080,
+      30,
+      30,
+    );
+    const idx = 30 * 3;
+    expect(data.frames[idx]).toBeCloseTo(960 / 1920, 5);
+  });
+
+  it('passes events through unchanged when fps params are omitted', () => {
+    const data = buildCursorFrameData(
+      [{ frame: 30, x: 960, y: 540, type: 'move', button: 0 }],
+      210,
+      1920,
+      1080,
+    );
+    const idx = 30 * 3;
+    expect(data.frames[idx]).toBeCloseTo(960 / 1920, 5);
+  });
+
   it('falls back to inferred cursor sidecar during export loading', async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url === 'media:///tmp/example.cursor.ndjson') {

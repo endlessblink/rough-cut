@@ -241,6 +241,12 @@ const api = {
   recordingConfigUpdate: (patch) =>
     ipcRenderer.invoke(IPC_CHANNELS.RECORDING_CONFIG_UPDATE, { patch }),
 
+  /** Publish the active project's timeline frameRate so the cursor recorder
+   *  can sample at the same cadence the playback transport uses.
+   *  @param {number} fps */
+  setRecordingTimelineFps: (fps) =>
+    ipcRenderer.send(IPC_CHANNELS.RECORDING_SET_TIMELINE_FPS, { fps }),
+
   /** Subscribe to shared Record config changes. */
   onRecordingConfigChanged: (callback) => {
     const handler = (_event, config) => callback(config);

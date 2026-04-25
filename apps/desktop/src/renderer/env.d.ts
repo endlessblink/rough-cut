@@ -56,6 +56,7 @@ export interface RecordingMetadata {
   height: number;
   durationMs: number;
   timelineFps?: number;
+  cursorEventsFps?: number;
   projectDir?: string;
 }
 
@@ -66,6 +67,8 @@ export interface RecordingResult {
   width: number;
   height: number;
   fps: number;
+  timelineFps?: number;
+  cursorEventsFps?: number;
   codec: string;
   fileSize: number;
   hasAudio: boolean;
@@ -254,6 +257,7 @@ export interface RoughCutAPI {
   onRecordingConfigChanged(
     callback: (config: Omit<RecordingConfigState, 'hydrated'>) => void,
   ): () => void;
+  setRecordingTimelineFps(fps: number): void;
   panelStartRecording(audioConfig?: {
     micEnabled?: boolean;
     sysAudioEnabled?: boolean;

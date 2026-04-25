@@ -1,0 +1,69 @@
+import { describe, expect, it } from 'vitest';
+import { buildCursorFrameData } from './cursor-data-loader.js';
+
+describe('buildCursorFrameData fps rescaling', () => {
+  it('rescales 60Hz events into a 30fps timeline', () => {
+    // Reproduces the Apr 25 0924 take: cursor sampled at 60Hz, project rate
+    // 30fps, asset duration 210 frames. The click that lands on a highlighted
+    // button at recording frame 60 (= wall-clock t=1s) must end up in
+    // cursor[30] so playhead at 30/30 = t=1s shows the right position.
+    const data = buildCursorFrameData(
+      [
+        { frame: 60, x: 1623, y: 527, type: 'down', button: 1 },
+        { frame: 120, x: 800, y: 400, type: 'move', button: 0 },
+      ],
+      210,
+      1920,
+      1080,
+      60,
+      30,
+    );
+
+    const idx = 30 * 3;
+    expect(data.frames[idx]).toBeCloseTo(1623 / 1920, 5);
+    expect(data.frames[idx + 1]).toBeCloseTo(527 / 1080, 5);
+    // Click flag preserved through rescale
+    expect(data.frames[idx + 2]).toBe(1);
+  });
+
+  it('drops events whose rescaled frame falls outside totalFrames', () => {
+    // Recording frame 600 → project frame 300, beyond totalFrames 210.
+    const data = buildCursorFrameData(
+      [
+        { frame: 60, x: 100, y: 200, type: 'move', button: 0 },
+        { frame: 600, x: 1700, y: 900, type: 'move', button: 0 },
+      ],
+      210,
+      1920,
+      1080,
+      60,
+      30,
+    );
+    // Frame 30 has data; frame 209 (last) is filled by extrapolation from
+    // the last known sample (also frame 30).
+    expect(data.frames[30 * 3]).toBeCloseTo(100 / 1920, 5);
+    expect(data.frames[(210 - 1) * 3]).toBeCloseTo(100 / 1920, 5);
+  });
+
+  it('passes events through unchanged when fps matches', () => {
+    const data = buildCursorFrameData(
+      [{ frame: 30, x: 960, y: 540, type: 'move', button: 0 }],
+      210,
+      1920,
+      1080,
+      30,
+      30,
+    );
+    expect(data.frames[30 * 3]).toBeCloseTo(960 / 1920, 5);
+  });
+
+  it('passes events through unchanged when fps params are omitted', () => {
+    const data = buildCursorFrameData(
+      [{ frame: 30, x: 960, y: 540, type: 'move', button: 0 }],
+      210,
+      1920,
+      1080,
+    );
+    expect(data.frames[30 * 3]).toBeCloseTo(960 / 1920, 5);
+  });
+});
