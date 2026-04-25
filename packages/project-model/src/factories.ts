@@ -462,6 +462,7 @@ export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocu
       bitrate: 10_000_000,
       resolution: { ...DEFAULT_RESOLUTION },
       frameRate: DEFAULT_FRAME_RATE,
+      keepClickSounds: true,
     },
     aiAnnotations: createDefaultAIAnnotations(),
     motionCompositions: [],

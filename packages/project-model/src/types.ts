@@ -371,6 +371,12 @@ export interface ExportSettings {
   readonly bitrate: number;
   readonly resolution: Resolution;
   readonly frameRate: number;
+  /**
+   * Per-export override: when true, mouse-click sound effects (gated by
+   * `cursor.clickSoundEnabled` on the source recording) are mixed into the
+   * export's audio. Set to false to strip click sounds at render time.
+   */
+  readonly keepClickSounds: boolean;
 }
 
 export interface ProjectDocument {
