@@ -169,6 +169,42 @@ function applyCropToPoint(
   };
 }
 
+function setCursorDebugData(
+  canvas: HTMLCanvasElement,
+  payload:
+    | {
+        visible: false;
+        projectFrame: number;
+        sourceFrame: number;
+      }
+    | {
+        visible: true;
+        projectFrame: number;
+        sourceFrame: number;
+        cursorX: number;
+        cursorY: number;
+        interpolating: boolean;
+        interpolationT: number;
+      },
+) {
+  canvas.dataset.cursorVisible = payload.visible ? 'true' : 'false';
+  canvas.dataset.projectFrame = String(payload.projectFrame);
+  canvas.dataset.sourceFrame = String(payload.sourceFrame);
+
+  if (!payload.visible) {
+    delete canvas.dataset.cursorX;
+    delete canvas.dataset.cursorY;
+    canvas.dataset.interpolating = 'false';
+    canvas.dataset.interpolationT = '0';
+    return;
+  }
+
+  canvas.dataset.cursorX = payload.cursorX.toFixed(6);
+  canvas.dataset.cursorY = payload.cursorY.toFixed(6);
+  canvas.dataset.interpolating = payload.interpolating ? 'true' : 'false';
+  canvas.dataset.interpolationT = payload.interpolationT.toFixed(4);
+}
+
 export function CursorOverlay({
   cursorData,
   presentation,
@@ -275,6 +311,7 @@ export function CursorOverlay({
 
       // Nothing more to draw if the cursor sidecar hasn't loaded yet.
       if (width === 0 || height === 0 || !data) {
+        setCursorDebugData(canvas, { visible: false, projectFrame: -1, sourceFrame: -1 });
         rafIdRef.current = requestAnimationFrame(render);
         return;
       }
@@ -306,6 +343,7 @@ export function CursorOverlay({
 
       const currCursor = getCursorAtFrame(data, sourceFrame);
       if (!currCursor) {
+        setCursorDebugData(canvas, { visible: false, projectFrame, sourceFrame });
         rafIdRef.current = requestAnimationFrame(render);
         return;
       }
@@ -322,9 +360,20 @@ export function CursorOverlay({
 
       const croppedCursor = applyCropToPoint(cursor.x, cursor.y, data, activeCrop);
       if (!croppedCursor) {
+        setCursorDebugData(canvas, { visible: false, projectFrame, sourceFrame });
         rafIdRef.current = requestAnimationFrame(render);
         return;
       }
+
+      setCursorDebugData(canvas, {
+        visible: true,
+        projectFrame,
+        sourceFrame,
+        cursorX: cursor.x,
+        cursorY: cursor.y,
+        interpolating: interpolation.shouldInterpolate,
+        interpolationT: interpolation.lerpT,
+      });
 
       const point = applyZoomToPoint(croppedCursor.x, croppedCursor.y, width, height, zoom);
       const px = point.x;

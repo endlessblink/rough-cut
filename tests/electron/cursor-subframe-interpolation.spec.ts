@@ -18,78 +18,67 @@ test.describe('Cursor sub-frame interpolation', () => {
     const target = await appPage.evaluate(async () => {
       const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
       const projectState = stores?.project.getState();
+      const transportStore = stores?.transport;
       const recording = projectState?.project.assets.find(
         (asset: any) => asset.type === 'recording' && asset.metadata?.isCamera !== true,
       );
       const clip = projectState?.project.composition.tracks
         .flatMap((track: any) => track.clips)
         .find((entry: any) => entry.assetId === recording?.id);
-      const cursorEventsPath = recording?.metadata?.cursorEventsPath as string | null;
-      if (!recording?.id || !clip || !cursorEventsPath) {
-        return { found: false as const, reason: 'missing recording, clip, or cursor sidecar' };
+      if (!recording?.id || !clip || !transportStore) {
+        return { found: false as const, reason: 'missing recording, clip, or transport store' };
       }
 
-      const content = await (window as unknown as any).roughcut.readTextFile(cursorEventsPath);
-      const events = String(content)
-        .trim()
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => JSON.parse(line) as { frame: number; x: number; y: number })
-        .filter((event) => Number.isFinite(event.frame) && Number.isFinite(event.x) && Number.isFinite(event.y));
+      const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+      const sampleCursor = () => {
+        const canvas = document.querySelector('canvas[data-source-frame]') as HTMLCanvasElement | null;
+        if (!canvas || canvas.dataset.cursorVisible !== 'true') return null;
+        return {
+          frame: Number(canvas.dataset.projectFrame ?? '-1'),
+          x: Number(canvas.dataset.cursorX ?? 'NaN'),
+          y: Number(canvas.dataset.cursorY ?? 'NaN'),
+        };
+      };
 
-      const sourceWidth = Number(recording?.metadata?.width) || 1920;
-      const sourceHeight = Number(recording?.metadata?.height) || 1080;
-      const inBounds = events.filter(
-        (event) =>
-          event.x >= 0 && event.y >= 0 && event.x <= sourceWidth && event.y <= sourceHeight && event.frame >= 2,
-      );
+      const startFrame = Math.max(0, clip.timelineIn ?? 0);
+      const endFrame = Math.max(startFrame + 1, clip.timelineOut ?? startFrame + 1);
+      const visibleSamples: Array<{ frame: number; x: number; y: number }> = [];
 
-      let best:
-        | {
-            prev: { frame: number; nx: number; ny: number };
-            curr: { frame: number; nx: number; ny: number };
-            jump: { frame: number; nx: number; ny: number };
-            delta: number;
-          }
-        | null = null;
+      for (let frame = startFrame; frame < endFrame; frame += 1) {
+        transportStore.setState({ playheadFrame: frame, isPlaying: false });
+        await sleep(8);
+        const sample = sampleCursor();
+        if (sample && Number.isFinite(sample.x) && Number.isFinite(sample.y)) {
+          visibleSamples.push(sample);
+        }
+      }
 
-      for (let i = 1; i < inBounds.length - 1; i += 1) {
-        const prev = inBounds[i - 1]!;
-        const curr = inBounds[i]!;
+      for (let i = 1; i < visibleSamples.length - 1; i += 1) {
+        const prev = visibleSamples[i - 1]!;
+        const curr = visibleSamples[i]!;
         if (curr.frame !== prev.frame + 1) continue;
 
-        const dx = curr.x - prev.x;
-        const dy = curr.y - prev.y;
-        const delta = Math.hypot(dx, dy);
-        if (delta < 80) continue;
+        const delta = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+        if (delta < 0.03) continue;
 
-        const jump = inBounds.slice(i + 1).find((candidate) => candidate.frame >= curr.frame + 3);
+        const jump = visibleSamples.slice(i + 1).find((candidate) => candidate.frame >= curr.frame + 3);
         if (!jump) continue;
 
-        best = {
-          prev: { frame: prev.frame, nx: prev.x / sourceWidth, ny: prev.y / sourceHeight },
-          curr: { frame: curr.frame, nx: curr.x / sourceWidth, ny: curr.y / sourceHeight },
-          jump: { frame: jump.frame, nx: jump.x / sourceWidth, ny: jump.y / sourceHeight },
-          delta,
+        return {
+          found: true as const,
+          prevProjectFrame: prev.frame,
+          currProjectFrame: curr.frame,
+          jumpProjectFrame: jump.frame,
+          prevNorm: { x: prev.x, y: prev.y },
+          currNorm: { x: curr.x, y: curr.y },
+          jumpNorm: { x: jump.x, y: jump.y },
+          movementPx: delta,
         };
       }
 
-      if (!best) {
-        return { found: false as const, reason: 'no fast sequential cursor motion found in fixture' };
-      }
-
-      const toProjectFrame = (sourceFrame: number) =>
-        Math.max(0, (clip.timelineIn ?? 0) + sourceFrame - (clip.sourceIn ?? 0));
-
       return {
-        found: true as const,
-        prevProjectFrame: toProjectFrame(best.prev.frame),
-        currProjectFrame: toProjectFrame(best.curr.frame),
-        jumpProjectFrame: toProjectFrame(best.jump.frame),
-        prevNorm: { x: best.prev.nx, y: best.prev.ny },
-        currNorm: { x: best.curr.nx, y: best.curr.ny },
-        jumpNorm: { x: best.jump.nx, y: best.jump.ny },
-        movementPx: best.delta,
+        found: false as const,
+        reason: `no visible fast sequential cursor pair found across ${visibleSamples.length} sampled frames`,
       };
     });
 
@@ -101,107 +90,66 @@ test.describe('Cursor sub-frame interpolation', () => {
 
       const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
-      const sampleCursor = (expectedPositions: Array<{ x: number; y: number }>) => {
-        const canvases = Array.from(document.querySelectorAll('canvas')) as HTMLCanvasElement[];
-        let best:
-          | {
-              x: number;
-              y: number;
-              pixels: number;
-              playheadFrame: number;
-            }
-          | null = null;
-        let bestCount = 0;
-
-        for (const canvas of canvases) {
-          const ctx = canvas.getContext('2d');
-          if (!ctx) continue;
-          const width = canvas.width;
-          const height = canvas.height;
-          if (width <= 0 || height <= 0) continue;
-
-          const expectedXs = expectedPositions.map((position) => Math.round(position.x * width));
-          const expectedYs = expectedPositions.map((position) => Math.round(position.y * height));
-          const minX = Math.max(0, Math.min(...expectedXs) - 160);
-          const maxX = Math.min(width, Math.max(...expectedXs) + 160);
-          const minY = Math.max(0, Math.min(...expectedYs) - 160);
-          const maxY = Math.min(height, Math.max(...expectedYs) + 160);
-          const sampleWidth = Math.max(1, maxX - minX);
-          const sampleHeight = Math.max(1, maxY - minY);
-
-          const pixels = ctx.getImageData(minX, minY, sampleWidth, sampleHeight).data;
-          let count = 0;
-          let sumX = 0;
-          let sumY = 0;
-          for (let y = 0; y < sampleHeight; y += 1) {
-            for (let x = 0; x < sampleWidth; x += 1) {
-              const alpha = pixels[(y * sampleWidth + x) * 4 + 3];
-              if (alpha > 0) {
-                sumX += minX + x;
-                sumY += minY + y;
-                count += 1;
-              }
-            }
-          }
-
-          if (count > bestCount) {
-            bestCount = count;
-            best = {
-              x: sumX / count / width,
-              y: sumY / count / height,
-              pixels: count,
-              playheadFrame: transportStore?.getState().playheadFrame ?? -1,
-            };
-          }
+      const sampleCursor = () => {
+        const canvas = document.querySelector('canvas[data-source-frame]') as HTMLCanvasElement | null;
+        if (!canvas) {
+          return { found: false as const, reason: 'cursor canvas missing' };
         }
-
-        if (!best) {
-          return { found: false as const, reason: 'no non-empty 2d canvas near expected cursor window' };
+        if (canvas.dataset.cursorVisible !== 'true') {
+          return {
+            found: false as const,
+            reason: 'cursor canvas reports hidden cursor',
+            playheadFrame: Number(canvas.dataset.projectFrame ?? '-1'),
+            sourceFrame: Number(canvas.dataset.sourceFrame ?? '-1'),
+            interpolating: canvas.dataset.interpolating === 'true',
+            interpolationT: Number(canvas.dataset.interpolationT ?? '0'),
+          };
         }
 
         return {
           found: true as const,
-          x: best.x,
-          y: best.y,
-          pixels: best.pixels,
-          playheadFrame: best.playheadFrame,
+          x: Number(canvas.dataset.cursorX ?? 'NaN'),
+          y: Number(canvas.dataset.cursorY ?? 'NaN'),
+          playheadFrame: Number(canvas.dataset.projectFrame ?? '-1'),
+          sourceFrame: Number(canvas.dataset.sourceFrame ?? '-1'),
+          interpolating: canvas.dataset.interpolating === 'true',
+          interpolationT: Number(canvas.dataset.interpolationT ?? '0'),
         };
       };
 
-      const waitForCursor = async (expectedPositions: Array<{ x: number; y: number }>) => {
+      const waitForCursor = async () => {
         for (let attempt = 0; attempt < 12; attempt += 1) {
-          const sample = sampleCursor(expectedPositions);
+          const sample = sampleCursor();
           if (sample.found) return sample;
           await sleep(16);
         }
-        return sampleCursor(expectedPositions);
+        return sampleCursor();
       };
 
       transportStore?.setState({ playheadFrame: frames.prevProjectFrame, isPlaying: false });
       await sleep(48);
-      const pausedPrev = await waitForCursor([frames.prevNorm]);
+      const pausedPrev = await waitForCursor();
 
       transportStore?.setState({ playheadFrame: frames.prevProjectFrame, isPlaying: true });
       await sleep(16);
       transportStore?.setState({ playheadFrame: frames.currProjectFrame });
       await sleep(16);
       await sleep(6);
-      const sequentialEarly = await waitForCursor([frames.prevNorm, frames.currNorm]);
-      await sleep(26);
-      const sequentialLate = await waitForCursor([frames.prevNorm, frames.currNorm]);
+      const sequentialEarly = await waitForCursor();
+      await sleep(10);
+      const sequentialLate = await waitForCursor();
 
       transportStore?.setState({ playheadFrame: frames.jumpProjectFrame });
       await sleep(16);
       await sleep(6);
-      const jumpedEarly = await waitForCursor([frames.jumpNorm]);
-      await sleep(26);
-      const jumpedLate = await waitForCursor([frames.jumpNorm]);
+      const jumpedEarly = await waitForCursor();
+      await sleep(10);
+      const jumpedLate = await waitForCursor();
 
       transportStore?.setState({ isPlaying: false });
 
       return { pausedPrev, sequentialEarly, sequentialLate, jumpedEarly, jumpedLate };
     }, target);
-    console.log('cursor-subframe samples', JSON.stringify(samples));
 
     expect(samples.pausedPrev.found).toBe(true);
     expect(samples.sequentialEarly.found).toBe(true);
@@ -235,8 +183,11 @@ test.describe('Cursor sub-frame interpolation', () => {
     expect(samples.jumpedEarly.playheadFrame).toBe(target.jumpProjectFrame);
     expect(samples.jumpedLate.playheadFrame).toBe(target.jumpProjectFrame);
 
+    expect(dist(samples.pausedPrev, target.prevNorm)).toBeLessThan(0.03);
     expect(sequentialMotion).toBeGreaterThan(0.005);
     expect(jumpMotion).toBeLessThan(0.003);
+    expect(samples.sequentialEarly.interpolating).toBe(true);
+    expect(samples.jumpedEarly.interpolating).toBe(false);
     expect(earlyToPrev).toBeLessThan(lateToPrev);
     expect(lateToCurr).toBeLessThan(earlyToCurr);
     expect(dist(samples.jumpedLate, target.jumpNorm)).toBeLessThan(0.03);

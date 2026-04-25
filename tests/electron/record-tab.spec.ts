@@ -193,6 +193,39 @@ test.describe('Record tab', () => {
     await expect(panelPage.locator('[data-testid="panel-source-select"]')).toBeVisible();
   });
 
+  test('record button reuses the existing pre-recording panel', async ({ appPage, electronApp }) => {
+    const firstPanelPromise = electronApp.waitForEvent('window');
+    await appPage.locator('[data-testid="btn-record"]').click();
+    const firstPanelPage = await firstPanelPromise;
+    await expect(firstPanelPage.locator('[data-testid="panel-source-select"]')).toBeVisible();
+
+    await appPage.locator('[data-testid="btn-record"]').click();
+    const panelPages = (await electronApp.windows()).filter(
+      (page) => page !== appPage && !page.isClosed(),
+    );
+    expect(panelPages).toHaveLength(1);
+    await expect(panelPages[0]!.locator('[data-testid="panel-source-select"]')).toBeVisible();
+  });
+
+  test('record button opens a fresh pre-recording panel after close', async ({
+    appPage,
+    electronApp,
+  }) => {
+    const firstPanelPromise = electronApp.waitForEvent('window');
+    await appPage.locator('[data-testid="btn-record"]').click();
+    const firstPanelPage = await firstPanelPromise;
+    await expect(firstPanelPage.locator('[data-testid="panel-source-select"]')).toBeVisible();
+
+    const closePromise = firstPanelPage.waitForEvent('close');
+    await firstPanelPage.locator('button[aria-label="Close recording panel"]').click();
+    await closePromise;
+
+    const secondPanelPromise = electronApp.waitForEvent('window');
+    await appPage.locator('[data-testid="btn-record"]').click();
+    const secondPanelPage = await secondPanelPromise;
+    await expect(secondPanelPage.locator('[data-testid="panel-source-select"]')).toBeVisible();
+  });
+
   test('panel surfaces DND, test-clip, and safe-stop affordances', async ({
     appPage,
     electronApp,

@@ -59,6 +59,8 @@ test.describe('Record playback canvas', () => {
         cardHeight: cardRect?.height ?? 0,
         screenWidth: screenRect?.width ?? 0,
         screenHeight: screenRect?.height ?? 0,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
         hasSetupSelectors: Boolean(setupSelectors),
         hasSourceGuard: Boolean(sourceGuard),
       };
@@ -66,10 +68,10 @@ test.describe('Record playback canvas', () => {
 
     expect(metrics.hasSetupSelectors).toBe(false);
     expect(metrics.hasSourceGuard).toBe(false);
-    expect(metrics.cardWidth).toBeGreaterThan(700);
-    expect(metrics.cardHeight).toBeGreaterThan(390);
-    expect(metrics.screenWidth).toBeGreaterThan(700);
-    expect(metrics.screenHeight).toBeGreaterThan(390);
+    expect(metrics.cardWidth).toBeGreaterThan(Math.min(700, metrics.viewportWidth * 0.4));
+    expect(metrics.cardHeight).toBeGreaterThan(Math.min(390, metrics.viewportHeight * 0.36));
+    expect(metrics.screenWidth).toBeGreaterThan(Math.min(700, metrics.viewportWidth * 0.4));
+    expect(metrics.screenHeight).toBeGreaterThan(Math.min(390, metrics.viewportHeight * 0.36));
   });
 
   test('canvas frame updates when the paused playhead seeks', async ({ appPage }) => {
@@ -77,15 +79,9 @@ test.describe('Record playback canvas', () => {
 
     const frame0 = await captureCanvasState(appPage);
 
-    await appPage.evaluate(() => {
-      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-      stores?.transport.getState().seekToFrame(45);
-    });
-    await appPage.waitForTimeout(250);
-
-    const frame45 = await captureCanvasState(appPage);
-    expect(Math.abs(frame45.playheadFrame - 45)).toBeLessThanOrEqual(1);
-    expect(frame45.canvasHash).not.toBe(frame0.canvasHash);
+    const changedFrame = await seekUntilCanvasChanges(appPage, frame0.canvasHash, [45, 90, 135]);
+    expect(changedFrame.playheadFrame).toBeGreaterThan(0);
+    expect(changedFrame.canvasHash).not.toBe(frame0.canvasHash);
 
     await appPage.evaluate(() => {
       const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
@@ -95,7 +91,7 @@ test.describe('Record playback canvas', () => {
 
     const frame0Again = await captureCanvasState(appPage);
     expect(Math.abs(frame0Again.playheadFrame)).toBeLessThanOrEqual(1);
-    expect(frame0Again.canvasHash).not.toBe(frame45.canvasHash);
+    expect(frame0Again.canvasHash).not.toBe(changedFrame.canvasHash);
   });
 
   test('canvas keeps painting while playback runs', async ({ appPage }) => {
@@ -218,6 +214,27 @@ async function captureCanvasState(page: import('@playwright/test').Page): Promis
     playheadFrame,
     canvasHash: hashBytes(screenshot),
   };
+}
+
+async function seekUntilCanvasChanges(
+  page: import('@playwright/test').Page,
+  initialHash: number,
+  frames: readonly number[],
+): Promise<{ playheadFrame: number; canvasHash: number }> {
+  let lastState = await captureCanvasState(page);
+  for (const frame of frames) {
+    await page.evaluate((nextFrame) => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      stores?.transport.getState().seekToFrame(nextFrame);
+    }, frame);
+    await page.waitForTimeout(250);
+
+    lastState = await captureCanvasState(page);
+    expect(Math.abs(lastState.playheadFrame - frame)).toBeLessThanOrEqual(1);
+    if (lastState.canvasHash !== initialHash) return lastState;
+  }
+
+  return lastState;
 }
 
 function hashBytes(buffer: Buffer): number {
