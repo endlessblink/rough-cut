@@ -598,15 +598,18 @@ function TitleBar({
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         {accessory}
         <button
+          type="button"
           aria-label="Close recording panel"
+          title="Close recording panel"
+          onPointerDown={(event) => event.stopPropagation()}
           onClick={onClose}
           onMouseEnter={() => setCloseHovered(true)}
           onMouseLeave={() => setCloseHovered(false)}
           style={
             {
               WebkitAppRegion: 'no-drag',
-              width: 20,
-              height: 20,
+              width: 28,
+              height: 28,
               borderRadius: '50%',
               border: 'none',
               background: closeHovered ? 'rgba(255,255,255,0.12)' : 'transparent',
@@ -620,6 +623,8 @@ function TitleBar({
               color: C.textSecondary,
               fontSize: 16,
               lineHeight: 1,
+              position: 'relative',
+              zIndex: 1,
             } as React.CSSProperties
           }
         >
@@ -1907,6 +1912,7 @@ export function PanelApp() {
   const [recordingRecovery, setRecordingRecovery] = useState<RecordingRecoveryMarker | null>(null);
   const [recoveringTake, setRecoveringTake] = useState(false);
   const [setupModeDuringRecording, setSetupModeDuringRecording] = useState(false);
+  const [closeRequested, setCloseRequested] = useState(false);
   const warningRef = useRef<Record<string, string | null>>({
     mic: null,
     camera: null,
@@ -1919,6 +1925,7 @@ export function PanelApp() {
     systemAudio: false,
   });
   const statusRef = useRef<PanelStatus>('idle');
+  const closeRequestedRef = useRef(false);
   const previousSelectedSourceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -2944,10 +2951,14 @@ export function PanelApp() {
   };
 
   const handleClose = () => {
+    if (closeRequestedRef.current || closeRequested) return;
+    closeRequestedRef.current = true;
+    setCloseRequested(true);
     if (statusRef.current === 'recording' || statusRef.current === 'stopping') {
       setStatus('stopping');
     } else {
       releasePanelPreviewStreams();
+      setStatus('stopping');
     }
     void window.roughcut.closeRecordingPanel();
   };

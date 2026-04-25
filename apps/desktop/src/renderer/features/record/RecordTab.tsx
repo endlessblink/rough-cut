@@ -41,7 +41,6 @@ import { ZoomMarkerInspector } from './ZoomMarkerInspector.js';
 import { useCursorEvents } from '../../hooks/use-cursor-events.js';
 import { generateAutoZoomMarkers, getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
 import { BottomBar } from './BottomBar.js';
-import { SourcePickerPopup } from './SourcePickerPopup.js';
 import type { DestinationPresetId } from './destination-presets.js';
 import {
   getDestinationPreset,
@@ -88,9 +87,7 @@ const DEFAULT_BACKGROUND: BackgroundConfig = {
 const RECORD_PLAYHEAD_REACT_UPDATE_MS = 100;
 
 function useThrottledRecordPlayheadFrame(): number {
-  const [playheadFrame, setPlayheadFrame] = useState(
-    () => transportStore.getState().playheadFrame,
-  );
+  const [playheadFrame, setPlayheadFrame] = useState(() => transportStore.getState().playheadFrame);
   const latestFrameRef = useRef(playheadFrame);
   const lastEmitAtRef = useRef(0);
   const timeoutRef = useRef<number | null>(null);
@@ -216,7 +213,6 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     useState<RecordingSessionConnectionIssues | null>(null);
   const [sourceRecoveryMessage, setSourceRecoveryMessage] = useState<string | null>(null);
   const [countdownSeconds, setCountdownSeconds] = useState(0);
-  const [isSourcePickerOpen, setIsSourcePickerOpen] = useState(false);
   const [isFloatingPanelActive, setIsFloatingPanelActive] = useState(false);
   // Default to Screen+Camera PIP template (index 1) when camera is on
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- LAYOUT_TEMPLATES is a non-empty static array
@@ -465,11 +461,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
       return;
     }
     setCameraPresentation(editorPresentation.camera ?? createDefaultCameraPresentation());
-  }, [
-    activeCameraLayoutSnapshot?.camera,
-    activeRecordingAsset?.id,
-    editorPresentation.camera,
-  ]);
+  }, [activeCameraLayoutSnapshot?.camera, activeRecordingAsset?.id, editorPresentation.camera]);
   const [cameraCrop, setCameraCrop] = useState<RegionCrop>(() => createDefaultRegionCrop());
   const effectiveCameraPresentation = activeCameraLayoutSnapshot?.camera ?? cameraPresentation;
   const effectiveCameraRectOverride = activeCameraLayoutSnapshot?.cameraFrame ?? cameraRectOverride;
@@ -666,7 +658,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
             cameraFrame: undefined,
           },
           destinationPresetId: options?.preserveDestinationPreset
-            ? doc.settings.destinationPresetId ?? null
+            ? (doc.settings.destinationPresetId ?? null)
             : null,
         },
       }));
@@ -766,9 +758,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     stream: liveStream,
     status: livePreviewStatus,
     error: livePreviewError,
-  } = useLivePreview(
-    !isFloatingPanelActive && hasValidSelectedSource ? selectedSourceId : null,
-  );
+  } = useLivePreview(!isFloatingPanelActive && hasValidSelectedSource ? selectedSourceId : null);
 
   if (recordRuntimeHooks) {
     return (
@@ -797,8 +787,8 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         >
           <div>Record runtime hooks</div>
           <div style={{ fontSize: 12, opacity: 0.75 }}>
-            preview: {livePreviewStatus} · sources: {sources.length} · mics: {micOptions.length} · cameras:{' '}
-            {cameraOptions.length} · outputs: {systemAudioOptions.length}
+            preview: {livePreviewStatus} · sources: {sources.length} · mics: {micOptions.length} ·
+            cameras: {cameraOptions.length} · outputs: {systemAudioOptions.length}
           </div>
           <div style={{ fontSize: 12, opacity: 0.75 }}>
             source: {selectedSourceId ?? 'none'} · error: {livePreviewError ?? error ?? 'none'}
@@ -880,19 +870,24 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     setReviewDecisionVisibleForAssetId(null);
   }, []);
 
+  const openRecordingSetupPanel = useCallback(() => {
+    void window.roughcut.openRecordingPanel();
+  }, []);
+
   const handleRetryTake = useCallback(() => {
     transportStore.getState().pause();
     setSelectedRegion(null);
     setSelectedZoomMarkerId(null);
     setSelectedCameraLayoutMarkerId(null);
-    setIsSourcePickerOpen(true);
+    openRecordingSetupPanel();
     setReviewDecisionVisibleForAssetId(null);
     showToast({
       title: 'Ready for another take',
-      message: 'Pick a source and press REC. The current take stays in the project while you retry.',
+      message:
+        'Confirm your setup in the recording panel. The current take stays in the project while you retry.',
       tone: 'info',
     });
-  }, [showToast]);
+  }, [openRecordingSetupPanel, showToast]);
 
   const handleContinueToEdit = useCallback(() => {
     transportStore.getState().pause();
@@ -1398,11 +1393,8 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
       ) ?? createDefaultRegionCrop(screenSourceWidth, screenSourceHeight),
     );
     setCameraCrop(
-      normalizeRegionCrop(
-        editorPresentation.cameraCrop,
-        cameraSourceWidth,
-        cameraSourceHeight,
-      ) ?? createDefaultRegionCrop(cameraSourceWidth, cameraSourceHeight),
+      normalizeRegionCrop(editorPresentation.cameraCrop, cameraSourceWidth, cameraSourceHeight) ??
+        createDefaultRegionCrop(cameraSourceWidth, cameraSourceHeight),
     );
   }, [
     activeRecordingAsset?.id,
@@ -1632,10 +1624,6 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
 
   const elapsedSeconds = Math.floor(elapsedMs / 1000);
 
-  const openRecordingSetupPanel = useCallback(() => {
-    void window.roughcut.openRecordingPanel();
-  }, []);
-
   const handleClickRecord = useCallback(() => {
     if (status === 'recording') {
       void window.roughcut.recordingSessionStop();
@@ -1829,7 +1817,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
       >
         <BottomBar
           sourceName={selectedSourceName}
-          onOpenSourcePicker={() => setIsSourcePickerOpen(true)}
+          onOpenSourcePicker={openRecordingSetupPanel}
           micName={selectedMicName}
           isMicMuted={!micEnabled}
           onToggleMicMute={() => updateRecordingConfig({ micEnabled: !micEnabled })}
@@ -1873,17 +1861,21 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
             gap: 6,
           }}
         >
-          <span aria-hidden="true" style={{ fontSize: 13, lineHeight: 1 }}>⚙</span>
+          <span aria-hidden="true" style={{ fontSize: 13, lineHeight: 1 }}>
+            ⚙
+          </span>
           Setup
         </button>
       </div>
 
-      {recordState === 'idle' && (
+      {recordState === 'idle' && !hasRecordedTake && (
         <RecordDeviceSelectors
           micOptions={micOptions}
           selectedMicDeviceId={selectedMicDeviceId}
           micIssue={sessionConnectionIssues?.mic ?? null}
-          onSelectMicDevice={(id) => updateRecordingConfig({ selectedMicDeviceId: id, micEnabled: true })}
+          onSelectMicDevice={(id) =>
+            updateRecordingConfig({ selectedMicDeviceId: id, micEnabled: true })
+          }
           cameraOptions={cameraOptions}
           selectedCameraDeviceId={selectedCameraDeviceId}
           cameraIssue={sessionConnectionIssues?.camera ?? null}
@@ -1976,7 +1968,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         </div>
       )}
 
-      {sourceRecoveryMessage && (
+      {sourceRecoveryMessage && !hasRecordedTake && (
         <div
           data-testid="record-source-recovery-banner"
           style={{
@@ -2038,49 +2030,52 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
         </div>
       )}
 
-      {recordState === 'idle' && recordStartGuardReason && !sourceRecoveryMessage && (
-        <div
-          data-testid="record-start-guard-banner"
-          style={{
-            margin: '0 24px 12px',
-            borderRadius: 12,
-            border: '1px solid rgba(245,158,11,0.24)',
-            background: 'rgba(245,158,11,0.08)',
-            padding: '10px 12px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-          }}
-        >
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#fcd34d' }}>
-              Recording source required
-            </div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.68)', marginTop: 2 }}>
-              {recordStartGuardReason}
-            </div>
-          </div>
-          <button
-            data-testid="record-start-guard-pick-source"
-            onClick={() => setIsSourcePickerOpen(true)}
+      {recordState === 'idle' &&
+        !hasRecordedTake &&
+        recordStartGuardReason &&
+        !sourceRecoveryMessage && (
+          <div
+            data-testid="record-start-guard-banner"
             style={{
-              height: 30,
-              padding: '0 10px',
-              borderRadius: 8,
-              border: '1px solid rgba(255,255,255,0.1)',
-              background: 'rgba(255,255,255,0.1)',
-              color: 'rgba(255,255,255,0.92)',
-              cursor: 'pointer',
-              fontSize: 12,
-              fontFamily: 'inherit',
-              flexShrink: 0,
+              margin: '0 24px 12px',
+              borderRadius: 12,
+              border: '1px solid rgba(245,158,11,0.24)',
+              background: 'rgba(245,158,11,0.08)',
+              padding: '10px 12px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
             }}
           >
-            Pick a source
-          </button>
-        </div>
-      )}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#fcd34d' }}>
+                Recording source required
+              </div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.68)', marginTop: 2 }}>
+                {recordStartGuardReason}
+              </div>
+            </div>
+            <button
+              data-testid="record-start-guard-pick-source"
+              onClick={openRecordingSetupPanel}
+              style={{
+                height: 30,
+                padding: '0 10px',
+                borderRadius: 8,
+                border: '1px solid rgba(255,255,255,0.1)',
+                background: 'rgba(255,255,255,0.1)',
+                color: 'rgba(255,255,255,0.92)',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontFamily: 'inherit',
+                flexShrink: 0,
+              }}
+            >
+              Pick a source
+            </button>
+          </div>
+        )}
 
       {sessionIssueMessage && (
         <div
@@ -2119,10 +2114,19 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           }}
         >
           <div style={{ minWidth: 240, flex: '1 1 320px' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#86efac' }}>Take ready to review</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.72)', marginTop: 4, lineHeight: 1.45 }}>
-              Decide what to do with this take now: keep reviewing it here, record another take,
-              or continue in Edit. Recording another take will not discard the current one.
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#86efac' }}>
+              Take ready to review
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                color: 'rgba(255,255,255,0.72)',
+                marginTop: 4,
+                lineHeight: 1.45,
+              }}
+            >
+              Decide what to do with this take now: keep reviewing it here, record another take, or
+              continue in Edit. Recording another take will not discard the current one.
             </div>
           </div>
           <div
@@ -2197,240 +2201,249 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
 
       {!recordChromeOnly && (
         <>
-      {/* Preview + Inspector row */}
-      <WorkspaceRow
-        sidebarWidth={RECORD_PANEL_WIDTH}
-        main={
-          <PreviewStage>
-            <CardChrome
-              aspectRatio={effectiveTemplate.aspectRatio}
-              bgColor={hasRecordedTake ? background.bgColor : '#050505'}
-              bgGradient={hasRecordedTake ? background.bgGradient : null}
-              bgPadding={background.bgPadding}
-              bgCornerRadius={background.bgCornerRadius}
-              bgShadowEnabled={background.bgShadowEnabled}
-              bgShadowBlur={background.bgShadowBlur}
-              bgInset={background.bgInset}
-              bgInsetColor={background.bgInsetColor}
-            >
-              <TemplatePreviewRenderer
-                template={effectiveTemplate}
-                screenContent={
-                  activeRecordingAsset?.filePath ? (
-                    <RecordingPlaybackVideo
-                      filePath={activeRecordingAsset.filePath}
-                      fps={projectFps}
-                      assetId={activeRecordingAsset.id}
-                      zoomMarkers={zoomPresentation.markers}
-                      selectedZoomMarker={
-                        selectedZoomMarkerId
-                          ? (zoomPresentation.markers.find((m) => m.id === selectedZoomMarkerId) ??
-                            null)
-                          : null
-                      }
-                      onFocalPointChange={(markerId, focalPoint) => {
-                        if (!activeRecordingId) return;
-                        projectStore
-                          .getState()
-                          .updateRecordingZoomMarker(activeRecordingId, markerId, { focalPoint });
-                      }}
-                    />
-                  ) : previewOverlay ? (
+          {/* Preview + Inspector row */}
+          <WorkspaceRow
+            sidebarWidth={RECORD_PANEL_WIDTH}
+            main={
+              <PreviewStage>
+                <CardChrome
+                  aspectRatio={effectiveTemplate.aspectRatio}
+                  bgColor={hasRecordedTake ? background.bgColor : '#050505'}
+                  bgGradient={hasRecordedTake ? background.bgGradient : null}
+                  bgPadding={background.bgPadding}
+                  bgCornerRadius={background.bgCornerRadius}
+                  bgShadowEnabled={background.bgShadowEnabled}
+                  bgShadowBlur={background.bgShadowBlur}
+                  bgInset={background.bgInset}
+                  bgInsetColor={background.bgInsetColor}
+                >
+                  <TemplatePreviewRenderer
+                    template={effectiveTemplate}
+                    screenContent={
+                      activeRecordingAsset?.filePath ? (
+                        <RecordingPlaybackVideo
+                          filePath={activeRecordingAsset.filePath}
+                          fps={projectFps}
+                          assetId={activeRecordingAsset.id}
+                          zoomMarkers={zoomPresentation.markers}
+                          selectedZoomMarker={
+                            selectedZoomMarkerId
+                              ? (zoomPresentation.markers.find(
+                                  (m) => m.id === selectedZoomMarkerId,
+                                ) ?? null)
+                              : null
+                          }
+                          onFocalPointChange={(markerId, focalPoint) => {
+                            if (!activeRecordingId) return;
+                            projectStore
+                              .getState()
+                              .updateRecordingZoomMarker(activeRecordingId, markerId, {
+                                focalPoint,
+                              });
+                          }}
+                        />
+                      ) : previewOverlay ? (
+                        <div
+                          data-testid="record-preview-status"
+                          data-preview-state={
+                            !hasValidSelectedSource
+                              ? sourceRecoveryMessage
+                                ? 'lost'
+                                : 'empty'
+                              : livePreviewStatus
+                          }
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '0 24px',
+                            pointerEvents: 'none',
+                            userSelect: 'none',
+                          }}
+                        >
+                          <div
+                            style={{
+                              maxWidth: 360,
+                              padding: '14px 16px',
+                              borderRadius: 12,
+                              background: 'rgba(0,0,0,0.72)',
+                              border: '1px solid rgba(255,255,255,0.08)',
+                              textAlign: 'center',
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 600,
+                                letterSpacing: 0.2,
+                                color: previewOverlay.tone,
+                              }}
+                            >
+                              {previewOverlay.title}
+                            </div>
+                            <div
+                              style={{
+                                marginTop: 6,
+                                fontSize: 11,
+                                lineHeight: 1.45,
+                                color: 'rgba(255,255,255,0.68)',
+                              }}
+                            >
+                              {previewOverlay.detail}
+                            </div>
+                          </div>
+                        </div>
+                      ) : undefined
+                    }
+                    cameraContent={
+                      hasRecordedTake && cameraAsset?.filePath ? (
+                        <CameraPlaybackCanvas
+                          filePath={
+                            resolveProjectMediaPath(cameraAsset.filePath, projectFilePath) ??
+                            cameraAsset.filePath
+                          }
+                          fps={projectFps}
+                        />
+                      ) : liveCameraStream ? (
+                        <LiveCameraVideo
+                          stream={liveCameraStream}
+                          testId="record-live-camera-video"
+                        />
+                      ) : undefined
+                    }
+                    cameraAspect={cameraSourceWidth / cameraSourceHeight}
+                    cameraPresentation={effectiveCameraPresentation}
+                    screenAspect={screenSourceWidth / screenSourceHeight}
+                    screenCornerRadius={background.bgCornerRadius}
+                    screenShadow={
+                      background.bgShadowEnabled
+                        ? `0 ${Math.round(background.bgShadowBlur * 0.2)}px ${background.bgShadowBlur}px rgba(0,0,0,${background.bgShadowOpacity ?? 0.25})`
+                        : undefined
+                    }
+                    screenPadding={background.bgPadding}
+                    screenInset={background.bgInset}
+                    screenInsetColor={background.bgInsetColor}
+                    interactionEnabled={true}
+                    onRegionChange={handleRegionChange}
+                    onScreenNormalizedFrameChange={handleScreenNormalizedFrameChange}
+                    onCameraNormalizedFrameChange={handleCameraNormalizedFrameChange}
+                    screenRectOverride={screenRectOverride}
+                    screenNormalizedFrameOverride={activeRecordingPresentation?.screenFrame}
+                    cameraRectOverride={effectiveCameraRectOverride}
+                    cameraNormalizedFrameOverride={activeRecordingPresentation?.cameraFrame}
+                    screenCrop={screenCrop}
+                    cameraCrop={cameraCrop}
+                    cropRegion={cropTargetRegion}
+                    cropModeActive={cropModeActive}
+                    onCropModeChange={setCropModeActive}
+                    onScreenCropModeChange={handleScreenCropModeChange}
+                    onCameraCropModeChange={handleCameraCropModeChange}
+                    onScreenCropChange={handleScreenCropChange}
+                    onCameraCropChange={handleCameraCropChange}
+                    screenSourceWidth={screenSourceWidth}
+                    screenSourceHeight={screenSourceHeight}
+                    cameraSourceWidth={cameraSourceWidth}
+                    cameraSourceHeight={cameraSourceHeight}
+                    activeZoomScale={activeZoomScale}
+                    activeLayoutFrame={activeCameraLayoutSnapshot?.frame ?? null}
+                    activeLayoutVisible={activeCameraLayoutSnapshot?.camera?.visible ?? null}
+                    alignRef={alignRef}
+                    onRegionClick={setSelectedRegion}
+                    selectedRegion={selectedRegion}
+                  />
+                  {previewModeBadge && (
                     <div
-                      data-testid="record-preview-status"
-                      data-preview-state={
-                        !hasValidSelectedSource
-                          ? sourceRecoveryMessage
-                            ? 'lost'
-                            : 'empty'
-                          : livePreviewStatus
-                      }
+                      data-testid="record-preview-mode-badge"
                       style={{
                         position: 'absolute',
-                        inset: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        padding: '0 24px',
+                        top: 14,
+                        left: 14,
+                        zIndex: 12,
+                        padding: '6px 10px',
+                        borderRadius: 999,
+                        background: 'rgba(0,0,0,0.72)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        color: 'rgba(255,255,255,0.92)',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        letterSpacing: '0.02em',
                         pointerEvents: 'none',
                         userSelect: 'none',
                       }}
                     >
-                      <div
-                        style={{
-                          maxWidth: 360,
-                          padding: '14px 16px',
-                          borderRadius: 12,
-                          background: 'rgba(0,0,0,0.72)',
-                          border: '1px solid rgba(255,255,255,0.08)',
-                          textAlign: 'center',
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontSize: 12,
-                            fontWeight: 600,
-                            letterSpacing: 0.2,
-                            color: previewOverlay.tone,
-                          }}
-                        >
-                          {previewOverlay.title}
-                        </div>
-                        <div
-                          style={{
-                            marginTop: 6,
-                            fontSize: 11,
-                            lineHeight: 1.45,
-                            color: 'rgba(255,255,255,0.68)',
-                          }}
-                        >
-                          {previewOverlay.detail}
-                        </div>
-                      </div>
+                      {previewModeBadge}
                     </div>
-                  ) : undefined
+                  )}
+                </CardChrome>
+              </PreviewStage>
+            }
+            inspector={
+              <RecordRightPanel
+                fps={projectFps}
+                zoomMarkerCount={zoomPresentation.markers.length}
+                zoomIntensity={zoomPresentation.autoIntensity}
+                onZoomIntensityChange={handleZoomIntensityChange}
+                zoomFollowCursor={zoomPresentation.followCursor}
+                onZoomFollowCursorChange={handleZoomFollowCursorChange}
+                zoomFollowAnimation={zoomPresentation.followAnimation}
+                onZoomFollowAnimationChange={handleZoomFollowAnimationChange}
+                zoomFollowPadding={zoomPresentation.followPadding}
+                onZoomFollowPaddingChange={handleZoomFollowPaddingChange}
+                canRegenerateAutoZoom={Boolean(cursorEventsPath)}
+                onRegenerateAutoZoom={regenerateAutoZoomMarkers}
+                onResetZoomMarkers={handleResetZoom}
+                onCreateZoomFromScreenFocus={handleCreateZoomFromScreenFocus}
+                cursor={cursorPresentation}
+                onCursorChange={handleCursorChange}
+                onCursorReset={handleCursorReset}
+                camera={cameraPresentation}
+                onCameraChange={handleCameraChange}
+                onCameraReset={handleCameraReset}
+                cameraLayoutSnapshotCount={
+                  (activeRecordingAsset?.presentation as { cameraLayouts?: unknown[] } | undefined)
+                    ?.cameraLayouts?.length ?? 0
                 }
-                cameraContent={
-                  hasRecordedTake && cameraAsset?.filePath ? (
-                    <CameraPlaybackCanvas
-                      filePath={resolveProjectMediaPath(cameraAsset.filePath, projectFilePath) ?? cameraAsset.filePath}
-                      fps={projectFps}
-                    />
-                  ) : liveCameraStream ? (
-                    <LiveCameraVideo stream={liveCameraStream} testId="record-live-camera-video" />
-                  ) : undefined
-                }
-                cameraAspect={cameraSourceWidth / cameraSourceHeight}
-                cameraPresentation={effectiveCameraPresentation}
-                screenAspect={screenSourceWidth / screenSourceHeight}
-                screenCornerRadius={background.bgCornerRadius}
-                screenShadow={
-                  background.bgShadowEnabled
-                    ? `0 ${Math.round(background.bgShadowBlur * 0.2)}px ${background.bgShadowBlur}px rgba(0,0,0,${background.bgShadowOpacity ?? 0.25})`
-                    : undefined
-                }
-                screenPadding={background.bgPadding}
-                screenInset={background.bgInset}
-                screenInsetColor={background.bgInsetColor}
-                interactionEnabled={true}
-                onRegionChange={handleRegionChange}
-                onScreenNormalizedFrameChange={handleScreenNormalizedFrameChange}
-                onCameraNormalizedFrameChange={handleCameraNormalizedFrameChange}
-                screenRectOverride={screenRectOverride}
-                screenNormalizedFrameOverride={activeRecordingPresentation?.screenFrame}
-                cameraRectOverride={effectiveCameraRectOverride}
-                cameraNormalizedFrameOverride={activeRecordingPresentation?.cameraFrame}
+                onAddCameraLayoutSnapshot={handleAddCameraLayoutSnapshot}
+                onAddCameraLayoutPreset={handleAddCameraLayoutPreset}
+                selectedCameraLayoutMarkerId={selectedCameraLayoutMarkerId}
+                onDeleteSelectedCameraLayoutMarker={handleDeleteSelectedCameraLayoutMarker}
+                background={background}
+                onBackgroundChange={handleBackgroundChange}
+                onBackgroundReset={handleBackgroundReset}
                 screenCrop={screenCrop}
-                cameraCrop={cameraCrop}
-                cropRegion={cropTargetRegion}
-                cropModeActive={cropModeActive}
-                onCropModeChange={setCropModeActive}
-                onScreenCropModeChange={handleScreenCropModeChange}
-                onCameraCropModeChange={handleCameraCropModeChange}
                 onScreenCropChange={handleScreenCropChange}
+                onScreenCropReset={handleScreenCropReset}
+                cameraCrop={cameraCrop}
                 onCameraCropChange={handleCameraCropChange}
+                onCameraCropReset={handleCameraCropReset}
                 screenSourceWidth={screenSourceWidth}
                 screenSourceHeight={screenSourceHeight}
                 cameraSourceWidth={cameraSourceWidth}
                 cameraSourceHeight={cameraSourceHeight}
-                activeZoomScale={activeZoomScale}
-                activeLayoutFrame={activeCameraLayoutSnapshot?.frame ?? null}
-                activeLayoutVisible={activeCameraLayoutSnapshot?.camera?.visible ?? null}
-                alignRef={alignRef}
-                onRegionClick={setSelectedRegion}
+                cropModeActive={cropModeActive}
+                cropTargetRegion={cropTargetRegion}
+                onScreenCropModeChange={handleScreenCropModeChange}
+                onCameraCropModeChange={handleCameraCropModeChange}
+                selectedTemplateId={effectiveTemplate.id}
+                onTemplateChange={handleTemplateChange}
+                selectedDestinationPresetId={selectedDestinationPresetId}
+                onDestinationPresetChange={handleDestinationPresetChange}
                 selectedRegion={selectedRegion}
+                onAlign={handleAlign}
+                preferredCategoryId={preferredInspectorCategoryId}
+                captionSegments={recordCaptionSegments}
+                onUpdateCaptionText={handleUpdateRecordCaptionText}
+                canGenerateCaptions={Boolean(activeRecordingAsset?.filePath && activeRecordingId)}
+                isGeneratingCaptions={isGeneratingCaptions}
+                captionError={recordCaptionError}
+                onGenerateCaptions={handleGenerateRecordCaptions}
+                captionStyle={captionStyle}
+                onUpdateCaptionStyle={handleUpdateRecordCaptionStyle}
               />
-              {previewModeBadge && (
-                <div
-                  data-testid="record-preview-mode-badge"
-                  style={{
-                    position: 'absolute',
-                    top: 14,
-                    left: 14,
-                    zIndex: 12,
-                    padding: '6px 10px',
-                    borderRadius: 999,
-                    background: 'rgba(0,0,0,0.72)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    color: 'rgba(255,255,255,0.92)',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    letterSpacing: '0.02em',
-                    pointerEvents: 'none',
-                    userSelect: 'none',
-                  }}
-                >
-                  {previewModeBadge}
-                </div>
-              )}
-            </CardChrome>
-          </PreviewStage>
-        }
-        inspector={
-          <RecordRightPanel
-            fps={projectFps}
-            zoomMarkerCount={zoomPresentation.markers.length}
-            zoomIntensity={zoomPresentation.autoIntensity}
-            onZoomIntensityChange={handleZoomIntensityChange}
-            zoomFollowCursor={zoomPresentation.followCursor}
-            onZoomFollowCursorChange={handleZoomFollowCursorChange}
-            zoomFollowAnimation={zoomPresentation.followAnimation}
-            onZoomFollowAnimationChange={handleZoomFollowAnimationChange}
-            zoomFollowPadding={zoomPresentation.followPadding}
-            onZoomFollowPaddingChange={handleZoomFollowPaddingChange}
-            canRegenerateAutoZoom={Boolean(cursorEventsPath)}
-            onRegenerateAutoZoom={regenerateAutoZoomMarkers}
-            onResetZoomMarkers={handleResetZoom}
-            onCreateZoomFromScreenFocus={handleCreateZoomFromScreenFocus}
-            cursor={cursorPresentation}
-            onCursorChange={handleCursorChange}
-            onCursorReset={handleCursorReset}
-            camera={cameraPresentation}
-            onCameraChange={handleCameraChange}
-            onCameraReset={handleCameraReset}
-            cameraLayoutSnapshotCount={
-              (activeRecordingAsset?.presentation as { cameraLayouts?: unknown[] } | undefined)
-                ?.cameraLayouts?.length ?? 0
             }
-            onAddCameraLayoutSnapshot={handleAddCameraLayoutSnapshot}
-            onAddCameraLayoutPreset={handleAddCameraLayoutPreset}
-            selectedCameraLayoutMarkerId={selectedCameraLayoutMarkerId}
-            onDeleteSelectedCameraLayoutMarker={handleDeleteSelectedCameraLayoutMarker}
-            background={background}
-            onBackgroundChange={handleBackgroundChange}
-            onBackgroundReset={handleBackgroundReset}
-            screenCrop={screenCrop}
-            onScreenCropChange={handleScreenCropChange}
-            onScreenCropReset={handleScreenCropReset}
-            cameraCrop={cameraCrop}
-            onCameraCropChange={handleCameraCropChange}
-            onCameraCropReset={handleCameraCropReset}
-            screenSourceWidth={screenSourceWidth}
-            screenSourceHeight={screenSourceHeight}
-            cameraSourceWidth={cameraSourceWidth}
-            cameraSourceHeight={cameraSourceHeight}
-            cropModeActive={cropModeActive}
-            cropTargetRegion={cropTargetRegion}
-            onScreenCropModeChange={handleScreenCropModeChange}
-            onCameraCropModeChange={handleCameraCropModeChange}
-            selectedTemplateId={effectiveTemplate.id}
-            onTemplateChange={handleTemplateChange}
-            selectedDestinationPresetId={selectedDestinationPresetId}
-            onDestinationPresetChange={handleDestinationPresetChange}
-            selectedRegion={selectedRegion}
-            onAlign={handleAlign}
-            preferredCategoryId={preferredInspectorCategoryId}
-            captionSegments={recordCaptionSegments}
-            onUpdateCaptionText={handleUpdateRecordCaptionText}
-            canGenerateCaptions={Boolean(activeRecordingAsset?.filePath && activeRecordingId)}
-            isGeneratingCaptions={isGeneratingCaptions}
-            captionError={recordCaptionError}
-            onGenerateCaptions={handleGenerateRecordCaptions}
-            captionStyle={captionStyle}
-            onUpdateCaptionStyle={handleUpdateRecordCaptionStyle}
           />
-        }
-      />
         </>
       )}
 
@@ -2468,101 +2481,89 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
 
       {!recordChromeOnly && !recordWorkspaceOnly && (
         <>
-      {/* Zoom marker inspector (above timeline, only when a marker is selected) */}
-      {selectedZoomMarkerId &&
-        (() => {
-          const marker = zoomPresentation.markers.find((m) => m.id === selectedZoomMarkerId);
-          if (!marker || !activeRecordingId) return null;
-          return (
-            <div style={{ flexShrink: 0, background: '#050505' }}>
-              <ZoomMarkerInspector
-                marker={marker}
-                fps={projectFps}
-                onPatch={(patch) =>
-                  projectStore
-                    .getState()
-                    .updateRecordingZoomMarker(activeRecordingId, marker.id, patch)
-                }
-                onDelete={() => {
-                  projectStore.getState().removeRecordingZoomMarker(activeRecordingId, marker.id);
-                  setSelectedZoomMarkerId(null);
-                }}
-                onDismiss={() => setSelectedZoomMarkerId(null)}
-              />
-            </div>
-          );
-        })()}
+          {/* Zoom marker inspector (above timeline, only when a marker is selected) */}
+          {selectedZoomMarkerId &&
+            (() => {
+              const marker = zoomPresentation.markers.find((m) => m.id === selectedZoomMarkerId);
+              if (!marker || !activeRecordingId) return null;
+              return (
+                <div style={{ flexShrink: 0, background: '#050505' }}>
+                  <ZoomMarkerInspector
+                    marker={marker}
+                    fps={projectFps}
+                    onPatch={(patch) =>
+                      projectStore
+                        .getState()
+                        .updateRecordingZoomMarker(activeRecordingId, marker.id, patch)
+                    }
+                    onDelete={() => {
+                      projectStore
+                        .getState()
+                        .removeRecordingZoomMarker(activeRecordingId, marker.id);
+                      setSelectedZoomMarkerId(null);
+                    }}
+                    onDismiss={() => setSelectedZoomMarkerId(null)}
+                  />
+                </div>
+              );
+            })()}
 
-      {/* Timeline — full width, fixed height (fits ruler + zoom track + up to 5 clip tracks) */}
-      <div
-        style={{
-          flexShrink: 0,
-          height: 220,
-          padding: '0 24px',
-          marginBottom: 8,
-          background: '#050505',
-        }}
-      >
-        <RecordTimelineShell
-          tracks={tracks}
-          assets={assets}
-          durationFrames={durationFrames}
-          fps={projectFps}
-          activeAssetIds={selectedTimelineAssetId ? [selectedTimelineAssetId] : []}
-          selectedAssetId={selectedTimelineAssetId}
-          onSelectAsset={handleSelectTimelineAsset}
-          zoomMarkers={zoomPresentation.markers}
-          selectedZoomMarkerId={selectedZoomMarkerId}
-          onAddZoomMarkerAtPlayhead={handleAddZoomMarkerAtPlayhead}
-          onSelectZoomMarker={handleSelectZoomMarker}
-          onResizeZoomMarker={(id, patch) => {
-            if (!activeRecordingId) return;
-            projectStore.getState().updateRecordingZoomMarker(activeRecordingId, id, patch);
-          }}
-          cameraLayoutMarkers={
-            ((activeRecordingPresentation as { cameraLayouts?: unknown } | null)?.cameraLayouts as
-              | ReadonlyArray<{
-                  id: string;
-                  frame: number;
-                  camera: { visible?: boolean; position?: string };
-                  templateId?: string;
-                }>
-              | undefined) ?? []
-          }
-          selectedCameraLayoutMarkerId={selectedCameraLayoutMarkerId}
-          onSelectCameraLayoutMarker={handleSelectCameraLayoutMarker}
-          onMoveCameraLayoutMarker={(id, frame) => {
-            if (!activeRecordingId) return;
-            const store = projectStore.getState() as unknown as {
-              moveRecordingCameraLayoutSnapshot?: (
-                assetId: string,
-                markerId: string,
-                nextFrame: number,
-              ) => void;
-            };
-            store.moveRecordingCameraLayoutSnapshot?.(activeRecordingId, id, frame);
-          }}
-        />
-      </div>
+          {/* Timeline — full width, fixed height (fits ruler + zoom track + up to 5 clip tracks) */}
+          <div
+            style={{
+              flexShrink: 0,
+              height: 220,
+              padding: '0 24px',
+              marginBottom: 8,
+              background: '#050505',
+            }}
+          >
+            <RecordTimelineShell
+              tracks={tracks}
+              assets={assets}
+              durationFrames={durationFrames}
+              fps={projectFps}
+              activeAssetIds={selectedTimelineAssetId ? [selectedTimelineAssetId] : []}
+              selectedAssetId={selectedTimelineAssetId}
+              onSelectAsset={handleSelectTimelineAsset}
+              zoomMarkers={zoomPresentation.markers}
+              selectedZoomMarkerId={selectedZoomMarkerId}
+              onAddZoomMarkerAtPlayhead={handleAddZoomMarkerAtPlayhead}
+              onSelectZoomMarker={handleSelectZoomMarker}
+              onResizeZoomMarker={(id, patch) => {
+                if (!activeRecordingId) return;
+                projectStore.getState().updateRecordingZoomMarker(activeRecordingId, id, patch);
+              }}
+              cameraLayoutMarkers={
+                ((activeRecordingPresentation as { cameraLayouts?: unknown } | null)
+                  ?.cameraLayouts as
+                  | ReadonlyArray<{
+                      id: string;
+                      frame: number;
+                      camera: { visible?: boolean; position?: string };
+                      templateId?: string;
+                    }>
+                  | undefined) ?? []
+              }
+              selectedCameraLayoutMarkerId={selectedCameraLayoutMarkerId}
+              onSelectCameraLayoutMarker={handleSelectCameraLayoutMarker}
+              onMoveCameraLayoutMarker={(id, frame) => {
+                if (!activeRecordingId) return;
+                const store = projectStore.getState() as unknown as {
+                  moveRecordingCameraLayoutSnapshot?: (
+                    assetId: string,
+                    markerId: string,
+                    nextFrame: number,
+                  ) => void;
+                };
+                store.moveRecordingCameraLayoutSnapshot?.(activeRecordingId, id, frame);
+              }}
+            />
+          </div>
         </>
       )}
 
       <CountdownOverlay secondsRemaining={countdownSeconds} visible={status === 'countdown'} />
-
-      {isSourcePickerOpen && (
-        <SourcePickerPopup
-          sources={sources}
-          selectedSourceId={selectedSourceId}
-          recordMode={recordMode}
-          isLoading={status === 'loading-sources'}
-          onRefresh={() => void loadSources()}
-          onSelect={(id) => {
-            updateRecordingConfig({ selectedSourceId: id });
-            setIsSourcePickerOpen(false);
-          }}
-          onClose={() => setIsSourcePickerOpen(false)}
-        />
-      )}
     </RecordScreenLayout>
   );
 }

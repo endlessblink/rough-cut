@@ -190,17 +190,35 @@ function ZoomTrackRow({
       };
 
       const minGap = 1;
+      let pendingPatch: { startFrame?: number; endFrame?: number } | null = null;
+      let rafId = 0;
+
+      const flushPatch = () => {
+        rafId = 0;
+        if (!pendingPatch) return;
+        const patch = pendingPatch;
+        pendingPatch = null;
+        onResizeMarker?.(markerId, patch);
+      };
+
+      const schedulePatch = (patch: { startFrame?: number; endFrame?: number }) => {
+        pendingPatch = patch;
+        if (rafId === 0) rafId = requestAnimationFrame(flushPatch);
+      };
+
       const onMove = (ev: PointerEvent) => {
         const frame = frameFromClient(ev.clientX);
         if (edge === 'start') {
           const startFrame = Math.max(0, Math.min(frame, marker.endFrame - minGap));
-          onResizeMarker?.(markerId, { startFrame });
+          schedulePatch({ startFrame });
         } else {
           const endFrame = Math.max(marker.startFrame + minGap, Math.min(frame, durationFrames));
-          onResizeMarker?.(markerId, { endFrame });
+          schedulePatch({ endFrame });
         }
       };
       const onUp = () => {
+        if (rafId !== 0) cancelAnimationFrame(rafId);
+        flushPatch();
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
         window.removeEventListener('pointercancel', onUp);
@@ -233,6 +251,21 @@ function ZoomTrackRow({
       const pixelsPerFrame = rect.width / durationFrames;
       const dur = marker.endFrame - marker.startFrame;
       let moved = false;
+      let pendingPatch: { startFrame: number; endFrame: number } | null = null;
+      let rafId = 0;
+
+      const flushPatch = () => {
+        rafId = 0;
+        if (!pendingPatch) return;
+        const patch = pendingPatch;
+        pendingPatch = null;
+        onResizeMarker?.(markerId, patch);
+      };
+
+      const schedulePatch = (patch: { startFrame: number; endFrame: number }) => {
+        pendingPatch = patch;
+        if (rafId === 0) rafId = requestAnimationFrame(flushPatch);
+      };
 
       const onMove = (ev: PointerEvent) => {
         const dx = ev.clientX - startClientX;
@@ -242,9 +275,11 @@ function ZoomTrackRow({
         const maxStart = Math.max(0, durationFrames - dur);
         const newStart = Math.max(0, Math.min(maxStart, marker.startFrame + frameDelta));
         const newEnd = newStart + dur;
-        onResizeMarker?.(markerId, { startFrame: newStart, endFrame: newEnd });
+        schedulePatch({ startFrame: newStart, endFrame: newEnd });
       };
       const onUp = () => {
+        if (rafId !== 0) cancelAnimationFrame(rafId);
+        flushPatch();
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
         window.removeEventListener('pointercancel', onUp);
@@ -478,6 +513,21 @@ function CameraLayoutTrackRow({
       const startClientX = downEvent.clientX;
       const pixelsPerFrame = rect.width / durationFrames;
       let moved = false;
+      let pendingFrame: number | null = null;
+      let rafId = 0;
+
+      const flushFrame = () => {
+        rafId = 0;
+        if (pendingFrame === null) return;
+        const frame = pendingFrame;
+        pendingFrame = null;
+        onMoveMarker?.(markerId, frame);
+      };
+
+      const scheduleFrame = (frame: number) => {
+        pendingFrame = frame;
+        if (rafId === 0) rafId = requestAnimationFrame(flushFrame);
+      };
 
       const onMove = (ev: PointerEvent) => {
         const dx = ev.clientX - startClientX;
@@ -485,9 +535,11 @@ function CameraLayoutTrackRow({
         moved = true;
         const frameDelta = Math.round(dx / pixelsPerFrame);
         const nextFrame = Math.max(0, Math.min(durationFrames, marker.frame + frameDelta));
-        onMoveMarker?.(markerId, nextFrame);
+        scheduleFrame(nextFrame);
       };
       const onUp = () => {
+        if (rafId !== 0) cancelAnimationFrame(rafId);
+        flushFrame();
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
         window.removeEventListener('pointercancel', onUp);
@@ -783,13 +835,30 @@ export function RecordTimelineShell({
       playbackManager.seekToFrame(frame);
       syncDisplayedFrame(frame);
 
+      let pendingFrame: number | null = null;
+      let rafId = 0;
+
+      const flushSeek = () => {
+        rafId = 0;
+        if (pendingFrame === null) return;
+        const nextFrame = pendingFrame;
+        pendingFrame = null;
+        playbackManager.seekToFrame(nextFrame);
+        syncDisplayedFrame(nextFrame);
+      };
+
+      const scheduleSeek = (nextFrame: number) => {
+        pendingFrame = nextFrame;
+        if (rafId === 0) rafId = requestAnimationFrame(flushSeek);
+      };
+
       const onMove = (ev: MouseEvent) => {
         if (!isDraggingRef.current) return;
-        const f = frameFromClientX(ev.clientX);
-        playbackManager.seekToFrame(f);
-        syncDisplayedFrame(f);
+        scheduleSeek(frameFromClientX(ev.clientX));
       };
       const onUp = () => {
+        if (rafId !== 0) cancelAnimationFrame(rafId);
+        flushSeek();
         isDraggingRef.current = false;
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
@@ -797,7 +866,7 @@ export function RecordTimelineShell({
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
     },
-    [frameFromClientX, moveNeedle],
+    [frameFromClientX, syncDisplayedFrame],
   );
 
   /* ── track label indices ───────────────────────────────────────────────── */
