@@ -53,7 +53,7 @@ import {
   startFfmpegCapture,
 } from './ffmpeg-capture.mjs';
 import { discoverAudioSources, ensureSourceAudible } from './audio-sources.mjs';
-import { writeTrayIconFile, getTrayIconDir } from './tray-icon-file.mjs';
+import { getTrayIconDir } from './tray-icon-file.mjs';
 import { spawn } from 'node:child_process';
 
 // ---------------------------------------------------------------------------
@@ -913,10 +913,7 @@ function guardState(fnName, allowed) {
 
 /**
  * Destroy the active recording tray icon. Idempotent and safe to call from
- * any code path, including exit hooks. Uses an aggressive teardown sequence
- * (clear context menu, replace image with an empty nativeImage, then destroy)
- * because some Linux AppIndicator / StatusNotifierItem watchers cache the
- * last-seen image and don't respond to destroy() alone.
+ * any code path, including exit hooks.
  *
  * This is the single destruction path for the tray — anywhere the tray needs
  * to go away, call this, not tray.destroy() directly.
@@ -947,34 +944,8 @@ function destroyTrayIfAny() {
       // older Electron may reject null — ignore
     }
 
-    if (IS_LINUX) {
-      // Linux: KEEP THE TRAY ALIVE and swap the icon via a NEW file path.
-      //
-      // tray.destroy() leaves the last-rendered bitmap stranded on many Linux
-      // panels (KDE KStatusNotifierItem confirmed in TASK-190 logs: xdgDesktop
-      // =KDE, `Tray hidden` fires but the red dot persists). And in-place
-      // setImage(nativeImage) doesn't force a repaint either, because KSNI /
-      // libappindicator3 cache the icon keyed on its path/name over D-Bus.
-      //
-      // Fix: write each transition to a fresh file (unique counter suffix) and
-      // pass the new path to setImage. The indicator sees a different resource
-      // identifier, invalidates its cache, and actually re-renders. The tray
-      // itself stays alive as a module-level singleton and is only truly
-      // destroyed in forceDestroyTrayOnQuit() at app quit.
-      try {
-        const hiddenPath = writeTrayIconFile(TRANSPARENT_16_DATA_URL, 'empty');
-        current.setImage(hiddenPath);
-      } catch (err) {
-        console.warn(
-          '[session-manager] tray.setImage(transparent path) failed:',
-          err?.message ?? err,
-        );
-      }
-      console.info('[session-manager] Tray hidden (Linux singleton kept alive)');
-      return;
-    }
-
-    // macOS / Windows — destroy is well-behaved here.
+    // macOS / Windows — destroy is well-behaved here. Linux no longer routes
+    // recording state through the tray; see TASK-196's floating Stop pill.
     tray = null;
     try {
       current.setImage(nativeImage.createEmpty());
@@ -1015,7 +986,7 @@ function forceDestroyTrayOnQuit() {
 
 /**
  * Create the system tray icon with explicit pause-unavailable state and stop.
- * On Linux the tray is the PRIMARY recording control (no visible mini-controller).
+ * Linux uses the floating Stop pill instead of the tray.
  *
  * DEFENSIVE: if a tray already exists (shouldn't happen in normal flow, but
  * would leak an orphan icon if it did — e.g. back-to-back recordings where a
@@ -1024,46 +995,17 @@ function forceDestroyTrayOnQuit() {
  * @returns {Tray | null}
  */
 function createTray() {
+  if (IS_LINUX) {
+    console.warn('[session-manager] createTray() ignored on Linux; using Stop pill instead.');
+    return null;
+  }
+
   try {
-    // On Linux, pass a fresh-unique file path to setImage / new Tray so that
-    // KStatusNotifierItem / libappindicator treats each recording session as
-    // a new icon resource (see writeTrayIconFile comment). On macOS/Windows
-    // the in-memory nativeImage path works fine.
-    const redIcon = IS_LINUX
-      ? writeTrayIconFile(RED_CIRCLE_DATA_URL, 'red')
-      : nativeImage.createFromDataURL(RED_CIRCLE_DATA_URL);
-    if (!IS_LINUX && redIcon.isEmpty?.()) {
+    const redIcon = nativeImage.createFromDataURL(RED_CIRCLE_DATA_URL);
+    if (redIcon.isEmpty?.()) {
       console.warn('[session-manager] Tray icon decoded empty — tray may render blank');
     }
 
-    // Linux singleton reuse: a tray instance survives between recordings
-    // (see destroyTrayIfAny). Re-arm it instead of creating a second one,
-    // which would leak an orphan AppIndicator slot.
-    if (IS_LINUX && tray && !tray.isDestroyed()) {
-      try {
-        tray.removeAllListeners();
-      } catch {
-        // ignore
-      }
-      tray.setImage(redIcon);
-      tray.setToolTip('Recording — 00:00 (click to stop)');
-      tray.on('click', () => {
-        console.info(
-          '[session-manager] Tray icon clicked — state=' + state + ' panel=' + Boolean(panelWindow),
-        );
-        stopRecording().catch((err) =>
-          console.error('[session-manager] stopRecording from tray icon failed:', err),
-        );
-      });
-      _rebuildTrayMenu(tray);
-      console.info(
-        '[session-manager] Tray reactivated (Linux singleton) via ' +
-          (typeof redIcon === 'string' ? redIcon : 'inline icon'),
-      );
-      return tray;
-    }
-
-    // Non-Linux or first-time on Linux: create a fresh Tray.
     if (tray) {
       console.warn(
         '[session-manager] createTray called with existing tray — destroying prior tray first',
@@ -1073,24 +1015,10 @@ function createTray() {
 
     const t = new Tray(redIcon);
     t.setToolTip('Recording — 00:00 (click to stop)');
-    if (IS_LINUX) {
-      t.on('click', () => {
-        console.info(
-          '[session-manager] Tray icon clicked — state=' + state + ' panel=' + Boolean(panelWindow),
-        );
-        stopRecording().catch((err) =>
-          console.error('[session-manager] stopRecording from tray icon failed:', err),
-        );
-      });
-    }
     _rebuildTrayMenu(t);
-    const iconDesc =
-      typeof redIcon === 'string'
-        ? 'path=' + redIcon
-        : 'iconSize=' + JSON.stringify(redIcon.getSize());
     console.info(
       '[session-manager] Tray created — ' +
-        iconDesc +
+        'iconSize=' + JSON.stringify(redIcon.getSize()) +
         ' platform=' +
         process.platform +
         ' xdgDesktop=' +
@@ -1247,7 +1175,7 @@ const STOP_PILL_HTML = `<!doctype html>
 /**
  * Open the floating Stop Recording pill on a display OUTSIDE the captured
  * region. No-ops when no such display exists (single-monitor capture) — the
- * user stops via Ctrl+Shift+Esc / the "Recording" desktop notification.
+ * user stops via Ctrl+Shift+Esc alone.
  */
 function createStopPillWindow() {
   destroyStopPillWindow();
@@ -1266,7 +1194,7 @@ function createStopPillWindow() {
   if (!safeDisplay) {
     console.info(
       '[session-manager] Stop pill skipped — no capture-safe display (single-monitor or full-span capture). ' +
-        'User stops via Ctrl+Shift+Esc / notification.',
+        'User stops via Ctrl+Shift+Esc.',
     );
     return;
   }
