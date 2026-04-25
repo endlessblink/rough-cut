@@ -9,10 +9,6 @@ export interface TransportState {
   loopEndFrame: number;
   /** Clip IDs currently selected in the Edit timeline. Transient (non-undoable). */
   selectedClipIds: readonly string[];
-  /** Playback monitor volume (0–1). Per-session, not persisted. */
-  previewVolume: number;
-  /** Playback monitor muted. Per-session, not persisted. */
-  previewMuted: boolean;
 }
 
 export interface TransportActions {
@@ -29,8 +25,6 @@ export interface TransportActions {
   addToSelection: (clipIds: readonly string[]) => void;
   removeFromSelection: (clipIds: readonly string[]) => void;
   clearSelection: () => void;
-  setPreviewVolume: (volume: number) => void;
-  setPreviewMuted: (muted: boolean) => void;
 }
 
 export type TransportStore = TransportState & TransportActions;
@@ -43,8 +37,6 @@ export const DEFAULT_TRANSPORT_STATE: TransportState = {
   loopStartFrame: 0,
   loopEndFrame: 0,
   selectedClipIds: [],
-  previewVolume: 1,
-  previewMuted: false,
 };
 
 export function createTransportStore() {
@@ -115,14 +107,6 @@ export function createTransportStore() {
 
     clearSelection: () => {
       set((state) => (state.selectedClipIds.length === 0 ? state : { selectedClipIds: [] }));
-    },
-
-    setPreviewVolume: (volume: number) => {
-      set({ previewVolume: Math.min(1, Math.max(0, volume)) });
-    },
-
-    setPreviewMuted: (muted: boolean) => {
-      set({ previewMuted: muted });
     },
   }));
 }

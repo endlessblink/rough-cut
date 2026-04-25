@@ -77,6 +77,13 @@ const api = {
   recordingGetSystemAudioSources: () =>
     ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES),
 
+  /** Read the resolved mic source's PulseAudio volume. */
+  recordingGetMicVolume: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_MIC_VOLUME),
+
+  /** Set the resolved mic source's PulseAudio volume (0–100 percent). */
+  recordingSetMicVolume: (percent) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RECORDING_SET_MIC_VOLUME, { percent }),
+
   /** Get platform-specific permission guidance for recording preflight. */
   recordingGetPreflightStatus: () =>
     ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS),

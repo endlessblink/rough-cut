@@ -13,6 +13,7 @@ export const DEFAULT_RECORDING_CONFIG = {
   selectedMicDeviceId: null,
   selectedCameraDeviceId: null,
   selectedSystemAudioSourceId: null,
+  micInputGainPercent: 100,
 };
 
 function normalizeNullableString(value, fallback = null) {
@@ -50,6 +51,12 @@ function normalizeRecordingConfig(config) {
     selectedMicDeviceId: normalizeNullableString(next.selectedMicDeviceId),
     selectedCameraDeviceId: normalizeNullableString(next.selectedCameraDeviceId),
     selectedSystemAudioSourceId: normalizeNullableString(next.selectedSystemAudioSourceId),
+    micInputGainPercent:
+      typeof next.micInputGainPercent === 'number' &&
+      next.micInputGainPercent >= 0 &&
+      next.micInputGainPercent <= 100
+        ? Math.round(next.micInputGainPercent)
+        : DEFAULT_RECORDING_CONFIG.micInputGainPercent,
   };
 }
 
@@ -91,6 +98,7 @@ const schema = {
       selectedMicDeviceId: { type: ['string', 'null'] },
       selectedCameraDeviceId: { type: ['string', 'null'] },
       selectedSystemAudioSourceId: { type: ['string', 'null'] },
+      micInputGainPercent: { type: 'number' },
     },
     default: DEFAULT_RECORDING_CONFIG,
   },

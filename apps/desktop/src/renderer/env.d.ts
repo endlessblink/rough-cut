@@ -57,6 +57,7 @@ export interface RecordingMetadata {
   durationMs: number;
   timelineFps?: number;
   cursorEventsFps?: number;
+  cursorRecorderDurationMs?: number;
   projectDir?: string;
 }
 
@@ -69,6 +70,7 @@ export interface RecordingResult {
   fps: number;
   timelineFps?: number;
   cursorEventsFps?: number;
+  cursorEventsLeadMs?: number;
   codec: string;
   fileSize: number;
   hasAudio: boolean;
@@ -195,6 +197,10 @@ export interface RoughCutAPI {
   recordingGetSources(): Promise<CaptureSource[]>;
   recordingGetDisplayBounds(): Promise<CaptureDisplayBounds[]>;
   recordingGetSystemAudioSources(): Promise<SystemAudioSourceOption[]>;
+  recordingGetMicVolume(): Promise<{ sourceName: string | null; percent: number | null }>;
+  recordingSetMicVolume(
+    percent: number,
+  ): Promise<{ sourceName: string | null; percent: number | null; applied: boolean }>;
   recordingGetPreflightStatus(): Promise<RecordingPreflightStatus>;
   recordingOpenPermissionSettings(
     kind: 'screenCapture' | 'microphone' | 'camera',

@@ -34,7 +34,16 @@ import {
   saveRecording,
   saveRecordingFromFile,
 } from './recording/capture-service.mjs';
-import { listSystemAudioSources } from './recording/audio-sources.mjs';
+import {
+  listSystemAudioSources,
+  discoverAudioSources,
+  getSourceVolumePercent,
+  setSourceVolumePercent,
+} from './recording/audio-sources.mjs';
+import {
+  snapshotIfFirstTouch,
+  restoreAllSourceVolumesSync,
+} from './recording/source-volume-registry.mjs';
 import { initSessionManager, getLastFinalizedRecordingResult } from './recording/recording-session-manager.mjs';
 import { resolveCaptureSourceInfo } from './recording/resolve-capture-source-info.mjs';
 import {
@@ -1832,7 +1841,45 @@ function registerIpcHandlers() {
     return { ...recordingConfig };
   });
 
+  ipcMain.handle(IPC_CHANNELS.RECORDING_GET_MIC_VOLUME, async () => {
+    const sourceName = await resolveCurrentMicPactlSource();
+    if (!sourceName) return { sourceName: null, percent: null };
+    const percent = await getSourceVolumePercent(sourceName);
+    return { sourceName, percent };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_SET_MIC_VOLUME, async (_e, { percent }) => {
+    const sourceName = await resolveCurrentMicPactlSource();
+    if (!sourceName) return { sourceName: null, percent: null, applied: false };
+    await snapshotIfFirstTouch(sourceName);
+    const applied = await setSourceVolumePercent(sourceName, percent);
+    const finalPercent = await getSourceVolumePercent(sourceName);
+    return { sourceName, percent: finalPercent, applied };
+  });
+
   registerAIHandlers(mainWindow);
+}
+
+/**
+ * Resolve the pactl source name for the currently configured mic, using the
+ * same discoverAudioSources pipeline that the recording session uses. Returns
+ * null when the user has no mic enabled, no source matches, or pactl fails.
+ */
+async function resolveCurrentMicPactlSource() {
+  if (!recordingConfig?.micEnabled) return null;
+  try {
+    const sources = await discoverAudioSources({
+      preferredMicSourceId: recordingConfig.selectedMicDeviceId ?? null,
+      preferredMicLabel: recordingConfig.selectedMicLabel ?? null,
+      strictMicSelection: Boolean(
+        recordingConfig.selectedMicDeviceId || recordingConfig.selectedMicLabel,
+      ),
+    });
+    return sources.micSource ?? null;
+  } catch (err) {
+    console.warn('[record-mic-volume] resolve failed:', err?.message ?? err);
+    return null;
+  }
 }
 
 // macOS audio loopback support (ScreenCaptureKit)
@@ -1993,4 +2040,16 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
+
+// Restore any PulseAudio source volumes the mic-gain slider touched, so we
+// don't leave the user's system mic at a reduced level after the app exits.
+// will-quit runs synchronously after all windows close, so use the sync
+// pactl call — async cleanup is unreliable while the event loop tears down.
+app.on('will-quit', () => {
+  try {
+    restoreAllSourceVolumesSync();
+  } catch (err) {
+    console.warn('[mic-volume] will-quit restore failed:', err?.message ?? err);
+  }
 });

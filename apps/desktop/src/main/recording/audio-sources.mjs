@@ -283,9 +283,53 @@ export async function ensureSourceAudible(sourceName) {
   }
 }
 
-function parseSourceVolumePercent(info) {
+export function parseSourceVolumePercent(info) {
   const match = info.match(/Volume:[^\n]*?(\d+)%/);
   return match ? parseInt(match[1], 10) : null;
+}
+
+/**
+ * Read the current volume of a PulseAudio source as a 0–100 integer percent.
+ * Returns null on any failure — never throws.
+ * @param {string} sourceName
+ * @returns {Promise<number | null>}
+ */
+export async function getSourceVolumePercent(sourceName) {
+  if (!sourceName) return null;
+  try {
+    const info = await runPactlSourceInfo(sourceName);
+    return parseSourceVolumePercent(info);
+  } catch (err) {
+    console.warn(
+      '[audio-sources] getSourceVolumePercent failed:',
+      sourceName,
+      err?.message ?? err,
+    );
+    return null;
+  }
+}
+
+/**
+ * Set a PulseAudio source volume by integer percent (clamped 0–100).
+ * @param {string} sourceName
+ * @param {number} percent
+ * @returns {Promise<boolean>} true on success
+ */
+export async function setSourceVolumePercent(sourceName, percent) {
+  if (!sourceName) return false;
+  const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+  try {
+    await runPactlSetSourceVolume(sourceName, `${clamped}%`);
+    return true;
+  } catch (err) {
+    console.warn(
+      '[audio-sources] setSourceVolumePercent failed:',
+      sourceName,
+      `${clamped}%`,
+      err?.message ?? err,
+    );
+    return false;
+  }
 }
 
 function runPactlSourceInfo(sourceName) {

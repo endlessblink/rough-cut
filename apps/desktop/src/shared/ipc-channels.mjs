@@ -33,6 +33,8 @@ export const IPC_CHANNELS = {
   RECORDING_GET_DISPLAY_BOUNDS: 'recording:get-display-bounds',
   RECORDING_GET_SYSTEM_AUDIO_SOURCES: 'recording:get-system-audio-sources',
   RECORDING_GET_PREFLIGHT_STATUS: 'recording:get-preflight-status',
+  RECORDING_GET_MIC_VOLUME: 'recording:get-mic-volume',
+  RECORDING_SET_MIC_VOLUME: 'recording:set-mic-volume',
   RECORDING_OPEN_PERMISSION_SETTINGS: 'recording:open-permission-settings',
   RECORDING_RECOVERY_GET: 'recording:recovery-get',
   RECORDING_RECOVERY_RECOVER: 'recording:recovery-recover',

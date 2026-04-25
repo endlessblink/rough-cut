@@ -221,6 +221,111 @@ function AudioLevelMeter({ level }: { level: number }) {
   );
 }
 
+// ─── Mic Gain Slider ────────────────────────────────────────────────────────
+
+/**
+ * Drives the PulseAudio source volume of the currently resolved mic. On mount,
+ * reads the live pactl value and seeds the slider so what the user sees matches
+ * reality. Hides itself when no pactl source resolves (non-Linux, no mic, etc.).
+ *
+ * Writes are debounced — pactl handles concurrent set calls fine, but a flood
+ * during drag would saturate the IPC channel and the audio-sources discovery
+ * fallback chain.
+ */
+function MicGainSlider({ enabled }: { enabled: boolean }) {
+  const [percent, setPercent] = useState<number | null>(null);
+  const [available, setAvailable] = useState(true);
+  const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!enabled || typeof window === 'undefined' || !window.roughcut?.recordingGetMicVolume) {
+      setAvailable(false);
+      return;
+    }
+    let cancelled = false;
+    void window.roughcut.recordingGetMicVolume().then((result) => {
+      if (cancelled) return;
+      if (!result.sourceName) {
+        setAvailable(false);
+        return;
+      }
+      setAvailable(true);
+      if (typeof result.percent === 'number') setPercent(result.percent);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
+
+  if (!enabled || !available || percent === null) return null;
+
+  const onChange = (next: number) => {
+    setPercent(next);
+    if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
+    writeTimerRef.current = setTimeout(() => {
+      void window.roughcut.recordingSetMicVolume(next);
+      updateRecordingConfig({ micInputGainPercent: next });
+    }, 60);
+  };
+
+  return (
+    <div
+      data-testid="panel-mic-gain"
+      style={{
+        marginLeft: 12,
+        marginRight: 12,
+        marginTop: 4,
+        marginBottom: 2,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        flexShrink: 0,
+      }}
+    >
+      <span
+        style={{
+          fontSize: 10,
+          color: 'rgba(255,255,255,0.55)',
+          letterSpacing: '0.04em',
+          minWidth: 30,
+          userSelect: 'none',
+        }}
+      >
+        GAIN
+      </span>
+      <input
+        data-testid="panel-mic-gain-slider"
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={percent}
+        aria-label="Microphone input gain"
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{
+          flex: 1,
+          height: 4,
+          accentColor: '#4ade80',
+          cursor: 'pointer',
+        }}
+      />
+      <span
+        data-testid="panel-mic-gain-value"
+        style={{
+          fontSize: 10,
+          fontFamily: 'monospace',
+          color: 'rgba(255,255,255,0.55)',
+          minWidth: 28,
+          textAlign: 'right',
+          userSelect: 'none',
+        }}
+      >
+        {percent}%
+      </span>
+    </div>
+  );
+}
+
 // ─── Status type ────────────────────────────────────────────────────────────
 
 type PanelStatus = 'idle' | 'ready' | 'countdown' | 'recording' | 'stopping';
@@ -2621,6 +2726,7 @@ export function PanelApp() {
   };
 
   const stopMediaRecorder = () => {
+    setStatus('stopping');
     elapsedMsAtStop.current = elapsedMs;
     // Clean up AudioContext mixer if active
     audioMixCleanupRef.current?.();
@@ -2633,7 +2739,10 @@ export function PanelApp() {
     if (screenRecorderStartFailedRef.current && streamRef.current) {
       screenRecorderStartFailedRef.current = false;
       void finalizePanelRecording(streamRef.current);
+      return;
     }
+
+    console.warn('[PanelApp] Stop requested without an active recorder; waiting for main-process fallback.');
   };
 
   const teardownLocalRecordingResources = useCallback(() => {
@@ -2728,7 +2837,11 @@ export function PanelApp() {
   };
 
   const handleStopRecording = () => {
-    void window.roughcut.panelStopRecording();
+    setStatus('stopping');
+    void window.roughcut.panelStopRecording().catch((err) => {
+      console.error('[PanelApp] Stop recording request failed:', err);
+      setStatus('ready');
+    });
   };
 
   const handleClose = () => {
@@ -2942,6 +3055,10 @@ export function PanelApp() {
 
           {/* Audio level meter — shows when mic is active */}
           {micEnabled && <AudioLevelMeter level={audioLevel} />}
+
+          {/* Mic gain slider — drives PulseAudio source volume so the user
+              can attenuate input that's peaking before recording starts. */}
+          <MicGainSlider enabled={micEnabled} />
         </SetupSection>
 
         <Divider />
