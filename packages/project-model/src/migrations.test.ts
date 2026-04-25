@@ -203,4 +203,45 @@ describe('migrations', () => {
       backgroundOpacity: 0.2,
     });
   });
+
+  it('backfills required Clip fields missing from legacy v8 saves', () => {
+    const project = createProject();
+    const audioTrack = project.composition.tracks.find((t) => t.type === 'audio');
+    if (!audioTrack) throw new Error('expected an audio track in default project');
+
+    const legacy = {
+      ...project,
+      version: 8,
+      composition: {
+        ...project.composition,
+        tracks: project.composition.tracks.map((t) =>
+          t.id === audioTrack.id
+            ? {
+                ...t,
+                clips: [
+                  {
+                    id: 'clip-legacy',
+                    assetId: 'asset-legacy',
+                    timelineIn: 0,
+                    timelineOut: 30,
+                    sourceIn: 0,
+                    sourceOut: 30,
+                  },
+                ],
+              }
+            : t,
+        ),
+      },
+    };
+
+    const result = migrate(legacy);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    const audioOut = result.composition.tracks.find((t) => t.id === audioTrack.id);
+    const clip = audioOut?.clips[0];
+    expect(clip?.trackId).toBe(audioTrack.id);
+    expect(clip?.enabled).toBe(true);
+    expect(clip?.effects).toEqual([]);
+    expect(clip?.keyframes).toEqual([]);
+    expect(clip?.transform).toBeDefined();
+  });
 });

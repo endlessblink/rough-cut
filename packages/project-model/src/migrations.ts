@@ -140,6 +140,48 @@ const migrations: readonly Migration[] = [
       };
     },
   },
+  {
+    // v8 → v9: backfill required Clip fields that legacy saves dropped
+    // (trackId, enabled, effects, keyframes). Validation requires them, so
+    // older docs that pre-date these defaults fail to load without this.
+    fromVersion: 8,
+    toVersion: 9,
+    migrate: (doc) => {
+      const composition = doc['composition'] as Record<string, unknown> | undefined;
+      if (!composition) return { ...doc, version: 9 };
+      const tracks = (composition['tracks'] as Array<Record<string, unknown>>) ?? [];
+      const migratedTracks = tracks.map((track) => {
+        const trackId = typeof track['id'] === 'string' ? track['id'] : '';
+        const clips = (track['clips'] as Array<Record<string, unknown>>) ?? [];
+        const migratedClips = clips.map((clip) => {
+          const transform = clip['transform'] as Record<string, unknown> | undefined;
+          return {
+            ...clip,
+            trackId: typeof clip['trackId'] === 'string' ? clip['trackId'] : trackId,
+            enabled: typeof clip['enabled'] === 'boolean' ? clip['enabled'] : true,
+            effects: Array.isArray(clip['effects']) ? clip['effects'] : [],
+            keyframes: Array.isArray(clip['keyframes']) ? clip['keyframes'] : [],
+            transform: transform ?? {
+              x: 0,
+              y: 0,
+              scaleX: 1,
+              scaleY: 1,
+              rotation: 0,
+              anchorX: 0.5,
+              anchorY: 0.5,
+              opacity: 1,
+            },
+          };
+        });
+        return { ...track, clips: migratedClips };
+      });
+      return {
+        ...doc,
+        version: 9,
+        composition: { ...composition, tracks: migratedTracks },
+      };
+    },
+  },
 ];
 
 /**
