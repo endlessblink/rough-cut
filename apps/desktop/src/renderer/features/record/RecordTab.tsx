@@ -700,6 +700,9 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const [selectedCameraLayoutMarkerId, setSelectedCameraLayoutMarkerId] = useState<string | null>(
     null,
   );
+  const [reviewDecisionVisibleForAssetId, setReviewDecisionVisibleForAssetId] = useState<
+    string | null
+  >(null);
 
   const selectedTimelineAssetId =
     (selectedRegion === 'camera' ? cameraAsset?.id : activeRecordingId) ??
@@ -713,6 +716,39 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
       : selectedRegion === 'camera' || selectedTimelineAssetId === cameraAsset?.id
         ? 'camera'
         : 'crop';
+  const showPostTakeDecision =
+    Boolean(activeRecordingId) && reviewDecisionVisibleForAssetId === activeRecordingId;
+
+  useEffect(() => {
+    if (!activeRecordingId || !hasRecordedTake) return;
+    setReviewDecisionVisibleForAssetId((current) =>
+      current === activeRecordingId ? current : activeRecordingId,
+    );
+  }, [activeRecordingId, hasRecordedTake]);
+
+  const dismissPostTakeDecision = useCallback(() => {
+    setReviewDecisionVisibleForAssetId(null);
+  }, []);
+
+  const handleRetryTake = useCallback(() => {
+    transportStore.getState().pause();
+    setSelectedRegion(null);
+    setSelectedZoomMarkerId(null);
+    setSelectedCameraLayoutMarkerId(null);
+    setIsSourcePickerOpen(true);
+    setReviewDecisionVisibleForAssetId(null);
+    showToast({
+      title: 'Ready for another take',
+      message: 'Pick a source and press REC. The current take stays in the project while you retry.',
+      status: 'info',
+    });
+  }, [showToast]);
+
+  const handleContinueToEdit = useCallback(() => {
+    transportStore.getState().pause();
+    setReviewDecisionVisibleForAssetId(null);
+    onTabChange('edit');
+  }, [onTabChange]);
 
   const handleAddZoomMarkerAtPlayhead = useCallback(() => {
     if (!activeRecordingId || durationFrames <= 0) return;
@@ -1882,6 +1918,99 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
           </div>
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.68)', marginTop: 2 }}>
             {sessionIssueMessage}
+          </div>
+        </div>
+      )}
+
+      {showPostTakeDecision && (
+        <div
+          data-testid="record-post-take-decision"
+          style={{
+            margin: '0 24px 12px',
+            borderRadius: 14,
+            border: '1px solid rgba(34,197,94,0.18)',
+            background: 'rgba(15,23,42,0.92)',
+            padding: '14px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 16,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ minWidth: 240, flex: '1 1 320px' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#86efac' }}>Take ready to review</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.72)', marginTop: 4, lineHeight: 1.45 }}>
+              Decide what to do with this take now: keep reviewing it here, record another take,
+              or continue in Edit. Recording another take will not discard the current one.
+            </div>
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              flexWrap: 'wrap',
+              justifyContent: 'flex-end',
+            }}
+          >
+            <button
+              type="button"
+              data-testid="record-post-take-keep-reviewing"
+              onClick={dismissPostTakeDecision}
+              style={{
+                height: 34,
+                padding: '0 12px',
+                borderRadius: 9,
+                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'rgba(255,255,255,0.06)',
+                color: 'rgba(255,255,255,0.92)',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontFamily: 'inherit',
+                fontWeight: 600,
+              }}
+            >
+              Keep reviewing
+            </button>
+            <button
+              type="button"
+              data-testid="record-post-take-retry"
+              onClick={handleRetryTake}
+              style={{
+                height: 34,
+                padding: '0 12px',
+                borderRadius: 9,
+                border: '1px solid rgba(245,158,11,0.3)',
+                background: 'rgba(245,158,11,0.12)',
+                color: '#fcd34d',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontFamily: 'inherit',
+                fontWeight: 600,
+              }}
+            >
+              Retry with another take
+            </button>
+            <button
+              type="button"
+              data-testid="record-post-take-continue-edit"
+              onClick={handleContinueToEdit}
+              style={{
+                height: 34,
+                padding: '0 12px',
+                borderRadius: 9,
+                border: '1px solid rgba(59,130,246,0.28)',
+                background: 'rgba(59,130,246,0.14)',
+                color: '#bfdbfe',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontFamily: 'inherit',
+                fontWeight: 600,
+              }}
+            >
+              Continue in Edit
+            </button>
           </div>
         </div>
       )}
