@@ -221,6 +221,9 @@ To match the stability-first sprint framing above, the app header currently expo
 | TASK-152     | Record: Fear-reducing micro-affordances (DND, test clip, safe stop)      | P1       | TODO                     | TASK-126, TASK-100 |
 | TASK-153     | Record: Auto desktop icon hide + Do Not Disturb during recording         | P2       | TODO                     | TASK-152           |
 | TASK-154     | Record: Replay buffer hotkey to save the last 30 seconds                 | P2       | TODO                     | TASK-010, TASK-148 |
+| TASK-228     | Record: Persist separate mic and system-audio stems with takes           | P1       | TODO                     | TASK-167, TASK-149 |
+| TASK-229     | Record/Edit: Multi-stem playback mixer with mute/solo/ducking            | P1       | TODO                     | TASK-228, TASK-020 |
+| TASK-230     | Export: Re-mix persisted audio stems with ducking automation             | P1       | TODO                     | TASK-228, TASK-229 |
 | TASK-158     | Record: Camera auto-shrink and reposition during zoom activation         | P0       | TODO                     | TASK-122, TASK-092 |
 | TASK-159     | Record: Full dynamic camera layout authoring UX in Record timeline       | P0       | TODO                     | TASK-092, TASK-158 |
 | TASK-157     | Record: Watermark/logo inspector with persistent branding controls       | P2       | TODO                     | TASK-094, TASK-151 |
@@ -1780,7 +1783,9 @@ Verification:
 #### Verification
 
 - `pnpm --filter @rough-cut/desktop exec vitest run src/renderer/components/cursor-subframe-interpolation.test.ts src/renderer/components/cursor-data-loader.test.ts src/renderer/components/cursor-overlay-state.test.ts`
+- `pnpm exec playwright test tests/electron/cursor-subframe-interpolation.spec.ts --workers=1`
 - Added 5 focused unit tests covering sequential playback interpolation, frame-window completion, paused playback, forward jumps, and backward jumps.
+- Added a focused Electron regression that scans the live Record review overlay for a fast visible cursor move, then proves the cursor position changes within a held sequential frame and stays stable after a non-sequential jump.
 - `pnpm --filter @rough-cut/desktop typecheck` still fails in pre-existing unrelated `PanelApp.tsx` worktree changes; no new type errors were introduced by this task.
 
 #### Key files
@@ -1788,6 +1793,7 @@ Verification:
 - `apps/desktop/src/renderer/components/CursorOverlay.tsx`
 - `apps/desktop/src/renderer/components/cursor-subframe-interpolation.ts`
 - `apps/desktop/src/renderer/components/cursor-subframe-interpolation.test.ts`
+- `tests/electron/cursor-subframe-interpolation.spec.ts`
 
 ---
 
