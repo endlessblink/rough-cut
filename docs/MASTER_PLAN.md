@@ -421,10 +421,217 @@ To match the stability-first sprint framing above, the app header currently expo
 | TASK-213     | Record: Audit visible sidebar controls for real vs placeholder behavior | P3   | TODO                     | TASK-188           |
 | ~~TASK-214~~ | ~~Record: Make post-take keep/retry/continue review path explicit~~ | P1      | ✅ DONE (2026-04-25)     | TASK-191           |
 | TASK-215     | Export: Gate fresh-take review-to-export truth after Record fixes  | P1       | TODO                     | TASK-175, TASK-191 |
+| TASK-231     | Tests: Gate hidden-tab acceptance failures                        | P1       | TODO                     | TASK-206           |
+| TASK-232     | Record: Stabilize camera source-switch preview e2e                | P1       | TODO                     | TASK-194, TASK-195 |
+| TASK-233     | Record: Fix rounded camera visual e2e regressions                 | P1       | TODO                     | TASK-113, BUG-005  |
+| TASK-234     | Record: Repair cursor visual timing e2e failures                  | P1       | TODO                     | TASK-216, TASK-218, TASK-226 |
+| TASK-235     | Edit: Fix dynamic track management e2e                            | P1       | TODO                     | TASK-117           |
+| TASK-236     | Export: Fix destination preset export-default e2e                 | P1       | TODO                     | TASK-151, TASK-096 |
+| TASK-237     | Record: Restore inspector rail category e2e                       | P1       | TODO                     | TASK-206, TASK-209 |
+| TASK-238     | Record: Fix failed live-preview state e2e                         | P1       | TODO                     | TASK-165, TASK-166 |
+| TASK-239     | Tests: Complete full e2e sweep after timeout                      | P1       | TODO                     | TASK-231, TASK-232, TASK-233, TASK-234, TASK-235, TASK-236, TASK-237, TASK-238 |
 
 ---
 
 ## Active Work
+
+### TASK-231: Tests: Gate hidden-tab acceptance failures
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- The full e2e run failed immediately in `acceptance-ai.spec.ts` and repeatedly in `acceptance-edit.spec.ts` because header tabs for AI/Edit are intentionally hidden during the current Record/Export-focused sprint.
+- `docs/MASTER_PLAN.md` already documents hidden Edit/Motion/AI tab visibility, but the acceptance specs are still counted as hard failures when they click hidden header buttons.
+- This failure noise blocks a useful suite-level signal for current shipping surfaces.
+
+#### Scope
+
+- Decide whether hidden-tab acceptance specs should be `test.fixme`, deep-link through `__roughcutSetActiveTab`, or be moved behind an explicit future-surface project.
+- Cover failed specs from `tests/electron/acceptance-ai.spec.ts` and `tests/electron/acceptance-edit.spec.ts`.
+- Keep specs for visible Record/Export surfaces active.
+
+#### Verification
+
+- `pnpm test:e2e` no longer reports hidden-tab acceptance specs as unexpected failures.
+- Re-enable the gated specs when Edit/AI tabs are restored to the header.
+
+---
+
+### TASK-232: Record: Stabilize camera source-switch preview e2e
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- `tests/electron/adhoc-camera-source-switch.spec.ts` failed in the full e2e run.
+- The failure is in the same ownership area as the recent panel/live-preview source-switch work and may indicate either a real regression or an obsolete adhoc assertion.
+
+#### Scope
+
+- Re-run the spec in isolation and capture the exact assertion failure.
+- Verify camera preview state across screen-source switches after the recording panel refactor.
+- Update the app or test so the expected state matches the unified recording workflow.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/adhoc-camera-source-switch.spec.ts --reporter=line` passes.
+- The full e2e run does not fail on the camera source-switch spec.
+
+---
+
+### TASK-233: Record: Fix rounded camera visual e2e regressions
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- `tests/electron/camera-rounded-visual.spec.ts` failed all three observed checks.
+- Failed coverage: rounded square at max roundness for 1:1, restrained corners for 16:9, and saved camera frame override update from aspect control.
+
+#### Scope
+
+- Determine whether the regression is in camera presentation state, `getCameraBorderRadius`, persisted camera frame overrides, or visual test expectations.
+- Preserve Record/Edit/Export camera template parity while fixing rounded-camera controls.
+- Update snapshots/thresholds only if the UI behavior is intentionally different and visually correct.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/camera-rounded-visual.spec.ts --reporter=line` passes.
+- Existing `camera-template-parity.spec.ts` coverage remains green.
+
+---
+
+### TASK-234: Record: Repair cursor visual timing e2e failures
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- Cursor visual/timing specs failed after recent cursor fps and interpolation work.
+- Failed specs observed: `cursor-follow-visual.spec.ts`, `cursor-fps-rescale-verify.spec.ts`, `cursor-retroactive-repair.spec.ts`, and `cursor-subframe-interpolation.spec.ts`.
+- Console output showed hidden cursor samples in the sub-frame test and unexpected cursor position/centroid in visual checks.
+
+#### Scope
+
+- Re-run each cursor failure in isolation and separate real cursor-render regressions from stale fixture expectations.
+- Verify cursor event fps metadata, legacy absolute-coordinate rebasing, zoom follow transform, and sub-frame interpolation behavior.
+- Keep Record preview and export cursor rendering aligned.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/cursor-follow-visual.spec.ts tests/electron/cursor-fps-rescale-verify.spec.ts tests/electron/cursor-retroactive-repair.spec.ts tests/electron/cursor-subframe-interpolation.spec.ts --reporter=line` passes.
+
+---
+
+### TASK-235: Edit: Fix dynamic track management e2e
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- `tests/electron/edit-track-management.spec.ts` failed even though TASK-117 is marked done.
+- The failure may be a real regression in add/remove empty channel behavior or a stale selector/expectation after hidden-tab and layout changes.
+
+#### Scope
+
+- Re-run the spec in isolation and capture whether navigation, control discovery, state update, or DOM rendering fails.
+- Preserve existing track header coverage in `edit-track-headers.spec.ts`.
+- Update task status assumptions if the feature is intentionally out of current visible-surface scope.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/edit-track-management.spec.ts --reporter=line` passes or is explicitly gated with the hidden Edit surface.
+
+---
+
+### TASK-236: Export: Fix destination preset export-default e2e
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- `tests/electron/export-tab.spec.ts` failed on `record destination presets link social framing into export defaults`.
+- This is a current visible Export-surface regression and should not be hidden behind future-tab gating.
+
+#### Scope
+
+- Verify whether Record destination preset state is persisted into project settings, asset presentation, or export defaults.
+- Confirm social framing presets still map to expected export resolution/aspect settings after the Record review layout changes.
+- Keep basic Export acceptance tests passing.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/export-tab.spec.ts -g "record destination presets" --reporter=line` passes.
+- Full `export-tab.spec.ts` remains green.
+
+---
+
+### TASK-237: Record: Restore inspector rail category e2e
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- `tests/electron/inspector-rail.spec.ts` failed most category/layout checks after the initial shell presence test passed.
+- Failed checks cover category item list, single visible category, fixed rail width, viewport fit, inspector width, and horizontal overflow.
+
+#### Scope
+
+- Sync expected inspector rail categories with the current Record sidebar categories.
+- Fix any real overflow or width instability introduced by recent Record review/sidebar changes.
+- Avoid reintroducing hidden or removed categories solely to satisfy stale tests.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/inspector-rail.spec.ts --reporter=line` passes.
+- `record-layout.spec.ts` remains green.
+
+---
+
+### TASK-238: Record: Fix failed live-preview state e2e
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- `tests/electron/live-preview.spec.ts` failed on the failed-source preview state while empty and acquiring states passed.
+- This may indicate the selected source failure path now stays hidden behind source recovery or panel ownership changes.
+
+#### Scope
+
+- Reproduce the failed-source preview state and verify the intended user-facing behavior in the unified recorder.
+- Ensure unavailable/failed sources surface a clear in-app preview state or a deliberate panel-owned recovery path.
+- Update the test only after the product behavior is explicit.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/live-preview.spec.ts --reporter=line` passes.
+- The Record tab still shows empty and acquiring preview states correctly.
+
+---
+
+### TASK-239: Tests: Complete full e2e sweep after timeout
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- `pnpm test:e2e` timed out after 20 minutes at test 112 of 233.
+- The run produced many actionable failures before timeout, but the remaining 121 tests were not exercised in this pass.
+
+#### Scope
+
+- After TASK-231 through TASK-238 are addressed, run the full suite with enough timeout to complete or shard it by file group.
+- Create follow-up P1 tasks for any additional failures discovered after test 112.
+- Keep the final suite report attached to the relevant task notes.
+
+#### Verification
+
+- A complete `pnpm test:e2e` run finishes without tool timeout.
+- Any remaining unexpected failures are tracked with concrete task IDs.
+
+---
 
 ### TASK-182: Record: Make camera sidecar capture deterministic on first take
 
