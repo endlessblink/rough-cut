@@ -63,7 +63,7 @@ For Rough Cut, user trust beats feature breadth. The order is: make screen recor
 | 1     | Projects           | Stable project entry, reopen, and persistence foundation             | ~~TASK-072~~, ~~TASK-071~~, ~~TASK-085~~                                                                                                                                                                                                                                                                                                                                                                                                            |
 | 2     | Recording core     | Stable screen, camera, audio, and sync before feature expansion      | ~~TASK-013~~, TASK-014, TASK-015, TASK-016, TASK-086, ~~BUG-007~~, ~~BUG-008~~, TASK-087, ~~TASK-088~~, ~~BUG-009~~, FEATURE-076, BUG-004, BUG-011, TASK-124, TASK-126, TASK-143, TASK-145, TASK-148, TASK-152, TASK-182, TASK-183, TASK-184, ~~TASK-146~~, ~~TASK-147~~, ~~BUG-013~~                                                                                                                                                              |
 | 3     | Playback + export  | Stable replay and output flow for freshly recorded projects           | BUG-006, TASK-020, TASK-021, TASK-022, ~~TASK-028~~, ~~TASK-029~~, TASK-112, ~~TASK-067~~, TASK-052, TASK-054                                                                                                                                                                                                                                                                                                |
-| 4     | Record sidebar     | Build the full authoring toolset in the Record sidebar (templates, branding, overlays, annotations, titles, dynamic camera layouts, cursor FX, motion blur, privacy masks, per-segment visibility, AI captions, smart cut) | TASK-121, TASK-032, TASK-089, TASK-090, TASK-091, TASK-092, TASK-125, TASK-127, TASK-128, TASK-130, TASK-131, TASK-132, TASK-149, TASK-150, TASK-155, TASK-156, TASK-157, TASK-158, TASK-159, ~~TASK-122~~, ~~TASK-123~~, ~~TASK-129~~, ~~TASK-151~~, ~~TASK-162~~, ~~TASK-163~~, ~~TASK-160~~, ~~TASK-161~~                                                                                                                               |
+| 4     | Record sidebar     | Build the full authoring toolset in the Record sidebar (templates, branding, overlays, annotations, titles, dynamic camera layouts, cursor FX, motion blur, privacy masks, per-segment visibility, AI captions, smart cut) | TASK-121, TASK-032, TASK-089, TASK-090, TASK-091, TASK-092, TASK-125, TASK-127, TASK-128, TASK-130, TASK-131, TASK-132, TASK-149, TASK-150, TASK-158, TASK-159, TASK-157, TASK-155, TASK-156, ~~TASK-122~~, ~~TASK-123~~, ~~TASK-129~~, ~~TASK-151~~, ~~TASK-162~~, ~~TASK-163~~, ~~TASK-160~~, ~~TASK-161~~                                                                                                                               |
 | 5     | Edit               | Deep timeline editing and refinement                                 | TASK-017, TASK-018, TASK-019, TASK-020, TASK-023, TASK-024, TASK-026, TASK-027, TASK-065                                                                                                                                                                                                                                                                                                                                                           |
 | 6     | AI                 | Library ingest, analysis, and rough-cut generation                   | TASK-040, TASK-079, TASK-081, TASK-082, TASK-044, TASK-045, TASK-047, TASK-097, TASK-080                                                                                                                                                                                                                                                                                                                                                           |
 | 7     | Motion             | Dedicated motion graphics authoring                                  | TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-039                                                                                                                                                                                                                                                                                                                                                                               |
@@ -96,7 +96,7 @@ These lines define the stability-first orchestration view in Watchpost. `Sequenc
 
 7. **LINE G — Record sidebar authoring toolset**
    The full creative surface: templates, branding, keyboard overlays, highlights, titles, dynamic camera layouts, cursor styles, click effects, motion blur, privacy masks, per-segment visibility, AI captions, smart cut.
-   Sequence: TASK-121 -> TASK-157 -> TASK-090 -> TASK-089 -> TASK-091 -> TASK-092 -> TASK-130
+   Sequence: TASK-121 -> TASK-090 -> TASK-089 -> TASK-091 -> TASK-092 -> TASK-130 -> TASK-157
    Supports: TASK-131, TASK-132, TASK-150, TASK-155, TASK-156
 
 ### Current sprint framing
@@ -108,7 +108,7 @@ The current sprint should stay inside the Record surface, but the priority is no
 3. **Lane 3 -- Stable camera recording**: TASK-182, TASK-014, TASK-016, ~~TASK-185~~
 4. **Lane 4 -- Stable audio recording**: ~~TASK-088~~, TASK-124, FEATURE-076, TASK-032
 5. **Lane 5 -- Stable playback + sync + export**: BUG-006, TASK-020, TASK-015, TASK-021, TASK-022, TASK-112, TASK-052, TASK-054, TASK-191
-6. **Lane 6 -- Record sidebar authoring toolset**: TASK-121 (templates), TASK-157 (branding/watermark), TASK-090 (highlights/annotations), TASK-089 (keyboard overlays), TASK-091 (titles/callouts), TASK-092 (dynamic camera layouts), TASK-130 (cursor styles + click FX + sounds), TASK-131 (cinematic motion blur), TASK-132 (privacy blur + spotlight), TASK-150 (per-segment visibility toggles), TASK-155 (AI captions in Record review), TASK-156 (Smart Cut for fillers/silence/breaths). This is the full creative surface, not placeholder wiring.
+6. **Lane 6 -- Record sidebar authoring toolset**: TASK-121 (templates), TASK-090 (highlights/annotations), TASK-089 (keyboard overlays), TASK-091 (titles/callouts), TASK-092 (dynamic camera layouts), TASK-130 (cursor styles + click FX + sounds), TASK-131 (cinematic motion blur), TASK-132 (privacy blur + spotlight), TASK-150 (per-segment visibility toggles), TASK-157 (branding/watermark), TASK-155 (AI captions in Record review), TASK-156 (Smart Cut for fillers/silence/breaths). This is the full creative surface, not placeholder wiring.
 
 Practical order for lowest user-risk:
 
@@ -221,11 +221,11 @@ To match the stability-first sprint framing above, the app header currently expo
 | TASK-152     | Record: Fear-reducing micro-affordances (DND, test clip, safe stop)      | P1       | TODO                     | TASK-126, TASK-100 |
 | TASK-153     | Record: Auto desktop icon hide + Do Not Disturb during recording         | P2       | TODO                     | TASK-152           |
 | TASK-154     | Record: Replay buffer hotkey to save the last 30 seconds                 | P2       | TODO                     | TASK-010, TASK-148 |
-| TASK-155     | Record: AI captions with timeline edit + styling in Record review        | P1       | TODO                     | TASK-093, TASK-149 |
-| TASK-156     | Record: Smart Cut for filler words, silence, breaths, and mouth clicks   | P1       | TODO                     | TASK-128, TASK-149 |
-| TASK-157     | Record: Watermark/logo inspector with persistent branding controls       | P1       | TODO                     | TASK-094, TASK-151 |
 | TASK-158     | Record: Camera auto-shrink and reposition during zoom activation         | P0       | TODO                     | TASK-122, TASK-092 |
 | TASK-159     | Record: Full dynamic camera layout authoring UX in Record timeline       | P0       | TODO                     | TASK-092, TASK-158 |
+| TASK-157     | Record: Watermark/logo inspector with persistent branding controls       | P2       | TODO                     | TASK-094, TASK-151 |
+| TASK-155     | Record: AI captions with timeline edit + styling in Record review        | P2       | TODO                     | TASK-093, TASK-149 |
+| TASK-156     | Record: Smart Cut for filler words, silence, breaths, and mouth clicks   | P2       | TODO                     | TASK-128, TASK-149 |
 | ~~TASK-162~~ | ~~Record: Focus-first framing UX for screen and camera preview~~         | P1       | ✅ DONE                  | TASK-013, TASK-122 |
 | ~~TASK-163~~ | ~~Record: Advanced framing presets and guidance for crop editing~~       | P2       | ✅ DONE                  | TASK-162           |
 | ~~TASK-160~~ | ~~Record: Render zoomed preview from source-resolution media, not CSS-only~~ | P1    | ✅ DONE (2026-04-21)     | TASK-146, TASK-129 |
@@ -256,7 +256,7 @@ To match the stability-first sprint framing above, the app header currently expo
 | ~~TASK-192~~ | ~~Tests: Stabilize space-playback specs by replacing in-loop screenshots with cheap signals~~ | P2 | ✅ DONE (2026-04-24) | TASK-191 |
 | ~~TASK-193~~ | ~~Record: Capture screen at full 60 fps on Linux/X11 (was choppy 30→25 fps)~~ | P1 | ✅ DONE (2026-04-25) | —        |
 | ~~TASK-194~~ | ~~Record: Keep panel setup source changes free of eager display capture~~  | P1       | ✅ DONE (2026-04-25)     | TASK-185, TASK-186 |
-| TASK-195     | Tests: Gate panel source-switch camera-preview regression on Linux         | P1       | TODO                     | TASK-194           |
+| ~~TASK-195~~ | ~~Tests: Gate panel source-switch camera-preview regression on Linux~~     | P1       | ✅ DONE (2026-04-25)     | TASK-194           |
 | ~~TASK-196~~ | ~~Record: Replace Linux recording tray with capture-safe floating Stop pill~~ | P1     | ✅ DONE (2026-04-25)     | TASK-010           |
 | ~~TASK-197~~ | ~~Record: Stop baking Rough Cut UI into Linux/X11 captures (notification + pre-capture hide)~~ | P1 | ✅ DONE (2026-04-25) | TASK-196 |
 | TASK-198     | Record: Migrate Linux screen capture from `ffmpeg -f x11grab` to PipeWire / `getDisplayMedia` for Wayland + content-protection support | P2 | TODO | TASK-197 |
@@ -271,9 +271,11 @@ To match the stability-first sprint framing above, the app header currently expo
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
-| TASK-216     | Record: Mouse/cursor movement not smooth — drops frames during recording | P2       | IN PROGRESS (2026-04-25) | TASK-010, TASK-193 |
+| TASK-216     | Record: Mouse/cursor movement not smooth — drops frames during recording | P1       | IN PROGRESS (2026-04-25) | TASK-010, TASK-193 |
 | ~~TASK-217~~ | Record: Mouse click sound effect (settings toggle + export keep/disable) | P2       | ✅ DONE (2026-04-25)     | TASK-010, TASK-130    |
 | ~~TASK-218~~ | ~~Record: Cursor sprite desynced from recorded video (fps unit mismatch)~~ | P0     | ✅ DONE (2026-04-25)     | TASK-010, TASK-101 |
+| ~~TASK-226~~ | ~~Record: Backward sub-frame cursor interpolation (fluent fast-motion)~~ | P1       | ✅ DONE (2026-04-25)     | TASK-216           |
+| ~~TASK-227~~ | ~~Build: Add `keepClickSounds` to `export-renderer/src/demo.ts` ExportSettings literal~~ | P1 | ✅ DONE (2026-04-25) | TASK-217 |
 
 ### Recording Edge Features
 
@@ -284,10 +286,10 @@ To match the stability-first sprint framing above, the app header currently expo
 | TASK-016 | Record: Create separate Assets for webcam + audio on stop                           | P0       | TODO   | TASK-012, TASK-014 |
 | ~~BUG-005~~ | ~~Camera PiP renders as ellipse instead of circle (CSS/template shape not applied)~~ | P1     | ✅ DONE (2026-04-21) | TASK-014           |
 | TASK-089 | Record: Keyboard shortcut capture + on-video overlays                               | P1       | TODO   | TASK-015, TASK-090 |
-| TASK-091 | Record: Titles and callouts overlay system                                          | P1       | TODO   | TASK-015, TASK-107 |
-| TASK-092 | Record: Dynamic camera layout changes within one recording                          | P1       | TODO   | TASK-014, TASK-015 |
+| TASK-091 | Record: Titles and callouts overlay system                                          | P2       | TODO   | TASK-015, TASK-107 |
+| TASK-092 | Record: Dynamic camera layout changes within one recording                          | P2       | TODO   | TASK-014, TASK-015 |
 | ~~TASK-101~~ | ~~Record: Cursor smoothing, idle hide, and loop-back polish~~                   | P2       | ✅ DONE (2026-04-21) | TASK-015, TASK-075 |
-| TASK-090 | Record: Highlights and annotations overlay system                                   | P1       | TODO   | TASK-015      |
+| TASK-090 | Record: Highlights and annotations overlay system                                   | P2       | TODO   | TASK-015      |
 
 ### Export Core
 
@@ -323,17 +325,17 @@ To match the stability-first sprint framing above, the app header currently expo
 
 | ID           | Title                                                                    | Priority | Status               | Dependencies                 |
 | ------------ | ------------------------------------------------------------------------ | -------- | -------------------- | ---------------------------- |
-| TASK-017     | Edit: Clip drag-to-move (horizontal repositioning with snap)             | P1       | TODO                 | TASK-003                     |
-| TASK-018     | Edit: Cross-track clip dragging (V1↔V2)                                  | P1       | TODO                 | TASK-017                     |
-| TASK-019     | Edit: Effects stack UI (Add Effect, expandable sections, param controls) | P1       | TODO                 | TASK-004                     |
-| TASK-020     | Edit: Audio playback via Web Audio API synced to playhead                | P1       | TODO                 | TASK-007                     |
+| TASK-017     | Edit: Clip drag-to-move (horizontal repositioning with snap)             | P2       | TODO                 | TASK-003                     |
+| TASK-018     | Edit: Cross-track clip dragging (V1↔V2)                                  | P2       | TODO                 | TASK-017                     |
+| TASK-019     | Edit: Effects stack UI (Add Effect, expandable sections, param controls) | P2       | TODO                 | TASK-004                     |
+| TASK-020     | Edit: Audio playback via Web Audio API synced to playhead                | P2       | TODO                 | TASK-007                     |
 | ~~TASK-077~~ | Edit: Camera playback in Edit tab compositor                             | P1       | ✅ DONE (2026-04-14) | TASK-075                     |
 | ~~TASK-114~~ | Edit: Camera source/timing parity with Record preview                    | P1       | ✅ DONE (2026-04-15) | TASK-075, TASK-077           |
 | ~~TASK-119~~ | Record/Edit: Persist layout template for camera preview parity           | P1       | ✅ DONE (2026-04-15) | TASK-077, TASK-113           |
 | ~~TASK-115~~ | Edit: Camera layout/visibility parity with Record preview                | P1       | ✅ DONE (2026-04-16) | TASK-114, TASK-119           |
 | ~~TASK-116~~ | Tests: Record/Edit camera parity regression coverage                     | P1       | ✅ DONE (2026-04-16) | TASK-114, TASK-115, TASK-119 |
-| TASK-023     | Edit: Keyframe editor (timeline markers + inspector controls)            | P1       | TODO                 | TASK-019                     |
-| TASK-024     | Edit: Transitions (crossfade rendering in preview + export)              | P1       | TODO                 | TASK-005, TASK-007           |
+| TASK-023     | Edit: Keyframe editor (timeline markers + inspector controls)            | P2       | TODO                 | TASK-019                     |
+| TASK-024     | Edit: Transitions (crossfade rendering in preview + export)              | P2       | TODO                 | TASK-005, TASK-007           |
 | ~~TASK-025~~ | Edit: Track headers UI (mute/solo/lock toggles, volume slider)           | P1       | ✅ DONE (2026-04-16) | TASK-006                     |
 | ~~TASK-117~~ | Edit: Dynamic track management (add/remove channels)                     | P1       | ✅ DONE (2026-04-16) | TASK-006, TASK-025           |
 | FEATURE-084  | Edit: Timeline multi-select + snap additions (Increment 1 of 3)          | P1       | IN PROGRESS          | TASK-006, TASK-003           |
@@ -353,10 +355,10 @@ To match the stability-first sprint framing above, the app header currently expo
 
 | ID           | Title                                                                                  | Priority | Status               | Dependencies       |
 | ------------ | -------------------------------------------------------------------------------------- | -------- | -------------------- | ------------------ |
-| TASK-081     | AI: Visual frame analysis pipeline (sample frames, describe via vision LLM)            | P1       | PLANNED              | TASK-040, TASK-079 |
-| TASK-082     | AI: Rough cut generator — LLM produces timeline from library + user prompt             | P1       | PLANNED              | TASK-080, TASK-081 |
-| TASK-079     | AI: Library data model — footage + transcripts + visual analysis as first-class entity | P1       | PLANNED              | TASK-002           |
-| TASK-080     | AI: WhisperX audio transcription pipeline (batch ingest, word-level timestamps)        | P1       | PLANNED              | TASK-040, TASK-079 |
+| TASK-081     | AI: Visual frame analysis pipeline (sample frames, describe via vision LLM)            | P2       | PLANNED              | TASK-040, TASK-079 |
+| TASK-082     | AI: Rough cut generator — LLM produces timeline from library + user prompt             | P2       | PLANNED              | TASK-080, TASK-081 |
+| TASK-079     | AI: Library data model — footage + transcripts + visual analysis as first-class entity | P2       | PLANNED              | TASK-002           |
+| TASK-080     | AI: WhisperX audio transcription pipeline (batch ingest, word-level timestamps)        | P2       | PLANNED              | TASK-040, TASK-079 |
 | FEATURE-078  | AI: ButterCut-inspired library + rough cut generation (epic)                           | P1       | PLANNED              | TASK-040           |
 | ~~TASK-083~~ | Compliance: Third-party attribution (WhisperX BSD-4, FFmpeg LGPL) in About/credits     | P2       | ✅ DONE (2026-04-19) | -                  |
 | TASK-040     | AI: Create @rough-cut/ai-bridge package + AIProvider interface                         | P3       | TODO                 | TASK-002           |
@@ -907,6 +909,7 @@ Create and maintain a product-area stabilization map that breaks the app into th
 - TASK-131 Cinematic motion blur
 - TASK-132 Privacy blur masks and spotlight regions
 - TASK-150 Per-segment visibility toggles
+- TASK-157 Watermark/logo inspector with persistent branding controls
 - TASK-155 AI captions in Record review
 - TASK-156 Smart Cut
 
@@ -1383,9 +1386,16 @@ Standalone 10 s ffmpeg run with the exact final args produces 591 frames over 10
 
 ---
 
-### TASK-195: Tests: Gate panel source-switch camera-preview regression on Linux
+### ~~TASK-195~~: Tests: Gate panel source-switch camera-preview regression on Linux
 
-**Priority:** P1 | **Status:** TODO | **Depends on:** TASK-194
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25) | **Depends on:** TASK-194
+
+#### Completed
+
+- Kept the focused pre-`REC` source-switch guard in `tests/electron/record-camera-artifact.spec.ts` instead of leaving this behavior covered only by the ad-hoc probe.
+- Scoped the regression gate to Linux, where the original failure mode was observed, so the test documents the platform-specific risk instead of implying a cross-platform artifact bug.
+- Strengthened the assertions so the panel camera preview must stay visibly alive across setup-only source changes (`A -> B -> A`), not just preserve an internal track object.
+- Kept the explicit `getDisplayMedia()` counter so the test still proves display capture is deferred until the user actually clicks `Start recording`.
 
 #### Problem
 
@@ -1749,6 +1759,35 @@ Verification:
 
 - `clip.sourceIn` is parsed but discarded at `RecordingPlaybackVideo.tsx:67`; `CursorOverlay` then computes `sourceFrame = projectFrame - clipIn` without `+ sourceIn`. Only desyncs trimmed clips. Not the user's reported bug.
 - Cursor `x` can exceed asset width on multi-monitor setups (today's take had `max_x = 3305` vs asset width 1920). Indicates capture-region `offsetX` doesn't reach `cursorRecorder.start()` for some source types. Produces a constant XY offset, not a time desync.
+
+---
+
+### ~~TASK-226~~: Record: Backward sub-frame cursor interpolation (fluent fast-motion)
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25)
+
+#### Problem
+
+- Even after `TASK-218` fixed the fps-unit mismatch, the Record review cursor still advanced only on integer playhead frames.
+- On fast cursor moves this looked choppy because the video refreshed between frame boundaries while the overlaid cursor sprite stayed parked until the next whole-frame jump.
+
+#### Fix
+
+- Kept the existing backward interpolation approach in `CursorOverlay`, but hardened it so it only runs after true sequential frame advances.
+- Extracted the timing decision into `cursor-subframe-interpolation.ts`, which tracks whether the last playhead advance was `N-1 -> N` and disables interpolation for seeks, loop-backs, and dropped-frame jumps.
+- Preserved exact current-frame positioning when playback is paused, so scrubbing and paused inspection never show lagged cursor positions.
+
+#### Verification
+
+- `pnpm --filter @rough-cut/desktop exec vitest run src/renderer/components/cursor-subframe-interpolation.test.ts src/renderer/components/cursor-data-loader.test.ts src/renderer/components/cursor-overlay-state.test.ts`
+- Added 5 focused unit tests covering sequential playback interpolation, frame-window completion, paused playback, forward jumps, and backward jumps.
+- `pnpm --filter @rough-cut/desktop typecheck` still fails in pre-existing unrelated `PanelApp.tsx` worktree changes; no new type errors were introduced by this task.
+
+#### Key files
+
+- `apps/desktop/src/renderer/components/CursorOverlay.tsx`
+- `apps/desktop/src/renderer/components/cursor-subframe-interpolation.ts`
+- `apps/desktop/src/renderer/components/cursor-subframe-interpolation.test.ts`
 
 ---
 
@@ -2395,7 +2434,7 @@ Option 1 is preferable but a larger lift. Option 2 is honest.
 
 ### TASK-079: AI: Library data model — footage + transcripts + visual analysis as first-class entity
 
-**Priority:** P1 | **Status:** PLANNED
+**Priority:** P2 | **Status:** PLANNED
 
 Add the first standalone library primitives to `@rough-cut/project-model` so AI ingest work has a stable shape before pipeline code lands.
 
@@ -2417,7 +2456,7 @@ Add the first standalone library primitives to `@rough-cut/project-model` so AI 
 
 ### TASK-080: AI: WhisperX audio transcription pipeline (batch ingest, word-level timestamps)
 
-**Priority:** P1 | **Status:** PLANNED
+**Priority:** P2 | **Status:** PLANNED
 
 Start the transcription pipeline on top of the new library model without committing to final WhisperX worker orchestration yet.
 
@@ -2889,7 +2928,7 @@ This is a high-leverage tutorial feature that improves comprehension immediately
 
 ### TASK-091: Record: Titles and callouts overlay system
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P2 | **Status:** TODO
 
 #### Problem
 
@@ -2925,7 +2964,7 @@ This closes another placeholder in the Record UI while preserving the product sp
 
 ### TASK-092: Record: Dynamic camera layout changes within one recording
 
-**Priority:** P3 | **Status:** PAUSED (2026-04-25)
+**Priority:** P2 | **Status:** PAUSED (2026-04-25)
 
 #### Deferred (2026-04-25)
 
@@ -2971,7 +3010,7 @@ This is one of the clearest competitive gaps versus FocuSee-style storytelling, 
 
 ### TASK-090: Record: Highlights and annotations overlay system
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P2 | **Status:** TODO
 
 #### Problem
 
@@ -3039,6 +3078,42 @@ Camera layout markers are currently editable, but the distinction between creati
 #### Why this matters
 
 This is quality-of-life work, not a recording-readiness blocker. But it removes a subtle authoring trap in the Record timeline and makes camera layout editing feel intentional instead of fragile.
+
+---
+
+### TASK-216: Record: Mouse/cursor movement not smooth — drops frames during recording
+
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-25) | **Depends on:** TASK-010, TASK-193
+
+#### Progress
+
+- Captured and isolated the remaining cursor-motion smoothness gap after the Linux/X11 60 fps recording fix landed.
+- Landed `TASK-226` as a direct child fix so cursor playback can interpolate between recorded frames instead of stepping backward frame-by-frame under fast motion.
+- The task remains open because overall cursor fluency still needs end-to-end validation against real takes, not just the interpolation slice.
+
+#### Problem
+
+Saved recordings now preserve screen capture cadence much better, but cursor motion can still feel visibly less smooth than the underlying desktop interaction. That makes tutorial recordings read as lower quality even when the screen video itself is no longer dropping to the earlier 30/25 fps behavior.
+
+#### Scope
+
+- Eliminate remaining cursor-motion stutter in recorded output.
+- Keep cursor overlay timing aligned with the saved recording duration and effective fps.
+- Verify that fast pointer motion looks fluent in both Record review and downstream export.
+
+#### Next Steps
+
+- Re-run focused capture/export checks on real fast-motion recordings after `TASK-226`.
+- Separate any remaining issues into timing drift vs interpolation/rendering vs source-capture cadence.
+- Close only when cursor motion is visually smooth in saved artifacts, not just better than before.
+
+#### Key files
+
+- `apps/desktop/src/main/recording/cursor-recorder.mjs`
+- `apps/desktop/src/renderer/components/CursorOverlay.tsx`
+- `apps/desktop/src/renderer/components/cursor-data-loader.ts`
+- `packages/export-renderer/src/cursor-render.ts`
+- `tests/electron/record-camera-artifact.spec.ts` or adjacent focused playback/export checks
 
 ---
 
@@ -3836,7 +3911,6 @@ The full creative surface that turns Rough Cut from a capture utility into a Scr
 
 
 - `TASK-121` restore template picker and preset application flow
-- `TASK-157` watermark/logo inspector with persistent branding controls
 - `TASK-089` keyboard shortcut overlays
 - `TASK-091` titles and callouts
 - `TASK-092` dynamic camera layouts
@@ -3845,6 +3919,7 @@ The full creative surface that turns Rough Cut from a capture utility into a Scr
 - `TASK-131` cinematic motion blur for cursor, zoom, and camera movement
 - `TASK-132` privacy blur masks and spotlight regions
 - `TASK-150` per-segment visibility toggles for camera/cursor/clicks/overlays
+- `TASK-157` watermark/logo inspector with persistent branding controls
 - `TASK-155` AI captions with timeline edit + styling in Record review
 - `TASK-156` Smart Cut for filler words, silence, breaths, and mouth clicks
 - `TASK-090` highlights and annotations

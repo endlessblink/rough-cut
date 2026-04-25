@@ -70,3 +70,16 @@ Follow the MASTER_PLAN format in `docs/MASTER_PLAN.md`:
 ## Watchpost
 
 This project is registered with Watchpost on `localhost:6010`. Prefer `GET /api/master-plan` and `GET /api/outlook` over reading markdown directly when you need task state.
+
+### Watchpost Kanban Gotcha
+
+- Do not claim a Watchpost board fix from markdown edits alone.
+- The kanban page is project-context-sensitive: verify against the live board with the `rough-cut` project selected, not the dashboard's default active project.
+- For visual verification, the parent page sends a `switch-project` message; a raw `/kanban/` load can show another project's data.
+- The `FEATURE-078` / `PLANNED` mismatch was caused by Watchpost kanban logic, not `MASTER_PLAN.md`:
+  - it wrongly auto-promoted todo/planned cards with non-zero progress into `In Progress`
+  - it also failed to parse inline mixed meta lines like `**Priority:** P1 | **Status:** PLANNED (...)`
+- What worked:
+  - patch `devops/watchpost/kanban/index.html` so column placement follows explicit parsed status, not progress
+  - normalize explicit `Status:` from task text before bucketing/rendering
+  - then verify live with the `rough-cut` project context and confirm the card's actual column + badge
