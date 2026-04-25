@@ -181,15 +181,17 @@ function ProjectNameInline({ value, onChange }: ProjectNameInlineProps) {
 
 // ─── AppViewTabs ──────────────────────────────────────────────────────────────
 
+// Stabilization scope: only Projects / Record / Export are user-facing right
+// now. Edit, Motion, and AI tabs are hidden from the header until each has a
+// shippable MVP UI. The AppView types and routes are intentionally KEPT so
+// existing specs and any deep-link code paths still resolve — re-exposing
+// any of these is a single-line uncomment here.
 const APP_VIEW_TABS: { id: AppView; label: string }[] = [
   { id: 'projects', label: 'Projects' },
   { id: 'record', label: 'Record' },
-  { id: 'edit', label: 'Edit' },
-  // Motion tab hidden until the template browser/parameter editor lands.
-  // The 'motion' AppView and routing path are kept so deep-links / tests that
-  // reference it still resolve; the user just can't reach it from the header.
+  // { id: 'edit', label: 'Edit' },
   // { id: 'motion', label: 'Motion' },
-  { id: 'ai', label: 'AI' },
+  // { id: 'ai', label: 'AI' },
   { id: 'export', label: 'Export' },
 ];
 
