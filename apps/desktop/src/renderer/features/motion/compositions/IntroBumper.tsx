@@ -18,9 +18,21 @@ export const IntroBumper: React.FC<IntroBumperProps> = ({
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
 
-  const nameIn = spring({ frame, fps, config: { damping: 10, stiffness: 80, mass: 0.6 } });
-  const taglineIn = spring({ frame: Math.max(0, frame - 15), fps, config: { damping: 14, stiffness: 70, mass: 0.5 } });
-  const lineWidth = interpolate(nameIn, [0, 1], [0, 200]);
+  // Spring/interpolate produce NaN when fps arrives as 0/undefined during
+  // initial Player mount. Clamp every animated output.
+  const safe = (n: number, fallback = 0) => (Number.isFinite(n) ? n : fallback);
+
+  const nameIn = safe(
+    spring({ frame, fps, config: { damping: 10, stiffness: 80, mass: 0.6 } }),
+  );
+  const taglineIn = safe(
+    spring({
+      frame: Math.max(0, frame - 15),
+      fps,
+      config: { damping: 14, stiffness: 70, mass: 0.5 },
+    }),
+  );
+  const lineWidth = safe(interpolate(nameIn, [0, 1], [0, 200]));
   const fadeOutStart = durationInFrames - 20;
   const fadeOut = frame > fadeOutStart
     ? interpolate(frame, [fadeOutStart, durationInFrames], [1, 0], { extrapolateRight: 'clamp' })

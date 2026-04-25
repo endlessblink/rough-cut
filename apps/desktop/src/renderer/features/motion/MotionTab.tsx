@@ -220,7 +220,10 @@ export function MotionTab({ activeTab, onTabChange }: MotionTabProps) {
               component={template.component}
               inputProps={currentProps}
               durationInFrames={template.defaultDurationFrames}
-              fps={fps}
+              // Guard against undefined / 0 from a fresh project — Remotion's
+              // spring() divides by fps and produces NaN, which leaks into CSS
+              // widths via interpolate() in IntroBumper / TitleCard.
+              fps={fps || 30}
               compositionWidth={1920}
               compositionHeight={1080}
               style={{ width: '100%', height: '100%' }}
