@@ -653,8 +653,6 @@ export function RecordTimelineShell({
   /* ── play/pause state ──────────────────────────────────────────────────── */
 
   const isPlaying = useTransportStore((s) => s.isPlaying);
-  const previewVolume = useTransportStore((s) => s.previewVolume);
-  const previewMuted = useTransportStore((s) => s.previewMuted);
 
   /* ── DOM refs for imperative playhead needle ───────────────────────────── */
 
@@ -879,69 +877,17 @@ export function RecordTimelineShell({
             Timeline
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div
-            data-testid="record-timeline-volume"
-            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-            title={previewMuted ? 'Unmute playback' : 'Mute playback'}
-          >
-            <button
-              data-testid="record-timeline-volume-mute"
-              aria-label={previewMuted ? 'Unmute playback' : 'Mute playback'}
-              aria-pressed={previewMuted}
-              onClick={() => transportStore.getState().setPreviewMuted(!previewMuted)}
-              style={{
-                width: 18,
-                height: 18,
-                padding: 0,
-                border: 'none',
-                borderRadius: 3,
-                background: 'transparent',
-                color: previewMuted ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.70)',
-                cursor: 'pointer',
-                fontSize: 11,
-                lineHeight: 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              {previewMuted || previewVolume === 0 ? '\u{1F507}' : '\u{1F509}'}
-            </button>
-            <input
-              data-testid="record-timeline-volume-slider"
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={previewMuted ? 0 : previewVolume}
-              aria-label="Playback volume"
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                const t = transportStore.getState();
-                t.setPreviewVolume(v);
-                if (v > 0 && previewMuted) t.setPreviewMuted(false);
-              }}
-              style={{
-                width: 72,
-                height: 4,
-                accentColor: '#ff7043',
-                cursor: 'pointer',
-              }}
-            />
-          </div>
-          <span
-            ref={timecodeRef}
-            style={{
-              fontSize: 11,
-              fontFamily: 'monospace',
-              color: 'rgba(255,255,255,0.50)',
-              userSelect: 'none',
-            }}
-          >
-            {formatTimecode(displayFrameRef.current / fps)}
-          </span>
-        </div>
+        <span
+          ref={timecodeRef}
+          style={{
+            fontSize: 11,
+            fontFamily: 'monospace',
+            color: 'rgba(255,255,255,0.50)',
+            userSelect: 'none',
+          }}
+        >
+          {formatTimecode(displayFrameRef.current / fps)}
+        </span>
       </div>
 
       {/* ── Body ──────────────────────────────────────────────────────────── */}
