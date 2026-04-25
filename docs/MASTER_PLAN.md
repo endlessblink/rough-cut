@@ -96,7 +96,7 @@ These lines define the stability-first orchestration view in Watchpost. `Sequenc
 
 7. **LINE G — Record sidebar authoring toolset**
    The full creative surface: templates, branding, keyboard overlays, highlights, titles, dynamic camera layouts, cursor styles, click effects, motion blur, privacy masks, per-segment visibility, AI captions, smart cut.
-   Sequence: TASK-121 -> TASK-157 -> TASK-089 -> TASK-090 -> TASK-091 -> TASK-092 -> TASK-130
+   Sequence: TASK-121 -> TASK-157 -> TASK-090 -> TASK-089 -> TASK-091 -> TASK-092 -> TASK-130
    Supports: TASK-131, TASK-132, TASK-150, TASK-155, TASK-156
 
 ### Current sprint framing
@@ -108,7 +108,7 @@ The current sprint should stay inside the Record surface, but the priority is no
 3. **Lane 3 -- Stable camera recording**: TASK-182, TASK-014, TASK-016, ~~TASK-185~~
 4. **Lane 4 -- Stable audio recording**: ~~TASK-088~~, TASK-124, FEATURE-076, TASK-032
 5. **Lane 5 -- Stable playback + sync + export**: BUG-006, TASK-020, TASK-015, TASK-021, TASK-022, TASK-112, TASK-052, TASK-054, TASK-191
-6. **Lane 6 -- Record sidebar authoring toolset**: TASK-121 (templates), TASK-157 (branding/watermark), TASK-089 (keyboard overlays), TASK-090 (highlights/annotations), TASK-091 (titles/callouts), TASK-092 (dynamic camera layouts), TASK-130 (cursor styles + click FX + sounds), TASK-131 (cinematic motion blur), TASK-132 (privacy blur + spotlight), TASK-150 (per-segment visibility toggles), TASK-155 (AI captions in Record review), TASK-156 (Smart Cut for fillers/silence/breaths). This is the full creative surface, not placeholder wiring.
+6. **Lane 6 -- Record sidebar authoring toolset**: TASK-121 (templates), TASK-157 (branding/watermark), TASK-090 (highlights/annotations), TASK-089 (keyboard overlays), TASK-091 (titles/callouts), TASK-092 (dynamic camera layouts), TASK-130 (cursor styles + click FX + sounds), TASK-131 (cinematic motion blur), TASK-132 (privacy blur + spotlight), TASK-150 (per-segment visibility toggles), TASK-155 (AI captions in Record review), TASK-156 (Smart Cut for fillers/silence/breaths). This is the full creative surface, not placeholder wiring.
 
 Practical order for lowest user-risk:
 
@@ -241,7 +241,7 @@ Parallel-start rule:
 | ~~TASK-185~~ | ✅ ~~Record: Stabilize camera preview track lifecycle~~                 | P2       | ✅ **DONE** (2026-04-24) | TASK-182           |
 | ~~TASK-186~~ | Record: Unify in-app pre-record flow and floating recording panel       | P0       | ✅ DONE (2026-04-23)     | TASK-086, TASK-126 |
 | ~~TASK-187~~ | ~~Record: Break down and redesign the floating recording panel UX~~     | P1       | ✅ DONE (2026-04-23)     | TASK-186, TASK-145 |
-| TASK-188     | Product: Break down stabilization work across Projects/Record/Playback/Sidebar/Timeline/Export | P1 | IN PROGRESS | TASK-186, TASK-187 |
+| ~~TASK-188~~ | ~~Product: Break down stabilization work across Projects/Record/Playback/Sidebar/Timeline/Export~~ | P1 | ✅ DONE (2026-04-25) | TASK-186, TASK-187 |
 | ~~TASK-189~~ | ~~Record: Fix stuck + obsolete pre-start floating panel (post-TASK-186 fallout)~~              | P0 | ✅ DONE (2026-04-23) | TASK-186, TASK-187 |
 | ~~TASK-190~~ | ~~Record: Fix saved-take playback reset + visual artifacts on window resize~~ | P1  | ✅ DONE (2026-04-24)     | TASK-177           |
 | ~~TASK-191~~ | ~~Record: Fix saved-take replay progression in Record review~~              | P1       | ✅ DONE (2026-04-24)     | TASK-190           |
@@ -249,10 +249,10 @@ Parallel-start rule:
 | ~~TASK-193~~ | ~~Record: Capture screen at full 60 fps on Linux/X11 (was choppy 30→25 fps)~~ | P1 | ✅ DONE (2026-04-25) | —        |
 | TASK-194     | Record: Keep panel setup source changes free of eager display capture      | P1       | TODO                     | TASK-185, TASK-186 |
 | TASK-195     | Tests: Gate panel source-switch camera-preview regression on Linux         | P1       | TODO                     | TASK-194           |
-| TASK-196     | Record: Replace Linux recording tray with capture-safe floating Stop pill  | P1       | IN PROGRESS              | TASK-010           |
-| TASK-197     | Record: Stop baking Rough Cut UI into Linux/X11 captures (notification + pre-capture hide) | P1 | IN PROGRESS (2026-04-25) | TASK-196 |
+| ~~TASK-196~~ | ~~Record: Replace Linux recording tray with capture-safe floating Stop pill~~ | P1     | ✅ DONE (2026-04-25)     | TASK-010           |
+| ~~TASK-197~~ | ~~Record: Stop baking Rough Cut UI into Linux/X11 captures (notification + pre-capture hide)~~ | P1 | ✅ DONE (2026-04-25) | TASK-196 |
 | TASK-198     | Record: Migrate Linux screen capture from `ffmpeg -f x11grab` to PipeWire / `getDisplayMedia` for Wayland + content-protection support | P2 | TODO | TASK-197 |
-| TASK-199     | Record: Volume slider on the recording preview screen                    | P2       | TODO                     | TASK-088, FEATURE-076 |
+| TASK-199     | Record: Volume slider on the recording preview screen                    | P2       | IN PROGRESS (2026-04-25) | TASK-088, FEATURE-076 |
 | TASK-093     | Record: Teleprompter for scripted recording                              | P2       | TODO                     | TASK-086           |
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
@@ -265,8 +265,8 @@ Parallel-start rule:
 | TASK-015 | Record: Serialize recording effects to clips (bg, corners, shadow → Effect entries) | P0       | TODO   | TASK-011           |
 | TASK-016 | Record: Create separate Assets for webcam + audio on stop                           | P0       | TODO   | TASK-012, TASK-014 |
 | ~~BUG-005~~ | ~~Camera PiP renders as ellipse instead of circle (CSS/template shape not applied)~~ | P1     | ✅ DONE (2026-04-21) | TASK-014           |
-| TASK-089 | Record: Keyboard shortcut capture + on-video overlays                               | P1       | TODO   | TASK-015           |
-| TASK-090 | Record: Highlights and annotations overlay system                                   | P1       | TODO   | TASK-015           |
+| TASK-090 | Record: Highlights and annotations overlay system                                   | P1       | IN PROGRESS | TASK-015      |
+| TASK-089 | Record: Keyboard shortcut capture + on-video overlays                               | P1       | TODO   | TASK-015, TASK-090 |
 | TASK-091 | Record: Titles and callouts overlay system                                          | P1       | TODO   | TASK-015, TASK-107 |
 | TASK-092 | Record: Dynamic camera layout changes within one recording                          | P1       | TODO   | TASK-014, TASK-015 |
 | ~~TASK-101~~ | ~~Record: Cursor smoothing, idle hide, and loop-back polish~~                   | P2       | ✅ DONE (2026-04-21) | TASK-015, TASK-075 |
@@ -388,13 +388,16 @@ Parallel-start rule:
 | ~~TASK-173~~ | ~~Tests: Golden-path record-stop-save readiness suite~~           | P0       | ✅ DONE (2026-04-20)     | TASK-165, TASK-166, TASK-168, TASK-169 |
 | ~~TASK-174~~ | ~~Tests: Audio route fidelity and post-save import suite~~        | P0       | ✅ DONE (2026-04-20)     | TASK-167, TASK-168 |
 | ~~TASK-175~~ | ~~Tests: Recovery, reopen, and export-from-fresh-recording suite~~ | P0       | ✅ DONE (2026-04-20)     | TASK-171, TASK-173 |
-| TASK-206     | Tests: Re-baseline e2e under updated 60s test.timeout              | P0       | TODO                     | -                  |
-| TASK-207     | Record: Investigate record-tab.spec.ts 13-failure cluster          | P1       | TODO                     | TASK-206           |
-| TASK-208     | Export: Investigate export-tab.spec.ts 8-failure cluster           | P1       | TODO                     | TASK-206           |
+| ~~TASK-206~~ | ~~Tests: Re-baseline e2e under updated 60s test.timeout~~          | P0       | ✅ DONE (2026-04-25)     | -                  |
+| ~~TASK-207~~ | ~~Record: Investigate record-tab.spec.ts 9-failure cluster~~       | P1       | ✅ DONE (2026-04-25)     | TASK-206           |
+| TASK-208     | Export: Investigate export-tab.spec.ts 3-failure cluster           | P1       | TODO                     | TASK-206           |
 | TASK-209     | Edit: Investigate inspector-rail.spec.ts 8-failure layout cluster  | P2       | TODO                     | TASK-206           |
 | TASK-210     | Tests: Investigate tab-switching.spec.ts 6-failure cluster         | P2       | TODO                     | TASK-206           |
 | TASK-211     | Tests: Triage MVP acceptance specs (19 failures across 4 files)    | P3       | TODO                     | TASK-206           |
 | TASK-212     | Infra: Replace no-op `lint` echo scripts with real ESLint config   | P3       | TODO                     | -                  |
+| TASK-213     | Record: Audit visible sidebar controls for real vs placeholder behavior | P1   | IN PROGRESS              | TASK-188           |
+| TASK-214     | Record: Make post-take keep/retry/continue review path explicit    | P1       | TODO                     | TASK-191           |
+| TASK-215     | Export: Gate fresh-take review-to-export truth after Record fixes  | P1       | TODO                     | TASK-175, TASK-191 |
 
 ---
 
@@ -716,9 +719,16 @@ The panel is the user's live safety surface during recording. If its design is m
 
 ---
 
-### TASK-188: Product: Break down stabilization work across Projects/Record/Playback/Sidebar/Timeline/Export
+### ~~TASK-188~~: Product: Break down stabilization work across Projects/Record/Playback/Sidebar/Timeline/Export
 
-**Priority:** P1 | **Status:** IN PROGRESS (2026-04-24)
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25)
+
+#### Resolution (2026-04-25)
+
+- Refreshed the product-area stabilization map so it reflects the current 2026-04-25 backlog rather than the earlier camera-preview-only execution lane.
+- Added the missing backlog items this map exposed: `TASK-213` for visible Record-sidebar honesty, `TASK-214` for the post-take keep/retry/continue review path, and `TASK-215` for fresh-take review-to-export truth.
+- Converted the task into an explicit ordering contract: current work stays on pre-record / during-recording truth first, then post-record review truth, then visible sidebar honesty, then downstream export verification.
+- Left the map in place as a reference artifact for future sprint framing, so follow-on execution can happen in the new child tasks instead of keeping this breakdown task open forever.
 
 #### Problem
 
@@ -753,61 +763,35 @@ Create and maintain a product-area stabilization map that breaks the app into th
 - Mark missing or weakly specified areas that need new tasks rather than assuming the current backlog is sufficient.
 - Use that area map to drive future sprint framing and task ordering.
 
-#### Current action list (aligned to active worktree)
+#### Current blocker framing (2026-04-25)
 
-1. **During-recording floating panel truth first**
-   - Finish the live camera-preview stabilization lane before broadening sidebar or export work.
-   - Primary task anchors: `TASK-185`, `TASK-182`.
-2. **Then post-record playback/review truth**
-   - Fix saved-take replay progression only after the recording/panel path is trustworthy enough that playback bugs are not conflated with capture bugs.
-   - Primary task anchor: `TASK-191`.
-3. **Keep this task as the ordering contract**
-   - Use the product-area map here to justify why work stays in Record stability lanes instead of drifting to garnish work.
+1. **Projects truth is credible enough for now**
+   - Do not invent new Projects-surface work unless reopen, path, or recovery regressions appear again.
+2. **Pre-record and during-recording truth remain the active bottleneck**
+   - Keep the current lane on `TASK-196`, `TASK-197`, `TASK-194`, and `TASK-195` before broadening into sidebar or export work.
+3. **Post-record review is the next blocker after capture pollution is closed**
+   - Pull `BUG-006`, `TASK-020`, `FEATURE-076`, `TASK-124`, and new `TASK-214` ahead of sidebar breadth.
+4. **Record-sidebar work must be honesty-first, not garnish-first**
+   - Use new `TASK-213` to separate already-visible but weak controls from not-yet-exposed creative breadth.
+5. **Timeline and export remain downstream trust consumers**
+   - Treat `TASK-208`, `TASK-209`, and new `TASK-215` as verification gates that should only move up once earlier Record truth is credible.
 
-#### Exact active files and how they map
+#### Missing stabilization tasks added by this pass
 
-- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
-  - Area 3: During-recording floating panel
-  - Focus: camera preview lifecycle, source-selection transitions, truthful panel setup/live state
-- `apps/desktop/src/main/recording/ffmpeg-capture.mjs`
-  - Area 3: During-recording floating panel
-  - Focus: saved-artifact truth when the panel recording path hands off to native capture
-- `tests/electron/record-camera-artifact.spec.ts`
-  - Area 3 verification gate
-  - Focus: first-take camera sidecar presence and deterministic artifact truth
-- `apps/desktop/src/renderer/features/record/RecordTab.tsx`
-  - Area 4: Post-record playback/review in Record
-  - Focus: truthful saved-take review state and replay controls
-- `apps/desktop/src/renderer/features/record/RecordTimelineShell.tsx`
-  - Area 4: Post-record playback/review in Record
-  - Focus: transport/playhead truth during replay, pause, and seek
-- `packages/preview-renderer/src/playback-manager.ts`
-  - Area 4: Post-record playback/review in Record
-  - Focus: authoritative playback clock semantics and replay transitions
-- `packages/preview-renderer/src/preview-compositor.ts`
-  - Area 4: Post-record playback/review in Record
-  - Focus: visible frame progression staying aligned with transport state
-- `tests/electron/camera-replay.spec.ts`
-  - Area 4 verification gate
-  - Focus: deterministic replay, seek, and camera-progress regression coverage
+- `TASK-213` Record: Audit visible sidebar controls for real vs placeholder behavior
+  - Needed because the plan said visible sidebar controls must become real or be de-scoped, but no task explicitly owned that audit.
+- `TASK-214` Record: Make post-take keep/retry/continue review path explicit
+  - Needed because Area 4 described the user decision point after a take, but the backlog did not isolate that workflow as its own trust task.
+- `TASK-215` Export: Gate fresh-take review-to-export truth after Record fixes
+  - Needed because export parity exists in pieces, but there was no explicit task for re-proving the freshly-recorded review-to-export handoff after current Record stabilization work lands.
 
-#### Immediate execution order for the current lane
+#### Ordering contract for the next sessions
 
-1. Stabilize panel camera preview behavior in `PanelApp.tsx` and prove it with `record-camera-artifact.spec.ts`.
-2. Keep `ffmpeg-capture.mjs` changes limited to saved-artifact truth needed by that lane.
-3. Once the panel/capture path is trustworthy, finish Record saved-take replay work across `RecordTab.tsx`, `RecordTimelineShell.tsx`, `playback-manager.ts`, and `preview-compositor.ts`.
-4. Keep `camera-replay.spec.ts` as the playback regression harness for the post-record lane.
-
-#### Working checklist (current implementation guide)
-
-- [ ] Reproduce the panel camera-preview failure while switching/confirming screen source selection.
-- [ ] Keep `PanelApp.tsx` as the primary fix surface for preview-track lifecycle and setup-to-record transitions.
-- [ ] Verify that any `ffmpeg-capture.mjs` changes are only supporting saved-artifact truth for the same lane.
-- [ ] Re-run `tests/electron/record-camera-artifact.spec.ts` until first-take camera sidecar behavior is deterministic.
-- [ ] Only after the panel/capture lane is trustworthy, continue Record saved-take replay fixes in `RecordTab.tsx`.
-- [ ] Use `RecordTimelineShell.tsx`, `playback-manager.ts`, and `preview-compositor.ts` to resolve transport/playhead/compositor drift.
-- [ ] Keep `tests/electron/camera-replay.spec.ts` green as the replay regression gate for the post-record review lane.
-- [ ] Avoid pulling in Record-sidebar, timeline-breadth, or export-breadth tasks until these two stability lanes are credible.
+1. Finish the current capture-safe panel lane (`TASK-196`, `TASK-197`, `TASK-194`, `TASK-195`).
+2. Make the post-take review path explicit and trustworthy (`TASK-214`, `BUG-006`, `TASK-020`, `FEATURE-076`, `TASK-124`).
+3. Audit the already-visible Record sidebar for honesty before adding more breadth (`TASK-213`).
+4. Re-gate export truth from a freshly reviewed take (`TASK-215`, `TASK-208`).
+5. Keep broader timeline depth and sidebar garnish behind those earlier trust gates.
 
 #### Product-area stabilization map (current output)
 
@@ -862,6 +846,10 @@ Create and maintain a product-area stabilization map that breaks the app into th
 - TASK-185 Stabilize camera preview track lifecycle
 - ~~TASK-186~~ Unify in-app pre-record flow and floating recording panel
 - ~~TASK-187~~ Break down and redesign the floating recording panel UX
+- TASK-194 Keep panel setup source changes free of eager display capture
+- TASK-195 Gate panel source-switch camera-preview regression on Linux
+- TASK-196 Replace Linux recording tray with capture-safe floating Stop pill
+- TASK-197 Stop baking Rough Cut UI into Linux/X11 captures
 
 ##### 4. Post-record playback/review in Record
 
@@ -879,6 +867,9 @@ Create and maintain a product-area stabilization map that breaks the app into th
 - FEATURE-076 Audio capture + playback in preview
 - TASK-124 Prove and harden saved-file system-audio capture
 - ~~TASK-184~~ Eliminate Pixi video alpha CSP noise in the renderer
+- ~~TASK-190~~ Fix saved-take playback reset + visual artifacts on window resize
+- ~~TASK-191~~ Fix saved-take replay progression in Record review
+- TASK-214 Make post-take keep/retry/continue review path explicit
 
 ##### 5. Existing Record-sidebar features
 
@@ -890,6 +881,7 @@ Create and maintain a product-area stabilization map that breaks the app into th
 - Record-authored changes survive into playback, timeline review, and export.
 
 **Current task anchors**
+- TASK-213 Audit visible sidebar controls for real vs placeholder behavior
 - TASK-121 Restore template picker and preset application flow
 - TASK-032 VU meters for mic and system audio
 - TASK-157 Watermark/logo inspector with persistent branding controls
@@ -924,6 +916,7 @@ Create and maintain a product-area stabilization map that breaks the app into th
 - TASK-026 Audio waveforms on timeline clips
 - TASK-065 Audio volume controls per clip/track
 - FEATURE-084 Timeline multi-select + snap additions
+- TASK-209 Edit: Investigate inspector-rail.spec.ts 8-failure layout cluster
 - ~~TASK-077~~ Camera playback in Edit compositor
 - ~~TASK-114~~ Camera source/timing parity with Record preview
 - ~~TASK-115~~ Camera layout/visibility parity with Record preview
@@ -948,6 +941,8 @@ Create and maintain a product-area stabilization map that breaks the app into th
 - TASK-050 Preview: Switch to PixiJS VideoSource
 - TASK-052 WebCodecs pipeline
 - TASK-054 NVENC hardware encoding
+- TASK-208 Export: Investigate export-tab.spec.ts 3-failure cluster
+- TASK-215 Export: Gate fresh-take review-to-export truth after Record fixes
 - ~~BUG-014~~ WebCodecs bitrate config rejected
 
 #### Operating rule
@@ -973,6 +968,97 @@ Priority tie-breaker:
 #### Why this matters
 
 This keeps Rough Cut focused on becoming useful and reliable for the end user across the whole workflow instead of looking locally polished in one surface while the rest of the journey still feels unstable.
+
+---
+
+### TASK-213: Record: Audit visible sidebar controls for real vs placeholder behavior
+
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-25) | **Depends on:** ~~TASK-188~~
+
+#### Problem
+
+- The Record sidebar is now a real product surface in the saved-take review flow, but it mixes mature controls, partially trustworthy controls, and explicit placeholders.
+- `TASK-188` established the rule that already-visible sidebar controls must become real or be clearly de-scoped before more garnish breadth is added, but that rule still needed an actual audit tied to the code.
+- Without an audit, new work can keep landing next to placeholder categories and weak controls without clarifying which visible affordances are trustworthy today.
+
+#### Goal
+
+Produce a concrete inventory of the currently visible Record sidebar categories, classify each one as real, weak/partial, or placeholder, and use that inventory to drive follow-up sequencing.
+
+#### Audit Snapshot (2026-04-25)
+
+**Real enough to keep visible now**
+
+- `Destinations`
+  - Backed by `RecordDestinationPresetsPanel.tsx`
+  - Visible preset buttons are wired to `onDestinationPresetChange`
+- `Templates`
+  - Backed by `RecordTemplatesPanel.tsx`
+  - Visible template cards are wired to `onTemplateChange` and update resolution via `handleSelectTemplate`
+- `Align`
+  - Backed by `AlignmentToolbar`
+  - Real interaction, but only enabled when a region is selected
+- `Background`
+  - Backed by `RecordBackgroundPanel.tsx`
+  - Real controls for color, gradient, padding, corners, inset, and shadow
+- `Camera`
+  - Backed by `RecordCameraPanel.tsx`
+  - Real controls for visibility, shape, aspect, size, padding, inset, and layout markers/presets
+- `Focus`
+  - Backed by `RecordCropPanel.tsx`
+  - Real crop/focus flow for the screen region
+- `Zoom`
+  - Backed by `RecordZoomPanel.tsx`
+  - Real auto-zoom, cursor-follow, and regenerate flow
+- `Cursor`
+  - Backed by `RecordCursorPanel.tsx`
+  - Real style/effect/size/sound controls
+- `Captions`
+  - Backed by `RecordCaptionsPanel.tsx`
+  - Real editing/style surface; generation is gated by asset availability and backend support rather than being a fake control
+
+**Weak / partial and needs honesty checks**
+
+- `Templates`
+  - The picker is wired, but broader preset-application confidence still belongs to `TASK-121`
+- `Destinations`
+  - The visible preset selector is real, but downstream review/export linkage remains broader product work
+- `Camera`
+  - Layout snapshots and presets are visible and wired, but full multi-layout authoring depth still belongs to `TASK-092` and `TASK-159`
+- `Captions`
+  - The panel is real, but “Generate captions” depends on the actual AI/captured-asset path being available; this should stay honest in copy and disabled states
+
+**Explicit placeholders that should not be treated as finished product surface**
+
+- `Highlights`
+  - `RecordRightPanel.tsx` renders `panel: <PlaceholderText />`
+  - This is an exposed placeholder and should be treated as priority honesty debt mapped to `TASK-090`
+- `Titles`
+  - `RecordRightPanel.tsx` renders `panel: <PlaceholderText />`
+  - This is an exposed placeholder and should be treated as priority honesty debt mapped to `TASK-091`
+
+#### Code Evidence
+
+- Sidebar categories are declared in `apps/desktop/src/renderer/features/record/RecordRightPanel.tsx`
+- Explicit placeholder rendering lives at the `highlights` and `titles` category entries, both using `PlaceholderText` (`Coming soon`)
+- The live sidebar is only shown for saved takes in `apps/desktop/src/renderer/features/record/RecordTab.tsx`
+
+#### Follow-up Ordering From This Audit
+
+1. Treat `Highlights` and `Titles` as the clearest visible honesty debt because they are literal placeholders in a visible inspector.
+2. Keep `TASK-121`, `TASK-092`, `TASK-159`, and caption-path work focused on making already-exposed controls trustworthy before adding new sidebar breadth.
+3. When a control is conditionally unavailable, prefer truthful disabled states and copy over vague affordances that look implemented.
+4. Do not count a sidebar category as “done” until its output survives into playback and export, not just local inspector state.
+
+#### Next Steps
+
+- Decide whether `Highlights` and `Titles` should be implemented next or temporarily hidden until `TASK-090` / `TASK-091` move into the active lane.
+- Verify that `Templates`, `Destinations`, `Camera`, and `Captions` remain truthful in disabled/error states, not just in happy-path UI wiring.
+- Use this audit as the gate before opening more Record-sidebar feature tasks.
+
+#### Why this matters
+
+The sidebar is already part of the product the user can see and click. Literal placeholders in that surface are more damaging than missing hidden features, because they teach the user not to trust the inspector. This task keeps the visible sidebar honest before more breadth is added.
 
 ---
 
@@ -1278,9 +1364,9 @@ Standalone 10 s ffmpeg run with the exact final args produces 591 frames over 10
 
 ---
 
-### TASK-196: Record: Replace Linux recording tray with capture-safe floating Stop pill
+### ~~TASK-196~~: ~~Record: Replace Linux recording tray with capture-safe floating Stop pill~~
 
-**Priority:** P1 | **Status:** IN PROGRESS (implemented 2026-04-25, awaiting visual verify) | **Depends on:** TASK-010
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25) | **Depends on:** TASK-010
 
 #### Problem
 
@@ -1296,7 +1382,7 @@ Standalone 10 s ffmpeg run with the exact final args produces 591 frames over 10
 
 - Stop relying on `Tray` for transient recording state on Linux. The Electron Tray API is not reliable enough on KDE Plasma (and other libappindicator-backed panels) to destroy or refresh on demand in Electron 35.
 - Replace it with a small frameless `BrowserWindow` ("Stop pill"): 180×40, always-on-top, transparent background, red pulsing dot + "Stop Recording" button. `BrowserWindow.destroy()` is rock-solid on every desktop environment, sidestepping the bug entirely.
-- Place the pill on a display whose bounds do NOT intersect the captured region, so it never appears in the recording. Single-monitor users (no capture-safe display) get no visible pill — they still have the existing global shortcut `Ctrl+Shift+Esc` and the desktop notification.
+- Place the pill on a display whose bounds do NOT intersect the captured region, so it never appears in the recording. Single-monitor users (no capture-safe display) get no visible pill and stop via the existing global shortcut `Ctrl+Shift+Esc`.
 - Keep the existing `Tray` path for macOS / Windows where it works correctly.
 
 #### Scope of this commit
@@ -1309,16 +1395,15 @@ Standalone 10 s ffmpeg run with the exact final args produces 591 frames over 10
   - The pill click invokes `window.roughcut.panelStopRecording()` via the existing preload, so it routes through the same IPC path as every other Stop surface.
   - Recording notification body no longer references the (non-existent on Linux) tray icon.
 
-#### Awaiting visual verify
+#### Verification
 
-- DP-0 capture → pill appears top-center on DP-2; click stop → pill disappears, no stray indicator.
-- DP-2 capture → pill appears on DP-0.
-- Single-display fallback (one monitor) → log line `Stop pill skipped — no capture-safe display` and Ctrl+Shift+Esc still stops cleanly.
-- App quit (Ctrl+Q) during recording → pill disappears before the process exits.
+- Runtime log now shows repeated create/destroy cycles on the two-display setup, e.g. `Stop pill created at (2790,16) on display id=3 (capture on {"x":0,"y":0,"width":1920,"height":1080})` followed by `Stop pill destroyed.` in `.logs/app-runtime.log`.
+- Runtime log also shows the single-display fallback path: `Stop pill skipped — no capture-safe display`.
+- Added `apps/desktop/src/main/recording/recording-session-manager-stop-pill.test.mjs` to guard the Linux stop-control routing, `createTray()` Linux no-op, and Stop-pill cleanup on normal/quit paths.
+- Removed the now-dead Linux tray branches from `createTray()` / `destroyTrayIfAny()` so Linux no longer carries the stale AppIndicator workaround code path.
 
 #### Follow-ups (after verify lands DONE)
 
-- Remove the now-dead Linux branches inside `createTray()` / `destroyTrayIfAny()` (file-path swap, transparent-image hide path, singleton reuse) and the `writeTrayIconFile` / `RED_CIRCLE_DATA_URL` / `TRANSPARENT_16_DATA_URL` helpers if no other call site needs them.
 - Decide whether the pill should expand to expose timer + pause when those features land.
 
 #### Key files
@@ -1792,7 +1877,7 @@ ffmpeg \
 - [x] Unmute compositor video on play — `compositor.play()` sets `video.muted = false` (2026-04-11)
 - [x] Fix Edit tab playhead — `_syncLoop` falls back to compositor video time (2026-04-11)
 - [x] Fix `media://` protocol handler — switched to `net.fetch` (fixes ReadableStream locking) (2026-04-11)
-- [ ] Add volume controls to playback UI
+- [ ] Add volume controls to playback UI — slider + mute landed in Record-tab timeline header (transport store `previewVolume`/`previewMuted` → compositor); awaits ear verification (TASK-199, 2026-04-25)
 
 #### Key Files
 
@@ -1877,9 +1962,9 @@ Several downstream tasks depend on this being the AI paradigm:
 
 ---
 
-### TASK-197: Record: Stop baking Rough Cut UI into Linux/X11 captures
+### ~~TASK-197~~: ~~Record: Stop baking Rough Cut UI into Linux/X11 captures~~
 
-**Priority:** P1 | **Status:** IN PROGRESS (2026-04-25) | **Depends on:** TASK-196
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25) | **Depends on:** TASK-196
 
 #### Problem
 
@@ -1976,88 +2061,87 @@ TASK-197 fully resolves the visible artifact with low cost and surgery. TASK-198
 
 ---
 
-### TASK-206: Tests: Re-baseline e2e under updated 60s test.timeout
+### ~~TASK-206~~: Tests: Re-baseline e2e under updated 60s test.timeout
 
-**Priority:** P0 | **Status:** TODO | **Depends on:** -
+**Priority:** P0 | **Status:** ✅ DONE (2026-04-25) | **Depends on:** -
 
-#### Problem
+#### Resolution
 
-Full Playwright suite was run on 2026-04-25 (`.logs/e2e-2026-04-25.log`, 32.9 min): **104 passed, 101 failed, 4 skipped**. Of the 101 failures, **50 ended at exactly 30.0–31.6 s** — the global `test.timeout` cliff.
+- Re-ran `pnpm test:e2e` after `playwright.config.ts` was updated to `timeout: 60_000`.
+- New baseline: **130 passed, 77 failed, 4 skipped** in **20.8m**.
+- The old 2026-04-25 baseline (`.logs/e2e-2026-04-25.log`) was **104 passed, 101 failed, 4 skipped** in **32.9m**.
+- Net effect of the re-baseline: **26 fewer failures** and **26 more passes**.
 
-`playwright.config.ts` was updated to `test.timeout: 60_000` AFTER the e2e run was started. Playwright loads the config at process start, so the run used the old 30 s timeout. Some failures are timeout-only and may already be fixed.
+#### What changed
 
-#### Scope
+- `record-tab.spec.ts` shrank from **13 failures -> 9**.
+- `export-tab.spec.ts` shrank from **8 failures -> 3**.
+- Entire timeout-only clusters disappeared from `record-playback-canvas.spec.ts`, `record-playhead-decoupling.spec.ts`, `record-project-open-duration-repair.spec.ts`, `record-recovery-relaunch.spec.ts`, `record-reopen-export.spec.ts`, `record-shutdown-paths.spec.ts`, `record-space-playback.spec.ts`, `record-config-persistence.spec.ts`, `record-audio-import-parity.spec.ts`, and `record-append-takes.spec.ts`.
+- `preview-debug.spec.ts` also flipped green under the rerun.
+- One new red spec appeared in the rerun: `record-no-baked-ui.spec.ts`.
 
-- Re-run `pnpm test:e2e` (or `xvfb-run` if headless) with the current `playwright.config.ts`.
-- Diff the new failure list against `.logs/e2e-2026-04-25.log` to identify which clusters were timeout-only.
-- Update the dependent tasks (TASK-207..TASK-211) — close clusters that disappear, narrow scope on the rest.
+#### Remaining signal
+
+- About **22 remaining failures still end around 30-31.8 s**. Those are no longer explained by Playwright's old global 30 s timeout cliff; they now point to spec-local waits/assertions or app-level hangs that need focused follow-up.
+- The downstream cluster tasks were updated to the rerun counts below.
 
 #### Key files
 
 - `.logs/e2e-2026-04-25.log` — pre-fix baseline
 - `playwright.config.ts` — current `timeout: 60_000`
+- Playwright rerun output captured in this session via `pnpm test:e2e`
 
 #### Why this matters
 
-Five downstream investigations (TASK-207..204) are sized off this baseline. Without re-running, the team will spend cycles on failures that are already gone.
+The rerun removed the timeout-only noise floor and gives the team a trustworthy current baseline. Downstream investigations can now focus on real regressions instead of stale 30 s startup victims.
 
 ---
 
-### TASK-207: Record: Investigate record-tab.spec.ts 13-failure cluster
+### ~~TASK-207~~: Record: Investigate record-tab.spec.ts 9-failure cluster
 
-**Priority:** P1 | **Status:** TODO | **Depends on:** TASK-206
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-25) | **Depends on:** TASK-206
 
-#### Problem
+#### Resolution
 
-`tests/electron/record-tab.spec.ts` has **13 failing subtests** in the 2026-04-25 baseline — the largest single-file cluster. Affected areas span the core Record surface:
+- Fixed the shared record-mode gating tooltip regression in `RecordTab.tsx` so the REC button correctly directs window-mode users to the setup panel when no compatible source is selected.
+- Hardened `@rough-cut/frame-resolver` against clips missing `keyframes` / `effects`, then rebuilt the package so the renderer consumed the updated `dist/` entrypoint.
+- Restored the Record timeline shell on fresh projects instead of hiding it behind `hasRecordedTake`, which brought the default Record surface back in line with the spec.
+- Verification: `tests/electron/record-tab.spec.ts` now passes **24/24**, and `tests/electron/record-source-gating.spec.ts` passes **2/2**.
 
-- `renders the record tab root`
-- `shows the zoom-to-cursor control` / `shows the record button`
-- `record controls update the shared recording config store`
-- `record mode switches clear incompatible capture source and gate REC`
-- `camera layout snapshots change the preview by playhead position`
-- `clicking a camera layout marker activates the Camera inspector`
-- `camera layout preset buttons add template-driven snapshots`
-- `delete removes the selected camera layout marker`
-- `dragging a camera layout marker updates its frame`
-- `preset buttons update the selected camera layout marker instead of adding a new one`
-- `captions are available in the Record inspector for the active recording`
-- `timeline section is visible`
+#### Root causes
 
-The breadth suggests a regression in the recent Record-tab refactors (TASK-186, TASK-187, TASK-189) rather than 13 independent bugs.
-
-#### First steps
-
-- Re-run the spec under the new `test.timeout: 60_000` to drop any timeout-only victims.
-- Pick one failing subtest (`renders the record tab root` is the cheapest), reproduce locally with `--headed`, identify the missing/changed selector or store key.
-- Check whether one root cause (e.g. a renamed test-id, a missing `__roughcutStores` hook, a removed default mount) explains the whole cluster.
+- One REC-button copy regression after the unified record-flow work made the gating behavior truthful but the guidance misleading.
+- One frame-resolver robustness bug let camera-layout fixtures crash the compositor when a clip shape omitted animation arrays.
+- One conditional render hid the timeline on fresh projects even though the Record UI and tests still treated the timeline as part of the default surface.
 
 #### Key files
 
-- `tests/electron/record-tab.spec.ts`
 - `apps/desktop/src/renderer/features/record/RecordTab.tsx`
-- `apps/desktop/src/renderer/features/record/PanelApp.tsx`
+- `packages/frame-resolver/src/resolve-frame.ts`
+- `packages/frame-resolver/dist/resolve-frame.js`
+- `tests/electron/record-tab.spec.ts`
+- `tests/electron/record-source-gating.spec.ts`
 
 ---
 
-### TASK-208: Export: Investigate export-tab.spec.ts 8-failure cluster
+### TASK-208: Export: Investigate export-tab.spec.ts 3-failure cluster
 
 **Priority:** P1 | **Status:** TODO | **Depends on:** TASK-206
 
 #### Problem
 
-`tests/electron/export-tab.spec.ts` has **8 failing subtests** in the 2026-04-25 baseline. Export is a critical surface — every shipped recording goes through it.
+`tests/electron/export-tab.spec.ts` now has **3 failing subtests** in the rerun baseline after TASK-206. The basic export tab surface is green again; the remaining failures are concentrated in richer behavior:
 
 Companion failures elsewhere in the export pipeline:
 
 - `export-smoke.spec.ts` — 1 failure
-- `record-reopen-export.spec.ts` — 1 failure
+- `record-reopen-export.spec.ts` flipped green in the rerun
 
 #### First steps
 
-- Re-run under TASK-206's updated config first.
-- If the cluster persists, inspect for a shared cause (renamed export trigger, broken IPC handler, missing format dropdown).
-- Cross-check against the recent export-presets work (commits `849ba13` "feat(export): add file size and time estimates", `98fdc1a` "feat(export): add editable export presets").
+- Start with `record destination presets link social framing into export defaults`, because it is the only remaining settings-side failure.
+- Then treat the two preview failures (`active zoom markers`, `camera layout snapshots`) as a shared export-preview parity bug.
+- Keep `export-smoke.spec.ts` in scope because the remaining smoke failure may share the same downstream render/export root cause.
 
 #### Key files
 
