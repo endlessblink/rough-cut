@@ -65,7 +65,7 @@ For Rough Cut, user trust beats feature breadth. The order is: make screen recor
 | 3     | Playback + export  | Stable replay and output flow for freshly recorded projects           | BUG-006, TASK-020, TASK-021, TASK-022, ~~TASK-028~~, ~~TASK-029~~, TASK-112, ~~TASK-067~~, TASK-052, TASK-054                                                                                                                                                                                                                                                                                                |
 | 4     | Record sidebar     | Build the full authoring toolset in the Record sidebar (templates, branding, overlays, annotations, titles, dynamic camera layouts, cursor FX, motion blur, privacy masks, per-segment visibility, AI captions, smart cut) | TASK-121, TASK-032, TASK-089, TASK-090, TASK-091, TASK-092, TASK-125, TASK-127, TASK-128, TASK-130, TASK-131, TASK-132, TASK-149, TASK-150, TASK-155, TASK-156, TASK-157, TASK-158, TASK-159, ~~TASK-122~~, ~~TASK-123~~, ~~TASK-129~~, ~~TASK-151~~, ~~TASK-162~~, ~~TASK-163~~, ~~TASK-160~~, ~~TASK-161~~                                                                                                                               |
 | 5     | Edit               | Deep timeline editing and refinement                                 | TASK-017, TASK-018, TASK-019, TASK-020, TASK-023, TASK-024, TASK-026, TASK-027, TASK-065                                                                                                                                                                                                                                                                                                                                                           |
-| 6     | AI                 | Library ingest, analysis, and rough-cut generation                   | TASK-040, TASK-079, TASK-080, TASK-081, TASK-082, TASK-044, TASK-045, TASK-047, TASK-097                                                                                                                                                                                                                                                                                                                                                           |
+| 6     | AI                 | Library ingest, analysis, and rough-cut generation                   | TASK-040, TASK-079, TASK-081, TASK-082, TASK-044, TASK-045, TASK-047, TASK-097, TASK-080                                                                                                                                                                                                                                                                                                                                                           |
 | 7     | Motion             | Dedicated motion graphics authoring                                  | TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-039                                                                                                                                                                                                                                                                                                                                                                               |
 
 ### Delivery Lines
@@ -272,7 +272,7 @@ To match the stability-first sprint framing above, the app header currently expo
 | TASK-094     | Record: Shareable recording presets and profiles                         | P2       | TODO                     | TASK-086           |
 | TASK-095     | Record: Mobile device capture with device frames                         | P2       | TODO                     | TASK-010           |
 | TASK-216     | Record: Mouse/cursor movement not smooth — drops frames during recording | P2       | IN PROGRESS (2026-04-25) | TASK-010, TASK-193 |
-| TASK-217     | Record: Mouse click sound effect (settings toggle + export keep/disable) | P2       | IN PROGRESS (2026-04-25) | TASK-010, TASK-130    |
+| ~~TASK-217~~ | Record: Mouse click sound effect (settings toggle + export keep/disable) | P2       | ✅ DONE (2026-04-25)     | TASK-010, TASK-130    |
 | ~~TASK-218~~ | ~~Record: Cursor sprite desynced from recorded video (fps unit mismatch)~~ | P0     | ✅ DONE (2026-04-25)     | TASK-010, TASK-101 |
 
 ### Recording Edge Features
@@ -353,11 +353,11 @@ To match the stability-first sprint framing above, the app header currently expo
 
 | ID           | Title                                                                                  | Priority | Status               | Dependencies       |
 | ------------ | -------------------------------------------------------------------------------------- | -------- | -------------------- | ------------------ |
-| FEATURE-078  | AI: ButterCut-inspired library + rough cut generation (epic)                           | P1       | PLANNED              | TASK-040           |
-| TASK-080     | AI: WhisperX audio transcription pipeline (batch ingest, word-level timestamps)        | P1       | IN PROGRESS          | TASK-040, TASK-079 |
 | TASK-081     | AI: Visual frame analysis pipeline (sample frames, describe via vision LLM)            | P1       | PLANNED              | TASK-040, TASK-079 |
 | TASK-082     | AI: Rough cut generator — LLM produces timeline from library + user prompt             | P1       | PLANNED              | TASK-080, TASK-081 |
 | TASK-079     | AI: Library data model — footage + transcripts + visual analysis as first-class entity | P1       | PLANNED              | TASK-002           |
+| TASK-080     | AI: WhisperX audio transcription pipeline (batch ingest, word-level timestamps)        | P1       | PLANNED              | TASK-040, TASK-079 |
+| FEATURE-078  | AI: ButterCut-inspired library + rough cut generation (epic)                           | P1       | PLANNED              | TASK-040           |
 | ~~TASK-083~~ | Compliance: Third-party attribution (WhisperX BSD-4, FFmpeg LGPL) in About/credits     | P2       | ✅ DONE (2026-04-19) | -                  |
 | TASK-040     | AI: Create @rough-cut/ai-bridge package + AIProvider interface                         | P3       | TODO                 | TASK-002           |
 | TASK-041     | AI: AIAnnotation type in project-model                                                 | P3       | TODO                 | TASK-002           |
@@ -1879,7 +1879,6 @@ Ordered by the desired product flow: infrastructure first, then edge features, o
 | Task     | Title                                               | Why later                                     |
 | -------- | --------------------------------------------------- | --------------------------------------------- |
 | TASK-040 | AI bridge package + provider interface              | Infrastructure first                          |
-| TASK-080 | WhisperX transcription pipeline                     | Core AI ingest capability                     |
 | TASK-081 | Visual frame analysis pipeline                      | Core AI ingest capability                     |
 | TASK-082 | Rough cut generator                                 | Depends on transcript + vision metadata       |
 | TASK-044 | Source selector UI                                  | First AI view interaction                     |
@@ -1887,6 +1886,7 @@ Ordered by the desired product flow: infrastructure first, then edge features, o
 | TASK-047 | Apply accepted AI output to timeline                | Connects AI back to core workflow             |
 | TASK-083 | Compliance: third-party attribution                 | Required before shipping marketed AI features |
 | TASK-097 | Record-first captions workflow from captured assets | Bridges Record into AI surface                |
+| TASK-080 | WhisperX transcription pipeline                     | Core AI ingest capability                     |
 | TASK-079 | Library data model                                  | Needed before ingest workflows                |
 
 ### Sprint H — Motion Surface
@@ -1999,37 +1999,6 @@ ffmpeg \
 - Camera: USB webcam has V4L2 corruption issues on this machine (hardware issue, not code)
 
 ---
-
-### FEATURE-078: AI Library + Rough Cut Generation (ButterCut-inspired)
-
-**Priority:** P1 | **Status:** PLANNED (2026-04-12)
-
-#### Inspiration
-
-[ButterCut](https://github.com/barefootford/buttercut) (MIT, by Andrew Ford) demonstrates a workflow where Claude analyzes raw footage (audio transcripts + frame descriptions), then generates editor timelines from a user prompt. rough-cut adopts the same _workflow_, but outputs directly into its native timeline format instead of FCPXML/Premiere XML.
-
-#### Workflow Goal
-
-```
-User:  "Build a new library from /footage/wedding, English"
-AI:    [ingests, transcribes audio + describes frames in parallel, stores metadata]
-User:  "Make a 3-minute rough cut: start with vows, include first dance, end with exit"
-AI:    [produces timeline with clips arranged on V1/A1, ready to refine in Edit tab]
-```
-
-#### Licensing Compliance (MANDATORY — see CLAUDE.md)
-
-- **WhisperX** is **BSD-4-Clause** → promotional/About material must acknowledge the software. Non-blocking but must not be forgotten (TASK-083).
-- **FFmpeg** is already a dependency. Keep using LGPL-only builds. Never enable `--enable-gpl --enable-nonfree` (x264/x265/libfdk-aac) — that would force the entire app to GPL.
-- ButterCut itself is MIT — any code ideas or direct ports are green-lit provided we preserve the upstream copyright notice in files derived from it.
-
-#### Subtasks
-
-- [ ] **TASK-079** — Library data model: project-model extension for `Library` entity (footage refs, transcripts, visual descriptors, metadata). Separate from `Project` but composable (a project can reference libraries).
-- [ ] **TASK-080** — WhisperX transcription pipeline (worker/utilityProcess, batch mode, word-level timestamps stored alongside assets). Supersedes TASK-042 scope.
-- [ ] **TASK-081** — Visual frame analysis pipeline: sample frames at configurable interval, send to vision LLM, store descriptions per timestamp.
-- [ ] **TASK-082** — Rough cut generator: given a library + natural-language prompt, LLM produces a list of `{assetId, inPoint, outPoint, track}` entries that become real Clips in the store.
-- [x] **TASK-083** — Credits screen + README attribution for WhisperX; LGPL notice if/when FFmpeg is bundled in the installer.
 
 ### ~~TASK-083~~: Compliance: Third-party attribution (WhisperX BSD-4, FFmpeg LGPL) in About/credits
 
@@ -2424,9 +2393,31 @@ Option 1 is preferable but a larger lift. Option 2 is honest.
 
 ---
 
+### TASK-079: AI: Library data model — footage + transcripts + visual analysis as first-class entity
+
+**Priority:** P1 | **Status:** PLANNED
+
+Add the first standalone library primitives to `@rough-cut/project-model` so AI ingest work has a stable shape before pipeline code lands.
+
+**Scope:**
+
+- Add `Library`, `LibrarySource`, transcript-segment, and visual-analysis model types
+- Keep libraries separate from `ProjectDocument`, but allow projects to reference external libraries
+- Update Zod schemas, factories, and migrations so older projects keep loading cleanly
+
+**Initial implementation (2026-04-15):**
+
+- Added standalone library-related types and factory helpers in `packages/project-model/src`
+- Added `project.libraryReferences` so projects can point at external library documents without embedding them
+- Bumped schema version and added a migration that backfills empty library references for existing project files
+
+**Key files:** `packages/project-model/src/{types,schemas,factories,migrations}.ts`
+
+---
+
 ### TASK-080: AI: WhisperX audio transcription pipeline (batch ingest, word-level timestamps)
 
-**Priority:** P1 | **Status:** IN PROGRESS (2026-04-15)
+**Priority:** P1 | **Status:** PLANNED
 
 Start the transcription pipeline on top of the new library model without committing to final WhisperX worker orchestration yet.
 
@@ -2448,25 +2439,36 @@ Start the transcription pipeline on top of the new library model without committ
 
 ---
 
-### TASK-079: AI: Library data model — footage + transcripts + visual analysis as first-class entity
+### FEATURE-078: AI Library + Rough Cut Generation (ButterCut-inspired)
 
-**Priority:** P1 | **Status:** PLANNED
+**Priority:** P1 | **Status:** PLANNED (2026-04-12)
 
-Add the first standalone library primitives to `@rough-cut/project-model` so AI ingest work has a stable shape before pipeline code lands.
+#### Inspiration
 
-**Scope:**
+[ButterCut](https://github.com/barefootford/buttercut) (MIT, by Andrew Ford) demonstrates a workflow where Claude analyzes raw footage (audio transcripts + frame descriptions), then generates editor timelines from a user prompt. rough-cut adopts the same _workflow_, but outputs directly into its native timeline format instead of FCPXML/Premiere XML.
 
-- Add `Library`, `LibrarySource`, transcript-segment, and visual-analysis model types
-- Keep libraries separate from `ProjectDocument`, but allow projects to reference external libraries
-- Update Zod schemas, factories, and migrations so older projects keep loading cleanly
+#### Workflow Goal
 
-**Initial implementation (2026-04-15):**
+```
+User:  "Build a new library from /footage/wedding, English"
+AI:    [ingests, transcribes audio + describes frames in parallel, stores metadata]
+User:  "Make a 3-minute rough cut: start with vows, include first dance, end with exit"
+AI:    [produces timeline with clips arranged on V1/A1, ready to refine in Edit tab]
+```
 
-- Added standalone library-related types and factory helpers in `packages/project-model/src`
-- Added `project.libraryReferences` so projects can point at external library documents without embedding them
-- Bumped schema version and added a migration that backfills empty library references for existing project files
+#### Licensing Compliance (MANDATORY — see CLAUDE.md)
 
-**Key files:** `packages/project-model/src/{types,schemas,factories,migrations}.ts`
+- **WhisperX** is **BSD-4-Clause** → promotional/About material must acknowledge the software. Non-blocking but must not be forgotten (TASK-083).
+- **FFmpeg** is already a dependency. Keep using LGPL-only builds. Never enable `--enable-gpl --enable-nonfree` (x264/x265/libfdk-aac) — that would force the entire app to GPL.
+- ButterCut itself is MIT — any code ideas or direct ports are green-lit provided we preserve the upstream copyright notice in files derived from it.
+
+#### Subtasks
+
+- [ ] **TASK-079** — Library data model: project-model extension for `Library` entity (footage refs, transcripts, visual descriptors, metadata). Separate from `Project` but composable (a project can reference libraries).
+- [ ] **TASK-080** — WhisperX transcription pipeline (worker/utilityProcess, batch mode, word-level timestamps stored alongside assets). Supersedes TASK-042 scope.
+- [ ] **TASK-081** — Visual frame analysis pipeline: sample frames at configurable interval, send to vision LLM, store descriptions per timestamp.
+- [ ] **TASK-082** — Rough cut generator: given a library + natural-language prompt, LLM produces a list of `{assetId, inPoint, outPoint, track}` entries that become real Clips in the store.
+- [x] **TASK-083** — Credits screen + README attribution for WhisperX; LGPL notice if/when FFmpeg is bundled in the installer.
 
 ---
 
@@ -3040,24 +3042,27 @@ This is quality-of-life work, not a recording-readiness blocker. But it removes 
 
 ---
 
-### TASK-217: Record: Mouse click sound effect (settings toggle + export keep/disable)
+### TASK-217: Record: Mouse click sound effect
 
-**Priority:** P2 | **Status:** IN PROGRESS (2026-04-25) | **Depends on:** TASK-010, TASK-130
+**Status**: Todo
+**Priority:** P2 | **Status:** ✅ DONE (2026-04-25) | **Depends on:** TASK-010, TASK-130
 
-#### Progress
+#### Completed
 
 - Added a Record-side cursor toggle for `clickSoundEnabled` so the sound can be enabled per recording presentation.
 - Wired Record playback to the new click-sound playback hook so review playback can emit the same synthesized click sound users hear in export.
-- Added an Export-side `keepClickSounds` checkbox so exports can keep or suppress synthesized click SFX without mutating the source recording's cursor settings.
-- Mixed synthesized click audio directly into exported PCM windows, gated by both `cursor.clickSoundEnabled` and `exportSettings.keepClickSounds`.
-- Added focused coverage for the desktop click-frame timeline helper and kept the export-renderer click-sound tests green.
+- Added an Export-side `keepClickSounds` toggle so exports can keep or suppress synthesized click SFX without mutating the source recording's cursor settings.
+- Added `exportSettings.keepClickSounds` to the shared project model with a default-on migration-safe normalization path.
+- Kept the WebCodecs export path gated by both `cursor.clickSoundEnabled` and `exportSettings.keepClickSounds`.
+- Fixed the Electron/main-process export finalize fallback so click-only exports still get an audio track even when the source recording itself is silent.
+- Added end-to-end Electron coverage that proves a click-enabled take previews audibly in Record and respects the Export keep/disable toggle in a real render flow.
 
 #### Verification
 
-- `pnpm --filter @rough-cut/desktop test`
+- `pnpm --filter @rough-cut/project-model test`
 - `pnpm --filter @rough-cut/desktop typecheck`
 - `pnpm --filter @rough-cut/export-renderer test`
-- `pnpm --filter @rough-cut/export-renderer typecheck`
+- `pnpm exec playwright test tests/electron/click-sound.spec.ts --workers=1`
 
 #### Key files
 
@@ -3066,12 +3071,11 @@ This is quality-of-life work, not a recording-readiness blocker. But it removes 
 - `apps/desktop/src/renderer/hooks/use-click-sound-playback.ts`
 - `apps/desktop/src/renderer/hooks/use-click-sound-playback.test.ts`
 - `apps/desktop/src/renderer/features/export/ExportTab.tsx`
-- `packages/export-renderer/src/{audio-export,click-sound-mix,click-sound-synth}.ts`
-- `packages/export-renderer/src/click-sound-mix.test.ts`
-
-#### Remaining follow-up
-
-- Add end-to-end coverage that proves a click-enabled take previews audibly in Record and respects the Export keep/disable checkbox in a real render flow.
+- `apps/desktop/src/main/index.mjs`
+- `packages/export-renderer/src/audio-export.ts`
+- `packages/export-renderer/src/audio-export.test.ts`
+- `packages/project-model/src/{types,schemas,factories}.ts`
+- `tests/electron/click-sound.spec.ts`
 
 ---
 
