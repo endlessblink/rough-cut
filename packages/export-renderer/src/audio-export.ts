@@ -1,3 +1,4 @@
+import { resolveRecordingVisibility } from '@rough-cut/project-model';
 import type { Asset, Clip, ProjectDocument, Track } from '@rough-cut/project-model';
 import {
   ALL_FORMATS,
@@ -115,6 +116,9 @@ export function collectClickSoundExportEvents(
         if (event.type !== 'down') continue;
         const sourceProjectFrame = Math.round((event.frame / eventsFps) * frameRate);
         if (sourceProjectFrame < clip.sourceIn || sourceProjectFrame >= clip.sourceOut) continue;
+        if (!resolveRecordingVisibility(asset.presentation?.visibilitySegments, sourceProjectFrame).clicksVisible) {
+          continue;
+        }
 
         const timelineFrame = clip.timelineIn + (sourceProjectFrame - clip.sourceIn);
         if (timelineFrame < clip.timelineIn || timelineFrame >= clip.timelineOut) continue;

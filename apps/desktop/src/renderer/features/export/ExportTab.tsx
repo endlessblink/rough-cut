@@ -330,8 +330,8 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
 
     return {
       filePath: cameraAsset.filePath,
-      camera: recordingAsset?.presentation?.camera ?? createDefaultCameraPresentation(),
-      cameraFrame: recordingAsset?.presentation?.cameraFrame,
+      camera: frame.cameraPresentation ?? recordingAsset?.presentation?.camera ?? createDefaultCameraPresentation(),
+      cameraFrame: frame.cameraFrame ?? recordingAsset?.presentation?.cameraFrame,
       clipTimelineIn: cameraClip?.timelineIn ?? 0,
       clipSourceIn: cameraClip?.sourceIn ?? 0,
     };

@@ -23,6 +23,15 @@ type RecordingResult = {
   cameraFilePath?: string;
 };
 
+type CameraPreviewState = {
+  videoExists: boolean;
+  videoPaused: boolean | null;
+  videoReadyState: number | null;
+  videoWidth: number | null;
+  videoHeight: number | null;
+  trackStates: string[];
+};
+
 const DEBUG_SOURCE: CaptureSource & { displayId: string | null; thumbnailDataUrl: string } = {
   id: 'screen:camera-artifact:0',
   type: 'screen',
@@ -84,6 +93,23 @@ async function waitForRecordedResult(
 
   await expect.poll(getResult, { timeout: 30_000 }).not.toBeNull();
   return (directResult ?? (await getResult())) as RecordingResult;
+}
+
+async function readCameraPreviewState(
+  panelPage: import('@playwright/test').Page,
+): Promise<CameraPreviewState> {
+  return panelPage.evaluate(() => {
+    const video = document.querySelector('[data-testid="panel-camera-preview-video"]') as HTMLVideoElement | null;
+    const stream = (video?.srcObject as MediaStream | null) ?? null;
+    return {
+      videoExists: Boolean(video),
+      videoPaused: video?.paused ?? null,
+      videoReadyState: video?.readyState ?? null,
+      videoWidth: video?.videoWidth ?? null,
+      videoHeight: video?.videoHeight ?? null,
+      trackStates: stream?.getTracks().map((track) => track.readyState) ?? [],
+    } satisfies CameraPreviewState;
+  });
 }
 
 test.describe('Record camera artifact', () => {
@@ -287,6 +313,7 @@ test.describe('Record camera artifact', () => {
     electronApp,
   }) => {
     test.setTimeout(120_000);
+    test.skip(process.platform !== 'linux', 'This regression gate covers the Linux camera-preview failure mode.');
 
     const debugSources = [
       DEBUG_SOURCE,
@@ -391,6 +418,7 @@ test.describe('Record camera artifact', () => {
         'true',
         { timeout: 15_000 },
       );
+      await expect(panelPage.locator('[data-testid="panel-camera-preview-video"]')).toBeVisible({ timeout: 15_000 });
       await expect(panelPage.locator('[data-testid="panel-source-select"]')).toHaveValue(
         debugSources[0]!.id,
         { timeout: 15_000 },
@@ -419,6 +447,14 @@ test.describe('Record camera artifact', () => {
         )
         .toContain('live');
 
+      await expect
+        .poll(() => readCameraPreviewState(panelPage), { timeout: 10_000 })
+        .toMatchObject({
+          videoExists: true,
+          videoPaused: false,
+          trackStates: expect.arrayContaining(['live']),
+        });
+
       expect(
         await panelPage.evaluate(
           () => (window as unknown as { __panelDisplayGumCalls: number }).__panelDisplayGumCalls,
@@ -443,6 +479,34 @@ test.describe('Record camera artifact', () => {
           { timeout: 10_000 },
         )
         .toContain('live');
+
+      await expect
+        .poll(() => readCameraPreviewState(panelPage), { timeout: 10_000 })
+        .toMatchObject({
+          videoExists: true,
+          videoPaused: false,
+          trackStates: expect.arrayContaining(['live']),
+        });
+
+      expect(
+        await panelPage.evaluate(
+          () => (window as unknown as { __panelDisplayGumCalls: number }).__panelDisplayGumCalls,
+        ),
+      ).toBe(0);
+
+      await panelPage.locator('[data-testid="panel-source-select"]').selectOption(debugSources[0]!.id);
+      await expect(panelPage.locator('[data-testid="panel-source-select"]')).toHaveValue(
+        debugSources[0]!.id,
+        { timeout: 10_000 },
+      );
+
+      await expect
+        .poll(() => readCameraPreviewState(panelPage), { timeout: 10_000 })
+        .toMatchObject({
+          videoExists: true,
+          videoPaused: false,
+          trackStates: expect.arrayContaining(['live']),
+        });
 
       expect(
         await panelPage.evaluate(

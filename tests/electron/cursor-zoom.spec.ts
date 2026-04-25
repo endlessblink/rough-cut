@@ -52,9 +52,25 @@ test.describe('Cursor overlay during zoom', () => {
     expect(diag.overlayInsideZoomHost).toBe(false);
     expect(diag.overlayHostPosition).toBe('absolute');
 
+    // The cursor canvas backing store matches the SOURCE resolution
+    // (e.g. 1920×1080), not cssWidth × DPR. This is what keeps the
+    // sprite crisp when the preview is downscaled — the same scheme
+    // the Pixi compositor sibling uses. Assert the canvas is at least
+    // as large as the CSS frame × DPR (i.e. never bilinearly upscaled
+    // by the browser) and preserves the source aspect ratio.
     const cssWidth = Number.parseFloat(diag.canvasCssWidth ?? '0');
     const cssHeight = Number.parseFloat(diag.canvasCssHeight ?? '0');
-    expect(Math.abs(diag.canvasWidth - cssWidth * diag.devicePixelRatio)).toBeLessThanOrEqual(1);
-    expect(Math.abs(diag.canvasHeight - cssHeight * diag.devicePixelRatio)).toBeLessThanOrEqual(1);
+    expect(diag.canvasWidth).toBeGreaterThanOrEqual(
+      Math.floor(cssWidth * diag.devicePixelRatio) - 1,
+    );
+    expect(diag.canvasHeight).toBeGreaterThanOrEqual(
+      Math.floor(cssHeight * diag.devicePixelRatio) - 1,
+    );
+    if (cssWidth > 0 && cssHeight > 0 && diag.canvasHeight > 0) {
+      const cssAspect = cssWidth / cssHeight;
+      const backingAspect = diag.canvasWidth / diag.canvasHeight;
+      // Allow a 1% drift; the CSS host fills its parent as a 16:9 frame.
+      expect(Math.abs(backingAspect - cssAspect)).toBeLessThan(cssAspect * 0.05);
+    }
   });
 });

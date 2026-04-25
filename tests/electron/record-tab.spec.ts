@@ -95,6 +95,72 @@ test.describe('Record tab', () => {
     await expect(appPage.locator('[data-testid="record-tab-root"]')).toBeVisible();
   });
 
+  test('wires in-app preflight diagnostics and permission deep links', async ({ appPage }) => {
+    await appPage.evaluate(async () => {
+      const roughcut = (window as unknown as { roughcut: Record<string, any> }).roughcut;
+
+      await roughcut.debugSetRecordingPreflightStatus({
+        platform: 'darwin',
+        requiresFullRelaunch: true,
+        screenCapture: {
+          status: 'attention',
+          detail: 'Screen Recording permission is still blocked.',
+          canOpenSettings: true,
+        },
+        microphone: {
+          status: 'granted',
+          detail: 'Ready.',
+          canOpenSettings: true,
+        },
+        camera: {
+          status: 'not-required',
+          detail: 'Camera is optional for this test.',
+          canOpenSettings: false,
+        },
+      });
+      await roughcut.debugSetRecordingPermissionSettingsResult({
+        screenCapture: {
+          opened: true,
+          requiresFullRelaunch: true,
+          message: 'Opened screenCapture',
+        },
+      });
+
+      const originalEnumerateDevices = navigator.mediaDevices.enumerateDevices.bind(
+        navigator.mediaDevices,
+      );
+      navigator.mediaDevices.enumerateDevices = async () => [
+        { kind: 'audioinput', deviceId: 'mic-1', label: 'Mic 1', groupId: 'g1' },
+        { kind: 'videoinput', deviceId: 'cam-1', label: 'Cam 1', groupId: 'g2' },
+      ] as MediaDeviceInfo[];
+
+      (window as unknown as { __task143Cleanup?: () => Promise<void> }).__task143Cleanup = async () => {
+        navigator.mediaDevices.enumerateDevices = originalEnumerateDevices;
+        await roughcut.debugSetRecordingPreflightStatus(null);
+        await roughcut.debugSetRecordingPermissionSettingsResult(null);
+      };
+    });
+
+    await expect(appPage.locator('[data-testid="record-preflight-card"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-preflight-card"]')).toContainText(
+      'Recording preflight',
+    );
+
+    await appPage.locator('[data-testid="record-preflight-run"]').click();
+    await expect(appPage.locator('[data-testid="record-preflight-card"]')).toContainText(
+      'Screen Recording permission is still blocked.',
+    );
+    await expect(appPage.locator('[data-testid="record-preflight-runtime"]')).toBeVisible();
+
+    await appPage.locator('[data-testid="record-preflight-open-screenCapture"]').click();
+    await expect(appPage.getByRole('alert').filter({ hasText: 'Opened screenCapture' })).toBeVisible();
+    await expect(appPage.getByRole('alert').filter({ hasText: 'Relaunch required' })).toBeVisible();
+
+    await appPage.evaluate(async () => {
+      await (window as unknown as { __task143Cleanup?: () => Promise<void> }).__task143Cleanup?.();
+    });
+  });
+
   test('shows the zoom-to-cursor control in the zoom panel', async ({ appPage }) => {
     await loadZoomFixture(appPage, { preserveCursorEvents: true });
 
@@ -112,11 +178,40 @@ test.describe('Record tab', () => {
     await expect(appPage.locator('[data-testid="btn-record"]')).toBeVisible();
   });
 
+  test('shows fear-reducing recording affordances before the first take', async ({ appPage }) => {
+    const banner = appPage.locator('[data-testid="record-confidence-banner"]');
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText('Do Not Disturb');
+    await expect(banner).toContainText('5-second test clip');
+    await expect(banner).toContainText('Stop saves the take');
+  });
+
   test('record button opens the pre-recording panel', async ({ appPage, electronApp }) => {
     const panelPromise = electronApp.waitForEvent('window');
     await appPage.locator('[data-testid="btn-record"]').click();
     const panelPage = await panelPromise;
     await expect(panelPage.locator('[data-testid="panel-source-select"]')).toBeVisible();
+  });
+
+  test('panel surfaces DND, test-clip, and safe-stop affordances', async ({
+    appPage,
+    electronApp,
+  }) => {
+    const panelPromise = electronApp.waitForEvent('window');
+    await appPage.locator('[data-testid="record-open-setup-panel"]').click();
+    const panelPage = await panelPromise;
+    await panelPage.waitForLoadState('domcontentloaded');
+
+    const affordances = panelPage.locator('[data-testid="panel-confidence-affordances"]');
+    await expect(affordances).toBeVisible();
+    await expect(affordances).toContainText('Do Not Disturb');
+    await expect(affordances).toContainText('5-second');
+    await expect(affordances).toContainText('Stop safely saves the take');
+    await expect(panelPage.locator('[data-testid="panel-start-test-clip"]')).toBeVisible();
+
+    await appPage.evaluate(async () => {
+      await (window as unknown as { roughcut: { closeRecordingPanel: () => Promise<void> } }).roughcut.closeRecordingPanel();
+    });
   });
 
   test('renders the live camera stream inside the Record PiP frame before recording', async ({

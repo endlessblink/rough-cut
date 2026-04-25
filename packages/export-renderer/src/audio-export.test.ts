@@ -303,6 +303,87 @@ describe('collectClickSoundExportEvents', () => {
       ),
     ).toEqual([]);
   });
+
+  it('skips click sounds inside hidden click segments', () => {
+    const project = createProject({ name: 'click-sound-segment-visibility-test' });
+    const videoTrack = project.composition.tracks.find((track) => track.type === 'video')!;
+    const asset = createAsset('recording', '/tmp/screen.webm', {
+      duration: 120,
+      metadata: { cursorEventsFps: 60 },
+      presentation: {
+        templateId: 'default',
+        zoom: {
+          autoIntensity: 0.5,
+          followCursor: true,
+          followAnimation: 'focused',
+          followPadding: 0.18,
+          markers: [],
+        },
+        cursor: {
+          style: 'default',
+          clickEffect: 'none',
+          sizePercent: 100,
+          clickSoundEnabled: true,
+        },
+        camera: {
+          shape: 'rounded',
+          aspectRatio: '1:1',
+          position: 'corner-br',
+          roundness: 50,
+          size: 100,
+          visible: true,
+          padding: 0,
+          inset: 0,
+          insetColor: '#ffffff',
+          shadowEnabled: true,
+          shadowBlur: 24,
+          shadowOpacity: 0.45,
+        },
+        visibilitySegments: [
+          {
+            id: 'visibility-1' as import('@rough-cut/project-model').RecordingVisibilitySegmentId,
+            frame: 30,
+            cameraVisible: true,
+            cursorVisible: true,
+            clicksVisible: false,
+            overlaysVisible: true,
+          },
+        ],
+      },
+    });
+    const clip = createClip(asset.id, videoTrack.id, {
+      timelineIn: 0,
+      timelineOut: 120,
+      sourceIn: 0,
+      sourceOut: 120,
+    });
+    const nextProject = {
+      ...project,
+      assets: [asset],
+      composition: {
+        ...project.composition,
+        tracks: project.composition.tracks.map((track) =>
+          track.id === videoTrack.id ? { ...track, clips: [clip] } : track,
+        ),
+      },
+    };
+
+    expect(
+      collectClickSoundExportEvents(
+        nextProject,
+        new Map([
+          [
+            asset.id,
+            [
+              { frame: 20, type: 'down' },
+              { frame: 60, type: 'down' },
+            ],
+          ],
+        ]),
+        30,
+      ),
+    ).toEqual([{ timestampSeconds: 1 / 3 }]);
+  });
 });
 
 describe('bundled click sound asset', () => {

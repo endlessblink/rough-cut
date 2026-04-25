@@ -102,7 +102,6 @@ test.describe('Cursor sub-frame interpolation', () => {
       const transportStore = stores?.transport;
 
       const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
-      const nextFrame = () => new Promise((resolve) => window.requestAnimationFrame(() => resolve(null)));
 
       const sampleCursor = (expectedPositions: Array<{ x: number; y: number }>) => {
         const canvases = Array.from(document.querySelectorAll('canvas')) as HTMLCanvasElement[];
@@ -175,28 +174,26 @@ test.describe('Cursor sub-frame interpolation', () => {
         for (let attempt = 0; attempt < 12; attempt += 1) {
           const sample = sampleCursor(expectedPositions);
           if (sample.found) return sample;
-          await nextFrame();
-          await sleep(8);
+          await sleep(16);
         }
         return sampleCursor(expectedPositions);
       };
 
       transportStore?.setState({ playheadFrame: frames.prevProjectFrame, isPlaying: false });
-      await nextFrame();
-      await sleep(40);
+      await sleep(48);
       const pausedPrev = await waitForCursor([frames.prevNorm]);
 
       transportStore?.setState({ playheadFrame: frames.prevProjectFrame, isPlaying: true });
-      await nextFrame();
+      await sleep(16);
       transportStore?.setState({ playheadFrame: frames.currProjectFrame });
-      await nextFrame();
+      await sleep(16);
       await sleep(6);
       const sequentialEarly = await waitForCursor([frames.prevNorm, frames.currNorm]);
       await sleep(26);
       const sequentialLate = await waitForCursor([frames.prevNorm, frames.currNorm]);
 
       transportStore?.setState({ playheadFrame: frames.jumpProjectFrame });
-      await nextFrame();
+      await sleep(16);
       await sleep(6);
       const jumpedEarly = await waitForCursor([frames.jumpNorm]);
       await sleep(26);
@@ -206,6 +203,7 @@ test.describe('Cursor sub-frame interpolation', () => {
 
       return { pausedPrev, sequentialEarly, sequentialLate, jumpedEarly, jumpedLate };
     }, target);
+    console.log('cursor-subframe samples', JSON.stringify(samples));
 
     expect(samples.pausedPrev.found).toBe(true);
     expect(samples.sequentialEarly.found).toBe(true);

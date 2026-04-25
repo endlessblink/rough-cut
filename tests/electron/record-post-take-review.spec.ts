@@ -14,6 +14,19 @@ interface FakeRecordingResult {
   thumbnailPath: string | null;
   cursorEventsPath: string | null;
   cameraFilePath?: string;
+  audioCapture?: {
+    requested: {
+      micEnabled: boolean;
+      sysAudioEnabled: boolean;
+    };
+    resolved: {
+      micSource: string | null;
+      systemAudioSource: string | null;
+    };
+    final: {
+      hasAudio: boolean;
+    };
+  };
 }
 
 test.describe('Record post-take review flow', () => {
@@ -60,6 +73,23 @@ test.describe('Record post-take review flow', () => {
     await appPage.locator('[data-testid="record-post-take-continue-edit"]').click();
     await expect(appPage.locator('[data-testid="edit-tab-root"]')).toBeVisible();
   });
+
+  test('shows multi-source audio review for a mixed saved take', async ({ electronApp, appPage }) => {
+    await navigateToTab(appPage, 'record');
+
+    await fireRecordingAssetReady(electronApp, fakeRecordingResult('audio-review'));
+
+    await expect(appPage.locator('[data-testid="record-audio-review-card"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-audio-review-track-microphone"]')).toHaveAttribute(
+      'data-captured',
+      'true',
+    );
+    await expect(appPage.locator('[data-testid="record-audio-review-track-system"]')).toHaveAttribute(
+      'data-captured',
+      'true',
+    );
+    await expect(appPage.locator('[data-testid="record-audio-review-mixed-note"]')).toBeVisible();
+  });
 });
 
 function fakeRecordingResult(label: string): FakeRecordingResult {
@@ -75,6 +105,14 @@ function fakeRecordingResult(label: string): FakeRecordingResult {
     hasAudio: true,
     thumbnailPath: null,
     cursorEventsPath: null,
+    audioCapture: {
+      requested: { micEnabled: true, sysAudioEnabled: true },
+      resolved: {
+        micSource: 'alsa_input.usb-mic.stereo',
+        systemAudioSource: 'alsa_output.hdmi.monitor',
+      },
+      final: { hasAudio: true },
+    },
   };
 }
 

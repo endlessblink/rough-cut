@@ -25,6 +25,12 @@ import { ModeSelectorRow } from './ModeSelectorRow.js';
 import { useRecordingDeviceOptions } from './use-recording-device-options.js';
 import { useToast } from '../../ui/toast.js';
 import { getRecordingPauseCapability } from '../../../shared/recording-pause-policy.mjs';
+import {
+  assessAudioMeter,
+  getPreviewDuckingState,
+  type AudioMeterSnapshot,
+  type PreviewDuckingState,
+} from './audio-review.js';
 
 // ─── Design tokens ─────────────────────────────────────────────────────────
 
@@ -49,22 +55,24 @@ const R = {
   button: 6,
 } as const;
 
+const TEST_CLIP_DURATION_MS = 5000;
+
 // ─── Audio Level Hook ──────────────────────────────────────────────────────
 
-function useAudioLevel(stream: MediaStream | null, enabled: boolean): number {
-  const [level, setLevel] = useState(0);
+function useAudioLevel(stream: MediaStream | null, enabled: boolean): AudioMeterSnapshot {
+  const [meter, setMeter] = useState<AudioMeterSnapshot>({ level: 0, peak: 0 });
   const ctxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number>(0);
 
   useEffect(() => {
     if (!stream || !enabled) {
-      setLevel(0);
+      setMeter({ level: 0, peak: 0 });
       return;
     }
 
     const audioTracks = stream.getAudioTracks();
     if (audioTracks.length === 0) {
-      setLevel(0);
+      setMeter({ level: 0, peak: 0 });
       return;
     }
 
@@ -81,13 +89,15 @@ function useAudioLevel(stream: MediaStream | null, enabled: boolean): number {
       analyser.getByteTimeDomainData(data);
       // RMS calculation for accurate VU meter
       let sum = 0;
+      let peak = 0;
       for (let i = 0; i < data.length; i++) {
         const v = (data[i]! - 128) / 128;
         sum += v * v;
+        peak = Math.max(peak, Math.abs(v));
       }
       const rms = Math.sqrt(sum / data.length);
       const avg = Math.min(1, rms * 3); // scale up for visibility
-      setLevel(avg);
+      setMeter({ level: avg, peak });
       rafRef.current = requestAnimationFrame(tick);
     };
     tick();
@@ -99,7 +109,7 @@ function useAudioLevel(stream: MediaStream | null, enabled: boolean): number {
     };
   }, [stream, enabled]);
 
-  return level;
+  return meter;
 }
 
 async function warmCameraStream(stream: MediaStream): Promise<void> {
@@ -188,14 +198,34 @@ async function acquireCameraStreamForRecording(
   return null;
 }
 
+function detectPanelPlatform(): 'linux' | 'darwin' | 'win32' | 'other' {
+  const raw = (navigator.platform || navigator.userAgent || '').toLowerCase();
+  if (raw.includes('linux')) return 'linux';
+  if (raw.includes('mac') || raw.includes('darwin')) return 'darwin';
+  if (raw.includes('win')) return 'win32';
+  return 'other';
+}
+
+function formatTestClipRemaining(ms: number): string {
+  const seconds = Math.max(0, Math.ceil(ms / 1000));
+  return `${seconds}s left`;
+}
+
 // ─── Audio Level Meter ──────────────────────────────────────────────────────
 
-function AudioLevelMeter({ level }: { level: number }) {
-  const pct = Math.min(level * 300, 100);
-  const color = level > 0.7 ? '#ef4444' : level > 0.4 ? '#eab308' : '#4ade80';
+function AudioLevelMeter({ meter }: { meter: AudioMeterSnapshot }) {
+  const pct = Math.min(meter.level * 300, 100);
+  const assessment = assessAudioMeter(meter);
+  const color =
+    assessment.severity === 'clipping'
+      ? '#ef4444'
+      : assessment.severity === 'warning'
+        ? '#eab308'
+        : '#4ade80';
 
   return (
     <div
+      data-testid="panel-audio-level-meter"
       style={{
         height: 4,
         background: 'rgba(255,255,255,0.08)',
@@ -330,67 +360,86 @@ function SystemAudioGainSlider({
   enabled,
   percent,
   onChange,
+  duckingPreview,
 }: {
   enabled: boolean;
   percent: number;
   onChange: (next: number) => void;
+  duckingPreview: PreviewDuckingState;
 }) {
   if (!enabled) return null;
 
   return (
-    <div
-      data-testid="panel-system-audio-gain"
-      style={{
-        marginLeft: 12,
-        marginRight: 12,
-        marginTop: 4,
-        marginBottom: 2,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        flexShrink: 0,
-      }}
-    >
-      <span
+    <div>
+      <div
+        data-testid="panel-system-audio-gain"
         style={{
-          fontSize: 10,
-          color: 'rgba(255,255,255,0.55)',
-          letterSpacing: '0.04em',
-          minWidth: 30,
-          userSelect: 'none',
+          marginLeft: 12,
+          marginRight: 12,
+          marginTop: 4,
+          marginBottom: 2,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          flexShrink: 0,
         }}
       >
-        VOL
-      </span>
-      <input
-        data-testid="panel-system-audio-gain-slider"
-        type="range"
-        min={0}
-        max={100}
-        step={1}
-        value={percent}
-        aria-label="System audio volume"
-        onChange={(e) => onChange(Number(e.target.value))}
-        style={{
-          flex: 1,
-          height: 4,
-          accentColor: '#60a5fa',
-          cursor: 'pointer',
-        }}
-      />
-      <span
-        data-testid="panel-system-audio-gain-value"
-        style={{
-          fontSize: 10,
-          fontFamily: 'monospace',
-          color: 'rgba(255,255,255,0.55)',
-          minWidth: 28,
-          textAlign: 'right',
-          userSelect: 'none',
-        }}
-      >
-        {percent}%
-      </span>
+        <span
+          style={{
+            fontSize: 10,
+            color: 'rgba(255,255,255,0.55)',
+            letterSpacing: '0.04em',
+            minWidth: 30,
+            userSelect: 'none',
+          }}
+        >
+          VOL
+        </span>
+        <input
+          data-testid="panel-system-audio-gain-slider"
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={percent}
+          aria-label="System audio volume"
+          onChange={(e) => onChange(Number(e.target.value))}
+          style={{
+            flex: 1,
+            height: 4,
+            accentColor: '#60a5fa',
+            cursor: 'pointer',
+          }}
+        />
+        <span
+          data-testid="panel-system-audio-gain-value"
+          style={{
+            fontSize: 10,
+            fontFamily: 'monospace',
+            color: 'rgba(255,255,255,0.55)',
+            minWidth: 28,
+            textAlign: 'right',
+            userSelect: 'none',
+          }}
+        >
+          {percent}%
+        </span>
+      </div>
+      {duckingPreview.available && (
+        <div
+          data-testid="panel-ducking-preview"
+          data-active={duckingPreview.active ? 'true' : 'false'}
+          style={{
+            marginLeft: 12,
+            marginRight: 12,
+            fontSize: 10,
+            lineHeight: 1.45,
+            color: duckingPreview.active ? '#bfdbfe' : 'rgba(255,255,255,0.56)',
+          }}
+        >
+          Preview only: {duckingPreview.label}
+        </div>
+      )}
     </div>
   );
 }
@@ -991,6 +1040,7 @@ interface DeviceControlsProps {
   systemAudioOptions: SystemAudioSourceOption[];
   selectedSystemAudioSourceId: string | null;
   systemAudioGainPercent: number;
+  duckingPreview: PreviewDuckingState;
   onSelectSystemAudioSource: (id: string | null) => void;
   onMicToggle: () => void;
   onSysAudioToggle: () => void;
@@ -1014,6 +1064,7 @@ function DeviceControls({
   systemAudioOptions,
   selectedSystemAudioSourceId,
   systemAudioGainPercent,
+  duckingPreview,
   onSelectSystemAudioSource,
   onMicToggle,
   onSysAudioToggle,
@@ -1145,6 +1196,7 @@ function DeviceControls({
         enabled={sysAudioEnabled}
         percent={systemAudioGainPercent}
         onChange={onSystemAudioGainChange}
+        duckingPreview={duckingPreview}
       />
     </div>
   );
@@ -1204,6 +1256,79 @@ function LiveSetupNotice({ onReturn }: { onReturn: () => void }) {
       >
         Live controls
       </button>
+    </div>
+  );
+}
+
+function ConfidenceAffordances({
+  canRecord,
+  onStartTestClip,
+}: {
+  canRecord: boolean;
+  onStartTestClip: () => void;
+}) {
+  const platform = detectPanelPlatform();
+  const dndDetail =
+    platform === 'linux'
+      ? 'Rough Cut will pause desktop notification banners automatically while recording.'
+      : 'Use your OS Do Not Disturb before client takes so banners do not interrupt the recording.';
+
+  return (
+    <div
+      data-testid="panel-confidence-affordances"
+      style={{
+        margin: '0 12px 10px',
+        borderRadius: 10,
+        border: '1px solid rgba(96,165,250,0.22)',
+        background: 'rgba(15,23,42,0.82)',
+        padding: '10px 12px',
+        display: 'grid',
+        gap: 8,
+      }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#bfdbfe' }}>Confidence checks</div>
+      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.74)', lineHeight: 1.45 }}>
+        <strong style={{ color: 'rgba(255,255,255,0.92)' }}>Do Not Disturb.</strong> {dndDetail}
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.74)', lineHeight: 1.45 }}>
+          <strong style={{ color: 'rgba(255,255,255,0.92)' }}>Test clip.</strong> Run a 5-second
+          clip to confirm the selected source, mic, camera, and safe save path before the real take.
+        </div>
+        <button
+          type="button"
+          data-testid="panel-start-test-clip"
+          onClick={onStartTestClip}
+          disabled={!canRecord}
+          style={{
+            height: 28,
+            padding: '0 10px',
+            borderRadius: 8,
+            border: '1px solid rgba(96,165,250,0.28)',
+            background: canRecord ? 'rgba(59,130,246,0.14)' : 'rgba(255,255,255,0.06)',
+            color: canRecord ? '#bfdbfe' : 'rgba(255,255,255,0.45)',
+            cursor: canRecord ? 'pointer' : 'default',
+            fontSize: 12,
+            fontFamily: 'inherit',
+            fontWeight: 600,
+            flexShrink: 0,
+          }}
+        >
+          Record 5s test clip
+        </button>
+      </div>
+      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.74)', lineHeight: 1.45 }}>
+        <strong style={{ color: 'rgba(255,255,255,0.92)' }}>Safe stop.</strong> Stop safely saves
+        the take before the panel closes or the app quits.
+      </div>
     </div>
   );
 }
@@ -1545,40 +1670,52 @@ function MiniStopButton({ onStop }: { onStop: () => void }) {
 function MiniController({
   elapsedMs,
   issueLabel,
+  modeLabel,
   onFixIssue,
   onStop,
 }: {
   elapsedMs: number;
   issueLabel: string | null;
+  modeLabel: string | null;
   onFixIssue: (() => void) | null;
   onStop: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const [faded, setFaded] = useState(false);
+  const [visibilityMode, setVisibilityMode] = useState<'active' | 'faded' | 'ghost'>('active');
   const elapsedSeconds = Math.floor(elapsedMs / 1000);
 
   useEffect(() => {
-    const handle = window.setTimeout(() => setFaded(true), 3000);
-    return () => window.clearTimeout(handle);
+    const fadeHandle = window.setTimeout(() => setVisibilityMode('faded'), 2500);
+    const ghostHandle = window.setTimeout(() => setVisibilityMode('ghost'), 5000);
+    return () => {
+      window.clearTimeout(fadeHandle);
+      window.clearTimeout(ghostHandle);
+    };
   }, [elapsedMs, collapsed]);
 
   const wakeController = useCallback(() => {
-    setFaded(false);
+    setVisibilityMode('active');
   }, []);
+
+  const isGhosted = visibilityMode === 'ghost';
+  const isFaded = visibilityMode !== 'active';
 
   return (
     <div
       data-testid="mini-controller"
       onMouseMove={wakeController}
       onMouseEnter={wakeController}
+      onFocusCapture={wakeController}
       style={
         {
           width: collapsed ? 220 : 340,
           height: 56,
-          background: C.bg,
+          background: isGhosted ? 'rgba(12, 15, 22, 0.22)' : C.bg,
           borderRadius: 28,
-          border: `1px solid ${C.border}`,
-          boxShadow: '0 4px 24px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3)',
+          border: isGhosted ? '1px solid rgba(255,255,255,0.06)' : `1px solid ${C.border}`,
+          boxShadow: isGhosted
+            ? '0 2px 10px rgba(0,0,0,0.18)'
+            : '0 4px 24px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3)',
           display: 'flex',
           alignItems: 'center',
           paddingLeft: 20,
@@ -1588,8 +1725,9 @@ function MiniController({
           color: C.text,
           userSelect: 'none',
           WebkitAppRegion: 'drag',
-          opacity: faded ? 0.36 : 1,
-          transition: 'opacity 180ms ease, width 180ms ease',
+          opacity: isGhosted ? 0.1 : isFaded ? 0.26 : 1,
+          transform: isGhosted ? 'translateY(-6px) scale(0.985)' : 'translateY(0) scale(1)',
+          transition: 'background 180ms ease, border-color 180ms ease, box-shadow 180ms ease, opacity 180ms ease, transform 180ms ease, width 180ms ease',
         } as React.CSSProperties
       }
     >
@@ -1613,9 +1751,27 @@ function MiniController({
         {formatElapsed(elapsedSeconds)}
       </span>
 
-      {!collapsed && <PauseUnavailableBadge />}
+      {!collapsed && !isGhosted && <PauseUnavailableBadge />}
 
-      {issueLabel && !collapsed && (
+      {modeLabel && !collapsed && !isGhosted && (
+        <span
+          data-testid="mini-controller-mode-pill"
+          style={{
+            fontSize: 10,
+            color: '#bfdbfe',
+            fontWeight: 700,
+            flexShrink: 0,
+            border: '1px solid rgba(96,165,250,0.32)',
+            background: 'rgba(59,130,246,0.14)',
+            borderRadius: 999,
+            padding: '3px 8px',
+          }}
+        >
+          {modeLabel}
+        </span>
+      )}
+
+      {issueLabel && !collapsed && !isGhosted && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           <span
             data-testid="mini-controller-issue-pill"
@@ -1685,7 +1841,7 @@ function MiniController({
             height: 28,
             borderRadius: 14,
             border: '1px solid rgba(255,255,255,0.08)',
-            background: 'rgba(255,255,255,0.04)',
+            background: isGhosted ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)',
             color: 'rgba(255,255,255,0.72)',
             cursor: 'pointer',
             fontSize: 15,
@@ -1913,6 +2069,7 @@ export function PanelApp() {
   const [recoveringTake, setRecoveringTake] = useState(false);
   const [setupModeDuringRecording, setSetupModeDuringRecording] = useState(false);
   const [closeRequested, setCloseRequested] = useState(false);
+  const [activeCaptureIntent, setActiveCaptureIntent] = useState<'standard' | 'test-clip'>('standard');
   const warningRef = useRef<Record<string, string | null>>({
     mic: null,
     camera: null,
@@ -1927,6 +2084,9 @@ export function PanelApp() {
   const statusRef = useRef<PanelStatus>('idle');
   const closeRequestedRef = useRef(false);
   const previousSelectedSourceIdRef = useRef<string | null>(null);
+  const pendingCaptureIntentRef = useRef<'standard' | 'test-clip'>('standard');
+  const activeCaptureIntentRef = useRef<'standard' | 'test-clip'>('standard');
+  const testClipAutoStopRequestedRef = useRef(false);
 
   useEffect(() => {
     statusRef.current = status;
@@ -2082,7 +2242,14 @@ export function PanelApp() {
   }, [selectedSystemAudioSourceId, showToast, systemAudioOptions]);
 
   // Audio level monitoring from mic stream
-  const audioLevel = useAudioLevel(micStream, micEnabled);
+  const audioMeter = useAudioLevel(micStream, micEnabled);
+  const audioMeterAssessment = assessAudioMeter(audioMeter);
+  const duckingPreview = getPreviewDuckingState({
+    micEnabled,
+    sysAudioEnabled,
+    systemAudioGainPercent,
+    meter: audioMeter,
+  });
 
   // Mic toggle with track muting — only mutes the mic stream, not system audio
   const handleMicToggle = useCallback(() => {
@@ -2260,12 +2427,20 @@ export function PanelApp() {
 
     const unsubStatus = window.roughcut.onSessionStatusChanged((s) => {
       if (s === 'recording') {
+        const nextIntent = pendingCaptureIntentRef.current;
+        activeCaptureIntentRef.current = nextIntent;
+        setActiveCaptureIntent(nextIntent);
+        testClipAutoStopRequestedRef.current = false;
         setStatus('recording');
         setSetupModeDuringRecording(false);
         startMediaRecorder();
       } else if (s === 'stopping') {
         stopMediaRecorder();
       } else if (s === 'idle') {
+        pendingCaptureIntentRef.current = 'standard';
+        activeCaptureIntentRef.current = 'standard';
+        testClipAutoStopRequestedRef.current = false;
+        setActiveCaptureIntent('standard');
         setStatus('idle');
         setSetupModeDuringRecording(false);
       }
@@ -2546,6 +2721,16 @@ export function PanelApp() {
     };
   }, [showToast, stream]);
 
+  useEffect(() => {
+    if (status !== 'recording') return;
+    if (activeCaptureIntentRef.current !== 'test-clip') return;
+    if (testClipAutoStopRequestedRef.current) return;
+    if (elapsedMs < TEST_CLIP_DURATION_MS) return;
+
+    testClipAutoStopRequestedRef.current = true;
+    handleStopRecording();
+  }, [elapsedMs, status]);
+
   // ── MediaRecorder helpers ────────────────────────────────────────────────
   // Store latest camera stream in a ref so the IPC callback (which uses [] deps)
   // always sees the current value instead of the stale closure from first render.
@@ -2575,6 +2760,12 @@ export function PanelApp() {
       },
       getCameraStreamTrackStates: () =>
         cameraStreamRef.current?.getTracks().map((t) => t.readyState) ?? [],
+      forceSessionState: (nextStatus: PanelStatus, nextElapsedMs = 0) => {
+        setSetupModeDuringRecording(false);
+        setCountdownSeconds(0);
+        setElapsedMs(nextElapsedMs);
+        setStatus(nextStatus);
+      },
     };
     (window as unknown as { __panelTestHooks?: typeof hooks }).__panelTestHooks = hooks;
     return () => {
@@ -2897,11 +3088,14 @@ export function PanelApp() {
   }, [teardownLocalRecordingResources]);
 
   // ── User action handlers ─────────────────────────────────────────────────
-  const handleStartRecording = () => {
+  const startRecordingWithIntent = (intent: 'standard' | 'test-clip') => {
     const selectedMicLabel =
       selectedMicDeviceId && micOptions.some((option) => option.id === selectedMicDeviceId)
         ? (micOptions.find((option) => option.id === selectedMicDeviceId)?.label ?? null)
         : null;
+
+    pendingCaptureIntentRef.current = intent;
+    testClipAutoStopRequestedRef.current = false;
 
     void (async () => {
       if (!streamRef.current) {
@@ -2940,6 +3134,14 @@ export function PanelApp() {
         systemAudioGainPercent: systemAudioGainPercentRef.current,
       });
     })();
+  };
+
+  const handleStartRecording = () => {
+    startRecordingWithIntent('standard');
+  };
+
+  const handleStartTestClip = () => {
+    startRecordingWithIntent('test-clip');
   };
 
   const handleStopRecording = () => {
@@ -3037,6 +3239,11 @@ export function PanelApp() {
         : connectionIssues.systemAudio
           ? 'Audio offline'
           : null;
+  const testClipRemainingMs = Math.max(0, TEST_CLIP_DURATION_MS - elapsedMs);
+  const miniModeLabel =
+    activeCaptureIntent === 'test-clip'
+      ? `Test clip ${formatTestClipRemaining(testClipRemainingMs)}`
+      : null;
 
   // ─── Mini-controller during recording ─────────────────────────────────
   if (status === 'recording' && !setupModeDuringRecording) {
@@ -3044,6 +3251,7 @@ export function PanelApp() {
       <MiniController
         elapsedMs={elapsedMs}
         issueLabel={miniIssueLabel}
+        modeLabel={miniModeLabel}
         onFixIssue={miniIssueLabel ? handleOpenFixMode : null}
         onStop={handleStopRecording}
       />
@@ -3113,6 +3321,9 @@ export function PanelApp() {
         {status === 'recording' && showDetailedSetup && (
           <LiveSetupNotice onReturn={handleReturnMiniMode} />
         )}
+        {status !== 'recording' && (
+          <ConfidenceAffordances canRecord={canRecord} onStartTestClip={handleStartTestClip} />
+        )}
         <SetupSection recordMode={recordMode} onModeChange={handlePanelModeChange}>
           <SourceSelector
             sources={sources}
@@ -3155,6 +3366,7 @@ export function PanelApp() {
             systemAudioOptions={systemAudioOptions}
             selectedSystemAudioSourceId={selectedSystemAudioSourceId}
             systemAudioGainPercent={systemAudioGainPercent}
+            duckingPreview={duckingPreview}
             onSelectSystemAudioSource={(id) =>
               updateRecordingConfig({
                 selectedSystemAudioSourceId: id,
@@ -3170,7 +3382,34 @@ export function PanelApp() {
           />
 
           {/* Audio level meter — shows when mic is active */}
-          {micEnabled && <AudioLevelMeter level={audioLevel} />}
+          {micEnabled && <AudioLevelMeter meter={audioMeter} />}
+
+          {micEnabled && audioMeterAssessment.detail && (
+            <div
+              data-testid="panel-audio-clipping-warning"
+              data-severity={audioMeterAssessment.severity}
+              style={{
+                marginLeft: 12,
+                marginRight: 12,
+                padding: '8px 10px',
+                borderRadius: 8,
+                border:
+                  audioMeterAssessment.severity === 'clipping'
+                    ? '1px solid rgba(239,68,68,0.26)'
+                    : '1px solid rgba(245,158,11,0.24)',
+                background:
+                  audioMeterAssessment.severity === 'clipping'
+                    ? 'rgba(127,29,29,0.32)'
+                    : 'rgba(245,158,11,0.10)',
+                color:
+                  audioMeterAssessment.severity === 'clipping' ? '#fca5a5' : '#fcd34d',
+                fontSize: 11,
+                lineHeight: 1.45,
+              }}
+            >
+              <strong>{audioMeterAssessment.label}.</strong> {audioMeterAssessment.detail}
+            </div>
+          )}
 
           {/* Mic gain slider — drives PulseAudio source volume so the user
               can attenuate input that's peaking before recording starts. */}
