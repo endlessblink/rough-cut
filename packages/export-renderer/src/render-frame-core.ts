@@ -172,6 +172,16 @@ function drawFrameImage(
   ctx.drawImage(videoFrame, dx, dy, dWidth, dHeight);
 }
 
+function insetRect(rect: { x: number; y: number; width: number; height: number }, inset: number) {
+  const clampedInset = Math.max(0, inset);
+  return {
+    x: rect.x + clampedInset,
+    y: rect.y + clampedInset,
+    width: Math.max(1, rect.width - clampedInset * 2),
+    height: Math.max(1, rect.height - clampedInset * 2),
+  };
+}
+
 function renderLayer(
   ctx: RenderContext2DLike,
   layer: RenderLayer,
@@ -195,6 +205,7 @@ function renderLayer(
   let rectW = canvasWidth;
   let rectH = canvasHeight;
   let crop: RegionCrop | undefined = _screenCrop;
+  let outerScreenRect: { x: number; y: number; width: number; height: number } | null = null;
 
   if (layer.isCamera && renderFrame?.cameraFrame) {
     const cameraRect = {
@@ -219,6 +230,18 @@ function renderLayer(
     rectW = cameraRect.width;
     rectH = cameraRect.height;
     crop = _cameraCrop;
+  } else if (!layer.isCamera && renderFrame?.screenFrame) {
+    outerScreenRect = {
+      x: renderFrame.screenFrame.x * canvasWidth,
+      y: renderFrame.screenFrame.y * canvasHeight,
+      width: renderFrame.screenFrame.w * canvasWidth,
+      height: renderFrame.screenFrame.h * canvasHeight,
+    };
+    const screenRect = insetRect(outerScreenRect, renderFrame.background?.bgPadding ?? 0);
+    rectX = screenRect.x;
+    rectY = screenRect.y;
+    rectW = screenRect.width;
+    rectH = screenRect.height;
   }
 
   const activeEffects = effects.filter((e) => e.enabled);
@@ -236,18 +259,19 @@ function renderLayer(
   const cornerRadius =
     layer.isCamera && renderFrame?.cameraPresentation
       ? getCameraBorderRadius(renderFrame.cameraPresentation, rectW, rectH)
+      : !layer.isCamera && renderFrame?.background
+        ? renderFrame.background.bgCornerRadius
       : roundCorners !== undefined
         ? ((roundCorners.params['radius'] as number | undefined) ?? 12)
         : 0;
 
   if (videoFrame && typeof ctx.drawImage === 'function') {
     if (!layer.isCamera && renderFrame) {
-      ctx.translate(
-        canvasWidth / 2 + renderFrame.cameraTransform.offsetX,
-        canvasHeight / 2 + renderFrame.cameraTransform.offsetY,
-      );
+      const centerX = rectX + rectW / 2;
+      const centerY = rectY + rectH / 2;
+      ctx.translate(centerX + renderFrame.cameraTransform.offsetX, centerY + renderFrame.cameraTransform.offsetY);
       ctx.scale(renderFrame.cameraTransform.scale, renderFrame.cameraTransform.scale);
-      ctx.translate(-canvasWidth / 2, -canvasHeight / 2);
+      ctx.translate(-centerX, -centerY);
     } else {
       ctx.translate(transform.x, transform.y);
       const anchorPx = transform.anchorX * canvasWidth;
@@ -264,6 +288,30 @@ function renderLayer(
     }
 
     drawFrameImage(ctx, videoFrame, crop, rectX, rectY, rectW, rectH);
+
+    if (!layer.isCamera && outerScreenRect && (renderFrame?.background?.bgInset ?? 0) > 0) {
+      const inset = renderFrame?.background?.bgInset ?? 0;
+      ctx.lineWidth = inset * 2;
+      ctx.strokeStyle = renderFrame?.background?.bgInsetColor ?? '#ffffff';
+      if (typeof ctx.roundRect === 'function') {
+        ctx.beginPath();
+        ctx.roundRect(
+          outerScreenRect.x,
+          outerScreenRect.y,
+          outerScreenRect.width,
+          outerScreenRect.height,
+          cornerRadius || 0,
+        );
+        ctx.stroke();
+      } else {
+        ctx.strokeRect(
+          outerScreenRect.x,
+          outerScreenRect.y,
+          outerScreenRect.width,
+          outerScreenRect.height,
+        );
+      }
+    }
   } else {
     ctx.translate(transform.x, transform.y);
     const anchorPx = transform.anchorX * canvasWidth;

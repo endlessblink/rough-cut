@@ -2923,7 +2923,17 @@ This closes another placeholder in the Record UI while preserving the product sp
 
 ### TASK-092: Record: Dynamic camera layout changes within one recording
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P3 | **Status:** PAUSED (2026-04-25)
+
+#### Deferred (2026-04-25)
+
+- Moved out of the current active flow for now because the immediate work landed around camera layout markers and shared preview/export parity, and that is not the next product focus.
+- Resume after the higher-priority non-marker Record work is done.
+
+#### Progress (2026-04-25)
+
+- Shared frame resolution now applies active `cameraLayouts` markers by recording source frame, so downstream render/export consumers match the Record preview.
+- Focused verification passed across frame-resolver tests, export-renderer tests, and targeted Record/Export Playwright camera-layout specs.
 
 #### Problem
 

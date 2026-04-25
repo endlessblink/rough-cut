@@ -32,7 +32,6 @@ const DEFAULT_CURSOR_PRESENTATION: ResolvedCursorPresentation = {
   clickEffect: 'none',
   sizePercent: 100,
   clickSoundEnabled: false,
-  motionBlur: 0,
 };
 
 export interface ResolveFrameOptions {
@@ -100,7 +99,6 @@ function resolveCursorPresentation(
     clickEffect: cursor.clickEffect,
     sizePercent: cursor.sizePercent,
     clickSoundEnabled: cursor.clickSoundEnabled,
-    motionBlur: cursor.motionBlur ?? 0,
   };
 }
 
@@ -211,6 +209,8 @@ export function resolveFrame(
         cameraSourceSize.height,
       )
     : undefined;
+  const background = presentation?.background;
+  const screenFrame = presentation?.screenFrame;
   const cameraPresentation = activeCameraLayout?.camera ?? presentation?.camera ?? findCameraPresentation(project);
   const cameraFrame = activeCameraLayout?.cameraFrame ?? presentation?.cameraFrame;
 
@@ -218,7 +218,8 @@ export function resolveFrame(
     frame,
     width: settings.resolution.width,
     height: settings.resolution.height,
-    backgroundColor: settings.backgroundColor,
+    backgroundColor: background?.bgColor ?? settings.backgroundColor,
+    background,
     layers,
     transitions,
     cameraTransform,
@@ -226,6 +227,7 @@ export function resolveFrame(
     screenCrop,
     cameraCrop,
     cameraPresentation,
+    screenFrame,
     cameraFrame,
   };
 }

@@ -19,6 +19,7 @@ export interface RenderContext2DLike {
   save(): void;
   restore(): void;
   translate(x: number, y: number): void;
+  scale(x: number, y: number): void;
   rotate(angle: number): void;
   fillRect(x: number, y: number, width: number, height: number): void;
   strokeRect(x: number, y: number, width: number, height: number): void;
@@ -162,6 +163,16 @@ export async function renderFrameToCanvasAccurate(
   }
 }
 
+function insetRect(rect: { x: number; y: number; width: number; height: number }, inset: number) {
+  const clampedInset = Math.max(0, inset);
+  return {
+    x: rect.x + clampedInset,
+    y: rect.y + clampedInset,
+    width: Math.max(1, rect.width - clampedInset * 2),
+    height: Math.max(1, rect.height - clampedInset * 2),
+  };
+}
+
 /**
  * Render a single layer as a colored rectangle with a debug label.
  * Applies transform (translate, scale, rotate, opacity) and basic effects.
@@ -202,6 +213,7 @@ function renderLayer(
   let rectY = canvasHeight * 0.1;
   let rectW = canvasWidth * 0.8;
   let rectH = canvasHeight * 0.8;
+  let outerScreenRect: { x: number; y: number; width: number; height: number } | null = null;
 
   if (layer.isCamera && renderFrame?.cameraFrame) {
     const cameraRect = {
@@ -224,6 +236,18 @@ function renderLayer(
     rectY = cameraRect.y;
     rectW = cameraRect.width;
     rectH = cameraRect.height;
+  } else if (!layer.isCamera && renderFrame?.screenFrame) {
+    outerScreenRect = {
+      x: renderFrame.screenFrame.x * canvasWidth,
+      y: renderFrame.screenFrame.y * canvasHeight,
+      width: renderFrame.screenFrame.w * canvasWidth,
+      height: renderFrame.screenFrame.h * canvasHeight,
+    };
+    const screenRect = insetRect(outerScreenRect, renderFrame.background?.bgPadding ?? 0);
+    rectX = screenRect.x;
+    rectY = screenRect.y;
+    rectW = screenRect.width;
+    rectH = screenRect.height;
   }
 
   // Apply scale
@@ -254,6 +278,8 @@ function renderLayer(
   const cornerRadius =
     layer.isCamera && renderFrame?.cameraPresentation
       ? getCameraBorderRadius(renderFrame.cameraPresentation, rectW, rectH)
+      : !layer.isCamera && renderFrame?.background
+        ? renderFrame.background.bgCornerRadius
       : roundCorners !== undefined
         ? ((roundCorners.params['radius'] as number | undefined) ?? 12)
         : 0;
@@ -265,6 +291,14 @@ function renderLayer(
   }
 
   if (videoFrame && typeof ctx.drawImage === 'function') {
+    if (!layer.isCamera && renderFrame) {
+      const centerX = rectX + rectW / 2;
+      const centerY = rectY + rectH / 2;
+      ctx.translate(centerX + renderFrame.cameraTransform.offsetX, centerY + renderFrame.cameraTransform.offsetY);
+      ctx.scale(renderFrame.cameraTransform.scale, renderFrame.cameraTransform.scale);
+      ctx.translate(-centerX, -centerY);
+    }
+
     if (cornerRadius > 0 && typeof ctx.roundRect === 'function' && typeof ctx.clip === 'function') {
       ctx.beginPath();
       ctx.roundRect(rectX, rectY, rectW, rectH, cornerRadius);
@@ -272,6 +306,30 @@ function renderLayer(
     }
 
     ctx.drawImage(videoFrame, rectX, rectY, rectW, rectH);
+
+    if (!layer.isCamera && outerScreenRect && (renderFrame?.background?.bgInset ?? 0) > 0) {
+      const inset = renderFrame?.background?.bgInset ?? 0;
+      ctx.lineWidth = inset * 2;
+      ctx.strokeStyle = renderFrame?.background?.bgInsetColor ?? '#ffffff';
+      if (typeof ctx.roundRect === 'function') {
+        ctx.beginPath();
+        ctx.roundRect(
+          outerScreenRect.x,
+          outerScreenRect.y,
+          outerScreenRect.width,
+          outerScreenRect.height,
+          cornerRadius || 0,
+        );
+        ctx.stroke();
+      } else {
+        ctx.strokeRect(
+          outerScreenRect.x,
+          outerScreenRect.y,
+          outerScreenRect.width,
+          outerScreenRect.height,
+        );
+      }
+    }
   } else {
     // Draw the layer rect
     const color = getLayerColor(trackIndex);

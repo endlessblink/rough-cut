@@ -38,7 +38,6 @@ function makeFrame(): RenderFrame {
       clickEffect: 'none',
       sizePercent: 100,
       clickSoundEnabled: false,
-      motionBlur: 0,
     },
     cameraPresentation: {
       shape: 'rounded',
@@ -128,7 +127,6 @@ describe('renderFrameToCanvasAccurate', () => {
         clickEffect: 'none',
         sizePercent: 100,
         clickSoundEnabled: false,
-        motionBlur: 0,
       },
     };
 
@@ -147,6 +145,81 @@ describe('renderFrameToCanvasAccurate', () => {
     expect(left[1]).toBeLessThan(50);
     expect(right[1]).toBeGreaterThan(200);
     expect(right[0]).toBeLessThan(50);
+  });
+
+  it('renders screen media inside the persisted screen frame over the persisted background', async () => {
+    const canvas = createCanvas(200, 100);
+    const ctx = canvas.getContext('2d');
+    const source = createCanvas(100, 50);
+    const sourceCtx = source.getContext('2d');
+    sourceCtx.fillStyle = '#ff0000';
+    sourceCtx.fillRect(0, 0, 100, 50);
+
+    const frame: RenderFrame = {
+      frame: 0,
+      width: 200,
+      height: 100,
+      backgroundColor: '#123456',
+      background: {
+        bgColor: '#123456',
+        bgGradient: null,
+        bgPadding: 10,
+        bgCornerRadius: 0,
+        bgInset: 0,
+        bgInsetColor: '#ffffff',
+        bgShadowEnabled: false,
+        bgShadowBlur: 0,
+        bgShadowOpacity: 0.25,
+      },
+      layers: [
+        {
+          clipId: 'clip-screen' as ClipId,
+          trackId: 'track-screen' as TrackId,
+          trackIndex: 0,
+          assetId: 'asset-screen' as AssetId,
+          sourceFrame: 0,
+          transform: {
+            x: 0,
+            y: 0,
+            scaleX: 1,
+            scaleY: 1,
+            rotation: 0,
+            anchorX: 0.5,
+            anchorY: 0.5,
+            opacity: 1,
+          },
+          effects: [],
+          isCamera: false,
+        },
+      ],
+      transitions: [],
+      cameraTransform: { scale: 1, offsetX: 0, offsetY: 0 },
+      cursor: {
+        style: 'default',
+        clickEffect: 'none',
+        sizePercent: 100,
+        clickSoundEnabled: false,
+        motionBlur: 0,
+      },
+      screenFrame: { x: 0.25, y: 0.2, w: 0.5, h: 0.5 },
+    };
+
+    await renderFrameToCanvasAccurate(
+      canvas,
+      ctx,
+      frame,
+      30,
+      async () => source as unknown as CanvasImageSource,
+    );
+
+    const backgroundPixel = ctx.getImageData(10, 10, 1, 1).data;
+    const framePixel = ctx.getImageData(60, 35, 1, 1).data;
+    expect(backgroundPixel[0]).toBe(0x12);
+    expect(backgroundPixel[1]).toBe(0x34);
+    expect(backgroundPixel[2]).toBe(0x56);
+    expect(framePixel[0]).toBeGreaterThan(200);
+    expect(framePixel[1]).toBeLessThan(50);
+    expect(framePixel[2]).toBeLessThan(50);
   });
 
   it('skips rendering camera layers when the camera is hidden', async () => {

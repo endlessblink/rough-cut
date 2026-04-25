@@ -233,7 +233,6 @@ describe('resolveFrame', () => {
         clickEffect: 'none',
         sizePercent: 100,
         clickSoundEnabled: false,
-        motionBlur: 0,
       });
     });
 
@@ -247,7 +246,7 @@ describe('resolveFrame', () => {
             followPadding: 0.18,
             markers: [],
           },
-          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false, motionBlur: 0 },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
         },
       });
       const project = createProject({ assets: [asset] });
@@ -266,7 +265,7 @@ describe('resolveFrame', () => {
             followPadding: 0.18,
             markers: [],
           },
-          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false, motionBlur: 0 },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
         },
       });
       const project = createProject({ assets: [asset] });
@@ -287,7 +286,7 @@ describe('resolveFrame', () => {
               { id: 'zm-1' as import('@rough-cut/project-model').ZoomMarkerId, startFrame: 10, endFrame: 50, kind: 'manual' as const, strength: 0.5, focalPoint: { x: 0.5, y: 0.5 }, zoomInDuration: 0, zoomOutDuration: 0 },
             ],
           },
-          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false, motionBlur: 0 },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
         },
       });
       const project = createProject({ assets: [asset] });
@@ -310,7 +309,7 @@ describe('resolveFrame', () => {
               { id: 'zm-1' as import('@rough-cut/project-model').ZoomMarkerId, startFrame: 10, endFrame: 50, kind: 'manual' as const, strength: 1, focalPoint: { x: 0.5, y: 0.5 }, zoomInDuration: 0, zoomOutDuration: 0 },
             ],
           },
-          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false, motionBlur: 0 },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
         },
       });
       const project = createProject({ assets: [asset] });
@@ -332,7 +331,7 @@ describe('resolveFrame', () => {
             followPadding: 0.18,
             markers: [],
           },
-          cursor: { style: 'spotlight', clickEffect: 'ripple', sizePercent: 120, clickSoundEnabled: true, motionBlur: 0 },
+          cursor: { style: 'spotlight', clickEffect: 'ripple', sizePercent: 120, clickSoundEnabled: true },
         },
       });
       const project = createProject({ assets: [asset] });
@@ -359,7 +358,6 @@ describe('resolveFrame', () => {
             clickEffect: 'none',
             sizePercent: 100,
             clickSoundEnabled: false,
-            motionBlur: 0,
           },
           camera: createDefaultCameraPresentation(),
           cameraLayouts: [
