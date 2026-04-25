@@ -112,6 +112,78 @@ test.describe('Record tab', () => {
     await expect(appPage.locator('[data-testid="btn-record"]')).toBeVisible();
   });
 
+  test('renders the live camera stream inside the Record PiP frame before recording', async ({
+    appPage,
+  }) => {
+    await appPage.evaluate(async () => {
+      await (
+        window as unknown as {
+          roughcut: { recordingConfigUpdate: (patch: Record<string, unknown>) => Promise<unknown> };
+        }
+      ).roughcut.recordingConfigUpdate({ cameraEnabled: false, selectedCameraDeviceId: null });
+
+      const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      const previewState = { tracks: [] as MediaStreamTrack[] };
+      (window as unknown as { __recordTabCameraPreviewState?: typeof previewState }).__recordTabCameraPreviewState =
+        previewState;
+
+      navigator.mediaDevices.getUserMedia = async (constraints?: MediaStreamConstraints) => {
+        if (constraints?.video && !constraints?.audio) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 640;
+          canvas.height = 480;
+          const ctx = canvas.getContext('2d');
+          let frame = 0;
+          const paint = () => {
+            if (!ctx) return;
+            frame += 1;
+            ctx.fillStyle = '#111827';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#fb7185';
+            ctx.fillRect(48 + (frame % 120), 80, 144, 144);
+          };
+          paint();
+          window.setInterval(paint, 50);
+          const stream = canvas.captureStream(30);
+          previewState.tracks.push(...stream.getVideoTracks());
+          return stream;
+        }
+
+        return originalGetUserMedia(constraints);
+      };
+    });
+
+    await appPage.evaluate(async () => {
+      await (
+        window as unknown as {
+          roughcut: { recordingConfigUpdate: (patch: Record<string, unknown>) => Promise<unknown> };
+        }
+      ).roughcut.recordingConfigUpdate({ cameraEnabled: true, selectedCameraDeviceId: null });
+    });
+
+    await expect(appPage.locator('[data-testid="record-camera-frame"]')).toBeVisible();
+    await expect(appPage.locator('[data-testid="record-live-camera-video"]')).toBeVisible();
+    await expect
+      .poll(async () =>
+        appPage.evaluate(() => {
+          const video = document.querySelector(
+            '[data-testid="record-live-camera-video"]',
+          ) as HTMLVideoElement | null;
+          const previewState = (
+            window as unknown as {
+              __recordTabCameraPreviewState?: { tracks: MediaStreamTrack[] };
+            }
+          ).__recordTabCameraPreviewState;
+          return {
+            isReady: (video?.readyState ?? 0) >= HTMLMediaElement.HAVE_CURRENT_DATA,
+            hasSrcObject: Boolean(video?.srcObject),
+            hasLiveTrack: previewState?.tracks.some((track) => track.readyState === 'live') ?? false,
+          };
+        }),
+      )
+      .toMatchObject({ isReady: true, hasSrcObject: true, hasLiveTrack: true });
+  });
+
   test('record controls update the shared recording config store', async ({ appPage }) => {
     const deviceSelections = await getAvailableDeviceSelections(appPage);
 

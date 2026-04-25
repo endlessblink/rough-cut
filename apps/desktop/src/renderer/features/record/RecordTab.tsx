@@ -27,6 +27,7 @@ import type {
 } from '@rough-cut/project-model';
 import { useRecordState } from './record-state.js';
 import { useLivePreview } from './use-live-preview.js';
+import { useLiveCameraPreview } from './use-live-camera-preview.js';
 import { RecordScreenLayout } from './RecordScreenLayout.js';
 import { AppHeader } from '../../ui/index.js';
 import type { AppView } from '../../ui/index.js';
@@ -64,6 +65,7 @@ import {
 } from './use-recording-device-options.js';
 import { RecordingPlaybackVideo } from './RecordingPlaybackVideo.js';
 import { CameraPlaybackCanvas } from './CameraPlaybackCanvas.js';
+import { LiveCameraVideo } from './LiveCameraVideo.js';
 import { LAYOUT_TEMPLATES, resolutionForAspectRatio } from './templates.js';
 import { inferCursorEventsPath, resolveProjectMediaPath } from '../../lib/media-sidecars.js';
 import type { LayoutTemplate } from './templates.js';
@@ -301,6 +303,11 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
   const hasRecordedTake = assets.some(
     (asset) => asset.type === 'recording' && asset.filePath.trim().length > 0,
   );
+  const showLiveCameraPreview = cameraEnabled && !hasRecordedTake;
+  const { stream: liveCameraStream, aspectRatio: liveCameraAspectRatio } = useLiveCameraPreview({
+    enabled: showLiveCameraPreview,
+    deviceId: selectedCameraDeviceId,
+  });
   const captionSegments = useProjectStore((s) => s.project.aiAnnotations.captionSegments);
   const captionStyle = useProjectStore((s) => s.project.aiAnnotations.captionStyle);
   const recordCaptionSegments = activeRecordingId
@@ -740,7 +747,7 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     showToast({
       title: 'Ready for another take',
       message: 'Pick a source and press REC. The current take stays in the project while you retry.',
-      status: 'info',
+      tone: 'info',
     });
   }, [showToast]);
 
@@ -2116,9 +2123,15 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
                       filePath={resolveProjectMediaPath(cameraAsset.filePath, projectFilePath) ?? cameraAsset.filePath}
                       fps={projectFps}
                     />
+                  ) : liveCameraStream ? (
+                    <LiveCameraVideo stream={liveCameraStream} testId="record-live-camera-video" />
                   ) : undefined
                 }
-                cameraAspect={4 / 3}
+                cameraAspect={
+                  hasRecordedTake
+                    ? cameraSourceWidth / cameraSourceHeight
+                    : liveCameraAspectRatio
+                }
                 cameraPresentation={effectiveCameraPresentation}
                 screenAspect={screenSourceWidth / screenSourceHeight}
                 screenCornerRadius={background.bgCornerRadius}

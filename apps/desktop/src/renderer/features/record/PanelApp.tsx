@@ -1924,6 +1924,57 @@ export function PanelApp() {
     streamRef.current = stream;
   }, [stream]);
 
+  const releaseDisplayCapture = useCallback(() => {
+    displayAcquirePromiseRef.current = null;
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setStream(null);
+  }, []);
+
+  const acquireDisplayCaptureForStart = useCallback(async (): Promise<MediaStream | null> => {
+    const pendingAcquire = displayAcquirePromiseRef.current;
+    if (pendingAcquire) {
+      return pendingAcquire;
+    }
+
+    // Keep display capture behind the explicit Start recording path only.
+    // Setup-time source changes must stay config-only on Linux/X11.
+    const acquirePromise = (async () => {
+      try {
+        const nextStream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            frameRate: { ideal: 15, max: 20 },
+          },
+          audio: true,
+        });
+        const videoTrack = nextStream.getVideoTracks()[0];
+        if (videoTrack) {
+          void videoTrack.applyConstraints({ frameRate: { ideal: 15, max: 20 } }).catch(() => {});
+        }
+        streamRef.current = nextStream;
+        setStream(nextStream);
+        setStatus('ready');
+        return nextStream;
+      } catch (err) {
+        const name = (err as { name?: string })?.name ?? 'Error';
+        const message = (err as { message?: string })?.message ?? String(err);
+        console.error('[PanelApp] Failed to acquire stream at start:', `${name}: ${message}`, err);
+        showToast({
+          title: 'Capture unavailable',
+          message:
+            'Rough Cut could not acquire the selected screen or window. Try re-targeting the source, then start again.',
+          tone: 'warning',
+        });
+        return null;
+      } finally {
+        displayAcquirePromiseRef.current = null;
+      }
+    })();
+
+    displayAcquirePromiseRef.current = acquirePromise;
+    return acquirePromise;
+  }, [showToast]);
+
   // Keep audio state refs in sync so startMediaRecorder (stale IPC closure) sees current values
   useEffect(() => {
     micStreamRef.current = micStream;
@@ -2170,16 +2221,23 @@ export function PanelApp() {
   }, []);
 
   // ── Source selection ─────────────────────────────────────────────────────
-  const handleSelectSource = useCallback((id: string) => {
-    updateRecordingConfig({ selectedSourceId: id });
-  }, []);
+  const handleSelectSource = useCallback(
+    (id: string) => {
+      if (id === selectedSourceId) return;
+      if (statusRef.current !== 'recording' && statusRef.current !== 'stopping') {
+        releaseDisplayCapture();
+      }
+      updateRecordingConfig({ selectedSourceId: id });
+    },
+    [releaseDisplayCapture, selectedSourceId],
+  );
 
   const handleRetargetSource = useCallback(() => {
     const expectedType = recordMode === 'window' ? 'window' : 'screen';
     const fallbackSource = sources.find((source) => source.type === expectedType) ?? null;
     if (!fallbackSource) return;
-    updateRecordingConfig({ selectedSourceId: fallbackSource.id });
-  }, [recordMode, sources]);
+    handleSelectSource(fallbackSource.id);
+  }, [handleSelectSource, recordMode, sources]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -2207,9 +2265,9 @@ export function PanelApp() {
 
     const fallbackSource = sources.find((source) => source.type === expectedType) ?? null;
     if (fallbackSource && fallbackSource.id !== selectedSourceId) {
-      updateRecordingConfig({ selectedSourceId: fallbackSource.id });
+      handleSelectSource(fallbackSource.id);
     }
-  }, [hydrated, recordMode, selectedSourceId, sources]);
+  }, [handleSelectSource, hydrated, recordMode, selectedSourceId, sources]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -2219,13 +2277,9 @@ export function PanelApp() {
       return;
     }
 
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-    }
-    streamRef.current = null;
-    setStream(null);
+    releaseDisplayCapture();
     setStatus((current) => (current === 'recording' || current === 'stopping' ? current : 'idle'));
-  }, [hydrated, selectedSourceId]);
+  }, [hydrated, releaseDisplayCapture, selectedSourceId]);
 
   useEffect(() => {
     let active = true;
@@ -2637,49 +2691,9 @@ export function PanelApp() {
 
     void (async () => {
       if (!streamRef.current) {
-        const pendingAcquire = displayAcquirePromiseRef.current;
-        if (!pendingAcquire) {
-          try {
-            const s = await navigator.mediaDevices.getDisplayMedia({
-              video: {
-                frameRate: { ideal: 15, max: 20 },
-              },
-              audio: true,
-            });
-            const videoTrack = s.getVideoTracks()[0];
-            if (videoTrack) {
-              void videoTrack
-                .applyConstraints({ frameRate: { ideal: 15, max: 20 } })
-                .catch(() => {});
-            }
-            streamRef.current = s;
-            setStream(s);
-            setStatus('ready');
-          } catch (err) {
-            const name = (err as { name?: string })?.name ?? 'Error';
-            const message = (err as { message?: string })?.message ?? String(err);
-            console.error(
-              '[PanelApp] Failed to acquire stream at start:',
-              `${name}: ${message}`,
-              err,
-            );
-            showToast({
-              title: 'Capture unavailable',
-              message: 'Rough Cut could not acquire the selected screen or window. Try re-targeting the source, then start again.',
-              tone: 'warning',
-            });
-            return;
-          }
-        } else {
-          const acquiredStream = await pendingAcquire;
-          if (!acquiredStream) {
-            showToast({
-              title: 'Capture unavailable',
-              message: 'Rough Cut could not acquire the selected screen or window. Try re-targeting the source, then start again.',
-              tone: 'warning',
-            });
-            return;
-          }
+        const acquiredStream = await acquireDisplayCaptureForStart();
+        if (!acquiredStream) {
+          return;
         }
       }
 
