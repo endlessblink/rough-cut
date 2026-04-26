@@ -7,6 +7,17 @@ Desktop screen recording + editing studio. Electron + React + TypeScript + PixiJ
 
 ---
 
+## Current Priority Lock — Client Tutorial Readiness
+
+Until `TASK-251` is done, the only product goal is: **make Rough Cut safe enough to record the user's client tutorial on Linux without rebooting to Windows.**
+
+- Do not start AI, Motion, broad Edit work, or general sidebar breadth before the client-tutorial readiness gate is green.
+- Do not optimize for feature count. Optimize for recording-flow parity with Focusee for the user's immediate tutorial needs.
+- The readiness gate must prove the exact flow: record screen + camera + mic/system audio + cursor/zoom, review playback, reopen the project, export MP4, and verify the exported artifact.
+- If a change does not directly improve that gate, defer it unless the user explicitly overrides this priority lock.
+
+---
+
 ## MANDATORY: Third-Party License Compliance
 
 These obligations are **easy to forget and costly to miss**. Check this list any time you touch transcription, AI analysis, FFmpeg bundling, install flows, About screens, landing pages, or release artifacts.

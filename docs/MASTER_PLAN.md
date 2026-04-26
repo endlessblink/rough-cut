@@ -46,6 +46,15 @@ This is the single build order for Rough Cut going forward. Work should be organ
 
 For Rough Cut, user trust beats feature breadth. The order is: make screen recording reliable, then camera recording reliable, then audio recording reliable, then prove those streams stay in sync, then make export reliable, then stabilize and complete the Record-sidebar features that are already exposed to the user. Do not prioritize garnish features ahead of truthfulness and daily-use reliability.
 
+### Current Priority Lock — Client Tutorial Readiness
+
+**Effective 2026-04-26:** the only active product goal is to make Rough Cut safe enough for the user's upcoming client tutorial on Linux, without rebooting to Windows.
+
+- `TASK-251` is the active gate. It must stay above AI, Motion, broad Edit work, and general Record-sidebar expansion.
+- Treat recording-flow parity with Focusee as the target, but scope it to the user's immediate tutorial needs: screen, camera, mic/system audio, cursor/zoom, review, reopen, export, and final MP4 verification.
+- Do not start AI, Motion, Smart Cut, captions breadth, advanced effects, or new creative authoring work until `TASK-251` is green, unless the user explicitly overrides this lock.
+- Work that is allowed before `TASK-251` closes: fixes that directly make the gate pass, test fixture repairs needed to trust the gate, runtime/performance fixes for the gate, and documentation of the go/no-go result.
+
 ### Delivery spine
 
 1. **Projects view** -- stable enough for now. Treat as the entry surface that anchors project creation, opening, and recovery.
@@ -101,7 +110,7 @@ These lines define the stability-first orchestration view in Watchpost. `Sequenc
 
 ### Current sprint framing
 
-The current sprint should stay inside the Record surface, but the priority is now stability-first rather than feature-first. The immediate next task is to eliminate the product-level redundancy between the in-app pre-record flow and the floating recording panel so Rough Cut reads as one coherent recorder before more capture hardening and polish continue. From there, the near-term job remains to make saved screen capture correct, camera capture deterministic, audio capture truthful, playback easy to inspect, those streams kept in sync, and export a faithful downstream result.
+The current sprint should stay inside the Record -> Review -> Reopen -> Export loop. The priority is no longer general stabilization or feature breadth; it is the `TASK-251` client-tutorial readiness gate. The near-term job is to prove the exact Linux workflow the user needs for a client tutorial, fix whatever blocks it, and produce a clear go/no-go result before any AI, Motion, or broader creative-surface work resumes.
 
 1. **Lane 1 -- Unify the recording workflow**: TASK-186, TASK-187
 2. **Lane 2 -- Stable screen recording**: TASK-183, ~~BUG-009~~, TASK-148, TASK-126, TASK-197, TASK-198, ~~TASK-190~~
@@ -118,6 +127,7 @@ Practical order for lowest user-risk:
 - Lane 4 follows once screen and camera truth are stable enough to make audio verification meaningful
 - Lane 5 follows once recording truth exists end to end and users can reliably review playback before exporting artifacts
 - Lane 6 starts only after the core recording/playback/export path is dependable
+- `TASK-251` overrides the lane order until it is green. Pull only the smallest needed work from Lanes 2-5 to make the user's real tutorial flow pass end to end.
 
 Parallel-start rule:
 
@@ -134,6 +144,7 @@ Parallel-start rule:
 - Playback confidence work (`BUG-006`, `TASK-020`) belongs before export polish because users need a smooth, truthful way to review what they just captured.
 - Export should be treated as downstream truth preservation, not as a separate polish lane after garnish features.
 - The full Record-sidebar authoring toolset (overlays, annotations, titles, cursor FX, motion blur, privacy masks, AI captions, smart cut, dynamic layouts) is what turns Rough Cut into a Screen Studio / Descript-class product, but it comes only after the capture -> playback -> export core path is reliable enough to trust. Until then, polish on the sidebar is wasted effort against an untrustworthy foundation.
+- The user's immediate business need is a client tutorial on Linux without rebooting to Windows. Until `TASK-251` passes, every decision should answer: "Does this make the client-tutorial recording flow safer today?"
 
 ### Header tab visibility (2026-04-25)
 
@@ -280,6 +291,7 @@ To match the stability-first sprint framing above, the app header currently expo
 | ~~TASK-226~~ | ~~Record: Backward sub-frame cursor interpolation (fluent fast-motion)~~ | P1       | ✅ DONE (2026-04-25)     | TASK-216           |
 | ~~TASK-227~~ | ~~Build: Add `keepClickSounds` to `export-renderer/src/demo.ts` ExportSettings literal~~ | P1 | ✅ DONE (2026-04-25) | TASK-217 |
 | ~~TASK-250~~ | ✅ Preview: Safe continuous cursor and zoom smoothness plan             | P1       | ✅ DONE (2026-04-26)     | TASK-216, TASK-075 |
+| TASK-251     | Client tutorial readiness gate for Linux recording                     | P0       | IN PROGRESS (2026-04-26) | TASK-145, TASK-193, TASK-197, TASK-229, TASK-230 |
 
 ### Recording Edge Features
 
@@ -445,6 +457,65 @@ To match the stability-first sprint framing above, the app header currently expo
 ---
 
 ## Active Work
+
+### TASK-251: Client tutorial readiness gate for Linux recording
+
+**Priority:** P0 | **Status:** IN PROGRESS (2026-04-26) | **Depends on:** TASK-145, TASK-193, TASK-197, TASK-229, TASK-230
+
+#### Goal
+
+Make Rough Cut safe enough for the user's upcoming client tutorial on Linux without rebooting to Windows. This is the current release gate and overrides AI, Motion, broad Edit work, and general Record-sidebar breadth until it is green.
+
+#### Non-Negotiable Rule
+
+- Do not start AI, Motion, Smart Cut, caption breadth, advanced effects, broad sidebar authoring, or unrelated polish while this task is open.
+- Only work on fixes that directly improve this exact tutorial flow: record -> review -> reopen -> export -> verify final MP4.
+- If another task looks attractive but does not reduce risk for the tutorial recording, defer it.
+
+#### Readiness Scenario
+
+The gate must exercise the user's real client-tutorial needs on Linux/X11:
+
+1. Start from a clean or known-good project state.
+2. Select the intended screen/window source.
+3. Enable camera PiP when needed and verify it survives first take.
+4. Enable mic and system audio, with no silent fallback to the wrong source.
+5. Record a realistic tutorial-length sample, not only a synthetic smoke clip.
+6. Preserve cursor and zoom smoothness well enough for client-facing instructional content.
+7. Review the saved take in Rough Cut and confirm playback is truthful.
+8. Save, close/reopen the project, and confirm media, camera, audio, cursor, and zoom still load.
+9. Export an MP4.
+10. Verify the exported MP4 with both ffprobe-level checks and human-visible playback checks.
+
+#### Current Evidence
+
+- `pnpm typecheck` passed on 2026-04-26.
+- `pnpm test -- --continue` passed on 2026-04-26.
+- `pnpm test:e2e:headless:serial` reached 193 passed / 32 skipped / 13 failed on 2026-04-26.
+- The 13 E2E failures were mostly missing real-project fixtures under `/home/endlessblink/Documents/Rough Cut/...`, so fixture repair is part of making this gate trustworthy.
+- Runtime logs still show WebGL/readback performance warnings and at least one replay media-load failure, so playback/export confidence must be judged by the readiness gate, not by unit tests alone.
+
+#### Allowed Work Before Closing
+
+- Repair or replace E2E specs that depend on missing local real-project files so the gate is self-contained and repeatable.
+- Add a focused `client-tutorial-readiness` headless spec if existing specs do not cover the full scenario cleanly.
+- Fix record, camera, audio, cursor/zoom, reopen, playback, or export bugs found by that gate.
+- Add a short manual verification checklist for the user's actual tutorial setup.
+
+#### Completion Criteria
+
+- A focused client-tutorial readiness command passes headless on Linux.
+- The broader Record/Export critical path has no unexplained failures relevant to this scenario.
+- A manual rehearsal recording can be reopened and exported, and the exported MP4 is visibly suitable for a client tutorial.
+- The final result is explicitly marked as `GO` or `NO-GO` for using Rough Cut on the client tutorial.
+
+#### Suggested Verification
+
+- `pnpm typecheck`
+- `pnpm test -- --continue`
+- `pnpm test:e2e:headless:serial`
+- Focused readiness spec/command once added
+- Manual rehearsal: record -> review -> reopen -> export -> play exported MP4
 
 ### ~~TASK-228~~: Record: Persist separate mic and system-audio stems with takes
 
