@@ -1,11 +1,9 @@
-import { test, expect, navigateToTab } from './fixtures/electron-app.js';
+import { test, expect } from './fixtures/electron-app.js';
+import { loadPlaybackFixture } from './fixtures/playback-fixture.js';
 
-const RECORDED_PROJECT_PATH =
-  process.env.ROUGH_CUT_SESSION_PATH ??
-  '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
 test.describe('Record playback canvas', () => {
   test('loaded project playback uses a visible canvas surface', async ({ appPage }) => {
-    await loadRecordedProject(appPage);
+    await loadPlaybackFixture(appPage, 'record');
 
     await expect(appPage.locator('[data-testid="recording-playback-canvas"]')).toBeVisible();
 
@@ -40,20 +38,50 @@ test.describe('Record playback canvas', () => {
     expect(surfaceMetrics?.pixiCanvasHeight ?? 0).toBeGreaterThan(100);
   });
 
+  test('saved-take review keeps the recording large enough to read', async ({ appPage }) => {
+    await loadPlaybackFixture(appPage, 'record');
+
+    const metrics = await appPage.evaluate(() => {
+      const card = document.querySelector(
+        '[data-testid="record-card-chrome"]',
+      ) as HTMLElement | null;
+      const screen = document.querySelector(
+        '[data-testid="record-screen-frame"]',
+      ) as HTMLElement | null;
+      const setupSelectors = document.querySelector('[data-testid="record-device-selectors"]');
+      const sourceGuard = document.querySelector('[data-testid="record-start-guard-banner"]');
+
+      const cardRect = card?.getBoundingClientRect();
+      const screenRect = screen?.getBoundingClientRect();
+
+      return {
+        cardWidth: cardRect?.width ?? 0,
+        cardHeight: cardRect?.height ?? 0,
+        screenWidth: screenRect?.width ?? 0,
+        screenHeight: screenRect?.height ?? 0,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        hasSetupSelectors: Boolean(setupSelectors),
+        hasSourceGuard: Boolean(sourceGuard),
+      };
+    });
+
+    expect(metrics.hasSetupSelectors).toBe(false);
+    expect(metrics.hasSourceGuard).toBe(false);
+    expect(metrics.cardWidth).toBeGreaterThan(Math.min(540, metrics.viewportWidth * 0.38));
+    expect(metrics.cardHeight).toBeGreaterThan(Math.min(360, metrics.viewportHeight * 0.34));
+    expect(metrics.screenWidth).toBeGreaterThan(Math.min(540, metrics.viewportWidth * 0.38));
+    expect(metrics.screenHeight).toBeGreaterThan(Math.min(300, metrics.viewportHeight * 0.33));
+  });
+
   test('canvas frame updates when the paused playhead seeks', async ({ appPage }) => {
-    await loadRecordedProject(appPage);
+    await loadPlaybackFixture(appPage, 'record');
 
     const frame0 = await captureCanvasState(appPage);
 
-    await appPage.evaluate(() => {
-      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-      stores?.transport.getState().seekToFrame(45);
-    });
-    await appPage.waitForTimeout(250);
-
-    const frame45 = await captureCanvasState(appPage);
-    expect(Math.abs(frame45.playheadFrame - 45)).toBeLessThanOrEqual(1);
-    expect(frame45.canvasHash).not.toBe(frame0.canvasHash);
+    const changedFrame = await seekUntilCanvasChanges(appPage, frame0.canvasHash, [45, 90, 135]);
+    expect(changedFrame.playheadFrame).toBeGreaterThan(0);
+    expect(changedFrame.canvasHash).not.toBe(frame0.canvasHash);
 
     await appPage.evaluate(() => {
       const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
@@ -63,11 +91,11 @@ test.describe('Record playback canvas', () => {
 
     const frame0Again = await captureCanvasState(appPage);
     expect(Math.abs(frame0Again.playheadFrame)).toBeLessThanOrEqual(1);
-    expect(frame0Again.canvasHash).not.toBe(frame45.canvasHash);
+    expect(frame0Again.canvasHash).not.toBe(changedFrame.canvasHash);
   });
 
   test('canvas keeps painting while playback runs', async ({ appPage }) => {
-    await loadRecordedProject(appPage);
+    await loadPlaybackFixture(appPage, 'record');
 
     await appPage.evaluate(() => {
       const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
@@ -95,42 +123,79 @@ test.describe('Record playback canvas', () => {
     expect(during.playheadFrame).toBeGreaterThan(before.playheadFrame);
     expect(during.canvasHash).not.toBe(before.canvasHash);
   });
-});
 
-async function loadRecordedProject(page: import('@playwright/test').Page): Promise<void> {
-  await navigateToTab(page, 'record');
+  test('window resize keeps the saved-take playback subtree alive', async ({
+    appPage,
+    electronApp,
+  }) => {
+    await loadPlaybackFixture(appPage, 'record');
 
-  const project = (await page.evaluate((projectPath) => {
-    return (
-      window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
-    ).roughcut.projectOpenPath(projectPath);
-  }, RECORDED_PROJECT_PATH)) as Record<string, any>;
+    await appPage.evaluate(() => {
+      const pm = (window as unknown as { __roughcutPlaybackManager?: any })
+        .__roughcutPlaybackManager;
+      pm?.play();
 
-  const recording = project.assets.find((asset: any) => asset.type === 'recording');
-  expect(recording).toBeTruthy();
+      (window as unknown as { __task190PlaybackNode?: Element | null }).__task190PlaybackNode =
+        document.querySelector('[data-testid="recording-playback-video"]');
+    });
 
-  await page.evaluate(
-    ({ nextProject, projectPath, activeAssetId }) => {
+    await appPage.waitForTimeout(400);
+    const beforeResizeFrame = await appPage.evaluate(() => {
       const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-      stores?.project.getState().setProject(nextProject);
-      stores?.project.getState().setProjectFilePath(projectPath);
-      stores?.project.getState().setActiveAssetId(activeAssetId);
-      stores?.transport.getState().seekToFrame(0);
-    },
-    {
-      nextProject: project,
-      projectPath: RECORDED_PROJECT_PATH,
-      activeAssetId: recording?.id ?? null,
-    },
-  );
+      return stores?.transport.getState().playheadFrame ?? -1;
+    });
 
-  await page.waitForFunction((selector) => {
-    const video = document.querySelector(selector) as HTMLVideoElement | null;
-    return video?.getAttribute('data-ready') === 'true';
-  }, '[data-testid="recording-playback-video"]');
+    const originalBounds = await electronApp.evaluate(async ({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed());
+      if (!win) throw new Error('No BrowserWindow available for resize test');
+      return win.getBounds();
+    });
 
-  await expect(page.locator('[data-testid="recording-playback-canvas"]')).toBeVisible();
-}
+    await electronApp.evaluate(
+      async ({ BrowserWindow }, bounds) => {
+        const win = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed());
+        if (!win) throw new Error('No BrowserWindow available for shrink step');
+        win.setBounds(bounds);
+      },
+      {
+        ...originalBounds,
+        width: Math.max(900, originalBounds.width - 220),
+        height: Math.max(700, originalBounds.height - 180),
+      },
+    );
+
+    await appPage.waitForTimeout(250);
+
+    await electronApp.evaluate(async ({ BrowserWindow }, bounds) => {
+      const win = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed());
+      if (!win) throw new Error('No BrowserWindow available for restore step');
+      win.setBounds(bounds);
+    }, originalBounds);
+
+    await appPage.waitForTimeout(500);
+
+    const afterResize = await appPage.evaluate(() => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      const playbackNode = document.querySelector('[data-testid="recording-playback-video"]');
+      return {
+        playheadFrame: stores?.transport.getState().playheadFrame ?? -1,
+        sameNode:
+          playbackNode ===
+          (window as unknown as { __task190PlaybackNode?: Element | null }).__task190PlaybackNode,
+      };
+    });
+
+    await appPage.evaluate(() => {
+      const pm = (window as unknown as { __roughcutPlaybackManager?: any })
+        .__roughcutPlaybackManager;
+      pm?.pause();
+    });
+
+    await expect(appPage.locator('[data-testid="recording-playback-canvas"]')).toBeVisible();
+    expect(afterResize.sameNode).toBe(true);
+    expect(afterResize.playheadFrame).toBeGreaterThan(beforeResizeFrame);
+  });
+});
 
 async function captureCanvasState(page: import('@playwright/test').Page): Promise<{
   playheadFrame: number;
@@ -149,6 +214,27 @@ async function captureCanvasState(page: import('@playwright/test').Page): Promis
     playheadFrame,
     canvasHash: hashBytes(screenshot),
   };
+}
+
+async function seekUntilCanvasChanges(
+  page: import('@playwright/test').Page,
+  initialHash: number,
+  frames: readonly number[],
+): Promise<{ playheadFrame: number; canvasHash: number }> {
+  let lastState = await captureCanvasState(page);
+  for (const frame of frames) {
+    await page.evaluate((nextFrame) => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      stores?.transport.getState().seekToFrame(nextFrame);
+    }, frame);
+    await page.waitForTimeout(250);
+
+    lastState = await captureCanvasState(page);
+    expect(Math.abs(lastState.playheadFrame - frame)).toBeLessThanOrEqual(1);
+    if (lastState.canvasHash !== initialHash) return lastState;
+  }
+
+  return lastState;
 }
 
 function hashBytes(buffer: Buffer): number {

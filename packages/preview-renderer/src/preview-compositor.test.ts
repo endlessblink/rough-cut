@@ -58,6 +58,48 @@ vi.mock('pixi.js', () => ({
   TextStyle: class {
     constructor(_opts?: unknown) {}
   },
+  Sprite: class {},
+  Texture: class {
+    static from(): object {
+      return {};
+    }
+  },
+  VideoSource: class {
+    resource: HTMLVideoElement;
+    options: { preload?: boolean; preloadTimeoutMs?: number };
+    _load: Promise<unknown> | null = null;
+    isValid = false;
+    _resolve: ((value: unknown) => void) | null = null;
+    _reject: ((reason?: unknown) => void) | null = null;
+    _preloadTimeout?: ReturnType<typeof setTimeout>;
+    autoUpdate = false;
+    alphaMode: string;
+    _onPlayStart = vi.fn();
+    _onPlayStop = vi.fn();
+    _onSeeked = vi.fn();
+    _onCanPlay = vi.fn();
+    _onCanPlayThrough = vi.fn();
+    _onError = vi.fn();
+    _isSourceReady = vi.fn(() => false);
+    _mediaReady = vi.fn();
+    update = vi.fn();
+    constructor(opts?: {
+      resource?: HTMLVideoElement;
+      preload?: boolean;
+      preloadTimeoutMs?: number;
+      alphaMode?: string;
+    }) {
+      this.resource = opts?.resource as HTMLVideoElement;
+      this.options = {
+        preload: opts?.preload,
+        preloadTimeoutMs: opts?.preloadTimeoutMs,
+      };
+      this.alphaMode = opts?.alphaMode ?? 'premultiply-alpha-on-upload';
+    }
+  },
+  CanvasSource: class {},
+  BlurFilter: class {},
+  Filter: class {},
 }));
 
 // Also mock effect-registry to avoid side effects from registerBuiltinEffects
@@ -198,7 +240,7 @@ describe('PreviewCompositor', () => {
     const project = makeProject();
     compositor.setProject(project);
 
-    expect(resolveFrame).toHaveBeenCalledWith(project, 0);
+    expect(resolveFrame).toHaveBeenCalledWith(project, 0, expect.any(Object));
   });
 
   it('accepts custom width and height config', () => {
@@ -220,5 +262,43 @@ describe('PreviewCompositor', () => {
     const compositor = new PreviewCompositor();
     await compositor.init();
     expect(() => compositor.resize(1280, 720)).not.toThrow();
+  });
+
+  it('patches VideoSource.load to avoid Pixi alpha probe path', async () => {
+    const sourceLoad = vi.fn();
+    const addEventListener = vi.fn();
+    const videoEl = {
+      readyState: 0,
+      HAVE_ENOUGH_DATA: 4,
+      HAVE_FUTURE_DATA: 3,
+      width: 0,
+      height: 0,
+      addEventListener,
+      load: sourceLoad,
+    } as unknown as HTMLVideoElement;
+
+    const { VideoSource } = await import('pixi.js');
+    const videoSource = new VideoSource({
+      resource: videoEl,
+      alphaMode: 'premultiply-alpha-on-upload',
+    }) as unknown as {
+      load: () => Promise<unknown>;
+      alphaMode: string;
+      _load: Promise<unknown> | null;
+    };
+
+    void videoSource.load();
+    void videoSource.load();
+
+    expect(videoSource.alphaMode).toBe('premultiply-alpha-on-upload');
+    expect(videoSource._load).toBeTruthy();
+    expect(addEventListener).toHaveBeenCalledWith('play', expect.any(Function));
+    expect(addEventListener).toHaveBeenCalledWith('pause', expect.any(Function));
+    expect(addEventListener).toHaveBeenCalledWith('seeked', expect.any(Function));
+    expect(addEventListener).toHaveBeenCalledWith('canplay', expect.any(Function));
+    expect(addEventListener).toHaveBeenCalledWith('canplaythrough', expect.any(Function));
+    expect(addEventListener).toHaveBeenCalledWith('error', expect.any(Function), true);
+    expect(sourceLoad).toHaveBeenCalledTimes(1);
+    expect(addEventListener).toHaveBeenCalledTimes(6);
   });
 });

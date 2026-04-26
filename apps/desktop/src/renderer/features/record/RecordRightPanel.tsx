@@ -7,7 +7,15 @@
  * its own component (RecordZoomPanel, RecordCursorPanel).
  */
 import { useCallback } from 'react';
-import type { CursorPresentation, CameraPresentation, RegionCrop } from '@rough-cut/project-model';
+import type {
+  CursorPresentation,
+  CameraPresentation,
+  RegionCrop,
+  ZoomFollowAnimation,
+  CaptionSegment,
+  AIAnnotationId,
+  RecordingVisibility,
+} from '@rough-cut/project-model';
 import { InspectorShell, RECORD_PANEL_WIDTH } from '../../ui/index.js';
 import type { InspectorCategory } from '../../ui/index.js';
 import { RecordZoomPanel } from './RecordZoomPanel.js';
@@ -16,6 +24,10 @@ import { RecordCameraPanel } from './RecordCameraPanel.js';
 import { RecordBackgroundPanel } from './RecordBackgroundPanel.js';
 import { RecordCropPanel } from './RecordCropPanel.js';
 import { RecordTemplatesPanel } from './RecordTemplatesPanel.js';
+import { RecordDestinationPresetsPanel } from './RecordDestinationPresetsPanel.js';
+import { RecordCaptionsPanel } from './RecordCaptionsPanel.js';
+import { RecordSegmentVisibilityPanel } from './RecordSegmentVisibilityPanel.js';
+import type { DestinationPresetId } from './destination-presets.js';
 import type { LayoutTemplate } from './templates.js';
 import { resolutionForAspectRatio } from './templates.js';
 import { projectStore } from '../../hooks/use-stores.js';
@@ -41,15 +53,29 @@ export interface RecordRightPanelProps {
   zoomMarkerCount: number;
   zoomIntensity: number;
   onZoomIntensityChange: (value: number) => void;
+  zoomFollowCursor: boolean;
+  onZoomFollowCursorChange: (value: boolean) => void;
+  zoomFollowAnimation: ZoomFollowAnimation;
+  onZoomFollowAnimationChange: (value: ZoomFollowAnimation) => void;
+  zoomFollowPadding: number;
+  onZoomFollowPaddingChange: (value: number) => void;
   canRegenerateAutoZoom: boolean;
   onRegenerateAutoZoom: () => void;
   onResetZoomMarkers: () => void;
+  onCreateZoomFromScreenFocus: (crop: RegionCrop) => void;
   cursor: CursorPresentation;
   onCursorChange: (patch: Partial<CursorPresentation>) => void;
   onCursorReset: () => void;
   camera: CameraPresentation;
   onCameraChange: (patch: Partial<CameraPresentation>) => void;
   onCameraReset: () => void;
+  cameraLayoutSnapshotCount?: number;
+  onAddCameraLayoutSnapshot?: () => void;
+  onAddCameraLayoutPreset?: (
+    preset: 'hide-camera' | 'top-left' | 'presentation' | 'talking-head',
+  ) => void;
+  selectedCameraLayoutMarkerId?: string | null;
+  onDeleteSelectedCameraLayoutMarker?: () => void;
   /** Background/canvas config — lifted to RecordTab so LivePreviewVideo can consume it */
   background: BackgroundConfig;
   onBackgroundChange: (patch: Partial<BackgroundConfig>) => void;
@@ -73,10 +99,28 @@ export interface RecordRightPanelProps {
   /** Active template + callback for template changes */
   selectedTemplateId: string;
   onTemplateChange: (template: LayoutTemplate) => void;
+  selectedDestinationPresetId: DestinationPresetId | null;
+  onDestinationPresetChange: (presetId: DestinationPresetId) => void;
   /** Alignment */
   selectedRegion: 'screen' | 'camera' | null;
   onAlign: (alignment: Alignment) => void;
   preferredCategoryId?: string | null;
+  captionSegments?: readonly CaptionSegment[];
+  onUpdateCaptionText?: (id: AIAnnotationId, text: string) => void;
+  canGenerateCaptions?: boolean;
+  isGeneratingCaptions?: boolean;
+  captionError?: string | null;
+  onGenerateCaptions?: () => void;
+  captionStyle?: { fontSize: number; position: 'bottom' | 'center'; backgroundOpacity: number };
+  onUpdateCaptionStyle?: (
+    patch: Partial<{ fontSize: number; position: 'bottom' | 'center'; backgroundOpacity: number }>,
+  ) => void;
+  playheadFrame: number;
+  activeSegmentVisibility: RecordingVisibility;
+  visibilitySegmentCount?: number;
+  activeVisibilitySegmentFrame?: number | null;
+  onApplySegmentVisibility: (visibility: RecordingVisibility) => void;
+  onDeleteActiveSegmentVisibility?: () => void;
 }
 
 // ─── Inline SVG Icons ─────────────────────────────────────────────────────────
@@ -137,28 +181,6 @@ function CursorIcon() {
       {/* Arrow pointer */}
       <path
         d="M3 2L3 12L6 9.5L8.5 14L10 13.2L7.5 8.2L11.5 8L3 2Z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-        fill="none"
-      />
-    </svg>
-  );
-}
-
-function HighlightIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      {/* Sparkle / star */}
-      <path
-        d="M8 2L9 6.5L13.5 8L9 9.5L8 14L7 9.5L2.5 8L7 6.5L8 2Z"
         stroke="currentColor"
         strokeWidth="1.3"
         strokeLinejoin="round"
@@ -252,6 +274,26 @@ function CropIcon() {
   );
 }
 
+function VisibilityIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M2 8C3.7 5.2 5.7 3.8 8 3.8C10.3 3.8 12.3 5.2 14 8C12.3 10.8 10.3 12.2 8 12.2C5.7 12.2 3.7 10.8 2 8Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
+      <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
 function AlignIcon() {
   return (
     <svg
@@ -322,31 +364,34 @@ function BackgroundIcon() {
   );
 }
 
-// ─── Placeholder panel ────────────────────────────────────────────────────────
-
-function PlaceholderText() {
-  return (
-    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.40)', userSelect: 'none' }}>
-      Coming soon
-    </span>
-  );
-}
-
 // ─── RecordRightPanel ─────────────────────────────────────────────────────────
 
 export function RecordRightPanel({
+  fps,
   zoomMarkerCount,
   zoomIntensity,
   onZoomIntensityChange,
+  zoomFollowCursor,
+  onZoomFollowCursorChange,
+  zoomFollowAnimation,
+  onZoomFollowAnimationChange,
+  zoomFollowPadding,
+  onZoomFollowPaddingChange,
   canRegenerateAutoZoom,
   onRegenerateAutoZoom,
   onResetZoomMarkers,
+  onCreateZoomFromScreenFocus,
   cursor,
   onCursorChange,
   onCursorReset,
   camera,
   onCameraChange,
   onCameraReset,
+  cameraLayoutSnapshotCount = 0,
+  onAddCameraLayoutSnapshot,
+  onAddCameraLayoutPreset,
+  selectedCameraLayoutMarkerId = null,
+  onDeleteSelectedCameraLayoutMarker,
   background,
   onBackgroundChange,
   onBackgroundReset,
@@ -366,9 +411,25 @@ export function RecordRightPanel({
   onCameraCropModeChange,
   selectedTemplateId,
   onTemplateChange,
+  selectedDestinationPresetId,
+  onDestinationPresetChange,
   selectedRegion,
   onAlign,
   preferredCategoryId = null,
+  captionSegments = [],
+  onUpdateCaptionText,
+  canGenerateCaptions = false,
+  isGeneratingCaptions = false,
+  captionError = null,
+  onGenerateCaptions,
+  captionStyle = { fontSize: 28, position: 'bottom', backgroundOpacity: 0.55 },
+  onUpdateCaptionStyle,
+  playheadFrame,
+  activeSegmentVisibility,
+  visibilitySegmentCount = 0,
+  activeVisibilitySegmentFrame = null,
+  onApplySegmentVisibility,
+  onDeleteActiveSegmentVisibility,
 }: RecordRightPanelProps) {
   const handleSelectTemplate = useCallback(
     (template: LayoutTemplate) => {
@@ -380,6 +441,17 @@ export function RecordRightPanel({
   );
 
   const categories: InspectorCategory[] = [
+    {
+      id: 'destinations',
+      label: 'Destinations',
+      icon: <TemplatesIcon />,
+      panel: (
+        <RecordDestinationPresetsPanel
+          selectedPresetId={selectedDestinationPresetId}
+          onSelectPreset={onDestinationPresetChange}
+        />
+      ),
+    },
     {
       id: 'templates',
       label: 'Templates',
@@ -434,6 +506,11 @@ export function RecordRightPanel({
         <RecordCameraPanel
           camera={camera}
           onCameraChange={onCameraChange}
+          layoutSnapshotCount={cameraLayoutSnapshotCount}
+          onAddLayoutSnapshot={onAddCameraLayoutSnapshot}
+          onAddLayoutPreset={onAddCameraLayoutPreset}
+          selectedLayoutMarkerId={selectedCameraLayoutMarkerId}
+          onDeleteSelectedLayoutMarker={onDeleteSelectedCameraLayoutMarker}
           cameraCrop={cameraCrop}
           onCameraCropChange={onCameraCropChange}
           onCameraCropReset={onCameraCropReset}
@@ -441,12 +518,13 @@ export function RecordRightPanel({
           onCropModeChange={onCameraCropModeChange}
           sourceWidth={cameraSourceWidth}
           sourceHeight={cameraSourceHeight}
+          zoomMarkerCount={zoomMarkerCount}
         />
       ),
     },
     {
       id: 'crop',
-      label: 'Crop',
+      label: 'Focus',
       icon: <CropIcon />,
       onReset: onScreenCropReset,
       panel: (
@@ -459,6 +537,8 @@ export function RecordRightPanel({
           sourceHeight={screenSourceHeight}
           cropModeActive={cropModeActive && cropTargetRegion === 'screen'}
           onCropModeChange={onScreenCropModeChange}
+          onCreateZoomFromFocus={onCreateZoomFromScreenFocus}
+          zoomMarkerCount={zoomMarkerCount}
         />
       ),
     },
@@ -471,9 +551,16 @@ export function RecordRightPanel({
         <RecordZoomPanel
           zoomIntensity={zoomIntensity}
           onZoomIntensityChange={onZoomIntensityChange}
+          zoomFollowCursor={zoomFollowCursor}
+          onZoomFollowCursorChange={onZoomFollowCursorChange}
+          zoomFollowAnimation={zoomFollowAnimation}
+          onZoomFollowAnimationChange={onZoomFollowAnimationChange}
+          zoomFollowPadding={zoomFollowPadding}
+          onZoomFollowPaddingChange={onZoomFollowPaddingChange}
           zoomMarkerCount={zoomMarkerCount}
           canRegenerateAutoZoom={canRegenerateAutoZoom}
           onRegenerateAutoZoom={onRegenerateAutoZoom}
+          focusBridgeActive={screenCrop.enabled}
         />
       ),
     },
@@ -485,16 +572,38 @@ export function RecordRightPanel({
       panel: <RecordCursorPanel cursor={cursor} onCursorChange={onCursorChange} />,
     },
     {
-      id: 'highlights',
-      label: 'Highlights',
-      icon: <HighlightIcon />,
-      panel: <PlaceholderText />,
+      id: 'visibility',
+      label: 'Visibility',
+      icon: <VisibilityIcon />,
+      panel: (
+        <RecordSegmentVisibilityPanel
+          fps={fps}
+          playheadFrame={playheadFrame}
+          visibility={activeSegmentVisibility}
+          segmentCount={visibilitySegmentCount}
+          activeSegmentFrame={activeVisibilitySegmentFrame}
+          onApply={onApplySegmentVisibility}
+          onDeleteActive={onDeleteActiveSegmentVisibility}
+        />
+      ),
     },
     {
-      id: 'titles',
-      label: 'Titles',
+      id: 'captions',
+      label: 'Captions',
       icon: <TitleIcon />,
-      panel: <PlaceholderText />,
+      panel: (
+        <RecordCaptionsPanel
+          captionSegments={captionSegments}
+          fps={fps}
+          canGenerate={canGenerateCaptions}
+          isGenerating={isGeneratingCaptions}
+          error={captionError}
+          onGenerate={() => onGenerateCaptions?.()}
+          onUpdateCaptionText={(id, text) => onUpdateCaptionText?.(id, text)}
+          style={captionStyle}
+          onUpdateStyle={(patch) => onUpdateCaptionStyle?.(patch)}
+        />
+      ),
     },
   ];
 

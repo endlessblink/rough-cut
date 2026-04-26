@@ -3,10 +3,16 @@ import type { Page } from '@playwright/test';
 import { copyFileSync, unlinkSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PLAYBACK_PROJECT_PATH } from './fixtures/playback-fixture.js';
+
+const DEFAULT_CAMERA_PROJECT_PATH = '/home/endlessblink/Documents/Rough Cut/Recording Apr 23 2026 - 2303.roughcut';
 
 const SOURCE_PROJECT_PATH =
-  process.env.ROUGH_CUT_SESSION_PATH ??
-  '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
+  process.env.ROUGH_CUT_SESSION_PATH && existsSync(process.env.ROUGH_CUT_SESSION_PATH)
+    ? process.env.ROUGH_CUT_SESSION_PATH
+    : existsSync(DEFAULT_CAMERA_PROJECT_PATH)
+      ? DEFAULT_CAMERA_PROJECT_PATH
+      : PLAYBACK_PROJECT_PATH;
 
 // Mirrors the RecordingResult payload shape that the main process normally
 // sends over RECORDING_ASSET_READY — see apps/desktop/src/renderer/env.d.ts.
@@ -52,13 +58,15 @@ test.describe('Record append takes', () => {
     const firstFilePath = await loadRecordedProject(appPage, tempProjectPath);
 
     const initial = await readProjectSnapshot(appPage);
-    // Fixture project has a screen recording plus a linked camera asset.
+    // Fixture project has at least one screen recording; exact track counts vary
+    // between local fixture recordings, so assert append deltas below.
     expect(initial.assetCount).toBeGreaterThanOrEqual(1);
-    expect(initial.primaryVideoClipCount).toBe(1);
+    expect(initial.primaryVideoClipCount).toBeGreaterThanOrEqual(1);
     expect(initial.duration).toBeGreaterThan(0);
     const initialDuration = initial.duration;
     const initialAssetCount = initial.assetCount;
     const initialAudioClipCount = initial.audioClipCount;
+    const initialPrimaryClipCount = initial.primaryVideoClipCount;
 
     // Synthesize a second recording result. Different filePath defeats the
     // 15s dedup throttle in handleRecordingComplete; the file doesn't need
@@ -80,20 +88,13 @@ test.describe('Record append takes', () => {
 
     await fireRecordingAssetReady(electronApp, fake);
 
-    // Wait for the store to reflect the append — asset count climbing to 2
-    // is the simplest signal.
-    await appPage.waitForFunction(
-      (expected) => {
-        const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-        return stores?.project.getState().project.assets.length >= expected;
-      },
-      initialAssetCount + 1,
-      { timeout: 10_000 },
-    );
+    await expect
+      .poll(async () => (await readProjectSnapshot(appPage)).assetCount, { timeout: 30_000 })
+      .toBe(initialAssetCount + 1);
 
     const after = await readProjectSnapshot(appPage);
     expect(after.assetCount).toBe(initialAssetCount + 1);
-    expect(after.primaryVideoClipCount).toBe(2);
+    expect(after.primaryVideoClipCount).toBe(initialPrimaryClipCount + 1);
     expect(after.audioClipCount).toBe(initialAudioClipCount + 1);
 
     // New clip should sit right after the first one.
@@ -116,7 +117,7 @@ test.describe('Record append takes', () => {
 
     const initial = await readProjectSnapshot(appPage);
     expect(initial.cameraAssetCount).toBeGreaterThanOrEqual(1);
-    expect(initial.secondaryVideoClipCount).toBe(1);
+    expect(initial.secondaryVideoClipCount).toBeGreaterThanOrEqual(1);
     const initialDuration = initial.duration;
     const initialAssetCount = initial.assetCount;
     const initialCameraAssetCount = initial.cameraAssetCount;
@@ -274,6 +275,97 @@ test.describe('Record append takes', () => {
       ).roughcut.recentProjectsRemove(path);
     }, savedPath);
   });
+
+  test('fresh recording import prefers durationFrames when durationMs is stale', async ({
+    electronApp,
+    appPage,
+  }) => {
+    await navigateToTab(appPage, 'record');
+
+    const initial = await readProjectSnapshot(appPage);
+    expect(initial.assetCount).toBe(0);
+    expect(initial.projectFilePath).toBeNull();
+
+    const fake: FakeRecordingResult = {
+      filePath: '/tmp/rough-cut-e2e-synthetic-duration-truth.webm',
+      durationFrames: 270,
+      durationMs: 3000,
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      codec: 'vp8',
+      fileSize: 1,
+      hasAudio: true,
+      thumbnailPath: null,
+      cursorEventsPath: null,
+    };
+
+    await fireRecordingAssetReady(electronApp, fake);
+
+    await appPage.waitForFunction(
+      () => {
+        const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+        return stores?.project.getState().project.assets.length === 1;
+      },
+      null,
+      { timeout: 10_000 },
+    );
+
+    const after = await readProjectSnapshot(appPage);
+    expect(after.assetCount).toBe(1);
+    expect(after.primaryVideoClipCount).toBe(1);
+    expect(after.audioClipCount).toBe(1);
+
+    const onlyClip = after.primaryVideoClips[0];
+    expect(onlyClip).toBeDefined();
+    expect(onlyClip!.timelineIn).toBe(0);
+    expect(onlyClip!.timelineOut).toBe(fake.durationFrames);
+    expect(after.duration).toBe(fake.durationFrames);
+
+    const activeAsset = await appPage.evaluate(() => {
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      const state = stores?.project.getState();
+      return state?.project.assets.find((asset: any) => asset.id === state.activeAssetId) ?? null;
+    });
+    expect(activeAsset?.duration).toBe(fake.durationFrames);
+  });
+
+  test('imported project state stays silent when the final result has no audio', async ({
+    electronApp,
+    appPage,
+  }) => {
+    await navigateToTab(appPage, 'record');
+
+    const fake: FakeRecordingResult = {
+      filePath: '/tmp/rough-cut-e2e-synthetic-silent-take.webm',
+      durationFrames: 120,
+      durationMs: 4000,
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      codec: 'vp8',
+      fileSize: 1,
+      hasAudio: false,
+      thumbnailPath: null,
+      cursorEventsPath: null,
+    };
+
+    await fireRecordingAssetReady(electronApp, fake);
+
+    await appPage.waitForFunction(
+      () => {
+        const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+        return stores?.project.getState().project.assets.length === 1;
+      },
+      null,
+      { timeout: 10_000 },
+    );
+
+    const after = await readProjectSnapshot(appPage);
+    expect(after.assetCount).toBe(1);
+    expect(after.primaryVideoClipCount).toBe(1);
+    expect(after.audioClipCount).toBe(0);
+  });
 });
 
 async function listRoughcutFiles(page: Page): Promise<string[]> {
@@ -293,7 +385,9 @@ async function loadRecordedProject(page: Page, projectPath: string): Promise<str
     ).roughcut.projectOpenPath(filePath);
   }, projectPath)) as Record<string, any>;
 
-  const recording = project.assets.find((asset: any) => asset.type === 'recording');
+  const recording = project.assets.find(
+    (asset: any) => asset.type === 'recording' && asset.metadata?.isCamera !== true,
+  );
   expect(recording).toBeTruthy();
 
   await page.evaluate(

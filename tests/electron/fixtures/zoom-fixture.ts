@@ -1,11 +1,20 @@
 import { existsSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { readFile, unlink } from 'node:fs/promises';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
+import { navigateToTab } from './electron-app.js';
+import { PLAYBACK_PROJECT_PATH } from './playback-fixture.js';
+
+const DEFAULT_ZOOM_FIXTURE_PROJECT_PATH = '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
+const SESSION_OVERRIDE_PATH = process.env.ROUGH_CUT_SESSION_PATH?.trim() || null;
 
 export const ZOOM_FIXTURE_PROJECT_PATH =
-  process.env.ROUGH_CUT_SESSION_PATH ??
-  '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
+  [SESSION_OVERRIDE_PATH, DEFAULT_ZOOM_FIXTURE_PROJECT_PATH, PLAYBACK_PROJECT_PATH].find(
+    (candidate): candidate is string => Boolean(candidate) && existsSync(candidate),
+  ) ??
+  DEFAULT_ZOOM_FIXTURE_PROJECT_PATH;
 
 type FixtureProject = Record<string, any>;
 
@@ -38,6 +47,12 @@ export async function loadZoomFixture(
     join('/home/endlessblink/Documents/Rough Cut/recordings', `${recordingBaseName}.cursor.ndjson`),
   ].find((candidate): candidate is string => Boolean(candidate) && existsSync(candidate));
 
+  let cursorEventsPath = inferredCursorEventsPath ?? null;
+  if (options.preserveCursorEvents) {
+    cursorEventsPath = join(tmpdir(), `rough-cut-e2e-cursor-fixture-${randomUUID()}.ndjson`);
+    await writeFile(cursorEventsPath, buildSyntheticCursorSidecar(recording.duration ?? 180), 'utf-8');
+  }
+
   const sanitizedProject = {
     ...project,
     assets: project.assets.map((asset: any) => {
@@ -47,11 +62,24 @@ export async function loadZoomFixture(
         metadata: {
           ...asset.metadata,
           cursorEventsPath: options.preserveCursorEvents
-            ? (inferredCursorEventsPath ?? null)
+            ? cursorEventsPath
             : null,
         },
         presentation: {
           ...asset.presentation,
+          visibilitySegments: [],
+          screenCrop: undefined,
+          cameraCrop: undefined,
+          camera: {
+            ...(asset.presentation?.camera ?? {}),
+            visible: true,
+          },
+          cameraLayouts: [],
+          visibilitySegments: [],
+          screenCrop: {
+            ...(asset.presentation?.screenCrop ?? {}),
+            enabled: false,
+          },
           zoom: {
             ...(asset.presentation?.zoom ?? {}),
             autoIntensity: 0,
@@ -68,7 +96,11 @@ export async function loadZoomFixture(
       stores?.project.getState().setProject(nextProject);
       stores?.project.getState().setProjectFilePath(projectPath);
       stores?.project.getState().setActiveAssetId(activeAssetId);
-      stores?.transport.getState().seekToFrame(0);
+      stores?.transport.setState({
+        playheadFrame: 0,
+        isPlaying: false,
+        selectedClipIds: [],
+      });
     },
     {
       nextProject: sanitizedProject,
@@ -77,6 +109,32 @@ export async function loadZoomFixture(
     },
   );
 
-  await page.waitForSelector('[data-testid="zoom-host"]', { timeout: 10_000 });
+  await navigateToTab(page, 'record');
+
+  await page.waitForFunction(
+    () =>
+      Boolean(
+        document.querySelector('[data-testid="zoom-host"]') ||
+          document.querySelector('[data-testid="recording-playback-video"]'),
+      ),
+    { timeout: 30_000 },
+  );
   return recording.filePath as string;
+}
+
+function buildSyntheticCursorSidecar(durationFrames: number): string {
+  const frameCount = Math.max(90, Math.min(Number(durationFrames) || 180, 240));
+  const lines: string[] = [];
+
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    const phase = frame % 24;
+    const x = Math.round(180 + phase * 58);
+    const y = Math.round(180 + ((frame * 37) % 620));
+    lines.push(JSON.stringify({ frame, x, y, type: 'move', button: 0 }));
+    if (frame === 24 || frame === 72) {
+      lines.push(JSON.stringify({ frame, x, y, type: 'down', button: 1 }));
+    }
+  }
+
+  return `${lines.join('\n')}\n`;
 }

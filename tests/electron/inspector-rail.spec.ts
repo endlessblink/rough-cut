@@ -1,6 +1,10 @@
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
 
+// Mirrors the inspector rail in apps/desktop/src/renderer/features/record/RecordRightPanel.tsx.
+// `highlights` and `titles` were dropped (TASK-213); `destinations`, `visibility`,
+// and `captions` are current.
 const CATEGORIES = [
+  'destinations',
   'templates',
   'align',
   'background',
@@ -8,8 +12,8 @@ const CATEGORIES = [
   'crop',
   'zoom',
   'cursor',
-  'highlights',
-  'titles',
+  'visibility',
+  'captions',
 ] as const;
 
 type Category = (typeof CATEGORIES)[number];
@@ -67,7 +71,13 @@ test.describe('Inspector icon-rail shell', () => {
     appPage: import('@playwright/test').Page,
     category: Category,
   ): Promise<void> {
-    await appPage.click(`[data-testid="inspector-rail-item"][data-category="${category}"]`);
+    const railItem = appPage.locator(
+      `[data-testid="inspector-rail-item"][data-category="${category}"]`,
+    );
+    await expect(railItem).toBeVisible();
+    await railItem.evaluate((element) => {
+      (element as HTMLButtonElement).click();
+    });
     await expect(appPage.locator('[data-testid="inspector-card-active"]')).toHaveAttribute(
       'data-category',
       category,
@@ -82,10 +92,7 @@ test.describe('Inspector icon-rail shell', () => {
 
   test('rail has all expected category items', async ({ appPage }) => {
     const m = await collectInspectorMetrics(appPage);
-    expect(m.railItemCount).toBe(CATEGORIES.length);
-    for (const cat of CATEGORIES) {
-      expect(m.railItemCategories).toContain(cat);
-    }
+    expect(m.railItemCategories).toEqual([...CATEGORIES]);
   });
 
   test('default active category renders correctly', async ({ appPage }) => {

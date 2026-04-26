@@ -7,14 +7,32 @@ import { execFile } from 'node:child_process';
 type RecordingResult = {
   filePath: string;
   durationFrames: number;
+   durationMs: number;
   width: number;
   height: number;
   fps: number;
   codec: string;
   fileSize: number;
+   hasAudio: boolean;
   cursorEventsPath?: string;
   thumbnailPath?: string;
   cameraFilePath?: string;
+   audioCapture?: {
+     requested: {
+       micEnabled: boolean;
+       sysAudioEnabled: boolean;
+       selectedMicDeviceId: string | null;
+       selectedMicLabel: string | null;
+       selectedSystemAudioSourceId: string | null;
+     };
+     resolved: {
+       micSource: string | null;
+       systemAudioSource: string | null;
+     };
+     final: {
+       hasAudio: boolean;
+     };
+   };
 };
 
 function ffprobeJson(filePath: string): Promise<any> {
@@ -27,6 +45,47 @@ function ffprobeJson(filePath: string): Promise<any> {
         if (error) return reject(error);
         try {
           resolve(JSON.parse(stdout));
+        } catch (parseError) {
+          reject(parseError);
+        }
+      },
+    );
+  });
+}
+
+type VideoFrameStats = {
+  nbReadFrames: number;
+  rFrameRate: string;
+  durationSeconds: number;
+};
+
+function ffprobeVideoFrameStats(filePath: string): Promise<VideoFrameStats> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'ffprobe',
+      [
+        '-v',
+        'quiet',
+        '-count_frames',
+        '-select_streams',
+        'v:0',
+        '-show_entries',
+        'stream=nb_read_frames,r_frame_rate,duration',
+        '-of',
+        'json',
+        filePath,
+      ],
+      { timeout: 60000 },
+      (error, stdout) => {
+        if (error) return reject(error);
+        try {
+          const parsed = JSON.parse(stdout);
+          const stream = parsed.streams?.[0] ?? {};
+          resolve({
+            nbReadFrames: Number(stream.nb_read_frames ?? 0),
+            rFrameRate: String(stream.r_frame_rate ?? ''),
+            durationSeconds: Number(stream.duration ?? 0),
+          });
         } catch (parseError) {
           reject(parseError);
         }
@@ -92,9 +151,9 @@ test.describe('Record device artifacts', () => {
         runtimeInfo.sources.find((source) => source.type === 'screen')?.id ??
         runtimeInfo.sources[0]?.id ??
         'manual-test-source';
-      const selectedMicDeviceId = null;
+      const selectedMicDeviceId = runtimeInfo.micDevices[0]?.deviceId ?? null;
       const selectedCameraDeviceId = null;
-      const selectedSystemAudioSourceId = null;
+      const selectedSystemAudioSourceId = runtimeInfo.systemAudioSources[0]?.id ?? null;
 
       await appPage.evaluate(
         async ({
@@ -264,6 +323,20 @@ test.describe('Record device artifacts', () => {
       })) as RecordingResult | null;
 
       expect(result).not.toBeNull();
+      expect(result!.hasAudio).toBe(true);
+      expect(result!.audioCapture?.final.hasAudio).toBe(true);
+      expect(result!.audioCapture?.requested.selectedSystemAudioSourceId ?? null).toBe(
+        selectedSystemAudioSourceId,
+      );
+
+      if (selectedMicDeviceId) {
+        expect(result!.audioCapture?.requested.selectedMicDeviceId).toBe(selectedMicDeviceId);
+        expect(result!.audioCapture?.resolved.micSource).toBeTruthy();
+      }
+
+      if (selectedSystemAudioSourceId) {
+        expect(result!.audioCapture?.resolved.systemAudioSource).toBe(selectedSystemAudioSourceId);
+      }
 
       const screenStats = await stat(result!.filePath);
       test.skip(screenStats.size <= 0, 'Recording artifact was empty in this automated session');
@@ -288,6 +361,22 @@ test.describe('Record device artifacts', () => {
       expect(Number(screenVideo.width || 0)).toBeGreaterThan(0);
       expect(Number(screenVideo.height || 0)).toBeGreaterThan(0);
       expect(screenAudio).toBeTruthy();
+      expect(result!.hasAudio).toBe(Boolean(screenAudio));
+      expect(result!.audioCapture?.final.hasAudio).toBe(Boolean(screenAudio));
+
+      // Regression guard for c319886f (VP8 realtime threads for 1080p60). Capture is
+      // hardcoded to TARGET_CAPTURE_FPS=60 in recording-session-manager.mjs. Without
+      // the encoder fix, sustained 60fps + audio drops a meaningful fraction of frames.
+      const frameStats = await ffprobeVideoFrameStats(result!.filePath);
+      const reportedFps = result!.fps || 60;
+      const probeDurationMs = frameStats.durationSeconds * 1000;
+      const recordedDurationMs = result!.durationMs || probeDurationMs;
+      const expectedFrames = (recordedDurationMs / 1000) * reportedFps;
+      // 15% drop tolerance. The pre-fix bug regularly dropped 30%+ at 1080p60+audio.
+      expect(frameStats.nbReadFrames).toBeGreaterThanOrEqual(Math.floor(expectedFrames * 0.85));
+      // TARGET_CAPTURE_FPS is hardcoded to 60; pin the rate so a silent fps regression
+      // (e.g. an FFmpeg arg drop reverting capture to 30fps) trips the test.
+      expect(frameStats.rFrameRate).toBe('60/1');
 
       const cameraProbe = await ffprobeJson(result!.cameraFilePath!);
       const cameraVideo = cameraProbe.streams?.find((stream: any) => stream.codec_type === 'video');

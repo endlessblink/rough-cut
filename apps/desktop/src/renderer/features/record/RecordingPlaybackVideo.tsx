@@ -5,26 +5,33 @@
  * Edit stay on the same render path, while Record-specific cursor and focal
  * point overlays continue to layer above it.
  */
-import React, { useRef, useEffect, useCallback, useState } from 'react';
-import { useProjectStore, useTransportStore } from '../../hooks/use-stores.js';
-import type { ZoomMarker, ZoomMarkerId } from '@rough-cut/project-model';
+import React, { useRef, useEffect, useCallback, useMemo, useState } from 'react';
+import { transportStore, useProjectStore } from '../../hooks/use-stores.js';
+import { resolveRecordingVisibility } from '@rough-cut/project-model';
+import type { RecordingVisibility, ZoomMarker, ZoomMarkerId } from '@rough-cut/project-model';
 import { getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
 import { CursorOverlay } from '../../components/CursorOverlay.js';
 import type { CursorFrameData } from '../../components/CursorOverlay.js';
 import { buildCursorFrameData } from '../../components/cursor-data-loader.js';
+import {
+  buildClickFrameTimeline,
+  useClickSoundPlayback,
+} from '../../hooks/use-click-sound-playback.js';
 import { useCursorEvents } from '../../hooks/use-cursor-events.js';
 import { useCompositor } from '../../hooks/use-compositor.js';
+import { inferCursorEventsPath, resolveProjectMediaPath } from '../../lib/media-sidecars.js';
 
 interface RecordingPlaybackVideoProps {
   filePath: string;
   fps: number;
   assetId: string;
-  /** All zoom markers for this recording (drives CSS zoom transform). */
+  /** All zoom markers for this recording (drives cursor overlay + focal-point UI). */
   zoomMarkers?: readonly ZoomMarker[];
   /** If a zoom marker is selected AND playback is paused AND playhead is inside its range,
    *  render a focal-point reticle that the user can drag. */
   selectedZoomMarker?: ZoomMarker | null;
   onFocalPointChange?: (markerId: ZoomMarkerId, focalPoint: { x: number; y: number }) => void;
+  visibility?: RecordingVisibility;
 }
 
 export function RecordingPlaybackVideo({
@@ -34,10 +41,25 @@ export function RecordingPlaybackVideo({
   zoomMarkers = [],
   selectedZoomMarker = null,
   onFocalPointChange,
+  visibility,
 }: RecordingPlaybackVideoProps) {
-  const { previewRef, isReady } = useCompositor();
+  const asset = useProjectStore((s) => s.project.assets.find((a) => a.id === assetId) ?? null);
+  const projectFilePath = useProjectStore((s) => s.projectFilePath);
+  const assetWidth = (asset?.metadata?.width as number) || 1920;
+  const assetHeight = (asset?.metadata?.height as number) || 1080;
+  const { previewRef, isReady, setPreferredPlaybackAssetId, setRenderSize, setCursorFrameData } =
+    useCompositor();
 
-  // Find the clip range so we can map project frames → clip-local zoom timing.
+  useEffect(() => {
+    setPreferredPlaybackAssetId(assetId);
+    return () => setPreferredPlaybackAssetId(null);
+  }, [assetId, setPreferredPlaybackAssetId]);
+
+  useEffect(() => {
+    setRenderSize(assetWidth, assetHeight);
+  }, [assetHeight, assetWidth, setRenderSize]);
+
+  // Find the clip range so we can map project frames => clip-local zoom timing.
   const clipRangeKey = useProjectStore((s) => {
     for (const track of s.project.composition.tracks) {
       for (const clip of track.clips) {
@@ -48,9 +70,8 @@ export function RecordingPlaybackVideo({
     }
     return '0:0:0';
   });
-  const [clipTimelineIn = 0, clipTimelineOut = 0] = clipRangeKey.split(':').map(Number);
+  const [clipTimelineIn = 0, clipTimelineOut = 0, clipSourceIn = 0] = clipRangeKey.split(':').map(Number);
 
-  const asset = useProjectStore((s) => s.project.assets.find((a) => a.id === assetId) ?? null);
   const cursorPresentation = asset?.presentation?.cursor ?? {
     style: 'default' as const,
     clickEffect: 'ripple' as const,
@@ -58,12 +79,22 @@ export function RecordingPlaybackVideo({
     clickSoundEnabled: false,
   };
 
-  const cursorPath = asset?.metadata?.cursorEventsPath as string | null;
-  const cursorEvents = useCursorEvents(cursorPath);
-
   const assetDuration = asset?.duration || 900;
-  const assetWidth = (asset?.metadata?.width as number) || 1920;
-  const assetHeight = (asset?.metadata?.height as number) || 1080;
+  const projectFps = useProjectStore((s) => s.project.settings.frameRate);
+  // Frame rate the cursor sidecar was sampled at. New takes record this as
+  // metadata.cursorEventsFps; legacy takes (no field) sampled at
+  // TARGET_CAPTURE_FPS = 60. Falling back to the asset's recording fps is
+  // wrong because the cursor recorder did not necessarily run at the file
+  // fps — the assumption "60 if missing" matches every recording produced
+  // before this fix.
+  const cursorEventsFps =
+    (asset?.metadata?.cursorEventsFps as number | undefined) ?? 60;
+  const cursorPath = inferCursorEventsPath(
+    resolveProjectMediaPath(asset?.filePath ?? null, projectFilePath),
+    asset?.metadata?.cursorEventsPath as string | null,
+    projectFilePath,
+  );
+  const cursorEvents = useCursorEvents(cursorPath, assetWidth, assetHeight);
 
   const [cursorData, setCursorData] = useState<CursorFrameData | null>(null);
   useEffect(() => {
@@ -71,35 +102,129 @@ export function RecordingPlaybackVideo({
       setCursorData(null);
       return;
     }
-    const data = buildCursorFrameData(cursorEvents, assetDuration, assetWidth, assetHeight);
+    const data = buildCursorFrameData(
+      cursorEvents,
+      assetDuration,
+      assetWidth,
+      assetHeight,
+      cursorEventsFps,
+      projectFps,
+    );
     console.info(
       '[RecordingPlaybackVideo] Cursor overlay ready:',
       data.frameCount,
       'frames,',
       cursorEvents.length,
-      'events',
+      'events,',
+      `eventsFps=${cursorEventsFps} projectFps=${projectFps}`,
     );
     setCursorData(data);
-  }, [cursorEvents, assetDuration, assetWidth, assetHeight]);
+  }, [cursorEvents, assetDuration, assetWidth, assetHeight, cursorEventsFps, projectFps]);
 
-  const isPlaying = useTransportStore((s) => s.isPlaying);
-  const playheadFrame = useTransportStore((s) => s.playheadFrame);
+  useEffect(() => {
+    setCursorFrameData(assetId, cursorData);
+    return () => {
+      setCursorFrameData(assetId, null);
+    };
+  }, [assetId, cursorData, setCursorFrameData]);
+
+  const [isPlaying, setIsPlaying] = useState(() => transportStore.getState().isPlaying);
+  const [pausedPlayheadFrame, setPausedPlayheadFrame] = useState(
+    () => transportStore.getState().playheadFrame,
+  );
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const syncVisibility = (frame: number) => {
+      if (!rootRef.current) return;
+      const visible = clipTimelineOut > 0 && frame >= clipTimelineIn && frame < clipTimelineOut;
+      rootRef.current.style.visibility = visible ? 'visible' : 'hidden';
+    };
+
+    syncVisibility(transportStore.getState().playheadFrame);
+
+    return transportStore.subscribe((state, previousState) => {
+      if (state.isPlaying !== previousState.isPlaying) {
+        setIsPlaying(state.isPlaying);
+      }
+      if (state.playheadFrame !== previousState.playheadFrame) {
+        syncVisibility(state.playheadFrame);
+      }
+      if (!state.isPlaying && state.playheadFrame !== previousState.playheadFrame) {
+        setPausedPlayheadFrame(state.playheadFrame);
+      }
+    });
+  }, [clipTimelineIn, clipTimelineOut]);
+
+  const playheadFrame = pausedPlayheadFrame;
+  const sourcePlayheadFrame = clipSourceIn + Math.max(0, playheadFrame - clipTimelineIn);
+  const effectiveVisibility =
+    visibility ?? resolveRecordingVisibility(asset?.presentation?.visibilitySegments, sourcePlayheadFrame);
+  const effectiveCursorPresentation = {
+    ...cursorPresentation,
+    clickEffect: effectiveVisibility.clicksVisible ? cursorPresentation.clickEffect : 'none',
+    clickSoundEnabled: effectiveVisibility.clicksVisible && cursorPresentation.clickSoundEnabled,
+  };
   const inRange =
     clipTimelineOut > 0 && playheadFrame >= clipTimelineIn && playheadFrame < clipTimelineOut;
+  const clickFrames = useMemo(
+    () => buildClickFrameTimeline(cursorEvents, cursorEventsFps, projectFps, clipTimelineIn),
+    [clipTimelineIn, cursorEvents, cursorEventsFps, projectFps],
+  );
 
-  const zt =
-    zoomMarkers.length > 0
-      ? getZoomTransformAtFrame(playheadFrame - clipTimelineIn, zoomMarkers)
-      : { scale: 1, translateX: 0, translateY: 0 };
+  useClickSoundPlayback({
+    enabled: effectiveCursorPresentation.clickSoundEnabled,
+    clickFrames,
+    isPlaying,
+  });
+
+  const getCursorPosition = useCallback(
+    (frame: number, data: CursorFrameData | null = cursorData) => {
+      if (!data) return null;
+      const clampedFrame = Math.max(0, Math.min(frame, data.frameCount - 1));
+      const idx = clampedFrame * 3;
+      if (idx + 1 >= data.frames.length) return null;
+      const x = data.frames[idx] ?? -1;
+      const y = data.frames[idx + 1] ?? -1;
+      if (x < 0 || y < 0) return null;
+      return { x, y };
+    },
+    [cursorData],
+  );
+
+  const getZoomTransformForFrame = useCallback(
+    (sourceFrame: number, data: CursorFrameData | null = cursorData) => {
+      if (zoomMarkers.length === 0) return { scale: 1, translateX: 0, translateY: 0 };
+      return getZoomTransformAtFrame(sourceFrame, zoomMarkers, {
+        followCursor: asset?.presentation?.zoom?.followCursor ?? true,
+        followAnimation: asset?.presentation?.zoom?.followAnimation ?? 'focused',
+        followPadding: asset?.presentation?.zoom?.followPadding ?? 0.18,
+        getCursorPosition: (frame) => getCursorPosition(frame, data),
+      });
+    },
+    [
+      asset?.presentation?.zoom?.followAnimation,
+      asset?.presentation?.zoom?.followCursor,
+      asset?.presentation?.zoom?.followPadding,
+      cursorData,
+      getCursorPosition,
+      zoomMarkers,
+    ],
+  );
+
+  const zt = getZoomTransformForFrame(sourcePlayheadFrame);
+  const zoomHostOffsetX = ((1 - zt.scale) / 2 + zt.translateX) * 100;
+  const zoomHostOffsetY = ((1 - zt.scale) / 2 + zt.translateY) * 100;
 
   const reticleVisible =
     !!selectedZoomMarker &&
     !isPlaying &&
-    playheadFrame >= selectedZoomMarker.startFrame &&
-    playheadFrame < selectedZoomMarker.endFrame;
+    sourcePlayheadFrame >= selectedZoomMarker.startFrame &&
+    sourcePlayheadFrame < selectedZoomMarker.endFrame;
 
   return (
     <div
+      ref={rootRef}
       style={{
         position: 'absolute',
         inset: 0,
@@ -111,6 +236,7 @@ export function RecordingPlaybackVideo({
         style={{
           position: 'absolute',
           inset: 0,
+          overflow: 'hidden',
         }}
       >
         <div
@@ -118,12 +244,8 @@ export function RecordingPlaybackVideo({
           style={{
             position: 'absolute',
             inset: 0,
-            transformOrigin: '50% 50%',
-            transform: `scale(${zt.scale}) translate(${zt.translateX * 100}%, ${zt.translateY * 100}%)`,
-            transition: isPlaying
-              ? 'transform 60ms linear'
-              : 'transform 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-            willChange: 'transform',
+            transformOrigin: '0 0',
+            transform: `translate(${zoomHostOffsetX}%, ${zoomHostOffsetY}%) scale(${zt.scale})`,
           }}
         >
           <div ref={previewRef} style={{ position: 'absolute', inset: 0 }} />
@@ -138,13 +260,19 @@ export function RecordingPlaybackVideo({
       </div>
       <CursorOverlay
         cursorData={cursorData}
-        presentation={cursorPresentation}
+        presentation={effectiveCursorPresentation}
+        showCursor={effectiveVisibility.cursorVisible}
         clipTimelineIn={clipTimelineIn}
+        clipSourceIn={clipSourceIn}
         zoomTransform={zt}
+        getZoomTransform={getZoomTransformForFrame}
+        crop={asset?.presentation?.screenCrop}
+        fps={projectFps}
       />
       {reticleVisible && selectedZoomMarker && onFocalPointChange && (
         <FocalPointReticle
           focalPoint={selectedZoomMarker.focalPoint}
+          zoomTransform={zt}
           onChange={(fp) => onFocalPointChange(selectedZoomMarker.id, fp)}
         />
       )}
@@ -152,14 +280,38 @@ export function RecordingPlaybackVideo({
   );
 }
 
+/**
+ * Map a source-normalized coordinate (0-1) to a screen-normalized position
+ * given the current zoom transform.
+ *
+ * The PixiJS compositor renders with:
+ *   screen_x = source_x * S + (1 - S) / 2 + translateX
+ */
+function sourceToScreen(s: number, scale: number, translate: number): number {
+  return s * scale + (1 - scale) / 2 + translate;
+}
+
+/**
+ * Inverse of sourceToScreen: given a screen-normalized coordinate, return the
+ * corresponding source-normalized coordinate.
+ *
+ *   source_x = (screen_x - (1 - S) / 2 - translateX) / S
+ */
+function screenToSource(n: number, scale: number, translate: number): number {
+  return (n - (1 - scale) / 2 - translate) / scale;
+}
+
 function FocalPointReticle({
   focalPoint,
+  zoomTransform,
   onChange,
 }: {
   focalPoint: { x: number; y: number };
+  zoomTransform: { scale: number; translateX: number; translateY: number };
   onChange: (fp: { x: number; y: number }) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const { scale, translateX, translateY } = zoomTransform;
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -170,9 +322,13 @@ function FocalPointReticle({
       const rect = host.getBoundingClientRect();
 
       const updateFromClient = (clientX: number, clientY: number) => {
+        // Normalize screen coords to 0-1
         const nx = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
         const ny = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
-        onChange({ x: nx, y: ny });
+        // Inverse-transform through current zoom to get source-space coords
+        const sx = Math.max(0, Math.min(1, screenToSource(nx, scale, translateX)));
+        const sy = Math.max(0, Math.min(1, screenToSource(ny, scale, translateY)));
+        onChange({ x: sx, y: sy });
       };
 
       updateFromClient(e.clientX, e.clientY);
@@ -185,8 +341,13 @@ function FocalPointReticle({
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
     },
-    [onChange],
+    [onChange, scale, translateX, translateY],
   );
+
+  // Forward-transform the stored focal point into screen space so the dot
+  // appears exactly over the rendered source pixel, even when zoomed.
+  const dotScreenX = sourceToScreen(focalPoint.x, scale, translateX);
+  const dotScreenY = sourceToScreen(focalPoint.y, scale, translateY);
 
   return (
     <div
@@ -203,8 +364,8 @@ function FocalPointReticle({
       <div
         style={{
           position: 'absolute',
-          left: `${focalPoint.x * 100}%`,
-          top: `${focalPoint.y * 100}%`,
+          left: `${dotScreenX * 100}%`,
+          top: `${dotScreenY * 100}%`,
           transform: 'translate(-50%, -50%)',
           width: 24,
           height: 24,

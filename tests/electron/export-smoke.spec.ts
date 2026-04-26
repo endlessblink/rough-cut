@@ -2,14 +2,17 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
-import { ZOOM_FIXTURE_PROJECT_PATH } from './fixtures/zoom-fixture.js';
+import {
+  PLAYBACK_PROJECT_PATH,
+  PLAYBACK_RECORDING_BASENAME,
+} from './fixtures/playback-fixture.js';
 
 test.describe('export smoke', () => {
   test('exports a playable mp4 file with audio', async ({ appPage }, testInfo) => {
     test.setTimeout(240_000);
-    expect(existsSync(ZOOM_FIXTURE_PROJECT_PATH), 'Recorded project fixture is not available').toBe(
+    expect(existsSync(PLAYBACK_PROJECT_PATH), 'Recorded project fixture is not available').toBe(
       true,
     );
 
@@ -22,11 +25,14 @@ test.describe('export smoke', () => {
             roughcut: { projectOpenPath: (filePath: string) => Promise<Record<string, unknown>> };
           }
         ).roughcut.projectOpenPath(projectPath),
-      ZOOM_FIXTURE_PROJECT_PATH,
+      PLAYBACK_PROJECT_PATH,
     );
 
     const recording = (project.assets as Array<Record<string, unknown>>).find(
-      (asset) => asset.type === 'recording',
+      (asset) =>
+        asset.type === 'recording' &&
+        typeof asset.filePath === 'string' &&
+        asset.filePath.includes(PLAYBACK_RECORDING_BASENAME),
     );
     const recordingPath = typeof recording?.filePath === 'string' ? recording.filePath : null;
 
@@ -38,14 +44,34 @@ test.describe('export smoke', () => {
         stores?.project.getState().setActiveAssetId(activeAssetId ?? null);
         stores?.transport.getState().seekToFrame(0);
         (
-          window as unknown as { __roughcutTestOverrides?: { exportOutputPath?: string } }
+          window as unknown as {
+            __roughcutTestOverrides?: {
+              exportOutputPath?: string;
+              runDesktopExport?: (
+                project: Record<string, unknown>,
+                range: { startFrame: number; endFrame: number },
+                outputPath: string,
+                signal: AbortSignal,
+              ) => Promise<unknown>;
+            };
+            roughcut: {
+              exportStart: (
+                project: Record<string, unknown>,
+                settings: unknown,
+                outputPath: string,
+              ) => Promise<unknown>;
+            };
+          }
         ).__roughcutTestOverrides = {
           exportOutputPath: exportPath,
+          runDesktopExport: async (project, _range, outputPath) => {
+            return window.roughcut.exportStart(project, (project as any).exportSettings, outputPath);
+          },
         };
       },
       {
         nextProject: project,
-        projectPath: ZOOM_FIXTURE_PROJECT_PATH,
+        projectPath: PLAYBACK_PROJECT_PATH,
         activeAssetId: recording?.id ?? null,
         exportPath: outputPath,
       },
@@ -75,12 +101,18 @@ test.describe('export smoke', () => {
       streams?: Array<{ codec_type?: string }>;
     };
 
-    const sourceHasAudio = recordingPath
+    const absoluteRecordingPath = recordingPath
+      ? isAbsolute(recordingPath)
+        ? recordingPath
+        : resolve(dirname(PLAYBACK_PROJECT_PATH), recordingPath)
+      : null;
+
+    const sourceHasAudio = absoluteRecordingPath
       ? (() => {
           const sourceProbe = JSON.parse(
             execFileSync(
               'ffprobe',
-              ['-v', 'quiet', '-print_format', 'json', '-show_streams', recordingPath],
+              ['-v', 'quiet', '-print_format', 'json', '-show_streams', absoluteRecordingPath],
               { encoding: 'utf-8' },
             ),
           ) as { streams?: Array<{ codec_type?: string }> };

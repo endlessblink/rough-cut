@@ -11,6 +11,20 @@
  */
 import { useState } from 'react';
 import { ControlLabel, RcSlider, RcToggleButton } from '../../ui/index.js';
+import bgDarkWaves from './assets/backgrounds/dark-diagonal-waves.png';
+import bgPurpleMist from './assets/backgrounds/purple-mist.png';
+import bgAuroraGlow from './assets/backgrounds/aurora-glow.png';
+import bgCopperChevron from './assets/backgrounds/copper-chevron.png';
+import bgCoralFlow from './assets/backgrounds/coral-flow.png';
+import bgSpiralGalaxy from './assets/backgrounds/spiral-galaxy.png';
+import bgGlassPetals from './assets/backgrounds/glass-petals.png';
+import bgBlueBokeh from './assets/backgrounds/blue-bokeh.png';
+import bgSteelPanels from './assets/backgrounds/steel-panels.png';
+import bgFrostedWindow from './assets/backgrounds/frosted-window.png';
+import bgCyanRipples from './assets/backgrounds/cyan-ripples.png';
+import bgOnyxDunes from './assets/backgrounds/onyx-dunes.png';
+import bgDuskGlow from './assets/backgrounds/dusk-glow.png';
+import bgPastelDrift from './assets/backgrounds/pastel-drift.png';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,10 +109,38 @@ const COLORS: string[] = [
   '#606c38',
 ];
 
+// ─── Image presets ────────────────────────────────────────────────────────────
+
+const IMAGES: { url: string; label: string }[] = [
+  { url: bgDarkWaves, label: 'Dark Waves' },
+  { url: bgPurpleMist, label: 'Purple Mist' },
+  { url: bgAuroraGlow, label: 'Aurora Glow' },
+  { url: bgCopperChevron, label: 'Copper Chevron' },
+  { url: bgCoralFlow, label: 'Coral Flow' },
+  { url: bgSpiralGalaxy, label: 'Spiral Galaxy' },
+  { url: bgGlassPetals, label: 'Glass Petals' },
+  { url: bgBlueBokeh, label: 'Blue Bokeh' },
+  { url: bgSteelPanels, label: 'Steel Panels' },
+  { url: bgFrostedWindow, label: 'Frosted Window' },
+  { url: bgCyanRipples, label: 'Cyan Ripples' },
+  { url: bgOnyxDunes, label: 'Onyx Dunes' },
+  { url: bgDuskGlow, label: 'Dusk Glow' },
+  { url: bgPastelDrift, label: 'Pastel Drift' },
+];
+
 const ACCENT = '#ff6b5a';
 
 function isHexColor(value: string): boolean {
   return /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
+function toImageBg(url: string): string {
+  return `url('${url}') center/cover no-repeat`;
+}
+
+// NOTE: assumes gradient presets never start with `url(` — true today (all are `linear-gradient(...)`).
+function isImageBg(value: string | null): boolean {
+  return !!value && value.startsWith('url(');
 }
 
 function CustomColorField({
@@ -254,54 +296,51 @@ function TileGrid({
   );
 }
 
-// ─── Image upload placeholder ─────────────────────────────────────────────────
+// ─── Image tile grid ──────────────────────────────────────────────────────────
 
-function ImageSection() {
+function ImageTileGrid({
+  items,
+  selected,
+  onSelect,
+}: {
+  items: { url: string; label: string }[];
+  selected: string | null;
+  onSelect: (value: string) => void;
+}) {
   return (
     <div
       style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(6, 1fr)',
+        gap: 3,
         marginTop: 8,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 6,
-        padding: '20px 8px',
-        borderRadius: 8,
-        border: '1px dashed rgba(255,255,255,0.10)',
-        background: 'rgba(255,255,255,0.02)',
       }}
     >
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-        <rect
-          x="3"
-          y="5"
-          width="18"
-          height="14"
-          rx="2"
-          stroke="rgba(255,255,255,0.25)"
-          strokeWidth="1.5"
-        />
-        <circle cx="8.5" cy="10.5" r="1.5" stroke="rgba(255,255,255,0.25)" strokeWidth="1" />
-        <path
-          d="M3 16l5-4 3 2.5 4-4 6 5.5"
-          stroke="rgba(255,255,255,0.25)"
-          strokeWidth="1.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-      <span
-        style={{
-          fontSize: 10,
-          color: 'rgba(255,255,255,0.30)',
-          textAlign: 'center',
-          lineHeight: 1.4,
-        }}
-      >
-        Drop image or click to upload
-      </span>
-      <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.18)' }}>Coming soon</span>
+      {items.map(({ url, label }, i) => {
+        const value = toImageBg(url);
+        const isSelected = selected === value;
+        return (
+          <button
+            key={`image-${i}`}
+            onClick={() => onSelect(value)}
+            title={label}
+            aria-label={label}
+            style={{
+              width: '100%',
+              aspectRatio: '1',
+              borderRadius: 8,
+              background: `url('${url}') center/cover no-repeat`,
+              border: isSelected ? `2px solid ${ACCENT}` : '1px solid rgba(255,255,255,0.08)',
+              cursor: 'pointer',
+              padding: 0,
+              outline: 'none',
+              transition: 'border-color 120ms, transform 80ms',
+              transform: isSelected ? 'scale(1.05)' : 'scale(1)',
+              boxShadow: isSelected ? `0 0 8px ${ACCENT}40` : 'none',
+            }}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -328,7 +367,13 @@ export function RecordBackgroundPanel({
   shadowOpacity,
   onShadowOpacityChange,
 }: RecordBackgroundPanelProps) {
-  const [mode, setMode] = useState<BackgroundMode>(backgroundGradient ? 'gradient' : 'color');
+  const [mode, setMode] = useState<BackgroundMode>(
+    isImageBg(backgroundGradient)
+      ? 'image'
+      : backgroundGradient
+        ? 'gradient'
+        : 'color',
+  );
 
   const handleModeChange = (newMode: BackgroundMode) => {
     setMode(newMode);
@@ -374,7 +419,13 @@ export function RecordBackgroundPanel({
           </>
         )}
 
-        {mode === 'image' && <ImageSection />}
+        {mode === 'image' && (
+          <ImageTileGrid
+            items={IMAGES}
+            selected={backgroundGradient}
+            onSelect={onBackgroundGradientChange}
+          />
+        )}
       </div>
 
       {/* Framing controls */}

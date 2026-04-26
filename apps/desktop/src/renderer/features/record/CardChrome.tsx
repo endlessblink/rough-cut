@@ -119,7 +119,10 @@ export function CardChrome({
             style={{
               position: 'absolute',
               inset: 0,
+              borderRadius: 'inherit',
               overflow: 'hidden',
+              isolation: 'isolate',
+              clipPath: 'inset(0 round 18px)',
             }}
           >
             {children}

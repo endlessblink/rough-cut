@@ -18,22 +18,24 @@ export const TitleCard: React.FC<TitleCardProps> = ({
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
 
-  // Title spring animation
-  const titleProgress = spring({
-    frame,
-    fps,
-    config: { damping: 12, stiffness: 100, mass: 0.5 },
-  });
+  // Spring/interpolate produce NaN when fps arrives as 0/undefined during
+  // initial Player mount. Clamp every animated output so a transient invalid
+  // fps doesn't leak NaN into CSS opacity/width/transform.
+  const safe = (n: number, fallback = 0) => (Number.isFinite(n) ? n : fallback);
 
-  // Subtitle enters 10 frames after title
-  const subtitleProgress = spring({
-    frame: Math.max(0, frame - 10),
-    fps,
-    config: { damping: 14, stiffness: 80, mass: 0.5 },
-  });
+  const titleProgress = safe(
+    spring({ frame, fps, config: { damping: 12, stiffness: 100, mass: 0.5 } }),
+  );
+  const subtitleProgress = safe(
+    spring({
+      frame: Math.max(0, frame - 10),
+      fps,
+      config: { damping: 14, stiffness: 80, mass: 0.5 },
+    }),
+  );
 
   // Accent line
-  const lineWidth = interpolate(titleProgress, [0, 1], [0, 120]);
+  const lineWidth = safe(interpolate(titleProgress, [0, 1], [0, 120]));
 
   // Fade out near end
   const fadeOutStart = durationInFrames - 20;

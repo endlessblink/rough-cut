@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { createDefaultCameraPresentation } from '@rough-cut/project-model';
+import { createDefaultCameraPresentation, createDefaultRecordingBackgroundStyle } from '@rough-cut/project-model';
 import type { ProjectDocument } from '@rough-cut/project-model';
 import { resolveFrame } from '@rough-cut/frame-resolver';
 import { getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
@@ -17,6 +17,11 @@ import { CardChrome } from '../record/CardChrome.js';
 import { TemplatePreviewRenderer } from '../record/TemplatePreviewRenderer.js';
 import { CameraPlaybackCanvas } from '../record/CameraPlaybackCanvas.js';
 import { LAYOUT_TEMPLATES } from '../record/templates.js';
+import {
+  getDestinationPreset,
+  isDestinationPresetId,
+  matchDestinationPreset,
+} from '../record/destination-presets.js';
 import { RecordingPlaybackVideo } from '../record/RecordingPlaybackVideo.js';
 import { TimelineStrip } from '../edit/TimelineStrip.js';
 import type { ExportRange } from '../edit/TimelineStrip.js';
@@ -25,6 +30,7 @@ import {
   pickDesktopExportOutputPath,
   runDesktopExport,
 } from './run-export.js';
+import { bitrateFromCrf, normalizeExportSettings, resolveExportBitrate } from './export-settings.js';
 
 interface ExportTabProps {
   activeTab: AppView;
@@ -188,21 +194,9 @@ const EXPORT_PRESETS: readonly ExportPreset[] = [
   },
 ];
 
-function bitrateFromCrf(crf: number): number {
-  switch (crf) {
-    case 18:
-      return 10_000_000;
-    case 22:
-      return 5_000_000;
-    case 26:
-      return 2_000_000;
-    default:
-      return 1_000_000;
-  }
-}
-
 function crfFromBitrate(bitrate: number): number {
   if (bitrate >= 10_000_000) return 18;
+  if (bitrate >= 6_000_000) return 23;
   if (bitrate >= 5_000_000) return 22;
   if (bitrate >= 2_000_000) return 26;
   return 30;
@@ -213,11 +207,16 @@ function resolutionKey(width: number, height: number): string {
 }
 
 function presetMatches(project: ProjectDocument, preset: ExportPreset): boolean {
+  const bitrate = resolveExportBitrate(
+    project.exportSettings as ProjectDocument['exportSettings'] & Record<string, unknown>,
+  );
+
   return (
     project.exportSettings.resolution.width === preset.resolution.width &&
     project.exportSettings.resolution.height === preset.resolution.height &&
     project.exportSettings.frameRate === preset.frameRate &&
-    crfFromBitrate(project.exportSettings.bitrate) === preset.crf
+    bitrate !== null &&
+    crfFromBitrate(bitrate) === preset.crf
   );
 }
 
@@ -273,10 +272,29 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const durationFrames = useProjectStore((s) => s.project.composition.duration);
   const projectFps = useProjectStore((s) => s.project.settings.frameRate);
   const resolution = useProjectStore((s) => s.project.settings.resolution);
+  const destinationPresetId = useProjectStore((s) => s.project.settings.destinationPresetId);
   const exportSettings = useProjectStore((s) => s.project.exportSettings);
+  const normalizedExportSettings = useMemo(
+    () =>
+      normalizeExportSettings(
+        exportSettings as ProjectDocument['exportSettings'] & Record<string, unknown>,
+      ),
+    [exportSettings],
+  );
   const currentFrame = useTransportStore((s) => s.playheadFrame);
   const isPlaying = useTransportStore((s) => s.isPlaying);
   const project = useProjectStore((s) => s.project);
+
+  useEffect(() => {
+    if (normalizedExportSettings === exportSettings) {
+      return;
+    }
+
+    updateProject((doc) => ({
+      ...doc,
+      exportSettings: normalizedExportSettings,
+    }));
+  }, [exportSettings, normalizedExportSettings, updateProject]);
 
   const activeRecordingAsset = useMemo(() => {
     const frame = resolveFrame(project, currentFrame);
@@ -312,8 +330,8 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
 
     return {
       filePath: cameraAsset.filePath,
-      camera: recordingAsset?.presentation?.camera ?? createDefaultCameraPresentation(),
-      cameraFrame: recordingAsset?.presentation?.cameraFrame,
+      camera: frame.cameraPresentation ?? recordingAsset?.presentation?.camera ?? createDefaultCameraPresentation(),
+      cameraFrame: frame.cameraFrame ?? recordingAsset?.presentation?.cameraFrame,
       clipTimelineIn: cameraClip?.timelineIn ?? 0,
       clipSourceIn: cameraClip?.sourceIn ?? 0,
     };
@@ -339,6 +357,8 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const activeScreenCrop = activeRecordingAsset?.presentation?.screenCrop;
   const activeCameraCrop = activeRecordingAsset?.presentation?.cameraCrop;
   const activeZoomMarkers = activeRecordingAsset?.presentation?.zoom?.markers ?? [];
+  const activeBackground =
+    activeRecordingAsset?.presentation?.background ?? createDefaultRecordingBackgroundStyle();
   const activeCameraSourceWidth =
     (project.assets.find((asset) => asset.id === activeRecordingAsset?.cameraAssetId)?.metadata
       ?.width as number | undefined) ?? 1280;
@@ -348,9 +368,23 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const activeZoomScale = getZoomTransformAtFrame(currentFrame, activeZoomMarkers).scale;
 
   const captureSummary = `${resolution.width}×${resolution.height} · ${projectFps} fps`;
-  const selectedCrf = crfFromBitrate(exportSettings.bitrate);
+  const resolvedExportBitrate = resolveExportBitrate(
+    exportSettings as ProjectDocument['exportSettings'] & Record<string, unknown>,
+  );
+  const selectedCrf = crfFromBitrate(resolvedExportBitrate ?? 1_000_000);
   const selectedPresetId: ExportPresetId =
     EXPORT_PRESETS.find((preset) => presetMatches(project, preset))?.id ?? 'custom';
+  const linkedDestinationPreset =
+    (isDestinationPresetId(destinationPresetId) ? getDestinationPreset(destinationPresetId) : null) ??
+    matchDestinationPreset({
+      templateId: activeTemplate?.id,
+      captureResolution: resolution,
+        exportSettings: {
+          resolution: normalizedExportSettings.resolution,
+          frameRate: normalizedExportSettings.frameRate,
+          bitrate: normalizedExportSettings.bitrate,
+        },
+      });
 
   const [exportRange, setExportRange] = useState<ExportRange>({
     inFrame: 0,
@@ -365,8 +399,8 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
   const activeJobIdRef = useRef<string | null>(null);
   const queueProcessingRef = useRef(false);
   const exportEstimate = useMemo(
-    () => estimateExport(exportRange, exportSettings),
-    [exportRange, exportSettings],
+    () => estimateExport(exportRange, normalizedExportSettings),
+    [exportRange, normalizedExportSettings],
   );
   const liveEtaMs = useMemo(() => {
     if (!isExporting || exportProgress <= 0 || exportProgress >= 100) return null;
@@ -532,6 +566,22 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
               : job,
           ),
         );
+      } else {
+        setExportJobs((jobs) =>
+          jobs.map((job) =>
+            job.id === nextJob.id
+              ? {
+                  ...job,
+                  status: mapExportResultToJobStatus(result),
+                  progress: result.status === 'complete' ? 100 : job.progress,
+                  progressLabel: getResultLabel(result),
+                  error: result.status === 'failed' ? (result.error ?? 'Export failed') : null,
+                  outputFilePath:
+                    result.status === 'complete' ? (result.outputPath ?? job.outputPath) : null,
+                }
+              : job,
+          ),
+        );
       }
     } finally {
       activeJobIdRef.current = null;
@@ -576,6 +626,10 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
     (patch: Partial<ProjectDocument['exportSettings']>) => {
       updateProject((doc) => ({
         ...doc,
+        settings: {
+          ...doc.settings,
+          destinationPresetId: null,
+        },
         exportSettings: {
           ...doc.exportSettings,
           ...patch,
@@ -675,7 +729,11 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
         >
           <div style={{ width: '100%', maxWidth: 1040 }}>
             <div style={{ height: 585 }}>
-              <CardChrome aspectRatio={activeTemplate?.aspectRatio ?? '16:9'}>
+              <CardChrome
+                aspectRatio={activeTemplate?.aspectRatio ?? '16:9'}
+                bgColor={activeBackground.bgColor}
+                bgGradient={activeBackground.bgGradient}
+              >
                 <TemplatePreviewRenderer
                   template={effectiveTemplate ?? LAYOUT_TEMPLATES[1] ?? LAYOUT_TEMPLATES[0]!}
                   screenContent={
@@ -713,10 +771,21 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
                     ) : undefined
                   }
                   screenAspect={activeScreenAspect}
-                  cameraAspect={4 / 3}
+                  cameraAspect={activeCameraSourceWidth / activeCameraSourceHeight}
                   cameraPresentation={
                     activeCameraLayoutSnapshot?.camera ?? activeCameraPreview?.camera
                   }
+                  screenPadding={activeBackground.bgPadding}
+                  screenCornerRadius={activeBackground.bgCornerRadius}
+                  screenShadow={
+                    activeBackground.bgShadowEnabled
+                      ? `0 ${Math.round(activeBackground.bgShadowBlur * 0.2)}px ${activeBackground.bgShadowBlur}px rgba(0,0,0,${activeBackground.bgShadowOpacity ?? 0.25})`
+                      : undefined
+                  }
+                  screenInset={activeBackground.bgInset}
+                  screenInsetColor={activeBackground.bgInsetColor}
+                  screenNormalizedFrameOverride={activeRecordingAsset?.presentation?.screenFrame}
+                  cameraNormalizedFrameOverride={activeRecordingAsset?.presentation?.cameraFrame}
                   screenCrop={activeScreenCrop}
                   cameraCrop={activeCameraCrop}
                   screenSourceWidth={
@@ -768,10 +837,44 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
                 marginBottom: 8,
               }}
             >
+              Linked Destination
+            </div>
+            <div
+              data-testid="export-linked-destination"
+              style={{
+                borderRadius: 10,
+                border: '1px solid rgba(255,255,255,0.06)',
+                background: 'rgba(255,255,255,0.03)',
+                padding: 10,
+                fontSize: 12,
+                color: 'rgba(255,255,255,0.78)',
+              }}
+            >
+              <div style={{ fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
+                {linkedDestinationPreset?.label ?? 'Custom Export'}
+              </div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.54)', marginTop: 4 }}>
+                {linkedDestinationPreset?.description ??
+                  'This export is no longer linked to a saved Record destination preset.'}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: 'rgba(255,255,255,0.68)',
+                marginBottom: 8,
+              }}
+            >
               Format
             </div>
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.80)' }}>
-              {exportSettings.format.toUpperCase()} ({formatCodecLabel(exportSettings.codec)})
+              {normalizedExportSettings.format.toUpperCase()} ({formatCodecLabel(normalizedExportSettings.codec)})
             </div>
           </div>
 
@@ -824,8 +927,8 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
             <select
               data-testid="export-resolution-select"
               value={resolutionKey(
-                exportSettings.resolution.width,
-                exportSettings.resolution.height,
+                normalizedExportSettings.resolution.width,
+                normalizedExportSettings.resolution.height,
               )}
               onChange={(e) => handleResolutionChange(e.target.value)}
               style={selectStyle}
@@ -853,7 +956,7 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
             </div>
             <select
               data-testid="export-frame-rate-select"
-              value={String(exportSettings.frameRate)}
+              value={String(normalizedExportSettings.frameRate)}
               onChange={(e) => handleFrameRateChange(e.target.value)}
               style={selectStyle}
             >
@@ -892,6 +995,57 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
             </select>
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.52)', marginTop: 6 }}>
               Lower CRF means higher quality and larger files.
+            </div>
+          </div>
+
+          <div>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: 'rgba(255,255,255,0.68)',
+                marginBottom: 8,
+              }}
+            >
+              Audio Extras
+            </div>
+            <button
+              data-testid="export-keep-click-sounds-toggle"
+              onClick={() =>
+                patchExportSettings({ keepClickSounds: !normalizedExportSettings.keepClickSounds })
+              }
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                borderRadius: 10,
+                border: '1px solid rgba(255,255,255,0.08)',
+                background: normalizedExportSettings.keepClickSounds
+                  ? 'rgba(255,255,255,0.08)'
+                  : 'rgba(255,255,255,0.03)',
+                color: 'rgba(255,255,255,0.86)',
+                fontSize: 12,
+                fontFamily: 'inherit',
+                padding: '10px 12px',
+                cursor: 'pointer',
+              }}
+            >
+              <span>Keep click sounds</span>
+              <span
+                style={{
+                  color: normalizedExportSettings.keepClickSounds
+                    ? 'rgba(255,255,255,0.92)'
+                    : 'rgba(255,255,255,0.50)',
+                }}
+              >
+                {normalizedExportSettings.keepClickSounds ? 'On' : 'Off'}
+              </span>
+            </button>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.52)', marginTop: 6 }}>
+              Keeps or strips synthesized cursor click SFX without changing the source take.
             </div>
           </div>
 
@@ -1031,6 +1185,8 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
                   return (
                     <div
                       key={job.id}
+                      data-testid="export-queue-item"
+                      data-status={job.status}
                       style={{
                         borderRadius: 10,
                         border: '1px solid rgba(255,255,255,0.08)',
@@ -1118,12 +1274,14 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
                       {job.status === 'complete' && resolvedOutputPath ? (
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button
+                            data-testid="export-queue-open"
                             onClick={() => void window.roughcut.shellOpenPath(resolvedOutputPath)}
                             style={miniActionStyle}
                           >
                             Open
                           </button>
                           <button
+                            data-testid="export-queue-folder"
                             onClick={() =>
                               void window.roughcut.shellShowItemInFolder(resolvedOutputPath)
                             }
@@ -1134,7 +1292,11 @@ export function ExportTab({ activeTab, onTabChange }: ExportTabProps) {
                         </div>
                       ) : null}
                       {canRemove ? (
-                        <button onClick={() => handleRemoveJob(job.id)} style={miniTextButtonStyle}>
+                        <button
+                          data-testid="export-queue-remove"
+                          onClick={() => handleRemoveJob(job.id)}
+                          style={miniTextButtonStyle}
+                        >
                           Remove
                         </button>
                       ) : null}

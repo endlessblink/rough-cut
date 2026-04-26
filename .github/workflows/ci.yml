@@ -1,0 +1,104 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: unit + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - run: pnpm typecheck
+
+      # No lint step: the repo has no real ESLint config (TASK-212). Add one
+      # back here when a flat ESLint config lands at the repo root.
+
+      - run: pnpm test
+
+  e2e:
+    name: playwright (electron)
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # Electron + xvfb + ffmpeg system deps. xvfb-run wraps the Playwright
+      # invocation so the Electron renderer has a virtual display. ffmpeg/ffprobe
+      # are required by the recording artifact specs.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            xvfb \
+            ffmpeg \
+            libnss3 \
+            libatk-bridge2.0-0 \
+            libdrm2 \
+            libxkbcommon0 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxfixes3 \
+            libxrandr2 \
+            libgbm1 \
+            libgtk-3-0 \
+            libasound2t64 \
+            pulseaudio
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      # Start a virtual PulseAudio server so audio capture paths don't fail
+      # to enumerate sources. Tests that need real devices skip themselves.
+      - name: Start PulseAudio
+        run: |
+          pulseaudio --start --exit-idle-time=-1 || true
+          pactl info || true
+
+      - name: Run Playwright e2e
+        run: pnpm test:e2e
+        env:
+          CI: '1'
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+          if-no-files-found: ignore

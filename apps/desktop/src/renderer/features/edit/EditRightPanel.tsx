@@ -6,7 +6,9 @@ import type {
   EffectInstance,
   CaptionSegment,
   AIAnnotationId,
+  Asset,
 } from '@rough-cut/project-model';
+import type { AudioStemMixerSettings } from '@rough-cut/preview-renderer';
 import { InspectorCard, EDIT_PANEL_WIDTH, CARD_GAP } from '../../ui/index.js';
 import { ClipInspectorCard } from './ClipInspectorCard.js';
 import { EffectsCard } from './EffectsCard.js';
@@ -17,6 +19,7 @@ import { CaptionsCard } from './CaptionsCard.js';
 
 interface EditRightPanelProps {
   selectedClip: Clip | null;
+  selectedAsset: Asset | null;
   fps: number;
   onUpdateClip: (clipId: ClipId, patch: { name?: string; enabled?: boolean }) => void;
   onUpdateTransform: (clipId: ClipId, patch: Partial<ClipTransform>) => void;
@@ -33,6 +36,7 @@ interface EditRightPanelProps {
   // Audio
   trackVolume: number;
   onSetTrackVolume: (trackId: TrackId, volume: number) => void;
+  onSetStemMixer: (assetId: string, settings: AudioStemMixerSettings) => void;
   // Captions
   captionSegments: readonly CaptionSegment[];
   onUpdateCaptionText: (id: AIAnnotationId, text: string) => void;
@@ -40,6 +44,7 @@ interface EditRightPanelProps {
 
 export function EditRightPanel({
   selectedClip,
+  selectedAsset,
   fps,
   onUpdateClip,
   onUpdateTransform,
@@ -49,6 +54,7 @@ export function EditRightPanel({
   onRemoveEffect,
   trackVolume,
   onSetTrackVolume,
+  onSetStemMixer,
   captionSegments,
   onUpdateCaptionText,
 }: EditRightPanelProps) {
@@ -93,7 +99,13 @@ export function EditRightPanel({
         </div>
       </InspectorCard>
 
-      <AudioCard trackId={trackId} trackVolume={trackVolume} onSetTrackVolume={onSetTrackVolume} />
+      <AudioCard
+        trackId={trackId}
+        selectedAsset={selectedAsset}
+        trackVolume={trackVolume}
+        onSetTrackVolume={onSetTrackVolume}
+        onSetStemMixer={onSetStemMixer}
+      />
 
       <CaptionsCard
         captionSegments={captionSegments}

@@ -60,9 +60,15 @@ export interface ProjectSettings {
   readonly backgroundColor: string;
   readonly sampleRate: SampleRate;
   readonly backgroundConfig?: BackgroundConfig;
+  readonly recordingDefaults?: RecordingPresentation;
+  readonly destinationPresetId?: string | null;
 }
 
 export type ZoomMarkerId = string & { readonly __brand: 'ZoomMarkerId' };
+export type CameraLayoutMarkerId = string & { readonly __brand: 'CameraLayoutMarkerId' };
+export type RecordingVisibilitySegmentId = string & {
+  readonly __brand: 'RecordingVisibilitySegmentId';
+};
 
 export interface ZoomFocalPoint {
   readonly x: number; // normalized 0–1 within source frame
@@ -80,9 +86,36 @@ export interface ZoomMarker {
   readonly zoomOutDuration: Frame;
 }
 
+export type ZoomFollowAnimation = 'focused' | 'smooth';
+
 export interface ZoomPresentation {
   readonly autoIntensity: number; // 0–1
+  readonly followCursor: boolean;
+  readonly followAnimation: ZoomFollowAnimation;
+  readonly followPadding: number; // 0–0.3 normalized viewport padding per edge
   readonly markers: readonly ZoomMarker[];
+  /** When true (default), auto zoom markers are generated from recorded mouse clicks. */
+  readonly autoFromClicks?: boolean;
+}
+
+export interface CameraLayoutMarker {
+  readonly id: CameraLayoutMarkerId;
+  readonly frame: Frame;
+  readonly camera: CameraPresentation;
+  readonly cameraFrame?: NormalizedRect;
+  readonly templateId?: string;
+}
+
+export interface RecordingVisibility {
+  readonly cameraVisible: boolean;
+  readonly cursorVisible: boolean;
+  readonly clicksVisible: boolean;
+  readonly overlaysVisible: boolean;
+}
+
+export interface RecordingVisibilitySegment extends RecordingVisibility {
+  readonly id: RecordingVisibilitySegmentId;
+  readonly frame: Frame;
 }
 
 export type CursorStyle = 'subtle' | 'default' | 'spotlight';
@@ -122,6 +155,18 @@ export interface CameraPresentation {
   readonly shadowOpacity: number;
 }
 
+export interface RecordingBackgroundStyle {
+  readonly bgColor: string;
+  readonly bgGradient: string | null;
+  readonly bgPadding: number;
+  readonly bgCornerRadius: number;
+  readonly bgInset: number;
+  readonly bgInsetColor: string;
+  readonly bgShadowEnabled: boolean;
+  readonly bgShadowBlur: number;
+  readonly bgShadowOpacity: number;
+}
+
 export type CropAspectRatio = 'free' | '16:9' | '9:16' | '1:1' | '4:3';
 
 /** Static crop viewport into source content. Coordinates are in source pixels. */
@@ -139,6 +184,10 @@ export interface RecordingPresentation {
   readonly zoom: ZoomPresentation;
   readonly cursor: CursorPresentation;
   readonly camera: CameraPresentation;
+  readonly cameraLayouts?: readonly CameraLayoutMarker[];
+  readonly visibilitySegments?: readonly RecordingVisibilitySegment[];
+  readonly background?: RecordingBackgroundStyle;
+  readonly screenFrame?: NormalizedRect;
   readonly cameraFrame?: NormalizedRect;
   readonly screenCrop?: RegionCrop;
   readonly cameraCrop?: RegionCrop;
@@ -168,8 +217,17 @@ export interface CaptionSegment {
   readonly words: readonly TranscriptWord[];
 }
 
+export type CaptionPosition = 'bottom' | 'center';
+
+export interface CaptionStyle {
+  readonly fontSize: number;
+  readonly position: CaptionPosition;
+  readonly backgroundOpacity: number;
+}
+
 export interface AIAnnotations {
   readonly captionSegments: readonly CaptionSegment[];
+  readonly captionStyle: CaptionStyle;
 }
 
 // --- AI Libraries ---
@@ -344,6 +402,7 @@ export interface ExportSettings {
   readonly bitrate: number;
   readonly resolution: Resolution;
   readonly frameRate: number;
+  readonly keepClickSounds: boolean;
 }
 
 export interface ProjectDocument {

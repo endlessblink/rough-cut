@@ -3,6 +3,13 @@ import { join, dirname, basename } from 'node:path';
 import { mkdirSync, existsSync, renameSync, unlinkSync, copyFileSync, statSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { execSync } from 'node:child_process';
+import {
+  mergeRecordingResultWithFinalProbe,
+  muxAudioIntoRecording,
+  probeRecordingFile,
+  probeRecordingResult,
+  resolveTimelineFps,
+} from './recording-file-utils.mjs';
 
 /**
  * List available capture sources (screens and windows).
@@ -39,7 +46,7 @@ export function reconcileSelectedSourceId(previousSources, nextSources, selected
   }
 
   const previousSource = previousSources.find((source) => source.id === selectedSourceId);
-  if (!previousSource) return selectedSourceId;
+  if (!previousSource) return null;
 
   const matchedSource = nextSources.find((source) => {
     if (previousSource.displayId && source.displayId) {
@@ -48,20 +55,10 @@ export function reconcileSelectedSourceId(previousSources, nextSources, selected
     return source.type === previousSource.type && source.name === previousSource.name;
   });
 
-  return matchedSource?.id ?? selectedSourceId;
+  return matchedSource?.id ?? null;
 }
 
-/**
- * Parse an ffprobe frame-rate fraction string like "30/1" into a number.
- * @param {string} fpsStr
- * @returns {number}
- */
-function parseFps(fpsStr) {
-  if (!fpsStr) return 30;
-  const parts = fpsStr.split('/').map(Number);
-  if (parts.length === 2 && parts[1]) return parts[0] / parts[1];
-  return parts[0] || 30;
-}
+export { mergeRecordingResultWithFinalProbe, muxAudioIntoRecording, probeRecordingFile, probeRecordingResult };
 
 /**
  * Remux a WebM file through FFmpeg to add seek cues and duration metadata.
@@ -118,21 +115,16 @@ export async function saveRecording(buffer, projectDir, metadata, cameraBuffer) 
   remuxForSeeking(filePath);
 
   // Probe with ffprobe for accurate metadata (best-effort)
-  let probedMeta = { durationMs: 0, width: 0, height: 0, fps: 0, codec: 'unknown' };
+  let probedMeta = {
+    durationMs: 0,
+    width: 0,
+    height: 0,
+    fps: 0,
+    codec: 'unknown',
+    hasAudio: false,
+  };
   try {
-    const probeResult = execSync(
-      `ffprobe -v quiet -print_format json -show_format -show_streams "${filePath}"`,
-      { encoding: 'utf-8' },
-    );
-    const info = JSON.parse(probeResult);
-    const videoStream = info.streams?.find((s) => s.codec_type === 'video');
-    probedMeta = {
-      durationMs: parseFloat(info.format?.duration || '0') * 1000,
-      width: videoStream ? parseInt(videoStream.width, 10) : 0,
-      height: videoStream ? parseInt(videoStream.height, 10) : 0,
-      fps: videoStream?.r_frame_rate ? parseFps(videoStream.r_frame_rate) : 30,
-      codec: videoStream?.codec_name || 'unknown',
-    };
+    probedMeta = probeRecordingFile(filePath);
   } catch {
     // ffprobe not available or failed — fall back to renderer-provided metadata
   }
@@ -140,7 +132,7 @@ export async function saveRecording(buffer, projectDir, metadata, cameraBuffer) 
   // Calculate duration in frames
   const fps = metadata.fps || probedMeta.fps || 30;
   const durationMs = probedMeta.durationMs || metadata.durationMs || 0;
-  const durationFrames = Math.round((durationMs / 1000) * fps);
+  const durationFrames = Math.round((durationMs / 1000) * resolveTimelineFps(metadata));
 
   // Generate thumbnail — extract a frame at 2 seconds (best-effort)
   let thumbnailPath = null;
@@ -169,11 +161,18 @@ export async function saveRecording(buffer, projectDir, metadata, cameraBuffer) 
   return {
     filePath,
     durationFrames,
+    durationMs,
     width: probedMeta.width || metadata.width || 1920,
     height: probedMeta.height || metadata.height || 1080,
     fps,
+    timelineFps: resolveTimelineFps(metadata),
+    cursorEventsFps:
+      Number.isFinite(metadata?.cursorEventsFps) && metadata.cursorEventsFps > 0
+        ? metadata.cursorEventsFps
+        : resolveTimelineFps(metadata),
     codec: probedMeta.codec,
     fileSize: Buffer.from(buffer).byteLength,
+    hasAudio: probedMeta.hasAudio,
     thumbnailPath,
     ...(cameraFilePath ? { cameraFilePath } : {}),
   };
@@ -230,28 +229,23 @@ export async function saveRecordingFromFile(srcFilePath, projectDir, metadata) {
   }
 
   // Probe with ffprobe
-  let probedMeta = { durationMs: 0, width: 0, height: 0, fps: 0, codec: 'unknown' };
+  let probedMeta = {
+    durationMs: 0,
+    width: 0,
+    height: 0,
+    fps: 0,
+    codec: 'unknown',
+    hasAudio: false,
+  };
   try {
-    const probeResult = execSync(
-      `ffprobe -v quiet -print_format json -show_format -show_streams "${destPath}"`,
-      { encoding: 'utf-8' },
-    );
-    const info = JSON.parse(probeResult);
-    const videoStream = info.streams?.find((s) => s.codec_type === 'video');
-    probedMeta = {
-      durationMs: parseFloat(info.format?.duration || '0') * 1000,
-      width: videoStream ? parseInt(videoStream.width, 10) : 0,
-      height: videoStream ? parseInt(videoStream.height, 10) : 0,
-      fps: videoStream?.r_frame_rate ? parseFps(videoStream.r_frame_rate) : 30,
-      codec: videoStream?.codec_name || 'unknown',
-    };
+    probedMeta = probeRecordingFile(destPath);
   } catch {
     console.warn('[capture-service] ffprobe failed on FFmpeg output — using fallback metadata');
   }
 
   const fps = metadata.fps || probedMeta.fps || 30;
   const durationMs = probedMeta.durationMs || metadata.durationMs || 0;
-  const durationFrames = Math.round((durationMs / 1000) * fps);
+  const durationFrames = Math.round((durationMs / 1000) * resolveTimelineFps(metadata));
 
   // Generate thumbnail
   let thumbnailPath = null;
@@ -278,11 +272,18 @@ export async function saveRecordingFromFile(srcFilePath, projectDir, metadata) {
   return {
     filePath: destPath,
     durationFrames,
+    durationMs,
     width: probedMeta.width || metadata.width || 1920,
     height: probedMeta.height || metadata.height || 1080,
     fps,
+    timelineFps: resolveTimelineFps(metadata),
+    cursorEventsFps:
+      Number.isFinite(metadata?.cursorEventsFps) && metadata.cursorEventsFps > 0
+        ? metadata.cursorEventsFps
+        : resolveTimelineFps(metadata),
     codec: probedMeta.codec,
     fileSize,
+    hasAudio: probedMeta.hasAudio,
     thumbnailPath,
   };
 }

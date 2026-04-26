@@ -30,7 +30,16 @@ export const IPC_CHANNELS = {
 
   // Recording
   RECORDING_GET_SOURCES: 'recording:get-sources',
+  RECORDING_GET_DISPLAY_BOUNDS: 'recording:get-display-bounds',
   RECORDING_GET_SYSTEM_AUDIO_SOURCES: 'recording:get-system-audio-sources',
+  RECORDING_GET_PREFLIGHT_STATUS: 'recording:get-preflight-status',
+  RECORDING_GET_MIC_VOLUME: 'recording:get-mic-volume',
+  RECORDING_SET_MIC_VOLUME: 'recording:set-mic-volume',
+  RECORDING_OPEN_PERMISSION_SETTINGS: 'recording:open-permission-settings',
+  RECORDING_RECOVERY_GET: 'recording:recovery-get',
+  RECORDING_RECOVERY_RECOVER: 'recording:recovery-recover',
+  RECORDING_RECOVERY_DISMISS: 'recording:recovery-dismiss',
+  RECORDING_RECOVERY_SET_CONTEXT: 'recording:recovery-set-context',
   RECORDING_START: 'recording:start',
   RECORDING_STOP: 'recording:stop',
   RECORDING_STATUS: 'recording:status',
@@ -41,6 +50,7 @@ export const IPC_CHANNELS = {
   RECORDING_SESSION_STATUS_CHANGED: 'recording-session:status-changed',
   RECORDING_SESSION_COUNTDOWN_TICK: 'recording-session:countdown-tick',
   RECORDING_SESSION_ELAPSED: 'recording-session:elapsed',
+  RECORDING_SESSION_CONNECTION_ISSUES_CHANGED: 'recording-session:connection-issues-changed',
   RECORDING_SESSION_TOOLBAR_READY: 'recording-session:toolbar-ready',
 
   // Recording Panel (self-contained floating window)
@@ -51,6 +61,7 @@ export const IPC_CHANNELS = {
   PANEL_START_RECORDING: 'panel:start-recording',
   PANEL_STOP_RECORDING: 'panel:stop-recording',
   PANEL_SAVE_RECORDING: 'panel:save-recording',
+  PANEL_CONNECTION_ISSUES_CHANGED: 'panel:connection-issues-changed',
   RECORDING_ASSET_READY: 'recording:asset-ready',
 
   // Recording sync
@@ -58,6 +69,10 @@ export const IPC_CHANNELS = {
   RECORDING_CONFIG_GET: 'recording-config:get',
   RECORDING_CONFIG_UPDATE: 'recording-config:update',
   RECORDING_CONFIG_CHANGED: 'recording-config:changed',
+  // Renderer publishes the active project's timeline frameRate so the main
+  // process (and its panel) can record cursor samples at the same cadence the
+  // playback transport will use to look them up.
+  RECORDING_SET_TIMELINE_FPS: 'recording:set-timeline-fps',
 
   // App
   APP_GET_VERSION: 'app:get-version',
@@ -94,6 +109,12 @@ export const IPC_CHANNELS = {
   // Debug (temporary)
   DEBUG_LOAD_LAST_RECORDING: 'debug:load-last-recording',
   DEBUG_GET_LAST_DISPLAY_MEDIA_SELECTION: 'debug:get-last-display-media-selection',
+  DEBUG_SET_RECORDING_RECOVERY: 'debug:set-recording-recovery',
+  DEBUG_SET_CAPTURE_SOURCES: 'debug:set-capture-sources',
+  DEBUG_SET_DISPLAY_BOUNDS: 'debug:set-display-bounds',
+  DEBUG_SET_RECORDING_PREFLIGHT_STATUS: 'debug:set-recording-preflight-status',
+  DEBUG_SET_RECORDING_PERMISSION_SETTINGS_RESULT: 'debug:set-recording-permission-settings-result',
+  DEBUG_APPLY_AUTO_ZOOM: 'debug:apply-auto-zoom',
 
   // Zoom marker persistence (sidecar alongside the recording .webm)
   ZOOM_LOAD_SIDECAR: 'zoom:load-sidecar',

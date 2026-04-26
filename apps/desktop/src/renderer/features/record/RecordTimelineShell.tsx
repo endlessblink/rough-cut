@@ -14,6 +14,10 @@ import { useRef, useCallback, useMemo, useEffect } from 'react';
 import type { Track, Asset, ZoomMarker, ZoomMarkerId } from '@rough-cut/project-model';
 import { getPlaybackManager } from '../../hooks/use-playback-manager.js';
 import { transportStore, useTransportStore } from '../../hooks/use-stores.js';
+import {
+  INITIAL_BACKWARD_SUBFRAME_INTERPOLATION_STATE,
+  resolveBackwardSubframeInterpolation,
+} from '../../components/cursor-subframe-interpolation.js';
 
 /* ── Types ─────────────────────────────────────────────────────────────────── */
 
@@ -41,6 +45,15 @@ interface RecordTimelineShellProps {
     id: ZoomMarkerId,
     patch: { startFrame?: number; endFrame?: number },
   ) => void;
+  cameraLayoutMarkers?: ReadonlyArray<{
+    id: string;
+    frame: number;
+    camera: { visible?: boolean; position?: string };
+  }>;
+  selectedCameraLayoutMarkerId?: string | null;
+  onSelectCameraLayoutMarker?: (id: string | null) => void;
+  onMoveCameraLayoutMarker?: (id: string, frame: number) => void;
+  onDeleteSelectedCameraLayoutMarker?: () => void;
 }
 
 /* ── Constants ─────────────────────────────────────────────────────────────── */
@@ -181,17 +194,35 @@ function ZoomTrackRow({
       };
 
       const minGap = 1;
+      let pendingPatch: { startFrame?: number; endFrame?: number } | null = null;
+      let rafId = 0;
+
+      const flushPatch = () => {
+        rafId = 0;
+        if (!pendingPatch) return;
+        const patch = pendingPatch;
+        pendingPatch = null;
+        onResizeMarker?.(markerId, patch);
+      };
+
+      const schedulePatch = (patch: { startFrame?: number; endFrame?: number }) => {
+        pendingPatch = patch;
+        if (rafId === 0) rafId = requestAnimationFrame(flushPatch);
+      };
+
       const onMove = (ev: PointerEvent) => {
         const frame = frameFromClient(ev.clientX);
         if (edge === 'start') {
           const startFrame = Math.max(0, Math.min(frame, marker.endFrame - minGap));
-          onResizeMarker?.(markerId, { startFrame });
+          schedulePatch({ startFrame });
         } else {
           const endFrame = Math.max(marker.startFrame + minGap, Math.min(frame, durationFrames));
-          onResizeMarker?.(markerId, { endFrame });
+          schedulePatch({ endFrame });
         }
       };
       const onUp = () => {
+        if (rafId !== 0) cancelAnimationFrame(rafId);
+        flushPatch();
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
         window.removeEventListener('pointercancel', onUp);
@@ -224,6 +255,21 @@ function ZoomTrackRow({
       const pixelsPerFrame = rect.width / durationFrames;
       const dur = marker.endFrame - marker.startFrame;
       let moved = false;
+      let pendingPatch: { startFrame: number; endFrame: number } | null = null;
+      let rafId = 0;
+
+      const flushPatch = () => {
+        rafId = 0;
+        if (!pendingPatch) return;
+        const patch = pendingPatch;
+        pendingPatch = null;
+        onResizeMarker?.(markerId, patch);
+      };
+
+      const schedulePatch = (patch: { startFrame: number; endFrame: number }) => {
+        pendingPatch = patch;
+        if (rafId === 0) rafId = requestAnimationFrame(flushPatch);
+      };
 
       const onMove = (ev: PointerEvent) => {
         const dx = ev.clientX - startClientX;
@@ -233,9 +279,11 @@ function ZoomTrackRow({
         const maxStart = Math.max(0, durationFrames - dur);
         const newStart = Math.max(0, Math.min(maxStart, marker.startFrame + frameDelta));
         const newEnd = newStart + dur;
-        onResizeMarker?.(markerId, { startFrame: newStart, endFrame: newEnd });
+        schedulePatch({ startFrame: newStart, endFrame: newEnd });
       };
       const onUp = () => {
+        if (rafId !== 0) cancelAnimationFrame(rafId);
+        flushPatch();
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
         window.removeEventListener('pointercancel', onUp);
@@ -420,6 +468,207 @@ function ZoomTrackRow({
   );
 }
 
+function CameraLayoutTrackRow({
+  top,
+  durationFrames,
+  markers,
+  selectedMarkerId,
+  onSelectMarker,
+  onMoveMarker,
+  onDeleteMarker,
+}: {
+  top: number;
+  durationFrames: number;
+  markers: ReadonlyArray<{
+    id: string;
+    frame: number;
+    camera: { visible?: boolean; position?: string };
+    templateId?: string;
+  }>;
+  selectedMarkerId?: string | null;
+  onSelectMarker?: (id: string | null) => void;
+  onMoveMarker?: (id: string, frame: number) => void;
+  onDeleteMarker?: () => void;
+}) {
+  const describeMarker = useCallback(
+    (marker: { camera: { visible?: boolean; position?: string }; templateId?: string }) => {
+      if (marker.camera.visible === false) return 'Hide Camera';
+      if (marker.templateId === 'presentation-16x9') return 'Presentation';
+      if (marker.templateId === 'talking-head') return 'Talking Head';
+      if (marker.camera.position === 'corner-tl') return 'Top Left';
+      return marker.camera.position ?? 'Camera';
+    },
+    [],
+  );
+
+  const markerAreaRef = useRef<HTMLDivElement>(null);
+
+  const startMove = useCallback(
+    (markerId: string, downEvent: React.PointerEvent) => {
+      const area = markerAreaRef.current;
+      if (!area || durationFrames <= 0) {
+        onSelectMarker?.(markerId);
+        return;
+      }
+
+      const rect = area.getBoundingClientRect();
+      const marker = markers.find((m) => m.id === markerId);
+      if (!marker) return;
+      const startClientX = downEvent.clientX;
+      const pixelsPerFrame = rect.width / durationFrames;
+      let moved = false;
+      let pendingFrame: number | null = null;
+      let rafId = 0;
+
+      const flushFrame = () => {
+        rafId = 0;
+        if (pendingFrame === null) return;
+        const frame = pendingFrame;
+        pendingFrame = null;
+        onMoveMarker?.(markerId, frame);
+      };
+
+      const scheduleFrame = (frame: number) => {
+        pendingFrame = frame;
+        if (rafId === 0) rafId = requestAnimationFrame(flushFrame);
+      };
+
+      const onMove = (ev: PointerEvent) => {
+        const dx = ev.clientX - startClientX;
+        if (!moved && Math.abs(dx) < 3) return;
+        moved = true;
+        const frameDelta = Math.round(dx / pixelsPerFrame);
+        const nextFrame = Math.max(0, Math.min(durationFrames, marker.frame + frameDelta));
+        scheduleFrame(nextFrame);
+      };
+      const onUp = () => {
+        if (rafId !== 0) cancelAnimationFrame(rafId);
+        flushFrame();
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        if (!moved) onSelectMarker?.(markerId);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+    },
+    [durationFrames, markers, onMoveMarker, onSelectMarker],
+  );
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top,
+        left: 0,
+        right: 0,
+        height: LANE_HEIGHT,
+        borderTop: '1px solid rgba(255,255,255,0.07)',
+        display: 'flex',
+      }}
+    >
+      <div
+        style={{
+          width: LABEL_WIDTH,
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'rgba(0,0,0,0.60)',
+          borderRight: '1px solid rgba(255,255,255,0.07)',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 8,
+            fontWeight: 600,
+            color: 'rgba(180,140,255,0.78)',
+            userSelect: 'none',
+            letterSpacing: '0.04em',
+          }}
+        >
+          CL
+        </span>
+      </div>
+
+      <div ref={markerAreaRef} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {markers.map((marker) => {
+          if (durationFrames <= 0) return null;
+          const leftPct = frameToPct(marker.frame, durationFrames);
+          const selected = marker.id === selectedMarkerId;
+          const markerLabel = describeMarker(marker);
+          return (
+            <div
+              key={marker.id}
+              data-testid="camera-layout-marker"
+              data-selected={selected ? 'true' : 'false'}
+              role="button"
+              tabIndex={0}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                e.currentTarget.focus();
+                startMove(marker.id, e);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onSelectMarker?.(marker.id);
+                  return;
+                }
+
+                if (selected && (e.key === 'Delete' || e.key === 'Backspace')) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDeleteMarker?.();
+                }
+              }}
+              title={`layout @ ${marker.frame} · ${markerLabel}`}
+              style={{
+                position: 'absolute',
+                top: CLIP_TOP,
+                left: `${leftPct}%`,
+                width: selected ? 10 : 8,
+                height: CLIP_HEIGHT,
+                marginLeft: selected ? -5 : -4,
+                borderRadius: 4,
+                background: selected
+                  ? 'rgba(214,188,250,1)'
+                  : marker.camera.visible === false
+                    ? 'rgba(180,140,255,0.95)'
+                    : 'rgba(180,140,255,0.78)',
+                boxShadow: selected
+                  ? '0 0 0 2px rgba(255,255,255,0.18) inset'
+                  : '0 0 0 1px rgba(255,255,255,0.10) inset',
+              }}
+            >
+              <span
+                style={{
+                  position: 'absolute',
+                  top: -14,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  padding: '1px 4px',
+                  borderRadius: 4,
+                  background: 'rgba(0,0,0,0.72)',
+                  color: 'rgba(255,255,255,0.8)',
+                  fontSize: 8,
+                  lineHeight: 1.2,
+                  whiteSpace: 'nowrap',
+                  pointerEvents: 'none',
+                }}
+              >
+                {markerLabel}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ── RecordTimelineShell ───────────────────────────────────────────────────── */
 
 export function RecordTimelineShell({
@@ -435,6 +684,11 @@ export function RecordTimelineShell({
   onAddZoomMarkerAtPlayhead,
   onSelectZoomMarker,
   onResizeZoomMarker,
+  cameraLayoutMarkers = [],
+  selectedCameraLayoutMarkerId = null,
+  onSelectCameraLayoutMarker,
+  onMoveCameraLayoutMarker,
+  onDeleteSelectedCameraLayoutMarker,
 }: RecordTimelineShellProps) {
   /* ── derived data ──────────────────────────────────────────────────────── */
 
@@ -494,16 +748,77 @@ export function RecordTimelineShell({
   useEffect(() => {
     const unsubscribe = transportStore.subscribe((state, prevState) => {
       if (state.playheadFrame === prevState.playheadFrame) return;
+      // While playing, the rAF loop below handles needle movement at display
+      // refresh rate using sub-frame interpolation. Calling
+      // syncDisplayedFrame here would also update the timecode label, which
+      // we want regardless. The needle will be re-positioned by the rAF on
+      // its next tick, so the label-only path is fine to invoke too — the
+      // `style.left` write inside moveNeedle is idempotent.
       syncDisplayedFrame(state.playheadFrame);
     });
     return unsubscribe;
   }, [syncDisplayedFrame]);
 
+  /* ── Sub-frame interpolation for the needle during playback ────────────── */
+  // playheadFrame in transportStore is integer and updates at ~30 Hz (tied
+  // to requestVideoFrameCallback). On a 60+ Hz display the needle would
+  // hold for a full project frame then jump — perceived as a stutter.
+  // This rAF loop runs ONLY while isPlaying and lerps the needle position
+  // between cursor[N-1] → cursor[N] using the same backward sub-frame
+  // interpolation the cursor sprite uses. Stops on pause to avoid wasted
+  // work and to let the playhead-change subscription own the needle when
+  // the user scrubs.
+  const fpsRef = useRef(fps);
+  fpsRef.current = fps;
+
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    let running = true;
+    let rafId = 0;
+    let interpState = INITIAL_BACKWARD_SUBFRAME_INTERPOLATION_STATE;
+
+    const tick = () => {
+      if (!running) return;
+      const now = performance.now();
+      const projectFrame = transportStore.getState().playheadFrame;
+      const result = resolveBackwardSubframeInterpolation(interpState, {
+        projectFrame,
+        isPlaying: true,
+        nowMs: now,
+        fps: fpsRef.current,
+      });
+      interpState = result.nextState;
+
+      // Lerp from (projectFrame - 1) to projectFrame across the frame-hold
+      // window. By the time the playhead ticks to projectFrame+1 the needle
+      // has just arrived at projectFrame — no overshoot.
+      const displayed =
+        result.shouldInterpolate && projectFrame > 0
+          ? projectFrame - 1 + result.lerpT
+          : projectFrame;
+      moveNeedle(displayed);
+
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      running = false;
+      cancelAnimationFrame(rafId);
+    };
+  }, [isPlaying, moveNeedle]);
+
   /* ── toggle ────────────────────────────────────────────────────────────── */
 
   const togglePlay = useCallback(() => {
     if (effectiveDuration <= 0) return;
-    getPlaybackManager().togglePlay();
+    const playbackManager = getPlaybackManager();
+    if (transportStore.getState().isPlaying) {
+      playbackManager.pause();
+    } else {
+      playbackManager.play();
+    }
   }, [effectiveDuration]);
 
   /* ── Space bar ─────────────────────────────────────────────────────────── */
@@ -513,12 +828,42 @@ export function RecordTimelineShell({
       if (e.code === 'Space' && !e.repeat) {
         e.preventDefault();
         if (effectiveDuration <= 0) return;
-        getPlaybackManager().togglePlay();
+        const playbackManager = getPlaybackManager();
+        if (transportStore.getState().isPlaying) {
+          playbackManager.pause();
+        } else {
+          playbackManager.play();
+        }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [effectiveDuration]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!selectedCameraLayoutMarkerId) return;
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+
+      const target = e.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+      ) {
+        return;
+      }
+
+      e.preventDefault();
+      onDeleteSelectedCameraLayoutMarker?.();
+    };
+
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onDeleteSelectedCameraLayoutMarker, selectedCameraLayoutMarkerId]);
 
   /* ── scrub (click & drag) ──────────────────────────────────────────────── */
 
@@ -550,13 +895,30 @@ export function RecordTimelineShell({
       playbackManager.seekToFrame(frame);
       syncDisplayedFrame(frame);
 
+      let pendingFrame: number | null = null;
+      let rafId = 0;
+
+      const flushSeek = () => {
+        rafId = 0;
+        if (pendingFrame === null) return;
+        const nextFrame = pendingFrame;
+        pendingFrame = null;
+        playbackManager.seekToFrame(nextFrame);
+        syncDisplayedFrame(nextFrame);
+      };
+
+      const scheduleSeek = (nextFrame: number) => {
+        pendingFrame = nextFrame;
+        if (rafId === 0) rafId = requestAnimationFrame(flushSeek);
+      };
+
       const onMove = (ev: MouseEvent) => {
         if (!isDraggingRef.current) return;
-        const f = frameFromClientX(ev.clientX);
-        playbackManager.seekToFrame(f);
-        syncDisplayedFrame(f);
+        scheduleSeek(frameFromClientX(ev.clientX));
       };
       const onUp = () => {
+        if (rafId !== 0) cancelAnimationFrame(rafId);
+        flushSeek();
         isDraggingRef.current = false;
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
@@ -564,7 +926,7 @@ export function RecordTimelineShell({
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
     },
-    [frameFromClientX, moveNeedle],
+    [frameFromClientX, syncDisplayedFrame],
   );
 
   /* ── track label indices ───────────────────────────────────────────────── */
@@ -576,7 +938,7 @@ export function RecordTimelineShell({
     return aIdx++;
   });
 
-  const totalHeight = Math.max((tracks.length + 1) * LANE_HEIGHT, LANE_HEIGHT * 2);
+  const totalHeight = Math.max((tracks.length + 2) * LANE_HEIGHT, LANE_HEIGHT * 3);
 
   /* ── render ────────────────────────────────────────────────────────────── */
 
@@ -687,8 +1049,18 @@ export function RecordTimelineShell({
             onResizeMarker={onResizeZoomMarker}
           />
 
+          <CameraLayoutTrackRow
+            top={LANE_HEIGHT}
+            durationFrames={effectiveDuration}
+            markers={cameraLayoutMarkers}
+            selectedMarkerId={selectedCameraLayoutMarkerId}
+            onSelectMarker={onSelectCameraLayoutMarker}
+            onMoveMarker={onMoveCameraLayoutMarker}
+            onDeleteMarker={onDeleteSelectedCameraLayoutMarker}
+          />
+
           {tracks.map((track, i) => {
-            const laneTop = (i + 1) * LANE_HEIGHT;
+            const laneTop = (i + 2) * LANE_HEIGHT;
             const isVideo = track.type === 'video';
             const lbl = trackLabel(track, labelIndices[i] ?? i);
 

@@ -56,6 +56,8 @@ export const ProjectSettingsSchema = z.object({
   backgroundColor: hexColor,
   sampleRate: SampleRateSchema,
   backgroundConfig: BackgroundConfigSchema.optional(),
+  recordingDefaults: z.lazy(() => RecordingPresentationSchema).optional(),
+  destinationPresetId: z.string().nullable().optional(),
 });
 
 // --- Asset ---
@@ -80,9 +82,15 @@ export const ZoomMarkerSchema = z.object({
 
 // --- ZoomPresentation ---
 
+export const ZoomFollowAnimationSchema = z.enum(['focused', 'smooth']);
+
 export const ZoomPresentationSchema = z.object({
   autoIntensity: unit,
+  followCursor: z.boolean().default(true),
+  followAnimation: ZoomFollowAnimationSchema.default('focused'),
+  followPadding: z.number().min(0).max(0.3).default(0.18),
   markers: z.array(ZoomMarkerSchema),
+  autoFromClicks: z.boolean().optional(),
 });
 
 // --- CursorPresentation ---
@@ -151,6 +159,38 @@ export const NormalizedRectSchema = z.object({
   h: unit,
 });
 
+export const CameraLayoutMarkerSchema = z.object({
+  id: z.string().min(1),
+  frame: nonNegativeInt,
+  camera: CameraPresentationSchema,
+  cameraFrame: NormalizedRectSchema.optional(),
+  templateId: z.string().min(1).optional(),
+});
+
+export const RecordingVisibilitySchema = z.object({
+  cameraVisible: z.boolean(),
+  cursorVisible: z.boolean(),
+  clicksVisible: z.boolean(),
+  overlaysVisible: z.boolean(),
+});
+
+export const RecordingVisibilitySegmentSchema = RecordingVisibilitySchema.extend({
+  id: z.string().min(1),
+  frame: nonNegativeInt,
+});
+
+export const RecordingBackgroundStyleSchema = z.object({
+  bgColor: hexColor,
+  bgGradient: z.string().nullable(),
+  bgPadding: nonNegativeInt,
+  bgCornerRadius: nonNegativeInt,
+  bgInset: nonNegativeInt,
+  bgInsetColor: hexColor,
+  bgShadowEnabled: z.boolean(),
+  bgShadowBlur: nonNegativeInt,
+  bgShadowOpacity: unit,
+});
+
 // --- RecordingPresentation ---
 
 export const RecordingPresentationSchema = z.object({
@@ -158,6 +198,10 @@ export const RecordingPresentationSchema = z.object({
   zoom: ZoomPresentationSchema,
   cursor: CursorPresentationSchema,
   camera: CameraPresentationSchema,
+  cameraLayouts: z.array(CameraLayoutMarkerSchema).optional(),
+  visibilitySegments: z.array(RecordingVisibilitySegmentSchema).optional(),
+  background: RecordingBackgroundStyleSchema.optional(),
+  screenFrame: NormalizedRectSchema.optional(),
   cameraFrame: NormalizedRectSchema.optional(),
   screenCrop: RegionCropSchema.optional(),
   cameraCrop: RegionCropSchema.optional(),
@@ -171,6 +215,7 @@ export const AssetSchema = z.object({
   metadata: z.record(z.unknown()),
   thumbnailPath: z.string().optional(),
   presentation: RecordingPresentationSchema.optional(),
+  cameraAssetId: z.string().min(1).optional(),
 });
 
 // --- Tangent ---
@@ -288,6 +333,7 @@ export const ExportSettingsSchema = z.object({
   bitrate: z.number().positive(),
   resolution: ResolutionSchema,
   frameRate: z.number().positive(),
+  keepClickSounds: z.boolean().default(true),
 });
 
 // --- AI Annotations ---
@@ -312,8 +358,15 @@ export const CaptionSegmentSchema = z.object({
   words: z.array(TranscriptWordSchema),
 });
 
+export const CaptionStyleSchema = z.object({
+  fontSize: z.number().min(12).max(72),
+  position: z.enum(['bottom', 'center']),
+  backgroundOpacity: unit,
+});
+
 export const AIAnnotationsSchema = z.object({
   captionSegments: z.array(CaptionSegmentSchema),
+  captionStyle: CaptionStyleSchema,
 });
 
 // --- AI Libraries ---

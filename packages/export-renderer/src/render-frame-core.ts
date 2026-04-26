@@ -36,6 +36,7 @@ export interface RenderContext2DLike {
   shadowBlur: number;
   shadowOffsetX: number;
   shadowOffsetY: number;
+  createLinearGradient?(x0: number, y0: number, x1: number, y1: number): CanvasGradient;
   drawImage?(image: unknown, ...args: number[]): void;
   clip?(): void;
   roundRect?(x: number, y: number, width: number, height: number, radii?: number | number[]): void;
@@ -56,17 +57,64 @@ function getLayerColor(trackIndex: number): string {
   return LAYER_COLORS[trackIndex % LAYER_COLORS.length] ?? '#888888';
 }
 
+function applyBackgroundFill(
+  ctx: RenderContext2DLike,
+  renderFrame: RenderFrame,
+  width: number,
+  height: number,
+): void {
+  const gradientSpec = renderFrame.background?.bgGradient;
+  const gradientMatch = gradientSpec?.match(/^linear-gradient\(([^,]+),\s*(.+)\)$/i);
+  if (gradientMatch && typeof ctx.createLinearGradient === 'function') {
+    const colorSpec = gradientMatch[2] ?? '';
+    if (!colorSpec) {
+      ctx.fillStyle = renderFrame.background?.bgColor ?? renderFrame.backgroundColor;
+      ctx.fillRect(0, 0, width, height);
+      return;
+    }
+    const colorTokens = colorSpec
+      .split(',')
+      .map((token) => token.trim())
+      .filter(Boolean);
+    const angleToken = (gradientMatch[1] ?? '135deg').trim();
+    const angleDeg = Number.parseFloat(angleToken.replace(/deg$/i, ''));
+    if (Number.isFinite(angleDeg) && colorTokens.length >= 2) {
+      const theta = ((angleDeg - 90) * Math.PI) / 180;
+      const dx = Math.cos(theta);
+      const dy = Math.sin(theta);
+      const halfSpan = (Math.abs(width * dx) + Math.abs(height * dy)) / 2;
+      const cx = width / 2;
+      const cy = height / 2;
+      const gradient = ctx.createLinearGradient(
+        cx - dx * halfSpan,
+        cy - dy * halfSpan,
+        cx + dx * halfSpan,
+        cy + dy * halfSpan,
+      );
+      colorTokens.forEach((color, index) => {
+        const stop = colorTokens.length === 1 ? 0 : index / (colorTokens.length - 1);
+        gradient.addColorStop(stop, color);
+      });
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+      return;
+    }
+  }
+
+  ctx.fillStyle = renderFrame.background?.bgColor ?? renderFrame.backgroundColor;
+  ctx.fillRect(0, 0, width, height);
+}
+
 export function renderFrameToCanvas(
   canvas: RenderCanvasLike,
   ctx: RenderContext2DLike,
   renderFrame: RenderFrame,
 ): void {
-  const { backgroundColor, layers } = renderFrame;
+  const { layers } = renderFrame;
   const width = canvas.width;
   const height = canvas.height;
 
-  ctx.fillStyle = backgroundColor;
-  ctx.fillRect(0, 0, width, height);
+  applyBackgroundFill(ctx, renderFrame, width, height);
 
   for (const layer of layers) {
     renderLayer(
@@ -100,12 +148,11 @@ export async function renderFrameToCanvasAccurate(
   resolveLayerVideoFrame: ResolveLayerVideoFrame,
   cursorDataByAssetId?: ReadonlyMap<string, CursorFrameData>,
 ): Promise<void> {
-  const { backgroundColor, layers } = renderFrame;
+  const { layers } = renderFrame;
   const width = canvas.width;
   const height = canvas.height;
 
-  ctx.fillStyle = backgroundColor;
-  ctx.fillRect(0, 0, width, height);
+  applyBackgroundFill(ctx, renderFrame, width, height);
 
   for (const layer of layers) {
     const videoFrame = await resolveLayerVideoFrame(layer, {
@@ -147,6 +194,8 @@ export async function renderFrameToCanvasAccurate(
         renderFrame.cameraTransform.offsetX,
         renderFrame.cameraTransform.offsetY,
         frameRate,
+        renderFrame.screenCrop,
+        { showCursor: renderFrame.cursor.visible },
       );
     }
   }
@@ -171,6 +220,16 @@ function drawFrameImage(
   ctx.drawImage(videoFrame, dx, dy, dWidth, dHeight);
 }
 
+function insetRect(rect: { x: number; y: number; width: number; height: number }, inset: number) {
+  const clampedInset = Math.max(0, inset);
+  return {
+    x: rect.x + clampedInset,
+    y: rect.y + clampedInset,
+    width: Math.max(1, rect.width - clampedInset * 2),
+    height: Math.max(1, rect.height - clampedInset * 2),
+  };
+}
+
 function renderLayer(
   ctx: RenderContext2DLike,
   layer: RenderLayer,
@@ -181,6 +240,10 @@ function renderLayer(
   renderFrame?: RenderFrame,
   videoFrame?: CanvasImageSource | null,
 ): void {
+  if (layer.isCamera && renderFrame?.cameraPresentation?.visible === false) {
+    return;
+  }
+
   const { transform, effects, clipId, trackIndex } = layer;
 
   ctx.save();
@@ -190,6 +253,7 @@ function renderLayer(
   let rectW = canvasWidth;
   let rectH = canvasHeight;
   let crop: RegionCrop | undefined = _screenCrop;
+  let outerScreenRect: { x: number; y: number; width: number; height: number } | null = null;
 
   if (layer.isCamera && renderFrame?.cameraFrame) {
     const cameraRect = {
@@ -214,6 +278,18 @@ function renderLayer(
     rectW = cameraRect.width;
     rectH = cameraRect.height;
     crop = _cameraCrop;
+  } else if (!layer.isCamera && renderFrame?.screenFrame) {
+    outerScreenRect = {
+      x: renderFrame.screenFrame.x * canvasWidth,
+      y: renderFrame.screenFrame.y * canvasHeight,
+      width: renderFrame.screenFrame.w * canvasWidth,
+      height: renderFrame.screenFrame.h * canvasHeight,
+    };
+    const screenRect = insetRect(outerScreenRect, renderFrame.background?.bgPadding ?? 0);
+    rectX = screenRect.x;
+    rectY = screenRect.y;
+    rectW = screenRect.width;
+    rectH = screenRect.height;
   }
 
   const activeEffects = effects.filter((e) => e.enabled);
@@ -231,18 +307,19 @@ function renderLayer(
   const cornerRadius =
     layer.isCamera && renderFrame?.cameraPresentation
       ? getCameraBorderRadius(renderFrame.cameraPresentation, rectW, rectH)
+      : !layer.isCamera && renderFrame?.background
+        ? renderFrame.background.bgCornerRadius
       : roundCorners !== undefined
         ? ((roundCorners.params['radius'] as number | undefined) ?? 12)
         : 0;
 
   if (videoFrame && typeof ctx.drawImage === 'function') {
     if (!layer.isCamera && renderFrame) {
-      ctx.translate(
-        canvasWidth / 2 + renderFrame.cameraTransform.offsetX,
-        canvasHeight / 2 + renderFrame.cameraTransform.offsetY,
-      );
+      const centerX = rectX + rectW / 2;
+      const centerY = rectY + rectH / 2;
+      ctx.translate(centerX + renderFrame.cameraTransform.offsetX, centerY + renderFrame.cameraTransform.offsetY);
       ctx.scale(renderFrame.cameraTransform.scale, renderFrame.cameraTransform.scale);
-      ctx.translate(-canvasWidth / 2, -canvasHeight / 2);
+      ctx.translate(-centerX, -centerY);
     } else {
       ctx.translate(transform.x, transform.y);
       const anchorPx = transform.anchorX * canvasWidth;
@@ -259,6 +336,30 @@ function renderLayer(
     }
 
     drawFrameImage(ctx, videoFrame, crop, rectX, rectY, rectW, rectH);
+
+    if (!layer.isCamera && outerScreenRect && (renderFrame?.background?.bgInset ?? 0) > 0) {
+      const inset = renderFrame?.background?.bgInset ?? 0;
+      ctx.lineWidth = inset * 2;
+      ctx.strokeStyle = renderFrame?.background?.bgInsetColor ?? '#ffffff';
+      if (typeof ctx.roundRect === 'function') {
+        ctx.beginPath();
+        ctx.roundRect(
+          outerScreenRect.x,
+          outerScreenRect.y,
+          outerScreenRect.width,
+          outerScreenRect.height,
+          cornerRadius || 0,
+        );
+        ctx.stroke();
+      } else {
+        ctx.strokeRect(
+          outerScreenRect.x,
+          outerScreenRect.y,
+          outerScreenRect.width,
+          outerScreenRect.height,
+        );
+      }
+    }
   } else {
     ctx.translate(transform.x, transform.y);
     const anchorPx = transform.anchorX * canvasWidth;

@@ -21,6 +21,22 @@ export function canUseWebCodecsExport(settings: ExportSettings): boolean {
   return typeof OffscreenCanvas !== 'undefined' && typeof VideoEncoder !== 'undefined';
 }
 
+function getCursorPosition(
+  cursorDataByAssetId: ReadonlyMap<string, CursorFrameData>,
+  assetId: string,
+  sourceFrame: number,
+): { x: number; y: number } | null {
+  const data = cursorDataByAssetId.get(assetId);
+  if (!data) return null;
+  const frame = Math.max(0, Math.min(sourceFrame, data.frameCount - 1));
+  const idx = frame * 3;
+  if (idx + 1 >= data.frames.length) return null;
+  const x = data.frames[idx] ?? -1;
+  const y = data.frames[idx + 1] ?? -1;
+  if (x < 0 || y < 0) return null;
+  return { x, y };
+}
+
 export async function runWebCodecsExportToBuffer(
   project: ProjectDocument,
   settings: ExportSettings,
@@ -49,23 +65,33 @@ export async function runWebCodecsExportToBuffer(
   const cursorDataByAssetId = new Map<string, CursorFrameData>();
 
   for (const asset of project.assets) {
-    const cursorEventsPath = asset.metadata?.['cursorEventsPath'];
+    const rawCursorEventsPath = asset.metadata?.['cursorEventsPath'];
+    const cursorEventsPath =
+      typeof rawCursorEventsPath === 'string' ? rawCursorEventsPath : undefined;
     const sourceWidth = asset.metadata?.['width'];
     const sourceHeight = asset.metadata?.['height'];
     if (
-      typeof cursorEventsPath !== 'string' ||
       typeof sourceWidth !== 'number' ||
       typeof sourceHeight !== 'number' ||
-      asset.duration <= 0
+      asset.duration <= 0 ||
+      !asset.filePath
     ) {
       continue;
     }
 
+    const eventsFps =
+      typeof asset.metadata?.['cursorEventsFps'] === 'number'
+        ? (asset.metadata['cursorEventsFps'] as number)
+        : 60; // Legacy takes (no field) sampled at TARGET_CAPTURE_FPS = 60.
+    const projectFps = project.settings.frameRate;
     const cursorData = await loadCursorFrameData(
       cursorEventsPath,
       asset.duration,
       sourceWidth,
       sourceHeight,
+      asset.filePath,
+      eventsFps,
+      projectFps,
     );
     if (cursorData) {
       cursorDataByAssetId.set(asset.id, cursorData);
@@ -93,7 +119,10 @@ export async function runWebCodecsExportToBuffer(
     await output.start();
 
     for (let frame = 0; frame < totalFrames; frame++) {
-      const renderFrame = resolveFrame(project, frame);
+      const renderFrame = resolveFrame(project, frame, {
+        getCursorPosition: (assetId, sourceFrame) =>
+          getCursorPosition(cursorDataByAssetId, assetId, sourceFrame),
+      });
       await renderFrameToCanvasAccurate(
         canvas,
         ctx,

@@ -9,22 +9,49 @@ import {
   session,
   desktopCapturer,
   screen,
+  systemPreferences,
 } from 'electron';
 import { join, dirname, basename, extname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile, writeFile, rename, unlink } from 'node:fs/promises';
-import { existsSync, mkdirSync, statSync, createReadStream, readdirSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  statSync,
+  createReadStream,
+  readdirSync,
+  createWriteStream,
+  copyFileSync,
+} from 'node:fs';
 import { promisify } from 'node:util';
-import { execFile as execFileCallback, spawn } from 'node:child_process';
+import { execFile as execFileCallback, execFileSync, spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import {
   getSources,
+  muxAudioIntoRecording,
+  probeRecordingResult,
   reconcileSelectedSourceId,
   saveRecording,
+  saveRecordingFromFile,
 } from './recording/capture-service.mjs';
-import { listSystemAudioSources } from './recording/audio-sources.mjs';
-import { initSessionManager } from './recording/recording-session-manager.mjs';
+import {
+  listSystemAudioSources,
+  discoverAudioSources,
+  getSourceVolumePercent,
+  setSourceVolumePercent,
+} from './recording/audio-sources.mjs';
+import {
+  snapshotIfFirstTouch,
+  restoreAllSourceVolumesSync,
+} from './recording/source-volume-registry.mjs';
+import { initSessionManager, getLastFinalizedRecordingResult } from './recording/recording-session-manager.mjs';
+import { resolveCaptureSourceInfo } from './recording/resolve-capture-source-info.mjs';
+import {
+  clearRecordingRecoveryMarker,
+  readRecordingRecoveryMarker,
+  writeRecordingRecoveryMarker,
+} from './recording/recovery-state.mjs';
 import {
   getRecentProjects,
   addRecentProject,
@@ -45,14 +72,215 @@ import { registerAIHandlers } from './ai/ai-service.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const WORKSPACE_ROOT = resolve(__dirname, '../../../..');
+const DEFAULT_RUNTIME_LOG_PATH = join(WORKSPACE_ROOT, '.logs', 'app-runtime.log');
+const CLICK_SOUND_ASSET_PATH = join(WORKSPACE_ROOT, 'aseets', 'mouse-click-1.wav');
+const CLICK_SOUND_SAMPLE_RATE = 48_000;
+
+function getRendererBaseUrl() {
+  return (process.env.ROUGH_CUT_RENDERER_URL ?? 'http://127.0.0.1:7544').replace(/\/+$/, '');
+}
+
+function getRendererUrl(path = '/') {
+  const baseUrl = getRendererBaseUrl();
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${baseUrl}${normalizedPath}`;
+}
+
+let runtimeLogMirrorInstalled = false;
+let runtimeLogStream = null;
+
+function normalizeRuntimeLogChunk(chunk, encoding) {
+  if (typeof chunk === 'string') return chunk;
+  if (chunk instanceof Uint8Array) {
+    return Buffer.from(chunk).toString(typeof encoding === 'string' ? encoding : 'utf8');
+  }
+  return String(chunk);
+}
+
+function installRuntimeLogMirror() {
+  if (runtimeLogMirrorInstalled) return;
+  runtimeLogMirrorInstalled = true;
+
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+
+  const requestedPath = process.env.ROUGH_CUT_RUNTIME_LOG_PATH?.trim();
+  const logPath = requestedPath
+    ? (isAbsolute(requestedPath) ? requestedPath : resolve(WORKSPACE_ROOT, requestedPath))
+    : DEFAULT_RUNTIME_LOG_PATH;
+
+  try {
+    mkdirSync(dirname(logPath), { recursive: true });
+    runtimeLogStream = createWriteStream(logPath, { flags: 'a' });
+  } catch (error) {
+    originalStderrWrite(`[runtime-log] Failed to initialize ${logPath}: ${error?.message ?? error}\n`);
+    return;
+  }
+
+  runtimeLogStream.on('error', (error) => {
+    originalStderrWrite(`[runtime-log] Stream error for ${logPath}: ${error?.message ?? error}\n`);
+    runtimeLogStream = null;
+  });
+
+  const mirrorChunk = (chunk, encoding) => {
+    if (!runtimeLogStream) return;
+
+    try {
+      runtimeLogStream.write(normalizeRuntimeLogChunk(chunk, encoding));
+    } catch (error) {
+      originalStderrWrite(
+        `[runtime-log] Failed to append to ${logPath}: ${error?.message ?? error}\n`,
+      );
+    }
+  };
+
+  process.stdout.write = function patchedStdoutWrite(chunk, encoding, callback) {
+    mirrorChunk(chunk, encoding);
+    return originalStdoutWrite(chunk, encoding, callback);
+  };
+
+  process.stderr.write = function patchedStderrWrite(chunk, encoding, callback) {
+    mirrorChunk(chunk, encoding);
+    return originalStderrWrite(chunk, encoding, callback);
+  };
+
+  runtimeLogStream.write(`\n=== Rough Cut runtime started ${new Date().toISOString()} pid=${process.pid} ===\n`);
+  process.stderr.write(`[runtime-log] Mirroring app output to ${logPath}\n`);
+  process.on('exit', () => runtimeLogStream?.end());
+}
+
+installRuntimeLogMirror();
+
+if (!app.isPackaged) {
+  // Dev-only stability workaround: this workstation intermittently crashes
+  // Electron's GPU process before the app becomes usable. Disable GPU in dev
+  // so recorder debugging can proceed on a stable runtime.
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-gpu-compositing');
+  app.commandLine.appendSwitch('in-process-gpu');
+  app.commandLine.appendSwitch('use-angle', 'swiftshader');
+  app.commandLine.appendSwitch('use-gl', 'swiftshader');
+  // Forward renderer console (including errors) to stderr of the main process.
+  app.commandLine.appendSwitch('enable-logging', 'stderr');
+}
 
 let mainWindow = null;
 let currentExportFinalizeProcess = null;
 let cachedCaptureSources = [];
+let debugCaptureSourcesOverride = null;
+let debugDisplayBoundsOverride = null;
+let debugRecordingPreflightStatusOverride = null;
+let debugRecordingPermissionSettingsResultOverride = null;
 let lastDisplayMediaSelection = null;
+let cachedX11MonitorLayout = null;
 const execFile = promisify(execFileCallback);
 
-let recordingConfig = { ...DEFAULT_RECORDING_CONFIG, ...getRecordingConfig() };
+function isLinuxX11Session() {
+  return (
+    process.platform === 'linux' &&
+    (process.env.XDG_SESSION_TYPE === 'x11' ||
+      (process.env.DISPLAY !== undefined && process.env.DISPLAY !== ''))
+  );
+}
+
+function normalizeX11DisplayName(displayName = process.env.DISPLAY || ':0') {
+  const trimmed = typeof displayName === 'string' ? displayName.trim() : '';
+  if (!trimmed) return ':0.0';
+  if (/\.\d+$/.test(trimmed)) return trimmed;
+  return `${trimmed}.0`;
+}
+
+function parseX11MonitorsDiagnostic(output) {
+  if (typeof output !== 'string' || output.trim() === '') return [];
+
+  return output
+    .split(/\r?\n/)
+    .slice(1)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^\d+:\s+\S+\s+(\d+)\/\d+x(\d+)\/\d+\+(-?\d+)\+(-?\d+)\s+(\S+)$/);
+      if (!match) return null;
+      return {
+        width: Number(match[1]),
+        height: Number(match[2]),
+        x: Number(match[3]),
+        y: Number(match[4]),
+        name: match[5],
+      };
+    })
+    .filter(Boolean);
+}
+
+function readX11MonitorLayoutSync() {
+  if (!isLinuxX11Session()) return null;
+
+  try {
+    const stdout = execFileSync('xrandr', ['--listmonitors'], {
+      encoding: 'utf-8',
+      timeout: 2000,
+    });
+    const parsed = parseX11MonitorsDiagnostic(stdout);
+    return parsed.length > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function getCurrentX11MonitorLayout() {
+  return cachedX11MonitorLayout ?? readX11MonitorLayoutSync();
+}
+
+function resolveX11MonitorBounds(display, allDisplays = []) {
+  const x11Monitors = getCurrentX11MonitorLayout();
+  if (!x11Monitors || x11Monitors.length === 0) return null;
+
+  const label = typeof display?.label === 'string' ? display.label.trim() : '';
+  if (label) {
+    const matchedByLabel = x11Monitors.find((monitor) => monitor.name === label);
+    if (matchedByLabel) return matchedByLabel;
+  }
+
+  if (Array.isArray(allDisplays) && allDisplays.length === x11Monitors.length) {
+    const sortedDisplays = [...allDisplays].sort(
+      (a, b) => a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y,
+    );
+    const sortedMonitors = [...x11Monitors].sort((a, b) => a.x - b.x || a.y - b.y);
+    const displayIndex = sortedDisplays.findIndex((candidate) => candidate.id === display?.id);
+    if (displayIndex >= 0) {
+      return sortedMonitors[displayIndex] ?? null;
+    }
+  }
+
+  return null;
+}
+
+function normalizeSupportedRecordMode(recordMode) {
+  return recordMode === 'window' ? 'window' : 'fullscreen';
+}
+
+function normalizeSupportedRecordingConfig(config = {}) {
+  const next = { ...DEFAULT_RECORDING_CONFIG, ...config };
+  const recordMode = normalizeSupportedRecordMode(next.recordMode);
+  const selectedSourceId = isSourceIdCompatibleWithMode(next.selectedSourceId, recordMode)
+    ? next.selectedSourceId
+    : null;
+
+  return {
+    ...next,
+    recordMode,
+    selectedSourceId,
+  };
+}
+
+const persistedRecordingConfig = { ...DEFAULT_RECORDING_CONFIG, ...getRecordingConfig() };
+let recordingConfig = normalizeSupportedRecordingConfig(persistedRecordingConfig);
+
+if (JSON.stringify(recordingConfig) !== JSON.stringify(persistedRecordingConfig)) {
+  setRecordingConfig(recordingConfig);
+}
 
 function getCaptureSourceTypeForMode(recordMode) {
   return recordMode === 'window' ? 'window' : 'screen';
@@ -68,6 +296,83 @@ function isSourceIdCompatibleWithMode(sourceId, recordMode) {
   return sourceType === getCaptureSourceTypeForMode(recordMode);
 }
 
+function getPermissionSettingsUrl(kind) {
+  if (process.platform === 'darwin') {
+    if (kind === 'screenCapture') {
+      return 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture';
+    }
+    if (kind === 'microphone') {
+      return 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone';
+    }
+    if (kind === 'camera') {
+      return 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera';
+    }
+  }
+
+  if (process.platform === 'win32') {
+    if (kind === 'microphone') return 'ms-settings:privacy-microphone';
+    if (kind === 'camera') return 'ms-settings:privacy-webcam';
+    if (kind === 'screenCapture') return 'ms-settings:privacy-broadfilesystemaccess';
+  }
+
+  return null;
+}
+
+function getMediaPermissionStatus(kind) {
+  if (process.platform === 'darwin' || process.platform === 'win32') {
+    try {
+      return systemPreferences.getMediaAccessStatus(kind);
+    } catch {
+      return 'not-determined';
+    }
+  }
+  return 'granted';
+}
+
+function normalizePermissionDiagnostic(kind, status) {
+  const canOpenSettings = getPermissionSettingsUrl(kind) !== null;
+  if (process.platform === 'linux') {
+    return {
+      status: 'not-required',
+      detail: 'No OS privacy gate is required here; use the preflight test to verify devices.',
+      canOpenSettings: false,
+    };
+  }
+
+  if (status === 'granted') {
+    return {
+      status: 'granted',
+      detail: 'Ready.',
+      canOpenSettings,
+    };
+  }
+
+  return {
+    status: 'attention',
+    detail: 'Needs OS permission before recording will be reliable.',
+    canOpenSettings,
+  };
+}
+
+function buildRecordingPreflightStatus() {
+  if (debugRecordingPreflightStatusOverride) {
+    return debugRecordingPreflightStatusOverride;
+  }
+
+  const screenStatus =
+    process.platform === 'darwin' ? getMediaPermissionStatus('screen') : 'granted';
+  const microphoneStatus = getMediaPermissionStatus('microphone');
+  const cameraStatus = getMediaPermissionStatus('camera');
+
+  return {
+    platform: process.platform,
+    requiresFullRelaunch: process.platform === 'darwin',
+    screenCapture: normalizePermissionDiagnostic('screenCapture', screenStatus),
+    microphone: normalizePermissionDiagnostic('microphone', microphoneStatus),
+    camera: normalizePermissionDiagnostic('camera', cameraStatus),
+  };
+}
+
 function pickSourceForRecordMode(sources, recordMode, selectedSourceId, cachedSelectedSource) {
   const expectedType = getCaptureSourceTypeForMode(recordMode);
   const compatibleSources = sources.filter((source) => {
@@ -79,13 +384,44 @@ function pickSourceForRecordMode(sources, recordMode, selectedSourceId, cachedSe
     ? selectedSourceId
     : null;
 
-  const source = compatibleSelectedSourceId
-    ? (compatibleSources.find((item) => item.id === compatibleSelectedSourceId) ??
-      compatibleSources.find((item) => matchDesktopCaptureSource(item, cachedSelectedSource)) ??
-      compatibleSources[0])
-    : compatibleSources[0];
+  if (!compatibleSelectedSourceId) {
+    return null;
+  }
+
+  const source =
+    compatibleSources.find((item) => item.id === compatibleSelectedSourceId) ??
+    compatibleSources.find((item) => matchDesktopCaptureSource(item, cachedSelectedSource));
 
   return source ?? null;
+}
+
+function getDefaultSourceIdForRecordMode(sources, recordMode) {
+  if (recordMode !== 'fullscreen') {
+    return null;
+  }
+
+  return sources.find((source) => getSourceTypeFromId(source.id) === 'screen')?.id ?? null;
+}
+
+function applyDefaultSourceSelection(config, sources, options = {}) {
+  const { preferFullscreenDefault = false } = options;
+  if (config.selectedSourceId) {
+    return config;
+  }
+
+  if (!preferFullscreenDefault && config.recordMode !== 'fullscreen') {
+    return config;
+  }
+
+  const defaultSourceId = getDefaultSourceIdForRecordMode(sources, config.recordMode);
+  if (!defaultSourceId) {
+    return config;
+  }
+
+  return {
+    ...config,
+    selectedSourceId: defaultSourceId,
+  };
 }
 
 function broadcastRecordingConfig() {
@@ -97,23 +433,32 @@ function broadcastRecordingConfig() {
 }
 
 function applyRecordingConfigPatch(patch = {}) {
-  const next = { ...recordingConfig };
+  const nextPatch = {};
   for (const key of Object.keys(DEFAULT_RECORDING_CONFIG)) {
     if (Object.prototype.hasOwnProperty.call(patch, key)) {
-      next[key] = patch[key];
+      nextPatch[key] = patch[key];
     }
   }
-  recordingConfig = next;
+  const normalizedConfig = normalizeSupportedRecordingConfig({ ...recordingConfig, ...nextPatch });
+  const shouldPreferFullscreenDefault =
+    Object.prototype.hasOwnProperty.call(nextPatch, 'recordMode') &&
+    normalizedConfig.recordMode === 'fullscreen';
+  recordingConfig = shouldPreferFullscreenDefault
+    ? applyDefaultSourceSelection(normalizedConfig, cachedCaptureSources, {
+        preferFullscreenDefault: true,
+      })
+    : normalizedConfig;
   setRecordingConfig(recordingConfig);
   return recordingConfig;
 }
 
 function reconcileCaptureSources(nextSources) {
-  const nextSelectedSourceId = reconcileSelectedSourceId(
+  const reconciledSelectedSourceId = reconcileSelectedSourceId(
     cachedCaptureSources,
     nextSources,
     recordingConfig.selectedSourceId,
   );
+  const nextSelectedSourceId = reconciledSelectedSourceId;
   cachedCaptureSources = nextSources;
 
   if (nextSelectedSourceId !== recordingConfig.selectedSourceId) {
@@ -124,6 +469,10 @@ function reconcileCaptureSources(nextSources) {
   return nextSelectedSourceId;
 }
 
+function getAvailableCaptureSources() {
+  return debugCaptureSourcesOverride ?? cachedCaptureSources;
+}
+
 function matchDesktopCaptureSource(source, cachedSource) {
   if (!cachedSource) return false;
   if (source.id === cachedSource.id) return true;
@@ -132,6 +481,63 @@ function matchDesktopCaptureSource(source, cachedSource) {
   }
   const sourceType = source.id.startsWith('screen:') ? 'screen' : 'window';
   return sourceType === cachedSource.type && source.name === cachedSource.name;
+}
+
+function getDisplayCaptureBounds(display, allDisplays = []) {
+  const scaleFactor =
+    Number.isFinite(display?.scaleFactor) && display.scaleFactor > 0 ? display.scaleFactor : 1;
+  const bounds = display?.bounds ?? { x: 0, y: 0, width: 0, height: 0 };
+  const useRawBoundsForX11 = isLinuxX11Session();
+
+  if (useRawBoundsForX11) {
+    const x11Bounds = resolveX11MonitorBounds(display, allDisplays);
+    if (x11Bounds) {
+      return {
+        x: x11Bounds.x,
+        y: x11Bounds.y,
+        width: x11Bounds.width,
+        height: x11Bounds.height,
+        scaleFactor,
+      };
+    }
+
+    return {
+      x: Math.floor(bounds.x),
+      y: Math.floor(bounds.y),
+      width: Math.ceil(bounds.width),
+      height: Math.ceil(bounds.height),
+      scaleFactor,
+    };
+  }
+
+  return {
+    x: Math.floor(bounds.x * scaleFactor),
+    y: Math.floor(bounds.y * scaleFactor),
+    width: Math.ceil(bounds.width * scaleFactor),
+    height: Math.ceil(bounds.height * scaleFactor),
+    scaleFactor,
+  };
+}
+
+/**
+ * TASK-183: fetch X11's view of the monitor layout so logs can compare it to
+ * Electron's `screen.getAllDisplays()` output. If Electron and xrandr disagree,
+ * the FFmpeg `-video_size` and `+X,Y` offset derived from Electron bounds will
+ * crop or mis-position the capture on the physical display.
+ *
+ * @returns {Promise<string | null>} Raw stdout from `xrandr --listmonitors`, or
+ *   null when xrandr isn't available or this isn't Linux/X11.
+ */
+async function getX11MonitorsDiagnostic() {
+  if (!isLinuxX11Session()) {
+    return null;
+  }
+  try {
+    const { stdout } = await execFile('xrandr', ['--listmonitors'], { timeout: 2000 });
+    return stdout.trim();
+  } catch (err) {
+    return `xrandr unavailable: ${err instanceof Error ? err.message : String(err)}`;
+  }
 }
 
 function getDefaultProjectDir() {
@@ -161,6 +567,14 @@ function getRecordingSearchDirs() {
   if (!dirs.includes(legacyTmpDir)) dirs.push(legacyTmpDir);
 
   return dirs;
+}
+
+function getPreferredRecordingDirs() {
+  return getRecordingSearchDirs().filter((dir) => dir !== '/tmp/rough-cut/recordings');
+}
+
+function shouldSkipAudioSourceDiscoveryInDev() {
+  return !app.isPackaged && process.env.ROUGH_CUT_SKIP_AUDIO_DISCOVERY === '1';
 }
 
 function toPortableProjectPath(projectDir, filePath) {
@@ -220,9 +634,32 @@ function resolveExistingMediaPath(filePath, projectDir = null) {
 
   const resolvedPath =
     !isAbsolute(filePath) && projectDir ? resolve(projectDir, filePath) : filePath;
-  if (existsSync(resolvedPath)) return resolvedPath;
-
+  const legacyTmpDir = '/tmp/rough-cut/recordings';
   const fileName = basename(resolvedPath);
+
+  if (existsSync(resolvedPath)) {
+    const normalizedResolvedPath = resolvedPath.split('\\').join('/');
+    if (normalizedResolvedPath.startsWith(`${legacyTmpDir}/`)) {
+      for (const dir of getPreferredRecordingDirs()) {
+        const candidate = join(dir, fileName);
+        if (existsSync(candidate)) return candidate;
+      }
+
+      const primaryDir = getPreferredRecordingDirs()[0] ?? null;
+      if (primaryDir) {
+        try {
+          if (!existsSync(primaryDir)) mkdirSync(primaryDir, { recursive: true });
+          const candidate = join(primaryDir, fileName);
+          copyFileSync(resolvedPath, candidate);
+          return candidate;
+        } catch (error) {
+          console.warn('[project-open] Failed to migrate legacy tmp media:', resolvedPath, error);
+        }
+      }
+    }
+    return resolvedPath;
+  }
+
   for (const dir of getRecordingSearchDirs()) {
     const candidate = join(dir, fileName);
     if (existsSync(candidate)) return candidate;
@@ -232,42 +669,203 @@ function resolveExistingMediaPath(filePath, projectDir = null) {
 }
 
 function repairProjectMediaPaths(project, projectFilePath = null) {
-  if (!project || !Array.isArray(project.assets)) return project;
+  if (!project || !Array.isArray(project.assets)) {
+    return { project, changed: false };
+  }
 
   const projectDir = projectFilePath ? dirname(projectFilePath) : null;
+  let changed = false;
+
+  const repairPath = (filePath) => {
+    const repairedPath = resolveExistingMediaPath(filePath, projectDir);
+    if (repairedPath !== filePath) changed = true;
+    return repairedPath;
+  };
+
+  return {
+    project: {
+      ...project,
+      assets: project.assets.map((asset) => ({
+        ...asset,
+        ...(asset.filePath ? { filePath: repairPath(asset.filePath) } : {}),
+        ...(asset.thumbnailPath ? { thumbnailPath: repairPath(asset.thumbnailPath) } : {}),
+        ...(asset.metadata && typeof asset.metadata === 'object'
+          ? {
+              metadata: {
+                ...asset.metadata,
+                ...(asset.metadata.cursorEventsPath
+                  ? {
+                      cursorEventsPath: repairPath(asset.metadata.cursorEventsPath),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+      })),
+      libraryReferences: Array.isArray(project.libraryReferences)
+        ? project.libraryReferences.map((reference) => ({
+            ...reference,
+            ...(reference.filePath ? { filePath: repairPath(reference.filePath) } : {}),
+          }))
+        : project.libraryReferences,
+    },
+    changed,
+  };
+}
+
+async function persistRepairedProjectIfNeeded(project, filePath, changed) {
+  if (!changed || !filePath) return;
+
+  const serializedProject = serializeProjectPaths(project, filePath);
+  await writeFile(filePath, JSON.stringify(serializedProject, null, 2), 'utf-8');
+}
+
+function zoomSidecarPath(recordingFilePath) {
+  return recordingFilePath.replace(/\.(webm|mp4)$/i, '.zoom.json');
+}
+
+function resolveProjectRelativeMediaPath(filePath, projectFilePath = null) {
+  if (!filePath) return filePath;
+  if (isAbsolute(filePath) || !projectFilePath) return filePath;
+  return resolve(dirname(projectFilePath), filePath);
+}
+
+async function loadZoomSidecar(recordingFilePath, projectFilePath = null) {
+  try {
+    if (!recordingFilePath) return null;
+    const resolvedRecordingFilePath = resolveProjectRelativeMediaPath(
+      recordingFilePath,
+      projectFilePath,
+    );
+    const path = zoomSidecarPath(resolvedRecordingFilePath);
+    if (!existsSync(path)) return null;
+    const content = await readFile(path, 'utf-8');
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.markers)) {
+      return {
+        autoIntensity: typeof parsed.autoIntensity === 'number' ? parsed.autoIntensity : 0,
+        followCursor: typeof parsed.followCursor === 'boolean' ? parsed.followCursor : true,
+        followAnimation: parsed.followAnimation === 'smooth' ? 'smooth' : 'focused',
+        followPadding: typeof parsed.followPadding === 'number' ? parsed.followPadding : 0.18,
+        markers: parsed.markers,
+      };
+    }
+    return null;
+  } catch (err) {
+    console.warn('[zoom-sidecar] Load failed:', err?.message ?? err);
+    return null;
+  }
+}
+
+async function hydrateProjectRecordSidecars(project) {
+  if (!project || !Array.isArray(project.assets)) return project;
+
+  const hydratedAssets = await Promise.all(
+    project.assets.map(async (asset) => {
+      if (asset?.type !== 'recording' || !asset.filePath) return asset;
+
+      const loadedZoom = await loadZoomSidecar(asset.filePath);
+      if (!loadedZoom) return asset;
+
+      return {
+        ...asset,
+        presentation: {
+          ...(asset.presentation ?? {}),
+          zoom: loadedZoom,
+        },
+      };
+    }),
+  );
 
   return {
     ...project,
-    assets: project.assets.map((asset) => ({
-      ...asset,
-      ...(asset.filePath ? { filePath: resolveExistingMediaPath(asset.filePath, projectDir) } : {}),
-      ...(asset.thumbnailPath
-        ? { thumbnailPath: resolveExistingMediaPath(asset.thumbnailPath, projectDir) }
-        : {}),
-      ...(asset.metadata && typeof asset.metadata === 'object'
+    assets: hydratedAssets,
+  };
+}
+
+async function hydrateProjectRecordingDurations(project) {
+  if (!project || !Array.isArray(project.assets) || !project.composition?.tracks) return project;
+
+  const timelineFps = project.settings?.frameRate ?? 30;
+  const assetUpdates = new Map();
+
+  for (const asset of project.assets) {
+    if (asset?.type !== 'recording' || !asset.filePath || !existsSync(asset.filePath)) continue;
+
+    try {
+      const metadata = probeRecordingResult(asset.filePath, { timelineFps });
+      if (!metadata.durationFrames || metadata.durationFrames <= 0) continue;
+
+      assetUpdates.set(asset.id, {
+        duration: metadata.durationFrames,
+        metadata: {
+          ...asset.metadata,
+          width: metadata.width,
+          height: metadata.height,
+          fps: metadata.fps,
+          codec: metadata.codec,
+          fileSize: metadata.fileSize,
+          hasAudio: metadata.hasAudio,
+        },
+      });
+    } catch (err) {
+      console.warn('[project-open] Failed to probe recording metadata:', asset.filePath, err);
+    }
+  }
+
+  if (assetUpdates.size === 0) return project;
+
+  let maxCompositionDuration = 0;
+  const nextTracks = project.composition.tracks.map((track) => ({
+    ...track,
+    clips: track.clips.map((clip) => {
+      const update = assetUpdates.get(clip.assetId);
+      if (!update) {
+        maxCompositionDuration = Math.max(maxCompositionDuration, clip.timelineOut);
+        return clip;
+      }
+
+      const previousSourceDuration = Math.max(0, clip.sourceOut - clip.sourceIn);
+      const nextSourceDuration = update.duration;
+      const nextTimelineOut = clip.timelineIn + nextSourceDuration;
+
+      const repairedClip = {
+        ...clip,
+        sourceOut: clip.sourceIn + nextSourceDuration,
+        timelineOut: nextTimelineOut,
+      };
+
+      if (previousSourceDuration !== nextSourceDuration) {
+        console.info('[project-open] Repaired recording clip duration:', {
+          assetId: clip.assetId,
+          clipId: clip.id,
+          previousSourceDuration,
+          nextSourceDuration,
+        });
+      }
+
+      maxCompositionDuration = Math.max(maxCompositionDuration, repairedClip.timelineOut);
+      return repairedClip;
+    }),
+  }));
+
+  return {
+    ...project,
+    assets: project.assets.map((asset) => {
+      const update = assetUpdates.get(asset.id);
+      return update
         ? {
-            metadata: {
-              ...asset.metadata,
-              ...(asset.metadata.cursorEventsPath
-                ? {
-                    cursorEventsPath: resolveExistingMediaPath(
-                      asset.metadata.cursorEventsPath,
-                      projectDir,
-                    ),
-                  }
-                : {}),
-            },
+            ...asset,
+            duration: update.duration,
+            metadata: update.metadata,
           }
-        : {}),
-    })),
-    libraryReferences: Array.isArray(project.libraryReferences)
-      ? project.libraryReferences.map((reference) => ({
-          ...reference,
-          ...(reference.filePath
-            ? { filePath: resolveExistingMediaPath(reference.filePath, projectDir) }
-            : {}),
-        }))
-      : project.libraryReferences,
+        : asset;
+    }),
+    composition: {
+      ...project.composition,
+      tracks: nextTracks,
+      duration: Math.max(maxCompositionDuration, project.composition.duration ?? 0),
+    },
   };
 }
 
@@ -295,15 +893,51 @@ function collectExportAudioSegments(project) {
     )
     .sort((a, b) => a.clip.timelineIn - b.clip.timelineIn || a.track.index - b.track.index);
 
-  const accepted = [];
-  let lastTimelineOut = -1;
-  for (const segment of segments) {
-    if (segment.clip.timelineIn < lastTimelineOut) continue;
-    accepted.push(segment);
-    lastTimelineOut = segment.clip.timelineOut;
-  }
+  return segments;
+}
 
-  return accepted;
+function getStringPath(value) {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function getObject(value) {
+  return typeof value === 'object' && value !== null ? value : null;
+}
+
+function resolveAudioStemPaths(asset) {
+  const direct = getObject(asset?.metadata?.audioStemPaths);
+  const audioCapture = getObject(asset?.metadata?.audioCapture);
+  const final = getObject(audioCapture?.final);
+  const captureStems = getObject(final?.stems);
+  const stems = direct ?? captureStems;
+  if (!stems) return null;
+
+  const paths = {
+    micFilePath: getStringPath(stems.micFilePath),
+    systemAudioFilePath: getStringPath(stems.systemAudioFilePath),
+  };
+
+  return paths.micFilePath || paths.systemAudioFilePath ? paths : null;
+}
+
+function describeAudioStemState(filePath) {
+  if (!filePath) return { filePath: null, exists: false, size: 0 };
+  try {
+    const stat = statSync(filePath);
+    return {
+      filePath,
+      exists: true,
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+    };
+  } catch (error) {
+    return {
+      filePath,
+      exists: false,
+      size: 0,
+      statError: error?.message ?? String(error),
+    };
+  }
 }
 
 async function hasPrimaryAudioStream(filePath) {
@@ -319,62 +953,440 @@ async function hasPrimaryAudioStream(filePath) {
       'csv=p=0',
       filePath,
     ]);
-    return stdout.trim().length > 0;
-  } catch {
+    const hasAudio = stdout.trim().length > 0;
+    console.info('[export-finalize] ffprobe primary-audio check:', {
+      filePath,
+      hasAudio,
+      stdout: stdout.trim(),
+    });
+    return hasAudio;
+  } catch (error) {
+    console.warn('[export-finalize] ffprobe primary-audio check failed:', {
+      filePath,
+      error: error?.message ?? String(error),
+    });
     return false;
   }
 }
 
-async function finalizeExportMedia(project, videoPath, outputPath, range) {
-  const repairedProject = repairProjectMediaPaths(project);
-  const segments = collectExportAudioSegments(repairedProject);
-  const frameRate = repairedProject?.settings?.frameRate ?? 30;
-  const usableSegments = [];
+async function probePrimaryVideoStream(filePath) {
+  try {
+    const { stdout } = await execFile('ffprobe', [
+      '-v',
+      'quiet',
+      '-select_streams',
+      'v:0',
+      '-show_entries',
+      'stream=codec_name,width,height,avg_frame_rate',
+      '-of',
+      'json',
+      filePath,
+    ]);
+    const parsed = JSON.parse(stdout);
+    const stream = parsed?.streams?.[0] ?? null;
+    if (!stream) return null;
+    return {
+      codec: stream.codec_name ?? 'unknown',
+      width: stream.width ?? null,
+      height: stream.height ?? null,
+      avgFrameRate: stream.avg_frame_rate ?? null,
+    };
+  } catch (error) {
+    console.warn('[export-finalize] ffprobe video-codec check failed:', {
+      filePath,
+      error: error?.message ?? String(error),
+    });
+    return null;
+  }
+}
 
-  for (const segment of segments) {
-    if (await hasPrimaryAudioStream(segment.asset.filePath)) {
-      usableSegments.push(segment);
+async function logFinalExportVideoCodec(filePath, audioIncluded) {
+  const stream = await probePrimaryVideoStream(filePath);
+  console.info('[export-finalize] Final export video stream:', {
+    filePath,
+    audioIncluded,
+    codec: stream?.codec ?? 'unknown',
+    width: stream?.width ?? null,
+    height: stream?.height ?? null,
+    avgFrameRate: stream?.avgFrameRate ?? null,
+  });
+}
+
+function parsePcm16Wav(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const readTag = (offset) =>
+    String.fromCharCode(
+      view.getUint8(offset),
+      view.getUint8(offset + 1),
+      view.getUint8(offset + 2),
+      view.getUint8(offset + 3),
+    );
+
+  if (bytes.byteLength < 44 || readTag(0) !== 'RIFF' || readTag(8) !== 'WAVE') {
+    throw new Error('Unsupported click sound WAV file');
+  }
+
+  let offset = 12;
+  let channels = 0;
+  let sampleRate = 0;
+  let bitsPerSample = 0;
+  let dataOffset = -1;
+  let dataSize = 0;
+
+  while (offset + 8 <= view.byteLength) {
+    const chunkId = readTag(offset);
+    const chunkSize = view.getUint32(offset + 4, true);
+    const chunkDataOffset = offset + 8;
+
+    if (chunkId === 'fmt ') {
+      const format = view.getUint16(chunkDataOffset, true);
+      channels = view.getUint16(chunkDataOffset + 2, true);
+      sampleRate = view.getUint32(chunkDataOffset + 4, true);
+      bitsPerSample = view.getUint16(chunkDataOffset + 14, true);
+      if (format !== 1) {
+        throw new Error(`Unsupported click sound WAV encoding: ${format}`);
+      }
+    } else if (chunkId === 'data') {
+      dataOffset = chunkDataOffset;
+      dataSize = chunkSize;
+      break;
+    }
+
+    offset = chunkDataOffset + chunkSize + (chunkSize % 2);
+  }
+
+  if (channels <= 0 || sampleRate <= 0 || bitsPerSample !== 16 || dataOffset < 0 || dataSize <= 0) {
+    throw new Error('Invalid click sound WAV metadata');
+  }
+
+  const frameCount = Math.floor(dataSize / (channels * 2));
+  const channelData = Array.from({ length: channels }, () => new Float32Array(frameCount));
+  let byteOffset = dataOffset;
+  for (let frame = 0; frame < frameCount; frame++) {
+    for (let channel = 0; channel < channels; channel++) {
+      channelData[channel][frame] = view.getInt16(byteOffset, true) / 32768;
+      byteOffset += 2;
     }
   }
 
-  if (usableSegments.length === 0) {
+  return { sampleRate, channelData };
+}
+
+function parseCursorEventsNdjson(text) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter((event) => event && typeof event.frame === 'number' && typeof event.type === 'string');
+}
+
+async function loadCursorEventsForExportAsset(asset) {
+  const candidatePaths = [];
+  if (typeof asset?.metadata?.cursorEventsPath === 'string' && asset.metadata.cursorEventsPath.length > 0) {
+    candidatePaths.push(asset.metadata.cursorEventsPath);
+  }
+  if (asset?.filePath) {
+    candidatePaths.push(asset.filePath.replace(/\.(webm|mp4)$/i, '.cursor.ndjson'));
+  }
+
+  for (const path of candidatePaths) {
+    try {
+      const ndjson = await readFile(path, 'utf-8');
+      if (!ndjson.trim()) continue;
+      return parseCursorEventsNdjson(ndjson);
+    } catch {}
+  }
+
+  return [];
+}
+
+async function buildExportClickTrack(project, outputPath, range, frameRate) {
+  if (project?.exportSettings?.keepClickSounds === false || frameRate <= 0) {
+    return null;
+  }
+
+  const assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
+  const cameraAssetIds = new Set(
+    project.assets
+      .map((asset) => asset.cameraAssetId)
+      .filter((assetId) => typeof assetId === 'string' && assetId.length > 0),
+  );
+  const rangeStartFrame = range?.startFrame ?? 0;
+  const rangeEndFrame = range?.endFrame ?? project.composition.duration;
+  const clickEvents = [];
+
+  for (const track of project.composition.tracks) {
+    if (!track.visible || track.type !== 'video') continue;
+
+    for (const clip of track.clips) {
+      if (!clip.enabled || clip.timelineOut <= clip.timelineIn) continue;
+      const asset = assetsById.get(clip.assetId);
+      if (!asset || !asset.presentation?.cursor?.clickSoundEnabled) continue;
+      if (cameraAssetIds.has(asset.id) || asset.metadata?.isCamera === true) continue;
+      if (asset.type !== 'recording' && asset.type !== 'video') continue;
+
+      const cursorEvents = await loadCursorEventsForExportAsset(asset);
+      if (cursorEvents.length === 0) continue;
+      const eventsFps = typeof asset.metadata?.cursorEventsFps === 'number' ? asset.metadata.cursorEventsFps : 60;
+      if (eventsFps <= 0) continue;
+
+      for (const event of cursorEvents) {
+        if (event.type !== 'down') continue;
+        const sourceProjectFrame = Math.round((event.frame / eventsFps) * frameRate);
+        if (sourceProjectFrame < clip.sourceIn || sourceProjectFrame >= clip.sourceOut) continue;
+
+        const timelineFrame = clip.timelineIn + (sourceProjectFrame - clip.sourceIn);
+        if (
+          timelineFrame < clip.timelineIn ||
+          timelineFrame >= clip.timelineOut ||
+          timelineFrame < rangeStartFrame ||
+          timelineFrame >= rangeEndFrame
+        ) {
+          continue;
+        }
+
+        clickEvents.push((timelineFrame - rangeStartFrame) / frameRate);
+      }
+    }
+  }
+
+  if (clickEvents.length === 0) {
+    return null;
+  }
+
+  const clickBytes = await readFile(CLICK_SOUND_ASSET_PATH);
+  const clickSound = parsePcm16Wav(clickBytes);
+  const waveform = clickSound.channelData[0] ?? new Float32Array(0);
+  if (waveform.length === 0) {
+    return null;
+  }
+
+  const selectedDurationSeconds = Math.max(0, (rangeEndFrame - rangeStartFrame) / frameRate);
+  const totalFrames = Math.max(
+    1,
+    Math.ceil(selectedDurationSeconds * CLICK_SOUND_SAMPLE_RATE) + waveform.length,
+  );
+  const mixed = new Float32Array(totalFrames);
+
+  for (const timestampSeconds of clickEvents.sort((left, right) => left - right)) {
+    const startFrame = Math.max(0, Math.round(timestampSeconds * CLICK_SOUND_SAMPLE_RATE));
+    for (let i = 0; i < waveform.length && startFrame + i < mixed.length; i++) {
+      mixed[startFrame + i] += waveform[i];
+    }
+  }
+
+  const pcm = Buffer.allocUnsafe(mixed.length * 2);
+  for (let i = 0; i < mixed.length; i++) {
+    const sample = Math.max(-1, Math.min(1, mixed[i]));
+    const int16 = sample < 0 ? Math.round(sample * 32768) : Math.round(sample * 32767);
+    pcm.writeInt16LE(int16, i * 2);
+  }
+
+  const header = Buffer.alloc(44);
+  const dataSize = pcm.length;
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write('WAVE', 8, 'ascii');
+  header.write('fmt ', 12, 'ascii');
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(CLICK_SOUND_SAMPLE_RATE, 24);
+  header.writeUInt32LE(CLICK_SOUND_SAMPLE_RATE * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(dataSize, 40);
+
+  const clickTrackPath = `${outputPath}.click-sounds.wav`;
+  await writeFile(clickTrackPath, Buffer.concat([header, pcm]));
+  return clickTrackPath;
+}
+
+async function finalizeExportMedia(project, videoPath, outputPath, range) {
+  const { project: repairedProject } = repairProjectMediaPaths(project);
+  const segments = collectExportAudioSegments(repairedProject);
+  const frameRate = repairedProject?.settings?.frameRate ?? 30;
+  const audioInputs = [];
+  const stemGroups = [];
+  const clickTrackPath = await buildExportClickTrack(repairedProject, outputPath, range, frameRate);
+  const selectedDurationSeconds = Math.max(
+    0,
+    ((range?.endFrame ?? repairedProject.composition.duration) - (range?.startFrame ?? 0)) / frameRate,
+  );
+
+  console.info('[export-finalize] Starting finalizeExportMedia:', {
+    videoPath,
+    outputPath,
+    range: range ?? null,
+    projectName: repairedProject?.name ?? 'unknown',
+    segmentCount: segments.length,
+    selectedDurationSeconds,
+  });
+
+  for (const segment of segments) {
+    const stems = resolveAudioStemPaths(segment.asset);
+    const group = { segment, mic: null, system: null };
+
+    console.info('[export-finalize] Segment audio candidates:', {
+      assetId: segment.asset.id,
+      assetType: segment.asset.type,
+      assetFilePath: segment.asset.filePath,
+      clipId: segment.clip.id,
+      timelineIn: segment.clip.timelineIn,
+      timelineOut: segment.clip.timelineOut,
+      resolvedStems: stems,
+      stemStates: stems
+        ? {
+            mic: describeAudioStemState(stems.micFilePath),
+            system: describeAudioStemState(stems.systemAudioFilePath),
+          }
+        : null,
+      assetAudioState: describeAudioStemState(segment.asset.filePath),
+    });
+
+    if (stems?.micFilePath && (await hasPrimaryAudioStream(stems.micFilePath))) {
+      group.mic = { segment, filePath: stems.micFilePath, role: 'mic' };
+      audioInputs.push(group.mic);
+    }
+    if (stems?.systemAudioFilePath && (await hasPrimaryAudioStream(stems.systemAudioFilePath))) {
+      group.system = { segment, filePath: stems.systemAudioFilePath, role: 'system' };
+      audioInputs.push(group.system);
+    }
+
+    if (group.mic || group.system) {
+      stemGroups.push(group);
+      continue;
+    }
+
+    if (await hasPrimaryAudioStream(segment.asset.filePath)) {
+      audioInputs.push({ segment, filePath: segment.asset.filePath, role: 'mixed' });
+    }
+  }
+
+  if (audioInputs.length === 0 && !clickTrackPath) {
+    console.warn('[export-finalize] No exportable audio inputs resolved; falling back to video-only output.', {
+      videoPath,
+      outputPath,
+      clickTrackPath,
+    });
     await rename(videoPath, outputPath);
+    await logFinalExportVideoCodec(outputPath, false);
     return { outputPath, audioIncluded: false };
   }
 
   const tempOutputPath = `${outputPath}.muxing.mp4`;
   const ffmpegArgs = ['-y', '-i', videoPath];
-  for (const segment of usableSegments) {
-    ffmpegArgs.push('-i', segment.asset.filePath);
+  for (const input of audioInputs) {
+    ffmpegArgs.push('-i', input.filePath);
+  }
+  if (clickTrackPath) {
+    ffmpegArgs.push('-i', clickTrackPath);
   }
 
-  const filterParts = usableSegments
-    .map((segment, index) => {
-      const overlapStartFrame = Math.max(segment.clip.timelineIn, range?.startFrame ?? 0);
-      const overlapEndFrame = Math.min(
-        segment.clip.timelineOut,
-        range?.endFrame ?? repairedProject.composition.duration,
-      );
-      if (overlapEndFrame <= overlapStartFrame) {
-        return null;
-      }
+  const filterParts = [];
+  const inputLabels = new Map();
+  const mixLabels = [];
+  const consumedInputs = new Set();
+  const rangeStartFrame = range?.startFrame ?? 0;
+  const rangeEndFrame = range?.endFrame ?? repairedProject.composition.duration;
+  const appendTimedAudioFilter = (input, inputIndex, outputLabel) => {
+    const segment = input.segment;
+    const overlapStartFrame = Math.max(segment.clip.timelineIn, rangeStartFrame);
+    const overlapEndFrame = Math.min(segment.clip.timelineOut, rangeEndFrame);
+    if (overlapEndFrame <= overlapStartFrame) {
+      return null;
+    }
 
-      const trimOffsetFrames = overlapStartFrame - segment.clip.timelineIn;
-      const sourceStart = (segment.clip.sourceIn + trimOffsetFrames) / frameRate;
-      const sourceEnd = sourceStart + (overlapEndFrame - overlapStartFrame) / frameRate;
-      const delayMs = Math.max(
-        0,
-        Math.round(((overlapStartFrame - (range?.startFrame ?? 0)) / frameRate) * 1000),
+    const trimOffsetFrames = overlapStartFrame - segment.clip.timelineIn;
+    const sourceStart = (segment.clip.sourceIn + trimOffsetFrames) / frameRate;
+    const sourceEnd = sourceStart + (overlapEndFrame - overlapStartFrame) / frameRate;
+    const delayMs = Math.max(
+      0,
+      Math.round(((overlapStartFrame - rangeStartFrame) / frameRate) * 1000),
+    );
+    filterParts.push(
+      `[${inputIndex}:a:0]atrim=start=${sourceStart}:end=${sourceEnd},asetpts=PTS-STARTPTS,adelay=${delayMs}:all=1[${outputLabel}]`,
+    );
+    return outputLabel;
+  };
+
+  audioInputs.forEach((input, index) => {
+    const label = appendTimedAudioFilter(input, index + 1, `src${index}`);
+    if (label) {
+      inputLabels.set(input, label);
+    }
+  });
+
+  stemGroups.forEach((group, index) => {
+    const micLabel = group.mic ? inputLabels.get(group.mic) : null;
+    const systemLabel = group.system ? inputLabels.get(group.system) : null;
+    if (micLabel && systemLabel) {
+      const micMixLabel = `mic${index}`;
+      const duckKeyLabel = `duckkey${index}`;
+      const duckedSystemLabel = `ducked${index}`;
+      filterParts.push(`[${micLabel}]asplit=2[${micMixLabel}][${duckKeyLabel}]`);
+      filterParts.push(
+        `[${systemLabel}][${duckKeyLabel}]sidechaincompress=threshold=0.02:ratio=8:attack=20:release=250:makeup=1[${duckedSystemLabel}]`,
       );
-      return `[${index + 1}:a:0]atrim=start=${sourceStart}:end=${sourceEnd},asetpts=PTS-STARTPTS,adelay=${delayMs}:all=1[a${index}]`;
-    })
-    .filter(Boolean);
+      mixLabels.push(`[${micMixLabel}]`, `[${duckedSystemLabel}]`);
+      consumedInputs.add(group.mic);
+      consumedInputs.add(group.system);
+    } else if (micLabel && group.mic) {
+      mixLabels.push(`[${micLabel}]`);
+      consumedInputs.add(group.mic);
+    } else if (systemLabel && group.system) {
+      mixLabels.push(`[${systemLabel}]`);
+      consumedInputs.add(group.system);
+    }
+  });
+
+  for (const input of audioInputs) {
+    if (consumedInputs.has(input)) continue;
+    const label = inputLabels.get(input);
+    if (label) {
+      mixLabels.push(`[${label}]`);
+    }
+  }
+
+  if (clickTrackPath) {
+    const clickLabel = `click${mixLabels.length}`;
+    filterParts.push(
+      `[${audioInputs.length + 1}:a:0]atrim=start=0:end=${selectedDurationSeconds},asetpts=PTS-STARTPTS[${clickLabel}]`,
+    );
+    mixLabels.push(`[${clickLabel}]`);
+  }
   if (filterParts.length === 0) {
+    if (clickTrackPath) {
+      await unlink(clickTrackPath).catch(() => {});
+    }
     await rename(videoPath, outputPath);
+    await logFinalExportVideoCodec(outputPath, false);
     return { outputPath, audioIncluded: false };
   }
-  const mixInputs = filterParts.map((_, index) => `[a${index}]`).join('');
-  const filterComplex = `${filterParts.join(';')};${mixInputs}amix=inputs=${filterParts.length}:normalize=0:dropout_transition=0[aout]`;
+  const mixInputs = mixLabels.join('');
+  const filterComplex = `${filterParts.join(';')};${mixInputs}amix=inputs=${mixLabels.length}:normalize=0:dropout_transition=0[aout]`;
+
+  console.info('[export-finalize] Resolved finalize inputs:', {
+    videoPath,
+    outputPath,
+    audioInputs: audioInputs.map((input) => ({
+      role: input.role,
+      filePath: input.filePath,
+      assetId: input.segment.asset.id,
+      clipId: input.segment.clip.id,
+    })),
+    clickTrackPath,
+    mixLabels,
+    filterComplex,
+  });
 
   ffmpegArgs.push(
     '-filter_complex',
@@ -416,12 +1428,26 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
         reject(new Error(stderr || `ffmpeg exited with code ${code}`));
       });
     });
+    if (clickTrackPath) {
+      await unlink(clickTrackPath).catch(() => {});
+    }
     await unlink(videoPath).catch(() => {});
     await rename(tempOutputPath, outputPath);
+    await logFinalExportVideoCodec(outputPath, true);
     return { outputPath, audioIncluded: true };
-  } catch {
+  } catch (error) {
+    console.warn('[export-finalize] Audio finalize failed; preserving video-only export:', {
+      videoPath,
+      outputPath,
+      tempOutputPath,
+      error: error?.message ?? String(error),
+    });
+    if (clickTrackPath) {
+      await unlink(clickTrackPath).catch(() => {});
+    }
     await unlink(tempOutputPath).catch(() => {});
     await rename(videoPath, outputPath);
+    await logFinalExportVideoCodec(outputPath, false);
     return { outputPath, audioIncluded: false };
   }
 }
@@ -532,8 +1558,54 @@ function createWindow() {
   // In dev, load from Vite dev server
   if (!app.isPackaged) {
     mainWindow.maximize();
-    mainWindow.loadURL('http://127.0.0.1:7544');
+    if (process.env.ROUGH_CUT_MINIMAL_BOOT === '1') {
+      mainWindow.loadURL(
+        'data:text/html;charset=utf-8,' +
+          encodeURIComponent(
+            '<!doctype html><html><body style="background:#111;color:#eee;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">Rough Cut minimal boot</body></html>',
+          ),
+      );
+    } else if (process.env.ROUGH_CUT_IMPORT_APP_ONLY === '1') {
+      mainWindow.loadURL(getRendererUrl('/?import-app-only=1'));
+    } else if (process.env.ROUGH_CUT_MINIMAL_RENDER === '1') {
+      mainWindow.loadURL(getRendererUrl('/?minimal-render=1'));
+    } else if (process.env.ROUGH_CUT_SHELL_ONLY === '1') {
+      mainWindow.loadURL(getRendererUrl('/?shell-only=1'));
+    } else if (process.env.ROUGH_CUT_RECORD_SHELL_ONLY === '1') {
+      mainWindow.loadURL(getRendererUrl('/?start-tab=record&record-shell-only=1'));
+    } else if (process.env.ROUGH_CUT_RECORD_ULTRA_MINIMAL === '1') {
+      mainWindow.loadURL(getRendererUrl('/?start-tab=record&record-ultra-minimal=1'));
+    } else if (process.env.ROUGH_CUT_RECORD_STORE_ONLY === '1') {
+      mainWindow.loadURL(getRendererUrl('/?start-tab=record&record-store-only=1'));
+    } else if (process.env.ROUGH_CUT_RECORD_RUNTIME_HOOKS === '1') {
+      mainWindow.loadURL(getRendererUrl('/?start-tab=record&record-runtime-hooks=1'));
+    } else if (process.env.ROUGH_CUT_RECORD_CHROME_ONLY === '1') {
+      mainWindow.loadURL(getRendererUrl('/?start-tab=record&record-chrome-only=1'));
+    } else if (process.env.ROUGH_CUT_RECORD_WORKSPACE_ONLY === '1') {
+      mainWindow.loadURL(getRendererUrl('/?start-tab=record&record-workspace-only=1'));
+    } else if (process.env.ROUGH_CUT_START_TAB === 'record') {
+      mainWindow.loadURL(getRendererUrl('/?start-tab=record'));
+    } else {
+      mainWindow.loadURL(getRendererUrl('/'));
+    }
     // mainWindow.webContents.openDevTools({ mode: 'detach' });
+    // Forward every renderer console message to the main-process stderr so
+    // debugging from the terminal is possible even before DevTools attaches.
+    mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+      const levels = ['LOG', 'WARN', 'ERROR', 'INFO'];
+      const label = levels[level] ?? `L${level}`;
+      process.stderr.write(`[renderer:${label}] ${message}  (${sourceId}:${line})\n`);
+    });
+    mainWindow.webContents.on('render-process-gone', (_event, details) => {
+      process.stderr.write(
+        `[renderer:CRASH] reason=${details.reason} exitCode=${details.exitCode}\n`,
+      );
+    });
+    mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+      process.stderr.write(
+        `[renderer:LOAD-FAIL] code=${errorCode} desc=${errorDescription} url=${validatedURL}\n`,
+      );
+    });
   } else {
     mainWindow.loadFile(join(__dirname, '../../dist/renderer/index.html'));
   }
@@ -551,7 +1623,10 @@ function registerIpcHandlers() {
 
     const filePath = result.filePaths[0];
     const content = await readFile(filePath, 'utf-8');
-    const data = repairProjectMediaPaths(JSON.parse(content), filePath);
+    const { project: repairedProject, changed } = repairProjectMediaPaths(JSON.parse(content), filePath);
+    await persistRepairedProjectIfNeeded(repairedProject, filePath, changed);
+    const durationHydratedProject = await hydrateProjectRecordingDurations(repairedProject);
+    const data = await hydrateProjectRecordSidecars(durationHydratedProject);
     // Return the raw data -- the renderer will validate via the project-model package
     const firstThumb = Array.isArray(data.assets) ? data.assets.find((a) => a.thumbnailPath) : null;
     addRecentProject({
@@ -754,13 +1829,114 @@ function registerIpcHandlers() {
 
   // Recording: Get available capture sources (screens + windows)
   ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SOURCES, async () => {
-    const nextSources = await getSources();
+    const probedSources = debugCaptureSourcesOverride ? null : await getSources();
+    const nextSources = debugCaptureSourcesOverride ?? probedSources;
     reconcileCaptureSources(nextSources);
     return nextSources;
   });
 
+  ipcMain.handle(IPC_CHANNELS.RECORDING_GET_DISPLAY_BOUNDS, () => {
+    if (Array.isArray(debugDisplayBoundsOverride)) return debugDisplayBoundsOverride;
+    const displays = screen.getAllDisplays();
+    return displays.map((display) => getDisplayCaptureBounds(display, displays));
+  });
+
   ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => {
+    if (shouldSkipAudioSourceDiscoveryInDev()) return [];
     return listSystemAudioSources();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, () => {
+    return buildRecordingPreflightStatus();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_OPEN_PERMISSION_SETTINGS, async (_e, { kind }) => {
+    if (debugRecordingPermissionSettingsResultOverride) {
+      const override =
+        typeof debugRecordingPermissionSettingsResultOverride === 'function'
+          ? debugRecordingPermissionSettingsResultOverride(kind)
+          : debugRecordingPermissionSettingsResultOverride[kind] ??
+            debugRecordingPermissionSettingsResultOverride.default ??
+            debugRecordingPermissionSettingsResultOverride;
+      if (override) {
+        return override;
+      }
+    }
+
+    const url = getPermissionSettingsUrl(kind);
+    if (!url) {
+      return {
+        opened: false,
+        requiresFullRelaunch: false,
+        message: 'This platform does not expose a direct recording-permission settings link.',
+      };
+    }
+
+    await shell.openExternal(url);
+    return {
+      opened: true,
+      requiresFullRelaunch: process.platform === 'darwin',
+      message:
+        process.platform === 'darwin'
+          ? 'Permissions may require a full app relaunch before Electron sees the new state.'
+          : 'Opened the OS privacy settings for this recording permission.',
+    };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_GET, async () => {
+    return readRecordingRecoveryMarker();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_RECOVER, async () => {
+    const recovery = await readRecordingRecoveryMarker();
+    if (!recovery?.canRecover || !recovery.recoveryCandidate?.videoPath) {
+      return null;
+    }
+
+    const metadata = {
+      fps: recovery.captureMetadata?.fps ?? 30,
+      width: recovery.captureMetadata?.width ?? 1920,
+      height: recovery.captureMetadata?.height ?? 1080,
+      durationMs: 0,
+      timelineFps: recovery.captureMetadata?.timelineFps ?? 30,
+    };
+    const recoveryProjectDir =
+      basename(recovery.recordingsDir) === 'recordings'
+        ? dirname(recovery.recordingsDir)
+        : recovery.recordingsDir;
+    const projectDir = getRecordingLocation() || recoveryProjectDir || null;
+    const result = await saveRecordingFromFile(
+      recovery.recoveryCandidate.videoPath,
+      projectDir,
+      metadata,
+    );
+
+    if (recovery.recoveryCandidate.audioPath) {
+      await muxAudioIntoRecording(result.filePath, recovery.recoveryCandidate.audioPath);
+    }
+    if (recovery.recoveryCandidate.micAudioPath || recovery.recoveryCandidate.systemAudioPath) {
+      result.audioStemPaths = {
+        micFilePath: recovery.recoveryCandidate.micAudioPath ?? null,
+        systemAudioFilePath: recovery.recoveryCandidate.systemAudioPath ?? null,
+      };
+    }
+    if (recovery.recoveryCandidate.cursorPath) {
+      result.cursorEventsPath = recovery.recoveryCandidate.cursorPath;
+    }
+    if (recovery.recoveryCandidate.projectSnapshotPath) {
+      result.recoveredProjectSnapshotPath = recovery.recoveryCandidate.projectSnapshotPath;
+    }
+
+    await clearRecordingRecoveryMarker();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.RECORDING_ASSET_READY, result);
+    }
+    return result;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_DISMISS, async () => {
+    await clearRecordingRecoveryMarker();
+    return true;
   });
 
   // Recording: Save finished recording blob to disk and probe metadata
@@ -787,7 +1963,10 @@ function registerIpcHandlers() {
   // Project: Open by known file path (no dialog)
   ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, async (_e, { filePath }) => {
     const content = await readFile(filePath, 'utf-8');
-    return repairProjectMediaPaths(JSON.parse(content), filePath);
+    const { project: repairedProject, changed } = repairProjectMediaPaths(JSON.parse(content), filePath);
+    await persistRepairedProjectIfNeeded(repairedProject, filePath, changed);
+    const durationHydratedProject = await hydrateProjectRecordingDurations(repairedProject);
+    return hydrateProjectRecordSidecars(durationHydratedProject);
   });
 
   ipcMain.handle(IPC_CHANNELS.LIBRARY_OPEN_PATH, async (_e, { filePath }) => {
@@ -818,6 +1997,12 @@ function registerIpcHandlers() {
 
   // Debug: reload the most recent recording from disk (temporary — for camera decode testing)
   ipcMain.handle(IPC_CHANNELS.DEBUG_LOAD_LAST_RECORDING, async () => {
+    const latestResult = getLastFinalizedRecordingResult();
+    if (latestResult) {
+      console.log('[DEBUG] Returning last finalized in-memory recording result');
+      return latestResult;
+    }
+
     const recordingDirs = getRecordingSearchDirs();
     const files = recordingDirs
       .flatMap((recordingDir) => {
@@ -841,14 +2026,19 @@ function registerIpcHandlers() {
 
     // Check for camera sidecar
     const baseName = latestName.replace('.webm', '');
-    const cameraPath = join(recordingDir, baseName + '-camera.mp4');
-    const hasCameraFile = existsSync(cameraPath);
+    const cameraCandidates = [
+      join(recordingDir, baseName + '-camera.webm'),
+      join(recordingDir, baseName + '-camera.mp4'),
+    ];
+    const cameraPath = cameraCandidates.find((candidate) => existsSync(candidate)) ?? null;
+    const hasCameraFile = Boolean(cameraPath);
 
     // Try to get duration via ffprobe, fallback to 3 seconds at 30fps
     let durationFrames = 90; // default 3s at 30fps
     let width = 1920;
     let height = 1080;
     let fps = 30;
+    let hasAudio = false;
 
     try {
       const { execSync } = await import('node:child_process');
@@ -859,6 +2049,7 @@ function registerIpcHandlers() {
       const info = JSON.parse(probe);
       const videoStream = info.streams?.find((s) => s.codec_type === 'video');
       const audioStream = info.streams?.find((s) => s.codec_type === 'audio');
+      hasAudio = Boolean(audioStream);
       if (videoStream) {
         width = videoStream.width || width;
         height = videoStream.height || height;
@@ -912,6 +2103,7 @@ function registerIpcHandlers() {
       fps,
       codec: 'vp8',
       fileSize: stat.size,
+      hasAudio,
       cameraFilePath: hasCameraFile ? cameraPath : undefined,
     };
     console.log(
@@ -925,43 +2117,64 @@ function registerIpcHandlers() {
     return lastDisplayMediaSelection;
   });
 
-  // Zoom sidecar: persist ZoomPresentation next to the recording .webm.
-  // Path = <recordingFilePath>.replace(/\.(webm|mp4)$/, '.zoom.json')
-  const zoomSidecarPath = (recordingFilePath) =>
-    recordingFilePath.replace(/\.(webm|mp4)$/i, '.zoom.json');
-
-  ipcMain.handle(IPC_CHANNELS.ZOOM_LOAD_SIDECAR, async (_e, { recordingFilePath }) => {
-    try {
-      if (!recordingFilePath) return null;
-      const path = zoomSidecarPath(recordingFilePath);
-      if (!existsSync(path)) return null;
-      const content = await readFile(path, 'utf-8');
-      const parsed = JSON.parse(content);
-      // Accept either { version, autoIntensity, markers } or a bare ZoomPresentation.
-      if (parsed && typeof parsed === 'object' && Array.isArray(parsed.markers)) {
-        return {
-          autoIntensity: typeof parsed.autoIntensity === 'number' ? parsed.autoIntensity : 0,
-          markers: parsed.markers,
-        };
-      }
-      console.warn('[zoom-sidecar] Unexpected shape in', path);
-      return null;
-    } catch (err) {
-      console.warn('[zoom-sidecar] Load failed:', err?.message ?? err);
+  ipcMain.handle(IPC_CHANNELS.DEBUG_SET_RECORDING_RECOVERY, async (_e, payload) => {
+    if (!payload) {
+      await clearRecordingRecoveryMarker();
       return null;
     }
+    return writeRecordingRecoveryMarker(payload);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DEBUG_SET_CAPTURE_SOURCES, async (_e, payload) => {
+    debugCaptureSourcesOverride = Array.isArray(payload) ? payload : null;
+    if (debugCaptureSourcesOverride) {
+      reconcileCaptureSources(debugCaptureSourcesOverride);
+      broadcastRecordingConfig();
+    }
+    return debugCaptureSourcesOverride;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DEBUG_SET_DISPLAY_BOUNDS, async (_e, payload) => {
+    debugDisplayBoundsOverride = Array.isArray(payload) ? payload : null;
+    return debugDisplayBoundsOverride;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DEBUG_SET_RECORDING_PREFLIGHT_STATUS, async (_e, payload) => {
+    debugRecordingPreflightStatusOverride = payload ?? null;
+    return debugRecordingPreflightStatusOverride;
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.DEBUG_SET_RECORDING_PERMISSION_SETTINGS_RESULT,
+    async (_e, payload) => {
+      debugRecordingPermissionSettingsResultOverride = payload ?? null;
+      return debugRecordingPermissionSettingsResultOverride;
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.ZOOM_LOAD_SIDECAR, async (_e, { recordingFilePath, projectFilePath }) => {
+    return loadZoomSidecar(recordingFilePath, projectFilePath ?? null);
   });
 
   ipcMain.handle(
     IPC_CHANNELS.ZOOM_SAVE_SIDECAR,
-    async (_e, { recordingFilePath, presentation }) => {
+    async (_e, { recordingFilePath, projectFilePath, presentation }) => {
       try {
         if (!recordingFilePath || !presentation) return false;
-        const path = zoomSidecarPath(recordingFilePath);
+        const resolvedRecordingFilePath = resolveProjectRelativeMediaPath(
+          recordingFilePath,
+          projectFilePath ?? null,
+        );
+        const path = zoomSidecarPath(resolvedRecordingFilePath);
         const payload = {
           version: 1,
           autoIntensity:
             typeof presentation.autoIntensity === 'number' ? presentation.autoIntensity : 0,
+          followCursor:
+            typeof presentation.followCursor === 'boolean' ? presentation.followCursor : true,
+          followAnimation: presentation.followAnimation === 'smooth' ? 'smooth' : 'focused',
+          followPadding:
+            typeof presentation.followPadding === 'number' ? presentation.followPadding : 0.18,
           markers: Array.isArray(presentation.markers) ? presentation.markers : [],
         };
         await writeFile(path, JSON.stringify(payload, null, 2), 'utf-8');
@@ -1173,7 +2386,45 @@ function registerIpcHandlers() {
     return { ...recordingConfig };
   });
 
+  ipcMain.handle(IPC_CHANNELS.RECORDING_GET_MIC_VOLUME, async () => {
+    const sourceName = await resolveCurrentMicPactlSource();
+    if (!sourceName) return { sourceName: null, percent: null };
+    const percent = await getSourceVolumePercent(sourceName);
+    return { sourceName, percent };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RECORDING_SET_MIC_VOLUME, async (_e, { percent }) => {
+    const sourceName = await resolveCurrentMicPactlSource();
+    if (!sourceName) return { sourceName: null, percent: null, applied: false };
+    await snapshotIfFirstTouch(sourceName);
+    const applied = await setSourceVolumePercent(sourceName, percent);
+    const finalPercent = await getSourceVolumePercent(sourceName);
+    return { sourceName, percent: finalPercent, applied };
+  });
+
   registerAIHandlers(mainWindow);
+}
+
+/**
+ * Resolve the pactl source name for the currently configured mic, using the
+ * same discoverAudioSources pipeline that the recording session uses. Returns
+ * null when the user has no mic enabled, no source matches, or pactl fails.
+ */
+async function resolveCurrentMicPactlSource() {
+  if (!recordingConfig?.micEnabled) return null;
+  try {
+    const sources = await discoverAudioSources({
+      preferredMicSourceId: recordingConfig.selectedMicDeviceId ?? null,
+      preferredMicLabel: recordingConfig.selectedMicLabel ?? null,
+      strictMicSelection: Boolean(
+        recordingConfig.selectedMicDeviceId || recordingConfig.selectedMicLabel,
+      ),
+    });
+    return sources.micSource ?? null;
+  } catch (err) {
+    console.warn('[record-mic-volume] resolve failed:', err?.message ?? err);
+    return null;
+  }
 }
 
 // macOS audio loopback support (ScreenCaptureKit)
@@ -1193,7 +2444,7 @@ protocol.registerSchemesAsPrivileged([
 // constraints, always delivers native camera resolution (1080p) which caps at
 // 5fps YUYV over USB. Without PipeWire, V4L2 direct access honors constraints
 // and can deliver 640x480 YUYV at 30fps.
-if (process.platform === 'linux') {
+if (process.platform === 'linux' && app.isPackaged) {
   app.commandLine.appendSwitch(
     'enable-features',
     'AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL',
@@ -1206,6 +2457,26 @@ if (process.platform === 'linux') {
 }
 
 app.whenReady().then(() => {
+  // TASK-183 diagnostic: log Electron's and X11's view of the display layout
+  // once at startup so secondary-display capture regressions have both
+  // perspectives in the record.
+  void getX11MonitorsDiagnostic().then((xrandrOutput) => {
+    if (xrandrOutput === null) return;
+    try {
+      cachedX11MonitorLayout = parseX11MonitorsDiagnostic(xrandrOutput);
+      const electronDisplays = screen.getAllDisplays().map((d) => ({
+        id: d.id,
+        label: d.label,
+        bounds: d.bounds,
+        scaleFactor: d.scaleFactor,
+      }));
+      console.info('[task-183] Electron displays at startup:', JSON.stringify(electronDisplays));
+      console.info('[task-183] xrandr --listmonitors:\n' + xrandrOutput);
+    } catch (err) {
+      console.warn('[task-183] Failed to log display diagnostic:', err);
+    }
+  });
+
   // Permission CHECK handler (synchronous pre-flight — getUserMedia needs this)
   session.defaultSession.setPermissionCheckHandler(
     (_webContents, permission, _requestingOrigin, details) => {
@@ -1241,7 +2512,9 @@ app.whenReady().then(() => {
   // Intercept getDisplayMedia() from any renderer (panel window uses this)
   session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
     try {
-      const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+      const sources =
+        debugCaptureSourcesOverride ??
+        (await desktopCapturer.getSources({ types: ['screen', 'window'] }));
       const selectedSourceId = recordingConfig.selectedSourceId;
       const recordMode = recordingConfig.recordMode;
       const cachedSelectedSource = cachedCaptureSources.find(
@@ -1264,11 +2537,6 @@ app.whenReady().then(() => {
         return;
       }
 
-      if (source.id !== selectedSourceId) {
-        applyRecordingConfigPatch({ selectedSourceId: source.id });
-        broadcastRecordingConfig();
-      }
-
       lastDisplayMediaSelection = {
         requestedRecordMode: recordMode,
         configuredSelectedSourceId: selectedSourceId,
@@ -1289,39 +2557,25 @@ app.whenReady().then(() => {
 
   // Pass source info getter so the session manager can use FFmpeg x11grab
   initSessionManager(mainWindow, () => {
-    const selectedSourceId = recordingConfig.selectedSourceId;
-    if (!selectedSourceId) return null;
-    if (!selectedSourceId.startsWith('screen:')) return null; // x11grab can't target a window
+    const selectedSourceId =
+      lastDisplayMediaSelection?.grantedSourceType === 'screen' &&
+      typeof lastDisplayMediaSelection.grantedSourceId === 'string'
+        ? lastDisplayMediaSelection.grantedSourceId
+        : recordingConfig.selectedSourceId;
 
-    const displays = screen.getAllDisplays();
-    // Electron's desktopCapturer gives each source a stable `display_id` that
-    // matches `screen.getAllDisplays()[i].id`. The second segment of the
-    // selectedSourceId (e.g. 'screen:2147483647:0') is the Electron display id,
-    // NOT the array index — on multi-monitor setups, treating it as an index
-    // silently falls back to the primary display.
-    const cachedSource = cachedCaptureSources.find((entry) => entry.id === selectedSourceId);
-    const displayIdFromCache = cachedSource?.displayId ? String(cachedSource.displayId) : null;
-    const displayIdFromId = selectedSourceId.split(':')[1] ?? null;
-
-    const resolvedDisplay =
-      (displayIdFromCache && displays.find((d) => String(d.id) === displayIdFromCache)) ||
-      (displayIdFromId && displays.find((d) => String(d.id) === displayIdFromId)) ||
-      displays[0];
-
-    if (!resolvedDisplay) return null;
-
-    console.info('[session-source] Resolved capture display:', {
+    return resolveCaptureSourceInfo({
       selectedSourceId,
-      displayId: resolvedDisplay.id,
-      bounds: resolvedDisplay.bounds,
+      displays: screen.getAllDisplays(),
+      cachedCaptureSources,
+      x11DisplayName: normalizeX11DisplayName(),
+      getDisplayCaptureBounds,
+      logDiagnostic: (info) => {
+        console.info('[session-source] Resolved capture display:', {
+          ...info,
+          lastDisplayMediaSelection,
+        });
+      },
     });
-
-    return {
-      sourceId: selectedSourceId,
-      display: `${process.env.DISPLAY || ':0'}.0+${resolvedDisplay.bounds.x},${resolvedDisplay.bounds.y}`,
-      width: resolvedDisplay.bounds.width,
-      height: resolvedDisplay.bounds.height,
-    };
   });
 });
 
@@ -1331,4 +2585,16 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
+
+// Restore any PulseAudio source volumes the mic-gain slider touched, so we
+// don't leave the user's system mic at a reduced level after the app exits.
+// will-quit runs synchronously after all windows close, so use the sync
+// pactl call — async cleanup is unreliable while the event loop tears down.
+app.on('will-quit', () => {
+  try {
+    restoreAllSourceVolumesSync();
+  } catch (err) {
+    console.warn('[mic-volume] will-quit restore failed:', err?.message ?? err);
+  }
 });

@@ -8,7 +8,9 @@ import {
   createKeyframeTrack,
   createKeyframe,
   createDefaultCameraPresentation,
+  createDefaultRecordingVisibility,
   createDefaultRecordingPresentation,
+  createRecordingVisibilitySegment,
   createLibrary,
   createLibraryDocument,
   createLibrarySource,
@@ -24,6 +26,7 @@ import {
   LibrarySourceSchema,
   ProjectLibraryReferenceSchema,
 } from './schemas.js';
+import { CURRENT_SCHEMA_VERSION } from './constants.js';
 import type { AssetId, TrackId } from './types.js';
 
 describe('factories', () => {
@@ -35,7 +38,7 @@ describe('factories', () => {
 
     it('has current schema version', () => {
       const project = createProject();
-      expect(project.version).toBe(6);
+      expect(project.version).toBe(CURRENT_SCHEMA_VERSION);
     });
 
     it('has 2 video + 2 audio tracks by default', () => {
@@ -54,6 +57,16 @@ describe('factories', () => {
     it('supports overrides', () => {
       const project = createProject({ name: 'My Project' });
       expect(project.name).toBe('My Project');
+    });
+
+    it('defaults destination preset id to null', () => {
+      const project = createProject();
+      expect(project.settings.destinationPresetId).toBeNull();
+    });
+
+    it('stores default recording presentation settings', () => {
+      const project = createProject();
+      expect(project.settings.recordingDefaults).toEqual(createDefaultRecordingPresentation());
     });
   });
 
@@ -171,6 +184,26 @@ describe('factories', () => {
     });
   });
 
+  describe('recording visibility factories', () => {
+    it('creates enabled-by-default visibility settings', () => {
+      expect(createDefaultRecordingVisibility()).toEqual({
+        cameraVisible: true,
+        cursorVisible: true,
+        clicksVisible: true,
+        overlaysVisible: true,
+      });
+    });
+
+    it('creates a visibility segment with defaults and frame', () => {
+      const segment = createRecordingVisibilitySegment(42);
+      expect(segment.frame).toBe(42);
+      expect(segment.cameraVisible).toBe(true);
+      expect(segment.cursorVisible).toBe(true);
+      expect(segment.clicksVisible).toBe(true);
+      expect(segment.overlaysVisible).toBe(true);
+    });
+  });
+
   describe('library factories', () => {
     it('creates a library with sensible defaults', () => {
       const library = createLibrary('Interview Selects');
@@ -182,7 +215,7 @@ describe('factories', () => {
 
     it('creates a persisted library document with current schema version', () => {
       const library = createLibraryDocument('Interview Selects');
-      expect(library.version).toBe(6);
+      expect(library.version).toBe(CURRENT_SCHEMA_VERSION);
       expect(library.name).toBe('Interview Selects');
       expect(() => LibraryDocumentSchema.parse(library)).not.toThrow();
     });

@@ -4,6 +4,7 @@ import type {
   AssetId,
   CameraPresentation,
   NormalizedRect,
+  RecordingBackgroundStyle,
   CursorStyle,
   ClickEffect,
   RegionCrop,
@@ -89,10 +90,13 @@ export interface CameraTransform {
  * The renderer uses this to style the cursor overlay.
  */
 export interface ResolvedCursorPresentation {
+  visible: boolean;
   style: CursorStyle;
   clickEffect: ClickEffect;
   sizePercent: number;
   clickSoundEnabled: boolean;
+  clicksVisible: boolean;
+  overlaysVisible: boolean;
 }
 
 /**
@@ -107,6 +111,8 @@ export interface RenderFrame {
   height: number;
   /** Background color */
   backgroundColor: string;
+  /** Full Record-tab background styling for parity-sensitive renderers */
+  background?: RecordingBackgroundStyle;
   /** Layers to render, sorted by z-order (index 0 = bottom) */
   layers: RenderLayer[];
   /** Active transitions at this frame */
@@ -121,6 +127,8 @@ export interface RenderFrame {
   cameraCrop?: RegionCrop;
   /** Camera presentation settings from the recording */
   cameraPresentation?: CameraPresentation;
+  /** Exact screen frame resolved in Record tab (normalized 0-1 canvas rect) */
+  screenFrame?: NormalizedRect;
   /** Exact camera frame resolved in Record tab (normalized 0-1 canvas rect) */
   cameraFrame?: NormalizedRect;
 }

@@ -8,11 +8,13 @@ interface RcSelectProps {
   value: string;
   onChange: (value: string) => void;
   children: React.ReactNode;
+  ariaLabel?: string;
 }
 
-export function RcSelect({ value, onChange, children }: RcSelectProps) {
+export function RcSelect({ value, onChange, children, ariaLabel }: RcSelectProps) {
   return (
     <select
+      aria-label={ariaLabel}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       style={{

@@ -1,8 +1,11 @@
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
+import { existsSync } from 'node:fs';
+import { PLAYBACK_PROJECT_PATH } from './fixtures/playback-fixture.js';
 
 const RECORDED_PROJECT_PATH =
-  process.env.ROUGH_CUT_SESSION_PATH ??
-  '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
+  process.env.ROUGH_CUT_SESSION_PATH && existsSync(process.env.ROUGH_CUT_SESSION_PATH)
+    ? process.env.ROUGH_CUT_SESSION_PATH
+    : PLAYBACK_PROJECT_PATH;
 
 test('edit timeline exposes track header controls and updates track state', async ({ appPage }) => {
   test.setTimeout(45_000);

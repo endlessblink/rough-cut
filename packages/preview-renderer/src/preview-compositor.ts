@@ -19,6 +19,90 @@ import type { RenderFrame, RenderLayer } from '@rough-cut/frame-resolver';
 import type { CompositorConfig, CompositorState, CompositorEvents } from './types.js';
 import { CameraFrameDecoder } from './camera-frame-decoder.js';
 import { MediaBunnyVideoScrubber } from './media-bunny-video-scrubber.js';
+import { collectActiveAudioStemSources, getAudioStemPaths } from './audio-mixer.js';
+
+let videoSourceCspPatchApplied = false;
+
+function applyVideoSourceCspPatch(): void {
+  if (videoSourceCspPatchApplied) return;
+  videoSourceCspPatchApplied = true;
+
+  const proto = VideoSource.prototype as unknown as {
+    load: () => Promise<unknown>;
+    _load: Promise<unknown> | null;
+    resource: HTMLVideoElement;
+    options: { preload?: boolean; preloadTimeoutMs?: number };
+    _onPlayStart: () => void;
+    _onPlayStop: () => void;
+    _onSeeked: () => void;
+    _onCanPlay: () => void;
+    _onCanPlayThrough: () => void;
+    _onError: (event: Event) => void;
+    _isSourceReady: () => boolean;
+    _mediaReady: () => void;
+    isValid: boolean;
+    _resolve: ((value: unknown) => void) | null;
+    _reject: ((reason?: unknown) => void) | null;
+    _preloadTimeout?: ReturnType<typeof setTimeout>;
+    alphaMode: string;
+  };
+
+  proto.load = async function patchedVideoSourceLoad() {
+    if (this._load) {
+      return this._load;
+    }
+
+    const source = this.resource;
+    const options = this.options;
+    if (
+      (source.readyState === source.HAVE_ENOUGH_DATA ||
+        source.readyState === source.HAVE_FUTURE_DATA) &&
+      source.width &&
+      source.height
+    ) {
+      (source as HTMLVideoElement & { complete?: boolean }).complete = true;
+    }
+
+    source.addEventListener('play', this._onPlayStart);
+    source.addEventListener('pause', this._onPlayStop);
+    source.addEventListener('seeked', this._onSeeked);
+
+    if (!this._isSourceReady()) {
+      if (!options.preload) {
+        source.addEventListener('canplay', this._onCanPlay);
+      }
+      source.addEventListener('canplaythrough', this._onCanPlayThrough);
+      source.addEventListener('error', this._onError, true);
+    } else {
+      this._mediaReady();
+    }
+
+    // Pixi's default load() always probes a base64-encoded WebM via
+    // detectVideoAlphaMode(), which violates this app's strict CSP. We already
+    // force alphaMode explicitly on all preview VideoSource instances, so keep
+    // that value and skip the probe entirely.
+    this._load = new Promise((resolve, reject) => {
+      if (this.isValid) {
+        resolve(this);
+      } else {
+        this._resolve = resolve;
+        this._reject = reject;
+        if (options.preloadTimeoutMs !== undefined) {
+          this._preloadTimeout = setTimeout(() => {
+            this._onError(
+              new ErrorEvent(`Preload exceeded timeout of ${options.preloadTimeoutMs}ms`),
+            );
+          });
+        }
+        source.load();
+      }
+    });
+
+    return this._load;
+  };
+}
+
+applyVideoSourceCspPatch();
 
 /** Color palette for layer placeholders — cycled deterministically by clipId hash */
 const LAYER_COLORS = [
@@ -57,6 +141,12 @@ interface VideoCache {
   pendingScrubSourceFrame: number | null;
 }
 
+interface StemAudioCache {
+  audio: HTMLAudioElement;
+  filePath: string;
+  loaded: boolean;
+}
+
 /**
  * PreviewCompositor — renders RenderFrames to a PixiJS canvas.
  *
@@ -76,12 +166,18 @@ export class PreviewCompositor {
   private lastRenderedFrame = -1;
   private lastRenderedProject: ProjectDocument | null = null;
   private _playing = false;
+  private lastLoggedPrimaryPlaybackAssetId: string | null = null;
+  private preferredPlaybackAssetId: string | null = null;
+  private soloTrackIds: Set<string> = new Set();
+  private cursorDataByAssetId: Map<string, { frames: Float32Array; frameCount: number }> =
+    new Map();
 
   // Layer cache — reuse PixiJS objects to avoid GC pressure at 60fps
   private layerCache: Map<string, LayerCache> = new Map();
 
   // Video element cache — one per asset, reused across frames
   private videoCache: Map<string, VideoCache> = new Map();
+  private stemAudioCache: Map<string, StemAudioCache> = new Map();
 
   // Camera decoder cache — WebCodecs-based, frame-locked to screen
   private cameraDecoders: Map<
@@ -166,6 +262,11 @@ export class PreviewCompositor {
         vc.scrubber?.dispose();
       }
       this.videoCache.clear();
+      for (const stem of this.stemAudioCache.values()) {
+        stem.audio.pause();
+        stem.audio.src = '';
+      }
+      this.stemAudioCache.clear();
       for (const entry of this.cameraDecoders.values()) {
         entry.decoder.dispose();
         entry.texture?.destroy();
@@ -205,7 +306,7 @@ export class PreviewCompositor {
         video
           .play()
           .then(() => {
-            video.muted = false;
+            video.muted = this.shouldMuteAssetVideoAudio(assetId);
           })
           .catch((e) => {
             console.error('[compositor] play() FAILED:', e);
@@ -215,6 +316,7 @@ export class PreviewCompositor {
         }
       }
     }
+    this.syncStemAudio();
   }
 
   /** Pause native video playback — return to frame-accurate seeking mode */
@@ -226,27 +328,30 @@ export class PreviewCompositor {
         (vc.texture.source as VideoSource).autoUpdate = false;
       }
     }
+    for (const stem of this.stemAudioCache.values()) {
+      stem.audio.pause();
+    }
   }
 
   /** Get the current playback time from the first loaded video element */
   getVideoCurrentTime(): number {
-    for (const vc of this.videoCache.values()) {
-      if (vc.loaded && vc.video.readyState >= 2) {
-        return vc.video.currentTime;
-      }
+    const activeVideo = this.getPrimaryPlaybackVideoCache();
+    if (activeVideo?.video.loaded && activeVideo.video.video.readyState >= 2) {
+      return activeVideo.video.video.currentTime;
     }
+
     return -1;
   }
 
   /** Map native video playback back to the project timeline frame. */
   getPlaybackFrame(): number {
     const fps = this.project?.settings.frameRate ?? 30;
-    for (const [assetId, vc] of this.videoCache.entries()) {
-      if (vc.loaded && vc.video.readyState >= 2) {
-        const sourceFrame = Math.round(vc.video.currentTime * fps);
-        return this.resolveTimelineFrameForAsset(assetId, sourceFrame) ?? sourceFrame;
-      }
+    const primaryPlayback = this.getPrimaryPlaybackVideoCache();
+    if (primaryPlayback?.video.loaded && primaryPlayback.video.video.readyState >= 2) {
+      const sourceFrame = Math.round(primaryPlayback.video.video.currentTime * fps);
+      return this.resolveTimelineFrameForAsset(primaryPlayback.assetId, sourceFrame) ?? sourceFrame;
     }
+
     return -1;
   }
 
@@ -257,11 +362,7 @@ export class PreviewCompositor {
 
   /** Detect native playback completion from the compositor-owned media elements. */
   hasPlaybackEnded(): boolean {
-    for (const vc of this.videoCache.values()) {
-      if (!vc.loaded) continue;
-      if (vc.video.ended) return true;
-    }
-    return false;
+    return this.getPrimaryPlaybackVideoCache()?.video.video.ended ?? false;
   }
 
   /** Seek to a specific frame and render it */
@@ -285,6 +386,33 @@ export class PreviewCompositor {
     this.config.width = width;
     this.config.height = height;
     this.app?.renderer.resize(width, height);
+    // PixiJS overwrites inline styles after renderer.resize(); re-assert !important fill.
+    const canvas = this.app?.canvas as HTMLCanvasElement | undefined;
+    if (canvas?.style) {
+      canvas.style.cssText =
+        'position:absolute !important;inset:0 !important;width:100% !important;height:100% !important;display:block !important;';
+    }
+    this.renderCurrentFrame(true);
+  }
+
+  setPreferredPlaybackAssetId(assetId: string | null): void {
+    this.preferredPlaybackAssetId = assetId;
+  }
+
+  setSoloTrackIds(trackIds: readonly string[]): void {
+    this.soloTrackIds = new Set(trackIds);
+    this.syncStemAudio();
+  }
+
+  setCursorFrameData(
+    assetId: string,
+    cursorData: { frames: Float32Array; frameCount: number } | null,
+  ): void {
+    if (!cursorData) {
+      this.cursorDataByAssetId.delete(assetId);
+    } else {
+      this.cursorDataByAssetId.set(assetId, cursorData);
+    }
     this.renderCurrentFrame(true);
   }
 
@@ -302,6 +430,11 @@ export class PreviewCompositor {
       vc.scrubber?.dispose();
     }
     this.videoCache.clear();
+    for (const stem of this.stemAudioCache.values()) {
+      stem.audio.pause();
+      stem.audio.src = '';
+    }
+    this.stemAudioCache.clear();
     for (const entry of this.cameraDecoders.values()) {
       entry.decoder.dispose();
       entry.texture?.destroy();
@@ -331,8 +464,22 @@ export class PreviewCompositor {
       return;
     }
 
-    const renderFrame = resolveFrame(this.project, this.currentFrame);
+    const renderFrame = resolveFrame(this.project, this.currentFrame, {
+      getCursorPosition: (assetId, sourceFrame) => {
+        const data = this.cursorDataByAssetId.get(assetId);
+        if (!data) return null;
+        const frame = Math.max(0, Math.min(sourceFrame, data.frameCount - 1));
+        const idx = frame * 3;
+        if (idx + 1 >= data.frames.length) return null;
+        const x = data.frames[idx] ?? -1;
+        const y = data.frames[idx + 1] ?? -1;
+        if (x < 0 || y < 0) return null;
+        return { x, y };
+      },
+      preferredPlaybackAssetId: this.preferredPlaybackAssetId,
+    });
     this.renderRenderFrame(renderFrame);
+    this.syncStemAudio();
     this.app.render();
     this.lastRenderedFrame = this.currentFrame;
     this.lastRenderedProject = this.project;
@@ -410,7 +557,11 @@ export class PreviewCompositor {
       () => {
         if (!vc) return;
         try {
-          const videoSource = new VideoSource({ resource: video, autoPlay: false });
+          const videoSource = new VideoSource({
+            resource: video,
+            autoPlay: false,
+            alphaMode: 'premultiply-alpha-on-upload',
+          });
           vc.texture = new Texture({ source: videoSource });
           vc.loaded = true;
           // If playback is active, auto-start this newly loaded video
@@ -422,7 +573,7 @@ export class PreviewCompositor {
             video
               .play()
               .then(() => {
-                video.muted = false;
+                video.muted = this.shouldMuteAssetVideoAudio(assetId);
               })
               .catch(() => {});
             videoSource.autoUpdate = true;
@@ -446,6 +597,113 @@ export class PreviewCompositor {
 
     this.videoCache.set(assetId, vc);
     return vc;
+  }
+
+  private getOrCreateStemAudio(key: string, filePath: string): StemAudioCache {
+    const cached = this.stemAudioCache.get(key);
+    if (cached && cached.filePath === filePath) return cached;
+
+    if (cached) {
+      cached.audio.pause();
+      cached.audio.src = '';
+      this.stemAudioCache.delete(key);
+    }
+
+    const audio = document.createElement('audio');
+    audio.src = `media://${filePath}`;
+    audio.preload = 'auto';
+    audio.muted = true;
+
+    console.info('[compositor] Loading audio stem:', { key, filePath });
+
+    const next: StemAudioCache = { audio, filePath, loaded: false };
+    audio.addEventListener('loadeddata', () => {
+      next.loaded = true;
+      console.info('[compositor] Audio stem loaded:', {
+        key,
+        filePath,
+        duration: Number.isFinite(audio.duration) ? audio.duration : null,
+        readyState: audio.readyState,
+      });
+      if (this._playing) {
+        this.syncStemAudio();
+      }
+    });
+    audio.addEventListener(
+      'error',
+      () => {
+        console.warn(`[compositor] Failed to load audio stem: ${filePath}`, audio.error);
+        next.loaded = false;
+      },
+      { once: true },
+    );
+
+    this.stemAudioCache.set(key, next);
+    return next;
+  }
+
+  private syncStemAudio(): void {
+    if (!this.project) return;
+
+    const fps = this.project.settings.frameRate ?? 30;
+    const active = collectActiveAudioStemSources(
+      this.project,
+      this.currentFrame,
+      this.soloTrackIds,
+    );
+
+    if (active.length > 0) {
+      console.info('[compositor] Active audio stems at frame:', {
+        frame: this.currentFrame,
+        stems: active.map((source) => ({
+          key: source.key,
+          assetId: source.assetId,
+          clipId: source.clipId,
+          stem: source.stem,
+          filePath: source.filePath,
+          sourceFrame: source.sourceFrame,
+          gain: source.gain,
+        })),
+      });
+    }
+    const activeKeys = new Set(active.map((source) => source.key));
+
+    for (const source of active) {
+      const cache = this.getOrCreateStemAudio(source.key, source.filePath);
+      const targetTime = source.sourceFrame / fps;
+      cache.audio.volume = source.gain;
+
+      if (cache.audio.readyState >= 1 && Math.abs(cache.audio.currentTime - targetTime) > 0.05) {
+        cache.audio.currentTime = targetTime;
+      }
+
+      if (this._playing && cache.audio.readyState >= 2 && cache.audio.paused) {
+        const audio = cache.audio;
+        audio
+          .play()
+          .then(() => {
+            audio.muted = false;
+          })
+          .catch((e) => {
+            console.error('[compositor] audio stem play() FAILED:', e);
+          });
+      } else if (!this._playing) {
+        cache.audio.pause();
+        cache.audio.muted = true;
+      }
+    }
+
+    for (const [key, cache] of this.stemAudioCache) {
+      if (activeKeys.has(key)) continue;
+      cache.audio.pause();
+      cache.audio.muted = true;
+    }
+  }
+
+  private shouldMuteAssetVideoAudio(assetId: string): boolean {
+    if (!this.project) return false;
+    const asset = this.project.assets.find((entry) => entry.id === assetId);
+    return Boolean(asset && getAudioStemPaths(asset));
   }
 
   // Camera rendering is handled by CameraPlaybackCanvas (React template slot).
@@ -478,6 +736,7 @@ export class PreviewCompositor {
     } else if (isVideoAsset && asset.filePath) {
       // Screen/other video: HTMLVideoElement path (unchanged)
       videoCache = this.getOrCreateVideo(assetId, asset.filePath);
+      videoCache.video.muted = this.shouldMuteAssetVideoAudio(assetId);
 
       // Native video playback stays on the HTMLVideoElement path. Paused scrubbing
       // requests an exact decoded frame through MediaBunny to avoid seek drift.
@@ -735,7 +994,9 @@ export class PreviewCompositor {
     if (!this.project) return null;
 
     const fps = this.project.settings.frameRate ?? 30;
-    const renderFrame = resolveFrame(this.project, timelineFrame);
+    const renderFrame = resolveFrame(this.project, timelineFrame, {
+      preferredPlaybackAssetId: this.preferredPlaybackAssetId,
+    });
     const layer = renderFrame.layers.find((entry) => entry.assetId === assetId);
     return layer ? layer.sourceFrame / fps : null;
   }
@@ -769,6 +1030,55 @@ export class PreviewCompositor {
     }
 
     return bestFrame;
+  }
+
+  private getPrimaryPlaybackVideoCache(): { assetId: string; video: VideoCache } | null {
+    if (!this.project) return null;
+
+    const renderFrame = resolveFrame(this.project, this.currentFrame, {
+      preferredPlaybackAssetId: this.preferredPlaybackAssetId,
+    });
+    const preferredLayer = this.preferredPlaybackAssetId
+      ? renderFrame.layers.find((layer) => layer.assetId === this.preferredPlaybackAssetId)
+      : null;
+    const orderedLayers = preferredLayer
+      ? [preferredLayer, ...renderFrame.layers.filter((layer) => layer !== preferredLayer)]
+      : renderFrame.layers;
+    for (const layer of orderedLayers) {
+      const asset = this.findAsset(layer.assetId);
+      const isPlayableVideo =
+        asset &&
+        (asset.type === 'recording' || asset.type === 'video') &&
+        asset.filePath &&
+        !(asset.metadata as Record<string, unknown> | undefined)?.isCamera;
+
+      if (!isPlayableVideo) continue;
+
+      const video = this.videoCache.get(layer.assetId);
+      if (!video) continue;
+
+      if (this.lastLoggedPrimaryPlaybackAssetId !== layer.assetId) {
+        this.lastLoggedPrimaryPlaybackAssetId = layer.assetId;
+        console.info('[PreviewCompositor] Primary playback asset selected', {
+          assetId: layer.assetId,
+          clipId: layer.clipId,
+          sourceFrame: layer.sourceFrame,
+          timelineFrame: this.currentFrame,
+          filePath: asset.filePath,
+          loaded: video.loaded,
+          readyState: video.video.readyState,
+        });
+      }
+
+      return { assetId: layer.assetId, video };
+    }
+
+    if (this.lastLoggedPrimaryPlaybackAssetId !== null) {
+      this.lastLoggedPrimaryPlaybackAssetId = null;
+      console.info('[PreviewCompositor] No primary playback asset for frame', this.currentFrame);
+    }
+
+    return null;
   }
 
   private requestAccurateVideoFrame(

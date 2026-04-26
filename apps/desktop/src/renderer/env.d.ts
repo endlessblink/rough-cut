@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 import type {
   ProjectDocument,
   LibraryDocument,
@@ -35,6 +37,14 @@ export interface CaptureSource {
   displayId?: string | null;
 }
 
+export interface CaptureDisplayBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  scaleFactor: number;
+}
+
 export interface SystemAudioSourceOption {
   id: string;
   label: string;
@@ -46,6 +56,7 @@ export interface RecordingMetadata {
   height: number;
   durationMs: number;
   timelineFps?: number;
+  cursorEventsFps?: number;
   projectDir?: string;
 }
 
@@ -56,12 +67,39 @@ export interface RecordingResult {
   width: number;
   height: number;
   fps: number;
+  timelineFps?: number;
+  cursorEventsFps?: number;
   codec: string;
   fileSize: number;
   hasAudio: boolean;
   cursorEventsPath?: string;
   thumbnailPath?: string;
   cameraFilePath?: string;
+  audioStemPaths?: {
+    micFilePath: string | null;
+    systemAudioFilePath: string | null;
+  } | null;
+  recoveredProjectSnapshotPath?: string;
+  audioCapture?: {
+    requested: {
+      micEnabled: boolean;
+      sysAudioEnabled: boolean;
+      selectedMicDeviceId: string | null;
+      selectedMicLabel: string | null;
+      selectedSystemAudioSourceId: string | null;
+    };
+    resolved: {
+      micSource: string | null;
+      systemAudioSource: string | null;
+    };
+    final: {
+      hasAudio: boolean;
+      stems?: {
+        micFilePath: string | null;
+        systemAudioFilePath: string | null;
+      } | null;
+    };
+  };
 }
 
 export interface DisplayMediaSelectionDebugInfo {
@@ -69,6 +107,68 @@ export interface DisplayMediaSelectionDebugInfo {
   configuredSelectedSourceId: string | null;
   grantedSourceId: string | null;
   grantedSourceType: 'screen' | 'window' | null;
+}
+
+export interface RecordingPermissionDiagnostic {
+  status: 'granted' | 'attention' | 'not-required' | 'unsupported';
+  detail: string;
+  canOpenSettings: boolean;
+}
+
+export interface RecordingPreflightStatus {
+  platform: 'darwin' | 'win32' | 'linux' | string;
+  requiresFullRelaunch: boolean;
+  screenCapture: RecordingPermissionDiagnostic;
+  microphone: RecordingPermissionDiagnostic;
+  camera: RecordingPermissionDiagnostic;
+}
+
+export interface RecordingPermissionSettingsResult {
+  opened: boolean;
+  requiresFullRelaunch: boolean;
+  message: string;
+}
+
+export interface RecordingRecoveryMarker {
+  version: number;
+  startedAt: string;
+  recordingsDir: string;
+  projectName?: string | null;
+  projectFilePath?: string | null;
+  projectSnapshotPath?: string | null;
+  projectSnapshotTakenAt?: string | null;
+  sourceId?: string | null;
+  recordMode?: string | null;
+  sessionState?: string | null;
+  interruptionReason?: string | null;
+  interruptedAt?: string | null;
+  captureMetadata?: {
+    fps: number | null;
+    width: number | null;
+    height: number | null;
+    timelineFps: number | null;
+  } | null;
+  expectedArtifacts?: {
+    videoPath: string | null;
+    audioPath: string | null;
+    cursorPath: string | null;
+  };
+  canRecover?: boolean;
+  recoveryCandidate?: {
+    videoPath: string;
+    videoFileSize: number;
+    videoModifiedAt: string;
+    audioPath: string | null;
+    cursorPath: string | null;
+    projectSnapshotPath?: string | null;
+  };
+}
+
+export interface RecordingSessionConnectionIssues {
+  mic: string | null;
+  camera: string | null;
+  systemAudio: string | null;
+  source: string | null;
 }
 
 /** Type declaration for the preload API exposed on window.roughcut */
@@ -107,7 +207,25 @@ export interface RoughCutAPI {
 
   // Recording
   recordingGetSources(): Promise<CaptureSource[]>;
+  recordingGetDisplayBounds(): Promise<CaptureDisplayBounds[]>;
   recordingGetSystemAudioSources(): Promise<SystemAudioSourceOption[]>;
+  recordingGetMicVolume(): Promise<{ sourceName: string | null; percent: number | null }>;
+  recordingSetMicVolume(
+    percent: number,
+  ): Promise<{ sourceName: string | null; percent: number | null; applied: boolean }>;
+  recordingGetPreflightStatus(): Promise<RecordingPreflightStatus>;
+  recordingOpenPermissionSettings(
+    kind: 'screenCapture' | 'microphone' | 'camera',
+  ): Promise<RecordingPermissionSettingsResult>;
+  recordingRecoveryGet(): Promise<RecordingRecoveryMarker | null>;
+  recordingRecoveryRecover(): Promise<RecordingResult | null>;
+  recordingRecoveryDismiss(): Promise<boolean>;
+  recordingRecoverySetContext(context: {
+    projectName?: string | null;
+    projectFilePath?: string | null;
+    projectSnapshotPath?: string | null;
+    projectSnapshotTakenAt?: string | null;
+  }): Promise<boolean>;
   recordingSaveRecording(
     buffer: ArrayBuffer,
     metadata: RecordingMetadata,
@@ -119,6 +237,9 @@ export interface RoughCutAPI {
   onSessionCountdownTick(callback: (seconds: number) => void): () => void;
   onSessionStatusChanged(callback: (status: string) => void): () => void;
   onSessionElapsed(callback: (ms: number) => void): () => void;
+  onSessionConnectionIssuesChanged(
+    callback: (issues: RecordingSessionConnectionIssues | null) => void,
+  ): () => void;
   notifyToolbarReady(): void;
 
   // Recent Projects
@@ -151,6 +272,7 @@ export interface RoughCutAPI {
   // Recording Panel (self-contained floating window)
   openRecordingPanel(): Promise<void>;
   closeRecordingPanel(): Promise<void>;
+  panelResize(mode: 'setup' | 'mini'): Promise<void>;
   panelSetSource(sourceId: string): void;
   recordingConfigGet(): Promise<Omit<RecordingConfigState, 'hydrated'>>;
   recordingConfigUpdate(
@@ -159,13 +281,18 @@ export interface RoughCutAPI {
   onRecordingConfigChanged(
     callback: (config: Omit<RecordingConfigState, 'hydrated'>) => void,
   ): () => void;
+  setRecordingTimelineFps(fps: number): void;
   panelStartRecording(audioConfig?: {
     micEnabled?: boolean;
     sysAudioEnabled?: boolean;
     countdownSeconds?: number;
+    selectedMicDeviceId?: string | null;
+    selectedMicLabel?: string | null;
     selectedSystemAudioSourceId?: string | null;
+    systemAudioGainPercent?: number;
   }): Promise<void>;
   panelStopRecording(): Promise<void>;
+  panelReportConnectionIssues(issues: RecordingSessionConnectionIssues | null): void;
   panelPause(): void;
   panelResume(): void;
   onPanelPauseRequested(callback: () => void): () => void;
@@ -174,6 +301,7 @@ export interface RoughCutAPI {
     buffer: ArrayBuffer,
     metadata: RecordingMetadata,
     cameraBuffer?: ArrayBuffer,
+    cameraMimeType?: string,
   ): Promise<RecordingResult>;
   panelMediaRecorderStarted(timestampMs: number): void;
   onRecordingAssetReady(callback: (result: RecordingResult) => void): () => void;
@@ -220,14 +348,59 @@ export interface RoughCutAPI {
   // Debug (temporary)
   debugLoadLastRecording(): Promise<RecordingResult | null>;
   debugGetLastDisplayMediaSelection(): Promise<DisplayMediaSelectionDebugInfo | null>;
+  debugSetRecordingRecovery(
+    payload: Omit<RecordingRecoveryMarker, 'version'> | null,
+  ): Promise<RecordingRecoveryMarker | null>;
+  debugSetCaptureSources(
+    payload: Array<{
+      id: string;
+      name: string;
+      type: 'screen' | 'window';
+      thumbnailDataUrl?: string;
+      displayId?: string | null;
+    }> | null,
+  ): Promise<Array<{
+    id: string;
+    name: string;
+    type: 'screen' | 'window';
+    thumbnailDataUrl?: string;
+    displayId?: string | null;
+  }> | null>;
+  debugSetDisplayBounds(
+    payload: CaptureDisplayBounds[] | null,
+  ): Promise<CaptureDisplayBounds[] | null>;
+  debugSetRecordingPreflightStatus(
+    payload: RecordingPreflightStatus | null,
+  ): Promise<RecordingPreflightStatus | null>;
+  debugSetRecordingPermissionSettingsResult(
+    payload:
+      | RecordingPermissionSettingsResult
+      | Partial<Record<'screenCapture' | 'microphone' | 'camera' | 'default', RecordingPermissionSettingsResult>>
+      | null,
+  ): Promise<
+    | RecordingPermissionSettingsResult
+    | Partial<Record<'screenCapture' | 'microphone' | 'camera' | 'default', RecordingPermissionSettingsResult>>
+    | null
+  >;
 
   // Zoom sidecar persistence (next to the recording .webm)
-  zoomLoadSidecar(
-    recordingFilePath: string,
-  ): Promise<{ autoIntensity: number; markers: readonly unknown[] } | null>;
+  zoomLoadSidecar(recordingFilePath: string, projectFilePath?: string | null): Promise<{
+    autoIntensity: number;
+    followCursor: boolean;
+    followAnimation: 'focused' | 'smooth';
+    followPadding: number;
+    markers: readonly unknown[];
+  } | null>;
   zoomSaveSidecar(
     recordingFilePath: string,
-    presentation: { autoIntensity: number; markers: readonly unknown[] },
+    projectFilePath: string | null | undefined,
+    presentation: {
+      autoIntensity: number;
+      followCursor: boolean;
+      followAnimation: 'focused' | 'smooth';
+      followPadding: number;
+      markers: readonly unknown[];
+    },
   ): Promise<boolean>;
   storageGetAutoZoomIntensity(): Promise<number>;
   storageSetAutoZoomIntensity(intensity: number): Promise<void>;
@@ -236,5 +409,6 @@ export interface RoughCutAPI {
 declare global {
   interface Window {
     roughcut: RoughCutAPI;
+    __roughcutSetActiveTab?: (tab: 'projects' | 'record' | 'edit' | 'motion' | 'ai' | 'export') => void;
   }
 }

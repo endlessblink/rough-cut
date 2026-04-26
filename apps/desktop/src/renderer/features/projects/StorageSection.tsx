@@ -53,6 +53,7 @@ function VolumeChip({ label, isActive, onClick }: VolumeChipProps) {
 
   return (
     <button
+      data-testid="storage-volume-chip"
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -135,6 +136,7 @@ function FavoriteChip({ path, isActive, onClick, onRemove }: FavoriteChipProps) 
       onMouseLeave={() => { setHovered(false); setRemoveHovered(false); }}
     >
       <button
+        data-testid="storage-favorite-chip"
         onClick={onClick}
         title={path}
         style={{
@@ -174,9 +176,10 @@ function FavoriteChip({ path, isActive, onClick, onRemove }: FavoriteChipProps) 
       </button>
 
       {/* Remove × badge — only on hover */}
-      {hovered && (
-        <button
-          onClick={handleRemoveClick}
+        {hovered && (
+          <button
+            data-testid="storage-favorite-remove"
+            onClick={handleRemoveClick}
           onMouseEnter={() => setRemoveHovered(true)}
           onMouseLeave={() => setRemoveHovered(false)}
           title="Remove from favorites"
@@ -222,6 +225,7 @@ function AddFavoriteChip({ onClick }: AddFavoriteChipProps) {
 
   return (
     <button
+      data-testid="storage-add-favorite"
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -261,41 +265,54 @@ export function StorageSection() {
   const [changeHovered, setChangeHovered] = useState(false);
   const [changePressed, setChangePressed] = useState(false);
 
+  const overrides = (window as any).__roughcutTestOverrides;
+  const storageGetRecordingLocation =
+    overrides?.storageGetRecordingLocation ?? window.roughcut.storageGetRecordingLocation;
+  const storageGetMountedVolumes =
+    overrides?.storageGetMountedVolumes ?? window.roughcut.storageGetMountedVolumes;
+  const storageGetFavorites = overrides?.storageGetFavorites ?? window.roughcut.storageGetFavorites;
+  const storageSetRecordingLocation =
+    overrides?.storageSetRecordingLocation ?? window.roughcut.storageSetRecordingLocation;
+  const storagePickDirectory = overrides?.storagePickDirectory ?? window.roughcut.storagePickDirectory;
+  const storageAddFavorite = overrides?.storageAddFavorite ?? window.roughcut.storageAddFavorite;
+  const storageRemoveFavorite =
+    overrides?.storageRemoveFavorite ?? window.roughcut.storageRemoveFavorite;
+
   useEffect(() => {
     Promise.all([
-      window.roughcut.storageGetRecordingLocation(),
-      window.roughcut.storageGetMountedVolumes(),
-      window.roughcut.storageGetFavorites(),
+      storageGetRecordingLocation(),
+      storageGetMountedVolumes(),
+      storageGetFavorites(),
     ]).then(([loc, vols, favs]) => {
       setRecordingLocation(loc);
       setVolumes(vols);
       setFavorites(favs);
     });
-  }, []);
+  }, [storageGetFavorites, storageGetMountedVolumes, storageGetRecordingLocation]);
 
   async function handleChange() {
-    const path = await window.roughcut.storagePickDirectory();
+    const path = await storagePickDirectory();
     if (path) {
-      await window.roughcut.storageSetRecordingLocation(path);
+      await storageSetRecordingLocation(path);
       setRecordingLocation(path);
     }
   }
 
   async function handleSetLocation(path: string) {
-    await window.roughcut.storageSetRecordingLocation(path);
+    await storageSetRecordingLocation(path);
     setRecordingLocation(path);
   }
 
   async function handleAddFavorite() {
     const current = recordingLocation;
     if (current && !favorites.includes(current)) {
-      await window.roughcut.storageAddFavorite(current);
+      await storageAddFavorite(current);
       setFavorites(prev => [...prev, current]);
     }
   }
 
   async function handleRemoveFavorite(path: string) {
-    await window.roughcut.storageRemoveFavorite(path);
+    await storageRemoveFavorite(path);
     setFavorites(prev => prev.filter(f => f !== path));
   }
 
@@ -313,6 +330,7 @@ export function StorageSection() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {/* Section header */}
       <div
+        data-testid="storage-section"
         style={{
           fontSize: 11,
           fontWeight: 500,
@@ -352,6 +370,7 @@ export function StorageSection() {
           <span style={{ fontSize: 16, flexShrink: 0, lineHeight: 1 }}>📁</span>
           {recordingLocation ? (
             <span
+              data-testid="storage-current-location"
               style={{
                 fontSize: 13,
                 color: TEXT_PRIMARY,
@@ -380,6 +399,7 @@ export function StorageSection() {
                 minWidth: 0,
                 flex: 1,
               }}
+              data-testid="storage-current-location"
             >
               ~/Documents/Rough Cut (default)
             </span>
@@ -387,8 +407,9 @@ export function StorageSection() {
         </div>
 
         {/* Right: Change button */}
-        <button
-          onClick={handleChange}
+      <button
+        data-testid="storage-change-button"
+        onClick={handleChange}
           onMouseEnter={() => setChangeHovered(true)}
           onMouseLeave={() => { setChangeHovered(false); setChangePressed(false); }}
           onMouseDown={() => setChangePressed(true)}

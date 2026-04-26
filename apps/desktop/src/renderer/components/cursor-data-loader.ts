@@ -3,6 +3,7 @@
  * to a frame-indexed Float32Array for efficient per-frame lookup.
  */
 import type { CursorFrameData } from './CursorOverlay.js';
+import { buildCursorTimeTrack, getCursorAtTime } from './cursor-time-track.js';
 
 interface RawCursorEvent {
   frame: number;
@@ -16,30 +17,88 @@ interface RawCursorEvent {
  * Build a CursorFrameData from raw cursor events.
  *
  * @param events  Raw cursor events from the NDJSON sidecar
- * @param totalFrames  Total frame count of the recording
+ * @param totalFrames  Total frame count of the recording (in project fps)
  * @param sourceWidth  Recording width in pixels
  * @param sourceHeight  Recording height in pixels
+ * @param eventsFps  Frame rate the events were sampled at. Defaults to projectFps.
+ * @param projectFps  Frame rate the timeline plays at. Defaults to eventsFps.
  * @returns Frame-indexed cursor data for the overlay
+ *
+ * When `eventsFps` and `projectFps` differ, each event's frame is rescaled
+ * by `projectFps / eventsFps` so cursor[playheadFrame] returns the cursor
+ * sample from the same wall-clock moment the video frame represents. Without
+ * this, takes recorded at one cadence and replayed at another (e.g. 60Hz
+ * cursor sampling against a 30fps timeline) drift linearly with playback.
+ *
+ * Note: anchoring cursor[0] to the video file's first captured frame is
+ * handled at recording time by the session manager (FFmpeg `-progress
+ * pipe:1` first-frame detection → cursorRecorder.setStartTime). The loader
+ * trusts that event.frame is already aligned with file frame 0.
  */
 export function buildCursorFrameData(
   events: readonly RawCursorEvent[],
   totalFrames: number,
   sourceWidth: number,
   sourceHeight: number,
+  eventsFps?: number,
+  projectFps?: number,
 ): CursorFrameData {
   // 3 values per frame: normalizedX, normalizedY, isClick (0 or 1)
   const frames = new Float32Array(totalFrames * 3);
   // Initialize all to -1 (no data)
   frames.fill(-1);
 
-  // Sort events by frame
-  const sorted = [...events].sort((a, b) => a.frame - b.frame);
+  const scale =
+    Number.isFinite(eventsFps) &&
+    Number.isFinite(projectFps) &&
+    (eventsFps as number) > 0 &&
+    (projectFps as number) > 0 &&
+    eventsFps !== projectFps
+      ? (projectFps as number) / (eventsFps as number)
+      : 1;
 
-  // Assign positions and click flags at exact frames
+  const effectiveEventsFps =
+    Number.isFinite(eventsFps) && (eventsFps as number) > 0 ? (eventsFps as number) : undefined;
+  const effectiveProjectFps =
+    Number.isFinite(projectFps) && (projectFps as number) > 0
+      ? (projectFps as number)
+      : effectiveEventsFps;
+
+  if (effectiveEventsFps && effectiveProjectFps) {
+    const maxTimeMs = ((totalFrames - 1) / effectiveProjectFps) * 1_000;
+    const track = buildCursorTimeTrack(
+      events
+        .map((event) => ({
+          timeMs: (event.frame / effectiveEventsFps) * 1_000,
+          x: event.x / sourceWidth,
+          y: event.y / sourceHeight,
+          type: event.type,
+        }))
+        .filter((event) => event.timeMs >= 0 && event.timeMs <= maxTimeMs),
+    );
+
+    for (let f = 0; f < totalFrames; f++) {
+      const cursor = getCursorAtTime(track, (f / effectiveProjectFps) * 1_000, {
+        maxGapMs: Infinity,
+      });
+      if (!cursor) continue;
+      const idx = f * 3;
+      frames[idx] = cursor.x;
+      frames[idx + 1] = cursor.y;
+      frames[idx + 2] = cursor.isClick ? 1 : 0;
+    }
+
+    return { frames, frameCount: totalFrames, sourceWidth, sourceHeight };
+  }
+
+  // Legacy frame-indexed path for callers without cadence metadata.
+  const sorted = [...events]
+    .map((e) => (scale === 1 ? e : { ...e, frame: Math.round(e.frame * scale) }))
+    .sort((a, b) => a.frame - b.frame);
+
   for (const e of sorted) {
     if (e.frame < 0 || e.frame >= totalFrames) continue;
     const idx = e.frame * 3;
-    // Normalize coordinates to 0-1
     frames[idx] = e.x / sourceWidth;
     frames[idx + 1] = e.y / sourceHeight;
     if (e.type === 'down') {
@@ -49,7 +108,6 @@ export function buildCursorFrameData(
     }
   }
 
-  // Fill gaps via linear interpolation between known positions
   let lastKnownFrame = -1;
   for (let f = 0; f < totalFrames; f++) {
     const idx = f * 3;
@@ -100,7 +158,7 @@ export function buildCursorFrameData(
     }
   }
 
-  return { frames, frameCount: totalFrames };
+  return { frames, frameCount: totalFrames, sourceWidth, sourceHeight };
 }
 
 /**

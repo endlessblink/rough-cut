@@ -20,3 +20,13 @@ test-results/
 .maestro/
 *.sqlite-wal
 *.sqlite-shm
+.omc/
+.omx/
+.logs/
+
+# Local reference clones (third-party repos kept on disk for inspiration)
+refrences/
+
+# Local agent runtime artifacts
+.codex
+.claude/scheduled_tasks.lock

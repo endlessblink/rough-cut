@@ -1,4 +1,4 @@
-import type { CameraPresentation } from '@rough-cut/project-model';
+import type { CameraAspectRatio, CameraPresentation } from '@rough-cut/project-model';
 
 export interface CameraLayoutRect {
   x: number;
@@ -9,6 +9,20 @@ export interface CameraLayoutRect {
 
 const BASE_CAMERA_WIDTH_FRACTION = 0.24;
 const CAMERA_MARGIN_FRACTION = 0.04;
+const MAX_ROUNDED_RADIUS_FRACTION_BY_ASPECT: Record<CameraAspectRatio, number> = {
+  '16:9': 0.06,
+  '1:1': 0.14,
+  '9:16': 0.06,
+  '4:3': 0.1,
+};
+
+function clampRoundness(roundness: number): number {
+  return Math.max(0, Math.min(100, roundness));
+}
+
+function getMaxRoundedRadiusFraction(camera: CameraPresentation): number {
+  return MAX_ROUNDED_RADIUS_FRACTION_BY_ASPECT[camera.aspectRatio];
+}
 
 export function getCameraAspectRatioValue(camera: CameraPresentation): number {
   if (camera.shape === 'circle') return 1;
@@ -79,5 +93,11 @@ export function getCameraBorderRadius(
 ): number {
   if (camera.shape === 'square') return 0;
   if (camera.shape === 'circle') return Math.min(width, height) / 2;
-  return Math.max(0, Math.min(width, height, (Math.min(width, height) * camera.roundness) / 100));
+  return Math.min(width, height) * getMaxRoundedRadiusFraction(camera) * (clampRoundness(camera.roundness) / 100);
+}
+
+export function getCameraBorderRadiusCss(camera: CameraPresentation): string {
+  if (camera.shape === 'square') return '0';
+  if (camera.shape === 'circle') return '50%';
+  return `${getMaxRoundedRadiusFraction(camera) * clampRoundness(camera.roundness)}%`;
 }

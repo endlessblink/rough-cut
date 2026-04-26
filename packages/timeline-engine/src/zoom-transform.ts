@@ -13,6 +13,18 @@ export interface ZoomTransform {
   readonly translateY: number;
 }
 
+export interface ZoomCursorPosition {
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface ZoomTransformOptions {
+  readonly followCursor?: boolean;
+  readonly followAnimation?: 'focused' | 'smooth';
+  readonly followPadding?: number;
+  readonly getCursorPosition?: (frame: Frame) => ZoomCursorPosition | null;
+}
+
 const IDENTITY: ZoomTransform = { scale: 1, translateX: 0, translateY: 0 };
 
 /**
@@ -69,6 +81,106 @@ function computeTranslate(
   };
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function resolveTrackedCursor(
+  frame: Frame,
+  marker: ZoomMarker,
+  getCursorPosition: (frame: Frame) => ZoomCursorPosition | null,
+  followAnimation: 'focused' | 'smooth',
+): ZoomCursorPosition | null {
+  const lookbackFrames = followAnimation === 'smooth' ? 12 : 5;
+  const startFrame = Math.max(marker.startFrame, frame - lookbackFrames + 1);
+  let totalWeight = 0;
+  let sumX = 0;
+  let sumY = 0;
+
+  for (let sampleFrame = startFrame; sampleFrame <= frame; sampleFrame += 1) {
+    const position = getCursorPosition(sampleFrame);
+    if (position === null) continue;
+    const weight = sampleFrame - startFrame + 1;
+    sumX += position.x * weight;
+    sumY += position.y * weight;
+    totalWeight += weight;
+  }
+
+  if (totalWeight <= 0) return null;
+
+  return {
+    x: clamp(sumX / totalWeight, 0, 1),
+    y: clamp(sumY / totalWeight, 0, 1),
+  };
+}
+
+function resolveFollowFocalPoint(
+  marker: ZoomMarker,
+  trackedCursor: ZoomCursorPosition,
+  scale: number,
+  followPadding: number,
+): ZoomCursorPosition {
+  const padding = clamp(followPadding, 0, 0.3);
+  const visibleWidth = 1 / scale;
+  const visibleHeight = 1 / scale;
+  const allowedDx = Math.max(0, visibleWidth * (0.5 - padding));
+  const allowedDy = Math.max(0, visibleHeight * (0.5 - padding));
+  const minCenterX = visibleWidth / 2;
+  const maxCenterX = 1 - visibleWidth / 2;
+  const minCenterY = visibleHeight / 2;
+  const maxCenterY = 1 - visibleHeight / 2;
+
+  return {
+    x: clamp(
+      clamp(marker.focalPoint.x, trackedCursor.x - allowedDx, trackedCursor.x + allowedDx),
+      minCenterX,
+      maxCenterX,
+    ),
+    y: clamp(
+      clamp(marker.focalPoint.y, trackedCursor.y - allowedDy, trackedCursor.y + allowedDy),
+      minCenterY,
+      maxCenterY,
+    ),
+  };
+}
+
+function getMarkerFocalPoint(
+  frame: Frame,
+  marker: ZoomMarker,
+  scale: number,
+  options: ZoomTransformOptions | undefined,
+): ZoomCursorPosition {
+  if (
+    marker.kind !== 'auto' ||
+    options?.followCursor !== true ||
+    options.getCursorPosition === undefined
+  ) {
+    return marker.focalPoint;
+  }
+
+  const trackedCursor = resolveTrackedCursor(
+    frame,
+    marker,
+    options.getCursorPosition,
+    options.followAnimation ?? 'focused',
+  );
+  if (trackedCursor === null) {
+    return marker.focalPoint;
+  }
+
+  const followed = resolveFollowFocalPoint(
+    marker,
+    trackedCursor,
+    scale,
+    options.followPadding ?? 0.18,
+  );
+
+  return {
+    x: clamp(followed.x, 1 / (2 * scale), 1 - 1 / (2 * scale)),
+    y: clamp(followed.y, 1 / (2 * scale), 1 - 1 / (2 * scale)),
+  };
+}
+
 /**
  * Compute the zoom transform for a single ZoomMarker at a given frame.
  * Returns null if the frame is outside the marker's range.
@@ -76,6 +188,7 @@ function computeTranslate(
 export function getZoomTransformForMarker(
   frame: Frame,
   marker: ZoomMarker,
+  options?: ZoomTransformOptions,
 ): ZoomTransform | null {
   if (frame < marker.startFrame || frame >= marker.endFrame) return null;
 
@@ -102,11 +215,8 @@ export function getZoomTransformForMarker(
     scale = targetScale;
   }
 
-  const { translateX, translateY } = computeTranslate(
-    scale,
-    marker.focalPoint.x,
-    marker.focalPoint.y,
-  );
+  const focalPoint = getMarkerFocalPoint(frame, marker, scale, options);
+  const { translateX, translateY } = computeTranslate(scale, focalPoint.x, focalPoint.y);
 
   return { scale, translateX, translateY };
 }
@@ -120,6 +230,7 @@ export function getZoomTransformForMarker(
 export function getZoomTransformAtFrame(
   frame: Frame,
   markers: readonly ZoomMarker[],
+  options?: ZoomTransformOptions,
 ): ZoomTransform {
   if (markers.length === 0) return IDENTITY;
 
@@ -152,7 +263,7 @@ export function getZoomTransformAtFrame(
       return { scale, translateX, translateY };
     }
 
-    const result = getZoomTransformForMarker(frame, m);
+    const result = getZoomTransformForMarker(frame, m, options);
     if (result !== null) return result;
   }
 

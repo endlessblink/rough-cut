@@ -8,20 +8,32 @@
  */
 import { useRef, useEffect } from 'react';
 import { transportStore } from '../hooks/use-stores.js';
-import type { CursorPresentation } from '@rough-cut/project-model';
+import type { CursorPresentation, RegionCrop } from '@rough-cut/project-model';
 import type { ZoomTransform } from '@rough-cut/timeline-engine';
+import {
+  INITIAL_BACKWARD_SUBFRAME_INTERPOLATION_STATE,
+  resolveBackwardSubframeInterpolation,
+} from './cursor-subframe-interpolation.js';
 
 /** Pre-indexed cursor data: [x0, y0, clickFlag0, x1, y1, clickFlag1, ...] */
 export interface CursorFrameData {
   readonly frames: Float32Array;
   readonly frameCount: number;
+  readonly sourceWidth: number;
+  readonly sourceHeight: number;
 }
 
 interface CursorOverlayProps {
   cursorData: CursorFrameData | null;
   presentation: CursorPresentation;
+  showCursor?: boolean;
   clipTimelineIn: number;
+  clipSourceIn?: number;
   zoomTransform: ZoomTransform;
+  getZoomTransform?: (sourceFrame: number, cursorData: CursorFrameData) => ZoomTransform;
+  crop?: RegionCrop;
+  /** Project frame rate. Drives backward sub-frame interpolation timing. */
+  fps: number;
 }
 
 interface ClickEffect {
@@ -31,8 +43,8 @@ interface ClickEffect {
 }
 
 const CLICK_EFFECT_DURATION_MS = 400;
-const CURSOR_COLOR = 'rgba(255, 255, 255, 0.95)';
-const CURSOR_SHADOW_COLOR = 'rgba(0, 0, 0, 0.4)';
+const CURSOR_COLOR = 'rgba(255, 255, 255, 1)';
+const CURSOR_SHADOW_COLOR = 'rgba(0, 0, 0, 0.55)';
 function getCursorAtFrame(
   data: CursorFrameData,
   sourceFrame: number,
@@ -58,8 +70,11 @@ function drawCursor(
   ctx.translate(px, py);
   const s = size / 20;
 
+  // Crisp drop-shadow: tiny blur, small offset, opaque enough to read on
+  // light backgrounds. The previous 3·s blur was the source of the
+  // "blurry cursor" look — kept only as a 1·s depth cue.
   ctx.shadowColor = CURSOR_SHADOW_COLOR;
-  ctx.shadowBlur = 3 * s;
+  ctx.shadowBlur = 1 * s;
   ctx.shadowOffsetX = 1 * s;
   ctx.shadowOffsetY = 1 * s;
 
@@ -77,8 +92,9 @@ function drawCursor(
   ctx.fillStyle = CURSOR_COLOR;
   ctx.fill();
   ctx.shadowColor = 'transparent';
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
-  ctx.lineWidth = 1 * s;
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+  ctx.lineWidth = 1.5 * s;
+  ctx.lineJoin = 'round';
   ctx.stroke();
 
   if (style === 'spotlight') {
@@ -128,16 +144,84 @@ function applyZoomToPoint(
   zoomTransform: ZoomTransform,
 ): { x: number; y: number } {
   return {
-    x: width * (0.5 + zoomTransform.scale * (x - 0.5 + zoomTransform.translateX)),
-    y: height * (0.5 + zoomTransform.scale * (y - 0.5 + zoomTransform.translateY)),
+    x: width * (x * zoomTransform.scale + (1 - zoomTransform.scale) / 2 + zoomTransform.translateX),
+    y: height * (y * zoomTransform.scale + (1 - zoomTransform.scale) / 2 + zoomTransform.translateY),
   };
+}
+
+function applyCropToPoint(
+  x: number,
+  y: number,
+  data: CursorFrameData,
+  crop: RegionCrop | undefined,
+): { x: number; y: number; scale: number } | null {
+  if (!crop?.enabled) return { x, y, scale: 1 };
+
+  const px = x * data.sourceWidth;
+  const py = y * data.sourceHeight;
+  if (px < crop.x || px > crop.x + crop.width || py < crop.y || py > crop.y + crop.height) {
+    return null;
+  }
+
+  return {
+    x: (px - crop.x) / crop.width,
+    y: (py - crop.y) / crop.height,
+    scale: data.sourceWidth / crop.width,
+  };
+}
+
+function setCursorDebugData(
+  canvas: HTMLCanvasElement,
+  payload:
+    | {
+        visible: false;
+        projectFrame: number;
+        sourceFrame: number;
+      }
+    | {
+        visible: true;
+        projectFrame: number;
+        sourceFrame: number;
+        cursorX: number;
+        cursorY: number;
+        interpolating: boolean;
+        interpolationT: number;
+        zoomScale: number;
+        zoomTranslateX: number;
+        zoomTranslateY: number;
+      },
+) {
+  canvas.dataset.cursorVisible = payload.visible ? 'true' : 'false';
+  canvas.dataset.projectFrame = String(payload.projectFrame);
+  canvas.dataset.sourceFrame = String(payload.sourceFrame);
+
+  if (!payload.visible) {
+    delete canvas.dataset.cursorX;
+    delete canvas.dataset.cursorY;
+    canvas.dataset.interpolating = 'false';
+    canvas.dataset.interpolationT = '0';
+    return;
+  }
+
+  canvas.dataset.cursorX = payload.cursorX.toFixed(6);
+  canvas.dataset.cursorY = payload.cursorY.toFixed(6);
+  canvas.dataset.interpolating = payload.interpolating ? 'true' : 'false';
+  canvas.dataset.interpolationT = payload.interpolationT.toFixed(4);
+  canvas.dataset.zoomScale = payload.zoomScale.toFixed(6);
+  canvas.dataset.zoomTranslateX = payload.zoomTranslateX.toFixed(6);
+  canvas.dataset.zoomTranslateY = payload.zoomTranslateY.toFixed(6);
 }
 
 export function CursorOverlay({
   cursorData,
   presentation,
+  showCursor = true,
   clipTimelineIn,
+  clipSourceIn = 0,
   zoomTransform,
+  getZoomTransform,
+  crop,
+  fps,
 }: CursorOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -145,6 +229,13 @@ export function CursorOverlay({
   const lastClickFrameRef = useRef(-1);
   const sizeRef = useRef({ width: 0, height: 0 });
   const rafIdRef = useRef(0);
+
+  // Backward sub-frame interpolation timing. We lerp from cursor[N-1] to
+  // cursor[N] across the ~33 ms window the playhead holds at frame N. The
+  // cursor visually arrives at N right as the playhead advances to N+1 —
+  // never overshoots, never snaps back. (Forward interp does the opposite
+  // and looks like a stutter on fast moves.)
+  const interpolationStateRef = useRef(INITIAL_BACKWARD_SUBFRAME_INTERPOLATION_STATE);
 
   // Store props in refs so the rAF loop always reads current values
   // without restarting the effect.
@@ -154,10 +245,23 @@ export function CursorOverlay({
   presentationRef.current = presentation;
   const clipTimelineInRef = useRef(clipTimelineIn);
   clipTimelineInRef.current = clipTimelineIn;
+  const clipSourceInRef = useRef(clipSourceIn);
+  clipSourceInRef.current = clipSourceIn;
   const zoomTransformRef = useRef(zoomTransform);
   zoomTransformRef.current = zoomTransform;
+  const getZoomTransformRef = useRef(getZoomTransform);
+  getZoomTransformRef.current = getZoomTransform;
+  const showCursorRef = useRef(showCursor);
+  showCursorRef.current = showCursor;
+  const cropRef = useRef(crop);
+  cropRef.current = crop;
+  const fpsRef = useRef(fps);
+  fpsRef.current = fps;
 
-  // ResizeObserver — always active since DOM is always mounted
+  // ResizeObserver — only updates CSS sizeRef. The actual canvas backing
+  // store is sized inside the rAF loop, where it can pick up cursorData's
+  // sourceWidth/Height as soon as that arrives without effect-ordering
+  // gymnastics.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -167,14 +271,6 @@ export function CursorOverlay({
       if (!entry) return;
       const { width, height } = entry.contentRect;
       sizeRef.current = { width, height };
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
-        canvas.style.width = `${width}px`;
-        canvas.style.height = `${height}px`;
-      }
     });
 
     observer.observe(container);
@@ -198,37 +294,110 @@ export function CursorOverlay({
       const data = cursorDataRef.current;
       const pres = presentationRef.current;
       const clipIn = clipTimelineInRef.current;
-      const zoom = zoomTransformRef.current;
+      const sourceIn = clipSourceInRef.current;
+      const activeCrop = cropRef.current;
 
-      // Nothing to draw — clear and wait
+      // Always sync the canvas size to the host CSS frame (so tests and
+      // tooling can rely on stable pixel dimensions even before cursor
+      // data arrives).
+      if (width > 0 && canvas.style.width !== `${width}px`) {
+        canvas.style.width = `${width}px`;
+      }
+      if (height > 0 && canvas.style.height !== `${height}px`) {
+        canvas.style.height = `${height}px`;
+      }
+
+      // Match the cursor canvas backing store to the source resolution
+      // (e.g. 1920×1080), the same approach the Pixi compositor sibling
+      // uses. Sizing only by CSS pixels × devicePixelRatio leaves a 628-px
+      // backing on a 1920-source preview, which the browser then bilinearly
+      // upscales — that scaling is what produced the "blurry cursor" look.
+      // Falls back to cssW × DPR when cursor data hasn't loaded yet so the
+      // canvas always covers the host without smearing.
+      const dpr = window.devicePixelRatio || 1;
+      const targetW = data ? data.sourceWidth : Math.max(1, Math.round(width * dpr));
+      const targetH = data ? data.sourceHeight : Math.max(1, Math.round(height * dpr));
+      if (canvas.width !== targetW) canvas.width = targetW;
+      if (canvas.height !== targetH) canvas.height = targetH;
+
+      // Nothing more to draw if the cursor sidecar hasn't loaded yet.
       if (width === 0 || height === 0 || !data) {
+        setCursorDebugData(canvas, { visible: false, projectFrame: -1, sourceFrame: -1 });
         rafIdRef.current = requestAnimationFrame(render);
         return;
       }
 
-      const dpr = window.devicePixelRatio || 1;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // Drawing coords are in CSS pixels; scale up to the backing store.
+      const scaleX = canvas.width / width;
+      const scaleY = canvas.height / height;
+      ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
       ctx.clearRect(0, 0, width, height);
 
-      const projectFrame = transportStore.getState().playheadFrame;
-      const sourceFrame = projectFrame - clipIn;
+      const transport = transportStore.getState();
+      const projectFrame = transport.playheadFrame;
+      const isPlaying = transport.isPlaying;
+      const sourceFrame = sourceIn + projectFrame - clipIn;
+      const zoom = getZoomTransformRef.current?.(sourceFrame, data) ?? zoomTransformRef.current;
 
-      const cursor = getCursorAtFrame(data, sourceFrame);
-      if (!cursor) {
+      // Track when the integer playhead last advanced so we can lerp the
+      // cursor BACKWARD from cursor[N-1] toward cursor[N] across the
+      // ~1/fps window the playhead holds. By the time the playhead jumps
+      // to N+1, the cursor has just arrived at N — no overshoot.
+      const now = performance.now();
+      const interpolation = resolveBackwardSubframeInterpolation(interpolationStateRef.current, {
+        projectFrame,
+        isPlaying,
+        nowMs: now,
+        fps: fpsRef.current,
+      });
+      interpolationStateRef.current = interpolation.nextState;
+
+      const currCursor = getCursorAtFrame(data, sourceFrame);
+      if (!currCursor) {
+        setCursorDebugData(canvas, { visible: false, projectFrame, sourceFrame });
+        rafIdRef.current = requestAnimationFrame(render);
+        return;
+      }
+      const prevCursor = sourceFrame > 0 ? getCursorAtFrame(data, sourceFrame - 1) : null;
+
+      const cursor =
+        prevCursor && interpolation.shouldInterpolate
+          ? {
+              x: prevCursor.x + (currCursor.x - prevCursor.x) * interpolation.lerpT,
+              y: prevCursor.y + (currCursor.y - prevCursor.y) * interpolation.lerpT,
+              isClick: currCursor.isClick,
+            }
+          : currCursor;
+
+      const croppedCursor = applyCropToPoint(cursor.x, cursor.y, data, activeCrop);
+      if (!croppedCursor) {
+        setCursorDebugData(canvas, { visible: false, projectFrame, sourceFrame });
         rafIdRef.current = requestAnimationFrame(render);
         return;
       }
 
-      const point = applyZoomToPoint(cursor.x, cursor.y, width, height, zoom);
+      setCursorDebugData(canvas, {
+        visible: true,
+        projectFrame,
+        sourceFrame,
+        cursorX: cursor.x,
+        cursorY: cursor.y,
+        interpolating: interpolation.shouldInterpolate,
+        interpolationT: interpolation.lerpT,
+        zoomScale: zoom.scale,
+        zoomTranslateX: zoom.translateX,
+        zoomTranslateY: zoom.translateY,
+      });
+
+      const point = applyZoomToPoint(croppedCursor.x, croppedCursor.y, width, height, zoom);
       const px = point.x;
       const py = point.y;
 
-      // Click effects
-      const now = performance.now();
-      if (cursor.isClick && sourceFrame !== lastClickFrameRef.current) {
+      // Click effects (anchored to the integer source frame so they fire once)
+      if (currCursor.isClick && sourceFrame !== lastClickFrameRef.current) {
         lastClickFrameRef.current = sourceFrame;
         if (pres.clickEffect !== 'none') {
-          clickEffectsRef.current.push({ x: cursor.x, y: cursor.y, startTime: now });
+          clickEffectsRef.current.push({ x: currCursor.x, y: currCursor.y, startTime: now });
         }
       }
 
@@ -236,19 +405,22 @@ export function CursorOverlay({
         (e) => now - e.startTime < CLICK_EFFECT_DURATION_MS,
       );
       for (const effect of clickEffectsRef.current) {
-        const effectPoint = applyZoomToPoint(effect.x, effect.y, width, height, zoom);
+        const croppedEffect = applyCropToPoint(effect.x, effect.y, data, activeCrop);
+        if (!croppedEffect) continue;
+        const effectPoint = applyZoomToPoint(croppedEffect.x, croppedEffect.y, width, height, zoom);
         drawClickEffect(
           ctx,
           { ...effect, x: effectPoint.x, y: effectPoint.y },
           now,
           pres.clickEffect,
-          zoom.scale,
+          croppedEffect.scale * zoom.scale,
         );
       }
 
-      // Draw cursor
-      const cursorSize = (pres.sizePercent / 100) * 20 * zoom.scale;
-      drawCursor(ctx, px, py, cursorSize, pres.style);
+      if (showCursorRef.current) {
+        const cursorSize = (pres.sizePercent / 100) * 20 * croppedCursor.scale * zoom.scale;
+        drawCursor(ctx, px, py, cursorSize, pres.style);
+      }
 
       rafIdRef.current = requestAnimationFrame(render);
     }
@@ -273,6 +445,7 @@ export function CursorOverlay({
     >
       <canvas
         ref={canvasRef}
+        data-testid="cursor-overlay-canvas"
         style={{
           position: 'absolute',
           inset: 0,

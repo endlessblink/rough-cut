@@ -6,7 +6,11 @@ import type {
   ZoomPresentation,
   CursorPresentation,
   CameraPresentation,
+  CameraLayoutMarker,
+  RecordingVisibility,
+  RecordingVisibilitySegment,
 } from '@rough-cut/project-model';
+import { normalizeRegionCrop } from '@rough-cut/project-model';
 import { selectActiveClipsAtFrame, getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
 import { evaluateKeyframeTracks, getDefaultParams } from '@rough-cut/effect-registry';
 import type {
@@ -26,11 +30,62 @@ const DEFAULT_CAMERA_TRANSFORM: CameraTransform = {
 };
 
 const DEFAULT_CURSOR_PRESENTATION: ResolvedCursorPresentation = {
+  visible: true,
   style: 'default',
   clickEffect: 'none',
   sizePercent: 100,
   clickSoundEnabled: false,
+  clicksVisible: true,
+  overlaysVisible: true,
 };
+
+export interface ResolveFrameOptions {
+  readonly getCursorPosition?: (
+    assetId: string,
+    sourceFrame: number,
+  ) => { x: number; y: number } | null;
+  readonly preferredPlaybackAssetId?: string | null;
+}
+
+function isPlayableScreenAsset(
+  asset: ProjectDocument['assets'][number] | undefined,
+): boolean {
+  return Boolean(asset && (asset.type === 'recording' || asset.type === 'video') && !asset.metadata?.isCamera);
+}
+
+function clampSourceFrameToAssetDuration(
+  sourceFrame: number,
+  asset: ProjectDocument['assets'][number],
+): number {
+  const duration = Number(asset.duration);
+  if (!Number.isFinite(duration) || duration <= 0) return sourceFrame;
+  return Math.max(0, Math.min(sourceFrame, duration - 1));
+}
+
+function applyPreferredPlaybackAsset(
+  layers: RenderLayer[],
+  assetMap: ReadonlyMap<string, ProjectDocument['assets'][number]>,
+  preferredPlaybackAssetId: string | null | undefined,
+): RenderLayer[] {
+  if (!preferredPlaybackAssetId) return layers;
+
+  const preferredAsset = assetMap.get(preferredPlaybackAssetId);
+  if (!isPlayableScreenAsset(preferredAsset)) return layers;
+  if (layers.some((layer) => layer.assetId === preferredPlaybackAssetId)) return layers;
+
+  const targetIndex = layers.findIndex((layer) => isPlayableScreenAsset(assetMap.get(layer.assetId)));
+  if (targetIndex < 0) return layers;
+
+  return layers.map((layer, index) => {
+    if (index !== targetIndex || !preferredAsset) return layer;
+    return {
+      ...layer,
+      assetId: preferredAsset.id,
+      sourceFrame: clampSourceFrameToAssetDuration(layer.sourceFrame, preferredAsset),
+      isCamera: false,
+    };
+  });
+}
 
 /**
  * Resolve camera transform from zoom presentation for a given frame.
@@ -40,14 +95,26 @@ const DEFAULT_CURSOR_PRESENTATION: ResolvedCursorPresentation = {
  */
 function resolveCameraTransformForFrame(
   zoom: ZoomPresentation | undefined,
-  frame: number,
+  sourceFrame: number,
   canvasWidth: number,
   canvasHeight: number,
+  options?: {
+    assetId?: string;
+    getCursorPosition?: (assetId: string, sourceFrame: number) => { x: number; y: number } | null;
+  },
 ): CameraTransform {
   if (!zoom) return DEFAULT_CAMERA_TRANSFORM;
 
   // Use the full zoom engine for markers (handles easing, focal points, connected gaps)
-  const zt = getZoomTransformAtFrame(frame, zoom.markers);
+  const zt = getZoomTransformAtFrame(sourceFrame, zoom.markers, {
+    followCursor: zoom.followCursor,
+    followAnimation: zoom.followAnimation,
+    followPadding: zoom.followPadding,
+    getCursorPosition:
+      options?.assetId && options.getCursorPosition
+        ? (frame) => options.getCursorPosition?.(options.assetId!, frame) ?? null
+        : undefined,
+  });
 
   if (zt.scale !== 1 || zt.translateX !== 0 || zt.translateY !== 0) {
     // translateX/translateY are in fraction-of-container × scale units — convert to pixels
@@ -58,11 +125,11 @@ function resolveCameraTransformForFrame(
     };
   }
 
-  // No active marker — apply auto-intensity as subtle center zoom (no pan)
-  const t = zoom.autoIntensity;
-  if (t <= 0) return DEFAULT_CAMERA_TRANSFORM;
-  const scale = 1 + t * 0.08; // subtle: 0→1x, 1→1.08x
-  return { scale, offsetX: 0, offsetY: 0 };
+  // Outside zoom markers: no zoom. The preview must show the full source
+  // edge-to-edge. autoIntensity only shapes auto-generated markers (see
+  // generateAutoZoomMarkers in timeline-engine); it must not apply a standing
+  // center zoom here because doing so silently crops ~4% of each edge.
+  return DEFAULT_CAMERA_TRANSFORM;
 }
 
 /**
@@ -71,13 +138,24 @@ function resolveCameraTransformForFrame(
  */
 function resolveCursorPresentation(
   cursor: CursorPresentation | undefined,
+  visibility = resolveRecordingVisibility(undefined, 0),
 ): ResolvedCursorPresentation {
-  if (!cursor) return DEFAULT_CURSOR_PRESENTATION;
+  if (!cursor) {
+    return {
+      ...DEFAULT_CURSOR_PRESENTATION,
+      visible: visibility.cursorVisible,
+      clicksVisible: visibility.clicksVisible,
+      overlaysVisible: visibility.overlaysVisible,
+    };
+  }
   return {
+    visible: visibility.cursorVisible,
     style: cursor.style,
-    clickEffect: cursor.clickEffect,
+    clickEffect: visibility.clicksVisible ? cursor.clickEffect : 'none',
     sizePercent: cursor.sizePercent,
-    clickSoundEnabled: cursor.clickSoundEnabled,
+    clickSoundEnabled: visibility.clicksVisible && cursor.clickSoundEnabled,
+    clicksVisible: visibility.clicksVisible,
+    overlaysVisible: visibility.overlaysVisible,
   };
 }
 
@@ -93,13 +171,67 @@ function findCameraPresentation(project: ProjectDocument): CameraPresentation | 
   return findActiveRecordingAsset(project)?.presentation?.camera;
 }
 
+function getActiveCameraLayoutMarker(
+  markers: readonly CameraLayoutMarker[] | undefined,
+  sourceFrame: number,
+): CameraLayoutMarker | undefined {
+  if (!markers || markers.length === 0) return undefined;
+  return [...markers]
+    .filter((marker) => marker.frame <= sourceFrame)
+    .sort((left, right) => right.frame - left.frame)[0];
+}
+
+function resolveRecordingVisibility(
+  segments: readonly RecordingVisibilitySegment[] | undefined,
+  sourceFrame: number,
+): RecordingVisibility {
+  if (!segments || segments.length === 0) {
+    return {
+      cameraVisible: true,
+      cursorVisible: true,
+      clicksVisible: true,
+      overlaysVisible: true,
+    };
+  }
+
+  const active = [...segments]
+    .filter((segment) => segment.frame <= sourceFrame)
+    .sort((left, right) => right.frame - left.frame)[0];
+
+  return (
+    active ?? {
+      cameraVisible: true,
+      cursorVisible: true,
+      clicksVisible: true,
+      overlaysVisible: true,
+    }
+  );
+}
+
+function getAssetSourceSize(asset: ProjectDocument['assets'][number] | undefined): {
+  width: number;
+  height: number;
+} {
+  const width = Number(asset?.metadata?.width);
+  const height = Number(asset?.metadata?.height);
+
+  return {
+    width: Number.isFinite(width) && width > 0 ? width : 1920,
+    height: Number.isFinite(height) && height > 0 ? height : 1080,
+  };
+}
+
 /**
  * Resolve a complete render description for a single frame.
  *
  * This is the architectural keystone — both preview and export call this.
  * Same ProjectDocument + same frame number = same RenderFrame output.
  */
-export function resolveFrame(project: ProjectDocument, frame: number): RenderFrame {
+export function resolveFrame(
+  project: ProjectDocument,
+  frame: number,
+  options?: ResolveFrameOptions,
+): RenderFrame {
   const { settings, composition } = project;
   const tracks = composition.tracks;
 
@@ -111,37 +243,88 @@ export function resolveFrame(project: ProjectDocument, frame: number): RenderFra
   const layers: RenderLayer[] = activeClips
     .map((clip) => resolveClipLayer(clip, tracks, frame, assetMap))
     .sort((a, b) => a.trackIndex - b.trackIndex); // z-order: low index = bottom
+  const previewLayers = applyPreferredPlaybackAsset(
+    layers,
+    assetMap,
+    options?.preferredPlaybackAssetId,
+  );
 
   // 3. Find active transitions
   const transitions = resolveTransitions(composition.transitions, tracks, frame);
 
   // 4. Resolve recording presentation (zoom + cursor)
-  const activeRecording = findActiveRecordingAsset(project);
+  const activeRecordingLayer = previewLayers.find((layer) => {
+    const asset = assetMap.get(layer.assetId);
+    return asset?.type === 'recording' && !asset.metadata?.isCamera;
+  });
+  const activeRecording = activeRecordingLayer
+    ? assetMap.get(activeRecordingLayer.assetId)
+    : findActiveRecordingAsset(project);
   const presentation = activeRecording?.presentation;
+  const activeRecordingSourceFrame = activeRecordingLayer?.sourceFrame ?? frame;
+  const recordingVisibility = resolveRecordingVisibility(
+    presentation?.visibilitySegments,
+    activeRecordingSourceFrame,
+  );
+  const activeCameraLayout = getActiveCameraLayoutMarker(
+    presentation?.cameraLayouts,
+    activeRecordingSourceFrame,
+  );
+  const screenSourceSize = getAssetSourceSize(activeRecording);
+  const cameraAsset = activeRecording?.cameraAssetId
+    ? project.assets.find((asset) => asset.id === activeRecording.cameraAssetId)
+    : undefined;
+  const cameraSourceSize = getAssetSourceSize(cameraAsset);
   const cameraTransform = resolveCameraTransformForFrame(
     presentation?.zoom,
-    frame,
-    settings.resolution.width,
-    settings.resolution.height,
+    activeRecordingSourceFrame,
+    screenSourceSize.width,
+    screenSourceSize.height,
+    {
+      assetId: activeRecording?.id,
+      getCursorPosition: options?.getCursorPosition,
+    },
   );
-  const cursor = resolveCursorPresentation(presentation?.cursor);
-  const screenCrop = presentation?.screenCrop?.enabled ? presentation.screenCrop : undefined;
-  const cameraCrop = presentation?.cameraCrop?.enabled ? presentation.cameraCrop : undefined;
-  const cameraPresentation = findCameraPresentation(project);
-  const cameraFrame = presentation?.cameraFrame;
+  const cursor = resolveCursorPresentation(presentation?.cursor, recordingVisibility);
+  const screenCrop = presentation?.screenCrop?.enabled
+    ? normalizeRegionCrop(
+        presentation.screenCrop,
+        screenSourceSize.width,
+        screenSourceSize.height,
+        settings.resolution.width,
+        settings.resolution.height,
+      )
+    : undefined;
+  const cameraCrop = presentation?.cameraCrop?.enabled
+    ? normalizeRegionCrop(
+        presentation.cameraCrop,
+        cameraSourceSize.width,
+        cameraSourceSize.height,
+      )
+    : undefined;
+  const background = presentation?.background;
+  const screenFrame = presentation?.screenFrame;
+  const baseCameraPresentation =
+    activeCameraLayout?.camera ?? presentation?.camera ?? findCameraPresentation(project);
+  const cameraPresentation = baseCameraPresentation
+    ? { ...baseCameraPresentation, visible: recordingVisibility.cameraVisible && baseCameraPresentation.visible }
+    : undefined;
+  const cameraFrame = activeCameraLayout?.cameraFrame ?? presentation?.cameraFrame;
 
   return {
     frame,
     width: settings.resolution.width,
     height: settings.resolution.height,
-    backgroundColor: settings.backgroundColor,
-    layers,
+    backgroundColor: background?.bgColor ?? settings.backgroundColor,
+    background,
+    layers: previewLayers,
     transitions,
     cameraTransform,
     cursor,
     screenCrop,
     cameraCrop,
     cameraPresentation,
+    screenFrame,
     cameraFrame,
   };
 }
@@ -187,6 +370,7 @@ function resolveClipLayer(
 function resolveTransform(clip: Clip, clipLocalFrame: number): ResolvedTransform {
   // Static defaults from the clip transform
   const staticTransform = clip.transform;
+  const clipKeyframes = clip.keyframes ?? [];
 
   // Build defaults map for evaluateKeyframeTracks
   const defaults: Record<string, number | string | boolean> = {
@@ -201,7 +385,7 @@ function resolveTransform(clip: Clip, clipLocalFrame: number): ResolvedTransform
   };
 
   // Filter clip keyframes to only transform.* tracks
-  const transformKeyframeTracks = clip.keyframes.filter((kft) =>
+  const transformKeyframeTracks = clipKeyframes.filter((kft) =>
     kft.property.startsWith('transform.'),
   );
 
@@ -223,7 +407,7 @@ function resolveTransform(clip: Clip, clipLocalFrame: number): ResolvedTransform
 }
 
 function resolveEffects(clip: Clip, clipLocalFrame: number): ResolvedEffect[] {
-  return clip.effects.map((effect) => {
+  return (clip.effects ?? []).map((effect) => {
     // Get registered defaults for this effect type (fallback to static params)
     const registryDefaults = getDefaultParams(effect.effectType);
 

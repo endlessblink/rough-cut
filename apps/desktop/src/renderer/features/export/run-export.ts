@@ -10,6 +10,23 @@ declare global {
   interface Window {
     __roughcutTestOverrides?: {
       exportOutputPath?: string;
+      pickDesktopExportOutputPath?: (
+        project: ProjectDocument,
+      ) => string | null | Promise<string | null>;
+      runDesktopExport?: (
+        project: ProjectDocument,
+        range: ExportFrameRange,
+        outputPath: string,
+        signal: AbortSignal,
+      ) => Promise<ExportResult | null>;
+      cancelDesktopExport?: () => Promise<void> | void;
+      storageGetRecordingLocation?: () => Promise<string>;
+      storageGetMountedVolumes?: () => Promise<Array<{ path: string; name: string }>>;
+      storageGetFavorites?: () => Promise<string[]>;
+      storageSetRecordingLocation?: (path: string) => Promise<void>;
+      storagePickDirectory?: () => Promise<string | null>;
+      storageAddFavorite?: (path: string) => Promise<void>;
+      storageRemoveFavorite?: (path: string) => Promise<void>;
     };
   }
 }
@@ -28,6 +45,10 @@ export interface ExportFrameRange {
 export async function pickDesktopExportOutputPath(
   project: ProjectDocument,
 ): Promise<string | null> {
+  const override = window.__roughcutTestOverrides?.pickDesktopExportOutputPath;
+  if (override) {
+    return await override(project);
+  }
   const settings = project.exportSettings;
   return (
     window.__roughcutTestOverrides?.exportOutputPath ??
@@ -38,6 +59,7 @@ export async function pickDesktopExportOutputPath(
 export async function cancelDesktopExport(): Promise<void> {
   activeExportAbortController?.abort();
   activeExportAbortController = null;
+  await window.__roughcutTestOverrides?.cancelDesktopExport?.();
   await window.roughcut.exportCancel();
 }
 
@@ -68,6 +90,15 @@ export async function runDesktopExport(
     return null;
   }
 
+  console.info('[export] runDesktopExport requested:', {
+    projectName: project.name,
+    outputPath,
+    effectiveRange,
+    duration: project.composition.duration,
+    format: settings.format,
+    codec: settings.codec,
+  });
+
   activeExportAbortController?.abort();
   const abortController = new AbortController();
   activeExportAbortController = abortController;
@@ -81,9 +112,22 @@ export async function runDesktopExport(
       };
     }
 
+    const override = window.__roughcutTestOverrides?.runDesktopExport;
+    if (override) {
+      const result = await override(project, effectiveRange, outputPath, abortController.signal);
+      if (result) {
+        console.info('[export] runDesktopExport override completed:', result);
+        window.roughcut.exportEmitComplete(result);
+      }
+      return result;
+    }
+
     if (!canUseWebCodecsExport(settings)) {
+      console.info('[export] Falling back to main-process exportStart pipeline.');
       return await window.roughcut.exportStart(project, settings, outputPath);
     }
+
+    console.info('[export] Using WebCodecs export pipeline.');
 
     const { buffer, result } = await runWebCodecsExportToBuffer(project, settings, {
       onProgress: (progress: ExportProgress) => window.roughcut.exportEmitProgress(progress),
@@ -102,6 +146,7 @@ export async function runDesktopExport(
       outputPath,
       audioIncluded: finalized.audioIncluded,
     };
+    console.info('[export] WebCodecs export finalized:', completeResult);
     window.roughcut.exportEmitComplete(completeResult);
     return completeResult;
   } catch (err) {
@@ -111,6 +156,7 @@ export async function runDesktopExport(
       totalFrames: project.composition.duration,
       durationMs: 0,
     };
+    console.error('[export] runDesktopExport failed:', failedResult);
     window.roughcut.exportEmitComplete(failedResult);
     return failedResult;
   }

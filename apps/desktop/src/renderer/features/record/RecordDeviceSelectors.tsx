@@ -6,19 +6,78 @@ interface DeviceOption {
 interface RecordDeviceSelectorsProps {
   micOptions: DeviceOption[];
   selectedMicDeviceId: string | null;
+  micIssue?: string | null;
   onSelectMicDevice: (id: string | null) => void;
   cameraOptions: DeviceOption[];
   selectedCameraDeviceId: string | null;
+  cameraIssue?: string | null;
   onSelectCameraDevice: (id: string | null) => void;
   systemAudioOptions: DeviceOption[];
   selectedSystemAudioSourceId: string | null;
+  systemAudioGainPercent: number;
+  systemAudioIssue?: string | null;
   onSelectSystemAudioSource: (id: string | null) => void;
+  onSystemAudioGainChange: (percent: number) => void;
+}
+
+function GainSlider({
+  testId,
+  value,
+  accentColor,
+  ariaLabel,
+  onChange,
+}: {
+  testId: string;
+  value: number;
+  accentColor: string;
+  ariaLabel: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+      <span
+        style={{
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          color: 'rgba(255,255,255,0.48)',
+          minWidth: 26,
+        }}
+      >
+        VOL
+      </span>
+      <input
+        data-testid={testId}
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={value}
+        aria-label={ariaLabel}
+        onChange={(event) => onChange(Number(event.target.value))}
+        style={{ flex: 1, height: 4, accentColor, cursor: 'pointer' }}
+      />
+      <span
+        style={{
+          fontSize: 10,
+          fontFamily: 'monospace',
+          color: 'rgba(255,255,255,0.55)',
+          minWidth: 28,
+          textAlign: 'right',
+        }}
+      >
+        {value}%
+      </span>
+    </label>
+  );
 }
 
 function Selector({
   testId,
   label,
   value,
+  issue,
   options,
   defaultLabel,
   onChange,
@@ -26,6 +85,7 @@ function Selector({
   testId: string;
   label: string;
   value: string | null;
+  issue?: string | null;
   options: DeviceOption[];
   defaultLabel: string;
   onChange: (id: string | null) => void;
@@ -45,6 +105,9 @@ function Selector({
     >
       <span
         style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
           fontSize: 11,
           fontWeight: 600,
           letterSpacing: '0.06em',
@@ -52,11 +115,31 @@ function Selector({
           color: 'rgba(255,255,255,0.55)',
         }}
       >
-        {label}
+        <span>{label}</span>
+        {issue && (
+          <span
+            data-testid={`${testId}-offline-badge`}
+            title={issue}
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '0.02em',
+              textTransform: 'none',
+              color: '#fcd34d',
+              border: '1px solid rgba(245,158,11,0.28)',
+              background: 'rgba(245,158,11,0.1)',
+              borderRadius: 999,
+              padding: '2px 6px',
+            }}
+          >
+            Offline
+          </span>
+        )}
       </span>
       <select
         data-testid={testId}
         value={hasSelectedOption ? (value ?? '') : ''}
+        onPointerDown={() => onChange(hasSelectedOption ? value : null)}
         onChange={(event) => onChange(event.target.value || null)}
         style={{
           height: 32,
@@ -84,13 +167,18 @@ function Selector({
 export function RecordDeviceSelectors({
   micOptions,
   selectedMicDeviceId,
+  micIssue,
   onSelectMicDevice,
   cameraOptions,
   selectedCameraDeviceId,
+  cameraIssue,
   onSelectCameraDevice,
   systemAudioOptions,
   selectedSystemAudioSourceId,
+  systemAudioGainPercent,
+  systemAudioIssue,
   onSelectSystemAudioSource,
+  onSystemAudioGainChange,
 }: RecordDeviceSelectorsProps) {
   return (
     <div
@@ -108,6 +196,7 @@ export function RecordDeviceSelectors({
         testId="record-mic-select"
         label="Microphone"
         value={selectedMicDeviceId}
+        issue={micIssue}
         options={micOptions}
         defaultLabel="Default microphone"
         onChange={onSelectMicDevice}
@@ -116,18 +205,29 @@ export function RecordDeviceSelectors({
         testId="record-camera-select"
         label="Camera"
         value={selectedCameraDeviceId}
+        issue={cameraIssue}
         options={cameraOptions}
         defaultLabel="Default camera"
         onChange={onSelectCameraDevice}
       />
-      <Selector
-        testId="record-system-audio-select"
-        label="System Audio"
-        value={selectedSystemAudioSourceId}
-        options={systemAudioOptions}
-        defaultLabel="Default system audio"
-        onChange={onSelectSystemAudioSource}
-      />
+      <div style={{ minWidth: 180, flex: 1 }}>
+        <Selector
+          testId="record-system-audio-select"
+          label="System Audio"
+          value={selectedSystemAudioSourceId}
+          issue={systemAudioIssue}
+          options={systemAudioOptions}
+          defaultLabel="Default system audio"
+          onChange={onSelectSystemAudioSource}
+        />
+        <GainSlider
+          testId="record-system-audio-gain-slider"
+          value={systemAudioGainPercent}
+          accentColor="#60a5fa"
+          ariaLabel="System audio volume"
+          onChange={onSystemAudioGainChange}
+        />
+      </div>
     </div>
   );
 }

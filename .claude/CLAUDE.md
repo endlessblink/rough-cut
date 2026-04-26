@@ -41,6 +41,29 @@ These rules govern the preview rendering system and must never be violated:
 - Layout functions never know about media fitting — they produce correctly-shaped rects
 - `getLayoutRects(kind, canvas, sourceAspect)` is the only entry point
 
+## MANDATORY: Recording Owns Its Own Streams
+
+Recorder code paths (screen, camera, mic, system audio) MUST acquire their own `MediaStream` via `getUserMedia` / `getDisplayMedia` at REC click. NEVER reuse tracks obtained for the preview.
+
+- Preview streams are owned by UI `useEffect` lifecycles and may end, mute, or churn silently in response to React re-renders, panel show/hide, device selection changes, etc.
+- At REC click, always call fresh `navigator.mediaDevices.getUserMedia({...})` using the stored device id. Mirror the preview's constraints so resolution/fps stay consistent.
+- Do NOT `sourceTrack.clone()` from a preview stream. An ended source track clones to an ended track.
+- If you find yourself reading a preview track ref inside a recorder-start path, stop and re-acquire instead.
+- A non-null `MediaStream` object is NOT proof the track inside it is live. Check `track.readyState === 'live'` if you must, or just re-acquire.
+
+This rule was learned the hard way: 2026-04-22, camera recordings silently returned no file because the recorder tried to clone the preview's sourceTrack, which had transitioned to `readyState === 'ended'` between preview setup and REC click.
+
+---
+
+## MANDATORY: Check Runtime Log Before Asking For Logs
+
+Agents must treat `.logs/app-runtime.log` as the first place to inspect when diagnosing app behavior seen in the terminal.
+
+- Check `.logs/app-runtime.log` before asking the user for terminal output
+- Do not ask the user to paste logs from the terminal unless the needed output is missing from that file
+- Prefer tailing or reading `.logs/app-runtime.log` directly from the workspace
+- This file mirrors the Electron app runtime stream, including main-process output and renderer console forwarded through main
+
 ---
 
 You are working on the Rough Cut project (desktop screen recording + editor).

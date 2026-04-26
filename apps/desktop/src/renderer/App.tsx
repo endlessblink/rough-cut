@@ -5,6 +5,7 @@ import {
   createAsset,
   createClip,
   createDefaultRecordingPresentation,
+  migrate,
 } from '@rough-cut/project-model';
 import type { CursorEvent } from '@rough-cut/project-model';
 import type { RecordingResult } from './env.js';
@@ -46,21 +47,84 @@ function generateProjectName(): string {
 }
 
 type TabId = AppView;
+/**
+ * SHOW_WIP_TABS — flip to `true` to expose Edit, Motion, and AI tabs.
+ *
+ * These tabs are hidden during the Record-first stabilization push.
+ * The underlying code (apps/desktop/src/renderer/features/{edit,motion,ai}/)
+ * is intact and Export still consumes the shared timeline/effect packages,
+ * so re-enabling is a one-line change with no downstream wiring required.
+ */
+const SHOW_WIP_TABS = false;
+
 const TABS: { id: TabId; label: string }[] = [
   { id: 'projects', label: 'Projects' },
   { id: 'record', label: 'Record' },
-  { id: 'edit', label: 'Edit' },
-  { id: 'motion', label: 'Motion' },
-  { id: 'ai', label: 'AI' },
+  ...(SHOW_WIP_TABS
+    ? ([
+        { id: 'edit', label: 'Edit' },
+        { id: 'motion', label: 'Motion' },
+        { id: 'ai', label: 'AI' },
+      ] as { id: TabId; label: string }[])
+    : []),
   { id: 'export', label: 'Export' },
 ];
 
+function getInitialTab(): TabId {
+  if (typeof window === 'undefined') return 'projects';
+  const forced = new URLSearchParams(window.location.search).get('start-tab');
+  return forced === 'record' || forced === 'projects' || forced === 'export' ? forced : 'projects';
+}
+
+function useShellOnlyMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('shell-only') === '1';
+}
+
+function getSeedRecordingPresentation(
+  project: ProjectDocument,
+  activeAssetId: string | null | undefined,
+) {
+  const activeAsset = activeAssetId
+    ? project.assets.find((asset) => asset.id === activeAssetId) ?? null
+    : null;
+  if (activeAsset?.type === 'recording' && activeAsset.presentation) {
+    return activeAsset.presentation;
+  }
+  if (activeAsset?.metadata?.isCamera) {
+    const pairedRecording = project.assets.find(
+      (asset) => asset.type === 'recording' && asset.cameraAssetId === activeAsset.id,
+    );
+    if (pairedRecording?.presentation) {
+      return pairedRecording.presentation;
+    }
+  }
+  for (let index = project.assets.length - 1; index >= 0; index -= 1) {
+    const asset = project.assets[index];
+    if (asset?.type === 'recording' && asset.presentation) {
+      return asset.presentation;
+    }
+  }
+  return project.settings.recordingDefaults ?? null;
+}
+
 export function App() {
   const [projectName, setProjectName] = useState('Untitled Project');
-  const [activeTab, setActiveTab] = useState<TabId>('projects');
+  const [activeTab, setActiveTab] = useState<TabId>(() => getInitialTab());
+  const shellOnly = useShellOnlyMode();
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoSaveRequestRef = useRef(0);
   const lastHandledRecordingRef = useRef<{ filePath: string; handledAt: number } | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    (window as unknown as { __roughcutSetActiveTab?: (tab: TabId) => void }).__roughcutSetActiveTab =
+      setActiveTab;
+    return () => {
+      delete (window as unknown as { __roughcutSetActiveTab?: (tab: TabId) => void })
+        .__roughcutSetActiveTab;
+    };
+  }, []);
 
   // Initialize with a default project on mount
   useEffect(() => {
@@ -80,6 +144,30 @@ export function App() {
       setProjectName(state.project.name);
     });
 
+    return () => {
+      unsub();
+    };
+  }, []);
+
+  // Publish the active project's timeline frameRate to the main process so
+  // the cursor recorder samples at the same cadence the playback transport
+  // will use to look up cursor[playheadFrame]. Without this, takes recorded
+  // when project fps != capture fps suffer linear-time cursor desync.
+  useEffect(() => {
+    const publish = (fps: number) => {
+      if (Number.isFinite(fps) && fps > 0) {
+        window.roughcut.setRecordingTimelineFps(fps);
+      }
+    };
+    publish(projectStore.getState().project.settings.frameRate);
+    let lastFps = projectStore.getState().project.settings.frameRate;
+    const unsub = projectStore.subscribe((state) => {
+      const next = state.project.settings.frameRate;
+      if (next !== lastFps) {
+        lastFps = next;
+        publish(next);
+      }
+    });
     return () => {
       unsub();
     };
@@ -142,7 +230,7 @@ export function App() {
     const result = await window.roughcut.projectOpen();
     if (result) {
       getPlaybackManager().pause();
-      projectStore.getState().setProject(result.project as ProjectDocument);
+      projectStore.getState().setProject(migrate(result.project));
       projectStore.getState().setProjectFilePath(result.filePath);
       transportStore.getState().seekToFrame(0);
       return true;
@@ -171,6 +259,21 @@ export function App() {
 
   // --- Recording integration ---
   const handleRecordingComplete = useCallback(async (result: RecordingResult) => {
+    if (result.recoveredProjectSnapshotPath) {
+      try {
+        const recoveredProject = await window.roughcut.projectOpenPath(
+          result.recoveredProjectSnapshotPath,
+        );
+        getPlaybackManager().pause();
+        projectStore.getState().setProject(migrate(recoveredProject));
+        projectStore.getState().setProjectFilePath(result.recoveredProjectSnapshotPath);
+        projectStore.getState().setActiveAssetId(null);
+        transportStore.getState().seekToFrame(0);
+      } catch (error) {
+        console.error('[App] Failed to restore autosaved project before take recovery:', error);
+      }
+    }
+
     const lastHandled = lastHandledRecordingRef.current;
     if (lastHandled?.filePath === result.filePath) {
       console.info('[App] Ignoring duplicate recording result for same file:', result.filePath);
@@ -220,11 +323,20 @@ export function App() {
     }
 
     // If a camera file was saved alongside the screen recording, create a camera asset first
+    const store = projectStore.getState();
+    const timelineFps = store.project.settings.frameRate || 30;
+    const clipDuration =
+      result.durationFrames > 0
+        ? result.durationFrames
+        : result.durationMs > 0
+          ? Math.round((result.durationMs / 1000) * timelineFps)
+          : 0;
+
     let cameraAssetId: ProjectDocument['assets'][number]['id'] | undefined;
     console.log('[App] Recording result cameraFilePath:', result.cameraFilePath ?? 'NONE');
     if (result.cameraFilePath) {
       const cameraAsset = createAsset('video', result.cameraFilePath, {
-        duration: result.durationFrames,
+        duration: clipDuration,
         metadata: {
           isCamera: true,
           width: 640,
@@ -234,6 +346,8 @@ export function App() {
       projectStore.getState().addAsset(cameraAsset);
       cameraAssetId = cameraAsset.id;
       console.log('[App] Camera asset created:', cameraAssetId, 'path:', result.cameraFilePath);
+    } else {
+      console.warn('[App] No camera file was returned for this recording; camera clip import skipped');
     }
 
     let autoZoomIntensity = 0.5;
@@ -257,6 +371,9 @@ export function App() {
           }));
           generatedZoom = {
             autoIntensity: autoZoomIntensity,
+            followCursor: true,
+            followAnimation: 'smooth' as const,
+            followPadding: 0.18,
             markers: generateAutoZoomMarkers(
               cursorEvents,
               autoZoomIntensity,
@@ -271,10 +388,20 @@ export function App() {
       }
     }
 
-    const store = projectStore.getState();
-    const timelineFps = store.project.settings.frameRate || 30;
-    const clipDuration =
-      result.durationMs > 0 ? Math.round((result.durationMs / 1000) * timelineFps) : 0;
+    const defaultPresentation = createDefaultRecordingPresentation();
+    const seedPresentation = getSeedRecordingPresentation(preStore.project, preStore.activeAssetId);
+    const truthFirstPresentation = {
+      ...defaultPresentation,
+      ...(seedPresentation ?? {}),
+      templateId:
+        seedPresentation?.templateId ?? (cameraAssetId ? 'screen-cam-br-16x9' : 'screen-only-16x9'),
+      camera: {
+        ...defaultPresentation.camera,
+        ...(seedPresentation?.camera ?? {}),
+        visible: cameraAssetId ? (seedPresentation?.camera?.visible ?? true) : false,
+      },
+      ...(generatedZoom ? { zoom: generatedZoom } : {}),
+    };
 
     const baseAsset = createAsset('recording', result.filePath, {
       duration: clipDuration,
@@ -286,23 +413,25 @@ export function App() {
         codec: result.codec,
         fileSize: result.fileSize,
         hasAudio: result.hasAudio,
+        audioStemPaths: result.audioStemPaths ?? null,
         cursorEventsPath: result.cursorEventsPath || null,
+        // Frame rate the .cursor.ndjson was sampled at. Defaults to the
+        // project's timeline fps for new takes (recorder runs at that rate);
+        // explicit field lets the loader rescale legacy / off-rate sidecars.
+        cursorEventsFps: result.cursorEventsFps ?? timelineFps,
+        audioCapture: result.audioCapture ?? null,
       },
-      ...(generatedZoom
-        ? {
-            presentation: {
-              ...createDefaultRecordingPresentation(),
-              zoom: generatedZoom,
-            },
-          }
-        : {}),
+      presentation: truthFirstPresentation,
       ...(cameraAssetId ? { cameraAssetId } : {}),
     });
 
     // Hydrate zoom markers from the sidecar (if the user worked on this recording before).
     let asset = baseAsset;
     try {
-      const loadedZoom = await window.roughcut.zoomLoadSidecar(result.filePath);
+      const loadedZoom = await window.roughcut.zoomLoadSidecar(
+        result.filePath,
+        projectStore.getState().projectFilePath,
+      );
       if (loadedZoom) {
         const basePres =
           (baseAsset as unknown as { presentation?: Record<string, unknown> }).presentation ?? {};
@@ -436,6 +565,24 @@ export function App() {
     });
     return unsub;
   }, [handleRecordingComplete]);
+
+  if (shellOnly) {
+    return (
+      <div
+        style={{
+          height: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#111',
+          color: '#eee',
+          fontFamily: 'system-ui, sans-serif',
+        }}
+      >
+        Rough Cut shell only
+      </div>
+    );
+  }
 
   // Projects tab takes over the entire viewport — no chrome wrapper
   if (activeTab === 'projects') {

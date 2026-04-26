@@ -26,10 +26,16 @@ import type {
   ZoomMarkerId,
   ZoomMarker,
   ZoomPresentation,
+  CameraLayoutMarkerId,
+  CameraLayoutMarker,
+  RecordingVisibilitySegmentId,
+  RecordingVisibility,
+  RecordingVisibilitySegment,
   CursorPresentation,
   CameraPresentation,
   RegionCrop,
   RecordingPresentation,
+  RecordingBackgroundStyle,
   BackgroundConfig,
   AIAnnotationId,
   AIAnnotations,
@@ -82,8 +88,14 @@ function libraryTranscriptSegmentId(): LibraryTranscriptSegmentId {
 function visualAnalysisEntryId(): VisualAnalysisEntryId {
   return generateId() as VisualAnalysisEntryId;
 }
+function recordingVisibilitySegmentId(): RecordingVisibilitySegmentId {
+  return generateId() as RecordingVisibilitySegmentId;
+}
 function zoomMarkerId(): ZoomMarkerId {
   return generateId() as ZoomMarkerId;
+}
+function cameraLayoutMarkerId(): CameraLayoutMarkerId {
+  return generateId() as CameraLayoutMarkerId;
 }
 function aiAnnotationId(): AIAnnotationId {
   return generateId() as AIAnnotationId;
@@ -207,7 +219,11 @@ export function createZoomMarker(
 export function createDefaultZoomPresentation(): ZoomPresentation {
   return {
     autoIntensity: 0.5,
+    followCursor: true,
+    followAnimation: 'focused',
+    followPadding: 0.18,
     markers: [],
+    autoFromClicks: true,
   };
 }
 
@@ -217,6 +233,40 @@ export function createDefaultCursorPresentation(): CursorPresentation {
     clickEffect: 'none',
     sizePercent: 100,
     clickSoundEnabled: false,
+  };
+}
+
+export function createCameraLayoutMarker(
+  frame: number,
+  camera: CameraPresentation,
+  overrides?: Partial<CameraLayoutMarker>,
+): CameraLayoutMarker {
+  return {
+    id: cameraLayoutMarkerId(),
+    frame,
+    camera,
+    ...overrides,
+  };
+}
+
+export function createDefaultRecordingVisibility(): RecordingVisibility {
+  return {
+    cameraVisible: true,
+    cursorVisible: true,
+    clicksVisible: true,
+    overlaysVisible: true,
+  };
+}
+
+export function createRecordingVisibilitySegment(
+  frame: number,
+  overrides?: Partial<RecordingVisibilitySegment>,
+): RecordingVisibilitySegment {
+  return {
+    id: recordingVisibilitySegmentId(),
+    frame,
+    ...createDefaultRecordingVisibility(),
+    ...overrides,
   };
 }
 
@@ -242,12 +292,27 @@ export function createDefaultRegionCrop(sourceW = 1920, sourceH = 1080): RegionC
   return { enabled: false, x: 0, y: 0, width: sourceW, height: sourceH, aspectRatio: 'free' };
 }
 
+export function createDefaultRecordingBackgroundStyle(): RecordingBackgroundStyle {
+  return {
+    bgColor: '#050505',
+    bgGradient: null,
+    bgPadding: 0,
+    bgCornerRadius: 0,
+    bgInset: 0,
+    bgInsetColor: '#ffffff',
+    bgShadowEnabled: false,
+    bgShadowBlur: 0,
+    bgShadowOpacity: 0.25,
+  };
+}
+
 export function createDefaultRecordingPresentation(): RecordingPresentation {
   return {
     templateId: 'screen-cam-br-16x9',
     zoom: createDefaultZoomPresentation(),
     cursor: createDefaultCursorPresentation(),
     camera: createDefaultCameraPresentation(),
+    background: createDefaultRecordingBackgroundStyle(),
   };
 }
 
@@ -381,6 +446,11 @@ export function createProjectLibraryReference(
 export function createDefaultAIAnnotations(): AIAnnotations {
   return {
     captionSegments: [],
+    captionStyle: {
+      fontSize: 28,
+      position: 'bottom',
+      backgroundOpacity: 0.55,
+    },
   };
 }
 
@@ -415,6 +485,8 @@ export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocu
       frameRate: DEFAULT_FRAME_RATE,
       backgroundColor: DEFAULT_BACKGROUND_COLOR,
       sampleRate: DEFAULT_SAMPLE_RATE,
+      recordingDefaults: createDefaultRecordingPresentation(),
+      destinationPresetId: null,
     },
     assets: [],
     composition: {
@@ -434,6 +506,7 @@ export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocu
       bitrate: 10_000_000,
       resolution: { ...DEFAULT_RESOLUTION },
       frameRate: DEFAULT_FRAME_RATE,
+      keepClickSounds: true,
     },
     aiAnnotations: createDefaultAIAnnotations(),
     motionCompositions: [],

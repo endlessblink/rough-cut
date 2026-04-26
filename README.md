@@ -11,6 +11,8 @@ pnpm test
 pnpm build
 ```
 
+Runtime logs for the Electron app are mirrored to `.logs/app-runtime.log`. When debugging, tail that file to follow the same app output that appears in the terminal.
+
 ## Third-Party Attribution
 
 This product includes software developed by Max Bain and WhisperX contributors.

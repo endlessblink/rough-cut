@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { generateAutoZoomMarkers } from './auto-zoom.js';
-import type { CursorEvent } from '@rough-cut/project-model';
+import { generateAutoZoomMarkers, filterAutoMarkersAgainstManual } from './auto-zoom.js';
+import type { CursorEvent, ZoomMarker } from '@rough-cut/project-model';
+import { createZoomMarker } from '@rough-cut/project-model';
 
 function click(frame: number, x: number, y: number): CursorEvent {
   return { frame, x, y, type: 'down', button: 0 };
@@ -118,5 +119,92 @@ describe('generateAutoZoomMarkers', () => {
         m.zoomInDuration + m.zoomOutDuration,
       );
     }
+  });
+});
+
+describe('filterAutoMarkersAgainstManual', () => {
+  it('returns all candidates when there are no existing markers', () => {
+    const events: CursorEvent[] = [click(60, 960, 540)];
+    const candidates = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
+    expect(filterAutoMarkersAgainstManual(candidates, [])).toHaveLength(candidates.length);
+  });
+
+  it('single isolated click → 1 marker, centroid matches click pos', () => {
+    const events: CursorEvent[] = [click(60, 960, 540)];
+    const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
+    const filtered = filterAutoMarkersAgainstManual(markers, []);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].focalPoint.x).toBeCloseTo(0.5, 2);
+    expect(filtered[0].focalPoint.y).toBeCloseTo(0.5, 2);
+  });
+
+  it('two clicks 0.5 s apart → 1 merged marker', () => {
+    // 0.5s × 30fps = 15 frames apart
+    const events: CursorEvent[] = [
+      click(60, 500, 400),
+      click(75, 520, 410),
+    ];
+    const candidates = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
+    const filtered = filterAutoMarkersAgainstManual(candidates, []);
+    expect(filtered).toHaveLength(1);
+  });
+
+  it('two clicks 3 s apart → 2 markers', () => {
+    // 3s × 30fps = 90 frames apart (> clusterGapFrames at intensity 0.5 = 30)
+    const events: CursorEvent[] = [
+      click(30, 100, 100),
+      click(300, 1800, 900),
+    ];
+    const candidates = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
+    const filtered = filterAutoMarkersAgainstManual(candidates, []);
+    expect(filtered).toHaveLength(2);
+  });
+
+  it('cluster with clicks at varying positions → centroid is the mean', () => {
+    const events: CursorEvent[] = [
+      click(60, 0, 0),
+      click(70, 1920, 1080),
+    ];
+    const candidates = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
+    const filtered = filterAutoMarkersAgainstManual(candidates, []);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].focalPoint.x).toBeCloseTo(0.5, 2);
+    expect(filtered[0].focalPoint.y).toBeCloseTo(0.5, 2);
+  });
+
+  it('manual marker overlapping cluster → auto marker is skipped', () => {
+    const events: CursorEvent[] = [click(60, 960, 540)];
+    const autoMarkers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
+    expect(autoMarkers).toHaveLength(1);
+    const { startFrame, endFrame } = autoMarkers[0];
+
+    // Create a manual marker spanning the same range
+    const manualMarker = createZoomMarker(startFrame, endFrame, { kind: 'manual' });
+    const filtered = filterAutoMarkersAgainstManual(autoMarkers, [manualMarker]);
+    expect(filtered).toHaveLength(0);
+  });
+
+  it('manual marker non-overlapping → auto marker is kept', () => {
+    const events: CursorEvent[] = [click(60, 960, 540)];
+    const autoMarkers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
+    expect(autoMarkers).toHaveLength(1);
+    const { endFrame } = autoMarkers[0];
+
+    // Place manual marker far after the auto marker
+    const manualMarker = createZoomMarker(endFrame + 100, endFrame + 200, { kind: 'manual' });
+    const filtered = filterAutoMarkersAgainstManual(autoMarkers, [manualMarker]);
+    expect(filtered).toHaveLength(1);
+  });
+
+  it('auto markers in existing list are not treated as blockers', () => {
+    const events: CursorEvent[] = [click(60, 960, 540)];
+    const candidates = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
+    expect(candidates).toHaveLength(1);
+    const { startFrame, endFrame } = candidates[0];
+
+    // An existing auto marker in the same range should NOT block the new candidate
+    const existingAuto = createZoomMarker(startFrame, endFrame, { kind: 'auto' });
+    const filtered = filterAutoMarkersAgainstManual(candidates, [existingAuto]);
+    expect(filtered).toHaveLength(1);
   });
 });

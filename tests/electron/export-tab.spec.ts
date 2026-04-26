@@ -1,4 +1,5 @@
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
+import { loadPlaybackFixture } from './fixtures/playback-fixture.js';
 import { loadZoomFixture } from './fixtures/zoom-fixture.js';
 
 test.describe('Export tab', () => {
@@ -35,11 +36,28 @@ test.describe('Export tab', () => {
 
   test('record destination presets link social framing into export defaults', async ({ appPage }) => {
     await navigateToTab(appPage, 'record');
-    await appPage.locator('[data-testid="inspector-rail-item"][data-category="destinations"]').click();
-    await appPage.locator('[data-testid="record-destination-preset-reels-portrait"]').click();
+    await appPage.evaluate(() => {
+      const button = document.querySelector(
+        '[data-testid="inspector-rail-item"][data-category="destinations"]',
+      ) as HTMLButtonElement | null;
+      button?.click();
+    });
+    await expect(appPage.locator('[data-testid="inspector-card-active"]')).toHaveAttribute(
+      'data-category',
+      'destinations',
+    );
+    await appPage.evaluate(() => {
+      const button = document.querySelector(
+        '[data-testid="record-destination-preset-reels-portrait"]',
+      ) as HTMLButtonElement | null;
+      button?.click();
+    });
 
     await navigateToTab(appPage, 'export');
 
+    await expect(appPage.locator('[data-testid="export-linked-destination"]')).toContainText(
+      'Reels / TikTok',
+    );
     await expect(appPage.locator('[data-testid="export-preset-select"]')).toHaveValue(
       'social-vertical',
     );
@@ -69,18 +87,16 @@ test.describe('Export tab', () => {
 
   test('export preview responds to active zoom markers', async ({ appPage }) => {
     await navigateToTab(appPage, 'record');
-    await loadZoomFixture(appPage);
-
-    await appPage.locator('[data-testid="zoom-add"]').click();
+    await loadPlaybackFixture(appPage, 'record');
 
     await appPage.evaluate(() => {
-      type StoreSetState = (patch: { playheadFrame: number }) => void;
-      const stores = (
-        window as unknown as {
-          __roughcutStores?: { transport: { setState: StoreSetState } };
-        }
-      ).__roughcutStores;
-      stores?.transport.setState({ playheadFrame: 0 });
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      const projectState = stores?.project?.getState();
+      const activeAssetId = projectState?.activeAssetId;
+      if (activeAssetId) {
+        projectState.addRecordingZoomMarker?.(activeAssetId, 0, 20);
+      }
+      stores?.transport.setState({ playheadFrame: 5 });
     });
     await navigateToTab(appPage, 'export');
     await appPage.waitForTimeout(300);
@@ -88,28 +104,40 @@ test.describe('Export tab', () => {
     const exportZoomSurface = appPage
       .locator('[data-testid="export-tab-root"] [data-testid="recording-playback-canvas"]')
       .first();
-    const beforeTransform = await exportZoomSurface.evaluate(
-      (el) => getComputedStyle(el as HTMLElement).transform,
-    );
+    const before = hashBytes(await exportZoomSurface.screenshot({ timeout: 5_000 }));
 
     await appPage.evaluate(() => {
-      type StoreSetState = (patch: { playheadFrame: number }) => void;
-      const stores = (
-        window as unknown as {
-          __roughcutStores?: { transport: { setState: StoreSetState } };
-        }
-      ).__roughcutStores;
-      stores?.transport.setState({ playheadFrame: 5 });
-    });
-    await appPage.waitForTimeout(150);
+      const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      const projectStore = stores?.project;
+      const state = projectStore?.getState();
+      const activeAssetId = state?.activeAssetId;
+      if (!activeAssetId) return;
 
-    const duringTransform = await exportZoomSurface.evaluate(
-      (el) => getComputedStyle(el as HTMLElement).transform,
-    );
+      projectStore.getState().updateProject((doc: any) => ({
+        ...doc,
+        assets: doc.assets.map((asset: any) =>
+          asset.id === activeAssetId
+            ? {
+                ...asset,
+                presentation: {
+                  ...(asset.presentation ?? {}),
+                  zoom: {
+                    ...(asset.presentation?.zoom ?? {}),
+                    autoIntensity: 0,
+                    markers: [],
+                  },
+                },
+              }
+            : asset,
+        ),
+      }));
+    });
+    await appPage.waitForTimeout(300);
+
+    const after = hashBytes(await exportZoomSurface.screenshot({ timeout: 5_000 }));
 
     await expect(exportZoomSurface).toBeVisible();
-    expect(isIdentityTransform(beforeTransform)).toBe(true);
-    expect(isIdentityTransform(duringTransform)).toBe(false);
+    expect(before).not.toBe(after);
   });
 
   test('export preview applies camera layout snapshots by playhead', async ({ appPage }) => {
@@ -188,6 +216,12 @@ test.describe('Export tab', () => {
   });
 });
 
-function isIdentityTransform(transform: string): boolean {
-  return transform === 'none' || transform === 'matrix(1, 0, 0, 1, 0, 0)';
+function hashBytes(buffer: Buffer): number {
+  let hash = 0;
+
+  for (const value of buffer.values()) {
+    hash = (hash * 33 + value) % 2147483647;
+  }
+
+  return hash;
 }

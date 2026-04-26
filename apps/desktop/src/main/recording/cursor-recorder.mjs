@@ -1,5 +1,6 @@
 // @ts-check
 import { uIOhook } from 'uiohook-napi';
+import { screen } from 'electron';
 import { writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { mkdirSync, existsSync } from 'node:fs';
@@ -13,6 +14,11 @@ import { mkdirSync, existsSync } from 'node:fs';
 // the native thread doesn't cleanly reinitialize. Instead, we always listen
 // for events and gate recording via the #recording flag.
 let uiohookStarted = false;
+let testHooks = null;
+
+function getTestHook(name) {
+  return testHooks && typeof testHooks[name] === 'function' ? testHooks[name] : null;
+}
 
 export class CursorRecorder {
   /** @type {CursorEvent[]} */
@@ -26,39 +32,61 @@ export class CursorRecorder {
   /** @type {boolean} */
   #recording = false;
   /** @type {number} */
-  #lastMoveFrame = -1;
+  #offsetX = 0;
+  /** @type {number} */
+  #offsetY = 0;
+
+  #pushEvent(event) {
+    this.#events.push(event);
+  }
 
   constructor() {
     // Register listeners once — they check #recording internally
     uIOhook.on('mousemove', /** @param {import('uiohook-napi').UiohookMouseEvent} e */ (e) => {
       if (!this.#recording) return;
-      const frame = this.#currentFrame();
-      if (frame === this.#lastMoveFrame) return;
-      this.#lastMoveFrame = frame;
-      this.#events.push({ frame, x: e.x, y: e.y, type: 'move', button: 0 });
+      // Push every event — the loader is last-wins for position so
+      // cursor[N] ends up holding the LATEST mouse position in the frame
+      // window instead of the first. Cuts up to one frame period of
+      // intra-frame staleness for free.
+      this.#pushEvent({
+        frame: this.#currentFrame(),
+        x: e.x - this.#offsetX,
+        y: e.y - this.#offsetY,
+        type: 'move',
+        button: 0,
+      });
     });
 
     uIOhook.on('mousedown', /** @param {import('uiohook-napi').UiohookMouseEvent} e */ (e) => {
       if (!this.#recording) return;
-      this.#events.push({
+      this.#pushEvent({
         frame: this.#currentFrame(),
-        x: e.x, y: e.y, type: 'down', button: e.button ?? 0,
+        x: e.x - this.#offsetX,
+        y: e.y - this.#offsetY,
+        type: 'down',
+        button: e.button ?? 0,
       });
     });
 
     uIOhook.on('mouseup', /** @param {import('uiohook-napi').UiohookMouseEvent} e */ (e) => {
       if (!this.#recording) return;
-      this.#events.push({
+      this.#pushEvent({
         frame: this.#currentFrame(),
-        x: e.x, y: e.y, type: 'up', button: e.button ?? 0,
+        x: e.x - this.#offsetX,
+        y: e.y - this.#offsetY,
+        type: 'up',
+        button: e.button ?? 0,
       });
     });
 
     uIOhook.on('wheel', /** @param {import('uiohook-napi').UiohookWheelEvent} e */ (e) => {
       if (!this.#recording) return;
-      this.#events.push({
+      this.#pushEvent({
         frame: this.#currentFrame(),
-        x: e.x, y: e.y, type: 'scroll', button: 0,
+        x: e.x - this.#offsetX,
+        y: e.y - this.#offsetY,
+        type: 'scroll',
+        button: 0,
       });
     });
   }
@@ -72,8 +100,9 @@ export class CursorRecorder {
    * Start capturing cursor events.
    * @param {number} frameRate - Project frame rate (24, 30, or 60)
    * @param {string} outputPath - Path to write .cursor.ndjson sidecar
+   * @param {{ offsetX?: number, offsetY?: number, initialX?: number, initialY?: number }} [captureBounds]
    */
-  start(frameRate, outputPath) {
+  start(frameRate, outputPath, captureBounds = {}) {
     if (this.#recording) {
       console.warn('CursorRecorder: already recording, stopping previous session');
       this.stop();
@@ -83,13 +112,29 @@ export class CursorRecorder {
     this.#frameRate = frameRate;
     this.#outputPath = outputPath;
     this.#startTime = Date.now();
-    this.#lastMoveFrame = -1;
+    this.#offsetX = Number.isFinite(captureBounds.offsetX) ? captureBounds.offsetX : 0;
+    this.#offsetY = Number.isFinite(captureBounds.offsetY) ? captureBounds.offsetY : 0;
     this.#recording = true;
+
+    const initialX = Number.isFinite(captureBounds.initialX)
+      ? captureBounds.initialX - this.#offsetX
+      : null;
+    const initialY = Number.isFinite(captureBounds.initialY)
+      ? captureBounds.initialY - this.#offsetY
+      : null;
+    if (initialX !== null && initialY !== null) {
+      this.#pushEvent({ frame: 0, x: initialX, y: initialY, type: 'move', button: 0 });
+    }
 
     // Start uIOhook once — never stop it
     if (!uiohookStarted) {
       try {
-        uIOhook.start();
+        const testStartHook = getTestHook('startHook');
+        if (testStartHook) {
+          testStartHook();
+        } else {
+          uIOhook.start();
+        }
         uiohookStarted = true;
         console.log('CursorRecorder: uIOhook started (will stay running)');
       } catch (err) {
@@ -99,7 +144,9 @@ export class CursorRecorder {
       }
     }
 
-    console.log(`CursorRecorder: recording started (${frameRate}fps → ${outputPath})`);
+    console.log(
+      `CursorRecorder: recording started (${frameRate}fps → ${outputPath}, offset ${this.#offsetX},${this.#offsetY})`,
+    );
   }
 
   /**
@@ -136,25 +183,94 @@ export class CursorRecorder {
    * Rebase the start time to align cursor events with the actual MediaRecorder start.
    * Recalculates frame numbers for events captured in the gap and discards
    * events that occurred before the new start time (negative frames).
+   *
+   * Guarded against backward rebases (`newStartTimeMs <= oldStart` is a
+   * no-op) — used for the macOS/Windows MediaRecorder path where the new
+   * anchor is necessarily later than the original cursor.start.
    */
   rebaseStartTime(newStartTimeMs) {
     if (!this.#recording) return;
     const oldStart = this.#startTime;
     if (!oldStart || newStartTimeMs <= oldStart) return;
+    this.#applyStartTime(newStartTimeMs, '[CursorRecorder] Rebased');
+  }
 
+  /**
+   * Force-set the start anchor regardless of direction. Used on the
+   * Linux/X11 FFmpeg path where the precise first-frame wall-clock comes
+   * from `-progress pipe:1` parsing — that estimate is *earlier* than the
+   * cursor recorder's original `Date.now()` only by the FFmpeg startup gap,
+   * but it can also be earlier than a stale rebase, so we bypass the guard.
+   *
+   * Re-indexes already-captured events the same way `rebaseStartTime` does;
+   * any event whose new frame is negative is dropped.
+   *
+   * If the rebase leaves frame 0 with no event (typical: the original
+   * frame-0 seed had absolute time before newStartTimeMs and got filtered),
+   * inject a fresh seed using the live OS cursor position. Without this the
+   * loader's "fill-before-first-known" logic would paint the first surviving
+   * event's position across cursor[0..firstEventFrame] — visually a wrong-
+   * place teleport at the start of playback.
+   */
+  setStartTime(newStartTimeMs) {
+    if (!this.#recording) return;
+    if (!this.#startTime) {
+      this.#startTime = newStartTimeMs;
+      this.#seedInitialPositionIfMissing();
+      return;
+    }
+    this.#applyStartTime(newStartTimeMs, '[CursorRecorder] Set start time');
+    this.#seedInitialPositionIfMissing();
+  }
+
+  #seedInitialPositionIfMissing() {
+    const hasFrameZero = this.#events.some((e) => e.frame === 0);
+    if (hasFrameZero) return;
+    let point;
+    try {
+      point = screen.getCursorScreenPoint();
+    } catch (err) {
+      console.warn(
+        '[CursorRecorder] screen.getCursorScreenPoint() unavailable for seed:',
+        err?.message ?? err,
+      );
+      return;
+    }
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+    const seeded = {
+      frame: 0,
+      x: point.x - this.#offsetX,
+      y: point.y - this.#offsetY,
+      type: /** @type {'move'} */ ('move'),
+      button: 0,
+    };
+    // Push at the front so frame 0 sorts first (loader sorts by frame anyway,
+    // so order doesn't strictly matter — keeping it deterministic for tests).
+    this.#events.unshift(seeded);
+    console.info(
+      '[CursorRecorder] Re-seeded initial position at frame 0:',
+      `(${seeded.x},${seeded.y})`,
+    );
+  }
+
+  #applyStartTime(newStartTimeMs, logTag) {
+    const oldStart = this.#startTime;
     this.#startTime = newStartTimeMs;
-
-    // Recalculate frame numbers for existing events
     this.#events = this.#events
-      .map(e => {
-        // Convert frame back to absolute time, then to new frame number
+      .map((e) => {
         const absoluteTimeMs = oldStart + (e.frame / this.#frameRate) * 1000;
-        const newFrame = Math.round(((absoluteTimeMs - newStartTimeMs) / 1000) * this.#frameRate);
+        const newFrame = Math.round(
+          ((absoluteTimeMs - newStartTimeMs) / 1000) * this.#frameRate,
+        );
         return newFrame >= 0 ? { ...e, frame: newFrame } : null;
       })
-      .filter(e => e !== null);
-
-    console.info('[CursorRecorder] Rebased start time, delta:', newStartTimeMs - oldStart, 'ms, events:', this.#events.length);
+      .filter((e) => e !== null);
+    console.info(
+      `${logTag}, delta:`,
+      newStartTimeMs - oldStart,
+      'ms, events:',
+      this.#events.length,
+    );
   }
 
   /**
@@ -169,4 +285,13 @@ export class CursorRecorder {
   get isRecording() {
     return this.#recording;
   }
+}
+
+export function __setCursorRecorderTestHooks(hooks = null) {
+  testHooks = hooks;
+}
+
+export function __resetCursorRecorderForTests() {
+  testHooks = null;
+  uiohookStarted = false;
 }
