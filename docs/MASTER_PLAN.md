@@ -291,7 +291,13 @@ To match the stability-first sprint framing above, the app header currently expo
 | ~~TASK-226~~ | ~~Record: Backward sub-frame cursor interpolation (fluent fast-motion)~~ | P1       | ✅ DONE (2026-04-25)     | TASK-216           |
 | ~~TASK-227~~ | ~~Build: Add `keepClickSounds` to `export-renderer/src/demo.ts` ExportSettings literal~~ | P1 | ✅ DONE (2026-04-25) | TASK-217 |
 | ~~TASK-250~~ | ✅ Preview: Safe continuous cursor and zoom smoothness plan             | P1       | ✅ DONE (2026-04-26)     | TASK-216, TASK-075 |
-| TASK-251     | Client tutorial readiness gate for Linux recording                     | P0       | IN PROGRESS (2026-04-26) | TASK-145, TASK-193, TASK-197, TASK-229, TASK-230 |
+| TASK-251     | Client tutorial readiness umbrella gate                                | P0       | IN PROGRESS (2026-04-26) | TASK-252, TASK-253, TASK-254, TASK-255, TASK-256, TASK-257 |
+| TASK-252     | Tests: Make client-readiness fixtures self-contained                    | P0       | TODO                     | TASK-251 |
+| TASK-253     | Tests: Add focused client-tutorial readiness spec                       | P0       | TODO                     | TASK-252 |
+| TASK-254     | Record: Fix camera PiP first-take and reopen readiness gaps             | P0       | TODO                     | TASK-253 |
+| TASK-255     | Record: Fix cursor and zoom smoothness readiness gaps                   | P0       | TODO                     | TASK-253 |
+| TASK-256     | Record/Export: Fix audio route and exported MP4 truth gaps              | P0       | TODO                     | TASK-253 |
+| TASK-257     | Release: Manual rehearsal checklist and GO/NO-GO result                 | P0       | TODO                     | TASK-254, TASK-255, TASK-256 |
 
 ### Recording Edge Features
 
@@ -458,17 +464,18 @@ To match the stability-first sprint framing above, the app header currently expo
 
 ## Active Work
 
-### TASK-251: Client tutorial readiness gate for Linux recording
+### TASK-251: Client tutorial readiness umbrella gate
 
-**Priority:** P0 | **Status:** IN PROGRESS (2026-04-26) | **Depends on:** TASK-145, TASK-193, TASK-197, TASK-229, TASK-230
+**Priority:** P0 | **Status:** IN PROGRESS (2026-04-26) | **Depends on:** TASK-252, TASK-253, TASK-254, TASK-255, TASK-256, TASK-257
 
 #### Goal
 
-Make Rough Cut safe enough for the user's upcoming client tutorial on Linux without rebooting to Windows. This is the current release gate and overrides AI, Motion, broad Edit work, and general Record-sidebar breadth until it is green.
+Make Rough Cut safe enough for the user's upcoming client tutorial on Linux without rebooting to Windows. This is an umbrella release gate, not a single implementation task. Actual engineering work must happen in child tasks `TASK-252` through `TASK-257` so each readiness risk can be closed independently.
 
 #### Non-Negotiable Rule
 
 - Do not start AI, Motion, Smart Cut, caption breadth, advanced effects, broad sidebar authoring, or unrelated polish while this task is open.
+- Do not do implementation work directly under `TASK-251`; create or use a child task for the specific readiness slice.
 - Only work on fixes that directly improve this exact tutorial flow: record -> review -> reopen -> export -> verify final MP4.
 - If another task looks attractive but does not reduce risk for the tutorial recording, defer it.
 
@@ -497,10 +504,12 @@ The gate must exercise the user's real client-tutorial needs on Linux/X11:
 
 #### Allowed Work Before Closing
 
-- Repair or replace E2E specs that depend on missing local real-project files so the gate is self-contained and repeatable.
-- Add a focused `client-tutorial-readiness` headless spec if existing specs do not cover the full scenario cleanly.
-- Fix record, camera, audio, cursor/zoom, reopen, playback, or export bugs found by that gate.
-- Add a short manual verification checklist for the user's actual tutorial setup.
+- `TASK-252`: Repair or replace E2E specs that depend on missing local real-project files so the gate is self-contained and repeatable.
+- `TASK-253`: Add a focused `client-tutorial-readiness` headless spec if existing specs do not cover the full scenario cleanly.
+- `TASK-254`: Fix camera PiP first-take, persistence, and reopen readiness gaps found by the gate.
+- `TASK-255`: Fix cursor and zoom smoothness/readability gaps found by the gate.
+- `TASK-256`: Fix audio route, review playback, and exported MP4 truth gaps found by the gate.
+- `TASK-257`: Add the manual rehearsal checklist and record the final `GO` / `NO-GO` result.
 
 #### Completion Criteria
 
@@ -516,6 +525,120 @@ The gate must exercise the user's real client-tutorial needs on Linux/X11:
 - `pnpm test:e2e:headless:serial`
 - Focused readiness spec/command once added
 - Manual rehearsal: record -> review -> reopen -> export -> play exported MP4
+
+### TASK-252: Tests: Make client-readiness fixtures self-contained
+
+**Priority:** P0 | **Status:** TODO | **Depends on:** TASK-251
+
+#### Goal
+
+Remove the current dependence on missing local real-project files so client-readiness E2E failures represent product risk, not workstation fixture drift.
+
+#### Scope
+
+- Replace hard-coded `/home/endlessblink/Documents/Rough Cut/...` project inputs with generated or repository-controlled fixtures.
+- Cover the specs that failed because the source `.roughcut` files were missing: camera template parity, real-project cursor diagnostic, edit track headers, and record append takes.
+- Keep any truly diagnostic real-project spec out of the normal readiness gate unless its fixture is available and intentional.
+
+#### Verification
+
+- The previously failing fixture-dependent specs either pass headless or are explicitly excluded from the readiness gate with a clear reason.
+- `pnpm test:e2e:headless:serial` no longer reports missing local project files as failures.
+
+### TASK-253: Tests: Add focused client-tutorial readiness spec
+
+**Priority:** P0 | **Status:** TODO | **Depends on:** TASK-252
+
+#### Goal
+
+Add one focused headless gate for the exact client-tutorial flow instead of relying on scattered broad-suite signals.
+
+#### Scope
+
+- Create a focused spec or named command that exercises record -> review -> reopen -> export -> verify MP4.
+- Include screen capture, camera PiP where available, mic/system-audio route truth, cursor/zoom visibility, saved project reopen, and export verification.
+- Prefer deterministic synthetic inputs where possible, but keep the scenario close enough to the user's real Linux tutorial workflow to be meaningful.
+
+#### Verification
+
+- The focused readiness command passes headless on Linux.
+- Failures clearly point to one of the child implementation tasks (`TASK-254`, `TASK-255`, or `TASK-256`).
+
+### TASK-254: Record: Fix camera PiP first-take and reopen readiness gaps
+
+**Priority:** P0 | **Status:** TODO | **Depends on:** TASK-253
+
+#### Goal
+
+Make camera PiP trustworthy for the tutorial gate: visible during review, persisted after save/reopen, and aligned with export expectations.
+
+#### Scope
+
+- Fix camera failures found by `TASK-253`.
+- Prioritize first-take reliability, saved project persistence, and reopen parity over new camera authoring features.
+- Do not expand dynamic camera layout UX unless the readiness gate requires it.
+
+#### Verification
+
+- Focused camera readiness coverage passes headless.
+- The client-tutorial readiness gate no longer fails for camera PiP reasons.
+
+### TASK-255: Record: Fix cursor and zoom smoothness readiness gaps
+
+**Priority:** P0 | **Status:** TODO | **Depends on:** TASK-253
+
+#### Goal
+
+Make cursor and zoom good enough for client-facing instructional content in the readiness gate.
+
+#### Scope
+
+- Fix cursor visibility, timing, smoothness, and zoom readability issues found by `TASK-253`.
+- Treat playback/review smoothness as user trust work; do not add new cursor styles or motion effects unless required by the gate.
+- Use runtime log evidence, screenshot/video assertions, or cheap pixel signals where they give reliable feedback.
+
+#### Verification
+
+- Focused cursor/zoom readiness coverage passes headless.
+- Manual rehearsal confirms cursor and zoom are readable enough for the client tutorial.
+
+### TASK-256: Record/Export: Fix audio route and exported MP4 truth gaps
+
+**Priority:** P0 | **Status:** TODO | **Depends on:** TASK-253
+
+#### Goal
+
+Make mic/system-audio selection, review playback, and exported MP4 audio truthful for the readiness gate.
+
+#### Scope
+
+- Fix audio route, stem, ducking, review playback, or export mismatches found by `TASK-253`.
+- Verify the final exported MP4 contains the intended audio and no silent fallback to the wrong source.
+- Keep advanced audio cleanup and voice enhancement out of scope unless needed for tutorial safety.
+
+#### Verification
+
+- Focused audio/export readiness coverage passes headless.
+- Exported MP4 is verified with ffprobe-level checks and human playback during `TASK-257`.
+
+### TASK-257: Release: Manual rehearsal checklist and GO/NO-GO result
+
+**Priority:** P0 | **Status:** TODO | **Depends on:** TASK-254, TASK-255, TASK-256
+
+#### Goal
+
+Turn the automated readiness work into a practical decision: use Rough Cut for the client tutorial or do not.
+
+#### Scope
+
+- Write a short manual checklist for the user's actual Linux tutorial setup.
+- Run the rehearsal: record -> review -> reopen -> export -> play exported MP4.
+- Capture the final decision as `GO` or `NO-GO`, with the reason and any backup-recorder recommendation.
+
+#### Verification
+
+- Checklist exists in this task section or a linked doc.
+- Final `GO` / `NO-GO` result is written here before closing `TASK-251`.
 
 ### ~~TASK-228~~: Record: Persist separate mic and system-audio stems with takes
 
@@ -880,10 +1003,13 @@ The gate must exercise the user's real client-tutorial needs on Linux/X11:
 
 **Progress (2026-04-26):** Reprioritized the remaining Record regression tasks after the full-suite sweep and stabilized the shared playback and zoom fixtures so grouped headless cursor and zoom coverage stays deterministic while the rounded-camera cluster is being worked through.
 
+**Progress (2026-04-26, later):** Focused `camera-rounded-visual.spec.ts` and `zoom-marker.spec.ts` runs now pass headlessly in isolation, but the latest full `pnpm test:e2e` rerun still shows order-dependent Record preview/template instability. Narrowed the shared root-cause lane to saved-take Record review settling, inspector/template interaction timing, and preview-size/hash assertions. Updated the Record playback/template test helpers to wait for settled saved-take review state, but TASK-240 remains open until the rounded-camera checks stay green inside the full suite.
+
 #### Verification
 
 - `pnpm exec playwright test tests/electron/camera-rounded-visual.spec.ts --reporter=line` passes.
 - The rounded-camera spec remains green inside `pnpm test:e2e`.
+- Latest status: focused headless run passes; full-suite headless rerun still fails `camera-rounded-visual.spec.ts` in this lane.
 
 ---
 
