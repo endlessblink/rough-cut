@@ -3,10 +3,16 @@ import type { Page } from '@playwright/test';
 import { copyFileSync, unlinkSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PLAYBACK_PROJECT_PATH } from './fixtures/playback-fixture.js';
+
+const DEFAULT_CAMERA_PROJECT_PATH = '/home/endlessblink/Documents/Rough Cut/Recording Apr 23 2026 - 2303.roughcut';
 
 const SOURCE_PROJECT_PATH =
-  process.env.ROUGH_CUT_SESSION_PATH ??
-  '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
+  process.env.ROUGH_CUT_SESSION_PATH && existsSync(process.env.ROUGH_CUT_SESSION_PATH)
+    ? process.env.ROUGH_CUT_SESSION_PATH
+    : existsSync(DEFAULT_CAMERA_PROJECT_PATH)
+      ? DEFAULT_CAMERA_PROJECT_PATH
+      : PLAYBACK_PROJECT_PATH;
 
 // Mirrors the RecordingResult payload shape that the main process normally
 // sends over RECORDING_ASSET_READY — see apps/desktop/src/renderer/env.d.ts.
@@ -377,7 +383,9 @@ async function loadRecordedProject(page: Page, projectPath: string): Promise<str
     ).roughcut.projectOpenPath(filePath);
   }, projectPath)) as Record<string, any>;
 
-  const recording = project.assets.find((asset: any) => asset.type === 'recording');
+  const recording = project.assets.find(
+    (asset: any) => asset.type === 'recording' && asset.metadata?.isCamera !== true,
+  );
   expect(recording).toBeTruthy();
 
   await page.evaluate(

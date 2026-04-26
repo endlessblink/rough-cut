@@ -3,12 +3,21 @@ import { copyFileSync, existsSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { PLAYBACK_PROJECT_PATH } from './fixtures/playback-fixture.js';
 
+const DEFAULT_CAMERA_PROJECT_PATH = '/home/endlessblink/Documents/Rough Cut/Recording Apr 23 2026 - 2303.roughcut';
+
 const SOURCE_PROJECT_PATH =
-  process.env.ROUGH_CUT_SESSION_PATH ??
-  (existsSync('/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut')
-    ? '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut'
-    : PLAYBACK_PROJECT_PATH);
+  process.env.ROUGH_CUT_SESSION_PATH && existsSync(process.env.ROUGH_CUT_SESSION_PATH)
+    ? process.env.ROUGH_CUT_SESSION_PATH
+    : existsSync(DEFAULT_CAMERA_PROJECT_PATH)
+      ? DEFAULT_CAMERA_PROJECT_PATH
+      : PLAYBACK_PROJECT_PATH;
 let recordedProjectPath = SOURCE_PROJECT_PATH;
+
+function findScreenRecording(project: Record<string, any>) {
+  return project.assets.find(
+    (asset: any) => asset.type === 'recording' && asset.metadata?.isCamera !== true,
+  );
+}
 
 const RECORD_CAMERA_VIDEO = '[data-testid="camera-playback-video"]';
 const EDIT_CAMERA_VIDEO = '[data-testid="edit-camera-playback-video"]';
@@ -51,7 +60,7 @@ test('persisted camera template/frame render the same in Record and Edit', async
     recordedProjectPath,
   )) as Record<string, any>;
 
-  const recording = project.assets.find((asset: any) => asset.type === 'recording');
+  const recording = findScreenRecording(project);
   expect(recording).toBeTruthy();
 
   await applyRecordingPresentationPatch(appPage, {
@@ -108,7 +117,7 @@ test('saved project preserves camera template/frame parity after reopen', async 
     recordedProjectPath,
   )) as Record<string, any>;
 
-  const recording = project.assets.find((asset: any) => asset.type === 'recording');
+  const recording = findScreenRecording(project);
   expect(recording).toBeTruthy();
 
   const savedPath = `/tmp/rough-cut-camera-parity-${Date.now()}.roughcut`;
@@ -142,7 +151,7 @@ test('saved project preserves camera template/frame parity after reopen', async 
     savedPath,
   )) as Record<string, any>;
 
-  const reopenedRecording = reopenedProject.assets.find((asset: any) => asset.type === 'recording');
+  const reopenedRecording = findScreenRecording(reopenedProject);
   expect(reopenedRecording?.presentation?.templateId).toBe('presentation-16x9');
   expect(reopenedRecording?.presentation?.cameraFrame).toEqual(DEFAULT_PERSISTED_CAMERA_FRAME);
 
@@ -193,7 +202,7 @@ test('persisted camera template/frame render the same in Record and Export', asy
     recordedProjectPath,
   )) as Record<string, any>;
 
-  const recording = project.assets.find((asset: any) => asset.type === 'recording');
+  const recording = findScreenRecording(project);
   expect(recording).toBeTruthy();
 
   await applyRecordingPresentationPatch(appPage, {
@@ -247,7 +256,7 @@ test('dragging the Record camera frame persists after save and reopen', async ({
     recordedProjectPath,
   )) as Record<string, any>;
 
-  const recording = project.assets.find((asset: any) => asset.type === 'recording');
+  const recording = findScreenRecording(project);
   expect(recording).toBeTruthy();
 
   await applyRecordingPresentationPatch(appPage, {
@@ -305,7 +314,7 @@ test('dragging the Record camera frame persists after save and reopen', async ({
     savedPath,
   )) as Record<string, any>;
 
-  const reopenedRecording = reopenedProject.assets.find((asset: any) => asset.type === 'recording');
+  const reopenedRecording = findScreenRecording(reopenedProject);
   expect(reopenedRecording?.presentation?.templateId).toBe('presentation-16x9');
   expect(reopenedRecording?.presentation?.cameraFrame?.x).toBeCloseTo(afterDrag.x, 2);
   expect(reopenedRecording?.presentation?.cameraFrame?.y).toBeCloseTo(afterDrag.y, 2);
@@ -358,7 +367,7 @@ test('camera visibility toggle hides camera video in both Record and Edit', asyn
     recordedProjectPath,
   )) as Record<string, any>;
 
-  const recording = project.assets.find((asset: any) => asset.type === 'recording');
+  const recording = findScreenRecording(project);
   expect(recording).toBeTruthy();
 
   await appPage.evaluate(
@@ -438,7 +447,7 @@ test('circle-shape camera PiP frame is square (width === height)', async ({ appP
     recordedProjectPath,
   )) as Record<string, any>;
 
-  const recording = project.assets.find((asset: any) => asset.type === 'recording');
+  const recording = findScreenRecording(project);
   expect(recording).toBeTruthy();
 
   // Patch with a non-square cameraFrame and shape === 'circle' — the renderer must square it
