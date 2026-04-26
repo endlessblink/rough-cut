@@ -7,9 +7,57 @@ test.describe('Record zoom rendering', () => {
 
     await appPage.evaluate(() => {
       const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+      const projectStore = stores?.project;
+      const state = projectStore?.getState();
+      const activeAssetId = state?.activeAssetId;
+      if (!activeAssetId) return;
+
+      projectStore.getState().updateProject((doc: any) => ({
+        ...doc,
+        assets: doc.assets.map((asset: any) =>
+          asset.id === activeAssetId
+            ? {
+                ...asset,
+                presentation: {
+                  ...(asset.presentation ?? {}),
+                  zoom: {
+                    ...(asset.presentation?.zoom ?? {}),
+                    autoIntensity: 0,
+                    markers: [
+                      {
+                        id: 'test-zoom-marker',
+                        startFrame: 0,
+                        endFrame: 30,
+                        kind: 'manual',
+                        strength: 1,
+                        focalPoint: { x: 0.5, y: 0.5 },
+                        zoomInDuration: 9,
+                        zoomOutDuration: 9,
+                      },
+                    ],
+                  },
+                },
+              }
+            : asset,
+        ),
+      }));
       stores?.transport.getState().seekToFrame(5);
     });
-    await appPage.waitForTimeout(300);
+    await expect
+      .poll(async () => {
+        const stores = await appPage.evaluate(() => {
+          const all = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
+          return {
+            playheadFrame: all?.transport.getState().playheadFrame ?? -1,
+            markerCount:
+              all?.project
+                .getState()
+                .project.assets.flatMap((asset: any) => asset.presentation?.zoom?.markers ?? []).length ?? 0,
+          };
+        });
+        return stores.playheadFrame === 5 && stores.markerCount > 0;
+      })
+      .toBe(true);
 
     const before = hashBytes(
       await appPage.locator('[data-testid="record-screen-frame"]').screenshot({ timeout: 5_000 }),
@@ -41,13 +89,16 @@ test.describe('Record zoom rendering', () => {
         ),
       }));
     });
-    await appPage.waitForTimeout(300);
-
-    const after = hashBytes(
-      await appPage.locator('[data-testid="record-screen-frame"]').screenshot({ timeout: 5_000 }),
-    );
-
-    expect(before).not.toBe(after);
+    await expect
+      .poll(async () => {
+        const after = hashBytes(
+          await appPage
+            .locator('[data-testid="record-screen-frame"]')
+            .screenshot({ timeout: 5_000 }),
+        );
+        return after !== before;
+      })
+      .toBe(true);
   });
 });
 

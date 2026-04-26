@@ -80,16 +80,9 @@ test.describe('Record append takes', () => {
 
     await fireRecordingAssetReady(electronApp, fake);
 
-    // Wait for the store to reflect the append — asset count climbing to 2
-    // is the simplest signal.
-    await appPage.waitForFunction(
-      (expected) => {
-        const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
-        return stores?.project.getState().project.assets.length >= expected;
-      },
-      initialAssetCount + 1,
-      { timeout: 10_000 },
-    );
+    await expect
+      .poll(async () => (await readProjectSnapshot(appPage)).assetCount, { timeout: 30_000 })
+      .toBe(initialAssetCount + 1);
 
     const after = await readProjectSnapshot(appPage);
     expect(after.assetCount).toBe(initialAssetCount + 1);

@@ -71,7 +71,10 @@ test('camera aspect control updates a saved camera frame override', async ({ app
                 presentation: {
                   ...(asset.presentation ?? {}),
                   templateId: 'presentation-16x9',
-                  cameraFrame: { x: 0.72, y: 0.72, w: 0.2, h: 0.2 },
+                  cameraLayouts: [],
+                  // Saved cameraFrame values are now treated as the final
+                  // rendered frame, so use a 16:9-canvas-compatible 1:1 box.
+                  cameraFrame: { x: 0.72, y: 0.72, w: 0.1125, h: 0.2 },
                   camera: {
                     ...(asset.presentation?.camera ?? {}),
                     visible: true,
@@ -101,14 +104,18 @@ test('camera aspect control updates a saved camera frame override', async ({ app
   await appPage.locator(RECORD_CAMERA_FRAME).waitFor({ state: 'visible', timeout: 30_000 });
 
   const before = await getFrameMetrics(appPage);
-  expect(before.width).toBeGreaterThan(before.height);
+  expect(Math.abs(before.width - before.height)).toBeLessThan(2);
 
-  await appPage.locator(RECORD_CAMERA_FRAME).click();
-  await appPage.locator('button', { hasText: '9:16' }).first().click();
+  await appPage.locator('[data-testid="inspector-rail-item"][data-category="camera"]').click();
+  await appPage
+    .locator('[data-testid="inspector-card-active"]')
+    .getByRole('button', { name: '9:16', exact: true })
+    .click();
   await appPage.waitForTimeout(300);
 
   const after = await getFrameMetrics(appPage);
-  expect(after.width).toBeLessThan(before.width);
+  expect(after.width).toBeLessThan(after.height);
+  expect(Math.abs(after.width - before.width)).toBeLessThan(before.width * 0.25);
   expect(after.height).toBeGreaterThan(after.width * 1.4);
 });
 

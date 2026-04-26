@@ -429,20 +429,13 @@ export function TemplatePreviewRenderer({
   const normalizedCameraFrameRaw = cameraNormalizedFrameOverride
     ? normalizedRectToCanvasRect(cameraNormalizedFrameOverride, containerW, containerH)
     : null;
-  // BUG-005 fix: when shape is 'circle', the persisted frame may have non-square w/h.
-  // Enforce 1:1 by taking the smaller dimension and centering.
-  const normalizedCameraFrame = (() => {
-    if (!normalizedCameraFrameRaw || cameraPresentation?.shape !== 'circle') {
-      return normalizedCameraFrameRaw;
-    }
-    const side = Math.min(normalizedCameraFrameRaw.width, normalizedCameraFrameRaw.height);
-    return {
-      x: normalizedCameraFrameRaw.x + (normalizedCameraFrameRaw.width - side) / 2,
-      y: normalizedCameraFrameRaw.y + (normalizedCameraFrameRaw.height - side) / 2,
-      width: side,
-      height: side,
-    };
-  })();
+  // Persisted normalized camera frames are generally saved as final rendered
+  // frames. The exception is legacy/non-square circle data, which must still be
+  // squared at render time so circle PiP cannot stretch into an oval.
+  const normalizedCameraFrame =
+    normalizedCameraFrameRaw && cameraPresentation?.shape === 'circle'
+      ? getCameraFrameRect(normalizedCameraFrameRaw, cameraPresentation)
+      : normalizedCameraFrameRaw;
   const cameraRect = cameraRectOverride ?? computed.cameraFrame;
   const screenRect = rawScreenRect
     ? insetRect(

@@ -216,7 +216,7 @@ To match the stability-first sprint framing above, the app header currently expo
 | ~~TASK-147~~ | ~~Record: Full reopen/project-move fidelity for templates and sidecars~~ | P1       | ✅ DONE (2026-04-21)     | BUG-013, TASK-123  |
 | TASK-148     | Record: Crash-resilient autosave + partial-take recovery                 | P1       | TODO                     | TASK-010, TASK-100 |
 | ~~TASK-149~~ | ~~Record: Audio clipping warnings + ducking preview + multi-track review~~ | P1     | ✅ DONE (2026-04-26)     | TASK-032, TASK-125 |
-| TASK-150     | Record: Per-segment visibility toggles for camera/cursor/clicks/overlays | P1       | TODO                     | TASK-089, TASK-090 |
+| ~~TASK-150~~ | ✅ Record: Per-segment visibility toggles for camera/cursor/clicks/overlays | P1       | ✅ DONE (2026-04-26)     | TASK-089, TASK-090 |
 | ~~TASK-151~~ | ~~Record: Destination presets with social framing and export linkage~~   | P1       | ✅ DONE (2026-04-19)     | TASK-094, TASK-121 |
 | TASK-152     | Record: Fear-reducing micro-affordances (DND, test clip, safe stop)      | P1       | TODO                     | TASK-126, TASK-100 |
 | TASK-153     | Record: Auto desktop icon hide + Do Not Disturb during recording         | P2       | TODO                     | TASK-152           |
@@ -279,7 +279,7 @@ To match the stability-first sprint framing above, the app header currently expo
 | ~~TASK-218~~ | ~~Record: Cursor sprite desynced from recorded video (fps unit mismatch)~~ | P0     | ✅ DONE (2026-04-25)     | TASK-010, TASK-101 |
 | ~~TASK-226~~ | ~~Record: Backward sub-frame cursor interpolation (fluent fast-motion)~~ | P1       | ✅ DONE (2026-04-25)     | TASK-216           |
 | ~~TASK-227~~ | ~~Build: Add `keepClickSounds` to `export-renderer/src/demo.ts` ExportSettings literal~~ | P1 | ✅ DONE (2026-04-25) | TASK-217 |
-| TASK-250     | Preview: Safe continuous cursor and zoom smoothness plan               | P1       | IN PROGRESS (2026-04-26) | TASK-216, TASK-075 |
+| ~~TASK-250~~ | ✅ Preview: Safe continuous cursor and zoom smoothness plan             | P1       | ✅ DONE (2026-04-26)     | TASK-216, TASK-075 |
 
 ### Recording Edge Features
 
@@ -1520,7 +1520,7 @@ Create and maintain a product-area stabilization map that breaks the app into th
 - TASK-130 Advanced cursor styles, click effects, and click sounds
 - TASK-131 Cinematic motion blur
 - TASK-132 Privacy blur masks and spotlight regions
-- TASK-150 Per-segment visibility toggles
+- ~~TASK-150~~ Per-segment visibility toggles
 - TASK-157 Watermark/logo inspector with persistent branding controls
 - TASK-155 AI captions in Record review
 - TASK-156 Smart Cut
@@ -3752,9 +3752,9 @@ Saved recordings now preserve screen capture cadence much better, but cursor mot
 
 ---
 
-### TASK-250: Preview: Safe continuous cursor and zoom smoothness plan
+### ~~TASK-250~~: Preview: Safe continuous cursor and zoom smoothness plan
 
-**Priority:** P1 | **Status:** IN PROGRESS (2026-04-26) | **Depends on:** TASK-216, TASK-075
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-26) | **Depends on:** TASK-216, TASK-075
 
 #### Intent
 
@@ -4652,7 +4652,7 @@ The full creative surface that turns Rough Cut from a capture utility into a Scr
 - `TASK-130` advanced cursor styles, click effects, and click sounds
 - `TASK-131` cinematic motion blur for cursor, zoom, and camera movement
 - `TASK-132` privacy blur masks and spotlight regions
-- `TASK-150` per-segment visibility toggles for camera/cursor/clicks/overlays
+- `~~TASK-150~~` per-segment visibility toggles for camera/cursor/clicks/overlays
 - `TASK-157` watermark/logo inspector with persistent branding controls
 - `TASK-155` AI captions with timeline edit + styling in Record review
 - `TASK-156` Smart Cut for filler words, silence, breaths, and mouth clicks

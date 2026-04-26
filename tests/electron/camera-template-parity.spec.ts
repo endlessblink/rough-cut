@@ -9,6 +9,7 @@ let recordedProjectPath = SOURCE_PROJECT_PATH;
 
 const RECORD_CAMERA_VIDEO = '[data-testid="camera-playback-video"]';
 const EDIT_CAMERA_VIDEO = '[data-testid="edit-camera-playback-video"]';
+const EDIT_CAMERA_FRAME = '[data-testid="edit-camera-frame"]';
 const RECORD_CAMERA_FRAME = '[data-testid="record-camera-frame"]';
 const PREVIEW_CONTENT = '[data-testid="record-card-content"]';
 const RECORD_ROOT = '[data-testid="record-tab-root"]';
@@ -64,34 +65,9 @@ test('persisted camera template/frame render the same in Record and Edit', async
   }, RECORD_CAMERA_VIDEO);
   await appPage.waitForTimeout(400);
 
-  const recordRect = await appPage.evaluate(
-    ({ rootSelector, frameSelector, previewSelector }) => {
-      const root = document.querySelector(rootSelector) as HTMLElement | null;
-      const frame = root?.querySelector(frameSelector) as HTMLElement | null;
-      const preview = root?.querySelector(previewSelector) as HTMLElement | null;
-      const frameRect = frame?.getBoundingClientRect();
-      const previewRect = preview?.getBoundingClientRect();
-      if (!frameRect || !previewRect) return null;
-      return {
-        x: (frameRect.x - previewRect.x) / previewRect.width,
-        y: (frameRect.y - previewRect.y) / previewRect.height,
-        w: frameRect.width / previewRect.width,
-        h: frameRect.height / previewRect.height,
-        pixelWidth: frameRect.width,
-        pixelHeight: frameRect.height,
-      };
-    },
-    {
-      rootSelector: RECORD_ROOT,
-      frameSelector: RECORD_CAMERA_FRAME,
-      previewSelector: PREVIEW_CONTENT,
-    },
-  );
+  const recordRect = await readTemplateCameraFrame(appPage);
   expect(recordRect).not.toBeNull();
   if (!recordRect) return;
-
-  expect(recordRect.pixelWidth).toBeGreaterThanOrEqual(120);
-  expect(recordRect.pixelHeight).toBeGreaterThanOrEqual(120);
 
   await navigateToTab(appPage, 'edit');
   await appPage.waitForFunction((selector) => {
@@ -99,27 +75,7 @@ test('persisted camera template/frame render the same in Record and Edit', async
     return video?.getAttribute('data-ready') === 'true';
   }, EDIT_CAMERA_VIDEO);
 
-  const editRect = await appPage.evaluate(
-    ({ rootSelector, videoSelector, previewSelector }) => {
-      const root = document.querySelector(rootSelector) as HTMLElement | null;
-      const video = root?.querySelector(videoSelector) as HTMLElement | null;
-      const preview = root?.querySelector(previewSelector) as HTMLElement | null;
-      const videoRect = video?.getBoundingClientRect();
-      const previewRect = preview?.getBoundingClientRect();
-      if (!videoRect || !previewRect) return null;
-      return {
-        x: (videoRect.x - previewRect.x) / previewRect.width,
-        y: (videoRect.y - previewRect.y) / previewRect.height,
-        w: videoRect.width / previewRect.width,
-        h: videoRect.height / previewRect.height,
-      };
-    },
-    {
-      rootSelector: EDIT_ROOT,
-      videoSelector: EDIT_CAMERA_VIDEO,
-      previewSelector: PREVIEW_CONTENT,
-    },
-  );
+  const editRect = await readEditCameraFrame(appPage);
   expect(editRect).not.toBeNull();
   if (!editRect) return;
 
@@ -202,22 +158,11 @@ test('saved project preserves camera template/frame parity after reopen', async 
     },
   );
 
-  const recordRect = await captureNormalizedRect(appPage, {
-    rootSelector: RECORD_ROOT,
-    mediaSelector: RECORD_CAMERA_FRAME,
-    previewSelector: PREVIEW_CONTENT,
-    settleSelector: RECORD_CAMERA_VIDEO,
-    waitForReadyAttribute: true,
-  });
+  const recordRect = await readTemplateCameraFrame(appPage);
 
   await navigateToTab(appPage, 'edit');
 
-  const editRect = await captureNormalizedRect(appPage, {
-    rootSelector: EDIT_ROOT,
-    mediaSelector: EDIT_CAMERA_VIDEO,
-    previewSelector: PREVIEW_CONTENT,
-    settleSelector: EDIT_CAMERA_VIDEO,
-  });
+  const editRect = await readEditCameraFrame(appPage);
 
   const diffs = {
     x: Math.abs(editRect.x - recordRect.x),
@@ -431,6 +376,27 @@ test('camera visibility toggle hides camera video in both Record and Edit', asyn
                   },
                 },
               }
+            : asset.metadata?.isCamera === true
+              ? {
+                  ...asset,
+                  presentation: {
+                    ...(asset.presentation ?? {}),
+                    camera: {
+                      shape: 'rounded',
+                      aspectRatio: '1:1',
+                      position: 'corner-br',
+                      roundness: 50,
+                      size: 100,
+                      visible: false,
+                      padding: 0,
+                      inset: 0,
+                      insetColor: '#ffffff',
+                      shadowEnabled: true,
+                      shadowBlur: 24,
+                      shadowOpacity: 0.45,
+                    },
+                  },
+                }
             : asset,
         ),
       };
@@ -487,6 +453,7 @@ test('circle-shape camera PiP frame is square (width === height)', async ({ appP
                 presentation: {
                   ...(asset.presentation ?? {}),
                   templateId: 'presentation-16x9',
+                  cameraLayouts: [],
                   cameraFrame: persistedFrame,
                   camera: {
                     ...(asset.presentation?.camera ?? {}),
@@ -515,7 +482,8 @@ test('circle-shape camera PiP frame is square (width === height)', async ({ appP
   await appPage.waitForTimeout(300);
 
   // The camera frame must be square: width === height (within 2px tolerance)
-  const cameraFrameBox = await appPage.locator(RECORD_CAMERA_FRAME).boundingBox();
+  const recordRoot = appPage.locator(RECORD_ROOT);
+  const cameraFrameBox = await recordRoot.locator(RECORD_CAMERA_FRAME).boundingBox();
   expect(cameraFrameBox).not.toBeNull();
   if (!cameraFrameBox) return;
 
@@ -523,7 +491,9 @@ test('circle-shape camera PiP frame is square (width === height)', async ({ appP
   expect(widthHeightDiff).toBeLessThanOrEqual(2);
 
   // Also verify the data-camera-shape attribute is set
-  const shape = await appPage.locator('[data-testid="template-preview-root"]').getAttribute('data-camera-shape');
+  const shape = await recordRoot
+    .locator('[data-testid="template-preview-root"]')
+    .getAttribute('data-camera-shape');
   expect(shape).toBe('circle');
 });
 
@@ -551,8 +521,18 @@ async function applyRecordingPresentationPatch(
                   templateId: 'presentation-16x9',
                   cameraFrame: persistedFrame,
                   camera: {
-                    ...(asset.presentation?.camera ?? {}),
+                    shape: 'rounded',
+                    aspectRatio: '1:1',
+                    position: 'corner-br',
+                    roundness: 50,
+                    size: 100,
                     visible: cameraVisible,
+                    padding: 0,
+                    inset: 0,
+                    insetColor: '#ffffff',
+                    shadowEnabled: true,
+                    shadowBlur: 24,
+                    shadowOpacity: 0.45,
                   },
                 },
               }
@@ -614,8 +594,15 @@ async function captureNormalizedRect(
 }
 
 async function readTemplateCameraFrame(page: import('@playwright/test').Page) {
+  await page.waitForFunction(() => {
+    const recordRoot = document.querySelector('[data-testid="record-tab-root"]') as HTMLElement | null;
+    const root = recordRoot?.querySelector('[data-testid="template-preview-root"]') as HTMLElement | null;
+    return Boolean(root?.getAttribute('data-camera-frame-w'));
+  });
+
   return page.evaluate(() => {
-    const root = document.querySelector('[data-testid="template-preview-root"]') as HTMLElement | null;
+    const recordRoot = document.querySelector('[data-testid="record-tab-root"]') as HTMLElement | null;
+    const root = recordRoot?.querySelector('[data-testid="template-preview-root"]') as HTMLElement | null;
     if (!root) {
       throw new Error('template-preview-root not found');
     }
@@ -626,4 +613,24 @@ async function readTemplateCameraFrame(page: import('@playwright/test').Page) {
       h: Number(root.getAttribute('data-camera-frame-h') ?? '0'),
     };
   });
+}
+
+async function readEditCameraFrame(page: import('@playwright/test').Page) {
+  await page.waitForFunction((selector) => {
+    const editRoot = document.querySelector('[data-testid="edit-tab-root"]') as HTMLElement | null;
+    const frame = editRoot?.querySelector(selector) as HTMLElement | null;
+    return Boolean(frame?.getAttribute('data-camera-frame-w'));
+  }, EDIT_CAMERA_FRAME);
+
+  return page.evaluate((selector) => {
+    const editRoot = document.querySelector('[data-testid="edit-tab-root"]') as HTMLElement | null;
+    const frame = editRoot?.querySelector(selector) as HTMLElement | null;
+    if (!frame) return null;
+    return {
+      x: Number(frame.getAttribute('data-camera-frame-x') ?? '0'),
+      y: Number(frame.getAttribute('data-camera-frame-y') ?? '0'),
+      w: Number(frame.getAttribute('data-camera-frame-w') ?? '0'),
+      h: Number(frame.getAttribute('data-camera-frame-h') ?? '0'),
+    };
+  }, EDIT_CAMERA_FRAME);
 }

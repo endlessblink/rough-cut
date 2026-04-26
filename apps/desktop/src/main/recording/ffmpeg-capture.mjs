@@ -155,7 +155,7 @@ export function startFfmpegCapture({
     '-c:v',
     'libvpx', // VP8 — same codec as MediaRecorder WebM
     '-b:v',
-    '8M', // 8 Mbps bitrate
+    '12M', // 12 Mbps bitrate — a bit more headroom for crisp 1080p60 UI/text
     '-deadline',
     'realtime', // Low-latency encoding
     '-cpu-used',

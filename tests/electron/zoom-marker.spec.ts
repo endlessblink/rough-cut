@@ -352,14 +352,30 @@ test.describe('Zoom markers — Record tab', () => {
       ).__roughcutStores;
       stores?.transport.setState({ playheadFrame: 5 });
     });
-    await appPage.waitForTimeout(100);
+    await expect
+      .poll(async () => {
+        const rect = await cameraFrame.evaluate((el) => {
+          const next = (el as HTMLElement).getBoundingClientRect();
+          return { width: next.width, height: next.height };
+        });
+        return rect;
+      })
+      .toMatchObject({
+        width: expect.any(Number),
+        height: expect.any(Number),
+      });
 
-    const during = await cameraFrame.evaluate((el) => {
-      const rect = (el as HTMLElement).getBoundingClientRect();
-      return { width: rect.width, height: rect.height };
-    });
-
-    expect(during.width).toBeLessThan(before.width);
-    expect(during.height).toBeLessThan(before.height);
+    await expect
+      .poll(async () => {
+        const rect = await cameraFrame.evaluate((el) => {
+          const next = (el as HTMLElement).getBoundingClientRect();
+          return { width: next.width, height: next.height };
+        });
+        return {
+          widthShrunk: rect.width < before.width,
+          heightShrunk: rect.height < before.height,
+        };
+      })
+      .toEqual({ widthShrunk: true, heightShrunk: true });
   });
 });

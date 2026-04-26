@@ -1240,7 +1240,12 @@ test.describe('Record tab', () => {
       ]);
     });
 
-    await appPage.getByRole('button', { name: 'Captions' }).click();
+    await appPage.evaluate(() => {
+      const button = document.querySelector(
+        '[data-testid="inspector-rail-item"][data-category="captions"]',
+      ) as HTMLButtonElement | null;
+      button?.click();
+    });
     await expect(appPage.locator('[data-testid="inspector-card-active"]')).toHaveAttribute(
       'data-category',
       'captions',

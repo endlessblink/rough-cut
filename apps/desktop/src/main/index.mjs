@@ -969,6 +969,49 @@ async function hasPrimaryAudioStream(filePath) {
   }
 }
 
+async function probePrimaryVideoStream(filePath) {
+  try {
+    const { stdout } = await execFile('ffprobe', [
+      '-v',
+      'quiet',
+      '-select_streams',
+      'v:0',
+      '-show_entries',
+      'stream=codec_name,width,height,avg_frame_rate',
+      '-of',
+      'json',
+      filePath,
+    ]);
+    const parsed = JSON.parse(stdout);
+    const stream = parsed?.streams?.[0] ?? null;
+    if (!stream) return null;
+    return {
+      codec: stream.codec_name ?? 'unknown',
+      width: stream.width ?? null,
+      height: stream.height ?? null,
+      avgFrameRate: stream.avg_frame_rate ?? null,
+    };
+  } catch (error) {
+    console.warn('[export-finalize] ffprobe video-codec check failed:', {
+      filePath,
+      error: error?.message ?? String(error),
+    });
+    return null;
+  }
+}
+
+async function logFinalExportVideoCodec(filePath, audioIncluded) {
+  const stream = await probePrimaryVideoStream(filePath);
+  console.info('[export-finalize] Final export video stream:', {
+    filePath,
+    audioIncluded,
+    codec: stream?.codec ?? 'unknown',
+    width: stream?.width ?? null,
+    height: stream?.height ?? null,
+    avgFrameRate: stream?.avgFrameRate ?? null,
+  });
+}
+
 function parsePcm16Wav(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const readTag = (offset) =>
@@ -1235,6 +1278,7 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
       clickTrackPath,
     });
     await rename(videoPath, outputPath);
+    await logFinalExportVideoCodec(outputPath, false);
     return { outputPath, audioIncluded: false };
   }
 
@@ -1324,6 +1368,7 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
       await unlink(clickTrackPath).catch(() => {});
     }
     await rename(videoPath, outputPath);
+    await logFinalExportVideoCodec(outputPath, false);
     return { outputPath, audioIncluded: false };
   }
   const mixInputs = mixLabels.join('');
@@ -1388,6 +1433,7 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
     }
     await unlink(videoPath).catch(() => {});
     await rename(tempOutputPath, outputPath);
+    await logFinalExportVideoCodec(outputPath, true);
     return { outputPath, audioIncluded: true };
   } catch (error) {
     console.warn('[export-finalize] Audio finalize failed; preserving video-only export:', {
@@ -1401,6 +1447,7 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
     }
     await unlink(tempOutputPath).catch(() => {});
     await rename(videoPath, outputPath);
+    await logFinalExportVideoCodec(outputPath, false);
     return { outputPath, audioIncluded: false };
   }
 }

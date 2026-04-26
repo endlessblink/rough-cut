@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import { navigateToTab } from './electron-app.js';
 
@@ -42,7 +43,7 @@ export async function loadZoomFixture(
 
   let cursorEventsPath = inferredCursorEventsPath ?? null;
   if (options.preserveCursorEvents) {
-    cursorEventsPath = join(tmpdir(), 'rough-cut-e2e-cursor-fixture.ndjson');
+    cursorEventsPath = join(tmpdir(), `rough-cut-e2e-cursor-fixture-${randomUUID()}.ndjson`);
     await writeFile(cursorEventsPath, buildSyntheticCursorSidecar(recording.duration ?? 180), 'utf-8');
   }
 
@@ -86,7 +87,11 @@ export async function loadZoomFixture(
       stores?.project.getState().setProject(nextProject);
       stores?.project.getState().setProjectFilePath(projectPath);
       stores?.project.getState().setActiveAssetId(activeAssetId);
-      stores?.transport.getState().seekToFrame(0);
+      stores?.transport.setState({
+        playheadFrame: 0,
+        isPlaying: false,
+        selectedClipIds: [],
+      });
     },
     {
       nextProject: sanitizedProject,

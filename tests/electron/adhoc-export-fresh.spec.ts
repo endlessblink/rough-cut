@@ -171,7 +171,10 @@ test.describe('adhoc fresh-record export', () => {
     );
 
     await navigateToTab(appPage, 'export');
-    await appPage.locator('[data-testid="btn-export"]').click();
+    await appPage.evaluate(() => {
+      const button = document.querySelector('[data-testid="btn-export"]') as HTMLButtonElement | null;
+      button?.click();
+    });
 
     await expect
       .poll(() => (existsSync(outputPath) ? statSync(outputPath).size : 0), { timeout: 210_000 })

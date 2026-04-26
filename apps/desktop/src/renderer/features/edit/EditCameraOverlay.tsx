@@ -116,12 +116,17 @@ export function EditCameraOverlay({
     camera.shape === 'circle'
       ? '50%'
       : getCameraBorderRadius(camera, frameSize.width, frameSize.height);
-  const frameStyle: CSSProperties = cameraFrame
+  // Persisted cameraFrame values are already stored as the final rendered
+  // frame. Record reshapes the normalized frame when the user changes camera
+  // aspect/shape, so Edit should render the saved frame directly rather than
+  // fitting it again.
+  const fittedCameraFrame = cameraFrame ?? null;
+  const frameStyle: CSSProperties = fittedCameraFrame
     ? {
-        left: `${cameraFrame.x * 100}%`,
-        top: `${cameraFrame.y * 100}%`,
-        width: `${cameraFrame.w * 100}%`,
-        height: `${cameraFrame.h * 100}%`,
+        left: `${fittedCameraFrame.x * 100}%`,
+        top: `${fittedCameraFrame.y * 100}%`,
+        width: `${fittedCameraFrame.w * 100}%`,
+        height: `${fittedCameraFrame.h * 100}%`,
       }
     : {
         width: `${widthPercent}%`,
@@ -132,6 +137,11 @@ export function EditCameraOverlay({
   return (
     <div
       ref={frameRef}
+      data-testid="edit-camera-frame"
+      data-camera-frame-x={fittedCameraFrame ? fittedCameraFrame.x.toFixed(4) : ''}
+      data-camera-frame-y={fittedCameraFrame ? fittedCameraFrame.y.toFixed(4) : ''}
+      data-camera-frame-w={fittedCameraFrame ? fittedCameraFrame.w.toFixed(4) : ''}
+      data-camera-frame-h={fittedCameraFrame ? fittedCameraFrame.h.toFixed(4) : ''}
       style={{
         position: 'absolute',
         overflow: 'hidden',
