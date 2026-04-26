@@ -614,9 +614,17 @@ export class PreviewCompositor {
     audio.preload = 'auto';
     audio.muted = true;
 
+    console.info('[compositor] Loading audio stem:', { key, filePath });
+
     const next: StemAudioCache = { audio, filePath, loaded: false };
     audio.addEventListener('loadeddata', () => {
       next.loaded = true;
+      console.info('[compositor] Audio stem loaded:', {
+        key,
+        filePath,
+        duration: Number.isFinite(audio.duration) ? audio.duration : null,
+        readyState: audio.readyState,
+      });
       if (this._playing) {
         this.syncStemAudio();
       }
@@ -643,6 +651,21 @@ export class PreviewCompositor {
       this.currentFrame,
       this.soloTrackIds,
     );
+
+    if (active.length > 0) {
+      console.info('[compositor] Active audio stems at frame:', {
+        frame: this.currentFrame,
+        stems: active.map((source) => ({
+          key: source.key,
+          assetId: source.assetId,
+          clipId: source.clipId,
+          stem: source.stem,
+          filePath: source.filePath,
+          sourceFrame: source.sourceFrame,
+          gain: source.gain,
+        })),
+      });
+    }
     const activeKeys = new Set(active.map((source) => source.key));
 
     for (const source of active) {

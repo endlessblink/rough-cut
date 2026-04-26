@@ -157,7 +157,7 @@ async function assertRoundedCameraVisual(
                     position: 'corner-br',
                   },
                   cameraFrame: aspectRatio === '1:1'
-                    ? { x: 0.72, y: 0.70, w: 0.2, h: 0.2 }
+                    ? { x: 0.76375, y: 0.70, w: 0.1125, h: 0.2 }
                     : { x: 0.64, y: 0.72, w: 0.28, h: 0.16 },
                 },
               }

@@ -1,8 +1,12 @@
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
+import { copyFileSync, existsSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-const RECORDED_PROJECT_PATH =
+const SOURCE_PROJECT_PATH =
   process.env.ROUGH_CUT_SESSION_PATH ??
   '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
+let recordedProjectPath = SOURCE_PROJECT_PATH;
 
 const RECORD_CAMERA_VIDEO = '[data-testid="camera-playback-video"]';
 const EDIT_CAMERA_VIDEO = '[data-testid="edit-camera-playback-video"]';
@@ -12,6 +16,24 @@ const RECORD_ROOT = '[data-testid="record-tab-root"]';
 const EDIT_ROOT = '[data-testid="edit-tab-root"]';
 const EXPORT_ROOT = '[data-testid="export-tab-root"]';
 const DEFAULT_PERSISTED_CAMERA_FRAME = { x: 0.02, y: 0.1, w: 0.34, h: 0.8 };
+
+test.beforeEach(() => {
+  recordedProjectPath = join(
+    tmpdir(),
+    `rough-cut-camera-template-parity-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.roughcut`,
+  );
+  copyFileSync(SOURCE_PROJECT_PATH, recordedProjectPath);
+});
+
+test.afterEach(() => {
+  if (!recordedProjectPath || recordedProjectPath === SOURCE_PROJECT_PATH) return;
+  if (!existsSync(recordedProjectPath)) return;
+  try {
+    unlinkSync(recordedProjectPath);
+  } catch {
+    // Best-effort cleanup only; failed deletion should not mask test results.
+  }
+});
 
 test('persisted camera template/frame render the same in Record and Edit', async ({ appPage }) => {
   test.setTimeout(45_000);
@@ -23,7 +45,7 @@ test('persisted camera template/frame render the same in Record and Edit', async
       (
         window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
       ).roughcut.projectOpenPath(projectPath),
-    RECORDED_PROJECT_PATH,
+    recordedProjectPath,
   )) as Record<string, any>;
 
   const recording = project.assets.find((asset: any) => asset.type === 'recording');
@@ -31,7 +53,7 @@ test('persisted camera template/frame render the same in Record and Edit', async
 
   await applyRecordingPresentationPatch(appPage, {
     nextProject: project,
-    projectPath: RECORDED_PROJECT_PATH,
+    projectPath: recordedProjectPath,
     activeAssetId: recording?.id ?? null,
     persistedFrame: DEFAULT_PERSISTED_CAMERA_FRAME,
     cameraVisible: true,
@@ -125,7 +147,7 @@ test('saved project preserves camera template/frame parity after reopen', async 
       (
         window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
       ).roughcut.projectOpenPath(projectPath),
-    RECORDED_PROJECT_PATH,
+    recordedProjectPath,
   )) as Record<string, any>;
 
   const recording = project.assets.find((asset: any) => asset.type === 'recording');
@@ -221,7 +243,7 @@ test('persisted camera template/frame render the same in Record and Export', asy
       (
         window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
       ).roughcut.projectOpenPath(projectPath),
-    RECORDED_PROJECT_PATH,
+    recordedProjectPath,
   )) as Record<string, any>;
 
   const recording = project.assets.find((asset: any) => asset.type === 'recording');
@@ -229,7 +251,7 @@ test('persisted camera template/frame render the same in Record and Export', asy
 
   await applyRecordingPresentationPatch(appPage, {
     nextProject: project,
-    projectPath: RECORDED_PROJECT_PATH,
+    projectPath: recordedProjectPath,
     activeAssetId: recording?.id ?? null,
     persistedFrame: DEFAULT_PERSISTED_CAMERA_FRAME,
     cameraVisible: true,
@@ -275,7 +297,7 @@ test('dragging the Record camera frame persists after save and reopen', async ({
       (
         window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
       ).roughcut.projectOpenPath(projectPath),
-    RECORDED_PROJECT_PATH,
+    recordedProjectPath,
   )) as Record<string, any>;
 
   const recording = project.assets.find((asset: any) => asset.type === 'recording');
@@ -283,7 +305,7 @@ test('dragging the Record camera frame persists after save and reopen', async ({
 
   await applyRecordingPresentationPatch(appPage, {
     nextProject: project,
-    projectPath: RECORDED_PROJECT_PATH,
+    projectPath: recordedProjectPath,
     activeAssetId: recording?.id ?? null,
     persistedFrame: DEFAULT_PERSISTED_CAMERA_FRAME,
     cameraVisible: true,
@@ -386,7 +408,7 @@ test('camera visibility toggle hides camera video in both Record and Edit', asyn
       (
         window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
       ).roughcut.projectOpenPath(projectPath),
-    RECORDED_PROJECT_PATH,
+    recordedProjectPath,
   )) as Record<string, any>;
 
   const recording = project.assets.find((asset: any) => asset.type === 'recording');
@@ -421,7 +443,7 @@ test('camera visibility toggle hides camera video in both Record and Edit', asyn
     },
     {
       nextProject: project,
-      projectPath: RECORDED_PROJECT_PATH,
+      projectPath: recordedProjectPath,
       activeAssetId: recording?.id ?? null,
     },
   );
@@ -445,7 +467,7 @@ test('circle-shape camera PiP frame is square (width === height)', async ({ appP
       (
         window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
       ).roughcut.projectOpenPath(projectPath),
-    RECORDED_PROJECT_PATH,
+    recordedProjectPath,
   )) as Record<string, any>;
 
   const recording = project.assets.find((asset: any) => asset.type === 'recording');
@@ -485,7 +507,7 @@ test('circle-shape camera PiP frame is square (width === height)', async ({ appP
     },
     {
       nextProject: project,
-      projectPath: RECORDED_PROJECT_PATH,
+      projectPath: recordedProjectPath,
       activeAssetId: recording?.id ?? null,
       persistedFrame: nonSquareFrame,
     },
