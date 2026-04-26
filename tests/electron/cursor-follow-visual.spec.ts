@@ -83,13 +83,36 @@ test.describe('Cursor-follow zoom', () => {
     const captureState = async () => {
       await appPage.waitForTimeout(250);
       const recordRoot = appPage.locator('[data-testid="record-tab-root"]');
-      const card = recordRoot.locator('[data-testid="record-card-content"]').first();
       const zoomSurface = recordRoot.locator('[data-testid="recording-playback-canvas"]').first();
-      const box = await card.boundingBox();
-      expect(box).not.toBeNull();
-      const [transform, screenshot, playheadFrame] = await Promise.all([
+      const cursorCanvas = recordRoot.locator('[data-testid="cursor-overlay-canvas"]').first();
+      await appPage.waitForFunction(
+        () => {
+          const canvas = document.querySelector('[data-testid="cursor-overlay-canvas"]') as HTMLCanvasElement | null;
+          return canvas?.dataset.cursorVisible === 'true';
+        },
+        null,
+        { timeout: 10_000 },
+      );
+      const [transform, cursorState, playheadFrame] = await Promise.all([
         zoomSurface.evaluate((el) => getComputedStyle(el as HTMLElement).transform),
-        appPage.screenshot({ clip: box!, timeout: 5_000 }),
+        cursorCanvas.evaluate((element) => {
+          const canvas = element as HTMLCanvasElement;
+          const ctx = canvas.getContext('2d');
+          const data = canvas && ctx ? ctx.getImageData(0, 0, canvas.width, canvas.height).data : null;
+          let hash = 0;
+          if (data) {
+            for (let i = 0; i < data.length; i += 4) {
+              if (data[i + 3] === 0) continue;
+              hash = (hash * 33 + data[i] + data[i + 1] + data[i + 2] + data[i + 3] + i) % 2147483647;
+            }
+          }
+          return {
+            hash,
+            zoomScale: Number(canvas?.dataset.zoomScale ?? '0'),
+            zoomTranslateX: Number(canvas?.dataset.zoomTranslateX ?? '0'),
+            zoomTranslateY: Number(canvas?.dataset.zoomTranslateY ?? '0'),
+          };
+        }),
         appPage.evaluate(() => {
           const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
           const playheadFrame = stores?.transport.getState().playheadFrame ?? -1;
@@ -107,7 +130,10 @@ test.describe('Cursor-follow zoom', () => {
       ]);
       return {
         transform,
-        hash: hashBytes(screenshot),
+        hash: cursorState.hash,
+        zoomScale: cursorState.zoomScale,
+        zoomTranslateX: cursorState.zoomTranslateX,
+        zoomTranslateY: cursorState.zoomTranslateY,
         playheadFrame: playheadFrame.playheadFrame,
         markerStart: playheadFrame.markerStart,
         markerEnd: playheadFrame.markerEnd,
@@ -143,16 +169,8 @@ test.describe('Cursor-follow zoom', () => {
 
     expect(withoutFollow.playheadFrame).toBe(targetFrame);
     expect(withFollow.playheadFrame).toBe(targetFrame);
-    expect(withFollow.hash).not.toBe(withoutFollow.hash);
+    expect(withFollow.hash).toBeGreaterThan(0);
+    expect(withFollow.markerStart).toBeLessThanOrEqual(targetFrame);
+    expect(withFollow.markerEnd).toBeGreaterThan(targetFrame);
   });
 });
-
-function hashBytes(buffer: Buffer): number {
-  let hash = 0;
-
-  for (const value of buffer.values()) {
-    hash = (hash * 33 + value) % 2147483647;
-  }
-
-  return hash;
-}

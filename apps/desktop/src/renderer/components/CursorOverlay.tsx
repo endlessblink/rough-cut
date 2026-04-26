@@ -185,6 +185,9 @@ function setCursorDebugData(
         cursorY: number;
         interpolating: boolean;
         interpolationT: number;
+        zoomScale: number;
+        zoomTranslateX: number;
+        zoomTranslateY: number;
       },
 ) {
   canvas.dataset.cursorVisible = payload.visible ? 'true' : 'false';
@@ -203,6 +206,9 @@ function setCursorDebugData(
   canvas.dataset.cursorY = payload.cursorY.toFixed(6);
   canvas.dataset.interpolating = payload.interpolating ? 'true' : 'false';
   canvas.dataset.interpolationT = payload.interpolationT.toFixed(4);
+  canvas.dataset.zoomScale = payload.zoomScale.toFixed(6);
+  canvas.dataset.zoomTranslateX = payload.zoomTranslateX.toFixed(6);
+  canvas.dataset.zoomTranslateY = payload.zoomTranslateY.toFixed(6);
 }
 
 export function CursorOverlay({
@@ -373,6 +379,9 @@ export function CursorOverlay({
         cursorY: cursor.y,
         interpolating: interpolation.shouldInterpolate,
         interpolationT: interpolation.lerpT,
+        zoomScale: zoom.scale,
+        zoomTranslateX: zoom.translateX,
+        zoomTranslateY: zoom.translateY,
       });
 
       const point = applyZoomToPoint(croppedCursor.x, croppedCursor.y, width, height, zoom);
@@ -431,6 +440,7 @@ export function CursorOverlay({
     >
       <canvas
         ref={canvasRef}
+        data-testid="cursor-overlay-canvas"
         style={{
           position: 'absolute',
           inset: 0,

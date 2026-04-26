@@ -212,7 +212,9 @@ export function RecordingPlaybackVideo({
     ],
   );
 
-  const zt = getZoomTransformForFrame(playheadFrame - clipTimelineIn);
+  const zt = getZoomTransformForFrame(sourcePlayheadFrame);
+  const zoomHostOffsetX = ((1 - zt.scale) / 2 + zt.translateX) * 100;
+  const zoomHostOffsetY = ((1 - zt.scale) / 2 + zt.translateY) * 100;
 
   const reticleVisible =
     !!selectedZoomMarker &&
@@ -234,6 +236,7 @@ export function RecordingPlaybackVideo({
         style={{
           position: 'absolute',
           inset: 0,
+          overflow: 'hidden',
         }}
       >
         <div
@@ -241,6 +244,8 @@ export function RecordingPlaybackVideo({
           style={{
             position: 'absolute',
             inset: 0,
+            transformOrigin: '0 0',
+            transform: `translate(${zoomHostOffsetX}%, ${zoomHostOffsetY}%) scale(${zt.scale})`,
           }}
         >
           <div ref={previewRef} style={{ position: 'absolute', inset: 0 }} />

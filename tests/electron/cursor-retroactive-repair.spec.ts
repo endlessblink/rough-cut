@@ -49,6 +49,14 @@ test.describe('Retroactive cursor repair', () => {
         width,
         height,
       };
+      activeRecording.presentation = {
+        ...activeRecording.presentation,
+        visibilitySegments: [],
+        screenCrop: {
+          ...(activeRecording.presentation?.screenCrop ?? {}),
+          enabled: false,
+        },
+      };
 
       await appPage.evaluate(
         ({ nextProject, projectPath, activeAssetId }) => {
@@ -56,7 +64,7 @@ test.describe('Retroactive cursor repair', () => {
           stores?.project.getState().setProject(nextProject);
           stores?.project.getState().setProjectFilePath(projectPath);
           stores?.project.getState().setActiveAssetId(activeAssetId);
-          stores?.transport.getState().seekToFrame(5);
+          stores?.transport.getState().seekToFrame(1);
         },
         {
           nextProject: project,
@@ -71,7 +79,7 @@ test.describe('Retroactive cursor repair', () => {
       }, '[data-testid="recording-playback-video"]');
 
       await appPage.waitForFunction(() => {
-        const canvas = document.querySelector('canvas[data-source-frame]') as HTMLCanvasElement | null;
+        const canvas = document.querySelector('[data-testid="cursor-overlay-canvas"]') as HTMLCanvasElement | null;
         if (!canvas) return false;
         if (canvas.dataset.cursorVisible !== 'true') return false;
         const ctx = canvas.getContext('2d');
@@ -84,7 +92,7 @@ test.describe('Retroactive cursor repair', () => {
       }, undefined, { timeout: 10000 });
 
       const diag = await appPage.evaluate(() => {
-        const canvas = document.querySelector('canvas[data-source-frame]') as HTMLCanvasElement | null;
+        const canvas = document.querySelector('[data-testid="cursor-overlay-canvas"]') as HTMLCanvasElement | null;
         const ctx = canvas?.getContext('2d');
         if (!canvas || !ctx) return null;
 

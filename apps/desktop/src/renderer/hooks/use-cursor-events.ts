@@ -20,16 +20,11 @@ interface CaptureDisplayBounds {
 /** Promise-based cache keyed by sidecar path. Hits survive remounts. */
 const cache = new Map<string, Promise<readonly CursorEvent[]>>();
 
-let displayBoundsPromise: Promise<readonly CaptureDisplayBounds[]> | null = null;
-
 function getDisplayBounds(): Promise<readonly CaptureDisplayBounds[]> {
-  if (!displayBoundsPromise) {
-    displayBoundsPromise = window.roughcut.recordingGetDisplayBounds().catch((err) => {
-      console.warn('[useCursorEvents] Failed to load display bounds:', err);
-      return [];
-    });
-  }
-  return displayBoundsPromise;
+  return window.roughcut.recordingGetDisplayBounds().catch((err) => {
+    console.warn('[useCursorEvents] Failed to load display bounds:', err);
+    return [];
+  });
 }
 
 function scoreInBounds(

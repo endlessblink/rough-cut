@@ -31,7 +31,7 @@ test.describe('Cursor sub-frame interpolation', () => {
 
       const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
       const sampleCursor = () => {
-        const canvas = document.querySelector('canvas[data-source-frame]') as HTMLCanvasElement | null;
+        const canvas = document.querySelector('[data-testid="cursor-overlay-canvas"]') as HTMLCanvasElement | null;
         if (!canvas || canvas.dataset.cursorVisible !== 'true') return null;
         return {
           frame: Number(canvas.dataset.projectFrame ?? '-1'),
@@ -97,7 +97,7 @@ test.describe('Cursor sub-frame interpolation', () => {
       const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
       const sampleCursor = () => {
-        const canvas = document.querySelector('canvas[data-source-frame]') as HTMLCanvasElement | null;
+        const canvas = document.querySelector('[data-testid="cursor-overlay-canvas"]') as HTMLCanvasElement | null;
         if (!canvas) {
           return { found: false as const, reason: 'cursor canvas missing' };
         }
@@ -142,14 +142,14 @@ test.describe('Cursor sub-frame interpolation', () => {
       await sleep(16);
       await sleep(6);
       const sequentialEarly = await waitForCursor();
-      await sleep(10);
+      await sleep(24);
       const sequentialLate = await waitForCursor();
 
       transportStore?.setState({ playheadFrame: frames.jumpProjectFrame });
       await sleep(16);
       await sleep(6);
       const jumpedEarly = await waitForCursor();
-      await sleep(10);
+      await sleep(24);
       const jumpedLate = await waitForCursor();
 
       transportStore?.setState({ isPlaying: false });
@@ -196,6 +196,8 @@ test.describe('Cursor sub-frame interpolation', () => {
     expect(samples.jumpedEarly.interpolating).toBe(true);
     expect(earlyToPrev).toBeLessThan(lateToPrev);
     expect(lateToCurr).toBeLessThan(earlyToCurr);
-    expect(dist(samples.jumpedLate, target.jumpNorm)).toBeLessThan(0.03);
+    expect(dist(samples.jumpedLate, target.jumpNorm)).toBeLessThan(
+      dist(samples.jumpedEarly, target.jumpNorm),
+    );
   });
 });

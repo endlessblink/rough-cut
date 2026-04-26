@@ -45,6 +45,16 @@ test('Apr 25 0924 cursor lands on click target after fps rescaling', async ({ ap
     (asset) => asset.type === 'recording',
   );
   expect(recording).toBeTruthy();
+  if (recording) {
+    recording.presentation = {
+      ...(recording.presentation as Record<string, unknown> | undefined),
+      visibilitySegments: [],
+      screenCrop: {
+        ...(((recording.presentation as Record<string, any> | undefined)?.screenCrop ?? {}) as Record<string, unknown>),
+        enabled: false,
+      },
+    };
+  }
 
   await appPage.evaluate(
     ({ nextProject, projectPath, activeAssetId, frame }) => {
@@ -62,43 +72,17 @@ test('Apr 25 0924 cursor lands on click target after fps rescaling', async ({ ap
     },
   );
 
-  // The cursor canvas is the one that's NOT the PixiJS native-res backbuffer
-  // (which stays at source 1920×1080). Find the smaller, non-empty canvas.
-  const findCursorCanvas = () => {
-    const canvases = Array.from(document.querySelectorAll('canvas')) as HTMLCanvasElement[];
-    let best: HTMLCanvasElement | null = null;
-    let bestPixels = 0;
-    for (const c of canvases) {
-      const ctx = c.getContext('2d');
-      if (!ctx) continue;
-      try {
-        const data = ctx.getImageData(0, 0, c.width, c.height).data;
-        let count = 0;
-        for (let i = 3; i < data.length; i += 4) if (data[i] > 0) count++;
-        if (count > bestPixels) {
-          bestPixels = count;
-          best = c;
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-    return best ? { canvas: best, pixels: bestPixels } : null;
-  };
-
-  // Wait for some canvas to have non-empty pixels (cursor sprite drawn).
+  // Wait for the dedicated cursor overlay canvas to have non-empty pixels.
   await appPage.waitForFunction(
     () => {
-      const canvases = Array.from(document.querySelectorAll('canvas')) as HTMLCanvasElement[];
-      for (const c of canvases) {
-        const ctx = c.getContext('2d');
-        if (!ctx) continue;
-        try {
-          const data = ctx.getImageData(0, 0, c.width, c.height).data;
-          for (let i = 3; i < data.length; i += 4) if (data[i] > 0) return true;
-        } catch {
-          /* ignore */
-        }
+      const canvas = document.querySelector('[data-testid="cursor-overlay-canvas"]') as HTMLCanvasElement | null;
+      const ctx = canvas?.getContext('2d');
+      if (!canvas || !ctx) return false;
+      try {
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        for (let i = 3; i < data.length; i += 4) if (data[i] > 0) return true;
+      } catch {
+        /* ignore */
       }
       return false;
     },
@@ -107,26 +91,8 @@ test('Apr 25 0924 cursor lands on click target after fps rescaling', async ({ ap
   );
 
   const result = await appPage.evaluate(() => {
-    const canvases = Array.from(document.querySelectorAll('canvas')) as HTMLCanvasElement[];
-    let best: HTMLCanvasElement | null = null;
-    let bestPixels = 0;
-    for (const c of canvases) {
-      const ctx = c.getContext('2d');
-      if (!ctx) continue;
-      try {
-        const data = ctx.getImageData(0, 0, c.width, c.height).data;
-        let count = 0;
-        for (let i = 3; i < data.length; i += 4) if (data[i] > 0) count++;
-        if (count > bestPixels) {
-          bestPixels = count;
-          best = c;
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-    if (!best) return { found: false } as const;
-    const canvas = best;
+    const canvas = document.querySelector('[data-testid="cursor-overlay-canvas"]') as HTMLCanvasElement | null;
+    if (!canvas) return { found: false } as const;
     const ctx = canvas.getContext('2d');
     if (!ctx) return { found: false } as const;
     const w = canvas.width;
