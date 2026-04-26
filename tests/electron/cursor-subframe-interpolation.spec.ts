@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/electron-app.js';
+import { waitForCursorOverlayVisible } from './fixtures/cursor-overlay.js';
 import { loadZoomFixture } from './fixtures/zoom-fixture.js';
 
 test.describe('Cursor sub-frame interpolation', () => {
@@ -14,6 +15,7 @@ test.describe('Cursor sub-frame interpolation', () => {
       null,
       { timeout: 15_000 },
     );
+    await waitForCursorOverlayVisible(appPage);
 
     const target = await appPage.evaluate(async () => {
       const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
