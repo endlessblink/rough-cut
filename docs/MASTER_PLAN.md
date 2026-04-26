@@ -223,7 +223,7 @@ To match the stability-first sprint framing above, the app header currently expo
 | TASK-154     | Record: Replay buffer hotkey to save the last 30 seconds                 | P2       | TODO                     | TASK-010, TASK-148 |
 | ~~TASK-228~~ | ~~Record: Persist separate mic and system-audio stems with takes~~       | P1       | ✅ DONE (2026-04-25)     | TASK-167, TASK-149 |
 | TASK-229     | Record/Edit: Multi-stem playback mixer with mute/solo/ducking            | P1       | TODO                     | TASK-228, TASK-020 |
-| TASK-230     | Export: Re-mix persisted audio stems with ducking automation             | P1       | TODO                     | TASK-228, TASK-229 |
+| ~~TASK-230~~ | ~~Export: Re-mix persisted audio stems with ducking automation~~         | P1       | ✅ DONE (2026-04-26)     | TASK-228, TASK-229 |
 | TASK-158     | Record: Camera auto-shrink and reposition during zoom activation         | P0       | TODO                     | TASK-122, TASK-092 |
 | TASK-159     | Record: Full dynamic camera layout authoring UX in Record timeline       | P0       | TODO                     | TASK-092, TASK-158 |
 | TASK-157     | Record: Watermark/logo inspector with persistent branding controls       | P2       | TODO                     | TASK-094, TASK-151 |
@@ -429,7 +429,14 @@ To match the stability-first sprint framing above, the app header currently expo
 | ~~TASK-236~~ | ~~Export: Fix destination preset export-default e2e~~             | P1       | ✅ DONE (2026-04-25)     | TASK-151, TASK-096 |
 | ~~TASK-237~~ | ~~Record: Restore inspector rail category e2e~~                   | P1       | ✅ DONE (2026-04-25)     | TASK-206, TASK-209 |
 | ~~TASK-238~~ | ~~Record: Fix failed live-preview state e2e~~                     | P1       | ✅ DONE (2026-04-25)     | TASK-165, TASK-166 |
-| TASK-239     | Tests: Complete full e2e sweep after timeout                      | P1       | TODO                     | TASK-231, TASK-232, TASK-233, TASK-234, TASK-235, TASK-236, TASK-237, TASK-238 |
+| ~~TASK-239~~ | ~~Tests: Complete full e2e sweep after timeout~~                  | P1       | ✅ DONE (2026-04-26)     | TASK-231, TASK-232, TASK-233, TASK-234, TASK-235, TASK-236, TASK-237, TASK-238 |
+| TASK-240     | Record: Re-fix rounded camera visual full-suite regressions       | P1       | TODO                     | TASK-233           |
+| TASK-241     | Record: Fix inspector rail hit-target overlay regressions         | P1       | TODO                     | TASK-237           |
+| TASK-242     | Record: Repair moved-project sidecar save regression              | P1       | TODO                     | TASK-105           |
+| TASK-243     | Record: Fix camera framing and zoom geometry regressions          | P1       | TODO                     | TASK-113, TASK-122 |
+| TASK-244     | Record: Stabilize no-baked-UI capture artifact e2e                | P1       | TODO                     | TASK-197           |
+| TASK-245     | Tests: Repair Record zoom panel selector ambiguity                | P1       | TODO                     | TASK-207           |
+| TASK-246     | Tests: Repair Record screenshot template specs                    | P1       | TODO                     | TASK-237           |
 
 ---
 
@@ -450,6 +457,22 @@ To match the stability-first sprint framing above, the app header currently expo
 - `node --test apps/desktop/src/main/recording/recording-session-manager-pre-capture.test.mjs`
 - `node --test apps/desktop/src/main/recording/recovery-state.test.mjs`
 - `pnpm typecheck`
+
+### ~~TASK-230~~: Export: Re-mix persisted audio stems with ducking automation
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-26)
+
+#### Completed
+
+- Export finalization now resolves persisted mic/system-audio stem sidecars from recording asset metadata.
+- The FFmpeg mux step prefers available stem sidecars over the legacy mixed recording stream.
+- System audio is ducked from the aligned mic stem with `sidechaincompress`, while missing/unusable stems fall back to the existing mixed-audio path.
+
+#### Verification
+
+- `node --check apps/desktop/src/main/index.mjs`
+- `pnpm --filter @rough-cut/export-renderer test -- --run src/audio-export.test.ts`
+- `pnpm --filter @rough-cut/export-renderer typecheck`
 
 ### ~~TASK-231~~: Tests: Gate hidden-tab acceptance failures
 
@@ -677,9 +700,9 @@ To match the stability-first sprint framing above, the app header currently expo
 
 ---
 
-### TASK-239: Tests: Complete full e2e sweep after timeout
+### ~~TASK-239~~: Tests: Complete full e2e sweep after timeout
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-26)
 
 #### Problem
 
@@ -696,6 +719,168 @@ To match the stability-first sprint framing above, the app header currently expo
 
 - A complete `pnpm test:e2e` run finishes without tool timeout.
 - Any remaining unexpected failures are tracked with concrete task IDs.
+
+#### Completed
+
+- Ran the full Electron e2e suite with a 60-minute tool timeout so Playwright could finish instead of being cut off at 20 minutes.
+- The run completed in 17.2 minutes: 184 passed, 20 failed, 32 skipped.
+- Existing TASK-234 covers the four cursor failures: `cursor-follow-visual.spec.ts`, `cursor-fps-rescale-verify.spec.ts`, `cursor-retroactive-repair.spec.ts`, and `cursor-subframe-interpolation.spec.ts`.
+- Created follow-up tasks for the remaining failure clusters discovered by the completed sweep: TASK-240 through TASK-246.
+
+#### Verified
+
+- `pnpm test:e2e` completed without tool timeout.
+- Full run output captured by the agent at `/home/endlessblink/.local/share/opencode/tool-output/tool_dc6817e220017znGhsOQ3TNeDj`.
+
+---
+
+### TASK-240: Record: Re-fix rounded camera visual full-suite regressions
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- The full TASK-239 sweep still failed all three `tests/electron/camera-rounded-visual.spec.ts` checks even though TASK-233 passed in focused verification.
+- Failed checks: rounded square at max roundness for 1:1, restrained corners for 16:9, and camera aspect control updating a saved frame override.
+
+#### Scope
+
+- Re-run the rounded-camera spec both in isolation and after nearby camera specs to identify whether this is order-dependent state leakage or a product regression.
+- Preserve Record/Edit/Export camera template parity while fixing the full-suite failure mode.
+- Update fixtures only if focused and full-suite behavior prove the UI intentionally changed.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/camera-rounded-visual.spec.ts --reporter=line` passes.
+- The rounded-camera spec remains green inside `pnpm test:e2e`.
+
+---
+
+### TASK-241: Record: Fix inspector rail hit-target overlay regressions
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- Full TASK-239 sweep failures show rail and destination preset buttons are visible but not clickable because `record-tab-root`, `inspector-shell`, `record-start-guard-banner`, or inner overlay divs intercept pointer events.
+- Failed coverage includes `inspector-rail.spec.ts` category switching and `export-tab.spec.ts` destination preset linkage.
+
+#### Scope
+
+- Verify whether the regression is product-side hit testing/z-index/pointer-events or stale test click targeting.
+- Keep the Record inspector rail accessible by pointer and keyboard.
+- Confirm destination preset selection remains reachable before a first take.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/inspector-rail.spec.ts tests/electron/export-tab.spec.ts -g "category|rail|destination presets" --reporter=line` passes.
+- The same specs remain green inside `pnpm test:e2e`.
+
+---
+
+### TASK-242: Record: Repair moved-project sidecar save regression
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- `tests/electron/project-relative-paths.spec.ts` failed `moved project preserves Record template/frame state and sidecar writes` because `recording.zoom.json` was not saved after moving the project.
+- This threatens portable-project behavior that TASK-105 established.
+
+#### Scope
+
+- Reproduce the moved-project sidecar write failure and determine whether the app writes to the old path, skips the write, or cannot resolve the moved media path.
+- Preserve relative media paths and moved-project reopen behavior.
+- Ensure zoom/camera sidecars are written next to the moved recording file.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/project-relative-paths.spec.ts -g "sidecar writes" --reporter=line` passes.
+- Existing project portability tests remain green.
+
+---
+
+### TASK-243: Record: Fix camera framing and zoom geometry regressions
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- TASK-239 found camera geometry regressions outside the rounded-camera cluster.
+- `record-background-controls.spec.ts` reported the screen frame moving when camera size changed.
+- `zoom-marker.spec.ts` reported the camera frame growing instead of shrinking during an active zoom.
+
+#### Scope
+
+- Reconcile camera size, padding, border, and zoom transforms so screen and camera frames remain independently controlled.
+- Verify whether the expected behavior changed after recent presentation-layout or zoom-engine fixes.
+- Keep Record preview, saved snapshots, and Export preview geometry aligned.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/record-background-controls.spec.ts tests/electron/zoom-marker.spec.ts -g "camera size|camera frame shrinks" --reporter=line` passes.
+
+---
+
+### TASK-244: Record: Stabilize no-baked-UI capture artifact e2e
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- `tests/electron/record-no-baked-ui.spec.ts` failed because no new recording artifact appeared within 15 seconds.
+- The test did not reach the pixel check for whether Rough Cut UI was baked into the capture.
+
+#### Scope
+
+- Determine whether fresh recording creation is slower/flaky in the full suite or whether artifact saving regressed.
+- Keep the original guarantee: notification chrome and Rough Cut UI must not appear in the captured `.webm`.
+- Avoid increasing timeouts unless recording completion is healthy but legitimately slower in CI-like e2e runs.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/record-no-baked-ui.spec.ts --reporter=line` passes.
+- The spec remains green inside a full e2e sweep.
+
+---
+
+### TASK-245: Tests: Repair Record zoom panel selector ambiguity
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- `tests/electron/record-tab.spec.ts` failed `shows the zoom-to-cursor control in the zoom panel` because `getByRole('button', { name: 'Zoom' })` now matches both the inspector rail Zoom button and `Create zoom marker from focus`.
+- This appears to be stale test targeting rather than a product failure.
+
+#### Scope
+
+- Narrow the selector to the inspector rail Zoom button or the active zoom panel root.
+- Preserve coverage that the zoom-to-cursor control is visible in the Zoom inspector.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/record-tab.spec.ts -g "zoom-to-cursor" --reporter=line` passes.
+
+---
+
+### TASK-246: Tests: Repair Record screenshot template specs
+
+**Priority:** P1 | **Status:** TODO
+
+#### Problem
+
+- `tests/electron/screenshot-record.spec.ts` failed to find `Talking Head`, `Social Vertical`, and `Screen Only` by text.
+- The failures likely reflect the current inspector/template navigation rather than the screenshot assertions themselves.
+
+#### Scope
+
+- Update screenshot specs to open the current Templates inspector surface before selecting template presets.
+- Decide whether these screenshot-only specs should stay in the default full e2e suite or move behind an explicit visual-capture command.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/screenshot-record.spec.ts --reporter=line` passes or the specs are explicitly gated out of the default sweep.
 
 ---
 
@@ -4150,7 +4335,7 @@ All five of this task's Key files run green back-to-back. The 2026-04-22 full e2
 - `TASK-183` fix Linux X11 screen capture bounds on secondary displays
 - `TASK-126` in-progress controller with finish, pause, restart, and delete
 - `TASK-145` floating controller hide/fade + never-in-video guarantee
-- `TASK-148` crash-resilient autosave + partial-take recovery
+- `~~TASK-148~~` crash-resilient autosave + partial-take recovery
 - `TASK-152` fear-reducing micro-affordances (DND, test clip, safe stop)
 - `BUG-004` dock/taskbar icon shown during recording
 - `BUG-011` Linux recording keeps usable stop controls
