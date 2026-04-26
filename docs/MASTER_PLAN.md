@@ -682,7 +682,7 @@ To match the stability-first sprint framing above, the app header currently expo
 #### Completed
 
 - Verified the Record destination preset linkage now carries the Reels/TikTok preset into Export defaults.
-- Confirmed the focused regression and the full Export tab e2e suite are passing in the current workspace.
+- Confirmed the focused regression, full Export tab suite, and export-adjacent e2e coverage pass in the current workspace.
 
 #### Problem
 
