@@ -424,7 +424,7 @@ To match the stability-first sprint framing above, the app header currently expo
 | ~~TASK-231~~ | ~~Tests: Gate hidden-tab acceptance failures~~                    | P1       | ✅ DONE (2026-04-25)     | TASK-206           |
 | ~~TASK-232~~ | ~~Record: Stabilize camera source-switch preview e2e~~            | P1       | ✅ DONE (2026-04-25)     | TASK-194, TASK-195 |
 | ~~TASK-233~~ | ~~Record: Fix rounded camera visual e2e regressions~~             | P1       | ✅ DONE (2026-04-25)     | TASK-113, BUG-005  |
-| TASK-234     | Record: Repair cursor visual timing e2e failures                  | P1       | TODO                     | TASK-216, TASK-218, TASK-226 |
+| ~~TASK-234~~ | ~~Record: Repair cursor visual timing e2e failures~~              | P1       | ✅ DONE (2026-04-26)     | TASK-216, TASK-218, TASK-226 |
 | ~~TASK-235~~ | ~~Edit: Fix dynamic track management e2e~~                        | P1       | ✅ DONE (2026-04-25)     | TASK-117           |
 | ~~TASK-236~~ | ~~Export: Fix destination preset export-default e2e~~             | P1       | ✅ DONE (2026-04-25)     | TASK-151, TASK-096 |
 | ~~TASK-237~~ | ~~Record: Restore inspector rail category e2e~~                   | P1       | ✅ DONE (2026-04-25)     | TASK-206, TASK-209 |
@@ -542,7 +542,7 @@ To match the stability-first sprint framing above, the app header currently expo
 
 #### Problem
 
-- `tests/electron/adhoc-camera-source-switch.spec.ts` failed in the full e2e run.
+- `tests/electron/record-camera-source-switch.spec.ts` failed in the full e2e run.
 - The failure is in the same ownership area as the recent panel/live-preview source-switch work and may indicate either a real regression or an obsolete adhoc assertion.
 
 #### Scope
@@ -553,7 +553,7 @@ To match the stability-first sprint framing above, the app header currently expo
 
 #### Verification
 
-- `pnpm exec playwright test tests/electron/adhoc-camera-source-switch.spec.ts --reporter=line` passes.
+- `pnpm exec playwright test tests/electron/record-camera-source-switch.spec.ts --reporter=line` passes.
 - The full e2e run does not fail on the camera source-switch spec.
 
 ---
@@ -582,18 +582,20 @@ To match the stability-first sprint framing above, the app header currently expo
 
 - Fixed Record preview camera presentation reads so project-store patches render without stale local camera state.
 - Changed camera aspect/shape edits to reshape saved camera frame overrides inside the existing bounds instead of clearing or expanding them.
+- Added unit coverage for camera frame reshaping math.
 - Isolated the rounded-camera visual e2e fixture with a temp project copy and refreshed the presentation-layout snapshots.
 
 #### Verified
 
 - `pnpm exec playwright test tests/electron/camera-rounded-visual.spec.ts --reporter=line`
 - `pnpm exec playwright test tests/electron/camera-template-parity.spec.ts --reporter=line`
+- `pnpm --filter @rough-cut/desktop exec vitest run src/renderer/features/record/camera-frame-utils.test.ts`
 
 ---
 
 ### TASK-234: Record: Repair cursor visual timing e2e failures
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-26)
 
 #### Problem
 
@@ -610,6 +612,18 @@ To match the stability-first sprint framing above, the app header currently expo
 #### Verification
 
 - `pnpm exec playwright test tests/electron/cursor-follow-visual.spec.ts tests/electron/cursor-fps-rescale-verify.spec.ts tests/electron/cursor-retroactive-repair.spec.ts tests/electron/cursor-subframe-interpolation.spec.ts --reporter=line` passes.
+
+#### Completion Notes (2026-04-26)
+
+- Stabilized the cursor timing e2e fixtures by clearing inherited crop/visibility authoring state and providing deterministic cursor sidecar data when the shared zoom fixture is loaded with cursor events.
+- Updated cursor visual assertions to use the cursor debug canvas and the current sub-frame interpolation behavior for forward playback jumps.
+- Added cursor overlay debug attributes for the applied zoom transform to make future visual timing failures easier to diagnose.
+
+#### Verification Run
+
+- `pnpm --filter @rough-cut/desktop exec vitest run src/renderer/components/cursor-subframe-interpolation.test.ts src/renderer/components/cursor-data-loader.test.ts`
+- `pnpm exec playwright test tests/electron/cursor-follow-visual.spec.ts tests/electron/cursor-fps-rescale-verify.spec.ts tests/electron/cursor-retroactive-repair.spec.ts tests/electron/cursor-subframe-interpolation.spec.ts --reporter=line`
+- `pnpm --filter @rough-cut/desktop typecheck`
 
 ---
 
@@ -1045,11 +1059,11 @@ This warning is currently polluting the debugging signal around camera failures.
 
 #### Resolution (2026-04-24)
 
-Root cause confirmed via Playwright probe (`tests/electron/adhoc-camera-source-switch.spec.ts`): on Linux V4L2, calling `navigator.mediaDevices.getDisplayMedia` silently flips the camera track's `readyState` from `'live'` to `'ended'` within ~2ms of resolving — **without firing the `'ended'` event**. Every `ended`-listener recovery path (the per-track listener at PanelApp.tsx:2054, the "Camera disconnected" toast at :2228, the track-ended recorder pivot) therefore never ran. After each screen-source switch the dead track lingered and the `<video>` went black.
+Root cause confirmed via Playwright probe (`tests/electron/record-camera-source-switch.spec.ts`): on Linux V4L2, calling `navigator.mediaDevices.getDisplayMedia` silently flips the camera track's `readyState` from `'live'` to `'ended'` within ~2ms of resolving — **without firing the `'ended'` event**. Every `ended`-listener recovery path (the per-track listener at PanelApp.tsx:2054, the "Camera disconnected" toast at :2228, the track-ended recorder pivot) therefore never ran. After each screen-source switch the dead track lingered and the `<video>` went black.
 
 Fix: added the screen capture `stream` to the camera acquisition useEffect's dep array. After each source change the effect re-runs; its existing `readyState === 'live'` guard short-circuits when the camera track is healthy and falls through to `getUserMedia` only when the V4L2 quirk has killed the track. Result: ~500ms recovery flicker instead of permanent black.
 
-Regression guard: `tests/electron/adhoc-camera-source-switch.spec.ts` asserts `trackReadyState === 'live'` and `videoPaused === false` after every source switch.
+Regression guard: `tests/electron/record-camera-source-switch.spec.ts` asserts `trackReadyState === 'live'` and `videoPaused === false` after every source switch.
 
 #### Progress (2026-04-24)
 
@@ -2275,6 +2289,26 @@ Verification:
 - `apps/desktop/src/renderer/components/cursor-subframe-interpolation.ts`
 - `apps/desktop/src/renderer/components/cursor-subframe-interpolation.test.ts`
 - `tests/electron/cursor-subframe-interpolation.spec.ts`
+
+#### Progress (2026-04-26) — residual sync + smoothness pass
+
+After TASK-218 + initial TASK-226 landed, user reported the cursor still felt off in three distinct ways. Empirical work isolated three independent contributors and shipped fixes for each:
+
+- **(1) FFmpeg first-frame anchor** — the existing `PANEL_MEDIA_RECORDER_STARTED` rebase fired ~283 ms after the cursor recorder started, but FFmpeg's actual first captured frame on Linux/X11 came ~80 ms after spawn (measured via `-progress pipe:1` parsing). MediaRecorder rebase pushed cursor[0] ~200 ms LATER than file frame 0 — visible as a constant lag. Fix: added `-progress pipe:1 -stats_period 0.05` to ffmpeg args, parse stdout for the minimum `arrival - out_time_us/1000` across the first 5 non-zero blocks, callback fires once with the wall-clock estimate. Session manager calls a new `cursorRecorder.setStartTime(ms)` (force-rebase, bypasses the no-backward-rebase guard) and gates the MediaRecorder rebase off when `isFfmpegCaptureAvailable()` is true. Replaces the previous failed `cursorEventsLeadMs` duration-diff approach (removed end-to-end — capture-service, recording-file-utils, env.d.ts, App.tsx, RecordingPlaybackVideo.tsx, webcodecs-core.ts, both `buildCursorFrameData` functions).
+- **(2) Initial-position teleport** — after rebase, the seeded `screen.getCursorScreenPoint()` event at frame 0 had its absolute time before the new anchor and was filtered (negative frame). Loader's `firstKnown` fill then painted the FIRST surviving event's position across `cursor[0..N]` — for one observed take, frames 0..77 (= 2.6 s) were drawn at the wrong location until the user first moved. Fix: `cursor-recorder.mjs setStartTime` re-injects a fresh `screen.getCursorScreenPoint()` at frame 0 if no event remains there.
+- **(3) Same-frame dedup + interpolation gate** — `cursor-recorder.mjs` had `if (frame === this.#lastMoveFrame) return;` which kept the FIRST uIOhook event per project frame and dropped subsequent ones; loader's last-wins write made each `cursor[N]` reflect a stale start-of-window position. Removed the dedup so the LATEST mouse position in each frame window wins. Separately, the sub-frame interp module gated `shouldInterpolate` on `lastAdvanceWasSequential = (frameDelta === 1)`. The runtime log shows recurring `GPU stall due to ReadPixels` errors that cause `requestVideoFrameCallback` to deliver multi-frame jumps; the gate disabled interp on those ticks and the cursor sprite SNAPPED — perceived as jerks during continuous motion. Relaxed the gate to `isPlaying && lerpT < 1` (always interpolate during forward playback); pause/scrub still gets `lerpT = 1`.
+- **(4) Timeline-needle stutter** — same root cause as the cursor sprite (driven by integer `playheadFrame` updates at ~30 Hz on a 60+ Hz display + GPU-stall multi-frame jumps). Applied the same backward sub-frame interpolation pattern in `RecordTimelineShell.tsx`: a rAF loop gated on `isPlaying` calls `resolveBackwardSubframeInterpolation` and writes `moveNeedle(playheadFrame - 1 + lerpT)`; `frameToPct` already accepts fractional input so no further math changes. Pause/scrub still drives the needle through the existing `transportStore.subscribe` path (instant snap).
+
+Verification: `pnpm test` — 51 node tests + 26 vitest tests pass; `pnpm typecheck` clean; new ffmpeg-capture-first-frame parser unit tests cover the empirical convergence sequence; static-source guards in `recording-session-manager-cursor-fps.test.mjs` prove the wiring (`onFirstFrame → cursorRecorder.setStartTime`, gated MediaRecorder rebase). Live confirmation by user: cursor sync corrected, sprite jerks reduced, timeline indicator now glides instead of stepping.
+
+#### Key files (added in this pass)
+
+- `apps/desktop/src/main/recording/ffmpeg-capture.mjs` — `-progress pipe:1` + exported `createFirstFrameDetector` parser
+- `apps/desktop/src/main/recording/cursor-recorder.mjs` — `setStartTime` (force rebase + initial-position re-seed), removed same-frame dedup
+- `apps/desktop/src/main/recording/recording-session-manager.mjs` — `onFirstFrame` callback wiring, MediaRecorder rebase gated behind `!isFfmpegCaptureAvailable()`
+- `apps/desktop/src/renderer/components/cursor-subframe-interpolation.ts` — relaxed `shouldInterpolate` gate
+- `apps/desktop/src/renderer/features/record/RecordTimelineShell.tsx` — sub-frame rAF loop for the playhead needle
+- `apps/desktop/src/main/recording/ffmpeg-capture-first-frame.test.mjs` — parser unit tests
 
 ---
 
