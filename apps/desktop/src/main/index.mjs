@@ -568,6 +568,10 @@ function getRecordingSearchDirs() {
   return dirs;
 }
 
+function getPreferredRecordingDirs() {
+  return getRecordingSearchDirs().filter((dir) => dir !== '/tmp/rough-cut/recordings');
+}
+
 function shouldSkipAudioSourceDiscoveryInDev() {
   return !app.isPackaged && process.env.ROUGH_CUT_SKIP_AUDIO_DISCOVERY === '1';
 }
@@ -629,9 +633,32 @@ function resolveExistingMediaPath(filePath, projectDir = null) {
 
   const resolvedPath =
     !isAbsolute(filePath) && projectDir ? resolve(projectDir, filePath) : filePath;
-  if (existsSync(resolvedPath)) return resolvedPath;
-
+  const legacyTmpDir = '/tmp/rough-cut/recordings';
   const fileName = basename(resolvedPath);
+
+  if (existsSync(resolvedPath)) {
+    const normalizedResolvedPath = resolvedPath.split('\\').join('/');
+    if (normalizedResolvedPath.startsWith(`${legacyTmpDir}/`)) {
+      for (const dir of getPreferredRecordingDirs()) {
+        const candidate = join(dir, fileName);
+        if (existsSync(candidate)) return candidate;
+      }
+
+      const primaryDir = getPreferredRecordingDirs()[0] ?? null;
+      if (primaryDir) {
+        try {
+          if (!existsSync(primaryDir)) mkdirSync(primaryDir, { recursive: true });
+          const candidate = join(primaryDir, fileName);
+          copyFileSync(resolvedPath, candidate);
+          return candidate;
+        } catch (error) {
+          console.warn('[project-open] Failed to migrate legacy tmp media:', resolvedPath, error);
+        }
+      }
+    }
+    return resolvedPath;
+  }
+
   for (const dir of getRecordingSearchDirs()) {
     const candidate = join(dir, fileName);
     if (existsSync(candidate)) return candidate;
@@ -641,43 +668,55 @@ function resolveExistingMediaPath(filePath, projectDir = null) {
 }
 
 function repairProjectMediaPaths(project, projectFilePath = null) {
-  if (!project || !Array.isArray(project.assets)) return project;
+  if (!project || !Array.isArray(project.assets)) {
+    return { project, changed: false };
+  }
 
   const projectDir = projectFilePath ? dirname(projectFilePath) : null;
+  let changed = false;
+
+  const repairPath = (filePath) => {
+    const repairedPath = resolveExistingMediaPath(filePath, projectDir);
+    if (repairedPath !== filePath) changed = true;
+    return repairedPath;
+  };
 
   return {
-    ...project,
-    assets: project.assets.map((asset) => ({
-      ...asset,
-      ...(asset.filePath ? { filePath: resolveExistingMediaPath(asset.filePath, projectDir) } : {}),
-      ...(asset.thumbnailPath
-        ? { thumbnailPath: resolveExistingMediaPath(asset.thumbnailPath, projectDir) }
-        : {}),
-      ...(asset.metadata && typeof asset.metadata === 'object'
-        ? {
-            metadata: {
-              ...asset.metadata,
-              ...(asset.metadata.cursorEventsPath
-                ? {
-                    cursorEventsPath: resolveExistingMediaPath(
-                      asset.metadata.cursorEventsPath,
-                      projectDir,
-                    ),
-                  }
-                : {}),
-            },
-          }
-        : {}),
-    })),
-    libraryReferences: Array.isArray(project.libraryReferences)
-      ? project.libraryReferences.map((reference) => ({
-          ...reference,
-          ...(reference.filePath
-            ? { filePath: resolveExistingMediaPath(reference.filePath, projectDir) }
-            : {}),
-        }))
-      : project.libraryReferences,
+    project: {
+      ...project,
+      assets: project.assets.map((asset) => ({
+        ...asset,
+        ...(asset.filePath ? { filePath: repairPath(asset.filePath) } : {}),
+        ...(asset.thumbnailPath ? { thumbnailPath: repairPath(asset.thumbnailPath) } : {}),
+        ...(asset.metadata && typeof asset.metadata === 'object'
+          ? {
+              metadata: {
+                ...asset.metadata,
+                ...(asset.metadata.cursorEventsPath
+                  ? {
+                      cursorEventsPath: repairPath(asset.metadata.cursorEventsPath),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+      })),
+      libraryReferences: Array.isArray(project.libraryReferences)
+        ? project.libraryReferences.map((reference) => ({
+            ...reference,
+            ...(reference.filePath ? { filePath: repairPath(reference.filePath) } : {}),
+          }))
+        : project.libraryReferences,
+    },
+    changed,
   };
+}
+
+async function persistRepairedProjectIfNeeded(project, filePath, changed) {
+  if (!changed || !filePath) return;
+
+  const serializedProject = serializeProjectPaths(project, filePath);
+  await writeFile(filePath, JSON.stringify(serializedProject, null, 2), 'utf-8');
 }
 
 function zoomSidecarPath(recordingFilePath) {
@@ -880,6 +919,26 @@ function resolveAudioStemPaths(asset) {
   return paths.micFilePath || paths.systemAudioFilePath ? paths : null;
 }
 
+function describeAudioStemState(filePath) {
+  if (!filePath) return { filePath: null, exists: false, size: 0 };
+  try {
+    const stat = statSync(filePath);
+    return {
+      filePath,
+      exists: true,
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+    };
+  } catch (error) {
+    return {
+      filePath,
+      exists: false,
+      size: 0,
+      statError: error?.message ?? String(error),
+    };
+  }
+}
+
 async function hasPrimaryAudioStream(filePath) {
   try {
     const { stdout } = await execFile('ffprobe', [
@@ -893,8 +952,18 @@ async function hasPrimaryAudioStream(filePath) {
       'csv=p=0',
       filePath,
     ]);
-    return stdout.trim().length > 0;
-  } catch {
+    const hasAudio = stdout.trim().length > 0;
+    console.info('[export-finalize] ffprobe primary-audio check:', {
+      filePath,
+      hasAudio,
+      stdout: stdout.trim(),
+    });
+    return hasAudio;
+  } catch (error) {
+    console.warn('[export-finalize] ffprobe primary-audio check failed:', {
+      filePath,
+      error: error?.message ?? String(error),
+    });
     return false;
   }
 }
@@ -1098,7 +1167,7 @@ async function buildExportClickTrack(project, outputPath, range, frameRate) {
 }
 
 async function finalizeExportMedia(project, videoPath, outputPath, range) {
-  const repairedProject = repairProjectMediaPaths(project);
+  const { project: repairedProject } = repairProjectMediaPaths(project);
   const segments = collectExportAudioSegments(repairedProject);
   const frameRate = repairedProject?.settings?.frameRate ?? 30;
   const audioInputs = [];
@@ -1109,9 +1178,35 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
     ((range?.endFrame ?? repairedProject.composition.duration) - (range?.startFrame ?? 0)) / frameRate,
   );
 
+  console.info('[export-finalize] Starting finalizeExportMedia:', {
+    videoPath,
+    outputPath,
+    range: range ?? null,
+    projectName: repairedProject?.name ?? 'unknown',
+    segmentCount: segments.length,
+    selectedDurationSeconds,
+  });
+
   for (const segment of segments) {
     const stems = resolveAudioStemPaths(segment.asset);
     const group = { segment, mic: null, system: null };
+
+    console.info('[export-finalize] Segment audio candidates:', {
+      assetId: segment.asset.id,
+      assetType: segment.asset.type,
+      assetFilePath: segment.asset.filePath,
+      clipId: segment.clip.id,
+      timelineIn: segment.clip.timelineIn,
+      timelineOut: segment.clip.timelineOut,
+      resolvedStems: stems,
+      stemStates: stems
+        ? {
+            mic: describeAudioStemState(stems.micFilePath),
+            system: describeAudioStemState(stems.systemAudioFilePath),
+          }
+        : null,
+      assetAudioState: describeAudioStemState(segment.asset.filePath),
+    });
 
     if (stems?.micFilePath && (await hasPrimaryAudioStream(stems.micFilePath))) {
       group.mic = { segment, filePath: stems.micFilePath, role: 'mic' };
@@ -1133,6 +1228,11 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
   }
 
   if (audioInputs.length === 0 && !clickTrackPath) {
+    console.warn('[export-finalize] No exportable audio inputs resolved; falling back to video-only output.', {
+      videoPath,
+      outputPath,
+      clickTrackPath,
+    });
     await rename(videoPath, outputPath);
     return { outputPath, audioIncluded: false };
   }
@@ -1228,6 +1328,20 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
   const mixInputs = mixLabels.join('');
   const filterComplex = `${filterParts.join(';')};${mixInputs}amix=inputs=${mixLabels.length}:normalize=0:dropout_transition=0[aout]`;
 
+  console.info('[export-finalize] Resolved finalize inputs:', {
+    videoPath,
+    outputPath,
+    audioInputs: audioInputs.map((input) => ({
+      role: input.role,
+      filePath: input.filePath,
+      assetId: input.segment.asset.id,
+      clipId: input.segment.clip.id,
+    })),
+    clickTrackPath,
+    mixLabels,
+    filterComplex,
+  });
+
   ffmpegArgs.push(
     '-filter_complex',
     filterComplex,
@@ -1274,7 +1388,13 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
     await unlink(videoPath).catch(() => {});
     await rename(tempOutputPath, outputPath);
     return { outputPath, audioIncluded: true };
-  } catch {
+  } catch (error) {
+    console.warn('[export-finalize] Audio finalize failed; preserving video-only export:', {
+      videoPath,
+      outputPath,
+      tempOutputPath,
+      error: error?.message ?? String(error),
+    });
     if (clickTrackPath) {
       await unlink(clickTrackPath).catch(() => {});
     }
@@ -1455,7 +1575,8 @@ function registerIpcHandlers() {
 
     const filePath = result.filePaths[0];
     const content = await readFile(filePath, 'utf-8');
-    const repairedProject = repairProjectMediaPaths(JSON.parse(content), filePath);
+    const { project: repairedProject, changed } = repairProjectMediaPaths(JSON.parse(content), filePath);
+    await persistRepairedProjectIfNeeded(repairedProject, filePath, changed);
     const durationHydratedProject = await hydrateProjectRecordingDurations(repairedProject);
     const data = await hydrateProjectRecordSidecars(durationHydratedProject);
     // Return the raw data -- the renderer will validate via the project-model package
@@ -1794,7 +1915,8 @@ function registerIpcHandlers() {
   // Project: Open by known file path (no dialog)
   ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, async (_e, { filePath }) => {
     const content = await readFile(filePath, 'utf-8');
-    const repairedProject = repairProjectMediaPaths(JSON.parse(content), filePath);
+    const { project: repairedProject, changed } = repairProjectMediaPaths(JSON.parse(content), filePath);
+    await persistRepairedProjectIfNeeded(repairedProject, filePath, changed);
     const durationHydratedProject = await hydrateProjectRecordingDurations(repairedProject);
     return hydrateProjectRecordSidecars(durationHydratedProject);
   });
