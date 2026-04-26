@@ -1113,11 +1113,11 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
     const stems = resolveAudioStemPaths(segment.asset);
     const group = { segment, mic: null, system: null };
 
-    if (stems?.micFilePath && await hasPrimaryAudioStream(stems.micFilePath)) {
+    if (stems?.micFilePath && (await hasPrimaryAudioStream(stems.micFilePath))) {
       group.mic = { segment, filePath: stems.micFilePath, role: 'mic' };
       audioInputs.push(group.mic);
     }
-    if (stems?.systemAudioFilePath && await hasPrimaryAudioStream(stems.systemAudioFilePath)) {
+    if (stems?.systemAudioFilePath && (await hasPrimaryAudioStream(stems.systemAudioFilePath))) {
       group.system = { segment, filePath: stems.systemAudioFilePath, role: 'system' };
       audioInputs.push(group.system);
     }
@@ -1153,25 +1153,24 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
   const rangeStartFrame = range?.startFrame ?? 0;
   const rangeEndFrame = range?.endFrame ?? repairedProject.composition.duration;
   const appendTimedAudioFilter = (input, inputIndex, outputLabel) => {
-      const segment = input.segment;
-      const overlapStartFrame = Math.max(segment.clip.timelineIn, rangeStartFrame);
-      const overlapEndFrame = Math.min(
-        segment.clip.timelineOut,
-        rangeEndFrame,
-      );
-      if (overlapEndFrame <= overlapStartFrame) {
-        return null;
-      }
+    const segment = input.segment;
+    const overlapStartFrame = Math.max(segment.clip.timelineIn, rangeStartFrame);
+    const overlapEndFrame = Math.min(segment.clip.timelineOut, rangeEndFrame);
+    if (overlapEndFrame <= overlapStartFrame) {
+      return null;
+    }
 
-      const trimOffsetFrames = overlapStartFrame - segment.clip.timelineIn;
-      const sourceStart = (segment.clip.sourceIn + trimOffsetFrames) / frameRate;
-      const sourceEnd = sourceStart + (overlapEndFrame - overlapStartFrame) / frameRate;
-      const delayMs = Math.max(
-        0,
-        Math.round(((overlapStartFrame - rangeStartFrame) / frameRate) * 1000),
-      );
-      filterParts.push(`[${inputIndex}:a:0]atrim=start=${sourceStart}:end=${sourceEnd},asetpts=PTS-STARTPTS,adelay=${delayMs}:all=1[${outputLabel}]`);
-      return outputLabel;
+    const trimOffsetFrames = overlapStartFrame - segment.clip.timelineIn;
+    const sourceStart = (segment.clip.sourceIn + trimOffsetFrames) / frameRate;
+    const sourceEnd = sourceStart + (overlapEndFrame - overlapStartFrame) / frameRate;
+    const delayMs = Math.max(
+      0,
+      Math.round(((overlapStartFrame - rangeStartFrame) / frameRate) * 1000),
+    );
+    filterParts.push(
+      `[${inputIndex}:a:0]atrim=start=${sourceStart}:end=${sourceEnd},asetpts=PTS-STARTPTS,adelay=${delayMs}:all=1[${outputLabel}]`,
+    );
+    return outputLabel;
   };
 
   audioInputs.forEach((input, index) => {
@@ -1189,7 +1188,9 @@ async function finalizeExportMedia(project, videoPath, outputPath, range) {
       const duckKeyLabel = `duckkey${index}`;
       const duckedSystemLabel = `ducked${index}`;
       filterParts.push(`[${micLabel}]asplit=2[${micMixLabel}][${duckKeyLabel}]`);
-      filterParts.push(`[${systemLabel}][${duckKeyLabel}]sidechaincompress=threshold=0.02:ratio=8:attack=20:release=250:makeup=1[${duckedSystemLabel}]`);
+      filterParts.push(
+        `[${systemLabel}][${duckKeyLabel}]sidechaincompress=threshold=0.02:ratio=8:attack=20:release=250:makeup=1[${duckedSystemLabel}]`,
+      );
       mixLabels.push(`[${micMixLabel}]`, `[${duckedSystemLabel}]`);
       consumedInputs.add(group.mic);
       consumedInputs.add(group.system);
