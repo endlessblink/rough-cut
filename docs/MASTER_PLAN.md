@@ -211,7 +211,7 @@ To match the stability-first sprint framing above, the app header currently expo
 | TASK-132     | Record: Privacy blur masks and spotlight regions                         | P2       | TODO                     | TASK-090           |
 | TASK-143     | Record: In-app permission diagnostics + deep links + preflight test      | P1       | TODO                     | TASK-010, TASK-088 |
 | ~~TASK-144~~ | ~~Record: Mid-take source/device recovery with re-target and offline badge~~ | P1       | ✅ DONE (2026-04-19)     | TASK-100, TASK-088 |
-| TASK-145     | Record: Floating controller hide/fade + never-in-video guarantee         | P1       | TODO                     | TASK-126, TASK-010 |
+| ~~TASK-145~~ | ✅ Record: Floating controller hide/fade + never-in-video guarantee      | P1       | ✅ DONE (2026-04-26)     | TASK-126, TASK-010 |
 | ~~TASK-146~~ | ~~Record: Preview/export fidelity enforcement for all Record polish~~    | P1       | ✅ DONE (2026-04-21)     | TASK-013, TASK-015 |
 | ~~TASK-147~~ | ~~Record: Full reopen/project-move fidelity for templates and sidecars~~ | P1       | ✅ DONE (2026-04-21)     | BUG-013, TASK-123  |
 | TASK-148     | Record: Crash-resilient autosave + partial-take recovery                 | P1       | TODO                     | TASK-010, TASK-100 |
@@ -1318,7 +1318,7 @@ Create and maintain a product-area stabilization map that breaks the app into th
 
 **Current task anchors**
 - TASK-126 In-progress controller with finish, pause, restart, and delete
-- TASK-145 Floating controller hide/fade + never-in-video guarantee
+- ~~TASK-145~~ Floating controller hide/fade + never-in-video guarantee
 - BUG-004 Dock/taskbar icon shown during recording
 - BUG-011 Linux stop controls stay usable during recording
 - TASK-185 Stabilize camera preview track lifecycle
@@ -4334,7 +4334,7 @@ All five of this task's Key files run green back-to-back. The 2026-04-22 full e2
 - `TASK-087` persist shared config across panel opens/restarts
 - `TASK-183` fix Linux X11 screen capture bounds on secondary displays
 - `TASK-126` in-progress controller with finish, pause, restart, and delete
-- `TASK-145` floating controller hide/fade + never-in-video guarantee
+- `~~TASK-145~~` floating controller hide/fade + never-in-video guarantee
 - `~~TASK-148~~` crash-resilient autosave + partial-take recovery
 - `TASK-152` fear-reducing micro-affordances (DND, test clip, safe stop)
 - `BUG-004` dock/taskbar icon shown during recording
