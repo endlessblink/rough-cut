@@ -222,7 +222,7 @@ To match the stability-first sprint framing above, the app header currently expo
 | TASK-153     | Record: Auto desktop icon hide + Do Not Disturb during recording         | P2       | TODO                     | TASK-152           |
 | TASK-154     | Record: Replay buffer hotkey to save the last 30 seconds                 | P2       | TODO                     | TASK-010, TASK-148 |
 | ~~TASK-228~~ | ~~Record: Persist separate mic and system-audio stems with takes~~       | P1       | ✅ DONE (2026-04-25)     | TASK-167, TASK-149 |
-| TASK-229     | Record/Edit: Multi-stem playback mixer with mute/solo/ducking            | P1       | TODO                     | TASK-228, TASK-020 |
+| ~~TASK-229~~ | ~~Record/Edit: Multi-stem playback mixer with mute/solo/ducking~~        | P1       | ✅ DONE (2026-04-26)     | TASK-228, TASK-020 |
 | ~~TASK-230~~ | ~~Export: Re-mix persisted audio stems with ducking automation~~         | P1       | ✅ DONE (2026-04-26)     | TASK-228, TASK-229 |
 | TASK-158     | Record: Camera auto-shrink and reposition during zoom activation         | P0       | TODO                     | TASK-122, TASK-092 |
 | TASK-159     | Record: Full dynamic camera layout authoring UX in Record timeline       | P0       | TODO                     | TASK-092, TASK-158 |
@@ -457,6 +457,23 @@ To match the stability-first sprint framing above, the app header currently expo
 - `node --test apps/desktop/src/main/recording/recording-session-manager-pre-capture.test.mjs`
 - `node --test apps/desktop/src/main/recording/recovery-state.test.mjs`
 - `pnpm typecheck`
+
+### ~~TASK-229~~: Record/Edit: Multi-stem playback mixer with mute/solo/ducking
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-26)
+
+#### Completed
+
+- Added Record/Edit multi-stem playback mixer controls for persisted mic and system-audio stems.
+- Wired mic/system volume, mute, solo, and preview ducking into the shared playback path while preserving existing mixed-stream fallback behavior.
+- Added focused mixer unit coverage and targeted Electron Record/Edit playback coverage.
+
+#### Verification
+
+- `pnpm --filter @rough-cut/preview-renderer test`
+- `pnpm --filter @rough-cut/preview-renderer typecheck`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm test:e2e tests/electron/edit-track-management.spec.ts tests/electron/edit-space-playback.spec.ts tests/electron/record-space-playback.spec.ts tests/electron/record-audio-import-parity.spec.ts`
 
 ### ~~TASK-230~~: Export: Re-mix persisted audio stems with ducking automation
 
