@@ -215,7 +215,7 @@ To match the stability-first sprint framing above, the app header currently expo
 | ~~TASK-146~~ | ~~Record: Preview/export fidelity enforcement for all Record polish~~    | P1       | ✅ DONE (2026-04-21)     | TASK-013, TASK-015 |
 | ~~TASK-147~~ | ~~Record: Full reopen/project-move fidelity for templates and sidecars~~ | P1       | ✅ DONE (2026-04-21)     | BUG-013, TASK-123  |
 | TASK-148     | Record: Crash-resilient autosave + partial-take recovery                 | P1       | TODO                     | TASK-010, TASK-100 |
-| TASK-149     | Record: Audio clipping warnings + ducking preview + multi-track review   | P1       | TODO                     | TASK-032, TASK-125 |
+| ~~TASK-149~~ | ~~Record: Audio clipping warnings + ducking preview + multi-track review~~ | P1     | ✅ DONE (2026-04-26)     | TASK-032, TASK-125 |
 | TASK-150     | Record: Per-segment visibility toggles for camera/cursor/clicks/overlays | P1       | TODO                     | TASK-089, TASK-090 |
 | ~~TASK-151~~ | ~~Record: Destination presets with social framing and export linkage~~   | P1       | ✅ DONE (2026-04-19)     | TASK-094, TASK-121 |
 | TASK-152     | Record: Fear-reducing micro-affordances (DND, test clip, safe stop)      | P1       | TODO                     | TASK-126, TASK-100 |
@@ -473,6 +473,28 @@ To match the stability-first sprint framing above, the app header currently expo
 - `node --check apps/desktop/src/main/index.mjs`
 - `pnpm --filter @rough-cut/export-renderer test -- --run src/audio-export.test.ts`
 - `pnpm --filter @rough-cut/export-renderer typecheck`
+
+### ~~TASK-149~~: Record: Audio clipping warnings + ducking preview + multi-track review
+
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-26)
+
+#### Completed
+
+- Added live Record-panel clipping and peaking warnings so mic issues are visible before the user commits to a take.
+- Added Record-panel ducking preview guidance that shows how desktop audio will be attenuated while narration is present, without faking post-take source separation.
+- Added a Record review card that breaks out captured microphone and system-audio lanes from saved-take metadata while clearly stating the current review playback is still one mixed stream.
+- Added focused helper coverage for clipping assessment / ducking summary logic and Electron coverage for the new Record review audio UI.
+
+#### Verification
+
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm --filter @rough-cut/desktop exec vitest run src/renderer/features/record/audio-review.test.ts`
+- `pnpm exec playwright test tests/electron/record-post-take-review.spec.ts --workers=1`
+
+#### Notes
+
+- This task intentionally stopped at truthful review UI for the current mixed-stream saved take.
+- True post-take per-source playback ducking required follow-up stem and mixer work, which is tracked separately under `TASK-228`, `TASK-229`, and `TASK-230`.
 
 ### ~~TASK-231~~: Tests: Gate hidden-tab acceptance failures
 
