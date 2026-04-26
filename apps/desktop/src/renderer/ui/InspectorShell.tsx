@@ -85,6 +85,8 @@ export function InspectorShell({
         style={{
           flex: 1,
           minWidth: 0,
+          position: 'relative',
+          zIndex: 0,
           display: 'flex',
           flexDirection: 'column',
           overflowY: 'hidden',
@@ -128,6 +130,8 @@ function IconRail({ categories, activeCategoryId, onSelect }: IconRailProps) {
       style={{
         width: 36,
         flexShrink: 0,
+        position: 'relative',
+        zIndex: 1,
         background: 'rgba(0,0,0,0.30)',
         display: 'flex',
         flexDirection: 'column',
@@ -181,6 +185,8 @@ function RailButton({ categoryId, icon, label, active, onClick }: RailButtonProp
       style={{
         width: 28,
         height: 28,
+        position: 'relative',
+        zIndex: 1,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
