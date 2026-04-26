@@ -2,7 +2,8 @@ import { expect, test, navigateToTab } from './fixtures/electron-app.js';
 import { existsSync } from 'node:fs';
 import { loadZoomFixture } from './fixtures/zoom-fixture.js';
 
-const DEFAULT_REAL_PROJECT_PATH = '/home/endlessblink/Documents/Rough Cut/Recording Apr 17 2026 - 1347.roughcut';
+const DEFAULT_REAL_PROJECT_PATH =
+  '/home/endlessblink/Documents/Rough Cut/Recording Apr 17 2026 - 1347.roughcut';
 const REAL_PROJECT_PATH =
   process.env.ROUGH_CUT_REAL_PROJECT_PATH ??
   (existsSync(DEFAULT_REAL_PROJECT_PATH) ? DEFAULT_REAL_PROJECT_PATH : null);
@@ -52,14 +53,15 @@ test('diagnose real project cursor overlay', async ({ appPage }) => {
     const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
     const projectState = stores?.project.getState();
     const activeAssetId = projectState?.activeAssetId;
-    const asset = projectState?.project?.assets?.find((entry: any) => entry.id === activeAssetId) ?? null;
+    const asset =
+      projectState?.project?.assets?.find((entry: any) => entry.id === activeAssetId) ?? null;
     const cursorPath = asset?.metadata?.cursorEventsPath ?? null;
     const text = cursorPath ? await window.roughcut.readTextFile(cursorPath) : null;
     const eventCount = text ? text.trim().split('\n').filter(Boolean).length : 0;
 
-    const canvas = document.querySelector(
-      '[data-testid="zoom-host"]',
-    )?.parentElement?.querySelector(':scope > div > canvas') as HTMLCanvasElement | null;
+    const canvas = document
+      .querySelector('[data-testid="zoom-host"]')
+      ?.parentElement?.querySelector(':scope > div > canvas') as HTMLCanvasElement | null;
     const ctx = canvas?.getContext('2d');
     let nonTransparentPixels = 0;
     if (canvas && ctx) {

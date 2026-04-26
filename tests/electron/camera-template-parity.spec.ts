@@ -3,7 +3,8 @@ import { copyFileSync, existsSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { PLAYBACK_PROJECT_PATH } from './fixtures/playback-fixture.js';
 
-const DEFAULT_CAMERA_PROJECT_PATH = '/home/endlessblink/Documents/Rough Cut/Recording Apr 23 2026 - 2303.roughcut';
+const DEFAULT_CAMERA_PROJECT_PATH =
+  '/home/endlessblink/Documents/Rough Cut/Recording Apr 23 2026 - 2303.roughcut';
 
 const SOURCE_PROJECT_PATH =
   process.env.ROUGH_CUT_SESSION_PATH && existsSync(process.env.ROUGH_CUT_SESSION_PATH)
@@ -189,7 +190,9 @@ test('saved project preserves camera template/frame parity after reopen', async 
   expect(diffs.h).toBeLessThanOrEqual(0.01);
 });
 
-test('persisted camera template/frame render the same in Record and Export', async ({ appPage }) => {
+test('persisted camera template/frame render the same in Record and Export', async ({
+  appPage,
+}) => {
   test.setTimeout(45_000);
 
   await navigateToTab(appPage, 'record');
@@ -409,7 +412,7 @@ test('camera visibility toggle hides camera video in both Record and Edit', asyn
                     },
                   },
                 }
-            : asset,
+              : asset,
         ),
       };
 
@@ -607,14 +610,22 @@ async function captureNormalizedRect(
 
 async function readTemplateCameraFrame(page: import('@playwright/test').Page) {
   await page.waitForFunction(() => {
-    const recordRoot = document.querySelector('[data-testid="record-tab-root"]') as HTMLElement | null;
-    const root = recordRoot?.querySelector('[data-testid="template-preview-root"]') as HTMLElement | null;
+    const recordRoot = document.querySelector(
+      '[data-testid="record-tab-root"]',
+    ) as HTMLElement | null;
+    const root = recordRoot?.querySelector(
+      '[data-testid="template-preview-root"]',
+    ) as HTMLElement | null;
     return Boolean(root?.getAttribute('data-camera-frame-w'));
   });
 
   return page.evaluate(() => {
-    const recordRoot = document.querySelector('[data-testid="record-tab-root"]') as HTMLElement | null;
-    const root = recordRoot?.querySelector('[data-testid="template-preview-root"]') as HTMLElement | null;
+    const recordRoot = document.querySelector(
+      '[data-testid="record-tab-root"]',
+    ) as HTMLElement | null;
+    const root = recordRoot?.querySelector(
+      '[data-testid="template-preview-root"]',
+    ) as HTMLElement | null;
     if (!root) {
       throw new Error('template-preview-root not found');
     }

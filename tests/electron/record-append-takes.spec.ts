@@ -58,13 +58,15 @@ test.describe('Record append takes', () => {
     const firstFilePath = await loadRecordedProject(appPage, tempProjectPath);
 
     const initial = await readProjectSnapshot(appPage);
-    // Fixture project has a screen recording plus a linked camera asset.
+    // Fixture project has at least one screen recording; exact track counts vary
+    // between local fixture recordings, so assert append deltas below.
     expect(initial.assetCount).toBeGreaterThanOrEqual(1);
-    expect(initial.primaryVideoClipCount).toBe(1);
+    expect(initial.primaryVideoClipCount).toBeGreaterThanOrEqual(1);
     expect(initial.duration).toBeGreaterThan(0);
     const initialDuration = initial.duration;
     const initialAssetCount = initial.assetCount;
     const initialAudioClipCount = initial.audioClipCount;
+    const initialPrimaryClipCount = initial.primaryVideoClipCount;
 
     // Synthesize a second recording result. Different filePath defeats the
     // 15s dedup throttle in handleRecordingComplete; the file doesn't need
@@ -92,7 +94,7 @@ test.describe('Record append takes', () => {
 
     const after = await readProjectSnapshot(appPage);
     expect(after.assetCount).toBe(initialAssetCount + 1);
-    expect(after.primaryVideoClipCount).toBe(2);
+    expect(after.primaryVideoClipCount).toBe(initialPrimaryClipCount + 1);
     expect(after.audioClipCount).toBe(initialAudioClipCount + 1);
 
     // New clip should sit right after the first one.
@@ -115,7 +117,7 @@ test.describe('Record append takes', () => {
 
     const initial = await readProjectSnapshot(appPage);
     expect(initial.cameraAssetCount).toBeGreaterThanOrEqual(1);
-    expect(initial.secondaryVideoClipCount).toBe(1);
+    expect(initial.secondaryVideoClipCount).toBeGreaterThanOrEqual(1);
     const initialDuration = initial.duration;
     const initialAssetCount = initial.assetCount;
     const initialCameraAssetCount = initial.cameraAssetCount;
