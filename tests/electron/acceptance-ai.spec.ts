@@ -4,19 +4,7 @@
  * Red = missing feature. Green = implemented.
  * The AI tab is currently a placeholder — ALL tests should fail.
  */
-import { test, expect } from './fixtures/electron-app.js';
-
-async function skipWhileAiHeaderTabHidden(appPage: import('@playwright/test').Page) {
-  const isHeaderTabVisible = await appPage
-    .locator('[data-testid="tab-ai"]')
-    .isVisible()
-    .catch(() => false);
-
-  test.skip(
-    !isHeaderTabVisible,
-    'AI acceptance is gated while the AI tab is hidden from the app header.',
-  );
-}
+import { test, expect, skipIfHeaderTabHidden } from './fixtures/electron-app.js';
 
 function nav(appPage: import('@playwright/test').Page) {
   return appPage.click('[data-testid="tab-ai"]').then(() =>
@@ -26,7 +14,7 @@ function nav(appPage: import('@playwright/test').Page) {
 
 test.describe('AI Tab — MVP Acceptance', () => {
   test.beforeEach(async ({ appPage }) => {
-    await skipWhileAiHeaderTabHidden(appPage);
+    await skipIfHeaderTabHidden(appPage, 'ai', 'AI');
   });
 
   // Note: AI and Motion are currently merged as "AI Motion" placeholder.

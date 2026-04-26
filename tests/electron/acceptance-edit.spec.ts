@@ -4,19 +4,7 @@
  * Red = missing feature. Green = implemented.
  * This file IS the status dashboard for the Edit tab.
  */
-import { test, expect } from './fixtures/electron-app.js';
-
-async function skipWhileEditHeaderTabHidden(appPage: import('@playwright/test').Page) {
-  const isHeaderTabVisible = await appPage
-    .locator('[data-testid="tab-edit"]')
-    .isVisible()
-    .catch(() => false);
-
-  test.skip(
-    !isHeaderTabVisible,
-    'Edit acceptance is gated while the Edit tab is hidden from the app header.',
-  );
-}
+import { test, expect, skipIfHeaderTabHidden } from './fixtures/electron-app.js';
 
 function nav(appPage: import('@playwright/test').Page) {
   return appPage.click('[data-testid="tab-edit"]').then(() =>
@@ -26,7 +14,7 @@ function nav(appPage: import('@playwright/test').Page) {
 
 test.describe('Edit Tab — MVP Acceptance', () => {
   test.beforeEach(async ({ appPage }) => {
-    await skipWhileEditHeaderTabHidden(appPage);
+    await skipIfHeaderTabHidden(appPage, 'edit', 'Edit');
   });
 
   // ── 2.5.1: All tracks visible (V1, V2, A1, A2) ───────────────────────

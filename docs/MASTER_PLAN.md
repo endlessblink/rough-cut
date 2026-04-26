@@ -503,6 +503,7 @@ To match the stability-first sprint framing above, the app header currently expo
 #### Completed
 
 - Added dynamic `test.skip` gates to `acceptance-ai.spec.ts` and `acceptance-edit.spec.ts` when their header tabs are absent.
+- Extracted the visibility gate into `skipIfHeaderTabHidden` so future hidden-surface acceptance specs can share the same behavior.
 - Kept the gate tied to actual header visibility so the specs automatically become active again when AI/Edit are restored to `APP_VIEW_TABS`.
 - Left Record and Export acceptance coverage untouched.
 

@@ -138,6 +138,19 @@ export const test = base.extend<ElectronFixtures, WorkerFixtures>({
 
 export { expect } from '@playwright/test';
 
+/** Skip tests for surfaces that are intentionally hidden from the app header. */
+export async function skipIfHeaderTabHidden(page: Page, tabId: string, label = tabId) {
+  const isHeaderTabVisible = await page
+    .locator(`[data-testid="tab-${tabId}"]`)
+    .isVisible()
+    .catch(() => false);
+
+  test.skip(
+    !isHeaderTabVisible,
+    `${label} acceptance is gated while the ${label} tab is hidden from the app header.`,
+  );
+}
+
 /** Navigate to a tab by clicking its testid button and waiting for the tab root to appear. */
 export async function navigateToTab(page: Page, tabId: string) {
   const tabButtonSelector = `[data-testid="tab-${tabId}"]`;
