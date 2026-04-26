@@ -299,6 +299,7 @@ To match the stability-first sprint framing above, the app header currently expo
 | TASK-256     | Record/Export: Fix audio route and exported MP4 truth gaps              | P0       | TODO                     | TASK-253 |
 | TASK-257     | Release: Manual rehearsal checklist and GO/NO-GO result                 | P0       | TODO                     | TASK-254, TASK-255, TASK-256 |
 | BUG-258      | Fix missing roughcut fixture path failures                              | P1       | IN PROGRESS (2026-04-26) | TASK-252 |
+| TASK-259     | Run /tested? verification gate before merging record-readiness          | P0       | PLANNED (2026-04-26)     | TASK-257 |
 
 ### Recording Edge Features
 
@@ -568,6 +569,23 @@ Keep Electron E2E specs useful when older workstation-local `.roughcut` recordin
 #### Verification
 
 - `pnpm test:e2e:headless:serial tests/electron/camera-template-parity.spec.ts tests/electron/edit-track-headers.spec.ts tests/electron/cursor-real-project-diagnostic.spec.ts`
+
+### TASK-259: Run /tested? verification gate before merging record-readiness (PLANNED)
+
+**Priority:** P0 | **Status:** PLANNED (2026-04-26) | **Depends on:** TASK-257
+
+#### Goal
+
+Run `/tested?` on the full record-readiness-integrated branch diff before merging to main. Confirm all changed symbols are exercised by tests and the verdict is ✅ COVERED or document exactly what remains partial.
+
+#### Tasks
+
+- [ ] Run `/tested?` with no arguments against the branch
+- [ ] Address any 🔴 NOT COVERED symbols identified
+- [ ] Re-run until verdict is ✅ COVERED or ⚠️ PARTIAL with documented justification
+- [ ] Merge to main only after gate passes
+
+---
 
 ### TASK-253: Tests: Add focused client-tutorial readiness spec
 
