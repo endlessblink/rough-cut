@@ -59,6 +59,14 @@ pnpm lint
 - Prefer reading/tailing that file directly over asking the user to paste logs from the terminal
 - This log reflects the Electron app runtime stream (main process output plus renderer console forwarded through main)
 
+## E2E Display Mode
+
+- Default to `pnpm test:e2e:headless:serial` for full Electron/Playwright runs.
+- Use `pnpm test:e2e:headless` for faster background runs when parallelism is acceptable.
+- For single Electron/Playwright specs, stay headless by using the named headless scripts or wrapping the command with `xvfb-run`.
+- Do not run headed Electron/Playwright tests unless the user explicitly asks for a visible run in that moment.
+- Avoid `pnpm exec playwright test` directly for Electron E2E unless you intentionally need custom flags and still keep the run headless.
+
 ## Task Workflow
 
 Follow the MASTER_PLAN format in `docs/MASTER_PLAN.md`:

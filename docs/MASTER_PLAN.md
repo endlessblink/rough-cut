@@ -421,7 +421,7 @@ To match the stability-first sprint framing above, the app header currently expo
 | TASK-212     | Infra: Replace no-op `lint` echo scripts with real ESLint config   | P3       | TODO                     | -                  |
 | TASK-213     | Record: Audit visible sidebar controls for real vs placeholder behavior | P3   | TODO                     | TASK-188           |
 | ~~TASK-214~~ | ~~Record: Make post-take keep/retry/continue review path explicit~~ | P1      | ✅ DONE (2026-04-25)     | TASK-191           |
-| TASK-215     | Export: Gate fresh-take review-to-export truth after Record fixes  | P1       | TODO                     | TASK-175, TASK-191 |
+| TASK-215     | Export: Gate fresh-take review-to-export truth after Record fixes  | P1       | REVIEW                   | TASK-175, TASK-191 |
 | ~~TASK-231~~ | ~~Tests: Gate hidden-tab acceptance failures~~                    | P1       | ✅ DONE (2026-04-25)     | TASK-206           |
 | ~~TASK-232~~ | ~~Record: Stabilize camera source-switch preview e2e~~            | P1       | ✅ DONE (2026-04-25)     | TASK-194, TASK-195 |
 | ~~TASK-233~~ | ~~Record: Fix rounded camera visual e2e regressions~~             | P1       | ✅ DONE (2026-04-25)     | TASK-113, BUG-005  |
@@ -432,14 +432,14 @@ To match the stability-first sprint framing above, the app header currently expo
 | ~~TASK-238~~ | ~~Record: Fix failed live-preview state e2e~~                     | P1       | ✅ DONE (2026-04-25)     | TASK-165, TASK-166 |
 | ~~TASK-239~~ | ~~Tests: Complete full e2e sweep after timeout~~                  | P1       | ✅ DONE (2026-04-26)     | TASK-231, TASK-232, TASK-233, TASK-234, TASK-235, TASK-236, TASK-237, TASK-238 |
 | TASK-240     | Record: Re-fix rounded camera visual full-suite regressions       | P1       | TODO                     | TASK-233           |
+| TASK-244     | Record: Stabilize no-baked-UI capture artifact e2e                | P1       | TODO                     | TASK-197           |
+| TASK-246     | Tests: Repair Record screenshot template specs                    | P1       | TODO                     | TASK-237           |
 | ~~TASK-241~~ | ~~Record: Fix inspector rail hit-target overlay regressions~~     | P1       | ✅ DONE (2026-04-26)     | TASK-237           |
 | ~~TASK-242~~ | ~~Record: Repair moved-project sidecar save regression~~          | P1       | ✅ DONE (2026-04-26)     | TASK-105           |
 | ~~TASK-243~~ | ~~Record: Fix camera framing and zoom geometry regressions~~      | P1       | ✅ DONE (2026-04-26)     | TASK-113, TASK-122 |
-| TASK-244     | Record: Stabilize no-baked-UI capture artifact e2e                | P1       | TODO                     | TASK-197           |
 | ~~TASK-245~~ | ~~Tests: Repair Record zoom panel selector ambiguity~~            | P1       | ✅ DONE (2026-04-26)     | TASK-207           |
-| TASK-246     | Tests: Repair Record screenshot template specs                    | P1       | TODO                     | TASK-237           |
-| TASK-247     | Record: Fix cursor-follow no-op in saved-take zoom preview        | P1       | IN PROGRESS (2026-04-26) | TASK-234           |
-| TASK-248     | Tests: Update retroactive cursor repair e2e for compositor path   | P2       | TODO                     | TASK-234           |
+| ~~TASK-247~~ | ~~Record: Fix cursor-follow no-op in saved-take zoom preview~~    | P1       | ✅ DONE (2026-04-26)     | TASK-234           |
+| ~~TASK-248~~ | ~~Tests: Update retroactive cursor repair e2e for compositor path~~ | P2     | ✅ DONE (2026-04-26)     | TASK-234           |
 | TASK-249     | Record: Honor zoom auto-shrink for persisted camera frame edits   | P1       | CANCELLED (2026-04-26)   | TASK-243           |
 
 ---
@@ -807,6 +807,8 @@ To match the stability-first sprint framing above, the app header currently expo
 - Preserve Record/Edit/Export camera template parity while fixing the full-suite failure mode.
 - Update fixtures only if focused and full-suite behavior prove the UI intentionally changed.
 
+**Progress (2026-04-26):** Reprioritized the remaining Record regression tasks after the full-suite sweep and stabilized the shared playback and zoom fixtures so grouped headless cursor and zoom coverage stays deterministic while the rounded-camera cluster is being worked through.
+
 #### Verification
 
 - `pnpm exec playwright test tests/electron/camera-rounded-visual.spec.ts --reporter=line` passes.
@@ -963,9 +965,9 @@ To match the stability-first sprint framing above, the app header currently expo
 
 ---
 
-### TASK-247: Record: Fix cursor-follow no-op in saved-take zoom preview
+### ~~TASK-247~~: Record: Fix cursor-follow no-op in saved-take zoom preview
 
-**Priority:** P1 | **Status:** IN PROGRESS (2026-04-26)
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-26)
 
 #### Problem
 
@@ -982,16 +984,18 @@ To match the stability-first sprint framing above, the app header currently expo
 
 - `pnpm exec playwright test tests/electron/cursor-follow-visual.spec.ts --reporter=line` passes.
 
-#### Progress (2026-04-26)
+#### Completed (2026-04-26)
 
 - Tightened Record preview playhead propagation so zoom-follow visual changes are reflected faster in the saved-take preview path.
-- `tests/electron/cursor-follow-visual.spec.ts` now passes in isolation, but a grouped rerun still exposed an order-dependent failure where the cursor overlay never becomes visible, so this task remains open until the grouped/full-suite case is stable too.
+- Cleared inherited visibility/crop authoring state in `tests/electron/fixtures/zoom-fixture.ts` so zoom/cursor e2e cases no longer inherit cursor-hidden state from unrelated saved takes.
+- Updated the shared playback fixture to a real on-disk project/media pair available on this workstation and made the zoom fixture fall back safely when the old env/user-local project path is missing.
+- Re-verified the cursor-follow case inside a grouped headless rerun with neighboring Record specs.
 
 ---
 
-### TASK-248: Tests: Update retroactive cursor repair e2e for compositor path
+### ~~TASK-248~~: Tests: Update retroactive cursor repair e2e for compositor path
 
-**Priority:** P2 | **Status:** TODO
+**Priority:** P2 | **Status:** ✅ DONE (2026-04-26)
 
 #### Problem
 
@@ -1006,6 +1010,11 @@ To match the stability-first sprint framing above, the app header currently expo
 #### Verification
 
 - `pnpm exec playwright test tests/electron/cursor-retroactive-repair.spec.ts --reporter=line` passes.
+
+#### Completed
+
+- Re-pointed the retroactive repair spec at the current cursor overlay canvas contract (`[data-testid="cursor-overlay-canvas"]`) instead of the removed legacy selector.
+- Re-ran the spec in the repo's explicit headless serial mode: `pnpm test:e2e:headless:serial tests/electron/cursor-retroactive-repair.spec.ts`.
 
 ---
 

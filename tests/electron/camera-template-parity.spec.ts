@@ -1,10 +1,13 @@
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
 import { copyFileSync, existsSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { PLAYBACK_PROJECT_PATH } from './fixtures/playback-fixture.js';
 
 const SOURCE_PROJECT_PATH =
   process.env.ROUGH_CUT_SESSION_PATH ??
-  '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
+  (existsSync('/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut')
+    ? '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut'
+    : PLAYBACK_PROJECT_PATH);
 let recordedProjectPath = SOURCE_PROJECT_PATH;
 
 const RECORD_CAMERA_VIDEO = '[data-testid="camera-playback-video"]';

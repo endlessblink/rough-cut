@@ -2,13 +2,14 @@ import { expect, navigateToTab } from './electron-app.js';
 
 export const PLAYBACK_PROJECT_PATH =
   process.env.ROUGH_CUT_PLAYBACK_PROJECT_PATH ??
-  '/home/endlessblink/Documents/Rough Cut/Recording Apr 16 2026 - 1855.roughcut';
-export const PLAYBACK_RECORDING_BASENAME = 'recording-2026-04-16T15-55-28-323Z.webm';
+  '/home/endlessblink/Documents/Rough Cut/Recording Apr 16 2026 - 2159.roughcut';
+export const PLAYBACK_RECORDING_BASENAME = 'recording-2026-04-16T18-59-17-986Z.webm';
 
 /**
  * Loads a real on-disk playback project and normalizes it to one screen clip.
  * The older Apr 14 fixture now points at a missing /tmp recording, which only
  * exercises the placeholder compositor path and makes playback-canvas hashing meaningless.
+ * The Apr 16 21:59 project below resolves to on-disk media in Documents/Rough Cut/recordings.
  */
 export async function loadPlaybackFixture(
   page: import('@playwright/test').Page,
@@ -98,4 +99,25 @@ export async function loadPlaybackFixture(
       { timeout: 10_000 },
     )
     .toBe('true');
+
+  if (tab === 'record') {
+    await expect
+      .poll(
+        async () => {
+          return page.evaluate(() => ({
+            hasSetupSelectors: Boolean(document.querySelector('[data-testid="record-device-selectors"]')),
+            hasSourceGuard: Boolean(document.querySelector('[data-testid="record-start-guard-banner"]')),
+            hasConfidenceBanner: Boolean(document.querySelector('[data-testid="record-confidence-banner"]')),
+            hasScreenFrame: Boolean(document.querySelector('[data-testid="record-screen-frame"]')),
+          }));
+        },
+        { timeout: 15_000 },
+      )
+      .toEqual({
+        hasSetupSelectors: false,
+        hasSourceGuard: false,
+        hasConfidenceBanner: false,
+        hasScreenFrame: true,
+      });
+  }
 }

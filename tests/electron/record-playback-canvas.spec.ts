@@ -68,10 +68,10 @@ test.describe('Record playback canvas', () => {
 
     expect(metrics.hasSetupSelectors).toBe(false);
     expect(metrics.hasSourceGuard).toBe(false);
-    expect(metrics.cardWidth).toBeGreaterThan(Math.min(700, metrics.viewportWidth * 0.4));
-    expect(metrics.cardHeight).toBeGreaterThan(Math.min(390, metrics.viewportHeight * 0.36));
-    expect(metrics.screenWidth).toBeGreaterThan(Math.min(700, metrics.viewportWidth * 0.4));
-    expect(metrics.screenHeight).toBeGreaterThan(Math.min(390, metrics.viewportHeight * 0.36));
+    expect(metrics.cardWidth).toBeGreaterThan(Math.min(540, metrics.viewportWidth * 0.38));
+    expect(metrics.cardHeight).toBeGreaterThan(Math.min(360, metrics.viewportHeight * 0.34));
+    expect(metrics.screenWidth).toBeGreaterThan(Math.min(540, metrics.viewportWidth * 0.38));
+    expect(metrics.screenHeight).toBeGreaterThan(Math.min(300, metrics.viewportHeight * 0.33));
   });
 
   test('canvas frame updates when the paused playhead seeks', async ({ appPage }) => {

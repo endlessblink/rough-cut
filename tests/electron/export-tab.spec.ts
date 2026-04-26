@@ -36,12 +36,22 @@ test.describe('Export tab', () => {
 
   test('record destination presets link social framing into export defaults', async ({ appPage }) => {
     await navigateToTab(appPage, 'record');
-    await appPage
-      .locator('[data-testid="inspector-rail-item"][data-category="destinations"]')
-      .evaluate((element) => {
-        (element as HTMLButtonElement).click();
-      });
-    await appPage.locator('[data-testid="record-destination-preset-reels-portrait"]').click();
+    await appPage.evaluate(() => {
+      const button = document.querySelector(
+        '[data-testid="inspector-rail-item"][data-category="destinations"]',
+      ) as HTMLButtonElement | null;
+      button?.click();
+    });
+    await expect(appPage.locator('[data-testid="inspector-card-active"]')).toHaveAttribute(
+      'data-category',
+      'destinations',
+    );
+    await appPage.evaluate(() => {
+      const button = document.querySelector(
+        '[data-testid="record-destination-preset-reels-portrait"]',
+      ) as HTMLButtonElement | null;
+      button?.click();
+    });
 
     await navigateToTab(appPage, 'export');
 

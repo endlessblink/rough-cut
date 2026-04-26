@@ -5,6 +5,10 @@ test.describe('Record zoom rendering', () => {
   test('active zoom markers visibly change the rendered frame', async ({ appPage }) => {
     await loadPlaybackFixture(appPage, 'record');
 
+    const baseline = hashBytes(
+      await appPage.locator('[data-testid="record-screen-frame"]').screenshot({ timeout: 5_000 }),
+    );
+
     await appPage.evaluate(() => {
       const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
       const projectStore = stores?.project;
@@ -55,7 +59,11 @@ test.describe('Record zoom rendering', () => {
                 .project.assets.flatMap((asset: any) => asset.presentation?.zoom?.markers ?? []).length ?? 0,
           };
         });
-        return stores.playheadFrame === 5 && stores.markerCount > 0;
+        if (!(stores.playheadFrame === 5 && stores.markerCount > 0)) return false;
+        const current = hashBytes(
+          await appPage.locator('[data-testid="record-screen-frame"]').screenshot({ timeout: 5_000 }),
+        );
+        return current !== baseline;
       })
       .toBe(true);
 

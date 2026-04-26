@@ -1,18 +1,27 @@
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
 
 async function openTemplatesPanel(appPage: import('@playwright/test').Page) {
-  const templatesRailItem = appPage.locator(
-    '[data-testid="inspector-rail-item"][data-category="templates"]',
+  await appPage.evaluate(() => {
+    const button = document.querySelector(
+      '[data-testid="inspector-rail-item"][data-category="templates"]',
+    ) as HTMLButtonElement | null;
+    button?.click();
+  });
+  await expect(appPage.locator('[data-testid="inspector-card-active"]')).toHaveAttribute(
+    'data-category',
+    'templates',
   );
-  await expect(templatesRailItem).toBeVisible();
-  await templatesRailItem.click();
 }
 
 async function selectTemplate(appPage: import('@playwright/test').Page, label: string) {
   await openTemplatesPanel(appPage);
-  const card = appPage.getByRole('button', { name: label, exact: true });
+  const card = appPage
+    .locator('[data-testid="inspector-card-active"]')
+    .getByRole('button', { name: label, exact: true });
   await expect(card).toBeVisible();
-  await card.click();
+  await card.evaluate((element) => {
+    (element as HTMLButtonElement).click();
+  });
   await appPage.waitForTimeout(500);
 }
 

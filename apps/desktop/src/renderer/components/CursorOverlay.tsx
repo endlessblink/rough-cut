@@ -28,6 +28,7 @@ interface CursorOverlayProps {
   presentation: CursorPresentation;
   showCursor?: boolean;
   clipTimelineIn: number;
+  clipSourceIn?: number;
   zoomTransform: ZoomTransform;
   getZoomTransform?: (sourceFrame: number, cursorData: CursorFrameData) => ZoomTransform;
   crop?: RegionCrop;
@@ -143,8 +144,8 @@ function applyZoomToPoint(
   zoomTransform: ZoomTransform,
 ): { x: number; y: number } {
   return {
-    x: width * (0.5 + zoomTransform.scale * (x - 0.5 + zoomTransform.translateX)),
-    y: height * (0.5 + zoomTransform.scale * (y - 0.5 + zoomTransform.translateY)),
+    x: width * (x * zoomTransform.scale + (1 - zoomTransform.scale) / 2 + zoomTransform.translateX),
+    y: height * (y * zoomTransform.scale + (1 - zoomTransform.scale) / 2 + zoomTransform.translateY),
   };
 }
 
@@ -216,6 +217,7 @@ export function CursorOverlay({
   presentation,
   showCursor = true,
   clipTimelineIn,
+  clipSourceIn = 0,
   zoomTransform,
   getZoomTransform,
   crop,
@@ -243,6 +245,8 @@ export function CursorOverlay({
   presentationRef.current = presentation;
   const clipTimelineInRef = useRef(clipTimelineIn);
   clipTimelineInRef.current = clipTimelineIn;
+  const clipSourceInRef = useRef(clipSourceIn);
+  clipSourceInRef.current = clipSourceIn;
   const zoomTransformRef = useRef(zoomTransform);
   zoomTransformRef.current = zoomTransform;
   const getZoomTransformRef = useRef(getZoomTransform);
@@ -290,6 +294,7 @@ export function CursorOverlay({
       const data = cursorDataRef.current;
       const pres = presentationRef.current;
       const clipIn = clipTimelineInRef.current;
+      const sourceIn = clipSourceInRef.current;
       const activeCrop = cropRef.current;
 
       // Always sync the canvas size to the host CSS frame (so tests and
@@ -331,7 +336,7 @@ export function CursorOverlay({
       const transport = transportStore.getState();
       const projectFrame = transport.playheadFrame;
       const isPlaying = transport.isPlaying;
-      const sourceFrame = projectFrame - clipIn;
+      const sourceFrame = sourceIn + projectFrame - clipIn;
       const zoom = getZoomTransformRef.current?.(sourceFrame, data) ?? zoomTransformRef.current;
 
       // Track when the integer playhead last advanced so we can lerp the

@@ -5,10 +5,16 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import { navigateToTab } from './electron-app.js';
+import { PLAYBACK_PROJECT_PATH } from './playback-fixture.js';
+
+const DEFAULT_ZOOM_FIXTURE_PROJECT_PATH = '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
+const SESSION_OVERRIDE_PATH = process.env.ROUGH_CUT_SESSION_PATH?.trim() || null;
 
 export const ZOOM_FIXTURE_PROJECT_PATH =
-  process.env.ROUGH_CUT_SESSION_PATH ??
-  '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
+  [SESSION_OVERRIDE_PATH, DEFAULT_ZOOM_FIXTURE_PROJECT_PATH, PLAYBACK_PROJECT_PATH].find(
+    (candidate): candidate is string => Boolean(candidate) && existsSync(candidate),
+  ) ??
+  DEFAULT_ZOOM_FIXTURE_PROJECT_PATH;
 
 type FixtureProject = Record<string, any>;
 
@@ -61,6 +67,9 @@ export async function loadZoomFixture(
         },
         presentation: {
           ...asset.presentation,
+          visibilitySegments: [],
+          screenCrop: undefined,
+          cameraCrop: undefined,
           camera: {
             ...(asset.presentation?.camera ?? {}),
             visible: true,

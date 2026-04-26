@@ -15,3 +15,5 @@ E2E test display mode rule:
 - Use `pnpm test:e2e:headless` for parallel background E2E runs when speed matters
 - Use `pnpm test:e2e:headed` or `pnpm test:e2e:headed:serial` only when the user asks for visible testing or visual debugging requires it
 - Avoid `pnpm exec playwright test` directly for Electron E2E unless you intentionally need custom flags; prefer the named scripts so headless/headed intent stays explicit
+- Treat headless mode as mandatory by default for this repo, even for one-off specs. If you need to run a single Electron/Playwright spec, use the headless scripts or wrap the command with `xvfb-run`.
+- Never run headed Electron/Playwright tests in this repo unless the user explicitly asks for a visible run in that moment.

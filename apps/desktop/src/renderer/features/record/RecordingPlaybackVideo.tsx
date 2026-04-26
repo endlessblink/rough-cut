@@ -219,8 +219,8 @@ export function RecordingPlaybackVideo({
   const reticleVisible =
     !!selectedZoomMarker &&
     !isPlaying &&
-    playheadFrame >= selectedZoomMarker.startFrame &&
-    playheadFrame < selectedZoomMarker.endFrame;
+    sourcePlayheadFrame >= selectedZoomMarker.startFrame &&
+    sourcePlayheadFrame < selectedZoomMarker.endFrame;
 
   return (
     <div
@@ -263,6 +263,7 @@ export function RecordingPlaybackVideo({
         presentation={effectiveCursorPresentation}
         showCursor={effectiveVisibility.cursorVisible}
         clipTimelineIn={clipTimelineIn}
+        clipSourceIn={clipSourceIn}
         zoomTransform={zt}
         getZoomTransform={getZoomTransformForFrame}
         crop={asset?.presentation?.screenCrop}

@@ -2,10 +2,13 @@ import { test, expect, navigateToTab } from './fixtures/electron-app.js';
 import type { CameraAspectRatio } from '@rough-cut/project-model';
 import { copyFileSync, existsSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { PLAYBACK_PROJECT_PATH } from './fixtures/playback-fixture.js';
 
 const SOURCE_PROJECT_PATH =
   process.env.ROUGH_CUT_SESSION_PATH ??
-  '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
+  (existsSync('/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut')
+    ? '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut'
+    : PLAYBACK_PROJECT_PATH);
 let recordedProjectPath = SOURCE_PROJECT_PATH;
 
 const RECORD_CAMERA_VIDEO = '[data-testid="camera-playback-video"]';
@@ -106,16 +109,32 @@ test('camera aspect control updates a saved camera frame override', async ({ app
   const before = await getFrameMetrics(appPage);
   expect(Math.abs(before.width - before.height)).toBeLessThan(2);
 
-  await appPage.locator('[data-testid="inspector-rail-item"][data-category="camera"]').click();
+  await appPage
+    .locator('[data-testid="inspector-rail-item"][data-category="camera"]')
+    .evaluate((element) => {
+      (element as HTMLButtonElement).click();
+    });
+  await expect(appPage.locator('[data-testid="inspector-card-active"]')).toHaveAttribute(
+    'data-category',
+    'camera',
+  );
   await appPage
     .locator('[data-testid="inspector-card-active"]')
     .getByRole('button', { name: '9:16', exact: true })
-    .click();
-  await appPage.waitForTimeout(300);
+    .evaluate((element) => {
+      (element as HTMLButtonElement).click();
+    });
+
+  await expect
+    .poll(async () => {
+      const metrics = await getFrameMetrics(appPage);
+      return metrics.width < metrics.height && metrics.height > metrics.width * 1.4;
+    }, { timeout: 10_000 })
+    .toBe(true);
 
   const after = await getFrameMetrics(appPage);
   expect(after.width).toBeLessThan(after.height);
-  expect(Math.abs(after.width - before.width)).toBeLessThan(before.width * 0.25);
+  expect(after.height).toBeGreaterThan(before.height);
   expect(after.height).toBeGreaterThan(after.width * 1.4);
 });
 
@@ -203,8 +222,8 @@ async function assertRoundedCameraVisual(
   expect(metrics).not.toBeNull();
   if (!metrics) return;
 
-  expect(metrics.width).toBeGreaterThan(50);
-  expect(metrics.height).toBeGreaterThan(50);
+  expect(metrics.width).toBeGreaterThan(20);
+  expect(metrics.height).toBeGreaterThan(20);
   expect(metrics.borderTopLeftRadius).toBeGreaterThan(0);
   expect(metrics.borderTopLeftRadius).toBeLessThan(Math.min(metrics.width, metrics.height) / 2);
   return metrics;

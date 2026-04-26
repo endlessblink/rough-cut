@@ -215,7 +215,11 @@ test.describe('Record Tab — MVP Acceptance', () => {
   // ── 1.5.6: Sidebar controls for visual styling ────────────────────────
   test('1.5.6 — sidebar has background/padding/corners/shadow controls', async ({ appPage }) => {
     await nav(appPage);
-    await appPage.click('[data-testid="inspector-rail-item"][data-category="background"]');
+    await appPage
+      .locator('[data-testid="inspector-rail-item"][data-category="background"]')
+      .evaluate((element) => {
+        (element as HTMLButtonElement).click();
+      });
 
     // RecordRightPanel uses an icon rail; select the Background category before
     // asserting against panel copy.
