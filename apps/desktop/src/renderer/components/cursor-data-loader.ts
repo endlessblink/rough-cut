@@ -3,6 +3,7 @@
  * to a frame-indexed Float32Array for efficient per-frame lookup.
  */
 import type { CursorFrameData } from './CursorOverlay.js';
+import { buildCursorTimeTrack, getCursorAtTime } from './cursor-time-track.js';
 
 interface RawCursorEvent {
   frame: number;
@@ -56,17 +57,48 @@ export function buildCursorFrameData(
       ? (projectFps as number) / (eventsFps as number)
       : 1;
 
-  // Sort events by frame (after rescaling so frame ordering reflects the
-  // final indexing values).
+  const effectiveEventsFps =
+    Number.isFinite(eventsFps) && (eventsFps as number) > 0 ? (eventsFps as number) : undefined;
+  const effectiveProjectFps =
+    Number.isFinite(projectFps) && (projectFps as number) > 0
+      ? (projectFps as number)
+      : effectiveEventsFps;
+
+  if (effectiveEventsFps && effectiveProjectFps) {
+    const maxTimeMs = ((totalFrames - 1) / effectiveProjectFps) * 1_000;
+    const track = buildCursorTimeTrack(
+      events
+        .map((event) => ({
+          timeMs: (event.frame / effectiveEventsFps) * 1_000,
+          x: event.x / sourceWidth,
+          y: event.y / sourceHeight,
+          type: event.type,
+        }))
+        .filter((event) => event.timeMs >= 0 && event.timeMs <= maxTimeMs),
+    );
+
+    for (let f = 0; f < totalFrames; f++) {
+      const cursor = getCursorAtTime(track, (f / effectiveProjectFps) * 1_000, {
+        maxGapMs: Infinity,
+      });
+      if (!cursor) continue;
+      const idx = f * 3;
+      frames[idx] = cursor.x;
+      frames[idx + 1] = cursor.y;
+      frames[idx + 2] = cursor.isClick ? 1 : 0;
+    }
+
+    return { frames, frameCount: totalFrames, sourceWidth, sourceHeight };
+  }
+
+  // Legacy frame-indexed path for callers without cadence metadata.
   const sorted = [...events]
     .map((e) => (scale === 1 ? e : { ...e, frame: Math.round(e.frame * scale) }))
     .sort((a, b) => a.frame - b.frame);
 
-  // Assign positions and click flags at exact frames
   for (const e of sorted) {
     if (e.frame < 0 || e.frame >= totalFrames) continue;
     const idx = e.frame * 3;
-    // Normalize coordinates to 0-1
     frames[idx] = e.x / sourceWidth;
     frames[idx + 1] = e.y / sourceHeight;
     if (e.type === 'down') {
@@ -76,7 +108,6 @@ export function buildCursorFrameData(
     }
   }
 
-  // Fill gaps via linear interpolation between known positions
   let lastKnownFrame = -1;
   for (let f = 0; f < totalFrames; f++) {
     const idx = f * 3;

@@ -95,7 +95,7 @@ const DEFAULT_BACKGROUND: BackgroundConfig = {
   bgShadowBlur: 0,
 };
 
-const RECORD_PLAYHEAD_REACT_UPDATE_MS = 100;
+const RECORD_PLAYHEAD_REACT_UPDATE_MS = 50;
 
 function useThrottledRecordPlayheadFrame(): number {
   const [playheadFrame, setPlayheadFrame] = useState(() => transportStore.getState().playheadFrame);
