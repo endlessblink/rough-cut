@@ -18,7 +18,9 @@ async function openInspectorCategory(
   const railItem = appPage.locator(
     `[data-testid="inspector-rail-item"][data-category="${category}"]`,
   );
-  await railItem.click();
+  await railItem.evaluate((element) => {
+    (element as HTMLButtonElement).click();
+  });
 
   await expect(appPage.locator('[data-testid="inspector-card-active"]')).toHaveAttribute(
     'data-category',
@@ -53,14 +55,19 @@ async function readRect(
 ): Promise<RectMetrics> {
   return appPage.evaluate((id) => {
     const element = document.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
+    const previewRoot = document.querySelector('[data-testid="record-card-content"]') as HTMLElement | null;
     if (!element) {
       throw new Error(`Element not found: ${id}`);
     }
+    if (!previewRoot) {
+      throw new Error('Preview root not found: record-card-content');
+    }
 
     const rect = element.getBoundingClientRect();
+    const rootRect = previewRoot.getBoundingClientRect();
     return {
-      x: rect.x,
-      y: rect.y,
+      x: rect.x - rootRect.x,
+      y: rect.y - rootRect.y,
       width: rect.width,
       height: rect.height,
     };

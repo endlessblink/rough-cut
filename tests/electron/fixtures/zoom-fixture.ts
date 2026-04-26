@@ -41,7 +41,7 @@ export async function loadZoomFixture(
   ].find((candidate): candidate is string => Boolean(candidate) && existsSync(candidate));
 
   let cursorEventsPath = inferredCursorEventsPath ?? null;
-  if (options.preserveCursorEvents && !cursorEventsPath) {
+  if (options.preserveCursorEvents) {
     cursorEventsPath = join(tmpdir(), 'rough-cut-e2e-cursor-fixture.ndjson');
     await writeFile(cursorEventsPath, buildSyntheticCursorSidecar(recording.duration ?? 180), 'utf-8');
   }
@@ -65,6 +65,11 @@ export async function loadZoomFixture(
             visible: true,
           },
           cameraLayouts: [],
+          visibilitySegments: [],
+          screenCrop: {
+            ...(asset.presentation?.screenCrop ?? {}),
+            enabled: false,
+          },
           zoom: {
             ...(asset.presentation?.zoom ?? {}),
             autoIntensity: 0,

@@ -367,17 +367,22 @@ test.describe('project relative paths', () => {
       expect(cameraMetrics.frameH).toBeCloseTo(0.64, 2);
 
       const sidecarSaved = await appPage.evaluate(
-        async ({ recordingFilePath, presentation }) => {
+        async ({ recordingFilePath, currentProjectPath, presentation }) => {
           return (
             window as unknown as {
               roughcut: {
-                zoomSaveSidecar: (path: string, payload: Record<string, unknown>) => Promise<boolean>;
+                zoomSaveSidecar: (
+                  path: string,
+                  projectPathArg: string | null,
+                  payload: Record<string, unknown>,
+                ) => Promise<boolean>;
               };
             }
-          ).roughcut.zoomSaveSidecar(recordingFilePath, presentation);
+          ).roughcut.zoomSaveSidecar(recordingFilePath, currentProjectPath, presentation);
         },
         {
           recordingFilePath: reopenedProject.assets[0]?.filePath,
+          currentProjectPath: reopenedProjectPath,
           presentation: {
             autoIntensity: 0.9,
             followCursor: true,

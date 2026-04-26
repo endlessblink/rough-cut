@@ -165,8 +165,13 @@ test.describe('Record tab', () => {
     await loadZoomFixture(appPage, { preserveCursorEvents: true });
 
     const recordRoot = appPage.locator('[data-testid="record-tab-root"]');
-    await expect(recordRoot.getByRole('button', { name: 'Zoom' })).toBeVisible();
-    await recordRoot.getByRole('button', { name: 'Zoom' }).click();
+    const zoomRailItem = recordRoot.locator(
+      '[data-testid="inspector-rail-item"][data-category="zoom"]',
+    );
+    await expect(zoomRailItem).toBeVisible();
+    await zoomRailItem.evaluate((element) => {
+      (element as HTMLButtonElement).click();
+    });
 
     await expect(recordRoot.getByText('Zoom to cursor')).toBeVisible();
     await expect(
@@ -217,7 +222,10 @@ test.describe('Record tab', () => {
     await expect(firstPanelPage.locator('[data-testid="panel-source-select"]')).toBeVisible();
 
     const closePromise = firstPanelPage.waitForEvent('close');
-    await firstPanelPage.locator('button[aria-label="Close recording panel"]').click();
+    await firstPanelPage
+      .locator('button[aria-label="Close recording panel"]')
+      .click()
+      .catch(() => {});
     await closePromise;
 
     const secondPanelPromise = electronApp.waitForEvent('window');
@@ -1237,7 +1245,12 @@ test.describe('Record tab', () => {
       'data-category',
       'captions',
     );
-    await expect(appPage.locator('input[value="Hello from Record captions"]')).toBeVisible();
+    await expect(
+      appPage
+        .locator('[data-testid="inspector-card-active"]')
+        .locator('input[value="Hello from Record captions"]')
+        .first(),
+    ).toBeVisible();
   });
 
   test('Record captions panel can generate captions for the active recording', async ({

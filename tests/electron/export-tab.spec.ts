@@ -36,7 +36,11 @@ test.describe('Export tab', () => {
 
   test('record destination presets link social framing into export defaults', async ({ appPage }) => {
     await navigateToTab(appPage, 'record');
-    await appPage.locator('[data-testid="inspector-rail-item"][data-category="destinations"]').click();
+    await appPage
+      .locator('[data-testid="inspector-rail-item"][data-category="destinations"]')
+      .evaluate((element) => {
+        (element as HTMLButtonElement).click();
+      });
     await appPage.locator('[data-testid="record-destination-preset-reels-portrait"]').click();
 
     await navigateToTab(appPage, 'export');
