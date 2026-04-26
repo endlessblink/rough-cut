@@ -1,7 +1,6 @@
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
 import { copyFileSync, existsSync, unlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const SOURCE_PROJECT_PATH =
   process.env.ROUGH_CUT_SESSION_PATH ??
@@ -19,7 +18,7 @@ const DEFAULT_PERSISTED_CAMERA_FRAME = { x: 0.02, y: 0.1, w: 0.34, h: 0.8 };
 
 test.beforeEach(() => {
   recordedProjectPath = join(
-    tmpdir(),
+    dirname(SOURCE_PROJECT_PATH),
     `rough-cut-camera-template-parity-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.roughcut`,
   );
   copyFileSync(SOURCE_PROJECT_PATH, recordedProjectPath);
