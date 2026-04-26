@@ -1,5 +1,9 @@
 import { existsSync } from 'node:fs';
 import { expect, test, navigateToTab } from './fixtures/electron-app.js';
+import {
+  readCursorOverlayPixelStats,
+  waitForCursorOverlayVisible,
+} from './fixtures/cursor-overlay.js';
 
 /**
  * Live-data regression check: load the take that originally surfaced the
@@ -72,55 +76,8 @@ test('Apr 25 0924 cursor lands on click target after fps rescaling', async ({ ap
     },
   );
 
-  // Wait for the dedicated cursor overlay canvas to have non-empty pixels.
-  await appPage.waitForFunction(
-    () => {
-      const canvas = document.querySelector('[data-testid="cursor-overlay-canvas"]') as HTMLCanvasElement | null;
-      const ctx = canvas?.getContext('2d');
-      if (!canvas || !ctx) return false;
-      try {
-        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-        for (let i = 3; i < data.length; i += 4) if (data[i] > 0) return true;
-      } catch {
-        /* ignore */
-      }
-      return false;
-    },
-    null,
-    { timeout: 10_000 },
-  );
-
-  const result = await appPage.evaluate(() => {
-    const canvas = document.querySelector('[data-testid="cursor-overlay-canvas"]') as HTMLCanvasElement | null;
-    if (!canvas) return { found: false } as const;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return { found: false } as const;
-    const w = canvas.width;
-    const h = canvas.height;
-    const data = ctx.getImageData(0, 0, w, h).data;
-    let sumX = 0;
-    let sumY = 0;
-    let count = 0;
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const i = (y * w + x) * 4 + 3;
-        if (data[i] > 0) {
-          sumX += x;
-          sumY += y;
-          count += 1;
-        }
-      }
-    }
-    if (count === 0) return { found: false } as const;
-    return {
-      found: true as const,
-      cx: sumX / count,
-      cy: sumY / count,
-      pixels: count,
-      width: w,
-      height: h,
-    };
-  });
+  await waitForCursorOverlayVisible(appPage);
+  const result = await readCursorOverlayPixelStats(appPage);
 
   expect(result.found).toBe(true);
   // Expected normalized position from the cursor click event: (0.846, 0.488).
@@ -128,9 +85,9 @@ test('Apr 25 0924 cursor lands on click target after fps rescaling', async ({ ap
   // has a measurable spatial extent so the centroid drifts slightly from the
   // hotspot.
   if (result.found) {
-    const nx = result.cx / result.width;
-    const ny = result.cy / result.height;
-    console.log('cursor centroid (normalized):', nx.toFixed(3), ny.toFixed(3), 'pixels:', result.pixels);
+    const nx = result.centroidX / result.width;
+    const ny = result.centroidY / result.height;
+    console.log('cursor centroid (normalized):', nx.toFixed(3), ny.toFixed(3), 'pixels:', result.nonTransparentPixels);
     expect(nx).toBeGreaterThan(0.7);
     expect(nx).toBeLessThan(0.95);
     expect(ny).toBeGreaterThan(0.35);

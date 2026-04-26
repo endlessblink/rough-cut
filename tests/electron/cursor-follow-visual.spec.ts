@@ -1,4 +1,9 @@
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
+import {
+  readCursorOverlayDebugState,
+  readCursorOverlayPixelStats,
+  waitForCursorOverlayVisible,
+} from './fixtures/cursor-overlay.js';
 import { loadZoomFixture } from './fixtures/zoom-fixture.js';
 
 test.describe('Cursor-follow zoom', () => {
@@ -84,35 +89,11 @@ test.describe('Cursor-follow zoom', () => {
       await appPage.waitForTimeout(250);
       const recordRoot = appPage.locator('[data-testid="record-tab-root"]');
       const zoomSurface = recordRoot.locator('[data-testid="recording-playback-canvas"]').first();
-      const cursorCanvas = recordRoot.locator('[data-testid="cursor-overlay-canvas"]').first();
-      await appPage.waitForFunction(
-        () => {
-          const canvas = document.querySelector('[data-testid="cursor-overlay-canvas"]') as HTMLCanvasElement | null;
-          return canvas?.dataset.cursorVisible === 'true';
-        },
-        null,
-        { timeout: 10_000 },
-      );
-      const [transform, cursorState, playheadFrame] = await Promise.all([
+      await waitForCursorOverlayVisible(appPage);
+      const [transform, cursorPixels, cursorState, playheadFrame] = await Promise.all([
         zoomSurface.evaluate((el) => getComputedStyle(el as HTMLElement).transform),
-        cursorCanvas.evaluate((element) => {
-          const canvas = element as HTMLCanvasElement;
-          const ctx = canvas.getContext('2d');
-          const data = canvas && ctx ? ctx.getImageData(0, 0, canvas.width, canvas.height).data : null;
-          let hash = 0;
-          if (data) {
-            for (let i = 0; i < data.length; i += 4) {
-              if (data[i + 3] === 0) continue;
-              hash = (hash * 33 + data[i] + data[i + 1] + data[i + 2] + data[i + 3] + i) % 2147483647;
-            }
-          }
-          return {
-            hash,
-            zoomScale: Number(canvas?.dataset.zoomScale ?? '0'),
-            zoomTranslateX: Number(canvas?.dataset.zoomTranslateX ?? '0'),
-            zoomTranslateY: Number(canvas?.dataset.zoomTranslateY ?? '0'),
-          };
-        }),
+        readCursorOverlayPixelStats(appPage),
+        readCursorOverlayDebugState(appPage),
         appPage.evaluate(() => {
           const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
           const playheadFrame = stores?.transport.getState().playheadFrame ?? -1;
@@ -130,7 +111,7 @@ test.describe('Cursor-follow zoom', () => {
       ]);
       return {
         transform,
-        hash: cursorState.hash,
+        hash: cursorPixels.hash,
         zoomScale: cursorState.zoomScale,
         zoomTranslateX: cursorState.zoomTranslateX,
         zoomTranslateY: cursorState.zoomTranslateY,

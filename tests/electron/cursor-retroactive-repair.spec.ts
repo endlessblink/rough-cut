@@ -2,6 +2,10 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect, test, navigateToTab } from './fixtures/electron-app.js';
+import {
+  readCursorOverlayPixelStats,
+  waitForCursorOverlayVisible,
+} from './fixtures/cursor-overlay.js';
 import { ZOOM_FIXTURE_PROJECT_PATH } from './fixtures/zoom-fixture.js';
 
 test.describe('Retroactive cursor repair', () => {
@@ -78,39 +82,11 @@ test.describe('Retroactive cursor repair', () => {
         return video?.getAttribute('data-ready') === 'true';
       }, '[data-testid="recording-playback-video"]');
 
-      await appPage.waitForFunction(() => {
-        const canvas = document.querySelector('[data-testid="cursor-overlay-canvas"]') as HTMLCanvasElement | null;
-        if (!canvas) return false;
-        if (canvas.dataset.cursorVisible !== 'true') return false;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return false;
-        const sample = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-        for (let i = 3; i < sample.length; i += 4) {
-          if (sample[i] > 0) return true;
-        }
-        return false;
-      }, undefined, { timeout: 10000 });
+      await waitForCursorOverlayVisible(appPage);
+      const diag = await readCursorOverlayPixelStats(appPage);
 
-      const diag = await appPage.evaluate(() => {
-        const canvas = document.querySelector('[data-testid="cursor-overlay-canvas"]') as HTMLCanvasElement | null;
-        const ctx = canvas?.getContext('2d');
-        if (!canvas || !ctx) return null;
-
-        const sample = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-        let nonTransparentPixels = 0;
-        for (let i = 3; i < sample.length; i += 4) {
-          if (sample[i] > 0) nonTransparentPixels += 1;
-        }
-
-        return {
-          nonTransparentPixels,
-          canvasWidth: canvas.width,
-          canvasHeight: canvas.height,
-        };
-      });
-
-      expect(diag).not.toBeNull();
-      expect(diag?.nonTransparentPixels ?? 0).toBeGreaterThan(20);
+      expect(diag.found).toBe(true);
+      expect(diag.nonTransparentPixels).toBeGreaterThan(20);
     } finally {
       await appPage
         .evaluate(async () => {
