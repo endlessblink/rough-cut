@@ -298,6 +298,7 @@ To match the stability-first sprint framing above, the app header currently expo
 | TASK-255     | Record: Fix cursor and zoom smoothness readiness gaps                   | P0       | TODO                     | TASK-253 |
 | TASK-256     | Record/Export: Fix audio route and exported MP4 truth gaps              | P0       | TODO                     | TASK-253 |
 | TASK-257     | Release: Manual rehearsal checklist and GO/NO-GO result                 | P0       | TODO                     | TASK-254, TASK-255, TASK-256 |
+| BUG-258      | Fix missing roughcut fixture path failures                              | P1       | IN PROGRESS (2026-04-26) | TASK-252 |
 
 ### Recording Edge Features
 
@@ -544,6 +545,29 @@ Remove the current dependence on missing local real-project files so client-read
 
 - The previously failing fixture-dependent specs either pass headless or are explicitly excluded from the readiness gate with a clear reason.
 - `pnpm test:e2e:headless:serial` no longer reports missing local project files as failures.
+
+### BUG-258: Fix missing roughcut fixture path failures
+
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-26) | **Depends on:** TASK-252
+
+#### Goal
+
+Keep Electron E2E specs useful when older workstation-local `.roughcut` recordings are missing.
+
+#### Scope
+
+- Add safe fixture fallbacks for camera template parity and cursor diagnostic coverage.
+- Preserve real-project overrides through `ROUGH_CUT_SESSION_PATH` and `ROUGH_CUT_REAL_PROJECT_PATH` when intentionally supplied.
+- Avoid hiding real product regressions behind missing local file paths.
+
+#### Progress (2026-04-26)
+
+- Patched the affected camera parity and cursor diagnostic specs to use existing local fixtures or synthetic cursor data when the older hard-coded recordings are absent.
+- Verified the focused failing group now passes headlessly.
+
+#### Verification
+
+- `pnpm test:e2e:headless:serial tests/electron/camera-template-parity.spec.ts tests/electron/edit-track-headers.spec.ts tests/electron/cursor-real-project-diagnostic.spec.ts`
 
 ### TASK-253: Tests: Add focused client-tutorial readiness spec
 
