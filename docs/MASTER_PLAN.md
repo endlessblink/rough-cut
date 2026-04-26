@@ -279,6 +279,7 @@ To match the stability-first sprint framing above, the app header currently expo
 | ~~TASK-218~~ | ~~Record: Cursor sprite desynced from recorded video (fps unit mismatch)~~ | P0     | ✅ DONE (2026-04-25)     | TASK-010, TASK-101 |
 | ~~TASK-226~~ | ~~Record: Backward sub-frame cursor interpolation (fluent fast-motion)~~ | P1       | ✅ DONE (2026-04-25)     | TASK-216           |
 | ~~TASK-227~~ | ~~Build: Add `keepClickSounds` to `export-renderer/src/demo.ts` ExportSettings literal~~ | P1 | ✅ DONE (2026-04-25) | TASK-217 |
+| TASK-250     | Preview: Safe continuous cursor and zoom smoothness plan               | P1       | IN PROGRESS (2026-04-26) | TASK-216, TASK-075 |
 
 ### Recording Edge Features
 
@@ -431,12 +432,15 @@ To match the stability-first sprint framing above, the app header currently expo
 | ~~TASK-238~~ | ~~Record: Fix failed live-preview state e2e~~                     | P1       | ✅ DONE (2026-04-25)     | TASK-165, TASK-166 |
 | ~~TASK-239~~ | ~~Tests: Complete full e2e sweep after timeout~~                  | P1       | ✅ DONE (2026-04-26)     | TASK-231, TASK-232, TASK-233, TASK-234, TASK-235, TASK-236, TASK-237, TASK-238 |
 | TASK-240     | Record: Re-fix rounded camera visual full-suite regressions       | P1       | TODO                     | TASK-233           |
-| TASK-241     | Record: Fix inspector rail hit-target overlay regressions         | P1       | TODO                     | TASK-237           |
-| TASK-242     | Record: Repair moved-project sidecar save regression              | P1       | TODO                     | TASK-105           |
-| TASK-243     | Record: Fix camera framing and zoom geometry regressions          | P1       | TODO                     | TASK-113, TASK-122 |
+| ~~TASK-241~~ | ~~Record: Fix inspector rail hit-target overlay regressions~~     | P1       | ✅ DONE (2026-04-26)     | TASK-237           |
+| ~~TASK-242~~ | ~~Record: Repair moved-project sidecar save regression~~          | P1       | ✅ DONE (2026-04-26)     | TASK-105           |
+| ~~TASK-243~~ | ~~Record: Fix camera framing and zoom geometry regressions~~      | P1       | ✅ DONE (2026-04-26)     | TASK-113, TASK-122 |
 | TASK-244     | Record: Stabilize no-baked-UI capture artifact e2e                | P1       | TODO                     | TASK-197           |
-| TASK-245     | Tests: Repair Record zoom panel selector ambiguity                | P1       | TODO                     | TASK-207           |
+| ~~TASK-245~~ | ~~Tests: Repair Record zoom panel selector ambiguity~~            | P1       | ✅ DONE (2026-04-26)     | TASK-207           |
 | TASK-246     | Tests: Repair Record screenshot template specs                    | P1       | TODO                     | TASK-237           |
+| TASK-247     | Record: Fix cursor-follow no-op in saved-take zoom preview        | P1       | IN PROGRESS (2026-04-26) | TASK-234           |
+| TASK-248     | Tests: Update retroactive cursor repair e2e for compositor path   | P2       | TODO                     | TASK-234           |
+| TASK-249     | Record: Honor zoom auto-shrink for persisted camera frame edits   | P1       | CANCELLED (2026-04-26)   | TASK-243           |
 
 ---
 
@@ -666,7 +670,7 @@ To match the stability-first sprint framing above, the app header currently expo
 #### Completed
 
 - Reproduced the failure as a stale fixture assumption: the loaded recorded project now starts with an existing empty `Video 3`, so fixed 4-track and `Video 3` post-add expectations were no longer valid.
-- Updated `tests/electron/edit-track-management.spec.ts` to assert add/remove behavior relative to the current project's video/audio counts while still proving the new empty audio channel can be removed and track ordering is preserved.
+- Updated `tests/electron/edit-track-management.spec.ts` to use a synthetic in-test project instead of a hardcoded local recording, then assert add/remove behavior relative to the project's video/audio counts while still proving the new empty audio channel can be removed and track ordering is preserved.
 - Verified the focused dynamic track management spec passes.
 
 ---
@@ -810,9 +814,9 @@ To match the stability-first sprint framing above, the app header currently expo
 
 ---
 
-### TASK-241: Record: Fix inspector rail hit-target overlay regressions
+### ~~TASK-241~~: Record: Fix inspector rail hit-target overlay regressions
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-26)
 
 #### Problem
 
@@ -830,11 +834,16 @@ To match the stability-first sprint framing above, the app header currently expo
 - `pnpm exec playwright test tests/electron/inspector-rail.spec.ts tests/electron/export-tab.spec.ts -g "category|rail|destination presets" --reporter=line` passes.
 - The same specs remain green inside `pnpm test:e2e`.
 
+#### Completed
+
+- Raised the inspector rail above the panel body in `apps/desktop/src/renderer/ui/InspectorShell.tsx` so overlapping panel content no longer steals pointer events from the rail buttons.
+- Re-verified the two regressions that motivated this task: the focused Record background-control clicks now land reliably, and `tests/electron/inspector-rail.spec.ts` category switching is reachable by pointer again.
+
 ---
 
-### TASK-242: Record: Repair moved-project sidecar save regression
+### ~~TASK-242~~: Record: Repair moved-project sidecar save regression
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-26)
 
 #### Problem
 
@@ -852,11 +861,16 @@ To match the stability-first sprint framing above, the app header currently expo
 - `pnpm exec playwright test tests/electron/project-relative-paths.spec.ts -g "sidecar writes" --reporter=line` passes.
 - Existing project portability tests remain green.
 
+#### Completed
+
+- Fixed the Record zoom sidecar save path in `apps/desktop/src/renderer/features/record/RecordTab.tsx` so the renderer again calls the preload contract with the correct two arguments.
+- Re-verified both sidecar creation paths: `tests/electron/zoom-persistence.spec.ts` now writes `<recording>.zoom.json` successfully after authoring a manual marker, and `tests/electron/project-relative-paths.spec.ts -g "sidecar writes"` passes for the moved-project case.
+
 ---
 
-### TASK-243: Record: Fix camera framing and zoom geometry regressions
+### ~~TASK-243~~: Record: Fix camera framing and zoom geometry regressions
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-26)
 
 #### Problem
 
@@ -873,6 +887,12 @@ To match the stability-first sprint framing above, the app header currently expo
 #### Verification
 
 - `pnpm exec playwright test tests/electron/record-background-controls.spec.ts tests/electron/zoom-marker.spec.ts -g "camera size|camera frame shrinks" --reporter=line` passes.
+
+#### Completed (2026-04-26)
+
+- Fixed the hit-target side of this cluster: `tests/electron/record-background-controls.spec.ts` now passes for `background padding affects only the screen frame` and `background inset affects only the screen border`.
+- Tightened Record-tab playhead propagation so zoom-driven preview geometry reacts fast enough for both focused e2e checks and real paused/scrub interactions.
+- Re-verified the remaining red in this lane: `tests/electron/zoom-marker.spec.ts` `camera frame shrinks while an active zoom is applied` now passes.
 
 ---
 
@@ -898,9 +918,9 @@ To match the stability-first sprint framing above, the app header currently expo
 
 ---
 
-### TASK-245: Tests: Repair Record zoom panel selector ambiguity
+### ~~TASK-245~~: Tests: Repair Record zoom panel selector ambiguity
 
-**Priority:** P1 | **Status:** TODO
+**Priority:** P1 | **Status:** ✅ DONE (2026-04-26)
 
 #### Problem
 
@@ -915,6 +935,11 @@ To match the stability-first sprint framing above, the app header currently expo
 #### Verification
 
 - `pnpm exec playwright test tests/electron/record-tab.spec.ts -g "zoom-to-cursor" --reporter=line` passes.
+
+#### Completed
+
+- Narrowed the spec to the actual Zoom inspector rail button instead of the ambiguous accessible-name query that also matched `Create zoom marker from focus`.
+- Re-verified `tests/electron/record-tab.spec.ts` `shows the zoom-to-cursor control in the zoom panel`.
 
 ---
 
@@ -935,6 +960,78 @@ To match the stability-first sprint framing above, the app header currently expo
 #### Verification
 
 - `pnpm exec playwright test tests/electron/screenshot-record.spec.ts --reporter=line` passes or the specs are explicitly gated out of the default sweep.
+
+---
+
+### TASK-247: Record: Fix cursor-follow no-op in saved-take zoom preview
+
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-26)
+
+#### Problem
+
+- The full e2e sweep still fails `tests/electron/cursor-follow-visual.spec.ts` because enabling `followCursor` does not visibly change the framed area in the saved-take Record preview.
+- A focused rerun still reproduces the issue after unrelated cursor timing fixes, so this no longer looks like a fixture-only failure.
+
+#### Scope
+
+- Verify that the saved-take Record preview and its cursor overlay resolve the same zoom-follow transform at the same source frame.
+- Preserve TASK-234 cursor timing fixes while restoring visible framing changes when `followCursor` is toggled.
+- Keep Record preview and export/frame-resolver zoom behavior aligned.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/cursor-follow-visual.spec.ts --reporter=line` passes.
+
+#### Progress (2026-04-26)
+
+- Tightened Record preview playhead propagation so zoom-follow visual changes are reflected faster in the saved-take preview path.
+- `tests/electron/cursor-follow-visual.spec.ts` now passes in isolation, but a grouped rerun still exposed an order-dependent failure where the cursor overlay never becomes visible, so this task remains open until the grouped/full-suite case is stable too.
+
+---
+
+### TASK-248: Tests: Update retroactive cursor repair e2e for compositor path
+
+**Priority:** P2 | **Status:** TODO
+
+#### Problem
+
+- `tests/electron/cursor-retroactive-repair.spec.ts` still fails after removing stale display-bounds caching, but the remaining wait targets `canvas[data-source-frame]`, which the current compositor-backed cursor overlay no longer renders.
+- That means the current red is at least partly a stale test-contract issue on top of any real cursor normalization behavior.
+
+#### Scope
+
+- Update the spec to probe the current cursor overlay debug contract instead of a removed canvas selector.
+- Keep coverage for the real behavior: legacy absolute cursor coordinates should be rebased into the recorded display bounds before playback rendering.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/cursor-retroactive-repair.spec.ts --reporter=line` passes.
+
+---
+
+### TASK-249: Record: Honor zoom auto-shrink for persisted camera frame edits
+
+**Priority:** P1 | **Status:** CANCELLED (2026-04-26)
+
+#### Problem
+
+- `tests/electron/zoom-marker.spec.ts` still fails `camera frame shrinks while an active zoom is applied` even after aligning zoom scale lookup with clip-local source frames.
+- `TemplatePreviewRenderer.tsx` currently applies auto-shrink only when it computes camera placement from the template layout; persisted `presentation.cameraFrame` overrides bypass `positionCameraFrame()`, so the camera never shrinks during active zoom.
+
+#### Scope
+
+- Apply the same zoom-driven camera shrink behavior to persisted/manual camera frame overrides without breaking saved framing edits.
+- Preserve camera aspect-ratio, roundness, and drag/resize fidelity across Record/Edit/Export.
+
+#### Verification
+
+- `pnpm exec playwright test tests/electron/zoom-marker.spec.ts -g "camera frame shrinks" --reporter=line` passes.
+- Related camera framing specs remain green.
+
+#### Cancellation Note
+
+- Follow-up investigation showed persisted camera frame overrides were already running through `applyCameraAutoShrink`.
+- The actual root cause for the focused failure was stale Record-tab playhead propagation, which was fixed under `TASK-243`.
 
 ---
 
@@ -3652,6 +3749,105 @@ Saved recordings now preserve screen capture cadence much better, but cursor mot
 - `apps/desktop/src/renderer/components/cursor-data-loader.ts`
 - `packages/export-renderer/src/cursor-render.ts`
 - `tests/electron/record-camera-artifact.spec.ts` or adjacent focused playback/export checks
+
+---
+
+### TASK-250: Preview: Safe continuous cursor and zoom smoothness plan
+
+**Priority:** P1 | **Status:** IN PROGRESS (2026-04-26) | **Depends on:** TASK-216, TASK-075
+
+#### Intent
+
+Move Rough Cut toward Screen Studio/FocuSee-style cursor, zoom, and camera smoothness without destabilizing existing frame-accurate editing, seeking, replay, or export behavior. Keep integer frames as the source of truth for edits; introduce continuous presentation time only as an isolated visual playback/export input.
+
+#### Progress (2026-04-26)
+
+- Landed the low-risk first slice: a pure timestamp-native cursor track helper with binary-search lookup and interpolation.
+- `buildCursorFrameData` now uses timestamp lookup when cursor/project FPS metadata is available, while preserving the existing frame-indexed fallback for callers without cadence metadata.
+- Added focused unit coverage for interpolation, boundary lookup, duplicate timestamps, large data gaps, hidden cursor samples, and seek-like out-of-order lookups.
+- Added the new cursor time-track test to the desktop package test command.
+
+Verification:
+
+- `pnpm --filter @rough-cut/desktop exec vitest run src/renderer/components/cursor-time-track.test.ts src/renderer/components/cursor-data-loader.test.ts`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm --filter @rough-cut/desktop test`
+
+#### Safety Rules
+
+- Preserve existing integer-frame timeline state for editing, markers, seeks, persistence, undo/redo, and tests.
+- Add continuous-time paths behind existing APIs or feature flags first; do not replace the current frame path in one step.
+- Reset smoothing state on seek, pause, source change, clip boundary jump, cursor data reload, and playback discontinuity.
+- Keep subjective polish effects optional or default-low until visual QA proves they help.
+- Require focused unit tests for timing math and focused Electron tests for Record review playback before enabling broader behavior.
+- Verify preview/export parity before applying any smoothing path to export output.
+- Do not copy AGPL reference code from `refrences/Recordly`; use it only as architectural guidance.
+
+#### Safer Implementation Steps
+
+1. Timestamp-native cursor lookup with binary search and interpolation.
+   Safety recommendation: Add a pure helper that accepts sorted timestamped samples and returns the interpolated cursor at `timeMs`; keep existing frame-based callers working; add boundary, gap, duplicate timestamp, invisible cursor, and seek tests.
+
+2. Prepared cursor-track and zoom-plan caching.
+   Safety recommendation: Cache only normalized/sorted derived data, keyed by object identity or explicit version; invalidate on sidecar reload, settings changes, marker edits, recording switch, and project reload; tests should prove stale caches are not reused after mutation.
+
+3. Fractional/continuous preview time as an additive path.
+   Safety recommendation: Add `playbackTimeMs`/fractional frame to preview transport while retaining `playheadFrame`; use it first for read-only visual interpolation; ensure frame stepping, marker placement, trimming, and persisted project state still use integer frames.
+
+4. Use continuous time for cursor overlay only.
+   Safety recommendation: Keep screen video frame selection unchanged; render only cursor position from timestamp interpolation; reset on seeks/discontinuities; compare existing cursor e2e fixtures before and after.
+
+5. Persistent `SmoothedCursorState` using spring smoothing.
+   Safety recommendation: Add as opt-in or low-strength setting; initialize at target position to avoid startup lag; snap instead of springing across seeks or gaps; unit-test spring convergence and no overshoot across discontinuities.
+
+6. Split cursor target computation from animation smoothing.
+   Safety recommendation: Refactor only after steps 1-5 are stable; target computation must remain deterministic and stateless, while smoothing owns mutable velocity/trail state; keep both layers separately testable.
+
+7. Connected zoom pan transitions for nearby zoom regions.
+   Safety recommendation: Start disabled or gated by a `connectZooms` option; never alter marker timing; only interpolate visual focus/scale between close regions; add tests for overlapping, distant, and explicit user markers.
+
+8. Zoom/camera motion blur from transform velocity.
+   Safety recommendation: Optional and default-off/low; compute from already-applied transform deltas; clamp velocity and kernel size; disable while paused/seeking; profile before enabling on low-end machines.
+
+9. Cursor motion blur from per-frame velocity.
+   Safety recommendation: Optional and default-off/low; derive from smoothed cursor deltas, not raw jitter; reset on discontinuities; verify it does not obscure precise pointer actions.
+
+10. Cursor click bounce/sway as overlay animation.
+    Safety recommendation: Treat as late-stage polish, not core smoothness; default off or subtle; ensure click location/timing remains exact even if visual bounce/sway is enabled; add visual QA before shipping.
+
+#### Explicit Risk Classification
+
+- Low risk: steps 1 and 2, if implemented as pure helpers with tests.
+- Medium risk: steps 3, 4, 5, 6, and 7, because they can alter visual timing or perceived cursor accuracy.
+- High risk: steps 8, 9, and 10, because they are subjective visual effects and can hurt performance or precision if enabled prematurely.
+
+#### Verification Gate
+
+- Unit tests for cursor interpolation, cache invalidation, spring reset/convergence, and zoom transition math.
+- Focused Electron tests for Record review playback, paused seek, timeline scrubbing, zoom marker editing, and cursor visual continuity.
+- Manual/visual QA on a fast mouse-motion take before enabling smoothing or blur by default.
+- Export parity check only after preview behavior is stable.
+
+#### Reference Review
+
+- `refrences/Recordly/src/lib/extensions/extensionHost.ts` confirms timestamp-native cursor interpolation via binary search.
+- `refrences/Recordly/src/components/video-editor/videoPlayback/motionSmoothing.ts` confirms the value of spring smoothing for cursor/zoom, but should be used as architecture only due licensing.
+- `refrences/Recordly/src/components/video-editor/videoPlayback/cursorRenderer.ts` confirms synthetic cursor overlay, smoothing, click bounce, sway, and velocity blur are separable layers.
+- `refrences/Recordly/src/components/video-editor/videoPlayback/zoomRegionUtils.ts` confirms connected zoom pans should be an optional visual transition layer.
+- `refrences/openscreen/src/lib/exporter/frameRenderer.ts` confirms export rendering benefits from time-based animation state and velocity-derived motion blur.
+- `refrences/CursorLens/src/lib/cursor/cursorComposer.ts` confirms prepared cursor track caching, timestamp interpolation, static-hide logic, and loop blending are useful without changing edit semantics.
+
+#### Key files
+
+- `apps/desktop/src/renderer/components/CursorOverlay.tsx`
+- `apps/desktop/src/renderer/components/cursor-data-loader.ts`
+- `apps/desktop/src/renderer/features/record/RecordingPlaybackVideo.tsx`
+- `apps/desktop/src/renderer/features/record/RecordTimelineShell.tsx`
+- `apps/desktop/src/renderer/stores/transport-store.ts`
+- `packages/preview-renderer/src/playback-manager.ts`
+- `packages/preview-renderer/src/preview-compositor.ts`
+- `packages/timeline-engine`
+- `packages/export-renderer/src/cursor-render.ts`
 
 ---
 
