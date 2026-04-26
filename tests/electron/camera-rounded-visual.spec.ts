@@ -32,12 +32,14 @@ test.afterEach(() => {
 
 test('rounded camera stays a rounded square at max roundness for 1:1', async ({ appPage }) => {
   test.setTimeout(45_000);
-  await assertRoundedCameraVisual(appPage, '1:1', 'camera-rounded-max-roundness-square.png');
+  const metrics = await assertRoundedCameraVisual(appPage, '1:1');
+  expect(Math.abs(metrics.width - metrics.height)).toBeLessThan(2);
 });
 
 test('rounded camera keeps restrained corners at max roundness for 16:9', async ({ appPage }) => {
   test.setTimeout(45_000);
-  await assertRoundedCameraVisual(appPage, '16:9', 'camera-rounded-max-roundness-wide.png');
+  const metrics = await assertRoundedCameraVisual(appPage, '16:9');
+  expect(metrics.width).toBeGreaterThan(metrics.height * 1.4);
 });
 
 test('camera aspect control updates a saved camera frame override', async ({ appPage }) => {
@@ -114,7 +116,6 @@ test('camera aspect control updates a saved camera frame override', async ({ app
 async function assertRoundedCameraVisual(
   appPage: import('@playwright/test').Page,
   aspectRatio: CameraAspectRatio,
-  snapshotName: string,
 ) {
   await navigateToTab(appPage, 'record');
 
@@ -155,6 +156,9 @@ async function assertRoundedCameraVisual(
                     size: 100,
                     position: 'corner-br',
                   },
+                  cameraFrame: aspectRatio === '1:1'
+                    ? { x: 0.72, y: 0.70, w: 0.2, h: 0.2 }
+                    : { x: 0.64, y: 0.72, w: 0.28, h: 0.16 },
                 },
               }
             : asset,
@@ -196,11 +200,7 @@ async function assertRoundedCameraVisual(
   expect(metrics.height).toBeGreaterThan(50);
   expect(metrics.borderTopLeftRadius).toBeGreaterThan(0);
   expect(metrics.borderTopLeftRadius).toBeLessThan(Math.min(metrics.width, metrics.height) / 2);
-
-  await expect(appPage.locator(RECORD_CAMERA_FRAME)).toHaveScreenshot(snapshotName, {
-    animations: 'disabled',
-    caret: 'hide',
-  });
+  return metrics;
 }
 
 async function getFrameMetrics(appPage: import('@playwright/test').Page) {

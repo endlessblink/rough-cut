@@ -177,14 +177,67 @@ function positionCameraFrame(
 ): Rect | null {
   if (cameraPresentation?.visible === false) return null;
 
-  const sizeScale = Math.max(0, cameraPresentation?.size ?? 100) / 100;
   const zoomAmount = Math.max(0, activeZoomScale - 1);
   const zoomProgress = Math.min(zoomAmount / 1.5, 1);
   const autoShrinkFactor = 1 - zoomProgress * 0.28;
+  const sizeScale = Math.max(0, cameraPresentation?.size ?? 100) / 100;
   const effectiveSizeScale = sizeScale * autoShrinkFactor;
   const width = frame.width * effectiveSizeScale;
   const height = frame.height * effectiveSizeScale;
 
+  const leftMargin = frame.x - canvasRect.x;
+  const rightMargin = canvasRect.x + canvasRect.width - (frame.x + frame.width);
+  const topMargin = frame.y - canvasRect.y;
+  const bottomMargin = canvasRect.y + canvasRect.height - (frame.y + frame.height);
+
+  switch (cameraPresentation?.position) {
+    case 'corner-tl':
+      return { x: canvasRect.x + leftMargin, y: canvasRect.y + topMargin, width, height };
+    case 'corner-tr':
+      return {
+        x: canvasRect.x + canvasRect.width - rightMargin - width,
+        y: canvasRect.y + topMargin,
+        width,
+        height,
+      };
+    case 'corner-bl':
+      return {
+        x: canvasRect.x + leftMargin,
+        y: canvasRect.y + canvasRect.height - bottomMargin - height,
+        width,
+        height,
+      };
+    case 'center':
+      return {
+        x: canvasRect.x + (canvasRect.width - width) / 2,
+        y: canvasRect.y + (canvasRect.height - height) / 2,
+        width,
+        height,
+      };
+    case 'corner-br':
+    default:
+      return {
+        x: canvasRect.x + canvasRect.width - rightMargin - width,
+        y: canvasRect.y + canvasRect.height - bottomMargin - height,
+        width,
+        height,
+      };
+  }
+}
+
+function applyCameraAutoShrink(
+  frame: Rect,
+  canvasRect: Rect,
+  cameraPresentation?: CameraPresentation,
+  activeZoomScale = 1,
+): Rect {
+  const zoomAmount = Math.max(0, activeZoomScale - 1);
+  const zoomProgress = Math.min(zoomAmount / 1.5, 1);
+  const autoShrinkFactor = 1 - zoomProgress * 0.28;
+  if (autoShrinkFactor >= 0.999) return frame;
+
+  const width = frame.width * autoShrinkFactor;
+  const height = frame.height * autoShrinkFactor;
   const leftMargin = frame.x - canvasRect.x;
   const rightMargin = canvasRect.x + canvasRect.width - (frame.x + frame.width);
   const topMargin = frame.y - canvasRect.y;
@@ -402,7 +455,7 @@ export function TemplatePreviewRenderer({
     cameraPresentation?.visible === false
       ? null
       : normalizedCameraFrame
-        ? normalizedCameraFrame
+        ? applyCameraAutoShrink(normalizedCameraFrame, canvasRect, cameraPresentation, activeZoomScale)
         : cameraRect
           ? positionCameraFrame(
               getCameraFrameRect(cameraRect, cameraPresentation),

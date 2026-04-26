@@ -70,6 +70,10 @@ import { getRecordingAudioReview } from './audio-review.js';
 import { AudioStemMixerControls } from '../../components/AudioStemMixerControls.js';
 import { LAYOUT_TEMPLATES, resolutionForAspectRatio } from './templates.js';
 import { inferCursorEventsPath, resolveProjectMediaPath } from '../../lib/media-sidecars.js';
+import {
+  cameraAspectRatioValue,
+  reshapeNormalizedCameraFrameToAspect,
+} from './camera-frame-utils.js';
 import type { AudioStemMixerSettings } from '@rough-cut/preview-renderer';
 import type { LayoutTemplate } from './templates.js';
 import type { Rect } from './template-layout/types.js';
@@ -159,45 +163,6 @@ function getActiveCameraLayoutSnapshot(
 function getTemplateById(templateId: string | undefined, fallback: LayoutTemplate): LayoutTemplate {
   if (!templateId) return fallback;
   return LAYOUT_TEMPLATES.find((template) => template.id === templateId) ?? fallback;
-}
-
-function aspectRatioValue(ratio: LayoutTemplate['aspectRatio']): number {
-  switch (ratio) {
-    case '9:16':
-      return 9 / 16;
-    case '1:1':
-      return 1;
-    case '4:3':
-      return 4 / 3;
-    case '16:9':
-    default:
-      return 16 / 9;
-  }
-}
-
-function reshapeNormalizedFrameToAspect(
-  frame: { x: number; y: number; w: number; h: number },
-  targetAspect: number,
-  canvasAspect: number,
-): { x: number; y: number; w: number; h: number } {
-  if (frame.w <= 0 || frame.h <= 0 || targetAspect <= 0 || canvasAspect <= 0) return frame;
-
-  const currentAspect = (frame.w / frame.h) * canvasAspect;
-  let nextW = frame.w;
-  let nextH = frame.h;
-
-  if (currentAspect > targetAspect) {
-    nextW = frame.h * (targetAspect / canvasAspect);
-  } else {
-    nextH = frame.w * (canvasAspect / targetAspect);
-  }
-
-  return {
-    x: frame.x + (frame.w - nextW) / 2,
-    y: frame.y + (frame.h - nextH) / 2,
-    w: nextW,
-    h: nextH,
-  };
 }
 
 interface RecordTabProps {
@@ -447,8 +412,25 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
     storedRecordingDefaults ??
     fallbackRecordingPresentationRef.current;
   const zoomPresentation = editorPresentation.zoom ?? createDefaultZoomPresentation();
+  const activeRecordingClipRangeKey = useProjectStore((s) => {
+    if (!activeRecordingId) return '0:0:0';
+    for (const track of s.project.composition.tracks) {
+      for (const clip of track.clips) {
+        if (clip.assetId === activeRecordingId) {
+          return `${clip.timelineIn}:${clip.timelineOut}:${clip.sourceIn}`;
+        }
+      }
+    }
+    return '0:0:0';
+  });
+  const [activeRecordingClipTimelineIn = 0, activeRecordingClipTimelineOut = 0, activeRecordingClipSourceIn = 0] =
+    activeRecordingClipRangeKey.split(':').map(Number);
+  const activeRecordingSourceFrame =
+    activeRecordingClipTimelineOut > 0
+      ? activeRecordingClipSourceIn + Math.max(0, playheadFrame - activeRecordingClipTimelineIn)
+      : playheadFrame;
   const activeZoomScale = activeRecordingAsset?.filePath
-    ? getZoomTransformAtFrame(playheadFrame, zoomPresentation.markers).scale
+    ? getZoomTransformAtFrame(activeRecordingSourceFrame, zoomPresentation.markers).scale
     : 1;
   const activeCameraLayoutSnapshot = getActiveCameraLayoutSnapshot(
     (activeRecordingPresentation as { cameraLayouts?: unknown } | null)?.cameraLayouts as
@@ -1330,10 +1312,10 @@ export function RecordTab({ activeTab, onTabChange }: RecordTabProps) {
       };
       const nextCameraFrame = shapeOrAspectChanged
         ? activeRecordingPresentation?.cameraFrame
-          ? reshapeNormalizedFrameToAspect(
+          ? reshapeNormalizedCameraFrameToAspect(
               activeRecordingPresentation.cameraFrame,
-              nextCamera.shape === 'circle' ? 1 : aspectRatioValue(nextCamera.aspectRatio),
-              aspectRatioValue(effectiveTemplate.aspectRatio),
+              nextCamera.shape === 'circle' ? 1 : cameraAspectRatioValue(nextCamera.aspectRatio),
+              cameraAspectRatioValue(effectiveTemplate.aspectRatio),
             )
           : undefined
         : activeRecordingPresentation?.cameraFrame;
