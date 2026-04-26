@@ -1,37 +1,20 @@
+import { createProject } from '../../packages/project-model/src/index.js';
 import { test, expect, navigateToTab } from './fixtures/electron-app.js';
-
-const RECORDED_PROJECT_PATH =
-  process.env.ROUGH_CUT_SESSION_PATH ??
-  '/home/endlessblink/Documents/Rough Cut/Recording Apr 14 2026 - 1825.roughcut';
 
 test('edit timeline can add and remove empty channels', async ({ appPage }) => {
   test.setTimeout(45_000);
 
-  await navigateToTab(appPage, 'record');
-
-  const project = (await appPage.evaluate(
-    (projectPath) =>
-      (
-        window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
-      ).roughcut.projectOpenPath(projectPath),
-    RECORDED_PROJECT_PATH,
-  )) as Record<string, any>;
-
-  const recording = project.assets.find((asset: any) => asset.type === 'recording') ?? null;
+  const project = createProject({ name: 'Track Management E2E Fixture' });
 
   await appPage.evaluate(
-    ({ nextProject, projectPath, activeAssetId }) => {
+    (nextProject) => {
       const stores = (window as unknown as { __roughcutStores?: any }).__roughcutStores;
       stores?.project.getState().setProject(nextProject);
-      stores?.project.getState().setProjectFilePath(projectPath);
-      stores?.project.getState().setActiveAssetId(activeAssetId);
+      stores?.project.getState().setProjectFilePath(null);
+      stores?.project.getState().setActiveAssetId(null);
       stores?.transport.getState().seekToFrame(0);
     },
-    {
-      nextProject: project,
-      projectPath: RECORDED_PROJECT_PATH,
-      activeAssetId: recording?.id ?? null,
-    },
+    project,
   );
 
   await navigateToTab(appPage, 'edit');

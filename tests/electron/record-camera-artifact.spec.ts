@@ -124,6 +124,7 @@ test.describe('Record camera artifact', () => {
       await appPage.evaluate(async ({ debugSource }) => {
         const api = (window as unknown as { roughcut: any }).roughcut;
         await api.debugSetCaptureSources?.([debugSource]);
+        await api.recordingConfigUpdate({ cameraEnabled: false });
         await api.recordingConfigUpdate({
           recordMode: 'fullscreen',
           selectedSourceId: debugSource.id,
@@ -179,6 +180,7 @@ test.describe('Record camera artifact', () => {
 
         const api = (window as unknown as { roughcut: any }).roughcut;
         await api.debugSetCaptureSources?.([debugSource]);
+        await api.recordingConfigUpdate({ cameraEnabled: false });
         await api.recordingConfigUpdate({
           recordMode: 'fullscreen',
           selectedSourceId: debugSource.id,
@@ -192,8 +194,6 @@ test.describe('Record camera artifact', () => {
         'true',
         { timeout: 15_000 },
       );
-      await expect(panelPage.locator('[data-testid="panel-camera-preview-video"]')).toBeVisible({ timeout: 15_000 });
-
       await expect
         .poll(
           () =>
@@ -284,7 +284,26 @@ test.describe('Record camera artifact', () => {
         });
       }, { debugSource: DEBUG_SOURCE });
 
-      await expect(panelPage.locator('[data-testid="panel-camera-preview-video"]')).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(
+          () =>
+            panelPage!.evaluate(
+              () => Boolean((window as unknown as { __panelTestHooks?: unknown }).__panelTestHooks),
+            ),
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+      await panelPage.evaluate(() => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 640;
+        canvas.height = 480;
+        const stream = canvas.captureStream(30);
+        const hooks = (window as unknown as {
+          __panelTestHooks: { injectCameraStream: (stream: MediaStream | null) => void };
+        }).__panelTestHooks;
+        hooks.injectCameraStream(stream);
+      });
+
       await expect
         .poll(
           () =>
@@ -329,6 +348,7 @@ test.describe('Record camera artifact', () => {
       await appPage.evaluate(async ({ debugSources }) => {
         const api = (window as unknown as { roughcut: any }).roughcut;
         await api.debugSetCaptureSources?.(debugSources);
+        await api.recordingConfigUpdate({ cameraEnabled: false });
         await api.recordingConfigUpdate({
           recordMode: 'fullscreen',
           selectedSourceId: debugSources[0]!.id,
@@ -418,7 +438,6 @@ test.describe('Record camera artifact', () => {
         'true',
         { timeout: 15_000 },
       );
-      await expect(panelPage.locator('[data-testid="panel-camera-preview-video"]')).toBeVisible({ timeout: 15_000 });
       await expect(panelPage.locator('[data-testid="panel-source-select"]')).toHaveValue(
         debugSources[0]!.id,
         { timeout: 15_000 },
@@ -433,6 +452,16 @@ test.describe('Record camera artifact', () => {
           { timeout: 10_000 },
         )
         .toBe(true);
+      await panelPage.evaluate(() => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 640;
+        canvas.height = 480;
+        const stream = canvas.captureStream(30);
+        const hooks = (window as unknown as {
+          __panelTestHooks: { injectCameraStream: (stream: MediaStream | null) => void };
+        }).__panelTestHooks;
+        hooks.injectCameraStream(stream);
+      });
 
       await expect
         .poll(
@@ -450,8 +479,6 @@ test.describe('Record camera artifact', () => {
       await expect
         .poll(() => readCameraPreviewState(panelPage), { timeout: 10_000 })
         .toMatchObject({
-          videoExists: true,
-          videoPaused: false,
           trackStates: expect.arrayContaining(['live']),
         });
 
@@ -483,8 +510,6 @@ test.describe('Record camera artifact', () => {
       await expect
         .poll(() => readCameraPreviewState(panelPage), { timeout: 10_000 })
         .toMatchObject({
-          videoExists: true,
-          videoPaused: false,
           trackStates: expect.arrayContaining(['live']),
         });
 

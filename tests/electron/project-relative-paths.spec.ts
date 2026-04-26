@@ -56,6 +56,71 @@ async function createPortableProjectFixture(projectName: string) {
 }
 
 test.describe('project relative paths', () => {
+  test('opening a project with legacy /tmp recording paths migrates them to the current recordings location', async ({
+    appPage,
+  }) => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'rough-cut-tmp-migration-'));
+    const projectDir = join(tempRoot, 'project');
+    const persistentRecordingsDir = join(tempRoot, 'persistent-recordings');
+    const projectPath = join(projectDir, 'legacy-tmp.roughcut');
+    const legacyRecordingsDir = '/tmp/rough-cut/recordings';
+    const baseName = `legacy-migrate-${Date.now()}`;
+    const legacyVideoPath = join(legacyRecordingsDir, `${baseName}.webm`);
+    const legacyThumbPath = join(legacyRecordingsDir, `${baseName}-thumb.jpg`);
+    const legacyCursorPath = join(legacyRecordingsDir, `${baseName}.cursor.ndjson`);
+
+    try {
+      await mkdir(projectDir, { recursive: true });
+      await mkdir(persistentRecordingsDir, { recursive: true });
+      await mkdir(legacyRecordingsDir, { recursive: true });
+
+      await writeFile(legacyVideoPath, 'legacy-video');
+      await writeFile(legacyThumbPath, Buffer.from(THUMBNAIL_PNG_BASE64, 'base64'));
+      await writeFile(legacyCursorPath, '{"frame":0}\n');
+
+      const asset = createAsset('recording', legacyVideoPath, {
+        thumbnailPath: legacyThumbPath,
+        metadata: {
+          cursorEventsPath: legacyCursorPath,
+        },
+      });
+      const project = createProject({
+        name: 'Legacy Tmp Migration',
+        assets: [asset],
+      });
+
+      await writeFile(projectPath, JSON.stringify(project, null, 2), 'utf-8');
+
+      await appPage.evaluate(async (recordingLocation) => {
+        await (window as unknown as {
+          roughcut: { storageSetRecordingLocation: (path: string) => Promise<void> };
+        }).roughcut.storageSetRecordingLocation(recordingLocation);
+      }, persistentRecordingsDir);
+
+      const reopenedProject = await appPage.evaluate(async (filePath) => {
+        return (
+          window as unknown as { roughcut: { projectOpenPath: (filePath: string) => Promise<any> } }
+        ).roughcut.projectOpenPath(filePath);
+      }, projectPath);
+
+      expect(reopenedProject.assets[0]?.filePath).toBe(join(persistentRecordingsDir, `${baseName}.webm`));
+      expect(reopenedProject.assets[0]?.thumbnailPath).toBe(
+        join(persistentRecordingsDir, `${baseName}-thumb.jpg`),
+      );
+      expect(reopenedProject.assets[0]?.metadata?.cursorEventsPath).toBe(
+        join(persistentRecordingsDir, `${baseName}.cursor.ndjson`),
+      );
+
+      const rewrittenProject = JSON.parse(await readFile(projectPath, 'utf-8'));
+      expect(JSON.stringify(rewrittenProject)).not.toContain('/tmp/rough-cut/recordings');
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+      await rm(legacyVideoPath, { force: true });
+      await rm(legacyThumbPath, { force: true });
+      await rm(legacyCursorPath, { force: true });
+    }
+  });
+
   test('saves portable media paths and resolves them after moving the project folder', async ({
     appPage,
   }) => {

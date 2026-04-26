@@ -21,6 +21,7 @@ import {
   createReadStream,
   readdirSync,
   createWriteStream,
+  copyFileSync,
 } from 'node:fs';
 import { promisify } from 'node:util';
 import { execFile as execFileCallback, execFileSync, spawn } from 'node:child_process';

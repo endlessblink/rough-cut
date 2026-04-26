@@ -143,6 +143,7 @@ async function assertRoundedCameraVisual(
                 presentation: {
                   ...(asset.presentation ?? {}),
                   templateId: 'presentation-16x9',
+                  cameraLayouts: [],
                   camera: {
                     ...(asset.presentation?.camera ?? {}),
                     visible: true,
