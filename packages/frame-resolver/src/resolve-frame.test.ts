@@ -1,0 +1,604 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  createProject,
+  createTrack,
+  createClip,
+  createAsset,
+  createEffectInstance,
+  createKeyframeTrack,
+  createKeyframe,
+  createDefaultCameraPresentation,
+} from '@rough-cut/project-model';
+import type {
+  ProjectDocument,
+  Track,
+  Clip,
+  AssetId,
+  TrackId,
+  ClipId,
+  TransitionId,
+} from '@rough-cut/project-model';
+import {
+  clearRegistry,
+  registerBuiltinEffects,
+} from '@rough-cut/effect-registry';
+import { resolveFrame } from './resolve-frame.js';
+
+// --- helpers ---
+
+function makeAssetId(): AssetId {
+  return 'asset-1' as AssetId;
+}
+
+function projectWith(tracks: Track[], transitions?: ProjectDocument['composition']['transitions']): ProjectDocument {
+  return createProject({
+    composition: {
+      duration: 300,
+      tracks,
+      transitions: transitions ?? [],
+    },
+  });
+}
+
+function trackWith(clips: Clip[], overrides?: Partial<Track>): Track {
+  return createTrack('video', { clips, index: 0, ...overrides });
+}
+
+function clipAt(timelineIn: number, timelineOut: number, overrides?: Partial<Clip>): Clip {
+  return createClip(makeAssetId(), 'track-1' as TrackId, {
+    timelineIn,
+    timelineOut,
+    sourceIn: 0,
+    sourceOut: timelineOut - timelineIn,
+    ...overrides,
+  });
+}
+
+// --- tests ---
+
+describe('resolveFrame', () => {
+  beforeEach(() => {
+    clearRegistry();
+    registerBuiltinEffects();
+  });
+
+  it('empty project — frame 0, no clips → 0 layers with correct resolution and background', () => {
+    const project = projectWith([]);
+    const result = resolveFrame(project, 0);
+
+    expect(result.frame).toBe(0);
+    expect(result.layers).toHaveLength(0);
+    expect(result.transitions).toHaveLength(0);
+    expect(result.width).toBe(1920);
+    expect(result.height).toBe(1080);
+    expect(result.backgroundColor).toBe('#000000');
+  });
+
+  it('one clip on one track — active at frame 50 → 1 layer with correct sourceFrame', () => {
+    const trackId = 'track-test' as TrackId;
+    const clip = createClip(makeAssetId(), trackId, {
+      timelineIn: 30,
+      timelineOut: 90,
+      sourceIn: 0,
+      sourceOut: 60,
+    });
+    const track = createTrack('video', { id: trackId, clips: [clip], index: 1 });
+    const project = projectWith([track]);
+
+    const result = resolveFrame(project, 50);
+
+    expect(result.layers).toHaveLength(1);
+    const layer = result.layers[0]!;
+    expect(layer.clipId).toBe(clip.id);
+    // sourceFrame = sourceIn(0) + (frame(50) - timelineIn(30)) = 20
+    expect(layer.sourceFrame).toBe(20);
+    expect(layer.trackIndex).toBe(1);
+    // default transform
+    expect(layer.transform.x).toBe(0);
+    expect(layer.transform.scaleX).toBe(1);
+    expect(layer.transform.opacity).toBe(1);
+  });
+
+  it('source frame calculation — sourceIn=10, timelineIn=100, frame=115 → sourceFrame=25', () => {
+    const clip = clipAt(100, 200, { sourceIn: 10, sourceOut: 110 });
+    const track = trackWith([clip]);
+    const project = projectWith([track]);
+
+    const result = resolveFrame(project, 115);
+
+    expect(result.layers).toHaveLength(1);
+    expect(result.layers[0]!.sourceFrame).toBe(25);
+  });
+
+  it('two clips on different tracks — both active → 2 layers sorted by trackIndex', () => {
+    const clipA = clipAt(0, 100);
+    const clipB = clipAt(0, 100, { trackId: 'track-2' as TrackId });
+    const trackA = trackWith([clipA], { index: 0, id: 'track-1' as TrackId });
+    const trackB = trackWith([clipB], { index: 2, id: 'track-2' as TrackId });
+
+    // Assign the clips to the correct tracks
+    const clipAWithTrack = createClip(makeAssetId(), trackA.id, {
+      timelineIn: 0,
+      timelineOut: 100,
+      sourceIn: 0,
+      sourceOut: 100,
+    });
+    const clipBWithTrack = createClip(makeAssetId(), trackB.id, {
+      timelineIn: 0,
+      timelineOut: 100,
+      sourceIn: 0,
+      sourceOut: 100,
+    });
+    const ta = createTrack('video', { id: trackA.id, clips: [clipAWithTrack], index: 0 });
+    const tb = createTrack('video', { id: trackB.id, clips: [clipBWithTrack], index: 2 });
+
+    const project = projectWith([ta, tb]);
+    const result = resolveFrame(project, 50);
+
+    expect(result.layers).toHaveLength(2);
+    expect(result.layers[0]!.trackIndex).toBeLessThan(result.layers[1]!.trackIndex);
+  });
+
+  it('camera PiP layers render above the paired screen even when imported on a lower-index track', () => {
+    const recording = createAsset('recording', '/screen.webm', {
+      duration: 100,
+      presentation: {
+        zoom: {
+          autoIntensity: 0,
+          followCursor: false,
+          followAnimation: 'focused',
+          followPadding: 0.18,
+          markers: [],
+        },
+        cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+        camera: createDefaultCameraPresentation(),
+      },
+    });
+    const camera = createAsset('video', '/camera.mp4', {
+      duration: 100,
+      metadata: { isCamera: true },
+    });
+    const screenClip = createClip(recording.id, 'video-1' as TrackId, {
+      timelineIn: 0,
+      timelineOut: 100,
+      sourceIn: 0,
+      sourceOut: 100,
+    });
+    const cameraClip = createClip(camera.id, 'video-2' as TrackId, {
+      timelineIn: 0,
+      timelineOut: 100,
+      sourceIn: 0,
+      sourceOut: 100,
+    });
+    const screenTrack = createTrack('video', { id: 'video-1' as TrackId, clips: [screenClip], index: 3 });
+    const cameraTrack = createTrack('video', { id: 'video-2' as TrackId, clips: [cameraClip], index: 2 });
+    const project = createProject({
+      assets: [{ ...recording, cameraAssetId: camera.id }, camera],
+      composition: { duration: 100, tracks: [screenTrack, cameraTrack], transitions: [] },
+    });
+
+    const result = resolveFrame(project, 0);
+
+    expect(result.layers).toHaveLength(2);
+    expect(result.layers[0]?.isCamera).toBe(false);
+    expect(result.layers[1]?.isCamera).toBe(true);
+    expect(result.layers[1]?.trackIndex).toBeLessThan(result.layers[0]!.trackIndex);
+  });
+
+  it('clip with static effects — gaussian-blur with radius=10 → layer has 1 resolved effect', () => {
+    const effect = createEffectInstance('gaussian-blur', {
+      params: { radius: 10, quality: 'high' },
+    });
+    const clip = clipAt(0, 60, { effects: [effect] });
+    const track = trackWith([clip]);
+    const project = projectWith([track]);
+
+    const result = resolveFrame(project, 30);
+
+    expect(result.layers).toHaveLength(1);
+    const layer = result.layers[0]!;
+    expect(layer.effects).toHaveLength(1);
+    expect(layer.effects[0]!.effectType).toBe('gaussian-blur');
+    expect(layer.effects[0]!.enabled).toBe(true);
+    expect(layer.effects[0]!.params['radius']).toBe(10);
+    expect(layer.effects[0]!.params['quality']).toBe('high');
+  });
+
+  it('clip with keyframed transform — transform.x keyframed 0→100 over 30 frames, at relative frame 15 → x ≈ 50', () => {
+    const kfTrack = createKeyframeTrack('transform.x');
+    const kfTrackWithKeys = {
+      ...kfTrack,
+      keyframes: [createKeyframe(0, 0), createKeyframe(30, 100)],
+    };
+    const clip = clipAt(0, 60, { keyframes: [kfTrackWithKeys] });
+    const track = trackWith([clip]);
+    const project = projectWith([track]);
+
+    // Frame 15 = clipLocalFrame 15, linear interpolation between 0→100
+    const result = resolveFrame(project, 15);
+
+    expect(result.layers).toHaveLength(1);
+    const transform = result.layers[0]!.transform;
+    expect(transform.x).toBeCloseTo(50, 1);
+  });
+
+  it('clip with keyframed effect — zoom-pan scale keyframed 1→2 over 20 frames, at midpoint → scale ≈ 1.5', () => {
+    const kfTrack = createKeyframeTrack('scale');
+    const kfTrackWithKeys = {
+      ...kfTrack,
+      keyframes: [createKeyframe(0, 1), createKeyframe(20, 2)],
+    };
+    const effect = createEffectInstance('zoom-pan', {
+      params: { scale: 1 },
+      keyframes: [kfTrackWithKeys],
+    });
+    const clip = clipAt(0, 60, { effects: [effect] });
+    const track = trackWith([clip]);
+    const project = projectWith([track]);
+
+    // Frame 10 = clipLocalFrame 10, midpoint of 0→20
+    const result = resolveFrame(project, 10);
+
+    expect(result.layers).toHaveLength(1);
+    const resolvedEffect = result.layers[0]!.effects[0]!;
+    expect(resolvedEffect.effectType).toBe('zoom-pan');
+    expect(resolvedEffect.params['scale']).toBeCloseTo(1.5, 1);
+  });
+
+  it('frame outside all clips → 0 layers', () => {
+    const clip = clipAt(30, 60);
+    const track = trackWith([clip]);
+    const project = projectWith([track]);
+
+    const result = resolveFrame(project, 100);
+
+    expect(result.layers).toHaveLength(0);
+  });
+
+  it('invisible track — clip on hidden track → 0 layers', () => {
+    const clip = clipAt(0, 60);
+    const track = createTrack('video', {
+      clips: [clip],
+      visible: false,
+    });
+    const project = projectWith([track]);
+
+    const result = resolveFrame(project, 30);
+
+    expect(result.layers).toHaveLength(0);
+  });
+
+  describe('recording presentation', () => {
+    it('no recording asset → default camera transform and cursor', () => {
+      const project = projectWith([]);
+      const result = resolveFrame(project, 0);
+
+      expect(result.cameraTransform).toEqual({ scale: 1, offsetX: 0, offsetY: 0 });
+      expect(result.cursor).toEqual({
+        visible: true,
+        style: 'default',
+        clickEffect: 'none',
+        sizePercent: 100,
+        clickSoundEnabled: false,
+        clicksVisible: true,
+        overlaysVisible: true,
+      });
+    });
+
+    it('recording with auto zoom intensity and no markers → scale = 1 (no background zoom)', () => {
+      const asset = createAsset('recording', '/test.webm', {
+        presentation: {
+          zoom: {
+            autoIntensity: 1,
+            followCursor: true,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+        },
+      });
+      const project = createProject({ assets: [asset] });
+      const result = resolveFrame(project, 0);
+
+      expect(result.cameraTransform.scale).toBeCloseTo(1, 2);
+    });
+
+    it('recording with zero auto intensity → scale = 1', () => {
+      const asset = createAsset('recording', '/test.webm', {
+        presentation: {
+          zoom: {
+            autoIntensity: 0,
+            followCursor: true,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+        },
+      });
+      const project = createProject({ assets: [asset] });
+      const result = resolveFrame(project, 0);
+
+      expect(result.cameraTransform.scale).toBeCloseTo(1, 2);
+    });
+
+    it('recording with zoom marker at frame → scale from marker strength', () => {
+      const asset = createAsset('recording', '/test.webm', {
+        presentation: {
+          zoom: {
+            autoIntensity: 0.5,
+            followCursor: true,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [
+              { id: 'zm-1' as import('@rough-cut/project-model').ZoomMarkerId, startFrame: 10, endFrame: 50, kind: 'manual' as const, strength: 0.5, focalPoint: { x: 0.5, y: 0.5 }, zoomInDuration: 0, zoomOutDuration: 0 },
+            ],
+          },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+        },
+      });
+      const project = createProject({ assets: [asset] });
+
+      // Frame 20 is inside the marker (10–50), hold phase (no ramp)
+      const result = resolveFrame(project, 20);
+      // strengthToScale(0.5) = 1 + 0.5 * 1.5 = 1.75
+      expect(result.cameraTransform.scale).toBeCloseTo(1.75, 2);
+    });
+
+    it('frame outside zoom marker → fully zoomed out (scale = 1)', () => {
+      const asset = createAsset('recording', '/test.webm', {
+        presentation: {
+          zoom: {
+            autoIntensity: 0.5,
+            followCursor: true,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [
+              { id: 'zm-1' as import('@rough-cut/project-model').ZoomMarkerId, startFrame: 10, endFrame: 50, kind: 'manual' as const, strength: 1, focalPoint: { x: 0.5, y: 0.5 }, zoomInDuration: 0, zoomOutDuration: 0 },
+            ],
+          },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+        },
+      });
+      const project = createProject({ assets: [asset] });
+
+      // Frame 60 is outside the marker — no zoom applied, content edge-to-edge.
+      const result = resolveFrame(project, 60);
+      expect(result.cameraTransform.scale).toBeCloseTo(1, 2);
+      expect(result.cameraTransform.offsetX).toBe(0);
+      expect(result.cameraTransform.offsetY).toBe(0);
+    });
+
+    it('recording with cursor settings → reflected in resolved cursor', () => {
+      const asset = createAsset('recording', '/test.webm', {
+        presentation: {
+          zoom: {
+            autoIntensity: 0.5,
+            followCursor: true,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
+          cursor: { style: 'spotlight', clickEffect: 'ripple', sizePercent: 120, clickSoundEnabled: true },
+        },
+      });
+      const project = createProject({ assets: [asset] });
+      const result = resolveFrame(project, 0);
+
+      expect(result.cursor.style).toBe('spotlight');
+      expect(result.cursor.clickEffect).toBe('ripple');
+      expect(result.cursor.sizePercent).toBe(120);
+      expect(result.cursor.clickSoundEnabled).toBe(true);
+      expect(result.cursor.visible).toBe(true);
+      expect(result.cursor.clicksVisible).toBe(true);
+    });
+
+    it('applies the active visibility segment at the recording source frame', () => {
+      const recording = createAsset('recording', '/recording.webm', {
+        presentation: {
+          zoom: {
+            autoIntensity: 0,
+            followCursor: false,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
+          cursor: {
+            style: 'spotlight',
+            clickEffect: 'ripple',
+            sizePercent: 120,
+            clickSoundEnabled: true,
+          },
+          camera: createDefaultCameraPresentation(),
+          visibilitySegments: [
+            {
+              id: 'visibility-1' as import('@rough-cut/project-model').RecordingVisibilitySegmentId,
+              frame: 15,
+              cameraVisible: false,
+              cursorVisible: false,
+              clicksVisible: false,
+              overlaysVisible: true,
+            },
+          ],
+        },
+      });
+      const clip = createClip(recording.id, 'track-1' as TrackId, {
+        timelineIn: 100,
+        timelineOut: 160,
+        sourceIn: 10,
+        sourceOut: 70,
+      });
+      const track = createTrack('video', { id: 'track-1' as TrackId, clips: [clip], index: 0 });
+      const project = createProject({
+        assets: [recording],
+        composition: { duration: 160, tracks: [track], transitions: [] },
+      });
+
+      const result = resolveFrame(project, 105);
+
+      expect(result.cameraPresentation?.visible).toBe(false);
+      expect(result.cursor.visible).toBe(false);
+      expect(result.cursor.clickEffect).toBe('none');
+      expect(result.cursor.clickSoundEnabled).toBe(false);
+      expect(result.cursor.clicksVisible).toBe(false);
+      expect(result.cursor.overlaysVisible).toBe(true);
+    });
+
+    it('uses the active camera layout marker at the recording source frame', () => {
+      const recording = createAsset('recording', '/recording.webm', {
+        presentation: {
+          zoom: {
+            autoIntensity: 0,
+            followCursor: false,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
+          cursor: {
+            style: 'default',
+            clickEffect: 'none',
+            sizePercent: 100,
+            clickSoundEnabled: false,
+          },
+          camera: createDefaultCameraPresentation(),
+          cameraLayouts: [
+            {
+              id: 'layout-1' as import('@rough-cut/project-model').CameraLayoutMarkerId,
+              frame: 15,
+              camera: {
+                ...createDefaultCameraPresentation(),
+                visible: false,
+                position: 'center',
+              },
+              cameraFrame: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 },
+              templateId: 'presentation-16x9',
+            },
+          ],
+        },
+      });
+      const clip = createClip(recording.id, 'track-1' as TrackId, {
+        timelineIn: 100,
+        timelineOut: 160,
+        sourceIn: 10,
+        sourceOut: 70,
+      });
+      const track = createTrack('video', { id: 'track-1' as TrackId, clips: [clip], index: 0 });
+      const project = createProject({
+        assets: [recording],
+        composition: { duration: 160, tracks: [track], transitions: [] },
+      });
+
+      const result = resolveFrame(project, 105);
+
+      expect(result.cameraPresentation?.visible).toBe(false);
+      expect(result.cameraPresentation?.position).toBe('center');
+      expect(result.cameraFrame).toEqual({ x: 0.1, y: 0.2, w: 0.3, h: 0.4 });
+    });
+
+    it('prefers the selected playback asset over the composition recording layer', () => {
+      const primaryRecording = createAsset('recording', '/primary.webm', {
+        duration: 365,
+        presentation: {
+          zoom: {
+            autoIntensity: 0,
+            followCursor: false,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
+          cursor: {
+            style: 'default',
+            clickEffect: 'none',
+            sizePercent: 100,
+            clickSoundEnabled: false,
+          },
+        },
+      });
+      const selectedRecording = createAsset('recording', '/selected.webm', {
+        duration: 111,
+        presentation: {
+          zoom: {
+            autoIntensity: 0,
+            followCursor: false,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
+          cursor: {
+            style: 'spotlight',
+            clickEffect: 'ripple',
+            sizePercent: 135,
+            clickSoundEnabled: true,
+          },
+        },
+      });
+      const clip = createClip(primaryRecording.id, 'track-1' as TrackId, {
+        timelineIn: 0,
+        timelineOut: 365,
+        sourceIn: 0,
+        sourceOut: 365,
+      });
+      const track = createTrack('video', { id: 'track-1' as TrackId, clips: [clip], index: 0 });
+      const project = createProject({
+        assets: [primaryRecording, selectedRecording],
+        composition: { duration: 365, tracks: [track], transitions: [] },
+      });
+
+      const result = resolveFrame(project, 150, {
+        preferredPlaybackAssetId: selectedRecording.id,
+      });
+
+      expect(result.layers).toHaveLength(1);
+      expect(result.layers[0]?.assetId).toBe(selectedRecording.id);
+      expect(result.layers[0]?.sourceFrame).toBe(110);
+      expect(result.cursor.style).toBe('spotlight');
+      expect(result.cursor.clickEffect).toBe('ripple');
+      expect(result.cursor.sizePercent).toBe(135);
+      expect(result.cursor.clickSoundEnabled).toBe(true);
+    });
+  });
+
+  it('transition — two clips with transition, resolve at midpoint → progress ≈ 0.5', () => {
+    const trackId = 'track-main' as TrackId;
+    const clipA = createClip(makeAssetId(), trackId, {
+      timelineIn: 0,
+      timelineOut: 60,
+      sourceIn: 0,
+      sourceOut: 60,
+    });
+    const clipB = createClip(makeAssetId(), trackId, {
+      timelineIn: 50,
+      timelineOut: 120,
+      sourceIn: 0,
+      sourceOut: 70,
+    });
+    const track = createTrack('video', {
+      id: trackId,
+      clips: [clipA, clipB],
+    });
+
+    // Transition duration = 10 frames, from frame 50 to 60 (clipA.timelineOut=60, so start=50)
+    const transition = {
+      id: 'tr-1' as TransitionId,
+      type: 'dissolve',
+      clipAId: clipA.id as ClipId,
+      clipBId: clipB.id as ClipId,
+      duration: 10,
+      params: {},
+      easing: 'linear' as const,
+    };
+
+    const project = projectWith([track], [transition]);
+
+    // midpoint of transition: frame 55 (start=50, end=60)
+    const result = resolveFrame(project, 55);
+
+    expect(result.transitions).toHaveLength(1);
+    const active = result.transitions[0]!;
+    expect(active.type).toBe('dissolve');
+    expect(active.progress).toBeCloseTo(0.5, 1);
+    expect(active.clipAId).toBe(clipA.id);
+    expect(active.clipBId).toBe(clipB.id);
+  });
+});

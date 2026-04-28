@@ -1,0 +1,34 @@
+{
+  "name": "@rough-cut/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/main/index.mjs",
+  "scripts": {
+    "dev": "concurrently \"vite --host 127.0.0.1 --port 7545\" \"wait-on http://127.0.0.1:7545 && electron --no-sandbox --force-color-profile=srgb .\"",
+    "build": "vite build && tsc --noEmit",
+    "test": "node --test src/main/smoke.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@rough-cut/effect-registry": "workspace:*",
+    "@rough-cut/frame-resolver": "workspace:*",
+    "@rough-cut/project-model": "workspace:*",
+    "@rough-cut/timeline-engine": "workspace:*",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "concurrently": "^9.0.0",
+    "electron": "^35.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "wait-on": "^8.0.0"
+  }
+}

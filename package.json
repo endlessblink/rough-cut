@@ -1,0 +1,19 @@
+{
+  "name": "rough-cut-mvp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r --sort build",
+    "test": "pnpm build && pnpm -r --sort test",
+    "typecheck": "pnpm -r --sort typecheck",
+    "dev": "pnpm --filter @rough-cut/desktop dev",
+    "clean": "pnpm -r --parallel clean"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
