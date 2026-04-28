@@ -24,6 +24,10 @@ const USE_FFMPEG_CAPTURE =
   (process.env.XDG_SESSION_TYPE === 'x11' ||
     (process.env.DISPLAY !== undefined && process.env.DISPLAY !== ''));
 
+export const FFMPEG_STOP_TIMEOUT_MS = 60_000;
+export const FFMPEG_SIGINT_TIMEOUT_MS = 60_000;
+export const FFMPEG_SIGTERM_TIMEOUT_MS = 15_000;
+
 /**
  * Whether FFmpeg x11grab capture is available on this platform.
  * @returns {boolean}
@@ -59,6 +63,132 @@ export function startFfmpegCapture({
   systemAudioSource = null,
   systemAudioGainPercent = 100,
   onFirstFrame = null,
+}) {
+  const args = buildFfmpegCaptureArgs({
+    outputPath,
+    fps,
+    display,
+    width,
+    height,
+    micSource,
+    systemAudioSource,
+    systemAudioGainPercent,
+  });
+
+  console.info('[ffmpeg-capture] Starting:', 'ffmpeg', args.join(' '));
+
+  const proc = spawn('ffmpeg', args, {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  let stderr = '';
+  const stderrState = createStderrDropWatcher('[ffmpeg-capture]');
+  proc.stderr?.on('data', (chunk) => {
+    const text = chunk.toString();
+    stderr += text;
+    logProcessOutput('[ffmpeg-capture:stderr]', text);
+    stderrState.observe(text);
+  });
+
+  proc.stdout?.on('data', (chunk) => {
+    logProcessOutput('[ffmpeg-capture:stdout]', chunk.toString());
+  });
+
+  // Wall-clock anchor for cursor sync. The first few `-progress pipe:1`
+  // blocks let us bound when FFmpeg actually muxed frame 0; see
+  // createFirstFrameDetector for the math. Fires at most once.
+  if (typeof onFirstFrame === 'function') {
+    const detector = createFirstFrameDetector({
+      onFirstFrame: (ms) => {
+        try {
+          onFirstFrame(ms);
+        } catch (err) {
+          console.warn('[ffmpeg-capture] onFirstFrame callback threw:', err?.message ?? err);
+        }
+      },
+    });
+    proc.stdout?.on('data', (chunk) => detector.observe(chunk.toString(), Date.now()));
+  }
+
+  proc.on('error', (err) => {
+    console.error('[ffmpeg-capture] Process error:', err.message);
+  });
+
+  proc.on('exit', (code, signal) => {
+    if (code !== 0 && signal !== 'SIGINT') {
+      console.warn('[ffmpeg-capture] Exited with code', code, 'signal', signal);
+      // Log last 500 chars of stderr for debugging
+      if (stderr) console.warn('[ffmpeg-capture] stderr tail:', stderr.slice(-500));
+    } else {
+      console.info('[ffmpeg-capture] Stopped cleanly.');
+    }
+  });
+
+  return {
+    outputPath,
+
+    /**
+     * Stop the FFmpeg process cleanly by sending 'q' to stdin.
+     * Falls back to SIGINT if stdin write fails.
+     * Returns the output file path.
+     * @returns {Promise<string>}
+     */
+    stop() {
+      return new Promise((resolve) => {
+        let settled = false;
+        let sigintTimeout = null;
+        let sigtermTimeout = null;
+        const stdinTimeout = setTimeout(() => {
+          console.warn('[ffmpeg-capture] Timeout after q — sending SIGINT for MP4 finalization.');
+          proc.kill('SIGINT');
+          sigintTimeout = setTimeout(() => {
+            console.warn('[ffmpeg-capture] Timeout after SIGINT — sending SIGTERM.');
+            proc.kill('SIGTERM');
+            sigtermTimeout = setTimeout(() => {
+              console.warn('[ffmpeg-capture] Timeout after SIGTERM — forcing SIGKILL; output may be corrupt.');
+              proc.kill('SIGKILL');
+            }, FFMPEG_SIGTERM_TIMEOUT_MS);
+          }, FFMPEG_SIGINT_TIMEOUT_MS);
+        }, FFMPEG_STOP_TIMEOUT_MS);
+
+        proc.on('exit', () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(stdinTimeout);
+          if (sigintTimeout) clearTimeout(sigintTimeout);
+          if (sigtermTimeout) clearTimeout(sigtermTimeout);
+          resolve(outputPath);
+        });
+
+        // Send 'q' to stdin for clean exit (FFmpeg's preferred stop method)
+        try {
+          proc.stdin?.write('q\n');
+          proc.stdin?.end();
+        } catch {
+          // stdin may be closed — fall back to SIGINT, which still lets MP4 finalize.
+          proc.kill('SIGINT');
+        }
+      });
+    },
+  };
+}
+
+function logProcessOutput(prefix, text) {
+  for (const line of text.split(/[\r\n]+/)) {
+    const trimmed = line.trim();
+    if (trimmed) console.info(prefix, trimmed);
+  }
+}
+
+export function buildFfmpegCaptureArgs({
+  outputPath,
+  fps,
+  display,
+  width,
+  height,
+  micSource = null,
+  systemAudioSource = null,
+  systemAudioGainPercent = 100,
 }) {
   const hasMic = typeof micSource === 'string' && micSource.length > 0;
   const hasSysAudio = typeof systemAudioSource === 'string' && systemAudioSource.length > 0;
@@ -149,21 +279,19 @@ export function startFfmpegCapture({
 
   // --- Codecs ---
   // BUG-269 (2026-04-28): switched from libvpx (VP8) to libx264 (H.264).
-  // Output container is mp4 (caller passes .mp4 path).
+  // The caller records to MKV, then remuxes to MP4 after a clean stop.
+  // Keep this CRF-only for screen capture. VBV/CBR constraints caused visible
+  // quality dips on wide desktop recordings during high-motion bursts.
+  // Avoid zerolatency/sliced threads: that is useful for live streaming, but it
+  // has caused Chromium/Electron playback artifacts on otherwise valid files.
   const keyframeInterval = Math.max(30, Math.round(fps));
   args.push(
     '-c:v',
     'libx264',
     '-preset',
-    'ultrafast',
-    '-tune',
-    'zerolatency',
+    'superfast',
     '-crf',
-    '18',
-    '-maxrate',
-    '25M',
-    '-bufsize',
-    '50M',
+    '16',
     '-pix_fmt',
     'yuv420p',
     '-g',
@@ -171,14 +299,9 @@ export function startFfmpegCapture({
     '-keyint_min',
     String(keyframeInterval),
     '-x264-params',
-    'scenecut=0:nal-hrd=cbr',
+    'scenecut=0:sliced-threads=0',
     '-threads',
     '0',
-    // +faststart only — frag_keyframe/empty_moov produce a fragmented MP4
-    // which standard <video src> can't play (needs MSE). +faststart on its
-    // own moves the moov atom to the start so partial reads still work.
-    '-movflags',
-    '+faststart',
   );
 
   if (audioInputCount > 0) {
@@ -188,84 +311,7 @@ export function startFfmpegCapture({
   }
 
   args.push(outputPath);
-
-  console.info('[ffmpeg-capture] Starting:', 'ffmpeg', args.join(' '));
-
-  const proc = spawn('ffmpeg', args, {
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-
-  let stderr = '';
-  const stderrState = createStderrDropWatcher('[ffmpeg-capture]');
-  proc.stderr?.on('data', (chunk) => {
-    const text = chunk.toString();
-    stderr += text;
-    stderrState.observe(text);
-  });
-
-  // Wall-clock anchor for cursor sync. The first few `-progress pipe:1`
-  // blocks let us bound when FFmpeg actually muxed frame 0; see
-  // createFirstFrameDetector for the math. Fires at most once.
-  if (typeof onFirstFrame === 'function') {
-    const detector = createFirstFrameDetector({
-      onFirstFrame: (ms) => {
-        try {
-          onFirstFrame(ms);
-        } catch (err) {
-          console.warn('[ffmpeg-capture] onFirstFrame callback threw:', err?.message ?? err);
-        }
-      },
-    });
-    proc.stdout?.on('data', (chunk) => detector.observe(chunk.toString(), Date.now()));
-  }
-
-  proc.on('error', (err) => {
-    console.error('[ffmpeg-capture] Process error:', err.message);
-  });
-
-  proc.on('exit', (code, signal) => {
-    if (code !== 0 && signal !== 'SIGINT') {
-      console.warn('[ffmpeg-capture] Exited with code', code, 'signal', signal);
-      // Log last 500 chars of stderr for debugging
-      if (stderr) console.warn('[ffmpeg-capture] stderr tail:', stderr.slice(-500));
-    } else {
-      console.info('[ffmpeg-capture] Stopped cleanly.');
-    }
-  });
-
-  return {
-    outputPath,
-
-    /**
-     * Stop the FFmpeg process cleanly by sending 'q' to stdin.
-     * Falls back to SIGINT if stdin write fails.
-     * Returns the output file path.
-     * @returns {Promise<string>}
-     */
-    stop() {
-      return new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-          console.warn('[ffmpeg-capture] Timeout waiting for exit — killing.');
-          proc.kill('SIGKILL');
-          resolve(outputPath);
-        }, 5000);
-
-        proc.on('exit', () => {
-          clearTimeout(timeout);
-          resolve(outputPath);
-        });
-
-        // Send 'q' to stdin for clean exit (FFmpeg's preferred stop method)
-        try {
-          proc.stdin?.write('q');
-          proc.stdin?.end();
-        } catch {
-          // stdin may be closed — fall back to SIGINT
-          proc.kill('SIGINT');
-        }
-      });
-    },
-  };
+  return args;
 }
 
 /**
@@ -498,7 +544,7 @@ export function startFfmpegAudioCapture({
           console.warn('[ffmpeg-audio-capture] Timeout waiting for exit — killing.');
           proc.kill('SIGKILL');
           resolve(outputPath);
-        }, 5000);
+        }, FFMPEG_STOP_TIMEOUT_MS);
 
         proc.on('exit', () => {
           clearTimeout(timeout);
