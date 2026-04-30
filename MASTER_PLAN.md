@@ -8,7 +8,7 @@ This repo is focused on a reliable Linux/X11 screen-recording MVP.
 | --- | --- | --- | --- |
 | TASK-001 | Add repeatable MVP smoke verification script | P1 | DONE |
 | TASK-002 | Add Electron UI smoke coverage for preview and export | P2 | DONE |
-| TASK-003 | Improve Watchpost compatibility for project task tracking | P2 | PLANNED |
+| TASK-003 | Improve Watchpost compatibility for project task tracking | P2 | DONE |
 | TASK-004 | Package the desktop MVP for local install testing | P2 | PLANNED |
 | TASK-005 | Document release-ready Linux/X11 verification steps | P3 | PLANNED |
 
@@ -65,10 +65,16 @@ Current automated coverage exercises main-process services well, but it does not
 - Verify the main screen renders without preload/runtime errors.
 - Verify an opened project shows metadata, playback controls, and export controls.
 
-### TASK-003 Improve Watchpost compatibility for project task tracking
+### ~~TASK-003~~ Improve Watchpost compatibility for project task tracking
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
+
+#### Completion Notes
+
+- Restored Watchpost's missing `projects.json` registry in the running Watchpost install.
+- Confirmed `/api/status` resolves this repo from `cwd`.
+- Confirmed `/api/master-plan` returns this `MASTER_PLAN.md` content.
 
 #### Context
 
