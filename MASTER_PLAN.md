@@ -9,7 +9,7 @@ This repo is focused on a reliable Linux/X11 screen-recording MVP.
 | TASK-001 | Add repeatable MVP smoke verification script | P1 | DONE |
 | TASK-002 | Add Electron UI smoke coverage for preview and export | P2 | DONE |
 | TASK-003 | Improve Watchpost compatibility for project task tracking | P2 | DONE |
-| TASK-004 | Package the desktop MVP for local install testing | P2 | PLANNED |
+| TASK-004 | Package the desktop MVP for local install testing | P2 | DONE |
 | TASK-005 | Document release-ready Linux/X11 verification steps | P3 | PLANNED |
 
 ## Recently Verified
@@ -86,10 +86,16 @@ Watchpost was running, but `/api/master-plan` and `/api/status` returned `500` f
 - Fix any formatting issue in the plan if needed.
 - If the server error is external to this repo, capture the error details for Watchpost debugging.
 
-### TASK-004 Package the desktop MVP for local install testing
+### ~~TASK-004~~ Package the desktop MVP for local install testing
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
+
+#### Progress Notes
+
+- Added `pnpm package:linux` to create a local Electron Linux artifact.
+- Added `pnpm smoke:package` to launch the packaged artifact against a synthetic project and verify preview/export.
+- Verified the packaged artifact launches and exports successfully.
 
 #### Context
 
