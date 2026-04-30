@@ -10,6 +10,7 @@ declare global {
       stopRecording: () => Promise<RecordingStatus>;
       getRecordingStatus: () => Promise<RecordingStatus>;
       openProject: () => Promise<ProjectState | null>;
+      openProjectPath: (path: string) => Promise<ProjectState>;
       pickExportOutputPath: (projectName: string) => Promise<string | null>;
       exportProject: (payload: { document: ProjectState['document']; outputPath: string }) => Promise<ExportResult>;
       onExportProgress: (callback: (progress: ExportProgress) => void) => () => void;
@@ -53,6 +54,26 @@ function App() {
     window.roughCut.getVersion().then(setVersion).catch(() => setVersion('unknown'));
     window.roughCut.getRecordingStatus().then(setRecording).catch(() => undefined);
     return window.roughCut.onExportProgress(setExportProgress);
+  }, []);
+
+  React.useEffect(() => {
+    const projectPath = new URLSearchParams(window.location.search).get('projectPath');
+    if (!projectPath) return;
+
+    let cancelled = false;
+    window.roughCut.openProjectPath(projectPath)
+      .then((opened) => {
+        if (cancelled) return;
+        setProject(opened);
+        setExportResult(null);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Project open failed.');
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   React.useEffect(() => {

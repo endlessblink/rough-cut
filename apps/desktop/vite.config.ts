@@ -10,6 +10,7 @@ const workspacePackageAliases = {
 };
 
 export default defineConfig({
+  base: './',
   plugins: [react()],
   root: resolve(__dirname, 'src/renderer'),
   resolve: {

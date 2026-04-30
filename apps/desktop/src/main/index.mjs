@@ -79,12 +79,51 @@ function createMainWindow() {
     });
   }
 
+  if (process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH) {
+    window.webContents.once('did-finish-load', async () => {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const result = await window.webContents.executeJavaScript(
+          `(${runRendererUiSmoke.toString()})()`,
+          true,
+        );
+        await mkdir(dirname(process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH), { recursive: true });
+        await writeFile(process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH, `${JSON.stringify(result, null, 2)}\n`);
+        console.info(`[ui-smoke] wrote ${process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH}`);
+      } catch (err) {
+        console.error('[ui-smoke] failed', err);
+        await mkdir(dirname(process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH), { recursive: true });
+        await writeFile(
+          process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH,
+          `${JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }, null, 2)}\n`,
+        );
+        process.exitCode = 1;
+      } finally {
+        app.quit();
+      }
+    });
+  }
+
+  const rendererProjectPath = process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;
+
   if (process.env.VITE_DEV_SERVER_URL) {
-    window.loadURL(process.env.VITE_DEV_SERVER_URL);
+    const url = new URL(process.env.VITE_DEV_SERVER_URL);
+    if (rendererProjectPath) url.searchParams.set('projectPath', rendererProjectPath);
+    window.loadURL(url.toString());
   } else if (!app.isPackaged) {
-    window.loadURL('http://127.0.0.1:7545');
+    if (process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH) {
+      window.loadFile(
+        join(__dirname, '../../dist/renderer/index.html'),
+        rendererProjectPath ? { search: `?projectPath=${encodeURIComponent(rendererProjectPath)}` } : undefined,
+      );
+    } else {
+      window.loadURL('http://127.0.0.1:7545');
+    }
   } else {
-    window.loadFile(join(__dirname, '../../dist/renderer/index.html'));
+    window.loadFile(
+      join(__dirname, '../../dist/renderer/index.html'),
+      rendererProjectPath ? { search: `?projectPath=${encodeURIComponent(rendererProjectPath)}` } : undefined,
+    );
   }
 
   return window;
@@ -119,6 +158,8 @@ ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN, async () => {
 ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, (_event, projectPath) => openProjectFile(projectPath).then(formatProject));
 ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, (_event, { path, document }) => saveProjectFile(path, document).then(formatProject));
 ipcMain.handle(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, async (_event, projectName = 'rough-cut-export') => {
+  if (process.env.ROUGH_CUT_UI_SMOKE_EXPORT_PATH) return process.env.ROUGH_CUT_UI_SMOKE_EXPORT_PATH;
+
   const result = await dialog.showSaveDialog({
     title: 'Export MP4',
     defaultPath: `${projectName}.mp4`,
@@ -154,5 +195,41 @@ function formatProject(project) {
     ...project,
     recording,
     mediaUrl: recording ? toMediaUrl(recording.filePath) : null,
+  };
+}
+
+async function runRendererUiSmoke() {
+  const waitFor = async (predicate, label, timeoutMs = 5000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const value = predicate();
+      if (value) return value;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`Timed out waiting for ${label}`);
+  };
+
+  const video = await waitFor(() => document.querySelector('video'), 'video element', 10000).catch((err) => {
+    throw new Error(`${err.message}; url=${window.location.href}; body=${document.body.innerText.slice(0, 500)}`);
+  });
+  await waitFor(() => video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0, 'video metadata');
+
+  const exportButton = await waitFor(
+    () => Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Export MP4')),
+    'export button',
+  );
+  exportButton.click();
+
+  await waitFor(() => document.body.textContent?.includes('Exported to:'), 'export completion', 10000);
+
+  return {
+    ok: true,
+    title: document.querySelector('h2')?.textContent ?? null,
+    duration: video.duration,
+    currentTime: video.currentTime,
+    hasPlaybackButton: Boolean(
+      Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Play')),
+    ),
+    hasExportResult: document.body.textContent?.includes('Exported to:') ?? false,
   };
 }

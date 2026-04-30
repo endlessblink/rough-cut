@@ -7,7 +7,7 @@ This repo is focused on a reliable Linux/X11 screen-recording MVP.
 | ID | Title | Priority | Status |
 | --- | --- | --- | --- |
 | TASK-001 | Add repeatable MVP smoke verification script | P1 | DONE |
-| TASK-002 | Add Electron UI smoke coverage for preview and export | P2 | PLANNED |
+| TASK-002 | Add Electron UI smoke coverage for preview and export | P2 | DONE |
 | TASK-003 | Improve Watchpost compatibility for project task tracking | P2 | PLANNED |
 | TASK-004 | Package the desktop MVP for local install testing | P2 | PLANNED |
 | TASK-005 | Document release-ready Linux/X11 verification steps | P3 | PLANNED |
@@ -43,10 +43,17 @@ The MVP flow works through a one-off Node script, but it is not yet available as
 - The script skips or fails clearly when X11 or FFmpeg prerequisites are missing.
 - The script leaves generated files in a clear temp or artifact location.
 
-### TASK-002 Add Electron UI smoke coverage for preview and export
+### ~~TASK-002~~ Add Electron UI smoke coverage for preview and export
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
+
+#### Progress Notes
+
+- Added root command `pnpm smoke:ui`.
+- Added an Electron smoke mode that auto-opens a project, waits for video metadata, clicks export, and writes a JSON report.
+- Fixed packaged renderer asset paths by setting Vite `base: './'`.
+- Verified with `pnpm smoke:ui` and `pnpm test`.
 
 #### Context
 
