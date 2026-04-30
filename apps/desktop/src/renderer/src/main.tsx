@@ -205,11 +205,13 @@ function VideoPreview({ src }: { src: string }) {
   const [duration, setDuration] = React.useState(0);
   const [currentTime, setCurrentTime] = React.useState(0);
   const [isPlaying, setIsPlaying] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     setDuration(0);
     setCurrentTime(0);
     setIsPlaying(false);
+    setError(null);
   }, [src]);
 
   async function togglePlayback() {
@@ -217,7 +219,11 @@ function VideoPreview({ src }: { src: string }) {
     if (!video) return;
 
     if (video.paused) {
-      await video.play();
+      try {
+        await video.play();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Video playback failed.');
+      }
     } else {
       video.pause();
     }
@@ -227,6 +233,7 @@ function VideoPreview({ src }: { src: string }) {
     const video = videoRef.current;
     if (!video) return;
     const nextTime = Number(value);
+    if (!Number.isFinite(nextTime)) return;
     video.currentTime = nextTime;
     setCurrentTime(nextTime);
   }
@@ -237,10 +244,14 @@ function VideoPreview({ src }: { src: string }) {
         ref={videoRef}
         src={src}
         preload="metadata"
-        onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
+        onLoadedMetadata={(event) => {
+          setDuration(event.currentTarget.duration || 0);
+          setError(null);
+        }}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
         onEnded={() => setIsPlaying(false)}
+        onError={(event) => setError(videoErrorMessage(event.currentTarget))}
         onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
       />
       <div className="videoControls" aria-label="Video playback controls">
@@ -257,11 +268,22 @@ function VideoPreview({ src }: { src: string }) {
           max={duration || 0}
           step="0.1"
           value={Math.min(currentTime, duration || 0)}
+          onInput={(event) => seek(event.currentTarget.value)}
           onChange={(event) => seek(event.currentTarget.value)}
         />
       </div>
+      {error ? <p className="error">Video failed to load: {error}</p> : null}
     </div>
   );
+}
+
+function videoErrorMessage(video: HTMLVideoElement) {
+  const code = video.error?.code;
+  if (code === MediaError.MEDIA_ERR_ABORTED) return 'Loading was aborted.';
+  if (code === MediaError.MEDIA_ERR_NETWORK) return 'Network or file access failed.';
+  if (code === MediaError.MEDIA_ERR_DECODE) return 'The video could not be decoded.';
+  if (code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) return 'The video source is not supported.';
+  return 'Unknown media error.';
 }
 
 function statusLabel(recording: RecordingStatus, elapsedMs: number) {

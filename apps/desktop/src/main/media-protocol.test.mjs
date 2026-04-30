@@ -3,7 +3,28 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createMediaFileResponse, parseByteRange } from './media-protocol.mjs';
+import { createMediaFetchResponse, createMediaFileResponse, parseByteRange, toMediaUrl } from './media-protocol.mjs';
+
+test('toMediaUrl encodes local file paths for the media protocol', () => {
+  assert.equal(
+    toMediaUrl('/home/endlessblink/Documents/Rough Cut MVP/recordings/capture.mp4'),
+    'media://file/%2Fhome%2Fendlessblink%2FDocuments%2FRough%20Cut%20MVP%2Frecordings%2Fcapture.mp4',
+  );
+});
+
+test('createMediaFetchResponse delegates to file URL fetch with request headers', async () => {
+  const calls = [];
+  const headers = new Headers({ range: 'bytes=0-' });
+  const response = new Response('ok');
+  const result = await createMediaFetchResponse('/tmp/Rough Cut/clip.mp4', headers, async (url, options) => {
+    calls.push({ url, options });
+    return response;
+  });
+
+  assert.equal(result, response);
+  assert.equal(calls[0].url, 'file:///tmp/Rough%20Cut/clip.mp4');
+  assert.equal(calls[0].options.headers, headers);
+});
 
 test('parseByteRange supports normal and suffix ranges', () => {
   assert.deepEqual(parseByteRange('bytes=10-19', 100), { start: 10, end: 19 });

@@ -6,6 +6,7 @@
     "build": "pnpm -r --sort build",
     "test": "pnpm build && pnpm -r --sort test",
     "typecheck": "pnpm -r --sort typecheck",
+    "smoke:mvp": "pnpm --filter @rough-cut/project-model build && node scripts/smoke-mvp.mjs",
     "dev": "pnpm --filter @rough-cut/desktop dev",
     "clean": "pnpm -r --parallel clean"
   },

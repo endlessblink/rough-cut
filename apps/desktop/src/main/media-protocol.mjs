@@ -1,9 +1,10 @@
 import electron from 'electron';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import { Readable } from 'node:stream';
 
-const { protocol } = electron;
+const { net, protocol } = electron;
 
 export function registerMediaProtocol() {
   protocol.handle('media', async (request) => {
@@ -13,12 +14,21 @@ export function registerMediaProtocol() {
     }
 
     const filePath = decodeURIComponent(url.pathname.slice(1));
-    return createMediaFileResponse(filePath, request.headers.get('range'));
+    const range = request.headers.get('range');
+    if (range) {
+      return createMediaFileResponse(filePath, range);
+    }
+
+    return createMediaFetchResponse(filePath, request.headers);
   });
 }
 
 export function toMediaUrl(filePath) {
   return `media://file/${encodeURIComponent(filePath)}`;
+}
+
+export function createMediaFetchResponse(filePath, headers, fetchImpl = net.fetch) {
+  return fetchImpl(pathToFileURL(filePath).toString(), { headers });
 }
 
 export async function createMediaFileResponse(filePath, rangeHeader = null) {

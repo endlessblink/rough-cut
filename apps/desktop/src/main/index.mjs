@@ -1,13 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, screen } from 'electron';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { exportProjectToMp4 } from './export-service.mjs';
 import { assertReadableMp4 } from './media-probe.mjs';
 import { getPrimaryRecording, openProjectFile, saveProjectFile, saveProjectForRecording } from './project-files.mjs';
 import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
-import { registerMediaProtocol } from './media-protocol.mjs';
+import { registerMediaProtocol, toMediaUrl } from './media-protocol.mjs';
 import { remuxMkvToMp4 } from './remux-service.mjs';
 import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording/recording-session.mjs';
 import { installRuntimeLog } from './runtime-log.mjs';
@@ -153,6 +153,6 @@ function formatProject(project) {
   return {
     ...project,
     recording,
-    mediaUrl: recording ? pathToFileURL(recording.filePath).toString() : null,
+    mediaUrl: recording ? toMediaUrl(recording.filePath) : null,
   };
 }
