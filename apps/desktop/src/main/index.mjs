@@ -168,10 +168,11 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, async (_event, projectName 
   if (result.canceled || !result.filePath) return null;
   return result.filePath;
 });
-ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, { document, outputPath }) => {
+ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, { document, outputPath, mode }) => {
   return exportProjectToMp4({
     project: document,
     outputPath,
+    mode,
     onProgress: (progress) => event.sender.send(IPC_CHANNELS.EXPORT_PROGRESS_EMIT, progress),
   });
 });
@@ -213,6 +214,10 @@ async function runRendererUiSmoke() {
     throw new Error(`${err.message}; url=${window.location.href}; body=${document.body.innerText.slice(0, 500)}`);
   });
   await waitFor(() => video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0, 'video metadata');
+  const exportMode = await waitFor(
+    () => document.querySelector('select')?.value === 'raw' ? document.querySelector('select') : null,
+    'raw export mode selection',
+  );
 
   const exportButton = await waitFor(
     () => Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Export MP4')),
@@ -230,6 +235,8 @@ async function runRendererUiSmoke() {
     hasPlaybackButton: Boolean(
       Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Play')),
     ),
+    exportMode: exportMode.value,
+    hasStyledMode: Boolean(Array.from(document.querySelectorAll('option')).find((option) => option.value === 'styled')),
     hasExportResult: document.body.textContent?.includes('Exported to:') ?? false,
   };
 }

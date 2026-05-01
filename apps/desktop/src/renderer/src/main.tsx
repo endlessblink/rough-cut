@@ -12,7 +12,7 @@ declare global {
       openProject: () => Promise<ProjectState | null>;
       openProjectPath: (path: string) => Promise<ProjectState>;
       pickExportOutputPath: (projectName: string) => Promise<string | null>;
-      exportProject: (payload: { document: ProjectState['document']; outputPath: string }) => Promise<ExportResult>;
+      exportProject: (payload: { document: ProjectState['document']; outputPath: string; mode: ExportMode }) => Promise<ExportResult>;
       onExportProgress: (callback: (progress: ExportProgress) => void) => () => void;
       channels: Record<string, string>;
     };
@@ -28,6 +28,7 @@ type ProjectState = {
 
 type ExportProgress = { phase: string; progress: number };
 type ExportResult = { outputPath: string; sourcePath: string; bytes: number; byteEqualCandidate: boolean };
+type ExportMode = 'raw' | 'styled';
 
 type RecordingStatus =
   | { state: 'idle' }
@@ -47,6 +48,7 @@ function App() {
   const [project, setProject] = React.useState<ProjectState | null>(null);
   const [exportProgress, setExportProgress] = React.useState<ExportProgress | null>(null);
   const [exportResult, setExportResult] = React.useState<ExportResult | null>(null);
+  const [exportMode, setExportMode] = React.useState<ExportMode>('raw');
   const [elapsedMs, setElapsedMs] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -131,7 +133,7 @@ function App() {
         setExportProgress(null);
         return;
       }
-      const result = await window.roughCut.exportProject({ document: project.document, outputPath });
+      const result = await window.roughCut.exportProject({ document: project.document, outputPath, mode: exportMode });
       setExportResult(result);
       setExportProgress({ phase: 'complete', progress: 1 });
     } catch (err) {
@@ -164,6 +166,8 @@ function App() {
           <ProjectPreview
             project={project}
             onExport={exportProject}
+            exportMode={exportMode}
+            onExportModeChange={setExportMode}
             exportProgress={exportProgress}
             exportResult={exportResult}
           />
@@ -180,11 +184,15 @@ function ProjectPreview({
   onExport,
   exportProgress,
   exportResult,
+  exportMode,
+  onExportModeChange,
 }: {
   project: ProjectState;
   onExport: () => void;
   exportProgress: ExportProgress | null;
   exportResult: ExportResult | null;
+  exportMode: ExportMode;
+  onExportModeChange: (mode: ExportMode) => void;
 }) {
   return (
     <section className="preview" aria-label="Project preview">
@@ -205,6 +213,13 @@ function ProjectPreview({
         </p>
       ) : null}
       <div className="exportPanel">
+        <label className="exportMode">
+          Export mode
+          <select value={exportMode} onChange={(event) => onExportModeChange(event.target.value as ExportMode)}>
+            <option value="raw">Raw recording</option>
+            <option value="styled">Styled canvas</option>
+          </select>
+        </label>
         <button type="button" onClick={onExport} className="secondary" disabled={!project.recording}>
           Export MP4
         </button>

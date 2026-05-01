@@ -20,8 +20,8 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-004 | Package the desktop MVP for local install testing | P2 | DONE |
 | TASK-005 | Document release-ready Linux/X11 verification steps | P3 | PLANNED |
 | TASK-006 | Define client-demo roadmap before editing work | P1 | DONE |
-| TASK-007 | Add export mode selection: raw vs styled | P1 | PLANNED |
-| TASK-008 | Add styled 16:9 canvas export preset | P1 | PLANNED |
+| TASK-007 | Add export mode selection: raw vs styled | P1 | DONE |
+| TASK-008 | Add styled 16:9 canvas export preset | P1 | DONE |
 | TASK-009 | Add styled export UI preview metadata | P2 | PLANNED |
 | TASK-010 | Add cursor telemetry recording foundation | P1 | PLANNED |
 | TASK-011 | Add cursor overlay export rendering | P1 | PLANNED |
@@ -183,10 +183,10 @@ The broader goal is not just raw recording. The app should become a Screen Studi
 - Watchpost can parse this plan.
 - The next planned task is independently implementable.
 
-### TASK-007 Add export mode selection: raw vs styled
+### ~~TASK-007~~ Add export mode selection: raw vs styled
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -199,6 +199,13 @@ Before styled exports exist, the export path needs an explicit mode so raw expor
 - Store the selected mode only where needed; avoid a project format migration unless required.
 - Keep existing export behavior unchanged for `raw`.
 
+#### Completion Notes
+
+- Added explicit export mode validation for `raw` and planned `styled` modes.
+- Kept `raw` as the default and preserved byte-for-byte export behavior.
+- Added a UI export mode selector with `Raw recording` active and `Styled canvas` reserved for the next task.
+- Extended UI/package smoke output to verify raw mode and the styled placeholder.
+
 #### Testing
 
 - Unit test export mode validation or command handling.
@@ -210,10 +217,10 @@ Before styled exports exist, the export path needs an explicit mode so raw expor
 - `pnpm smoke:ui`
 - `pnpm smoke:package`
 
-### TASK-008 Add styled 16:9 canvas export preset
+### ~~TASK-008~~ Add styled 16:9 canvas export preset
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -227,6 +234,16 @@ Raw screen exports are functional but not client-ready. The first Screen Studio-
 - Use FFmpeg filters or a similarly testable export path.
 - Keep the preset minimal: one good default, not a full theme system.
 
+#### Completion Notes
+
+- Added `styled` export mode that renders through FFmpeg instead of copying the source file.
+- Styled export creates a 1920x1080 canvas with an opinionated center crop, larger screen framing, pastel gradient background, rounded corners, and soft shadow.
+- Refined the first visual pass after manual review to remove the fragile border treatment and move closer to Screen Studio's background, padding, rounded corner, shadow, and zoom/crop model.
+- Replaced the color-bar styled smoke fixture with a synthetic product UI so export visuals are easier to judge.
+- Visually checked the rendered export frame through Playwright screenshot capture against both synthetic and real recording output before asking for another manual review.
+- Added `pnpm smoke:styled-export` to generate a synthetic project, export styled output, and validate 1920x1080 dimensions with FFprobe.
+- Enabled the `Styled canvas` option in the export mode selector.
+
 #### Testing
 
 - Unit test styled export command/filter construction.
@@ -236,8 +253,11 @@ Raw screen exports are functional but not client-ready. The first Screen Studio-
 #### Verification
 
 - `pnpm test`
-- New or updated smoke command for styled export.
-- Manual packaged export: confirm the output visually looks client-ready.
+- `pnpm smoke:styled-export`
+- `pnpm smoke:ui`
+- `pnpm smoke:package`
+- Playwright screenshot of extracted styled export frame.
+- Manual packaged export still needed: confirm the styled output visually looks client-ready.
 
 ### TASK-009 Add styled export UI preview metadata
 

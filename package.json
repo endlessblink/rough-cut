@@ -8,6 +8,7 @@
     "typecheck": "pnpm -r --sort typecheck",
     "smoke:mvp": "pnpm --filter @rough-cut/project-model build && node scripts/smoke-mvp.mjs",
     "smoke:ui": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-ui.mjs",
+    "smoke:styled-export": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-styled-export.mjs",
     "package:linux": "pnpm build && node scripts/package-linux.mjs",
     "smoke:package": "pnpm package:linux && node scripts/smoke-packaged-app.mjs",
     "dev": "pnpm --filter @rough-cut/desktop dev",
