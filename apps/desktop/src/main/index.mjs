@@ -215,6 +215,8 @@ async function runRendererUiSmoke() {
     throw new Error(`${err.message}; url=${window.location.href}; body=${document.body.innerText.slice(0, 500)}`);
   });
   await waitFor(() => video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0, 'video metadata');
+  await waitFor(() => document.body.textContent?.includes('Zoom markers'), 'zoom marker panel header');
+  const hasZoomMarkerPanel = true;
   const exportMode = await waitFor(
     () => document.querySelector('select')?.value === 'raw' ? document.querySelector('select') : null,
     'raw export mode selection',
@@ -248,6 +250,7 @@ async function runRendererUiSmoke() {
     hasStyledMode: Boolean(Array.from(document.querySelectorAll('option')).find((option) => option.value === 'styled')),
     hasRawPresetDetails,
     hasStyledPresetDetails,
+    hasZoomMarkerPanel,
     hasExportResult: document.body.textContent?.includes('Exported to:') ?? false,
   };
 }

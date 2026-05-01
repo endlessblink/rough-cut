@@ -210,3 +210,61 @@ button.compact {
   line-height: 1.45;
   margin: 0;
 }
+
+.zoomMarkerPanel {
+  background: rgb(255 255 255 / 0.04);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 12px;
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+}
+
+.zoomMarkerHeader {
+  align-items: baseline;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.zoomMarkerHeader h3 {
+  color: #f4efe6;
+  font-size: 1rem;
+  margin: 0;
+}
+
+.zoomMarkerTime {
+  color: #9d917e;
+  font-size: 0.85rem;
+}
+
+.zoomMarkerEmpty {
+  color: #9d917e;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.zoomMarkerList {
+  display: grid;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.zoomMarkerRow {
+  align-items: center;
+  background: rgb(255 255 255 / 0.04);
+  border-radius: 10px;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding: 0.4rem 0.65rem;
+}
+
+.zoomMarkerRange {
+  color: #cabfac;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}

@@ -28,7 +28,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-012 | Add cursor overlay preview rendering | P2 | PLANNED |
 | TASK-013 | Add click emphasis telemetry and export rendering | P2 | PLANNED |
 | TASK-014 | Add manual zoom marker data model | P1 | DONE |
-| TASK-015 | Add manual zoom marker UI controls | P1 | PLANNED |
+| TASK-015 | Add manual zoom marker UI controls | P1 | IN PROGRESS |
 | TASK-016 | Add smooth manual zoom export rendering | P1 | PLANNED |
 | TASK-017 | Add zoom preview playback approximation | P2 | PLANNED |
 | TASK-018 | Add automatic zoom suggestion engine | P2 | PLANNED |
@@ -445,7 +445,7 @@ Manual zooms should be stored as simple project markers before any complex editi
 ### TASK-015 Add manual zoom marker UI controls
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 #### Context
 
@@ -457,16 +457,26 @@ The first manual zoom UI should be simple and useful, not a full timeline editor
 - Use current playback time for marker creation.
 - Store changes in the project file.
 
+#### Completion Notes
+
+- Added `ZoomMarkerPanel` inside `ProjectPreview` next to the export controls (`apps/desktop/src/renderer/src/main.tsx`). Reads markers from the active recording asset, shows playback timecode, exposes Add and Remove actions, and persists optimistically through the existing `window.roughCut.saveProject` IPC.
+- Lifted `currentTime` from `VideoPreview` via a new optional `onCurrentTimeChange` callback so the panel sees the live playback position without restructuring video state ownership.
+- Added pure helpers in a new `apps/desktop/src/renderer/src/zoom-markers.mjs` (with a `.d.mts` companion for renderer typing): `getPrimaryRecordingAsset`, `canAddMarkerAt`, `addManualMarkerAt`, `removeMarker`, `listMarkers`. Helpers reuse `createZoomMarker` and `createDefaultRecordingPresentation` from `@rough-cut/project-model`, are immutable, and return the original document reference on no-op so React reference checks work.
+- Add button is disabled when there is not enough room before the end of the recording (`startFrame + 15 frames > asset.duration`); endFrame is clamped to asset duration so newly added markers always fit.
+- Extended `Window.roughCut` type in `main.tsx` with the previously-undeclared `saveProject` entry (it was exposed in preload but missing from the renderer-side type).
+
 #### Testing
 
-- Renderer smoke creates a zoom marker on a synthetic project.
-- Project save/reopen test confirms marker persistence.
+- New `apps/desktop/src/renderer/src/zoom-markers.test.mjs` (node:test, registered in `apps/desktop/package.json`'s test script) — 14 cases covering primary asset selection, the `canAddMarkerAt` gate, `addManualMarkerAt` validity / clamping / no-op behavior, sort order across multiple inserts, and `removeMarker` filter+no-op semantics.
+- Extended `runRendererUiSmoke` in `apps/desktop/src/main/index.mjs` with a `Zoom markers` panel-presence wait; result JSON now includes `hasZoomMarkerPanel: true`.
 
 #### Verification
 
-- `pnpm test`
-- `pnpm smoke:ui`
-- Manual packaged flow: create marker, save/reopen, confirm marker remains.
+- `pnpm test` — full suite green: project-model 91/91, desktop 44/44 (was 30, +14 zoom-markers cases).
+- `pnpm typecheck` — clean across all packages.
+- `pnpm smoke:ui` — UI smoke passes; result JSON: `hasZoomMarkerPanel: true`, `hasExportResult: true`.
+- `pnpm smoke:mvp` — record/save/reopen/export pipeline still `ok: true`.
+- **Pending: manual packaged-app round-trip** — open a real recording, pause mid-playback, click Add marker, confirm row appears, save and reopen the project, confirm the marker persists, click Remove, confirm it disappears, reopen, confirm it stays gone. Flip status to DONE only after this manual step lands.
 
 ### TASK-016 Add smooth manual zoom export rendering
 

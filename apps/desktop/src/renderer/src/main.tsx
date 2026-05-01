@@ -1,6 +1,13 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import type { ProjectDocument } from '@rough-cut/project-model';
 import './styles.css';
+import {
+  addManualMarkerAt,
+  canAddMarkerAt,
+  listMarkers,
+  removeMarker,
+} from './zoom-markers.mjs';
 
 declare global {
   interface Window {
@@ -11,6 +18,7 @@ declare global {
       getRecordingStatus: () => Promise<RecordingStatus>;
       openProject: () => Promise<ProjectState | null>;
       openProjectPath: (path: string) => Promise<ProjectState>;
+      saveProject: (project: { path: string; document: ProjectState['document'] }) => Promise<ProjectState>;
       pickExportOutputPath: (projectName: string) => Promise<string | null>;
       exportProject: (payload: { document: ProjectState['document']; outputPath: string; mode: ExportMode }) => Promise<ExportResult>;
       onExportProgress: (callback: (progress: ExportProgress) => void) => () => void;
@@ -165,6 +173,7 @@ function App() {
         {project ? (
           <ProjectPreview
             project={project}
+            onProjectChange={setProject}
             onExport={exportProject}
             exportMode={exportMode}
             onExportModeChange={setExportMode}
@@ -181,6 +190,7 @@ function App() {
 
 function ProjectPreview({
   project,
+  onProjectChange,
   onExport,
   exportProgress,
   exportResult,
@@ -188,12 +198,14 @@ function ProjectPreview({
   onExportModeChange,
 }: {
   project: ProjectState;
+  onProjectChange: (next: ProjectState) => void;
   onExport: () => void;
   exportProgress: ExportProgress | null;
   exportResult: ExportResult | null;
   exportMode: ExportMode;
   onExportModeChange: (mode: ExportMode) => void;
 }) {
+  const [currentTimeSec, setCurrentTimeSec] = React.useState(0);
   return (
     <section className="preview" aria-label="Project preview">
       <div>
@@ -202,7 +214,7 @@ function ProjectPreview({
         <p>{project.path}</p>
       </div>
       {project.mediaUrl ? (
-        <VideoPreview src={project.mediaUrl} />
+        <VideoPreview src={project.mediaUrl} onCurrentTimeChange={setCurrentTimeSec} />
       ) : (
         <p>No recording asset found in this project.</p>
       )}
@@ -211,6 +223,14 @@ function ProjectPreview({
           {project.recording.width}x{project.recording.height} · {project.recording.fps} fps ·{' '}
           {project.recording.duration} frames
         </p>
+      ) : null}
+      {project.recording ? (
+        <ZoomMarkerPanel
+          project={project}
+          fps={project.recording.fps}
+          currentTimeSec={currentTimeSec}
+          onProjectChange={onProjectChange}
+        />
       ) : null}
       <div className="exportPanel">
         <label className="exportMode">
@@ -237,6 +257,92 @@ function ProjectPreview({
   );
 }
 
+function ZoomMarkerPanel({
+  project,
+  fps,
+  currentTimeSec,
+  onProjectChange,
+}: {
+  project: ProjectState;
+  fps: number;
+  currentTimeSec: number;
+  onProjectChange: (next: ProjectState) => void;
+}) {
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+  const [isSaving, setIsSaving] = React.useState(false);
+  const document = project.document as unknown as ProjectDocument;
+  const markers = listMarkers(document);
+  const canAdd = canAddMarkerAt(document, currentTimeSec, fps);
+
+  async function persist(nextDocument: ProjectDocument) {
+    const previous = project;
+    const optimistic = { ...project, document: nextDocument as unknown as ProjectState['document'] };
+    setSaveError(null);
+    setIsSaving(true);
+    onProjectChange(optimistic);
+    try {
+      const saved = await window.roughCut.saveProject({ path: project.path, document: optimistic.document });
+      onProjectChange(saved);
+    } catch (err) {
+      onProjectChange(previous);
+      setSaveError(err instanceof Error ? err.message : 'Save failed.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleAdd() {
+    const nextDocument = addManualMarkerAt(document, currentTimeSec, fps);
+    if (nextDocument === document) return;
+    await persist(nextDocument);
+  }
+
+  async function handleRemove(markerId: string) {
+    const nextDocument = removeMarker(document, markerId);
+    if (nextDocument === document) return;
+    await persist(nextDocument);
+  }
+
+  return (
+    <div className="zoomMarkerPanel" aria-label="Zoom markers">
+      <div className="zoomMarkerHeader">
+        <h3>Zoom markers</h3>
+        <span className="zoomMarkerTime">Playback {formatClock(currentTimeSec)}</span>
+      </div>
+      <button
+        type="button"
+        className="secondary compact"
+        onClick={handleAdd}
+        disabled={!canAdd || isSaving}
+      >
+        Add marker at {formatClock(currentTimeSec)}
+      </button>
+      {markers.length === 0 ? (
+        <p className="zoomMarkerEmpty">No manual zooms yet — pause at a moment, then add a marker.</p>
+      ) : (
+        <ul className="zoomMarkerList">
+          {markers.map((marker) => (
+            <li key={marker.id} className="zoomMarkerRow">
+              <span className="zoomMarkerRange">
+                {marker.startFrame}–{marker.endFrame} f · {Math.round(marker.strength * 100)}%
+              </span>
+              <button
+                type="button"
+                className="secondary compact"
+                onClick={() => handleRemove(marker.id)}
+                disabled={isSaving}
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {saveError ? <p className="error">{saveError}</p> : null}
+    </div>
+  );
+}
+
 function ExportPresetDetails({ mode }: { mode: ExportMode }) {
   if (mode === 'raw') {
     return <p className="exportPreset">Raw export keeps the original recording unchanged.</p>;
@@ -249,7 +355,13 @@ function ExportPresetDetails({ mode }: { mode: ExportMode }) {
   );
 }
 
-function VideoPreview({ src }: { src: string }) {
+function VideoPreview({
+  src,
+  onCurrentTimeChange,
+}: {
+  src: string;
+  onCurrentTimeChange?: (sec: number) => void;
+}) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const [duration, setDuration] = React.useState(0);
   const [currentTime, setCurrentTime] = React.useState(0);
@@ -285,6 +397,7 @@ function VideoPreview({ src }: { src: string }) {
     if (!Number.isFinite(nextTime)) return;
     video.currentTime = nextTime;
     setCurrentTime(nextTime);
+    onCurrentTimeChange?.(nextTime);
   }
 
   return (
@@ -301,7 +414,11 @@ function VideoPreview({ src }: { src: string }) {
         onPause={() => setIsPlaying(false)}
         onEnded={() => setIsPlaying(false)}
         onError={(event) => setError(videoErrorMessage(event.currentTarget))}
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        onTimeUpdate={(event) => {
+          const next = event.currentTarget.currentTime;
+          setCurrentTime(next);
+          onCurrentTimeChange?.(next);
+        }}
       />
       <div className="videoControls" aria-label="Video playback controls">
         <button type="button" className="secondary compact" onClick={togglePlayback}>
