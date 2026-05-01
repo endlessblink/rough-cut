@@ -218,6 +218,14 @@ async function runRendererUiSmoke() {
     () => document.querySelector('select')?.value === 'raw' ? document.querySelector('select') : null,
     'raw export mode selection',
   );
+  const hasRawPresetDetails = document.body.textContent?.includes('Raw export keeps the original recording unchanged.') ?? false;
+  exportMode.value = 'styled';
+  exportMode.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => document.body.textContent?.includes('Styled preset: 1920x1080'), 'styled preset details');
+  const hasStyledPresetDetails = true;
+  exportMode.value = 'raw';
+  exportMode.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => document.querySelector('select')?.value === 'raw', 'raw export mode restored');
 
   const exportButton = await waitFor(
     () => Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Export MP4')),
@@ -237,6 +245,8 @@ async function runRendererUiSmoke() {
     ),
     exportMode: exportMode.value,
     hasStyledMode: Boolean(Array.from(document.querySelectorAll('option')).find((option) => option.value === 'styled')),
+    hasRawPresetDetails,
+    hasStyledPresetDetails,
     hasExportResult: document.body.textContent?.includes('Exported to:') ?? false,
   };
 }

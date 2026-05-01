@@ -202,3 +202,11 @@ button.compact {
   font: inherit;
   padding: 0.55rem 0.75rem;
 }
+
+.exportPreset {
+  color: #cabfac;
+  flex: 1 1 18rem;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  margin: 0;
+}

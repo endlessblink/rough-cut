@@ -220,6 +220,7 @@ function ProjectPreview({
             <option value="styled">Styled canvas</option>
           </select>
         </label>
+        <ExportPresetDetails mode={exportMode} />
         <button type="button" onClick={onExport} className="secondary" disabled={!project.recording}>
           Export MP4
         </button>
@@ -233,6 +234,18 @@ function ProjectPreview({
         </p>
       ) : null}
     </section>
+  );
+}
+
+function ExportPresetDetails({ mode }: { mode: ExportMode }) {
+  if (mode === 'raw') {
+    return <p className="exportPreset">Raw export keeps the original recording unchanged.</p>;
+  }
+
+  return (
+    <p className="exportPreset">
+      Styled preset: 1920x1080, center crop, pastel background, rounded screen, soft shadow.
+    </p>
   );
 }
 

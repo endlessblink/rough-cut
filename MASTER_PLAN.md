@@ -22,7 +22,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-006 | Define client-demo roadmap before editing work | P1 | DONE |
 | TASK-007 | Add export mode selection: raw vs styled | P1 | DONE |
 | TASK-008 | Add styled 16:9 canvas export preset | P1 | DONE |
-| TASK-009 | Add styled export UI preview metadata | P2 | PLANNED |
+| TASK-009 | Add styled export UI preview metadata | P2 | DONE |
 | TASK-010 | Add cursor telemetry recording foundation | P1 | PLANNED |
 | TASK-011 | Add cursor overlay export rendering | P1 | PLANNED |
 | TASK-012 | Add cursor overlay preview rendering | P2 | PLANNED |
@@ -259,10 +259,10 @@ Raw screen exports are functional but not client-ready. The first Screen Studio-
 - Playwright screenshot of extracted styled export frame.
 - Manual packaged export still needed: confirm the styled output visually looks client-ready.
 
-### TASK-009 Add styled export UI preview metadata
+### ~~TASK-009~~ Add styled export UI preview metadata
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -274,6 +274,13 @@ Users need to know whether they are exporting raw or styled output before clicki
 - Show styled preset basics: output size, background, padding.
 - Do not build a full visual editor yet.
 
+#### Completion Notes
+
+- Added mode-specific export copy below the export selector.
+- Raw mode explains it preserves the original recording unchanged.
+- Styled mode summarizes the current preset: 1920x1080, center crop, pastel background, rounded screen, and soft shadow.
+- UI smoke now switches to styled mode to verify styled preset metadata, then restores raw mode before exporting.
+
 #### Testing
 
 - Renderer smoke verifies the styled mode UI appears.
@@ -283,7 +290,8 @@ Users need to know whether they are exporting raw or styled output before clicki
 
 - `pnpm test`
 - `pnpm smoke:ui`
-- Manual packaged check of export mode display.
+- `pnpm --filter @rough-cut/desktop test`
+- Manual packaged check of export mode display still recommended before release.
 
 ### TASK-010 Add cursor telemetry recording foundation
 

@@ -60,7 +60,7 @@ if (result.status !== 0) {
 }
 
 const report = JSON.parse(await readFile(resultPath, 'utf8'));
-if (!report.ok || !report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'raw' || !report.hasStyledMode || !(report.duration > 0)) {
+if (!report.ok || !report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'raw' || !report.hasStyledMode || !report.hasRawPresetDetails || !report.hasStyledPresetDetails || !(report.duration > 0)) {
   throw new Error(`Electron UI smoke assertions failed: ${JSON.stringify(report)}`);
 }
 
