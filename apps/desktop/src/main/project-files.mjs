@@ -18,13 +18,15 @@ export function createProjectForRecording({ recording, now = new Date() }) {
   const name = basename(recording.outputPath).replace(/\.mp4$/i, '');
   const asset = createAsset('recording', recording.outputPath, {
     duration: durationFrames,
-      metadata: {
-        rawPath: recording.rawPath,
-        width: recording.width,
+    metadata: {
+      rawPath: recording.rawPath,
+      width: recording.width,
       height: recording.height,
       fps,
       startedAt: recording.startedAt,
       stoppedAt: recording.stoppedAt,
+      cursorTelemetryPath: recording.cursorTelemetryPath,
+      cursorEvents: Array.isArray(recording.cursorEvents) ? recording.cursorEvents : [],
     },
   });
   const track = createTrack('video', { name: 'Screen Recording', index: 0 });
@@ -94,6 +96,8 @@ export function getPrimaryRecording(project) {
     width: typeof asset.metadata.width === 'number' ? asset.metadata.width : project.settings.resolution.width,
     height: typeof asset.metadata.height === 'number' ? asset.metadata.height : project.settings.resolution.height,
     fps: typeof asset.metadata.fps === 'number' ? asset.metadata.fps : project.settings.frameRate,
+    cursorEvents: Array.isArray(asset.metadata.cursorEvents) ? asset.metadata.cursorEvents : [],
+    cursorTelemetryPath: typeof asset.metadata.cursorTelemetryPath === 'string' ? asset.metadata.cursorTelemetryPath : null,
   };
 }
 

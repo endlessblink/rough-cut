@@ -23,7 +23,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-007 | Add export mode selection: raw vs styled | P1 | DONE |
 | TASK-008 | Add styled 16:9 canvas export preset | P1 | DONE |
 | TASK-009 | Add styled export UI preview metadata | P2 | DONE |
-| TASK-010 | Add cursor telemetry recording foundation | P1 | PLANNED |
+| TASK-010 | Add cursor telemetry recording foundation | P1 | DONE |
 | TASK-011 | Add cursor overlay export rendering | P1 | PLANNED |
 | TASK-012 | Add cursor overlay preview rendering | P2 | PLANNED |
 | TASK-013 | Add click emphasis telemetry and export rendering | P2 | PLANNED |
@@ -293,10 +293,10 @@ Users need to know whether they are exporting raw or styled output before clicki
 - `pnpm --filter @rough-cut/desktop test`
 - Manual packaged check of export mode display still recommended before release.
 
-### TASK-010 Add cursor telemetry recording foundation
+### ~~TASK-010~~ Add cursor telemetry recording foundation
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -309,6 +309,14 @@ For client demos, cursor presentation should be rendered as an overlay instead o
 - Include timestamps aligned to the recording start time.
 - Keep screen-only recording working if telemetry capture fails.
 
+#### Completion Notes
+
+- Added cursor position sampling during recording through Electron `screen.getCursorScreenPoint()`.
+- Normalized display coordinates into captured-video pixels using the display origin and scale factor.
+- Persisted cursor events in the recording asset metadata and wrote a `.cursor.json` sidecar next to the recording.
+- Kept telemetry failures non-fatal so screen recording can still stop and save.
+- Extended MVP smoke to verify reopened projects contain cursor telemetry.
+
 #### Testing
 
 - Unit test cursor sample normalization and timestamp alignment.
@@ -319,6 +327,7 @@ For client demos, cursor presentation should be rendered as an overlay instead o
 
 - `pnpm test`
 - `pnpm smoke:mvp`
+- `pnpm --filter @rough-cut/desktop test`
 - Manual packaged recording: confirm project contains cursor telemetry without breaking preview/export.
 
 ### TASK-011 Add cursor overlay export rendering

@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording-session.mjs';
+import { createRecordingSession, getPrimaryX11DisplayInfo, normalizeCursorPoint } from './recording-session.mjs';
 
 test('recording session starts capture, writes marker, stops capture, and clears marker', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-recording-'));
@@ -46,6 +46,7 @@ test('recording session starts capture, writes marker, stops capture, and clears
   assert.equal(marker.version, 1);
   assert.equal(marker.rawPath, captureCalls[0].outputPath);
   assert.equal(marker.outputPath, started.outputPath);
+  assert.equal(marker.cursorTelemetryPath.endsWith('.cursor.json'), true);
 
   const stopped = await session.stop();
   assert.equal(stopped.state, 'saved');
@@ -53,6 +54,44 @@ test('recording session starts capture, writes marker, stops capture, and clears
   assert.equal(stopped.outputPath.endsWith('.mp4'), true);
   assert.equal(stopCalled, true);
   assert.equal(existsSync(markerPath), false);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('recording session captures cursor move samples and writes sidecar', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-cursor-'));
+  const recordingsDir = join(root, 'recordings');
+  const markerPath = join(root, 'recovery.json');
+  const startedAt = Date.parse('2026-04-28T12:00:00.000Z');
+  let tick = 0;
+
+  const session = createRecordingSession({
+    recordingsDir,
+    markerPath,
+    now: () => new Date(startedAt + tick++ * 100),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+10,20', originX: 10, originY: 20, scaleFactor: 2, width: 100, height: 80 }),
+    getCursorPoint: () => ({ x: 20 + tick, y: 30 + tick }),
+    sampleIntervalMs: 5,
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+  });
+
+  await session.start();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const stopped = await session.stop();
+
+  assert.equal(stopped.state, 'saved');
+  assert(stopped.cursorEvents.length >= 1);
+  assert.equal(stopped.cursorEvents[0].type, 'move');
+  assert.equal(stopped.cursorEvents[0].button, 0);
+  assert.equal(stopped.cursorEvents[0].x >= 0, true);
+  assert.equal(stopped.cursorEvents[0].y >= 0, true);
+
+  const sidecar = JSON.parse(await readFile(stopped.cursorTelemetryPath, 'utf8'));
+  assert.equal(sidecar.version, 1);
+  assert.equal(sidecar.width, 100);
+  assert.equal(sidecar.height, 80);
+  assert.deepEqual(sidecar.events, stopped.cursorEvents);
 
   await rm(root, { recursive: true, force: true });
 });
@@ -86,7 +125,21 @@ test('primary display info converts Electron display bounds to x11grab input', (
 
   assert.deepEqual(displayInfo, {
     display: ':99.0+20,40',
+    originX: 20,
+    originY: 40,
+    scaleFactor: 2,
     width: 1600,
     height: 1200,
   });
+});
+
+test('cursor point normalization converts display DIP to captured pixels', () => {
+  assert.deepEqual(
+    normalizeCursorPoint({ point: { x: 20, y: 30 }, originX: 10, originY: 20, scaleFactor: 2, width: 100, height: 80 }),
+    { x: 30, y: 40 },
+  );
+  assert.deepEqual(
+    normalizeCursorPoint({ point: { x: -100, y: 999 }, originX: 0, originY: 0, scaleFactor: 1, width: 100, height: 80 }),
+    { x: 0, y: 79 },
+  );
 });

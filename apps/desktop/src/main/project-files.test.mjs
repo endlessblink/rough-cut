@@ -19,6 +19,8 @@ const recording = {
   width: 1920,
   height: 1080,
   fps: 30,
+  cursorTelemetryPath: '/tmp/rough-cut-test.cursor.json',
+  cursorEvents: [{ frame: 3, timeMs: 100, x: 12, y: 34, type: 'move', button: 0 }],
 };
 
 test('creates a valid project document for a screen recording', () => {
@@ -31,6 +33,7 @@ test('creates a valid project document for a screen recording', () => {
   assert.equal(project.assets.length, 1);
   assert.equal(project.assets[0].type, 'recording');
   assert.equal(project.assets[0].filePath, recording.outputPath);
+  assert.deepEqual(project.assets[0].metadata.cursorEvents, recording.cursorEvents);
   assert.equal(project.composition.duration, 300);
   assert.equal(project.composition.tracks.length, 1);
   assert.equal(project.composition.tracks[0].clips.length, 1);
@@ -47,6 +50,7 @@ test('saves and reopens a roughcut project file', async () => {
   const opened = await openProjectFile(saved.path);
   assert.equal(opened.document.name, 'capture');
   assert.equal(getPrimaryRecording(opened.document)?.filePath, outputPath);
+  assert.equal(getPrimaryRecording(opened.document)?.cursorEvents.length, 1);
 
   await rm(root, { recursive: true, force: true });
 });

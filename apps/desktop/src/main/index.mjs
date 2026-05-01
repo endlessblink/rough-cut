@@ -25,6 +25,7 @@ const recordingSession = createRecordingSession({
   recordingsDir,
   markerPath,
   getDisplayInfo: () => getPrimaryX11DisplayInfo(screen),
+  getCursorPoint: () => screen.getCursorScreenPoint(),
 });
 
 function createMainWindow() {

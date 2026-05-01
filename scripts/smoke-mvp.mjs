@@ -21,6 +21,7 @@ const session = createRecordingSession({
   recordingsDir: root,
   markerPath: join(root, 'recording-recovery.json'),
   getDisplayInfo: () => ({ display, width, height }),
+  getCursorPoint: () => ({ x: Math.floor(width / 2), y: Math.floor(height / 2) }),
 });
 
 console.info(`[smoke:mvp] recording ${width}x${height} from ${display} for ${durationMs}ms`);
@@ -41,6 +42,10 @@ if (stopped.state !== 'saved' || !stopped.project) {
 }
 
 const reopened = await openProjectFile(stopped.project.path);
+const cursorEvents = reopened.document.assets[0]?.metadata?.cursorEvents;
+if (!Array.isArray(cursorEvents) || cursorEvents.length === 0) {
+  throw new Error('Recording did not persist cursor telemetry.');
+}
 const exportPath = join(root, 'export.mp4');
 const exported = await exportProjectToMp4({ project: reopened.document, outputPath: exportPath });
 await assertReadableMp4(exportPath);
@@ -52,6 +57,7 @@ console.info(
       root,
       projectPath: stopped.project.path,
       recordingPath: stopped.outputPath,
+      cursorEvents: cursorEvents.length,
       exportPath: exported.outputPath,
       bytes: exported.bytes,
     },
