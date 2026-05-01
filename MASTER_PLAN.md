@@ -27,7 +27,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-011 | Add cursor overlay export rendering | P1 | PLANNED |
 | TASK-012 | Add cursor overlay preview rendering | P2 | PLANNED |
 | TASK-013 | Add click emphasis telemetry and export rendering | P2 | PLANNED |
-| TASK-014 | Add manual zoom marker data model | P1 | PLANNED |
+| TASK-014 | Add manual zoom marker data model | P1 | DONE |
 | TASK-015 | Add manual zoom marker UI controls | P1 | PLANNED |
 | TASK-016 | Add smooth manual zoom export rendering | P1 | PLANNED |
 | TASK-017 | Add zoom preview playback approximation | P2 | PLANNED |
@@ -410,10 +410,10 @@ Client demos benefit from visible clicks, but this should build on cursor teleme
 - Styled export smoke with click events.
 - Manual packaged export: visually confirm click emphasis is visible but not distracting.
 
-### TASK-014 Add manual zoom marker data model
+### ~~TASK-014~~ Add manual zoom marker data model
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -425,15 +425,22 @@ Manual zooms should be stored as simple project markers before any complex editi
 - Store markers in `.roughcut` projects.
 - Validate project files with and without zoom markers.
 
+#### Completion Notes
+
+- Audit found the schema already existed: `ZoomMarkerSchema` at `packages/project-model/src/schemas.ts:72-81` with `id`, `startFrame`, `endFrame`, `kind ('auto'|'manual')`, `strength (0–1 unit)`, `focalPoint{x,y}`, `zoomInDuration`, `zoomOutDuration`. Markers persist at `assets[].presentation.zoom.markers` via `ZoomPresentationSchema`, validated end-to-end on every save and load. The v1→v2 migration at `migrations.ts:20-46` already backfills `focalPoint` and durations for legacy files.
+- Note on naming: the schema uses `strength` (normalized 0–1) rather than a literal `scale` factor. Treated as a semantic-naming gap, not a missing field — recorded here so a future task can rename if needed without re-discovering it.
+- Added the missing regression-locking tests so the existing guarantees can't silently regress when manual-zoom UI work lands.
+
 #### Testing
 
-- Schema tests for valid and invalid zoom markers.
-- Migration or compatibility tests if the project schema changes.
+- `packages/project-model/src/schemas.test.ts` — new `ZoomMarker` describe block: positive end-to-end via `validateProject` (recording asset with a manual marker), JSON round-trip, plus seven negative cases against `ZoomMarkerSchema` (missing `focalPoint` / `startFrame` / `zoomInDuration`, invalid `kind`, `strength` outside 0–1, `focalPoint` coords outside 0–1, negative `startFrame`, non-integer `zoomInDuration`).
+- `packages/project-model/src/migrations.test.ts` — new v1→v2 cases asserting that legacy markers missing `focalPoint`/`zoomInDuration`/`zoomOutDuration` get backfilled with defaults `{0.5, 0.5}`, `9`, `9`, and that pre-existing values are preserved.
+- `apps/desktop/src/main/project-files.test.mjs` — new round-trip case saving a project with a manual marker via `saveProjectFile` and re-opening with `openProjectFile`, asserting deep-equal preservation.
 
 #### Verification
 
-- `pnpm test`
-- Open existing `.roughcut` files without zoom markers.
+- `pnpm test` — project-model: 91/91 pass (was 80, +11 new). Desktop: 30/30 pass (was 29, +1 new).
+- `pnpm smoke:mvp` — full record → save → reopen → export pipeline: `ok: true`.
 
 ### TASK-015 Add manual zoom marker UI controls
 

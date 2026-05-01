@@ -4,8 +4,16 @@ import {
   validateLibrary,
   ProjectDocumentSchema,
   LibraryDocumentSchema,
+  ZoomMarkerSchema,
 } from './schemas.js';
-import { createProject, createLibraryDocument, createLibrarySource } from './factories.js';
+import {
+  createProject,
+  createLibraryDocument,
+  createLibrarySource,
+  createAsset,
+  createZoomMarker,
+  createDefaultRecordingPresentation,
+} from './factories.js';
 
 describe('schemas', () => {
   it('validates a correct ProjectDocument from factory', () => {
@@ -152,5 +160,79 @@ describe('schemas', () => {
       sources: [{ ...library.sources[0], duration: -1 }],
     };
     expect(LibraryDocumentSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe('ZoomMarker', () => {
+  function projectWithMarker(marker: unknown) {
+    const base = createProject();
+    const presentation = createDefaultRecordingPresentation();
+    const asset = createAsset('recording', '/tmp/recording.webm', {
+      duration: 300,
+      presentation: {
+        ...presentation,
+        zoom: {
+          ...presentation.zoom,
+          markers: [marker as never],
+        },
+      },
+    });
+    return { ...base, assets: [asset] };
+  }
+
+  it('validates a project with a fully-populated manual marker', () => {
+    const project = projectWithMarker(createZoomMarker(30, 90));
+    expect(() => validateProject(project)).not.toThrow();
+  });
+
+  it('round-trips a project containing a manual marker through JSON', () => {
+    const project = projectWithMarker(createZoomMarker(30, 90));
+    const json = JSON.stringify(project);
+    const parsed: unknown = JSON.parse(json);
+    const validated = validateProject(parsed);
+    expect(validated).toEqual(project);
+  });
+
+  it('rejects a marker missing focalPoint', () => {
+    const { focalPoint: _drop, ...marker } = createZoomMarker(30, 90);
+    expect(ZoomMarkerSchema.safeParse(marker).success).toBe(false);
+  });
+
+  it('rejects a marker missing startFrame', () => {
+    const { startFrame: _drop, ...marker } = createZoomMarker(30, 90);
+    expect(ZoomMarkerSchema.safeParse(marker).success).toBe(false);
+  });
+
+  it('rejects a marker missing zoomInDuration', () => {
+    const { zoomInDuration: _drop, ...marker } = createZoomMarker(30, 90);
+    expect(ZoomMarkerSchema.safeParse(marker).success).toBe(false);
+  });
+
+  it('rejects a marker with a kind outside auto/manual', () => {
+    const marker = { ...createZoomMarker(30, 90), kind: 'whatever' };
+    expect(ZoomMarkerSchema.safeParse(marker).success).toBe(false);
+  });
+
+  it('rejects strength outside 0–1', () => {
+    const marker = { ...createZoomMarker(30, 90), strength: 1.5 };
+    expect(ZoomMarkerSchema.safeParse(marker).success).toBe(false);
+  });
+
+  it('rejects focalPoint coordinates outside 0–1', () => {
+    const marker = {
+      ...createZoomMarker(30, 90),
+      focalPoint: { x: -0.1, y: 0.5 },
+    };
+    expect(ZoomMarkerSchema.safeParse(marker).success).toBe(false);
+  });
+
+  it('rejects negative startFrame', () => {
+    const marker = { ...createZoomMarker(30, 90), startFrame: -1 };
+    expect(ZoomMarkerSchema.safeParse(marker).success).toBe(false);
+  });
+
+  it('rejects non-integer zoomInDuration', () => {
+    const marker = { ...createZoomMarker(30, 90), zoomInDuration: 1.5 };
+    expect(ZoomMarkerSchema.safeParse(marker).success).toBe(false);
   });
 });

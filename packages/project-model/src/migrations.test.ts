@@ -259,6 +259,132 @@ describe('migrations', () => {
     expect(result.exportSettings.keepClickSounds).toBe(true);
   });
 
+  it('migrates version 1 documents by backfilling zoom marker focalPoint and durations', () => {
+    const project = createProject();
+    const legacy = {
+      ...project,
+      version: 1,
+      assets: [
+        {
+          id: 'recording-1',
+          type: 'recording',
+          filePath: '/tmp/recording.webm',
+          duration: 90,
+          metadata: {},
+          presentation: {
+            templateId: 'screen-cam-br-16x9',
+            zoom: {
+              autoIntensity: 0.5,
+              followCursor: true,
+              followAnimation: 'focused',
+              followPadding: 0.18,
+              markers: [
+                {
+                  id: 'zoom-legacy',
+                  startFrame: 30,
+                  endFrame: 90,
+                  kind: 'manual',
+                  strength: 1,
+                },
+              ],
+            },
+            cursor: {
+              style: 'default',
+              clickEffect: 'ripple',
+              sizePercent: 100,
+              clickSoundEnabled: false,
+            },
+            camera: {
+              shape: 'rounded',
+              aspectRatio: '1:1',
+              position: 'corner-br',
+              roundness: 50,
+              size: 100,
+              visible: true,
+              padding: 0,
+              inset: 0,
+              insetColor: '#ffffff',
+              shadowEnabled: true,
+              shadowBlur: 24,
+              shadowOpacity: 0.45,
+            },
+          },
+        },
+      ],
+    };
+
+    const result = migrate(legacy);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    const marker = result.assets[0]?.presentation?.zoom.markers[0];
+    expect(marker?.focalPoint).toEqual({ x: 0.5, y: 0.5 });
+    expect(marker?.zoomInDuration).toBe(9);
+    expect(marker?.zoomOutDuration).toBe(9);
+  });
+
+  it('preserves pre-existing zoom marker focalPoint and durations when migrating from v1', () => {
+    const project = createProject();
+    const legacy = {
+      ...project,
+      version: 1,
+      assets: [
+        {
+          id: 'recording-1',
+          type: 'recording',
+          filePath: '/tmp/recording.webm',
+          duration: 90,
+          metadata: {},
+          presentation: {
+            templateId: 'screen-cam-br-16x9',
+            zoom: {
+              autoIntensity: 0.5,
+              followCursor: true,
+              followAnimation: 'focused',
+              followPadding: 0.18,
+              markers: [
+                {
+                  id: 'zoom-existing',
+                  startFrame: 30,
+                  endFrame: 90,
+                  kind: 'manual',
+                  strength: 0.8,
+                  focalPoint: { x: 0.25, y: 0.75 },
+                  zoomInDuration: 12,
+                  zoomOutDuration: 18,
+                },
+              ],
+            },
+            cursor: {
+              style: 'default',
+              clickEffect: 'ripple',
+              sizePercent: 100,
+              clickSoundEnabled: false,
+            },
+            camera: {
+              shape: 'rounded',
+              aspectRatio: '1:1',
+              position: 'corner-br',
+              roundness: 50,
+              size: 100,
+              visible: true,
+              padding: 0,
+              inset: 0,
+              insetColor: '#ffffff',
+              shadowEnabled: true,
+              shadowBlur: 24,
+              shadowOpacity: 0.45,
+            },
+          },
+        },
+      ],
+    };
+
+    const result = migrate(legacy);
+    const marker = result.assets[0]?.presentation?.zoom.markers[0];
+    expect(marker?.focalPoint).toEqual({ x: 0.25, y: 0.75 });
+    expect(marker?.zoomInDuration).toBe(12);
+    expect(marker?.zoomOutDuration).toBe(18);
+  });
+
   it('preserves an existing keepClickSounds=false on v9 -> v10', () => {
     const project = createProject();
     const legacy = {

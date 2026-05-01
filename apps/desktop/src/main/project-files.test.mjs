@@ -8,8 +8,13 @@ import {
   createProjectForRecording,
   getPrimaryRecording,
   openProjectFile,
+  saveProjectFile,
   saveProjectForRecording,
 } from './project-files.mjs';
+import {
+  createZoomMarker,
+  createDefaultRecordingPresentation,
+} from '../../../../packages/project-model/dist/index.js';
 
 const recording = {
   state: 'saved',
@@ -51,6 +56,44 @@ test('saves and reopens a roughcut project file', async () => {
   assert.equal(opened.document.name, 'capture');
   assert.equal(getPrimaryRecording(opened.document)?.filePath, outputPath);
   assert.equal(getPrimaryRecording(opened.document)?.cursorEvents.length, 1);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('round-trips a manual zoom marker through save and reopen', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-zoom-'));
+  const outputPath = join(root, 'capture.mp4');
+  const baseProject = createProjectForRecording({
+    recording: { ...recording, outputPath },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+
+  const marker = createZoomMarker(30, 90, {
+    strength: 0.6,
+    focalPoint: { x: 0.25, y: 0.75 },
+  });
+  const presentation = createDefaultRecordingPresentation();
+  const project = {
+    ...baseProject,
+    assets: baseProject.assets.map((asset, idx) =>
+      idx === 0
+        ? {
+            ...asset,
+            presentation: {
+              ...presentation,
+              zoom: { ...presentation.zoom, markers: [marker] },
+            },
+          }
+        : asset,
+    ),
+  };
+
+  const projectPath = join(root, 'capture.roughcut');
+  await saveProjectFile(projectPath, project);
+  const opened = await openProjectFile(projectPath);
+
+  const loaded = opened.document.assets[0]?.presentation?.zoom?.markers?.[0];
+  assert.deepEqual(loaded, marker);
 
   await rm(root, { recursive: true, force: true });
 });
