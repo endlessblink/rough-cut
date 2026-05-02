@@ -28,8 +28,8 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-012 | Add cursor overlay preview rendering | P2 | SUPERSEDED → TASK-025 |
 | TASK-013 | Add click emphasis telemetry and export rendering | P2 | PLANNED |
 | TASK-014 | Add manual zoom marker data model | P1 | DONE |
-| TASK-015 | Add manual zoom marker UI controls | P1 | IN PROGRESS |
-| TASK-016 | Add smooth manual zoom export rendering | P1 | IN PROGRESS |
+| TASK-015 | Add manual zoom marker UI controls | P1 | DONE |
+| TASK-016 | Add smooth manual zoom export rendering | P1 | DONE |
 | TASK-017 | Add zoom preview playback approximation | P2 | SUPERSEDED → TASK-025 |
 | TASK-018 | Add automatic zoom suggestion engine | P2 | PLANNED |
 | TASK-019 | Add automatic zoom review/apply flow | P2 | PLANNED |
@@ -463,10 +463,10 @@ Manual zooms should be stored as simple project markers before any complex editi
 - `pnpm test` — project-model: 91/91 pass (was 80, +11 new). Desktop: 30/30 pass (was 29, +1 new).
 - `pnpm smoke:mvp` — full record → save → reopen → export pipeline: `ok: true`.
 
-### TASK-015 Add manual zoom marker UI controls
+### ~~TASK-015~~ Add manual zoom marker UI controls
 
 **Priority:** P1  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -499,10 +499,10 @@ The first manual zoom UI should be simple and useful, not a full timeline editor
 - `pnpm smoke:mvp` — record/save/reopen/export pipeline still `ok: true`.
 - **Pending: manual packaged-app round-trip** — open a real recording, pause mid-playback, click Add marker, confirm row appears, save and reopen the project, confirm the marker persists, click Remove, confirm it disappears, reopen, confirm it stays gone. Flip status to DONE only after this manual step lands.
 
-### TASK-016 Add smooth manual zoom export rendering
+### ~~TASK-016~~ Add smooth manual zoom export rendering
 
 **Priority:** P1  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
