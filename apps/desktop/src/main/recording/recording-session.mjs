@@ -121,10 +121,10 @@ export function createRecordingSession({
   return { start, stop, status };
 }
 
-export function normalizeCursorPoint({ point, originX = 0, originY = 0, scaleFactor = 1, width, height }) {
+export function normalizeCursorPoint({ point, originX = 0, originY = 0, scaleFactor = 1 }) {
   return {
-    x: clamp(Math.round(point.x * scaleFactor - originX), 0, width - 1),
-    y: clamp(Math.round(point.y * scaleFactor - originY), 0, height - 1),
+    x: Math.round(point.x * scaleFactor - originX),
+    y: Math.round(point.y * scaleFactor - originY),
   };
 }
 
@@ -159,8 +159,6 @@ function sampleCursor(session, getCursorPoint, now) {
       originX: session.originX || 0,
       originY: session.originY || 0,
       scaleFactor: session.scaleFactor || 1,
-      width: session.width,
-      height: session.height,
     });
     const frame = Math.max(0, Math.round((elapsedMs / 1000) * session.fps));
     const last = session.cursorEvents.at(-1);
@@ -192,10 +190,6 @@ async function writeCursorTelemetrySidecar(session) {
   } catch (err) {
     console.warn('[recording-session] cursor telemetry sidecar write failed:', err?.message ?? err);
   }
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
 }
 
 function formatX11Offset(value) {

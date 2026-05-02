@@ -106,13 +106,14 @@ function createMainWindow() {
   }
 
   const rendererProjectPath = process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;
+  const shouldLoadBuiltRenderer = process.env.ROUGH_CUT_LOAD_BUILT_RENDERER === '1' || process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH;
 
   if (process.env.VITE_DEV_SERVER_URL) {
     const url = new URL(process.env.VITE_DEV_SERVER_URL);
     if (rendererProjectPath) url.searchParams.set('projectPath', rendererProjectPath);
     window.loadURL(url.toString());
   } else if (!app.isPackaged) {
-    if (process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH) {
+    if (shouldLoadBuiltRenderer) {
       window.loadFile(
         join(__dirname, '../../dist/renderer/index.html'),
         rendererProjectPath ? { search: `?projectPath=${encodeURIComponent(rendererProjectPath)}` } : undefined,

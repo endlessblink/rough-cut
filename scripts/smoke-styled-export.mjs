@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { exportProjectToMp4 } from '../apps/desktop/src/main/export-service.mjs';
-import { saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
+import { saveProjectFile, saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
+import { createDefaultRecordingPresentation, createZoomMarker } from '../packages/project-model/dist/index.js';
 
 const root = await mkdtemp(join(tmpdir(), 'rough-cut-styled-export-'));
 const mediaPath = join(root, 'source.mp4');
@@ -37,6 +38,10 @@ const project = await saveProjectForRecording({
   width: 1280,
   height: 720,
   fps: 30,
+  cursorEvents: [
+    { frame: 0, timeMs: 0, x: 640, y: 360, type: 'move', button: 0 },
+    { frame: 30, timeMs: 1000, x: 760, y: 430, type: 'move', button: 0 },
+  ],
 });
 
 const result = await exportProjectToMp4({ project: project.document, outputPath: exportPath, mode: 'styled' });
@@ -63,7 +68,60 @@ if (!(exportBytes > 0) || result.byteEqualCandidate || sourceBytes === exportByt
   throw new Error(`Styled export did not look like a rendered artifact: ${JSON.stringify({ result, sourceBytes, exportBytes })}`);
 }
 
-console.info(JSON.stringify({ ok: true, root, projectPath: project.path, exportPath, width: stream.width, height: stream.height, bytes: exportBytes }, null, 2));
+assertCursorVisible(exportPath);
+
+const zoomedExportPath = join(root, 'styled-export-zoom.mp4');
+const presentation = createDefaultRecordingPresentation();
+const marker = createZoomMarker(15, 45, { strength: 1, focalPoint: { x: 0.5, y: 0.5 } });
+const zoomedDocument = {
+  ...project.document,
+  assets: project.document.assets.map((asset, index) =>
+    index === 0
+      ? {
+          ...asset,
+          presentation: {
+            ...presentation,
+            zoom: { ...presentation.zoom, markers: [marker] },
+          },
+        }
+      : asset,
+  ),
+};
+const zoomedProjectPath = join(root, 'zoomed.roughcut');
+await saveProjectFile(zoomedProjectPath, zoomedDocument);
+const zoomedResult = await exportProjectToMp4({ project: zoomedDocument, outputPath: zoomedExportPath, mode: 'styled' });
+const zoomedProbe = JSON.parse(runCapture('ffprobe', [
+  '-v',
+  'error',
+  '-select_streams',
+  'v:0',
+  '-show_entries',
+  'stream=width,height,duration',
+  '-of',
+  'json',
+  zoomedExportPath,
+]));
+const zoomedStream = zoomedProbe.streams?.[0];
+if (!zoomedStream || zoomedStream.width !== 1920 || zoomedStream.height !== 1080) {
+  throw new Error(`Zoomed styled export dimensions were not 1920x1080: ${JSON.stringify(zoomedProbe)}`);
+}
+const zoomedBytes = (await readFile(zoomedExportPath)).length;
+if (!(zoomedBytes > 0) || zoomedResult.byteEqualCandidate || zoomedBytes === exportBytes) {
+  throw new Error(`Zoomed styled export did not differ from the no-marker baseline: ${JSON.stringify({ zoomedResult, exportBytes, zoomedBytes })}`);
+}
+
+console.info(JSON.stringify({
+  ok: true,
+  root,
+  projectPath: project.path,
+  exportPath,
+  zoomedProjectPath,
+  zoomedExportPath,
+  width: stream.width,
+  height: stream.height,
+  bytes: exportBytes,
+  zoomedBytes,
+}, null, 2));
 
 function buildDemoFixtureFilter() {
   const font = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
@@ -105,4 +163,48 @@ function runCapture(command, args) {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} failed with exit code ${result.status}`);
   return result.stdout;
+}
+
+function runBuffer(command, args) {
+  const result = spawnSync(command, args, { encoding: 'buffer' });
+  if (result.stderr?.length) process.stderr.write(result.stderr);
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`${command} failed with exit code ${result.status}`);
+  return result.stdout;
+}
+
+function assertCursorVisible(videoPath) {
+  const width = 96;
+  const height = 96;
+  const pixels = runBuffer('ffmpeg', [
+    '-v',
+    'error',
+    '-ss',
+    '0.5',
+    '-i',
+    videoPath,
+    '-frames:v',
+    '1',
+    '-vf',
+    `crop=${width}:${height}:996:526`,
+    '-f',
+    'rawvideo',
+    '-pix_fmt',
+    'rgb24',
+    '-',
+  ]);
+
+  let bright = 0;
+  let dark = 0;
+  for (let index = 0; index < pixels.length; index += 3) {
+    const red = pixels[index];
+    const green = pixels[index + 1];
+    const blue = pixels[index + 2];
+    if (red > 238 && green > 238 && blue > 238) bright += 1;
+    if (red < 80 && green < 80 && blue < 80) dark += 1;
+  }
+
+  if (bright < 120 || dark < 50) {
+    throw new Error(`Styled cursor was not visible in the verification crop: ${JSON.stringify({ bright, dark })}`);
+  }
 }

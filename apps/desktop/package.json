@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "pnpm --filter @rough-cut/project-model build && concurrently \"vite --host 127.0.0.1 --port 7545\" \"wait-on http://127.0.0.1:7545 && electron --no-sandbox --force-color-profile=srgb .\"",
     "build": "vite build && tsc --noEmit",
-    "test": "node --test src/main/smoke.test.mjs src/main/recording/recording-session.test.mjs src/main/recording/ffmpeg-capture-args.test.mjs src/main/project-files.test.mjs src/main/export-service.test.mjs src/main/media-probe.test.mjs src/main/media-protocol.test.mjs src/main/recording-stop-handler.test.mjs src/main/remux-service.test.mjs src/main/runtime-log.test.mjs src/renderer/src/zoom-markers.test.mjs",
+    "test": "node --test src/main/smoke.test.mjs src/main/recording/recording-session.test.mjs src/main/recording/ffmpeg-capture-args.test.mjs src/main/project-files.test.mjs src/main/export-service.test.mjs src/main/media-probe.test.mjs src/main/media-protocol.test.mjs src/main/recording-stop-handler.test.mjs src/main/remux-service.test.mjs src/main/runtime-log.test.mjs src/main/zoom-filter.test.mjs src/renderer/src/zoom-markers.test.mjs",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },

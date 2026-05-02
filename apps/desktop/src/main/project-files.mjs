@@ -98,6 +98,7 @@ export function getPrimaryRecording(project) {
     fps: typeof asset.metadata.fps === 'number' ? asset.metadata.fps : project.settings.frameRate,
     cursorEvents: Array.isArray(asset.metadata.cursorEvents) ? asset.metadata.cursorEvents : [],
     cursorTelemetryPath: typeof asset.metadata.cursorTelemetryPath === 'string' ? asset.metadata.cursorTelemetryPath : null,
+    zoomMarkers: Array.isArray(asset.presentation?.zoom?.markers) ? asset.presentation.zoom.markers : [],
   };
 }
 

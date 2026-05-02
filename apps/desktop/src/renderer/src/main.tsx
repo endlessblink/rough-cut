@@ -350,7 +350,7 @@ function ExportPresetDetails({ mode }: { mode: ExportMode }) {
 
   return (
     <p className="exportPreset">
-      Styled preset: 1920x1080, center crop, pastel background, rounded screen, soft shadow.
+      Styled preset: 1920x1080, full-screen fit, pastel background, rounded screen, soft shadow.
     </p>
   );
 }

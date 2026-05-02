@@ -24,13 +24,13 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-008 | Add styled 16:9 canvas export preset | P1 | DONE |
 | TASK-009 | Add styled export UI preview metadata | P2 | DONE |
 | TASK-010 | Add cursor telemetry recording foundation | P1 | DONE |
-| TASK-011 | Add cursor overlay export rendering | P1 | PLANNED |
-| TASK-012 | Add cursor overlay preview rendering | P2 | PLANNED |
+| TASK-011 | Add cursor overlay export rendering | P1 | DONE |
+| TASK-012 | Add cursor overlay preview rendering | P2 | SUPERSEDED → TASK-025 |
 | TASK-013 | Add click emphasis telemetry and export rendering | P2 | PLANNED |
 | TASK-014 | Add manual zoom marker data model | P1 | DONE |
 | TASK-015 | Add manual zoom marker UI controls | P1 | IN PROGRESS |
-| TASK-016 | Add smooth manual zoom export rendering | P1 | PLANNED |
-| TASK-017 | Add zoom preview playback approximation | P2 | PLANNED |
+| TASK-016 | Add smooth manual zoom export rendering | P1 | IN PROGRESS |
+| TASK-017 | Add zoom preview playback approximation | P2 | SUPERSEDED → TASK-025 |
 | TASK-018 | Add automatic zoom suggestion engine | P2 | PLANNED |
 | TASK-019 | Add automatic zoom review/apply flow | P2 | PLANNED |
 | TASK-020 | Add countdown before recording | P2 | PLANNED |
@@ -38,6 +38,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-022 | Add open recording/project folder action | P2 | PLANNED |
 | TASK-023 | Add recent projects or recordings list | P2 | PLANNED |
 | TASK-024 | Add microphone recording foundation | P2 | PLANNED |
+| TASK-025 | Unified preview that mirrors styled export | P1 | PLANNED |
 
 ## Recently Verified
 
@@ -57,6 +58,10 @@ The next phase is not generic editing. It is client-demo recording quality.
 - Third: Screen Studio-style zooms: manual first, automatic suggestions second.
 - Fourth: workflow polish: countdown, indicator, quick folder access, recent sessions.
 - Later: trimming and timeline editing.
+
+### Preview/export parity principle
+
+Once the styled export pipeline is stable for cursor + zoom, the preview must mirror it deterministically — the user should see exactly what the export will produce. Earlier per-feature preview tasks (TASK-012 cursor preview, TASK-017 zoom preview) are superseded by a single TASK-025 "Unified preview that mirrors styled export" that lands after the export side is locked in. Sequencing: finish styled-export rendering (TASK-011 + TASK-016 + TASK-013), then build the unified preview (TASK-025), then auto-zoom UX (TASK-018, TASK-019). This avoids rebuilding a partial preview every time the export pipeline changes.
 
 ## Tasks
 
@@ -237,7 +242,7 @@ Raw screen exports are functional but not client-ready. The first Screen Studio-
 #### Completion Notes
 
 - Added `styled` export mode that renders through FFmpeg instead of copying the source file.
-- Styled export creates a 1920x1080 canvas with an opinionated center crop, larger screen framing, pastel gradient background, rounded corners, and soft shadow.
+- Styled export creates a 1920x1080 canvas with full-screen fitting, pastel gradient background, rounded corners, and soft shadow.
 - Refined the first visual pass after manual review to remove the fragile border treatment and move closer to Screen Studio's background, padding, rounded corner, shadow, and zoom/crop model.
 - Replaced the color-bar styled smoke fixture with a synthetic product UI so export visuals are easier to judge.
 - Visually checked the rendered export frame through Playwright screenshot capture against both synthetic and real recording output before asking for another manual review.
@@ -278,7 +283,7 @@ Users need to know whether they are exporting raw or styled output before clicki
 
 - Added mode-specific export copy below the export selector.
 - Raw mode explains it preserves the original recording unchanged.
-- Styled mode summarizes the current preset: 1920x1080, center crop, pastel background, rounded screen, and soft shadow.
+- Styled mode summarizes the current preset: 1920x1080, full-screen fit, pastel background, rounded screen, and soft shadow.
 - UI smoke now switches to styled mode to verify styled preset metadata, then restores raw mode before exporting.
 
 #### Testing
@@ -330,10 +335,10 @@ For client demos, cursor presentation should be rendered as an overlay instead o
 - `pnpm --filter @rough-cut/desktop test`
 - Manual packaged recording: confirm project contains cursor telemetry without breaking preview/export.
 
-### TASK-011 Add cursor overlay export rendering
+### ~~TASK-011~~ Add cursor overlay export rendering
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -346,6 +351,14 @@ Cursor telemetry becomes useful when styled export can render a clean cursor ove
 - Allow export without cursor overlay if telemetry is missing.
 - Preserve raw export behavior.
 
+#### Completion Notes
+
+- Styled export now consumes recorded cursor samples and renders an outlined cursor overlay before canvas styling.
+- Cursor filters are skipped when telemetry is missing, preserving existing styled exports without cursor data.
+- Dense cursor telemetry is sampled before building FFmpeg filters so export command size stays bounded.
+- Styled export smoke now includes synthetic cursor telemetry for export-path verification.
+- Visually checked extracted cursor-overlay frames, including a Playwright screenshot capture.
+
 #### Testing
 
 - Unit test cursor overlay filter/render input generation.
@@ -355,13 +368,21 @@ Cursor telemetry becomes useful when styled export can render a clean cursor ove
 #### Verification
 
 - `pnpm test`
-- Styled export smoke with cursor overlay.
-- Manual packaged export: visually confirm cursor overlay appears in the right place.
+- `pnpm smoke:styled-export`
+- `pnpm smoke:mvp`
+- `pnpm smoke:ui`
+- `pnpm --filter @rough-cut/desktop test`
+- Playwright screenshot of extracted styled export cursor frame.
+- Manual packaged export with real cursor telemetry still recommended before release.
 
 ### TASK-012 Add cursor overlay preview rendering
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** SUPERSEDED → TASK-025
+
+#### Supersede Notes
+
+Cursor preview is no longer treated as a standalone task. The preview/export parity principle (see Direction) folds it into TASK-025 "Unified preview that mirrors styled export." Per-feature previews keep diverging from the export pipeline as new presentation features land; one shared preview renderer that consumes the same `ProjectDocument` and reproduces the styled-export composition is more durable.
 
 #### Context
 
@@ -481,7 +502,7 @@ The first manual zoom UI should be simple and useful, not a full timeline editor
 ### TASK-016 Add smooth manual zoom export rendering
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 #### Context
 
@@ -493,22 +514,36 @@ Manual zoom markers need to affect final exported output with smooth transitions
 - Clamp zoom targets inside source bounds.
 - Preserve cursor overlay compatibility.
 
+#### Completion Notes
+
+- Added `apps/desktop/src/main/zoom-filter.mjs`: `buildZoomFilter({ markers, sourceWidth, sourceHeight })` composes a single FFmpeg `zoompan` filter from a markers array using nested `if(lt(on,…))` branches. Each marker contributes a 3-phase ramp (smootherStep ramp-in → hold → smootherStep ramp-out) on `z`, plus matching `x`/`y` expressions that derive the crop window from `focalPoint` and the live `zoom` variable, with edge clamping so the window never extends past source bounds.
+- Reused the same constants and easing as `packages/timeline-engine/src/zoom-transform.ts` (`STRENGTH_TO_SCALE_DELTA = 1.5`, Ken Perlin smootherStep `6t⁵−15t⁴+10t³`). Math agreement with the JS path is sub-pixel — zoom-export and the future unified preview (TASK-025) will track each other.
+- `buildStyledExportArgs` now accepts `sourceWidth`/`sourceHeight`/`zoomMarkers`. When markers are present it swaps the static `crop=iw*1:ih*1,scale=…` step for `zoompan=…,scale=…` (zoompan outputs at source dims so the existing canvas-fit scale step keeps source aspect ratio). Empty-marker case is byte-for-byte unchanged.
+- `getPrimaryRecording` exposes `zoomMarkers` from `asset.presentation?.zoom?.markers`. `exportStyledProjectToMp4` threads them plus source dimensions into the args builder.
+- FFmpeg expression sanity test before code: `on` (not `n`) is the output frame counter inside zoompan; `between` is not supported but `lt`/`gt`/nested-if works; `pow(t, k)` is fine; `zoom` is accessible inside `x`/`y` expressions; comma escaping is unnecessary when filter strings reach FFmpeg via `spawn`.
+
 #### Testing
 
-- Unit test zoom transform calculation.
-- Styled export smoke validates a zoomed MP4 is produced.
-- FFprobe validates output dimensions and duration.
+- New `apps/desktop/src/main/zoom-filter.test.mjs` — 7 golden-string cases: empty markers, dimension validation, single-marker structure (range conditionals + smootherStep + clamped axis expressions), strength scaling, off-center focal points, two non-overlapping markers sorted by `startFrame`, output `s=` matches source dims.
+- Extended `apps/desktop/src/main/export-service.test.mjs` with two new cases asserting `zoompan=…` appears (and the static `crop=iw*1` is replaced) when markers are present, and that the static path is preserved when markers are empty.
+- Extended `scripts/smoke-styled-export.mjs` with a second export against the same synthetic project plus a manual zoom marker; FFprobe confirms 1920×1080 output and the bytes differ from the no-marker baseline (105,484 vs 27,226 bytes — the zoomed render encodes more detail per pixel).
 
 #### Verification
 
-- `pnpm test`
-- Styled zoom export smoke.
-- Manual packaged export: visually confirm zoom timing and smoothness.
+- `pnpm test` — full suite green: project-model 91/91, desktop 53/53 (was 44, +9 new: 7 zoom-filter + 2 zoompan in export-service).
+- `pnpm typecheck` — clean across all 5 packages.
+- `pnpm smoke:styled-export` — both no-zoom and zoom-marker scenarios pass; both produce 1920×1080 MP4s; cursor overlay assertion still passes for the no-zoom baseline.
+- `pnpm smoke:mvp` — record/save/reopen/export pipeline still `ok: true`.
+- **Pending: manual packaged-app round-trip** — record (or open an existing recording), add a manual zoom marker via TASK-015's panel at ~2 s, export styled, scrub the resulting MP4, confirm a smooth zoom-in around 2 s, hold at full zoom, then a smooth zoom-out. Flip status to DONE only after this manual step lands.
 
 ### TASK-017 Add zoom preview playback approximation
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** SUPERSEDED → TASK-025
+
+#### Supersede Notes
+
+Zoom preview is folded into TASK-025 "Unified preview that mirrors styled export" for the same reason as TASK-012. A unified Canvas/WebGL preview that mirrors the FFmpeg styled-export pipeline serves zoom, cursor, and future presentation features off the same source of truth. If a faster bridge is needed before TASK-025 lands, this task can be reactivated as a Canvas2D zoom-only stop-gap.
 
 #### Context
 
@@ -707,3 +742,40 @@ Client demos often need narration. Microphone support should come after the core
 
 - `pnpm test`
 - Manual packaged recording with mic input on the target Linux setup.
+
+### TASK-025 Unified preview that mirrors styled export
+
+**Priority:** P1  
+**Status:** PLANNED  
+**Supersedes:** TASK-012, TASK-017
+
+#### Context
+
+Until preview matches export, every presentation feature ships blind: users add zoom markers, cursor styling, and (eventually) click emphasis without seeing how the styled export will look. Per-feature previews (TASK-012 cursor, TASK-017 zoom) would each chase a moving target as the export pipeline grows. This task replaces both with one preview renderer that consumes the same `ProjectDocument` and reproduces the styled-export composition deterministically. The preview becomes the source of truth for "what will the export look like." Sequencing: lands AFTER TASK-016 (smooth manual zoom export) so the export semantics are stable, and BEFORE TASK-018/019 (auto-zoom UX) so users can evaluate suggestions visually.
+
+#### Acceptance Criteria
+
+- Preview renders the same styled composition the export produces: pastel background, rounded screen, soft shadow, full-screen fit, cursor overlay (TASK-011), manual zoom transitions (TASK-016), and any future presentation features that land in styled export.
+- Preview consumes the canonical `ProjectDocument` (no separate preview-only state).
+- Preview stays in sync with playback time and seek; performance must hold for typical client-demo recordings.
+- Preview must be deterministic — given the same project at the same playback frame, preview pixels and export pixels match within a defined tolerance (exact match where possible, sub-pixel for filters that differ between Canvas/WebGL and FFmpeg).
+
+#### Testing
+
+- Unit tests for the rendering description (the shared spec consumed by both preview and export).
+- Visual snapshot test: take a frame from preview at time T, take the corresponding export frame at the same T, assert structural similarity above a threshold.
+- Renderer smoke loads a project with a manual zoom marker and a cursor sample, verifies the preview canvas reflects both.
+- Existing UI smoke continues to pass.
+
+#### Verification
+
+- `pnpm test`
+- `pnpm smoke:ui`
+- `pnpm smoke:styled-export`
+- Manual packaged check: scrub through a recording with markers and confirm the preview tracks the eventual export.
+
+#### Implementation Notes (for future planning)
+
+- Likely a Canvas2D or WebGL surface drawn over the existing `<video>` element, transformed each `requestAnimationFrame`.
+- Best implemented as a shared "render description" (a JSON-able pipeline spec) consumed by both the renderer's preview surface and the main process's FFmpeg filter graph builder. Keeps both runtimes from diverging.
+- The cursor overlay rendering already exists in the styled-export FFmpeg path (TASK-011). The render description should capture that same logic so preview can replicate it.

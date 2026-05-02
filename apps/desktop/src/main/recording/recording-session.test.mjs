@@ -135,11 +135,25 @@ test('primary display info converts Electron display bounds to x11grab input', (
 
 test('cursor point normalization converts display DIP to captured pixels', () => {
   assert.deepEqual(
-    normalizeCursorPoint({ point: { x: 20, y: 30 }, originX: 10, originY: 20, scaleFactor: 2, width: 100, height: 80 }),
+    normalizeCursorPoint({ point: { x: 20, y: 30 }, originX: 10, originY: 20, scaleFactor: 2 }),
     { x: 30, y: 40 },
   );
+});
+
+test('cursor point normalization passes off-screen positions through unclamped', () => {
+  // Cursor on a monitor to the right of the recorded screen (x past width).
   assert.deepEqual(
-    normalizeCursorPoint({ point: { x: -100, y: 999 }, originX: 0, originY: 0, scaleFactor: 1, width: 100, height: 80 }),
-    { x: 0, y: 79 },
+    normalizeCursorPoint({ point: { x: 2400, y: 600 }, originX: 0, originY: 0, scaleFactor: 1 }),
+    { x: 2400, y: 600 },
+  );
+  // Cursor on a monitor to the left of the recorded screen (negative x).
+  assert.deepEqual(
+    normalizeCursorPoint({ point: { x: -50, y: 200 }, originX: 0, originY: 0, scaleFactor: 1 }),
+    { x: -50, y: 200 },
+  );
+  // Off-screen + multi-monitor offset translation still works.
+  assert.deepEqual(
+    normalizeCursorPoint({ point: { x: 1950, y: -10 }, originX: 1920, originY: 0, scaleFactor: 1 }),
+    { x: 30, y: -10 },
   );
 });
