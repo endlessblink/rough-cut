@@ -51,7 +51,7 @@ const probe = JSON.parse(runCapture('ffprobe', [
   '-select_streams',
   'v:0',
   '-show_entries',
-  'stream=width,height,duration',
+  'stream=width,height,duration,r_frame_rate',
   '-of',
   'json',
   exportPath,
@@ -60,6 +60,9 @@ const probe = JSON.parse(runCapture('ffprobe', [
 const stream = probe.streams?.[0];
 if (!stream || stream.width !== 1920 || stream.height !== 1080) {
   throw new Error(`Styled export dimensions were not 1920x1080: ${JSON.stringify(probe)}`);
+}
+if (stream.r_frame_rate !== '30/1') {
+  throw new Error(`Styled export framerate was not 30/1 (matching source 30 fps): ${JSON.stringify(probe)}`);
 }
 
 const sourceBytes = (await readFile(mediaPath)).length;
@@ -96,7 +99,7 @@ const zoomedProbe = JSON.parse(runCapture('ffprobe', [
   '-select_streams',
   'v:0',
   '-show_entries',
-  'stream=width,height,duration',
+  'stream=width,height,duration,r_frame_rate',
   '-of',
   'json',
   zoomedExportPath,
@@ -105,10 +108,18 @@ const zoomedStream = zoomedProbe.streams?.[0];
 if (!zoomedStream || zoomedStream.width !== 1920 || zoomedStream.height !== 1080) {
   throw new Error(`Zoomed styled export dimensions were not 1920x1080: ${JSON.stringify(zoomedProbe)}`);
 }
+if (zoomedStream.r_frame_rate !== '30/1') {
+  throw new Error(`Zoomed styled export framerate was not 30/1 (matching source 30 fps): ${JSON.stringify(zoomedProbe)}`);
+}
 const zoomedBytes = (await readFile(zoomedExportPath)).length;
 if (!(zoomedBytes > 0) || zoomedResult.byteEqualCandidate || zoomedBytes === exportBytes) {
   throw new Error(`Zoomed styled export did not differ from the no-marker baseline: ${JSON.stringify({ zoomedResult, exportBytes, zoomedBytes })}`);
 }
+
+// Cursor remains visible in the zoomed export at the marker boundary (frame 15 = 0.5s),
+// where smootherStep(0) = 0 so scale is still 1. This locks in the regression that
+// adding zoom markers does not silently kill cursor rendering.
+assertCursorVisible(zoomedExportPath);
 
 console.info(JSON.stringify({
   ok: true,

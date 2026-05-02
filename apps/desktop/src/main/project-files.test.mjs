@@ -60,6 +60,43 @@ test('saves and reopens a roughcut project file', async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+test('getPrimaryRecording exposes zoomMarkers from the asset presentation', () => {
+  const project = createProjectForRecording({
+    recording,
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+  const marker = createZoomMarker(30, 90, { strength: 1, focalPoint: { x: 0.5, y: 0.5 } });
+  const presentation = createDefaultRecordingPresentation();
+  const withMarker = {
+    ...project,
+    assets: project.assets.map((asset, idx) =>
+      idx === 0
+        ? {
+            ...asset,
+            presentation: {
+              ...presentation,
+              zoom: { ...presentation.zoom, markers: [marker] },
+            },
+          }
+        : asset,
+    ),
+  };
+  const primary = getPrimaryRecording(withMarker);
+  assert.equal(Array.isArray(primary.zoomMarkers), true);
+  assert.equal(primary.zoomMarkers.length, 1);
+  assert.deepEqual(primary.zoomMarkers[0], marker);
+});
+
+test('getPrimaryRecording defaults zoomMarkers to an empty array when asset has no presentation', () => {
+  const project = createProjectForRecording({
+    recording,
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+  const primary = getPrimaryRecording(project);
+  assert.equal(Array.isArray(primary.zoomMarkers), true);
+  assert.equal(primary.zoomMarkers.length, 0);
+});
+
 test('round-trips a manual zoom marker through save and reopen', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-zoom-'));
   const outputPath = join(root, 'capture.mp4');

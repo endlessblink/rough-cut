@@ -128,3 +128,43 @@ test('non-positive fps throws', () => {
     }),
   );
 });
+
+test('auto-kind markers render with the same expression shape as manual markers', () => {
+  const manual = buildZoomFilter({
+    markers: [marker({ kind: 'manual' })],
+    sourceWidth: 1280,
+    sourceHeight: 720,
+  });
+  const auto = buildZoomFilter({
+    markers: [marker({ kind: 'auto' })],
+    sourceWidth: 1280,
+    sourceHeight: 720,
+  });
+  assert.equal(manual.filterFragment, auto.filterFragment);
+});
+
+test('overlapping markers: outer if-chain checks earlier marker first', () => {
+  const result = buildZoomFilter({
+    markers: [
+      marker({ id: 'b', startFrame: 50, endFrame: 110, focalPoint: { x: 0.8, y: 0.3 } }),
+      marker({ id: 'a', startFrame: 30, endFrame: 90, focalPoint: { x: 0.2, y: 0.2 } }),
+    ],
+    sourceWidth: 1280,
+    sourceHeight: 720,
+  });
+  // Earlier marker (start=30) should be checked first; both should appear.
+  const idx30 = result.filterFragment.indexOf('lt(on,30)');
+  const idx50 = result.filterFragment.indexOf('lt(on,50)');
+  assert.ok(idx30 !== -1 && idx50 !== -1);
+  assert.ok(idx30 < idx50, 'earlier-start marker should be evaluated first');
+});
+
+test('marker starting at frame 0 produces a valid expression', () => {
+  const result = buildZoomFilter({
+    markers: [marker({ startFrame: 0, endFrame: 60 })],
+    sourceWidth: 1280,
+    sourceHeight: 720,
+  });
+  assert.match(result.filterFragment, /lt\(on,0\)/);
+  assert.match(result.filterFragment, /lt\(on,60\)/);
+});
