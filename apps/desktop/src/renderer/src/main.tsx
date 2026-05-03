@@ -518,13 +518,29 @@ function VideoPreview({
     const document = project.document as unknown as ProjectDocument;
     const cursorEvents =
       ((document.assets?.[0] as { metadata?: { cursorEvents?: ReadonlyArray<{ frame: number; x: number; y: number; type?: string }> } } | undefined)?.metadata?.cursorEvents) ?? [];
+    const recordingAssetId = (document.assets?.[0] as { id?: string } | undefined)?.id ?? null;
+    // Wrap cursorAtFrame to satisfy resolveFrame's getCursorPosition contract:
+    // returns normalized [0, 1] coordinates for the active recording asset,
+    // null otherwise. The engine uses this to pan the focal point during
+    // auto-marker holds (manual markers stay at their static focal).
+    const getCursorPositionForFrame = (assetId: string, frame: number) => {
+      if (!recordingAssetId || assetId !== recordingAssetId) return null;
+      const sourcePoint = cursorAtFrame(cursorEvents, frame);
+      if (!sourcePoint) return null;
+      return {
+        x: sourcePoint.x / sourceWidth,
+        y: sourcePoint.y / sourceHeight,
+      };
+    };
 
     function tick() {
       if (!video || !canvas || !ctx) return;
       const currentFrame = Math.max(0, Math.round(video.currentTime * fps));
       let frame;
       try {
-        frame = resolveFrame(document, currentFrame);
+        frame = resolveFrame(document, currentFrame, {
+          getCursorPosition: getCursorPositionForFrame,
+        });
       } catch {
         // Fall back to identity when resolveFrame can't process the document
         // (e.g. partial state during initial load).

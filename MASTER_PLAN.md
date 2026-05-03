@@ -40,6 +40,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-024 | Add microphone recording foundation | P2 | PLANNED |
 | TASK-025 | Unified preview that mirrors styled export | P1 | DONE |
 | TASK-026 | Switch capture pipeline to xdg-desktop-portal + PipeWire (Wayland) | P1 | PLANNED |
+| TASK-027 | Cursor-follow zoom (preview + export, parity-preserving) | P1 | IN PROGRESS |
 
 ## Recently Verified
 
@@ -875,3 +876,43 @@ The Wayland-native answer is fundamentally simpler: use **xdg-desktop-portal's S
 - Some compositors restrict portal capture (especially with multi-monitor selection); test on the user's actual setup before committing the rewrite.
 - FFmpeg's `pipewiregrab` filter is relatively new; lock the FFmpeg version in package metadata and document the minimum.
 - Keeping the X11 path alongside Wayland adds complexity. Decide whether to maintain both, gate by session type (`$XDG_SESSION_TYPE`), or drop X11 once Wayland is verified.
+
+### TASK-027 Cursor-follow zoom (preview + export, parity-preserving)
+
+**Priority:** P1  
+**Status:** IN PROGRESS
+
+#### Context
+
+Schema's `ZoomPresentation.followCursor: true` and the engine's cursor-follow path (`getZoomTransformAtFrame` with `getCursorPosition` option) have been in place since TASK-018 territory but unwired in both preview and export. TASK-027 lights them up on both sides while preserving the preview/export parity principle. By design, only **auto markers** follow the cursor — the engine respects manual markers' user-picked focal as static, since the user explicitly chose where to zoom.
+
+#### Acceptance Criteria
+
+- Preview canvas applies cursor-follow during auto marker hold phases.
+- Styled export applies the same cursor-follow at pixel parity with preview.
+- Manual markers stay at their user-picked focal in both surfaces.
+- No schema migration needed.
+
+#### Completion Notes
+
+- New `apps/desktop/src/main/zoom-sendcmd.mjs` — pre-computes per-frame crop windows in JS via `getZoomTransformAtFrame` (with cursor-follow options) and emits both an FFmpeg filter fragment + a sendcmd file. The math runs once during export setup; preview consumes the same `getZoomTransformAtFrame` directly. Sub-pixel parity guaranteed by both sides using the same source code.
+- `apps/desktop/src/main/export-service.mjs` swapped from `zoompan` (static expressions) to `crop=...,sendcmd=f=...,scale=...`. The crop filter accepts per-frame parameter updates via sendcmd (verified `T` timeline flag on all four crop params in FFmpeg 6.1.1).
+- Preview wiring in `apps/desktop/src/renderer/src/main.tsx` passes a `getCursorPosition` callback to `resolveFrame` per rAF tick. The callback returns normalized cursor coords from `cursorAtFrame(events, frame)`. Auto markers pan automatically.
+- Manual markers continue to use static focal — the engine's `getMarkerFocalPoint` (`zoom-transform.ts:147-182`) intentionally skips cursor-follow for `kind !== 'auto'`. Locked in via dedicated test.
+- Old `zoom-filter.mjs` + `zoom-filter.test.mjs` deleted; `zoom-sendcmd.test.mjs` ports the relevant cases plus 5 new ones for the cursor-follow specifics.
+- FFmpeg sanity test ran first (mirroring TASK-016 risk-mitigation pattern): one-off `ffmpeg -lavfi color=...,sendcmd=f=...,scale=...` confirmed `crop x VALUE` syntax works at the user's FFmpeg version (6.1.1) before any helper code landed.
+
+#### Testing
+
+- New `zoom-sendcmd.test.mjs` — 9 cases: empty markers, dimension/fps/totalFrames validation, line-per-frame timestamp emission, frame-0 initial crop covers full source for outside-marker frames, hold-phase static crop math at scale=2.5/focal=center, cursor-following auto marker pans during hold, manual markers do not follow cursor, sendcmd content trailing-newline format.
+- Updated `export-service.test.mjs` — replaces `zoompan=` assertions with `crop=...,sendcmd=...` assertions; "no zoom layer" case asserts neither `zoompan=` nor `sendcmd=` appears.
+- `smoke-styled-export.mjs` continues to pass — manual marker scenario (static focal) produces a valid 1920×1080 / 30 fps MP4 distinct from no-marker baseline; bytes shifted (101820 → 125050) because sendcmd adds per-frame command processing.
+
+#### Verification
+
+- `pnpm test` — 101/101 desktop pass (was 104, net -3 because zoom-filter's 12 cases were replaced by zoom-sendcmd's 9; 2 export-service cases swapped 1:1).
+- `pnpm typecheck` — clean across all 5 packages.
+- `pnpm smoke:styled-export` — both no-zoom and zoom-marker scenarios pass; cursor visibility check at marker boundary still passes.
+- `pnpm smoke:mvp` — record/save/reopen/export pipeline still `ok: true`.
+- `pnpm smoke:ui` — `hasZoomMarkerPanel: true`, `hasAutoZoomSuggestionsPanel: true`, `hasStyledPreviewCanvas: true` all pass.
+- **Pending: manual packaged-app verification** — record while moving cursor across the screen, generate auto-zoom suggestions, apply one, watch the canvas preview during playback (focal should pan with cursor during auto-marker hold), export styled and confirm same behavior in the MP4. Manual zoom markers should stay statically centered on their focal.

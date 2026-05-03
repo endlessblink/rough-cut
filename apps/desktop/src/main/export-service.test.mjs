@@ -116,31 +116,22 @@ test('styled export args include cursor subtitle layer when provided', () => {
   assert(joined.includes('[with_cursor]crop=iw*1:ih*1'));
 });
 
-test('styled export args swap crop+scale for zoompan when zoom markers are present', () => {
+test('styled export args use crop+sendcmd when a zoom layer is present', () => {
   const args = buildStyledExportArgs({
     inputPath: '/tmp/source.mp4',
     outputPath: '/tmp/export.mp4',
     sourceWidth: 1280,
     sourceHeight: 720,
     sourceFps: 30,
-    zoomMarkers: [
-      {
-        id: 'm1',
-        startFrame: 30,
-        endFrame: 90,
-        kind: 'manual',
-        strength: 1,
-        focalPoint: { x: 0.5, y: 0.5 },
-        zoomInDuration: 9,
-        zoomOutDuration: 9,
-      },
-    ],
+    zoomCropFilter: 'crop=w=512:h=288:x=384:y=216',
+    zoomSendcmdPath: '/tmp/zoom.cmd',
   });
   const joined = args.join(' ');
 
-  assert(joined.includes('zoompan=z='));
-  assert(joined.includes(':d=1:s=1280x720:fps=30'));
+  assert(joined.includes('crop=w=512:h=288:x=384:y=216'));
+  assert(joined.includes('sendcmd=f=/tmp/zoom.cmd'));
   assert(joined.includes('force_original_aspect_ratio=decrease'));
+  assert(!joined.includes('zoompan='));
   assert(!joined.includes('crop=iw*1:ih*1'));
 });
 
@@ -157,18 +148,18 @@ test('styled export args pin nullsrc rate to source fps so the canvas matches in
   assert(joined.includes('nullsrc=s=1920x1080:r=60'));
 });
 
-test('styled export args keep static crop+scale when no zoom markers', () => {
+test('styled export args keep static crop+scale when no zoom layer', () => {
   const args = buildStyledExportArgs({
     inputPath: '/tmp/source.mp4',
     outputPath: '/tmp/export.mp4',
     sourceWidth: 1280,
     sourceHeight: 720,
-    zoomMarkers: [],
   });
   const joined = args.join(' ');
 
   assert(joined.includes('crop=iw*1:ih*1'));
   assert(!joined.includes('zoompan='));
+  assert(!joined.includes('sendcmd='));
 });
 
 test('cursor ASS layer interpolates movement and limits dense telemetry', () => {

@@ -3,7 +3,7 @@ import { copyFile, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getPrimaryRecording } from './project-files.mjs';
-import { buildZoomFilter } from './zoom-filter.mjs';
+import { createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
 
 export const EXPORT_MODES = Object.freeze({
   RAW: 'raw',
@@ -51,6 +51,14 @@ export async function exportStyledProjectToMp4({ recording, outputPath, onProgre
     fps: recording.fps,
     durationFrames: recording.duration,
   });
+  const zoomLayer = await createZoomSendcmdLayer({
+    markers: Array.isArray(recording.zoomMarkers) ? recording.zoomMarkers : [],
+    cursorEvents: recording.cursorEvents,
+    sourceWidth: recording.width,
+    sourceHeight: recording.height,
+    fps: recording.fps,
+    totalFrames: recording.duration,
+  });
   try {
     const result = await run('ffmpeg', buildStyledExportArgs({
       inputPath: recording.filePath,
@@ -59,13 +67,15 @@ export async function exportStyledProjectToMp4({ recording, outputPath, onProgre
       sourceWidth: recording.width,
       sourceHeight: recording.height,
       sourceFps: recording.fps,
-      zoomMarkers: Array.isArray(recording.zoomMarkers) ? recording.zoomMarkers : [],
+      zoomCropFilter: zoomLayer?.filterFragment ?? null,
+      zoomSendcmdPath: zoomLayer?.path ?? null,
     }));
     if (result.code !== 0) {
       throw new Error(`Styled export failed: ${result.stderr.trim()}`);
     }
   } finally {
     if (cursorLayer) await cursorLayer.cleanup();
+    if (zoomLayer) await zoomLayer.cleanup();
   }
   const exported = await stat(outputPath);
   onProgress({ phase: 'complete', progress: 1 });
@@ -87,7 +97,8 @@ export function buildStyledExportArgs({
   sourceWidth = null,
   sourceHeight = null,
   sourceFps = null,
-  zoomMarkers = [],
+  zoomCropFilter = null,
+  zoomSendcmdPath = null,
 }) {
   const maxVideoWidth = Math.round(width * 0.9);
   const maxVideoHeight = Math.round(height * 0.9);
@@ -97,12 +108,9 @@ export function buildStyledExportArgs({
   const roundedAlpha = buildRoundedAlphaExpression(cornerRadius);
   const fps = Number.isFinite(sourceFps) && sourceFps > 0 ? sourceFps : 30;
   const screenInput = cursorAssPath ? '[with_cursor]' : '[base]';
-  const zoom =
-    Number.isInteger(sourceWidth) && Number.isInteger(sourceHeight) && sourceWidth > 0 && sourceHeight > 0
-      ? buildZoomFilter({ markers: zoomMarkers, sourceWidth, sourceHeight, fps })
-      : { filterFragment: null, present: false };
-  const screenStep = zoom.present
-    ? `${zoom.filterFragment},scale=${maxVideoWidth}:${maxVideoHeight}:force_original_aspect_ratio=decrease,format=rgba`
+  const zoomActive = Boolean(zoomCropFilter && zoomSendcmdPath);
+  const screenStep = zoomActive
+    ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},scale=${maxVideoWidth}:${maxVideoHeight}:force_original_aspect_ratio=decrease,format=rgba`
     : `crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2,scale=${maxVideoWidth}:${maxVideoHeight}:force_original_aspect_ratio=decrease,format=rgba`;
   const filter = [
     `nullsrc=s=${width}x${height}:r=${fps},format=rgb24,geq=r='224+20*X/W+10*Y/H':g='219+12*X/W+8*Y/H':b='232-8*X/W+12*Y/H',format=rgba[bg]`,
