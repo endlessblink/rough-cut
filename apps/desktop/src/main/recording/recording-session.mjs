@@ -1,6 +1,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isFfmpegCaptureAvailable, startFfmpegCapture } from './ffmpeg-capture.mjs';
+import { createXinputButtonListener } from './xinput-button-listener.mjs';
 
 const DEFAULT_FPS = 30;
 
@@ -13,6 +14,7 @@ export function createRecordingSession({
   isCaptureAvailable = isFfmpegCaptureAvailable,
   now = () => new Date(),
   sampleIntervalMs = 33,
+  buttonListenerFactory = createXinputButtonListener,
 }) {
   let active = null;
 
@@ -91,6 +93,12 @@ export function createRecordingSession({
     if (typeof getCursorPoint === 'function') {
       active.cursorTimer = setInterval(() => sampleCursor(active, getCursorPoint, now), sampleIntervalMs);
     }
+    if (typeof buttonListenerFactory === 'function') {
+      active.buttonListener = buttonListenerFactory({
+        onButton: (event) => recordButtonEvent(active, event, now),
+      });
+      active.buttonListener.start();
+    }
     return status();
   }
 
@@ -100,6 +108,7 @@ export function createRecordingSession({
     const session = active;
     active = null;
     if (session.cursorTimer) clearInterval(session.cursorTimer);
+    if (session.buttonListener) session.buttonListener.stop();
     const rawPath = await session.capture.stop();
     await writeCursorTelemetrySidecar(session);
     await clearRecoveryMarker();
@@ -145,6 +154,30 @@ export function getPrimaryX11DisplayInfo(screen, displayName = process.env.DISPL
     width,
     height,
   };
+}
+
+function recordButtonEvent(session, event, now) {
+  if (!session || !event) return;
+  try {
+    const elapsedMs = Math.max(0, now().getTime() - Date.parse(session.startedAt));
+    const cursor = normalizeCursorPoint({
+      point: { x: event.x, y: event.y },
+      originX: session.originX || 0,
+      originY: session.originY || 0,
+      scaleFactor: session.scaleFactor || 1,
+    });
+    const frame = Math.max(0, Math.round((elapsedMs / 1000) * session.fps));
+    session.cursorEvents.push({
+      frame,
+      timeMs: elapsedMs,
+      x: cursor.x,
+      y: cursor.y,
+      type: event.type,
+      button: event.button,
+    });
+  } catch (err) {
+    console.warn('[recording-session] button event record failed:', err?.message ?? err);
+  }
 }
 
 function sampleCursor(session, getCursorPoint, now) {

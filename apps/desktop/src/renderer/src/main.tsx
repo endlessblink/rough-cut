@@ -420,14 +420,15 @@ function AutoZoomSuggestionsPanel({
         </p>
       ) : suggestions.length === 0 ? (
         <p className="autoZoomEmpty">
-          No suggestions for this recording
-          {conflictCount > 0 ? ` (${conflictCount} candidate(s) conflict with manual markers).` : '.'}
+          {conflictCount > 0
+            ? `All cursor activity in this recording is already covered by ${conflictCount} existing zoom marker(s).`
+            : 'No suggestions for this recording.'}
         </p>
       ) : (
         <>
           {conflictCount > 0 ? (
             <p className="autoZoomConflicts">
-              {conflictCount} candidate(s) hidden — they overlap your existing manual markers.
+              {conflictCount} candidate(s) hidden — already covered by existing zoom markers.
             </p>
           ) : null}
           <ul className="autoZoomList">

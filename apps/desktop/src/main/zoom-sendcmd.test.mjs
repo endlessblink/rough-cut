@@ -135,17 +135,19 @@ test('cursor-following auto marker pans the crop window during the hold phase', 
   assert.notEqual(xAt12, xAt36, 'crop x should change between two hold-phase frames when an auto marker follows the cursor');
 });
 
-test('manual markers do not follow cursor (engine design: respect user-picked focal)', () => {
-  // Same cursor sweep as above, but with a manual marker. Engine intentionally
-  // skips cursor-follow for manual markers — user picked the focal, honor it.
+test('manual markers follow the cursor when followCursor is enabled', () => {
+  // Manual markers used to be gated out of cursor-follow, but the engine now
+  // applies cursor-follow uniformly so the user can rely on the same behavior
+  // for any marker kind. Sweep cursor across the full frame to clear the
+  // followPadding leash and force the focal to move.
   const cursorEvents = [];
   for (let frame = 0; frame <= 60; frame += 1) {
     const t = frame / 60;
     cursorEvents.push({
       frame,
       timeMs: Math.round((frame / 30) * 1000),
-      x: 640 + 120 * t,
-      y: 360 + 70 * t,
+      x: 200 + 800 * t,
+      y: 200 + 400 * t,
       type: 'move',
       button: 0,
     });
@@ -170,7 +172,7 @@ test('manual markers do not follow cursor (engine design: respect user-picked fo
   const xMatch = (line) => /crop x ([\-0-9.]+)/.exec(line);
   const xAt12 = Number(xMatch(lines[12])[1]);
   const xAt36 = Number(xMatch(lines[36])[1]);
-  assert.equal(xAt12, xAt36, 'manual markers must not follow the cursor; focal stays at user-picked position');
+  assert.notEqual(xAt12, xAt36, 'manual markers must follow the cursor when followCursor is enabled');
 });
 
 test('disabled followCursor produces a static crop window even with cursor data', () => {

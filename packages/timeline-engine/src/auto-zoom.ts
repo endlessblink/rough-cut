@@ -58,6 +58,11 @@ function deriveConfig(intensity: number, frameRate: number): ZoomConfig {
 // Step 1: Extract trigger events (clicks, or teleports as fallback)
 // ---------------------------------------------------------------------------
 
+// Minimum drag duration in frames before we treat a button-down/up pair as a
+// drag rather than a click. Below this we already have the click event itself
+// as a trigger, so emitting a separate drag trigger would be redundant.
+const MIN_DRAG_DURATION_FRAMES = 6;
+
 function extractTriggerEvents(
   cursorEvents: readonly CursorEvent[],
   config: ZoomConfig,
@@ -68,9 +73,15 @@ function extractTriggerEvents(
     (e) => e.type === 'down' && e.button === 0,
   );
 
-  if (clicks.length > 0) return clicks;
+  if (clicks.length > 0) {
+    const drags = extractDragTriggers(cursorEvents, config, sourceWidth, sourceHeight);
+    if (drags.length === 0) return clicks;
+    // Combine and sort so downstream clustering treats them as one stream.
+    return [...clicks, ...drags].sort((a, b) => a.frame - b.frame);
+  }
 
-  // Fallback: detect large cursor teleports
+  // Fallback when the recording predates click capture: detect large cursor
+  // teleports as a proxy for "user moved attention here."
   const moves = cursorEvents.filter((e) => e.type === 'move');
   const teleports: CursorEvent[] = [];
 
@@ -86,6 +97,46 @@ function extractTriggerEvents(
   }
 
   return teleports;
+}
+
+// Pair button-down with the following button-up of the same button and emit a
+// synthetic trigger at the drag's midpoint when the displacement and duration
+// both exceed thresholds. Captures click-and-drag plus text highlights (which
+// look identical at the input layer).
+function extractDragTriggers(
+  cursorEvents: readonly CursorEvent[],
+  config: ZoomConfig,
+  sourceWidth: number,
+  sourceHeight: number,
+): CursorEvent[] {
+  const drags: CursorEvent[] = [];
+  const openDowns = new Map<number, CursorEvent>();
+
+  for (const ev of cursorEvents) {
+    if (ev.type === 'down') {
+      openDowns.set(ev.button, ev);
+      continue;
+    }
+    if (ev.type !== 'up') continue;
+    const down = openDowns.get(ev.button);
+    if (!down) continue;
+    openDowns.delete(ev.button);
+    const durationFrames = ev.frame - down.frame;
+    if (durationFrames < MIN_DRAG_DURATION_FRAMES) continue;
+    const dx = (ev.x - down.x) / sourceWidth;
+    const dy = (ev.y - down.y) / sourceHeight;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist <= config.teleportThreshold) continue;
+    drags.push({
+      frame: Math.round((down.frame + ev.frame) / 2),
+      x: (down.x + ev.x) / 2,
+      y: (down.y + ev.y) / 2,
+      type: 'move',
+      button: ev.button,
+    });
+  }
+
+  return drags;
 }
 
 // ---------------------------------------------------------------------------

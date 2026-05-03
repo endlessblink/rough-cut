@@ -91,7 +91,7 @@ function resolveTrackedCursor(
   getCursorPosition: (frame: Frame) => ZoomCursorPosition | null,
   followAnimation: 'focused' | 'smooth',
 ): ZoomCursorPosition | null {
-  const lookbackFrames = followAnimation === 'smooth' ? 48 : 24;
+  const lookbackFrames = followAnimation === 'smooth' ? 24 : 12;
   const startFrame = Math.max(marker.startFrame, frame - lookbackFrames + 1);
   let totalWeight = 0;
   let sumX = 0;
@@ -151,7 +151,6 @@ function getMarkerFocalPoint(
   options: ZoomTransformOptions | undefined,
 ): ZoomCursorPosition {
   if (
-    marker.kind !== 'auto' ||
     options?.followCursor !== true ||
     options.getCursorPosition === undefined
   ) {

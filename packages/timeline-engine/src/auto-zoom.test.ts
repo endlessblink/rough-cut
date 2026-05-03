@@ -7,6 +7,10 @@ function click(frame: number, x: number, y: number): CursorEvent {
   return { frame, x, y, type: 'down', button: 0 };
 }
 
+function release(frame: number, x: number, y: number): CursorEvent {
+  return { frame, x, y, type: 'up', button: 0 };
+}
+
 function move(frame: number, x: number, y: number): CursorEvent {
   return { frame, x, y, type: 'move', button: 0 };
 }
@@ -119,6 +123,49 @@ describe('generateAutoZoomMarkers', () => {
         m.zoomInDuration + m.zoomOutDuration,
       );
     }
+  });
+
+  it('produces a marker shifted toward the drag midpoint for a click-and-drag', () => {
+    // Click-and-drag from top-left toward lower-right: 30 frames between
+    // down and up, large displacement. Drag detection adds a midpoint
+    // trigger at ≈ (0.42, 0.46) alongside the click at ≈ (0.10, 0.19);
+    // cluster centroid ends up roughly mid-way (~0.26, 0.32). Click alone
+    // would leave the focal near the click position.
+    const events: CursorEvent[] = [
+      click(30, 200, 200),
+      release(60, 1400, 800),
+    ];
+    const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
+    expect(markers).toHaveLength(1);
+    const m = markers[0];
+    expect(m.focalPoint.x).toBeGreaterThan(0.2);
+    expect(m.focalPoint.y).toBeGreaterThan(0.25);
+    // And not all the way out at the drag end either — centroid of click + midpoint.
+    expect(m.focalPoint.x).toBeLessThan(0.4);
+  });
+
+  it('does not emit a drag trigger for a short click (down→up < min duration)', () => {
+    // Identical positions and only 2 frames apart — this is a normal click,
+    // not a drag. Should yield exactly one marker (the click itself), not
+    // double-count via a synthetic drag trigger at a different focal.
+    const events: CursorEvent[] = [
+      click(60, 960, 540),
+      release(62, 960, 540),
+    ];
+    const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
+    expect(markers).toHaveLength(1);
+    expect(markers[0].focalPoint.x).toBeCloseTo(0.5, 2);
+  });
+
+  it('does not emit a drag trigger for a small displacement', () => {
+    // Long duration but tiny movement — the user is just holding the button.
+    // Should not produce a separate drag cluster from the click.
+    const events: CursorEvent[] = [
+      click(60, 960, 540),
+      release(120, 970, 545),
+    ];
+    const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
+    expect(markers).toHaveLength(1);
   });
 });
 
