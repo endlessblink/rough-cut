@@ -32,7 +32,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-016 | Add smooth manual zoom export rendering | P1 | DONE |
 | TASK-017 | Add zoom preview playback approximation | P2 | SUPERSEDED → TASK-025 |
 | TASK-018 | Add automatic zoom suggestion engine | P2 | DONE |
-| TASK-019 | Add automatic zoom review/apply flow | P2 | IN PROGRESS |
+| TASK-019 | Add automatic zoom review/apply flow | P2 | DONE |
 | TASK-020 | Add countdown before recording | P2 | PLANNED |
 | TASK-021 | Add clear recording indicator and elapsed time | P2 | PLANNED |
 | TASK-022 | Add open recording/project folder action | P2 | PLANNED |
@@ -613,10 +613,10 @@ Automatic zooms should be suggestions based on cursor activity, not irreversible
 - `pnpm smoke:mvp` and `pnpm smoke:ui` — unchanged (TASK-018 ships dormant code paths only; nothing wired into runtime flow until TASK-019 adds UI).
 - No manual packaged-app verification needed — engine + abstractions only. Manual verification belongs in TASK-019 (review/apply UI).
 
-### TASK-019 Add automatic zoom review/apply flow
+### ~~TASK-019~~ Add automatic zoom review/apply flow
 
 **Priority:** P2  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
