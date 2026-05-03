@@ -44,12 +44,22 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 
 ## Recently Verified
 
-- Full repository build and tests pass with `pnpm test`.
-- X11 capture prerequisites are available on this machine: X11 session, FFmpeg, and FFprobe.
+- `pnpm test` — desktop 101/101 pass, project-model 91/91 pass.
+- `pnpm typecheck` — clean across all 5 packages.
 - `pnpm smoke:mvp` verifies record, remux, `.roughcut` save/reopen, export, and FFprobe validation.
-- `pnpm smoke:ui` verifies renderer preview/export UI against a synthetic project.
+- `pnpm smoke:ui` verifies renderer preview/export UI against a synthetic project — `hasZoomMarkerPanel`, `hasAutoZoomSuggestionsPanel`, `hasStyledPreviewCanvas`, `hasExportResult` all true.
+- `pnpm smoke:styled-export` verifies both no-zoom and zoom-marker scenarios produce 1920×1080 / 30 fps MP4s with cursor visibility intact.
 - `pnpm smoke:package` verifies the packaged Linux artifact launches, previews, and exports.
+- X11 capture prerequisites: X11 session, FFmpeg 6.1.1, FFprobe, and **xdotool** (required for cursor capture on Linux/X11 — bypasses Electron's broken multi-monitor `screen.getCursorScreenPoint()` per electron/electron#42519).
 - The packaged app was manually checked for record, preview, and export.
+
+## Session checkpoints
+
+- Tag `checkpoint/cursor-stable-2026-05-03` at `e0a01ae` — landed cursor multi-monitor fix + canvas preview. Recovery anchor before auto-zoom + cursor-follow features.
+
+## Capture-source convention
+
+This app uses Linux/X11 with `ffmpeg x11grab` for video and **`xdotool getmouselocation --shell`** for cursor positions (NOT Electron's `screen.getCursorScreenPoint()`, which has a v29+ regression on multi-monitor: returns stale values when the cursor leaves the primary display). The wrapper at `apps/desktop/src/main/index.mjs:28` is `() => readCursorViaXdotool() ?? screen.getCursorScreenPoint()` so non-Linux platforms still work via the Electron fallback. TASK-026 (Wayland pivot) replaces the entire X11 + xdotool stack with `xdg-desktop-portal + PipeWire ScreenCast`, where the compositor draws cursor into the captured stream and app-side tracking becomes unnecessary.
 
 ## Direction
 
