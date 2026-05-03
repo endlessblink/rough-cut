@@ -19,7 +19,7 @@ export function removeMarker(document: ProjectDocument, markerId: string): Proje
 
 export function listMarkers(document: ProjectDocument): readonly ZoomMarker[];
 
-export function applySuggestionAsManual(
+export function applySuggestion(
   document: ProjectDocument,
   suggestion: ZoomMarker,
 ): ProjectDocument;

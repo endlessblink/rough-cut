@@ -40,7 +40,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-024 | Add microphone recording foundation | P2 | PLANNED |
 | TASK-025 | Unified preview that mirrors styled export | P1 | DONE |
 | TASK-026 | Switch capture pipeline to xdg-desktop-portal + PipeWire (Wayland) | P1 | PLANNED |
-| TASK-027 | Cursor-follow zoom (preview + export, parity-preserving) | P1 | IN PROGRESS |
+| TASK-027 | Cursor-follow zoom (preview + export, parity-preserving) | P1 | DONE |
 
 ## Recently Verified
 
@@ -890,7 +890,7 @@ The Wayland-native answer is fundamentally simpler: use **xdg-desktop-portal's S
 ### TASK-027 Cursor-follow zoom (preview + export, parity-preserving)
 
 **Priority:** P1  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -911,6 +911,7 @@ Schema's `ZoomPresentation.followCursor: true` and the engine's cursor-follow pa
 - Manual markers continue to use static focal — the engine's `getMarkerFocalPoint` (`zoom-transform.ts:147-182`) intentionally skips cursor-follow for `kind !== 'auto'`. Locked in via dedicated test.
 - Old `zoom-filter.mjs` + `zoom-filter.test.mjs` deleted; `zoom-sendcmd.test.mjs` ports the relevant cases plus 5 new ones for the cursor-follow specifics.
 - FFmpeg sanity test ran first (mirroring TASK-016 risk-mitigation pattern): one-off `ffmpeg -lavfi color=...,sendcmd=f=...,scale=...` confirmed `crop x VALUE` syntax works at the user's FFmpeg version (6.1.1) before any helper code landed.
+- **Follow-up fix (during manual verification)**: cursor-follow was unreachable through the UI because `applySuggestionAsManual` was rewriting applied auto-suggestions to `kind: 'manual'`, and the engine only follows cursors on `kind: 'auto'` markers. Renamed to `applySuggestion` and now preserves `kind: 'auto'` so cursor-follow fires. The original dedup-on-re-suggest behavior is preserved by widening `filterAutoMarkersAgainstManual` → `filterAutoMarkersAgainstExisting` to consider all kinds, not just manual.
 
 #### Testing
 

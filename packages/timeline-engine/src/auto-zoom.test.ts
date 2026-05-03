@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateAutoZoomMarkers, filterAutoMarkersAgainstManual } from './auto-zoom.js';
+import { generateAutoZoomMarkers, filterAutoMarkersAgainstExisting } from './auto-zoom.js';
 import type { CursorEvent, ZoomMarker } from '@rough-cut/project-model';
 import { createZoomMarker } from '@rough-cut/project-model';
 
@@ -122,17 +122,17 @@ describe('generateAutoZoomMarkers', () => {
   });
 });
 
-describe('filterAutoMarkersAgainstManual', () => {
+describe('filterAutoMarkersAgainstExisting', () => {
   it('returns all candidates when there are no existing markers', () => {
     const events: CursorEvent[] = [click(60, 960, 540)];
     const candidates = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
-    expect(filterAutoMarkersAgainstManual(candidates, [])).toHaveLength(candidates.length);
+    expect(filterAutoMarkersAgainstExisting(candidates, [])).toHaveLength(candidates.length);
   });
 
   it('single isolated click → 1 marker, centroid matches click pos', () => {
     const events: CursorEvent[] = [click(60, 960, 540)];
     const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
-    const filtered = filterAutoMarkersAgainstManual(markers, []);
+    const filtered = filterAutoMarkersAgainstExisting(markers, []);
     expect(filtered).toHaveLength(1);
     expect(filtered[0].focalPoint.x).toBeCloseTo(0.5, 2);
     expect(filtered[0].focalPoint.y).toBeCloseTo(0.5, 2);
@@ -145,7 +145,7 @@ describe('filterAutoMarkersAgainstManual', () => {
       click(75, 520, 410),
     ];
     const candidates = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
-    const filtered = filterAutoMarkersAgainstManual(candidates, []);
+    const filtered = filterAutoMarkersAgainstExisting(candidates, []);
     expect(filtered).toHaveLength(1);
   });
 
@@ -156,7 +156,7 @@ describe('filterAutoMarkersAgainstManual', () => {
       click(300, 1800, 900),
     ];
     const candidates = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
-    const filtered = filterAutoMarkersAgainstManual(candidates, []);
+    const filtered = filterAutoMarkersAgainstExisting(candidates, []);
     expect(filtered).toHaveLength(2);
   });
 
@@ -166,7 +166,7 @@ describe('filterAutoMarkersAgainstManual', () => {
       click(70, 1920, 1080),
     ];
     const candidates = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
-    const filtered = filterAutoMarkersAgainstManual(candidates, []);
+    const filtered = filterAutoMarkersAgainstExisting(candidates, []);
     expect(filtered).toHaveLength(1);
     expect(filtered[0].focalPoint.x).toBeCloseTo(0.5, 2);
     expect(filtered[0].focalPoint.y).toBeCloseTo(0.5, 2);
@@ -180,7 +180,7 @@ describe('filterAutoMarkersAgainstManual', () => {
 
     // Create a manual marker spanning the same range
     const manualMarker = createZoomMarker(startFrame, endFrame, { kind: 'manual' });
-    const filtered = filterAutoMarkersAgainstManual(autoMarkers, [manualMarker]);
+    const filtered = filterAutoMarkersAgainstExisting(autoMarkers, [manualMarker]);
     expect(filtered).toHaveLength(0);
   });
 
@@ -192,19 +192,20 @@ describe('filterAutoMarkersAgainstManual', () => {
 
     // Place manual marker far after the auto marker
     const manualMarker = createZoomMarker(endFrame + 100, endFrame + 200, { kind: 'manual' });
-    const filtered = filterAutoMarkersAgainstManual(autoMarkers, [manualMarker]);
+    const filtered = filterAutoMarkersAgainstExisting(autoMarkers, [manualMarker]);
     expect(filtered).toHaveLength(1);
   });
 
-  it('auto markers in existing list are not treated as blockers', () => {
+  it('auto markers in existing list also block overlapping candidates', () => {
     const events: CursorEvent[] = [click(60, 960, 540)];
     const candidates = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
     expect(candidates).toHaveLength(1);
     const { startFrame, endFrame } = candidates[0];
 
-    // An existing auto marker in the same range should NOT block the new candidate
+    // Applied auto markers (from previously-accepted suggestions) must dedup
+    // re-runs so the user doesn't see duplicate suggestions over the same region.
     const existingAuto = createZoomMarker(startFrame, endFrame, { kind: 'auto' });
-    const filtered = filterAutoMarkersAgainstManual(candidates, [existingAuto]);
-    expect(filtered).toHaveLength(1);
+    const filtered = filterAutoMarkersAgainstExisting(candidates, [existingAuto]);
+    expect(filtered).toHaveLength(0);
   });
 });

@@ -5,7 +5,7 @@ import { resolveFrame } from '@rough-cut/frame-resolver';
 import './styles.css';
 import {
   addManualMarkerAt,
-  applySuggestionAsManual,
+  applySuggestion,
   canAddMarkerAt,
   listMarkers,
   removeMarker,
@@ -391,7 +391,7 @@ function AutoZoomSuggestionsPanel({
   }
 
   async function handleApply(suggestion: ZoomMarker) {
-    const nextDocument = applySuggestionAsManual(document, suggestion);
+    const nextDocument = applySuggestion(document, suggestion);
     if (nextDocument === document) return;
     setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
     await persist(nextDocument);

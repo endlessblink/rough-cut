@@ -220,27 +220,28 @@ function rangesOverlap(
 }
 
 /**
- * Filter auto-zoom markers, dropping any that overlap an existing manual marker.
- * This preserves user intent: manual markers are never overwritten.
+ * Filter auto-zoom marker candidates, dropping any that overlap an existing
+ * marker (manual or auto). Applied auto-suggestions persist as kind='auto'
+ * so cursor-follow can fire; the dedup must consider both kinds to avoid
+ * surfacing duplicate suggestions over regions the user already accepted.
  *
  * @param candidates  Newly generated auto markers to check
  * @param existing    Already-saved markers (any kind)
- * @returns           Candidates with no overlap against existing manual markers
+ * @returns           Candidates with no overlap against any existing marker
  */
-export function filterAutoMarkersAgainstManual(
+export function filterAutoMarkersAgainstExisting(
   candidates: readonly ZoomMarker[],
   existing: readonly ZoomMarker[],
 ): ZoomMarker[] {
-  const manualMarkers = existing.filter((m) => m.kind === 'manual');
-  if (manualMarkers.length === 0) return [...candidates];
+  if (existing.length === 0) return [...candidates];
 
   return candidates.filter((candidate) =>
-    !manualMarkers.some((manual) =>
+    !existing.some((other) =>
       rangesOverlap(
         candidate.startFrame,
         candidate.endFrame,
-        manual.startFrame,
-        manual.endFrame,
+        other.startFrame,
+        other.endFrame,
       ),
     ),
   );

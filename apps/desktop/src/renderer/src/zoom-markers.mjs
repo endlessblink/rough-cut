@@ -83,18 +83,17 @@ export function listMarkers(document) {
   return asset?.presentation?.zoom.markers ?? [];
 }
 
-export function applySuggestionAsManual(document, suggestion) {
+export function applySuggestion(document, suggestion) {
   if (!suggestion) return document;
   const asset = getPrimaryRecordingAsset(document);
   if (!asset) return document;
 
-  // Reuse createZoomMarker so we get a freshly-minted, schema-valid marker
-  // id; override the rest of the fields from the suggestion and force
-  // kind: 'manual' so future re-runs of generateSuggestionsForProject treat
-  // this region as user-applied (manual markers block overlapping auto
-  // candidates per filterAutoMarkersAgainstManual).
-  const manualMarker = createZoomMarker(suggestion.startFrame, suggestion.endFrame, {
-    kind: 'manual',
+  // Preserve kind: 'auto' so the engine's cursor-follow gate
+  // (getMarkerFocalPoint in timeline-engine/zoom-transform.ts) fires during
+  // playback and export. filterAutoMarkersAgainstExisting blocks duplicate
+  // re-suggestions over already-applied regions regardless of kind.
+  const appliedMarker = createZoomMarker(suggestion.startFrame, suggestion.endFrame, {
+    kind: 'auto',
     strength: suggestion.strength,
     focalPoint: { x: suggestion.focalPoint.x, y: suggestion.focalPoint.y },
     zoomInDuration: suggestion.zoomInDuration,
@@ -102,7 +101,7 @@ export function applySuggestionAsManual(document, suggestion) {
   });
 
   const presentation = asset.presentation ?? createDefaultRecordingPresentation();
-  const nextMarkers = [...presentation.zoom.markers, manualMarker].sort(
+  const nextMarkers = [...presentation.zoom.markers, appliedMarker].sort(
     (a, b) => a.startFrame - b.startFrame,
   );
   const nextAsset = {

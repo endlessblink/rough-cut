@@ -8,7 +8,7 @@ import {
 } from '@rough-cut/project-model';
 import {
   addManualMarkerAt,
-  applySuggestionAsManual,
+  applySuggestion,
   canAddMarkerAt,
   getPrimaryRecordingAsset,
   listMarkers,
@@ -127,7 +127,7 @@ test('removeMarker is a no-op when id does not match', () => {
   assert.equal(next, project);
 });
 
-test('applySuggestionAsManual appends a manual marker preserving suggestion fields with a fresh id', () => {
+test('applySuggestion appends an auto marker preserving suggestion fields with a fresh id', () => {
   const project = projectWithRecording();
   const suggestion = {
     id: 'suggested-1',
@@ -140,13 +140,13 @@ test('applySuggestionAsManual appends a manual marker preserving suggestion fiel
     zoomOutDuration: 18,
   };
 
-  const next = applySuggestionAsManual(project, suggestion);
+  const next = applySuggestion(project, suggestion);
   assert.notEqual(next, project);
 
   const markers = listMarkers(next);
   assert.equal(markers.length, 1);
   const applied = markers[0];
-  assert.equal(applied.kind, 'manual');
+  assert.equal(applied.kind, 'auto');
   assert.notEqual(applied.id, suggestion.id);
   assert.equal(applied.startFrame, 60);
   assert.equal(applied.endFrame, 120);
@@ -156,7 +156,7 @@ test('applySuggestionAsManual appends a manual marker preserving suggestion fiel
   assert.equal(applied.zoomOutDuration, 18);
 });
 
-test('applySuggestionAsManual preserves existing markers and keeps the array sorted by startFrame', () => {
+test('applySuggestion preserves existing markers and keeps the array sorted by startFrame', () => {
   let project = projectWithRecording();
   project = addManualMarkerAt(project, 4.0, 30);
   const earlierSuggestion = {
@@ -169,16 +169,16 @@ test('applySuggestionAsManual preserves existing markers and keeps the array sor
     zoomInDuration: 9,
     zoomOutDuration: 9,
   };
-  const next = applySuggestionAsManual(project, earlierSuggestion);
+  const next = applySuggestion(project, earlierSuggestion);
   const markers = listMarkers(next);
   assert.equal(markers.length, 2);
   assert.equal(markers[0].startFrame, 0);
   assert.equal(markers[1].startFrame, 120);
 });
 
-test('applySuggestionAsManual is a no-op when there is no recording asset', () => {
+test('applySuggestion is a no-op when there is no recording asset', () => {
   const project = createProject();
-  const next = applySuggestionAsManual(project, {
+  const next = applySuggestion(project, {
     id: 's',
     startFrame: 0,
     endFrame: 30,

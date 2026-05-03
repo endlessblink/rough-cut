@@ -1,5 +1,5 @@
 import {
-  filterAutoMarkersAgainstManual,
+  filterAutoMarkersAgainstExisting,
   generateAutoZoomMarkers,
 } from '@rough-cut/timeline-engine';
 import {
@@ -37,7 +37,7 @@ export function generateSuggestionsForProject(document, options = {}) {
   const existingManual = markers.filter((marker) => marker?.kind === 'manual');
 
   const candidates = generateAutoZoomMarkers(cursorEvents, intensity, fps, width, height);
-  const filtered = filterAutoMarkersAgainstManual(candidates, markers);
+  const filtered = filterAutoMarkersAgainstExisting(candidates, markers);
 
   return { candidates, filtered, existingManual };
 }
