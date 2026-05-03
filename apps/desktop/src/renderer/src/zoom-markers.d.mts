@@ -18,3 +18,8 @@ export function addManualMarkerAt(
 export function removeMarker(document: ProjectDocument, markerId: string): ProjectDocument;
 
 export function listMarkers(document: ProjectDocument): readonly ZoomMarker[];
+
+export function applySuggestionAsManual(
+  document: ProjectDocument,
+  suggestion: ZoomMarker,
+): ProjectDocument;

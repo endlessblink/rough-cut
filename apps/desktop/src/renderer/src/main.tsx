@@ -1,15 +1,17 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import type { ProjectDocument } from '@rough-cut/project-model';
+import type { ProjectDocument, ZoomMarker } from '@rough-cut/project-model';
 import { resolveFrame } from '@rough-cut/frame-resolver';
 import './styles.css';
 import {
   addManualMarkerAt,
+  applySuggestionAsManual,
   canAddMarkerAt,
   listMarkers,
   removeMarker,
 } from './zoom-markers.mjs';
 import { cursorAtFrame, drawCursorPath } from './styled-preview.mjs';
+import { generateSuggestionsForProject } from './auto-zoom-suggestions.mjs';
 
 declare global {
   interface Window {
@@ -234,6 +236,9 @@ function ProjectPreview({
           onProjectChange={onProjectChange}
         />
       ) : null}
+      {project.recording ? (
+        <AutoZoomSuggestionsPanel project={project} onProjectChange={onProjectChange} />
+      ) : null}
       <div className="exportPanel">
         <label className="exportMode">
           Export mode
@@ -339,6 +344,120 @@ function ZoomMarkerPanel({
             </li>
           ))}
         </ul>
+      )}
+      {saveError ? <p className="error">{saveError}</p> : null}
+    </div>
+  );
+}
+
+function AutoZoomSuggestionsPanel({
+  project,
+  onProjectChange,
+}: {
+  project: ProjectState;
+  onProjectChange: (next: ProjectState) => void;
+}) {
+  const [suggestions, setSuggestions] = React.useState<ReadonlyArray<ZoomMarker>>([]);
+  const [hasGenerated, setHasGenerated] = React.useState(false);
+  const [conflictCount, setConflictCount] = React.useState(0);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+  const [isSaving, setIsSaving] = React.useState(false);
+
+  const document = project.document as unknown as ProjectDocument;
+
+  function handleGenerate() {
+    setSaveError(null);
+    const result = generateSuggestionsForProject(document);
+    setSuggestions(result.filtered);
+    setConflictCount(result.candidates.length - result.filtered.length);
+    setHasGenerated(true);
+  }
+
+  async function persist(nextDocument: ProjectDocument) {
+    const previous = project;
+    const optimistic = { ...project, document: nextDocument as unknown as ProjectState['document'] };
+    setSaveError(null);
+    setIsSaving(true);
+    onProjectChange(optimistic);
+    try {
+      const saved = await window.roughCut.saveProject({ path: project.path, document: optimistic.document });
+      onProjectChange(saved);
+    } catch (err) {
+      onProjectChange(previous);
+      setSaveError(err instanceof Error ? err.message : 'Save failed.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleApply(suggestion: ZoomMarker) {
+    const nextDocument = applySuggestionAsManual(document, suggestion);
+    if (nextDocument === document) return;
+    setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
+    await persist(nextDocument);
+  }
+
+  function handleDiscard(suggestionId: ZoomMarker['id']) {
+    setSuggestions((prev) => prev.filter((s) => s.id !== suggestionId));
+  }
+
+  return (
+    <div className="autoZoomSuggestionsPanel" aria-label="Auto-zoom suggestions">
+      <div className="autoZoomHeader">
+        <h3>Auto-zoom suggestions</h3>
+        <button
+          type="button"
+          className="secondary compact"
+          onClick={handleGenerate}
+          disabled={isSaving}
+        >
+          {hasGenerated ? 'Regenerate suggestions' : 'Generate suggestions'}
+        </button>
+      </div>
+      {!hasGenerated ? (
+        <p className="autoZoomEmpty">
+          Generate suggestions to see auto-zoom proposals derived from cursor activity.
+        </p>
+      ) : suggestions.length === 0 ? (
+        <p className="autoZoomEmpty">
+          No suggestions for this recording
+          {conflictCount > 0 ? ` (${conflictCount} candidate(s) conflict with manual markers).` : '.'}
+        </p>
+      ) : (
+        <>
+          {conflictCount > 0 ? (
+            <p className="autoZoomConflicts">
+              {conflictCount} candidate(s) hidden — they overlap your existing manual markers.
+            </p>
+          ) : null}
+          <ul className="autoZoomList">
+            {suggestions.map((suggestion) => (
+              <li key={suggestion.id} className="autoZoomRow">
+                <span className="autoZoomRange">
+                  {suggestion.startFrame}–{suggestion.endFrame} f · {Math.round(suggestion.strength * 100)}% · focal ({suggestion.focalPoint.x.toFixed(2)}, {suggestion.focalPoint.y.toFixed(2)})
+                </span>
+                <span className="autoZoomActions">
+                  <button
+                    type="button"
+                    className="secondary compact"
+                    onClick={() => handleApply(suggestion)}
+                    disabled={isSaving}
+                  >
+                    Apply
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary compact"
+                    onClick={() => handleDiscard(suggestion.id)}
+                    disabled={isSaving}
+                  >
+                    Discard
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
       {saveError ? <p className="error">{saveError}</p> : null}
     </div>

@@ -32,7 +32,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-016 | Add smooth manual zoom export rendering | P1 | DONE |
 | TASK-017 | Add zoom preview playback approximation | P2 | SUPERSEDED → TASK-025 |
 | TASK-018 | Add automatic zoom suggestion engine | P2 | DONE |
-| TASK-019 | Add automatic zoom review/apply flow | P2 | PLANNED |
+| TASK-019 | Add automatic zoom review/apply flow | P2 | IN PROGRESS |
 | TASK-020 | Add countdown before recording | P2 | PLANNED |
 | TASK-021 | Add clear recording indicator and elapsed time | P2 | PLANNED |
 | TASK-022 | Add open recording/project folder action | P2 | PLANNED |
@@ -616,7 +616,7 @@ Automatic zooms should be suggestions based on cursor activity, not irreversible
 ### TASK-019 Add automatic zoom review/apply flow
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 #### Context
 
@@ -628,16 +628,28 @@ Automatic zoom suggestions need a user-facing review step before they become pro
 - Let the user apply or discard suggestions.
 - Applied suggestions become normal manual zoom markers.
 
+#### Completion Notes
+
+- New `AutoZoomSuggestionsPanel` component co-located in `apps/desktop/src/renderer/src/main.tsx` (mirrors the `ZoomMarkerPanel` pattern). Renders inside `ProjectPreview` after the existing zoom markers panel.
+- "Generate suggestions" button calls `generateSuggestionsForProject(document)` from TASK-018's wrapper. After generation: shows the filtered candidate list (auto markers that don't overlap manual ones), plus a count of conflicts so the user knows when their manual markers blocked auto candidates.
+- Per-row Apply / Discard actions:
+  - **Apply** → calls `applySuggestionAsManual(document, suggestion)` (new helper in `zoom-markers.mjs`) which creates a fresh-id manual marker preserving the suggestion's frame range, focal point, strength, and durations. Persists optimistically through the existing `window.roughCut.saveProject` IPC. Removes the suggestion from local state on success.
+  - **Discard** → removes from local state only; no project mutation. Suggestions are transient (not persisted), so a future regenerate produces fresh candidates.
+- All actions disabled while a save is in flight (`isSaving` flag); save errors surface inline and revert the optimistic update.
+- Empty / pre-generation states show contextual hints so the panel is self-documenting.
+
 #### Testing
 
-- UI smoke verifies suggestions can be generated from fixture telemetry.
-- Project save/reopen confirms applied suggestions persist as markers.
+- New `applySuggestionAsManual` cases in `apps/desktop/src/renderer/src/zoom-markers.test.mjs` — fresh-id behavior, field preservation, sort-by-startFrame, no-op when no recording asset.
+- `runRendererUiSmoke` extended to wait for the "Auto-zoom suggestions" panel header. Result JSON gains `hasAutoZoomSuggestionsPanel: true`.
 
 #### Verification
 
-- `pnpm test`
-- `pnpm smoke:ui`
-- Manual packaged check on a real recording.
+- `pnpm test` — desktop 104/104 (was 101, +3 applySuggestionAsManual cases). project-model 91/91.
+- `pnpm typecheck` — clean across all 5 packages.
+- `pnpm smoke:ui` — passes; result JSON: `hasAutoZoomSuggestionsPanel: true`, `hasZoomMarkerPanel: true`, `hasStyledPreviewCanvas: true`, `hasExportResult: true`.
+- `pnpm smoke:mvp` — record/save/reopen/export pipeline still `ok: true`.
+- **Pending: manual packaged-app round-trip** — open a real recording, click "Generate suggestions", confirm a list appears (or the empty-state message if cursor data didn't yield any), apply one or more, verify the markers persist after close+reopen, regenerate to confirm conflict-with-manual filtering works. Today's auto-zoom uses teleport-detection only (no click telemetry yet); suggestion quality on a real recording is the manual-verification signal.
 
 ### TASK-020 Add countdown before recording
 

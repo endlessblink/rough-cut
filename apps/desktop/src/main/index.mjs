@@ -234,6 +234,8 @@ async function runRendererUiSmoke() {
   const hasStyledPreviewCanvas = true;
   await waitFor(() => document.body.textContent?.includes('Zoom markers'), 'zoom marker panel header');
   const hasZoomMarkerPanel = true;
+  await waitFor(() => document.body.textContent?.includes('Auto-zoom suggestions'), 'auto-zoom suggestions panel header');
+  const hasAutoZoomSuggestionsPanel = true;
   const exportMode = await waitFor(
     () => document.querySelector('select')?.value === 'raw' ? document.querySelector('select') : null,
     'raw export mode selection',
@@ -268,6 +270,7 @@ async function runRendererUiSmoke() {
     hasRawPresetDetails,
     hasStyledPresetDetails,
     hasZoomMarkerPanel,
+    hasAutoZoomSuggestionsPanel,
     hasStyledPreviewCanvas,
     hasExportResult: document.body.textContent?.includes('Exported to:') ?? false,
   };

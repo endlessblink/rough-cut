@@ -82,3 +82,39 @@ export function listMarkers(document) {
   const asset = getPrimaryRecordingAsset(document);
   return asset?.presentation?.zoom.markers ?? [];
 }
+
+export function applySuggestionAsManual(document, suggestion) {
+  if (!suggestion) return document;
+  const asset = getPrimaryRecordingAsset(document);
+  if (!asset) return document;
+
+  // Reuse createZoomMarker so we get a freshly-minted, schema-valid marker
+  // id; override the rest of the fields from the suggestion and force
+  // kind: 'manual' so future re-runs of generateSuggestionsForProject treat
+  // this region as user-applied (manual markers block overlapping auto
+  // candidates per filterAutoMarkersAgainstManual).
+  const manualMarker = createZoomMarker(suggestion.startFrame, suggestion.endFrame, {
+    kind: 'manual',
+    strength: suggestion.strength,
+    focalPoint: { x: suggestion.focalPoint.x, y: suggestion.focalPoint.y },
+    zoomInDuration: suggestion.zoomInDuration,
+    zoomOutDuration: suggestion.zoomOutDuration,
+  });
+
+  const presentation = asset.presentation ?? createDefaultRecordingPresentation();
+  const nextMarkers = [...presentation.zoom.markers, manualMarker].sort(
+    (a, b) => a.startFrame - b.startFrame,
+  );
+  const nextAsset = {
+    ...asset,
+    presentation: {
+      ...presentation,
+      zoom: { ...presentation.zoom, markers: nextMarkers },
+    },
+  };
+
+  return {
+    ...document,
+    assets: document.assets.map((item) => (item.id === asset.id ? nextAsset : item)),
+  };
+}

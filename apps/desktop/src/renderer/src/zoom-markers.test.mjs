@@ -8,6 +8,7 @@ import {
 } from '@rough-cut/project-model';
 import {
   addManualMarkerAt,
+  applySuggestionAsManual,
   canAddMarkerAt,
   getPrimaryRecordingAsset,
   listMarkers,
@@ -123,5 +124,69 @@ test('removeMarker is a no-op when id does not match', () => {
   let project = projectWithRecording();
   project = addManualMarkerAt(project, 2.0, 30);
   const next = removeMarker(project, 'nonexistent-id');
+  assert.equal(next, project);
+});
+
+test('applySuggestionAsManual appends a manual marker preserving suggestion fields with a fresh id', () => {
+  const project = projectWithRecording();
+  const suggestion = {
+    id: 'suggested-1',
+    startFrame: 60,
+    endFrame: 120,
+    kind: 'auto',
+    strength: 0.8,
+    focalPoint: { x: 0.25, y: 0.75 },
+    zoomInDuration: 12,
+    zoomOutDuration: 18,
+  };
+
+  const next = applySuggestionAsManual(project, suggestion);
+  assert.notEqual(next, project);
+
+  const markers = listMarkers(next);
+  assert.equal(markers.length, 1);
+  const applied = markers[0];
+  assert.equal(applied.kind, 'manual');
+  assert.notEqual(applied.id, suggestion.id);
+  assert.equal(applied.startFrame, 60);
+  assert.equal(applied.endFrame, 120);
+  assert.equal(applied.strength, 0.8);
+  assert.deepEqual(applied.focalPoint, { x: 0.25, y: 0.75 });
+  assert.equal(applied.zoomInDuration, 12);
+  assert.equal(applied.zoomOutDuration, 18);
+});
+
+test('applySuggestionAsManual preserves existing markers and keeps the array sorted by startFrame', () => {
+  let project = projectWithRecording();
+  project = addManualMarkerAt(project, 4.0, 30);
+  const earlierSuggestion = {
+    id: 'earlier',
+    startFrame: 0,
+    endFrame: 30,
+    kind: 'auto',
+    strength: 1,
+    focalPoint: { x: 0.5, y: 0.5 },
+    zoomInDuration: 9,
+    zoomOutDuration: 9,
+  };
+  const next = applySuggestionAsManual(project, earlierSuggestion);
+  const markers = listMarkers(next);
+  assert.equal(markers.length, 2);
+  assert.equal(markers[0].startFrame, 0);
+  assert.equal(markers[1].startFrame, 120);
+});
+
+test('applySuggestionAsManual is a no-op when there is no recording asset', () => {
+  const project = createProject();
+  const next = applySuggestionAsManual(project, {
+    id: 's',
+    startFrame: 0,
+    endFrame: 30,
+    kind: 'auto',
+    strength: 1,
+    focalPoint: { x: 0.5, y: 0.5 },
+    zoomInDuration: 9,
+    zoomOutDuration: 9,
+  });
   assert.equal(next, project);
 });
