@@ -38,7 +38,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-022 | Add open recording/project folder action | P2 | PLANNED |
 | TASK-023 | Add recent projects or recordings list | P2 | PLANNED |
 | TASK-024 | Add microphone recording foundation | P2 | PLANNED |
-| TASK-025 | Unified preview that mirrors styled export | P1 | IN PROGRESS |
+| TASK-025 | Unified preview that mirrors styled export | P1 | DONE |
 | TASK-026 | Switch capture pipeline to xdg-desktop-portal + PipeWire (Wayland) | P1 | PLANNED |
 
 ## Recently Verified
@@ -744,10 +744,10 @@ Client demos often need narration. Microphone support should come after the core
 - `pnpm test`
 - Manual packaged recording with mic input on the target Linux setup.
 
-### TASK-025 Unified preview that mirrors styled export
+### ~~TASK-025~~ Unified preview that mirrors styled export
 
 **Priority:** P1  
-**Status:** IN PROGRESS  
+**Status:** DONE  
 **Supersedes:** TASK-012, TASK-017
 
 #### Context
