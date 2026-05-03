@@ -26,9 +26,9 @@ function deriveConfig(intensity: number, frameRate: number): ZoomConfig {
     return {
       clusterGapFrames: Math.round(lerp(90, 60, t) * s),
       zoomScale: lerp(1.3, 1.5, t),
-      zoomInFrames: Math.round(lerp(18, 15, t) * s),
+      zoomInFrames: Math.round(lerp(30, 27, t) * s),
       holdPaddingFrames: Math.round(lerp(40, 30, t) * s),
-      zoomOutFrames: Math.round(lerp(24, 20, t) * s),
+      zoomOutFrames: Math.round(lerp(36, 33, t) * s),
       teleportThreshold: 0.4,
     };
   } else if (intensity <= 0.7) {
@@ -36,9 +36,9 @@ function deriveConfig(intensity: number, frameRate: number): ZoomConfig {
     return {
       clusterGapFrames: Math.round(lerp(60, 30, t) * s),
       zoomScale: lerp(1.5, 2.0, t),
-      zoomInFrames: Math.round(lerp(15, 12, t) * s),
+      zoomInFrames: Math.round(lerp(27, 21, t) * s),
       holdPaddingFrames: Math.round(lerp(30, 20, t) * s),
-      zoomOutFrames: Math.round(lerp(20, 18, t) * s),
+      zoomOutFrames: Math.round(lerp(33, 27, t) * s),
       teleportThreshold: 0.3,
     };
   } else {
@@ -46,9 +46,9 @@ function deriveConfig(intensity: number, frameRate: number): ZoomConfig {
     return {
       clusterGapFrames: Math.round(lerp(30, 15, t) * s),
       zoomScale: lerp(2.0, 3.0, t),
-      zoomInFrames: Math.round(lerp(12, 8, t) * s),
+      zoomInFrames: Math.round(lerp(21, 15, t) * s),
       holdPaddingFrames: Math.round(lerp(20, 10, t) * s),
-      zoomOutFrames: Math.round(lerp(18, 12, t) * s),
+      zoomOutFrames: Math.round(lerp(27, 21, t) * s),
       teleportThreshold: 0.2,
     };
   }

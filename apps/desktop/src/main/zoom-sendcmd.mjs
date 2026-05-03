@@ -117,10 +117,10 @@ export function buildZoomSendcmd({
   }
 
   const followCursor = presentationOptions.followCursor !== false;
-  const followAnimation = presentationOptions.followAnimation ?? 'focused';
+  const followAnimation = presentationOptions.followAnimation ?? 'smooth';
   const followPadding = Number.isFinite(presentationOptions.followPadding)
     ? presentationOptions.followPadding
-    : 0.18;
+    : 0.22;
 
   const cursorLookup = buildCursorPositionLookup(cursorEvents, sourceWidth, sourceHeight);
   const transformOptions = followCursor

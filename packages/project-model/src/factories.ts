@@ -220,8 +220,8 @@ export function createDefaultZoomPresentation(): ZoomPresentation {
   return {
     autoIntensity: 0.5,
     followCursor: true,
-    followAnimation: 'focused',
-    followPadding: 0.18,
+    followAnimation: 'smooth',
+    followPadding: 0.22,
     markers: [],
     autoFromClicks: true,
   };

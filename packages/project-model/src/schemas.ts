@@ -87,8 +87,8 @@ export const ZoomFollowAnimationSchema = z.enum(['focused', 'smooth']);
 export const ZoomPresentationSchema = z.object({
   autoIntensity: unit,
   followCursor: z.boolean().default(true),
-  followAnimation: ZoomFollowAnimationSchema.default('focused'),
-  followPadding: z.number().min(0).max(0.3).default(0.18),
+  followAnimation: ZoomFollowAnimationSchema.default('smooth'),
+  followPadding: z.number().min(0).max(0.3).default(0.22),
   markers: z.array(ZoomMarkerSchema),
   autoFromClicks: z.boolean().optional(),
 });

@@ -12,7 +12,7 @@ export function createRecordingSession({
   captureFactory = startFfmpegCapture,
   isCaptureAvailable = isFfmpegCaptureAvailable,
   now = () => new Date(),
-  sampleIntervalMs = 100,
+  sampleIntervalMs = 33,
 }) {
   let active = null;
 
