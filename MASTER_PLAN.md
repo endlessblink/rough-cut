@@ -64,6 +64,16 @@ The next phase is not generic editing. It is client-demo recording quality.
 
 Once the styled export pipeline is stable for cursor + zoom, the preview must mirror it deterministically — the user should see exactly what the export will produce. Earlier per-feature preview tasks (TASK-012 cursor preview, TASK-017 zoom preview) are superseded by a single TASK-025 "Unified preview that mirrors styled export" that lands after the export side is locked in. Sequencing: finish styled-export rendering (TASK-011 + TASK-016 + TASK-013), then build the unified preview (TASK-025), then auto-zoom UX (TASK-018, TASK-019). This avoids rebuilding a partial preview every time the export pipeline changes.
 
+### Wayland-readiness principle
+
+X11 is being deprecated and the Wayland pivot (TASK-026) is a bounded *swap-out* of the bottom capture layer plus the cursor-source modules — not a rewrite. To keep it bounded as the app matures, **design new features against cursor-data abstractions** rather than reaching into `metadata.cursorEvents` directly:
+
+- Define `clicksAtFrame(project, frame)`, `cursorAtFrame(project, frame)`, etc. as the canonical access points.
+- Implement them once; new features (click emphasis, auto-zoom, anything else cursor-derived) consume the abstractions only.
+- When Wayland lands, the implementation behind these abstractions changes (compositor-rendered cursor in stream replaces telemetry); call sites stay untouched.
+
+What survives the pivot regardless: project schema, zoom export math, canvas preview rendering, all UI panels, click-effect rendering, auto-zoom marker generation. What gets replaced: `recording-session.mjs` cursor sampling, `xdotool-cursor.mjs`, `buildCursorAss`. Small, isolated, well-tested modules.
+
 ## Tasks
 
 ### ~~TASK-001~~ Add repeatable MVP smoke verification script
