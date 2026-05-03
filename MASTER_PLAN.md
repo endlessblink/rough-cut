@@ -26,7 +26,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-010 | Add cursor telemetry recording foundation | P1 | DONE |
 | TASK-011 | Add cursor overlay export rendering | P1 | DONE |
 | TASK-012 | Add cursor overlay preview rendering | P2 | SUPERSEDED → TASK-025 |
-| TASK-013 | Add click emphasis telemetry and export rendering | P2 | PLANNED |
+| TASK-013 | Add click emphasis telemetry and export rendering | P2 | IN PROGRESS |
 | TASK-014 | Add manual zoom marker data model | P1 | DONE |
 | TASK-015 | Add manual zoom marker UI controls | P1 | DONE |
 | TASK-016 | Add smooth manual zoom export rendering | P1 | DONE |
@@ -430,28 +430,37 @@ Users need preview confidence before exporting cursor overlays.
 ### TASK-013 Add click emphasis telemetry and export rendering
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** IN PROGRESS (capture done; visual emphasis pending)
 
 #### Context
 
-Client demos benefit from visible clicks, but this should build on cursor telemetry rather than become a separate capture system.
+Client demos benefit from visible clicks, but this should build on cursor telemetry rather than become a separate capture system. Capture also unlocks click-precise auto-zoom suggestions instead of teleport-only.
 
 #### Acceptance Criteria
 
-- Capture click timestamps and positions during recording.
-- Render simple click emphasis in styled export.
+- Capture click timestamps and positions during recording. **DONE**
+- Render simple click emphasis in styled export. **PENDING**
 - Keep click emphasis optional.
+
+#### Completion Notes
+
+- New `apps/desktop/src/main/recording/xinput-button-listener.mjs` (X11): spawns `xinput test-xi2 --root`, parses cooked `ButtonPress` (type 4) / `ButtonRelease` (type 5) blocks, maps X11 button numbers (1=left, 2=middle, 3=right; scrolls dropped) to schema `MouseButton` (0/1/2). Emits via callback. Graceful no-op when xinput is missing — logs once and recording continues with position-only events.
+- `apps/desktop/src/main/recording/recording-session.mjs` wires the listener into start/stop, normalizes coords through the existing `normalizeCursorPoint`, computes wall-clock frame from `Date.now() - startedAt`.
+- Auto-zoom now uses real `down`/`up` events instead of falling through to the teleport heuristic. `extractTriggerEvents` in `packages/timeline-engine/src/auto-zoom.ts` extended with `extractDragTriggers` — pairs each `down` with the matching `up`, emits a synthetic trigger at the drag midpoint when duration > 6 frames AND displacement > teleport threshold. Highlights and window-drags share input shape, so one detector covers both.
+- xinput is X11-only; TASK-026 (Wayland pivot) will swap the listener with a portal/libinput equivalent. Encapsulated in one file for that swap.
+- **Click visual emphasis (rings/ripples) in styled export still pending.** Recorder now has the data; renderer just needs to consume it.
 
 #### Testing
 
-- Unit test click event normalization.
-- Export smoke verifies click-emphasis export succeeds.
+- Unit tests in `packages/timeline-engine/src/auto-zoom.test.ts` cover three drag scenarios: long click-and-drag produces marker shifted toward midpoint; short click does not double-emit; long-hold-without-movement does not emit a drag trigger.
+- `recording-session.test.mjs` 7/7 pass with the new `buttonListenerFactory` injection point.
 
 #### Verification
 
-- `pnpm test`
-- Styled export smoke with click events.
-- Manual packaged export: visually confirm click emphasis is visible but not distracting.
+- `pnpm test` — all packages green.
+- `pnpm smoke:mvp` / `smoke:ui` / `smoke:styled-export` — all pass.
+- **Pending: manual packaged-app verification** — record while clicking + dragging, generate suggestions, verify markers appear at click positions AND drag regions (not just teleport jumps).
+- **Pending: visual click emphasis rendering** — separate task once auto-zoom verification confirms capture is correct.
 
 ### ~~TASK-014~~ Add manual zoom marker data model
 
