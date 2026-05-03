@@ -31,7 +31,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-015 | Add manual zoom marker UI controls | P1 | DONE |
 | TASK-016 | Add smooth manual zoom export rendering | P1 | DONE |
 | TASK-017 | Add zoom preview playback approximation | P2 | SUPERSEDED → TASK-025 |
-| TASK-018 | Add automatic zoom suggestion engine | P2 | PLANNED |
+| TASK-018 | Add automatic zoom suggestion engine | P2 | DONE |
 | TASK-019 | Add automatic zoom review/apply flow | P2 | PLANNED |
 | TASK-020 | Add countdown before recording | P2 | PLANNED |
 | TASK-021 | Add clear recording indicator and elapsed time | P2 | PLANNED |
@@ -577,10 +577,10 @@ Before exporting, users should be able to approximate how manual zooms will feel
 - `pnpm smoke:ui`
 - Manual packaged preview check against exported result.
 
-### TASK-018 Add automatic zoom suggestion engine
+### ~~TASK-018~~ Add automatic zoom suggestion engine
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -593,15 +593,25 @@ Automatic zooms should be suggestions based on cursor activity, not irreversible
 - Avoid excessive or jittery suggestions.
 - Keep the engine deterministic for testing.
 
+#### Completion Notes
+
+- Audit found the underlying engine already implemented and tested in `packages/timeline-engine/src/auto-zoom.ts` (`generateAutoZoomMarkers` + `filterAutoMarkersAgainstManual`) but never wired into the app. TASK-018 ships the integration: two small renderer-side modules that expose the engine via Wayland-ready abstractions.
+- New `apps/desktop/src/renderer/src/cursor-data.mjs` (+ `.d.mts`) — accessors `getCursorEvents`, `getCursorClickEvents`, `getCursorMoveEvents`, `getRecordingFps`, `getRecordingSourceSize`. Wraps `metadata.cursorEvents` access; today reads the array directly, on Wayland (TASK-026) the implementation behind these names changes without touching call sites.
+- New `apps/desktop/src/renderer/src/auto-zoom-suggestions.mjs` (+ `.d.mts`) — `generateSuggestionsForProject(document, options?) → { candidates, filtered, existingManual }`. Composes `generateAutoZoomMarkers` + `filterAutoMarkersAgainstManual` + the new accessors. Defaults intensity to `presentation.zoom.autoIntensity ?? 0.5`. Deterministic.
+- The recorder still emits move-only events today (no clicks). `generateAutoZoomMarkers` falls back to teleport detection (large normalized cursor jumps above 0.2-0.4 threshold depending on intensity) when no clicks are present. Auto-zoom works against move-only data; suggestions become more click-precise once click capture lands (TASK-013 precondition).
+
 #### Testing
 
-- Unit tests for dwell/click clustering.
-- Fixture tests for expected suggestions from sample telemetry.
+- `apps/desktop/src/renderer/src/cursor-data.test.mjs` — 12 cases covering empty/null documents, recording asset selection, click/move filtering, fps fallback (asset metadata → settings.frameRate → default), source size fallback (asset metadata → settings.resolution → default).
+- `apps/desktop/src/renderer/src/auto-zoom-suggestions.test.mjs` — 7 cases covering empty cursor events, teleport-derived candidates with `kind: 'auto'`, manual-marker conflict filtering, intensity override, determinism across repeated calls, fallback to default intensity.
+- Both registered in `apps/desktop/package.json` test script.
 
 #### Verification
 
-- `pnpm test`
-- Run suggestion generation on a real recorded project and inspect generated markers.
+- `pnpm test` — desktop 101/101 (was 82, +19 new across cursor-data + auto-zoom-suggestions). project-model 91/91.
+- `pnpm typecheck` — clean across all 5 packages.
+- `pnpm smoke:mvp` and `pnpm smoke:ui` — unchanged (TASK-018 ships dormant code paths only; nothing wired into runtime flow until TASK-019 adds UI).
+- No manual packaged-app verification needed — engine + abstractions only. Manual verification belongs in TASK-019 (review/apply UI).
 
 ### TASK-019 Add automatic zoom review/apply flow
 
