@@ -87,12 +87,15 @@ function clamp(value: number, min: number, max: number): number {
 
 function resolveTrackedCursor(
   frame: Frame,
-  marker: ZoomMarker,
   getCursorPosition: (frame: Frame) => ZoomCursorPosition | null,
   followAnimation: 'focused' | 'smooth',
 ): ZoomCursorPosition | null {
   const lookbackFrames = followAnimation === 'smooth' ? 24 : 12;
-  const startFrame = Math.max(marker.startFrame, frame - lookbackFrames + 1);
+  // Include cursor samples from before marker.startFrame so the smoothing
+  // window is already "warm" at marker entry. Otherwise the focal jumps from
+  // raw to smoothed during the zoom-in ramp, compounding with the scale
+  // animation into visible wobble.
+  const startFrame = Math.max(0, frame - lookbackFrames + 1);
   let totalWeight = 0;
   let sumX = 0;
   let sumY = 0;
@@ -159,7 +162,6 @@ function getMarkerFocalPoint(
 
   const trackedCursor = resolveTrackedCursor(
     frame,
-    marker,
     options.getCursorPosition,
     options.followAnimation ?? 'smooth',
   );
@@ -167,13 +169,22 @@ function getMarkerFocalPoint(
     return marker.focalPoint;
   }
 
+  // Use the marker's target scale (not the current ramp scale) for the leash
+  // radius so the cursor-vs-focal relationship stays constant during the
+  // zoom-in / zoom-out ramps. Otherwise the leash shrinks as scale grows,
+  // pulling the focal in motion that's coupled to the ramp itself rather
+  // than to actual cursor movement.
+  const targetScale = strengthToScale(marker.strength);
   const followed = resolveFollowFocalPoint(
     marker,
     trackedCursor,
-    scale,
+    targetScale,
     options.followPadding ?? 0.22,
   );
 
+  // The source-bound clamp DOES use current scale: at low scale the visible
+  // window is wider and would extend past the source if the focal isn't
+  // pushed toward center. This clamp is a hard correctness constraint.
   return {
     x: clamp(followed.x, 1 / (2 * scale), 1 - 1 / (2 * scale)),
     y: clamp(followed.y, 1 / (2 * scale), 1 - 1 / (2 * scale)),
