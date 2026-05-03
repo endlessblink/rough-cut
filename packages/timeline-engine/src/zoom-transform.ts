@@ -23,6 +23,11 @@ export interface ZoomTransformOptions {
   readonly followAnimation?: 'focused' | 'smooth';
   readonly followPadding?: number;
   readonly getCursorPosition?: (frame: Frame) => ZoomCursorPosition | null;
+  /**
+   * Frame rate for spring-physics integration. dt = 1/fps. Defaults to 30
+   * when absent. Required for fps-independent settle times.
+   */
+  readonly fps?: number;
 }
 
 const IDENTITY: ZoomTransform = { scale: 1, translateX: 0, translateY: 0 };
@@ -85,36 +90,133 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function resolveTrackedCursor(
+// Critically damped spring stiffness presets (units: 1/sec²). Damping is
+// derived as 2*sqrt(stiffness) for critical damping (no overshoot, fastest
+// settle without oscillation). Settle time ≈ 4/sqrt(stiffness).
+//   smooth:   stiffness 80  → ≈0.45 s settle. Cinematic, Apple-style feel.
+//   focused:  stiffness 200 → ≈0.28 s settle. Snappy, responsive.
+const SPRING_STIFFNESS: Record<'smooth' | 'focused', number> = {
+  smooth: 80,
+  focused: 200,
+};
+
+// Stationary-snap polish (per open-recorder): if the spring TARGET hasn't
+// moved more than this normalized epsilon for STATIONARY_FRAMES consecutive
+// steps, snap position to target and zero velocity. Eliminates micro-
+// oscillation when cursor pauses.
+const STATIONARY_EPSILON = 0.001;
+const STATIONARY_FRAMES = 2;
+
+function getMarkerScale(
   frame: Frame,
+  marker: ZoomMarker,
+  targetScale: number,
+): number {
+  if (frame < marker.startFrame || frame >= marker.endFrame) return 1;
+  const relFrame = frame - marker.startFrame;
+  const totalDuration = marker.endFrame - marker.startFrame;
+  if (relFrame < marker.zoomInDuration && marker.zoomInDuration > 0) {
+    const t = relFrame / marker.zoomInDuration;
+    return 1 + (targetScale - 1) * smootherStep(t);
+  }
+  if (relFrame >= totalDuration - marker.zoomOutDuration && marker.zoomOutDuration > 0) {
+    const framesIntoRamp = relFrame - (totalDuration - marker.zoomOutDuration);
+    const t = framesIntoRamp / marker.zoomOutDuration;
+    return targetScale - (targetScale - 1) * smootherStep(t);
+  }
+  return targetScale;
+}
+
+// Critically damped spring chasing the cursor-derived target focal point.
+// Integrates from marker.startFrame so the engine remains a pure function:
+// each call is independent of any previous call, but the focal trajectory
+// is identical to a stateful per-frame integration. O(F) per call where F
+// is frames since marker.startFrame — trivial in practice.
+//
+// The spring's target each step is the cursor position passed through the
+// existing leash (using marker.targetScale for stable radius across ramps),
+// then source-bound clamped at the FRAME's current scale. By feeding the
+// spring a target that's always inside the source, the spring never has to
+// fight a clamp that shifts during ramps — the dominant wobble cause in the
+// previous lookback-averaging approach.
+function resolveSpringSmoothedFocal(
+  frame: Frame,
+  marker: ZoomMarker,
   getCursorPosition: (frame: Frame) => ZoomCursorPosition | null,
   followAnimation: 'focused' | 'smooth',
-): ZoomCursorPosition | null {
-  const lookbackFrames = followAnimation === 'smooth' ? 24 : 12;
-  // Include cursor samples from before marker.startFrame so the smoothing
-  // window is already "warm" at marker entry. Otherwise the focal jumps from
-  // raw to smoothed during the zoom-in ramp, compounding with the scale
-  // animation into visible wobble.
-  const startFrame = Math.max(0, frame - lookbackFrames + 1);
-  let totalWeight = 0;
-  let sumX = 0;
-  let sumY = 0;
+  followPadding: number,
+  fps: number,
+): ZoomCursorPosition {
+  const stiffness = SPRING_STIFFNESS[followAnimation];
+  const damping = 2 * Math.sqrt(stiffness);
+  const dt = 1 / Math.max(1, fps);
+  const targetScale = strengthToScale(marker.strength);
 
-  for (let sampleFrame = startFrame; sampleFrame <= frame; sampleFrame += 1) {
-    const position = getCursorPosition(sampleFrame);
-    if (position === null) continue;
-    const weight = sampleFrame - startFrame + 1;
-    sumX += position.x * weight;
-    sumY += position.y * weight;
-    totalWeight += weight;
+  let posX = marker.focalPoint.x;
+  let posY = marker.focalPoint.y;
+  let velX = 0;
+  let velY = 0;
+  let prevTargetX = marker.focalPoint.x;
+  let prevTargetY = marker.focalPoint.y;
+  let stationaryCount = 0;
+
+  for (let f = marker.startFrame; f <= frame; f += 1) {
+    const cursor = getCursorPosition(f);
+    const scaleAtF = getMarkerScale(f, marker, targetScale);
+
+    // Follow strength derived from scale: 0 at the ramp endpoints (scale=1),
+    // 1 at full hold (scale=targetScale). This tapers cursor influence at the
+    // boundaries so the focal is anchored at marker.focalPoint when scale=1
+    // (where the source-bound clamp would force it to 0.5 anyway), preventing
+    // the rapid focal travel as the clamp tightens during zoom-out.
+    const followStrength =
+      targetScale > 1 ? clamp((scaleAtF - 1) / (targetScale - 1), 0, 1) : 1;
+
+    let leashedX = marker.focalPoint.x;
+    let leashedY = marker.focalPoint.y;
+    if (cursor !== null) {
+      const leashed = resolveFollowFocalPoint(marker, cursor, targetScale, followPadding);
+      leashedX = leashed.x;
+      leashedY = leashed.y;
+    }
+
+    let targetX = marker.focalPoint.x + (leashedX - marker.focalPoint.x) * followStrength;
+    let targetY = marker.focalPoint.y + (leashedY - marker.focalPoint.y) * followStrength;
+
+    const minXY = 1 / (2 * scaleAtF);
+    const maxXY = 1 - 1 / (2 * scaleAtF);
+    targetX = clamp(targetX, minXY, maxXY);
+    targetY = clamp(targetY, minXY, maxXY);
+
+    const targetMoved =
+      Math.abs(targetX - prevTargetX) > STATIONARY_EPSILON ||
+      Math.abs(targetY - prevTargetY) > STATIONARY_EPSILON;
+    if (!targetMoved) {
+      stationaryCount += 1;
+      if (stationaryCount >= STATIONARY_FRAMES) {
+        posX = targetX;
+        posY = targetY;
+        velX = 0;
+        velY = 0;
+        prevTargetX = targetX;
+        prevTargetY = targetY;
+        continue;
+      }
+    } else {
+      stationaryCount = 0;
+    }
+    prevTargetX = targetX;
+    prevTargetY = targetY;
+
+    const accelX = stiffness * (targetX - posX) - damping * velX;
+    const accelY = stiffness * (targetY - posY) - damping * velY;
+    velX += accelX * dt;
+    velY += accelY * dt;
+    posX += velX * dt;
+    posY += velY * dt;
   }
 
-  if (totalWeight <= 0) return null;
-
-  return {
-    x: clamp(sumX / totalWeight, 0, 1),
-    y: clamp(sumY / totalWeight, 0, 1),
-  };
+  return { x: posX, y: posY };
 }
 
 function resolveFollowFocalPoint(
@@ -160,31 +262,18 @@ function getMarkerFocalPoint(
     return marker.focalPoint;
   }
 
-  const trackedCursor = resolveTrackedCursor(
+  const followed = resolveSpringSmoothedFocal(
     frame,
+    marker,
     options.getCursorPosition,
     options.followAnimation ?? 'smooth',
-  );
-  if (trackedCursor === null) {
-    return marker.focalPoint;
-  }
-
-  // Use the marker's target scale (not the current ramp scale) for the leash
-  // radius so the cursor-vs-focal relationship stays constant during the
-  // zoom-in / zoom-out ramps. Otherwise the leash shrinks as scale grows,
-  // pulling the focal in motion that's coupled to the ramp itself rather
-  // than to actual cursor movement.
-  const targetScale = strengthToScale(marker.strength);
-  const followed = resolveFollowFocalPoint(
-    marker,
-    trackedCursor,
-    targetScale,
     options.followPadding ?? 0.22,
+    options.fps ?? 30,
   );
 
-  // The source-bound clamp DOES use current scale: at low scale the visible
-  // window is wider and would extend past the source if the focal isn't
-  // pushed toward center. This clamp is a hard correctness constraint.
+  // Spring targets are clamped per-step inside the integration, but apply the
+  // current-frame source-bound clamp once more here as a safety net for any
+  // transient overshoot during integration.
   return {
     x: clamp(followed.x, 1 / (2 * scale), 1 - 1 / (2 * scale)),
     y: clamp(followed.y, 1 / (2 * scale), 1 - 1 / (2 * scale)),

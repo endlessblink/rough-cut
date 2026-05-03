@@ -98,6 +98,7 @@ function resolveCameraTransformForFrame(
   sourceFrame: number,
   canvasWidth: number,
   canvasHeight: number,
+  fps: number,
   options?: {
     assetId?: string;
     getCursorPosition?: (assetId: string, sourceFrame: number) => { x: number; y: number } | null;
@@ -110,6 +111,7 @@ function resolveCameraTransformForFrame(
     followCursor: zoom.followCursor,
     followAnimation: zoom.followAnimation,
     followPadding: zoom.followPadding,
+    fps,
     getCursorPosition:
       options?.assetId && options.getCursorPosition
         ? (frame) => options.getCursorPosition?.(options.assetId!, frame) ?? null
@@ -283,6 +285,7 @@ export function resolveFrame(
     activeRecordingSourceFrame,
     screenSourceSize.width,
     screenSourceSize.height,
+    settings.frameRate,
     {
       assetId: activeRecording?.id,
       getCursorPosition: options?.getCursorPosition,

@@ -124,7 +124,7 @@ export function buildZoomSendcmd({
 
   const cursorLookup = buildCursorPositionLookup(cursorEvents, sourceWidth, sourceHeight);
   const transformOptions = followCursor
-    ? { followCursor: true, followAnimation, followPadding, getCursorPosition: cursorLookup }
+    ? { followCursor: true, followAnimation, followPadding, fps, getCursorPosition: cursorLookup }
     : undefined;
 
   const lines = [];
