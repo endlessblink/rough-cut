@@ -179,7 +179,9 @@ test('cursor ASS layer interpolates movement and limits dense telemetry', () => 
   assert(ass.includes('PlayResY: 720'));
   assert(ass.includes('\\move(0,0,5,5,0,167)'));
   assert(ass.includes('m 0 0 l 0 26'));
-  assert.equal((ass.match(/^Dialogue:/gm) ?? []).length, 100);
+  // 500 events / stride=5 -> 100 sampled, plus the explicit last-event
+  // preservation (frame 499 not on the stride) yields 101 dialogue lines.
+  assert.equal((ass.match(/^Dialogue:/gm) ?? []).length, 101);
 });
 
 test('cursor ASS layer passes off-screen positions through so cursor disappears past the edge', () => {
@@ -210,6 +212,24 @@ test('cursor ASS layer passes negative coordinates through (cursor on a left-sid
   });
 
   assert(ass.includes('\\move(-50,200,100,200'));
+});
+
+test('cursor ASS layer always preserves the final recorded event under subsampling', () => {
+  // 1500 unique cursor events; default maxEvents=600 forces stride=3.
+  // Without the explicit last-event preservation, index 1499 would be dropped
+  // (1499 % 3 = 2) and the cursor would render stuck at index 1497's position
+  // for the tail of the recording.
+  const events = Array.from({ length: 1500 }, (_value, index) => ({
+    frame: index,
+    x: 100 + index,
+    y: 100 + index,
+    type: 'move',
+    button: 0,
+  }));
+  const ass = buildCursorAss({ cursorEvents: events, width: 1920, height: 1080, fps: 30 });
+  // The final event has x = 100 + 1499 = 1599; the corresponding ASS \\move
+  // call must reference this final position somewhere in the dialogue stream.
+  assert(ass.includes('\\move(1599,1599'));
 });
 
 test('cursor ASS layer keeps final cursor visible through recording end', () => {

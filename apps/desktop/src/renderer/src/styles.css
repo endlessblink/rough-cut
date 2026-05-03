@@ -143,6 +143,27 @@ h1 {
   width: 100%;
 }
 
+.styledPreview .hiddenSource {
+  /* Hidden but still decoded — drawImage(video) needs the video pipeline live. */
+  height: 1px;
+  left: -9999px;
+  position: absolute;
+  top: -9999px;
+  width: 1px;
+}
+
+.styledPreviewCanvas {
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(135deg, rgb(232, 235, 240) 0%, rgb(240, 232, 232) 100%);
+  border-radius: 26px;
+  box-shadow: 0 26px 58px rgba(0, 0, 0, 0.2);
+  display: block;
+  margin: 1rem auto;
+  max-width: calc(100% - 2rem);
+  object-fit: contain;
+  width: calc(100% - 2rem);
+}
+
 .videoControls {
   align-items: center;
   background: rgb(14 10 7 / 0.94);

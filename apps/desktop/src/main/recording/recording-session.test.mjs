@@ -96,6 +96,47 @@ test('recording session captures cursor move samples and writes sidecar', async 
   await rm(root, { recursive: true, force: true });
 });
 
+test('recording session keeps recording when the cursor source returns the same point repeatedly', async () => {
+  // Regression for the Electron Linux/X11 multi-monitor bug
+  // (electron/electron#42519): if getCursorScreenPoint() gets stuck, the
+  // recorder must still produce events for every tick so the stuck-source
+  // condition is visible in the sidecar (rather than silently empty).
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-stuck-cursor-'));
+  const startedAt = Date.parse('2026-04-28T12:00:00.000Z');
+  let tick = 0;
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date(startedAt + tick++ * 50),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 }),
+    // Same point every call - mirrors the broken Electron behavior.
+    getCursorPoint: () => ({ x: 1919, y: 500 }),
+    sampleIntervalMs: 5,
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+  });
+
+  await session.start();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const stopped = await session.stop();
+
+  assert.equal(stopped.state, 'saved');
+  // Frame advances each tick (tick advances now()), so dedup never collapses
+  // these. We must end up with multiple events at the same coordinate, NOT
+  // just one or zero.
+  assert.ok(
+    stopped.cursorEvents.length >= 3,
+    `expected stuck-source recording to keep producing events; got ${stopped.cursorEvents.length}`,
+  );
+  for (const event of stopped.cursorEvents) {
+    assert.equal(event.x, 1919);
+    assert.equal(event.y, 500);
+  }
+
+  await rm(root, { recursive: true, force: true });
+});
+
 test('recording session rejects overlapping starts', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-recording-'));
   const session = createRecordingSession({

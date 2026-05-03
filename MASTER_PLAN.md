@@ -38,7 +38,8 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-022 | Add open recording/project folder action | P2 | PLANNED |
 | TASK-023 | Add recent projects or recordings list | P2 | PLANNED |
 | TASK-024 | Add microphone recording foundation | P2 | PLANNED |
-| TASK-025 | Unified preview that mirrors styled export | P1 | PLANNED |
+| TASK-025 | Unified preview that mirrors styled export | P1 | IN PROGRESS |
+| TASK-026 | Switch capture pipeline to xdg-desktop-portal + PipeWire (Wayland) | P1 | PLANNED |
 
 ## Recently Verified
 
@@ -746,12 +747,25 @@ Client demos often need narration. Microphone support should come after the core
 ### TASK-025 Unified preview that mirrors styled export
 
 **Priority:** P1  
-**Status:** PLANNED  
+**Status:** IN PROGRESS  
 **Supersedes:** TASK-012, TASK-017
 
 #### Context
 
 Until preview matches export, every presentation feature ships blind: users add zoom markers, cursor styling, and (eventually) click emphasis without seeing how the styled export will look. Per-feature previews (TASK-012 cursor, TASK-017 zoom) would each chase a moving target as the export pipeline grows. This task replaces both with one preview renderer that consumes the same `ProjectDocument` and reproduces the styled-export composition deterministically. The preview becomes the source of truth for "what will the export look like." Sequencing: lands AFTER TASK-016 (smooth manual zoom export) so the export semantics are stable, and BEFORE TASK-018/019 (auto-zoom UX) so users can evaluate suggestions visually.
+
+#### Completion Notes (MVP)
+
+- `apps/desktop/src/renderer/src/styled-preview.mjs` (+`.d.mts`) — pure helpers: `cursorAtFrame` (linear interpolation between bracketing telemetry events, off-screen pass-through, sorts unsorted input, skips invalid events) and `drawCursorPath` (Canvas2D rendering of the same vector polygon the styled export's ASS layer produces).
+- `apps/desktop/src/renderer/src/main.tsx` `VideoPreview` — rebuilt as hidden `<video>` source + visible `<canvas>` overlay. A `requestAnimationFrame` loop calls `resolveFrame(project.document, currentFrame)` from `@rough-cut/frame-resolver` to get the canonical `cameraTransform = { scale, offsetX, offsetY }`, applies it via `ctx.translate + ctx.scale + drawImage(video) + drawCursorPath`. Cursor is drawn under the same transform, so it scales with the video pixels (matches export and Screen Studio / FocuSee behavior). Existing playback controls (play/pause/seek slider) act on the hidden video, no rewiring.
+- `styles.css` — `.styledPreview .hiddenSource` positions the `<video>` off-screen but live (Chromium keeps decoding for `drawImage`); `.styledPreviewCanvas` carries the canvas styling: pastel linear-gradient background approximating the export's `geq` gradient, 26px border-radius matching the export's rounded corners, soft `box-shadow` matching the export's blurred drop shadow.
+- `runRendererUiSmoke` — new `waitFor` for `canvas.styledPreviewCanvas`; result JSON gains `hasStyledPreviewCanvas`.
+
+#### Out of scope (deferred to later refactor)
+
+- Pixel-perfect parity with the export's `geq` per-pixel gradient and `boxblur` shadow — CSS approximation lands in MVP.
+- Wiring the export side to also consume `resolveFrame` (the architectural keystone is already designed in `packages/frame-resolver/src/resolve-frame.ts:226`; export currently builds FFmpeg filters directly from the same underlying math).
+- Click effects in preview — folds in once TASK-013 click telemetry/effect renders.
 
 #### Acceptance Criteria
 
@@ -769,13 +783,63 @@ Until preview matches export, every presentation feature ships blind: users add 
 
 #### Verification
 
-- `pnpm test`
-- `pnpm smoke:ui`
-- `pnpm smoke:styled-export`
-- Manual packaged check: scrub through a recording with markers and confirm the preview tracks the eventual export.
+- `pnpm test` — desktop 74/74 (was 64, +10 styled-preview cases). Project-model 91/91.
+- `pnpm typecheck` — clean across all 5 packages.
+- `pnpm smoke:ui` — passes; result JSON: `hasStyledPreviewCanvas: true`, `hasZoomMarkerPanel: true`, `hasExportResult: true`.
+- `pnpm smoke:mvp` — record/save/reopen/export pipeline still `ok: true`.
+- `pnpm smoke:styled-export` — both no-zoom and zoom-marker scenarios still pass; fps and cursor regressions still green.
+- **Pending: manual packaged-app check** — open a recording with a manual zoom marker, scrub through the marker range, confirm the preview canvas zooms smoothly, the cursor tracks correctly under zoom, and the preview matches the eventual export semantically. Flip status to DONE only after this manual step lands.
 
 #### Implementation Notes (for future planning)
 
 - Likely a Canvas2D or WebGL surface drawn over the existing `<video>` element, transformed each `requestAnimationFrame`.
 - Best implemented as a shared "render description" (a JSON-able pipeline spec) consumed by both the renderer's preview surface and the main process's FFmpeg filter graph builder. Keeps both runtimes from diverging.
 - The cursor overlay rendering already exists in the styled-export FFmpeg path (TASK-011). The render description should capture that same logic so preview can replicate it.
+
+### TASK-026 Switch capture pipeline to xdg-desktop-portal + PipeWire (Wayland)
+
+**Priority:** P1  
+**Status:** PLANNED  
+**Supersedes-on-completion:** TASK-010 (cursor telemetry recording), TASK-011 (cursor overlay export), and the entire reliable-cursor-overlay architecture
+
+#### Context
+
+X11 is being deprecated by major Linux distributions in favor of Wayland. The current capture stack (FFmpeg `x11grab` + Electron `screen.getCursorScreenPoint()` + xdotool fallback for cursor + ASS-burned-in cursor for export) is X11-specific and won't work on native Wayland. Even on X11 today, the cursor pipeline has been a long string of integration bugs (clamping, `getCursorScreenPoint()` regression, off-screen pass-through, fps mismatches).
+
+The Wayland-native answer is fundamentally simpler: use **xdg-desktop-portal's ScreenCast API** (with **PipeWire** as the transport). The compositor draws the cursor into the captured video stream itself. The app receives a stream with cursor already rendered, at the compositor's full visual fidelity. No cursor telemetry, no separate overlay, no clamping concerns, no zoom-aware cursor scaling logic — the cursor is just pixels in the source video.
+
+#### Acceptance Criteria
+
+- New capture path uses xdg-desktop-portal's `org.freedesktop.portal.ScreenCast` interface to obtain a PipeWire stream node ID.
+- FFmpeg input switches from `-f x11grab -i …` to `-f pipewiregrab -i <node-id>` (or equivalent), or a Node-side reader bridges PipeWire to FFmpeg via a pipe.
+- Capture works on both GNOME Wayland and KDE Wayland (the two dominant compositors). Verify on at least one.
+- Cursor is included in the captured stream by default (compositor renders it).
+- Existing record → save → export pipeline still works end-to-end with the new capture source. Existing `.roughcut` projects remain valid.
+- Old x11grab path stays as a fallback for X11 sessions until Wayland support is verified production-ready.
+
+#### Implications for existing code
+
+- `apps/desktop/src/main/recording/recording-session.mjs` — `getCursorPoint`, `sampleCursor`, the cursor sidecar JSON, and the entire cursor telemetry layer become obsolete on Wayland. Either gate them behind an "X11 mode" flag or remove them once Wayland is the default.
+- `apps/desktop/src/main/recording/xdotool-cursor.mjs` — obsolete; remove when X11 path retires.
+- `apps/desktop/src/main/export-service.mjs` — `buildCursorAss` and the ASS subtitles cursor overlay become unnecessary because the cursor is already in the source video. Cursor styling features (highlights, click effects, zoom-aware sizing) move to a video post-processing layer (FFmpeg overlays or canvas renderer in the unified preview).
+- TASK-025 (unified preview) — already canvas-based. Once the source video has the cursor pre-rendered, the cursor-drawing logic in `styled-preview.mjs` is no longer needed for fidelity, but stays useful for cursor effects/highlights.
+- Project schema's `cursorEvents` field becomes legacy. Migration: keep reading old `.roughcut` files; new recordings don't populate it.
+
+#### Testing
+
+- Unit test for the portal request flow with a mocked DBus client.
+- Integration test that records a few seconds of a synthetic surface via PipeWire → FFmpeg, asserts a valid MP4 is produced.
+- Manual verification on GNOME Wayland and KDE Wayland separately.
+
+#### Verification
+
+- `pnpm test`
+- `pnpm smoke:mvp` — recording produces a valid MP4 on Wayland.
+- Manual record + export with cursor visibly tracking across monitors via the compositor's own cursor rendering.
+
+#### Risks
+
+- xdg-desktop-portal ScreenCast requires user-granted permission per session; first-launch UX needs a clear consent flow.
+- Some compositors restrict portal capture (especially with multi-monitor selection); test on the user's actual setup before committing the rewrite.
+- FFmpeg's `pipewiregrab` filter is relatively new; lock the FFmpeg version in package metadata and document the minimum.
+- Keeping the X11 path alongside Wayland adds complexity. Decide whether to maintain both, gate by session type (`$XDG_SESSION_TYPE`), or drop X11 once Wayland is verified.

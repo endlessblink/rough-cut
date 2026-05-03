@@ -10,9 +10,19 @@ import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
 import { registerMediaProtocol, toMediaUrl } from './media-protocol.mjs';
 import { remuxMkvToMp4 } from './remux-service.mjs';
 import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording/recording-session.mjs';
+import { isXdotoolAvailable, readCursorViaXdotool } from './recording/xdotool-cursor.mjs';
 import { installRuntimeLog } from './runtime-log.mjs';
 
 installRuntimeLog();
+
+if (process.platform === 'linux' && !isXdotoolAvailable()) {
+  console.warn(
+    '[main] xdotool is not available. Cursor tracking will fall back to ' +
+      "Electron's screen.getCursorScreenPoint(), which has a known multi-monitor " +
+      'regression on Linux/X11 (electron/electron#42519). Install xdotool for ' +
+      'reliable cursor capture across displays.',
+  );
+}
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
@@ -25,7 +35,11 @@ const recordingSession = createRecordingSession({
   recordingsDir,
   markerPath,
   getDisplayInfo: () => getPrimaryX11DisplayInfo(screen),
-  getCursorPoint: () => screen.getCursorScreenPoint(),
+  // xdotool-first cursor source. Electron's getCursorScreenPoint() returns
+  // stale/stuck values when the cursor leaves the primary display on Linux/X11
+  // (electron/electron#42519). Fall back to it on platforms where xdotool is
+  // unavailable so the app still records cursor under simpler setups.
+  getCursorPoint: () => readCursorViaXdotool() ?? screen.getCursorScreenPoint(),
 });
 
 function createMainWindow() {
@@ -216,6 +230,8 @@ async function runRendererUiSmoke() {
     throw new Error(`${err.message}; url=${window.location.href}; body=${document.body.innerText.slice(0, 500)}`);
   });
   await waitFor(() => video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0, 'video metadata');
+  await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'styled preview canvas');
+  const hasStyledPreviewCanvas = true;
   await waitFor(() => document.body.textContent?.includes('Zoom markers'), 'zoom marker panel header');
   const hasZoomMarkerPanel = true;
   const exportMode = await waitFor(
@@ -252,6 +268,7 @@ async function runRendererUiSmoke() {
     hasRawPresetDetails,
     hasStyledPresetDetails,
     hasZoomMarkerPanel,
+    hasStyledPreviewCanvas,
     hasExportResult: document.body.textContent?.includes('Exported to:') ?? false,
   };
 }

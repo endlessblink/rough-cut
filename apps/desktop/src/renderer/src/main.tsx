@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import type { ProjectDocument } from '@rough-cut/project-model';
+import { resolveFrame } from '@rough-cut/frame-resolver';
 import './styles.css';
 import {
   addManualMarkerAt,
@@ -8,6 +9,7 @@ import {
   listMarkers,
   removeMarker,
 } from './zoom-markers.mjs';
+import { cursorAtFrame, drawCursorPath } from './styled-preview.mjs';
 
 declare global {
   interface Window {
@@ -214,7 +216,7 @@ function ProjectPreview({
         <p>{project.path}</p>
       </div>
       {project.mediaUrl ? (
-        <VideoPreview src={project.mediaUrl} onCurrentTimeChange={setCurrentTimeSec} />
+        <VideoPreview project={project} onCurrentTimeChange={setCurrentTimeSec} />
       ) : (
         <p>No recording asset found in this project.</p>
       )}
@@ -356,17 +358,23 @@ function ExportPresetDetails({ mode }: { mode: ExportMode }) {
 }
 
 function VideoPreview({
-  src,
+  project,
   onCurrentTimeChange,
 }: {
-  src: string;
+  project: ProjectState;
   onCurrentTimeChange?: (sec: number) => void;
 }) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const [duration, setDuration] = React.useState(0);
   const [currentTime, setCurrentTime] = React.useState(0);
   const [isPlaying, setIsPlaying] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  const src = project.mediaUrl ?? '';
+  const sourceWidth = project.recording?.width ?? 1920;
+  const sourceHeight = project.recording?.height ?? 1080;
+  const fps = project.recording?.fps ?? 30;
 
   React.useEffect(() => {
     setDuration(0);
@@ -374,6 +382,52 @@ function VideoPreview({
     setIsPlaying(false);
     setError(null);
   }, [src]);
+
+  // Per-frame canvas render loop: drawImage video + zoom transform + cursor.
+  React.useEffect(() => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return undefined;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return undefined;
+
+    canvas.width = sourceWidth;
+    canvas.height = sourceHeight;
+
+    let rafId = 0;
+    const document = project.document as unknown as ProjectDocument;
+    const cursorEvents =
+      ((document.assets?.[0] as { metadata?: { cursorEvents?: ReadonlyArray<{ frame: number; x: number; y: number; type?: string }> } } | undefined)?.metadata?.cursorEvents) ?? [];
+
+    function tick() {
+      if (!video || !canvas || !ctx) return;
+      const currentFrame = Math.max(0, Math.round(video.currentTime * fps));
+      let frame;
+      try {
+        frame = resolveFrame(document, currentFrame);
+      } catch {
+        // Fall back to identity when resolveFrame can't process the document
+        // (e.g. partial state during initial load).
+        frame = { cameraTransform: { scale: 1, offsetX: 0, offsetY: 0 } };
+      }
+      const { scale, offsetX, offsetY } = frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 };
+      ctx.clearRect(0, 0, sourceWidth, sourceHeight);
+      ctx.save();
+      ctx.translate(sourceWidth / 2 + offsetX, sourceHeight / 2 + offsetY);
+      ctx.scale(scale, scale);
+      ctx.translate(-sourceWidth / 2, -sourceHeight / 2);
+      if (video.readyState >= 2) {
+        ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+      }
+      const cursor = cursorAtFrame(cursorEvents, currentFrame);
+      if (cursor) drawCursorPath(ctx, cursor.x, cursor.y);
+      ctx.restore();
+      rafId = window.requestAnimationFrame(tick);
+    }
+    rafId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [project, sourceWidth, sourceHeight, fps]);
 
   async function togglePlayback() {
     const video = videoRef.current;
@@ -401,11 +455,12 @@ function VideoPreview({
   }
 
   return (
-    <div className="videoPreview">
+    <div className="videoPreview styledPreview">
       <video
         ref={videoRef}
         src={src}
         preload="metadata"
+        className="hiddenSource"
         onLoadedMetadata={(event) => {
           setDuration(event.currentTarget.duration || 0);
           setError(null);
@@ -420,6 +475,7 @@ function VideoPreview({
           onCurrentTimeChange?.(next);
         }}
       />
+      <canvas ref={canvasRef} className="styledPreviewCanvas" aria-label="Styled preview" />
       <div className="videoControls" aria-label="Video playback controls">
         <button type="button" className="secondary compact" onClick={togglePlayback}>
           {isPlaying ? 'Pause' : 'Play'}

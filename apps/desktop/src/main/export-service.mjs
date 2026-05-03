@@ -165,6 +165,14 @@ export function buildCursorAss({ cursorEvents = [], width = 1920, height = 1080,
 
   const stride = Math.max(1, Math.ceil(events.length / maxEvents));
   const sampled = events.filter((_event, index) => index % stride === 0);
+  // Preserve the very last recorded event so the exported cursor reflects
+  // its actual final position. Stride filtering can otherwise drop the last
+  // event when (events.length - 1) % stride !== 0, leaving the cursor stuck
+  // at an earlier sampled position for the tail of the recording.
+  const lastEvent = events[events.length - 1];
+  if (sampled.length === 0 || sampled[sampled.length - 1] !== lastEvent) {
+    sampled.push(lastEvent);
+  }
   const fpsValue = Number.isFinite(fps) && fps > 0 ? fps : 30;
   const totalFrames = Number.isFinite(durationFrames) && durationFrames > 0 ? Math.round(durationFrames) : null;
   const lines = [];

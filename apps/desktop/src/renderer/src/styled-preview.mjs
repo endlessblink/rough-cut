@@ -1,0 +1,73 @@
+// Cursor polygon path matching the styled-export ASS shape:
+// m 0 0 l 0 26 l 7 20 l 12 33 l 18 31 l 13 19 l 24 19 l 0 0
+const CURSOR_POLYGON = [
+  [0, 0],
+  [0, 26],
+  [7, 20],
+  [12, 33],
+  [18, 31],
+  [13, 19],
+  [24, 19],
+];
+
+const CURSOR_FILL = '#ffffff';
+const CURSOR_OUTLINE = '#333A46';
+const CURSOR_OUTLINE_WIDTH = 2.2;
+
+export function cursorAtFrame(cursorEvents, currentFrame) {
+  if (!Array.isArray(cursorEvents) || cursorEvents.length === 0) return null;
+  if (!Number.isFinite(currentFrame)) return null;
+
+  // Filter to move events with finite numeric coords; tolerate other event types.
+  const sorted = cursorEvents
+    .filter(
+      (event) =>
+        event &&
+        (event.type === undefined || event.type === 'move') &&
+        Number.isFinite(event.frame) &&
+        Number.isFinite(event.x) &&
+        Number.isFinite(event.y),
+    )
+    .slice()
+    .sort((a, b) => a.frame - b.frame);
+
+  if (sorted.length === 0) return null;
+  if (currentFrame <= sorted[0].frame) return { x: sorted[0].x, y: sorted[0].y };
+  if (currentFrame >= sorted[sorted.length - 1].frame) {
+    const last = sorted[sorted.length - 1];
+    return { x: last.x, y: last.y };
+  }
+
+  // Binary search for the bracketing pair.
+  let lo = 0;
+  let hi = sorted.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (sorted[mid].frame <= currentFrame) lo = mid;
+    else hi = mid;
+  }
+  const a = sorted[lo];
+  const b = sorted[hi];
+  const span = b.frame - a.frame;
+  if (span <= 0) return { x: a.x, y: a.y };
+  const t = (currentFrame - a.frame) / span;
+  return {
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+  };
+}
+
+export function drawCursorPath(ctx, x, y) {
+  if (!ctx) return;
+  ctx.beginPath();
+  ctx.moveTo(x + CURSOR_POLYGON[0][0], y + CURSOR_POLYGON[0][1]);
+  for (let i = 1; i < CURSOR_POLYGON.length; i += 1) {
+    ctx.lineTo(x + CURSOR_POLYGON[i][0], y + CURSOR_POLYGON[i][1]);
+  }
+  ctx.closePath();
+  ctx.fillStyle = CURSOR_FILL;
+  ctx.fill();
+  ctx.strokeStyle = CURSOR_OUTLINE;
+  ctx.lineWidth = CURSOR_OUTLINE_WIDTH;
+  ctx.stroke();
+}
