@@ -1,11 +1,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 
-// Streams pointer button events from `xinput test-xi2 --root` and reports them
-// via an `onButton` callback. Companion to xdotool-cursor.mjs (which polls
-// position): xinput supplies the button state xdotool can't see. X11-only;
-// gracefully no-ops when xinput is missing. TASK-026 (Wayland pivot) will
-// replace this with a portal/libinput-based listener; the call site stays the
-// same.
+// Streams pointer events from `xinput test-xi2 --root` and reports them via
+// `onButton` and `onMotion` callbacks. Replaces both the per-poll xdotool
+// spawn (which races with x11grab's framebuffer reads) and serves as the
+// single source for click/drag detection. X11-only; gracefully no-ops when
+// xinput is missing. TASK-026 (Wayland pivot) will replace this with a
+// portal/libinput-based listener; the call site stays the same.
 
 export function isXinputAvailable() {
   try {
@@ -25,13 +25,17 @@ export function isXinputAvailable() {
 //       root: 805.00/652.00
 //       event: 805.00/652.00
 //       ...
-// We care about cooked types 4 (ButtonPress) and 5 (ButtonRelease) because
-// they carry root-window coords. Raw types 15/16 lack coords. `detail` is the
-// X11 button number — 1=left, 2=middle, 3=right, 4/5=scroll (filtered out).
-const COOKED_TYPES = new Set([4, 5]);
+// We care about cooked types 4 (ButtonPress), 5 (ButtonRelease), and 6
+// (Motion) because they carry root-window coords. Raw types 15/16/17 lack
+// root coords. `detail` is the X11 button number for buttons — 1=left,
+// 2=middle, 3=right, 4/5=scroll (filtered out). For motion `detail` is 0.
+const COOKED_BUTTON_PRESS = 4;
+const COOKED_BUTTON_RELEASE = 5;
+const COOKED_MOTION = 6;
+const COOKED_TYPES = new Set([COOKED_BUTTON_PRESS, COOKED_BUTTON_RELEASE, COOKED_MOTION]);
 const X11_BUTTON_TO_SCHEMA = { 1: 0, 2: 1, 3: 2 };
 
-export function createXinputButtonListener({ onButton }) {
+export function createXinputButtonListener({ onButton, onMotion = null }) {
   if (typeof onButton !== 'function') {
     throw new TypeError('onButton callback is required');
   }
@@ -49,11 +53,20 @@ export function createXinputButtonListener({ onButton }) {
     if (!currentEvent) return;
     const ev = currentEvent;
     currentEvent = null;
-    if (ev.detail === null || ev.x === null || ev.y === null) return;
+    if (ev.x === null || ev.y === null) return;
+
+    if (ev.type === COOKED_MOTION) {
+      if (typeof onMotion === 'function') {
+        onMotion({ x: ev.x, y: ev.y });
+      }
+      return;
+    }
+
+    if (ev.detail === null) return;
     const button = X11_BUTTON_TO_SCHEMA[ev.detail];
     if (button === undefined) return;
     onButton({
-      type: ev.type === 4 ? 'down' : 'up',
+      type: ev.type === COOKED_BUTTON_PRESS ? 'down' : 'up',
       button,
       x: ev.x,
       y: ev.y,

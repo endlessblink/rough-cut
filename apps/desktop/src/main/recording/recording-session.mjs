@@ -6,6 +6,13 @@ import { createEventLogger, NULL_EVENT_LOGGER } from './event-logger.mjs';
 
 const DEFAULT_FPS = 30;
 
+// When xinput motion events drive cursor sampling, polling is unnecessary.
+// When xinput isn't available we fall back to a slower poll (was 33 ms = 30 Hz
+// before; 30 Hz xdotool polling was racing with x11grab during compositor
+// updates and producing captured tearing on early frames — see commit notes
+// for the diagnostic that surfaced this). 100 ms is the original rate.
+const FALLBACK_POLL_INTERVAL_MS = 100;
+
 // Diagnostic logging is on by default while we hunt the recording-tear race
 // condition. Turn off by setting ROUGH_CUT_DEBUG_RECORDING=0.
 const DIAGNOSTIC_LOGGING_DEFAULT =
@@ -19,7 +26,7 @@ export function createRecordingSession({
   captureFactory = startFfmpegCapture,
   isCaptureAvailable = isFfmpegCaptureAvailable,
   now = () => new Date(),
-  sampleIntervalMs = 33,
+  sampleIntervalMs,
   buttonListenerFactory = createXinputButtonListener,
   eventLoggerFactory = createEventLogger,
   enableDiagnosticLogging = DIAGNOSTIC_LOGGING_DEFAULT,
@@ -113,19 +120,44 @@ export function createRecordingSession({
       systemAudioSource: null,
       onFirstFrame: (firstFrameMs) => {
         eventLogger.event('first-frame-anchor', { firstFrameMs });
+        if (active && typeof firstFrameMs === 'number' && Number.isFinite(firstFrameMs)) {
+          active.firstFrameMs = firstFrameMs;
+        }
       },
     });
 
     active = { ...session, capture };
+
+    // Seed an initial cursor sample from xdotool ONCE at recording start
+    // (before ffmpeg has captured anything, so no race risk). After this
+    // point, prefer xinput motion events over per-poll xdotool spawns —
+    // xdotool's per-spawn X11 connection setup races with x11grab and
+    // produces captured tearing on frames where the cursor moves quickly.
     sampleCursor(active, getCursorPoint, now);
-    if (typeof getCursorPoint === 'function') {
-      active.cursorTimer = setInterval(() => sampleCursor(active, getCursorPoint, now), sampleIntervalMs);
-    }
+
+    // The listener's start() returns true if it's actually listening (xinput
+    // available + spawn succeeded). When listening, its motion events drive
+    // cursor sampling and polling is skipped — eliminating the per-poll
+    // xdotool spawn that races with x11grab. When NOT listening, fall back
+    // to polling at the original 100 ms cadence.
+    let xinputCanDriveCursor = false;
     if (typeof buttonListenerFactory === 'function') {
       active.buttonListener = buttonListenerFactory({
         onButton: (event) => recordButtonEvent(active, event, now),
+        onMotion: (event) => recordMotionEvent(active, event, now),
       });
-      active.buttonListener.start();
+      xinputCanDriveCursor = !!active.buttonListener.start();
+    }
+
+    if (!xinputCanDriveCursor && typeof getCursorPoint === 'function') {
+      // Use the explicit override if provided (tests pass smaller intervals);
+      // otherwise the slow fallback.
+      const intervalMs =
+        typeof sampleIntervalMs === 'number' ? sampleIntervalMs : FALLBACK_POLL_INTERVAL_MS;
+      active.cursorTimer = setInterval(
+        () => sampleCursor(active, getCursorPoint, now),
+        intervalMs,
+      );
     }
     return status();
   }
@@ -139,6 +171,29 @@ export function createRecordingSession({
     if (session.buttonListener) session.buttonListener.stop();
     if (session.eventLogger) session.eventLogger.event('recording-stop');
     const rawPath = await session.capture.stop();
+
+    // Re-anchor cursor events to ffmpeg's first-frame wall-clock so the
+    // cursor overlay aligns with the captured video. Without this the cursor
+    // is offset ~1.5-2 s ahead of the video (the ffmpeg/x11grab/libx264
+    // startup latency), because frame numbers were originally computed
+    // relative to recording-start. Events from before ffmpeg's frame 0
+    // (e.g. the seed sample taken at start) are clamped to frame 0 so the
+    // initial cursor position still seeds the playback.
+    if (typeof session.firstFrameMs === 'number') {
+      const startedAtMs = Date.parse(session.startedAt);
+      const offsetMs = session.firstFrameMs - startedAtMs;
+      if (offsetMs > 0) {
+        session.cursorEvents = session.cursorEvents.map((ev) => {
+          const newTimeMs = Math.max(0, (ev.timeMs ?? 0) - offsetMs);
+          return {
+            ...ev,
+            timeMs: newTimeMs,
+            frame: Math.round((newTimeMs / 1000) * session.fps),
+          };
+        });
+      }
+    }
+
     await writeCursorTelemetrySidecar(session);
     await clearRecoveryMarker();
     if (session.eventLogger) session.eventLogger.stop();
@@ -185,6 +240,43 @@ export function getPrimaryX11DisplayInfo(screen, displayName = process.env.DISPL
     width,
     height,
   };
+}
+
+// Cursor sample driven by xinput's MotionNotify stream (no xdotool spawn,
+// no per-poll X11 connection — eliminates the race that caused captured
+// tearing on frames during compositor activity).
+function recordMotionEvent(session, event, now) {
+  if (!session || !event) return;
+  try {
+    const elapsedMs = Math.max(0, now().getTime() - Date.parse(session.startedAt));
+    const cursor = normalizeCursorPoint({
+      point: { x: event.x, y: event.y },
+      originX: session.originX || 0,
+      originY: session.originY || 0,
+      scaleFactor: session.scaleFactor || 1,
+    });
+    const frame = Math.max(0, Math.round((elapsedMs / 1000) * session.fps));
+    const last = session.cursorEvents.at(-1);
+    if (last && last.frame === frame && last.x === cursor.x && last.y === cursor.y) return;
+    session.cursorEvents.push({
+      frame,
+      timeMs: elapsedMs,
+      x: cursor.x,
+      y: cursor.y,
+      type: 'move',
+      button: 0,
+    });
+    if (session.eventLogger) {
+      session.eventLogger.event('xinput-motion', {
+        x: cursor.x,
+        y: cursor.y,
+        frame,
+        elapsedMs,
+      });
+    }
+  } catch (err) {
+    console.warn('[recording-session] motion event record failed:', err?.message ?? err);
+  }
 }
 
 function recordButtonEvent(session, event, now) {

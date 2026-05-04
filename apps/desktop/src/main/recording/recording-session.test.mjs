@@ -74,6 +74,8 @@ test('recording session captures cursor move samples and writes sidecar', async 
     getCursorPoint: () => ({ x: 20 + tick, y: 30 + tick }),
     sampleIntervalMs: 5,
     captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+    // Force the polling code path; we're testing it specifically.
+    buttonListenerFactory: null,
   });
 
   await session.start();
@@ -115,6 +117,8 @@ test('recording session keeps recording when the cursor source returns the same 
     getCursorPoint: () => ({ x: 1919, y: 500 }),
     sampleIntervalMs: 5,
     captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+    // Force the polling code path; we're testing it specifically.
+    buttonListenerFactory: null,
   });
 
   await session.start();
