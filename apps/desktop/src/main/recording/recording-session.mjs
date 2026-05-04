@@ -6,12 +6,16 @@ import { createEventLogger, NULL_EVENT_LOGGER } from './event-logger.mjs';
 
 const DEFAULT_FPS = 30;
 
-// When xinput motion events drive cursor sampling, polling is unnecessary.
-// When xinput isn't available we fall back to a slower poll (was 33 ms = 30 Hz
-// before; 30 Hz xdotool polling was racing with x11grab during compositor
-// updates and producing captured tearing on early frames — see commit notes
-// for the diagnostic that surfaced this). 100 ms is the original rate.
-const FALLBACK_POLL_INTERVAL_MS = 100;
+// xdotool synchronous polling for cursor position. xinput motion events were
+// briefly tried as a replacement (commit 4ef0aa3) to avoid xdotool's per-poll
+// X11 connection setup that races with x11grab during compositor activity,
+// but xinput's events have inherent X-server-pipeline latency (kernel → X
+// server → xinput → pipe → Node) and are timestamped on receipt — so cursor
+// data trailed the actual cursor by 50-150 ms. Reverted to xdotool polling
+// here. The tear-race tradeoff is accepted (NVIDIA Allow Flipping setting
+// helps; KDE compositor settings + future Wayland migration are the proper
+// long-term fixes).
+const DEFAULT_SAMPLE_INTERVAL_MS = 33;
 
 // Diagnostic logging is on by default while we hunt the recording-tear race
 // condition. Turn off by setting ROUGH_CUT_DEBUG_RECORDING=0.
@@ -26,7 +30,7 @@ export function createRecordingSession({
   captureFactory = startFfmpegCapture,
   isCaptureAvailable = isFfmpegCaptureAvailable,
   now = () => new Date(),
-  sampleIntervalMs,
+  sampleIntervalMs = DEFAULT_SAMPLE_INTERVAL_MS,
   buttonListenerFactory = createXinputButtonListener,
   eventLoggerFactory = createEventLogger,
   enableDiagnosticLogging = DIAGNOSTIC_LOGGING_DEFAULT,
@@ -128,36 +132,29 @@ export function createRecordingSession({
 
     active = { ...session, capture };
 
-    // Seed an initial cursor sample from xdotool ONCE at recording start
-    // (before ffmpeg has captured anything, so no race risk). After this
-    // point, prefer xinput motion events over per-poll xdotool spawns —
-    // xdotool's per-spawn X11 connection setup races with x11grab and
-    // produces captured tearing on frames where the cursor moves quickly.
+    // xdotool synchronous polling drives cursor sampling. Returns the X
+    // server's CURRENT cursor position with no IPC pipeline latency, so the
+    // cursor overlay aligns with what the user is actually doing in the
+    // recorded video. (xinput motion events were tried briefly as an
+    // alternative — see the DEFAULT_SAMPLE_INTERVAL_MS comment above.)
     sampleCursor(active, getCursorPoint, now);
+    if (typeof getCursorPoint === 'function') {
+      active.cursorTimer = setInterval(
+        () => sampleCursor(active, getCursorPoint, now),
+        sampleIntervalMs,
+      );
+    }
 
-    // The listener's start() returns true if it's actually listening (xinput
-    // available + spawn succeeded). When listening, its motion events drive
-    // cursor sampling and polling is skipped — eliminating the per-poll
-    // xdotool spawn that races with x11grab. When NOT listening, fall back
-    // to polling at the original 100 ms cadence.
-    let xinputCanDriveCursor = false;
+    // xinput button listener still runs alongside the polling loop —
+    // it captures click/drag events for auto-zoom suggestions. Motion
+    // events from xinput are NOT used to drive cursor sampling here; the
+    // listener supports `onMotion` for callers that want it (currently
+    // none), but cursor data comes from xdotool polling above.
     if (typeof buttonListenerFactory === 'function') {
       active.buttonListener = buttonListenerFactory({
         onButton: (event) => recordButtonEvent(active, event, now),
-        onMotion: (event) => recordMotionEvent(active, event, now),
       });
-      xinputCanDriveCursor = !!active.buttonListener.start();
-    }
-
-    if (!xinputCanDriveCursor && typeof getCursorPoint === 'function') {
-      // Use the explicit override if provided (tests pass smaller intervals);
-      // otherwise the slow fallback.
-      const intervalMs =
-        typeof sampleIntervalMs === 'number' ? sampleIntervalMs : FALLBACK_POLL_INTERVAL_MS;
-      active.cursorTimer = setInterval(
-        () => sampleCursor(active, getCursorPoint, now),
-        intervalMs,
-      );
+      active.buttonListener.start();
     }
     return status();
   }
@@ -240,43 +237,6 @@ export function getPrimaryX11DisplayInfo(screen, displayName = process.env.DISPL
     width,
     height,
   };
-}
-
-// Cursor sample driven by xinput's MotionNotify stream (no xdotool spawn,
-// no per-poll X11 connection — eliminates the race that caused captured
-// tearing on frames during compositor activity).
-function recordMotionEvent(session, event, now) {
-  if (!session || !event) return;
-  try {
-    const elapsedMs = Math.max(0, now().getTime() - Date.parse(session.startedAt));
-    const cursor = normalizeCursorPoint({
-      point: { x: event.x, y: event.y },
-      originX: session.originX || 0,
-      originY: session.originY || 0,
-      scaleFactor: session.scaleFactor || 1,
-    });
-    const frame = Math.max(0, Math.round((elapsedMs / 1000) * session.fps));
-    const last = session.cursorEvents.at(-1);
-    if (last && last.frame === frame && last.x === cursor.x && last.y === cursor.y) return;
-    session.cursorEvents.push({
-      frame,
-      timeMs: elapsedMs,
-      x: cursor.x,
-      y: cursor.y,
-      type: 'move',
-      button: 0,
-    });
-    if (session.eventLogger) {
-      session.eventLogger.event('xinput-motion', {
-        x: cursor.x,
-        y: cursor.y,
-        frame,
-        elapsedMs,
-      });
-    }
-  } catch (err) {
-    console.warn('[recording-session] motion event record failed:', err?.message ?? err);
-  }
 }
 
 function recordButtonEvent(session, event, now) {
