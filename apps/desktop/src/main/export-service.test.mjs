@@ -113,8 +113,28 @@ test('styled export args support a vertical canvas render command', () => {
   const joined = args.join(' ');
 
   assert(joined.includes('1080x1920'));
-  assert(joined.includes('scale=972:1728:force_original_aspect_ratio=decrease'));
+  assert(joined.includes('scale=888:1728:force_original_aspect_ratio=decrease'));
   assert(joined.includes('rough_cut_style=canvas:1080x1920:studio-demo'));
+});
+
+test('styled export args apply presentation padding, radius, and shadow controls', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    width: 1920,
+    height: 1080,
+    screenPadding: 160,
+    screenCornerRadius: 44,
+    screenShadowEnabled: true,
+    screenShadowBlur: 72,
+    screenShadowOpacity: 0.32,
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes('scale=1600:760:force_original_aspect_ratio=decrease'));
+  assert(joined.includes('boxblur=72:5'));
+  assert(joined.includes('aa=0.32'));
+  assert(joined.includes('hypot(44-X,44-Y)'));
 });
 
 test('styled export args include cursor subtitle layer when provided', () => {

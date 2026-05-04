@@ -13,6 +13,7 @@ import {
   getPrimaryRecordingAsset,
   listMarkers,
   removeMarker,
+  withDefaultPresentation,
 } from './zoom-markers.mjs';
 
 function projectWithRecording({ duration = 600 } = {}) {
@@ -62,6 +63,51 @@ test('addManualMarkerAt produces a project that passes validateProject', () => {
   const next = addManualMarkerAt(project, 2.0, 30);
   assert.notEqual(next, project);
   assert.doesNotThrow(() => validateProject(next));
+});
+
+test('listMarkers treats legacy assets without zoom presentation as empty', () => {
+  const base = createProject();
+  const asset = createAsset('recording', '/tmp/legacy.webm', {
+    duration: 300,
+    presentation: { background: createDefaultRecordingPresentation().background },
+  });
+  const project = { ...base, assets: [asset] };
+
+  assert.deepEqual(listMarkers(project), []);
+});
+
+test('addManualMarkerAt backfills missing zoom presentation on legacy assets', () => {
+  const base = createProject();
+  const asset = createAsset('recording', '/tmp/legacy.webm', {
+    duration: 300,
+    presentation: { background: createDefaultRecordingPresentation().background },
+  });
+  const project = { ...base, assets: [asset] };
+
+  const next = addManualMarkerAt(project, 1, 30);
+  assert.equal(listMarkers(next).length, 1);
+  assert.doesNotThrow(() => validateProject(next));
+});
+
+test('withDefaultPresentation backfills required presentation sections on legacy assets', () => {
+  const defaults = createDefaultRecordingPresentation();
+  const presentation = withDefaultPresentation({
+    background: {
+      ...defaults.background,
+      bgPadding: 96,
+    },
+  });
+  const base = createProject();
+  const asset = createAsset('recording', '/tmp/legacy.webm', {
+    duration: 300,
+    presentation,
+  });
+
+  assert.equal(presentation.background.bgPadding, 96);
+  assert.deepEqual(presentation.zoom.markers, []);
+  assert.equal(presentation.cursor.style, defaults.cursor.style);
+  assert.equal(presentation.camera.visible, defaults.camera.visible);
+  assert.doesNotThrow(() => validateProject({ ...base, assets: [asset] }));
 });
 
 test('addManualMarkerAt appends a manual marker at the rounded frame', () => {

@@ -296,13 +296,13 @@ export function createDefaultRecordingBackgroundStyle(): RecordingBackgroundStyl
   return {
     bgColor: '#050505',
     bgGradient: null,
-    bgPadding: 0,
-    bgCornerRadius: 0,
+    bgPadding: 96,
+    bgCornerRadius: 32,
     bgInset: 0,
     bgInsetColor: '#ffffff',
-    bgShadowEnabled: false,
-    bgShadowBlur: 0,
-    bgShadowOpacity: 0.25,
+    bgShadowEnabled: true,
+    bgShadowBlur: 58,
+    bgShadowOpacity: 0.2,
   };
 }
 

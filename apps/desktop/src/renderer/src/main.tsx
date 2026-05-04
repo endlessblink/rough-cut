@@ -1,11 +1,13 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import {
+  createDefaultRecordingBackgroundStyle,
   getStyledCanvasResolution,
   PROJECT_ASPECT_RATIO_LABELS,
   PROJECT_ASPECT_RATIOS,
   type ProjectAspectRatio,
   type ProjectDocument,
+  type RecordingBackgroundStyle,
   type ZoomMarker,
 } from '@rough-cut/project-model';
 import { resolveFrame } from '@rough-cut/frame-resolver';
@@ -16,6 +18,7 @@ import {
   canAddMarkerAt,
   listMarkers,
   removeMarker,
+  withDefaultPresentation,
 } from './zoom-markers.mjs';
 import { cursorAtFrame, drawCursorPath } from './styled-preview.mjs';
 import { generateSuggestionsForProject } from './auto-zoom-suggestions.mjs';
@@ -45,7 +48,7 @@ type ProjectState = {
     name: string;
     composition: { duration: number };
     settings?: { aspectRatio?: ProjectAspectRatio };
-    assets?: unknown[];
+    assets?: Array<{ id?: string; type?: string; presentation?: { background?: RecordingBackgroundStyle } & Record<string, unknown> } & Record<string, unknown>>;
   };
   recording: null | { filePath: string; duration: number; width: number; height: number; fps: number; audio?: unknown };
   mediaUrl: string | null;
@@ -180,22 +183,23 @@ function App() {
 
   return (
     <main className="shell">
-      <section className="hero">
-        <p className="eyebrow">Rough Cut MVP</p>
-        <h1>Screen recording first. Everything else later.</h1>
-        <p className="lede">
-          This fresh app starts from the stable Rough Cut libraries and keeps orchestration small.
-        </p>
-        <div className="panel">
-          <button type="button" onClick={toggleRecording} className={recording.state === 'recording' ? 'stop' : ''}>
-            {recording.state === 'recording' ? 'Stop recording' : 'Record'}
-          </button>
-          <button type="button" onClick={openProject} className="secondary" disabled={recording.state === 'recording'}>
-            Open project
-          </button>
+      <section className="editorShell">
+        <header className="topBar">
+          <div>
+            <p className="eyebrow">Rough Cut MVP</p>
+            <h1>Recording studio</h1>
+          </div>
+          <div className="topActions">
+            <button type="button" onClick={toggleRecording} className={recording.state === 'recording' ? 'stop' : ''}>
+              {recording.state === 'recording' ? 'Stop recording' : 'Record'}
+            </button>
+            <button type="button" onClick={openProject} className="secondary" disabled={recording.state === 'recording'}>
+              Open project
+            </button>
+          </div>
+        </header>
+        <div className="recordingStrip" aria-label="Recording audio">
           <span>{statusLabel(recording, elapsedMs)}</span>
-        </div>
-        <div className="audioPanel" aria-label="Recording audio">
           <label className="audioToggle">
             <input
               type="checkbox"
@@ -203,7 +207,7 @@ function App() {
               disabled={recording.state === 'recording' || micSources.length === 0}
               onChange={(event) => setRecordMic(event.currentTarget.checked)}
             />
-            Record microphone
+            Mic
           </label>
           <select
             value={selectedMicSource}
@@ -221,7 +225,6 @@ function App() {
               ))
             )}
           </select>
-          <p>{recordMic && selectedMicSource ? 'Microphone audio will be muxed into the recording.' : 'Screen-only recording stays available.'}</p>
         </div>
         {recording.state === 'saved' ? (
           <p className="saved">Recording saved to: {recording.outputPath}</p>
@@ -265,17 +268,11 @@ function ProjectPreview({
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
   const aspectRatio = project.document.settings?.aspectRatio ?? 'auto';
+  const recordingAsset = getPrimaryRecordingAsset(project.document);
+  const background = recordingAsset?.presentation?.background ?? createDefaultRecordingBackgroundStyle();
 
-  async function updateAspectRatio(nextAspectRatio: ProjectAspectRatio) {
-    if (nextAspectRatio === aspectRatio) return;
+  async function persist(nextDocument: ProjectState['document']) {
     const previous = project;
-    const nextDocument = {
-      ...project.document,
-      settings: {
-        ...project.document.settings,
-        aspectRatio: nextAspectRatio,
-      },
-    };
     const optimistic = { ...project, document: nextDocument };
     setSaveError(null);
     setIsSaving(true);
@@ -291,72 +288,138 @@ function ProjectPreview({
     }
   }
 
+  async function updateAspectRatio(nextAspectRatio: ProjectAspectRatio) {
+    if (nextAspectRatio === aspectRatio) return;
+    await persist({
+      ...project.document,
+      settings: {
+        ...project.document.settings,
+        aspectRatio: nextAspectRatio,
+      },
+    });
+  }
+
+  async function updateBackground(patch: Partial<RecordingBackgroundStyle>) {
+    if (!recordingAsset?.id) return;
+    await persist({
+      ...project.document,
+      assets: project.document.assets?.map((asset) => {
+        if (asset.id !== recordingAsset.id) return asset;
+        const presentation = withDefaultPresentation(asset.presentation);
+        const nextBackground: RecordingBackgroundStyle = {
+          ...createDefaultRecordingBackgroundStyle(),
+          ...(presentation.background ?? {}),
+          ...patch,
+        };
+        return {
+          ...asset,
+          presentation: {
+            ...presentation,
+            background: nextBackground,
+          },
+        };
+      }),
+    });
+  }
+
   return (
-    <section className="preview" aria-label="Project preview">
-      <div>
-        <p className="eyebrow">Opened project</p>
-        <h2>{project.document.name}</h2>
-        <p>{project.path}</p>
+    <section className="projectEditor" aria-label="Project editor">
+      <div className="stageColumn">
+        <div className="projectHeader">
+          <div>
+            <p className="eyebrow">Opened project</p>
+            <h2>{project.document.name}</h2>
+          </div>
+          {project.recording ? (
+            <p className="meta">
+              {project.recording.width}x{project.recording.height} · {project.recording.fps} fps · {project.recording.duration} frames
+            </p>
+          ) : null}
+        </div>
+        {project.mediaUrl ? (
+          <VideoPreview project={project} onCurrentTimeChange={setCurrentTimeSec} />
+        ) : (
+          <p>No recording asset found in this project.</p>
+        )}
+        <div className="timelineDock">
+          {project.recording ? (
+            <ZoomMarkerPanel
+              project={project}
+              fps={project.recording.fps}
+              currentTimeSec={currentTimeSec}
+              onProjectChange={onProjectChange}
+            />
+          ) : null}
+          {project.recording ? (
+            <AutoZoomSuggestionsPanel project={project} onProjectChange={onProjectChange} />
+          ) : null}
+        </div>
       </div>
-      {project.mediaUrl ? (
-        <VideoPreview project={project} onCurrentTimeChange={setCurrentTimeSec} />
-      ) : (
-        <p>No recording asset found in this project.</p>
-      )}
-      {project.recording ? (
-        <p className="meta">
-          {project.recording.width}x{project.recording.height} · {project.recording.fps} fps ·{' '}
-          {project.recording.duration} frames
-        </p>
-      ) : null}
-      {project.recording ? (
-        <ZoomMarkerPanel
-          project={project}
-          fps={project.recording.fps}
-          currentTimeSec={currentTimeSec}
-          onProjectChange={onProjectChange}
-        />
-      ) : null}
-      {project.recording ? (
-        <AutoZoomSuggestionsPanel project={project} onProjectChange={onProjectChange} />
-      ) : null}
-      <div className="exportPanel">
-        <label className="exportMode">
-          Aspect ratio
-          <select
-            value={aspectRatio}
-            onChange={(event) => updateAspectRatio(event.currentTarget.value as ProjectAspectRatio)}
-            disabled={isSaving}
-          >
-            {PROJECT_ASPECT_RATIOS.map((ratio) => (
-              <option key={ratio} value={ratio}>
-                {PROJECT_ASPECT_RATIO_LABELS[ratio]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="exportMode">
-          Export mode
-          <select value={exportMode} onChange={(event) => onExportModeChange(event.target.value as ExportMode)}>
-            <option value="raw">Raw recording</option>
-            <option value="styled">Styled canvas</option>
-          </select>
-        </label>
-        <ExportPresetDetails mode={exportMode} />
-        <button type="button" onClick={onExport} className="secondary" disabled={!project.recording}>
-          Export MP4
-        </button>
-        {exportProgress ? (
-          <span>{exportProgress.phase}: {Math.round(exportProgress.progress * 100)}%</span>
-        ) : null}
-      </div>
-      {saveError ? <p className="error">{saveError}</p> : null}
-      {exportResult ? (
-        <p className="saved">
-          Exported to: {exportResult.outputPath} ({exportResult.bytes} bytes)
-        </p>
-      ) : null}
+      <aside className="inspector" aria-label="Presentation settings">
+        <section className="inspectorSection">
+          <p className="eyebrow">Canvas</p>
+          <label className="field">
+            Aspect ratio
+            <select
+              value={aspectRatio}
+              onChange={(event) => updateAspectRatio(event.currentTarget.value as ProjectAspectRatio)}
+              disabled={isSaving}
+            >
+              {PROJECT_ASPECT_RATIOS.map((ratio) => (
+                <option key={ratio} value={ratio}>
+                  {PROJECT_ASPECT_RATIO_LABELS[ratio]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </section>
+        <section className="inspectorSection">
+          <p className="eyebrow">Screen</p>
+          <RangeField label="Padding" value={background.bgPadding} min={0} max={260} step={4} disabled={isSaving} onChange={(value) => updateBackground({ bgPadding: value })} />
+          <RangeField label="Round corners" value={background.bgCornerRadius} min={0} max={120} step={2} disabled={isSaving} onChange={(value) => updateBackground({ bgCornerRadius: value })} />
+          <label className="toggleField">
+            <input type="checkbox" checked={background.bgShadowEnabled} disabled={isSaving} onChange={(event) => updateBackground({ bgShadowEnabled: event.currentTarget.checked })} />
+            Screen shadow
+          </label>
+          <RangeField label="Shadow size" value={background.bgShadowBlur} min={0} max={120} step={2} disabled={isSaving || !background.bgShadowEnabled} onChange={(value) => updateBackground({ bgShadowBlur: value })} />
+        </section>
+        <section className="inspectorSection mutedSection">
+          <p className="eyebrow">Camera</p>
+          <p>Webcam picture-in-picture is next. This pass fixes the screen presentation first.</p>
+        </section>
+        <section className="inspectorSection">
+          <p className="eyebrow">Export</p>
+          <label className="field">
+            Export mode
+            <select value={exportMode} onChange={(event) => onExportModeChange(event.target.value as ExportMode)}>
+              <option value="raw">Raw recording</option>
+              <option value="styled">Styled canvas</option>
+            </select>
+          </label>
+          <ExportPresetDetails mode={exportMode} />
+          <button type="button" onClick={onExport} className="secondary exportButton" disabled={!project.recording}>
+            Export MP4
+          </button>
+          {exportProgress ? <span className="exportProgress">{exportProgress.phase}: {Math.round(exportProgress.progress * 100)}%</span> : null}
+          {exportResult ? <p className="saved">Exported to: {exportResult.outputPath} ({exportResult.bytes} bytes)</p> : null}
+        </section>
+        {saveError ? <p className="error">{saveError}</p> : null}
+      </aside>
     </section>
+  );
+}
+
+function getPrimaryRecordingAsset(document: ProjectState['document']) {
+  return document.assets?.find((asset) => asset.type === 'recording') ?? null;
+}
+
+function RangeField({ label, value, min, max, step, disabled, onChange }: { label: string; value: number; min: number; max: number; step: number; disabled?: boolean; onChange: (value: number) => void }) {
+  return (
+    <label className="rangeField">
+      <span>{label}</span>
+      <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} onChange={(event) => onChange(Number(event.currentTarget.value))} />
+      <output>{value}</output>
+    </label>
   );
 }
 
@@ -593,6 +656,7 @@ function VideoPreview({
   const fps = project.recording?.fps ?? 30;
   const aspectRatio = project.document.settings?.aspectRatio ?? 'auto';
   const canvasResolution = getStyledCanvasResolution({ aspectRatio, sourceWidth, sourceHeight });
+  const background = getPrimaryRecordingAsset(project.document)?.presentation?.background ?? createDefaultRecordingBackgroundStyle();
 
   React.useEffect(() => {
     setDuration(0);
@@ -614,13 +678,15 @@ function VideoPreview({
     const canvasHeight = canvasResolution.height;
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
-    const maxVideoWidth = canvasWidth * 0.9;
-    const maxVideoHeight = canvasHeight * 0.9;
+    const screenPadding = Math.max(0, Math.min(background.bgPadding, Math.min(canvasWidth, canvasHeight) / 2 - 2));
+    const maxVideoWidth = canvasWidth - screenPadding * 2;
+    const maxVideoHeight = canvasHeight - screenPadding * 2;
     const screenScale = Math.min(maxVideoWidth / sourceWidth, maxVideoHeight / sourceHeight);
     const screenWidth = sourceWidth * screenScale;
     const screenHeight = sourceHeight * screenScale;
     const screenX = (canvasWidth - screenWidth) / 2;
     const screenY = (canvasHeight - screenHeight) / 2;
+    const screenRadius = Math.max(0, Math.min(background.bgCornerRadius, Math.min(screenWidth, screenHeight) / 2));
 
     let rafId = 0;
     const document = project.document as unknown as ProjectDocument;
@@ -660,7 +726,19 @@ function VideoPreview({
       gradient.addColorStop(1, 'rgb(240, 232, 232)');
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+      if (background.bgShadowEnabled && background.bgShadowOpacity > 0 && background.bgShadowBlur > 0) {
+        ctx.save();
+        ctx.shadowColor = `rgba(0, 0, 0, ${background.bgShadowOpacity})`;
+        ctx.shadowBlur = background.bgShadowBlur;
+        ctx.shadowOffsetY = Math.min(34, Math.max(10, canvasHeight * 0.024));
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+        addRoundedRect(ctx, screenX, screenY, screenWidth, screenHeight, screenRadius);
+        ctx.fill();
+        ctx.restore();
+      }
       ctx.save();
+      addRoundedRect(ctx, screenX, screenY, screenWidth, screenHeight, screenRadius);
+      ctx.clip();
       ctx.translate(screenX, screenY);
       ctx.scale(screenScale, screenScale);
       ctx.translate(sourceWidth / 2 + offsetX, sourceHeight / 2 + offsetY);
@@ -676,7 +754,7 @@ function VideoPreview({
     }
     rafId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(rafId);
-  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height]);
+  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background]);
 
   async function togglePlayback() {
     const video = videoRef.current;
@@ -760,6 +838,21 @@ function videoErrorMessage(video: HTMLVideoElement) {
   if (code === MediaError.MEDIA_ERR_DECODE) return 'The video could not be decoded.';
   if (code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) return 'The video source is not supported.';
   return 'Unknown media error.';
+}
+
+function addRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  ctx.lineTo(x + r, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
 }
 
 function statusLabel(recording: RecordingStatus, elapsedMs: number) {

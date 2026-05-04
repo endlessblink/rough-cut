@@ -165,8 +165,10 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_STOP, async () => {
 });
 ipcMain.handle(IPC_CHANNELS.RECORDING_STATUS, () => recordingSession.status());
 ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN, async () => {
+  await mkdir(recordingsDir, { recursive: true });
   const result = await dialog.showOpenDialog({
     title: 'Open Rough Cut project',
+    defaultPath: recordingsDir,
     properties: ['openFile'],
     filters: [{ name: 'Rough Cut Project', extensions: ['roughcut'] }],
   });

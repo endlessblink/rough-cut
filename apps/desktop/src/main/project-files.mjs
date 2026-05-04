@@ -100,6 +100,7 @@ export function getPrimaryRecording(project) {
     cursorEvents: Array.isArray(asset.metadata.cursorEvents) ? asset.metadata.cursorEvents : [],
     cursorTelemetryPath: typeof asset.metadata.cursorTelemetryPath === 'string' ? asset.metadata.cursorTelemetryPath : null,
     audio: asset.metadata.audio && typeof asset.metadata.audio === 'object' ? asset.metadata.audio : null,
+    presentation: asset.presentation ?? null,
     zoomMarkers: Array.isArray(asset.presentation?.zoom?.markers) ? asset.presentation.zoom.markers : [],
   };
 }

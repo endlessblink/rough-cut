@@ -13,15 +13,20 @@ body {
   margin: 0;
 }
 
+button,
+select,
+input {
+  font: inherit;
+}
+
 button {
   border: 0;
   border-radius: 999px;
   background: #f2a541;
   color: #21170d;
   cursor: pointer;
-  font: inherit;
   font-weight: 750;
-  padding: 0.85rem 1.35rem;
+  padding: 0.78rem 1.18rem;
 }
 
 button.stop {
@@ -34,77 +39,101 @@ button.secondary {
   color: #f4efe6;
 }
 
-button:disabled {
+button:disabled,
+select:disabled,
+input:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
-.shell {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 2rem;
+select {
+  background: rgb(255 255 255 / 0.09);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 12px;
+  color: #f4efe6;
+  padding: 0.58rem 0.74rem;
 }
 
-.hero {
-  width: min(980px, 100%);
+input[type="range"] {
+  accent-color: #f2a541;
+}
+
+.shell {
+  min-height: 100vh;
+  padding: clamp(1rem, 2vw, 1.5rem);
+}
+
+.editorShell {
+  min-height: calc(100vh - clamp(2rem, 4vw, 3rem));
   border: 1px solid rgb(255 255 255 / 0.1);
-  border-radius: 32px;
-  background: linear-gradient(145deg, rgb(255 255 255 / 0.09), rgb(255 255 255 / 0.03));
-  box-shadow: 0 28px 90px rgb(0 0 0 / 0.38);
-  padding: clamp(2rem, 7vw, 4.5rem);
+  border-radius: 30px;
+  background:
+    radial-gradient(circle at 12% 8%, rgb(242 165 65 / 0.13), transparent 32rem),
+    linear-gradient(145deg, rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.025));
+  box-shadow: 0 28px 90px rgb(0 0 0 / 0.4);
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  overflow: hidden;
+}
+
+.topBar {
+  align-items: center;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1.2rem clamp(1rem, 2vw, 1.6rem);
+}
+
+.topActions,
+.recordingStrip {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.recordingStrip {
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  color: #cabfac;
+  padding: 0.75rem clamp(1rem, 2vw, 1.6rem);
+}
+
+.recordingStrip select {
+  min-width: min(30rem, 100%);
 }
 
 .eyebrow {
   color: #f2a541;
-  font-size: 0.78rem;
-  font-weight: 800;
+  font-size: 0.72rem;
+  font-weight: 850;
   letter-spacing: 0.14em;
-  margin: 0 0 1rem;
+  margin: 0 0 0.35rem;
   text-transform: uppercase;
 }
 
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
 h1 {
-  font-size: clamp(2.4rem, 7vw, 5rem);
+  font-size: clamp(1.8rem, 4vw, 3.6rem);
   letter-spacing: -0.06em;
   line-height: 0.94;
-  margin: 0;
+  margin-bottom: 0;
 }
 
-.lede {
-  color: #cabfac;
-  font-size: 1.15rem;
-  line-height: 1.6;
-  max-width: 55ch;
+h2 {
+  font-size: clamp(1.35rem, 2vw, 2rem);
+  letter-spacing: -0.045em;
+  margin-bottom: 0;
 }
 
-.panel {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  margin-top: 2rem;
-}
-
-.panel span,
-.version,
-.saved {
-  color: #9d917e;
-}
-
-.audioPanel {
-  align-items: center;
-  background: rgb(255 255 255 / 0.04);
-  border: 1px solid rgb(255 255 255 / 0.08);
-  border-radius: 16px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.85rem;
-  margin-top: 1rem;
-  padding: 0.85rem 1rem;
-}
-
-.audioToggle {
+.audioToggle,
+.toggleField {
   align-items: center;
   color: #cabfac;
   display: flex;
@@ -112,30 +141,163 @@ h1 {
   font-weight: 700;
 }
 
-.audioPanel input[type="checkbox"] {
+.audioToggle input,
+.toggleField input {
   accent-color: #f2a541;
 }
 
-.audioPanel select {
-  background: rgb(255 255 255 / 0.1);
-  border: 1px solid rgb(255 255 255 / 0.12);
-  border-radius: 12px;
-  color: #f4efe6;
-  font: inherit;
-  min-width: min(26rem, 100%);
-  padding: 0.55rem 0.75rem;
+.projectEditor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 23rem);
+  min-height: 0;
 }
 
-.audioPanel p {
+.stageColumn {
+  border-right: 1px solid rgb(255 255 255 / 0.08);
+  display: grid;
+  grid-template-rows: auto minmax(18rem, 1fr) auto;
+  min-width: 0;
+  padding: clamp(1rem, 2vw, 1.5rem);
+}
+
+.projectHeader {
+  align-items: end;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.meta,
+.version,
+.saved,
+.exportPreset,
+.inspector p,
+.zoomMarkerEmpty,
+.autoZoomEmpty,
+.autoZoomConflicts {
   color: #9d917e;
-  flex: 1 1 16rem;
-  line-height: 1.45;
-  margin: 0;
+  line-height: 1.5;
+}
+
+.videoPreview {
+  align-self: stretch;
+  background: #080604;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 24px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.35);
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.styledPreview .hiddenSource {
+  height: 1px;
+  left: -9999px;
+  position: absolute;
+  top: -9999px;
+  width: 1px;
+}
+
+.styledPreviewCanvas {
+  align-self: center;
+  background: linear-gradient(135deg, rgb(232, 235, 240) 0%, rgb(240, 232, 232) 100%);
+  border-radius: 22px;
+  box-shadow: 0 26px 58px rgb(0 0 0 / 0.2);
+  display: block;
+  justify-self: center;
+  max-height: min(65vh, 100%);
+  max-width: min(100% - 2rem, 1000px);
+  object-fit: contain;
+  width: min(100% - 2rem, 1000px);
+}
+
+.videoControls {
+  align-items: center;
+  background: rgb(14 10 7 / 0.96);
+  border-top: 1px solid rgb(255 255 255 / 0.08);
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  padding: 0.85rem 1rem 1rem;
+}
+
+.timecode {
+  color: #cabfac;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.videoControls input[type="range"] {
+  cursor: pointer;
+  min-width: 0;
+  width: 100%;
+}
+
+.timelineDock {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.inspector {
+  background: rgb(10 7 5 / 0.34);
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  min-width: 0;
+  overflow: auto;
+  padding: clamp(1rem, 2vw, 1.35rem);
+}
+
+.inspectorSection,
+.zoomMarkerPanel,
+.autoZoomSuggestionsPanel {
+  background: rgb(255 255 255 / 0.045);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 18px;
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+}
+
+.mutedSection {
+  background: rgb(255 255 255 / 0.025);
+}
+
+.field,
+.rangeField {
+  color: #cabfac;
+  display: grid;
+  font-size: 0.9rem;
+  gap: 0.42rem;
+}
+
+.rangeField {
+  grid-template-columns: 1fr auto;
+}
+
+.rangeField input {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.rangeField output {
+  color: #f4efe6;
+  font-variant-numeric: tabular-nums;
+}
+
+.exportButton {
+  justify-self: start;
+}
+
+.exportProgress {
+  color: #cabfac;
 }
 
 .saved {
   border-left: 3px solid #f2a541;
-  line-height: 1.5;
   overflow-wrap: anywhere;
   padding-left: 1rem;
 }
@@ -146,201 +308,17 @@ h1 {
 }
 
 .version {
-  margin-top: 2rem;
-}
-
-.preview {
-  border-top: 1px solid rgb(255 255 255 / 0.1);
-  margin-top: 2rem;
-  padding-top: 2rem;
-}
-
-.preview h2 {
-  font-size: 1.4rem;
-  letter-spacing: -0.03em;
-  margin: 0 0 0.5rem;
-}
-
-.preview p {
-  color: #9d917e;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-.videoPreview {
-  background: #050505;
-  border: 1px solid rgb(255 255 255 / 0.08);
-  border-radius: 20px;
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.35);
-  margin-top: 1rem;
-  overflow: hidden;
-}
-
-.videoPreview video {
-  aspect-ratio: 16 / 9;
-  background: #050505;
-  display: block;
-  object-fit: contain;
-  width: 100%;
-}
-
-.styledPreview .hiddenSource {
-  /* Hidden but still decoded — drawImage(video) needs the video pipeline live. */
-  height: 1px;
-  left: -9999px;
-  position: absolute;
-  top: -9999px;
-  width: 1px;
-}
-
-.styledPreviewCanvas {
-  aspect-ratio: 16 / 9;
-  background: linear-gradient(135deg, rgb(232, 235, 240) 0%, rgb(240, 232, 232) 100%);
-  border-radius: 26px;
-  box-shadow: 0 26px 58px rgba(0, 0, 0, 0.2);
-  display: block;
-  margin: 1rem auto;
-  max-width: calc(100% - 2rem);
-  object-fit: contain;
-  width: calc(100% - 2rem);
-}
-
-.videoControls {
-  align-items: center;
-  background: rgb(14 10 7 / 0.94);
   border-top: 1px solid rgb(255 255 255 / 0.08);
-  display: grid;
-  gap: 0.9rem;
-  grid-template-columns: auto auto minmax(0, 1fr);
-  padding: 0.85rem 1rem 1rem;
+  font-size: 0.82rem;
+  margin: 0;
+  padding: 0.7rem clamp(1rem, 2vw, 1.6rem);
 }
 
 button.compact {
-  padding: 0.55rem 0.9rem;
+  padding: 0.5rem 0.78rem;
 }
 
-.timecode {
-  color: #cabfac;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.videoControls input[type="range"] {
-  accent-color: #f2a541;
-  cursor: pointer;
-  min-width: 0;
-  width: 100%;
-}
-
-.preview .meta {
-  color: #cabfac;
-  margin-bottom: 0;
-}
-
-.exportPanel {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  margin-top: 1rem;
-}
-
-.exportPanel span {
-  color: #cabfac;
-}
-
-.exportMode {
-  color: #cabfac;
-  display: grid;
-  font-size: 0.9rem;
-  gap: 0.35rem;
-}
-
-.exportMode select {
-  background: rgb(255 255 255 / 0.1);
-  border: 1px solid rgb(255 255 255 / 0.12);
-  border-radius: 12px;
-  color: #f4efe6;
-  font: inherit;
-  padding: 0.55rem 0.75rem;
-}
-
-.exportPreset {
-  color: #cabfac;
-  flex: 1 1 18rem;
-  font-size: 0.92rem;
-  line-height: 1.45;
-  margin: 0;
-}
-
-.zoomMarkerPanel {
-  background: rgb(255 255 255 / 0.04);
-  border: 1px solid rgb(255 255 255 / 0.08);
-  border-radius: 12px;
-  display: grid;
-  gap: 0.75rem;
-  margin-top: 1rem;
-  padding: 0.85rem 1rem;
-}
-
-.zoomMarkerHeader {
-  align-items: baseline;
-  display: flex;
-  gap: 0.75rem;
-  justify-content: space-between;
-}
-
-.zoomMarkerHeader h3 {
-  color: #f4efe6;
-  font-size: 1rem;
-  margin: 0;
-}
-
-.zoomMarkerTime {
-  color: #9d917e;
-  font-size: 0.85rem;
-}
-
-.zoomMarkerEmpty {
-  color: #9d917e;
-  font-size: 0.9rem;
-  margin: 0;
-}
-
-.zoomMarkerList {
-  display: grid;
-  gap: 0.4rem;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.zoomMarkerRow {
-  align-items: center;
-  background: rgb(255 255 255 / 0.04);
-  border-radius: 10px;
-  display: flex;
-  gap: 0.75rem;
-  justify-content: space-between;
-  padding: 0.4rem 0.65rem;
-}
-
-.zoomMarkerRange {
-  color: #cabfac;
-  font-size: 0.9rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.autoZoomSuggestionsPanel {
-  background: rgb(255 255 255 / 0.04);
-  border: 1px solid rgb(255 255 255 / 0.08);
-  border-radius: 12px;
-  display: grid;
-  gap: 0.75rem;
-  margin-top: 1rem;
-  padding: 0.85rem 1rem;
-}
-
+.zoomMarkerHeader,
 .autoZoomHeader {
   align-items: center;
   display: flex;
@@ -348,24 +326,22 @@ button.compact {
   justify-content: space-between;
 }
 
+.zoomMarkerHeader h3,
 .autoZoomHeader h3 {
   color: #f4efe6;
   font-size: 1rem;
   margin: 0;
 }
 
-.autoZoomEmpty {
-  color: #9d917e;
+.zoomMarkerTime,
+.zoomMarkerRange,
+.autoZoomRange {
+  color: #cabfac;
   font-size: 0.9rem;
-  margin: 0;
+  font-variant-numeric: tabular-nums;
 }
 
-.autoZoomConflicts {
-  color: #b9ad9e;
-  font-size: 0.85rem;
-  margin: 0;
-}
-
+.zoomMarkerList,
 .autoZoomList {
   display: grid;
   gap: 0.4rem;
@@ -374,23 +350,55 @@ button.compact {
   padding: 0;
 }
 
+.zoomMarkerRow,
 .autoZoomRow {
   align-items: center;
   background: rgb(255 255 255 / 0.04);
-  border-radius: 10px;
+  border-radius: 12px;
   display: flex;
   gap: 0.75rem;
   justify-content: space-between;
-  padding: 0.4rem 0.65rem;
-}
-
-.autoZoomRange {
-  color: #cabfac;
-  font-size: 0.9rem;
-  font-variant-numeric: tabular-nums;
+  padding: 0.45rem 0.65rem;
 }
 
 .autoZoomActions {
   display: flex;
   gap: 0.4rem;
+}
+
+@media (max-width: 980px) {
+  .projectEditor {
+    grid-template-columns: 1fr;
+  }
+
+  .stageColumn {
+    border-right: 0;
+    border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  }
+
+  .inspector {
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .shell {
+    padding: 0;
+  }
+
+  .editorShell {
+    border: 0;
+    border-radius: 0;
+    min-height: 100vh;
+  }
+
+  .topBar,
+  .projectHeader {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .videoControls {
+    grid-template-columns: 1fr;
+  }
 }

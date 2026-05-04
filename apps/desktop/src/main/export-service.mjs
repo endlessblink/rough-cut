@@ -50,6 +50,7 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
     sourceWidth: recording.width,
     sourceHeight: recording.height,
   });
+  const presentationStyle = normalizePresentationStyle(recording.presentation?.background);
   const cursorLayer = await createCursorSubtitleLayer({
     cursorEvents: recording.cursorEvents,
     width: recording.width,
@@ -71,6 +72,11 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       outputPath,
       width: canvas.width,
       height: canvas.height,
+      screenPadding: presentationStyle.screenPadding,
+      screenCornerRadius: presentationStyle.screenCornerRadius,
+      screenShadowEnabled: presentationStyle.screenShadowEnabled,
+      screenShadowBlur: presentationStyle.screenShadowBlur,
+      screenShadowOpacity: presentationStyle.screenShadowOpacity,
       cursorAssPath: cursorLayer?.path,
       sourceWidth: recording.width,
       sourceHeight: recording.height,
@@ -105,14 +111,22 @@ export function buildStyledExportArgs({
   sourceWidth = null,
   sourceHeight = null,
   sourceFps = null,
+  screenPadding = 96,
+  screenCornerRadius = 32,
+  screenShadowEnabled = true,
+  screenShadowBlur = 58,
+  screenShadowOpacity = 0.2,
   zoomCropFilter = null,
   zoomSendcmdPath = null,
 }) {
-  const maxVideoWidth = Math.round(width * 0.9);
-  const maxVideoHeight = Math.round(height * 0.9);
+  const safePadding = clampNumber(screenPadding, 0, Math.min(width, height) / 2 - 2);
+  const maxVideoWidth = Math.round(width - safePadding * 2);
+  const maxVideoHeight = Math.round(height - safePadding * 2);
   const cropPercent = 1;
-  const cornerRadius = 26;
-  const shadowOffsetY = 26;
+  const cornerRadius = Math.round(clampNumber(screenCornerRadius, 0, Math.min(maxVideoWidth, maxVideoHeight) / 2));
+  const shadowBlur = Math.round(clampNumber(screenShadowBlur, 0, 120));
+  const shadowOpacity = screenShadowEnabled ? clampNumber(screenShadowOpacity, 0, 0.8) : 0;
+  const shadowOffsetY = Math.round(Math.min(34, Math.max(10, height * 0.024)));
   const roundedAlpha = buildRoundedAlphaExpression(cornerRadius);
   const fps = Number.isFinite(sourceFps) && sourceFps > 0 ? sourceFps : 30;
   const screenInput = cursorAssPath ? '[with_cursor]' : '[base]';
@@ -127,7 +141,7 @@ export function buildStyledExportArgs({
     `${screenInput}${screenStep}[screen]`,
     `[screen]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${roundedAlpha}'[rounded]`,
     `[rounded]split[shadow_src][fg]`,
-    `[shadow_src]colorchannelmixer=rr=0:gg=0:bb=0:aa=0.20,boxblur=58:5[shadow]`,
+    `[shadow_src]colorchannelmixer=rr=0:gg=0:bb=0:aa=${formatFilterNumber(shadowOpacity)},boxblur=${shadowBlur}:5[shadow]`,
     `[bg][shadow]overlay=(W-w)/2:(H-h)/2+${shadowOffsetY}:shortest=1[with_shadow]`,
     `[with_shadow][fg]overlay=(W-w)/2:(H-h)/2:shortest=1,format=yuv420p[v]`,
   ].join(';');
@@ -158,6 +172,24 @@ export function buildStyledExportArgs({
     `rough_cut_style=canvas:${width}x${height}:studio-demo`,
     outputPath,
   ];
+}
+
+function normalizePresentationStyle(background = null) {
+  return {
+    screenPadding: Number.isFinite(background?.bgPadding) ? background.bgPadding : 96,
+    screenCornerRadius: Number.isFinite(background?.bgCornerRadius) ? background.bgCornerRadius : 32,
+    screenShadowEnabled: typeof background?.bgShadowEnabled === 'boolean' ? background.bgShadowEnabled : true,
+    screenShadowBlur: Number.isFinite(background?.bgShadowBlur) ? background.bgShadowBlur : 58,
+    screenShadowOpacity: Number.isFinite(background?.bgShadowOpacity) ? background.bgShadowOpacity : 0.2,
+  };
+}
+
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, Number.isFinite(value) ? value : min));
+}
+
+function formatFilterNumber(value) {
+  return Number(value).toFixed(3).replace(/\.?0+$/, '');
 }
 
 export async function createCursorSubtitleLayer({ cursorEvents = [], width, height, fps = 30, durationFrames = null } = {}) {

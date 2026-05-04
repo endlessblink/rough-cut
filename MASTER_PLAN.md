@@ -42,6 +42,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-026 | Switch capture pipeline to xdg-desktop-portal + PipeWire (Wayland) | P1 | PLANNED |
 | TASK-027 | Cursor-follow zoom (preview + export, parity-preserving) | P1 | DONE |
 | TASK-028 | Add aspect ratio presets for styled exports | P1 | IN PROGRESS |
+| TASK-029 | Build editor shell and screen presentation controls | P1 | IN PROGRESS |
 
 ## Recently Verified
 
@@ -991,3 +992,39 @@ Screen Studio, FocuSee, and Recordly all treat social aspect ratios as first-cla
 - `pnpm smoke:styled-export`
 - `pnpm smoke:ui`
 - **Pending: manual packaged-app verification** — open or create a recording, switch aspect ratio between Auto/Wide/Vertical/Square, verify preview resizes, export styled MP4, and confirm the output dimensions match the selected preset.
+
+### TASK-029 Build editor shell and screen presentation controls
+
+**Priority:** P1  
+**Status:** IN PROGRESS
+
+#### Context
+
+The one-page MVP UI stopped scaling once mic capture, aspect ratios, zoom controls, styled export, and screen presentation settings coexisted. Users also expected rounded screen/card styling and a camera area after seeing the styled canvas controls.
+
+#### Acceptance Criteria
+
+- Replace the stacked MVP page with a real editor shell: top recording bar, central preview stage, right inspector, lower zoom/review area.
+- Move aspect ratio into the inspector rather than the export row.
+- Add screen presentation controls for padding, corner radius, and shadow.
+- Preview clips the screen recording to rounded corners and reflects padding/shadow controls.
+- Styled export consumes the same presentation values for padding, corner radius, and shadow.
+- Explicitly defer webcam PiP with a clear disabled/coming-next section.
+
+#### Completion Notes
+
+- Added a studio-style editor shell with top record/open controls, mic strip, centered preview stage, right-side inspector, and timeline/review dock.
+- Added inspector controls for canvas aspect ratio, screen padding, corner radius, and shadow size/toggle.
+- Reused existing `RecordingPresentation.background` fields for persistence; new recording defaults now start with padded rounded screen styling.
+- Preview now draws the styled canvas background, screen shadow, rounded screen clip, zoomed source video, and cursor inside the same transform.
+- Styled export now uses project presentation values instead of hardcoded 90% scale / 26px corner radius / fixed shadow.
+- Camera/webcam remains intentionally deferred and labeled as coming next.
+
+#### Verification
+
+- `pnpm typecheck`
+- `pnpm --filter @rough-cut/project-model test`
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm smoke:ui`
+- `pnpm smoke:styled-export`
+- **Pending: manual packaged-app verification** — open/create a recording, adjust aspect ratio/padding/radius/shadow, confirm preview updates, export styled MP4, and compare output visually against preview.
