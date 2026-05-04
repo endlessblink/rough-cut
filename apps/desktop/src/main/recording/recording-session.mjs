@@ -124,9 +124,6 @@ export function createRecordingSession({
       systemAudioSource: null,
       onFirstFrame: (firstFrameMs) => {
         eventLogger.event('first-frame-anchor', { firstFrameMs });
-        if (active && typeof firstFrameMs === 'number' && Number.isFinite(firstFrameMs)) {
-          active.firstFrameMs = firstFrameMs;
-        }
       },
     });
 
@@ -169,27 +166,14 @@ export function createRecordingSession({
     if (session.eventLogger) session.eventLogger.event('recording-stop');
     const rawPath = await session.capture.stop();
 
-    // Re-anchor cursor events to ffmpeg's first-frame wall-clock so the
-    // cursor overlay aligns with the captured video. Without this the cursor
-    // is offset ~1.5-2 s ahead of the video (the ffmpeg/x11grab/libx264
-    // startup latency), because frame numbers were originally computed
-    // relative to recording-start. Events from before ffmpeg's frame 0
-    // (e.g. the seed sample taken at start) are clamped to frame 0 so the
-    // initial cursor position still seeds the playback.
-    if (typeof session.firstFrameMs === 'number') {
-      const startedAtMs = Date.parse(session.startedAt);
-      const offsetMs = session.firstFrameMs - startedAtMs;
-      if (offsetMs > 0) {
-        session.cursorEvents = session.cursorEvents.map((ev) => {
-          const newTimeMs = Math.max(0, (ev.timeMs ?? 0) - offsetMs);
-          return {
-            ...ev,
-            timeMs: newTimeMs,
-            frame: Math.round((newTimeMs / 1000) * session.fps),
-          };
-        });
-      }
-    }
+    // The firstFrameMs anchor is captured but no longer used to re-anchor
+    // cursor events. Earlier today we tried shifting cursor frames backward
+    // by (firstFrameMs - startedAt) on the theory that the cursor overlay
+    // was offset ahead of the video. That clamped many pre-ffmpeg events to
+    // frame 0 with stale positions and the user reported the result as
+    // "cursor lag — wrong place". Reverted to the pre-today behavior:
+    // cursor frames stay anchored to recording-start, matching what
+    // yesterday's recordings produced.
 
     await writeCursorTelemetrySidecar(session);
     await clearRecoveryMarker();
