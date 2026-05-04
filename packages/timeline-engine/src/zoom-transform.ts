@@ -93,11 +93,11 @@ function clamp(value: number, min: number, max: number): number {
 // Critically damped spring stiffness presets (units: 1/sec²). Damping is
 // derived as 2*sqrt(stiffness) for critical damping (no overshoot, fastest
 // settle without oscillation). Settle time ≈ 4/sqrt(stiffness).
-//   smooth:   stiffness 80  → ≈0.45 s settle. Cinematic, Apple-style feel.
-//   focused:  stiffness 200 → ≈0.28 s settle. Snappy, responsive.
+//   smooth:   stiffness 140 → ≈0.34 s settle. Smooth, but keeps fast cursors in view.
+//   focused:  stiffness 280 → ≈0.24 s settle. Snappy, responsive.
 const SPRING_STIFFNESS: Record<'smooth' | 'focused', number> = {
-  smooth: 80,
-  focused: 200,
+  smooth: 140,
+  focused: 280,
 };
 
 // Stationary-snap polish (per open-recorder): if the spring TARGET hasn't
@@ -108,9 +108,9 @@ const STATIONARY_EPSILON = 0.001;
 const STATIONARY_FRAMES = 2;
 
 // EMA smoothing constant applied to the raw cursor input BEFORE the spring
-// sees it. Removes sub-pixel hand tremor and 30 Hz sample noise. Smaller =
-// more smoothing; 0.3 gives ~3-sample time constant ≈ 100 ms at 30 Hz.
-const CURSOR_EMA_ALPHA = 0.3;
+// sees it. Higher than before because edge-snap already damps the target;
+// this reduces lag enough to keep the cursor visible during fast moves.
+const CURSOR_EMA_ALPHA = 0.5;
 
 function getMarkerScale(
   frame: Frame,
@@ -187,14 +187,9 @@ function resolveSpringSmoothedFocal(
     let targetX = marker.focalPoint.x;
     let targetY = marker.focalPoint.y;
     if (emaX !== null && emaY !== null) {
-      const leashed = resolveFollowFocalPoint(
-        marker,
-        { x: emaX, y: emaY },
-        targetScale,
-        followPadding,
-      );
-      targetX = leashed.x;
-      targetY = leashed.y;
+      const target = edgeSnapFocus({ x: emaX, y: emaY }, targetScale, followPadding);
+      targetX = target.x;
+      targetY = target.y;
     }
 
     // Source-bound clamp at the frame's current scale so the spring chases a
@@ -245,78 +240,34 @@ function resolveSpringSmoothedFocal(
   return { x: posX, y: posY };
 }
 
-function resolveFollowFocalPoint(
-  marker: ZoomMarker,
-  trackedCursor: ZoomCursorPosition,
+function edgeSnapFocus(
+  cursor: ZoomCursorPosition,
   scale: number,
-  followPadding: number,
+  snapToEdgesRatio: number,
 ): ZoomCursorPosition {
-  const padding = clamp(followPadding, 0, 0.3);
-  const visibleWidth = 1 / scale;
-  const visibleHeight = 1 / scale;
-  const allowedDx = Math.max(0, visibleWidth * (0.5 - padding));
-  const allowedDy = Math.max(0, visibleHeight * (0.5 - padding));
-  const minCenterX = visibleWidth / 2;
-  const maxCenterX = 1 - visibleWidth / 2;
-  const minCenterY = visibleHeight / 2;
-  const maxCenterY = 1 - visibleHeight / 2;
-
+  const snap = clamp(snapToEdgesRatio, 0.05, 0.45);
+  const minCenter = 1 / (2 * scale);
+  const maxCenter = 1 - minCenter;
+  const snappedX = clampedInterpolate(cursor.x, snap, 1 - snap);
+  const snappedY = clampedInterpolate(cursor.y, snap, 1 - snap);
   return {
-    x: clamp(
-      clamp(marker.focalPoint.x, trackedCursor.x - allowedDx, trackedCursor.x + allowedDx),
-      minCenterX,
-      maxCenterX,
-    ),
-    y: clamp(
-      clamp(marker.focalPoint.y, trackedCursor.y - allowedDy, trackedCursor.y + allowedDy),
-      minCenterY,
-      maxCenterY,
-    ),
+    x: minCenter + snappedX * (maxCenter - minCenter),
+    y: minCenter + snappedY * (maxCenter - minCenter),
   };
 }
 
-// Cursor-visibility guard margin: keep the cursor at least this fraction of
-// the visible window away from the edge. Without this, the spring's natural
-// lag (~5 frames at stiffness 80) can let a fast-moving cursor exit the
-// visible region before the focal catches up.
-const CURSOR_VISIBILITY_MARGIN = 0.08;
-
-function applyCursorVisibilityGuard(
-  focal: ZoomCursorPosition,
-  cursor: ZoomCursorPosition,
-  scale: number,
-): ZoomCursorPosition {
-  const halfVis = 1 / (2 * scale);
-  const margin = halfVis * CURSOR_VISIBILITY_MARGIN;
-  const minVisX = cursor.x - halfVis + margin;
-  const maxVisX = cursor.x + halfVis - margin;
-  const minVisY = cursor.y - halfVis + margin;
-  const maxVisY = cursor.y + halfVis - margin;
-  // Source-bound limits — the visibility guard cannot push the focal past the
-  // edge of the source. If the visibility range is empty (cursor too close to
-  // the source edge), fall through to the source-bound clamp the caller will
-  // re-apply.
-  const minSrc = 1 / (2 * scale);
-  const maxSrc = 1 - 1 / (2 * scale);
-  const lo = Math.max(minSrc, minVisX);
-  const hi = Math.min(maxSrc, maxVisX);
-  const loY = Math.max(minSrc, minVisY);
-  const hiY = Math.min(maxSrc, maxVisY);
-  return {
-    x: lo <= hi ? clamp(focal.x, lo, hi) : focal.x,
-    y: loY <= hiY ? clamp(focal.y, loY, hiY) : focal.y,
-  };
+function clampedInterpolate(value: number, inMin: number, inMax: number): number {
+  if (inMax <= inMin) return 0;
+  return clamp((value - inMin) / (inMax - inMin), 0, 1);
 }
 
 // Phase-aware focal point resolution. The marker's life splits into three
 // phases with discrete behaviors so cursor influence never compounds with
 // scale change (the dominant wobble cause):
 //   1. Ramp-in:  pure smootherStep lerp (0.5, 0.5) → marker.focalPoint
-//   2. Hold:     spring tracks EMA-filtered cursor with leash + stationary snap
-//   3. Ramp-out: smootherStep lerp from spring's hold-end position → (0.5, 0.5)
+//   2. Hold:     spring tracks EMA-filtered cursor through edge-snap mapping
+//   3. Ramp-out: freeze hold-end focus while scale returns to 1
 // In every phase the result is then source-bound clamped at the current scale.
-// During HOLD specifically, a cursor-visibility guard ensures the cursor
-// can't exit the visible window even when the spring is lagging.
 function getMarkerFocalPoint(
   frame: Frame,
   marker: ZoomMarker,
@@ -339,22 +290,24 @@ function getMarkerFocalPoint(
   }
 
   const followAnimation = options.followAnimation ?? 'smooth';
-  const followPadding = options.followPadding ?? 0.22;
+  const followPadding = options.followPadding ?? 0.25;
   const fps = options.fps ?? 30;
 
   const holdStart = marker.startFrame + marker.zoomInDuration;
   const holdEnd = marker.endFrame - marker.zoomOutDuration;
   const hasHold = holdEnd > holdStart;
 
-  // Phase 1 — ramp-in: deterministic lerp toward marker.focalPoint.
+  // Phase 1 — ramp-in: deterministic lerp toward the current cursor target.
   if (frame < holdStart) {
+    const cursor = options.getCursorPosition(frame);
+    const target = cursor !== null ? edgeSnapFocus(cursor, strengthToScale(marker.strength), followPadding) : marker.focalPoint;
     const t =
       marker.zoomInDuration > 0
         ? smootherStep((frame - marker.startFrame) / marker.zoomInDuration)
         : 1;
     return sourceClamp(
-      0.5 + (marker.focalPoint.x - 0.5) * t,
-      0.5 + (marker.focalPoint.y - 0.5) * t,
+      0.5 + (target.x - 0.5) * t,
+      0.5 + (target.y - 0.5) * t,
     );
   }
 
@@ -370,16 +323,11 @@ function getMarkerFocalPoint(
       followPadding,
       fps,
     );
-    const rawCursor = options.getCursorPosition(frame);
-    const guarded =
-      rawCursor !== null
-        ? applyCursorVisibilityGuard(followed, rawCursor, scale)
-        : followed;
-    return sourceClamp(guarded.x, guarded.y);
+    return sourceClamp(followed.x, followed.y);
   }
 
-  // Phase 3 — ramp-out: lerp from where the spring ended at hold-end → (0.5, 0.5).
-  // Compute hold-end focal by integrating the spring through the entire hold.
+  // Phase 3 — ramp-out: freeze where the spring ended while scale returns to 1.
+  // This avoids a visible camera chase while the viewport is already zooming out.
   const holdEndFocal = hasHold
     ? resolveSpringSmoothedFocal(
         holdStart,
@@ -391,14 +339,7 @@ function getMarkerFocalPoint(
         fps,
       )
     : marker.focalPoint;
-  const t =
-    marker.zoomOutDuration > 0
-      ? smootherStep((frame - holdEnd) / marker.zoomOutDuration)
-      : 1;
-  return sourceClamp(
-    holdEndFocal.x + (0.5 - holdEndFocal.x) * t,
-    holdEndFocal.y + (0.5 - holdEndFocal.y) * t,
-  );
+  return sourceClamp(holdEndFocal.x, holdEndFocal.y);
 }
 
 /**

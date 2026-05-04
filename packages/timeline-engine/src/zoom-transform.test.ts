@@ -7,6 +7,13 @@ import {
 } from './zoom-transform.js';
 import { createZoomMarker } from '@rough-cut/project-model';
 
+function focalFromTransform(transform: { scale: number; translateX: number; translateY: number }) {
+  return {
+    x: 0.5 - transform.translateX / transform.scale,
+    y: 0.5 - transform.translateY / transform.scale,
+  };
+}
+
 describe('smootherStep', () => {
   it('returns 0 at t=0', () => {
     expect(smootherStep(0)).toBe(0);
@@ -147,7 +154,7 @@ describe('getZoomTransformForMarker', () => {
     expect(t!.translateX).toBeLessThan(0);
   });
 
-  it('keeps the zoom steadier when cursor stays inside the framing zone', () => {
+  it('maps near-edge cursor positions to the valid viewport edge', () => {
     const marker = createZoomMarker(0, 30, {
       kind: 'auto',
       strength: 1,
@@ -158,12 +165,64 @@ describe('getZoomTransformForMarker', () => {
     const t = getZoomTransformForMarker(15, marker, {
       followCursor: true,
       followAnimation: 'focused',
-      followPadding: 0.18,
-      getCursorPosition: () => ({ x: 0.56, y: 0.5 }),
+      followPadding: 0.25,
+      getCursorPosition: () => ({ x: 0.98, y: 0.5 }),
     });
 
     expect(t).not.toBeNull();
-    expect(t!.translateX).toBeCloseTo(0, 5);
+    const focal = focalFromTransform(t!);
+    expect(focal.x).toBeCloseTo(0.8, 2);
+    expect(focal.y).toBeCloseTo(0.5, 2);
+  });
+
+  it('freezes focal point during zoom-out instead of chasing a late cursor move', () => {
+    const marker = createZoomMarker(0, 60, {
+      kind: 'auto',
+      strength: 1,
+      zoomInDuration: 0,
+      zoomOutDuration: 15,
+      focalPoint: { x: 0.5, y: 0.5 },
+    });
+    const options = {
+      followCursor: true,
+      followAnimation: 'focused' as const,
+      followPadding: 0.25,
+      fps: 30,
+      getCursorPosition: (frame: number) => (frame < 45 ? { x: 0.8, y: 0.5 } : { x: 0.2, y: 0.5 }),
+    };
+
+    const holdEnd = getZoomTransformForMarker(44, marker, options);
+    const zoomOut = getZoomTransformForMarker(45, marker, options);
+
+    expect(holdEnd).not.toBeNull();
+    expect(zoomOut).not.toBeNull();
+    expect(focalFromTransform(zoomOut!).x).toBeCloseTo(focalFromTransform(holdEnd!).x, 1);
+  });
+
+  it('keeps a fast cursor movement inside the visible zoom window during hold', () => {
+    const marker = createZoomMarker(0, 90, {
+      kind: 'auto',
+      strength: 1,
+      zoomInDuration: 0,
+      zoomOutDuration: 0,
+      focalPoint: { x: 0.5, y: 0.5 },
+    });
+    const cursorAtFrame = (frame: number) => ({ x: frame < 20 ? 0.2 : 0.9, y: 0.5 });
+    const frame = 28;
+    const t = getZoomTransformForMarker(frame, marker, {
+      followCursor: true,
+      followAnimation: 'focused',
+      followPadding: 0.25,
+      fps: 30,
+      getCursorPosition: cursorAtFrame,
+    });
+
+    expect(t).not.toBeNull();
+    const focal = focalFromTransform(t!);
+    const halfVisibleWidth = 1 / (2 * t!.scale);
+    const cursor = cursorAtFrame(frame);
+    expect(cursor.x).toBeGreaterThanOrEqual(focal.x - halfVisibleWidth);
+    expect(cursor.x).toBeLessThanOrEqual(focal.x + halfVisibleWidth);
   });
 });
 
