@@ -182,7 +182,7 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, async (_event, projectName 
 
   const result = await dialog.showSaveDialog({
     title: 'Export MP4',
-    defaultPath: `${projectName}.mp4`,
+    defaultPath: `${projectName}-export.mp4`,
     filters: [{ name: 'MP4 Video', extensions: ['mp4'] }],
   });
   if (result.canceled || !result.filePath) return null;

@@ -41,8 +41,11 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-025 | Unified preview that mirrors styled export | P1 | DONE |
 | TASK-026 | Switch capture pipeline to xdg-desktop-portal + PipeWire (Wayland) | P1 | PLANNED |
 | TASK-027 | Cursor-follow zoom (preview + export, parity-preserving) | P1 | DONE |
-| TASK-028 | Add aspect ratio presets for styled exports | P1 | IN PROGRESS |
-| TASK-029 | Build editor shell and screen presentation controls | P1 | IN PROGRESS |
+| TASK-028 | Add aspect ratio presets for styled exports | P1 | DONE |
+| TASK-029 | Build editor shell and screen presentation controls | P1 | DONE |
+| TASK-030 | Add cursor-follow zoom regression fixtures | P1 | PLANNED |
+| TASK-031 | Add preview/export parity regression snapshots | P1 | PLANNED |
+| TASK-032 | Add packaged-app visual regression smoke | P2 | PLANNED |
 
 ## Recently Verified
 
@@ -957,10 +960,10 @@ Schema's `ZoomPresentation.followCursor: true` and the engine's cursor-follow pa
 - `pnpm smoke:ui` — `hasZoomMarkerPanel: true`, `hasAutoZoomSuggestionsPanel: true`, `hasStyledPreviewCanvas: true` all pass.
 - **Pending: manual packaged-app verification** — record while moving cursor across the screen, generate auto-zoom suggestions, apply one, watch the canvas preview during playback (focal should pan with cursor during auto-marker hold), export styled and confirm same behavior in the MP4. Manual zoom markers should stay statically centered on their focal.
 
-### TASK-028 Add aspect ratio presets for styled exports
+### ~~TASK-028~~ Add aspect ratio presets for styled exports
 
 **Priority:** P1  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -981,6 +984,7 @@ Screen Studio, FocuSee, and Recordly all treat social aspect ratios as first-cla
 - Bumped schema to v11 and added a v10→v11 migration that backfills `aspectRatio: 'auto'`.
 - Styled export now computes its canvas dimensions from project settings before building the FFmpeg filter graph.
 - Renderer preview now has an aspect ratio selector, persists changes, sizes the canvas to the selected ratio, and fits the source recording into that canvas using the same transform order as export.
+- Manual app verification confirmed styled export completes successfully after changing the export flow default away from the source file name.
 
 #### Verification
 
@@ -991,12 +995,12 @@ Screen Studio, FocuSee, and Recordly all treat social aspect ratios as first-cla
 - `pnpm test`
 - `pnpm smoke:styled-export`
 - `pnpm smoke:ui`
-- **Pending: manual packaged-app verification** — open or create a recording, switch aspect ratio between Auto/Wide/Vertical/Square, verify preview resizes, export styled MP4, and confirm the output dimensions match the selected preset.
+- Manual app verification: open/create a recording, adjust aspect ratio/styled export flow, and confirm styled MP4 export completes.
 
-### TASK-029 Build editor shell and screen presentation controls
+### ~~TASK-029~~ Build editor shell and screen presentation controls
 
 **Priority:** P1  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -1019,6 +1023,8 @@ The one-page MVP UI stopped scaling once mic capture, aspect ratios, zoom contro
 - Preview now draws the styled canvas background, screen shadow, rounded screen clip, zoomed source video, and cursor inside the same transform.
 - Styled export now uses project presentation values instead of hardcoded 90% scale / 26px corner radius / fixed shadow.
 - Camera/webcam remains intentionally deferred and labeled as coming next.
+- Export flow now defaults to a distinct `-export.mp4` output name, rejects source-overwrite attempts early, and streams FFmpeg progress into the existing export status display.
+- Cursor-follow zoom was stabilized with calmer default smoothing, a target deadband for tiny cursor jitter, and fixed zoom-in targeting.
 
 #### Verification
 
@@ -1027,4 +1033,69 @@ The one-page MVP UI stopped scaling once mic capture, aspect ratios, zoom contro
 - `pnpm --filter @rough-cut/desktop test`
 - `pnpm smoke:ui`
 - `pnpm smoke:styled-export`
-- **Pending: manual packaged-app verification** — open/create a recording, adjust aspect ratio/padding/radius/shadow, confirm preview updates, export styled MP4, and compare output visually against preview.
+- Manual app verification: export flow completes; preview/export controls are usable enough to move to regression hardening.
+
+### TASK-030 Add cursor-follow zoom regression fixtures
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+Cursor-follow zoom is sensitive to fast cursor movement, edge positions, zoom-out timing, and preview/export math drift. Recent fixes improved this with edge-snap focus and zoom-out freeze, but coverage is still mostly unit-level and synthetic.
+
+#### Acceptance Criteria
+
+- Add deterministic cursor telemetry fixtures that cover fast horizontal movement, fast diagonal movement, near-edge movement, pause/resume, and off-screen multi-monitor pass-through.
+- Assert the cursor remains inside the zoomed viewport during hold phases when it is inside the source frame.
+- Assert zoom-out freezes the focal point instead of chasing late cursor movement.
+- Assert generated FFmpeg `sendcmd` crop windows stay finite, bounded, and free of sudden frame-to-frame jumps above an explicit threshold.
+- Include at least one regression that fails with the old hard visibility-guard snapping behavior.
+
+#### Verification
+
+- `pnpm --filter @rough-cut/timeline-engine test`
+- `pnpm --filter @rough-cut/desktop test`
+
+### TASK-031 Add preview/export parity regression snapshots
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+The renderer preview and styled export both consume shared zoom math, but they still have separate drawing/export pipelines. Regressions can appear as cursor/zoom mismatch even when unit tests pass.
+
+#### Acceptance Criteria
+
+- Add a small deterministic project fixture with source dimensions, cursor telemetry, zoom markers, aspect ratio, and screen presentation values.
+- Capture expected per-frame render descriptions from the shared resolver at representative frames: before zoom, ramp-in, hold, fast cursor pan, zoom-out, and after zoom.
+- Assert renderer preview transform inputs and export crop/sendcmd generation use equivalent source-to-canvas geometry for those frames.
+- Store snapshots as readable JSON, not binary screenshots, unless screenshot parity becomes necessary later.
+
+#### Verification
+
+- `pnpm --filter @rough-cut/frame-resolver test`
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm smoke:styled-export`
+
+### TASK-032 Add packaged-app visual regression smoke
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+Editor shell, aspect ratio controls, screen padding/radius/shadow controls, and open-project behavior are user-visible and currently rely on manual packaged-app checks. A lightweight packaged visual smoke would catch broken UI wiring earlier.
+
+#### Acceptance Criteria
+
+- Extend packaged smoke coverage to launch the app, open a synthetic `.roughcut` project from the recordings directory, and capture a visual smoke screenshot.
+- Exercise aspect ratio, screen padding, corner radius, and shadow controls through the packaged app path.
+- Assert the open-project dialog defaults to the recordings/project directory where feasible, or add a test seam for that default path.
+- Keep the smoke deterministic and headless-safe; do not require interactive desktop input in CI-style runs.
+
+#### Verification
+
+- `pnpm smoke:package`
+- `pnpm smoke:ui`

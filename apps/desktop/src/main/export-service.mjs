@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { copyFile, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { getPrimaryRecording } from './project-files.mjs';
 import { createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
 import { getStyledCanvasResolution } from '@rough-cut/project-model';
@@ -20,6 +20,7 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
   const exportMode = normalizeExportMode(mode);
   const recording = getPrimaryRecording(project);
   if (!recording) throw new Error('Project has no recording to export.');
+  assertDistinctExportPath(recording.filePath, outputPath);
   if (!isSingleUneditedRecording(project, recording.assetId)) {
     throw new Error('Only unedited single-recording exports are supported in the MVP.');
   }
@@ -42,8 +43,13 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
   };
 }
 
+function assertDistinctExportPath(sourcePath, outputPath) {
+  if (resolve(sourcePath) !== resolve(outputPath)) return;
+  throw new Error('Export output must be different from the source recording. Choose a new file name.');
+}
+
 export async function exportStyledProjectToMp4({ project, recording, outputPath, onProgress = () => undefined }) {
-  onProgress({ phase: 'rendering-styled', progress: 0 });
+  onProgress({ phase: 'rendering-styled', progress: 0.01 });
   await mkdir(dirname(outputPath), { recursive: true });
   const canvas = getStyledCanvasResolution({
     aspectRatio: project?.settings?.aspectRatio ?? 'auto',
@@ -67,6 +73,7 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
     totalFrames: recording.duration,
   });
   try {
+    const durationSeconds = recording.duration / (Number.isFinite(recording.fps) && recording.fps > 0 ? recording.fps : 30);
     const result = await run('ffmpeg', buildStyledExportArgs({
       inputPath: recording.filePath,
       outputPath,
@@ -83,7 +90,14 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       sourceFps: recording.fps,
       zoomCropFilter: zoomLayer?.filterFragment ?? null,
       zoomSendcmdPath: zoomLayer?.path ?? null,
-    }));
+    }), {
+      onStdout: (chunk) => {
+        const progress = parseFfmpegProgress(chunk, durationSeconds);
+        if (progress !== null) {
+          onProgress({ phase: 'rendering-styled', progress: 0.01 + progress * 0.98 });
+        }
+      },
+    });
     if (result.code !== 0) {
       throw new Error(`Styled export failed: ${result.stderr.trim()}`);
     }
@@ -148,6 +162,9 @@ export function buildStyledExportArgs({
 
   return [
     '-y',
+    '-progress',
+    'pipe:1',
+    '-nostats',
     '-i',
     inputPath,
     '-filter_complex',
@@ -172,6 +189,16 @@ export function buildStyledExportArgs({
     `rough_cut_style=canvas:${width}x${height}:studio-demo`,
     outputPath,
   ];
+}
+
+export function parseFfmpegProgress(chunk, durationSeconds) {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return null;
+  const text = String(chunk);
+  const match = text.match(/out_time_(?:us|ms)=(\d+)/);
+  if (!match) return null;
+  const elapsedSeconds = Number(match[1]) / 1_000_000;
+  if (!Number.isFinite(elapsedSeconds)) return null;
+  return clampNumber(elapsedSeconds / durationSeconds, 0, 1);
 }
 
 function normalizePresentationStyle(background = null) {
@@ -312,13 +339,15 @@ export function isSingleUneditedRecording(project, assetId) {
   );
 }
 
-function run(command, args) {
+function run(command, args, { onStdout = () => undefined } = {}) {
   return new Promise((resolve, reject) => {
     const proc = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     proc.stdout.on('data', (chunk) => {
-      stdout += chunk.toString();
+      const text = chunk.toString();
+      stdout += text;
+      onStdout(text);
     });
     proc.stderr.on('data', (chunk) => {
       stderr += chunk.toString();

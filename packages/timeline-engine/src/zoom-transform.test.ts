@@ -199,6 +199,49 @@ describe('getZoomTransformForMarker', () => {
     expect(focalFromTransform(zoomOut!).x).toBeCloseTo(focalFromTransform(holdEnd!).x, 1);
   });
 
+  it('does not chase live cursor movement during zoom-in', () => {
+    const marker = createZoomMarker(0, 60, {
+      kind: 'auto',
+      strength: 1,
+      zoomInDuration: 20,
+      zoomOutDuration: 0,
+      focalPoint: { x: 0.5, y: 0.5 },
+    });
+    const t = getZoomTransformForMarker(10, marker, {
+      followCursor: true,
+      followAnimation: 'smooth',
+      followPadding: 0.25,
+      fps: 30,
+      getCursorPosition: (frame: number) => (frame === 0 ? { x: 0.2, y: 0.5 } : { x: 0.8, y: 0.5 }),
+    });
+
+    expect(t).not.toBeNull();
+    expect(focalFromTransform(t!).x).toBeLessThan(0.5);
+  });
+
+  it('ignores tiny cursor target wobble during hold', () => {
+    const marker = createZoomMarker(0, 90, {
+      kind: 'auto',
+      strength: 1,
+      zoomInDuration: 0,
+      zoomOutDuration: 0,
+      focalPoint: { x: 0.5, y: 0.5 },
+    });
+    const focals = [35, 36, 37, 38].map((frame) => {
+      const t = getZoomTransformForMarker(frame, marker, {
+        followCursor: true,
+        followAnimation: 'smooth',
+        followPadding: 0.22,
+        fps: 30,
+        getCursorPosition: (sampleFrame: number) => ({ x: sampleFrame % 2 === 0 ? 0.5 : 0.506, y: 0.5 }),
+      });
+      expect(t).not.toBeNull();
+      return focalFromTransform(t!).x;
+    });
+
+    expect(Math.max(...focals) - Math.min(...focals)).toBeLessThan(0.004);
+  });
+
   it('keeps a fast cursor movement inside the visible zoom window during hold', () => {
     const marker = createZoomMarker(0, 90, {
       kind: 'auto',

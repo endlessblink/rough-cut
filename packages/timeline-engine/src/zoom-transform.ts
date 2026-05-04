@@ -93,11 +93,16 @@ function clamp(value: number, min: number, max: number): number {
 // Critically damped spring stiffness presets (units: 1/sec²). Damping is
 // derived as 2*sqrt(stiffness) for critical damping (no overshoot, fastest
 // settle without oscillation). Settle time ≈ 4/sqrt(stiffness).
-//   smooth:   stiffness 140 → ≈0.34 s settle. Smooth, but keeps fast cursors in view.
+//   smooth:   stiffness 95 → ≈0.41 s settle. Deliberately calm for default exports.
 //   focused:  stiffness 280 → ≈0.24 s settle. Snappy, responsive.
 const SPRING_STIFFNESS: Record<'smooth' | 'focused', number> = {
-  smooth: 140,
+  smooth: 95,
   focused: 280,
+};
+
+const CURSOR_EMA_ALPHA: Record<'smooth' | 'focused', number> = {
+  smooth: 0.24,
+  focused: 0.5,
 };
 
 // Stationary-snap polish (per open-recorder): if the spring TARGET hasn't
@@ -107,10 +112,10 @@ const SPRING_STIFFNESS: Record<'smooth' | 'focused', number> = {
 const STATIONARY_EPSILON = 0.001;
 const STATIONARY_FRAMES = 2;
 
-// EMA smoothing constant applied to the raw cursor input BEFORE the spring
-// sees it. Higher than before because edge-snap already damps the target;
-// this reduces lag enough to keep the cursor visible during fast moves.
-const CURSOR_EMA_ALPHA = 0.5;
+// Normalized target deadband. Cursor telemetry can wobble by a few source
+// pixels when the hand is visually still; ignore tiny focus-target changes so
+// the camera does not breathe around a paused cursor.
+const TARGET_DEADBAND = 0.008;
 
 function getMarkerScale(
   frame: Frame,
@@ -155,6 +160,7 @@ function resolveSpringSmoothedFocal(
   fps: number,
 ): ZoomCursorPosition {
   const stiffness = SPRING_STIFFNESS[followAnimation];
+  const emaAlpha = CURSOR_EMA_ALPHA[followAnimation];
   const damping = 2 * Math.sqrt(stiffness);
   const dt = 1 / Math.max(1, fps);
   const targetScale = strengthToScale(marker.strength);
@@ -179,8 +185,8 @@ function resolveSpringSmoothedFocal(
         emaX = raw.x;
         emaY = raw.y;
       } else {
-        emaX = emaX + (raw.x - emaX) * CURSOR_EMA_ALPHA;
-        emaY = emaY + (raw.y - emaY) * CURSOR_EMA_ALPHA;
+        emaX = emaX + (raw.x - emaX) * emaAlpha;
+        emaY = emaY + (raw.y - emaY) * emaAlpha;
       }
     }
 
@@ -200,6 +206,14 @@ function resolveSpringSmoothedFocal(
     const maxXY = 1 - 1 / (2 * scaleAtF);
     targetX = clamp(targetX, minXY, maxXY);
     targetY = clamp(targetY, minXY, maxXY);
+
+    if (
+      Math.abs(targetX - prevTargetX) < TARGET_DEADBAND &&
+      Math.abs(targetY - prevTargetY) < TARGET_DEADBAND
+    ) {
+      targetX = prevTargetX;
+      targetY = prevTargetY;
+    }
 
     // Snap-to-stationary fires only when the target is stable AND the spring
     // has nearly settled on it. Otherwise it would teleport the spring
@@ -297,9 +311,10 @@ function getMarkerFocalPoint(
   const holdEnd = marker.endFrame - marker.zoomOutDuration;
   const hasHold = holdEnd > holdStart;
 
-  // Phase 1 — ramp-in: deterministic lerp toward the current cursor target.
+  // Phase 1 — ramp-in: deterministic lerp toward the entry cursor target.
+  // Chasing live cursor samples while scale is changing is visually wobbly.
   if (frame < holdStart) {
-    const cursor = options.getCursorPosition(frame);
+    const cursor = options.getCursorPosition(marker.startFrame);
     const target = cursor !== null ? edgeSnapFocus(cursor, strengthToScale(marker.strength), followPadding) : marker.focalPoint;
     const t =
       marker.zoomInDuration > 0

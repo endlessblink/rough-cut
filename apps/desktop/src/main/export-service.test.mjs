@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForRecording } from './project-files.mjs';
-import { buildCursorAss, buildStyledExportArgs, exportProjectToMp4, isSingleUneditedRecording, normalizeExportMode } from './export-service.mjs';
+import { buildCursorAss, buildStyledExportArgs, exportProjectToMp4, isSingleUneditedRecording, normalizeExportMode, parseFfmpegProgress } from './export-service.mjs';
 
 test('unedited export copies source mp4 byte-for-byte', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-'));
@@ -65,6 +65,30 @@ test('raw export mode keeps byte-for-byte copy behavior', async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+test('export rejects writing over the source recording', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-same-path-'));
+  const sourcePath = join(root, 'source.mp4');
+  await writeFile(sourcePath, Buffer.from('source bytes'));
+
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:03.000Z',
+      outputPath: sourcePath,
+      width: 1280,
+      height: 720,
+      fps: 30,
+    },
+  });
+
+  await assert.rejects(
+    () => exportProjectToMp4({ project, outputPath: sourcePath, mode: 'styled' }),
+    /Export output must be different from the source recording/,
+  );
+
+  await rm(root, { recursive: true, force: true });
+});
+
 test('export mode validation accepts planned modes and rejects unknown modes', () => {
   assert.equal(normalizeExportMode(), 'raw');
   assert.equal(normalizeExportMode('raw'), 'raw');
@@ -91,6 +115,7 @@ test('styled export args build a 16:9 canvas render command', () => {
   const args = buildStyledExportArgs({ inputPath: '/tmp/source.mp4', outputPath: '/tmp/export.mp4' });
   const joined = args.join(' ');
 
+  assert(joined.includes('-progress pipe:1 -nostats'));
   assert(args.includes('-filter_complex'));
   assert(joined.includes('1920x1080'));
   assert(joined.includes('nullsrc'));
@@ -101,6 +126,12 @@ test('styled export args build a 16:9 canvas render command', () => {
   assert(joined.includes('studio-demo'));
   assert(args.includes('/tmp/source.mp4'));
   assert.equal(args.at(-1), '/tmp/export.mp4');
+});
+
+test('ffmpeg progress parser maps out_time to normalized export progress', () => {
+  assert.equal(parseFfmpegProgress('frame=10\nout_time_us=500000\nprogress=continue\n', 2), 0.25);
+  assert.equal(parseFfmpegProgress('out_time_ms=3000000\n', 2), 1);
+  assert.equal(parseFfmpegProgress('progress=continue\n', 2), null);
 });
 
 test('styled export args support a vertical canvas render command', () => {
