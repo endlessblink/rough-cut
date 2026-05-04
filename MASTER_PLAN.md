@@ -860,6 +860,8 @@ X11 is being deprecated by major Linux distributions in favor of Wayland. The cu
 
 The Wayland-native answer is fundamentally simpler: use **xdg-desktop-portal's ScreenCast API** (with **PipeWire** as the transport). The compositor draws the cursor into the captured video stream itself. The app receives a stream with cursor already rendered, at the compositor's full visual fidelity. No cursor telemetry, no separate overlay, no clamping concerns, no zoom-aware cursor scaling logic — the cursor is just pixels in the source video.
 
+**Priority update (2026-05-04)**: this task was investigated as the fix for an intermittent captured-tear artifact in recordings. Empirically, **disabling NVIDIA "Allow Flipping" in `nvidia-settings`** fully eliminated the tear on the user's hardware (X11 + KDE Plasma + NVIDIA). The Wayland migration is therefore no longer urgent for capture-quality reasons. Remaining motivation: future-proofing against X11 deprecation. Treat as P1 long-term but not blocking current recording quality.
+
 #### Acceptance Criteria
 
 - New capture path uses xdg-desktop-portal's `org.freedesktop.portal.ScreenCast` interface to obtain a PipeWire stream node ID.
