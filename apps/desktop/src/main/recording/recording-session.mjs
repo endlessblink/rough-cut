@@ -2,8 +2,14 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isFfmpegCaptureAvailable, startFfmpegCapture } from './ffmpeg-capture.mjs';
 import { createXinputButtonListener } from './xinput-button-listener.mjs';
+import { createEventLogger, NULL_EVENT_LOGGER } from './event-logger.mjs';
 
 const DEFAULT_FPS = 30;
+
+// Diagnostic logging is on by default while we hunt the recording-tear race
+// condition. Turn off by setting ROUGH_CUT_DEBUG_RECORDING=0.
+const DIAGNOSTIC_LOGGING_DEFAULT =
+  process.env.ROUGH_CUT_DEBUG_RECORDING !== '0';
 
 export function createRecordingSession({
   recordingsDir,
@@ -15,6 +21,8 @@ export function createRecordingSession({
   now = () => new Date(),
   sampleIntervalMs = 33,
   buttonListenerFactory = createXinputButtonListener,
+  eventLoggerFactory = createEventLogger,
+  enableDiagnosticLogging = DIAGNOSTIC_LOGGING_DEFAULT,
 }) {
   let active = null;
 
@@ -65,16 +73,33 @@ export function createRecordingSession({
     const rawPath = join(recordingsDir, `rough-cut-${stamp}.mkv`);
     const outputPath = join(recordingsDir, `rough-cut-${stamp}.mp4`);
     const cursorTelemetryPath = join(recordingsDir, `rough-cut-${stamp}.cursor.json`);
+    const eventsLogPath = join(recordingsDir, `rough-cut-${stamp}.events.log`);
+    const eventLogger =
+      enableDiagnosticLogging && typeof eventLoggerFactory === 'function'
+        ? eventLoggerFactory({ path: eventsLogPath })
+        : NULL_EVENT_LOGGER;
+    eventLogger.start();
     const session = {
       startedAt: startedAtDate.toISOString(),
       rawPath,
       outputPath,
       cursorTelemetryPath,
+      eventsLogPath,
+      eventLogger,
       fps: DEFAULT_FPS,
       cursorEvents: [],
       cursorTimer: null,
       ...displayInfo,
     };
+
+    eventLogger.event('recording-start', {
+      startedAt: session.startedAt,
+      fps: session.fps,
+      width: session.width,
+      height: session.height,
+      display: session.display,
+      sampleIntervalMs,
+    });
 
     await writeRecoveryMarker(session);
 
@@ -86,6 +111,9 @@ export function createRecordingSession({
       height: session.height,
       micSource: null,
       systemAudioSource: null,
+      onFirstFrame: (firstFrameMs) => {
+        eventLogger.event('first-frame-anchor', { firstFrameMs });
+      },
     });
 
     active = { ...session, capture };
@@ -109,9 +137,11 @@ export function createRecordingSession({
     active = null;
     if (session.cursorTimer) clearInterval(session.cursorTimer);
     if (session.buttonListener) session.buttonListener.stop();
+    if (session.eventLogger) session.eventLogger.event('recording-stop');
     const rawPath = await session.capture.stop();
     await writeCursorTelemetrySidecar(session);
     await clearRecoveryMarker();
+    if (session.eventLogger) session.eventLogger.stop();
 
     return {
       state: 'saved',
@@ -123,6 +153,7 @@ export function createRecordingSession({
       height: session.height,
       fps: session.fps,
       cursorTelemetryPath: session.cursorTelemetryPath,
+      eventsLogPath: session.eventsLogPath,
       cursorEvents: session.cursorEvents,
     };
   }
@@ -175,6 +206,16 @@ function recordButtonEvent(session, event, now) {
       type: event.type,
       button: event.button,
     });
+    if (session.eventLogger) {
+      session.eventLogger.event('xinput-event', {
+        eventType: event.type,
+        button: event.button,
+        x: cursor.x,
+        y: cursor.y,
+        frame,
+        elapsedMs,
+      });
+    }
   } catch (err) {
     console.warn('[recording-session] button event record failed:', err?.message ?? err);
   }
@@ -183,9 +224,23 @@ function recordButtonEvent(session, event, now) {
 function sampleCursor(session, getCursorPoint, now) {
   if (typeof getCursorPoint !== 'function') return;
 
+  // Bracket the xdotool spawn with begin/end events so the diagnostic log
+  // captures both the spawn moment and its duration. If a recording-tear
+  // race correlates with cursor polling, the timestamps will line up.
+  if (session.eventLogger) session.eventLogger.event('cursor-sample-begin');
+  const sampleStart = Date.now();
   try {
     const point = getCursorPoint();
-    if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') return;
+    const sampleTookMs = Date.now() - sampleStart;
+    if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') {
+      if (session.eventLogger) {
+        session.eventLogger.event('cursor-sample-end', {
+          ok: false,
+          tookMs: sampleTookMs,
+        });
+      }
+      return;
+    }
     const elapsedMs = Math.max(0, now().getTime() - Date.parse(session.startedAt));
     const cursor = normalizeCursorPoint({
       point,
@@ -194,10 +249,27 @@ function sampleCursor(session, getCursorPoint, now) {
       scaleFactor: session.scaleFactor || 1,
     });
     const frame = Math.max(0, Math.round((elapsedMs / 1000) * session.fps));
+    if (session.eventLogger) {
+      session.eventLogger.event('cursor-sample-end', {
+        ok: true,
+        tookMs: sampleTookMs,
+        x: cursor.x,
+        y: cursor.y,
+        frame,
+        elapsedMs,
+      });
+    }
     const last = session.cursorEvents.at(-1);
     if (last && last.frame === frame && last.x === cursor.x && last.y === cursor.y) return;
     session.cursorEvents.push({ frame, timeMs: elapsedMs, x: cursor.x, y: cursor.y, type: 'move', button: 0 });
   } catch (err) {
+    if (session.eventLogger) {
+      session.eventLogger.event('cursor-sample-end', {
+        ok: false,
+        tookMs: Date.now() - sampleStart,
+        error: err?.message ?? String(err),
+      });
+    }
     console.warn('[recording-session] cursor sample failed:', err?.message ?? err);
   }
 }
