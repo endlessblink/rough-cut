@@ -275,6 +275,39 @@ function resolveFollowFocalPoint(
   };
 }
 
+// Cursor-visibility guard margin: keep the cursor at least this fraction of
+// the visible window away from the edge. Without this, the spring's natural
+// lag (~5 frames at stiffness 80) can let a fast-moving cursor exit the
+// visible region before the focal catches up.
+const CURSOR_VISIBILITY_MARGIN = 0.08;
+
+function applyCursorVisibilityGuard(
+  focal: ZoomCursorPosition,
+  cursor: ZoomCursorPosition,
+  scale: number,
+): ZoomCursorPosition {
+  const halfVis = 1 / (2 * scale);
+  const margin = halfVis * CURSOR_VISIBILITY_MARGIN;
+  const minVisX = cursor.x - halfVis + margin;
+  const maxVisX = cursor.x + halfVis - margin;
+  const minVisY = cursor.y - halfVis + margin;
+  const maxVisY = cursor.y + halfVis - margin;
+  // Source-bound limits — the visibility guard cannot push the focal past the
+  // edge of the source. If the visibility range is empty (cursor too close to
+  // the source edge), fall through to the source-bound clamp the caller will
+  // re-apply.
+  const minSrc = 1 / (2 * scale);
+  const maxSrc = 1 - 1 / (2 * scale);
+  const lo = Math.max(minSrc, minVisX);
+  const hi = Math.min(maxSrc, maxVisX);
+  const loY = Math.max(minSrc, minVisY);
+  const hiY = Math.min(maxSrc, maxVisY);
+  return {
+    x: lo <= hi ? clamp(focal.x, lo, hi) : focal.x,
+    y: loY <= hiY ? clamp(focal.y, loY, hiY) : focal.y,
+  };
+}
+
 // Phase-aware focal point resolution. The marker's life splits into three
 // phases with discrete behaviors so cursor influence never compounds with
 // scale change (the dominant wobble cause):
@@ -282,6 +315,8 @@ function resolveFollowFocalPoint(
 //   2. Hold:     spring tracks EMA-filtered cursor with leash + stationary snap
 //   3. Ramp-out: smootherStep lerp from spring's hold-end position → (0.5, 0.5)
 // In every phase the result is then source-bound clamped at the current scale.
+// During HOLD specifically, a cursor-visibility guard ensures the cursor
+// can't exit the visible window even when the spring is lagging.
 function getMarkerFocalPoint(
   frame: Frame,
   marker: ZoomMarker,
@@ -323,7 +358,8 @@ function getMarkerFocalPoint(
     );
   }
 
-  // Phase 2 — hold: spring tracks filtered cursor.
+  // Phase 2 — hold: spring tracks filtered cursor, guarded against losing
+  // the cursor outside the visible window.
   if (frame < holdEnd && hasHold) {
     const followed = resolveSpringSmoothedFocal(
       holdStart,
@@ -334,7 +370,12 @@ function getMarkerFocalPoint(
       followPadding,
       fps,
     );
-    return sourceClamp(followed.x, followed.y);
+    const rawCursor = options.getCursorPosition(frame);
+    const guarded =
+      rawCursor !== null
+        ? applyCursorVisibilityGuard(followed, rawCursor, scale)
+        : followed;
+    return sourceClamp(guarded.x, guarded.y);
   }
 
   // Phase 3 — ramp-out: lerp from where the spring ended at hold-end → (0.5, 0.5).
