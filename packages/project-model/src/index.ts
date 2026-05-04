@@ -9,3 +9,4 @@ export * from './constants.js';
 export * from './crop-utils.js';
 export * from './frame-utils.js';
 export * from './library-utils.js';
+export * from './aspect-ratio.js';

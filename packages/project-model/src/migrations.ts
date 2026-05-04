@@ -201,6 +201,22 @@ const migrations: readonly Migration[] = [
       };
     },
   },
+  {
+    // v10 → v11: add ProjectSettings.aspectRatio (default auto/native recording ratio).
+    fromVersion: 10,
+    toVersion: 11,
+    migrate: (doc) => ({
+      ...doc,
+      version: 11,
+      settings: {
+        ...((doc['settings'] as Record<string, unknown> | undefined) ?? {}),
+        aspectRatio:
+          typeof (doc['settings'] as Record<string, unknown> | undefined)?.['aspectRatio'] === 'string'
+            ? (doc['settings'] as Record<string, unknown>)['aspectRatio']
+            : 'auto',
+      },
+    }),
+  },
 ];
 
 /**

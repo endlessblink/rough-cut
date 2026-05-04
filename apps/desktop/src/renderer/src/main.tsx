@@ -1,6 +1,13 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import type { ProjectDocument, ZoomMarker } from '@rough-cut/project-model';
+import {
+  getStyledCanvasResolution,
+  PROJECT_ASPECT_RATIO_LABELS,
+  PROJECT_ASPECT_RATIOS,
+  type ProjectAspectRatio,
+  type ProjectDocument,
+  type ZoomMarker,
+} from '@rough-cut/project-model';
 import { resolveFrame } from '@rough-cut/frame-resolver';
 import './styles.css';
 import {
@@ -17,7 +24,8 @@ declare global {
   interface Window {
     roughCut: {
       getVersion: () => Promise<string>;
-      startRecording: () => Promise<RecordingStatus>;
+      getMicSources: () => Promise<MicSource[]>;
+      startRecording: (options?: { micSource?: string | null }) => Promise<RecordingStatus>;
       stopRecording: () => Promise<RecordingStatus>;
       getRecordingStatus: () => Promise<RecordingStatus>;
       openProject: () => Promise<ProjectState | null>;
@@ -33,18 +41,24 @@ declare global {
 
 type ProjectState = {
   path: string;
-  document: { name: string; composition: { duration: number }; assets?: unknown[] };
-  recording: null | { filePath: string; duration: number; width: number; height: number; fps: number };
+  document: {
+    name: string;
+    composition: { duration: number };
+    settings?: { aspectRatio?: ProjectAspectRatio };
+    assets?: unknown[];
+  };
+  recording: null | { filePath: string; duration: number; width: number; height: number; fps: number; audio?: unknown };
   mediaUrl: string | null;
 };
 
 type ExportProgress = { phase: string; progress: number };
 type ExportResult = { outputPath: string; sourcePath: string; bytes: number; byteEqualCandidate: boolean };
 type ExportMode = 'raw' | 'styled';
+type MicSource = { id: string; name: string; label: string; state: string };
 
 type RecordingStatus =
   | { state: 'idle' }
-  | { state: 'recording'; startedAt: string; rawPath: string; outputPath: string }
+  | { state: 'recording'; startedAt: string; rawPath: string; outputPath: string; micSource?: string | null }
   | {
       state: 'saved';
       startedAt: string;
@@ -61,12 +75,21 @@ function App() {
   const [exportProgress, setExportProgress] = React.useState<ExportProgress | null>(null);
   const [exportResult, setExportResult] = React.useState<ExportResult | null>(null);
   const [exportMode, setExportMode] = React.useState<ExportMode>('raw');
+  const [micSources, setMicSources] = React.useState<MicSource[]>([]);
+  const [recordMic, setRecordMic] = React.useState(false);
+  const [selectedMicSource, setSelectedMicSource] = React.useState<string>('');
   const [elapsedMs, setElapsedMs] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     window.roughCut.getVersion().then(setVersion).catch(() => setVersion('unknown'));
     window.roughCut.getRecordingStatus().then(setRecording).catch(() => undefined);
+    window.roughCut.getMicSources()
+      .then((sources) => {
+        setMicSources(sources);
+        setSelectedMicSource((current) => current || sources[0]?.name || '');
+      })
+      .catch(() => setMicSources([]));
     return window.roughCut.onExportProgress(setExportProgress);
   }, []);
 
@@ -114,7 +137,8 @@ function App() {
           setExportResult(null);
         }
       } else {
-        setRecording(await window.roughCut.startRecording());
+        const micSource = recordMic ? selectedMicSource || null : null;
+        setRecording(await window.roughCut.startRecording({ micSource }));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Recording failed.');
@@ -171,6 +195,34 @@ function App() {
           </button>
           <span>{statusLabel(recording, elapsedMs)}</span>
         </div>
+        <div className="audioPanel" aria-label="Recording audio">
+          <label className="audioToggle">
+            <input
+              type="checkbox"
+              checked={recordMic}
+              disabled={recording.state === 'recording' || micSources.length === 0}
+              onChange={(event) => setRecordMic(event.currentTarget.checked)}
+            />
+            Record microphone
+          </label>
+          <select
+            value={selectedMicSource}
+            disabled={recording.state === 'recording' || !recordMic || micSources.length === 0}
+            onChange={(event) => setSelectedMicSource(event.currentTarget.value)}
+            aria-label="Microphone source"
+          >
+            {micSources.length === 0 ? (
+              <option value="">No microphone sources found</option>
+            ) : (
+              micSources.map((source) => (
+                <option key={source.name} value={source.name}>
+                  {source.label || source.name}{source.state ? ` (${source.state.toLowerCase()})` : ''}
+                </option>
+              ))
+            )}
+          </select>
+          <p>{recordMic && selectedMicSource ? 'Microphone audio will be muxed into the recording.' : 'Screen-only recording stays available.'}</p>
+        </div>
         {recording.state === 'saved' ? (
           <p className="saved">Recording saved to: {recording.outputPath}</p>
         ) : null}
@@ -210,6 +262,35 @@ function ProjectPreview({
   onExportModeChange: (mode: ExportMode) => void;
 }) {
   const [currentTimeSec, setCurrentTimeSec] = React.useState(0);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+  const [isSaving, setIsSaving] = React.useState(false);
+  const aspectRatio = project.document.settings?.aspectRatio ?? 'auto';
+
+  async function updateAspectRatio(nextAspectRatio: ProjectAspectRatio) {
+    if (nextAspectRatio === aspectRatio) return;
+    const previous = project;
+    const nextDocument = {
+      ...project.document,
+      settings: {
+        ...project.document.settings,
+        aspectRatio: nextAspectRatio,
+      },
+    };
+    const optimistic = { ...project, document: nextDocument };
+    setSaveError(null);
+    setIsSaving(true);
+    onProjectChange(optimistic);
+    try {
+      const saved = await window.roughCut.saveProject({ path: project.path, document: nextDocument });
+      onProjectChange(saved);
+    } catch (err) {
+      onProjectChange(previous);
+      setSaveError(err instanceof Error ? err.message : 'Save failed.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
     <section className="preview" aria-label="Project preview">
       <div>
@@ -241,6 +322,20 @@ function ProjectPreview({
       ) : null}
       <div className="exportPanel">
         <label className="exportMode">
+          Aspect ratio
+          <select
+            value={aspectRatio}
+            onChange={(event) => updateAspectRatio(event.currentTarget.value as ProjectAspectRatio)}
+            disabled={isSaving}
+          >
+            {PROJECT_ASPECT_RATIOS.map((ratio) => (
+              <option key={ratio} value={ratio}>
+                {PROJECT_ASPECT_RATIO_LABELS[ratio]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="exportMode">
           Export mode
           <select value={exportMode} onChange={(event) => onExportModeChange(event.target.value as ExportMode)}>
             <option value="raw">Raw recording</option>
@@ -255,6 +350,7 @@ function ProjectPreview({
           <span>{exportProgress.phase}: {Math.round(exportProgress.progress * 100)}%</span>
         ) : null}
       </div>
+      {saveError ? <p className="error">{saveError}</p> : null}
       {exportResult ? (
         <p className="saved">
           Exported to: {exportResult.outputPath} ({exportResult.bytes} bytes)
@@ -472,7 +568,7 @@ function ExportPresetDetails({ mode }: { mode: ExportMode }) {
 
   return (
     <p className="exportPreset">
-      Styled preset: 1920x1080, full-screen fit, pastel background, rounded screen, soft shadow.
+      Styled preset: selected aspect ratio, full-screen fit, pastel background, rounded screen, soft shadow.
     </p>
   );
 }
@@ -495,6 +591,8 @@ function VideoPreview({
   const sourceWidth = project.recording?.width ?? 1920;
   const sourceHeight = project.recording?.height ?? 1080;
   const fps = project.recording?.fps ?? 30;
+  const aspectRatio = project.document.settings?.aspectRatio ?? 'auto';
+  const canvasResolution = getStyledCanvasResolution({ aspectRatio, sourceWidth, sourceHeight });
 
   React.useEffect(() => {
     setDuration(0);
@@ -512,8 +610,17 @@ function VideoPreview({
     const ctx = canvas.getContext('2d');
     if (!ctx) return undefined;
 
-    canvas.width = sourceWidth;
-    canvas.height = sourceHeight;
+    const canvasWidth = canvasResolution.width;
+    const canvasHeight = canvasResolution.height;
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    const maxVideoWidth = canvasWidth * 0.9;
+    const maxVideoHeight = canvasHeight * 0.9;
+    const screenScale = Math.min(maxVideoWidth / sourceWidth, maxVideoHeight / sourceHeight);
+    const screenWidth = sourceWidth * screenScale;
+    const screenHeight = sourceHeight * screenScale;
+    const screenX = (canvasWidth - screenWidth) / 2;
+    const screenY = (canvasHeight - screenHeight) / 2;
 
     let rafId = 0;
     const document = project.document as unknown as ProjectDocument;
@@ -548,8 +655,14 @@ function VideoPreview({
         frame = { cameraTransform: { scale: 1, offsetX: 0, offsetY: 0 } };
       }
       const { scale, offsetX, offsetY } = frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 };
-      ctx.clearRect(0, 0, sourceWidth, sourceHeight);
+      const gradient = ctx.createLinearGradient(0, 0, canvasWidth, canvasHeight);
+      gradient.addColorStop(0, 'rgb(232, 235, 240)');
+      gradient.addColorStop(1, 'rgb(240, 232, 232)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
       ctx.save();
+      ctx.translate(screenX, screenY);
+      ctx.scale(screenScale, screenScale);
       ctx.translate(sourceWidth / 2 + offsetX, sourceHeight / 2 + offsetY);
       ctx.scale(scale, scale);
       ctx.translate(-sourceWidth / 2, -sourceHeight / 2);
@@ -563,7 +676,7 @@ function VideoPreview({
     }
     rafId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(rafId);
-  }, [project, sourceWidth, sourceHeight, fps]);
+  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height]);
 
   async function togglePlayback() {
     const video = videoRef.current;
@@ -611,7 +724,12 @@ function VideoPreview({
           onCurrentTimeChange?.(next);
         }}
       />
-      <canvas ref={canvasRef} className="styledPreviewCanvas" aria-label="Styled preview" />
+      <canvas
+        ref={canvasRef}
+        className="styledPreviewCanvas"
+        aria-label="Styled preview"
+        style={{ aspectRatio: `${canvasResolution.width} / ${canvasResolution.height}` }}
+      />
       <div className="videoControls" aria-label="Video playback controls">
         <button type="button" className="secondary compact" onClick={togglePlayback}>
           {isPlaying ? 'Pause' : 'Play'}
@@ -645,9 +763,9 @@ function videoErrorMessage(video: HTMLVideoElement) {
 }
 
 function statusLabel(recording: RecordingStatus, elapsedMs: number) {
-  if (recording.state === 'recording') return `Recording ${formatElapsed(elapsedMs)}`;
+  if (recording.state === 'recording') return `Recording ${formatElapsed(elapsedMs)}${recording.micSource ? ' with mic' : ''}`;
   if (recording.state === 'saved') return 'Recording complete.';
-  return 'Primary display. Screen-only MP4 via FFmpeg x11grab.';
+  return 'Primary display. Optional mic audio via PulseAudio.';
 }
 
 function formatElapsed(ms: number) {

@@ -8,6 +8,7 @@ const IPC_CHANNELS = {
   EXPORT_PICK_OUTPUT_PATH: 'export:pick-output-path',
   EXPORT_START: 'export:start',
   EXPORT_PROGRESS_EMIT: 'export:progress-emit',
+  RECORDING_GET_MIC_SOURCES: 'recording:get-mic-sources',
   RECORDING_START: 'recording:start',
   RECORDING_STOP: 'recording:stop',
   RECORDING_STATUS: 'recording:status',
@@ -15,7 +16,8 @@ const IPC_CHANNELS = {
 
 contextBridge.exposeInMainWorld('roughCut', {
   getVersion: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
-  startRecording: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_START),
+  getMicSources: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_MIC_SOURCES),
+  startRecording: (options) => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_START, options),
   stopRecording: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_STOP),
   getRecordingStatus: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_STATUS),
   openProject: () => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN),

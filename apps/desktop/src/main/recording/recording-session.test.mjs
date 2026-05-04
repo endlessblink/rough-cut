@@ -98,6 +98,61 @@ test('recording session captures cursor move samples and writes sidecar', async 
   await rm(root, { recursive: true, force: true });
 });
 
+test('recording session passes selected mic source to capture and saved result', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-mic-'));
+  const micSource = 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo';
+  const captureCalls = [];
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => {
+      captureCalls.push(options);
+      return { outputPath: options.outputPath, stop: async () => options.outputPath };
+    },
+  });
+
+  const started = await session.start({ micSource });
+  assert.equal(started.state, 'recording');
+  assert.equal(started.micSource, micSource);
+  assert.equal(captureCalls[0].micSource, micSource);
+
+  const stopped = await session.stop();
+  assert.equal(stopped.state, 'saved');
+  assert.deepEqual(stopped.audio, { micSource });
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('recording session trims blank mic source to screen-only capture', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-blank-mic-'));
+  const captureCalls = [];
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => {
+      captureCalls.push(options);
+      return { outputPath: options.outputPath, stop: async () => options.outputPath };
+    },
+  });
+
+  const started = await session.start({ micSource: '   ' });
+  assert.equal(started.micSource, null);
+  assert.equal(captureCalls[0].micSource, null);
+
+  const stopped = await session.stop();
+  assert.equal(stopped.audio, null);
+
+  await rm(root, { recursive: true, force: true });
+});
+
 test('recording session keeps recording when the cursor source returns the same point repeatedly', async () => {
   // Regression for the Electron Linux/X11 multi-monitor bug
   // (electron/electron#42519): if getCursorScreenPoint() gets stuck, the

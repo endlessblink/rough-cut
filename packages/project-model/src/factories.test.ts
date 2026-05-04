@@ -64,6 +64,11 @@ describe('factories', () => {
       expect(project.settings.destinationPresetId).toBeNull();
     });
 
+    it('defaults styled export aspect ratio to auto', () => {
+      const project = createProject();
+      expect(project.settings.aspectRatio).toBe('auto');
+    });
+
     it('stores default recording presentation settings', () => {
       const project = createProject();
       expect(project.settings.recordingDefaults).toEqual(createDefaultRecordingPresentation());

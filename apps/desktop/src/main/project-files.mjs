@@ -27,6 +27,7 @@ export function createProjectForRecording({ recording, now = new Date() }) {
       stoppedAt: recording.stoppedAt,
       cursorTelemetryPath: recording.cursorTelemetryPath,
       cursorEvents: Array.isArray(recording.cursorEvents) ? recording.cursorEvents : [],
+      audio: recording.audio ?? null,
     },
   });
   const track = createTrack('video', { name: 'Screen Recording', index: 0 });
@@ -98,6 +99,7 @@ export function getPrimaryRecording(project) {
     fps: typeof asset.metadata.fps === 'number' ? asset.metadata.fps : project.settings.frameRate,
     cursorEvents: Array.isArray(asset.metadata.cursorEvents) ? asset.metadata.cursorEvents : [],
     cursorTelemetryPath: typeof asset.metadata.cursorTelemetryPath === 'string' ? asset.metadata.cursorTelemetryPath : null,
+    audio: asset.metadata.audio && typeof asset.metadata.audio === 'object' ? asset.metadata.audio : null,
     zoomMarkers: Array.isArray(asset.presentation?.zoom?.markers) ? asset.presentation.zoom.markers : [],
   };
 }

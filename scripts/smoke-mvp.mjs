@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRecordingSession } from '../apps/desktop/src/main/recording/recording-session.mjs';
+import { listPulseAudioMicSources } from '../apps/desktop/src/main/recording/audio-sources.mjs';
 import { stopRecordingAndCreateProject } from '../apps/desktop/src/main/recording-stop-handler.mjs';
 import { remuxMkvToMp4 } from '../apps/desktop/src/main/remux-service.mjs';
 import { assertReadableMp4 } from '../apps/desktop/src/main/media-probe.mjs';
@@ -13,10 +14,12 @@ const width = Number(process.env.ROUGH_CUT_SMOKE_WIDTH || 320);
 const height = Number(process.env.ROUGH_CUT_SMOKE_HEIGHT || 240);
 const durationMs = Number(process.env.ROUGH_CUT_SMOKE_DURATION_MS || 1600);
 const display = process.env.ROUGH_CUT_SMOKE_DISPLAY || `${process.env.DISPLAY || ':0'}+0,0`;
+const shouldRecordMic = process.env.ROUGH_CUT_SMOKE_MIC === '1';
 
 await assertPrerequisites();
 
 const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-smoke-'));
+const micSource = shouldRecordMic ? await pickMicSource() : null;
 const session = createRecordingSession({
   recordingsDir: root,
   markerPath: join(root, 'recording-recovery.json'),
@@ -24,9 +27,9 @@ const session = createRecordingSession({
   getCursorPoint: () => ({ x: Math.floor(width / 2), y: Math.floor(height / 2) }),
 });
 
-console.info(`[smoke:mvp] recording ${width}x${height} from ${display} for ${durationMs}ms`);
+console.info(`[smoke:mvp] recording ${width}x${height} from ${display} for ${durationMs}ms${micSource ? ` with mic ${micSource}` : ''}`);
 
-await session.start();
+await session.start({ micSource });
 await new Promise((resolve) => setTimeout(resolve, durationMs));
 
 const stopped = await stopRecordingAndCreateProject({
@@ -46,6 +49,12 @@ const cursorEvents = reopened.document.assets[0]?.metadata?.cursorEvents;
 if (!Array.isArray(cursorEvents) || cursorEvents.length === 0) {
   throw new Error('Recording did not persist cursor telemetry.');
 }
+if (micSource) {
+  if (reopened.document.assets[0]?.metadata?.audio?.micSource !== micSource) {
+    throw new Error('Recording did not persist microphone metadata.');
+  }
+  assertAudioStream(stopped.outputPath);
+}
 const exportPath = join(root, 'export.mp4');
 const exported = await exportProjectToMp4({ project: reopened.document, outputPath: exportPath });
 await assertReadableMp4(exportPath);
@@ -57,6 +66,7 @@ console.info(
       root,
       projectPath: stopped.project.path,
       recordingPath: stopped.outputPath,
+      micSource,
       cursorEvents: cursorEvents.length,
       exportPath: exported.outputPath,
       bytes: exported.bytes,
@@ -83,6 +93,35 @@ async function assertPrerequisites() {
   }
 
   await access(process.cwd());
+}
+
+async function pickMicSource() {
+  const sources = await listPulseAudioMicSources().catch((err) => {
+    console.warn(`[smoke:mvp] skipping mic capture: ${err?.message ?? err}`);
+    return [];
+  });
+  if (sources.length === 0) {
+    console.warn('[smoke:mvp] skipping mic capture: no microphone sources found.');
+    return null;
+  }
+  return sources[0].name;
+}
+
+function assertAudioStream(path) {
+  const result = spawnSync('ffprobe', [
+    '-v',
+    'error',
+    '-select_streams',
+    'a:0',
+    '-show_entries',
+    'stream=codec_type',
+    '-of',
+    'csv=p=0',
+    path,
+  ], { encoding: 'utf8' });
+  if (result.status !== 0 || result.stdout.trim() !== 'audio') {
+    throw new Error(`Expected an audio stream in ${path}.`);
+  }
 }
 
 function assertCommand(command) {

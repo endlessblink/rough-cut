@@ -259,6 +259,22 @@ describe('migrations', () => {
     expect(result.exportSettings.keepClickSounds).toBe(true);
   });
 
+  it('migrates version 10 documents by backfilling auto aspect ratio', () => {
+    const project = createProject();
+    const legacy = {
+      ...project,
+      version: 10,
+      settings: {
+        ...project.settings,
+        aspectRatio: undefined,
+      },
+    };
+
+    const result = migrate(legacy);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    expect(result.settings.aspectRatio).toBe('auto');
+  });
+
   it('migrates version 1 documents by backfilling zoom marker focalPoint and durations', () => {
     const project = createProject();
     const legacy = {

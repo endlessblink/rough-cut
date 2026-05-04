@@ -485,6 +485,7 @@ export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocu
       frameRate: DEFAULT_FRAME_RATE,
       backgroundColor: DEFAULT_BACKGROUND_COLOR,
       sampleRate: DEFAULT_SAMPLE_RATE,
+      aspectRatio: 'auto',
       recordingDefaults: createDefaultRecordingPresentation(),
       destinationPresetId: null,
     },

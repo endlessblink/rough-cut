@@ -103,6 +103,20 @@ test('styled export args build a 16:9 canvas render command', () => {
   assert.equal(args.at(-1), '/tmp/export.mp4');
 });
 
+test('styled export args support a vertical canvas render command', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    width: 1080,
+    height: 1920,
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes('1080x1920'));
+  assert(joined.includes('scale=972:1728:force_original_aspect_ratio=decrease'));
+  assert(joined.includes('rough_cut_style=canvas:1080x1920:studio-demo'));
+});
+
 test('styled export args include cursor subtitle layer when provided', () => {
   const args = buildStyledExportArgs({
     inputPath: '/tmp/source.mp4',

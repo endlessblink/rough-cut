@@ -92,6 +92,47 @@ h1 {
   color: #9d917e;
 }
 
+.audioPanel {
+  align-items: center;
+  background: rgb(255 255 255 / 0.04);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+}
+
+.audioToggle {
+  align-items: center;
+  color: #cabfac;
+  display: flex;
+  gap: 0.5rem;
+  font-weight: 700;
+}
+
+.audioPanel input[type="checkbox"] {
+  accent-color: #f2a541;
+}
+
+.audioPanel select {
+  background: rgb(255 255 255 / 0.1);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 12px;
+  color: #f4efe6;
+  font: inherit;
+  min-width: min(26rem, 100%);
+  padding: 0.55rem 0.75rem;
+}
+
+.audioPanel p {
+  color: #9d917e;
+  flex: 1 1 16rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
 .saved {
   border-left: 3px solid #f2a541;
   line-height: 1.5;

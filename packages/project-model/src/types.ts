@@ -31,6 +31,7 @@ export type ExportFormat = 'mp4' | 'webm' | 'gif';
 export type ExportCodec = 'h264' | 'h265' | 'vp9';
 export type FrameRate = 24 | 30 | 60;
 export type SampleRate = 44100 | 48000;
+export type ProjectAspectRatio = 'auto' | '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '4:5';
 
 // Interfaces
 
@@ -59,6 +60,7 @@ export interface ProjectSettings {
   readonly frameRate: FrameRate;
   readonly backgroundColor: string;
   readonly sampleRate: SampleRate;
+  readonly aspectRatio: ProjectAspectRatio;
   readonly backgroundConfig?: BackgroundConfig;
   readonly recordingDefaults?: RecordingPresentation;
   readonly destinationPresetId?: string | null;

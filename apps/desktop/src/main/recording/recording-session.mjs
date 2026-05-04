@@ -69,12 +69,14 @@ export function createRecordingSession({
       startedAt: active.startedAt,
       rawPath: active.rawPath,
       outputPath: active.outputPath,
+      micSource: active.micSource,
     };
   }
 
-  async function start() {
+  async function start(options = {}) {
     if (active) throw new Error('A recording is already active.');
     if (!isCaptureAvailable()) throw new Error('FFmpeg x11grab capture is not available on this session.');
+    const micSource = normalizeAudioSource(options.micSource);
 
     await mkdir(recordingsDir, { recursive: true });
 
@@ -98,6 +100,7 @@ export function createRecordingSession({
       eventsLogPath,
       eventLogger,
       fps: DEFAULT_FPS,
+      micSource,
       cursorEvents: [],
       cursorTimer: null,
       ...displayInfo,
@@ -110,6 +113,7 @@ export function createRecordingSession({
       height: session.height,
       display: session.display,
       sampleIntervalMs,
+      micSource,
     });
 
     await writeRecoveryMarker(session);
@@ -120,7 +124,7 @@ export function createRecordingSession({
       display: session.display,
       width: session.width,
       height: session.height,
-      micSource: null,
+      micSource: session.micSource,
       systemAudioSource: null,
       onFirstFrame: (firstFrameMs) => {
         eventLogger.event('first-frame-anchor', { firstFrameMs });
@@ -191,10 +195,15 @@ export function createRecordingSession({
       cursorTelemetryPath: session.cursorTelemetryPath,
       eventsLogPath: session.eventsLogPath,
       cursorEvents: session.cursorEvents,
+      audio: session.micSource ? { micSource: session.micSource } : null,
     };
   }
 
   return { start, stop, status };
+}
+
+function normalizeAudioSource(value) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
 export function normalizeCursorPoint({ point, originX = 0, originY = 0, scaleFactor = 1 }) {

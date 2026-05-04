@@ -37,14 +37,15 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-021 | Add clear recording indicator and elapsed time | P2 | PLANNED |
 | TASK-022 | Add open recording/project folder action | P2 | PLANNED |
 | TASK-023 | Add recent projects or recordings list | P2 | PLANNED |
-| TASK-024 | Add microphone recording foundation | P2 | PLANNED |
+| TASK-024 | Add microphone recording foundation | P2 | DONE |
 | TASK-025 | Unified preview that mirrors styled export | P1 | DONE |
 | TASK-026 | Switch capture pipeline to xdg-desktop-portal + PipeWire (Wayland) | P1 | PLANNED |
 | TASK-027 | Cursor-follow zoom (preview + export, parity-preserving) | P1 | DONE |
+| TASK-028 | Add aspect ratio presets for styled exports | P1 | IN PROGRESS |
 
 ## Recently Verified
 
-- `pnpm test` — desktop 101/101 pass, project-model 91/91 pass.
+- `pnpm test` — desktop 110/110 pass, project-model 96/96 pass.
 - `pnpm typecheck` — clean across all 5 packages.
 - `pnpm smoke:mvp` verifies record, remux, `.roughcut` save/reopen, export, and FFprobe validation.
 - `pnpm smoke:ui` verifies renderer preview/export UI against a synthetic project — `hasZoomMarkerPanel`, `hasAutoZoomSuggestionsPanel`, `hasStyledPreviewCanvas`, `hasExportResult` all true.
@@ -773,7 +774,7 @@ Client project work often involves reopening the last few recordings quickly.
 ### TASK-024 Add microphone recording foundation
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -786,10 +787,26 @@ Client demos often need narration. Microphone support should come after the core
 - Keep screen-only recording available.
 - Save audio metadata in the project.
 
+#### Completion Notes (foundation)
+
+- Added PulseAudio microphone source enumeration via `pactl list sources short`, filtering monitor sources out of the mic picker.
+- Added renderer controls for optional microphone capture: screen-only remains the default, and selected mic source is passed through renderer → preload → main → recording session.
+- Threaded `micSource` into the existing FFmpeg PulseAudio input path and persisted audio metadata on the saved recording asset.
+- Extended `smoke:mvp` with opt-in `ROUGH_CUT_SMOKE_MIC=1` audio verification that skips cleanly when no mic source exists and asserts an audio stream when one is recorded.
+
 #### Testing
 
 - Unit test FFmpeg audio argument construction.
 - Service smoke can skip clearly when no microphone input is available.
+
+#### Verification Notes
+
+- `pnpm typecheck` — clean across 5 packages.
+- `pnpm test` — project-model 91/91, effect-registry 57/57, timeline-engine 172/172, frame-resolver 20/20, desktop 109/109.
+- `pnpm smoke:mvp` — default screen-only path still passes.
+- `ROUGH_CUT_SMOKE_MIC=1 pnpm smoke:mvp` — recorded with `alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo`, persisted mic metadata, and FFprobe found an audio stream in the MP4.
+- `pnpm smoke:ui` and `pnpm smoke:styled-export` — pass.
+- Manual app verification: mic recording works on the target Linux setup.
 
 #### Verification
 
@@ -938,3 +955,39 @@ Schema's `ZoomPresentation.followCursor: true` and the engine's cursor-follow pa
 - `pnpm smoke:mvp` — record/save/reopen/export pipeline still `ok: true`.
 - `pnpm smoke:ui` — `hasZoomMarkerPanel: true`, `hasAutoZoomSuggestionsPanel: true`, `hasStyledPreviewCanvas: true` all pass.
 - **Pending: manual packaged-app verification** — record while moving cursor across the screen, generate auto-zoom suggestions, apply one, watch the canvas preview during playback (focal should pan with cursor during auto-marker hold), export styled and confirm same behavior in the MP4. Manual zoom markers should stay statically centered on their focal.
+
+### TASK-028 Add aspect ratio presets for styled exports
+
+**Priority:** P1  
+**Status:** IN PROGRESS
+
+#### Context
+
+Screen Studio, FocuSee, and Recordly all treat social aspect ratios as first-class export settings. Rough Cut's styled export was locked to a 1920×1080 canvas, making vertical or square client-demo outputs impossible without downstream transcoding.
+
+#### Acceptance Criteria
+
+- Project settings persist an aspect ratio preset with `auto` as the default.
+- Styled preview offers the same preset choices used by export.
+- Styled export outputs the selected canvas ratio while fitting source video safely inside it.
+- Raw export remains unchanged.
+- Cursor and video continue to share the same source-to-canvas transform; no clamping or independent cursor crop logic.
+
+#### Completion Notes
+
+- Added `ProjectSettings.aspectRatio` with presets: `auto`, `16:9`, `9:16`, `1:1`, `4:3`, `3:4`, `4:5`.
+- Added shared helpers in `packages/project-model/src/aspect-ratio.ts` to compute even styled canvas dimensions from the selected ratio and source dimensions.
+- Bumped schema to v11 and added a v10→v11 migration that backfills `aspectRatio: 'auto'`.
+- Styled export now computes its canvas dimensions from project settings before building the FFmpeg filter graph.
+- Renderer preview now has an aspect ratio selector, persists changes, sizes the canvas to the selected ratio, and fits the source recording into that canvas using the same transform order as export.
+
+#### Verification
+
+- `pnpm --filter @rough-cut/project-model test`
+- `pnpm --filter @rough-cut/project-model build`
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm typecheck`
+- `pnpm test`
+- `pnpm smoke:styled-export`
+- `pnpm smoke:ui`
+- **Pending: manual packaged-app verification** — open or create a recording, switch aspect ratio between Auto/Wide/Vertical/Square, verify preview resizes, export styled MP4, and confirm the output dimensions match the selected preset.

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getPrimaryRecording } from './project-files.mjs';
 import { createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
+import { getStyledCanvasResolution } from '@rough-cut/project-model';
 
 export const EXPORT_MODES = Object.freeze({
   RAW: 'raw',
@@ -24,7 +25,7 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
   }
 
   if (exportMode === EXPORT_MODES.STYLED) {
-    return exportStyledProjectToMp4({ recording, outputPath, onProgress });
+    return exportStyledProjectToMp4({ project, recording, outputPath, onProgress });
   }
 
   onProgress({ phase: 'copying', progress: 0 });
@@ -41,9 +42,14 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
   };
 }
 
-export async function exportStyledProjectToMp4({ recording, outputPath, onProgress = () => undefined }) {
+export async function exportStyledProjectToMp4({ project, recording, outputPath, onProgress = () => undefined }) {
   onProgress({ phase: 'rendering-styled', progress: 0 });
   await mkdir(dirname(outputPath), { recursive: true });
+  const canvas = getStyledCanvasResolution({
+    aspectRatio: project?.settings?.aspectRatio ?? 'auto',
+    sourceWidth: recording.width,
+    sourceHeight: recording.height,
+  });
   const cursorLayer = await createCursorSubtitleLayer({
     cursorEvents: recording.cursorEvents,
     width: recording.width,
@@ -63,6 +69,8 @@ export async function exportStyledProjectToMp4({ recording, outputPath, onProgre
     const result = await run('ffmpeg', buildStyledExportArgs({
       inputPath: recording.filePath,
       outputPath,
+      width: canvas.width,
+      height: canvas.height,
       cursorAssPath: cursorLayer?.path,
       sourceWidth: recording.width,
       sourceHeight: recording.height,

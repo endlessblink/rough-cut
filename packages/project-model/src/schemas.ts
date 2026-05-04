@@ -30,6 +30,7 @@ export const ExportFormatSchema = z.enum(['mp4', 'webm', 'gif']);
 export const ExportCodecSchema = z.enum(['h264', 'h265', 'vp9']);
 export const FrameRateSchema = z.union([z.literal(24), z.literal(30), z.literal(60)]);
 export const SampleRateSchema = z.union([z.literal(44100), z.literal(48000)]);
+export const ProjectAspectRatioSchema = z.enum(['auto', '16:9', '9:16', '1:1', '4:3', '3:4', '4:5']);
 
 // --- Resolution ---
 
@@ -55,6 +56,7 @@ export const ProjectSettingsSchema = z.object({
   frameRate: FrameRateSchema,
   backgroundColor: hexColor,
   sampleRate: SampleRateSchema,
+  aspectRatio: ProjectAspectRatioSchema.default('auto'),
   backgroundConfig: BackgroundConfigSchema.optional(),
   recordingDefaults: z.lazy(() => RecordingPresentationSchema).optional(),
   destinationPresetId: z.string().nullable().optional(),

@@ -10,6 +10,7 @@ import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
 import { registerMediaProtocol, toMediaUrl } from './media-protocol.mjs';
 import { remuxMkvToMp4 } from './remux-service.mjs';
 import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording/recording-session.mjs';
+import { listPulseAudioMicSources } from './recording/audio-sources.mjs';
 import { isXdotoolAvailable, readCursorViaXdotool } from './recording/xdotool-cursor.mjs';
 import { installRuntimeLog } from './runtime-log.mjs';
 
@@ -146,7 +147,8 @@ function createMainWindow() {
 }
 
 ipcMain.handle(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion());
-ipcMain.handle(IPC_CHANNELS.RECORDING_START, () => recordingSession.start());
+ipcMain.handle(IPC_CHANNELS.RECORDING_GET_MIC_SOURCES, async () => listPulseAudioMicSources());
+ipcMain.handle(IPC_CHANNELS.RECORDING_START, (_event, options = {}) => recordingSession.start(options));
 ipcMain.handle(IPC_CHANNELS.RECORDING_STOP, async () => {
   try {
     return await stopRecordingAndCreateProject({
@@ -237,17 +239,17 @@ async function runRendererUiSmoke() {
   await waitFor(() => document.body.textContent?.includes('Auto-zoom suggestions'), 'auto-zoom suggestions panel header');
   const hasAutoZoomSuggestionsPanel = true;
   const exportMode = await waitFor(
-    () => document.querySelector('select')?.value === 'raw' ? document.querySelector('select') : null,
+    () => Array.from(document.querySelectorAll('select')).find((select) => select.value === 'raw') ?? null,
     'raw export mode selection',
   );
   const hasRawPresetDetails = document.body.textContent?.includes('Raw export keeps the original recording unchanged.') ?? false;
   exportMode.value = 'styled';
   exportMode.dispatchEvent(new Event('change', { bubbles: true }));
-  await waitFor(() => document.body.textContent?.includes('Styled preset: 1920x1080'), 'styled preset details');
+  await waitFor(() => document.body.textContent?.includes('Styled preset: selected aspect ratio'), 'styled preset details');
   const hasStyledPresetDetails = true;
   exportMode.value = 'raw';
   exportMode.dispatchEvent(new Event('change', { bubbles: true }));
-  await waitFor(() => document.querySelector('select')?.value === 'raw', 'raw export mode restored');
+  await waitFor(() => exportMode.value === 'raw', 'raw export mode restored');
 
   const exportButton = await waitFor(
     () => Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Export MP4')),
