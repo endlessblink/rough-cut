@@ -107,6 +107,11 @@ const SPRING_STIFFNESS: Record<'smooth' | 'focused', number> = {
 const STATIONARY_EPSILON = 0.001;
 const STATIONARY_FRAMES = 2;
 
+// EMA smoothing constant applied to the raw cursor input BEFORE the spring
+// sees it. Removes sub-pixel hand tremor and 30 Hz sample noise. Smaller =
+// more smoothing; 0.3 gives ~3-sample time constant ≈ 100 ms at 30 Hz.
+const CURSOR_EMA_ALPHA = 0.3;
+
 function getMarkerScale(
   frame: Frame,
   marker: ZoomMarker,
@@ -127,20 +132,22 @@ function getMarkerScale(
   return targetScale;
 }
 
-// Critically damped spring chasing the cursor-derived target focal point.
-// Integrates from marker.startFrame so the engine remains a pure function:
-// each call is independent of any previous call, but the focal trajectory
-// is identical to a stateful per-frame integration. O(F) per call where F
-// is frames since marker.startFrame — trivial in practice.
+// Critically damped spring chasing a cursor-derived target. Integrates from
+// `fromFrame` (inclusive) to `toFrame` (inclusive) so the engine remains a
+// pure function: any call returns the same focal trajectory deterministic
+// from the marker, cursor data, and integration range.
 //
-// The spring's target each step is the cursor position passed through the
-// existing leash (using marker.targetScale for stable radius across ramps),
-// then source-bound clamped at the FRAME's current scale. By feeding the
-// spring a target that's always inside the source, the spring never has to
-// fight a clamp that shifts during ramps — the dominant wobble cause in the
-// previous lookback-averaging approach.
+// Cursor input is pre-smoothed with an EMA filter to remove sub-pixel hand
+// tremor and 30 Hz sample noise. The spring's target each step is the EMA-
+// filtered cursor passed through the leash (using marker.targetScale for a
+// stable radius), with a stationary-snap polish to eliminate micro-jitter
+// when the cursor pauses.
+//
+// This is called only during the HOLD phase — ramp-in / ramp-out use a
+// deterministic lerp with no cursor influence (see `getMarkerFocalPoint`).
 function resolveSpringSmoothedFocal(
-  frame: Frame,
+  fromFrame: Frame,
+  toFrame: Frame,
   marker: ZoomMarker,
   getCursorPosition: (frame: Frame) => ZoomCursorPosition | null,
   followAnimation: 'focused' | 'smooth',
@@ -159,39 +166,58 @@ function resolveSpringSmoothedFocal(
   let prevTargetX = marker.focalPoint.x;
   let prevTargetY = marker.focalPoint.y;
   let stationaryCount = 0;
+  let emaX: number | null = null;
+  let emaY: number | null = null;
 
-  for (let f = marker.startFrame; f <= frame; f += 1) {
-    const cursor = getCursorPosition(f);
-    const scaleAtF = getMarkerScale(f, marker, targetScale);
+  for (let f = fromFrame; f <= toFrame; f += 1) {
+    const raw = getCursorPosition(f);
 
-    // Follow strength derived from scale: 0 at the ramp endpoints (scale=1),
-    // 1 at full hold (scale=targetScale). This tapers cursor influence at the
-    // boundaries so the focal is anchored at marker.focalPoint when scale=1
-    // (where the source-bound clamp would force it to 0.5 anyway), preventing
-    // the rapid focal travel as the clamp tightens during zoom-out.
-    const followStrength =
-      targetScale > 1 ? clamp((scaleAtF - 1) / (targetScale - 1), 0, 1) : 1;
-
-    let leashedX = marker.focalPoint.x;
-    let leashedY = marker.focalPoint.y;
-    if (cursor !== null) {
-      const leashed = resolveFollowFocalPoint(marker, cursor, targetScale, followPadding);
-      leashedX = leashed.x;
-      leashedY = leashed.y;
+    // EMA-smooth the raw cursor input. First sample initializes the filter
+    // exactly so we don't bias trajectory toward (0, 0).
+    if (raw !== null) {
+      if (emaX === null || emaY === null) {
+        emaX = raw.x;
+        emaY = raw.y;
+      } else {
+        emaX = emaX + (raw.x - emaX) * CURSOR_EMA_ALPHA;
+        emaY = emaY + (raw.y - emaY) * CURSOR_EMA_ALPHA;
+      }
     }
 
-    let targetX = marker.focalPoint.x + (leashedX - marker.focalPoint.x) * followStrength;
-    let targetY = marker.focalPoint.y + (leashedY - marker.focalPoint.y) * followStrength;
+    let targetX = marker.focalPoint.x;
+    let targetY = marker.focalPoint.y;
+    if (emaX !== null && emaY !== null) {
+      const leashed = resolveFollowFocalPoint(
+        marker,
+        { x: emaX, y: emaY },
+        targetScale,
+        followPadding,
+      );
+      targetX = leashed.x;
+      targetY = leashed.y;
+    }
 
+    // Source-bound clamp at the frame's current scale so the spring chases a
+    // valid in-source target. During hold scaleAtF == targetScale so this is
+    // effectively a no-op except as a guard.
+    const scaleAtF = getMarkerScale(f, marker, targetScale);
     const minXY = 1 / (2 * scaleAtF);
     const maxXY = 1 - 1 / (2 * scaleAtF);
     targetX = clamp(targetX, minXY, maxXY);
     targetY = clamp(targetY, minXY, maxXY);
 
+    // Snap-to-stationary fires only when the target is stable AND the spring
+    // has nearly settled on it. Otherwise it would teleport the spring
+    // forward when the cursor stabilizes far from the spring's current
+    // position (e.g. moments after marker entry, with the spring still
+    // accelerating toward a stationary cursor).
     const targetMoved =
       Math.abs(targetX - prevTargetX) > STATIONARY_EPSILON ||
       Math.abs(targetY - prevTargetY) > STATIONARY_EPSILON;
-    if (!targetMoved) {
+    const springSettled =
+      Math.abs(targetX - posX) < STATIONARY_EPSILON * 5 &&
+      Math.abs(targetY - posY) < STATIONARY_EPSILON * 5;
+    if (!targetMoved && springSettled) {
       stationaryCount += 1;
       if (stationaryCount >= STATIONARY_FRAMES) {
         posX = targetX;
@@ -249,35 +275,89 @@ function resolveFollowFocalPoint(
   };
 }
 
+// Phase-aware focal point resolution. The marker's life splits into three
+// phases with discrete behaviors so cursor influence never compounds with
+// scale change (the dominant wobble cause):
+//   1. Ramp-in:  pure smootherStep lerp (0.5, 0.5) → marker.focalPoint
+//   2. Hold:     spring tracks EMA-filtered cursor with leash + stationary snap
+//   3. Ramp-out: smootherStep lerp from spring's hold-end position → (0.5, 0.5)
+// In every phase the result is then source-bound clamped at the current scale.
 function getMarkerFocalPoint(
   frame: Frame,
   marker: ZoomMarker,
   scale: number,
   options: ZoomTransformOptions | undefined,
 ): ZoomCursorPosition {
+  const minXY = 1 / (2 * scale);
+  const maxXY = 1 - 1 / (2 * scale);
+  const sourceClamp = (x: number, y: number) => ({
+    x: clamp(x, minXY, maxXY),
+    y: clamp(y, minXY, maxXY),
+  });
+
+  // Cursor-follow disabled (or no cursor data wired): static focal.
   if (
     options?.followCursor !== true ||
     options.getCursorPosition === undefined
   ) {
-    return marker.focalPoint;
+    return sourceClamp(marker.focalPoint.x, marker.focalPoint.y);
   }
 
-  const followed = resolveSpringSmoothedFocal(
-    frame,
-    marker,
-    options.getCursorPosition,
-    options.followAnimation ?? 'smooth',
-    options.followPadding ?? 0.22,
-    options.fps ?? 30,
-  );
+  const followAnimation = options.followAnimation ?? 'smooth';
+  const followPadding = options.followPadding ?? 0.22;
+  const fps = options.fps ?? 30;
 
-  // Spring targets are clamped per-step inside the integration, but apply the
-  // current-frame source-bound clamp once more here as a safety net for any
-  // transient overshoot during integration.
-  return {
-    x: clamp(followed.x, 1 / (2 * scale), 1 - 1 / (2 * scale)),
-    y: clamp(followed.y, 1 / (2 * scale), 1 - 1 / (2 * scale)),
-  };
+  const holdStart = marker.startFrame + marker.zoomInDuration;
+  const holdEnd = marker.endFrame - marker.zoomOutDuration;
+  const hasHold = holdEnd > holdStart;
+
+  // Phase 1 — ramp-in: deterministic lerp toward marker.focalPoint.
+  if (frame < holdStart) {
+    const t =
+      marker.zoomInDuration > 0
+        ? smootherStep((frame - marker.startFrame) / marker.zoomInDuration)
+        : 1;
+    return sourceClamp(
+      0.5 + (marker.focalPoint.x - 0.5) * t,
+      0.5 + (marker.focalPoint.y - 0.5) * t,
+    );
+  }
+
+  // Phase 2 — hold: spring tracks filtered cursor.
+  if (frame < holdEnd && hasHold) {
+    const followed = resolveSpringSmoothedFocal(
+      holdStart,
+      frame,
+      marker,
+      options.getCursorPosition,
+      followAnimation,
+      followPadding,
+      fps,
+    );
+    return sourceClamp(followed.x, followed.y);
+  }
+
+  // Phase 3 — ramp-out: lerp from where the spring ended at hold-end → (0.5, 0.5).
+  // Compute hold-end focal by integrating the spring through the entire hold.
+  const holdEndFocal = hasHold
+    ? resolveSpringSmoothedFocal(
+        holdStart,
+        Math.max(holdStart, holdEnd - 1),
+        marker,
+        options.getCursorPosition,
+        followAnimation,
+        followPadding,
+        fps,
+      )
+    : marker.focalPoint;
+  const t =
+    marker.zoomOutDuration > 0
+      ? smootherStep((frame - holdEnd) / marker.zoomOutDuration)
+      : 1;
+  return sourceClamp(
+    holdEndFocal.x + (0.5 - holdEndFocal.x) * t,
+    holdEndFocal.y + (0.5 - holdEndFocal.y) * t,
+  );
 }
 
 /**
