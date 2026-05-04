@@ -157,6 +157,166 @@ test('recording session rejects overlapping starts', async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+// REGRESSION GUARD (2026-05-04): ensures cursor frame numbers are anchored to
+// recording-start (when each sample fired), NOT shifted by ffmpeg's first-
+// frame wall-clock anchor. We tried re-anchoring earlier today and the user
+// reported cursor in wrong place; reverted at commit 6a0c0f0. Yesterday's
+// known-good behavior (no re-anchor) is what this test locks in.
+test('cursor event frames stay anchored to recording-start, not shifted by onFirstFrame', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-cursor-anchor-'));
+  const startedAt = Date.parse('2026-05-04T12:00:00.000Z');
+  let tick = 0;
+  let firstFrameCallback = null;
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date(startedAt + tick++ * 100),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 }),
+    getCursorPoint: () => ({ x: 100 + tick, y: 200 + tick }),
+    sampleIntervalMs: 5,
+    captureFactory: (options) => {
+      firstFrameCallback = options.onFirstFrame;
+      return { outputPath: options.outputPath, stop: async () => options.outputPath };
+    },
+    buttonListenerFactory: null, // force the polling code path
+  });
+
+  await session.start();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  // Simulate ffmpeg muxing its first frame ~1.5 s after recording-start. If
+  // onFirstFrame ever re-anchors cursor events, this is when it'd happen.
+  if (firstFrameCallback) firstFrameCallback(startedAt + 1500);
+  const stopped = await session.stop();
+
+  assert.equal(stopped.state, 'saved');
+  assert.ok(stopped.cursorEvents.length >= 2, 'expected multiple cursor events');
+
+  // For every event, verify that frame == round(timeMs / 1000 * fps). If a
+  // future change re-anchors timeMs by some offset, this still passes (frame
+  // and timeMs would shift together). What CAN'T pass: shifting only one of
+  // them, or clamping pre-firstFrame events to frame 0 (the regression we
+  // saw at commit 4ef0aa3).
+  for (const ev of stopped.cursorEvents) {
+    const expectedFrame = Math.round((ev.timeMs / 1000) * stopped.fps);
+    assert.equal(
+      ev.frame,
+      expectedFrame,
+      `event ${JSON.stringify(ev)}: frame ${ev.frame} != expected ${expectedFrame} from timeMs ${ev.timeMs}`,
+    );
+  }
+
+  // Verify timeMs is anchored to recording-start (small values, monotonically
+  // increasing, NOT shifted backward by ~1500 ms).
+  const firstEv = stopped.cursorEvents[0];
+  const lastEv = stopped.cursorEvents[stopped.cursorEvents.length - 1];
+  assert.ok(
+    firstEv.timeMs >= 0 && firstEv.timeMs < 500,
+    `first event timeMs should be near 0, got ${firstEv.timeMs}`,
+  );
+  assert.ok(
+    lastEv.timeMs <= 5000,
+    `last event timeMs should reflect short test duration, got ${lastEv.timeMs} (looks shifted by firstFrameMs)`,
+  );
+
+  await rm(root, { recursive: true, force: true });
+});
+
+// REGRESSION GUARD (2026-05-04): ensures cursor sampling uses the polling
+// path (xdotool synchronous query) and not async motion events. xinput motion
+// events were briefly tried at commit 4ef0aa3 — they have intrinsic IPC
+// latency that produced visible cursor lag. Reverted at commit 83ddec7. This
+// test locks in: when getCursorPoint is provided, it IS called repeatedly
+// (proving the polling loop is active).
+test('cursor sampling drives cursor data via getCursorPoint polling', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-cursor-source-'));
+  const startedAt = Date.parse('2026-05-04T12:00:00.000Z');
+  let tick = 0;
+  let getCursorPointCalls = 0;
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date(startedAt + tick++ * 100),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 }),
+    getCursorPoint: () => {
+      getCursorPointCalls += 1;
+      return { x: 500, y: 500 };
+    },
+    sampleIntervalMs: 5,
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+    buttonListenerFactory: null,
+  });
+
+  await session.start();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  await session.stop();
+
+  // Expect at least the seed sample plus a few polling samples. If a future
+  // change replaces polling with async motion events, getCursorPoint would
+  // stop being called and this assertion breaks.
+  assert.ok(
+    getCursorPointCalls >= 3,
+    `expected getCursorPoint to be polled multiple times; got ${getCursorPointCalls} calls`,
+  );
+
+  await rm(root, { recursive: true, force: true });
+});
+
+// REGRESSION GUARD (2026-05-04): default sampleIntervalMs is 33 ms (30 Hz).
+// This was changed during today's smoothing pass to other values; one of
+// those changes contributed to the recording-tear race at higher rates. The
+// 33 ms default is the user's confirmed-good baseline.
+test('default sample interval is 33 ms', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-cursor-rate-'));
+  const startedAt = Date.parse('2026-05-04T12:00:00.000Z');
+  let tick = 0;
+  let pollCount = 0;
+  let captureStopped = false;
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date(startedAt + tick++),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 }),
+    getCursorPoint: () => {
+      pollCount += 1;
+      return { x: 100, y: 100 };
+    },
+    // Don't override sampleIntervalMs — let the default kick in.
+    captureFactory: (options) => ({
+      outputPath: options.outputPath,
+      stop: async () => {
+        captureStopped = true;
+        return options.outputPath;
+      },
+    }),
+    buttonListenerFactory: null,
+  });
+
+  await session.start();
+  // Run for 250 ms of wall clock. With default 33 ms interval, expect ~6-8
+  // polls (plus the seed sample). If the default were 100 ms (the older
+  // value), we'd see only ~2-3. If 5 ms (a test-only value), we'd see ~50.
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  await session.stop();
+
+  assert.equal(captureStopped, true);
+  assert.ok(
+    pollCount >= 4,
+    `default sample rate appears slower than 33 ms — got ${pollCount} polls in 250 ms (expected ~6-8). If default was changed to a slower rate, update this test deliberately.`,
+  );
+  assert.ok(
+    pollCount <= 20,
+    `default sample rate appears much faster than 33 ms — got ${pollCount} polls in 250 ms. If the default was lowered intentionally, update this test deliberately.`,
+  );
+
+  await rm(root, { recursive: true, force: true });
+});
+
 test('primary display info converts Electron display bounds to x11grab input', () => {
   const displayInfo = getPrimaryX11DisplayInfo(
     {
