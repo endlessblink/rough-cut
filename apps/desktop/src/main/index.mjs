@@ -272,7 +272,19 @@ async function runRendererUiSmoke() {
   const hasZoomMarkerPanel = true;
   await waitFor(() => document.body.textContent?.includes('Auto-zoom suggestions'), 'auto-zoom suggestions panel header');
   const hasAutoZoomSuggestionsPanel = true;
+  document.querySelector('[data-timeline-lane="zoom"] .timelineRegion')?.click();
+  await waitFor(() => document.querySelector('[data-inspector-context="zoom"]'), 'zoom inspector context');
+  const hasInspectorContext = true;
   document.querySelector('button[aria-label="Inspector"]')?.click();
+  const hasInspectorGroups = Boolean(
+    document.querySelector('[data-inspector-group="canvas"]')
+      && document.querySelector('[data-inspector-group="screen"]')
+      && document.querySelector('[data-inspector-group="zoom"]')
+      && document.querySelector('[data-inspector-group="cursor"]')
+      && document.querySelector('[data-inspector-group="camera"]')
+      && document.querySelector('[data-inspector-group="diagnostics"]')
+      && document.querySelector('[data-inspector-group="export"]'),
+  );
   const exportMode = await waitFor(() => document.querySelector('[data-export-mode-select="true"]'), 'export mode selection');
   const hasRawPresetDetails = document.body.textContent?.includes('Raw export keeps the original recording unchanged.') ?? false;
   exportMode.value = 'styled';
@@ -343,6 +355,8 @@ async function runRendererUiSmoke() {
     hasStyledPresetDetails,
     hasZoomMarkerPanel,
     hasAutoZoomSuggestionsPanel,
+    hasInspectorContext,
+    hasInspectorGroups,
     hasStyledPreviewCanvas,
     hasStudioShell,
     hasCaptureBar,

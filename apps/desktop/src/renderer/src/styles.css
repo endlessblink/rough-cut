@@ -378,6 +378,33 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   padding: 0;
 }
 
+.inspectorContext {
+  background: linear-gradient(135deg, rgb(37 99 235 / 0.16), rgb(124 58 237 / 0.1));
+  border: 1px solid rgb(122 167 255 / 0.2);
+  border-radius: 14px;
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.75rem;
+}
+
+.inspectorContext strong {
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.inspectorContext span,
+.inspectorHelp,
+.inspectorNotice {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.inspectorField span { color: var(--muted); }
+.inspectorPresetGroup { display: grid; gap: 0.5rem; }
+.inspectorActionRow { margin-top: 0.15rem; }
+
 .segmentedControl {
   background: #20202a;
   border: 1px solid #2a2a34;
@@ -620,8 +647,10 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   gap: 0.35rem;
   bottom: 0.35rem;
   justify-content: center;
+  min-height: 0;
   position: absolute;
   top: 0.35rem;
+  z-index: 5;
 }
 
 .trimHandle {
@@ -651,10 +680,15 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .timelineRegion,
 .presenceRegion {
   background: linear-gradient(180deg, #d8b4fe, #8b5cf6);
+  border: 0;
   border-radius: 8px;
+  box-shadow: none;
   bottom: 0.28rem;
+  min-height: 0;
+  padding: 0;
   position: absolute;
   top: 0.28rem;
+  z-index: 5;
 }
 
 .autoRegion { background: linear-gradient(180deg, #99f6e4, #14b8a6); }
@@ -662,13 +696,17 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 .clickMarker {
   background: #f97316;
+  border: 0;
   border-radius: 999px;
   box-shadow: 0 0 0 3px rgb(249 115 22 / 0.18);
   height: 0.62rem;
+  min-height: 0;
+  padding: 0;
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
   width: 0.62rem;
+  z-index: 5;
 }
 
 .presenceRegion {
@@ -680,6 +718,13 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   font-size: 0.72rem;
   font-weight: 650;
   justify-content: center;
+}
+
+.clipBar:hover,
+.timelineRegion:hover,
+.clickMarker:hover,
+.presenceRegion:hover {
+  filter: brightness(1.08);
 }
 
 .laneTrack p {

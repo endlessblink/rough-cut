@@ -66,6 +66,8 @@ type AudioSource = { id: string; name: string; label: string; state: string };
 type CameraSource = { id: string; name: string; label: string };
 type CaptureMode = 'display' | 'region';
 type CaptureRegion = { mode: 'region'; x: number; y: number; width: number; height: number };
+type InspectorGroupId = 'canvas' | 'recording' | 'screen' | 'zoom' | 'cursor' | 'camera' | 'export' | 'diagnostics';
+type InspectorSelection = { group: InspectorGroupId; label: string; detail?: string };
 
 type RecordingStatus =
   | { state: 'idle' }
@@ -81,6 +83,11 @@ type RecordingStatus =
     };
 
 const DEFAULT_RECORDING_BACKGROUND = createDefaultRecordingBackgroundStyle();
+const DEFAULT_INSPECTOR_SELECTION: InspectorSelection = {
+  group: 'canvas',
+  label: 'Project canvas',
+  detail: 'Project-level presentation controls are active.',
+};
 
 function App() {
   const [version, setVersion] = React.useState<string>('loading');
@@ -544,8 +551,70 @@ function ToolRail({ active, onSelect }: { active: ActiveTool; onSelect: (tool: A
   );
 }
 
-function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, aspectRatio = 'auto', disabled = false, onProjectChange, onBackgroundChange, onAspectRatioChange }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; aspectRatio?: ProjectAspectRatio; disabled?: boolean; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void }) {
+function InspectorSection({ id, title, children, description, muted = false }: { id: InspectorGroupId | string; title: string; children: React.ReactNode; description?: string; muted?: boolean }) {
+  return (
+    <section className={`inspectorSection ${muted ? 'mutedSection' : ''}`} data-inspector-group={id}>
+      <p className="eyebrow">{title}</p>
+      {description ? <p className="inspectorHelp">{description}</p> : null}
+      {children}
+    </section>
+  );
+}
+
+function InspectorSelect<T extends string>({ label, value, options, disabled = false, onChange }: { label: string; value: T; options: ReadonlyArray<{ value: T; label: string }>; disabled?: boolean; onChange: (value: T) => void }) {
+  return (
+    <label className="field inspectorField">
+      <span>{label}</span>
+      <select value={value} disabled={disabled} onChange={(event) => onChange(event.currentTarget.value as T)}>
+        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function InspectorSlider({ label, value, min, max, step, disabled = false, onChange }: { label: string; value: number; min: number; max: number; step: number; disabled?: boolean; onChange: (value: number) => void }) {
+  return <RangeField label={label} value={value} min={min} max={max} step={step} disabled={disabled} onChange={onChange} />;
+}
+
+function InspectorToggle({ label, checked, disabled = false, onChange }: { label: string; checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="toggleField inspectorToggle">
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.currentTarget.checked)} />
+      {label}
+    </label>
+  );
+}
+
+function InspectorPresetGrid({ label, disabled = false, count = 18 }: { label: string; disabled?: boolean; count?: number }) {
+  return (
+    <div className="inspectorPresetGroup">
+      <p className="eyebrow">{label}</p>
+      <div className="swatchGrid" aria-label={label}>{Array.from({ length: count }).map((_, index) => <button type="button" key={index} aria-label={`${label} ${index + 1}`} disabled={disabled} />)}</div>
+    </div>
+  );
+}
+
+function InspectorActionRow({ children, region }: { children: React.ReactNode; region?: string }) {
+  return <div className="actionsArea inspectorActionRow" data-ui-region={region}>{children}</div>;
+}
+
+function InspectorNotice({ children }: { children: React.ReactNode }) {
+  return <p className="inspectorNotice">{children}</p>;
+}
+
+function InspectorContextSummary({ selection }: { selection: InspectorSelection }) {
+  return (
+    <div className="inspectorContext" data-inspector-context={selection.group}>
+      <p className="eyebrow">Selected context</p>
+      <strong>{selection.label}</strong>
+      {selection.detail ? <span>{selection.detail}</span> : null}
+    </div>
+  );
+}
+
+function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, onProjectChange, onBackgroundChange, onAspectRatioChange }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void }) {
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
+  const aspectRatioOptions = PROJECT_ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: PROJECT_ASPECT_RATIO_LABELS[ratio] }));
 
   if (activeTool === 'timeline') {
     return (
@@ -567,31 +636,28 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
     return (
       <aside className="setupBoard" aria-label="Inspector board">
         <BoardHeader icon="sliders" title="Inspector" />
-        <section className="inspectorSection">
-          <p className="eyebrow">Canvas</p>
-          <label className="field">
-            Aspect ratio
-            <select value={aspectRatio} onChange={(event) => onAspectRatioChange?.(event.currentTarget.value as ProjectAspectRatio)} disabled={disabled}>
-              {PROJECT_ASPECT_RATIOS.map((ratio) => (
-                <option key={ratio} value={ratio}>{PROJECT_ASPECT_RATIO_LABELS[ratio]}</option>
-              ))}
-            </select>
-          </label>
-        </section>
-        <section className="inspectorSection">
-          <p className="eyebrow">Screen</p>
-          <RangeField label="Padding" value={bg.bgPadding} min={0} max={260} step={4} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgPadding: value })} />
-          <RangeField label="Round corners" value={bg.bgCornerRadius} min={0} max={120} step={2} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgCornerRadius: value })} />
-          <label className="toggleField">
-            <input type="checkbox" checked={bg.bgShadowEnabled} disabled={disabled} onChange={(event) => onBackgroundChange?.({ bgShadowEnabled: event.currentTarget.checked })} />
-            Screen shadow
-          </label>
-          <RangeField label="Shadow size" value={bg.bgShadowBlur} min={0} max={120} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowBlur: value })} />
-        </section>
-        <section className="inspectorSection mutedSection">
-          <p className="eyebrow">Camera</p>
-          <p>Webcam picture-in-picture is next.</p>
-        </section>
+        <InspectorContextSummary selection={inspectorSelection} />
+        <InspectorSection id="canvas" title="Canvas">
+          <InspectorSelect label="Aspect ratio" value={aspectRatio} options={aspectRatioOptions} disabled={disabled} onChange={(value) => onAspectRatioChange?.(value)} />
+        </InspectorSection>
+        <InspectorSection id="screen" title="Screen">
+          <InspectorSlider label="Padding" value={bg.bgPadding} min={0} max={260} step={4} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgPadding: value })} />
+          <InspectorSlider label="Round corners" value={bg.bgCornerRadius} min={0} max={120} step={2} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgCornerRadius: value })} />
+          <InspectorToggle label="Screen shadow" checked={bg.bgShadowEnabled} disabled={disabled} onChange={(checked) => onBackgroundChange?.({ bgShadowEnabled: checked })} />
+          <InspectorSlider label="Shadow size" value={bg.bgShadowBlur} min={0} max={120} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowBlur: value })} />
+        </InspectorSection>
+        <InspectorSection id="zoom" title="Zoom" muted description="Select a zoom region in the timeline to focus this group.">
+          <InspectorNotice>Zoom marker editing stays in the Timeline board until selection editing lands.</InspectorNotice>
+        </InspectorSection>
+        <InspectorSection id="cursor" title="Cursor" muted>
+          <InspectorNotice>Cursor style controls are planned for TASK-044.</InspectorNotice>
+        </InspectorSection>
+        <InspectorSection id="camera" title="Camera" muted>
+          <InspectorNotice>Webcam picture-in-picture controls are planned for TASK-043.</InspectorNotice>
+        </InspectorSection>
+        <InspectorSection id="diagnostics" title="Diagnostics" muted>
+          <InspectorNotice>Save failures and degraded media states appear here when available.</InspectorNotice>
+        </InspectorSection>
       </aside>
     );
   }
@@ -599,13 +665,17 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
   return (
     <aside className="setupBoard" aria-label="Background board">
       <BoardHeader icon="sparkle" title="Background" action="Reset" />
-      <RangeField label="Background blur" value={0} min={0} max={40} step={1} disabled onChange={() => undefined} />
-      <div className="segmentedControl" aria-label="Background type"><button type="button" className="active">Image</button><button type="button">Video</button><button type="button">Color</button></div>
-      <div className="swatchGrid" aria-label="Background presets">{Array.from({ length: 18 }).map((_, index) => <button type="button" key={index} aria-label={`Background preset ${index + 1}`} disabled={disabled} />)}</div>
+      <InspectorSection id="canvas-background" title="Canvas background">
+        <InspectorSlider label="Background blur" value={0} min={0} max={40} step={1} disabled onChange={() => undefined} />
+        <div className="segmentedControl" aria-label="Background type"><button type="button" className="active">Image</button><button type="button">Video</button><button type="button">Color</button></div>
+        <InspectorPresetGrid label="Background presets" disabled={disabled} />
+      </InspectorSection>
       <BoardHeader icon="frame" title="Frame" action="Reset" />
-      <RangeField label="Shadow" value={bg.bgShadowBlur} min={0} max={120} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowBlur: value })} />
-      <RangeField label="Radius" value={bg.bgCornerRadius} min={0} max={120} step={2} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgCornerRadius: value })} />
-      <RangeField label="Padding" value={bg.bgPadding} min={0} max={260} step={4} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgPadding: value })} />
+      <InspectorSection id="screen-frame" title="Frame">
+        <InspectorSlider label="Shadow" value={bg.bgShadowBlur} min={0} max={120} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowBlur: value })} />
+        <InspectorSlider label="Radius" value={bg.bgCornerRadius} min={0} max={120} step={2} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgCornerRadius: value })} />
+        <InspectorSlider label="Padding" value={bg.bgPadding} min={0} max={260} step={4} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgPadding: value })} />
+      </InspectorSection>
     </aside>
   );
 }
@@ -704,6 +774,7 @@ function ProjectPreview({
 }) {
   const [currentTimeSec, setCurrentTimeSec] = React.useState(0);
   const [timelineSeekSec, setTimelineSeekSec] = React.useState(0);
+  const [inspectorSelection, setInspectorSelection] = React.useState<InspectorSelection>(DEFAULT_INSPECTOR_SELECTION);
   const isTimelineScrubbingRef = React.useRef(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
@@ -778,10 +849,15 @@ function ProjectPreview({
     setTimelineSeekSec(nextTimeSec);
   }
 
+  function focusInspectorContext(selection: InspectorSelection) {
+    setInspectorSelection(selection);
+    onActiveToolChange('inspector');
+  }
+
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
       <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} project={project} fps={project.recording?.fps} currentTimeSec={currentTimeSec} background={background} aspectRatio={aspectRatio} disabled={isSaving} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onAspectRatioChange={updateAspectRatio} />
+      <EditorToolBoard activeTool={activeTool} project={project} fps={project.recording?.fps} currentTimeSec={currentTimeSec} background={background} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onAspectRatioChange={updateAspectRatio} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>
@@ -804,7 +880,7 @@ function ProjectPreview({
           <p className="eyebrow"><Icon name="timeline" /> Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-          {project.recording ? <VisualTimeline project={project} currentTimeSec={currentTimeSec} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} /> : null}
+          {project.recording ? <VisualTimeline project={project} currentTimeSec={currentTimeSec} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onSelectInspectorContext={focusInspectorContext} /> : null}
         </div>
       </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
@@ -812,24 +888,23 @@ function ProjectPreview({
           <p className="eyebrow"><Icon name="export" /> Export</p>
           <h2>Export</h2>
         </div>
-        <section className="inspectorSection">
-          <p className="eyebrow">Export</p>
-          <label className="field">
-            Export mode
+        <InspectorSection id="export" title="Export">
+          <label className="field inspectorField">
+            <span>Export mode</span>
             <select data-export-mode-select="true" value={exportMode} onChange={(event) => onExportModeChange(event.target.value as ExportMode)}>
               <option value="raw">Raw recording</option>
               <option value="styled">Styled canvas</option>
             </select>
           </label>
           <ExportPresetDetails mode={exportMode} />
-          <div className="actionsArea" data-ui-region="export-actions-area">
+          <InspectorActionRow region="export-actions-area">
             <button type="button" onClick={onExport} className="secondary exportButton" disabled={!project.recording}>
               Export MP4
             </button>
             {exportProgress ? <span className="exportProgress">{exportProgress.phase}: {Math.round(exportProgress.progress * 100)}%</span> : null}
             {exportResult ? <p className="saved">Exported to: {exportResult.outputPath} ({exportResult.bytes} bytes)</p> : null}
-          </div>
-        </section>
+          </InspectorActionRow>
+        </InspectorSection>
         {saveError ? <p className="error">{saveError}</p> : null}
       </aside>
     </section>
@@ -850,7 +925,7 @@ function RangeField({ label, value, min, max, step, disabled, onChange }: { labe
   );
 }
 
-function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScrubEnd }: { project: ProjectState; currentTimeSec: number; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void }) {
+function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScrubEnd, onSelectInspectorContext }: { project: ProjectState; currentTimeSec: number; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void }) {
   const model = buildTimelineModel({
     document: project.document as unknown as ProjectDocument,
     recording: project.recording,
@@ -892,31 +967,35 @@ function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScru
         />
         <TimelineLane label="Screen" className="screenLane">
           {model.lanes.screen.map((region) => (
-            <span key={region.id} className="clipBar" style={{ left: `${region.left}%`, width: `${region.width}%` }}>
+            <button key={region.id} type="button" className="clipBar" style={{ left: `${region.left}%`, width: `${region.width}%` }} onClick={() => onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: 'Source clip selected from the timeline.' })}>
               <span className="trimHandle trimHandleStart" aria-hidden="true" />
               <Icon name="frame" /> Clip
               <span className="trimHandle trimHandleEnd" aria-hidden="true" />
-            </span>
+            </button>
           ))}
         </TimelineLane>
         <TimelineLane label="Zoom" className="zoomLane">
           {model.lanes.zoom.length > 0
-            ? model.lanes.zoom.map((region) => <span key={region.id} className={`timelineRegion ${region.kind === 'auto' ? 'autoRegion' : 'manualRegion'}`} title={region.label} style={{ left: `${region.left}%`, width: `${region.width}%` }} />)
+            ? model.lanes.zoom.map((region) => {
+                const label = region.label ?? 'Zoom region';
+                const kind = region.kind ?? 'manual';
+                return <button key={region.id} type="button" className={`timelineRegion ${kind === 'auto' ? 'autoRegion' : 'manualRegion'}`} title={label} style={{ left: `${region.left}%`, width: `${region.width}%` }} onClick={() => onSelectInspectorContext({ group: 'zoom', label, detail: `${kind} zoom region selected.` })} />;
+              })
             : <p>No zoom markers yet.</p>}
         </TimelineLane>
         <TimelineLane label="Clicks" className="clickLane">
           {model.lanes.clicks.length > 0
-            ? model.lanes.clicks.map((event) => <span key={event.id} className="clickMarker" style={{ left: `${event.left}%` }} />)
+            ? model.lanes.clicks.map((event) => <button key={event.id} type="button" className="clickMarker" style={{ left: `${event.left}%` }} onClick={() => onSelectInspectorContext({ group: 'cursor', label: 'Click event', detail: 'Click telemetry selected from the timeline.' })} />)
             : <p>No click events yet.</p>}
         </TimelineLane>
         <TimelineLane label="Camera" className="cameraLane">
           {model.lanes.camera.length > 0
-            ? model.lanes.camera.map((region) => <span key={region.id} className="presenceRegion" style={{ left: `${region.left}%`, width: `${region.width}%` }}>Camera</span>)
+            ? model.lanes.camera.map((region) => <button key={region.id} type="button" className="presenceRegion" style={{ left: `${region.left}%`, width: `${region.width}%` }} onClick={() => onSelectInspectorContext({ group: 'camera', label: 'Camera track', detail: 'Camera presence selected from the timeline.' })}>Camera</button>)
             : <p>No camera track.</p>}
         </TimelineLane>
         <TimelineLane label="Audio" className="audioLane">
           {model.lanes.audio.length > 0
-            ? model.lanes.audio.map((region) => <span key={region.id} className="presenceRegion" style={{ left: `${region.left}%`, width: `${region.width}%` }}>Audio</span>)
+            ? model.lanes.audio.map((region) => <button key={region.id} type="button" className="presenceRegion" style={{ left: `${region.left}%`, width: `${region.width}%` }} onClick={() => onSelectInspectorContext({ group: 'recording', label: 'Audio track', detail: 'Audio presence selected from the timeline.' })}>Audio</button>)
             : <p>No audio track.</p>}
         </TimelineLane>
         <span className="playhead" style={{ left: `${model.playheadPercent}%` }} />
