@@ -110,7 +110,7 @@ function App() {
   const [captureMode, setCaptureMode] = React.useState<CaptureMode>('display');
   const [captureRegion, setCaptureRegion] = React.useState<CaptureRegion>({ mode: 'region', x: 0, y: 0, width: 1280, height: 720 });
   const [recordingActionPending, setRecordingActionPending] = React.useState(false);
-  const [preRecordPanelOpen, setPreRecordPanelOpen] = React.useState(false);
+  const [preRecordPanelOpen, setPreRecordPanelOpen] = React.useState(true);
   const [setupBoardOpen, setSetupBoardOpen] = React.useState(true);
   const [inspectorOpen, setInspectorOpen] = React.useState(true);
   const [activeTool, setActiveTool] = React.useState<ActiveTool>('background');
@@ -566,13 +566,28 @@ function PreRecordPanel({
         <div className="preRecordControls">
           <section className="preRecordSection">
             <p className="eyebrow">Capture target</p>
-            <label className="field">
-              <span>Target</span>
-              <select value={captureMode} onChange={(event) => onCaptureModeChange(event.currentTarget.value as CaptureMode)} disabled={actionPending}>
-                <option value="display">Full display</option>
-                <option value="region">Region</option>
-              </select>
-            </label>
+            <div className="targetCardGrid" aria-label="Capture target choices">
+              <CaptureTargetCard
+                title="Full display"
+                detail="Record the primary X11 display."
+                selected={captureMode === 'display'}
+                disabled={actionPending}
+                onSelect={() => onCaptureModeChange('display')}
+              />
+              <CaptureTargetCard
+                title="Region"
+                detail={`${captureRegion.width}x${captureRegion.height} from ${captureRegion.x}, ${captureRegion.y}`}
+                selected={captureMode === 'region'}
+                disabled={actionPending}
+                onSelect={() => onCaptureModeChange('region')}
+              />
+              <CaptureTargetCard
+                title="Window"
+                detail="Coming after Linux-safe window capture support."
+                selected={false}
+                disabled
+              />
+            </div>
             {captureMode === 'region' ? (
               <div className="regionControls preRecordRegion" aria-label="Pre-record capture region controls">
                 <NumberField label="X" value={captureRegion.x} disabled={actionPending} onChange={(x) => onCaptureRegionChange({ ...captureRegion, x })} />
@@ -592,14 +607,33 @@ function PreRecordPanel({
         </div>
 
         <div className="preRecordFooter">
-          <p>Countdown and thumbnail target cards are next; this panel now owns the pre-record decision point.</p>
-          <button type="button" className="primaryAction" onClick={onStart} disabled={actionPending} data-recording-start="pre-record">
-            <Icon name="record" />
-            {actionPending ? 'Starting...' : 'Start recording'}
-          </button>
+          <p>Start a new capture, then Rough Cut will drop you into the editor. You can also skip straight to the editor to open or review an existing project.</p>
+          <div className="preRecordActions">
+            <button type="button" className="secondary" onClick={onClose} disabled={actionPending} data-open-editor="pre-record">Open editor</button>
+            <button type="button" className="primaryAction" onClick={onStart} disabled={actionPending} data-recording-start="pre-record">
+              <Icon name="record" />
+              {actionPending ? 'Starting...' : 'Start recording'}
+            </button>
+          </div>
         </div>
       </section>
     </div>
+  );
+}
+
+function CaptureTargetCard({ title, detail, selected, disabled = false, onSelect }: { title: string; detail: string; selected: boolean; disabled?: boolean; onSelect?: () => void }) {
+  return (
+    <button
+      type="button"
+      className={selected ? 'captureTargetCard selected' : 'captureTargetCard'}
+      disabled={disabled}
+      aria-pressed={selected}
+      onClick={onSelect}
+    >
+      <span className="targetPreview" aria-hidden="true"><i /></span>
+      <strong>{title}</strong>
+      <span>{detail}</span>
+    </button>
   );
 }
 

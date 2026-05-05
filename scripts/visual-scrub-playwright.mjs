@@ -63,6 +63,7 @@ let failure;
 try {
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
+  await dismissPreRecordOverlay(page);
   await page.waitForSelector('canvas.styledPreviewCanvas', { timeout: 10000 });
   await page.addScriptTag({ content: `
     window.__roughCutScrubMonitor = (${createCanvasMonitor.toString()})();
@@ -186,6 +187,15 @@ function run(command, args) {
   const result = spawnSync(command, args, { stdio: 'inherit' });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} failed with exit code ${result.status}`);
+}
+
+async function dismissPreRecordOverlay(page) {
+  const overlay = page.locator('[data-ui-region="pre-record-panel"]');
+  if (await overlay.count() === 0) return;
+  const openEditor = page.locator('[data-open-editor="pre-record"]');
+  if (await openEditor.count() > 0) await openEditor.click();
+  else await page.locator('button:has-text("Cancel")').click();
+  await overlay.waitFor({ state: 'detached', timeout: 5000 }).catch(() => undefined);
 }
 
 function createCanvasMonitor() {

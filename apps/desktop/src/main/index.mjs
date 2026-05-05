@@ -405,6 +405,8 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   const initialState = document.querySelector('[data-ui-region="state-banner"]')?.getAttribute('data-recording-state');
   recordButton.click();
   await waitFor(() => document.querySelector('[data-ui-region="pre-record-panel"]'), 'pre-record panel');
+  await waitFor(() => document.querySelector('[data-open-editor="pre-record"]'), 'pre-record open editor button');
+  await waitFor(() => document.querySelector('.captureTargetCard[aria-pressed="true"]'), 'selected capture target card');
   const preRecordStartButton = await waitFor(() => document.querySelector('[data-recording-start="pre-record"]'), 'pre-record start button');
   preRecordStartButton.click();
   await waitFor(() => document.querySelector('[data-recording-state="recording"]'), 'recording state banner');

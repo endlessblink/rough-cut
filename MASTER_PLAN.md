@@ -67,10 +67,10 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-051 | Add post-recording review workspace | P1 | PLANNED |
 | TASK-052 | Add timeline-first playback and edit rail | P1 | DONE |
 | TASK-053 | Add extensible properties inspector system | P1 | DONE |
-| TASK-054 | Add thumbnail source picker for recording targets | P1 | PLANNED |
+| TASK-054 | Add thumbnail source picker for recording targets | P1 | IN PROGRESS |
 | TASK-055 | Add audio and camera preflight controls | P1 | PLANNED |
 | TASK-056 | Add pre-record smoke and packaged checks | P1 | PLANNED |
-| TASK-057 | Add timeline interaction visual regression suite | P1 | PLANNED |
+| TASK-057 | Add timeline interaction visual regression suite | P1 | DONE |
 | TASK-058 | Add non-destructive edit recovery affordances | P2 | PLANNED |
 
 ## Recently Verified
@@ -1405,7 +1405,7 @@ The current recording flow supports start and stop. A Screen Studio-like flow ne
 ### TASK-041 Add post-recording next-action flow
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -1449,7 +1449,7 @@ Click telemetry is already captured. The missing user-visible piece is a tastefu
 ### TASK-043 Add webcam PiP presentation controls
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 #### Context
 
@@ -1689,6 +1689,7 @@ Screen Studio exposes entire display, window, and area choices from the pre-reco
 
 #### Verification
 
+- 2026-05-05: Started by making the pre-record panel the default first screen on app launch. Added visible capture target cards for Full display, Region, and disabled Window support. Added an explicit `Open editor` secondary action so users can skip recording and go to the editor, while `Start recording` keeps the record -> edit flow. Updated recording-flow smoke to assert the pre-record panel, editor shortcut, and selected capture card exist before starting capture.
 - Unit tests for target option normalization and stale selection fallback.
 - UI smoke selects full display and region targets through the pre-record panel.
 - `pnpm --filter @rough-cut/desktop test`
@@ -1767,7 +1768,7 @@ Timeline trim/scrub bugs showed up as UI movement, tool switching, wheel-driven 
 
 - `pnpm --filter @rough-cut/desktop typecheck`
 - `pnpm visual:scrub`
-- New dedicated timeline interaction Playwright command.
+- `pnpm visual:timeline`
 
 ### TASK-058 Add non-destructive edit recovery affordances
 

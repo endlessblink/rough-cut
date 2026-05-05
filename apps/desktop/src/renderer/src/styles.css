@@ -312,6 +312,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .preRecordHeader h2 { font-size: 1.45rem; letter-spacing: -0.04em; }
 .preRecordFooter { border-top: 1px solid var(--line); padding-top: 0.85rem; }
 .preRecordFooter p { color: var(--muted); font-size: 0.8rem; line-height: 1.4; margin: 0; max-width: 32rem; }
+.preRecordActions { align-items: center; display: flex; gap: 0.55rem; }
 
 .preRecordSummary {
   display: grid;
@@ -361,6 +362,53 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .preRecordInputRow select,
 .preRecordSection .field select { width: 100%; }
 .preRecordRegion { align-items: start; background: transparent; border: 0; padding: 0; }
+
+.targetCardGrid {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.captureTargetCard {
+  align-items: stretch;
+  background: #171721;
+  border: 1px solid #2a2a34;
+  border-radius: 15px;
+  box-shadow: none;
+  display: grid;
+  gap: 0.38rem;
+  justify-content: stretch;
+  min-height: 8.4rem;
+  padding: 0.62rem;
+  text-align: left;
+}
+
+.captureTargetCard:hover:not(:disabled),
+.captureTargetCard.selected {
+  background: #202335;
+  border-color: rgb(122 167 255 / 0.45);
+  box-shadow: inset 0 0 0 1px rgb(37 99 235 / 0.22), 0 0 0 4px rgb(37 99 235 / 0.08);
+}
+
+.captureTargetCard strong { color: var(--text); font-size: 0.82rem; }
+.captureTargetCard span { color: var(--muted); font-size: 0.72rem; line-height: 1.35; }
+.targetPreview {
+  align-items: center;
+  background: radial-gradient(circle at 35% 30%, rgb(122 167 255 / 0.35), transparent 36%), #0b0b10;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 11px;
+  display: flex;
+  height: 3.2rem;
+  justify-content: center;
+}
+
+.targetPreview i {
+  border: 1px solid rgb(255 255 255 / 0.2);
+  border-radius: 6px;
+  display: block;
+  height: 1.65rem;
+  width: 2.65rem;
+}
 
 .stateBanner {
   align-items: center;
@@ -742,6 +790,10 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 .screenLane { min-height: 2.25rem; }
 
+.screenLane .laneTrack {
+  z-index: 6;
+}
+
 .clipBar {
   align-items: center;
   background: linear-gradient(180deg, #8fc2ff, #3b82f6);
@@ -757,7 +809,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   min-height: 0;
   position: absolute;
   top: 0.35rem;
-  z-index: 5;
+  z-index: 8;
 }
 
 .clipBody {
@@ -787,7 +839,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   position: absolute;
   top: 0.28rem;
   width: 0.55rem;
-  z-index: 7;
+  z-index: 10;
 }
 
 .trimHandle:hover:not(:disabled) {
