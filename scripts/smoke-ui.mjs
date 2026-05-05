@@ -63,7 +63,7 @@ if (result.status !== 0) {
 
 const report = JSON.parse(await readFile(resultPath, 'utf8'));
 const screenshotBytes = (await readFile(screenshotPath)).length;
-if (!report.ok || !report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'raw' || !report.hasStyledMode || !report.hasRawPresetDetails || !report.hasStyledPresetDetails || !report.hasVisualScreenshot || report.aspectRatio !== '9:16' || report.padding !== 96 || report.cornerRadius !== 44 || report.shadowSize !== 72 || !(report.duration > 0) || !(screenshotBytes > 1000)) {
+if (!report.ok || !report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'raw' || !report.hasStyledMode || !report.hasRawPresetDetails || !report.hasStyledPresetDetails || !report.hasStudioShell || !report.hasCaptureBar || !report.hasCaptureCommandArea || !report.hasStateBanner || !report.hasCentralStage || !report.hasTimelineRail || !report.hasRightInspector || !report.hasExportActionsArea || !report.hasVisualScreenshot || report.aspectRatio !== '9:16' || report.padding !== 96 || report.cornerRadius !== 44 || report.shadowSize !== 72 || !(report.duration > 0) || !(screenshotBytes > 1000)) {
   throw new Error(`Electron UI smoke assertions failed: ${JSON.stringify(report)}`);
 }
 

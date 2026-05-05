@@ -250,13 +250,23 @@ async function runRendererUiSmoke() {
   const video = await waitFor(() => document.querySelector('video'), 'video element', 10000).catch((err) => {
     throw new Error(`${err.message}; url=${window.location.href}; body=${document.body.innerText.slice(0, 500)}`);
   });
+  const hasStudioShell = Boolean(await waitFor(() => document.querySelector('[data-ui-shell="recording-studio"]'), 'recording studio shell'));
+  const hasCaptureBar = Boolean(await waitFor(() => document.querySelector('[data-ui-region="capture-bar"]'), 'capture bar region'));
+  const hasCaptureCommandArea = Boolean(await waitFor(() => document.querySelector('[data-ui-region="capture-command-area"]'), 'capture command region'));
+  const hasStateBanner = Boolean(await waitFor(() => document.querySelector('[data-ui-region="state-banner"]'), 'state banner region'));
+  const hasCentralStage = Boolean(await waitFor(() => document.querySelector('[data-ui-region="central-stage"]'), 'central stage region'));
+  const hasTimelineRail = Boolean(await waitFor(() => document.querySelector('[data-ui-region="timeline-review-rail"]'), 'timeline rail region'));
+  const hasRightInspector = Boolean(await waitFor(() => document.querySelector('[data-ui-region="right-inspector"]'), 'right inspector region'));
+  const hasExportActionsArea = Boolean(await waitFor(() => document.querySelector('[data-ui-region="export-actions-area"]'), 'export actions region'));
   await waitFor(() => video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0, 'video metadata');
   await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'styled preview canvas');
   const hasStyledPreviewCanvas = true;
+  document.querySelector('button[aria-label="Timeline"]')?.click();
   await waitFor(() => document.body.textContent?.includes('Zoom markers'), 'zoom marker panel header');
   const hasZoomMarkerPanel = true;
   await waitFor(() => document.body.textContent?.includes('Auto-zoom suggestions'), 'auto-zoom suggestions panel header');
   const hasAutoZoomSuggestionsPanel = true;
+  document.querySelector('button[aria-label="Inspector"]')?.click();
   const exportMode = await waitFor(
     () => Array.from(document.querySelectorAll('select')).find((select) => select.value === 'raw') ?? null,
     'raw export mode selection',
@@ -331,6 +341,14 @@ async function runRendererUiSmoke() {
     hasZoomMarkerPanel,
     hasAutoZoomSuggestionsPanel,
     hasStyledPreviewCanvas,
+    hasStudioShell,
+    hasCaptureBar,
+    hasCaptureCommandArea,
+    hasStateBanner,
+    hasCentralStage,
+    hasTimelineRail,
+    hasRightInspector,
+    hasExportActionsArea,
     hasExportResult: document.body.textContent?.includes('Exported to:') ?? false,
     aspectRatio: aspectRatioSelect.value,
     padding: Number(paddingInput.value),
@@ -352,23 +370,34 @@ async function runRendererRecordingFlowSmoke(options = {}) {
 
   const findButton = (text) => Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes(text));
   const recordButton = await waitFor(() => findButton('Record'), 'record button');
+  const hasStudioShell = Boolean(await waitFor(() => document.querySelector('[data-ui-shell="recording-studio"]'), 'recording studio shell'));
+  const initialState = document.querySelector('[data-ui-region="state-banner"]')?.getAttribute('data-recording-state');
   recordButton.click();
-  await waitFor(() => document.body.textContent?.includes('Recording 0:'), 'recording state');
+  await waitFor(() => document.querySelector('[data-recording-state="recording"]'), 'recording state banner');
   await new Promise((resolve) => setTimeout(resolve, 1800));
   const stopButton = await waitFor(() => findButton('Stop recording'), 'stop button');
   stopButton.click();
   if (options.doubleStop) {
     stopButton.click();
   }
-  await waitFor(() => document.body.textContent?.includes('Recording saved to:'), 'saved recording state', 30000);
+  await waitFor(() => document.querySelector('[data-recording-state="saved"]'), 'saved recording state', 30000);
   const canvas = await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'post-recording preview canvas', 30000);
   const video = await waitFor(() => document.querySelector('video'), 'post-recording video element', 30000);
   await waitFor(() => video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0, 'post-recording video metadata', 30000);
+  const hasCentralStage = Boolean(document.querySelector('[data-ui-region="central-stage"]'));
+  const hasTimelineRail = Boolean(document.querySelector('[data-ui-region="timeline-review-rail"]'));
+  const hasRightInspector = Boolean(document.querySelector('[data-ui-region="right-inspector"]'));
 
   return {
     ok: true,
-    hasSavedMessage: document.body.textContent?.includes('Recording saved to:') ?? false,
+    hasStudioShell,
+    initialState,
+    savedState: document.querySelector('[data-ui-region="state-banner"]')?.getAttribute('data-recording-state'),
+    hasSavedMessage: document.body.textContent?.includes('Saved to:') ?? false,
     hasProjectTitle: Boolean(document.querySelector('h2')?.textContent),
+    hasCentralStage,
+    hasTimelineRail,
+    hasRightInspector,
     hasStyledPreviewCanvas: Boolean(canvas),
     hasVideo: Boolean(video),
     duration: video.duration,

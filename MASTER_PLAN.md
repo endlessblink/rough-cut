@@ -62,7 +62,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-046 | Add trim start and end controls | P1 | PLANNED |
 | TASK-047 | Add simple cut removal flow | P2 | PLANNED |
 | TASK-048 | Add optional webcam PiP recording and export | P1 | IN PROGRESS |
-| TASK-049 | Build Screen Studio-style editor UI foundation | P1 | PLANNED |
+| TASK-049 | Build Screen Studio-style editor UI foundation | P1 | DONE |
 | TASK-050 | Add guided recording setup surface | P1 | PLANNED |
 | TASK-051 | Add post-recording review workspace | P1 | PLANNED |
 | TASK-052 | Add timeline-first playback and edit rail | P1 | PLANNED |
@@ -97,6 +97,33 @@ The next phase is not generic editing. It is client-demo recording quality.
 - Third: Screen Studio-style zooms: manual first, automatic suggestions second.
 - Fourth: workflow polish: countdown, indicator, quick folder access, recent sessions.
 - Later: trimming and timeline editing.
+
+### UI reference direction
+
+Recordly and Screen Studio both converge on the same workflow shape: a focused recording setup, a large central styled preview, a bottom timeline for time-based edits, and an inspector/actions area for presentation/export settings. The app should follow that product model without copying either product verbatim.
+
+Reference notes from Recordly:
+
+- Recording starts from a dedicated setup surface: screen/window choice, microphone, system audio, camera, then record.
+- Editing centers on a large styled preview, not a form-first control panel.
+- The timeline is the home for zooms, trims, speed regions, annotations, audio, and crop-aware edits.
+- Presentation settings are grouped by concern: cursor, webcam overlay, frame/background, aspect ratio, and export.
+- Project files preserve source media plus editor state, so reopening returns the user to the same editor workspace.
+
+Reference notes from Screen Studio:
+
+- The app is opinionated: good defaults for canvas, zooms, cursor smoothing, spacing, shadows, and export presets.
+- Recording setup supports screen, webcam, microphone, and system audio without making screen-only recording feel secondary.
+- The editor lets users adjust zooms and style after recording while the preview remains the primary artifact.
+- Output format and aspect ratio choices are treated as export presets, not raw encoder settings.
+- The UI should make the next action obvious after every state: record, stop, review, retake, export, or open folder.
+
+Implications for this app:
+
+- Move away from the crowded MVP strip toward a stable shell: top command bar, central stage, bottom timeline, right inspector, and clear export/next-action area.
+- Keep recording resilient: camera/audio failures degrade visibly but never hide the saved screen preview.
+- Treat the preview as the product surface; controls explain and modify the current preview instead of competing with it.
+- Build UI primitives once so camera, cursor, background, zoom, trim, and export controls do not each invent their own layout.
 
 ### Preview/export parity principle
 
@@ -1525,7 +1552,7 @@ After head/tail trim, the next editing primitive is removing a dead section from
 ### TASK-048 Add optional webcam PiP recording and export
 
 **Priority:** P1  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -1560,7 +1587,7 @@ The project model and frame resolver already support linked camera assets and ca
 ### TASK-049 Build Screen Studio-style editor UI foundation
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 #### Context
 
@@ -1574,10 +1601,26 @@ The current UI grew from MVP controls: one top strip, one preview panel, and a d
 - Avoid hiding preview when a secondary feature like camera capture fails.
 - Preserve responsive behavior for laptop-sized screens.
 
+#### Breakdown
+
+- Inventory current renderer state and split it into stable layout regions: app shell, capture command area, stage, bottom rail, inspector, and status/toast area.
+- Build the shell skeleton first with existing controls moved into their future regions, without changing recording/export behavior.
+- Promote the styled preview canvas to the central stage and keep it visible for saved/degraded projects.
+- Add a state banner model for idle, starting, recording, stopping, saved, camera degraded, audio degraded, and fatal error.
+- Move export/open-folder/retake-style actions into a consistent actions area instead of leaving them scattered in panels.
+- Add responsive rules for narrower laptop windows: inspector can stack/collapse, stage remains primary, and recording controls remain reachable.
+- Keep visual language close to Screen Studio/Recordly: calm dark shell, large preview, compact controls, readable labels, and opinionated defaults.
+- Defer new editing features; this task is layout migration and state clarity only.
+
 #### Verification
 
+- 2026-05-05: Implemented dark Recordly-informed editor shell with capture bar, left tool rail, central styled preview, visual timeline rail, export-only right sidebar, state banner, and sidebar-owned background/timeline/inspector boards. Verified with `pnpm --filter @rough-cut/desktop typecheck`, `pnpm smoke:ui`, and earlier `pnpm smoke:recording-flow-ui`.
 - UI smoke covers idle, recording, stopping, saved preview, and error/degraded states.
 - Manual packaged-app check records, stops, previews, and exports from the new shell.
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm smoke:recording-flow-ui`
+- `pnpm smoke:recording-flow-double-stop`
 
 ### TASK-050 Add guided recording setup surface
 
@@ -1596,10 +1639,25 @@ Recording options are currently inline and crowded. Screen Studio-style capture 
 - Persist recent source choices where appropriate.
 - Start recording from the setup surface without blocking the editor shell.
 
+#### Breakdown
+
+- Create a setup entry point from the capture bar: `New recording` opens the setup surface, while quick record can reuse the last valid setup later.
+- Group setup into three columns/sections: capture target, audio, camera.
+- Capture target section shows full display, region, and future window modes with current selected target summary.
+- Audio section shows microphone, system audio, and screen-only fallback with availability messaging.
+- Camera section shows detected cameras, unavailable/busy messaging, and a clear `No camera` default.
+- Add preflight copy for countdown, save destination, and expected degraded behavior before pressing Record.
+- Persist safe recent choices only when the selected source still exists; missing devices should fall back to screen-only/no-camera.
+- Keep the setup surface non-blocking: cancel returns to editor, start transitions to recording state, failures return with inline diagnostics.
+- Avoid advanced camera PiP styling here; the setup surface chooses inputs, not presentation layout.
+
 #### Verification
 
 - UI smoke verifies setup controls, disabled/unavailable messaging, and successful start.
 - Manual check with camera unavailable confirms screen-only fallback is visible and usable.
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm smoke:recording-flow-ui`
 
 ### TASK-051 Add post-recording review workspace
 
@@ -1617,10 +1675,24 @@ After stop, the user should land in a clear review state rather than hunting for
 - Keep camera/audio degradation visible without blocking screen preview.
 - Prevent duplicate stop/save state overwrites.
 
+#### Breakdown
+
+- Define a saved-recording review state that is separate from idle and recording states.
+- On stop success, route to review with central preview loaded, project title/path visible, and saved status confirmed.
+- Show warnings as non-blocking cards: camera failed, mic missing, system audio unavailable, export diagnostics, or partial save.
+- Add primary actions: Export styled, Export raw, Open folder, Retake, Save project, and View diagnostics.
+- Add retake safety copy so users do not accidentally lose the saved recording.
+- Keep duplicate stop protection visible: once Stop is pressed, show `Stopping...` and lock recording actions until the saved result returns.
+- Preserve preview even if camera/audio finalization fails; screen asset remains the anchor of review.
+- Make review workspace reusable for opened projects, not only freshly recorded projects.
+
 #### Verification
 
 - UI smoke covers Record -> double Stop -> saved review workspace -> preview canvas.
 - Manual check confirms warnings and next actions are visible after camera-busy recording.
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm smoke:recording-flow-double-stop`
 
 ### TASK-052 Add timeline-first playback and edit rail
 
@@ -1638,10 +1710,25 @@ Zoom markers, trims, cuts, clicks, and camera/audio tracks need a timeline surfa
 - Keep playback state synchronized with the central preview.
 - Make the rail extensible for trim/cut tasks without another layout rewrite.
 
+#### Breakdown
+
+- Extract playback time state so the stage and timeline share one source of truth.
+- Add time-to-pixel and pixel-to-time helpers with deterministic tests.
+- Render a bottom rail with ruler ticks, current playhead, duration, and a draggable/scrubbable track area.
+- Add lanes for screen video, zoom markers, click events, camera presence, and future trim/cut regions.
+- Show existing manual/auto zoom markers as timeline regions with start/end positions and selected/hover states.
+- Show click telemetry as small event markers, but keep click editing out of scope.
+- Show camera/audio tracks as presence lanes first; full PiP/audio editing is out of scope.
+- Wire timeline scrubbing to the central styled preview without disrupting existing play/pause controls.
+- Leave trim/cut mutation for TASK-046/TASK-047; this task creates the rail and read-only marker visualization.
+
 #### Verification
 
 - Unit tests for time-to-pixel mapping and marker placement.
 - UI smoke loads a project with zoom/click/camera metadata and verifies timeline elements render.
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm smoke:ui`
 
 ### TASK-053 Add extensible properties inspector system
 
@@ -1659,7 +1746,21 @@ The right inspector is already mixing canvas, export, zoom, background, camera, 
 - Support disabled/degraded states with clear copy.
 - Keep project persistence explicit and recoverable when saves fail.
 
+#### Breakdown
+
+- Define inspector primitives: section, field row, segmented control, slider, select, toggle, preset grid, warning row, and action row.
+- Move existing canvas/export/zoom controls into the primitives without changing their behavior.
+- Add context groups: Canvas, Export, Recording, Zoom, Cursor, Camera, and Diagnostics.
+- Add selection plumbing so clicking a timeline zoom marker can focus the Zoom inspector group later.
+- Add disabled/degraded copy patterns for unavailable camera, missing telemetry, no audio stream, and unsupported export mode.
+- Make save behavior explicit: pending, saved, failed, retry available, and no hidden project mutations on failed save.
+- Keep inspector narrow and scannable: labels, current values, and short helper copy; avoid long paragraphs.
+- Defer new controls like cursor style sliders or background preset grids to TASK-044/TASK-045 after the inspector system exists.
+
 #### Verification
 
 - Component/unit coverage for inspector state and value normalization.
 - UI smoke changes one canvas setting and one presentation setting, saves, and keeps preview/export available.
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm smoke:ui`

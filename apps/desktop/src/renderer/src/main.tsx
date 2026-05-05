@@ -98,6 +98,9 @@ function App() {
   const [captureMode, setCaptureMode] = React.useState<CaptureMode>('display');
   const [captureRegion, setCaptureRegion] = React.useState<CaptureRegion>({ mode: 'region', x: 0, y: 0, width: 1280, height: 720 });
   const [recordingActionPending, setRecordingActionPending] = React.useState(false);
+  const [setupBoardOpen, setSetupBoardOpen] = React.useState(true);
+  const [inspectorOpen, setInspectorOpen] = React.useState(true);
+  const [activeTool, setActiveTool] = React.useState<ActiveTool>('background');
   const recordingActionPendingRef = React.useRef(false);
   const [elapsedMs, setElapsedMs] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
@@ -241,33 +244,49 @@ function App() {
 
   return (
     <main className="shell">
-      <section className="editorShell">
-        <header className="topBar">
-          <div>
-            <p className="eyebrow">Rough Cut MVP</p>
-            <h1>Recording studio</h1>
+      <section className="editorShell" data-ui-shell="recording-studio">
+        <header className="topBar" data-ui-region="capture-bar">
+          <div className="brandCluster">
+            <span className="windowDots" aria-hidden="true"><i /><i /><i /></span>
+            <span className="titleIcon"><Icon name="folder" /></span>
+            <span className="titleIcon"><Icon name="comments" /></span>
+            <span className="titleIcon"><Icon name="undo" /></span>
+            <div>
+              <p className="eyebrow">Rough Cut</p>
+              <h1>Studio</h1>
+            </div>
           </div>
           <div className="topActions">
-            <button type="button" onClick={toggleRecording} className={recording.state === 'recording' ? 'stop' : ''} disabled={recordingActionPending}>
+            <button type="button" className="iconButton" onClick={() => setSetupBoardOpen((open) => !open)} aria-pressed={setupBoardOpen} aria-label="Toggle setup board">
+              <Icon name="sparkle" />
+            </button>
+            <button type="button" className="iconButton" onClick={() => setInspectorOpen((open) => !open)} aria-pressed={inspectorOpen} aria-label="Toggle inspector board">
+              <Icon name="sliders" />
+            </button>
+            <button type="button" onClick={toggleRecording} className={recording.state === 'recording' ? 'stop primaryAction' : 'primaryAction'} disabled={recordingActionPending}>
+              <Icon name={recording.state === 'recording' ? 'stop' : 'record'} />
               {recordingActionPending ? (recording.state === 'recording' ? 'Stopping...' : 'Starting...') : recording.state === 'recording' ? 'Stop recording' : 'Record'}
             </button>
             <button type="button" onClick={openProject} className="secondary" disabled={recording.state === 'recording'}>
+              <Icon name="folder" />
               Open project
             </button>
           </div>
         </header>
-        <div className="recordingStrip" aria-label="Recording audio">
-          <span>{statusLabel(recording, elapsedMs)}</span>
-          <label className="audioToggle">
+        <div className={setupBoardOpen ? 'recordingStrip' : 'recordingStrip collapsed'} aria-label="Recording setup" data-ui-region="capture-command-area">
+          <span className="captureSummary"><Icon name="display" /> {captureStatusLabel(recording, elapsedMs)}</span>
+          <div className="sourceGroup">
+          <label className="sourceToggle" aria-label="Record microphone" title="Microphone">
             <input
               type="checkbox"
               checked={recordMic}
               disabled={recording.state === 'recording' || micSources.length === 0}
               onChange={(event) => setRecordMic(event.currentTarget.checked)}
             />
-            Mic
+            <Icon name="mic" />
           </label>
           <select
+            className="sourceSelect"
             value={selectedMicSource}
             disabled={recording.state === 'recording' || !recordMic || micSources.length === 0}
             onChange={(event) => setSelectedMicSource(event.currentTarget.value)}
@@ -283,16 +302,19 @@ function App() {
               ))
             )}
           </select>
-          <label className="audioToggle">
+          </div>
+          <div className="sourceGroup">
+          <label className="sourceToggle" aria-label="Record system audio" title="System audio">
             <input
               type="checkbox"
               checked={recordSystemAudio}
               disabled={recording.state === 'recording' || systemAudioSources.length === 0}
               onChange={(event) => setRecordSystemAudio(event.currentTarget.checked)}
             />
-            System audio
+            <Icon name="volume" />
           </label>
           <select
+            className="sourceSelect"
             value={selectedSystemAudioSource}
             disabled={recording.state === 'recording' || !recordSystemAudio || systemAudioSources.length === 0}
             onChange={(event) => setSelectedSystemAudioSource(event.currentTarget.value)}
@@ -308,16 +330,19 @@ function App() {
               ))
             )}
           </select>
-          <label className="audioToggle">
+          </div>
+          <div className="sourceGroup">
+          <label className="sourceToggle" aria-label="Record camera" title="Camera">
             <input
               type="checkbox"
               checked={recordCamera}
               disabled={recording.state === 'recording' || cameraSources.length === 0}
               onChange={(event) => setRecordCamera(event.currentTarget.checked)}
             />
-            Camera
+            <Icon name="camera" />
           </label>
           <select
+            className="sourceSelect"
             value={selectedCameraSource}
             disabled={recording.state === 'recording' || !recordCamera || cameraSources.length === 0}
             onChange={(event) => setSelectedCameraSource(event.currentTarget.value)}
@@ -333,8 +358,9 @@ function App() {
               ))
             )}
           </select>
-          <label className="audioToggle">
-            Target
+          </div>
+          <label className="targetSelect">
+            <Icon name="display" />
             <select
               value={captureMode}
               disabled={recording.state === 'recording'}
@@ -354,14 +380,7 @@ function App() {
             </div>
           ) : null}
         </div>
-        {recording.state === 'saved' ? (
-          <>
-            <p className="saved">Recording saved to: {recording.outputPath}</p>
-            {recording.cameraError ? (
-              <p className="warning">Camera was unavailable, so the screen recording was saved without webcam PiP: {recording.cameraError}</p>
-            ) : null}
-          </>
-        ) : null}
+        <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} error={error} />
         {project ? (
           <ProjectPreview
             project={project}
@@ -371,9 +390,25 @@ function App() {
             onExportModeChange={setExportMode}
             exportProgress={exportProgress}
             exportResult={exportResult}
+            setupBoardOpen={setupBoardOpen}
+            inspectorOpen={inspectorOpen}
+            activeTool={activeTool}
+            onActiveToolChange={(tool) => {
+              setActiveTool(tool);
+              setSetupBoardOpen(true);
+            }}
           />
-        ) : null}
-        {error ? <p className="error">{error}</p> : null}
+        ) : (
+          <EmptyWorkspace
+            setupBoardOpen={setupBoardOpen}
+            inspectorOpen={inspectorOpen}
+            activeTool={activeTool}
+            onActiveToolChange={(tool) => {
+              setActiveTool(tool);
+              setSetupBoardOpen(true);
+            }}
+          />
+        )}
         <p className="version">Electron app version: {version}</p>
       </section>
     </main>
@@ -397,6 +432,218 @@ function summarizeRecordingStatus(status: RecordingStatus) {
     hasMediaUrl: Boolean(status.project?.mediaUrl),
     cameraError: status.cameraError ?? null,
   };
+}
+
+function StateBanner({
+  recording,
+  elapsedMs,
+  actionPending,
+  error,
+}: {
+  recording: RecordingStatus;
+  elapsedMs: number;
+  actionPending: boolean;
+  error: string | null;
+}) {
+  const state = error ? 'error' : actionPending ? (recording.state === 'recording' ? 'stopping' : 'starting') : recording.state;
+  const copy = stateCopy(recording, elapsedMs, state, error);
+
+  return (
+    <section className={`stateBanner ${state}`} data-recording-state={state} data-ui-region="state-banner" aria-live="polite">
+      <div>
+        <p className="eyebrow">{copy.label}</p>
+        <h2>{copy.title}</h2>
+      </div>
+      <p>{copy.detail}</p>
+      {recording.state === 'saved' && recording.cameraError ? (
+        <p className="warning">Camera was unavailable, so the screen recording was saved without webcam PiP: {recording.cameraError}</p>
+      ) : null}
+    </section>
+  );
+}
+
+function stateCopy(recording: RecordingStatus, elapsedMs: number, state: string, error: string | null) {
+  if (error) {
+    return { label: 'Needs attention', title: 'Something failed', detail: error };
+  }
+  if (state === 'starting') {
+    return { label: 'Preparing capture', title: 'Starting recording...', detail: 'Locking the selected sources and opening the capture pipeline.' };
+  }
+  if (state === 'stopping') {
+    return { label: 'Finalizing capture', title: 'Stopping...', detail: 'Saving media, remuxing the recording, and building the project file.' };
+  }
+  if (recording.state === 'recording') {
+    return { label: 'Live capture', title: `Recording ${formatElapsed(elapsedMs)}`, detail: 'Stop when the take is complete. Source controls are locked while recording.' };
+  }
+  if (recording.state === 'saved') {
+    return { label: 'Ready to review', title: 'Recording saved', detail: `Saved to: ${recording.outputPath}` };
+  }
+  return { label: 'Ready', title: 'Set up a recording or open a project', detail: 'Screen-only recording is the safe default; mic, system audio, camera, and region capture are optional.' };
+}
+
+function captureStatusLabel(recording: RecordingStatus, elapsedMs: number) {
+  if (recording.state === 'recording') return formatElapsed(elapsedMs);
+  if (recording.state === 'saved') return 'Saved';
+  return 'Screen';
+}
+
+type IconName = 'folder' | 'comments' | 'undo' | 'sparkle' | 'sliders' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause';
+type ActiveTool = 'background' | 'timeline' | 'inspector';
+
+function Icon({ name }: { name: IconName }) {
+  const paths: Record<IconName, React.ReactNode> = {
+    folder: <path d="M3 6.5h6l1.5 2H21v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-11.5Z" />,
+    comments: <path d="M4 5h16v10H8l-4 4V5Z" />,
+    undo: <path d="M9 7 5 11l4 4M5 11h9a5 5 0 1 1 0 10h-2" />,
+    sparkle: <path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3ZM19 3l.8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3Z" />,
+    sliders: <path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 5v4M8 15v4" />,
+    record: <circle cx="12" cy="12" r="5" fill="currentColor" />,
+    stop: <rect x="8" y="8" width="8" height="8" rx="1.5" fill="currentColor" />,
+    frame: <path d="M5 5h14v14H5V5Zm3 3h8v8H8V8Z" />,
+    timeline: <path d="M4 17h16M6 13h6M14 13h4M9 9h9M5 5h5" />,
+    cursor: <path d="m6 3 11 11-5 1.2L9.4 20 6 3Z" />,
+    camera: <path d="M4 8h3l1.5-2h7L17 8h3v10H4V8Zm8 8a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />,
+    caption: <path d="M4 6h16v12H4V6Zm3 4h5M7 14h10" />,
+    settings: <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-5v3m0 12v3M4.2 4.2l2.1 2.1m11.4 11.4 2.1 2.1M3 12h3m12 0h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />,
+    export: <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v3h14v-3" />,
+    display: <path d="M4 5h16v11H4V5Zm6 15h4m-2-4v4" />,
+    mic: <path d="M12 4a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3Zm-7 8a7 7 0 0 0 14 0M12 19v3" />,
+    volume: <path d="M4 10v4h4l5 4V6l-5 4H4Zm12-1a4 4 0 0 1 0 6m2.5-9a8 8 0 0 1 0 12" />,
+    play: <path d="m9 6 9 6-9 6V6Z" />,
+    pause: <path d="M8 6h3v12H8V6Zm5 0h3v12h-3V6Z" />,
+  };
+  return <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
+}
+
+function BoardHeader({ icon, title, action }: { icon: IconName; title: string; action?: string }) {
+  return (
+    <div className="boardHeader">
+      <span><Icon name={icon} /> {title}</span>
+      {action ? <button type="button" className="textButton">{action}</button> : null}
+    </div>
+  );
+}
+
+function ToolRail({ active, onSelect }: { active: ActiveTool; onSelect: (tool: ActiveTool) => void }) {
+  const tools: Array<{ id: ActiveTool; icon: IconName; label: string }> = [
+    { id: 'background', icon: 'sparkle', label: 'Background' },
+    { id: 'timeline', icon: 'timeline', label: 'Timeline' },
+    { id: 'inspector', icon: 'sliders', label: 'Inspector' },
+  ];
+  return (
+    <nav className="toolRail" aria-label="Editor tools">
+      {tools.map((tool) => (
+        <button key={tool.id} type="button" className={tool.id === active ? 'toolButton active' : 'toolButton'} onClick={() => onSelect(tool.id)} aria-label={tool.label} aria-pressed={tool.id === active}>
+          <Icon name={tool.icon} />
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, aspectRatio = 'auto', disabled = false, onProjectChange, onBackgroundChange, onAspectRatioChange }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; aspectRatio?: ProjectAspectRatio; disabled?: boolean; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void }) {
+  const bg = background ?? createDefaultRecordingBackgroundStyle();
+
+  if (activeTool === 'timeline') {
+    return (
+      <aside className="setupBoard" aria-label="Timeline board">
+        <BoardHeader icon="timeline" title="Timeline" />
+        {project?.recording && fps && onProjectChange ? (
+          <>
+            <ZoomMarkerPanel project={project} fps={fps} currentTimeSec={currentTimeSec} onProjectChange={onProjectChange} />
+            <AutoZoomSuggestionsPanel project={project} onProjectChange={onProjectChange} />
+          </>
+        ) : (
+          <p className="boardNote">Open a project to edit zoom markers and suggestions.</p>
+        )}
+      </aside>
+    );
+  }
+
+  if (activeTool === 'inspector') {
+    return (
+      <aside className="setupBoard" aria-label="Inspector board">
+        <BoardHeader icon="sliders" title="Inspector" />
+        <section className="inspectorSection">
+          <p className="eyebrow">Canvas</p>
+          <label className="field">
+            Aspect ratio
+            <select value={aspectRatio} onChange={(event) => onAspectRatioChange?.(event.currentTarget.value as ProjectAspectRatio)} disabled={disabled}>
+              {PROJECT_ASPECT_RATIOS.map((ratio) => (
+                <option key={ratio} value={ratio}>{PROJECT_ASPECT_RATIO_LABELS[ratio]}</option>
+              ))}
+            </select>
+          </label>
+        </section>
+        <section className="inspectorSection">
+          <p className="eyebrow">Screen</p>
+          <RangeField label="Padding" value={bg.bgPadding} min={0} max={260} step={4} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgPadding: value })} />
+          <RangeField label="Round corners" value={bg.bgCornerRadius} min={0} max={120} step={2} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgCornerRadius: value })} />
+          <label className="toggleField">
+            <input type="checkbox" checked={bg.bgShadowEnabled} disabled={disabled} onChange={(event) => onBackgroundChange?.({ bgShadowEnabled: event.currentTarget.checked })} />
+            Screen shadow
+          </label>
+          <RangeField label="Shadow size" value={bg.bgShadowBlur} min={0} max={120} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowBlur: value })} />
+        </section>
+        <section className="inspectorSection mutedSection">
+          <p className="eyebrow">Camera</p>
+          <p>Webcam picture-in-picture is next.</p>
+        </section>
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="setupBoard" aria-label="Background board">
+      <BoardHeader icon="sparkle" title="Background" action="Reset" />
+      <RangeField label="Background blur" value={0} min={0} max={40} step={1} disabled onChange={() => undefined} />
+      <div className="segmentedControl" aria-label="Background type"><button type="button" className="active">Image</button><button type="button">Video</button><button type="button">Color</button></div>
+      <div className="swatchGrid" aria-label="Background presets">{Array.from({ length: 18 }).map((_, index) => <button type="button" key={index} aria-label={`Background preset ${index + 1}`} disabled={disabled} />)}</div>
+      <BoardHeader icon="frame" title="Frame" action="Reset" />
+      <RangeField label="Shadow" value={bg.bgShadowBlur} min={0} max={120} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowBlur: value })} />
+      <RangeField label="Radius" value={bg.bgCornerRadius} min={0} max={120} step={2} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgCornerRadius: value })} />
+      <RangeField label="Padding" value={bg.bgPadding} min={0} max={260} step={4} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgPadding: value })} />
+    </aside>
+  );
+}
+
+function EmptyWorkspace({ setupBoardOpen, inspectorOpen, activeTool, onActiveToolChange }: { setupBoardOpen: boolean; inspectorOpen: boolean; activeTool: ActiveTool; onActiveToolChange: (tool: ActiveTool) => void }) {
+  return (
+    <section className={`projectEditor emptyWorkspace ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
+      <ToolRail active={activeTool} onSelect={onActiveToolChange} />
+      <EditorToolBoard activeTool={activeTool} disabled />
+      <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
+        <div className="projectHeader">
+          <div>
+            <p className="eyebrow">Stage</p>
+            <h2>No project loaded</h2>
+          </div>
+          <p className="meta">Record or open a project to preview it here.</p>
+        </div>
+        <div className="emptyStage">
+          <div className="emptyPreviewMock" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <p className="eyebrow">Preview surface</p>
+          <h2>Your saved recording will stay centered here</h2>
+          <p>Camera or audio problems should appear as warnings without hiding the screen preview.</p>
+        </div>
+        <div className="timelineDock emptyTimeline" aria-label="Timeline and review rail" data-ui-region="timeline-review-rail">
+          <p className="eyebrow">Timeline</p>
+          <p>Zoom markers, clicks, trims, and review actions will live in this bottom rail.</p>
+          <div className="timelineSkeleton" aria-hidden="true"><span /><span /><span /></div>
+        </div>
+      </div>
+      <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
+        <section className="inspectorSection mutedSection" data-ui-region="export-actions-area">
+          <p className="eyebrow"><Icon name="export" /> Export</p>
+          <p>Export controls appear here once a project is loaded.</p>
+        </section>
+      </aside>
+    </section>
+  );
 }
 
 function NumberField({
@@ -435,6 +682,10 @@ function ProjectPreview({
   exportResult,
   exportMode,
   onExportModeChange,
+  setupBoardOpen,
+  inspectorOpen,
+  activeTool,
+  onActiveToolChange,
 }: {
   project: ProjectState;
   onProjectChange: (next: ProjectState) => void;
@@ -443,6 +694,10 @@ function ProjectPreview({
   exportResult: ExportResult | null;
   exportMode: ExportMode;
   onExportModeChange: (mode: ExportMode) => void;
+  setupBoardOpen: boolean;
+  inspectorOpen: boolean;
+  activeTool: ActiveTool;
+  onActiveToolChange: (tool: ActiveTool) => void;
 }) {
   const [currentTimeSec, setCurrentTimeSec] = React.useState(0);
   const [saveError, setSaveError] = React.useState<string | null>(null);
@@ -503,11 +758,13 @@ function ProjectPreview({
   }
 
   return (
-    <section className="projectEditor" aria-label="Project editor">
-      <div className="stageColumn">
+    <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
+      <ToolRail active={activeTool} onSelect={onActiveToolChange} />
+      <EditorToolBoard activeTool={activeTool} project={project} fps={project.recording?.fps} currentTimeSec={currentTimeSec} background={background} aspectRatio={aspectRatio} disabled={isSaving} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onAspectRatioChange={updateAspectRatio} />
+      <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>
-            <p className="eyebrow">Opened project</p>
+            <p className="eyebrow">Preview</p>
             <h2>{project.document.name}</h2>
           </div>
           {project.recording ? (
@@ -521,52 +778,19 @@ function ProjectPreview({
         ) : (
           <p>No recording asset found in this project.</p>
         )}
-        <div className="timelineDock">
-          {project.recording ? (
-            <ZoomMarkerPanel
-              project={project}
-              fps={project.recording.fps}
-              currentTimeSec={currentTimeSec}
-              onProjectChange={onProjectChange}
-            />
-          ) : null}
-          {project.recording ? (
-            <AutoZoomSuggestionsPanel project={project} onProjectChange={onProjectChange} />
-          ) : null}
+        <div className="timelineDock" aria-label="Timeline and review rail" data-ui-region="timeline-review-rail">
+          <div className="timelineHeader">
+          <p className="eyebrow"><Icon name="timeline" /> Timeline</p>
+            <span>{formatClock(currentTimeSec)}</span>
+          </div>
+          {project.recording ? <VisualTimeline project={project} currentTimeSec={currentTimeSec} /> : null}
         </div>
       </div>
-      <aside className="inspector" aria-label="Presentation settings">
-        <section className="inspectorSection">
-          <p className="eyebrow">Canvas</p>
-          <label className="field">
-            Aspect ratio
-            <select
-              value={aspectRatio}
-              onChange={(event) => updateAspectRatio(event.currentTarget.value as ProjectAspectRatio)}
-              disabled={isSaving}
-            >
-              {PROJECT_ASPECT_RATIOS.map((ratio) => (
-                <option key={ratio} value={ratio}>
-                  {PROJECT_ASPECT_RATIO_LABELS[ratio]}
-                </option>
-              ))}
-            </select>
-          </label>
-        </section>
-        <section className="inspectorSection">
-          <p className="eyebrow">Screen</p>
-          <RangeField label="Padding" value={background.bgPadding} min={0} max={260} step={4} disabled={isSaving} onChange={(value) => updateBackground({ bgPadding: value })} />
-          <RangeField label="Round corners" value={background.bgCornerRadius} min={0} max={120} step={2} disabled={isSaving} onChange={(value) => updateBackground({ bgCornerRadius: value })} />
-          <label className="toggleField">
-            <input type="checkbox" checked={background.bgShadowEnabled} disabled={isSaving} onChange={(event) => updateBackground({ bgShadowEnabled: event.currentTarget.checked })} />
-            Screen shadow
-          </label>
-          <RangeField label="Shadow size" value={background.bgShadowBlur} min={0} max={120} step={2} disabled={isSaving || !background.bgShadowEnabled} onChange={(value) => updateBackground({ bgShadowBlur: value })} />
-        </section>
-        <section className="inspectorSection mutedSection">
-          <p className="eyebrow">Camera</p>
-          <p>Webcam picture-in-picture is next. This pass fixes the screen presentation first.</p>
-        </section>
+      <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
+        <div className="inspectorHeader">
+          <p className="eyebrow"><Icon name="export" /> Export</p>
+          <h2>Export</h2>
+        </div>
         <section className="inspectorSection">
           <p className="eyebrow">Export</p>
           <label className="field">
@@ -577,11 +801,13 @@ function ProjectPreview({
             </select>
           </label>
           <ExportPresetDetails mode={exportMode} />
-          <button type="button" onClick={onExport} className="secondary exportButton" disabled={!project.recording}>
-            Export MP4
-          </button>
-          {exportProgress ? <span className="exportProgress">{exportProgress.phase}: {Math.round(exportProgress.progress * 100)}%</span> : null}
-          {exportResult ? <p className="saved">Exported to: {exportResult.outputPath} ({exportResult.bytes} bytes)</p> : null}
+          <div className="actionsArea" data-ui-region="export-actions-area">
+            <button type="button" onClick={onExport} className="secondary exportButton" disabled={!project.recording}>
+              Export MP4
+            </button>
+            {exportProgress ? <span className="exportProgress">{exportProgress.phase}: {Math.round(exportProgress.progress * 100)}%</span> : null}
+            {exportResult ? <p className="saved">Exported to: {exportResult.outputPath} ({exportResult.bytes} bytes)</p> : null}
+          </div>
         </section>
         {saveError ? <p className="error">{saveError}</p> : null}
       </aside>
@@ -600,6 +826,26 @@ function RangeField({ label, value, min, max, step, disabled, onChange }: { labe
       <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} onChange={(event) => onChange(Number(event.currentTarget.value))} />
       <output>{value}</output>
     </label>
+  );
+}
+
+function VisualTimeline({ project, currentTimeSec }: { project: ProjectState; currentTimeSec: number }) {
+  const durationSec = Math.max(0.1, project.recording ? project.recording.duration / project.recording.fps : project.document.composition.duration);
+  const progress = Math.min(100, Math.max(0, (currentTimeSec / durationSec) * 100));
+  const markerCount = listMarkers(project.document as unknown as ProjectDocument).length;
+  return (
+    <div className="visualTimeline" aria-label="Timeline overview">
+      <div className="timelineRuler" aria-hidden="true">
+        {Array.from({ length: 7 }).map((_, index) => <span key={index}>{formatClock((durationSec / 6) * index)}</span>)}
+      </div>
+      <div className="clipTrack">
+        <span className="clipBar"><Icon name="frame" /> Clip</span>
+        <span className="playhead" style={{ left: `${progress}%` }} />
+      </div>
+      <div className="markerTrack">
+        {markerCount > 0 ? Array.from({ length: markerCount }).map((_, index) => <span key={index} style={{ left: `${((index + 1) / (markerCount + 1)) * 100}%` }} />) : <p>No zoom markers yet.</p>}
+      </div>
+    </div>
   );
 }
 
@@ -1044,7 +1290,8 @@ function VideoPreview({
       />
       <div className="videoControls" aria-label="Video playback controls">
         <button type="button" className="secondary compact" onClick={togglePlayback}>
-          {isPlaying ? 'Pause' : 'Play'}
+          <Icon name={isPlaying ? 'pause' : 'play'} />
+          <span className="visuallyHidden">{isPlaying ? 'Pause' : 'Play'}</span>
         </button>
         <span className="timecode">
           {formatClock(currentTime)} / {formatClock(duration)}
@@ -1126,15 +1373,6 @@ function addRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, wid
   ctx.lineTo(x, y + r);
   ctx.quadraticCurveTo(x, y, x + r, y);
   ctx.closePath();
-}
-
-function statusLabel(recording: RecordingStatus, elapsedMs: number) {
-  if (recording.state === 'recording') {
-    const extras = [recording.micSource ? 'mic' : null, recording.systemAudioSource ? 'system audio' : null, recording.cameraDevicePath ? 'camera' : null].filter(Boolean).join(' + ');
-    return `Recording ${formatElapsed(elapsedMs)}${extras ? ` with ${extras}` : ''}`;
-  }
-  if (recording.state === 'saved') return 'Recording complete.';
-  return 'Primary display. Optional mic, system audio, and V4L2 camera.';
 }
 
 function formatElapsed(ms: number) {
