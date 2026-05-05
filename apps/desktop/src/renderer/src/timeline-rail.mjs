@@ -38,28 +38,38 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
   const frameDuration = Number.isFinite(recording?.duration) && recording.duration > 0
     ? recording.duration
     : document?.composition?.duration ?? 0;
-  const durationSec = Math.max(0.1, frameDuration / fps);
   const recordingAsset = getPrimaryAsset(document);
+  const primaryClip = getPrimaryClip(document, recordingAsset);
+  const trimStartFrame = primaryClip ? clampFrame(primaryClip.sourceIn, 0, frameDuration) : 0;
+  const trimEndFrame = primaryClip ? clampFrame(primaryClip.sourceOut, trimStartFrame + 1, frameDuration) : frameDuration;
+  const trimmedFrameDuration = Math.max(1, trimEndFrame - trimStartFrame);
+  const durationSec = Math.max(0.1, frameDuration / fps);
+  const visibleDurationSec = Math.max(0.1, trimmedFrameDuration / fps);
   const cursorEvents = getCursorEvents(recordingAsset);
-  const clickEvents = cursorEvents.filter((event) => event.type === 'down');
+  const clickEvents = cursorEvents.filter((event) => event.type === 'down' && event.frame >= trimStartFrame && event.frame <= trimEndFrame);
   const markers = listMarkers(document);
 
   return {
     durationSec,
-    currentTimeSec: clampTimelineTime(currentTimeSec, durationSec),
+    visibleDurationSec,
+    currentTimeSec: clampTimelineTime(currentTimeSec, visibleDurationSec),
     playheadPercent: timeToPercent(currentTimeSec, durationSec),
+    trimStartFrame,
+    trimEndFrame,
     ticks: Array.from({ length: DEFAULT_TICK_COUNT }, (_, index) => (durationSec / (DEFAULT_TICK_COUNT - 1)) * index),
     lanes: {
-      screen: [{ id: 'screen', left: 0, width: 100 }],
-      zoom: markers.map((marker) => ({
-        id: marker.id,
-        kind: marker.kind,
-        label: marker.kind === 'auto' ? 'Auto zoom' : 'Manual zoom',
-        ...frameRangeToPlacement(marker.startFrame, marker.endFrame, fps, durationSec),
-      })),
+      screen: [{ id: 'screen', left: 0, width: (visibleDurationSec / durationSec) * 100 }],
+      zoom: markers
+        .filter((marker) => marker.endFrame >= trimStartFrame && marker.startFrame <= trimEndFrame)
+        .map((marker) => ({
+          id: marker.id,
+          kind: marker.kind,
+          label: marker.kind === 'auto' ? 'Auto zoom' : 'Manual zoom',
+          ...frameRangeToPlacement(marker.startFrame - trimStartFrame, marker.endFrame - trimStartFrame, fps, durationSec),
+        })),
       clicks: clickEvents.map((event, index) => ({
         id: `${event.frame}-${index}`,
-        left: frameToPercent(event.frame, fps, durationSec),
+        left: frameToPercent(event.frame - trimStartFrame, fps, durationSec),
       })),
       camera: recording?.camera || cameraMediaUrl ? [{ id: 'camera', left: 0, width: 100 }] : [],
       audio: recording?.audio ? [{ id: 'audio', left: 0, width: 100 }] : [],
@@ -69,6 +79,20 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
 
 function getPrimaryAsset(document) {
   return document?.assets?.find((asset) => asset.type === 'recording' || asset.type === 'video') ?? null;
+}
+
+function getPrimaryClip(document, asset) {
+  if (!asset?.id) return null;
+  for (const track of document?.composition?.tracks ?? []) {
+    const clip = track.clips?.find((item) => item.assetId === asset.id);
+    if (clip) return clip;
+  }
+  return null;
+}
+
+function clampFrame(value, min, max) {
+  const frame = Number.isFinite(value) ? Math.round(value) : min;
+  return Math.max(min, Math.min(max, frame));
 }
 
 function getCursorEvents(asset) {

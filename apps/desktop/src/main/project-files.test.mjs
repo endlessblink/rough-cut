@@ -152,6 +152,30 @@ test('getPrimaryRecording defaults zoomMarkers to an empty array when asset has 
   assert.equal(primary.zoomMarkers.length, 0);
 });
 
+test('getPrimaryRecording exposes persisted head and tail trims from the primary clip', () => {
+  const project = createProjectForRecording({
+    recording,
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+  const clip = project.composition.tracks[0].clips[0];
+  const trimmed = {
+    ...project,
+    composition: {
+      ...project.composition,
+      duration: 210,
+      tracks: [{
+        ...project.composition.tracks[0],
+        clips: [{ ...clip, timelineIn: 0, timelineOut: 210, sourceIn: 30, sourceOut: 240 }],
+      }],
+    },
+  };
+
+  const primary = getPrimaryRecording(trimmed);
+  assert.equal(primary.sourceIn, 30);
+  assert.equal(primary.sourceOut, 240);
+  assert.equal(primary.trimmedDuration, 210);
+});
+
 test('round-trips a manual zoom marker through save and reopen', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-zoom-'));
   const outputPath = join(root, 'capture.mp4');

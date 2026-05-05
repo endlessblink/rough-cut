@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForRecording } from './project-files.mjs';
-import { buildCursorAss, buildStyledExportArgs, exportProjectToMp4, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, normalizeExportMode, parseFfmpegProgress } from './export-service.mjs';
+import { buildCursorAss, buildRawTrimExportArgs, buildStyledExportArgs, exportProjectToMp4, isSingleTrimmedRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, normalizeExportMode, parseFfmpegProgress } from './export-service.mjs';
 
 test('unedited export copies source mp4 byte-for-byte', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-'));
@@ -63,6 +63,38 @@ test('raw export mode keeps byte-for-byte copy behavior', async () => {
   assert.deepEqual(await readFile(outputPath), sourceBytes);
 
   await rm(root, { recursive: true, force: true });
+});
+
+test('raw trim export args cut to the persisted source frame range', () => {
+  const args = buildRawTrimExportArgs({ inputPath: '/tmp/source.mp4', outputPath: '/tmp/export.mp4', startFrame: 30, endFrame: 120, fps: 30 });
+
+  assert.deepEqual(args.slice(0, 7), ['-y', '-ss', '1', '-t', '3', '-i', '/tmp/source.mp4']);
+  assert.deepEqual(args.slice(-5), ['-c', 'copy', '-movflags', '+faststart', '/tmp/export.mp4']);
+});
+
+test('single head/tail trimmed recording remains exportable', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:05.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+    },
+  });
+  const clip = project.composition.tracks[0].clips[0];
+  const trimmed = {
+    ...project,
+    composition: {
+      ...project.composition,
+      duration: 90,
+      tracks: [{ ...project.composition.tracks[0], clips: [{ ...clip, timelineIn: 0, timelineOut: 90, sourceIn: 30, sourceOut: 120 }] }],
+    },
+  };
+
+  assert.equal(isSingleUneditedRecording(trimmed, project.assets[0].id), false);
+  assert.equal(isSingleTrimmedRecording(trimmed, project.assets[0].id), true);
 });
 
 test('export rejects writing over the source recording', async () => {
@@ -126,6 +158,18 @@ test('styled export args build a 16:9 canvas render command', () => {
   assert(joined.includes('studio-demo'));
   assert(args.includes('/tmp/source.mp4'));
   assert.equal(args.at(-1), '/tmp/export.mp4');
+});
+
+test('styled export args apply source trim before the main input', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceFps: 30,
+    sourceTrimStartFrame: 45,
+    sourceTrimEndFrame: 135,
+  });
+
+  assert.deepEqual(args.slice(args.indexOf('-ss'), args.indexOf('/tmp/source.mp4') + 1), ['-ss', '1.5', '-t', '3', '-i', '/tmp/source.mp4']);
 });
 
 test('ffmpeg progress parser maps out_time to normalized export progress', () => {
@@ -355,7 +399,7 @@ test('unedited export rejects edited projects', async () => {
   assert.equal(isSingleUneditedRecording(editedProject, assetId), false);
   await assert.rejects(
     () => exportProjectToMp4({ project: editedProject, outputPath: '/tmp/export.mp4' }),
-    /Only unedited single-recording exports/,
+    /Only unedited or head\/tail-trimmed single-recording exports/,
   );
 });
 

@@ -22,8 +22,11 @@ export type TimelineEventMarker = {
 
 export type TimelineModel = {
   durationSec: number;
+  visibleDurationSec: number;
   currentTimeSec: number;
   playheadPercent: number;
+  trimStartFrame: number;
+  trimEndFrame: number;
   ticks: readonly number[];
   lanes: {
     screen: readonly TimelineRegion[];

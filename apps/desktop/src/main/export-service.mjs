@@ -22,13 +22,20 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
   if (!recording) throw new Error('Project has no recording to export.');
   assertDistinctExportPath(recording.filePath, outputPath);
   const canExportRaw = isSingleUneditedRecording(project, recording.assetId);
-  const canExportStyled = canExportRaw || isSingleUneditedRecordingWithCamera(project, recording.assetId);
+  const canExportTrimmedRaw = isSingleTrimmedRecording(project, recording.assetId);
+  const canExportStyled = canExportRaw || canExportTrimmedRaw || isSingleUneditedRecordingWithCamera(project, recording.assetId) || isSingleTrimmedRecordingWithCamera(project, recording.assetId);
   if ((exportMode === EXPORT_MODES.RAW && !canExportRaw) || (exportMode === EXPORT_MODES.STYLED && !canExportStyled)) {
-    throw new Error('Only unedited single-recording exports are supported in the MVP.');
+    if (!(exportMode === EXPORT_MODES.RAW && canExportTrimmedRaw)) {
+      throw new Error('Only unedited or head/tail-trimmed single-recording exports are supported in the MVP.');
+    }
   }
 
   if (exportMode === EXPORT_MODES.STYLED) {
     return exportStyledProjectToMp4({ project, recording, outputPath, onProgress });
+  }
+
+  if (canExportTrimmedRaw && !canExportRaw) {
+    return exportRawTrimmedProjectToMp4({ recording, outputPath, onProgress });
   }
 
   onProgress({ phase: 'copying', progress: 0 });
@@ -42,6 +49,28 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
     sourcePath: recording.filePath,
     bytes: exported.size,
     byteEqualCandidate: source.size === exported.size,
+  };
+}
+
+async function exportRawTrimmedProjectToMp4({ recording, outputPath, onProgress = () => undefined }) {
+  onProgress({ phase: 'trimming', progress: 0 });
+  await mkdir(dirname(outputPath), { recursive: true });
+  const fps = Number.isFinite(recording.fps) && recording.fps > 0 ? recording.fps : 30;
+  const result = await run('ffmpeg', buildRawTrimExportArgs({
+    inputPath: recording.filePath,
+    outputPath,
+    startFrame: recording.sourceIn ?? 0,
+    endFrame: recording.sourceOut ?? recording.duration,
+    fps,
+  }));
+  if (result.code !== 0) throw new Error(`Raw trim export failed: ${result.stderr.trim()}`);
+  const exported = await stat(outputPath);
+  onProgress({ phase: 'complete', progress: 1 });
+  return {
+    outputPath,
+    sourcePath: recording.filePath,
+    bytes: exported.size,
+    byteEqualCandidate: false,
   };
 }
 
@@ -75,7 +104,8 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
     totalFrames: recording.duration,
   });
   try {
-    const durationSeconds = recording.duration / (Number.isFinite(recording.fps) && recording.fps > 0 ? recording.fps : 30);
+    const fps = Number.isFinite(recording.fps) && recording.fps > 0 ? recording.fps : 30;
+    const durationSeconds = (recording.trimmedDuration ?? recording.duration) / fps;
     const result = await run('ffmpeg', buildStyledExportArgs({
       inputPath: recording.filePath,
       outputPath,
@@ -90,6 +120,8 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       sourceWidth: recording.width,
       sourceHeight: recording.height,
       sourceFps: recording.fps,
+      sourceTrimStartFrame: recording.sourceIn ?? 0,
+      sourceTrimEndFrame: recording.sourceOut ?? recording.duration,
       zoomCropFilter: zoomLayer?.filterFragment ?? null,
       zoomSendcmdPath: zoomLayer?.path ?? null,
       cameraInputPath: recording.camera?.filePath ?? null,
@@ -130,6 +162,8 @@ export function buildStyledExportArgs({
   sourceWidth = null,
   sourceHeight = null,
   sourceFps = null,
+  sourceTrimStartFrame = 0,
+  sourceTrimEndFrame = null,
   screenPadding = 96,
   screenCornerRadius = 32,
   screenShadowEnabled = true,
@@ -151,6 +185,9 @@ export function buildStyledExportArgs({
   const shadowOffsetY = Math.round(Math.min(34, Math.max(10, height * 0.024)));
   const roundedAlpha = buildRoundedAlphaExpression(cornerRadius);
   const fps = Number.isFinite(sourceFps) && sourceFps > 0 ? sourceFps : 30;
+  const trimStartFrame = Math.max(0, Math.round(sourceTrimStartFrame || 0));
+  const trimEndFrame = Number.isFinite(sourceTrimEndFrame) ? Math.max(trimStartFrame + 1, Math.round(sourceTrimEndFrame)) : null;
+  const trimDurationFrames = trimEndFrame === null ? null : trimEndFrame - trimStartFrame;
   const screenInput = cursorAssPath ? '[with_cursor]' : '[base]';
   const zoomActive = Boolean(zoomCropFilter && zoomSendcmdPath);
   const screenStep = zoomActive
@@ -184,6 +221,8 @@ export function buildStyledExportArgs({
     '-progress',
     'pipe:1',
     '-nostats',
+    ...(trimStartFrame > 0 ? ['-ss', formatFilterNumber(trimStartFrame / fps)] : []),
+    ...(trimDurationFrames !== null ? ['-t', formatFilterNumber(trimDurationFrames / fps)] : []),
     '-i',
     inputPath,
     ...(cameraInputPath ? ['-i', cameraInputPath] : []),
@@ -207,6 +246,26 @@ export function buildStyledExportArgs({
     '+faststart',
     '-metadata',
     `rough_cut_style=canvas:${width}x${height}:studio-demo`,
+    outputPath,
+  ];
+}
+
+export function buildRawTrimExportArgs({ inputPath, outputPath, startFrame = 0, endFrame, fps = 30 }) {
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
+  const safeStart = Math.max(0, Math.round(startFrame || 0));
+  const safeEnd = Math.max(safeStart + 1, Math.round(endFrame));
+  return [
+    '-y',
+    '-ss',
+    formatFilterNumber(safeStart / safeFps),
+    '-t',
+    formatFilterNumber((safeEnd - safeStart) / safeFps),
+    '-i',
+    inputPath,
+    '-c',
+    'copy',
+    '-movflags',
+    '+faststart',
     outputPath,
   ];
 }
@@ -382,6 +441,18 @@ export function isSingleUneditedRecording(project, assetId) {
   );
 }
 
+export function isSingleTrimmedRecording(project, assetId) {
+  if (project.assets.length !== 1) return false;
+  const tracks = project.composition.tracks;
+  if (tracks.length !== 1) return false;
+  const clips = tracks[0].clips;
+  if (clips.length !== 1) return false;
+
+  const clip = clips[0];
+  const asset = project.assets[0];
+  return isHeadTailTrimmedClip(clip, asset, assetId) && project.composition.duration === clip.sourceOut - clip.sourceIn;
+}
+
 export function isSingleUneditedRecordingWithCamera(project, assetId) {
   if (project.assets.length !== 2) return false;
   const recording = project.assets.find((asset) => asset.id === assetId && asset.type === 'recording');
@@ -394,6 +465,39 @@ export function isSingleUneditedRecordingWithCamera(project, assetId) {
   const screenClip = clips.find((clip) => clip.assetId === recording.id);
   const cameraClip = clips.find((clip) => clip.assetId === camera.id);
   return isFullLengthPlainClip(screenClip, recording) && isFullLengthPlainClip(cameraClip, camera) && project.composition.duration === recording.duration;
+}
+
+export function isSingleTrimmedRecordingWithCamera(project, assetId) {
+  if (project.assets.length !== 2) return false;
+  const recording = project.assets.find((asset) => asset.id === assetId && asset.type === 'recording');
+  if (!recording?.cameraAssetId) return false;
+  const camera = project.assets.find((asset) => asset.id === recording.cameraAssetId && asset.metadata?.isCamera === true);
+  if (!camera) return false;
+  const clips = project.composition.tracks.flatMap((track) => track.clips);
+  const screenClip = clips.find((clip) => clip.assetId === recording.id);
+  const cameraClip = clips.find((clip) => clip.assetId === camera.id);
+  if (!isHeadTailTrimmedClip(screenClip, recording, recording.id)) return false;
+  if (!cameraClip || cameraClip.enabled !== true || cameraClip.timelineIn !== 0 || cameraClip.timelineOut !== screenClip.timelineOut || cameraClip.effects.length !== 0 || cameraClip.keyframes.length !== 0) return false;
+  const cameraOffset = Number.isFinite(camera.metadata?.sourceInFrames) ? camera.metadata.sourceInFrames : 0;
+  return cameraClip.sourceIn === cameraOffset + screenClip.sourceIn && cameraClip.sourceOut === cameraOffset + screenClip.sourceOut && project.composition.duration === screenClip.sourceOut - screenClip.sourceIn;
+}
+
+function isHeadTailTrimmedClip(clip, asset, assetId) {
+  return Boolean(
+    clip &&
+      asset &&
+      asset.id === assetId &&
+      clip.assetId === asset.id &&
+      clip.enabled === true &&
+      clip.timelineIn === 0 &&
+      clip.timelineOut === clip.sourceOut - clip.sourceIn &&
+      clip.sourceIn >= 0 &&
+      clip.sourceOut <= asset.duration &&
+      clip.sourceOut > clip.sourceIn &&
+      (clip.sourceIn > 0 || clip.sourceOut < asset.duration) &&
+      clip.effects.length === 0 &&
+      clip.keyframes.length === 0,
+  );
 }
 
 function isFullLengthPlainClip(clip, asset) {

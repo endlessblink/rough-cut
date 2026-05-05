@@ -123,12 +123,18 @@ export async function saveProjectForRecording(recording) {
 export function getPrimaryRecording(project) {
   const asset = project.assets.find((item) => item.type === 'recording' || item.type === 'video');
   if (!asset) return null;
+  const primaryClip = getPrimaryAssetClip(project, asset);
   const cameraAsset = getLinkedCameraAsset(project, asset);
   const cameraClip = cameraAsset ? getLinkedCameraClip(project, cameraAsset) : null;
+  const sourceIn = typeof primaryClip?.sourceIn === 'number' ? primaryClip.sourceIn : 0;
+  const sourceOut = typeof primaryClip?.sourceOut === 'number' ? primaryClip.sourceOut : asset.duration;
   return {
     assetId: asset.id,
     filePath: asset.filePath,
     duration: asset.duration,
+    sourceIn,
+    sourceOut,
+    trimmedDuration: Math.max(1, sourceOut - sourceIn),
     width: typeof asset.metadata.width === 'number' ? asset.metadata.width : project.settings.resolution.width,
     height: typeof asset.metadata.height === 'number' ? asset.metadata.height : project.settings.resolution.height,
     fps: typeof asset.metadata.fps === 'number' ? asset.metadata.fps : project.settings.frameRate,
@@ -159,6 +165,14 @@ export function getLinkedCameraAsset(project, recordingAsset) {
 function getLinkedCameraClip(project, cameraAsset) {
   for (const track of project.composition?.tracks ?? []) {
     const clip = track.clips?.find((item) => item.assetId === cameraAsset.id);
+    if (clip) return clip;
+  }
+  return null;
+}
+
+function getPrimaryAssetClip(project, asset) {
+  for (const track of project.composition?.tracks ?? []) {
+    const clip = track.clips?.find((item) => item.assetId === asset.id);
     if (clip) return clip;
   }
   return null;

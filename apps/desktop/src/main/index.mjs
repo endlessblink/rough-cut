@@ -275,6 +275,13 @@ async function runRendererUiSmoke() {
   document.querySelector('[data-timeline-lane="zoom"] .timelineRegion')?.click();
   await waitFor(() => document.querySelector('[data-inspector-context="zoom"]'), 'zoom inspector context');
   const hasInspectorContext = true;
+  document.querySelector('[data-timeline-lane="screen"] .clipBody')?.click();
+  await waitFor(() => document.querySelector('[data-inspector-context="recording"]'), 'recording inspector context');
+  const hasTrimControls = Boolean(
+    document.querySelector('[data-trim-summary="true"]')
+      && Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Set start to playhead'))
+      && Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Set end to playhead')),
+  );
   document.querySelector('button[aria-label="Inspector"]')?.click();
   const hasInspectorGroups = Boolean(
     document.querySelector('[data-inspector-group="canvas"]')
@@ -357,6 +364,7 @@ async function runRendererUiSmoke() {
     hasAutoZoomSuggestionsPanel,
     hasInspectorContext,
     hasInspectorGroups,
+    hasTrimControls,
     hasStyledPreviewCanvas,
     hasStudioShell,
     hasCaptureBar,
@@ -396,6 +404,9 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   const hasStudioShell = Boolean(await waitFor(() => document.querySelector('[data-ui-shell="recording-studio"]'), 'recording studio shell'));
   const initialState = document.querySelector('[data-ui-region="state-banner"]')?.getAttribute('data-recording-state');
   recordButton.click();
+  await waitFor(() => document.querySelector('[data-ui-region="pre-record-panel"]'), 'pre-record panel');
+  const preRecordStartButton = await waitFor(() => document.querySelector('[data-recording-start="pre-record"]'), 'pre-record start button');
+  preRecordStartButton.click();
   await waitFor(() => document.querySelector('[data-recording-state="recording"]'), 'recording state banner');
   await new Promise((resolve) => setTimeout(resolve, 1800));
   const stopButton = await waitFor(() => findButton('Stop recording'), 'stop button');
@@ -414,6 +425,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   return {
     ok: true,
     hasStudioShell,
+    hasPreRecordPanel: true,
     initialState,
     savedState: document.querySelector('[data-ui-region="state-banner"]')?.getAttribute('data-recording-state'),
     hasSavedMessage: document.body.textContent?.includes('Saved to:') ?? false,

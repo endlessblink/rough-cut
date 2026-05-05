@@ -59,14 +59,19 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-043 | Add webcam PiP presentation controls | P1 | PLANNED |
 | TASK-044 | Add cursor style controls | P2 | PLANNED |
 | TASK-045 | Add background style presets | P2 | PLANNED |
-| TASK-046 | Add trim start and end controls | P1 | PLANNED |
+| TASK-046 | Add trim start and end controls | P1 | DONE |
 | TASK-047 | Add simple cut removal flow | P2 | PLANNED |
 | TASK-048 | Add optional webcam PiP recording and export | P1 | IN PROGRESS |
 | TASK-049 | Build Screen Studio-style editor UI foundation | P1 | DONE |
-| TASK-050 | Add guided recording setup surface | P1 | PLANNED |
+| TASK-050 | Add Screen Studio-style pre-record panel | P1 | IN PROGRESS |
 | TASK-051 | Add post-recording review workspace | P1 | PLANNED |
 | TASK-052 | Add timeline-first playback and edit rail | P1 | DONE |
-| TASK-053 | Add extensible properties inspector system | P1 | PLANNED |
+| TASK-053 | Add extensible properties inspector system | P1 | DONE |
+| TASK-054 | Add thumbnail source picker for recording targets | P1 | PLANNED |
+| TASK-055 | Add audio and camera preflight controls | P1 | PLANNED |
+| TASK-056 | Add pre-record smoke and packaged checks | P1 | PLANNED |
+| TASK-057 | Add timeline interaction visual regression suite | P1 | PLANNED |
+| TASK-058 | Add non-destructive edit recovery affordances | P2 | PLANNED |
 
 ## Recently Verified
 
@@ -1251,7 +1256,7 @@ When recording issues happen, the app currently logs details but does not summar
 ### TASK-036 Add long-recording stability smoke
 
 **Priority:** P1  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -1305,7 +1310,7 @@ Automated checks are necessary but not enough for user-visible capture quality. 
 ### TASK-038 Add system audio capture controls
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 #### Context
 
@@ -1342,7 +1347,7 @@ Screen Studio-style demos often need browser/app audio in addition to microphone
 ### TASK-039 Add capture target picker
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -1378,7 +1383,7 @@ The current flow records the primary X11 display. Screen Studio users expect to 
 ### TASK-040 Add pause, resume, and cancel recording
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 #### Context
 
@@ -1523,9 +1528,10 @@ Most demo recordings need at least head/tail cleanup. This should land before a 
 
 #### Verification
 
-- Project-model tests for trim persistence.
-- Export tests assert output duration changes.
-- Manual packaged-app trim and export check.
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm smoke:ui`
+- `pnpm visual:scrub`
 
 ### TASK-047 Add simple cut removal flow
 
@@ -1622,18 +1628,19 @@ The current UI grew from MVP controls: one top strip, one preview panel, and a d
 - `pnpm smoke:recording-flow-ui`
 - `pnpm smoke:recording-flow-double-stop`
 
-### TASK-050 Add guided recording setup surface
+### TASK-050 Add Screen Studio-style pre-record panel
 
 **Priority:** P1  
 **Status:** PLANNED
 
 #### Context
 
-Recording options are currently inline and crowded. Screen Studio-style capture needs a focused setup surface for screen/region/window, mic, system audio, camera, countdown, and quality checks before recording starts.
+Recording options are currently inline and crowded. Screen Studio and Recordly both separate pre-record setup from the editor: a focused surface appears before capture starts, lets the user choose what to record, checks inputs, and then transitions into the compact in-recording HUD. Rough Cut needs the same product shape before adding more capture options.
 
 #### Acceptance Criteria
 
-- Add a recording setup modal/panel with source pickers grouped by screen, audio, and camera.
+- Add a recording setup modal/panel launched from the capture bar before recording starts.
+- Group the first version around the capture decision, input summary, countdown, and primary Record action.
 - Show source availability and clear degraded states, e.g. camera busy or no system audio source.
 - Keep screen-only recording as the safe default.
 - Persist recent source choices where appropriate.
@@ -1642,10 +1649,9 @@ Recording options are currently inline and crowded. Screen Studio-style capture 
 #### Breakdown
 
 - Create a setup entry point from the capture bar: `New recording` opens the setup surface, while quick record can reuse the last valid setup later.
-- Group setup into three columns/sections: capture target, audio, camera.
-- Capture target section shows full display, region, and future window modes with current selected target summary.
-- Audio section shows microphone, system audio, and screen-only fallback with availability messaging.
-- Camera section shows detected cameras, unavailable/busy messaging, and a clear `No camera` default.
+- Model the setup surface after Screen Studio's new recording modal and Recordly's launch HUD: compact, modal/floating, and focused on starting a capture rather than editing presentation.
+- Show the currently selected capture target summary, audio summary, camera summary, countdown value, and save destination.
+- Keep deeper target picking, audio/camera preflight detail, and smoke hardening split into TASK-054 through TASK-056 so this foundation stays small.
 - Add preflight copy for countdown, save destination, and expected degraded behavior before pressing Record.
 - Persist safe recent choices only when the selected source still exists; missing devices should fall back to screen-only/no-camera.
 - Keep the setup surface non-blocking: cancel returns to editor, start transitions to recording state, failures return with inline diagnostics.
@@ -1653,11 +1659,137 @@ Recording options are currently inline and crowded. Screen Studio-style capture 
 
 #### Verification
 
+- 2026-05-05: Added first pre-record panel foundation. Top Record now opens a modal setup surface with capture/audio/camera summaries, target selection, input toggles/selectors, cancel, and Start recording. The existing capture internals are unchanged; Start recording calls the same `startRecording` IPC path. Updated recording-flow UI smoke to start through `[data-ui-region="pre-record-panel"]` and `[data-recording-start="pre-record"]`.
+- `pnpm --filter @rough-cut/desktop typecheck` — pass.
+- `pnpm --filter @rough-cut/desktop test` — 151/151 pass.
+- `pnpm smoke:recording-flow-ui` — pass; report includes `hasPreRecordPanel: true` and saved recording state.
+- Pending manual packaged-app verification before marking DONE.
 - UI smoke verifies setup controls, disabled/unavailable messaging, and successful start.
 - Manual check with camera unavailable confirms screen-only fallback is visible and usable.
 - `pnpm --filter @rough-cut/desktop test`
 - `pnpm --filter @rough-cut/desktop typecheck`
 - `pnpm smoke:recording-flow-ui`
+
+### TASK-054 Add thumbnail source picker for recording targets
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+Screen Studio exposes entire display, window, and area choices from the pre-record flow. Recordly's source picker shows screen/window tabs with thumbnail cards, selected-state checkmarks, and a confirm action. Rough Cut already has capture target support; the missing piece is a polished source picker inside the new pre-record panel.
+
+#### Acceptance Criteria
+
+- Show capture target choices inside the pre-record panel: full display, region, and window when supported.
+- Present screen/window targets with readable names and thumbnails/previews where available.
+- Preserve the existing Linux-safe full-display and region paths.
+- Make unsupported target modes visibly disabled instead of silently hidden.
+- Persist the last valid target selection only when the target still exists.
+
+#### Verification
+
+- Unit tests for target option normalization and stale selection fallback.
+- UI smoke selects full display and region targets through the pre-record panel.
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm smoke:recording-flow-ui`
+
+### TASK-055 Add audio and camera preflight controls
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+Screen Studio's pre-record flow lets users choose webcam, microphone, and system audio before recording; microphone includes visible input activity, and camera selection shows a preview. Recordly has the same pattern in its launch HUD with microphone level rows, system audio toggle, webcam device list, and a small live preview.
+
+#### Acceptance Criteria
+
+- Add microphone selection to the pre-record panel with an input level indicator.
+- Add system audio selection/toggle with unavailable-source messaging.
+- Add camera selection with a live preview when a camera is selected.
+- Keep `No microphone`, `No system audio`, and `No camera` as safe explicit choices.
+- Start screen-only recording successfully even when camera/audio permissions fail.
+
+#### Verification
+
+- Unit tests for input availability/degraded-state mapping.
+- UI smoke covers no-camera/no-system-audio fallbacks and mic-enabled state.
+- Manual packaged-app check with camera unavailable and with microphone selected.
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm smoke:recording-flow-ui`
+
+### TASK-056 Add pre-record smoke and packaged checks
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+The pre-record panel becomes the front door for every capture. It needs direct regression coverage so future editor or recording changes do not strand users before recording starts.
+
+#### Acceptance Criteria
+
+- Add UI smoke coverage for opening/canceling the pre-record panel.
+- Smoke verifies target, audio, camera, countdown, and Record action visibility.
+- Smoke starts a recording from the pre-record panel and reaches saved review/editor state.
+- Packaged smoke exercises the pre-record panel path, not only legacy quick record.
+- Manual packaged-app runbook includes the new pre-record path.
+
+#### Verification
+
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm smoke:recording-flow-ui`
+- `pnpm smoke:package`
+- Manual packaged-app record from the pre-record panel.
+
+### TASK-057 Add timeline interaction visual regression suite
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+Timeline trim/scrub bugs showed up as UI movement, tool switching, wheel-driven state changes, and canvas flicker. These are user-visible interaction regressions that unit tests and static screenshots do not catch reliably.
+
+#### Acceptance Criteria
+
+- Add a dedicated Playwright interaction regression script for timeline scrub, trim start/end drag, wheel scrolling, focus stability, and active tool stability.
+- Assert the left tool/panel does not switch while stretching trim handles.
+- Assert wheel scrolling does not change the timeline scrubber or focused range inputs.
+- Assert playhead, ruler, and lanes share one coordinate space after trims.
+- Keep frame-by-frame canvas monitoring for every drag interaction and fail on blank/gray frames.
+
+#### Verification
+
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm visual:scrub`
+- New dedicated timeline interaction Playwright command.
+
+### TASK-058 Add non-destructive edit recovery affordances
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+Trim and future cut actions should never feel like they delete source media. Users need clear recovery affordances when hidden ranges still exist but are not currently exported.
+
+#### Acceptance Criteria
+
+- Show hidden head/tail source ranges as recoverable context instead of making media feel deleted.
+- Let users restore full source or expand trims back from the timeline without switching tools.
+- Keep raw/styled export scoped to the visible edit range while preserving original media and project clip source ranges.
+- Add copy that explains trims are non-destructive.
+
+#### Verification
+
+- Unit tests for trim reset/expand model behavior.
+- Playwright interaction check for restoring trimmed ranges from the timeline.
+- Manual export check confirms source media remains untouched.
 
 ### TASK-051 Add post-recording review workspace
 
@@ -1761,6 +1893,7 @@ The right inspector is already mixing canvas, export, zoom, background, camera, 
 
 #### Verification
 
+- 2026-05-05: Added reusable inspector primitives for sections, selects, sliders, toggles, preset grids, action rows, notices, and selected-context summaries. Moved existing canvas/screen/background/export controls onto the primitives without changing persistence behavior. Added timeline selection plumbing so screen, zoom, click, camera, and audio regions can focus a future inspector context. UI smoke now asserts inspector groups and zoom context focus. Verified with `pnpm --filter @rough-cut/desktop typecheck`, `pnpm --filter @rough-cut/desktop test`, `pnpm smoke:ui`, and `pnpm visual:scrub`.
 - Component/unit coverage for inspector state and value normalization.
 - UI smoke changes one canvas setting and one presentation setting, saves, and keeps preview/export available.
 - `pnpm --filter @rough-cut/desktop test`

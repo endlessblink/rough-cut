@@ -49,7 +49,7 @@ type ProjectState = {
   path: string;
   document: {
     name: string;
-    composition: { duration: number };
+    composition: { duration: number; tracks?: Array<{ clips?: Array<{ assetId?: string; timelineIn?: number; timelineOut?: number; sourceIn?: number; sourceOut?: number } & Record<string, unknown>> } & Record<string, unknown>> };
     settings?: { aspectRatio?: ProjectAspectRatio };
     assets?: Array<{ id?: string; type?: string; presentation?: { background?: RecordingBackgroundStyle } & Record<string, unknown> } & Record<string, unknown>>;
   };
@@ -68,6 +68,8 @@ type CaptureMode = 'display' | 'region';
 type CaptureRegion = { mode: 'region'; x: number; y: number; width: number; height: number };
 type InspectorGroupId = 'canvas' | 'recording' | 'screen' | 'zoom' | 'cursor' | 'camera' | 'export' | 'diagnostics';
 type InspectorSelection = { group: InspectorGroupId; label: string; detail?: string };
+type PrimaryClip = { assetId?: string; timelineIn?: number; timelineOut?: number; sourceIn?: number; sourceOut?: number } & Record<string, unknown>;
+type TrimInfo = { startFrame: number; endFrame: number; startSec: number; endSec: number; durationSec: number; isTrimmed: boolean };
 
 type RecordingStatus =
   | { state: 'idle' }
@@ -108,6 +110,7 @@ function App() {
   const [captureMode, setCaptureMode] = React.useState<CaptureMode>('display');
   const [captureRegion, setCaptureRegion] = React.useState<CaptureRegion>({ mode: 'region', x: 0, y: 0, width: 1280, height: 720 });
   const [recordingActionPending, setRecordingActionPending] = React.useState(false);
+  const [preRecordPanelOpen, setPreRecordPanelOpen] = React.useState(false);
   const [setupBoardOpen, setSetupBoardOpen] = React.useState(true);
   const [inspectorOpen, setInspectorOpen] = React.useState(true);
   const [activeTool, setActiveTool] = React.useState<ActiveTool>('background');
@@ -173,8 +176,21 @@ function App() {
   }, [recording]);
 
   React.useEffect(() => {
+    const blurFocusedRangeBeforeWheel = () => {
+      const active = window.document.activeElement;
+      if (active instanceof HTMLInputElement && active.type === 'range') active.blur();
+    };
+    window.addEventListener('wheel', blurFocusedRangeBeforeWheel, { capture: true });
+    return () => window.removeEventListener('wheel', blurFocusedRangeBeforeWheel, { capture: true });
+  }, []);
+
+  React.useEffect(() => {
     if (project?.recording?.camera) setExportMode('styled');
   }, [project?.recording?.camera]);
+
+  React.useEffect(() => {
+    if (recording.state === 'recording') setPreRecordPanelOpen(false);
+  }, [recording.state]);
 
   async function toggleRecording() {
     if (recordingActionPendingRef.current) {
@@ -273,7 +289,12 @@ function App() {
             <button type="button" className="iconButton" onClick={() => setInspectorOpen((open) => !open)} aria-pressed={inspectorOpen} aria-label="Toggle inspector board">
               <Icon name="sliders" />
             </button>
-            <button type="button" onClick={toggleRecording} className={recording.state === 'recording' ? 'stop primaryAction' : 'primaryAction'} disabled={recordingActionPending}>
+            <button
+              type="button"
+              onClick={recording.state === 'recording' ? toggleRecording : () => setPreRecordPanelOpen(true)}
+              className={recording.state === 'recording' ? 'stop primaryAction' : 'primaryAction'}
+              disabled={recordingActionPending}
+            >
               <Icon name={recording.state === 'recording' ? 'stop' : 'record'} />
               {recordingActionPending ? (recording.state === 'recording' ? 'Stopping...' : 'Starting...') : recording.state === 'recording' ? 'Stop recording' : 'Record'}
             </button>
@@ -283,6 +304,32 @@ function App() {
             </button>
           </div>
         </header>
+        {preRecordPanelOpen && recording.state !== 'recording' ? (
+          <PreRecordPanel
+            micSources={micSources}
+            systemAudioSources={systemAudioSources}
+            cameraSources={cameraSources}
+            recordMic={recordMic}
+            recordSystemAudio={recordSystemAudio}
+            recordCamera={recordCamera}
+            selectedMicSource={selectedMicSource}
+            selectedSystemAudioSource={selectedSystemAudioSource}
+            selectedCameraSource={selectedCameraSource}
+            captureMode={captureMode}
+            captureRegion={captureRegion}
+            actionPending={recordingActionPending}
+            onClose={() => setPreRecordPanelOpen(false)}
+            onStart={toggleRecording}
+            onRecordMicChange={setRecordMic}
+            onRecordSystemAudioChange={setRecordSystemAudio}
+            onRecordCameraChange={setRecordCamera}
+            onSelectedMicSourceChange={setSelectedMicSource}
+            onSelectedSystemAudioSourceChange={setSelectedSystemAudioSource}
+            onSelectedCameraSourceChange={setSelectedCameraSource}
+            onCaptureModeChange={setCaptureMode}
+            onCaptureRegionChange={setCaptureRegion}
+          />
+        ) : null}
         <div className={setupBoardOpen ? 'recordingStrip' : 'recordingStrip collapsed'} aria-label="Recording setup" data-ui-region="capture-command-area">
           <span className="captureSummary"><Icon name="display" /> {captureStatusLabel(recording, elapsedMs)}</span>
           <div className="sourceGroup">
@@ -442,6 +489,156 @@ function summarizeRecordingStatus(status: RecordingStatus) {
     hasMediaUrl: Boolean(status.project?.mediaUrl),
     cameraError: status.cameraError ?? null,
   };
+}
+
+function PreRecordPanel({
+  micSources,
+  systemAudioSources,
+  cameraSources,
+  recordMic,
+  recordSystemAudio,
+  recordCamera,
+  selectedMicSource,
+  selectedSystemAudioSource,
+  selectedCameraSource,
+  captureMode,
+  captureRegion,
+  actionPending,
+  onClose,
+  onStart,
+  onRecordMicChange,
+  onRecordSystemAudioChange,
+  onRecordCameraChange,
+  onSelectedMicSourceChange,
+  onSelectedSystemAudioSourceChange,
+  onSelectedCameraSourceChange,
+  onCaptureModeChange,
+  onCaptureRegionChange,
+}: {
+  micSources: MicSource[];
+  systemAudioSources: AudioSource[];
+  cameraSources: CameraSource[];
+  recordMic: boolean;
+  recordSystemAudio: boolean;
+  recordCamera: boolean;
+  selectedMicSource: string;
+  selectedSystemAudioSource: string;
+  selectedCameraSource: string;
+  captureMode: CaptureMode;
+  captureRegion: CaptureRegion;
+  actionPending: boolean;
+  onClose: () => void;
+  onStart: () => void;
+  onRecordMicChange: (checked: boolean) => void;
+  onRecordSystemAudioChange: (checked: boolean) => void;
+  onRecordCameraChange: (checked: boolean) => void;
+  onSelectedMicSourceChange: (source: string) => void;
+  onSelectedSystemAudioSourceChange: (source: string) => void;
+  onSelectedCameraSourceChange: (source: string) => void;
+  onCaptureModeChange: (mode: CaptureMode) => void;
+  onCaptureRegionChange: (region: CaptureRegion) => void;
+}) {
+  const targetLabel = captureMode === 'region'
+    ? `${captureRegion.width}x${captureRegion.height} region`
+    : 'Full display';
+  const micLabel = recordMic ? selectedSourceLabel(micSources, selectedMicSource, 'Microphone') : 'No microphone';
+  const systemAudioLabel = recordSystemAudio ? selectedSourceLabel(systemAudioSources, selectedSystemAudioSource, 'System audio') : 'No system audio';
+  const cameraLabel = recordCamera ? selectedSourceLabel(cameraSources, selectedCameraSource, 'Camera') : 'No camera';
+
+  return (
+    <div className="preRecordOverlay" data-ui-region="pre-record-panel" role="dialog" aria-modal="true" aria-labelledby="pre-record-title">
+      <section className="preRecordPanel">
+        <div className="preRecordHeader">
+          <div>
+            <p className="eyebrow">New recording</p>
+            <h2 id="pre-record-title">Set up your capture</h2>
+          </div>
+          <button type="button" className="secondary compact" onClick={onClose} disabled={actionPending}>Cancel</button>
+        </div>
+
+        <div className="preRecordSummary" aria-label="Recording setup summary">
+          <SetupSummaryCard icon="display" label="Capture" value={targetLabel} detail={captureMode === 'region' ? `Starts at ${captureRegion.x}, ${captureRegion.y}` : 'Screen-only is the safe default.'} />
+          <SetupSummaryCard icon="mic" label="Mic" value={micLabel} detail={micSources.length === 0 ? 'No microphone sources found.' : 'Optional narration track.'} />
+          <SetupSummaryCard icon="volume" label="System" value={systemAudioLabel} detail={systemAudioSources.length === 0 ? 'No system audio sources found.' : 'Optional app audio.'} />
+          <SetupSummaryCard icon="camera" label="Camera" value={cameraLabel} detail={cameraSources.length === 0 ? 'No camera sources found.' : 'Optional PiP recording.'} />
+        </div>
+
+        <div className="preRecordControls">
+          <section className="preRecordSection">
+            <p className="eyebrow">Capture target</p>
+            <label className="field">
+              <span>Target</span>
+              <select value={captureMode} onChange={(event) => onCaptureModeChange(event.currentTarget.value as CaptureMode)} disabled={actionPending}>
+                <option value="display">Full display</option>
+                <option value="region">Region</option>
+              </select>
+            </label>
+            {captureMode === 'region' ? (
+              <div className="regionControls preRecordRegion" aria-label="Pre-record capture region controls">
+                <NumberField label="X" value={captureRegion.x} disabled={actionPending} onChange={(x) => onCaptureRegionChange({ ...captureRegion, x })} />
+                <NumberField label="Y" value={captureRegion.y} disabled={actionPending} onChange={(y) => onCaptureRegionChange({ ...captureRegion, y })} />
+                <NumberField label="W" value={captureRegion.width} min={2} disabled={actionPending} onChange={(width) => onCaptureRegionChange({ ...captureRegion, width })} />
+                <NumberField label="H" value={captureRegion.height} min={2} disabled={actionPending} onChange={(height) => onCaptureRegionChange({ ...captureRegion, height })} />
+              </div>
+            ) : null}
+          </section>
+
+          <section className="preRecordSection">
+            <p className="eyebrow">Inputs</p>
+            <PreRecordSourceSelect label="Microphone" enabled={recordMic} disabled={actionPending || micSources.length === 0} emptyLabel="No microphone sources found" sources={micSources} value={selectedMicSource} onEnabledChange={onRecordMicChange} onValueChange={onSelectedMicSourceChange} />
+            <PreRecordSourceSelect label="System audio" enabled={recordSystemAudio} disabled={actionPending || systemAudioSources.length === 0} emptyLabel="No system audio sources found" sources={systemAudioSources} value={selectedSystemAudioSource} onEnabledChange={onRecordSystemAudioChange} onValueChange={onSelectedSystemAudioSourceChange} />
+            <PreRecordSourceSelect label="Camera" enabled={recordCamera} disabled={actionPending || cameraSources.length === 0} emptyLabel="No camera sources found" sources={cameraSources} value={selectedCameraSource} onEnabledChange={onRecordCameraChange} onValueChange={onSelectedCameraSourceChange} />
+          </section>
+        </div>
+
+        <div className="preRecordFooter">
+          <p>Countdown and thumbnail target cards are next; this panel now owns the pre-record decision point.</p>
+          <button type="button" className="primaryAction" onClick={onStart} disabled={actionPending} data-recording-start="pre-record">
+            <Icon name="record" />
+            {actionPending ? 'Starting...' : 'Start recording'}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SetupSummaryCard({ icon, label, value, detail }: { icon: IconName; label: string; value: string; detail: string }) {
+  return (
+    <div className="setupSummaryCard">
+      <span className="setupSummaryIcon"><Icon name={icon} /></span>
+      <p className="eyebrow">{label}</p>
+      <strong>{value}</strong>
+      <span>{detail}</span>
+    </div>
+  );
+}
+
+function PreRecordSourceSelect<T extends { name: string; label: string; state?: string }>({ label, enabled, disabled, emptyLabel, sources, value, onEnabledChange, onValueChange }: { label: string; enabled: boolean; disabled: boolean; emptyLabel: string; sources: T[]; value: string; onEnabledChange: (checked: boolean) => void; onValueChange: (value: string) => void }) {
+  return (
+    <div className="preRecordInputRow">
+      <label className="toggleField">
+        <input type="checkbox" checked={enabled} disabled={disabled} onChange={(event) => onEnabledChange(event.currentTarget.checked)} />
+        {label}
+      </label>
+      <select value={value} disabled={disabled || !enabled} onChange={(event) => onValueChange(event.currentTarget.value)} aria-label={`${label} source`}>
+        {sources.length === 0 ? (
+          <option value="">{emptyLabel}</option>
+        ) : (
+          sources.map((source) => (
+            <option key={source.name} value={source.name}>
+              {source.label || source.name}{source.state ? ` (${source.state.toLowerCase()})` : ''}
+            </option>
+          ))
+        )}
+      </select>
+    </div>
+  );
+}
+
+function selectedSourceLabel<T extends { name: string; label: string }>(sources: T[], selectedName: string, fallback: string) {
+  const selected = sources.find((source) => source.name === selectedName);
+  return selected?.label || selected?.name || fallback;
 }
 
 function StateBanner({
@@ -612,7 +809,7 @@ function InspectorContextSummary({ selection }: { selection: InspectorSelection 
   );
 }
 
-function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, onProjectChange, onBackgroundChange, onAspectRatioChange }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void }) {
+function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, trimInfo, onProjectChange, onBackgroundChange, onAspectRatioChange, onSetTrimStart, onSetTrimEnd, onResetTrim }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; trimInfo?: TrimInfo; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onSetTrimStart?: () => void; onSetTrimEnd?: () => void; onResetTrim?: () => void }) {
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
   const aspectRatioOptions = PROJECT_ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: PROJECT_ASPECT_RATIO_LABELS[ratio] }));
 
@@ -645,6 +842,18 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
           <InspectorSlider label="Round corners" value={bg.bgCornerRadius} min={0} max={120} step={2} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgCornerRadius: value })} />
           <InspectorToggle label="Screen shadow" checked={bg.bgShadowEnabled} disabled={disabled} onChange={(checked) => onBackgroundChange?.({ bgShadowEnabled: checked })} />
           <InspectorSlider label="Shadow size" value={bg.bgShadowBlur} min={0} max={120} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowBlur: value })} />
+        </InspectorSection>
+        <InspectorSection id="recording" title="Recording" description="Head and tail trims keep the original source recording untouched.">
+          <div className="trimSummary" data-trim-summary="true">
+            <span>Start {formatClock(trimInfo?.startSec ?? 0)}</span>
+            <span>End {formatClock(trimInfo?.endSec ?? 0)}</span>
+            <span>Duration {formatClock(trimInfo?.durationSec ?? 0)}</span>
+          </div>
+          <InspectorActionRow>
+            <button type="button" className="secondary compact" disabled={disabled || !trimInfo} onClick={onSetTrimStart}>Set start to playhead</button>
+            <button type="button" className="secondary compact" disabled={disabled || !trimInfo} onClick={onSetTrimEnd}>Set end to playhead</button>
+            <button type="button" className="secondary compact" disabled={disabled || !trimInfo || !trimInfo.isTrimmed} onClick={onResetTrim}>Reset trim</button>
+          </InspectorActionRow>
         </InspectorSection>
         <InspectorSection id="zoom" title="Zoom" muted description="Select a zoom region in the timeline to focus this group.">
           <InspectorNotice>Zoom marker editing stays in the Timeline board until selection editing lands.</InspectorNotice>
@@ -780,6 +989,8 @@ function ProjectPreview({
   const [isSaving, setIsSaving] = React.useState(false);
   const aspectRatio = project.document.settings?.aspectRatio ?? 'auto';
   const recordingAsset = getPrimaryRecordingAsset(project.document);
+  const primaryClip = getPrimaryRecordingClip(project.document, recordingAsset?.id);
+  const trimInfo = resolveTrimInfo(primaryClip, project.recording?.duration ?? project.document.composition.duration, project.recording?.fps ?? 30);
   const background = recordingAsset?.presentation?.background ?? DEFAULT_RECORDING_BACKGROUND;
 
   async function persist(nextDocument: ProjectState['document']) {
@@ -833,6 +1044,50 @@ function ProjectPreview({
     });
   }
 
+  async function updateTrim(nextStartFrame: number, nextEndFrame: number) {
+    if (!recordingAsset?.id || !project.recording) return;
+    const totalFrames = Math.max(1, project.recording.duration);
+    const startFrame = Math.max(0, Math.min(totalFrames - 1, Math.round(nextStartFrame)));
+    const endFrame = Math.max(startFrame + 1, Math.min(totalFrames, Math.round(nextEndFrame)));
+    const durationFrames = endFrame - startFrame;
+    const cameraOffset = Math.max(0, Math.round((project.recording.camera as { sourceInFrames?: number } | undefined)?.sourceInFrames ?? 0));
+    await persist({
+      ...project.document,
+      composition: {
+        ...project.document.composition,
+        duration: durationFrames,
+        tracks: project.document.composition.tracks?.map((track) => ({
+          ...track,
+          clips: track.clips?.map((clip) => {
+            if (clip.assetId === recordingAsset.id) {
+              return { ...clip, timelineIn: 0, timelineOut: durationFrames, sourceIn: startFrame, sourceOut: endFrame };
+            }
+            if (recordingAsset.cameraAssetId && clip.assetId === recordingAsset.cameraAssetId) {
+              return { ...clip, timelineIn: 0, timelineOut: durationFrames, sourceIn: cameraOffset + startFrame, sourceOut: cameraOffset + endFrame };
+            }
+            return clip;
+          }),
+        })),
+      },
+    });
+    setCurrentTimeSec(Math.min(currentTimeSec, durationFrames / (project.recording.fps || 30)));
+  }
+
+  function setTrimStartToPlayhead() {
+    if (!project.recording) return;
+    updateTrim(Math.round(currentTimeSec * project.recording.fps), trimInfo.endFrame);
+  }
+
+  function setTrimEndToPlayhead() {
+    if (!project.recording) return;
+    updateTrim(trimInfo.startFrame, Math.round(currentTimeSec * project.recording.fps));
+  }
+
+  function resetTrim() {
+    if (!project.recording) return;
+    updateTrim(0, project.recording.duration);
+  }
+
   function handleTimelineScrub(nextTimeSec: number) {
     setCurrentTimeSec(nextTimeSec);
     if (isTimelineScrubbingRef.current) return;
@@ -857,7 +1112,7 @@ function ProjectPreview({
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
       <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} project={project} fps={project.recording?.fps} currentTimeSec={currentTimeSec} background={background} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onAspectRatioChange={updateAspectRatio} />
+      <EditorToolBoard activeTool={activeTool} project={project} fps={project.recording?.fps} currentTimeSec={currentTimeSec} background={background} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} trimInfo={trimInfo} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onAspectRatioChange={updateAspectRatio} onSetTrimStart={setTrimStartToPlayhead} onSetTrimEnd={setTrimEndToPlayhead} onResetTrim={resetTrim} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>
@@ -871,7 +1126,7 @@ function ProjectPreview({
           ) : null}
         </div>
         {project.mediaUrl ? (
-          <VideoPreview project={project} seekTimeSec={timelineSeekSec} onCurrentTimeChange={setCurrentTimeSec} />
+          <VideoPreview project={project} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} onCurrentTimeChange={setCurrentTimeSec} />
         ) : (
           <p>No recording asset found in this project.</p>
         )}
@@ -880,7 +1135,7 @@ function ProjectPreview({
           <p className="eyebrow"><Icon name="timeline" /> Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-          {project.recording ? <VisualTimeline project={project} currentTimeSec={currentTimeSec} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onSelectInspectorContext={focusInspectorContext} /> : null}
+          {project.recording ? <VisualTimeline project={project} currentTimeSec={currentTimeSec} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimStart={(sourceTimeSec) => updateTrim(Math.round(sourceTimeSec * project.recording!.fps), trimInfo.endFrame)} onTrimEnd={(sourceTimeSec) => updateTrim(trimInfo.startFrame, Math.round(sourceTimeSec * project.recording!.fps))} onSelectInspectorContext={focusInspectorContext} /> : null}
         </div>
       </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
@@ -915,17 +1170,46 @@ function getPrimaryRecordingAsset(document: ProjectState['document']) {
   return document.assets?.find((asset) => asset.type === 'recording') ?? null;
 }
 
+function getPrimaryRecordingClip(document: ProjectState['document'], assetId?: string | null): PrimaryClip | null {
+  if (!assetId) return null;
+  for (const track of document.composition.tracks ?? []) {
+    const clip = track.clips?.find((item) => item.assetId === assetId);
+    if (clip) return clip;
+  }
+  return null;
+}
+
+function resolveTrimInfo(clip: PrimaryClip | null, totalFrames: number, fps: number): TrimInfo {
+  const safeTotalFrames = Math.max(1, Math.round(totalFrames || 1));
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
+  const startFrame = Math.max(0, Math.min(safeTotalFrames - 1, Math.round(clip?.sourceIn ?? 0)));
+  const endFrame = Math.max(startFrame + 1, Math.min(safeTotalFrames, Math.round(clip?.sourceOut ?? safeTotalFrames)));
+  return {
+    startFrame,
+    endFrame,
+    startSec: startFrame / safeFps,
+    endSec: endFrame / safeFps,
+    durationSec: (endFrame - startFrame) / safeFps,
+    isTrimmed: startFrame > 0 || endFrame < safeTotalFrames,
+  };
+}
+
 function RangeField({ label, value, min, max, step, disabled, onChange }: { label: string; value: number; min: number; max: number; step: number; disabled?: boolean; onChange: (value: number) => void }) {
   return (
     <label className="rangeField">
       <span>{label}</span>
-      <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} onChange={(event) => onChange(Number(event.currentTarget.value))} />
+      <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} onWheelCapture={preventRangeWheelChange} onChange={(event) => onChange(Number(event.currentTarget.value))} />
       <output>{value}</output>
     </label>
   );
 }
 
-function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScrubEnd, onSelectInspectorContext }: { project: ProjectState; currentTimeSec: number; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void }) {
+function preventRangeWheelChange(event: React.WheelEvent<HTMLInputElement>) {
+  event.preventDefault();
+  event.currentTarget.blur();
+}
+
+function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScrubEnd, onTrimStart, onTrimEnd, onSelectInspectorContext }: { project: ProjectState; currentTimeSec: number; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimStart: (sourceTimeSec: number) => void; onTrimEnd: (sourceTimeSec: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void }) {
   const model = buildTimelineModel({
     document: project.document as unknown as ProjectDocument,
     recording: project.recording,
@@ -933,45 +1217,91 @@ function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScru
     cameraMediaUrl: project.cameraMediaUrl,
   });
 
+  const fps = project.recording?.fps && project.recording.fps > 0 ? project.recording.fps : 30;
+  const minTrimGapSec = 1 / fps;
+
+  function sourceToVisibleTime(sourceTimeSec: number) {
+    return Math.max(0, Math.min(sourceTimeSec - (model.trimStartFrame / fps), model.visibleDurationSec));
+  }
+
   function scrubFromInput(value: string) {
-    const nextTime = Number(value);
-    if (Number.isFinite(nextTime)) onScrub(nextTime);
+    const nextSourceTime = Number(value);
+    if (Number.isFinite(nextSourceTime)) onScrub(sourceToVisibleTime(nextSourceTime));
   }
 
   function commitScrub(value: string) {
-    const nextTime = Number(value);
-    if (Number.isFinite(nextTime)) onScrubEnd(nextTime);
+    const nextSourceTime = Number(value);
+    if (Number.isFinite(nextSourceTime)) onScrubEnd(sourceToVisibleTime(nextSourceTime));
+  }
+
+  function sourceTimeFromClient(handle: HTMLElement, clientX: number) {
+    const track = handle.closest('.timelineLane')?.querySelector('.laneTrack');
+    if (!(track instanceof HTMLElement)) return null;
+    const rect = track.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    return Math.max(0, Math.min(((clientX - rect.left) / rect.width) * model.durationSec, model.durationSec));
+  }
+
+  function beginTrimDrag(kind: 'start' | 'end', event: React.PointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    onScrubStart();
+    const move = (moveEvent: PointerEvent) => {
+      const sourceTimeSec = sourceTimeFromClient(handle, moveEvent.clientX);
+      if (sourceTimeSec === null) return;
+      const minEndSec = (model.trimStartFrame / fps) + minTrimGapSec;
+      const maxStartSec = (model.trimEndFrame / fps) - minTrimGapSec;
+      if (kind === 'start') onTrimStart(Math.min(sourceTimeSec, maxStartSec));
+      else onTrimEnd(Math.max(sourceTimeSec, minEndSec));
+    };
+    const up = (upEvent: PointerEvent) => {
+      move(upEvent);
+      onScrubEnd(sourceToVisibleTime(kind === 'start' ? model.trimStartFrame / fps : model.trimEndFrame / fps));
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up, { once: true });
+    window.addEventListener('pointercancel', up, { once: true });
   }
 
   return (
     <div className="visualTimeline" aria-label="Timeline overview">
       <div className="timelineRuler" aria-hidden="true">
+        <span />
         {model.ticks.map((tick) => <span key={tick}>{formatClock(tick)}</span>)}
       </div>
       <div className="timelineTracks">
-        <input
-          aria-label="Scrub timeline"
-          className="timelineScrubber"
-          type="range"
-          min="0"
-          max={model.durationSec}
-          step="0.1"
-          value={model.currentTimeSec}
-          onPointerDown={onScrubStart}
-          onPointerUp={(event) => commitScrub(event.currentTarget.value)}
-          onPointerCancel={(event) => commitScrub(event.currentTarget.value)}
-          onKeyDown={onScrubStart}
-          onKeyUp={(event) => commitScrub(event.currentTarget.value)}
-          onInput={(event) => scrubFromInput(event.currentTarget.value)}
-          onChange={(event) => scrubFromInput(event.currentTarget.value)}
-        />
+        <div className="timelineTrackOverlay">
+          <input
+            aria-label="Scrub timeline"
+            className="timelineScrubber"
+            type="range"
+            min="0"
+            max={model.durationSec}
+            step="0.1"
+            value={model.currentTimeSec}
+            onWheelCapture={preventRangeWheelChange}
+            onPointerDown={onScrubStart}
+            onPointerUp={(event) => commitScrub(event.currentTarget.value)}
+            onPointerCancel={(event) => commitScrub(event.currentTarget.value)}
+            onKeyDown={onScrubStart}
+            onKeyUp={(event) => commitScrub(event.currentTarget.value)}
+            onInput={(event) => scrubFromInput(event.currentTarget.value)}
+            onChange={(event) => scrubFromInput(event.currentTarget.value)}
+          />
+          <span className="playhead" style={{ left: `${model.playheadPercent}%` }} />
+        </div>
         <TimelineLane label="Screen" className="screenLane">
           {model.lanes.screen.map((region) => (
-            <button key={region.id} type="button" className="clipBar" style={{ left: `${region.left}%`, width: `${region.width}%` }} onClick={() => onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: 'Source clip selected from the timeline.' })}>
-              <span className="trimHandle trimHandleStart" aria-hidden="true" />
-              <Icon name="frame" /> Clip
-              <span className="trimHandle trimHandleEnd" aria-hidden="true" />
-            </button>
+            <div key={region.id} className="clipBar" style={{ left: `${region.left}%`, width: `${region.width}%` }}>
+              <button type="button" className="trimHandle trimHandleStart" aria-label="Trim start" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => beginTrimDrag('start', event)} />
+              <button type="button" className="clipBody" onClick={() => onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: 'Source clip selected from the timeline.' })}><Icon name="frame" /> Clip</button>
+              <button type="button" className="trimHandle trimHandleEnd" aria-label="Trim end" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => beginTrimDrag('end', event)} />
+            </div>
           ))}
         </TimelineLane>
         <TimelineLane label="Zoom" className="zoomLane">
@@ -998,7 +1328,6 @@ function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScru
             ? model.lanes.audio.map((region) => <button key={region.id} type="button" className="presenceRegion" style={{ left: `${region.left}%`, width: `${region.width}%` }} onClick={() => onSelectInspectorContext({ group: 'recording', label: 'Audio track', detail: 'Audio presence selected from the timeline.' })}>Audio</button>)
             : <p>No audio track.</p>}
         </TimelineLane>
-        <span className="playhead" style={{ left: `${model.playheadPercent}%` }} />
       </div>
     </div>
   );
@@ -1229,10 +1558,14 @@ function ExportPresetDetails({ mode }: { mode: ExportMode }) {
 function VideoPreview({
   project,
   seekTimeSec,
+  trimStartSec = 0,
+  trimEndSec,
   onCurrentTimeChange,
 }: {
   project: ProjectState;
   seekTimeSec?: number;
+  trimStartSec?: number;
+  trimEndSec?: number;
   onCurrentTimeChange?: (sec: number) => void;
 }) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -1255,6 +1588,8 @@ function VideoPreview({
   const aspectRatio = project.document.settings?.aspectRatio ?? 'auto';
   const canvasResolution = getStyledCanvasResolution({ aspectRatio, sourceWidth, sourceHeight });
   const background = getPrimaryRecordingAsset(project.document)?.presentation?.background ?? DEFAULT_RECORDING_BACKGROUND;
+  const sourceDurationSec = Math.max(0.1, (project.recording?.duration ?? 1) / fps);
+  const visibleDuration = Math.max(0.1, (trimEndSec ?? sourceDurationSec) - trimStartSec);
 
   React.useEffect(() => {
     setDuration(0);
@@ -1280,7 +1615,7 @@ function VideoPreview({
       return;
     }
     const maxTime = video.duration || requestedTime;
-    const nextTime = Math.max(0, Math.min(requestedTime, maxTime));
+    const nextTime = Math.max(trimStartSec, Math.min(trimStartSec + requestedTime, Math.min(trimEndSec ?? maxTime, maxTime)));
     pendingSeekRef.current = null;
     if (Math.abs(video.currentTime - nextTime) < 0.05) {
       seekingRef.current = false;
@@ -1289,7 +1624,7 @@ function VideoPreview({
     seekingRef.current = true;
     video.currentTime = nextTime;
     if (cameraVideoRef.current) cameraVideoRef.current.currentTime = nextTime + cameraSourceOffsetSec;
-    setCurrentTime(nextTime);
+    setCurrentTime(Math.max(0, nextTime - trimStartSec));
   }
 
   function handleSeekSettled() {
@@ -1312,8 +1647,8 @@ function VideoPreview({
 
     const canvasWidth = canvasResolution.width;
     const canvasHeight = canvasResolution.height;
-    canvas.width = canvasWidth;
-    canvas.height = canvasHeight;
+    if (canvas.width !== canvasWidth) canvas.width = canvasWidth;
+    if (canvas.height !== canvasHeight) canvas.height = canvasHeight;
     const screenPadding = Math.max(0, Math.min(background.bgPadding, Math.min(canvasWidth, canvasHeight) / 2 - 2));
     const maxVideoWidth = canvasWidth - screenPadding * 2;
     const maxVideoHeight = canvasHeight - screenPadding * 2;
@@ -1348,6 +1683,12 @@ function VideoPreview({
       if (video.seeking || seekingRef.current || video.readyState < 2) {
         rafId = window.requestAnimationFrame(tick);
         return;
+      }
+      if (Number.isFinite(trimEndSec) && video.currentTime > (trimEndSec ?? video.currentTime) + 0.02) {
+        video.pause();
+        video.currentTime = trimEndSec ?? video.currentTime;
+        setCurrentTime(Math.max(0, (trimEndSec ?? video.currentTime) - trimStartSec));
+        onCurrentTimeChange?.(Math.max(0, (trimEndSec ?? video.currentTime) - trimStartSec));
       }
       const currentFrame = Math.max(0, Math.round(video.currentTime * fps));
       let frame;
@@ -1424,7 +1765,7 @@ function VideoPreview({
     }
     rafId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(rafId);
-  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background, cameraSrc]);
+  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background, cameraSrc, trimStartSec, trimEndSec, onCurrentTimeChange]);
 
   React.useEffect(() => {
     const cameraVideo = cameraVideoRef.current;
@@ -1459,12 +1800,13 @@ function VideoPreview({
   function seek(value: string) {
     const video = videoRef.current;
     if (!video) return;
-    const nextTime = Number(value);
-    if (!Number.isFinite(nextTime)) return;
-    video.currentTime = nextTime;
-    if (cameraVideoRef.current) cameraVideoRef.current.currentTime = nextTime + cameraSourceOffsetSec;
-    setCurrentTime(nextTime);
-    onCurrentTimeChange?.(nextTime);
+    const nextVisibleTime = Number(value);
+    if (!Number.isFinite(nextVisibleTime)) return;
+    const nextSourceTime = trimStartSec + Math.max(0, Math.min(nextVisibleTime, visibleDuration));
+    video.currentTime = nextSourceTime;
+    if (cameraVideoRef.current) cameraVideoRef.current.currentTime = nextSourceTime + cameraSourceOffsetSec;
+    setCurrentTime(nextVisibleTime);
+    onCurrentTimeChange?.(nextVisibleTime);
   }
 
   return (
@@ -1475,7 +1817,8 @@ function VideoPreview({
         preload="auto"
         className="hiddenSource"
         onLoadedMetadata={(event) => {
-          setDuration(event.currentTarget.duration || 0);
+          setDuration(visibleDuration);
+          if (trimStartSec > 0) event.currentTarget.currentTime = trimStartSec;
           setError(null);
         }}
         onPlay={() => setIsPlaying(true)}
@@ -1485,8 +1828,9 @@ function VideoPreview({
         onError={(event) => setError(videoErrorMessage(event.currentTarget))}
         onTimeUpdate={(event) => {
           const next = event.currentTarget.currentTime;
-          setCurrentTime(next);
-          onCurrentTimeChange?.(next);
+          const visibleTime = Math.max(0, next - trimStartSec);
+          setCurrentTime(Math.min(visibleTime, visibleDuration));
+          onCurrentTimeChange?.(Math.min(visibleTime, visibleDuration));
         }}
       />
       {cameraSrc ? <video ref={cameraVideoRef} src={cameraSrc} preload="auto" className="hiddenSource" muted /> : null}
@@ -1508,9 +1852,10 @@ function VideoPreview({
           aria-label="Seek video"
           type="range"
           min="0"
-          max={duration || 0}
+          max={visibleDuration || duration || 0}
           step="0.1"
-          value={Math.min(currentTime, duration || 0)}
+          value={Math.min(currentTime, visibleDuration || duration || 0)}
+          onWheelCapture={preventRangeWheelChange}
           onInput={(event) => seek(event.currentTarget.value)}
           onChange={(event) => seek(event.currentTarget.value)}
         />

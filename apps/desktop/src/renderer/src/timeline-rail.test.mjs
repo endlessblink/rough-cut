@@ -55,6 +55,7 @@ test('buildTimelineModel renders zoom markers and click events from project meta
   });
 
   assert.equal(model.durationSec, 10);
+  assert.equal(model.visibleDurationSec, 10);
   assert.equal(model.playheadPercent, 20);
   assert.equal(model.ticks.length, 7);
   assert.deepEqual(model.lanes.screen[0], { id: 'screen', left: 0, width: 100 });
@@ -65,4 +66,37 @@ test('buildTimelineModel renders zoom markers and click events from project meta
   assert.equal(model.lanes.clicks[0].left, 20);
   assert.equal(model.lanes.camera.length, 1);
   assert.equal(model.lanes.audio.length, 1);
+});
+
+test('buildTimelineModel maps timeline lanes relative to clip trims', () => {
+  const base = createProject();
+  const presentation = createDefaultRecordingPresentation();
+  const asset = createAsset('recording', '/tmp/recording.mp4', {
+    duration: 300,
+    presentation: {
+      ...presentation,
+      zoom: {
+        ...presentation.zoom,
+        markers: [createZoomMarker(60, 120, { kind: 'manual' })],
+      },
+    },
+    metadata: {
+      cursorEvents: [
+        { frame: 20, x: 5, y: 5, type: 'down', button: 'left' },
+        { frame: 90, x: 10, y: 10, type: 'down', button: 'left' },
+      ],
+    },
+  });
+  const track = { id: 'track-1', type: 'video', name: 'Video', index: 0, locked: false, visible: true, volume: 1, clips: [{ id: 'clip-1', assetId: asset.id, trackId: 'track-1', enabled: true, timelineIn: 0, timelineOut: 180, sourceIn: 30, sourceOut: 210, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0.5, anchorY: 0.5, opacity: 1 }, effects: [], keyframes: [] }] };
+  const document = { ...base, assets: [asset], composition: { ...base.composition, duration: 180, tracks: [track] } };
+  const model = buildTimelineModel({ document, recording: { duration: 300, fps: 30 }, currentTimeSec: 1, cameraMediaUrl: null });
+
+  assert.equal(model.durationSec, 10);
+  assert.equal(model.visibleDurationSec, 6);
+  assert.equal(model.lanes.screen[0].left, 0);
+  assert.equal(model.lanes.screen[0].width, 60);
+  assert.equal(model.playheadPercent, 10);
+  assert.equal(model.lanes.zoom[0].left, 10);
+  assert.equal(model.lanes.clicks.length, 1);
+  assert.equal(model.lanes.clicks[0].left, 20);
 });

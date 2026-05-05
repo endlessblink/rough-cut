@@ -11,6 +11,7 @@ const reportPath = join(root, 'visual-scrub-report.json');
 const beforePath = join(root, 'before-scrub.png');
 const midPath = join(root, 'during-scrub.png');
 const afterPath = join(root, 'after-scrub.png');
+const afterTrimPath = join(root, 'after-trim-drag.png');
 
 await mkdir(root, { recursive: true });
 run('ffmpeg', [
@@ -82,6 +83,14 @@ try {
   const box = await scrubber.boundingBox();
   if (!box) throw new Error('Timeline scrubber bounding box was unavailable.');
 
+  const wheelValueBefore = await scrubber.inputValue();
+  await scrubber.focus();
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height / 2);
+  await page.mouse.wheel(0, 800);
+  await page.waitForTimeout(250);
+  const wheelValueAfter = await scrubber.inputValue();
+  const wheelStable = wheelValueBefore === wheelValueAfter;
+
   await page.evaluate(() => window.__roughCutScrubMonitor.start());
   await page.mouse.move(box.x + box.width * 0.08, box.y + box.height / 2);
   await page.mouse.down();
@@ -91,18 +100,43 @@ try {
   }
   await page.mouse.up();
   await page.waitForTimeout(1000);
-  const monitor = await page.evaluate(() => window.__roughCutScrubMonitor.stop());
+  const scrubMonitor = await page.evaluate(() => window.__roughCutScrubMonitor.stop());
   await page.screenshot({ path: afterPath, fullPage: true });
 
+  const clipBefore = await page.locator('[data-timeline-lane="screen"] .clipBar').boundingBox();
+  const trimEnd = page.locator('button[aria-label="Trim end"]');
+  const trimEndBox = await trimEnd.boundingBox();
+  if (!clipBefore || !trimEndBox) throw new Error('Timeline trim handle bounding box was unavailable.');
+  const activeToolBeforeTrim = await page.evaluate(() => document.querySelector('.toolButton.active')?.getAttribute('aria-label'));
+
+  await page.evaluate(() => window.__roughCutScrubMonitor.start());
+  await page.mouse.move(trimEndBox.x + trimEndBox.width / 2, trimEndBox.y + trimEndBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(clipBefore.x + clipBefore.width * 0.72, trimEndBox.y + trimEndBox.height / 2, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForFunction((previousWidth) => {
+    const clip = document.querySelector('[data-timeline-lane="screen"] .clipBar');
+    if (!(clip instanceof HTMLElement)) return false;
+    return clip.getBoundingClientRect().width < previousWidth - 8;
+  }, clipBefore.width, { timeout: 10000 });
+  await page.waitForTimeout(1000);
+  const trimMonitor = await page.evaluate(() => window.__roughCutScrubMonitor.stop());
+  const activeToolAfterTrim = await page.evaluate(() => document.querySelector('.toolButton.active')?.getAttribute('aria-label'));
+  const trimKeptActiveTool = activeToolBeforeTrim === activeToolAfterTrim;
+  await page.screenshot({ path: afterTrimPath, fullPage: true });
+
   report = {
-    ok: monitor.frameCount >= 60 && monitor.badFrames.length === 0,
+    ok: wheelStable && trimKeptActiveTool && scrubMonitor.frameCount >= 60 && scrubMonitor.badFrames.length === 0 && trimMonitor.frameCount >= 30 && trimMonitor.badFrames.length === 0,
     root,
     projectPath: project.path,
-    screenshots: { beforePath, midPath, afterPath },
-    monitor,
+    screenshots: { beforePath, midPath, afterPath, afterTrimPath },
+    wheel: { stable: wheelStable, before: wheelValueBefore, after: wheelValueAfter },
+    trimUi: { keptActiveTool: trimKeptActiveTool, before: activeToolBeforeTrim, after: activeToolAfterTrim },
+    monitor: scrubMonitor,
+    trimMonitor,
   };
   if (!report.ok) {
-    failure = new Error(`Preview scrub visual regression failed: ${JSON.stringify({ reportPath, root, badFrameCount: monitor.badFrames.length, firstBadFrames: monitor.badFrames.slice(0, 10), frameCount: monitor.frameCount })}`);
+    failure = new Error(`Preview scrub/trim visual regression failed: ${JSON.stringify({ reportPath, root, wheelStable, wheelValueBefore, wheelValueAfter, trimKeptActiveTool, activeToolBeforeTrim, activeToolAfterTrim, scrubBadFrameCount: scrubMonitor.badFrames.length, trimBadFrameCount: trimMonitor.badFrames.length, firstScrubBadFrames: scrubMonitor.badFrames.slice(0, 10), firstTrimBadFrames: trimMonitor.badFrames.slice(0, 10), scrubFrameCount: scrubMonitor.frameCount, trimFrameCount: trimMonitor.frameCount })}`);
   }
 } finally {
   await Promise.race([
@@ -121,6 +155,10 @@ console.info(JSON.stringify({
   screenshots: report?.screenshots,
   frameCount: report?.monitor?.frameCount ?? 0,
   badFrameCount: report?.monitor?.badFrames?.length ?? 0,
+  trimFrameCount: report?.trimMonitor?.frameCount ?? 0,
+  trimBadFrameCount: report?.trimMonitor?.badFrames?.length ?? 0,
+  wheelStable: report?.wheel?.stable ?? false,
+  trimKeptActiveTool: report?.trimUi?.keptActiveTool ?? false,
 }, null, 2));
 if (failure) throw failure;
 
