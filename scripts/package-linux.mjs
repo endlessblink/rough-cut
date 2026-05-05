@@ -4,6 +4,7 @@ import { join } from 'node:path';
 const root = process.cwd();
 const artifactRoot = join(root, 'dist', 'rough-cut-mvp-linux-x64');
 const appRoot = join(artifactRoot, 'resources', 'app');
+const scopedPackageRoot = join(appRoot, 'node_modules', '@rough-cut');
 
 await rm(artifactRoot, { recursive: true, force: true });
 await mkdir(appRoot, { recursive: true });
@@ -14,6 +15,10 @@ await cp(join(root, 'apps/desktop/src/preload'), join(appRoot, 'apps/desktop/src
 await cp(join(root, 'apps/desktop/src/shared'), join(appRoot, 'apps/desktop/src/shared'), { recursive: true });
 await cp(join(root, 'apps/desktop/dist/renderer'), join(appRoot, 'apps/desktop/dist/renderer'), { recursive: true });
 await cp(join(root, 'packages/project-model/dist'), join(appRoot, 'packages/project-model/dist'), { recursive: true });
+await cp(join(root, 'packages/timeline-engine/dist'), join(appRoot, 'packages/timeline-engine/dist'), { recursive: true });
+await mkdir(scopedPackageRoot, { recursive: true });
+await cpWorkspacePackage('project-model');
+await cpWorkspacePackage('timeline-engine');
 await cp(join(root, 'packages/project-model/node_modules/zod'), join(appRoot, 'node_modules/zod'), {
   recursive: true,
   dereference: true,
@@ -41,3 +46,11 @@ await writeFile(
 );
 
 console.info(JSON.stringify({ ok: true, artifactRoot, executable: join(artifactRoot, 'electron') }, null, 2));
+
+async function cpWorkspacePackage(packageName) {
+  const sourceRoot = join(root, 'packages', packageName);
+  const targetRoot = join(scopedPackageRoot, packageName);
+  await mkdir(targetRoot, { recursive: true });
+  await cp(join(sourceRoot, 'package.json'), join(targetRoot, 'package.json'));
+  await cp(join(sourceRoot, 'dist'), join(targetRoot, 'dist'), { recursive: true });
+}

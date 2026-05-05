@@ -8,6 +8,7 @@ const root = await mkdtemp(join(tmpdir(), 'rough-cut-ui-smoke-'));
 const mediaPath = join(root, 'preview-source.mp4');
 const exportPath = join(root, 'export.mp4');
 const resultPath = join(root, 'ui-smoke-result.json');
+const screenshotPath = join(root, 'ui-smoke.png');
 
 await mkdir(root, { recursive: true });
 run('ffmpeg', [
@@ -48,6 +49,7 @@ const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb'
     ROUGH_CUT_UI_SMOKE_PROJECT_PATH: project.path,
     ROUGH_CUT_UI_SMOKE_EXPORT_PATH: exportPath,
     ROUGH_CUT_UI_SMOKE_RESULT_PATH: resultPath,
+    ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH: screenshotPath,
   },
   encoding: 'utf8',
 });
@@ -60,11 +62,12 @@ if (result.status !== 0) {
 }
 
 const report = JSON.parse(await readFile(resultPath, 'utf8'));
-if (!report.ok || !report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'raw' || !report.hasStyledMode || !report.hasRawPresetDetails || !report.hasStyledPresetDetails || !(report.duration > 0)) {
+const screenshotBytes = (await readFile(screenshotPath)).length;
+if (!report.ok || !report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'raw' || !report.hasStyledMode || !report.hasRawPresetDetails || !report.hasStyledPresetDetails || !report.hasVisualScreenshot || report.aspectRatio !== '9:16' || report.padding !== 96 || report.cornerRadius !== 44 || report.shadowSize !== 72 || !(report.duration > 0) || !(screenshotBytes > 1000)) {
   throw new Error(`Electron UI smoke assertions failed: ${JSON.stringify(report)}`);
 }
 
-console.info(JSON.stringify({ ...report, root, projectPath: project.path, exportPath }, null, 2));
+console.info(JSON.stringify({ ...report, root, projectPath: project.path, exportPath, screenshotPath, screenshotBytes }, null, 2));
 
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: 'inherit' });

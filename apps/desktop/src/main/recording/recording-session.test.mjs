@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createRecordingSession, getPrimaryX11DisplayInfo, normalizeCursorPoint } from './recording-session.mjs';
+import { createRecordingSession, getPrimaryX11DisplayInfo, normalizeCaptureRegion, normalizeCursorPoint, resolveCaptureDisplayInfo } from './recording-session.mjs';
 
 test('recording session starts capture, writes marker, stops capture, and clears marker', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-recording-'));
@@ -54,6 +54,150 @@ test('recording session starts capture, writes marker, stops capture, and clears
   assert.equal(stopped.outputPath.endsWith('.mp4'), true);
   assert.equal(stopCalled, true);
   assert.equal(existsSync(markerPath), false);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('recording session serializes duplicate stop calls to the saved result', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-duplicate-stop-'));
+  let stopCalls = 0;
+  let resolveStop;
+  const stopPromise = new Promise((resolve) => {
+    resolveStop = resolve;
+  });
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => ({
+      outputPath: options.outputPath,
+      stop: async () => {
+        stopCalls += 1;
+        await stopPromise;
+        return options.outputPath;
+      },
+    }),
+  });
+
+  await session.start();
+  const firstStop = session.stop();
+  const secondStop = session.stop();
+  resolveStop();
+  const [first, second] = await Promise.all([firstStop, secondStop]);
+
+  assert.equal(stopCalls, 1);
+  assert.equal(first.state, 'saved');
+  assert.equal(second.state, 'saved');
+  assert.equal(second.outputPath, first.outputPath);
+  assert.equal(existsSync(join(root, 'recovery.json')), false);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('recording session applies a selected capture region to x11grab geometry', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-region-'));
+  const captureCalls = [];
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+100,200', originX: 100, originY: 200, scaleFactor: 1, width: 1920, height: 1080 }),
+    captureFactory: (options) => {
+      captureCalls.push(options);
+      return { outputPath: options.outputPath, stop: async () => options.outputPath };
+    },
+  });
+
+  const started = await session.start({ captureRegion: { mode: 'region', x: 10, y: 20, width: 640, height: 360 } });
+  assert.equal(started.state, 'recording');
+  assert.equal(captureCalls[0].display, ':99.0+110,220');
+  assert.equal(captureCalls[0].width, 640);
+  assert.equal(captureCalls[0].height, 360);
+
+  const marker = JSON.parse(await readFile(join(root, 'recovery.json'), 'utf8'));
+  assert.deepEqual(marker.captureRegion, {
+    mode: 'region',
+    x: 10,
+    y: 20,
+    width: 640,
+    height: 360,
+    absoluteX: 110,
+    absoluteY: 220,
+  });
+
+  const stopped = await session.stop();
+  assert.equal(stopped.width, 640);
+  assert.equal(stopped.height, 360);
+  assert.equal(stopped.display, ':99.0+110,220');
+  assert.equal(stopped.capture?.mode, 'region');
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('recording session continues screen capture when camera start fails', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-camera-busy-'));
+  const captureCalls = [];
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => {
+      captureCalls.push(options);
+      return { outputPath: options.outputPath, stop: async () => options.outputPath };
+    },
+    cameraCaptureFactory: () => {
+      throw new Error('Device or resource busy');
+    },
+  });
+
+  const started = await session.start({ cameraDevicePath: '/dev/video2' });
+  assert.equal(started.state, 'recording');
+  assert.equal(captureCalls.length, 1);
+
+  const stopped = await session.stop();
+  assert.equal(stopped.state, 'saved');
+  assert.equal(stopped.camera, null);
+  assert.equal(stopped.cameraRawPath, null);
+  assert.equal(stopped.cameraOutputPath, null);
+  assert.match(stopped.cameraError, /Device or resource busy/);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('recording session saves screen capture when camera stop fails', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-camera-stop-fails-'));
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    cameraWarmupMs: 0,
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+    cameraCaptureFactory: (options) => ({
+      outputPath: options.outputPath,
+      stop: async () => {
+        throw new Error('camera finalization failed');
+      },
+    }),
+  });
+
+  await session.start({ cameraDevicePath: '/dev/video2' });
+  const stopped = await session.stop();
+
+  assert.equal(stopped.state, 'saved');
+  assert.equal(stopped.camera, null);
+  assert.equal(stopped.cameraOutputPath, null);
+  assert.match(stopped.cameraError, /camera finalization failed/);
 
   await rm(root, { recursive: true, force: true });
 });
@@ -123,6 +267,63 @@ test('recording session passes selected mic source to capture and saved result',
   const stopped = await session.stop();
   assert.equal(stopped.state, 'saved');
   assert.deepEqual(stopped.audio, { micSource });
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('recording session passes selected system audio source to capture and saved result', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-system-audio-'));
+  const systemAudioSource = 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor';
+  const captureCalls = [];
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => {
+      captureCalls.push(options);
+      return { outputPath: options.outputPath, stop: async () => options.outputPath };
+    },
+  });
+
+  const started = await session.start({ systemAudioSource });
+  assert.equal(started.state, 'recording');
+  assert.equal(started.systemAudioSource, systemAudioSource);
+  assert.equal(captureCalls[0].systemAudioSource, systemAudioSource);
+
+  const stopped = await session.stop();
+  assert.equal(stopped.state, 'saved');
+  assert.deepEqual(stopped.audio, { systemAudioSource });
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('recording session persists mixed mic and system audio metadata', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-mixed-audio-'));
+  const micSource = 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo';
+  const systemAudioSource = 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor';
+  const captureCalls = [];
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => {
+      captureCalls.push(options);
+      return { outputPath: options.outputPath, stop: async () => options.outputPath };
+    },
+  });
+
+  await session.start({ micSource, systemAudioSource });
+  assert.equal(captureCalls[0].micSource, micSource);
+  assert.equal(captureCalls[0].systemAudioSource, systemAudioSource);
+
+  const stopped = await session.stop();
+  assert.deepEqual(stopped.audio, { micSource, systemAudioSource });
 
   await rm(root, { recursive: true, force: true });
 });
@@ -398,6 +599,32 @@ test('cursor point normalization converts display DIP to captured pixels', () =>
     normalizeCursorPoint({ point: { x: 20, y: 30 }, originX: 10, originY: 20, scaleFactor: 2 }),
     { x: 30, y: 40 },
   );
+});
+
+test('capture region normalization rejects invalid regions', () => {
+  assert.equal(normalizeCaptureRegion(null), null);
+  assert.equal(normalizeCaptureRegion({ mode: 'display', x: 0, y: 0, width: 640, height: 360 }), null);
+  assert.equal(normalizeCaptureRegion({ mode: 'region', x: 0, y: 0, width: 1, height: 360 }), null);
+});
+
+test('capture region resolution converts relative region to absolute X11 display geometry', () => {
+  const displayInfo = resolveCaptureDisplayInfo(
+    { display: ':0.0+1920,0', originX: 1920, originY: 0, scaleFactor: 2, width: 1440, height: 900 },
+    { mode: 'region', x: 10, y: 20, width: 320, height: 180 },
+  );
+
+  assert.equal(displayInfo.display, ':0.0+1940,40');
+  assert.equal(displayInfo.width, 640);
+  assert.equal(displayInfo.height, 360);
+  assert.deepEqual(displayInfo.captureRegion, {
+    mode: 'region',
+    x: 10,
+    y: 20,
+    width: 320,
+    height: 180,
+    absoluteX: 1940,
+    absoluteY: 40,
+  });
 });
 
 test('cursor point normalization passes off-screen positions through unclamped', () => {

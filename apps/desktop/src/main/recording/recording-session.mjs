@@ -1,6 +1,6 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isFfmpegCaptureAvailable, startFfmpegCapture } from './ffmpeg-capture.mjs';
+import { isFfmpegCaptureAvailable, startFfmpegCameraCapture, startFfmpegCapture } from './ffmpeg-capture.mjs';
 import { createXinputButtonListener } from './xinput-button-listener.mjs';
 import { createEventLogger, NULL_EVENT_LOGGER } from './event-logger.mjs';
 
@@ -16,6 +16,7 @@ const DEFAULT_FPS = 30;
 // helps; KDE compositor settings + future Wayland migration are the proper
 // long-term fixes).
 const DEFAULT_SAMPLE_INTERVAL_MS = 33;
+const DEFAULT_CAMERA_WARMUP_MS = Number(process.env.ROUGH_CUT_CAMERA_WARMUP_MS ?? 1000);
 
 // Diagnostic logging is on by default while we hunt the recording-tear race
 // condition. Turn off by setting ROUGH_CUT_DEBUG_RECORDING=0.
@@ -28,14 +29,17 @@ export function createRecordingSession({
   getDisplayInfo,
   getCursorPoint = null,
   captureFactory = startFfmpegCapture,
+  cameraCaptureFactory = startFfmpegCameraCapture,
   isCaptureAvailable = isFfmpegCaptureAvailable,
   now = () => new Date(),
   sampleIntervalMs = DEFAULT_SAMPLE_INTERVAL_MS,
+  cameraWarmupMs = DEFAULT_CAMERA_WARMUP_MS,
   buttonListenerFactory = createXinputButtonListener,
   eventLoggerFactory = createEventLogger,
   enableDiagnosticLogging = DIAGNOSTIC_LOGGING_DEFAULT,
 }) {
   let active = null;
+  let stopping = null;
 
   async function writeRecoveryMarker(session) {
     await writeFile(
@@ -47,11 +51,16 @@ export function createRecordingSession({
           rawPath: session.rawPath,
           outputPath: session.outputPath,
           display: session.display,
-      width: session.width,
-      height: session.height,
-      fps: session.fps,
-      cursorTelemetryPath: session.cursorTelemetryPath,
-    },
+          width: session.width,
+          height: session.height,
+          captureRegion: session.captureRegion,
+          fps: session.fps,
+          cursorTelemetryPath: session.cursorTelemetryPath,
+          systemAudioSource: session.systemAudioSource,
+          cameraRawPath: session.cameraRawPath,
+          cameraOutputPath: session.cameraOutputPath,
+          cameraDevicePath: session.cameraDevicePath,
+        },
         null,
         2,
       ),
@@ -70,6 +79,8 @@ export function createRecordingSession({
       rawPath: active.rawPath,
       outputPath: active.outputPath,
       micSource: active.micSource,
+      systemAudioSource: active.systemAudioSource,
+      cameraDevicePath: active.cameraDevicePath,
     };
   }
 
@@ -77,14 +88,18 @@ export function createRecordingSession({
     if (active) throw new Error('A recording is already active.');
     if (!isCaptureAvailable()) throw new Error('FFmpeg x11grab capture is not available on this session.');
     const micSource = normalizeAudioSource(options.micSource);
+    const systemAudioSource = normalizeAudioSource(options.systemAudioSource);
+    const cameraDevicePath = normalizeCameraDevicePath(options.cameraDevicePath);
 
     await mkdir(recordingsDir, { recursive: true });
 
-    const displayInfo = getDisplayInfo();
-    const startedAtDate = now();
-    const stamp = startedAtDate.toISOString().replace(/[:.]/g, '-');
+    const displayInfo = resolveCaptureDisplayInfo(getDisplayInfo(), options.captureRegion);
+    const stampDate = now();
+    const stamp = stampDate.toISOString().replace(/[:.]/g, '-');
     const rawPath = join(recordingsDir, `rough-cut-${stamp}.mkv`);
     const outputPath = join(recordingsDir, `rough-cut-${stamp}.mp4`);
+    const cameraRawPath = cameraDevicePath ? join(recordingsDir, `rough-cut-${stamp}-camera.mkv`) : null;
+    const cameraOutputPath = cameraDevicePath ? join(recordingsDir, `rough-cut-${stamp}-camera.mp4`) : null;
     const cursorTelemetryPath = join(recordingsDir, `rough-cut-${stamp}.cursor.json`);
     const eventsLogPath = join(recordingsDir, `rough-cut-${stamp}.events.log`);
     const eventLogger =
@@ -92,15 +107,50 @@ export function createRecordingSession({
         ? eventLoggerFactory({ path: eventsLogPath })
         : NULL_EVENT_LOGGER;
     eventLogger.start();
+    let cameraCapture = null;
+    let cameraStartedAtDate = null;
+    let cameraError = null;
+    try {
+      cameraStartedAtDate = cameraDevicePath ? now() : null;
+      cameraCapture = cameraDevicePath
+        ? cameraCaptureFactory({
+            outputPath: cameraRawPath,
+            fps: DEFAULT_FPS,
+            devicePath: cameraDevicePath,
+            width: 1280,
+            height: 720,
+          })
+        : null;
+      if (cameraCapture && cameraWarmupMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, cameraWarmupMs));
+      }
+    } catch (err) {
+      cameraCapture = null;
+      cameraStartedAtDate = null;
+      cameraError = err instanceof Error ? err.message : String(err);
+      console.warn(`[recording-session] camera capture disabled: ${cameraError}`);
+      eventLogger.event('camera-capture-disabled', { error: cameraError, cameraDevicePath });
+    }
+
+    const startedAtDate = now();
+    const cameraPrerollMs = cameraStartedAtDate ? Math.max(0, startedAtDate.getTime() - cameraStartedAtDate.getTime()) : 0;
+    const cameraPrerollFrames = cameraCapture ? Math.max(0, Math.round((cameraPrerollMs / 1000) * DEFAULT_FPS)) : 0;
     const session = {
       startedAt: startedAtDate.toISOString(),
       rawPath,
       outputPath,
+      cameraRawPath,
+      cameraOutputPath,
       cursorTelemetryPath,
       eventsLogPath,
       eventLogger,
       fps: DEFAULT_FPS,
       micSource,
+      systemAudioSource,
+      cameraDevicePath,
+      cameraError,
+      cameraPrerollMs,
+      cameraPrerollFrames,
       cursorEvents: [],
       cursorTimer: null,
       ...displayInfo,
@@ -112,8 +162,12 @@ export function createRecordingSession({
       width: session.width,
       height: session.height,
       display: session.display,
+      captureRegion: session.captureRegion,
       sampleIntervalMs,
       micSource,
+      systemAudioSource,
+      cameraDevicePath,
+      cameraError,
     });
 
     await writeRecoveryMarker(session);
@@ -125,50 +179,47 @@ export function createRecordingSession({
       width: session.width,
       height: session.height,
       micSource: session.micSource,
-      systemAudioSource: null,
+      systemAudioSource: session.systemAudioSource,
       onFirstFrame: (firstFrameMs) => {
         eventLogger.event('first-frame-anchor', { firstFrameMs });
       },
     });
 
-    active = { ...session, capture };
+    active = { ...session, capture, cameraCapture };
 
-    // xdotool synchronous polling drives cursor sampling. Returns the X
-    // server's CURRENT cursor position with no IPC pipeline latency, so the
-    // cursor overlay aligns with what the user is actually doing in the
-    // recorded video. (xinput motion events were tried briefly as an
-    // alternative — see the DEFAULT_SAMPLE_INTERVAL_MS comment above.)
-    sampleCursor(active, getCursorPoint, now);
-    if (typeof getCursorPoint === 'function') {
-      active.cursorTimer = setInterval(
-        () => sampleCursor(active, getCursorPoint, now),
-        sampleIntervalMs,
-      );
-    }
-
-    // xinput button listener still runs alongside the polling loop —
-    // it captures click/drag events for auto-zoom suggestions. Motion
-    // events from xinput are NOT used to drive cursor sampling here; the
-    // listener supports `onMotion` for callers that want it (currently
-    // none), but cursor data comes from xdotool polling above.
-    if (typeof buttonListenerFactory === 'function') {
-      active.buttonListener = buttonListenerFactory({
-        onButton: (event) => recordButtonEvent(active, event, now),
-      });
-      active.buttonListener.start();
-    }
+    startTelemetryAfterIpcReturn(active, { getCursorPoint, now, sampleIntervalMs, buttonListenerFactory });
     return status();
   }
 
   async function stop() {
+    if (stopping) return stopping;
     if (!active) return { state: 'idle' };
 
     const session = active;
     active = null;
+    stopping = stopActiveSession(session, now).finally(() => {
+      stopping = null;
+    });
+    return stopping;
+  }
+
+  async function stopActiveSession(session, now) {
+    session.stopped = true;
     if (session.cursorTimer) clearInterval(session.cursorTimer);
     if (session.buttonListener) session.buttonListener.stop();
     if (session.eventLogger) session.eventLogger.event('recording-stop');
     const rawPath = await session.capture.stop();
+    let cameraRawPath = null;
+    let cameraError = session.cameraError ?? null;
+    if (session.cameraCapture) {
+      try {
+        cameraRawPath = await session.cameraCapture.stop();
+      } catch (err) {
+        cameraError = err instanceof Error ? err.message : String(err);
+        console.warn(`[recording-session] camera capture stop failed; continuing screen-only: ${cameraError}`);
+        session.eventLogger?.event('camera-capture-stop-failed', { error: cameraError, cameraDevicePath: session.cameraDevicePath });
+      }
+    }
 
     // The firstFrameMs anchor is captured but no longer used to re-anchor
     // cursor events. Earlier today we tried shifting cursor frames backward
@@ -189,21 +240,126 @@ export function createRecordingSession({
       stoppedAt: now().toISOString(),
       rawPath,
       outputPath: session.outputPath,
+      cameraRawPath,
+      cameraOutputPath: cameraRawPath ? session.cameraOutputPath : null,
+      cameraDevicePath: session.cameraDevicePath,
+      cameraError,
+      camera: session.cameraOutputPath
+        && cameraRawPath
+        ? {
+            rawPath: cameraRawPath,
+            outputPath: session.cameraOutputPath,
+            devicePath: session.cameraDevicePath,
+            width: 1280,
+            height: 720,
+            fps: session.fps,
+            sourceInFrames: session.cameraPrerollFrames,
+            prerollMs: session.cameraPrerollMs,
+          }
+        : null,
       width: session.width,
       height: session.height,
+      display: session.display,
+      captureRegion: session.captureRegion,
       fps: session.fps,
       cursorTelemetryPath: session.cursorTelemetryPath,
       eventsLogPath: session.eventsLogPath,
       cursorEvents: session.cursorEvents,
-      audio: session.micSource ? { micSource: session.micSource } : null,
+      audio: buildAudioMetadata(session),
+      capture: session.captureRegion,
     };
   }
 
   return { start, stop, status };
 }
 
+function startTelemetryAfterIpcReturn(session, { getCursorPoint, now, sampleIntervalMs, buttonListenerFactory }) {
+  setTimeout(() => {
+    if (session.stopped || !session.capture) return;
+
+    // xdotool synchronous polling drives cursor sampling. Start it after the
+    // IPC response path so a slow X11 query cannot leave the renderer stuck on
+    // "Starting..." while FFmpeg is already recording.
+    sampleCursor(session, getCursorPoint, now);
+    if (typeof getCursorPoint === 'function') {
+      session.cursorTimer = setInterval(
+        () => sampleCursor(session, getCursorPoint, now),
+        sampleIntervalMs,
+      );
+    }
+
+    // xinput button listener captures click/drag events for auto-zoom
+    // suggestions; motion events are not used for cursor sampling.
+    if (typeof buttonListenerFactory === 'function') {
+      session.buttonListener = buttonListenerFactory({
+        onButton: (event) => recordButtonEvent(session, event, now),
+      });
+      session.buttonListener.start();
+    }
+  }, 0);
+}
+
+function buildAudioMetadata(session) {
+  const audio = {};
+  if (session.micSource) audio.micSource = session.micSource;
+  if (session.systemAudioSource) audio.systemAudioSource = session.systemAudioSource;
+  return Object.keys(audio).length > 0 ? audio : null;
+}
+
 function normalizeAudioSource(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeCameraDevicePath(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return /^\/dev\/video\d+$/.test(trimmed) ? trimmed : null;
+}
+
+export function resolveCaptureDisplayInfo(displayInfo, captureRegion) {
+  const region = normalizeCaptureRegion(captureRegion);
+  if (!region) return { ...displayInfo, captureRegion: null };
+
+  const scaleFactor = Number.isFinite(displayInfo.scaleFactor) && displayInfo.scaleFactor > 0 ? displayInfo.scaleFactor : 1;
+  const originX = Math.round((displayInfo.originX ?? 0) + region.x * scaleFactor);
+  const originY = Math.round((displayInfo.originY ?? 0) + region.y * scaleFactor);
+  const width = Math.max(2, Math.round(region.width * scaleFactor));
+  const height = Math.max(2, Math.round(region.height * scaleFactor));
+  const baseDisplay = baseX11DisplayName(displayInfo.display ?? process.env.DISPLAY ?? ':0');
+
+  return {
+    ...displayInfo,
+    display: `${baseDisplay}${formatX11Offset(originX)},${originY}`,
+    originX,
+    originY,
+    width,
+    height,
+    captureRegion: {
+      mode: 'region',
+      x: region.x,
+      y: region.y,
+      width: region.width,
+      height: region.height,
+      absoluteX: originX,
+      absoluteY: originY,
+    },
+  };
+}
+
+export function normalizeCaptureRegion(value) {
+  if (!value || typeof value !== 'object' || value.mode !== 'region') return null;
+  const x = Math.max(0, Math.round(Number(value.x)) || 0);
+  const y = Math.max(0, Math.round(Number(value.y)) || 0);
+  const width = Math.round(Number(value.width));
+  const height = Math.round(Number(value.height));
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 2 || height < 2) return null;
+  return { mode: 'region', x, y, width, height };
+}
+
+function baseX11DisplayName(display) {
+  const text = String(display || ':0');
+  const match = /^(.+?)([+-]\d+),(?:-?\d+)$/.exec(text);
+  return match ? match[1] : text;
 }
 
 export function normalizeCursorPoint({ point, originX = 0, originY = 0, scaleFactor = 1 }) {

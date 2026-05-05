@@ -45,14 +45,36 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-029 | Build editor shell and screen presentation controls | P1 | DONE |
 | TASK-030 | Add cursor-follow zoom regression fixtures | P1 | DONE |
 | TASK-031 | Add preview/export parity regression snapshots | P1 | DONE |
-| TASK-032 | Add packaged-app visual regression smoke | P2 | PLANNED |
+| TASK-032 | Add packaged-app visual regression smoke | P2 | DONE |
+| TASK-033 | Define recording-flow solidity checklist | P1 | DONE |
+| TASK-034 | Add real-recording regression harness | P1 | DONE |
+| TASK-035 | Add recording health diagnostics report | P1 | DONE |
+| TASK-036 | Add long-recording stability smoke | P1 | DONE |
+| TASK-037 | Add packaged recording acceptance runbook | P1 | DONE |
+| TASK-038 | Add system audio capture controls | P1 | DONE |
+| TASK-039 | Add capture target picker | P1 | DONE |
+| TASK-040 | Add pause, resume, and cancel recording | P1 | PLANNED |
+| TASK-041 | Add post-recording next-action flow | P1 | PLANNED |
+| TASK-042 | Render click emphasis in preview and export | P1 | PLANNED |
+| TASK-043 | Add webcam PiP presentation controls | P1 | PLANNED |
+| TASK-044 | Add cursor style controls | P2 | PLANNED |
+| TASK-045 | Add background style presets | P2 | PLANNED |
+| TASK-046 | Add trim start and end controls | P1 | PLANNED |
+| TASK-047 | Add simple cut removal flow | P2 | PLANNED |
+| TASK-048 | Add optional webcam PiP recording and export | P1 | IN PROGRESS |
+| TASK-049 | Build Screen Studio-style editor UI foundation | P1 | PLANNED |
+| TASK-050 | Add guided recording setup surface | P1 | PLANNED |
+| TASK-051 | Add post-recording review workspace | P1 | PLANNED |
+| TASK-052 | Add timeline-first playback and edit rail | P1 | PLANNED |
+| TASK-053 | Add extensible properties inspector system | P1 | PLANNED |
 
 ## Recently Verified
 
-- `pnpm test` — desktop 110/110 pass, project-model 96/96 pass.
+- `pnpm --filter @rough-cut/desktop test` — desktop 139/139 pass.
 - `pnpm typecheck` — clean across all 5 packages.
 - `pnpm smoke:mvp` verifies record, remux, `.roughcut` save/reopen, export, and FFprobe validation.
 - `pnpm smoke:ui` verifies renderer preview/export UI against a synthetic project — `hasZoomMarkerPanel`, `hasAutoZoomSuggestionsPanel`, `hasStyledPreviewCanvas`, `hasExportResult` all true.
+- `pnpm smoke:recording-flow-ui` verifies the live Record -> Stop recording -> saved project -> video metadata -> styled preview canvas transition.
 - `pnpm smoke:styled-export` verifies both no-zoom and zoom-marker scenarios produce 1920×1080 / 30 fps MP4s with cursor visibility intact.
 - `pnpm smoke:package` verifies the packaged Linux artifact launches, previews, and exports.
 - X11 capture prerequisites: X11 session, FFmpeg 6.1.1, FFprobe, and **xdotool** (required for cursor capture on Linux/X11 — bypasses Electron's broken multi-monitor `screen.getCursorScreenPoint()` per electron/electron#42519).
@@ -176,7 +198,7 @@ The app built and ran from source, but packaged local behavior had not been veri
 ### TASK-005 Document release-ready Linux/X11 verification steps
 
 **Priority:** P3  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -679,7 +701,7 @@ Automatic zoom suggestions need a user-facing review step before they become pro
 ### TASK-020 Add countdown before recording
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -704,7 +726,7 @@ Client demo recording needs a short preparation window so recordings start clean
 ### TASK-021 Add clear recording indicator and elapsed time
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -728,7 +750,7 @@ During client-project recording, the user needs confidence that capture is activ
 ### TASK-022 Add open recording/project folder action
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -752,7 +774,7 @@ After recording or export, users need fast access to client-demo files.
 ### TASK-023 Add recent projects or recordings list
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -1087,10 +1109,10 @@ The renderer preview and styled export both consume shared zoom math, but they s
 - `pnpm --filter @rough-cut/desktop test` — 118/118 pass.
 - `pnpm typecheck` — pass.
 
-### TASK-032 Add packaged-app visual regression smoke
+### ~~TASK-032~~ Add packaged-app visual regression smoke
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -1105,5 +1127,539 @@ Editor shell, aspect ratio controls, screen padding/radius/shadow controls, and 
 
 #### Verification
 
+- `pnpm smoke:ui` — pass; opens a synthetic project, exercises presentation controls, exports raw, and captures `ui-smoke.png`.
+- `pnpm smoke:package` — pass; builds the Linux package, verifies packaged module resolution, exercises the same controls, exports raw, and captures `ui-smoke.png`.
+
+#### Completion Notes
+
+- Extended the existing renderer smoke hook to drive aspect ratio, screen padding, corner radius, and shadow size controls, then report their final values.
+- Added screenshot capture to UI/package smoke runs via `ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH`, with byte-size assertions so the visual artifact is actually written.
+- Fixed the ad-hoc Linux package layout by installing workspace package entries for `@rough-cut/project-model` and `@rough-cut/timeline-engine`; the packaged app now resolves the same bare imports used by export and zoom code.
+
+### ~~TASK-033~~ Define recording-flow solidity checklist
+
+**Priority:** P1  
+**Status:** DONE
+
+#### Context
+
+Before adding more Screen Studio-style features, define what "solid recording flow" means in observable terms. This prevents vague confidence claims and gives every later recording change a fixed acceptance gate.
+
+#### Acceptance Criteria
+
+- Document the canonical record -> stop -> remux -> save -> reopen -> preview -> export flow.
+- Define pass/fail checks for video duration, fps, audio presence when enabled, cursor sync, click events, project metadata, and export validity.
+- Split checks into automated, packaged-app manual, and environment/setup checks.
+- Add known machine prerequisites, including X11, xdotool, FFmpeg/FFprobe, PulseAudio/PipeWire, and NVIDIA Allow Flipping guidance.
+
+#### Verification
+
+- Added `docs/recording-flow-solidity.md` as the recording-flow release-candidate gate.
+- Reviewed the checklist against current smoke scripts and project setup notes.
+
+#### Completion Notes
+
+- Defined the canonical record -> stop -> remux -> save -> reopen -> preview -> export flow.
+- Split solidity checks into environment, automated, artifact, manual packaged-app, failure triage, and final decision gates.
+- Explicitly scoped out Wayland, system audio, capture target picker, pause/resume/cancel, trimming, and cut editing so they do not block judging the current Linux/X11 MVP flow.
+
+### ~~TASK-034~~ Add real-recording regression harness
+
+**Priority:** P1  
+**Status:** DONE
+
+#### Context
+
+Current smoke coverage records short synthetic captures, but confidence in the real flow needs repeatable validation against actual desktop interaction: cursor motion, clicks, optional mic, preview, and styled export.
+
+#### Acceptance Criteria
+
+- Add a harness that records a fresh desktop session with scripted cursor/click activity where feasible.
+- Verify the saved `.roughcut` contains usable video metadata, cursor move events, click events, and optional mic metadata.
+- Reopen the project, render preview smoke state, export styled MP4, and FFprobe the output.
+- Keep the harness safe to skip clearly when required system tools or audio devices are unavailable.
+
+#### Verification
+
+- `pnpm smoke:real-recording` — pass on the target Linux/X11 machine.
+- Real recording produced 82 cursor events, including 76 move events and 6 button events from scripted cursor/click activity.
+- The harness reopened the saved `.roughcut`, exported raw MP4, exported styled MP4, ran renderer smoke against the real project, and captured a UI screenshot.
+
+#### Completion Notes
+
+- Added `scripts/smoke-real-recording.mjs` and root command `pnpm smoke:real-recording`.
+- The harness records a real X11 desktop slice, drives the cursor with `xdotool`, captures click/drag events through the existing `xinput` listener when available, then validates project metadata and exports.
+- The renderer smoke path is enabled by default and can be skipped with `ROUGH_CUT_REAL_SMOKE_UI=0` for faster diagnosis.
+- The command is opt-in and not part of normal `pnpm test`, because it moves the real cursor and depends on a live X11 desktop.
+
+### ~~TASK-035~~ Add recording health diagnostics report
+
+**Priority:** P1  
+**Status:** DONE
+
+#### Context
+
+When recording issues happen, the app currently logs details but does not summarize capture health. A solid flow needs a clear report for dropped frames, fps drift, audio stream presence, remux success, cursor sample cadence, and FFmpeg warnings.
+
+#### Acceptance Criteria
+
+- Produce a structured diagnostics report after each recording.
+- Include FFmpeg warnings, frame-drop indicators, measured duration, expected vs actual fps, audio stream status, cursor event counts, click event counts, and remux/export paths.
+- Surface the report in logs and save it next to the recording for later inspection.
+- Keep recording success independent from diagnostics generation failures.
+
+#### Verification
+
+- `pnpm --filter @rough-cut/desktop test` — 126/126 pass.
+- `pnpm smoke:mvp` — pass; asserts diagnostics report is written and reports healthy video/cursor data.
+- `pnpm smoke:real-recording` — pass; asserts diagnostics report is written for a real X11 recording with cursor/click activity.
+
+#### Completion Notes
+
+- Added `apps/desktop/src/main/recording-diagnostics.mjs` to write a `.diagnostics.json` sidecar next to each MP4.
+- Diagnostics include recording paths, expected vs probed duration, video/audio stream status, cursor event counts, button event counts, remux warning lines, frame-drop markers, and queue-backpressure markers.
+- `stopRecordingAndCreateProject` now captures remux logs and writes diagnostics after project save; diagnostics failures are logged but do not block a valid recording.
+- `pnpm smoke:mvp` and `pnpm smoke:real-recording` now fail if the diagnostics report is missing or does not contain healthy video/cursor data.
+
+### TASK-036 Add long-recording stability smoke
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+Short smokes catch wiring failures, but a client demo recorder must stay stable beyond a few seconds. Long-running capture is where audio drift, frame drops, cursor lag, and finalization problems usually appear.
+
+#### Acceptance Criteria
+
+- Add an opt-in long smoke that records for a configurable duration, defaulting to a practical local value.
+- Probe the output for duration, fps, audio stream consistency when enabled, and successful MP4 remux/finalization.
+- Reopen the resulting project and run styled export on it.
+- Make the command opt-in so normal test runs stay fast.
+
+#### Verification
+
+- `pnpm test`
+- Long smoke passes on the target machine for an agreed duration before calling recording flow solid.
+
+#### Completion Notes
+
+- Added `scripts/smoke-long-recording.mjs` and root command `pnpm smoke:long-recording`.
+- The long smoke reuses the real X11 recording harness, defaults to 60 seconds, disables UI smoke by default, and keeps duration configurable with `ROUGH_CUT_LONG_SMOKE_DURATION_MS`.
+- Added stricter diagnostics assertions to `scripts/smoke-real-recording.mjs` for minimum media duration, expected FPS, and optional audio stream presence via `ROUGH_CUT_REAL_SMOKE_EXPECT_AUDIO=1`.
+
+### TASK-037 Add packaged recording acceptance runbook
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+Automated checks are necessary but not enough for user-visible capture quality. The packaged app needs a small, repeatable acceptance runbook that confirms the same flow a real user will perform.
+
+#### Acceptance Criteria
+
+- Add a documented packaged-app acceptance script for record, stop, preview, generate zoom suggestions, export raw, export styled, reopen, and inspect folder outputs.
+- Include expected visual checks for cursor sync, click alignment, zoom behavior, mic audio, and export playback.
+- Record environment details for each acceptance run.
+- Mark remaining risks explicitly when a check is not automated.
+
+#### Verification
+
 - `pnpm smoke:package`
-- `pnpm smoke:ui`
+- Manual packaged-app acceptance run completed and documented.
+
+#### Completion Notes
+
+- Added `docs/packaged-recording-acceptance.md` with packaged-app preconditions, automated warm-up commands, manual record/stop/preview/export/reopen steps, visual checks, environment record fields, and failure handling guidance.
+- Linked the runbook from `docs/recording-flow-solidity.md` so the solidity gate has a single manual packaged-app reference.
+- The runbook records residual risks explicitly instead of treating automated smoke coverage as sufficient for user-visible capture quality.
+
+### TASK-038 Add system audio capture controls
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+Screen Studio-style demos often need browser/app audio in addition to microphone narration. FFmpeg already has partial system-audio plumbing; the app needs source enumeration, UI, session wiring, metadata, and verification.
+
+#### Acceptance Criteria
+
+- Enumerate available monitor/system audio sources separately from microphones.
+- Add UI controls to enable system audio and choose its source.
+- Thread selected system audio into recording session capture.
+- Persist audio metadata so reopened projects show what was captured.
+- Keep screen-only and mic-only recording unchanged.
+
+#### Verification
+
+- Unit tests for audio source parsing and FFmpeg argument construction.
+- Opt-in smoke verifies an audio stream exists when system audio is enabled.
+- Manual packaged-app recording with system audio.
+
+#### Completion Notes
+
+- Added PulseAudio monitor-source enumeration via `listPulseAudioSystemAudioSources`, exposed through main/preload IPC and renderer controls.
+- Recording start now accepts `systemAudioSource`, passes it into the existing FFmpeg PulseAudio monitor input path, and persists `audio.systemAudioSource` metadata on saved projects.
+- System audio can be recorded alone or mixed with microphone audio through the existing FFmpeg `amix` path.
+- Added opt-in smoke support with `ROUGH_CUT_SMOKE_SYSTEM_AUDIO=1 pnpm smoke:mvp`; the run records a monitor source, asserts persisted metadata, and verifies an audio stream exists.
+- Added system-audio coverage for source filtering, FFmpeg args, recording session capture options, and mixed mic/system metadata.
+
+#### Verification Notes
+
+- `pnpm --filter @rough-cut/desktop typecheck` — pass.
+- `pnpm --filter @rough-cut/desktop test` — 135/135 pass.
+- `ROUGH_CUT_SMOKE_SYSTEM_AUDIO=1 pnpm smoke:mvp` — pass; recorded `alsa_output.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo.monitor`, persisted `audio.systemAudioSource`, and FFprobe found an audio stream.
+
+### TASK-039 Add capture target picker
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+The current flow records the primary X11 display. Screen Studio users expect to choose screen, window, or region before recording.
+
+#### Acceptance Criteria
+
+- Add a capture-target selection model for display, window, and region.
+- Start with full-display and region support if window capture is too platform-specific.
+- Persist selected capture geometry in recording metadata.
+- Keep cursor coordinates and export transforms aligned with the chosen source region.
+
+#### Verification
+
+- Unit tests for geometry normalization.
+- Smoke test records a bounded region and verifies output dimensions.
+- Manual packaged-app check on the target multi-monitor setup.
+
+#### Completion Notes
+
+- Added full-display vs region capture selection in the renderer recording strip.
+- Added `captureRegion` support to recording start options; region coordinates are normalized relative to the selected display, converted to absolute X11 grab geometry, and passed to FFmpeg as the capture size/display offset.
+- Persisted resolved display/capture metadata on saved recording assets so reopened projects retain the bounded-source geometry used at capture time.
+- Added MVP smoke support with `ROUGH_CUT_SMOKE_REGION=1`; the smoke asserts project metadata and FFprobe output dimensions match the requested bounded region.
+- Window capture remains intentionally deferred because X11/Wayland window capture behavior is platform-specific; this task ships full-display plus region support.
+
+#### Verification Notes
+
+- `pnpm --filter @rough-cut/desktop typecheck` — pass.
+- `pnpm --filter @rough-cut/desktop test` — 139/139 pass.
+- `ROUGH_CUT_SMOKE_REGION=1 ROUGH_CUT_SMOKE_REGION_WIDTH=240 ROUGH_CUT_SMOKE_REGION_HEIGHT=180 pnpm smoke:mvp` — pass; FFmpeg captured `240x180`, metadata persisted region details, and export succeeded.
+
+### TASK-040 Add pause, resume, and cancel recording
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+The current recording flow supports start and stop. A Screen Studio-like flow needs safe cancellation for bad takes and pause/resume for demos with setup gaps.
+
+#### Acceptance Criteria
+
+- Add cancel during recording that stops capture and removes incomplete project outputs safely.
+- Add pause/resume behavior or an explicit scoped alternative if FFmpeg pause is not viable.
+- Preserve cursor/audio/video synchronization across the chosen behavior.
+- Make interrupted sessions recoverable and avoid corrupt project files.
+
+#### Verification
+
+- Unit tests for session state transitions.
+- Smoke test cancel leaves no misleading saved project.
+- Manual packaged-app check for pause/resume or approved alternative.
+
+### TASK-041 Add post-recording next-action flow
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+After stop, users should not wonder what happened or where the file is. The app should guide them to preview, export, retake, or open the output folder.
+
+#### Acceptance Criteria
+
+- Show a clear post-recording success state.
+- Offer primary actions: preview/edit, export styled, export raw, open folder, and retake.
+- Reuse or complete TASK-022 folder opening and TASK-023 recent project foundations.
+- Avoid hiding errors when remux/save/project creation fails.
+
+#### Verification
+
+- UI smoke verifies post-recording actions are visible after a saved project.
+- Manual packaged-app flow from stop to exported file.
+
+### TASK-042 Render click emphasis in preview and export
+
+**Priority:** P1  
+**Status:** PLANNED  
+**Related:** TASK-013
+
+#### Context
+
+Click telemetry is already captured. The missing user-visible piece is a tasteful click emphasis effect that appears in both preview and styled export with parity.
+
+#### Acceptance Criteria
+
+- Render click rings or ripples in canvas preview using recorded click events.
+- Render the same effect in styled export.
+- Keep the effect optional and styleable later.
+- Preserve preview/export parity and cursor sync.
+
+#### Verification
+
+- Unit tests for click effect timing and frame selection.
+- Styled export smoke includes synthetic click events and asserts export succeeds.
+- Manual packaged-app recording with visible clicks.
+
+### TASK-043 Add webcam PiP presentation controls
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+Camera capture and export paths have started, but the UI still treats webcam PiP as unfinished. Screen Studio-style demos need controllable camera placement and styling.
+
+#### Acceptance Criteria
+
+- Show camera preview/setup before recording when a camera is selected.
+- Add PiP controls for position, size, shape, and roundness.
+- Persist camera presentation settings in the project.
+- Apply settings consistently in preview and styled export.
+
+#### Verification
+
+- Unit tests for camera frame geometry.
+- UI smoke verifies controls exist when camera metadata is present.
+- Manual packaged-app recording with webcam PiP.
+
+### TASK-044 Add cursor style controls
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+The cursor overlay works, but Screen Studio users expect presentation controls such as cursor size, outline/shadow, and click style.
+
+#### Acceptance Criteria
+
+- Add cursor presentation settings to the project model.
+- Add UI controls for cursor size and basic visual style.
+- Apply settings in preview and styled export.
+- Preserve defaults for old projects.
+
+#### Verification
+
+- Project migration/schema tests.
+- Preview/export smoke with non-default cursor settings.
+
+### TASK-045 Add background style presets
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+Current background controls are numeric. Presets make polished outputs faster and closer to Screen Studio's one-click style flow.
+
+#### Acceptance Criteria
+
+- Add named background presets for common demo looks.
+- Let users apply a preset without losing the ability to tune padding, radius, and shadow.
+- Persist the resulting presentation values in the existing project format where possible.
+- Keep preview and export visually aligned.
+
+#### Verification
+
+- Unit tests for preset-to-style conversion.
+- UI smoke applies a preset and exports styled output.
+
+### TASK-046 Add trim start and end controls
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+Most demo recordings need at least head/tail cleanup. This should land before a broader timeline editor.
+
+#### Acceptance Criteria
+
+- Add start and end trim values to the project/timeline model.
+- Add simple UI controls to set trim start/end from playback time.
+- Apply trims in preview, raw export where feasible, and styled export.
+- Keep original source recording untouched.
+
+#### Verification
+
+- Project-model tests for trim persistence.
+- Export tests assert output duration changes.
+- Manual packaged-app trim and export check.
+
+### TASK-047 Add simple cut removal flow
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+After head/tail trim, the next editing primitive is removing a dead section from the middle without building a full timeline editor.
+
+#### Acceptance Criteria
+
+- Add a minimal cut-range data model.
+- Add UI to mark a range and remove it from playback/export.
+- Apply cuts in preview and styled export.
+- Keep cut operations non-destructive and reversible at the project level.
+
+#### Verification
+
+- Timeline/model tests for cut ranges.
+- Export tests assert removed ranges do not appear in output duration.
+- Manual packaged-app cut and export check.
+
+### TASK-048 Add optional webcam PiP recording and export
+
+**Priority:** P1  
+**Status:** IN PROGRESS
+
+#### Context
+
+The project model and frame resolver already support linked camera assets and camera PiP presentation metadata, but the desktop app did not capture webcam media, link it into saved recordings, draw it in preview, or include it in styled exports.
+
+#### Acceptance Criteria
+
+- Enumerate Linux V4L2 camera devices and expose them in the recording strip.
+- Capture the selected webcam alongside screen recording as a separate media file.
+- Remux and validate camera media on stop, then link it via `cameraAssetId`.
+- Draw camera PiP in the styled preview using existing camera presentation defaults.
+- Include camera PiP in styled exports for unedited linked-camera projects.
+- Preserve screen-only recording as the default path when no camera is selected.
+
+#### Verification
+
+- `pnpm --filter @rough-cut/desktop test` — 122/122 pass.
+- `pnpm typecheck` — pass.
+- `pnpm smoke:styled-export` — pass, including synthetic linked-camera styled export.
+- `pnpm smoke:ui` — pass.
+- `pnpm smoke:package` — pass.
+- Real webcam recording is still pending because this environment currently has no `/dev/video*` devices.
+
+#### Implementation Notes
+
+- Added V4L2 camera source enumeration and optional Camera recording controls.
+- Added a separate FFmpeg V4L2 capture process that writes camera video alongside the screen recording.
+- Saved camera recordings as linked `video` assets with `metadata.isCamera = true` and `recording.cameraAssetId`.
+- Preview now loads the linked camera media and draws it as a rounded PiP over the styled canvas.
+- Styled export now accepts unedited linked-camera projects, adds the camera as a second FFmpeg input, rounds it, and overlays it on the final canvas.
+
+### TASK-049 Build Screen Studio-style editor UI foundation
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+The current UI grew from MVP controls: one top strip, one preview panel, and a dense inspector. It is now limiting product development because recording setup, post-recording review, timeline edits, presentation styling, exports, camera PiP, cursor effects, and future cuts all compete for the same space. Before adding more controls, the app needs a Screen Studio-like foundation that separates capture, review, timeline, and styling workflows.
+
+#### Acceptance Criteria
+
+- Replace the MVP shell with a durable editor layout: capture bar, central stage, timeline/review rail, right inspector, and export/actions area.
+- Keep record/stop/open/export flows available during the migration.
+- Make primary state obvious: idle, starting, recording, stopping, saved, error, camera degraded.
+- Avoid hiding preview when a secondary feature like camera capture fails.
+- Preserve responsive behavior for laptop-sized screens.
+
+#### Verification
+
+- UI smoke covers idle, recording, stopping, saved preview, and error/degraded states.
+- Manual packaged-app check records, stops, previews, and exports from the new shell.
+
+### TASK-050 Add guided recording setup surface
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+Recording options are currently inline and crowded. Screen Studio-style capture needs a focused setup surface for screen/region/window, mic, system audio, camera, countdown, and quality checks before recording starts.
+
+#### Acceptance Criteria
+
+- Add a recording setup modal/panel with source pickers grouped by screen, audio, and camera.
+- Show source availability and clear degraded states, e.g. camera busy or no system audio source.
+- Keep screen-only recording as the safe default.
+- Persist recent source choices where appropriate.
+- Start recording from the setup surface without blocking the editor shell.
+
+#### Verification
+
+- UI smoke verifies setup controls, disabled/unavailable messaging, and successful start.
+- Manual check with camera unavailable confirms screen-only fallback is visible and usable.
+
+### TASK-051 Add post-recording review workspace
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+After stop, the user should land in a clear review state rather than hunting for a preview. The workspace should answer: did it save, what failed, what can I do next, and how do I export or retake?
+
+#### Acceptance Criteria
+
+- After stop, show a review state with preview, save path, warnings, and primary next actions.
+- Include actions for export styled, export raw, retake, open folder, and inspect diagnostics.
+- Keep camera/audio degradation visible without blocking screen preview.
+- Prevent duplicate stop/save state overwrites.
+
+#### Verification
+
+- UI smoke covers Record -> double Stop -> saved review workspace -> preview canvas.
+- Manual check confirms warnings and next actions are visible after camera-busy recording.
+
+### TASK-052 Add timeline-first playback and edit rail
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+Zoom markers, trims, cuts, clicks, and camera/audio tracks need a timeline surface. The current preview controls are too small and disconnected from upcoming edit operations.
+
+#### Acceptance Criteria
+
+- Add a bottom timeline rail with playhead, time ruler, source duration, and track lanes.
+- Show zoom markers, future trim handles, camera presence, and click events in the rail.
+- Keep playback state synchronized with the central preview.
+- Make the rail extensible for trim/cut tasks without another layout rewrite.
+
+#### Verification
+
+- Unit tests for time-to-pixel mapping and marker placement.
+- UI smoke loads a project with zoom/click/camera metadata and verifies timeline elements render.
+
+### TASK-053 Add extensible properties inspector system
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+The right inspector is already mixing canvas, export, zoom, background, camera, and future cursor controls. It needs a real section/component system before adding cursor styling, camera PiP controls, background presets, and trim/cut settings.
+
+#### Acceptance Criteria
+
+- Create reusable inspector section/components for fields, sliders, presets, toggles, and action rows.
+- Group controls by selected context: canvas, recording, cursor, camera, zoom marker, export.
+- Support disabled/degraded states with clear copy.
+- Keep project persistence explicit and recoverable when saves fail.
+
+#### Verification
+
+- Component/unit coverage for inspector state and value normalization.
+- UI smoke changes one canvas setting and one presentation setting, saves, and keeps preview/export available.

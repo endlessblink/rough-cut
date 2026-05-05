@@ -9,6 +9,8 @@ const IPC_CHANNELS = {
   EXPORT_START: 'export:start',
   EXPORT_PROGRESS_EMIT: 'export:progress-emit',
   RECORDING_GET_MIC_SOURCES: 'recording:get-mic-sources',
+  RECORDING_GET_SYSTEM_AUDIO_SOURCES: 'recording:get-system-audio-sources',
+  RECORDING_GET_CAMERA_SOURCES: 'recording:get-camera-sources',
   RECORDING_START: 'recording:start',
   RECORDING_STOP: 'recording:stop',
   RECORDING_STATUS: 'recording:status',
@@ -17,6 +19,8 @@ const IPC_CHANNELS = {
 contextBridge.exposeInMainWorld('roughCut', {
   getVersion: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
   getMicSources: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_MIC_SOURCES),
+  getSystemAudioSources: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES),
+  getCameraSources: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_CAMERA_SOURCES),
   startRecording: (options) => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_START, options),
   stopRecording: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_STOP),
   getRecordingStatus: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_STATUS),

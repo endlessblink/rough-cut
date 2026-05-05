@@ -5,6 +5,11 @@ export async function listPulseAudioMicSources({ run = execFile } = {}) {
   return parsePulseAudioSources(stdout).filter((source) => !source.monitor);
 }
 
+export async function listPulseAudioSystemAudioSources({ run = execFile } = {}) {
+  const stdout = await runPactl(run);
+  return parsePulseAudioSources(stdout).filter((source) => source.monitor);
+}
+
 export function parsePulseAudioSources(text) {
   if (typeof text !== 'string' || text.trim().length === 0) return [];
   return text

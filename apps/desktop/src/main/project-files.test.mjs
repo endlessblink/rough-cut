@@ -40,10 +40,62 @@ test('creates a valid project document for a screen recording', () => {
   assert.equal(project.assets[0].type, 'recording');
   assert.equal(project.assets[0].filePath, recording.outputPath);
   assert.deepEqual(project.assets[0].metadata.audio, recording.audio);
+  assert.equal(project.assets[0].metadata.display, null);
+  assert.equal(project.assets[0].metadata.capture, null);
   assert.deepEqual(project.assets[0].metadata.cursorEvents, recording.cursorEvents);
   assert.equal(project.composition.duration, 300);
   assert.equal(project.composition.tracks.length, 1);
   assert.equal(project.composition.tracks[0].clips.length, 1);
+});
+
+test('persists capture region metadata for bounded recordings', () => {
+  const capture = { mode: 'region', x: 10, y: 20, width: 640, height: 360, absoluteX: 110, absoluteY: 220 };
+  const project = createProjectForRecording({
+    recording: {
+      ...recording,
+      display: ':0+110,220',
+      width: 640,
+      height: 360,
+      capture,
+    },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+
+  assert.equal(project.assets[0].metadata.display, ':0+110,220');
+  assert.deepEqual(project.assets[0].metadata.capture, capture);
+  assert.equal(project.assets[0].metadata.width, 640);
+  assert.equal(project.assets[0].metadata.height, 360);
+});
+
+test('creates linked camera asset and track when webcam recording is present', () => {
+  const project = createProjectForRecording({
+    recording: {
+      ...recording,
+      camera: {
+        rawPath: '/tmp/rough-cut-test-camera.mkv',
+        outputPath: '/tmp/rough-cut-test-camera.mp4',
+        devicePath: '/dev/video2',
+        width: 1280,
+        height: 720,
+        fps: 30,
+        sourceInFrames: 30,
+        prerollMs: 1000,
+      },
+    },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+
+  assert.equal(project.assets.length, 2);
+  assert.equal(project.assets[0].cameraAssetId, project.assets[1].id);
+  assert.equal(project.assets[1].metadata.isCamera, true);
+  assert.equal(project.assets[1].duration, project.composition.duration + 30);
+  assert.equal(project.assets[1].metadata.sourceInFrames, 30);
+  assert.equal(project.composition.tracks.length, 2);
+  assert.equal(project.composition.tracks[1].clips[0].assetId, project.assets[1].id);
+  assert.equal(project.composition.tracks[1].clips[0].sourceIn, 30);
+  assert.equal(project.composition.tracks[1].clips[0].sourceOut, project.composition.duration + 30);
+  assert.equal(getPrimaryRecording(project)?.camera?.filePath, '/tmp/rough-cut-test-camera.mp4');
+  assert.equal(getPrimaryRecording(project)?.camera?.sourceInFrames, 30);
 });
 
 test('saves and reopens a roughcut project file', async () => {

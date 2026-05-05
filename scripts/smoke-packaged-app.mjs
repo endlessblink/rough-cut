@@ -12,6 +12,7 @@ const smokeRoot = await mkdtemp(join(tmpdir(), 'rough-cut-package-smoke-'));
 const mediaPath = join(smokeRoot, 'preview-source.mp4');
 const exportPath = join(smokeRoot, 'export.mp4');
 const resultPath = join(smokeRoot, 'ui-smoke-result.json');
+const screenshotPath = join(smokeRoot, 'ui-smoke.png');
 
 await mkdir(smokeRoot, { recursive: true });
 run('ffmpeg', [
@@ -51,6 +52,7 @@ const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb'
     ROUGH_CUT_UI_SMOKE_PROJECT_PATH: projectPath,
     ROUGH_CUT_UI_SMOKE_EXPORT_PATH: exportPath,
     ROUGH_CUT_UI_SMOKE_RESULT_PATH: resultPath,
+    ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH: screenshotPath,
   },
   encoding: 'utf8',
 });
@@ -61,11 +63,12 @@ if (result.error) throw result.error;
 if (result.status !== 0) throw new Error(`Packaged app smoke failed with exit code ${result.status}. Artifacts: ${smokeRoot}`);
 
 const report = JSON.parse(await readFile(resultPath, 'utf8'));
-if (!report.ok || !report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'raw' || !report.hasStyledMode || !report.hasRawPresetDetails || !report.hasStyledPresetDetails || !(report.duration > 0)) {
+const screenshotBytes = (await readFile(screenshotPath)).length;
+if (!report.ok || !report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'raw' || !report.hasStyledMode || !report.hasRawPresetDetails || !report.hasStyledPresetDetails || !report.hasVisualScreenshot || report.aspectRatio !== '9:16' || report.padding !== 96 || report.cornerRadius !== 44 || report.shadowSize !== 72 || !(report.duration > 0) || !(screenshotBytes > 1000)) {
   throw new Error(`Packaged app smoke assertions failed: ${JSON.stringify(report)}`);
 }
 
-console.info(JSON.stringify({ ...report, smokeRoot, artifactRoot, projectPath, exportPath }, null, 2));
+console.info(JSON.stringify({ ...report, smokeRoot, artifactRoot, projectPath, exportPath, screenshotPath, screenshotBytes }, null, 2));
 
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: 'inherit' });

@@ -11,6 +11,7 @@ import { migrate } from '../../../../packages/project-model/dist/migrations.js';
 
 export function createProjectForRecording({ recording, now = new Date() }) {
   const fps = recording.fps || 30;
+  const cameraSourceInFrames = Math.max(0, Math.round(recording.camera?.sourceInFrames ?? 0));
   const durationFrames = Math.max(
     1,
     Math.round(((Date.parse(recording.stoppedAt) - Date.parse(recording.startedAt)) / 1000) * fps),
@@ -25,19 +26,49 @@ export function createProjectForRecording({ recording, now = new Date() }) {
       fps,
       startedAt: recording.startedAt,
       stoppedAt: recording.stoppedAt,
+      display: recording.display ?? null,
+      capture: recording.capture ?? recording.captureRegion ?? null,
       cursorTelemetryPath: recording.cursorTelemetryPath,
       cursorEvents: Array.isArray(recording.cursorEvents) ? recording.cursorEvents : [],
       audio: recording.audio ?? null,
     },
   });
+  const cameraAsset = recording.camera?.outputPath
+    ? createAsset('video', recording.camera.outputPath, {
+        duration: durationFrames + cameraSourceInFrames,
+        metadata: {
+          rawPath: recording.camera.rawPath,
+          width: recording.camera.width || 1280,
+          height: recording.camera.height || 720,
+          fps,
+          startedAt: recording.startedAt,
+          stoppedAt: recording.stoppedAt,
+          isCamera: true,
+          devicePath: recording.camera.devicePath ?? null,
+          sourceInFrames: cameraSourceInFrames,
+          prerollMs: recording.camera.prerollMs ?? null,
+        },
+      })
+    : null;
+  const recordingAsset = cameraAsset ? { ...asset, cameraAssetId: cameraAsset.id } : asset;
   const track = createTrack('video', { name: 'Screen Recording', index: 0 });
-  const clip = createClip(asset.id, track.id, {
+  const clip = createClip(recordingAsset.id, track.id, {
     name,
     timelineIn: 0,
     timelineOut: durationFrames,
     sourceIn: 0,
     sourceOut: durationFrames,
   });
+  const cameraTrack = cameraAsset ? createTrack('video', { name: 'Camera', index: 1 }) : null;
+  const cameraClip = cameraAsset && cameraTrack
+    ? createClip(cameraAsset.id, cameraTrack.id, {
+        name: `${name} camera`,
+        timelineIn: 0,
+        timelineOut: durationFrames,
+        sourceIn: cameraSourceInFrames,
+        sourceOut: cameraSourceInFrames + durationFrames,
+      })
+    : null;
 
   return validateProject(
     createProject({
@@ -51,10 +82,12 @@ export function createProjectForRecording({ recording, now = new Date() }) {
         sampleRate: 48000,
         destinationPresetId: null,
       },
-      assets: [asset],
+      assets: cameraAsset ? [recordingAsset, cameraAsset] : [recordingAsset],
       composition: {
         duration: durationFrames,
-        tracks: [{ ...track, clips: [clip] }],
+        tracks: cameraTrack && cameraClip
+          ? [{ ...track, clips: [clip] }, { ...cameraTrack, clips: [cameraClip] }]
+          : [{ ...track, clips: [clip] }],
         transitions: [],
       },
       exportSettings: {
@@ -90,6 +123,8 @@ export async function saveProjectForRecording(recording) {
 export function getPrimaryRecording(project) {
   const asset = project.assets.find((item) => item.type === 'recording' || item.type === 'video');
   if (!asset) return null;
+  const cameraAsset = getLinkedCameraAsset(project, asset);
+  const cameraClip = cameraAsset ? getLinkedCameraClip(project, cameraAsset) : null;
   return {
     assetId: asset.id,
     filePath: asset.filePath,
@@ -102,7 +137,31 @@ export function getPrimaryRecording(project) {
     audio: asset.metadata.audio && typeof asset.metadata.audio === 'object' ? asset.metadata.audio : null,
     presentation: asset.presentation ?? null,
     zoomMarkers: Array.isArray(asset.presentation?.zoom?.markers) ? asset.presentation.zoom.markers : [],
+    camera: cameraAsset
+      ? {
+          assetId: cameraAsset.id,
+          filePath: cameraAsset.filePath,
+          duration: cameraAsset.duration,
+          width: typeof cameraAsset.metadata.width === 'number' ? cameraAsset.metadata.width : 1280,
+          height: typeof cameraAsset.metadata.height === 'number' ? cameraAsset.metadata.height : 720,
+          fps: typeof cameraAsset.metadata.fps === 'number' ? cameraAsset.metadata.fps : project.settings.frameRate,
+          sourceInFrames: typeof cameraClip?.sourceIn === 'number' ? cameraClip.sourceIn : 0,
+        }
+      : null,
   };
+}
+
+export function getLinkedCameraAsset(project, recordingAsset) {
+  if (!recordingAsset?.cameraAssetId) return null;
+  return project.assets.find((asset) => asset.id === recordingAsset.cameraAssetId && asset.metadata?.isCamera) ?? null;
+}
+
+function getLinkedCameraClip(project, cameraAsset) {
+  for (const track of project.composition?.tracks ?? []) {
+    const clip = track.clips?.find((item) => item.assetId === cameraAsset.id);
+    if (clip) return clip;
+  }
+  return null;
 }
 
 function ensureEven(value) {

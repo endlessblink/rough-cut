@@ -21,7 +21,9 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
   const recording = getPrimaryRecording(project);
   if (!recording) throw new Error('Project has no recording to export.');
   assertDistinctExportPath(recording.filePath, outputPath);
-  if (!isSingleUneditedRecording(project, recording.assetId)) {
+  const canExportRaw = isSingleUneditedRecording(project, recording.assetId);
+  const canExportStyled = canExportRaw || isSingleUneditedRecordingWithCamera(project, recording.assetId);
+  if ((exportMode === EXPORT_MODES.RAW && !canExportRaw) || (exportMode === EXPORT_MODES.STYLED && !canExportStyled)) {
     throw new Error('Only unedited single-recording exports are supported in the MVP.');
   }
 
@@ -90,6 +92,9 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       sourceFps: recording.fps,
       zoomCropFilter: zoomLayer?.filterFragment ?? null,
       zoomSendcmdPath: zoomLayer?.path ?? null,
+      cameraInputPath: recording.camera?.filePath ?? null,
+      cameraSourceInFrames: recording.camera?.sourceInFrames ?? 0,
+      cameraPresentation: recording.presentation?.camera ?? null,
     }), {
       onStdout: (chunk) => {
         const progress = parseFfmpegProgress(chunk, durationSeconds);
@@ -132,6 +137,9 @@ export function buildStyledExportArgs({
   screenShadowOpacity = 0.2,
   zoomCropFilter = null,
   zoomSendcmdPath = null,
+  cameraInputPath = null,
+  cameraSourceInFrames = 0,
+  cameraPresentation = null,
 }) {
   const safePadding = clampNumber(screenPadding, 0, Math.min(width, height) / 2 - 2);
   const maxVideoWidth = Math.round(width - safePadding * 2);
@@ -148,6 +156,10 @@ export function buildStyledExportArgs({
   const screenStep = zoomActive
     ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},scale=${maxVideoWidth}:${maxVideoHeight}:force_original_aspect_ratio=decrease,format=rgba`
     : `crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2,scale=${maxVideoWidth}:${maxVideoHeight}:force_original_aspect_ratio=decrease,format=rgba`;
+  const cameraFrame = cameraInputPath ? resolveCameraOverlayFrame(cameraPresentation, width, height) : null;
+  const cameraTrim = Math.max(0, Math.round(cameraSourceInFrames));
+  const cameraRadius = cameraFrame ? resolveCameraOverlayRadius(cameraPresentation, cameraFrame) : 0;
+  const cameraAlpha = buildRoundedAlphaExpression(cameraRadius);
   const filter = [
     `nullsrc=s=${width}x${height}:r=${fps},format=rgb24,geq=r='224+20*X/W+10*Y/H':g='219+12*X/W+8*Y/H':b='232-8*X/W+12*Y/H',format=rgba[bg]`,
     '[0:v]setpts=PTS-STARTPTS[base]',
@@ -157,7 +169,14 @@ export function buildStyledExportArgs({
     `[rounded]split[shadow_src][fg]`,
     `[shadow_src]colorchannelmixer=rr=0:gg=0:bb=0:aa=${formatFilterNumber(shadowOpacity)},boxblur=${shadowBlur}:5[shadow]`,
     `[bg][shadow]overlay=(W-w)/2:(H-h)/2+${shadowOffsetY}:shortest=1[with_shadow]`,
-    `[with_shadow][fg]overlay=(W-w)/2:(H-h)/2:shortest=1,format=yuv420p[v]`,
+    `[with_shadow][fg]overlay=(W-w)/2:(H-h)/2:shortest=1[with_screen]`,
+    ...(cameraFrame
+      ? [
+          `[1:v]setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''},scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba[camera_scaled]`,
+          `[camera_scaled]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${cameraAlpha}'[camera_rounded]`,
+          `[with_screen][camera_rounded]overlay=${cameraFrame.x}:${cameraFrame.y}:shortest=1,format=yuv420p[v]`,
+        ]
+      : ['[with_screen]format=yuv420p[v]']),
   ].join(';');
 
   return [
@@ -167,6 +186,7 @@ export function buildStyledExportArgs({
     '-nostats',
     '-i',
     inputPath,
+    ...(cameraInputPath ? ['-i', cameraInputPath] : []),
     '-filter_complex',
     filter,
     '-map',
@@ -189,6 +209,29 @@ export function buildStyledExportArgs({
     `rough_cut_style=canvas:${width}x${height}:studio-demo`,
     outputPath,
   ];
+}
+
+function resolveCameraOverlayFrame(camera = null, canvasWidth, canvasHeight) {
+  const sizeScale = clampNumber((camera?.size ?? 100) / 100, 0.5, 2);
+  const w = Math.round(Math.min(canvasWidth, canvasHeight) * 0.22 * sizeScale);
+  const h = w;
+  const margin = Math.round(Math.min(canvasWidth, canvasHeight) * 0.06);
+  const position = camera?.position ?? 'corner-br';
+  if (position === 'center') return { x: Math.round((canvasWidth - w) / 2), y: Math.round((canvasHeight - h) / 2), w, h };
+  const left = position.endsWith('bl') || position.endsWith('tl');
+  const top = position.endsWith('tl') || position.endsWith('tr');
+  return {
+    x: left ? margin : canvasWidth - w - margin,
+    y: top ? margin : canvasHeight - h - margin,
+    w,
+    h,
+  };
+}
+
+function resolveCameraOverlayRadius(camera = null, frame) {
+  if (camera?.shape === 'square') return 0;
+  if (camera?.shape === 'circle') return Math.min(frame.w, frame.h) / 2;
+  return Math.round((Math.min(frame.w, frame.h) / 2) * clampNumber((camera?.roundness ?? 50) / 100, 0, 1));
 }
 
 export function parseFfmpegProgress(chunk, durationSeconds) {
@@ -336,6 +379,34 @@ export function isSingleUneditedRecording(project, assetId) {
     clip.effects.length === 0 &&
     clip.keyframes.length === 0 &&
     project.composition.duration === asset.duration
+  );
+}
+
+export function isSingleUneditedRecordingWithCamera(project, assetId) {
+  if (project.assets.length !== 2) return false;
+  const recording = project.assets.find((asset) => asset.id === assetId && asset.type === 'recording');
+  if (!recording?.cameraAssetId) return false;
+  const camera = project.assets.find((asset) => asset.id === recording.cameraAssetId && asset.metadata?.isCamera === true);
+  if (!camera) return false;
+  const tracks = project.composition.tracks;
+  if (tracks.length !== 2) return false;
+  const clips = tracks.flatMap((track) => track.clips);
+  const screenClip = clips.find((clip) => clip.assetId === recording.id);
+  const cameraClip = clips.find((clip) => clip.assetId === camera.id);
+  return isFullLengthPlainClip(screenClip, recording) && isFullLengthPlainClip(cameraClip, camera) && project.composition.duration === recording.duration;
+}
+
+function isFullLengthPlainClip(clip, asset) {
+  return Boolean(
+    clip &&
+      asset &&
+      clip.enabled === true &&
+      clip.timelineIn === 0 &&
+      clip.sourceIn === 0 &&
+      clip.timelineOut === asset.duration &&
+      clip.sourceOut === asset.duration &&
+      clip.effects.length === 0 &&
+      clip.keyframes.length === 0,
   );
 }
 

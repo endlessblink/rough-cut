@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cursorAtFrame, drawCursorPath } from './styled-preview.mjs';
+import { coverSourceRect, cursorAtFrame, drawCursorPath } from './styled-preview.mjs';
 
 test('cursorAtFrame returns null for empty events', () => {
   assert.equal(cursorAtFrame([], 0), null);
@@ -115,4 +115,27 @@ test('drawCursorPath issues canvas operations at the given anchor', () => {
   assert.deepEqual(calls[8], ['closePath']);
   assert.ok(calls.some((c) => c[0] === 'fill'));
   assert.ok(calls.some((c) => c[0] === 'stroke'));
+});
+
+test('coverSourceRect crops wide camera sources instead of stretching to square', () => {
+  assert.deepEqual(coverSourceRect(1280, 720, 180, 180), {
+    sx: 280,
+    sy: 0,
+    sw: 720,
+    sh: 720,
+  });
+});
+
+test('coverSourceRect crops tall camera sources instead of stretching to square', () => {
+  assert.deepEqual(coverSourceRect(720, 1280, 180, 180), {
+    sx: 0,
+    sy: 280,
+    sw: 720,
+    sh: 720,
+  });
+});
+
+test('coverSourceRect returns null for invalid dimensions', () => {
+  assert.equal(coverSourceRect(0, 720, 180, 180), null);
+  assert.equal(coverSourceRect(1280, 720, 0, 180), null);
 });

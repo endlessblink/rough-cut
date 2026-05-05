@@ -5,12 +5,13 @@ import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { exportProjectToMp4 } from './export-service.mjs';
 import { assertReadableMp4 } from './media-probe.mjs';
-import { getPrimaryRecording, openProjectFile, saveProjectFile, saveProjectForRecording } from './project-files.mjs';
+import { getLinkedCameraAsset, getPrimaryRecording, openProjectFile, saveProjectFile, saveProjectForRecording } from './project-files.mjs';
 import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
 import { registerMediaProtocol, toMediaUrl } from './media-protocol.mjs';
 import { remuxMkvToMp4 } from './remux-service.mjs';
 import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording/recording-session.mjs';
-import { listPulseAudioMicSources } from './recording/audio-sources.mjs';
+import { listPulseAudioMicSources, listPulseAudioSystemAudioSources } from './recording/audio-sources.mjs';
+import { listV4l2CameraSources } from './recording/camera-sources.mjs';
 import { isXdotoolAvailable, readCursorViaXdotool } from './recording/xdotool-cursor.mjs';
 import { installRuntimeLog } from './runtime-log.mjs';
 
@@ -99,10 +100,21 @@ function createMainWindow() {
     window.webContents.once('did-finish-load', async () => {
       try {
         await new Promise((resolve) => setTimeout(resolve, 1000));
+        const smokeFunction = process.env.ROUGH_CUT_UI_SMOKE_RECORD_FLOW === '1'
+          ? runRendererRecordingFlowSmoke
+          : runRendererUiSmoke;
         const result = await window.webContents.executeJavaScript(
-          `(${runRendererUiSmoke.toString()})()`,
+          `(${smokeFunction.toString()})(${JSON.stringify({
+            doubleStop: process.env.ROUGH_CUT_UI_SMOKE_DOUBLE_STOP === '1',
+          })})`,
           true,
         );
+        if (process.env.ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH) {
+          const image = await window.webContents.capturePage();
+          await mkdir(dirname(process.env.ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH), { recursive: true });
+          await writeFile(process.env.ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH, image.toPNG());
+          result.hasVisualScreenshot = true;
+        }
         await mkdir(dirname(process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH), { recursive: true });
         await writeFile(process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH, `${JSON.stringify(result, null, 2)}\n`);
         console.info(`[ui-smoke] wrote ${process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH}`);
@@ -148,6 +160,8 @@ function createMainWindow() {
 
 ipcMain.handle(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_MIC_SOURCES, async () => listPulseAudioMicSources());
+ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => listPulseAudioSystemAudioSources());
+ipcMain.handle(IPC_CHANNELS.RECORDING_GET_CAMERA_SOURCES, async () => listV4l2CameraSources());
 ipcMain.handle(IPC_CHANNELS.RECORDING_START, (_event, options = {}) => recordingSession.start(options));
 ipcMain.handle(IPC_CHANNELS.RECORDING_STOP, async () => {
   try {
@@ -212,10 +226,13 @@ app.on('window-all-closed', () => {
 
 function formatProject(project) {
   const recording = getPrimaryRecording(project.document);
+  const recordingAsset = recording ? project.document.assets.find((asset) => asset.id === recording.assetId) : null;
+  const cameraAsset = recordingAsset ? getLinkedCameraAsset(project.document, recordingAsset) : null;
   return {
     ...project,
     recording,
     mediaUrl: recording ? toMediaUrl(recording.filePath) : null,
+    cameraMediaUrl: cameraAsset ? toMediaUrl(cameraAsset.filePath) : null,
   };
 }
 
@@ -249,6 +266,44 @@ async function runRendererUiSmoke() {
   exportMode.dispatchEvent(new Event('change', { bubbles: true }));
   await waitFor(() => document.body.textContent?.includes('Styled preset: selected aspect ratio'), 'styled preset details');
   const hasStyledPresetDetails = true;
+
+  const selectByLabel = (text) => {
+    const label = Array.from(document.querySelectorAll('label')).find((label) => label.textContent?.includes(text));
+    return label?.querySelector('select') ?? null;
+  };
+  const inputByLabel = (text, type = 'range') => {
+    const label = Array.from(document.querySelectorAll('label')).find((label) => label.textContent?.includes(text));
+    return label?.querySelector(`input[type="${type}"]`) ?? null;
+  };
+  const setControlValue = (control, value) => {
+    const prototype = control instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+    const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+    valueSetter?.call(control, String(value));
+    control.dispatchEvent(new Event('input', { bubbles: true }));
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  const waitForEnabled = (control, label) => waitFor(() => !control.disabled, `${label} enabled`);
+
+  const aspectRatioSelect = await waitFor(() => selectByLabel('Aspect ratio'), 'aspect ratio control');
+  await waitForEnabled(aspectRatioSelect, 'aspect ratio control');
+  setControlValue(aspectRatioSelect, '9:16');
+  await waitFor(() => aspectRatioSelect.value === '9:16', 'vertical aspect ratio value');
+
+  const paddingInput = await waitFor(() => inputByLabel('Padding'), 'padding control');
+  await waitForEnabled(paddingInput, 'padding control');
+  setControlValue(paddingInput, 96);
+  await waitFor(() => paddingInput.closest('label')?.querySelector('output')?.textContent === '96', 'padding output');
+
+  const radiusInput = await waitFor(() => inputByLabel('Round corners'), 'corner radius control');
+  await waitForEnabled(radiusInput, 'corner radius control');
+  setControlValue(radiusInput, 44);
+  await waitFor(() => radiusInput.closest('label')?.querySelector('output')?.textContent === '44', 'corner radius output');
+
+  const shadowInput = await waitFor(() => inputByLabel('Shadow size'), 'shadow size control');
+  await waitForEnabled(shadowInput, 'shadow size control');
+  setControlValue(shadowInput, 72);
+  await waitFor(() => shadowInput.closest('label')?.querySelector('output')?.textContent === '72', 'shadow size output');
+
   exportMode.value = 'raw';
   exportMode.dispatchEvent(new Event('change', { bubbles: true }));
   await waitFor(() => exportMode.value === 'raw', 'raw export mode restored');
@@ -277,5 +332,46 @@ async function runRendererUiSmoke() {
     hasAutoZoomSuggestionsPanel,
     hasStyledPreviewCanvas,
     hasExportResult: document.body.textContent?.includes('Exported to:') ?? false,
+    aspectRatio: aspectRatioSelect.value,
+    padding: Number(paddingInput.value),
+    cornerRadius: Number(radiusInput.value),
+    shadowSize: Number(shadowInput.value),
+  };
+}
+
+async function runRendererRecordingFlowSmoke(options = {}) {
+  const waitFor = async (predicate, label, timeoutMs = 20000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const value = predicate();
+      if (value) return value;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`Timed out waiting for ${label}; body=${document.body.innerText.slice(0, 800)}`);
+  };
+
+  const findButton = (text) => Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes(text));
+  const recordButton = await waitFor(() => findButton('Record'), 'record button');
+  recordButton.click();
+  await waitFor(() => document.body.textContent?.includes('Recording 0:'), 'recording state');
+  await new Promise((resolve) => setTimeout(resolve, 1800));
+  const stopButton = await waitFor(() => findButton('Stop recording'), 'stop button');
+  stopButton.click();
+  if (options.doubleStop) {
+    stopButton.click();
+  }
+  await waitFor(() => document.body.textContent?.includes('Recording saved to:'), 'saved recording state', 30000);
+  const canvas = await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'post-recording preview canvas', 30000);
+  const video = await waitFor(() => document.querySelector('video'), 'post-recording video element', 30000);
+  await waitFor(() => video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0, 'post-recording video metadata', 30000);
+
+  return {
+    ok: true,
+    hasSavedMessage: document.body.textContent?.includes('Recording saved to:') ?? false,
+    hasProjectTitle: Boolean(document.querySelector('h2')?.textContent),
+    hasStyledPreviewCanvas: Boolean(canvas),
+    hasVideo: Boolean(video),
+    duration: video.duration,
+    doubleStop: Boolean(options.doubleStop),
   };
 }

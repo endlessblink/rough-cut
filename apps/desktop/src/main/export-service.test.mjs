@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForRecording } from './project-files.mjs';
-import { buildCursorAss, buildStyledExportArgs, exportProjectToMp4, isSingleUneditedRecording, normalizeExportMode, parseFfmpegProgress } from './export-service.mjs';
+import { buildCursorAss, buildStyledExportArgs, exportProjectToMp4, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, normalizeExportMode, parseFfmpegProgress } from './export-service.mjs';
 
 test('unedited export copies source mp4 byte-for-byte', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-'));
@@ -181,6 +181,33 @@ test('styled export args include cursor subtitle layer when provided', () => {
   assert(joined.includes('[with_cursor]crop=iw*1:ih*1'));
 });
 
+test('styled export args overlay a camera input when provided', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    cameraInputPath: '/tmp/camera.mp4',
+    cameraPresentation: { shape: 'circle', position: 'corner-br', roundness: 50, size: 100, visible: true },
+  });
+  const joined = args.join(' ');
+
+  assert.deepEqual(args.slice(args.indexOf('/tmp/source.mp4') + 1, args.indexOf('/tmp/source.mp4') + 3), ['-i', '/tmp/camera.mp4']);
+  assert(joined.includes('[1:v]setpts=PTS-STARTPTS'));
+  assert(joined.includes('[with_screen][camera_rounded]overlay='));
+  assert(joined.includes('format=yuv420p[v]'));
+});
+
+test('styled export args trim camera pre-roll before overlay', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    cameraInputPath: '/tmp/camera.mp4',
+    cameraSourceInFrames: 30,
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes('[1:v]setpts=PTS-STARTPTS,trim=start_frame=30,setpts=PTS-STARTPTS,scale='));
+});
+
 test('styled export args use crop+sendcmd when a zoom layer is present', () => {
   const args = buildStyledExportArgs({
     inputPath: '/tmp/source.mp4',
@@ -330,4 +357,29 @@ test('unedited export rejects edited projects', async () => {
     () => exportProjectToMp4({ project: editedProject, outputPath: '/tmp/export.mp4' }),
     /Only unedited single-recording exports/,
   );
+});
+
+test('styled export accepts unedited recording with linked camera asset', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:03.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      camera: {
+        rawPath: '/tmp/camera.mkv',
+        outputPath: '/tmp/camera.mp4',
+        devicePath: '/dev/video2',
+        width: 1280,
+        height: 720,
+        fps: 30,
+      },
+    },
+  });
+  const assetId = project.assets[0].id;
+
+  assert.equal(isSingleUneditedRecording(project, assetId), false);
+  assert.equal(isSingleUneditedRecordingWithCamera(project, assetId), true);
 });

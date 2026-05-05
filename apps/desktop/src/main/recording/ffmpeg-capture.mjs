@@ -134,43 +134,130 @@ export function startFfmpegCapture({
      * @returns {Promise<string>}
      */
     stop() {
-      return new Promise((resolve) => {
-        let settled = false;
-        let sigintTimeout = null;
-        let sigtermTimeout = null;
-        const stdinTimeout = setTimeout(() => {
-          console.warn('[ffmpeg-capture] Timeout after q — sending SIGINT for MP4 finalization.');
-          proc.kill('SIGINT');
-          sigintTimeout = setTimeout(() => {
-            console.warn('[ffmpeg-capture] Timeout after SIGINT — sending SIGTERM.');
-            proc.kill('SIGTERM');
-            sigtermTimeout = setTimeout(() => {
-              console.warn('[ffmpeg-capture] Timeout after SIGTERM — forcing SIGKILL; output may be corrupt.');
-              proc.kill('SIGKILL');
-            }, FFMPEG_SIGTERM_TIMEOUT_MS);
-          }, FFMPEG_SIGINT_TIMEOUT_MS);
-        }, FFMPEG_STOP_TIMEOUT_MS);
-
-        proc.on('exit', () => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(stdinTimeout);
-          if (sigintTimeout) clearTimeout(sigintTimeout);
-          if (sigtermTimeout) clearTimeout(sigtermTimeout);
-          resolve(outputPath);
-        });
-
-        // Send 'q' to stdin for clean exit (FFmpeg's preferred stop method)
-        try {
-          proc.stdin?.write('q\n');
-          proc.stdin?.end();
-        } catch {
-          // stdin may be closed — fall back to SIGINT, which still lets MP4 finalize.
-          proc.kill('SIGINT');
-        }
-      });
+      return stopFfmpegProcess(proc, outputPath, '[ffmpeg-capture]', 'MP4 finalization');
     },
   };
+}
+
+export function startFfmpegCameraCapture({
+  outputPath,
+  fps,
+  devicePath,
+  width = 1280,
+  height = 720,
+}) {
+  const args = buildFfmpegCameraCaptureArgs({ outputPath, fps, devicePath, width, height });
+  console.info('[ffmpeg-camera] Starting:', 'ffmpeg', args.join(' '));
+
+  const proc = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+  let stderr = '';
+  proc.stdout?.on('data', (chunk) => logProcessOutput('[ffmpeg-camera:stdout]', chunk.toString()));
+  proc.stderr?.on('data', (chunk) => {
+    const text = chunk.toString();
+    stderr += text;
+    logProcessOutput('[ffmpeg-camera:stderr]', text);
+  });
+  proc.on('error', (err) => console.error('[ffmpeg-camera] Process error:', err.message));
+  proc.on('exit', (code, signal) => {
+    if (code !== 0 && signal !== 'SIGINT') {
+      console.warn('[ffmpeg-camera] Exited with code', code, 'signal', signal);
+      if (stderr) console.warn('[ffmpeg-camera] stderr tail:', stderr.slice(-500));
+    } else {
+      console.info('[ffmpeg-camera] Stopped cleanly.');
+    }
+  });
+
+  return {
+    outputPath,
+    stop() {
+      return stopFfmpegProcess(proc, outputPath, '[ffmpeg-camera]', 'camera finalization');
+    },
+  };
+}
+
+export function buildFfmpegCameraCaptureArgs({
+  outputPath,
+  fps,
+  devicePath,
+  width = 1280,
+  height = 720,
+}) {
+  if (typeof devicePath !== 'string' || devicePath.trim().length === 0) {
+    throw new Error('Camera device path is required.');
+  }
+  const frameRate = Number.isFinite(fps) && fps > 0 ? Math.round(fps) : 30;
+  const captureWidth = Math.max(2, Math.round(width));
+  const captureHeight = Math.max(2, Math.round(height));
+  const keyframeInterval = Math.max(30, frameRate);
+  return [
+    '-y',
+    '-progress',
+    'pipe:1',
+    '-stats_period',
+    '0.05',
+    '-thread_queue_size',
+    '512',
+    '-f',
+    'v4l2',
+    '-framerate',
+    String(frameRate),
+    '-video_size',
+    `${captureWidth}x${captureHeight}`,
+    '-i',
+    devicePath,
+    '-an',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'superfast',
+    '-crf',
+    '18',
+    '-pix_fmt',
+    'yuv420p',
+    '-g',
+    String(keyframeInterval),
+    '-keyint_min',
+    String(keyframeInterval),
+    '-x264-params',
+    'scenecut=0:sliced-threads=0',
+    outputPath,
+  ];
+}
+
+function stopFfmpegProcess(proc, outputPath, tag, finalizationLabel) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let sigintTimeout = null;
+    let sigtermTimeout = null;
+    const stdinTimeout = setTimeout(() => {
+      console.warn(`${tag} Timeout after q — sending SIGINT for ${finalizationLabel}.`);
+      proc.kill('SIGINT');
+      sigintTimeout = setTimeout(() => {
+        console.warn(`${tag} Timeout after SIGINT — sending SIGTERM.`);
+        proc.kill('SIGTERM');
+        sigtermTimeout = setTimeout(() => {
+          console.warn(`${tag} Timeout after SIGTERM — forcing SIGKILL; output may be corrupt.`);
+          proc.kill('SIGKILL');
+        }, FFMPEG_SIGTERM_TIMEOUT_MS);
+      }, FFMPEG_SIGINT_TIMEOUT_MS);
+    }, FFMPEG_STOP_TIMEOUT_MS);
+
+    proc.on('exit', () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(stdinTimeout);
+      if (sigintTimeout) clearTimeout(sigintTimeout);
+      if (sigtermTimeout) clearTimeout(sigtermTimeout);
+      resolve(outputPath);
+    });
+
+    try {
+      proc.stdin?.write('q\n');
+      proc.stdin?.end();
+    } catch {
+      proc.kill('SIGINT');
+    }
+  });
 }
 
 function logProcessOutput(prefix, text) {

@@ -71,3 +71,27 @@ export function drawCursorPath(ctx, x, y) {
   ctx.lineWidth = CURSOR_OUTLINE_WIDTH;
   ctx.stroke();
 }
+
+export function coverSourceRect(sourceWidth, sourceHeight, destWidth, destHeight) {
+  if (![sourceWidth, sourceHeight, destWidth, destHeight].every((value) => Number.isFinite(value) && value > 0)) {
+    return null;
+  }
+  const sourceAspect = sourceWidth / sourceHeight;
+  const destAspect = destWidth / destHeight;
+  if (sourceAspect > destAspect) {
+    const width = sourceHeight * destAspect;
+    return {
+      sx: (sourceWidth - width) / 2,
+      sy: 0,
+      sw: width,
+      sh: sourceHeight,
+    };
+  }
+  const height = sourceWidth / destAspect;
+  return {
+    sx: 0,
+    sy: (sourceHeight - height) / 2,
+    sw: sourceWidth,
+    sh: height,
+  };
+}

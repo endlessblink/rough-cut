@@ -20,7 +20,7 @@ import {
   removeMarker,
   withDefaultPresentation,
 } from './zoom-markers.mjs';
-import { cursorAtFrame, drawCursorPath } from './styled-preview.mjs';
+import { coverSourceRect, cursorAtFrame, drawCursorPath } from './styled-preview.mjs';
 import { generateSuggestionsForProject } from './auto-zoom-suggestions.mjs';
 
 declare global {
@@ -28,7 +28,9 @@ declare global {
     roughCut: {
       getVersion: () => Promise<string>;
       getMicSources: () => Promise<MicSource[]>;
-      startRecording: (options?: { micSource?: string | null }) => Promise<RecordingStatus>;
+      getSystemAudioSources: () => Promise<AudioSource[]>;
+      getCameraSources: () => Promise<CameraSource[]>;
+      startRecording: (options?: { micSource?: string | null; systemAudioSource?: string | null; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null }) => Promise<RecordingStatus>;
       stopRecording: () => Promise<RecordingStatus>;
       getRecordingStatus: () => Promise<RecordingStatus>;
       openProject: () => Promise<ProjectState | null>;
@@ -50,24 +52,30 @@ type ProjectState = {
     settings?: { aspectRatio?: ProjectAspectRatio };
     assets?: Array<{ id?: string; type?: string; presentation?: { background?: RecordingBackgroundStyle } & Record<string, unknown> } & Record<string, unknown>>;
   };
-  recording: null | { filePath: string; duration: number; width: number; height: number; fps: number; audio?: unknown };
+  recording: null | { filePath: string; duration: number; width: number; height: number; fps: number; audio?: unknown; camera?: unknown };
   mediaUrl: string | null;
+  cameraMediaUrl?: string | null;
 };
 
 type ExportProgress = { phase: string; progress: number };
 type ExportResult = { outputPath: string; sourcePath: string; bytes: number; byteEqualCandidate: boolean };
 type ExportMode = 'raw' | 'styled';
 type MicSource = { id: string; name: string; label: string; state: string };
+type AudioSource = { id: string; name: string; label: string; state: string };
+type CameraSource = { id: string; name: string; label: string };
+type CaptureMode = 'display' | 'region';
+type CaptureRegion = { mode: 'region'; x: number; y: number; width: number; height: number };
 
 type RecordingStatus =
   | { state: 'idle' }
-  | { state: 'recording'; startedAt: string; rawPath: string; outputPath: string; micSource?: string | null }
+  | { state: 'recording'; startedAt: string; rawPath: string; outputPath: string; micSource?: string | null; systemAudioSource?: string | null; cameraDevicePath?: string | null }
   | {
       state: 'saved';
       startedAt: string;
       stoppedAt: string;
       rawPath: string;
       outputPath: string;
+      cameraError?: string | null;
       project?: ProjectState;
     };
 
@@ -79,8 +87,18 @@ function App() {
   const [exportResult, setExportResult] = React.useState<ExportResult | null>(null);
   const [exportMode, setExportMode] = React.useState<ExportMode>('raw');
   const [micSources, setMicSources] = React.useState<MicSource[]>([]);
+  const [systemAudioSources, setSystemAudioSources] = React.useState<AudioSource[]>([]);
+  const [cameraSources, setCameraSources] = React.useState<CameraSource[]>([]);
   const [recordMic, setRecordMic] = React.useState(false);
+  const [recordSystemAudio, setRecordSystemAudio] = React.useState(false);
+  const [recordCamera, setRecordCamera] = React.useState(false);
   const [selectedMicSource, setSelectedMicSource] = React.useState<string>('');
+  const [selectedSystemAudioSource, setSelectedSystemAudioSource] = React.useState<string>('');
+  const [selectedCameraSource, setSelectedCameraSource] = React.useState<string>('');
+  const [captureMode, setCaptureMode] = React.useState<CaptureMode>('display');
+  const [captureRegion, setCaptureRegion] = React.useState<CaptureRegion>({ mode: 'region', x: 0, y: 0, width: 1280, height: 720 });
+  const [recordingActionPending, setRecordingActionPending] = React.useState(false);
+  const recordingActionPendingRef = React.useRef(false);
   const [elapsedMs, setElapsedMs] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -93,6 +111,18 @@ function App() {
         setSelectedMicSource((current) => current || sources[0]?.name || '');
       })
       .catch(() => setMicSources([]));
+    window.roughCut.getSystemAudioSources()
+      .then((sources) => {
+        setSystemAudioSources(sources);
+        setSelectedSystemAudioSource((current) => current || sources[0]?.name || '');
+      })
+      .catch(() => setSystemAudioSources([]));
+    window.roughCut.getCameraSources()
+      .then((sources) => {
+        setCameraSources(sources);
+        setSelectedCameraSource((current) => current || sources[0]?.name || '');
+      })
+      .catch(() => setCameraSources([]));
     return window.roughCut.onExportProgress(setExportProgress);
   }, []);
 
@@ -129,22 +159,50 @@ function App() {
     return () => window.clearInterval(id);
   }, [recording]);
 
+  React.useEffect(() => {
+    if (project?.recording?.camera) setExportMode('styled');
+  }, [project?.recording?.camera]);
+
   async function toggleRecording() {
+    if (recordingActionPendingRef.current) {
+      console.warn('[renderer:recording] ignored duplicate recording action while previous action is pending');
+      return;
+    }
+    recordingActionPendingRef.current = true;
+    setRecordingActionPending(true);
     setError(null);
     try {
       if (recording.state === 'recording') {
+        console.info('[renderer:recording] stop requested');
         const stopped = await window.roughCut.stopRecording();
+        console.info(`[renderer:recording] stop completed ${JSON.stringify(summarizeRecordingStatus(stopped))}`);
         setRecording(stopped);
         if (stopped.state === 'saved' && stopped.project) {
           setProject(stopped.project);
           setExportResult(null);
+        } else if (stopped.state === 'saved') {
+          console.warn('[renderer:recording] saved recording did not include a project payload', stopped);
         }
       } else {
         const micSource = recordMic ? selectedMicSource || null : null;
-        setRecording(await window.roughCut.startRecording({ micSource }));
+        const systemAudioSource = recordSystemAudio ? selectedSystemAudioSource || null : null;
+        const cameraDevicePath = recordCamera ? selectedCameraSource || null : null;
+        const region = captureMode === 'region' ? captureRegion : null;
+        console.info(`[renderer:recording] start requested ${JSON.stringify({
+          hasMic: Boolean(micSource),
+          hasSystemAudio: Boolean(systemAudioSource),
+          cameraDevicePath,
+          captureMode,
+          region,
+        })}`);
+        setRecording(await window.roughCut.startRecording({ micSource, systemAudioSource, cameraDevicePath, captureRegion: region }));
       }
     } catch (err) {
+      console.error('[renderer:recording] recording action failed', err);
       setError(err instanceof Error ? err.message : 'Recording failed.');
+    } finally {
+      recordingActionPendingRef.current = false;
+      setRecordingActionPending(false);
     }
   }
 
@@ -190,8 +248,8 @@ function App() {
             <h1>Recording studio</h1>
           </div>
           <div className="topActions">
-            <button type="button" onClick={toggleRecording} className={recording.state === 'recording' ? 'stop' : ''}>
-              {recording.state === 'recording' ? 'Stop recording' : 'Record'}
+            <button type="button" onClick={toggleRecording} className={recording.state === 'recording' ? 'stop' : ''} disabled={recordingActionPending}>
+              {recordingActionPending ? (recording.state === 'recording' ? 'Stopping...' : 'Starting...') : recording.state === 'recording' ? 'Stop recording' : 'Record'}
             </button>
             <button type="button" onClick={openProject} className="secondary" disabled={recording.state === 'recording'}>
               Open project
@@ -225,9 +283,84 @@ function App() {
               ))
             )}
           </select>
+          <label className="audioToggle">
+            <input
+              type="checkbox"
+              checked={recordSystemAudio}
+              disabled={recording.state === 'recording' || systemAudioSources.length === 0}
+              onChange={(event) => setRecordSystemAudio(event.currentTarget.checked)}
+            />
+            System audio
+          </label>
+          <select
+            value={selectedSystemAudioSource}
+            disabled={recording.state === 'recording' || !recordSystemAudio || systemAudioSources.length === 0}
+            onChange={(event) => setSelectedSystemAudioSource(event.currentTarget.value)}
+            aria-label="System audio source"
+          >
+            {systemAudioSources.length === 0 ? (
+              <option value="">No system audio sources found</option>
+            ) : (
+              systemAudioSources.map((source) => (
+                <option key={source.name} value={source.name}>
+                  {source.label || source.name}{source.state ? ` (${source.state.toLowerCase()})` : ''}
+                </option>
+              ))
+            )}
+          </select>
+          <label className="audioToggle">
+            <input
+              type="checkbox"
+              checked={recordCamera}
+              disabled={recording.state === 'recording' || cameraSources.length === 0}
+              onChange={(event) => setRecordCamera(event.currentTarget.checked)}
+            />
+            Camera
+          </label>
+          <select
+            value={selectedCameraSource}
+            disabled={recording.state === 'recording' || !recordCamera || cameraSources.length === 0}
+            onChange={(event) => setSelectedCameraSource(event.currentTarget.value)}
+            aria-label="Camera source"
+          >
+            {cameraSources.length === 0 ? (
+              <option value="">No camera sources found</option>
+            ) : (
+              cameraSources.map((source) => (
+                <option key={source.name} value={source.name}>
+                  {source.label || source.name}
+                </option>
+              ))
+            )}
+          </select>
+          <label className="audioToggle">
+            Target
+            <select
+              value={captureMode}
+              disabled={recording.state === 'recording'}
+              onChange={(event) => setCaptureMode(event.currentTarget.value as CaptureMode)}
+              aria-label="Capture target"
+            >
+              <option value="display">Full display</option>
+              <option value="region">Region</option>
+            </select>
+          </label>
+          {captureMode === 'region' ? (
+            <div className="regionControls" aria-label="Capture region controls">
+              <NumberField label="X" value={captureRegion.x} disabled={recording.state === 'recording'} onChange={(x) => setCaptureRegion((current) => ({ ...current, x }))} />
+              <NumberField label="Y" value={captureRegion.y} disabled={recording.state === 'recording'} onChange={(y) => setCaptureRegion((current) => ({ ...current, y }))} />
+              <NumberField label="W" value={captureRegion.width} min={2} disabled={recording.state === 'recording'} onChange={(width) => setCaptureRegion((current) => ({ ...current, width }))} />
+              <NumberField label="H" value={captureRegion.height} min={2} disabled={recording.state === 'recording'} onChange={(height) => setCaptureRegion((current) => ({ ...current, height }))} />
+            </div>
+          ) : null}
         </div>
         {recording.state === 'saved' ? (
-          <p className="saved">Recording saved to: {recording.outputPath}</p>
+          <>
+            <p className="saved">Recording saved to: {recording.outputPath}</p>
+            {recording.cameraError ? (
+              <p className="warning">Camera was unavailable, so the screen recording was saved without webcam PiP: {recording.cameraError}</p>
+            ) : null}
+          </>
         ) : null}
         {project ? (
           <ProjectPreview
@@ -244,6 +377,53 @@ function App() {
         <p className="version">Electron app version: {version}</p>
       </section>
     </main>
+  );
+}
+
+function summarizeRecordingStatus(status: RecordingStatus) {
+  if (status.state === 'idle') return { state: status.state };
+  if (status.state === 'recording') {
+    return {
+      state: status.state,
+      outputPath: status.outputPath,
+      cameraDevicePath: status.cameraDevicePath ?? null,
+    };
+  }
+  return {
+    state: status.state,
+    outputPath: status.outputPath,
+    hasProject: Boolean(status.project),
+    projectPath: status.project?.path ?? null,
+    hasMediaUrl: Boolean(status.project?.mediaUrl),
+    cameraError: status.cameraError ?? null,
+  };
+}
+
+function NumberField({
+  label,
+  value,
+  min = 0,
+  disabled = false,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min?: number;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="numberField">
+      {label}
+      <input
+        type="number"
+        min={min}
+        step={1}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(Math.max(min, Math.round(Number(event.currentTarget.value) || min)))}
+      />
+    </label>
   );
 }
 
@@ -644,6 +824,7 @@ function VideoPreview({
   onCurrentTimeChange?: (sec: number) => void;
 }) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const cameraVideoRef = React.useRef<HTMLVideoElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const [duration, setDuration] = React.useState(0);
   const [currentTime, setCurrentTime] = React.useState(0);
@@ -651,9 +832,12 @@ function VideoPreview({
   const [error, setError] = React.useState<string | null>(null);
 
   const src = project.mediaUrl ?? '';
+  const cameraSrc = project.cameraMediaUrl ?? '';
   const sourceWidth = project.recording?.width ?? 1920;
   const sourceHeight = project.recording?.height ?? 1080;
   const fps = project.recording?.fps ?? 30;
+  const cameraSourceInFrames = (project.recording?.camera as { sourceInFrames?: number } | null | undefined)?.sourceInFrames ?? 0;
+  const cameraSourceOffsetSec = Math.max(0, cameraSourceInFrames / fps);
   const aspectRatio = project.document.settings?.aspectRatio ?? 'auto';
   const canvasResolution = getStyledCanvasResolution({ aspectRatio, sourceWidth, sourceHeight });
   const background = getPrimaryRecordingAsset(project.document)?.presentation?.background ?? createDefaultRecordingBackgroundStyle();
@@ -668,6 +852,7 @@ function VideoPreview({
   // Per-frame canvas render loop: drawImage video + zoom transform + cursor.
   React.useEffect(() => {
     const video = videoRef.current;
+    const cameraVideo = cameraVideoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return undefined;
 
@@ -750,24 +935,71 @@ function VideoPreview({
       const cursor = cursorAtFrame(cursorEvents, currentFrame);
       if (cursor) drawCursorPath(ctx, cursor.x, cursor.y);
       ctx.restore();
+      if (cameraVideo && cameraSrc && cameraVideo.readyState >= 2 && frame.cameraPresentation?.visible !== false) {
+        const cameraFrame = resolveCameraFrame(frame.cameraFrame, frame.cameraPresentation, canvasWidth, canvasHeight);
+        const cameraRadius = resolveCameraRadius(frame.cameraPresentation, cameraFrame);
+        ctx.save();
+        if (frame.cameraPresentation?.shadowEnabled !== false) {
+          ctx.shadowColor = `rgba(0, 0, 0, ${frame.cameraPresentation?.shadowOpacity ?? 0.45})`;
+          ctx.shadowBlur = frame.cameraPresentation?.shadowBlur ?? 24;
+          ctx.shadowOffsetY = 8;
+        }
+        addRoundedRect(ctx, cameraFrame.x, cameraFrame.y, cameraFrame.w, cameraFrame.h, cameraRadius);
+        ctx.clip();
+        const cameraSource = coverSourceRect(
+          cameraVideo.videoWidth,
+          cameraVideo.videoHeight,
+          cameraFrame.w,
+          cameraFrame.h,
+        );
+        if (cameraSource) {
+          ctx.drawImage(
+            cameraVideo,
+            cameraSource.sx,
+            cameraSource.sy,
+            cameraSource.sw,
+            cameraSource.sh,
+            cameraFrame.x,
+            cameraFrame.y,
+            cameraFrame.w,
+            cameraFrame.h,
+          );
+        }
+        ctx.restore();
+      }
       rafId = window.requestAnimationFrame(tick);
     }
     rafId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(rafId);
-  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background]);
+  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background, cameraSrc]);
+
+  React.useEffect(() => {
+    const cameraVideo = cameraVideoRef.current;
+    if (!cameraVideo || !cameraSrc) return undefined;
+    const syncCameraStart = () => {
+      cameraVideo.currentTime = cameraSourceOffsetSec;
+    };
+    cameraVideo.addEventListener('loadedmetadata', syncCameraStart);
+    if (cameraVideo.readyState >= 1) syncCameraStart();
+    return () => cameraVideo.removeEventListener('loadedmetadata', syncCameraStart);
+  }, [cameraSrc, cameraSourceOffsetSec]);
 
   async function togglePlayback() {
     const video = videoRef.current;
+    const cameraVideo = cameraVideoRef.current;
     if (!video) return;
 
     if (video.paused) {
       try {
+        if (cameraVideo) cameraVideo.currentTime = video.currentTime + cameraSourceOffsetSec;
         await video.play();
+        await cameraVideo?.play().catch(() => undefined);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Video playback failed.');
       }
     } else {
       video.pause();
+      cameraVideo?.pause();
     }
   }
 
@@ -777,6 +1009,7 @@ function VideoPreview({
     const nextTime = Number(value);
     if (!Number.isFinite(nextTime)) return;
     video.currentTime = nextTime;
+    if (cameraVideoRef.current) cameraVideoRef.current.currentTime = nextTime + cameraSourceOffsetSec;
     setCurrentTime(nextTime);
     onCurrentTimeChange?.(nextTime);
   }
@@ -802,6 +1035,7 @@ function VideoPreview({
           onCurrentTimeChange?.(next);
         }}
       />
+      {cameraSrc ? <video ref={cameraVideoRef} src={cameraSrc} preload="metadata" className="hiddenSource" muted /> : null}
       <canvas
         ref={canvasRef}
         className="styledPreviewCanvas"
@@ -840,6 +1074,45 @@ function videoErrorMessage(video: HTMLVideoElement) {
   return 'Unknown media error.';
 }
 
+function resolveCameraFrame(
+  normalizedFrame: { x: number; y: number; w: number; h: number } | undefined,
+  presentation: { position?: string; size?: number } | undefined,
+  canvasWidth: number,
+  canvasHeight: number,
+) {
+  if (normalizedFrame) {
+    return {
+      x: normalizedFrame.x * canvasWidth,
+      y: normalizedFrame.y * canvasHeight,
+      w: normalizedFrame.w * canvasWidth,
+      h: normalizedFrame.h * canvasHeight,
+    };
+  }
+  const sizeScale = Math.max(0.5, Math.min(2, (presentation?.size ?? 100) / 100));
+  const width = Math.round(Math.min(canvasWidth, canvasHeight) * 0.22 * sizeScale);
+  const height = width;
+  const margin = Math.round(Math.min(canvasWidth, canvasHeight) * 0.06);
+  const position = presentation?.position ?? 'corner-br';
+  const left = position.endsWith('bl') || position.endsWith('tl');
+  const top = position.endsWith('tl') || position.endsWith('tr');
+  if (position === 'center') return { x: (canvasWidth - width) / 2, y: (canvasHeight - height) / 2, w: width, h: height };
+  return {
+    x: left ? margin : canvasWidth - width - margin,
+    y: top ? margin : canvasHeight - height - margin,
+    w: width,
+    h: height,
+  };
+}
+
+function resolveCameraRadius(
+  presentation: { shape?: string; roundness?: number } | undefined,
+  frame: { w: number; h: number },
+) {
+  if (presentation?.shape === 'square') return 0;
+  if (presentation?.shape === 'circle') return Math.min(frame.w, frame.h) / 2;
+  return (Math.min(frame.w, frame.h) / 2) * Math.max(0, Math.min(1, (presentation?.roundness ?? 50) / 100));
+}
+
 function addRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
   const r = Math.max(0, Math.min(radius, width / 2, height / 2));
   ctx.beginPath();
@@ -856,9 +1129,12 @@ function addRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, wid
 }
 
 function statusLabel(recording: RecordingStatus, elapsedMs: number) {
-  if (recording.state === 'recording') return `Recording ${formatElapsed(elapsedMs)}${recording.micSource ? ' with mic' : ''}`;
+  if (recording.state === 'recording') {
+    const extras = [recording.micSource ? 'mic' : null, recording.systemAudioSource ? 'system audio' : null, recording.cameraDevicePath ? 'camera' : null].filter(Boolean).join(' + ');
+    return `Recording ${formatElapsed(elapsedMs)}${extras ? ` with ${extras}` : ''}`;
+  }
   if (recording.state === 'saved') return 'Recording complete.';
-  return 'Primary display. Optional mic audio via PulseAudio.';
+  return 'Primary display. Optional mic, system audio, and V4L2 camera.';
 }
 
 function formatElapsed(ms: number) {

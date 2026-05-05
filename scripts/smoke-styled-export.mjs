@@ -8,6 +8,7 @@ import { createDefaultRecordingPresentation, createZoomMarker } from '../package
 
 const root = await mkdtemp(join(tmpdir(), 'rough-cut-styled-export-'));
 const mediaPath = join(root, 'source.mp4');
+const cameraPath = join(root, 'camera.mp4');
 const exportPath = join(root, 'styled-export.mp4');
 
 await mkdir(root, { recursive: true });
@@ -26,6 +27,22 @@ run('ffmpeg', [
   '-movflags',
   '+faststart',
   mediaPath,
+]);
+run('ffmpeg', [
+  '-y',
+  '-f',
+  'lavfi',
+  '-i',
+  'testsrc2=size=640x480:rate=30',
+  '-t',
+  '2',
+  '-c:v',
+  'libx264',
+  '-pix_fmt',
+  'yuv420p',
+  '-movflags',
+  '+faststart',
+  cameraPath,
 ]);
 
 const startedAt = new Date('2026-01-01T00:00:00.000Z');
@@ -121,6 +138,32 @@ if (!(zoomedBytes > 0) || zoomedResult.byteEqualCandidate || zoomedBytes === exp
 // adding zoom markers does not silently kill cursor rendering.
 assertCursorVisible(zoomedExportPath);
 
+const cameraExportPath = join(root, 'styled-export-camera.mp4');
+const cameraProject = await saveProjectForRecording({
+  ...project.document.assets[0].metadata,
+  startedAt: startedAt.toISOString(),
+  stoppedAt: stoppedAt.toISOString(),
+  rawPath: mediaPath,
+  outputPath: mediaPath,
+  width: 1280,
+  height: 720,
+  fps: 30,
+  cursorEvents: project.document.assets[0].metadata.cursorEvents,
+  camera: {
+    rawPath: cameraPath,
+    outputPath: cameraPath,
+    devicePath: '/dev/video-test',
+    width: 640,
+    height: 480,
+    fps: 30,
+  },
+});
+const cameraResult = await exportProjectToMp4({ project: cameraProject.document, outputPath: cameraExportPath, mode: 'styled' });
+const cameraBytes = (await readFile(cameraExportPath)).length;
+if (!(cameraBytes > 0) || cameraResult.byteEqualCandidate || cameraBytes === exportBytes) {
+  throw new Error(`Camera styled export did not look like a rendered artifact: ${JSON.stringify({ cameraResult, exportBytes, cameraBytes })}`);
+}
+
 console.info(JSON.stringify({
   ok: true,
   root,
@@ -128,10 +171,13 @@ console.info(JSON.stringify({
   exportPath,
   zoomedProjectPath,
   zoomedExportPath,
+  cameraProjectPath: cameraProject.path,
+  cameraExportPath,
   width: stream.width,
   height: stream.height,
   bytes: exportBytes,
   zoomedBytes,
+  cameraBytes,
 }, null, 2));
 
 function buildDemoFixtureFilter() {

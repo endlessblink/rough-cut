@@ -103,6 +103,30 @@ input[type="range"] {
   min-width: min(30rem, 100%);
 }
 
+.recordingStrip .audioToggle select {
+  min-width: 9rem;
+}
+
+.regionControls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.numberField {
+  align-items: center;
+  color: #cabfac;
+  display: flex;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.numberField input {
+  max-width: 5.5rem;
+}
+
 .eyebrow {
   color: #f2a541;
   font-size: 0.72rem;
@@ -298,6 +322,14 @@ h2 {
 
 .saved {
   border-left: 3px solid #f2a541;
+  overflow-wrap: anywhere;
+  padding-left: 1rem;
+}
+
+.warning {
+  border-left: 3px solid #f4c96b;
+  color: #f4d99a;
+  line-height: 1.5;
   overflow-wrap: anywhere;
   padding-left: 1rem;
 }
