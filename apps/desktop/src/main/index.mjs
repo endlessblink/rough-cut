@@ -256,6 +256,12 @@ async function runRendererUiSmoke() {
   const hasStateBanner = Boolean(await waitFor(() => document.querySelector('[data-ui-region="state-banner"]'), 'state banner region'));
   const hasCentralStage = Boolean(await waitFor(() => document.querySelector('[data-ui-region="central-stage"]'), 'central stage region'));
   const hasTimelineRail = Boolean(await waitFor(() => document.querySelector('[data-ui-region="timeline-review-rail"]'), 'timeline rail region'));
+  const hasTimelineScrubber = Boolean(await waitFor(() => document.querySelector('input[aria-label="Scrub timeline"]'), 'timeline scrubber'));
+  const hasTrimHandles = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="screen"] .trimHandleStart') && document.querySelector('[data-timeline-lane="screen"] .trimHandleEnd'), 'timeline trim handles'));
+  const hasZoomLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="zoom"] .timelineRegion'), 'zoom timeline lane'));
+  const hasClickLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="clicks"] .clickMarker'), 'click timeline lane'));
+  const hasCameraLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="camera"] .presenceRegion'), 'camera timeline lane'));
+  const hasAudioLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="audio"] .presenceRegion'), 'audio timeline lane'));
   const hasRightInspector = Boolean(await waitFor(() => document.querySelector('[data-ui-region="right-inspector"]'), 'right inspector region'));
   const hasExportActionsArea = Boolean(await waitFor(() => document.querySelector('[data-ui-region="export-actions-area"]'), 'export actions region'));
   await waitFor(() => video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0, 'video metadata');
@@ -267,10 +273,7 @@ async function runRendererUiSmoke() {
   await waitFor(() => document.body.textContent?.includes('Auto-zoom suggestions'), 'auto-zoom suggestions panel header');
   const hasAutoZoomSuggestionsPanel = true;
   document.querySelector('button[aria-label="Inspector"]')?.click();
-  const exportMode = await waitFor(
-    () => Array.from(document.querySelectorAll('select')).find((select) => select.value === 'raw') ?? null,
-    'raw export mode selection',
-  );
+  const exportMode = await waitFor(() => document.querySelector('[data-export-mode-select="true"]'), 'export mode selection');
   const hasRawPresetDetails = document.body.textContent?.includes('Raw export keeps the original recording unchanged.') ?? false;
   exportMode.value = 'styled';
   exportMode.dispatchEvent(new Event('change', { bubbles: true }));
@@ -314,9 +317,9 @@ async function runRendererUiSmoke() {
   setControlValue(shadowInput, 72);
   await waitFor(() => shadowInput.closest('label')?.querySelector('output')?.textContent === '72', 'shadow size output');
 
-  exportMode.value = 'raw';
+  exportMode.value = 'styled';
   exportMode.dispatchEvent(new Event('change', { bubbles: true }));
-  await waitFor(() => exportMode.value === 'raw', 'raw export mode restored');
+  await waitFor(() => exportMode.value === 'styled', 'styled export mode restored');
 
   const exportButton = await waitFor(
     () => Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Export MP4')),
@@ -347,6 +350,12 @@ async function runRendererUiSmoke() {
     hasStateBanner,
     hasCentralStage,
     hasTimelineRail,
+    hasTimelineScrubber,
+    hasTrimHandles,
+    hasZoomLane,
+    hasClickLane,
+    hasCameraLane,
+    hasAudioLane,
     hasRightInspector,
     hasExportActionsArea,
     hasExportResult: document.body.textContent?.includes('Exported to:') ?? false,

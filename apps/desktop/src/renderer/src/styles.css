@@ -487,7 +487,15 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .emptyPreviewMock span { background: #252936; border-radius: 13px; }
 .emptyPreviewMock span:first-child { background: linear-gradient(90deg, #2563eb, #7c3aed); }
 
-.styledPreview .hiddenSource { height: 1px; left: -9999px; position: absolute; top: -9999px; width: 1px; }
+.styledPreview .hiddenSource {
+  height: 1px;
+  left: 0;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  width: 1px;
+}
 
 .styledPreviewCanvas {
   align-self: center;
@@ -533,7 +541,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   gap: 0.58rem;
   margin: 0;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   padding: 0.72rem 0.85rem;
 }
 
@@ -553,14 +561,52 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .timelineRuler span:not(:first-child) { text-align: center; }
 .timelineRuler span:last-child { text-align: right; }
 
-.clipTrack {
+.timelineTracks {
+  display: grid;
+  gap: 0.28rem;
+  min-height: 0;
+  position: relative;
+}
+
+.timelineScrubber {
+  cursor: pointer;
+  bottom: 0;
+  left: 4.8rem;
+  opacity: 0;
+  position: absolute;
+  top: 0;
+  width: calc(100% - 4.8rem);
+  z-index: 4;
+}
+
+.timelineLane {
+  align-items: stretch;
   background: #101015;
   border: 1px solid #2a2a34;
-  border-radius: 12px;
-  height: 3.2rem;
-  position: relative;
+  border-radius: 10px;
+  display: grid;
+  grid-template-columns: 4.8rem minmax(0, 1fr);
+  min-height: 1.7rem;
   overflow: hidden;
+  position: relative;
 }
+
+.laneLabel {
+  align-items: center;
+  background: #171720;
+  border-right: 1px solid #2a2a34;
+  color: var(--subtle);
+  display: flex;
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  padding: 0 0.58rem;
+  text-transform: uppercase;
+}
+
+.laneTrack { min-width: 0; position: relative; }
+
+.screenLane { min-height: 2.25rem; }
 
 .clipBar {
   align-items: center;
@@ -572,44 +618,75 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   font-size: 0.78rem;
   font-weight: 760;
   gap: 0.35rem;
-  inset: 0.45rem;
+  bottom: 0.35rem;
   justify-content: center;
   position: absolute;
+  top: 0.35rem;
 }
+
+.trimHandle {
+  background: rgb(6 19 38 / 0.64);
+  border: 1px solid rgb(255 255 255 / 0.45);
+  border-radius: 999px;
+  bottom: 0.28rem;
+  position: absolute;
+  top: 0.28rem;
+  width: 0.34rem;
+}
+
+.trimHandleStart { left: 0.34rem; }
+.trimHandleEnd { right: 0.34rem; }
 
 .playhead {
   background: #7aa7ff;
-  bottom: -0.15rem;
+  bottom: -0.2rem;
   box-shadow: 0 0 0 3px rgb(37 99 235 / 0.18);
   position: absolute;
-  top: -0.15rem;
+  top: -0.2rem;
+  transform: translateX(-50%);
   width: 2px;
   z-index: 2;
 }
 
-.markerTrack {
-  background: #101015;
-  border: 1px solid #2a2a34;
-  border-radius: 10px;
-  height: 2.2rem;
-  position: relative;
-}
-
-.markerTrack span {
+.timelineRegion,
+.presenceRegion {
   background: linear-gradient(180deg, #d8b4fe, #8b5cf6);
   border-radius: 8px;
-  bottom: 0.35rem;
+  bottom: 0.28rem;
   position: absolute;
-  top: 0.35rem;
-  transform: translateX(-50%);
-  width: 4rem;
+  top: 0.28rem;
 }
 
-.markerTrack p {
+.autoRegion { background: linear-gradient(180deg, #99f6e4, #14b8a6); }
+.manualRegion { background: linear-gradient(180deg, #d8b4fe, #8b5cf6); }
+
+.clickMarker {
+  background: #f97316;
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px rgb(249 115 22 / 0.18);
+  height: 0.62rem;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 0.62rem;
+}
+
+.presenceRegion {
+  align-items: center;
+  background: #20202a;
+  border: 1px solid #3a3a46;
+  color: var(--muted);
+  display: flex;
+  font-size: 0.72rem;
+  font-weight: 650;
+  justify-content: center;
+}
+
+.laneTrack p {
   color: var(--muted);
   font-size: 0.78rem;
   margin: 0;
-  padding: 0.55rem 0.7rem;
+  padding: 0.42rem 0.58rem;
 }
 
 .zoomMarkerPanel,

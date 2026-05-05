@@ -20,6 +20,7 @@ import {
   removeMarker,
   withDefaultPresentation,
 } from './zoom-markers.mjs';
+import { buildTimelineModel } from './timeline-rail.mjs';
 import { coverSourceRect, cursorAtFrame, drawCursorPath } from './styled-preview.mjs';
 import { generateSuggestionsForProject } from './auto-zoom-suggestions.mjs';
 
@@ -78,6 +79,8 @@ type RecordingStatus =
       cameraError?: string | null;
       project?: ProjectState;
     };
+
+const DEFAULT_RECORDING_BACKGROUND = createDefaultRecordingBackgroundStyle();
 
 function App() {
   const [version, setVersion] = React.useState<string>('loading');
@@ -542,7 +545,7 @@ function ToolRail({ active, onSelect }: { active: ActiveTool; onSelect: (tool: A
 }
 
 function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, aspectRatio = 'auto', disabled = false, onProjectChange, onBackgroundChange, onAspectRatioChange }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; aspectRatio?: ProjectAspectRatio; disabled?: boolean; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void }) {
-  const bg = background ?? createDefaultRecordingBackgroundStyle();
+  const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
 
   if (activeTool === 'timeline') {
     return (
@@ -700,11 +703,13 @@ function ProjectPreview({
   onActiveToolChange: (tool: ActiveTool) => void;
 }) {
   const [currentTimeSec, setCurrentTimeSec] = React.useState(0);
+  const [timelineSeekSec, setTimelineSeekSec] = React.useState(0);
+  const isTimelineScrubbingRef = React.useRef(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
   const aspectRatio = project.document.settings?.aspectRatio ?? 'auto';
   const recordingAsset = getPrimaryRecordingAsset(project.document);
-  const background = recordingAsset?.presentation?.background ?? createDefaultRecordingBackgroundStyle();
+  const background = recordingAsset?.presentation?.background ?? DEFAULT_RECORDING_BACKGROUND;
 
   async function persist(nextDocument: ProjectState['document']) {
     const previous = project;
@@ -742,7 +747,7 @@ function ProjectPreview({
         if (asset.id !== recordingAsset.id) return asset;
         const presentation = withDefaultPresentation(asset.presentation);
         const nextBackground: RecordingBackgroundStyle = {
-          ...createDefaultRecordingBackgroundStyle(),
+          ...DEFAULT_RECORDING_BACKGROUND,
           ...(presentation.background ?? {}),
           ...patch,
         };
@@ -755,6 +760,22 @@ function ProjectPreview({
         };
       }),
     });
+  }
+
+  function handleTimelineScrub(nextTimeSec: number) {
+    setCurrentTimeSec(nextTimeSec);
+    if (isTimelineScrubbingRef.current) return;
+    setTimelineSeekSec(nextTimeSec);
+  }
+
+  function handleTimelineScrubStart() {
+    isTimelineScrubbingRef.current = true;
+  }
+
+  function handleTimelineScrubEnd(nextTimeSec: number) {
+    isTimelineScrubbingRef.current = false;
+    setCurrentTimeSec(nextTimeSec);
+    setTimelineSeekSec(nextTimeSec);
   }
 
   return (
@@ -774,7 +795,7 @@ function ProjectPreview({
           ) : null}
         </div>
         {project.mediaUrl ? (
-          <VideoPreview project={project} onCurrentTimeChange={setCurrentTimeSec} />
+          <VideoPreview project={project} seekTimeSec={timelineSeekSec} onCurrentTimeChange={setCurrentTimeSec} />
         ) : (
           <p>No recording asset found in this project.</p>
         )}
@@ -783,7 +804,7 @@ function ProjectPreview({
           <p className="eyebrow"><Icon name="timeline" /> Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-          {project.recording ? <VisualTimeline project={project} currentTimeSec={currentTimeSec} /> : null}
+          {project.recording ? <VisualTimeline project={project} currentTimeSec={currentTimeSec} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} /> : null}
         </div>
       </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
@@ -795,7 +816,7 @@ function ProjectPreview({
           <p className="eyebrow">Export</p>
           <label className="field">
             Export mode
-            <select value={exportMode} onChange={(event) => onExportModeChange(event.target.value as ExportMode)}>
+            <select data-export-mode-select="true" value={exportMode} onChange={(event) => onExportModeChange(event.target.value as ExportMode)}>
               <option value="raw">Raw recording</option>
               <option value="styled">Styled canvas</option>
             </select>
@@ -829,22 +850,86 @@ function RangeField({ label, value, min, max, step, disabled, onChange }: { labe
   );
 }
 
-function VisualTimeline({ project, currentTimeSec }: { project: ProjectState; currentTimeSec: number }) {
-  const durationSec = Math.max(0.1, project.recording ? project.recording.duration / project.recording.fps : project.document.composition.duration);
-  const progress = Math.min(100, Math.max(0, (currentTimeSec / durationSec) * 100));
-  const markerCount = listMarkers(project.document as unknown as ProjectDocument).length;
+function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScrubEnd }: { project: ProjectState; currentTimeSec: number; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void }) {
+  const model = buildTimelineModel({
+    document: project.document as unknown as ProjectDocument,
+    recording: project.recording,
+    currentTimeSec,
+    cameraMediaUrl: project.cameraMediaUrl,
+  });
+
+  function scrubFromInput(value: string) {
+    const nextTime = Number(value);
+    if (Number.isFinite(nextTime)) onScrub(nextTime);
+  }
+
+  function commitScrub(value: string) {
+    const nextTime = Number(value);
+    if (Number.isFinite(nextTime)) onScrubEnd(nextTime);
+  }
+
   return (
     <div className="visualTimeline" aria-label="Timeline overview">
       <div className="timelineRuler" aria-hidden="true">
-        {Array.from({ length: 7 }).map((_, index) => <span key={index}>{formatClock((durationSec / 6) * index)}</span>)}
+        {model.ticks.map((tick) => <span key={tick}>{formatClock(tick)}</span>)}
       </div>
-      <div className="clipTrack">
-        <span className="clipBar"><Icon name="frame" /> Clip</span>
-        <span className="playhead" style={{ left: `${progress}%` }} />
+      <div className="timelineTracks">
+        <input
+          aria-label="Scrub timeline"
+          className="timelineScrubber"
+          type="range"
+          min="0"
+          max={model.durationSec}
+          step="0.1"
+          value={model.currentTimeSec}
+          onPointerDown={onScrubStart}
+          onPointerUp={(event) => commitScrub(event.currentTarget.value)}
+          onPointerCancel={(event) => commitScrub(event.currentTarget.value)}
+          onKeyDown={onScrubStart}
+          onKeyUp={(event) => commitScrub(event.currentTarget.value)}
+          onInput={(event) => scrubFromInput(event.currentTarget.value)}
+          onChange={(event) => scrubFromInput(event.currentTarget.value)}
+        />
+        <TimelineLane label="Screen" className="screenLane">
+          {model.lanes.screen.map((region) => (
+            <span key={region.id} className="clipBar" style={{ left: `${region.left}%`, width: `${region.width}%` }}>
+              <span className="trimHandle trimHandleStart" aria-hidden="true" />
+              <Icon name="frame" /> Clip
+              <span className="trimHandle trimHandleEnd" aria-hidden="true" />
+            </span>
+          ))}
+        </TimelineLane>
+        <TimelineLane label="Zoom" className="zoomLane">
+          {model.lanes.zoom.length > 0
+            ? model.lanes.zoom.map((region) => <span key={region.id} className={`timelineRegion ${region.kind === 'auto' ? 'autoRegion' : 'manualRegion'}`} title={region.label} style={{ left: `${region.left}%`, width: `${region.width}%` }} />)
+            : <p>No zoom markers yet.</p>}
+        </TimelineLane>
+        <TimelineLane label="Clicks" className="clickLane">
+          {model.lanes.clicks.length > 0
+            ? model.lanes.clicks.map((event) => <span key={event.id} className="clickMarker" style={{ left: `${event.left}%` }} />)
+            : <p>No click events yet.</p>}
+        </TimelineLane>
+        <TimelineLane label="Camera" className="cameraLane">
+          {model.lanes.camera.length > 0
+            ? model.lanes.camera.map((region) => <span key={region.id} className="presenceRegion" style={{ left: `${region.left}%`, width: `${region.width}%` }}>Camera</span>)
+            : <p>No camera track.</p>}
+        </TimelineLane>
+        <TimelineLane label="Audio" className="audioLane">
+          {model.lanes.audio.length > 0
+            ? model.lanes.audio.map((region) => <span key={region.id} className="presenceRegion" style={{ left: `${region.left}%`, width: `${region.width}%` }}>Audio</span>)
+            : <p>No audio track.</p>}
+        </TimelineLane>
+        <span className="playhead" style={{ left: `${model.playheadPercent}%` }} />
       </div>
-      <div className="markerTrack">
-        {markerCount > 0 ? Array.from({ length: markerCount }).map((_, index) => <span key={index} style={{ left: `${((index + 1) / (markerCount + 1)) * 100}%` }} />) : <p>No zoom markers yet.</p>}
-      </div>
+    </div>
+  );
+}
+
+function TimelineLane({ label, className, children }: { label: string; className: string; children: React.ReactNode }) {
+  return (
+    <div className={`timelineLane ${className}`} data-timeline-lane={label.toLowerCase()}>
+      <span className="laneLabel">{label}</span>
+      <div className="laneTrack">{children}</div>
     </div>
   );
 }
@@ -1064,14 +1149,18 @@ function ExportPresetDetails({ mode }: { mode: ExportMode }) {
 
 function VideoPreview({
   project,
+  seekTimeSec,
   onCurrentTimeChange,
 }: {
   project: ProjectState;
+  seekTimeSec?: number;
   onCurrentTimeChange?: (sec: number) => void;
 }) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = React.useRef<HTMLVideoElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const pendingSeekRef = React.useRef<number | null>(null);
+  const seekingRef = React.useRef(false);
   const [duration, setDuration] = React.useState(0);
   const [currentTime, setCurrentTime] = React.useState(0);
   const [isPlaying, setIsPlaying] = React.useState(false);
@@ -1086,14 +1175,51 @@ function VideoPreview({
   const cameraSourceOffsetSec = Math.max(0, cameraSourceInFrames / fps);
   const aspectRatio = project.document.settings?.aspectRatio ?? 'auto';
   const canvasResolution = getStyledCanvasResolution({ aspectRatio, sourceWidth, sourceHeight });
-  const background = getPrimaryRecordingAsset(project.document)?.presentation?.background ?? createDefaultRecordingBackgroundStyle();
+  const background = getPrimaryRecordingAsset(project.document)?.presentation?.background ?? DEFAULT_RECORDING_BACKGROUND;
 
   React.useEffect(() => {
     setDuration(0);
     setCurrentTime(0);
     setIsPlaying(false);
     setError(null);
+    pendingSeekRef.current = null;
+    seekingRef.current = false;
   }, [src]);
+
+  React.useEffect(() => {
+    if (!Number.isFinite(seekTimeSec)) return;
+    pendingSeekRef.current = seekTimeSec ?? 0;
+    if (!seekingRef.current) flushPendingExternalSeek();
+  }, [seekTimeSec, cameraSourceOffsetSec]);
+
+  function flushPendingExternalSeek() {
+    const video = videoRef.current;
+    if (!video) return;
+    const requestedTime = pendingSeekRef.current;
+    if (requestedTime === null) {
+      seekingRef.current = false;
+      return;
+    }
+    const maxTime = video.duration || requestedTime;
+    const nextTime = Math.max(0, Math.min(requestedTime, maxTime));
+    pendingSeekRef.current = null;
+    if (Math.abs(video.currentTime - nextTime) < 0.05) {
+      seekingRef.current = false;
+      return;
+    }
+    seekingRef.current = true;
+    video.currentTime = nextTime;
+    if (cameraVideoRef.current) cameraVideoRef.current.currentTime = nextTime + cameraSourceOffsetSec;
+    setCurrentTime(nextTime);
+  }
+
+  function handleSeekSettled() {
+    if (pendingSeekRef.current !== null) {
+      flushPendingExternalSeek();
+      return;
+    }
+    seekingRef.current = false;
+  }
 
   // Per-frame canvas render loop: drawImage video + zoom transform + cursor.
   React.useEffect(() => {
@@ -1140,6 +1266,10 @@ function VideoPreview({
 
     function tick() {
       if (!video || !canvas || !ctx) return;
+      if (video.seeking || seekingRef.current || video.readyState < 2) {
+        rafId = window.requestAnimationFrame(tick);
+        return;
+      }
       const currentFrame = Math.max(0, Math.round(video.currentTime * fps));
       let frame;
       try {
@@ -1175,9 +1305,7 @@ function VideoPreview({
       ctx.translate(sourceWidth / 2 + offsetX, sourceHeight / 2 + offsetY);
       ctx.scale(scale, scale);
       ctx.translate(-sourceWidth / 2, -sourceHeight / 2);
-      if (video.readyState >= 2) {
-        ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
-      }
+      ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
       const cursor = cursorAtFrame(cursorEvents, currentFrame);
       if (cursor) drawCursorPath(ctx, cursor.x, cursor.y);
       ctx.restore();
@@ -1265,7 +1393,7 @@ function VideoPreview({
       <video
         ref={videoRef}
         src={src}
-        preload="metadata"
+        preload="auto"
         className="hiddenSource"
         onLoadedMetadata={(event) => {
           setDuration(event.currentTarget.duration || 0);
@@ -1274,6 +1402,7 @@ function VideoPreview({
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
         onEnded={() => setIsPlaying(false)}
+        onSeeked={handleSeekSettled}
         onError={(event) => setError(videoErrorMessage(event.currentTarget))}
         onTimeUpdate={(event) => {
           const next = event.currentTarget.currentTime;
@@ -1281,7 +1410,7 @@ function VideoPreview({
           onCurrentTimeChange?.(next);
         }}
       />
-      {cameraSrc ? <video ref={cameraVideoRef} src={cameraSrc} preload="metadata" className="hiddenSource" muted /> : null}
+      {cameraSrc ? <video ref={cameraVideoRef} src={cameraSrc} preload="auto" className="hiddenSource" muted /> : null}
       <canvas
         ref={canvasRef}
         className="styledPreviewCanvas"

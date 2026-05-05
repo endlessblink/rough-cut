@@ -65,7 +65,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-049 | Build Screen Studio-style editor UI foundation | P1 | DONE |
 | TASK-050 | Add guided recording setup surface | P1 | PLANNED |
 | TASK-051 | Add post-recording review workspace | P1 | PLANNED |
-| TASK-052 | Add timeline-first playback and edit rail | P1 | PLANNED |
+| TASK-052 | Add timeline-first playback and edit rail | P1 | DONE |
 | TASK-053 | Add extensible properties inspector system | P1 | PLANNED |
 
 ## Recently Verified
@@ -1251,7 +1251,7 @@ When recording issues happen, the app currently logs details but does not summar
 ### TASK-036 Add long-recording stability smoke
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 #### Context
 
@@ -1278,7 +1278,7 @@ Short smokes catch wiring failures, but a client demo recorder must stay stable 
 ### TASK-037 Add packaged recording acceptance runbook
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -1552,7 +1552,7 @@ After head/tail trim, the next editing primitive is removing a dead section from
 ### TASK-048 Add optional webcam PiP recording and export
 
 **Priority:** P1  
-**Status:** DONE
+**Status:** IN PROGRESS
 
 #### Context
 
@@ -1697,7 +1697,7 @@ After stop, the user should land in a clear review state rather than hunting for
 ### TASK-052 Add timeline-first playback and edit rail
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -1724,11 +1724,13 @@ Zoom markers, trims, cuts, clicks, and camera/audio tracks need a timeline surfa
 
 #### Verification
 
+- 2026-05-05: Added renderer timeline model helpers, deterministic timeline unit coverage, shared preview/timeline scrub state, visible playhead/ruler/duration, screen/zoom/click/camera/audio lanes, non-mutating trim handles, and metadata-backed UI smoke coverage. Fixed scrub flicker by keeping the default background object stable so drag re-renders do not restart and clear the preview canvas render loop. Verified with `pnpm --filter @rough-cut/desktop typecheck`, `node --test apps/desktop/src/renderer/src/timeline-rail.test.mjs`, `pnpm --filter @rough-cut/desktop test`, `pnpm smoke:ui`, and `pnpm visual:scrub`.
 - Unit tests for time-to-pixel mapping and marker placement.
 - UI smoke loads a project with zoom/click/camera metadata and verifies timeline elements render.
 - `pnpm --filter @rough-cut/desktop test`
 - `pnpm --filter @rough-cut/desktop typecheck`
 - `pnpm smoke:ui`
+- `pnpm visual:scrub`
 
 ### TASK-053 Add extensible properties inspector system
 

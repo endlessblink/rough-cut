@@ -1,0 +1,78 @@
+import { listMarkers } from './zoom-markers.mjs';
+
+const DEFAULT_TICK_COUNT = 7;
+
+export function clampTimelineTime(timeSec, durationSec) {
+  if (!Number.isFinite(timeSec)) return 0;
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return Math.max(0, timeSec);
+  return Math.min(durationSec, Math.max(0, timeSec));
+}
+
+export function timeToPercent(timeSec, durationSec) {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return 0;
+  return (clampTimelineTime(timeSec, durationSec) / durationSec) * 100;
+}
+
+export function percentToTime(percent, durationSec) {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return 0;
+  if (!Number.isFinite(percent)) return 0;
+  return (Math.min(100, Math.max(0, percent)) / 100) * durationSec;
+}
+
+export function frameToPercent(frame, fps, durationSec) {
+  if (!Number.isFinite(fps) || fps <= 0) return 0;
+  return timeToPercent(frame / fps, durationSec);
+}
+
+export function frameRangeToPlacement(startFrame, endFrame, fps, durationSec) {
+  const start = frameToPercent(startFrame, fps, durationSec);
+  const end = frameToPercent(endFrame, fps, durationSec);
+  return {
+    left: Math.min(start, end),
+    width: Math.max(0.5, Math.abs(end - start)),
+  };
+}
+
+export function buildTimelineModel({ document, recording, currentTimeSec, cameraMediaUrl }) {
+  const fps = Number.isFinite(recording?.fps) && recording.fps > 0 ? recording.fps : 30;
+  const frameDuration = Number.isFinite(recording?.duration) && recording.duration > 0
+    ? recording.duration
+    : document?.composition?.duration ?? 0;
+  const durationSec = Math.max(0.1, frameDuration / fps);
+  const recordingAsset = getPrimaryAsset(document);
+  const cursorEvents = getCursorEvents(recordingAsset);
+  const clickEvents = cursorEvents.filter((event) => event.type === 'down');
+  const markers = listMarkers(document);
+
+  return {
+    durationSec,
+    currentTimeSec: clampTimelineTime(currentTimeSec, durationSec),
+    playheadPercent: timeToPercent(currentTimeSec, durationSec),
+    ticks: Array.from({ length: DEFAULT_TICK_COUNT }, (_, index) => (durationSec / (DEFAULT_TICK_COUNT - 1)) * index),
+    lanes: {
+      screen: [{ id: 'screen', left: 0, width: 100 }],
+      zoom: markers.map((marker) => ({
+        id: marker.id,
+        kind: marker.kind,
+        label: marker.kind === 'auto' ? 'Auto zoom' : 'Manual zoom',
+        ...frameRangeToPlacement(marker.startFrame, marker.endFrame, fps, durationSec),
+      })),
+      clicks: clickEvents.map((event, index) => ({
+        id: `${event.frame}-${index}`,
+        left: frameToPercent(event.frame, fps, durationSec),
+      })),
+      camera: recording?.camera || cameraMediaUrl ? [{ id: 'camera', left: 0, width: 100 }] : [],
+      audio: recording?.audio ? [{ id: 'audio', left: 0, width: 100 }] : [],
+    },
+  };
+}
+
+function getPrimaryAsset(document) {
+  return document?.assets?.find((asset) => asset.type === 'recording' || asset.type === 'video') ?? null;
+}
+
+function getCursorEvents(asset) {
+  const events = asset?.metadata?.cursorEvents;
+  if (!Array.isArray(events)) return [];
+  return events.filter((event) => Number.isFinite(event?.frame) && typeof event?.type === 'string');
+}

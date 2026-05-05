@@ -4,4 +4,5 @@
 - Keep screen recordings cursor-free at capture time (`x11grab -draw_mouse 0`) and render cursor presentation from telemetry.
 - Do not crop styled exports until zoom/viewport transforms are modeled and applied consistently to both video and cursor.
 - For cursor work, verify with a fresh real recording plus automated smoke coverage; old recordings may not contain telemetry.
+- For visual flicker/regression work, do not rely on sparse screenshots or a few delayed pixel samples. Use Playwright to run an in-page `requestAnimationFrame` monitor that samples the preview canvas every rendered frame during the interaction and for a post-release window; fail on any gray/blank frame and save screenshots only as artifacts.
 - After every completed task, tell the user whether they can test it now. If yes, list the exact commands and/or manual checks. If no, explain what blocks testing and what still needs to happen.
