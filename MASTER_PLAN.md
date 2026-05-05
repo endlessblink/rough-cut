@@ -44,7 +44,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-028 | Add aspect ratio presets for styled exports | P1 | DONE |
 | TASK-029 | Build editor shell and screen presentation controls | P1 | DONE |
 | TASK-030 | Add cursor-follow zoom regression fixtures | P1 | DONE |
-| TASK-031 | Add preview/export parity regression snapshots | P1 | PLANNED |
+| TASK-031 | Add preview/export parity regression snapshots | P1 | DONE |
 | TASK-032 | Add packaged-app visual regression smoke | P2 | PLANNED |
 
 ## Recently Verified
@@ -1067,7 +1067,7 @@ Cursor-follow zoom is sensitive to fast cursor movement, edge positions, zoom-ou
 ### TASK-031 Add preview/export parity regression snapshots
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -1082,9 +1082,10 @@ The renderer preview and styled export both consume shared zoom math, but they s
 
 #### Verification
 
-- `pnpm --filter @rough-cut/frame-resolver test`
-- `pnpm --filter @rough-cut/desktop test`
-- `pnpm smoke:styled-export`
+- `pnpm --filter @rough-cut/frame-resolver test -- -u` — updated the preview render-description inline snapshot.
+- `pnpm --filter @rough-cut/frame-resolver test` — 21/21 pass.
+- `pnpm --filter @rough-cut/desktop test` — 118/118 pass.
+- `pnpm typecheck` — pass.
 
 ### TASK-032 Add packaged-app visual regression smoke
 

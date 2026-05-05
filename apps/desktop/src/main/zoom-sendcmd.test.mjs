@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildZoomSendcmd } from './zoom-sendcmd.mjs';
+import { resolveFrame } from '@rough-cut/frame-resolver';
+import { createAsset, createClip, createDefaultCameraPresentation, createDefaultRecordingBackgroundStyle, createProject, createTrack, createZoomMarker } from '@rough-cut/project-model';
 
 function marker(overrides = {}) {
   return {
@@ -27,6 +29,73 @@ function parseCropWindows(sendcmdContent) {
       h: Number(match[4]),
     };
   });
+}
+
+function cropFromCameraTransform(cameraTransform, sourceWidth, sourceHeight) {
+  const scale = cameraTransform.scale;
+  const w = sourceWidth / scale;
+  const h = sourceHeight / scale;
+  return {
+    x: sourceWidth / 2 - sourceWidth / (2 * scale) - cameraTransform.offsetX / scale,
+    y: sourceHeight / 2 - sourceHeight / (2 * scale) - cameraTransform.offsetY / scale,
+    w,
+    h,
+  };
+}
+
+function parityProject() {
+  const recording = createAsset('recording', '/tmp/parity-source.mp4', {
+    duration: 120,
+    metadata: { width: 1280, height: 720, fps: 30 },
+    presentation: {
+      zoom: {
+        autoIntensity: 0.5,
+        followCursor: true,
+        followAnimation: 'focused',
+        followPadding: 0.25,
+        markers: [
+          createZoomMarker(10, 80, {
+            kind: 'auto',
+            strength: 1,
+            focalPoint: { x: 0.5, y: 0.5 },
+            zoomInDuration: 10,
+            zoomOutDuration: 12,
+          }),
+        ],
+      },
+      cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+      camera: createDefaultCameraPresentation(),
+      background: { ...createDefaultRecordingBackgroundStyle(), bgPadding: 128, bgCornerRadius: 36, bgShadowBlur: 64 },
+    },
+  });
+  const trackId = 'parity-track';
+  const clip = createClip(recording.id, trackId, { timelineIn: 0, timelineOut: 120, sourceIn: 0, sourceOut: 120 });
+  return createProject({
+    settings: {
+      resolution: { width: 1280, height: 720 },
+      frameRate: 30,
+      backgroundColor: '#111111',
+      sampleRate: 48000,
+      destinationPresetId: null,
+      aspectRatio: '16:9',
+    },
+    assets: [recording],
+    composition: { duration: 120, tracks: [createTrack('video', { id: trackId, clips: [clip], index: 0 })], transitions: [] },
+  });
+}
+
+function interpolatedCursorAtFrame(events, frame, sourceWidth, sourceHeight) {
+  if (frame <= events[0].frame) return { x: events[0].x / sourceWidth, y: events[0].y / sourceHeight };
+  const last = events[events.length - 1];
+  if (frame >= last.frame) return { x: last.x / sourceWidth, y: last.y / sourceHeight };
+  const nextIndex = events.findIndex((event) => event.frame > frame);
+  const before = events[nextIndex - 1];
+  const after = events[nextIndex];
+  const t = (frame - before.frame) / (after.frame - before.frame);
+  return {
+    x: (before.x + (after.x - before.x) * t) / sourceWidth,
+    y: (before.y + (after.y - before.y) * t) / sourceHeight,
+  };
 }
 
 test('buildZoomSendcmd returns no fragment when markers is empty', () => {
@@ -270,5 +339,40 @@ test('cursor-follow regression fixture keeps crop windows finite, bounded, and s
   for (let index = 1; index < windows.length; index += 1) {
     assert(Math.abs(windows[index].x - windows[index - 1].x) < 96, `large x jump at frame ${index}`);
     assert(Math.abs(windows[index].y - windows[index - 1].y) < 96, `large y jump at frame ${index}`);
+  }
+});
+
+test('export sendcmd crop windows match preview resolver camera transform', () => {
+  const sourceWidth = 1280;
+  const sourceHeight = 720;
+  const project = parityProject();
+  const recording = project.assets[0];
+  const cursorEvents = [
+    { frame: 0, timeMs: 0, x: 358.4, y: 273.6, type: 'move', button: 0 },
+    { frame: 35, timeMs: 1167, x: 998.4, y: 273.6, type: 'move', button: 0 },
+    { frame: 50, timeMs: 1667, x: 998.4, y: 489.6, type: 'move', button: 0 },
+    { frame: 119, timeMs: 3967, x: 998.4, y: 489.6, type: 'move', button: 0 },
+  ];
+  const result = buildZoomSendcmd({
+    markers: recording.presentation.zoom.markers,
+    cursorEvents,
+    sourceWidth,
+    sourceHeight,
+    fps: 30,
+    totalFrames: 120,
+    presentationOptions: recording.presentation.zoom,
+  });
+  const windows = parseCropWindows(result.sendcmdContent);
+
+  for (const frame of [0, 10, 15, 35, 67, 80]) {
+    const resolved = resolveFrame(project, frame, {
+      getCursorPosition: (_assetId, sourceFrame) => interpolatedCursorAtFrame(cursorEvents, sourceFrame, sourceWidth, sourceHeight),
+    });
+    const expected = cropFromCameraTransform(resolved.cameraTransform, sourceWidth, sourceHeight);
+    const actual = windows[frame];
+    assert.ok(Math.abs(actual.x - expected.x) < 0.01, `x mismatch at frame ${frame}`);
+    assert.ok(Math.abs(actual.y - expected.y) < 0.01, `y mismatch at frame ${frame}`);
+    assert.ok(Math.abs(actual.w - expected.w) < 0.01, `w mismatch at frame ${frame}`);
+    assert.ok(Math.abs(actual.h - expected.h) < 0.01, `h mismatch at frame ${frame}`);
   }
 });

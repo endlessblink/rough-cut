@@ -8,6 +8,8 @@ import {
   createKeyframeTrack,
   createKeyframe,
   createDefaultCameraPresentation,
+  createDefaultRecordingBackgroundStyle,
+  createZoomMarker,
 } from '@rough-cut/project-model';
 import type {
   ProjectDocument,
@@ -52,6 +54,82 @@ function clipAt(timelineIn: number, timelineOut: number, overrides?: Partial<Cli
     sourceOut: timelineOut - timelineIn,
     ...overrides,
   });
+}
+
+function round(value: number): number {
+  return Number(value.toFixed(3));
+}
+
+function parityFixtureProject(): ProjectDocument {
+  const recording = createAsset('recording', '/tmp/parity-source.mp4', {
+    duration: 120,
+    metadata: { width: 1280, height: 720, fps: 30 },
+    presentation: {
+      zoom: {
+        autoIntensity: 0.5,
+        followCursor: true,
+        followAnimation: 'focused',
+        followPadding: 0.25,
+        markers: [
+          createZoomMarker(10, 80, {
+            kind: 'auto',
+            strength: 1,
+            focalPoint: { x: 0.5, y: 0.5 },
+            zoomInDuration: 10,
+            zoomOutDuration: 12,
+          }),
+        ],
+      },
+      cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+      camera: createDefaultCameraPresentation(),
+      background: { ...createDefaultRecordingBackgroundStyle(), bgPadding: 128, bgCornerRadius: 36, bgShadowBlur: 64 },
+    },
+  });
+  const trackId = 'parity-track' as TrackId;
+  const clip = createClip(recording.id, trackId, {
+    timelineIn: 0,
+    timelineOut: 120,
+    sourceIn: 0,
+    sourceOut: 120,
+  });
+  return createProject({
+    settings: {
+      resolution: { width: 1280, height: 720 },
+      frameRate: 30,
+      backgroundColor: '#111111',
+      sampleRate: 48000,
+      destinationPresetId: null,
+      aspectRatio: '16:9',
+    },
+    assets: [recording],
+    composition: {
+      duration: 120,
+      tracks: [createTrack('video', { id: trackId, clips: [clip], index: 0 })],
+      transitions: [],
+    },
+  });
+}
+
+function parityCursorAtFrame(frame: number): { x: number; y: number } {
+  const sourceWidth = 1280;
+  const sourceHeight = 720;
+  const events = [
+    { frame: 0, x: 358.4, y: 273.6 },
+    { frame: 35, x: 998.4, y: 273.6 },
+    { frame: 50, x: 998.4, y: 489.6 },
+    { frame: 119, x: 998.4, y: 489.6 },
+  ];
+  if (frame <= events[0]!.frame) return { x: events[0]!.x / sourceWidth, y: events[0]!.y / sourceHeight };
+  const last = events[events.length - 1]!;
+  if (frame >= last.frame) return { x: last.x / sourceWidth, y: last.y / sourceHeight };
+  const nextIndex = events.findIndex((event) => event.frame > frame);
+  const before = events[nextIndex - 1]!;
+  const after = events[nextIndex]!;
+  const t = (frame - before.frame) / (after.frame - before.frame);
+  return {
+    x: (before.x + (after.x - before.x) * t) / sourceWidth,
+    y: (before.y + (after.y - before.y) * t) / sourceHeight,
+  };
 }
 
 // --- tests ---
@@ -183,6 +261,118 @@ describe('resolveFrame', () => {
     expect(result.layers[0]?.isCamera).toBe(false);
     expect(result.layers[1]?.isCamera).toBe(true);
     expect(result.layers[1]?.trackIndex).toBeLessThan(result.layers[0]!.trackIndex);
+  });
+
+  it('captures readable preview render descriptions for export parity frames', () => {
+    const project = parityFixtureProject();
+    const descriptions = [0, 10, 15, 35, 67, 80].map((frame) => {
+      const resolved = resolveFrame(project, frame, {
+        getCursorPosition: (_assetId, sourceFrame) => parityCursorAtFrame(sourceFrame),
+      });
+      return {
+        frame,
+        sourceFrame: resolved.layers[0]?.sourceFrame,
+        camera: {
+          scale: round(resolved.cameraTransform.scale),
+          offsetX: round(resolved.cameraTransform.offsetX),
+          offsetY: round(resolved.cameraTransform.offsetY),
+        },
+        background: {
+          padding: resolved.background?.bgPadding,
+          radius: resolved.background?.bgCornerRadius,
+          shadowBlur: resolved.background?.bgShadowBlur,
+        },
+      };
+    });
+
+    expect(descriptions).toMatchInlineSnapshot(`
+      [
+        {
+          "background": {
+            "padding": 128,
+            "radius": 36,
+            "shadowBlur": 64,
+          },
+          "camera": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "scale": 1,
+          },
+          "frame": 0,
+          "sourceFrame": 0,
+        },
+        {
+          "background": {
+            "padding": 128,
+            "radius": 36,
+            "shadowBlur": 64,
+          },
+          "camera": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "scale": 1,
+          },
+          "frame": 10,
+          "sourceFrame": 10,
+        },
+        {
+          "background": {
+            "padding": 128,
+            "radius": 36,
+            "shadowBlur": 64,
+          },
+          "camera": {
+            "offsetX": 103.68,
+            "offsetY": 90.72,
+            "scale": 1.75,
+          },
+          "frame": 15,
+          "sourceFrame": 15,
+        },
+        {
+          "background": {
+            "padding": 128,
+            "radius": 36,
+            "shadowBlur": 64,
+          },
+          "camera": {
+            "offsetX": -859.195,
+            "offsetY": 257.547,
+            "scale": 2.5,
+          },
+          "frame": 35,
+          "sourceFrame": 35,
+        },
+        {
+          "background": {
+            "padding": 128,
+            "radius": 36,
+            "shadowBlur": 64,
+          },
+          "camera": {
+            "offsetX": -960,
+            "offsetY": -383.4,
+            "scale": 2.5,
+          },
+          "frame": 67,
+          "sourceFrame": 67,
+        },
+        {
+          "background": {
+            "padding": 128,
+            "radius": 36,
+            "shadowBlur": 64,
+          },
+          "camera": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "scale": 1,
+          },
+          "frame": 80,
+          "sourceFrame": 80,
+        },
+      ]
+    `);
   });
 
   it('clip with static effects — gaussian-blur with radius=10 → layer has 1 resolved effect', () => {
