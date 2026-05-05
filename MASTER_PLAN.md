@@ -43,7 +43,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-027 | Cursor-follow zoom (preview + export, parity-preserving) | P1 | DONE |
 | TASK-028 | Add aspect ratio presets for styled exports | P1 | DONE |
 | TASK-029 | Build editor shell and screen presentation controls | P1 | DONE |
-| TASK-030 | Add cursor-follow zoom regression fixtures | P1 | PLANNED |
+| TASK-030 | Add cursor-follow zoom regression fixtures | P1 | DONE |
 | TASK-031 | Add preview/export parity regression snapshots | P1 | PLANNED |
 | TASK-032 | Add packaged-app visual regression smoke | P2 | PLANNED |
 
@@ -1035,10 +1035,10 @@ The one-page MVP UI stopped scaling once mic capture, aspect ratios, zoom contro
 - `pnpm smoke:styled-export`
 - Manual app verification: export flow completes; preview/export controls are usable enough to move to regression hardening.
 
-### TASK-030 Add cursor-follow zoom regression fixtures
+### ~~TASK-030~~ Add cursor-follow zoom regression fixtures
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -1052,10 +1052,17 @@ Cursor-follow zoom is sensitive to fast cursor movement, edge positions, zoom-ou
 - Assert generated FFmpeg `sendcmd` crop windows stay finite, bounded, and free of sudden frame-to-frame jumps above an explicit threshold.
 - Include at least one regression that fails with the old hard visibility-guard snapping behavior.
 
+#### Completion Notes
+
+- Added deterministic cursor-follow fixture coverage in `packages/timeline-engine/src/zoom-transform.test.ts` for fast horizontal movement, fast diagonal movement, near-edge movement, pause/resume, and off-screen multi-monitor coordinates.
+- Added a viewport-containment helper so fixtures assert in-source cursor positions remain visible during hold phases once the camera has had time to follow.
+- Kept the existing zoom-out freeze regression and added coverage that off-screen cursor coordinates produce finite, source-bounded focal points rather than clamping raw cursor positions.
+- Added `apps/desktop/src/main/zoom-sendcmd.test.mjs` crop-window parsing and a regression fixture that asserts generated FFmpeg `sendcmd` windows remain finite, bounded by source dimensions, and smooth frame-to-frame under continuous cursor movement with pause/resume.
+
 #### Verification
 
-- `pnpm --filter @rough-cut/timeline-engine test`
-- `pnpm --filter @rough-cut/desktop test`
+- `pnpm --filter @rough-cut/timeline-engine test` — 178/178 pass.
+- `pnpm --filter @rough-cut/desktop test` — 117/117 pass.
 
 ### TASK-031 Add preview/export parity regression snapshots
 

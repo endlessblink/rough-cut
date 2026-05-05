@@ -16,6 +16,19 @@ function marker(overrides = {}) {
   };
 }
 
+function parseCropWindows(sendcmdContent) {
+  return sendcmdContent.trim().split('\n').map((line) => {
+    const match = /crop x ([\-0-9.]+), crop y ([\-0-9.]+), crop w ([\-0-9.]+), crop h ([\-0-9.]+)/.exec(line);
+    assert.ok(match, `expected crop command: ${line}`);
+    return {
+      x: Number(match[1]),
+      y: Number(match[2]),
+      w: Number(match[3]),
+      h: Number(match[4]),
+    };
+  });
+}
+
 test('buildZoomSendcmd returns no fragment when markers is empty', () => {
   const result = buildZoomSendcmd({
     markers: [],
@@ -209,4 +222,53 @@ test('emitted sendcmd content ends with a newline and has no leading blank line'
   });
   assert.match(result.sendcmdContent, /^[0-9]/);
   assert.match(result.sendcmdContent, /\n$/);
+});
+
+test('cursor-follow regression fixture keeps crop windows finite, bounded, and smooth', () => {
+  const sourceWidth = 1280;
+  const sourceHeight = 720;
+  const cursorEvents = [];
+  for (let frame = 0; frame < 90; frame += 1) {
+    const pausePoint = 34 / 56;
+    const pausedT = frame < 34
+      ? frame / 56
+      : frame < 56
+        ? pausePoint
+        : pausePoint + ((frame - 56) / 33) * (1 - pausePoint);
+    cursorEvents.push({
+      frame,
+      timeMs: Math.round((frame / 30) * 1000),
+      x: 220 + (1120 - 220) * pausedT,
+      y: 160 + (620 - 160) * pausedT,
+      type: 'move',
+      button: 0,
+    });
+  }
+  const result = buildZoomSendcmd({
+    markers: [marker({ kind: 'auto', startFrame: 0, endFrame: 90, zoomInDuration: 0, zoomOutDuration: 0 })],
+    cursorEvents,
+    sourceWidth,
+    sourceHeight,
+    fps: 30,
+    totalFrames: 90,
+    presentationOptions: { followCursor: true, followAnimation: 'focused', followPadding: 0.25 },
+  });
+
+  const windows = parseCropWindows(result.sendcmdContent);
+  for (const window of windows) {
+    assert(Number.isFinite(window.x));
+    assert(Number.isFinite(window.y));
+    assert(Number.isFinite(window.w));
+    assert(Number.isFinite(window.h));
+    assert(window.x >= 0);
+    assert(window.y >= 0);
+    assert(window.w > 0 && window.w <= sourceWidth);
+    assert(window.h > 0 && window.h <= sourceHeight);
+    assert(window.x + window.w <= sourceWidth + 0.01);
+    assert(window.y + window.h <= sourceHeight + 0.01);
+  }
+  for (let index = 1; index < windows.length; index += 1) {
+    assert(Math.abs(windows[index].x - windows[index - 1].x) < 96, `large x jump at frame ${index}`);
+    assert(Math.abs(windows[index].y - windows[index - 1].y) < 96, `large y jump at frame ${index}`);
+  }
 });

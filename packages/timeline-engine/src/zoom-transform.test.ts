@@ -14,6 +14,18 @@ function focalFromTransform(transform: { scale: number; translateX: number; tran
   };
 }
 
+function cursorInsideVisibleWindow(transform: { scale: number; translateX: number; translateY: number }, cursor: { x: number; y: number }) {
+  const focal = focalFromTransform(transform);
+  const halfVisibleWidth = 1 / (2 * transform.scale);
+  const halfVisibleHeight = 1 / (2 * transform.scale);
+  return (
+    cursor.x >= focal.x - halfVisibleWidth &&
+    cursor.x <= focal.x + halfVisibleWidth &&
+    cursor.y >= focal.y - halfVisibleHeight &&
+    cursor.y <= focal.y + halfVisibleHeight
+  );
+}
+
 describe('smootherStep', () => {
   it('returns 0 at t=0', () => {
     expect(smootherStep(0)).toBe(0);
@@ -266,6 +278,78 @@ describe('getZoomTransformForMarker', () => {
     const cursor = cursorAtFrame(frame);
     expect(cursor.x).toBeGreaterThanOrEqual(focal.x - halfVisibleWidth);
     expect(cursor.x).toBeLessThanOrEqual(focal.x + halfVisibleWidth);
+  });
+
+  it('keeps deterministic cursor-follow fixtures inside the visible zoom window', () => {
+    const marker = createZoomMarker(0, 90, {
+      kind: 'auto',
+      strength: 1,
+      zoomInDuration: 0,
+      zoomOutDuration: 0,
+      focalPoint: { x: 0.5, y: 0.5 },
+    });
+    const fixtures = [
+      {
+        name: 'fast horizontal',
+        cursorAtFrame: (frame: number) => ({ x: frame < 20 ? 0.18 : 0.9, y: 0.5 }),
+        frames: [28, 36, 48],
+      },
+      {
+        name: 'fast diagonal',
+        cursorAtFrame: (frame: number) => ({ x: frame < 20 ? 0.2 : 0.86, y: frame < 20 ? 0.25 : 0.78 }),
+        frames: [28, 36, 52],
+      },
+      {
+        name: 'pause and resume',
+        cursorAtFrame: (frame: number) => ({ x: frame < 24 ? 0.32 : frame < 48 ? 0.68 : 0.82, y: 0.58 }),
+        frames: [30, 46, 58],
+      },
+      {
+        name: 'near edge',
+        cursorAtFrame: () => ({ x: 0.96, y: 0.08 }),
+        frames: [16, 30, 44],
+      },
+    ];
+
+    for (const fixture of fixtures) {
+      for (const frame of fixture.frames) {
+        const transform = getZoomTransformForMarker(frame, marker, {
+          followCursor: true,
+          followAnimation: 'focused',
+          followPadding: 0.25,
+          fps: 30,
+          getCursorPosition: fixture.cursorAtFrame,
+        });
+        expect(transform, fixture.name).not.toBeNull();
+        expect(cursorInsideVisibleWindow(transform!, fixture.cursorAtFrame(frame)), fixture.name).toBe(true);
+      }
+    }
+  });
+
+  it('keeps off-screen cursor-follow focal points finite and source bounded', () => {
+    const marker = createZoomMarker(0, 90, {
+      kind: 'auto',
+      strength: 1,
+      zoomInDuration: 0,
+      zoomOutDuration: 0,
+      focalPoint: { x: 0.5, y: 0.5 },
+    });
+    const transform = getZoomTransformForMarker(40, marker, {
+      followCursor: true,
+      followAnimation: 'focused',
+      followPadding: 0.25,
+      fps: 30,
+      getCursorPosition: () => ({ x: 1.25, y: -0.2 }),
+    });
+
+    expect(transform).not.toBeNull();
+    const focal = focalFromTransform(transform!);
+    expect(Number.isFinite(focal.x)).toBe(true);
+    expect(Number.isFinite(focal.y)).toBe(true);
+    expect(focal.x).toBeGreaterThanOrEqual(0.2);
+    expect(focal.x).toBeLessThanOrEqual(0.8);
+    expect(focal.y).toBeGreaterThanOrEqual(0.2);
+    expect(focal.y).toBeLessThanOrEqual(0.8);
   });
 });
 
