@@ -1379,6 +1379,7 @@ function resolveTrimInfo(clip: PrimaryClip | null, totalFrames: number, fps: num
 function RangeField({ label, value, min, max, step, disabled, onChange }: { label: string; value: number; min: number; max: number; step: number; disabled?: boolean; onChange: (value: number) => void }) {
   const [draftValue, setDraftValue] = React.useState(value);
   const isEditingRef = React.useRef(false);
+  const rangeProgress = Math.max(0, Math.min(100, ((draftValue - min) / Math.max(1, max - min)) * 100));
 
   React.useEffect(() => {
     if (!isEditingRef.current) setDraftValue(value);
@@ -1393,21 +1394,27 @@ function RangeField({ label, value, min, max, step, disabled, onChange }: { labe
   return (
     <label className="rangeField">
       <span>{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={draftValue}
-        disabled={disabled}
-        onPointerDown={() => { isEditingRef.current = true; }}
-        onInput={(event) => setDraftValue(Number(event.currentTarget.value))}
-        onChange={(event) => setDraftValue(Number(event.currentTarget.value))}
-        onPointerUp={(event) => commit(Number(event.currentTarget.value))}
-        onBlur={(event) => commit(Number(event.currentTarget.value))}
-        onKeyUp={(event) => commit(Number(event.currentTarget.value))}
-        onWheelCapture={preventRangeWheelChange}
-      />
+      <span className="rangeControl" style={{ '--range-progress': `${rangeProgress}%` } as React.CSSProperties}>
+        <span className="rangeVisual" aria-hidden="true">
+          <span className="rangeFill" />
+          <span className="rangeThumb" />
+        </span>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={draftValue}
+          disabled={disabled}
+          onPointerDown={() => { isEditingRef.current = true; }}
+          onInput={(event) => setDraftValue(Number(event.currentTarget.value))}
+          onChange={(event) => setDraftValue(Number(event.currentTarget.value))}
+          onPointerUp={(event) => commit(Number(event.currentTarget.value))}
+          onBlur={(event) => commit(Number(event.currentTarget.value))}
+          onKeyUp={(event) => commit(Number(event.currentTarget.value))}
+          onWheelCapture={preventRangeWheelChange}
+        />
+      </span>
       <output>{draftValue}</output>
     </label>
   );

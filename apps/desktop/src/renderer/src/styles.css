@@ -13,6 +13,16 @@
   --line: #282832;
   --strong-line: #33333f;
   --shadow: 0 24px 82px rgb(0 0 0 / 0.45);
+  --control-range-height: 1.45rem;
+  --control-range-track-height: 0.58rem;
+  --control-range-thumb-size: 0.95rem;
+  --control-range-track: #0f0f15;
+  --control-range-track-border: rgb(255 255 255 / 0.08);
+  --control-range-fill-start: #93c5fd;
+  --control-range-fill-end: #3b82f6;
+  --control-range-thumb-start: #ffffff;
+  --control-range-thumb-end: #d8dee9;
+  --control-range-thumb-border: rgb(15 23 42 / 0.45);
   color: var(--text);
   background: var(--bg);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -998,9 +1008,110 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   gap: 0.36rem;
 }
 
-.rangeField { grid-template-columns: 1fr auto; }
-.rangeField input { grid-column: 1 / -1; width: 100%; }
-.rangeField output { color: var(--text); font-variant-numeric: tabular-nums; }
+.rangeField {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.rangeField span { align-self: center; }
+
+.rangeControl {
+  --range-progress: 0%;
+  grid-column: 1 / -1;
+  height: var(--control-range-height);
+  margin: -0.05rem 0 0.08rem;
+  min-width: 0;
+  position: relative;
+  width: 100%;
+}
+
+.rangeVisual {
+  background: var(--control-range-track);
+  border: 1px solid var(--control-range-track-border);
+  border-radius: 999px;
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.72), 0 1px 0 rgb(255 255 255 / 0.04);
+  height: var(--control-range-track-height);
+  left: 0;
+  overflow: visible;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.rangeFill {
+  background: linear-gradient(180deg, var(--control-range-fill-start), var(--control-range-fill-end));
+  border-radius: 999px;
+  bottom: 0;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.28), 0 0 10px rgb(59 130 246 / 0.22);
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: var(--range-progress);
+}
+
+.rangeThumb {
+  background: linear-gradient(180deg, var(--control-range-thumb-start), var(--control-range-thumb-end));
+  border: 1px solid var(--control-range-thumb-border);
+  border-radius: 999px;
+  box-shadow: 0 2px 7px rgb(0 0 0 / 0.42), 0 0 0 4px rgb(37 99 235 / 0.12);
+  height: var(--control-range-thumb-size);
+  left: var(--range-progress);
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: var(--control-range-thumb-size);
+}
+
+.rangeControl input[type="range"] {
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  height: 100%;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.rangeControl input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  height: var(--control-range-height);
+  width: var(--control-range-height);
+}
+
+.rangeControl input[type="range"]::-moz-range-thumb {
+  border: 0;
+  height: var(--control-range-height);
+  width: var(--control-range-height);
+}
+
+.rangeControl:has(input[type="range"]:hover:not(:disabled)) .rangeThumb,
+.rangeControl:has(input[type="range"]:focus-visible) .rangeThumb {
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.5), 0 0 0 5px rgb(59 130 246 / 0.18);
+}
+
+.rangeControl:has(input[type="range"]:focus-visible) .rangeVisual {
+  border-color: rgb(147 197 253 / 0.34);
+}
+
+.rangeControl:has(input[type="range"]:disabled) {
+  filter: grayscale(0.35);
+  opacity: 0.58;
+}
+
+.rangeControl input[type="range"]:disabled {
+  cursor: not-allowed;
+}
+
+.rangeField output {
+  align-self: center;
+  color: #f4f6fb;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 2rem;
+  text-align: right;
+}
 .toggleField { color: #eeeef2; gap: 0.42rem; font-size: 0.82rem; font-weight: 610; }
 
 .actionsArea { display: grid; gap: 0.55rem; justify-items: start; }

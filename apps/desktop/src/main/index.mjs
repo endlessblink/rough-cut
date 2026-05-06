@@ -597,6 +597,22 @@ async function runRendererUiSmoke() {
 
   const paddingInput = await waitFor(() => inputByLabel('Padding'), 'padding control');
   await waitForEnabled(paddingInput, 'padding control');
+  const paddingRangeLabel = paddingInput.closest('label');
+  const rangeControl = paddingRangeLabel?.querySelector('.rangeControl');
+  const rangeVisual = paddingRangeLabel?.querySelector('.rangeVisual');
+  const rangeFill = paddingRangeLabel?.querySelector('.rangeFill');
+  const rangeThumb = paddingRangeLabel?.querySelector('.rangeThumb');
+  const rangeVisualStyle = rangeVisual ? getComputedStyle(rangeVisual) : null;
+  const hasCustomRangeSkin = Boolean(
+    rangeControl
+      && rangeVisual
+      && rangeFill
+      && rangeThumb
+      && rangeControl.contains(paddingInput)
+      && rangeVisualStyle
+      && rangeVisualStyle.backgroundColor !== 'rgba(0, 0, 0, 0)'
+      && rangeVisualStyle.borderRadius !== '0px',
+  );
   setControlValue(paddingInput, 96);
   await waitFor(() => paddingInput.closest('label')?.querySelector('output')?.textContent === '96', 'padding output');
 
@@ -652,6 +668,7 @@ async function runRendererUiSmoke() {
     hasBackgroundPresetSelection,
     hasNoInactiveBackgroundTabs,
     hasBackgroundShadowControls,
+    hasCustomRangeSkin,
     hasZoomMarkerPanel,
     hasTimelineZoomControlPanel,
     hasZoomResizeHandles,
