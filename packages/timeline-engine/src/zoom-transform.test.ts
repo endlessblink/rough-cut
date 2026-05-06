@@ -231,6 +231,66 @@ describe('getZoomTransformForMarker', () => {
     expect(focalFromTransform(t!).x).toBeLessThan(0.5);
   });
 
+  it('keeps the zoom-in focal stable even when the cursor moves during the ramp', () => {
+    const marker = createZoomMarker(0, 60, {
+      kind: 'auto',
+      strength: 1,
+      zoomInDuration: 20,
+      zoomOutDuration: 0,
+      focalPoint: { x: 0.5, y: 0.5 },
+    });
+    const baseOptions = {
+      followCursor: true,
+      followAnimation: 'focused' as const,
+      followPadding: 0.25,
+      fps: 30,
+    };
+
+    const leftDuringRamp = getZoomTransformForMarker(10, marker, {
+      ...baseOptions,
+      getCursorPosition: (frame: number) => (frame === 0 ? { x: 0.7, y: 0.5 } : { x: 0.2, y: 0.5 }),
+    });
+    const rightDuringRamp = getZoomTransformForMarker(10, marker, {
+      ...baseOptions,
+      getCursorPosition: (frame: number) => (frame === 0 ? { x: 0.7, y: 0.5 } : { x: 0.9, y: 0.5 }),
+    });
+
+    expect(leftDuringRamp).not.toBeNull();
+    expect(rightDuringRamp).not.toBeNull();
+    expect(focalFromTransform(leftDuringRamp!).x).toBeCloseTo(focalFromTransform(rightDuringRamp!).x, 5);
+    expect(leftDuringRamp!.translateX).toBeCloseTo(rightDuringRamp!.translateX, 5);
+  });
+
+  it('keeps the zoom-out focal stable even when the cursor moves during the ramp', () => {
+    const marker = createZoomMarker(0, 60, {
+      kind: 'auto',
+      strength: 1,
+      zoomInDuration: 0,
+      zoomOutDuration: 15,
+      focalPoint: { x: 0.5, y: 0.5 },
+    });
+    const baseOptions = {
+      followCursor: true,
+      followAnimation: 'focused' as const,
+      followPadding: 0.25,
+      fps: 30,
+    };
+
+    const leftDuringRamp = getZoomTransformForMarker(52, marker, {
+      ...baseOptions,
+      getCursorPosition: (frame: number) => (frame < 45 ? { x: 0.7, y: 0.5 } : { x: 0.2, y: 0.5 }),
+    });
+    const rightDuringRamp = getZoomTransformForMarker(52, marker, {
+      ...baseOptions,
+      getCursorPosition: (frame: number) => (frame < 45 ? { x: 0.7, y: 0.5 } : { x: 0.9, y: 0.5 }),
+    });
+
+    expect(leftDuringRamp).not.toBeNull();
+    expect(rightDuringRamp).not.toBeNull();
+    expect(focalFromTransform(leftDuringRamp!).x).toBeCloseTo(focalFromTransform(rightDuringRamp!).x, 5);
+    expect(leftDuringRamp!.translateX).toBeCloseTo(rightDuringRamp!.translateX, 5);
+  });
+
   it('ignores tiny cursor target wobble during hold', () => {
     const marker = createZoomMarker(0, 90, {
       kind: 'auto',

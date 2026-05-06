@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, screen } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, Tray } from 'electron';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +33,11 @@ protocol.registerSchemesAsPrivileged([
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const recordingsDir = join(app.getPath('documents'), 'Rough Cut MVP', 'recordings');
 const markerPath = join(app.getPath('userData'), 'recording-recovery.json');
+const recordingStopShortcut = 'CommandOrControl+Shift+R';
+const recordingRestartShortcut = 'CommandOrControl+Shift+N';
+let hiddenRecorderWindow = null;
+let recordingTray = null;
+let hiddenRecordingOptions = null;
 const recordingSession = createRecordingSession({
   recordingsDir,
   markerPath,
@@ -44,12 +49,16 @@ const recordingSession = createRecordingSession({
   getCursorPoint: () => readCursorViaXdotool() ?? screen.getCursorScreenPoint(),
 });
 
-function createMainWindow() {
+function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
+  const isRecorder = mode === 'recorder';
   const window = new BrowserWindow({
-    width: 1120,
-    height: 740,
-    minWidth: 860,
-    minHeight: 560,
+    width: isRecorder ? 390 : 1120,
+    height: isRecorder ? 300 : 740,
+    minWidth: isRecorder ? 360 : 860,
+    minHeight: isRecorder ? 260 : 560,
+    resizable: !isRecorder,
+    maximizable: !isRecorder,
+    autoHideMenuBar: true,
     title: 'Rough Cut MVP',
     backgroundColor: '#16120f',
     webPreferences: {
@@ -132,46 +141,79 @@ function createMainWindow() {
     });
   }
 
-  const rendererProjectPath = process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;
-  const shouldLoadBuiltRenderer = process.env.ROUGH_CUT_LOAD_BUILT_RENDERER === '1' || process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH;
-
-  if (process.env.VITE_DEV_SERVER_URL) {
-    const url = new URL(process.env.VITE_DEV_SERVER_URL);
-    if (rendererProjectPath) url.searchParams.set('projectPath', rendererProjectPath);
-    window.loadURL(url.toString());
-  } else if (!app.isPackaged) {
-    if (shouldLoadBuiltRenderer) {
-      window.loadFile(
-        join(__dirname, '../../dist/renderer/index.html'),
-        rendererProjectPath ? { search: `?projectPath=${encodeURIComponent(rendererProjectPath)}` } : undefined,
-      );
-    } else {
-      window.loadURL('http://127.0.0.1:7545');
-    }
-  } else {
-    window.loadFile(
-      join(__dirname, '../../dist/renderer/index.html'),
-      rendererProjectPath ? { search: `?projectPath=${encodeURIComponent(rendererProjectPath)}` } : undefined,
-    );
-  }
+  loadRenderer(window, { mode, projectPath: projectPath || process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null });
 
   return window;
 }
 
+function rendererSearch({ mode = 'editor', projectPath = null } = {}) {
+  const params = new URLSearchParams();
+  if (projectPath) params.set('projectPath', projectPath);
+  if (mode === 'recorder') params.set('mode', 'recorder');
+  const value = params.toString();
+  return value ? `?${value}` : undefined;
+}
+
+function loadRenderer(window, { mode = 'editor', projectPath = null } = {}) {
+  const search = rendererSearch({ mode, projectPath });
+  const shouldLoadBuiltRenderer = process.env.ROUGH_CUT_LOAD_BUILT_RENDERER === '1' || process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH;
+
+  if (process.env.VITE_DEV_SERVER_URL) {
+    const url = new URL(process.env.VITE_DEV_SERVER_URL);
+    if (projectPath) url.searchParams.set('projectPath', projectPath);
+    if (mode === 'recorder') url.searchParams.set('mode', 'recorder');
+    window.loadURL(url.toString());
+  } else if (!app.isPackaged) {
+    if (shouldLoadBuiltRenderer) {
+      window.loadFile(join(__dirname, '../../dist/renderer/index.html'), search ? { search } : undefined);
+    } else {
+      const url = new URL('http://127.0.0.1:7545');
+      if (projectPath) url.searchParams.set('projectPath', projectPath);
+      if (mode === 'recorder') url.searchParams.set('mode', 'recorder');
+      window.loadURL(url.toString());
+    }
+  } else {
+    window.loadFile(join(__dirname, '../../dist/renderer/index.html'), search ? { search } : undefined);
+  }
+}
+
 ipcMain.handle(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion());
+ipcMain.handle(IPC_CHANNELS.APP_OPEN_EDITOR, (event, projectPath = null) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!senderWindow) return;
+  senderWindow.setResizable(true);
+  senderWindow.setMaximizable(true);
+  senderWindow.setMinimumSize(860, 560);
+  senderWindow.setSize(1120, 740);
+  senderWindow.center();
+  senderWindow.show();
+  loadRenderer(senderWindow, { mode: 'editor', projectPath });
+});
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_MIC_SOURCES, async () => listPulseAudioMicSources());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => listPulseAudioSystemAudioSources());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_CAMERA_SOURCES, async () => listV4l2CameraSources());
-ipcMain.handle(IPC_CHANNELS.RECORDING_START, (_event, options = {}) => recordingSession.start(options));
+ipcMain.handle(IPC_CHANNELS.RECORDING_START, async (event, options = {}) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  const { hideWindowDuringRecording, ...recordingOptions } = options ?? {};
+  if (hideWindowDuringRecording && senderWindow) {
+    hiddenRecorderWindow = senderWindow;
+    hiddenRecordingOptions = recordingOptions;
+    senderWindow.hide();
+    registerHiddenRecordingStopShortcut(senderWindow);
+    // X11 desktop capture records the composited desktop. Give the window
+    // manager a short repaint window after unmapping the recorder surface.
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+  const status = await recordingSession.start(recordingOptions);
+  if (hideWindowDuringRecording && senderWindow) showRecordingTray(senderWindow);
+  return status;
+});
 ipcMain.handle(IPC_CHANNELS.RECORDING_STOP, async () => {
   try {
-    return await stopRecordingAndCreateProject({
-      recordingSession,
-      assertReadableMp4,
-      remuxMkvToMp4,
-      saveProjectForRecording,
-      formatProject,
-    });
+    const result = await finalizeActiveRecording();
+    unregisterHiddenRecordingStopShortcut();
+    destroyRecordingTray();
+    return result;
   } catch (err) {
     console.error('[recording:stop] failed', err);
     throw err;
@@ -213,16 +255,115 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, { document, outputPath, 
 
 app.whenReady().then(() => {
   registerMediaProtocol();
-  createMainWindow();
+  createMainWindow({ mode: 'recorder' });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow({ mode: 'recorder' });
   });
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
+
+app.on('will-quit', () => {
+  globalShortcut.unregister(recordingStopShortcut);
+  globalShortcut.unregister(recordingRestartShortcut);
+  destroyRecordingTray();
+});
+
+function registerHiddenRecordingStopShortcut(window) {
+  globalShortcut.unregister(recordingStopShortcut);
+  globalShortcut.unregister(recordingRestartShortcut);
+  const registered = globalShortcut.register(recordingStopShortcut, async () => {
+    await stopHiddenRecordingAndOpenEditor(window);
+  });
+  const restartRegistered = globalShortcut.register(recordingRestartShortcut, async () => {
+    await restartHiddenRecording(window);
+  });
+  if (!registered) console.warn(`[recording] failed to register stop shortcut ${recordingStopShortcut}`);
+  if (!restartRegistered) console.warn(`[recording] failed to register restart shortcut ${recordingRestartShortcut}`);
+}
+
+function unregisterHiddenRecordingStopShortcut() {
+  globalShortcut.unregister(recordingStopShortcut);
+  globalShortcut.unregister(recordingRestartShortcut);
+  hiddenRecorderWindow = null;
+  hiddenRecordingOptions = null;
+}
+
+async function finalizeActiveRecording() {
+  return stopRecordingAndCreateProject({
+    recordingSession,
+    assertReadableMp4,
+    remuxMkvToMp4,
+    saveProjectForRecording,
+    formatProject,
+  });
+}
+
+async function stopHiddenRecordingAndOpenEditor(window) {
+  try {
+    const stopped = await finalizeActiveRecording();
+    unregisterHiddenRecordingStopShortcut();
+    destroyRecordingTray();
+    if (stopped.state === 'saved' && stopped.project && !window.isDestroyed()) {
+      window.setResizable(true);
+      window.setMaximizable(true);
+      window.setMinimumSize(860, 560);
+      window.setSize(1120, 740);
+      window.center();
+      window.show();
+      loadRenderer(window, { mode: 'editor', projectPath: stopped.project.path });
+    }
+  } catch (err) {
+    console.error('[recording:shortcut-stop] failed', err);
+    if (!window.isDestroyed()) window.show();
+  }
+}
+
+async function restartHiddenRecording(window) {
+  try {
+    const nextOptions = hiddenRecordingOptions ?? {};
+    await finalizeActiveRecording();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await recordingSession.start(nextOptions);
+    if (!window.isDestroyed()) showRecordingTray(window);
+  } catch (err) {
+    console.error('[recording:shortcut-restart] failed', err);
+    if (!window.isDestroyed()) window.show();
+  }
+}
+
+function showRecordingTray(window) {
+  if (!recordingTray || recordingTray.isDestroyed()) {
+    const icon = createRecordingTrayIcon();
+    if (icon.isEmpty()) console.warn('[recording-tray] recording tray icon is empty; status indicator may not appear');
+    recordingTray = new Tray(icon);
+    recordingTray.on('click', () => recordingTray?.popUpContextMenu());
+  }
+  recordingTray.setToolTip(`Rough Cut is recording. Stop: ${recordingStopShortcut}. Restart: ${recordingRestartShortcut}.`);
+  recordingTray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Recording...', enabled: false },
+    { type: 'separator' },
+    { label: `Stop recording (${recordingStopShortcut})`, click: () => { void stopHiddenRecordingAndOpenEditor(window); } },
+    { label: `Restart recording (${recordingRestartShortcut})`, click: () => { void restartHiddenRecording(window); } },
+    { label: 'Pause recording (segment pause pending)', enabled: false },
+  ]));
+}
+
+function destroyRecordingTray() {
+  if (recordingTray && !recordingTray.isDestroyed()) recordingTray.destroy();
+  recordingTray = null;
+}
+
+function createRecordingTrayIcon() {
+  // Electron only guarantees PNG/JPEG nativeImage support cross-platform.
+  // Linux StatusNotifier trays are especially inconsistent with SVG data URLs.
+  return nativeImage.createFromDataURL(
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAACTSURBVHgBpZKBCYAgEEV/TeAIjuIIbdQIuUGt0CS1gW1iZ2jIVaTnhw+Cvs8/OYDJA4Y8kR3ZR2/kmazxJbpUEfQ/Dm/UG7wVwHkjlQdMFfDdJMFaACebnjJGyDWgcnZu1/lrCrl6NCoEHJBrDwEr5NrT6ko/UV8xdLAC2N49mlc5CylpYh8wCwqrvbBGLoKGvz8Bfq0QPWEUo/EAAAAASUVORK5CYII=',
+  );
+}
 
 function formatProject(project) {
   const recording = getPrimaryRecording(project.document);
@@ -250,7 +391,10 @@ async function runRendererUiSmoke() {
   const video = await waitFor(() => document.querySelector('video'), 'video element', 10000).catch((err) => {
     throw new Error(`${err.message}; url=${window.location.href}; body=${document.body.innerText.slice(0, 500)}`);
   });
-  const hasStudioShell = Boolean(await waitFor(() => document.querySelector('[data-ui-shell="recording-studio"]'), 'recording studio shell'));
+  const hasStudioShell = Boolean(await waitFor(
+    () => document.querySelector('[data-ui-shell="recording-studio"]') || document.querySelector('[data-ui-region="pre-record-panel"]'),
+    'recording studio shell or launcher',
+  ));
   const hasCaptureBar = Boolean(await waitFor(() => document.querySelector('[data-ui-region="capture-bar"]'), 'capture bar region'));
   const hasCaptureCommandArea = Boolean(await waitFor(() => document.querySelector('[data-ui-region="capture-command-area"]'), 'capture command region'));
   const hasStateBanner = Boolean(await waitFor(() => document.querySelector('[data-ui-region="state-banner"]'), 'state banner region'));
@@ -292,6 +436,7 @@ async function runRendererUiSmoke() {
       && document.querySelector('[data-inspector-group="diagnostics"]')
       && document.querySelector('[data-inspector-group="export"]'),
   );
+  const hasCameraPipControls = Boolean(document.querySelector('[data-camera-pip-controls="true"]'));
   const exportMode = await waitFor(() => document.querySelector('[data-export-mode-select="true"]'), 'export mode selection');
   const hasRawPresetDetails = document.body.textContent?.includes('Raw export keeps the original recording unchanged.') ?? false;
   exportMode.value = 'styled';
@@ -336,6 +481,21 @@ async function runRendererUiSmoke() {
   setControlValue(shadowInput, 72);
   await waitFor(() => shadowInput.closest('label')?.querySelector('output')?.textContent === '72', 'shadow size output');
 
+  const cameraPositionSelect = await waitFor(() => selectByLabel('Position'), 'camera position control');
+  await waitForEnabled(cameraPositionSelect, 'camera position control');
+  setControlValue(cameraPositionSelect, 'corner-tl');
+  await waitFor(() => cameraPositionSelect.value === 'corner-tl', 'camera position value');
+
+  const cameraShapeSelect = await waitFor(() => selectByLabel('Shape'), 'camera shape control');
+  await waitForEnabled(cameraShapeSelect, 'camera shape control');
+  setControlValue(cameraShapeSelect, 'circle');
+  await waitFor(() => cameraShapeSelect.value === 'circle', 'camera shape value');
+
+  const cameraSizeInput = await waitFor(() => inputByLabel('Camera size'), 'camera size control');
+  await waitForEnabled(cameraSizeInput, 'camera size control');
+  setControlValue(cameraSizeInput, 130);
+  await waitFor(() => cameraSizeInput.closest('label')?.querySelector('output')?.textContent === '130', 'camera size output');
+
   exportMode.value = 'styled';
   exportMode.dispatchEvent(new Event('change', { bubbles: true }));
   await waitFor(() => exportMode.value === 'styled', 'styled export mode restored');
@@ -364,6 +524,7 @@ async function runRendererUiSmoke() {
     hasAutoZoomSuggestionsPanel,
     hasInspectorContext,
     hasInspectorGroups,
+    hasCameraPipControls,
     hasTrimControls,
     hasStyledPreviewCanvas,
     hasStudioShell,
@@ -385,6 +546,9 @@ async function runRendererUiSmoke() {
     padding: Number(paddingInput.value),
     cornerRadius: Number(radiusInput.value),
     shadowSize: Number(shadowInput.value),
+    cameraPosition: cameraPositionSelect.value,
+    cameraShape: cameraShapeSelect.value,
+    cameraSize: Number(cameraSizeInput.value),
   };
 }
 
@@ -400,13 +564,30 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   };
 
   const findButton = (text) => Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes(text));
-  const recordButton = await waitFor(() => findButton('Record'), 'record button');
-  const hasStudioShell = Boolean(await waitFor(() => document.querySelector('[data-ui-shell="recording-studio"]'), 'recording studio shell'));
+  await waitFor(
+    () => document.querySelector('[data-ui-shell="recording-studio"]') || document.querySelector('[data-ui-region="pre-record-panel"]'),
+    'recording studio shell or launcher',
+  );
   const initialState = document.querySelector('[data-ui-region="state-banner"]')?.getAttribute('data-recording-state');
-  recordButton.click();
+  const preRecordPanel = document.querySelector('[data-ui-region="pre-record-panel"]');
+  if (!preRecordPanel) {
+    const recordButton = await waitFor(() => findButton('Record'), 'record button');
+    recordButton.click();
+  }
   await waitFor(() => document.querySelector('[data-ui-region="pre-record-panel"]'), 'pre-record panel');
   await waitFor(() => document.querySelector('[data-open-editor="pre-record"]'), 'pre-record open editor button');
-  await waitFor(() => document.querySelector('.captureTargetCard[aria-pressed="true"]'), 'selected capture target card');
+  const captureTargetSelect = await waitFor(
+    () => document.querySelector('[data-ui-region="pre-record-panel"] select[aria-label="Capture target"]'),
+    'capture target select',
+  );
+  await waitFor(() => captureTargetSelect.value === 'display', 'display target selected');
+  captureTargetSelect.value = 'region';
+  captureTargetSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => captureTargetSelect.value === 'region', 'region target selected');
+  await waitFor(() => document.querySelector('[aria-label="Pre-record capture region controls"]'), 'region controls');
+  captureTargetSelect.value = 'display';
+  captureTargetSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => captureTargetSelect.value === 'display', 'display target reselected');
   const preRecordStartButton = await waitFor(() => document.querySelector('[data-recording-start="pre-record"]'), 'pre-record start button');
   preRecordStartButton.click();
   await waitFor(() => document.querySelector('[data-recording-state="recording"]'), 'recording state banner');
@@ -416,28 +597,39 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   if (options.doubleStop) {
     stopButton.click();
   }
-  await waitFor(() => document.querySelector('[data-recording-state="saved"]'), 'saved recording state', 30000);
-  const canvas = await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'post-recording preview canvas', 30000);
-  const video = await waitFor(() => document.querySelector('video'), 'post-recording video element', 30000);
-  await waitFor(() => video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0, 'post-recording video metadata', 30000);
+  await waitFor(
+    () => document.querySelector('[data-recording-state="saved"]') || document.querySelector('[data-ui-shell="recording-studio"]'),
+    'saved recording state or editor shell',
+    30000,
+  );
+  const savedState = document.querySelector('[data-ui-region="state-banner"]')?.getAttribute('data-recording-state');
+  const hasSavedMessage = document.body.textContent?.includes('Saved to:') ?? false;
+  if (document.querySelector('[data-ui-shell="recording-studio"]') && !document.querySelector('[data-recording-state="saved"]')) {
+    await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'post-recording preview canvas', 30000);
+  }
+  const canvas = document.querySelector('canvas.styledPreviewCanvas');
+  const video = document.querySelector('video');
   const hasCentralStage = Boolean(document.querySelector('[data-ui-region="central-stage"]'));
   const hasTimelineRail = Boolean(document.querySelector('[data-ui-region="timeline-review-rail"]'));
   const hasRightInspector = Boolean(document.querySelector('[data-ui-region="right-inspector"]'));
+  const hasStudioShell = Boolean(document.querySelector('[data-ui-shell="recording-studio"]'));
 
   return {
     ok: true,
     hasStudioShell,
     hasPreRecordPanel: true,
+    hasCaptureTargetSelect: Boolean(captureTargetSelect),
+    selectedCaptureTarget: captureTargetSelect.value,
     initialState,
-    savedState: document.querySelector('[data-ui-region="state-banner"]')?.getAttribute('data-recording-state'),
-    hasSavedMessage: document.body.textContent?.includes('Saved to:') ?? false,
+    savedState,
+    hasSavedMessage,
     hasProjectTitle: Boolean(document.querySelector('h2')?.textContent),
     hasCentralStage,
     hasTimelineRail,
     hasRightInspector,
     hasStyledPreviewCanvas: Boolean(canvas),
     hasVideo: Boolean(video),
-    duration: video.duration,
+    duration: video?.duration ?? null,
     doubleStop: Boolean(options.doubleStop),
   };
 }

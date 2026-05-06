@@ -78,6 +78,7 @@ export const IPC_CHANNELS = {
 
   // App
   APP_GET_VERSION: 'app:get-version',
+  APP_OPEN_EDITOR: 'app:open-editor',
 
   // Auto-save
   PROJECT_AUTO_SAVE: 'project:auto-save',

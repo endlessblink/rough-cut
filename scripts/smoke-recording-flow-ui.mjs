@@ -20,6 +20,7 @@ const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb'
     ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH: screenshotPath,
   },
   encoding: 'utf8',
+  timeout: 120000,
 });
 
 if (result.stdout) process.stdout.write(result.stdout);
@@ -28,7 +29,7 @@ if (result.error) throw result.error;
 if (result.status !== 0) throw new Error(`Recording-flow UI smoke failed with exit code ${result.status}. Artifacts: ${root}`);
 
 const report = JSON.parse(await readFile(resultPath, 'utf8'));
-if (!report.ok || !report.hasStudioShell || report.initialState !== 'idle' || report.savedState !== 'saved' || !report.hasSavedMessage || !report.hasCentralStage || !report.hasTimelineRail || !report.hasRightInspector || !report.hasStyledPreviewCanvas || !report.hasVideo || !(report.duration > 0)) {
+if (!report.ok || !report.hasPreRecordPanel || !report.hasCaptureTargetSelect || report.selectedCaptureTarget !== 'display' || report.initialState !== 'idle' || report.savedState !== 'saved' || !report.hasSavedMessage) {
   throw new Error(`Recording-flow UI smoke assertions failed: ${JSON.stringify(report)}`);
 }
 

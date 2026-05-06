@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 const IPC_CHANNELS = {
   APP_GET_VERSION: 'app:get-version',
+  APP_OPEN_EDITOR: 'app:open-editor',
   PROJECT_OPEN: 'project:open',
   PROJECT_OPEN_PATH: 'project:open-path',
   PROJECT_SAVE: 'project:save',
@@ -18,6 +19,7 @@ const IPC_CHANNELS = {
 
 contextBridge.exposeInMainWorld('roughCut', {
   getVersion: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
+  openEditor: (projectPath) => ipcRenderer.invoke(IPC_CHANNELS.APP_OPEN_EDITOR, projectPath),
   getMicSources: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_MIC_SOURCES),
   getSystemAudioSources: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES),
   getCameraSources: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_CAMERA_SOURCES),

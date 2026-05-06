@@ -281,6 +281,51 @@ test('disabled followCursor produces a static crop window even with cursor data'
   assert.equal(xs.size, 1);
 });
 
+test('cursor movement during zoom ramps does not move export crop target', () => {
+  const sourceWidth = 1280;
+  const sourceHeight = 720;
+  const rampMarker = marker({
+    kind: 'auto',
+    startFrame: 0,
+    endFrame: 60,
+    zoomInDuration: 20,
+    zoomOutDuration: 15,
+  });
+  const buildWithCursorEvents = (cursorEvents) => buildZoomSendcmd({
+    markers: [rampMarker],
+    cursorEvents,
+    sourceWidth,
+    sourceHeight,
+    fps: 30,
+    totalFrames: 60,
+    presentationOptions: { followCursor: true, followAnimation: 'focused', followPadding: 0.25 },
+  });
+
+  const zoomInLeft = parseCropWindows(buildWithCursorEvents([
+    { frame: 0, timeMs: 0, x: 896, y: 360, type: 'move', button: 0 },
+    { frame: 10, timeMs: 333, x: 256, y: 360, type: 'move', button: 0 },
+  ]).sendcmdContent);
+  const zoomInRight = parseCropWindows(buildWithCursorEvents([
+    { frame: 0, timeMs: 0, x: 896, y: 360, type: 'move', button: 0 },
+    { frame: 10, timeMs: 333, x: 1152, y: 360, type: 'move', button: 0 },
+  ]).sendcmdContent);
+  assert.equal(zoomInLeft[10].x, zoomInRight[10].x);
+  assert.equal(zoomInLeft[10].y, zoomInRight[10].y);
+
+  const zoomOutLeft = parseCropWindows(buildWithCursorEvents([
+    { frame: 0, timeMs: 0, x: 896, y: 360, type: 'move', button: 0 },
+    { frame: 44, timeMs: 1467, x: 896, y: 360, type: 'move', button: 0 },
+    { frame: 52, timeMs: 1733, x: 256, y: 360, type: 'move', button: 0 },
+  ]).sendcmdContent);
+  const zoomOutRight = parseCropWindows(buildWithCursorEvents([
+    { frame: 0, timeMs: 0, x: 896, y: 360, type: 'move', button: 0 },
+    { frame: 44, timeMs: 1467, x: 896, y: 360, type: 'move', button: 0 },
+    { frame: 52, timeMs: 1733, x: 1152, y: 360, type: 'move', button: 0 },
+  ]).sendcmdContent);
+  assert.equal(zoomOutLeft[52].x, zoomOutRight[52].x);
+  assert.equal(zoomOutLeft[52].y, zoomOutRight[52].y);
+});
+
 test('emitted sendcmd content ends with a newline and has no leading blank line', () => {
   const result = buildZoomSendcmd({
     markers: [marker()],
