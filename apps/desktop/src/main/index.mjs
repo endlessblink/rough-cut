@@ -38,6 +38,7 @@ const recordingRestartShortcut = 'CommandOrControl+Shift+N';
 let hiddenRecorderWindow = null;
 let recordingTray = null;
 let hiddenRecordingOptions = null;
+let hiddenRecordingStopping = false;
 const recordingSession = createRecordingSession({
   recordingsDir,
   markerPath,
@@ -52,10 +53,10 @@ const recordingSession = createRecordingSession({
 function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
   const isRecorder = mode === 'recorder';
   const window = new BrowserWindow({
-    width: isRecorder ? 390 : 1120,
-    height: isRecorder ? 300 : 740,
-    minWidth: isRecorder ? 360 : 860,
-    minHeight: isRecorder ? 260 : 560,
+    width: isRecorder ? 760 : 1120,
+    height: isRecorder ? 240 : 740,
+    minWidth: isRecorder ? 720 : 860,
+    minHeight: isRecorder ? 220 : 560,
     resizable: !isRecorder,
     maximizable: !isRecorder,
     autoHideMenuBar: true,
@@ -118,6 +119,11 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
           })})`,
           true,
         );
+        if (process.env.ROUGH_CUT_UI_SMOKE_RECORD_FLOW === '1' && result.savedState === 'saved') {
+          await waitForRendererLoad(window.webContents, 35000);
+          const editorResult = await window.webContents.executeJavaScript(`(${runRendererEditorLoadedSmoke.toString()})()`, true);
+          Object.assign(result, editorResult);
+        }
         if (process.env.ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH) {
           const image = await window.webContents.capturePage();
           await mkdir(dirname(process.env.ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH), { recursive: true });
@@ -144,6 +150,30 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
   loadRenderer(window, { mode, projectPath: projectPath || process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null });
 
   return window;
+}
+
+function waitForRendererLoad(webContents, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timed out waiting for renderer reload'));
+    }, timeoutMs);
+    const cleanup = () => {
+      clearTimeout(timeout);
+      webContents.off('did-finish-load', onLoad);
+      webContents.off('did-fail-load', onFail);
+    };
+    const onLoad = () => {
+      cleanup();
+      resolve();
+    };
+    const onFail = (_event, errorCode, errorDescription) => {
+      cleanup();
+      reject(new Error(`Renderer failed to load: ${errorCode} ${errorDescription}`));
+    };
+    webContents.once('did-finish-load', onLoad);
+    webContents.once('did-fail-load', onFail);
+  });
 }
 
 function rendererSearch({ mode = 'editor', projectPath = null } = {}) {
@@ -209,13 +239,26 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_START, async (event, options = {}) => {
   return status;
 });
 ipcMain.handle(IPC_CHANNELS.RECORDING_STOP, async () => {
+  unregisterHiddenRecordingStopShortcut();
+  updateRecordingTray(null, 'finalizing');
   try {
     const result = await finalizeActiveRecording();
-    unregisterHiddenRecordingStopShortcut();
     destroyRecordingTray();
     return result;
   } catch (err) {
     console.error('[recording:stop] failed', err);
+    throw err;
+  }
+});
+ipcMain.handle(IPC_CHANNELS.RECORDING_CANCEL, async () => {
+  unregisterHiddenRecordingStopShortcut();
+  updateRecordingTray(null, 'canceling');
+  try {
+    const result = await recordingSession.cancel();
+    destroyRecordingTray();
+    return result;
+  } catch (err) {
+    console.error('[recording:cancel] failed', err);
     throw err;
   }
 });
@@ -255,10 +298,11 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, { document, outputPath, 
 
 app.whenReady().then(() => {
   registerMediaProtocol();
-  createMainWindow({ mode: 'recorder' });
+  const startupProjectPath = process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;
+  createMainWindow({ mode: startupProjectPath ? 'editor' : 'recorder', projectPath: startupProjectPath });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow({ mode: 'recorder' });
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow({ mode: startupProjectPath ? 'editor' : 'recorder', projectPath: startupProjectPath });
   });
 });
 
@@ -303,10 +347,12 @@ async function finalizeActiveRecording() {
 }
 
 async function stopHiddenRecordingAndOpenEditor(window) {
+  if (hiddenRecordingStopping) return;
+  hiddenRecordingStopping = true;
+  unregisterHiddenRecordingStopShortcut();
+  updateRecordingTray(window, 'finalizing');
   try {
     const stopped = await finalizeActiveRecording();
-    unregisterHiddenRecordingStopShortcut();
-    destroyRecordingTray();
     if (stopped.state === 'saved' && stopped.project && !window.isDestroyed()) {
       window.setResizable(true);
       window.setMaximizable(true);
@@ -319,50 +365,118 @@ async function stopHiddenRecordingAndOpenEditor(window) {
   } catch (err) {
     console.error('[recording:shortcut-stop] failed', err);
     if (!window.isDestroyed()) window.show();
+  } finally {
+    hiddenRecordingStopping = false;
   }
 }
 
 async function restartHiddenRecording(window) {
+  if (hiddenRecordingStopping) return;
+  hiddenRecordingStopping = true;
   try {
     const nextOptions = hiddenRecordingOptions ?? {};
+    updateRecordingTray(window, 'finalizing');
     await finalizeActiveRecording();
     await new Promise((resolve) => setTimeout(resolve, 350));
     await recordingSession.start(nextOptions);
+    hiddenRecordingStopping = false;
     if (!window.isDestroyed()) showRecordingTray(window);
   } catch (err) {
     console.error('[recording:shortcut-restart] failed', err);
     if (!window.isDestroyed()) window.show();
+  } finally {
+    hiddenRecordingStopping = false;
+  }
+}
+
+async function cancelHiddenRecording(window) {
+  if (hiddenRecordingStopping) return;
+  hiddenRecordingStopping = true;
+  unregisterHiddenRecordingStopShortcut();
+  updateRecordingTray(window, 'canceling');
+  try {
+    await recordingSession.cancel();
+    if (!window.isDestroyed()) {
+      window.show();
+      loadRenderer(window, { mode: 'recorder' });
+    }
+  } catch (err) {
+    console.error('[recording:shortcut-cancel] failed', err);
+    if (!window.isDestroyed()) window.show();
+  } finally {
+    hiddenRecordingStopping = false;
   }
 }
 
 function showRecordingTray(window) {
+  updateRecordingTray(window, 'recording');
+}
+
+function updateRecordingTray(window, state) {
   if (!recordingTray || recordingTray.isDestroyed()) {
-    const icon = createRecordingTrayIcon();
+    if (hiddenRecordingStopping && state === 'recording') return;
+    const icon = createRecordingTrayIcon(state);
     if (icon.isEmpty()) console.warn('[recording-tray] recording tray icon is empty; status indicator may not appear');
     recordingTray = new Tray(icon);
     recordingTray.on('click', () => recordingTray?.popUpContextMenu());
+  } else {
+    const icon = createRecordingTrayIcon(state);
+    if (!icon.isEmpty()) recordingTray.setImage(icon);
   }
-  recordingTray.setToolTip(`Rough Cut is recording. Stop: ${recordingStopShortcut}. Restart: ${recordingRestartShortcut}.`);
-  recordingTray.setContextMenu(Menu.buildFromTemplate([
+
+  recordingTray.setToolTip(recordingTrayTooltip(state));
+  // Linux requires setContextMenu() after each menu change; mutating items is not enough.
+  recordingTray.setContextMenu(Menu.buildFromTemplate(recordingTrayMenuTemplate(window, state)));
+}
+
+function recordingTrayTooltip(state) {
+  if (state === 'finalizing') return 'Rough Cut is finalizing your recording.';
+  if (state === 'canceling') return 'Rough Cut is canceling and discarding the take.';
+  return `Rough Cut is recording. Stop: ${recordingStopShortcut}. Restart: ${recordingRestartShortcut}.`;
+}
+
+function recordingTrayMenuTemplate(window, state) {
+  if (state === 'finalizing') {
+    return [
+      { label: 'Finalizing recording...', enabled: false },
+      { label: 'Saving and opening editor', enabled: false },
+    ];
+  }
+  if (state === 'canceling') {
+    return [
+      { label: 'Canceling recording...', enabled: false },
+      { label: 'Discarding current take', enabled: false },
+    ];
+  }
+  return [
     { label: 'Recording...', enabled: false },
     { type: 'separator' },
-    { label: `Stop recording (${recordingStopShortcut})`, click: () => { void stopHiddenRecordingAndOpenEditor(window); } },
-    { label: `Restart recording (${recordingRestartShortcut})`, click: () => { void restartHiddenRecording(window); } },
+    { label: `Stop recording (${recordingStopShortcut})`, click: () => { if (window) void stopHiddenRecordingAndOpenEditor(window); } },
+    { label: `Restart recording (${recordingRestartShortcut})`, click: () => { if (window) void restartHiddenRecording(window); } },
     { label: 'Pause recording (segment pause pending)', enabled: false },
-  ]));
+    { type: 'separator' },
+    { label: 'Cancel and discard take', click: () => { if (window) void cancelHiddenRecording(window); } },
+  ];
 }
 
 function destroyRecordingTray() {
-  if (recordingTray && !recordingTray.isDestroyed()) recordingTray.destroy();
+  if (recordingTray && !recordingTray.isDestroyed()) {
+    recordingTray.setContextMenu(null);
+    recordingTray.setToolTip('');
+    recordingTray.destroy();
+  }
   recordingTray = null;
 }
 
-function createRecordingTrayIcon() {
+function createRecordingTrayIcon(state = 'recording') {
   // Electron only guarantees PNG/JPEG nativeImage support cross-platform.
   // Linux StatusNotifier trays are especially inconsistent with SVG data URLs.
-  return nativeImage.createFromDataURL(
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAACTSURBVHgBpZKBCYAgEEV/TeAIjuIIbdQIuUGt0CS1gW1iZ2jIVaTnhw+Cvs8/OYDJA4Y8kR3ZR2/kmazxJbpUEfQ/Dm/UG7wVwHkjlQdMFfDdJMFaACebnjJGyDWgcnZu1/lrCrl6NCoEHJBrDwEr5NrT6ko/UV8xdLAC2N49mlc5CylpYh8wCwqrvbBGLoKGvz8Bfq0QPWEUo/EAAAAASUVORK5CYII=',
-  );
+  const pngByState = {
+    recording: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAASklEQVR4nGNgGPKAEZfEF/u4/+hiPAcXYahnIlYzLnEMA3BpxiXPhE+SGEOweoEUMNwMwBbP2ACyOgwXEDIEXR6rF3AZQqwL6QsAVeYcFnAz8g4AAAAASUVORK5CYII=',
+    finalizing: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAASklEQVR4nGNgGPKAEZfE13nc/9HFuJO+YqhnIlYzLnEMA3BpxiXPhE+SGEOweoEUMNwMwBbP2ACyOgwXEDIEXR6rF3AZQqwL6QsA4YwcFh9atbUAAAAASUVORK5CYII=',
+    canceling: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAASklEQVR4nGNgGPKAEZfElMU7/qOL5cR6YKhnIlYzLnEMA3BpxiXPhE+SGEOweoEUMNwMwBbP2ACyOgwXEDIEXR6rF3AZQqwL6QsAR+YcFuEAROcAAAAASUVORK5CYII=',
+  };
+  return nativeImage.createFromDataURL(`data:image/png;base64,${pngByState[state] ?? pngByState.recording}`);
 }
 
 function formatProject(project) {
@@ -444,6 +558,13 @@ async function runRendererUiSmoke() {
   await waitFor(() => document.body.textContent?.includes('Styled preset: selected aspect ratio'), 'styled preset details');
   const hasStyledPresetDetails = true;
 
+  document.querySelector('button[aria-label="Background"]')?.click();
+  const backgroundPreset = await waitFor(() => document.querySelector('button[aria-label="Soft blur"]'), 'background preset');
+  backgroundPreset.click();
+  await waitFor(() => backgroundPreset.getAttribute('aria-pressed') === 'true', 'background preset selected');
+  const hasBackgroundPresetSelection = true;
+  document.querySelector('button[aria-label="Inspector"]')?.click();
+
   const selectByLabel = (text) => {
     const label = Array.from(document.querySelectorAll('label')).find((label) => label.textContent?.includes(text));
     return label?.querySelector('select') ?? null;
@@ -520,6 +641,7 @@ async function runRendererUiSmoke() {
     hasStyledMode: Boolean(Array.from(document.querySelectorAll('option')).find((option) => option.value === 'styled')),
     hasRawPresetDetails,
     hasStyledPresetDetails,
+    hasBackgroundPresetSelection,
     hasZoomMarkerPanel,
     hasAutoZoomSuggestionsPanel,
     hasInspectorContext,
@@ -597,16 +719,9 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   if (options.doubleStop) {
     stopButton.click();
   }
-  await waitFor(
-    () => document.querySelector('[data-recording-state="saved"]') || document.querySelector('[data-ui-shell="recording-studio"]'),
-    'saved recording state or editor shell',
-    30000,
-  );
+  await waitFor(() => document.querySelector('[data-recording-state="saved"]'), 'saved recording state', 30000);
   const savedState = document.querySelector('[data-ui-region="state-banner"]')?.getAttribute('data-recording-state');
   const hasSavedMessage = document.body.textContent?.includes('Saved to:') ?? false;
-  if (document.querySelector('[data-ui-shell="recording-studio"]') && !document.querySelector('[data-recording-state="saved"]')) {
-    await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'post-recording preview canvas', 30000);
-  }
   const canvas = document.querySelector('canvas.styledPreviewCanvas');
   const video = document.querySelector('video');
   const hasCentralStage = Boolean(document.querySelector('[data-ui-region="central-stage"]'));
@@ -631,5 +746,31 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     hasVideo: Boolean(video),
     duration: video?.duration ?? null,
     doubleStop: Boolean(options.doubleStop),
+  };
+}
+
+async function runRendererEditorLoadedSmoke() {
+  const waitFor = async (predicate, label, timeoutMs = 30000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const value = predicate();
+      if (value) return value;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`Timed out waiting for ${label}; body=${document.body.innerText.slice(0, 800)}`);
+  };
+
+  await waitFor(() => document.querySelector('[data-ui-shell="recording-studio"]'), 'post-recording editor shell');
+  await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'post-recording preview canvas');
+  await waitFor(() => document.querySelector('video'), 'post-recording video');
+
+  return {
+    hasStudioShell: Boolean(document.querySelector('[data-ui-shell="recording-studio"]')),
+    hasCentralStage: Boolean(document.querySelector('[data-ui-region="central-stage"]')),
+    hasTimelineRail: Boolean(document.querySelector('[data-ui-region="timeline-review-rail"]')),
+    hasRightInspector: Boolean(document.querySelector('[data-ui-region="right-inspector"]')),
+    hasStyledPreviewCanvas: Boolean(document.querySelector('canvas.styledPreviewCanvas')),
+    hasVideo: Boolean(document.querySelector('video')),
+    duration: document.querySelector('video')?.duration ?? null,
   };
 }

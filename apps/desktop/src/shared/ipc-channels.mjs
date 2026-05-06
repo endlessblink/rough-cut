@@ -44,6 +44,7 @@ export const IPC_CHANNELS = {
   RECORDING_RECOVERY_SET_CONTEXT: 'recording:recovery-set-context',
   RECORDING_START: 'recording:start',
   RECORDING_STOP: 'recording:stop',
+  RECORDING_CANCEL: 'recording:cancel',
   RECORDING_STATUS: 'recording:status',
 
   // Recording Session (floating toolbar flow)

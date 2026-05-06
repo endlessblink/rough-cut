@@ -6,6 +6,7 @@ import { createRecordingSession } from './recording/recording-session.mjs';
 
 test('desktop main dependencies load', () => {
   assert.equal(IPC_CHANNELS.RECORDING_START, 'recording:start');
+  assert.equal(IPC_CHANNELS.RECORDING_CANCEL, 'recording:cancel');
   assert.equal(typeof isFfmpegCaptureAvailable(), 'boolean');
   assert.equal(typeof createRecordingSession, 'function');
 });

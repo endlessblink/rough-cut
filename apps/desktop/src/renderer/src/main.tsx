@@ -3,9 +3,12 @@ import { createRoot } from 'react-dom/client';
 import {
   createDefaultCameraPresentation,
   createDefaultRecordingBackgroundStyle,
+  applyRecordingBackgroundPreset,
+  getRecordingBackgroundColors,
   getStyledCanvasResolution,
   PROJECT_ASPECT_RATIO_LABELS,
   PROJECT_ASPECT_RATIOS,
+  RECORDING_BACKGROUND_PRESETS,
   type ProjectAspectRatio,
   type ProjectDocument,
   type CameraPosition,
@@ -38,6 +41,7 @@ declare global {
       getCameraSources: () => Promise<CameraSource[]>;
       startRecording: (options?: { micSource?: string | null; systemAudioSource?: string | null; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean }) => Promise<RecordingStatus>;
       stopRecording: () => Promise<RecordingStatus>;
+      cancelRecording: () => Promise<RecordingStatus>;
       getRecordingStatus: () => Promise<RecordingStatus>;
       openProject: () => Promise<ProjectState | null>;
       openProjectPath: (path: string) => Promise<ProjectState>;
@@ -56,7 +60,7 @@ type ProjectState = {
     name: string;
     composition: { duration: number; tracks?: Array<{ clips?: Array<{ assetId?: string; timelineIn?: number; timelineOut?: number; sourceIn?: number; sourceOut?: number } & Record<string, unknown>> } & Record<string, unknown>> };
     settings?: { aspectRatio?: ProjectAspectRatio };
-    assets?: Array<{ id?: string; type?: string; presentation?: { background?: RecordingBackgroundStyle } & Record<string, unknown> } & Record<string, unknown>>;
+  assets?: Array<{ id?: string; type?: string; presentation?: { background?: RecordingBackgroundStyle } & Record<string, unknown> } & Record<string, unknown>>;
   };
   recording: null | { filePath: string; duration: number; width: number; height: number; fps: number; audio?: unknown; camera?: unknown };
   mediaUrl: string | null;
@@ -77,7 +81,7 @@ type PrimaryClip = { assetId?: string; timelineIn?: number; timelineOut?: number
 type TrimInfo = { startFrame: number; endFrame: number; startSec: number; endSec: number; durationSec: number; isTrimmed: boolean };
 
 type RecordingStatus =
-  | { state: 'idle' }
+  | { state: 'idle'; canceled?: boolean }
   | { state: 'recording'; startedAt: string; rawPath: string; outputPath: string; micSource?: string | null; systemAudioSource?: string | null; cameraDevicePath?: string | null }
   | {
       state: 'saved';
@@ -260,6 +264,26 @@ function App() {
     }
   }
 
+  async function cancelRecording() {
+    if (recordingActionPendingRef.current || recording.state !== 'recording') return;
+    recordingActionPendingRef.current = true;
+    setRecordingActionPending(true);
+    setError(null);
+    try {
+      const canceled = await window.roughCut.cancelRecording();
+      setRecording(canceled);
+      setProject(null);
+      setExportResult(null);
+      setPreRecordPanelOpen(isRecorderMode);
+    } catch (err) {
+      console.error('[renderer:recording] cancel failed', err);
+      setError(err instanceof Error ? err.message : 'Cancel recording failed.');
+    } finally {
+      recordingActionPendingRef.current = false;
+      setRecordingActionPending(false);
+    }
+  }
+
   function openEditorFromRecorder() {
     if (isRecorderMode) {
       void window.roughCut.openEditor(null);
@@ -305,7 +329,7 @@ function App() {
     return (
       <main className="recordingLauncherShell">
         {recording.state === 'recording' ? (
-          <RecordingLauncherActive elapsedMs={elapsedMs} actionPending={recordingActionPending} onStop={toggleRecording} />
+          <RecordingLauncherActive elapsedMs={elapsedMs} actionPending={recordingActionPending} onStop={toggleRecording} onCancel={cancelRecording} />
         ) : (
           <PreRecordPanel
             micSources={micSources}
@@ -367,6 +391,11 @@ function App() {
               <Icon name={recording.state === 'recording' ? 'stop' : 'record'} />
               {recordingActionPending ? (recording.state === 'recording' ? 'Stopping...' : 'Starting...') : recording.state === 'recording' ? 'Stop recording' : 'Record'}
             </button>
+            {recording.state === 'recording' ? (
+              <button type="button" onClick={cancelRecording} className="secondary" disabled={recordingActionPending}>
+                Cancel take
+              </button>
+            ) : null}
             <button type="button" onClick={openProject} className="secondary" disabled={recording.state === 'recording'}>
               <Icon name="folder" />
               Open project
@@ -655,7 +684,7 @@ function PreRecordPanel({
   );
 }
 
-function RecordingLauncherActive({ elapsedMs, actionPending, onStop }: { elapsedMs: number; actionPending: boolean; onStop: () => void }) {
+function RecordingLauncherActive({ elapsedMs, actionPending, onStop, onCancel }: { elapsedMs: number; actionPending: boolean; onStop: () => void; onCancel: () => void }) {
   return (
     <div className="preRecordOverlay" data-ui-region="recording-launcher-active">
       <section className="preRecordPanel recordingActivePanel">
@@ -670,6 +699,10 @@ function RecordingLauncherActive({ elapsedMs, actionPending, onStop }: { elapsed
           <Icon name="stop" />
           {actionPending ? 'Stopping...' : 'Stop recording'}
         </button>
+        <button type="button" onClick={onCancel} className="secondary" disabled={actionPending}>
+          Cancel and discard
+        </button>
+        <p className="recordingActiveHint">Pause is intentionally pending segment recording, so cancel removes the current take instead of saving a corrupt pause.</p>
       </section>
     </div>
   );
@@ -794,11 +827,11 @@ function Icon({ name }: { name: IconName }) {
   return <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
 
-function BoardHeader({ icon, title, action }: { icon: IconName; title: string; action?: string }) {
+function BoardHeader({ icon, title, action, onAction, actionDisabled = false }: { icon: IconName; title: string; action?: string; onAction?: () => void; actionDisabled?: boolean }) {
   return (
     <div className="boardHeader">
       <span><Icon name={icon} /> {title}</span>
-      {action ? <button type="button" className="textButton">{action}</button> : null}
+      {action ? <button type="button" className="textButton" disabled={actionDisabled} onClick={onAction}>{action}</button> : null}
     </div>
   );
 }
@@ -854,11 +887,24 @@ function InspectorToggle({ label, checked, disabled = false, onChange }: { label
   );
 }
 
-function InspectorPresetGrid({ label, disabled = false, count = 18 }: { label: string; disabled?: boolean; count?: number }) {
+function InspectorPresetGrid({ label, disabled = false, value, onSelect }: { label: string; disabled?: boolean; value?: string; onSelect?: (id: string) => void }) {
   return (
     <div className="inspectorPresetGroup">
       <p className="eyebrow">{label}</p>
-      <div className="swatchGrid" aria-label={label}>{Array.from({ length: count }).map((_, index) => <button type="button" key={index} aria-label={`${label} ${index + 1}`} disabled={disabled} />)}</div>
+      <div className="swatchGrid" aria-label={label}>
+        {RECORDING_BACKGROUND_PRESETS.map((preset) => (
+          <button
+            type="button"
+            key={preset.id}
+            aria-label={preset.label}
+            aria-pressed={value === preset.id}
+            className={value === preset.id ? 'active' : ''}
+            disabled={disabled}
+            style={{ background: preset.style.bgImage ? `center / cover url(${preset.style.bgImage})` : (preset.style.bgGradient ?? preset.style.bgColor) }}
+            onClick={() => onSelect?.(preset.id)}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -885,6 +931,7 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const aspectRatioOptions = PROJECT_ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: PROJECT_ASPECT_RATIO_LABELS[ratio] }));
+  const activeBackgroundPreset = RECORDING_BACKGROUND_PRESETS.find((preset) => preset.style.bgImage ? preset.style.bgImage === bg.bgImage : (preset.style.bgColor === bg.bgColor && preset.style.bgGradient === bg.bgGradient))?.id;
 
   if (activeTool === 'timeline') {
     return (
@@ -954,14 +1001,14 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
 
   return (
     <aside className="setupBoard" aria-label="Background board">
-      <BoardHeader icon="sparkle" title="Background" action="Reset" />
+      <BoardHeader icon="sparkle" title="Background" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.(DEFAULT_RECORDING_BACKGROUND)} />
       <InspectorSection id="canvas-background" title="Canvas background">
-        <InspectorSlider label="Background blur" value={0} min={0} max={40} step={1} disabled onChange={() => undefined} />
-        <div className="segmentedControl" aria-label="Background type"><button type="button" className="active">Image</button><button type="button">Video</button><button type="button">Color</button></div>
-        <InspectorPresetGrid label="Background presets" disabled={disabled} />
+        <div className="segmentedControl" aria-label="Background type"><button type="button" className="active">Style</button><button type="button" disabled>Image</button><button type="button" disabled>Video</button></div>
+        <InspectorPresetGrid label="Background presets" disabled={disabled} value={activeBackgroundPreset} onSelect={(presetId) => onBackgroundChange?.(applyRecordingBackgroundPreset(bg, presetId))} />
       </InspectorSection>
-      <BoardHeader icon="frame" title="Frame" action="Reset" />
+      <BoardHeader icon="frame" title="Frame" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.({ bgPadding: DEFAULT_RECORDING_BACKGROUND.bgPadding, bgCornerRadius: DEFAULT_RECORDING_BACKGROUND.bgCornerRadius, bgInset: DEFAULT_RECORDING_BACKGROUND.bgInset, bgInsetColor: DEFAULT_RECORDING_BACKGROUND.bgInsetColor, bgShadowEnabled: DEFAULT_RECORDING_BACKGROUND.bgShadowEnabled, bgShadowBlur: DEFAULT_RECORDING_BACKGROUND.bgShadowBlur, bgShadowOpacity: DEFAULT_RECORDING_BACKGROUND.bgShadowOpacity })} />
       <InspectorSection id="screen-frame" title="Frame">
+        <InspectorSlider label="Outline" value={bg.bgInset} min={0} max={16} step={1} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgInset: value })} />
         <InspectorSlider label="Shadow" value={bg.bgShadowBlur} min={0} max={120} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowBlur: value })} />
         <InspectorSlider label="Radius" value={bg.bgCornerRadius} min={0} max={120} step={2} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgCornerRadius: value })} />
         <InspectorSlider label="Padding" value={bg.bgPadding} min={0} max={260} step={4} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgPadding: value })} />
@@ -1304,11 +1351,38 @@ function resolveTrimInfo(clip: PrimaryClip | null, totalFrames: number, fps: num
 }
 
 function RangeField({ label, value, min, max, step, disabled, onChange }: { label: string; value: number; min: number; max: number; step: number; disabled?: boolean; onChange: (value: number) => void }) {
+  const [draftValue, setDraftValue] = React.useState(value);
+  const isEditingRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (!isEditingRef.current) setDraftValue(value);
+  }, [value]);
+
+  function commit(nextValue: number) {
+    isEditingRef.current = false;
+    setDraftValue(nextValue);
+    if (nextValue !== value) onChange(nextValue);
+  }
+
   return (
     <label className="rangeField">
       <span>{label}</span>
-      <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} onWheelCapture={preventRangeWheelChange} onChange={(event) => onChange(Number(event.currentTarget.value))} />
-      <output>{value}</output>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={draftValue}
+        disabled={disabled}
+        onPointerDown={() => { isEditingRef.current = true; }}
+        onInput={(event) => setDraftValue(Number(event.currentTarget.value))}
+        onChange={(event) => setDraftValue(Number(event.currentTarget.value))}
+        onPointerUp={(event) => commit(Number(event.currentTarget.value))}
+        onBlur={(event) => commit(Number(event.currentTarget.value))}
+        onKeyUp={(event) => commit(Number(event.currentTarget.value))}
+        onWheelCapture={preventRangeWheelChange}
+      />
+      <output>{draftValue}</output>
     </label>
   );
 }
@@ -1688,6 +1762,7 @@ function VideoPreview({
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = React.useRef<HTMLVideoElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const backgroundImageRef = React.useRef<HTMLImageElement | null>(null);
   const pendingSeekRef = React.useRef<number | null>(null);
   const seekingRef = React.useRef(false);
   const [duration, setDuration] = React.useState(0);
@@ -1716,6 +1791,24 @@ function VideoPreview({
     pendingSeekRef.current = null;
     seekingRef.current = false;
   }, [src]);
+
+  React.useEffect(() => {
+    if (!background.bgImage) {
+      backgroundImageRef.current = null;
+      return undefined;
+    }
+    const image = new Image();
+    image.src = background.bgImage;
+    image.onload = () => {
+      backgroundImageRef.current = image;
+    };
+    image.onerror = () => {
+      backgroundImageRef.current = null;
+    };
+    return () => {
+      if (backgroundImageRef.current === image) backgroundImageRef.current = null;
+    };
+  }, [background.bgImage]);
 
   React.useEffect(() => {
     if (!Number.isFinite(seekTimeSec)) return;
@@ -1795,6 +1888,27 @@ function VideoPreview({
       };
     };
 
+    const fillBackground = () => {
+      const [backgroundStart, backgroundEnd] = getRecordingBackgroundColors(background);
+      const gradient = ctx.createLinearGradient(0, 0, canvasWidth, canvasHeight);
+      gradient.addColorStop(0, backgroundStart);
+      gradient.addColorStop(1, backgroundEnd);
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    };
+
+    const fitBackgroundImage = (image: HTMLImageElement) => {
+      const scale = Math.min(canvasWidth / image.naturalWidth, canvasHeight / image.naturalHeight);
+      const width = image.naturalWidth * scale;
+      const height = image.naturalHeight * scale;
+      return {
+        x: (canvasWidth - width) / 2,
+        y: (canvasHeight - height) / 2,
+        width,
+        height,
+      };
+    };
+
     function tick() {
       if (!video || !canvas || !ctx) return;
       if (video.seeking || seekingRef.current || video.readyState < 2) {
@@ -1819,19 +1933,33 @@ function VideoPreview({
         frame = { cameraTransform: { scale: 1, offsetX: 0, offsetY: 0 } };
       }
       const { scale, offsetX, offsetY } = frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 };
-      const gradient = ctx.createLinearGradient(0, 0, canvasWidth, canvasHeight);
-      gradient.addColorStop(0, 'rgb(232, 235, 240)');
-      gradient.addColorStop(1, 'rgb(240, 232, 232)');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+      const backgroundImage = backgroundImageRef.current;
+      if (backgroundImage?.complete && backgroundImage.naturalWidth > 0 && backgroundImage.naturalHeight > 0) {
+        fillBackground();
+        const rect = fitBackgroundImage(backgroundImage);
+        ctx.drawImage(backgroundImage, rect.x, rect.y, rect.width, rect.height);
+      } else {
+        fillBackground();
+      }
       if (background.bgShadowEnabled && background.bgShadowOpacity > 0 && background.bgShadowBlur > 0) {
         ctx.save();
-        ctx.shadowColor = `rgba(0, 0, 0, ${background.bgShadowOpacity})`;
-        ctx.shadowBlur = background.bgShadowBlur;
-        ctx.shadowOffsetY = Math.min(34, Math.max(10, canvasHeight * 0.024));
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+        const shadowBlur = Math.max(0, background.bgShadowBlur);
+        const shadowOpacity = Math.min(0.58, Math.max(background.bgShadowOpacity, 0.12 + shadowBlur / 360));
+        const shadowOffsetY = Math.min(70, Math.max(14, canvasHeight * 0.018 + shadowBlur * 0.35));
+        ctx.shadowColor = `rgba(0, 0, 0, ${shadowOpacity})`;
+        ctx.shadowBlur = shadowBlur * 1.45;
+        ctx.shadowOffsetY = shadowOffsetY;
+        ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(0.24, shadowOpacity * 0.55)})`;
         addRoundedRect(ctx, screenX, screenY, screenWidth, screenHeight, screenRadius);
         ctx.fill();
+        ctx.restore();
+      }
+      if (background.bgInset > 0) {
+        ctx.save();
+        ctx.lineWidth = background.bgInset;
+        ctx.strokeStyle = background.bgInsetColor || 'rgba(255, 255, 255, 0.22)';
+        addRoundedRect(ctx, screenX, screenY, screenWidth, screenHeight, screenRadius);
+        ctx.stroke();
         ctx.restore();
       }
       ctx.save();

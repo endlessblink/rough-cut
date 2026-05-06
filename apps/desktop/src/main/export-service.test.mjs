@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForRecording } from './project-files.mjs';
-import { buildCursorAss, buildRawTrimExportArgs, buildStyledExportArgs, exportProjectToMp4, isSingleTrimmedRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, normalizeExportMode, parseFfmpegProgress } from './export-service.mjs';
+import { buildBackgroundExpression, buildCursorAss, buildRawTrimExportArgs, buildStyledExportArgs, exportProjectToMp4, isSingleTrimmedRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, normalizeExportMode, parseFfmpegProgress } from './export-service.mjs';
 
 test('unedited export copies source mp4 byte-for-byte', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-'));
@@ -210,6 +210,37 @@ test('styled export args apply presentation padding, radius, and shadow controls
   assert(joined.includes('boxblur=72:5'));
   assert(joined.includes('aa=0.32'));
   assert(joined.includes('hypot(44-X,44-Y)'));
+});
+
+test('styled export args apply preset background colors', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    backgroundStart: '#050816',
+    backgroundEnd: '#101f3f',
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes("r='5+11*X/W'"));
+  assert(joined.includes("g='8+23*X/W'"));
+  assert(joined.includes("b='22+41*X/W'"));
+});
+
+test('styled export args can use an exact background image', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    backgroundImagePath: '/tmp/backgrounds/dark-waves.png',
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes('movie=/tmp/backgrounds/dark-waves.png'));
+  assert(joined.includes('scale=1920:1080:force_original_aspect_ratio=increase'));
+  assert(joined.includes('crop=1920:1080'));
+});
+
+test('background expression falls back for invalid colors', () => {
+  assert.equal(buildBackgroundExpression('bad', '#000000'), "r='232+8*X/W':g='235+-3*X/W':b='240+-8*X/W'");
 });
 
 test('styled export args include cursor subtitle layer when provided', () => {

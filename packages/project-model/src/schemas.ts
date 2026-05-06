@@ -184,6 +184,7 @@ export const RecordingVisibilitySegmentSchema = RecordingVisibilitySchema.extend
 export const RecordingBackgroundStyleSchema = z.object({
   bgColor: hexColor,
   bgGradient: z.string().nullable(),
+  bgImage: z.string().min(1).nullable().optional(),
   bgPadding: nonNegativeInt,
   bgCornerRadius: nonNegativeInt,
   bgInset: nonNegativeInt,

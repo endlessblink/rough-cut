@@ -118,6 +118,8 @@ test('addManualMarkerAt appends a manual marker at the rounded frame', () => {
   assert.equal(markers[0].kind, 'manual');
   assert.equal(markers[0].startFrame, 60);
   assert.equal(markers[0].endFrame, 120);
+  assert.equal(markers[0].zoomInDuration, 18);
+  assert.equal(markers[0].zoomOutDuration, 18);
 });
 
 test('addManualMarkerAt clamps endFrame to asset duration', () => {

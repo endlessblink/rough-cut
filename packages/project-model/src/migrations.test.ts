@@ -333,8 +333,8 @@ describe('migrations', () => {
     expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
     const marker = result.assets[0]?.presentation?.zoom.markers[0];
     expect(marker?.focalPoint).toEqual({ x: 0.5, y: 0.5 });
-    expect(marker?.zoomInDuration).toBe(9);
-    expect(marker?.zoomOutDuration).toBe(9);
+    expect(marker?.zoomInDuration).toBe(18);
+    expect(marker?.zoomOutDuration).toBe(18);
   });
 
   it('preserves pre-existing zoom marker focalPoint and durations when migrating from v1', () => {

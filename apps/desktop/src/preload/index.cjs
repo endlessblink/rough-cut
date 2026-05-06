@@ -14,6 +14,7 @@ const IPC_CHANNELS = {
   RECORDING_GET_CAMERA_SOURCES: 'recording:get-camera-sources',
   RECORDING_START: 'recording:start',
   RECORDING_STOP: 'recording:stop',
+  RECORDING_CANCEL: 'recording:cancel',
   RECORDING_STATUS: 'recording:status',
 };
 
@@ -25,6 +26,7 @@ contextBridge.exposeInMainWorld('roughCut', {
   getCameraSources: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_CAMERA_SOURCES),
   startRecording: (options) => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_START, options),
   stopRecording: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_STOP),
+  cancelRecording: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_CANCEL),
   getRecordingStatus: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_STATUS),
   openProject: () => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN),
   openProjectPath: (path) => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN_PATH, path),

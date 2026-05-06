@@ -16,6 +16,7 @@ import { spawn } from 'node:child_process';
 /**
  * @typedef {Object} FfmpegCaptureHandle
  * @property {() => Promise<string>} stop — Send SIGINT and wait for clean exit. Returns output path.
+ * @property {() => Promise<string>} [cancel] — Terminate capture without preserving output integrity. Returns output path.
  * @property {string} outputPath
  */
 
@@ -136,6 +137,9 @@ export function startFfmpegCapture({
     stop() {
       return stopFfmpegProcess(proc, outputPath, '[ffmpeg-capture]', 'MP4 finalization');
     },
+    cancel() {
+      return cancelFfmpegProcess(proc, outputPath, '[ffmpeg-capture]');
+    },
   };
 }
 
@@ -172,7 +176,38 @@ export function startFfmpegCameraCapture({
     stop() {
       return stopFfmpegProcess(proc, outputPath, '[ffmpeg-camera]', 'camera finalization');
     },
+    cancel() {
+      return cancelFfmpegProcess(proc, outputPath, '[ffmpeg-camera]');
+    },
   };
+}
+
+function cancelFfmpegProcess(proc, outputPath, tag) {
+  return new Promise((resolve) => {
+    if (proc.exitCode !== null || proc.signalCode !== null) {
+      resolve(outputPath);
+      return;
+    }
+    let settled = false;
+    const killTimeout = setTimeout(() => {
+      if (!settled) proc.kill('SIGKILL');
+    }, FFMPEG_SIGTERM_TIMEOUT_MS);
+
+    proc.on('exit', () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killTimeout);
+      resolve(outputPath);
+    });
+
+    try {
+      proc.stdin?.destroy();
+    } catch {
+      // Best-effort shutdown for cancellation; output will be deleted anyway.
+    }
+    console.info(`${tag} Cancelling capture.`);
+    proc.kill('SIGTERM');
+  });
 }
 
 export function buildFfmpegCameraCaptureArgs({

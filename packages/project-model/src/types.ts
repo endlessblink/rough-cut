@@ -160,6 +160,7 @@ export interface CameraPresentation {
 export interface RecordingBackgroundStyle {
   readonly bgColor: string;
   readonly bgGradient: string | null;
+  readonly bgImage?: string | null;
   readonly bgPadding: number;
   readonly bgCornerRadius: number;
   readonly bgInset: number;

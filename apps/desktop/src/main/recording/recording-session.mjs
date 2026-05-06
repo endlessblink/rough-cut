@@ -40,6 +40,7 @@ export function createRecordingSession({
 }) {
   let active = null;
   let stopping = null;
+  let canceling = null;
 
   async function writeRecoveryMarker(session) {
     await writeFile(
@@ -192,6 +193,7 @@ export function createRecordingSession({
   }
 
   async function stop() {
+    if (canceling) return canceling;
     if (stopping) return stopping;
     if (!active) return { state: 'idle' };
 
@@ -201,6 +203,19 @@ export function createRecordingSession({
       stopping = null;
     });
     return stopping;
+  }
+
+  async function cancel() {
+    if (stopping) return stopping;
+    if (canceling) return canceling;
+    if (!active) return { state: 'idle', canceled: false };
+
+    const session = active;
+    active = null;
+    canceling = cancelActiveSession(session).finally(() => {
+      canceling = null;
+    });
+    return canceling;
   }
 
   async function stopActiveSession(session, now) {
@@ -270,7 +285,40 @@ export function createRecordingSession({
     };
   }
 
-  return { start, stop, status };
+  async function cancelActiveSession(session) {
+    session.stopped = true;
+    if (session.cursorTimer) clearInterval(session.cursorTimer);
+    if (session.buttonListener) session.buttonListener.stop();
+    if (session.eventLogger) session.eventLogger.event('recording-cancel');
+    await Promise.allSettled([
+      cancelCapture(session.capture),
+      session.cameraCapture ? cancelCapture(session.cameraCapture) : null,
+    ]);
+    await clearRecoveryMarker();
+    if (session.eventLogger) session.eventLogger.stop();
+    await deleteSessionArtifacts(session);
+    return { state: 'idle', canceled: true };
+  }
+
+  return { start, stop, cancel, status };
+}
+
+async function cancelCapture(capture) {
+  if (!capture) return null;
+  if (typeof capture.cancel === 'function') return capture.cancel();
+  return capture.stop();
+}
+
+async function deleteSessionArtifacts(session) {
+  const paths = [
+    session.rawPath,
+    session.outputPath,
+    session.cursorTelemetryPath,
+    session.eventsLogPath,
+    session.cameraRawPath,
+    session.cameraOutputPath,
+  ].filter(Boolean);
+  await Promise.allSettled(paths.map((path) => rm(path, { force: true })));
 }
 
 function startTelemetryAfterIpcReturn(session, { getCursorPoint, now, sampleIntervalMs, buttonListenerFactory }) {

@@ -1,15 +1,19 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getPrimaryRecording } from './project-files.mjs';
 import { createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
-import { getStyledCanvasResolution } from '@rough-cut/project-model';
+import { getRecordingBackgroundColors, getStyledCanvasResolution } from '@rough-cut/project-model';
 
 export const EXPORT_MODES = Object.freeze({
   RAW: 'raw',
   STYLED: 'styled',
 });
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export function normalizeExportMode(mode = EXPORT_MODES.RAW) {
   if (mode === EXPORT_MODES.RAW || mode === EXPORT_MODES.STYLED) return mode;
@@ -88,6 +92,8 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
     sourceHeight: recording.height,
   });
   const presentationStyle = normalizePresentationStyle(recording.presentation?.background);
+  const [backgroundStart, backgroundEnd] = getRecordingBackgroundColors(recording.presentation?.background);
+  const backgroundImagePath = resolveRendererPublicAsset(recording.presentation?.background?.bgImage);
   const cursorLayer = await createCursorSubtitleLayer({
     cursorEvents: recording.cursorEvents,
     width: recording.width,
@@ -116,6 +122,9 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       screenShadowEnabled: presentationStyle.screenShadowEnabled,
       screenShadowBlur: presentationStyle.screenShadowBlur,
       screenShadowOpacity: presentationStyle.screenShadowOpacity,
+      backgroundStart,
+      backgroundEnd,
+      backgroundImagePath,
       cursorAssPath: cursorLayer?.path,
       sourceWidth: recording.width,
       sourceHeight: recording.height,
@@ -169,6 +178,9 @@ export function buildStyledExportArgs({
   screenShadowEnabled = true,
   screenShadowBlur = 58,
   screenShadowOpacity = 0.2,
+  backgroundStart = '#e8ebf0',
+  backgroundEnd = '#f0e8e8',
+  backgroundImagePath = null,
   zoomCropFilter = null,
   zoomSendcmdPath = null,
   cameraInputPath = null,
@@ -183,8 +195,16 @@ export function buildStyledExportArgs({
   const shadowBlur = Math.round(clampNumber(screenShadowBlur, 0, 120));
   const shadowOpacity = screenShadowEnabled ? clampNumber(screenShadowOpacity, 0, 0.8) : 0;
   const shadowOffsetY = Math.round(Math.min(34, Math.max(10, height * 0.024)));
-  const roundedAlpha = buildRoundedAlphaExpression(cornerRadius);
+  const backgroundExpression = buildBackgroundExpression(backgroundStart, backgroundEnd);
   const fps = Number.isFinite(sourceFps) && sourceFps > 0 ? sourceFps : 30;
+  const backgroundFilter = backgroundImagePath
+    ? [
+        `nullsrc=s=${width}x${height}:r=${fps},format=rgb24,geq=${backgroundExpression},format=rgba[bg_base]`,
+        `movie=${escapeFilterPath(backgroundImagePath)},scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},format=rgba[bg_image]`,
+        '[bg_base][bg_image]overlay=(W-w)/2:(H-h)/2:shortest=1[bg]',
+      ]
+    : [`nullsrc=s=${width}x${height}:r=${fps},format=rgb24,geq=${backgroundExpression},format=rgba[bg]`];
+  const roundedAlpha = buildRoundedAlphaExpression(cornerRadius);
   const trimStartFrame = Math.max(0, Math.round(sourceTrimStartFrame || 0));
   const trimEndFrame = Number.isFinite(sourceTrimEndFrame) ? Math.max(trimStartFrame + 1, Math.round(sourceTrimEndFrame)) : null;
   const trimDurationFrames = trimEndFrame === null ? null : trimEndFrame - trimStartFrame;
@@ -198,7 +218,7 @@ export function buildStyledExportArgs({
   const cameraRadius = cameraFrame ? resolveCameraOverlayRadius(cameraPresentation, cameraFrame) : 0;
   const cameraAlpha = buildRoundedAlphaExpression(cameraRadius);
   const filter = [
-    `nullsrc=s=${width}x${height}:r=${fps},format=rgb24,geq=r='224+20*X/W+10*Y/H':g='219+12*X/W+8*Y/H':b='232-8*X/W+12*Y/H',format=rgba[bg]`,
+    ...backgroundFilter,
     '[0:v]setpts=PTS-STARTPTS[base]',
     ...(cursorAssPath ? [`[base]subtitles=${escapeFilterPath(cursorAssPath)}[with_cursor]`] : []),
     `${screenInput}${screenStep}[screen]`,
@@ -248,6 +268,16 @@ export function buildStyledExportArgs({
     `rough_cut_style=canvas:${width}x${height}:studio-demo`,
     outputPath,
   ];
+}
+
+function resolveRendererPublicAsset(assetPath) {
+  if (!assetPath || typeof assetPath !== 'string') return null;
+  if (assetPath.includes('..') || assetPath.startsWith('/') || /^[a-zA-Z]+:/.test(assetPath)) return null;
+  const builtPath = resolve(__dirname, '../../dist/renderer', assetPath);
+  const sourcePath = resolve(__dirname, '../renderer/public', assetPath);
+  if (existsSync(builtPath)) return builtPath;
+  if (existsSync(sourcePath)) return sourcePath;
+  return null;
 }
 
 export function buildRawTrimExportArgs({ inputPath, outputPath, startFrame = 0, endFrame, fps = 30 }) {
@@ -310,6 +340,31 @@ function normalizePresentationStyle(background = null) {
     screenShadowEnabled: typeof background?.bgShadowEnabled === 'boolean' ? background.bgShadowEnabled : true,
     screenShadowBlur: Number.isFinite(background?.bgShadowBlur) ? background.bgShadowBlur : 58,
     screenShadowOpacity: Number.isFinite(background?.bgShadowOpacity) ? background.bgShadowOpacity : 0.2,
+  };
+}
+
+export function buildBackgroundExpression(startColor = '#e8ebf0', endColor = '#f0e8e8') {
+  const defaultStart = parseHexColor('#e8ebf0');
+  const defaultEnd = parseHexColor('#f0e8e8');
+  const parsedStart = parseHexColor(startColor);
+  const parsedEnd = parseHexColor(endColor);
+  const start = parsedStart && parsedEnd ? parsedStart : defaultStart;
+  const end = parsedStart && parsedEnd ? parsedEnd : defaultEnd;
+  return [
+    `r='${start.r}+${end.r - start.r}*X/W'`,
+    `g='${start.g}+${end.g - start.g}*X/W'`,
+    `b='${start.b}+${end.b - start.b}*X/W'`,
+  ].join(':');
+}
+
+function parseHexColor(color) {
+  const match = String(color).match(/^#([0-9a-fA-F]{6})$/);
+  if (!match) return null;
+  const value = Number.parseInt(match[1], 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
   };
 }
 

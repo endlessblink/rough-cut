@@ -30,8 +30,8 @@ const migrations: readonly Migration[] = [
         const migratedMarkers = markers.map((m) => ({
           ...m,
           focalPoint: m['focalPoint'] ?? { x: 0.5, y: 0.5 },
-          zoomInDuration: m['zoomInDuration'] ?? 9,
-          zoomOutDuration: m['zoomOutDuration'] ?? 9,
+          zoomInDuration: m['zoomInDuration'] ?? 18,
+          zoomOutDuration: m['zoomOutDuration'] ?? 18,
         }));
         return {
           ...asset,

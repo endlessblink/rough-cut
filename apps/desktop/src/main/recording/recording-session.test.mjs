@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -93,6 +93,49 @@ test('recording session serializes duplicate stop calls to the saved result', as
   assert.equal(second.state, 'saved');
   assert.equal(second.outputPath, first.outputPath);
   assert.equal(existsSync(join(root, 'recovery.json')), false);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('recording session cancel stops capture and deletes incomplete artifacts', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-cancel-'));
+  const recordingsDir = join(root, 'recordings');
+  const markerPath = join(root, 'recovery.json');
+  let cancelCalled = false;
+  let stopCalled = false;
+
+  const session = createRecordingSession({
+    recordingsDir,
+    markerPath,
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => ({
+      outputPath: options.outputPath,
+      cancel: async () => {
+        cancelCalled = true;
+        return options.outputPath;
+      },
+      stop: async () => {
+        stopCalled = true;
+        return options.outputPath;
+      },
+    }),
+  });
+
+  const started = await session.start();
+  await writeFile(started.rawPath, 'partial mkv');
+  await writeFile(started.outputPath, 'partial mp4');
+  const canceled = await session.cancel();
+
+  assert.equal(canceled.state, 'idle');
+  assert.equal(canceled.canceled, true);
+  assert.equal(cancelCalled, true);
+  assert.equal(stopCalled, false);
+  assert.equal(session.status().state, 'idle');
+  assert.equal(existsSync(markerPath), false);
+  assert.equal(existsSync(started.rawPath), false);
+  assert.equal(existsSync(started.outputPath), false);
 
   await rm(root, { recursive: true, force: true });
 });
