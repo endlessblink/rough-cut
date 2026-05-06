@@ -89,7 +89,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 ## Session checkpoints
 
 - Tag `checkpoint/cursor-stable-2026-05-03` at `e0a01ae` — landed cursor multi-monitor fix + canvas preview. Recovery anchor before auto-zoom + cursor-follow features.
-- Tag `checkpoint/cursor-follow-hold-containment-2026-05-06` at `022e29b` — stabilizes professional cursor-follow zoom behavior: action-focused ramp-in, contained hold, and cursor-independent zoom-out reveal.
+- Tag `checkpoint/cursor-follow-hold-containment-2026-05-06` — stabilizes professional cursor-follow zoom behavior: action-focused ramp-in, contained hold, and cursor-independent zoom-out reveal.
 
 ## Capture-source convention
 
