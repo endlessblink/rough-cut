@@ -17,6 +17,16 @@ export function addManualMarkerAt(
 
 export function removeMarker(document: ProjectDocument, markerId: string): ProjectDocument;
 
+export function updateMarkerRange(
+  document: ProjectDocument,
+  markerId: string,
+  startFrame: number,
+  endFrame: number,
+  options?: { minDurationFrames?: number },
+): ProjectDocument;
+
+export function updateMarkerStrength(document: ProjectDocument, markerId: string, strength: number): ProjectDocument;
+
 export function listMarkers(document: ProjectDocument): readonly ZoomMarker[];
 
 export function applySuggestion(

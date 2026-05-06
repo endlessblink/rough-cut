@@ -11,6 +11,9 @@ export type TimelineRegion = {
   id: string;
   left: number;
   width: number;
+  startFrame?: number;
+  endFrame?: number;
+  layer?: number;
   kind?: string;
   label?: string;
 };
@@ -27,6 +30,7 @@ export type TimelineModel = {
   playheadPercent: number;
   trimStartFrame: number;
   trimEndFrame: number;
+  zoomLayerCount: number;
   ticks: readonly number[];
   lanes: {
     screen: readonly TimelineRegion[];

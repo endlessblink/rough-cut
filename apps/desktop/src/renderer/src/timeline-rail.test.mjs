@@ -100,3 +100,29 @@ test('buildTimelineModel maps timeline lanes relative to clip trims', () => {
   assert.equal(model.lanes.clicks.length, 1);
   assert.equal(model.lanes.clicks[0].left, 20);
 });
+
+test('buildTimelineModel assigns overlapping zoom markers to separate layers with longer marker first', () => {
+  const base = createProject();
+  const presentation = createDefaultRecordingPresentation();
+  const shorter = createZoomMarker(30, 90, { kind: 'manual' });
+  const longer = createZoomMarker(0, 150, { kind: 'manual' });
+  const asset = createAsset('recording', '/tmp/recording.mp4', {
+    duration: 300,
+    presentation: {
+      ...presentation,
+      zoom: {
+        ...presentation.zoom,
+        markers: [shorter, longer],
+      },
+    },
+  });
+  const document = { ...base, assets: [asset] };
+
+  const model = buildTimelineModel({ document, recording: { duration: 300, fps: 30 }, currentTimeSec: 1, cameraMediaUrl: null });
+  const longerRegion = model.lanes.zoom.find((region) => region.id === longer.id);
+  const shorterRegion = model.lanes.zoom.find((region) => region.id === shorter.id);
+
+  assert.equal(model.zoomLayerCount, 2);
+  assert.equal(longerRegion.layer, 0);
+  assert.equal(shorterRegion.layer, 1);
+});

@@ -526,11 +526,16 @@ async function runRendererUiSmoke() {
   await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'styled preview canvas');
   const hasStyledPreviewCanvas = true;
   document.querySelector('button[aria-label="Timeline"]')?.click();
-  await waitFor(() => document.body.textContent?.includes('Zoom markers'), 'zoom marker panel header');
+  await waitFor(() => document.querySelector('[aria-label="Zoom markers"]') && document.body.textContent?.includes('Markers'), 'zoom marker panel header');
   const hasZoomMarkerPanel = true;
   const hasTimelineZoomControlPanel = Boolean(document.querySelector('[data-ui-region="timeline-zoom-control-panel"]'));
-  await waitFor(() => document.querySelector('[aria-label="Auto-zoom suggestions"]') && document.body.textContent?.includes('Auto suggestions'), 'auto-zoom suggestions panel header');
+  await waitFor(() => document.querySelector('[aria-label="Auto-zoom suggestions"]') && document.body.textContent?.includes('Suggestions'), 'auto-zoom suggestions panel header');
   const hasAutoZoomSuggestionsPanel = true;
+  const hasZoomResizeHandles = Boolean(document.querySelector('[data-timeline-lane="zoom"] .zoomResizeStart') && document.querySelector('[data-timeline-lane="zoom"] .zoomResizeEnd'));
+  const hasNoSetupBoardHorizontalOverflow = Boolean(await waitFor(() => {
+    const board = document.querySelector('.setupBoard');
+    return board && board.scrollWidth <= board.clientWidth + 1;
+  }, 'setup board without horizontal overflow'));
   document.querySelector('[data-timeline-lane="zoom"] .timelineRegion')?.click();
   await waitFor(() => document.querySelector('[data-inspector-context="zoom"]'), 'zoom inspector context');
   const hasInspectorContext = true;
@@ -649,6 +654,8 @@ async function runRendererUiSmoke() {
     hasBackgroundShadowControls,
     hasZoomMarkerPanel,
     hasTimelineZoomControlPanel,
+    hasZoomResizeHandles,
+    hasNoSetupBoardHorizontalOverflow,
     hasAutoZoomSuggestionsPanel,
     hasInspectorContext,
     hasInspectorGroups,

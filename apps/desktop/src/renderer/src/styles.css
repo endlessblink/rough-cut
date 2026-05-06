@@ -416,7 +416,8 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   gap: 0.8rem;
   min-height: 0;
   min-width: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 1rem;
   transition: opacity 140ms ease;
 }
@@ -698,6 +699,8 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   position: relative;
 }
 
+.zoomLayerCount2 { min-height: 2.9rem; }
+
 .laneLabel {
   align-items: center;
   background: #171720;
@@ -851,12 +854,31 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   border-radius: 8px;
   box-shadow: none;
   bottom: 0.28rem;
+  cursor: grab;
   min-height: 0;
   padding: 0;
   position: absolute;
   top: 0.28rem;
   z-index: 5;
 }
+
+.zoomLayer0 { bottom: 0.92rem; top: 0.28rem; }
+.zoomLayer1 { bottom: 0.28rem; top: 0.92rem; }
+
+.selectedRegion {
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.28), 0 0 0 5px rgb(37 99 235 / 0.16);
+}
+
+.zoomResizeHandle {
+  bottom: 0;
+  cursor: ew-resize;
+  position: absolute;
+  top: 0;
+  width: 0.42rem;
+}
+
+.zoomResizeStart { left: 0; }
+.zoomResizeEnd { right: 0; }
 
 .autoRegion { background: linear-gradient(180deg, #99f6e4, #14b8a6); }
 .manualRegion { background: linear-gradient(180deg, #d8b4fe, #8b5cf6); }
@@ -903,69 +925,35 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 .timelineBoardStack {
   display: grid;
-  gap: 0.72rem;
-  min-height: 0;
-}
-
-.timelineFocusCard {
-  background:
-    linear-gradient(135deg, rgb(37 99 235 / 0.2), rgb(15 15 22 / 0) 58%),
-    #181820;
-  border: 1px solid rgb(122 167 255 / 0.22);
-  border-radius: 16px;
-  display: grid;
-  gap: 0.72rem;
-  padding: 0.85rem;
-}
-
-.timelineFocusCard h3 {
-  font-size: 0.96rem;
-  letter-spacing: -0.02em;
-  line-height: 1.18;
-}
-
-.timelineStatGrid {
-  display: grid;
   gap: 0.42rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.timelineStatGrid span {
-  background: rgb(10 10 15 / 0.72);
-  border: 1px solid rgb(255 255 255 / 0.07);
-  border-radius: 12px;
-  display: grid;
-  gap: 0.16rem;
+  min-height: 0;
   min-width: 0;
-  padding: 0.58rem 0.5rem;
 }
 
-.timelineStatGrid strong {
-  color: var(--text);
-  font-size: 0.9rem;
-  font-variant-numeric: tabular-nums;
+.timelineCompactRow {
+  align-items: center;
+  border-bottom: 1px solid rgb(255 255 255 / 0.06);
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  min-width: 0;
+  padding: 0.38rem 0;
 }
 
-.timelineStatGrid small {
-  color: var(--subtle);
-  font-size: 0.62rem;
-  font-weight: 720;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+.timelineCompactRow span,
+.zoomMarkerRange,
+.autoZoomRange {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+.timelineCompactRow span { color: var(--muted); font-size: 0.8rem; }
+.timelineCompactRow strong { color: var(--text); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 
 .zoomMarkerPanel,
 .autoZoomSuggestionsPanel { min-height: 0; }
-
-.timelinePrimaryButton {
-  background: #2563eb;
-  border-radius: 12px;
-  box-shadow: 0 10px 24px rgb(37 99 235 / 0.2), inset 0 1px 0 rgb(255 255 255 / 0.2);
-  color: #fff;
-  width: 100%;
-}
-
-.timelinePrimaryButton:hover:not(:disabled) { background: #3d8bff; }
 
 .timelineHeader { justify-content: space-between; }
 .emptyTimeline p { margin: 0; }
@@ -1060,9 +1048,10 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   gap: 0.6rem;
   justify-content: space-between;
   padding: 0.44rem 0.58rem;
+  min-width: 0;
 }
 
-.autoZoomActions { gap: 0.35rem; }
+.autoZoomActions { flex: 0 0 auto; gap: 0.35rem; }
 
 @media (max-width: 980px) {
   body { overflow: auto; }

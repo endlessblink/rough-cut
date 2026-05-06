@@ -48,6 +48,16 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
   const cursorEvents = getCursorEvents(recordingAsset);
   const clickEvents = cursorEvents.filter((event) => event.type === 'down' && event.frame >= trimStartFrame && event.frame <= trimEndFrame);
   const markers = listMarkers(document);
+  const zoomRegions = assignZoomLayers(markers
+    .filter((marker) => marker.endFrame >= trimStartFrame && marker.startFrame <= trimEndFrame)
+    .map((marker) => ({
+      id: marker.id,
+      kind: marker.kind,
+      startFrame: marker.startFrame,
+      endFrame: marker.endFrame,
+      label: marker.kind === 'auto' ? 'Auto zoom' : 'Manual zoom',
+      ...frameRangeToPlacement(marker.startFrame - trimStartFrame, marker.endFrame - trimStartFrame, fps, durationSec),
+    })));
 
   return {
     durationSec,
@@ -57,16 +67,10 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
     trimStartFrame,
     trimEndFrame,
     ticks: Array.from({ length: DEFAULT_TICK_COUNT }, (_, index) => (durationSec / (DEFAULT_TICK_COUNT - 1)) * index),
+    zoomLayerCount: Math.max(1, ...zoomRegions.map((region) => region.layer + 1)),
     lanes: {
       screen: [{ id: 'screen', left: 0, width: (visibleDurationSec / durationSec) * 100 }],
-      zoom: markers
-        .filter((marker) => marker.endFrame >= trimStartFrame && marker.startFrame <= trimEndFrame)
-        .map((marker) => ({
-          id: marker.id,
-          kind: marker.kind,
-          label: marker.kind === 'auto' ? 'Auto zoom' : 'Manual zoom',
-          ...frameRangeToPlacement(marker.startFrame - trimStartFrame, marker.endFrame - trimStartFrame, fps, durationSec),
-        })),
+      zoom: zoomRegions,
       clicks: clickEvents.map((event, index) => ({
         id: `${event.frame}-${index}`,
         left: frameToPercent(event.frame - trimStartFrame, fps, durationSec),
@@ -75,6 +79,26 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
       audio: recording?.audio ? [{ id: 'audio', left: 0, width: 100 }] : [],
     },
   };
+}
+
+function assignZoomLayers(regions) {
+  const layerEnds = [];
+  const assignments = new Map();
+  const byPrecedence = [...regions].sort((a, b) => {
+    const durationDelta = (b.endFrame - b.startFrame) - (a.endFrame - a.startFrame);
+    if (durationDelta !== 0) return durationDelta;
+    if (a.startFrame !== b.startFrame) return a.startFrame - b.startFrame;
+    return String(a.id).localeCompare(String(b.id));
+  });
+
+  for (const region of byPrecedence) {
+    let layer = layerEnds.findIndex((endFrame) => region.startFrame >= endFrame);
+    if (layer === -1) layer = layerEnds.length;
+    layerEnds[layer] = region.endFrame;
+    assignments.set(region.id, layer);
+  }
+
+  return regions.map((region) => ({ ...region, layer: assignments.get(region.id) ?? 0 }));
 }
 
 function getPrimaryAsset(document) {

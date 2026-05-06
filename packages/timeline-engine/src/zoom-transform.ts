@@ -444,6 +444,19 @@ export function getZoomTransformAtFrame(
   // Sort by startFrame
   const sorted = [...markers].sort((a, b) => a.startFrame - b.startFrame);
 
+  const active = sorted
+    .filter((marker) => frame >= marker.startFrame && frame < marker.endFrame)
+    .sort((a, b) => {
+      const durationDelta = (b.endFrame - b.startFrame) - (a.endFrame - a.startFrame);
+      if (durationDelta !== 0) return durationDelta;
+      if (a.startFrame !== b.startFrame) return a.startFrame - b.startFrame;
+      return String(a.id).localeCompare(String(b.id));
+    });
+
+  if (active.length > 0) {
+    return getZoomTransformForMarker(frame, active[0]!, options) ?? IDENTITY;
+  }
+
   for (let i = 0; i < sorted.length; i++) {
     const m = sorted[i]!;
     const next = sorted[i + 1] ?? null;
@@ -470,8 +483,6 @@ export function getZoomTransformAtFrame(
       return { scale, translateX, translateY };
     }
 
-    const result = getZoomTransformForMarker(frame, m, options);
-    if (result !== null) return result;
   }
 
   return IDENTITY;

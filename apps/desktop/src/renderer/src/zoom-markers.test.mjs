@@ -13,6 +13,8 @@ import {
   getPrimaryRecordingAsset,
   listMarkers,
   removeMarker,
+  updateMarkerRange,
+  updateMarkerStrength,
   withDefaultPresentation,
 } from './zoom-markers.mjs';
 
@@ -173,6 +175,50 @@ test('removeMarker is a no-op when id does not match', () => {
   project = addManualMarkerAt(project, 2.0, 30);
   const next = removeMarker(project, 'nonexistent-id');
   assert.equal(next, project);
+});
+
+test('updateMarkerRange moves a marker and keeps marker order sorted', () => {
+  let project = projectWithRecording({ duration: 300 });
+  project = addManualMarkerAt(project, 1.0, 30);
+  project = addManualMarkerAt(project, 6.0, 30);
+  const target = listMarkers(project)[0];
+
+  const next = updateMarkerRange(project, target.id, 210, 270);
+  const markers = listMarkers(next);
+
+  assert.equal(markers[0].startFrame, 180);
+  assert.equal(markers[1].id, target.id);
+  assert.equal(markers[1].startFrame, 210);
+  assert.equal(markers[1].endFrame, 270);
+});
+
+test('updateMarkerRange clamps edits to source bounds and minimum duration', () => {
+  let project = projectWithRecording({ duration: 120 });
+  project = addManualMarkerAt(project, 1.0, 30);
+  const target = listMarkers(project)[0];
+
+  const next = updateMarkerRange(project, target.id, 118, 119, { minDurationFrames: 15 });
+  const marker = listMarkers(next)[0];
+
+  assert.equal(marker.startFrame, 105);
+  assert.equal(marker.endFrame, 120);
+});
+
+test('updateMarkerRange is a no-op for unknown marker ids', () => {
+  const project = addManualMarkerAt(projectWithRecording(), 2.0, 30);
+
+  assert.equal(updateMarkerRange(project, 'missing', 0, 30), project);
+});
+
+test('updateMarkerStrength updates and clamps marker zoom strength', () => {
+  let project = addManualMarkerAt(projectWithRecording(), 2.0, 30);
+  const target = listMarkers(project)[0];
+
+  project = updateMarkerStrength(project, target.id, 0.45);
+  assert.equal(listMarkers(project)[0].strength, 0.45);
+
+  project = updateMarkerStrength(project, target.id, 2);
+  assert.equal(listMarkers(project)[0].strength, 1);
 });
 
 test('applySuggestion appends an auto marker preserving suggestion fields with a fresh id', () => {

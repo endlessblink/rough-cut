@@ -25,9 +25,11 @@ import {
   canAddMarkerAt,
   listMarkers,
   removeMarker,
+  updateMarkerRange,
+  updateMarkerStrength,
   withDefaultPresentation,
 } from './zoom-markers.mjs';
-import { buildTimelineModel } from './timeline-rail.mjs';
+import { buildTimelineModel, frameRangeToPlacement } from './timeline-rail.mjs';
 import { coverSourceRect, cursorAtFrame, drawClickEmphasis, drawCursorPath } from './styled-preview.mjs';
 import { generateSuggestionsForProject } from './auto-zoom-suggestions.mjs';
 
@@ -76,7 +78,7 @@ type CameraSource = { id: string; name: string; label: string };
 type CaptureMode = 'display' | 'region';
 type CaptureRegion = { mode: 'region'; x: number; y: number; width: number; height: number };
 type InspectorGroupId = 'canvas' | 'recording' | 'screen' | 'zoom' | 'cursor' | 'camera' | 'export' | 'diagnostics';
-type InspectorSelection = { group: InspectorGroupId; label: string; detail?: string };
+type InspectorSelection = { group: InspectorGroupId; label: string; detail?: string; markerId?: string };
 type PrimaryClip = { assetId?: string; timelineIn?: number; timelineOut?: number; sourceIn?: number; sourceOut?: number } & Record<string, unknown>;
 type TrimInfo = { startFrame: number; endFrame: number; startSec: number; endSec: number; durationSec: number; isTrimmed: boolean };
 
@@ -927,7 +929,7 @@ function InspectorContextSummary({ selection }: { selection: InspectorSelection 
   );
 }
 
-function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, trimInfo, onProjectChange, onBackgroundChange, onCameraPresentationChange, onAspectRatioChange, onSetTrimStart, onSetTrimEnd, onResetTrim }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; trimInfo?: TrimInfo; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onSetTrimStart?: () => void; onSetTrimEnd?: () => void; onResetTrim?: () => void }) {
+function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, selectedZoomMarker = null, trimInfo, onProjectChange, onBackgroundChange, onCameraPresentationChange, onAspectRatioChange, onZoomMarkerRangeChange, onZoomMarkerStrengthChange, onSetTrimStart, onSetTrimEnd, onResetTrim }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onZoomMarkerRangeChange?: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onSetTrimStart?: () => void; onSetTrimEnd?: () => void; onResetTrim?: () => void }) {
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const aspectRatioOptions = PROJECT_ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: PROJECT_ASPECT_RATIO_LABELS[ratio] }));
@@ -940,16 +942,8 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
         <BoardHeader icon="timeline" title="Timeline" />
         {project?.recording && fps && onProjectChange ? (
           <div className="timelineBoardStack" data-ui-region="timeline-zoom-control-panel">
-            <section className="timelineFocusCard" aria-label="Timeline zoom status">
-              <p className="eyebrow">Zoom choreography</p>
-              <h3>Shape attention around the playhead.</h3>
-              <div className="timelineStatGrid">
-                <span><strong>{formatClock(currentTimeSec)}</strong><small>Playhead</small></span>
-                <span><strong>{markerCount}</strong><small>Manual zooms</small></span>
-                <span><strong>{fps}</strong><small>FPS</small></span>
-              </div>
-            </section>
-            <ZoomMarkerPanel project={project} fps={fps} currentTimeSec={currentTimeSec} onProjectChange={onProjectChange} />
+            <div className="timelineCompactRow"><span>Playhead</span><strong>{formatClock(currentTimeSec)}</strong></div>
+            <ZoomMarkerPanel project={project} fps={fps} currentTimeSec={currentTimeSec} markerCount={markerCount} onProjectChange={onProjectChange} />
             <AutoZoomSuggestionsPanel project={project} onProjectChange={onProjectChange} />
           </div>
         ) : (
@@ -985,8 +979,12 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
             <button type="button" className="secondary compact" disabled={disabled || !trimInfo || !trimInfo.isTrimmed} onClick={onResetTrim}>Reset trim</button>
           </InspectorActionRow>
         </InspectorSection>
-        <InspectorSection id="zoom" title="Zoom" muted description="Select a zoom region in the timeline to focus this group.">
-          <InspectorNotice>Zoom marker editing stays in the Timeline board until selection editing lands.</InspectorNotice>
+        <InspectorSection id="zoom" title="Zoom" muted={!selectedZoomMarker}>
+          <div data-zoom-controls="true">
+            <InspectorSlider label="Start frame" value={selectedZoomMarker?.startFrame ?? 0} min={0} max={Math.max(1, project?.recording?.duration ?? 1)} step={1} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerRangeChange?.(selectedZoomMarker.id, value, selectedZoomMarker.endFrame) : undefined} />
+            <InspectorSlider label="End frame" value={selectedZoomMarker?.endFrame ?? 0} min={0} max={Math.max(1, project?.recording?.duration ?? 1)} step={1} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerRangeChange?.(selectedZoomMarker.id, selectedZoomMarker.startFrame, value) : undefined} />
+            <InspectorSlider label="Depth" value={Math.round((selectedZoomMarker?.strength ?? 0) * 100)} min={0} max={100} step={5} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerStrengthChange?.(selectedZoomMarker.id, value / 100) : undefined} />
+          </div>
         </InspectorSection>
         <InspectorSection id="cursor" title="Cursor" muted>
           <InspectorNotice>Cursor style controls are planned for TASK-044.</InspectorNotice>
@@ -1135,6 +1133,7 @@ function ProjectPreview({
   const primaryClip = getPrimaryRecordingClip(project.document, recordingAsset?.id);
   const trimInfo = resolveTrimInfo(primaryClip, project.recording?.duration ?? project.document.composition.duration, project.recording?.fps ?? 30);
   const background = recordingAsset?.presentation?.background ?? DEFAULT_RECORDING_BACKGROUND;
+  const selectedZoomMarker = inspectorSelection.markerId ? listMarkers(project.document as unknown as ProjectDocument).find((marker) => marker.id === inspectorSelection.markerId) ?? null : null;
   const hasCamera = Boolean(recordingAsset?.cameraAssetId && project.cameraMediaUrl);
   const cameraPresentation: CameraPresentation = {
     ...DEFAULT_CAMERA_PRESENTATION,
@@ -1259,6 +1258,18 @@ function ProjectPreview({
     updateTrim(0, project.recording.duration);
   }
 
+  async function updateZoomMarkerRange(markerId: string, startFrame: number, endFrame: number) {
+    const nextDocument = updateMarkerRange(project.document as unknown as ProjectDocument, markerId, startFrame, endFrame) as unknown as ProjectState['document'];
+    if (nextDocument === project.document) return;
+    await persist(nextDocument);
+  }
+
+  async function updateZoomMarkerStrength(markerId: string, strength: number) {
+    const nextDocument = updateMarkerStrength(project.document as unknown as ProjectDocument, markerId, strength) as unknown as ProjectState['document'];
+    if (nextDocument === project.document) return;
+    await persist(nextDocument);
+  }
+
   function handleTimelineScrub(nextTimeSec: number) {
     setCurrentTimeSec(nextTimeSec);
     if (isTimelineScrubbingRef.current) return;
@@ -1283,7 +1294,7 @@ function ProjectPreview({
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
       <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} project={project} fps={project.recording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} trimInfo={trimInfo} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onAspectRatioChange={updateAspectRatio} onSetTrimStart={setTrimStartToPlayhead} onSetTrimEnd={setTrimEndToPlayhead} onResetTrim={resetTrim} />
+      <EditorToolBoard activeTool={activeTool} project={project} fps={project.recording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} selectedZoomMarker={selectedZoomMarker} trimInfo={trimInfo} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onAspectRatioChange={updateAspectRatio} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onSetTrimStart={setTrimStartToPlayhead} onSetTrimEnd={setTrimEndToPlayhead} onResetTrim={resetTrim} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>
@@ -1306,7 +1317,7 @@ function ProjectPreview({
           <p className="eyebrow"><Icon name="timeline" /> Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-          {project.recording ? <VisualTimeline project={project} currentTimeSec={currentTimeSec} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimStart={(sourceTimeSec) => updateTrim(Math.round(sourceTimeSec * project.recording!.fps), trimInfo.endFrame)} onTrimEnd={(sourceTimeSec) => updateTrim(trimInfo.startFrame, Math.round(sourceTimeSec * project.recording!.fps))} onRestoreTrimStart={() => updateTrim(0, trimInfo.endFrame)} onRestoreTrimEnd={() => updateTrim(trimInfo.startFrame, project.recording!.duration)} onResetTrim={resetTrim} onSelectInspectorContext={focusInspectorContext} /> : null}
+          {project.recording ? <VisualTimeline project={project} currentTimeSec={currentTimeSec} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimStart={(sourceTimeSec) => updateTrim(Math.round(sourceTimeSec * project.recording!.fps), trimInfo.endFrame)} onTrimEnd={(sourceTimeSec) => updateTrim(trimInfo.startFrame, Math.round(sourceTimeSec * project.recording!.fps))} onRestoreTrimStart={() => updateTrim(0, trimInfo.endFrame)} onRestoreTrimEnd={() => updateTrim(trimInfo.startFrame, project.recording!.duration)} onResetTrim={resetTrim} onZoomMarkerRangeChange={updateZoomMarkerRange} onSelectInspectorContext={focusInspectorContext} /> : null}
         </div>
       </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
@@ -1407,7 +1418,7 @@ function preventRangeWheelChange(event: React.WheelEvent<HTMLInputElement>) {
   event.currentTarget.blur();
 }
 
-function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScrubEnd, onTrimStart, onTrimEnd, onRestoreTrimStart, onRestoreTrimEnd, onResetTrim, onSelectInspectorContext }: { project: ProjectState; currentTimeSec: number; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimStart: (sourceTimeSec: number) => void; onTrimEnd: (sourceTimeSec: number) => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onResetTrim: () => void; onSelectInspectorContext: (selection: InspectorSelection) => void }) {
+function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, onScrub, onScrubStart, onScrubEnd, onTrimStart, onTrimEnd, onRestoreTrimStart, onRestoreTrimEnd, onResetTrim, onZoomMarkerRangeChange, onSelectInspectorContext }: { project: ProjectState; currentTimeSec: number; selectedZoomMarkerId?: string | null; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimStart: (sourceTimeSec: number) => void; onTrimEnd: (sourceTimeSec: number) => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onResetTrim: () => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void }) {
   const model = buildTimelineModel({
     document: project.document as unknown as ProjectDocument,
     recording: project.recording,
@@ -1422,6 +1433,7 @@ function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScru
   const hasHiddenEnd = model.trimEndFrame < sourceFrameDuration;
   const hiddenTailLeft = model.lanes.screen[0]?.width ?? 100;
   const hiddenTailWidth = Math.max(0, 100 - hiddenTailLeft);
+  const [zoomDragPreview, setZoomDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number } | null>(null);
 
   function sourceToVisibleTime(sourceTimeSec: number) {
     return Math.max(0, Math.min(sourceTimeSec - (model.trimStartFrame / fps), model.visibleDurationSec));
@@ -1443,6 +1455,12 @@ function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScru
     const rect = track.getBoundingClientRect();
     if (rect.width <= 0) return null;
     return Math.max(0, Math.min(((clientX - rect.left) / rect.width) * model.durationSec, model.durationSec));
+  }
+
+  function sourceFrameFromClient(handle: HTMLElement, clientX: number) {
+    const sourceTimeSec = sourceTimeFromClient(handle, clientX);
+    if (sourceTimeSec === null) return null;
+    return Math.round(sourceTimeSec * fps);
   }
 
   function beginTrimDrag(kind: 'start' | 'end', event: React.PointerEvent<HTMLButtonElement>) {
@@ -1469,6 +1487,57 @@ function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScru
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up, { once: true });
     window.addEventListener('pointercancel', up, { once: true });
+  }
+
+  function beginZoomDrag(region: { id: string; startFrame?: number; endFrame?: number }, mode: 'move' | 'start' | 'end', event: React.PointerEvent<HTMLElement>) {
+    if (!Number.isFinite(region.startFrame) || !Number.isFinite(region.endFrame)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    const initialFrame = sourceFrameFromClient(handle, event.clientX) ?? 0;
+    const initialStart = Math.round(region.startFrame ?? 0);
+    const initialEnd = Math.round(region.endFrame ?? initialStart + 15);
+    const duration = Math.max(15, initialEnd - initialStart);
+    const maxFrame = Math.max(1, Math.round(project.recording?.duration ?? sourceFrameDuration));
+    let latest = { id: region.id, startFrame: initialStart, endFrame: initialEnd };
+    setZoomDragPreview(latest);
+
+    const update = (clientX: number) => {
+      const frame = sourceFrameFromClient(handle, clientX);
+      if (frame === null) return;
+      if (mode === 'move') {
+        const delta = frame - initialFrame;
+        const startFrame = Math.max(0, Math.min(maxFrame - duration, initialStart + delta));
+        latest = { id: region.id, startFrame, endFrame: startFrame + duration };
+      } else if (mode === 'start') {
+        const startFrame = Math.max(0, Math.min(initialEnd - 15, frame));
+        latest = { id: region.id, startFrame, endFrame: initialEnd };
+      } else {
+        const endFrame = Math.max(initialStart + 15, Math.min(maxFrame, frame));
+        latest = { id: region.id, startFrame: initialStart, endFrame };
+      }
+      setZoomDragPreview(latest);
+    };
+
+    const move = (moveEvent: PointerEvent) => update(moveEvent.clientX);
+    const up = (upEvent: PointerEvent) => {
+      update(upEvent.clientX);
+      setZoomDragPreview(null);
+      onZoomMarkerRangeChange(latest.id, latest.startFrame, latest.endFrame);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up, { once: true });
+    window.addEventListener('pointercancel', up, { once: true });
+  }
+
+  function zoomRegionStyle(region: { id: string; left: number; width: number; startFrame?: number; endFrame?: number }) {
+    if (zoomDragPreview?.id !== region.id) return { left: `${region.left}%`, width: `${region.width}%` };
+    const placement = frameRangeToPlacement(zoomDragPreview.startFrame - model.trimStartFrame, zoomDragPreview.endFrame - model.trimStartFrame, fps, model.durationSec);
+    return { left: `${placement.left}%`, width: `${placement.width}%` };
   }
 
   return (
@@ -1510,12 +1579,18 @@ function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScru
           {hasHiddenEnd ? <button type="button" className="hiddenTrimRange hiddenTrimEnd" aria-label="Restore hidden end" title={`Restore hidden end (${sourceFrameDuration - model.trimEndFrame} frames)`} style={{ left: `${hiddenTailLeft}%`, width: `${hiddenTailWidth}%` }} onClick={onRestoreTrimEnd}>Hidden end</button> : null}
           {hasHiddenStart || hasHiddenEnd ? <button type="button" className="restoreFullSource" aria-label="Restore full source" onClick={onResetTrim}>Restore full source</button> : null}
         </TimelineLane>
-        <TimelineLane label="Zoom" className="zoomLane">
+        <TimelineLane label="Zoom" className={`zoomLane zoomLayerCount${Math.min(2, model.zoomLayerCount)}`}>
           {model.lanes.zoom.length > 0
             ? model.lanes.zoom.map((region) => {
                 const label = region.label ?? 'Zoom region';
                 const kind = region.kind ?? 'manual';
-                return <button key={region.id} type="button" className={`timelineRegion ${kind === 'auto' ? 'autoRegion' : 'manualRegion'}`} title={label} style={{ left: `${region.left}%`, width: `${region.width}%` }} onClick={() => onSelectInspectorContext({ group: 'zoom', label, detail: `${kind} zoom region selected.` })} />;
+                const selected = selectedZoomMarkerId === region.id;
+                return (
+                  <button key={region.id} type="button" className={`timelineRegion zoomLayer${Math.min(1, region.layer ?? 0)} ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} title={label} style={zoomRegionStyle(region)} onClick={() => onSelectInspectorContext({ group: 'zoom', label, detail: `${kind} zoom region selected.`, markerId: region.id })} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
+                    <span className="zoomResizeHandle zoomResizeStart" onPointerDown={(event) => beginZoomDrag(region, 'start', event)} />
+                    <span className="zoomResizeHandle zoomResizeEnd" onPointerDown={(event) => beginZoomDrag(region, 'end', event)} />
+                  </button>
+                );
               })
             : <p>No zoom markers yet.</p>}
         </TimelineLane>
@@ -1552,11 +1627,13 @@ function ZoomMarkerPanel({
   project,
   fps,
   currentTimeSec,
+  markerCount,
   onProjectChange,
 }: {
   project: ProjectState;
   fps: number;
   currentTimeSec: number;
+  markerCount: number;
   onProjectChange: (next: ProjectState) => void;
 }) {
   const [saveError, setSaveError] = React.useState<string | null>(null);
@@ -1596,23 +1673,9 @@ function ZoomMarkerPanel({
 
   return (
     <div className="zoomMarkerPanel" aria-label="Zoom markers">
-      <div className="zoomMarkerHeader">
-        <span>
-          <p className="eyebrow">Manual</p>
-          <h3>Zoom markers</h3>
-        </span>
-        <span className="zoomMarkerTime">{formatClock(currentTimeSec)}</span>
-      </div>
-      <button
-        type="button"
-        className="timelinePrimaryButton"
-        onClick={handleAdd}
-        disabled={!canAdd || isSaving}
-      >
-        Add marker at {formatClock(currentTimeSec)}
-      </button>
+      <div className="timelineCompactRow"><span>Markers</span><strong>{markerCount}</strong><button type="button" className="secondary compact" onClick={handleAdd} disabled={!canAdd || isSaving}>+ Add</button></div>
       {markers.length === 0 ? (
-        <p className="zoomMarkerEmpty">Pause on the exact moment viewers should notice, then drop a marker.</p>
+        <p className="zoomMarkerEmpty">No markers</p>
       ) : (
         <ul className="zoomMarkerList">
           {markers.map((marker) => (
@@ -1690,23 +1753,21 @@ function AutoZoomSuggestionsPanel({
 
   return (
     <div className="autoZoomSuggestionsPanel" aria-label="Auto-zoom suggestions">
-      <div className="autoZoomHeader">
-        <span>
-          <p className="eyebrow">Assist</p>
-          <h3>Auto suggestions</h3>
-        </span>
+      <div className="timelineCompactRow">
+        <span>Suggestions</span>
+        <strong>{hasGenerated ? suggestions.length : '—'}</strong>
         <button
           type="button"
           className="secondary compact"
           onClick={handleGenerate}
           disabled={isSaving}
         >
-          {hasGenerated ? 'Regenerate suggestions' : 'Generate suggestions'}
+          {hasGenerated ? 'Regenerate' : 'Generate'}
         </button>
       </div>
       {!hasGenerated ? (
         <p className="autoZoomEmpty">
-          Scan cursor movement and clicks to find moments that may deserve focus.
+          Not generated
         </p>
       ) : suggestions.length === 0 ? (
         <p className="autoZoomEmpty">
@@ -1725,7 +1786,7 @@ function AutoZoomSuggestionsPanel({
             {suggestions.map((suggestion) => (
               <li key={suggestion.id} className="autoZoomRow">
                 <span className="autoZoomRange">
-                  {suggestion.startFrame}–{suggestion.endFrame} f · {Math.round(suggestion.strength * 100)}% · focal ({suggestion.focalPoint.x.toFixed(2)}, {suggestion.focalPoint.y.toFixed(2)})
+                  {suggestion.startFrame}–{suggestion.endFrame} f · {Math.round(suggestion.strength * 100)}%
                 </span>
                 <span className="autoZoomActions">
                   <button

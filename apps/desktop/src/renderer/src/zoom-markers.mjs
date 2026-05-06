@@ -79,6 +79,64 @@ export function removeMarker(document, markerId) {
   };
 }
 
+export function updateMarkerRange(document, markerId, startFrame, endFrame, options = {}) {
+  const asset = getPrimaryRecordingAsset(document);
+  if (!asset || !asset.presentation) return document;
+
+  const presentation = withDefaultPresentation(asset.presentation);
+  const markers = presentation.zoom.markers;
+  const marker = markers.find((item) => item.id === markerId);
+  if (!marker) return document;
+
+  const minDuration = Math.max(1, Math.round(options.minDurationFrames ?? DEFAULT_MIN_SPAN_FRAMES));
+  const maxFrame = Math.max(minDuration, Math.round(asset.duration || endFrame || minDuration));
+  const safeStart = Math.max(0, Math.min(maxFrame - minDuration, Math.round(startFrame)));
+  const safeEnd = Math.max(safeStart + minDuration, Math.min(maxFrame, Math.round(endFrame)));
+  if (safeStart === marker.startFrame && safeEnd === marker.endFrame) return document;
+
+  const nextMarkers = markers
+    .map((item) => (item.id === markerId ? { ...item, startFrame: safeStart, endFrame: safeEnd } : item))
+    .sort((a, b) => a.startFrame - b.startFrame);
+  const nextAsset = {
+    ...asset,
+    presentation: {
+      ...presentation,
+      zoom: { ...presentation.zoom, markers: nextMarkers },
+    },
+  };
+
+  return {
+    ...document,
+    assets: document.assets.map((item) => (item.id === asset.id ? nextAsset : item)),
+  };
+}
+
+export function updateMarkerStrength(document, markerId, strength) {
+  const asset = getPrimaryRecordingAsset(document);
+  if (!asset || !asset.presentation) return document;
+
+  const presentation = withDefaultPresentation(asset.presentation);
+  const markers = presentation.zoom.markers;
+  const marker = markers.find((item) => item.id === markerId);
+  if (!marker) return document;
+
+  const safeStrength = Math.max(0, Math.min(1, Number.isFinite(strength) ? strength : marker.strength));
+  if (safeStrength === marker.strength) return document;
+
+  const nextAsset = {
+    ...asset,
+    presentation: {
+      ...presentation,
+      zoom: { ...presentation.zoom, markers: markers.map((item) => (item.id === markerId ? { ...item, strength: safeStrength } : item)) },
+    },
+  };
+
+  return {
+    ...document,
+    assets: document.assets.map((item) => (item.id === asset.id ? nextAsset : item)),
+  };
+}
+
 export function listMarkers(document) {
   const asset = getPrimaryRecordingAsset(document);
   return asset?.presentation?.zoom?.markers ?? [];

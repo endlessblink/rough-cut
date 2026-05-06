@@ -593,4 +593,44 @@ describe('getZoomTransformAtFrame', () => {
     const t = getZoomTransformAtFrame(15, [m1, m2]);
     expect(t.scale).toBeCloseTo(1.75, 2);
   });
+
+  it('uses the longest active marker when zoom markers overlap', () => {
+    const shorter = createZoomMarker(20, 80, {
+      strength: 1,
+      zoomInDuration: 0,
+      zoomOutDuration: 0,
+      focalPoint: { x: 0.8, y: 0.5 },
+    });
+    const longer = createZoomMarker(0, 120, {
+      strength: 0.5,
+      zoomInDuration: 0,
+      zoomOutDuration: 0,
+      focalPoint: { x: 0.2, y: 0.5 },
+    });
+
+    const t = getZoomTransformAtFrame(40, [shorter, longer]);
+
+    expect(t.scale).toBeCloseTo(1.75, 2);
+    expect(t.translateX).toBeGreaterThan(0);
+  });
+
+  it('tie-breaks overlapping markers by earlier start frame', () => {
+    const later = createZoomMarker(20, 80, {
+      strength: 1,
+      zoomInDuration: 0,
+      zoomOutDuration: 0,
+      focalPoint: { x: 0.8, y: 0.5 },
+    });
+    const earlier = createZoomMarker(10, 70, {
+      strength: 0.5,
+      zoomInDuration: 0,
+      zoomOutDuration: 0,
+      focalPoint: { x: 0.2, y: 0.5 },
+    });
+
+    const t = getZoomTransformAtFrame(40, [later, earlier]);
+
+    expect(t.scale).toBeCloseTo(1.75, 2);
+    expect(t.translateX).toBeGreaterThan(0);
+  });
 });
