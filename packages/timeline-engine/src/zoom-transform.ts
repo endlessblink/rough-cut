@@ -165,13 +165,12 @@ function resolveSpringSmoothedFocal(
   const dt = 1 / Math.max(1, fps);
   const targetScale = strengthToScale(marker.strength);
 
-  const entryFocal = resolveCursorFollowEntryFocal(marker, getCursorPosition, followPadding);
-  let posX = entryFocal.x;
-  let posY = entryFocal.y;
+  let posX = marker.focalPoint.x;
+  let posY = marker.focalPoint.y;
   let velX = 0;
   let velY = 0;
-  let prevTargetX = entryFocal.x;
-  let prevTargetY = entryFocal.y;
+  let prevTargetX = marker.focalPoint.x;
+  let prevTargetY = marker.focalPoint.y;
   let stationaryCount = 0;
   let emaX: number | null = null;
   let emaY: number | null = null;
@@ -255,17 +254,6 @@ function resolveSpringSmoothedFocal(
   return { x: posX, y: posY };
 }
 
-function resolveCursorFollowEntryFocal(
-  marker: ZoomMarker,
-  getCursorPosition: (frame: Frame) => ZoomCursorPosition | null,
-  followPadding: number,
-): ZoomCursorPosition {
-  const cursor = getCursorPosition(marker.startFrame);
-  return cursor !== null
-    ? edgeSnapFocus(cursor, strengthToScale(marker.strength), followPadding)
-    : marker.focalPoint;
-}
-
 function edgeSnapFocus(
   cursor: ZoomCursorPosition,
   scale: number,
@@ -282,6 +270,28 @@ function edgeSnapFocus(
   };
 }
 
+function containCursorInVisibleWindow(
+  focal: ZoomCursorPosition,
+  cursor: ZoomCursorPosition | null,
+  scale: number,
+): ZoomCursorPosition {
+  if (cursor === null) return focal;
+  const halfVisibleWidth = 1 / (2 * scale);
+  const halfVisibleHeight = 1 / (2 * scale);
+  let x = focal.x;
+  let y = focal.y;
+
+  if (cursor.x < x - halfVisibleWidth) x = cursor.x + halfVisibleWidth;
+  if (cursor.x > x + halfVisibleWidth) x = cursor.x - halfVisibleWidth;
+  if (cursor.y < y - halfVisibleHeight) y = cursor.y + halfVisibleHeight;
+  if (cursor.y > y + halfVisibleHeight) y = cursor.y - halfVisibleHeight;
+
+  return {
+    x: clamp(x, halfVisibleWidth, 1 - halfVisibleWidth),
+    y: clamp(y, halfVisibleHeight, 1 - halfVisibleHeight),
+  };
+}
+
 function clampedInterpolate(value: number, inMin: number, inMax: number): number {
   if (inMax <= inMin) return 0;
   return clamp((value - inMin) / (inMax - inMin), 0, 1);
@@ -290,9 +300,9 @@ function clampedInterpolate(value: number, inMin: number, inMax: number): number
 // Phase-aware focal point resolution. The marker's life splits into three
 // phases with discrete behaviors so cursor influence never compounds with
 // scale change (the dominant wobble cause):
-//   1. Ramp-in:  stable entry focal while scale eases in
+//   1. Ramp-in:  stable marker/action focal while scale eases in
 //   2. Hold:     spring tracks EMA-filtered cursor through edge-snap mapping
-//   3. Ramp-out: freeze hold-end focus while scale returns to 1
+//   3. Ramp-out: ease hold-end focus back toward center while scale returns to 1
 // In every phase the result is then source-bound clamped at the current scale.
 function getMarkerFocalPoint(
   frame: Frame,
@@ -326,8 +336,7 @@ function getMarkerFocalPoint(
   // Phase 1 — ramp-in: keep the focal target stable while scale changes.
   // Chasing or lerping focal during the scale ramp creates visible jitter.
   if (frame < holdStart) {
-    const target = resolveCursorFollowEntryFocal(marker, options.getCursorPosition, followPadding);
-    return sourceClamp(target.x, target.y);
+    return sourceClamp(marker.focalPoint.x, marker.focalPoint.y);
   }
 
   // Phase 2 — hold: spring tracks filtered cursor, guarded against losing
@@ -342,23 +351,41 @@ function getMarkerFocalPoint(
       followPadding,
       fps,
     );
-    return sourceClamp(followed.x, followed.y);
+    const contained = containCursorInVisibleWindow(
+      followed,
+      options.getCursorPosition(frame),
+      scale,
+    );
+    return sourceClamp(contained.x, contained.y);
   }
 
-  // Phase 3 — ramp-out: freeze where the spring ended while scale returns to 1.
-  // This avoids a visible camera chase while the viewport is already zooming out.
+  // Phase 3 — ramp-out: ignore live cursor movement, but do not stay fully
+  // cursor-focused. As the scale returns to 1, ease the focal back to center
+  // so the exit feels like revealing the full frame rather than tracking the
+  // cursor until the last moment.
   const holdEndFocal = hasHold
-    ? resolveSpringSmoothedFocal(
-        holdStart,
-        Math.max(holdStart, holdEnd - 1),
-        marker,
-        options.getCursorPosition,
-        followAnimation,
-        followPadding,
-        fps,
+    ? containCursorInVisibleWindow(
+        resolveSpringSmoothedFocal(
+          holdStart,
+          Math.max(holdStart, holdEnd - 1),
+          marker,
+          options.getCursorPosition,
+          followAnimation,
+          followPadding,
+          fps,
+        ),
+        options.getCursorPosition(Math.max(holdStart, holdEnd - 1)),
+        strengthToScale(marker.strength),
       )
     : marker.focalPoint;
-  return sourceClamp(holdEndFocal.x, holdEndFocal.y);
+  const rampOutT =
+    marker.zoomOutDuration > 0
+      ? smootherStep((frame - holdEnd) / marker.zoomOutDuration)
+      : 1;
+  return sourceClamp(
+    holdEndFocal.x + (0.5 - holdEndFocal.x) * rampOutT,
+    holdEndFocal.y + (0.5 - holdEndFocal.y) * rampOutT,
+  );
 }
 
 /**

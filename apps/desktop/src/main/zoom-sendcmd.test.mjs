@@ -326,6 +326,42 @@ test('cursor movement during zoom ramps does not move export crop target', () =>
   assert.equal(zoomOutLeft[52].y, zoomOutRight[52].y);
 });
 
+test('export crop keeps cursor visible until zoom-out starts', () => {
+  const sourceWidth = 1280;
+  const sourceHeight = 720;
+  const holdEnd = 70;
+  const result = buildZoomSendcmd({
+    markers: [marker({
+      kind: 'auto',
+      startFrame: 0,
+      endFrame: 90,
+      zoomInDuration: 10,
+      zoomOutDuration: 20,
+      focalPoint: { x: 0.5, y: 0.5 },
+    })],
+    cursorEvents: [
+      { frame: 0, timeMs: 0, x: 640, y: 360, type: 'move', button: 0 },
+      { frame: holdEnd - 2, timeMs: 2267, x: 640, y: 360, type: 'move', button: 0 },
+      { frame: holdEnd - 1, timeMs: 2300, x: 1216, y: 58, type: 'move', button: 0 },
+      { frame: holdEnd, timeMs: 2333, x: 128, y: 648, type: 'move', button: 0 },
+    ],
+    sourceWidth,
+    sourceHeight,
+    fps: 30,
+    totalFrames: 90,
+    presentationOptions: { followCursor: true, followAnimation: 'focused', followPadding: 0.25 },
+  });
+
+  const windows = parseCropWindows(result.sendcmdContent);
+  const finalHoldWindow = windows[holdEnd - 1];
+  assert(finalHoldWindow.x <= 1216);
+  assert(finalHoldWindow.x + finalHoldWindow.w >= 1216);
+  assert(finalHoldWindow.y <= 58);
+  assert(finalHoldWindow.y + finalHoldWindow.h >= 58);
+  assert.equal(windows[holdEnd].x, finalHoldWindow.x);
+  assert.equal(windows[holdEnd].y, finalHoldWindow.y);
+});
+
 test('emitted sendcmd content ends with a newline and has no leading blank line', () => {
   const result = buildZoomSendcmd({
     markers: [marker()],
