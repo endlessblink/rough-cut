@@ -3,7 +3,7 @@ import { applyRecordingBackgroundPreset, getRecordingBackgroundColors } from './
 
 describe('recording background presets', () => {
   it('applies a named preset without changing frame controls', () => {
-    const next = applyRecordingBackgroundPreset({ bgPadding: 12, bgCornerRadius: 8, bgShadowBlur: 99, bgShadowOpacity: 0.4 }, 'coral-folds');
+    const next = applyRecordingBackgroundPreset({ bgPadding: 12, bgCornerRadius: 8, bgShadowBlur: 99, bgShadowOpacity: 0.4, bgShadowOffsetY: 48 }, 'coral-folds');
 
     expect(next.bgColor).toBe('#c96517');
     expect(next.bgGradient).toContain('#d66bb1');
@@ -12,6 +12,7 @@ describe('recording background presets', () => {
     expect(next.bgCornerRadius).toBe(8);
     expect(next.bgShadowBlur).toBe(99);
     expect(next.bgShadowOpacity).toBe(0.4);
+    expect(next.bgShadowOffsetY).toBe(48);
     expect(typeof next.bgShadowEnabled).toBe('boolean');
   });
 

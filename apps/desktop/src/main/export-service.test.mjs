@@ -203,12 +203,14 @@ test('styled export args apply presentation padding, radius, and shadow controls
     screenShadowEnabled: true,
     screenShadowBlur: 72,
     screenShadowOpacity: 0.32,
+    screenShadowOffsetY: 46,
   });
   const joined = args.join(' ');
 
   assert(joined.includes('scale=1600:760:force_original_aspect_ratio=decrease'));
   assert(joined.includes('boxblur=72:5'));
   assert(joined.includes('aa=0.32'));
+  assert(joined.includes('overlay=(W-w)/2:(H-h)/2+46'));
   assert(joined.includes('hypot(44-X,44-Y)'));
 });
 
@@ -235,8 +237,9 @@ test('styled export args can use an exact background image', () => {
   const joined = args.join(' ');
 
   assert(joined.includes('movie=/tmp/backgrounds/dark-waves.png'));
-  assert(joined.includes('scale=1920:1080:force_original_aspect_ratio=increase'));
-  assert(joined.includes('crop=1920:1080'));
+  assert(joined.includes('scale=1920:1080,format=rgba[bg_image]'));
+  assert(!joined.includes('scale=1920:1080:force_original_aspect_ratio=increase'));
+  assert(!joined.includes('crop=1920:1080'));
 });
 
 test('background expression falls back for invalid colors', () => {

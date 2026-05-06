@@ -10,6 +10,7 @@ import {
   createDefaultCameraPresentation,
   createDefaultRecordingVisibility,
   createDefaultRecordingPresentation,
+  createDefaultRecordingBackgroundStyle,
   createRecordingVisibilitySegment,
   createLibrary,
   createLibraryDocument,
@@ -186,6 +187,12 @@ describe('factories', () => {
     it('includes the default record layout template id', () => {
       const presentation = createDefaultRecordingPresentation();
       expect(presentation.templateId).toBe('screen-cam-br-16x9');
+    });
+  });
+
+  describe('createDefaultRecordingBackgroundStyle', () => {
+    it('persists the default shadow distance', () => {
+      expect(createDefaultRecordingBackgroundStyle().bgShadowOffsetY).toBe(34);
     });
   });
 

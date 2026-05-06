@@ -528,7 +528,8 @@ async function runRendererUiSmoke() {
   document.querySelector('button[aria-label="Timeline"]')?.click();
   await waitFor(() => document.body.textContent?.includes('Zoom markers'), 'zoom marker panel header');
   const hasZoomMarkerPanel = true;
-  await waitFor(() => document.body.textContent?.includes('Auto-zoom suggestions'), 'auto-zoom suggestions panel header');
+  const hasTimelineZoomControlPanel = Boolean(document.querySelector('[data-ui-region="timeline-zoom-control-panel"]'));
+  await waitFor(() => document.querySelector('[aria-label="Auto-zoom suggestions"]') && document.body.textContent?.includes('Auto suggestions'), 'auto-zoom suggestions panel header');
   const hasAutoZoomSuggestionsPanel = true;
   document.querySelector('[data-timeline-lane="zoom"] .timelineRegion')?.click();
   await waitFor(() => document.querySelector('[data-inspector-context="zoom"]'), 'zoom inspector context');
@@ -563,6 +564,8 @@ async function runRendererUiSmoke() {
   backgroundPreset.click();
   await waitFor(() => backgroundPreset.getAttribute('aria-pressed') === 'true', 'background preset selected');
   const hasBackgroundPresetSelection = true;
+  const hasNoInactiveBackgroundTabs = !Array.from(document.querySelectorAll('button')).some((button) => button.textContent === 'Image' || button.textContent === 'Video');
+  const hasBackgroundShadowControls = ['Enable shadow', 'Strength', 'Softness', 'Distance'].every((text) => document.body.textContent?.includes(text));
   document.querySelector('button[aria-label="Inspector"]')?.click();
 
   const selectByLabel = (text) => {
@@ -642,7 +645,10 @@ async function runRendererUiSmoke() {
     hasRawPresetDetails,
     hasStyledPresetDetails,
     hasBackgroundPresetSelection,
+    hasNoInactiveBackgroundTabs,
+    hasBackgroundShadowControls,
     hasZoomMarkerPanel,
+    hasTimelineZoomControlPanel,
     hasAutoZoomSuggestionsPanel,
     hasInspectorContext,
     hasInspectorGroups,

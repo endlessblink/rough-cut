@@ -303,6 +303,7 @@ export function createDefaultRecordingBackgroundStyle(): RecordingBackgroundStyl
     bgShadowEnabled: true,
     bgShadowBlur: 58,
     bgShadowOpacity: 0.2,
+    bgShadowOffsetY: 34,
   };
 }
 

@@ -932,16 +932,26 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const aspectRatioOptions = PROJECT_ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: PROJECT_ASPECT_RATIO_LABELS[ratio] }));
   const activeBackgroundPreset = RECORDING_BACKGROUND_PRESETS.find((preset) => preset.style.bgImage ? preset.style.bgImage === bg.bgImage : (preset.style.bgColor === bg.bgColor && preset.style.bgGradient === bg.bgGradient))?.id;
+  const markerCount = project?.recording ? listMarkers(project.document as unknown as ProjectDocument).length : 0;
 
   if (activeTool === 'timeline') {
     return (
       <aside className="setupBoard" aria-label="Timeline board">
         <BoardHeader icon="timeline" title="Timeline" />
         {project?.recording && fps && onProjectChange ? (
-          <>
+          <div className="timelineBoardStack" data-ui-region="timeline-zoom-control-panel">
+            <section className="timelineFocusCard" aria-label="Timeline zoom status">
+              <p className="eyebrow">Zoom choreography</p>
+              <h3>Shape attention around the playhead.</h3>
+              <div className="timelineStatGrid">
+                <span><strong>{formatClock(currentTimeSec)}</strong><small>Playhead</small></span>
+                <span><strong>{markerCount}</strong><small>Manual zooms</small></span>
+                <span><strong>{fps}</strong><small>FPS</small></span>
+              </div>
+            </section>
             <ZoomMarkerPanel project={project} fps={fps} currentTimeSec={currentTimeSec} onProjectChange={onProjectChange} />
             <AutoZoomSuggestionsPanel project={project} onProjectChange={onProjectChange} />
-          </>
+          </div>
         ) : (
           <p className="boardNote">Open a project to edit zoom markers and suggestions.</p>
         )}
@@ -1003,15 +1013,20 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
     <aside className="setupBoard" aria-label="Background board">
       <BoardHeader icon="sparkle" title="Background" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.(DEFAULT_RECORDING_BACKGROUND)} />
       <InspectorSection id="canvas-background" title="Canvas background">
-        <div className="segmentedControl" aria-label="Background type"><button type="button" className="active">Style</button><button type="button" disabled>Image</button><button type="button" disabled>Video</button></div>
         <InspectorPresetGrid label="Background presets" disabled={disabled} value={activeBackgroundPreset} onSelect={(presetId) => onBackgroundChange?.(applyRecordingBackgroundPreset(bg, presetId))} />
       </InspectorSection>
-      <BoardHeader icon="frame" title="Frame" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.({ bgPadding: DEFAULT_RECORDING_BACKGROUND.bgPadding, bgCornerRadius: DEFAULT_RECORDING_BACKGROUND.bgCornerRadius, bgInset: DEFAULT_RECORDING_BACKGROUND.bgInset, bgInsetColor: DEFAULT_RECORDING_BACKGROUND.bgInsetColor, bgShadowEnabled: DEFAULT_RECORDING_BACKGROUND.bgShadowEnabled, bgShadowBlur: DEFAULT_RECORDING_BACKGROUND.bgShadowBlur, bgShadowOpacity: DEFAULT_RECORDING_BACKGROUND.bgShadowOpacity })} />
+      <BoardHeader icon="frame" title="Frame" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.({ bgPadding: DEFAULT_RECORDING_BACKGROUND.bgPadding, bgCornerRadius: DEFAULT_RECORDING_BACKGROUND.bgCornerRadius, bgInset: DEFAULT_RECORDING_BACKGROUND.bgInset, bgInsetColor: DEFAULT_RECORDING_BACKGROUND.bgInsetColor })} />
       <InspectorSection id="screen-frame" title="Frame">
         <InspectorSlider label="Outline" value={bg.bgInset} min={0} max={16} step={1} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgInset: value })} />
-        <InspectorSlider label="Shadow" value={bg.bgShadowBlur} min={0} max={120} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowBlur: value })} />
         <InspectorSlider label="Radius" value={bg.bgCornerRadius} min={0} max={120} step={2} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgCornerRadius: value })} />
         <InspectorSlider label="Padding" value={bg.bgPadding} min={0} max={260} step={4} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgPadding: value })} />
+      </InspectorSection>
+      <BoardHeader icon="frame" title="Shadow" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.({ bgShadowEnabled: DEFAULT_RECORDING_BACKGROUND.bgShadowEnabled, bgShadowBlur: DEFAULT_RECORDING_BACKGROUND.bgShadowBlur, bgShadowOpacity: DEFAULT_RECORDING_BACKGROUND.bgShadowOpacity, bgShadowOffsetY: DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetY })} />
+      <InspectorSection id="screen-shadow" title="Shadow">
+        <InspectorToggle label="Enable shadow" checked={bg.bgShadowEnabled} disabled={disabled} onChange={(checked) => onBackgroundChange?.({ bgShadowEnabled: checked })} />
+        <InspectorSlider label="Strength" value={bg.bgShadowOpacity} min={0} max={0.8} step={0.05} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowOpacity: value })} />
+        <InspectorSlider label="Softness" value={bg.bgShadowBlur} min={0} max={140} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowBlur: value })} />
+        <InspectorSlider label="Distance" value={bg.bgShadowOffsetY ?? DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetY ?? 34} min={0} max={120} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowOffsetY: value })} />
       </InspectorSection>
     </aside>
   );
@@ -1582,19 +1597,22 @@ function ZoomMarkerPanel({
   return (
     <div className="zoomMarkerPanel" aria-label="Zoom markers">
       <div className="zoomMarkerHeader">
-        <h3>Zoom markers</h3>
-        <span className="zoomMarkerTime">Playback {formatClock(currentTimeSec)}</span>
+        <span>
+          <p className="eyebrow">Manual</p>
+          <h3>Zoom markers</h3>
+        </span>
+        <span className="zoomMarkerTime">{formatClock(currentTimeSec)}</span>
       </div>
       <button
         type="button"
-        className="secondary compact"
+        className="timelinePrimaryButton"
         onClick={handleAdd}
         disabled={!canAdd || isSaving}
       >
         Add marker at {formatClock(currentTimeSec)}
       </button>
       {markers.length === 0 ? (
-        <p className="zoomMarkerEmpty">No manual zooms yet — pause at a moment, then add a marker.</p>
+        <p className="zoomMarkerEmpty">Pause on the exact moment viewers should notice, then drop a marker.</p>
       ) : (
         <ul className="zoomMarkerList">
           {markers.map((marker) => (
@@ -1673,7 +1691,10 @@ function AutoZoomSuggestionsPanel({
   return (
     <div className="autoZoomSuggestionsPanel" aria-label="Auto-zoom suggestions">
       <div className="autoZoomHeader">
-        <h3>Auto-zoom suggestions</h3>
+        <span>
+          <p className="eyebrow">Assist</p>
+          <h3>Auto suggestions</h3>
+        </span>
         <button
           type="button"
           className="secondary compact"
@@ -1685,7 +1706,7 @@ function AutoZoomSuggestionsPanel({
       </div>
       {!hasGenerated ? (
         <p className="autoZoomEmpty">
-          Generate suggestions to see auto-zoom proposals derived from cursor activity.
+          Scan cursor movement and clicks to find moments that may deserve focus.
         </p>
       ) : suggestions.length === 0 ? (
         <p className="autoZoomEmpty">
@@ -1897,18 +1918,6 @@ function VideoPreview({
       ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     };
 
-    const fitBackgroundImage = (image: HTMLImageElement) => {
-      const scale = Math.min(canvasWidth / image.naturalWidth, canvasHeight / image.naturalHeight);
-      const width = image.naturalWidth * scale;
-      const height = image.naturalHeight * scale;
-      return {
-        x: (canvasWidth - width) / 2,
-        y: (canvasHeight - height) / 2,
-        width,
-        height,
-      };
-    };
-
     function tick() {
       if (!video || !canvas || !ctx) return;
       if (video.seeking || seekingRef.current || video.readyState < 2) {
@@ -1936,20 +1945,19 @@ function VideoPreview({
       const backgroundImage = backgroundImageRef.current;
       if (backgroundImage?.complete && backgroundImage.naturalWidth > 0 && backgroundImage.naturalHeight > 0) {
         fillBackground();
-        const rect = fitBackgroundImage(backgroundImage);
-        ctx.drawImage(backgroundImage, rect.x, rect.y, rect.width, rect.height);
+        ctx.drawImage(backgroundImage, 0, 0, canvasWidth, canvasHeight);
       } else {
         fillBackground();
       }
       if (background.bgShadowEnabled && background.bgShadowOpacity > 0 && background.bgShadowBlur > 0) {
         ctx.save();
         const shadowBlur = Math.max(0, background.bgShadowBlur);
-        const shadowOpacity = Math.min(0.58, Math.max(background.bgShadowOpacity, 0.12 + shadowBlur / 360));
-        const shadowOffsetY = Math.min(70, Math.max(14, canvasHeight * 0.018 + shadowBlur * 0.35));
+        const shadowOpacity = Math.min(0.8, Math.max(0, background.bgShadowOpacity));
+        const shadowOffsetY = Math.max(0, background.bgShadowOffsetY ?? DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetY ?? 34);
         ctx.shadowColor = `rgba(0, 0, 0, ${shadowOpacity})`;
-        ctx.shadowBlur = shadowBlur * 1.45;
+        ctx.shadowBlur = shadowBlur;
         ctx.shadowOffsetY = shadowOffsetY;
-        ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(0.24, shadowOpacity * 0.55)})`;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.01)';
         addRoundedRect(ctx, screenX, screenY, screenWidth, screenHeight, screenRadius);
         ctx.fill();
         ctx.restore();

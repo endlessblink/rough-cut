@@ -192,6 +192,7 @@ export const RecordingBackgroundStyleSchema = z.object({
   bgShadowEnabled: z.boolean(),
   bgShadowBlur: nonNegativeInt,
   bgShadowOpacity: unit,
+  bgShadowOffsetY: nonNegativeInt.optional(),
 });
 
 // --- RecordingPresentation ---

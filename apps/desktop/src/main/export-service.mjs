@@ -122,6 +122,7 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       screenShadowEnabled: presentationStyle.screenShadowEnabled,
       screenShadowBlur: presentationStyle.screenShadowBlur,
       screenShadowOpacity: presentationStyle.screenShadowOpacity,
+      screenShadowOffsetY: presentationStyle.screenShadowOffsetY,
       backgroundStart,
       backgroundEnd,
       backgroundImagePath,
@@ -178,6 +179,7 @@ export function buildStyledExportArgs({
   screenShadowEnabled = true,
   screenShadowBlur = 58,
   screenShadowOpacity = 0.2,
+  screenShadowOffsetY = 34,
   backgroundStart = '#e8ebf0',
   backgroundEnd = '#f0e8e8',
   backgroundImagePath = null,
@@ -194,13 +196,13 @@ export function buildStyledExportArgs({
   const cornerRadius = Math.round(clampNumber(screenCornerRadius, 0, Math.min(maxVideoWidth, maxVideoHeight) / 2));
   const shadowBlur = Math.round(clampNumber(screenShadowBlur, 0, 120));
   const shadowOpacity = screenShadowEnabled ? clampNumber(screenShadowOpacity, 0, 0.8) : 0;
-  const shadowOffsetY = Math.round(Math.min(34, Math.max(10, height * 0.024)));
+  const shadowOffsetY = Math.round(clampNumber(screenShadowOffsetY, 0, 120));
   const backgroundExpression = buildBackgroundExpression(backgroundStart, backgroundEnd);
   const fps = Number.isFinite(sourceFps) && sourceFps > 0 ? sourceFps : 30;
   const backgroundFilter = backgroundImagePath
-    ? [
+      ? [
         `nullsrc=s=${width}x${height}:r=${fps},format=rgb24,geq=${backgroundExpression},format=rgba[bg_base]`,
-        `movie=${escapeFilterPath(backgroundImagePath)},scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},format=rgba[bg_image]`,
+        `movie=${escapeFilterPath(backgroundImagePath)},scale=${width}:${height},format=rgba[bg_image]`,
         '[bg_base][bg_image]overlay=(W-w)/2:(H-h)/2:shortest=1[bg]',
       ]
     : [`nullsrc=s=${width}x${height}:r=${fps},format=rgb24,geq=${backgroundExpression},format=rgba[bg]`];
@@ -340,6 +342,7 @@ function normalizePresentationStyle(background = null) {
     screenShadowEnabled: typeof background?.bgShadowEnabled === 'boolean' ? background.bgShadowEnabled : true,
     screenShadowBlur: Number.isFinite(background?.bgShadowBlur) ? background.bgShadowBlur : 58,
     screenShadowOpacity: Number.isFinite(background?.bgShadowOpacity) ? background.bgShadowOpacity : 0.2,
+    screenShadowOffsetY: Number.isFinite(background?.bgShadowOffsetY) ? background.bgShadowOffsetY : 34,
   };
 }
 

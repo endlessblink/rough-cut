@@ -492,28 +492,6 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   padding: 0.65rem;
 }
 
-.segmentedControl {
-  background: #20202a;
-  border: 1px solid #2a2a34;
-  border-radius: 13px;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  padding: 0.25rem;
-}
-
-.segmentedControl button {
-  background: transparent;
-  border-radius: 10px;
-  box-shadow: none;
-  color: var(--muted);
-  min-height: 2rem;
-}
-
-.segmentedControl button.active {
-  background: var(--accent);
-  color: #fff;
-}
-
 .swatchGrid {
   display: grid;
   gap: 0.5rem;
@@ -923,8 +901,71 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   padding: 0.42rem 0.58rem;
 }
 
+.timelineBoardStack {
+  display: grid;
+  gap: 0.72rem;
+  min-height: 0;
+}
+
+.timelineFocusCard {
+  background:
+    linear-gradient(135deg, rgb(37 99 235 / 0.2), rgb(15 15 22 / 0) 58%),
+    #181820;
+  border: 1px solid rgb(122 167 255 / 0.22);
+  border-radius: 16px;
+  display: grid;
+  gap: 0.72rem;
+  padding: 0.85rem;
+}
+
+.timelineFocusCard h3 {
+  font-size: 0.96rem;
+  letter-spacing: -0.02em;
+  line-height: 1.18;
+}
+
+.timelineStatGrid {
+  display: grid;
+  gap: 0.42rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.timelineStatGrid span {
+  background: rgb(10 10 15 / 0.72);
+  border: 1px solid rgb(255 255 255 / 0.07);
+  border-radius: 12px;
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+  padding: 0.58rem 0.5rem;
+}
+
+.timelineStatGrid strong {
+  color: var(--text);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.timelineStatGrid small {
+  color: var(--subtle);
+  font-size: 0.62rem;
+  font-weight: 720;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 .zoomMarkerPanel,
 .autoZoomSuggestionsPanel { min-height: 0; }
+
+.timelinePrimaryButton {
+  background: #2563eb;
+  border-radius: 12px;
+  box-shadow: 0 10px 24px rgb(37 99 235 / 0.2), inset 0 1px 0 rgb(255 255 255 / 0.2);
+  color: #fff;
+  width: 100%;
+}
+
+.timelinePrimaryButton:hover:not(:disabled) { background: #3d8bff; }
 
 .timelineHeader { justify-content: space-between; }
 .emptyTimeline p { margin: 0; }
@@ -999,6 +1040,13 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 .zoomMarkerHeader,
 .autoZoomHeader { gap: 0.65rem; justify-content: space-between; }
+
+.zoomMarkerHeader > span:first-child,
+.autoZoomHeader > span:first-child { display: grid; gap: 0.12rem; }
+
+.zoomMarkerHeader .eyebrow,
+.autoZoomHeader .eyebrow { margin: 0; }
+
 .zoomMarkerList,
 .autoZoomList { display: grid; gap: 0.36rem; list-style: none; margin: 0; padding: 0; }
 
