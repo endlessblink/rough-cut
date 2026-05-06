@@ -58,7 +58,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-042 | Render click emphasis in preview and export | P1 | DONE |
 | TASK-043 | Add webcam PiP presentation controls | P1 | IN PROGRESS |
 | TASK-044 | Add cursor style controls | P2 | PLANNED |
-| TASK-045 | Add background style presets | P2 | PLANNED |
+| TASK-045 | Add background style presets | P2 | DONE |
 | TASK-046 | Add trim start and end controls | P1 | DONE |
 | TASK-047 | Add simple cut removal flow | P2 | PLANNED |
 | TASK-048 | Add optional webcam PiP recording and export | P1 | IN PROGRESS |
@@ -89,7 +89,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 ## Session checkpoints
 
 - Tag `checkpoint/cursor-stable-2026-05-03` at `e0a01ae` — landed cursor multi-monitor fix + canvas preview. Recovery anchor before auto-zoom + cursor-follow features.
-- Pending tag `checkpoint/cursor-follow-hold-containment-2026-05-06` — stabilizes professional cursor-follow zoom behavior: action-focused ramp-in, contained hold, and cursor-independent zoom-out reveal.
+- Tag `checkpoint/cursor-follow-hold-containment-2026-05-06` at `022e29b` — stabilizes professional cursor-follow zoom behavior: action-focused ramp-in, contained hold, and cursor-independent zoom-out reveal.
 
 ## Capture-source convention
 
@@ -1318,7 +1318,7 @@ Automated checks are necessary but not enough for user-visible capture quality. 
 ### TASK-038 Add system audio capture controls
 
 **Priority:** P1  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -1525,6 +1525,7 @@ Current background controls are numeric. Presets make polished outputs faster an
 
 #### Verification
 
+- 2026-05-06: Added reusable dark background presets, wired the Background board swatches to persist full presentation styles, and made preview/export use the preset colors instead of a hardcoded light gradient.
 - Unit tests for preset-to-style conversion.
 - UI smoke applies a preset and exports styled output.
 
