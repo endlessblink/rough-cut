@@ -261,6 +261,32 @@ describe('getZoomTransformForMarker', () => {
     expect(leftDuringRamp!.translateX).toBeCloseTo(rightDuringRamp!.translateX, 5);
   });
 
+  it('does not jump when cursor-follow zoom enters hold after ramp-in', () => {
+    const marker = createZoomMarker(0, 90, {
+      kind: 'auto',
+      strength: 0.5,
+      zoomInDuration: 24,
+      zoomOutDuration: 30,
+      focalPoint: { x: 0.2, y: 0.2 },
+    });
+    const options = {
+      followCursor: true,
+      followAnimation: 'smooth' as const,
+      followPadding: 0.22,
+      fps: 30,
+      getCursorPosition: (frame: number) => (frame < 24 ? { x: 0.8, y: 0.7 } : { x: 0.78, y: 0.68 }),
+    };
+
+    const rampEnd = getZoomTransformForMarker(23, marker, options);
+    const holdStart = getZoomTransformForMarker(24, marker, options);
+
+    expect(rampEnd).not.toBeNull();
+    expect(holdStart).not.toBeNull();
+    const rampFocal = focalFromTransform(rampEnd!);
+    const holdFocal = focalFromTransform(holdStart!);
+    expect(Math.hypot(holdFocal.x - rampFocal.x, holdFocal.y - rampFocal.y)).toBeLessThan(0.04);
+  });
+
   it('keeps the zoom-out focal stable even when the cursor moves during the ramp', () => {
     const marker = createZoomMarker(0, 60, {
       kind: 'auto',

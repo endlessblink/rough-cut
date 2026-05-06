@@ -148,8 +148,8 @@ function getMarkerScale(
 // stable radius), with a stationary-snap polish to eliminate micro-jitter
 // when the cursor pauses.
 //
-// This is called only during the HOLD phase — ramp-in / ramp-out use a
-// deterministic lerp with no cursor influence (see `getMarkerFocalPoint`).
+// This is called only during the HOLD phase — ramp-in / ramp-out use a stable
+// focal target with no cursor influence (see `getMarkerFocalPoint`).
 function resolveSpringSmoothedFocal(
   fromFrame: Frame,
   toFrame: Frame,
@@ -165,17 +165,18 @@ function resolveSpringSmoothedFocal(
   const dt = 1 / Math.max(1, fps);
   const targetScale = strengthToScale(marker.strength);
 
-  let posX = marker.focalPoint.x;
-  let posY = marker.focalPoint.y;
+  const entryFocal = resolveCursorFollowEntryFocal(marker, getCursorPosition, followPadding);
+  let posX = entryFocal.x;
+  let posY = entryFocal.y;
   let velX = 0;
   let velY = 0;
-  let prevTargetX = marker.focalPoint.x;
-  let prevTargetY = marker.focalPoint.y;
+  let prevTargetX = entryFocal.x;
+  let prevTargetY = entryFocal.y;
   let stationaryCount = 0;
   let emaX: number | null = null;
   let emaY: number | null = null;
 
-  for (let f = fromFrame; f <= toFrame; f += 1) {
+  for (let f = fromFrame + 1; f <= toFrame; f += 1) {
     const raw = getCursorPosition(f);
 
     // EMA-smooth the raw cursor input. First sample initializes the filter
@@ -254,6 +255,17 @@ function resolveSpringSmoothedFocal(
   return { x: posX, y: posY };
 }
 
+function resolveCursorFollowEntryFocal(
+  marker: ZoomMarker,
+  getCursorPosition: (frame: Frame) => ZoomCursorPosition | null,
+  followPadding: number,
+): ZoomCursorPosition {
+  const cursor = getCursorPosition(marker.startFrame);
+  return cursor !== null
+    ? edgeSnapFocus(cursor, strengthToScale(marker.strength), followPadding)
+    : marker.focalPoint;
+}
+
 function edgeSnapFocus(
   cursor: ZoomCursorPosition,
   scale: number,
@@ -278,7 +290,7 @@ function clampedInterpolate(value: number, inMin: number, inMax: number): number
 // Phase-aware focal point resolution. The marker's life splits into three
 // phases with discrete behaviors so cursor influence never compounds with
 // scale change (the dominant wobble cause):
-//   1. Ramp-in:  pure smootherStep lerp (0.5, 0.5) → marker.focalPoint
+//   1. Ramp-in:  stable entry focal while scale eases in
 //   2. Hold:     spring tracks EMA-filtered cursor through edge-snap mapping
 //   3. Ramp-out: freeze hold-end focus while scale returns to 1
 // In every phase the result is then source-bound clamped at the current scale.
@@ -311,19 +323,11 @@ function getMarkerFocalPoint(
   const holdEnd = marker.endFrame - marker.zoomOutDuration;
   const hasHold = holdEnd > holdStart;
 
-  // Phase 1 — ramp-in: deterministic lerp toward the entry cursor target.
-  // Chasing live cursor samples while scale is changing is visually wobbly.
+  // Phase 1 — ramp-in: keep the focal target stable while scale changes.
+  // Chasing or lerping focal during the scale ramp creates visible jitter.
   if (frame < holdStart) {
-    const cursor = options.getCursorPosition(marker.startFrame);
-    const target = cursor !== null ? edgeSnapFocus(cursor, strengthToScale(marker.strength), followPadding) : marker.focalPoint;
-    const t =
-      marker.zoomInDuration > 0
-        ? smootherStep((frame - marker.startFrame) / marker.zoomInDuration)
-        : 1;
-    return sourceClamp(
-      0.5 + (target.x - 0.5) * t,
-      0.5 + (target.y - 0.5) * t,
-    );
+    const target = resolveCursorFollowEntryFocal(marker, options.getCursorPosition, followPadding);
+    return sourceClamp(target.x, target.y);
   }
 
   // Phase 2 — hold: spring tracks filtered cursor, guarded against losing

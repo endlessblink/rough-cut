@@ -40,7 +40,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-024 | Add microphone recording foundation | P2 | DONE |
 | TASK-025 | Unified preview that mirrors styled export | P1 | DONE |
 | TASK-026 | Switch capture pipeline to xdg-desktop-portal + PipeWire (Wayland) | P1 | PLANNED |
-| TASK-027 | Cursor-follow zoom (preview + export, parity-preserving) | P1 | DONE |
+| ~~TASK-027~~ | Cursor-follow zoom (preview + export, parity-preserving) | P1 | DONE (2026-05-06) |
 | TASK-028 | Add aspect ratio presets for styled exports | P1 | DONE |
 | TASK-029 | Build editor shell and screen presentation controls | P1 | DONE |
 | TASK-030 | Add cursor-follow zoom regression fixtures | P1 | DONE |
@@ -998,6 +998,7 @@ Schema's `ZoomPresentation.followCursor: true` and the engine's cursor-follow pa
 - Old `zoom-filter.mjs` + `zoom-filter.test.mjs` deleted; `zoom-sendcmd.test.mjs` ports the relevant cases plus 5 new ones for the cursor-follow specifics.
 - FFmpeg sanity test ran first (mirroring TASK-016 risk-mitigation pattern): one-off `ffmpeg -lavfi color=...,sendcmd=f=...,scale=...` confirmed `crop x VALUE` syntax works at the user's FFmpeg version (6.1.1) before any helper code landed.
 - **Follow-up fix (during manual verification)**: cursor-follow was unreachable through the UI because `applySuggestionAsManual` was rewriting applied auto-suggestions to `kind: 'manual'`, and the engine only follows cursors on `kind: 'auto'` markers. Renamed to `applySuggestion` and now preserves `kind: 'auto'` so cursor-follow fires. The original dedup-on-re-suggest behavior is preserved by widening `filterAutoMarkersAgainstManual` → `filterAutoMarkersAgainstExisting` to consider all kinds, not just manual.
+- **Follow-up fix (2026-05-06)**: cursor-follow zoom no longer jump-cuts when ramp-in enters hold. The hold-phase spring now initializes from the same cursor-derived entry focal that ramp-in targets, and `scripts/analyze-zoom-jumpcuts.mjs` extracts dense zoom-section frames plus transform/visual jump reports for real recordings.
 
 #### Testing
 
@@ -1012,6 +1013,8 @@ Schema's `ZoomPresentation.followCursor: true` and the engine's cursor-follow pa
 - `pnpm smoke:styled-export` — both no-zoom and zoom-marker scenarios pass; cursor visibility check at marker boundary still passes.
 - `pnpm smoke:mvp` — record/save/reopen/export pipeline still `ok: true`.
 - `pnpm smoke:ui` — `hasZoomMarkerPanel: true`, `hasAutoZoomSuggestionsPanel: true`, `hasStyledPreviewCanvas: true` all pass.
+- `pnpm test` — full workspace suite passes after the 2026-05-06 ramp-in/hold continuity fix.
+- `node scripts/analyze-zoom-jumpcuts.mjs "/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-05-06T04-42-01-002Z.roughcut"` — extracted all three zoom sections and reported no visual jump flags or transform discontinuity flags after the fix.
 - **Pending: manual packaged-app verification** — record while moving cursor across the screen, generate auto-zoom suggestions, apply one, watch the canvas preview during playback (focal should pan with cursor during auto-marker hold), export styled and confirm same behavior in the MP4. Manual zoom markers should stay statically centered on their focal.
 
 ### ~~TASK-028~~ Add aspect ratio presets for styled exports
