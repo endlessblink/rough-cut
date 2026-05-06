@@ -37,6 +37,7 @@ const recordingStopShortcut = 'CommandOrControl+Shift+R';
 const recordingRestartShortcut = 'CommandOrControl+Shift+N';
 let hiddenRecorderWindow = null;
 let recordingTray = null;
+let recordingTrayWindow = null;
 let hiddenRecordingOptions = null;
 let hiddenRecordingStopping = false;
 const recordingSession = createRecordingSession({
@@ -243,7 +244,7 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_STOP, async () => {
   updateRecordingTray(null, 'finalizing');
   try {
     const result = await finalizeActiveRecording();
-    destroyRecordingTray();
+    updateRecordingTray(null, 'saved');
     return result;
   } catch (err) {
     console.error('[recording:stop] failed', err);
@@ -255,7 +256,7 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_CANCEL, async () => {
   updateRecordingTray(null, 'canceling');
   try {
     const result = await recordingSession.cancel();
-    destroyRecordingTray();
+    updateRecordingTray(null, 'discarded');
     return result;
   } catch (err) {
     console.error('[recording:cancel] failed', err);
@@ -366,6 +367,7 @@ async function stopHiddenRecordingAndOpenEditor(window) {
     console.error('[recording:shortcut-stop] failed', err);
     if (!window.isDestroyed()) window.show();
   } finally {
+    updateRecordingTray(window, 'saved');
     hiddenRecordingStopping = false;
   }
 }
@@ -400,6 +402,7 @@ async function cancelHiddenRecording(window) {
       window.show();
       loadRenderer(window, { mode: 'recorder' });
     }
+    updateRecordingTray(window, 'discarded');
   } catch (err) {
     console.error('[recording:shortcut-cancel] failed', err);
     if (!window.isDestroyed()) window.show();
@@ -413,6 +416,7 @@ function showRecordingTray(window) {
 }
 
 function updateRecordingTray(window, state) {
+  if (window) recordingTrayWindow = window;
   if (!recordingTray || recordingTray.isDestroyed()) {
     if (hiddenRecordingStopping && state === 'recording') return;
     const icon = createRecordingTrayIcon(state);
@@ -424,18 +428,37 @@ function updateRecordingTray(window, state) {
     if (!icon.isEmpty()) recordingTray.setImage(icon);
   }
 
+  const menuWindow = window ?? recordingTrayWindow;
   recordingTray.setToolTip(recordingTrayTooltip(state));
   // Linux requires setContextMenu() after each menu change; mutating items is not enough.
-  recordingTray.setContextMenu(Menu.buildFromTemplate(recordingTrayMenuTemplate(window, state)));
+  recordingTray.setContextMenu(Menu.buildFromTemplate(recordingTrayMenuTemplate(menuWindow, state)));
 }
 
 function recordingTrayTooltip(state) {
+  if (state === 'saved') return 'Rough Cut saved your recording.';
+  if (state === 'discarded') return 'Rough Cut discarded the recording.';
   if (state === 'finalizing') return 'Rough Cut is finalizing your recording.';
   if (state === 'canceling') return 'Rough Cut is canceling and discarding the take.';
   return `Rough Cut is recording. Stop: ${recordingStopShortcut}. Restart: ${recordingRestartShortcut}.`;
 }
 
 function recordingTrayMenuTemplate(window, state) {
+  if (state === 'saved') {
+    return [
+      { label: 'Recording saved', enabled: false },
+      { label: 'Editor is open', enabled: false },
+      { type: 'separator' },
+      { label: 'Open editor', click: () => { if (window && !window.isDestroyed()) window.show(); } },
+    ];
+  }
+  if (state === 'discarded') {
+    return [
+      { label: 'Recording discarded', enabled: false },
+      { label: 'Ready for another take', enabled: false },
+      { type: 'separator' },
+      { label: 'Show recorder', click: () => { if (window && !window.isDestroyed()) window.show(); } },
+    ];
+  }
   if (state === 'finalizing') {
     return [
       { label: 'Finalizing recording...', enabled: false },
@@ -466,6 +489,7 @@ function destroyRecordingTray() {
     recordingTray.destroy();
   }
   recordingTray = null;
+  recordingTrayWindow = null;
 }
 
 function createRecordingTrayIcon(state = 'recording') {
@@ -475,6 +499,8 @@ function createRecordingTrayIcon(state = 'recording') {
     recording: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAASklEQVR4nGNgGPKAEZfEF/u4/+hiPAcXYahnIlYzLnEMA3BpxiXPhE+SGEOweoEUMNwMwBbP2ACyOgwXEDIEXR6rF3AZQqwL6QsAVeYcFnAz8g4AAAAASUVORK5CYII=',
     finalizing: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAASklEQVR4nGNgGPKAEZfE13nc/9HFuJO+YqhnIlYzLnEMA3BpxiXPhE+SGEOweoEUMNwMwBbP2ACyOgwXEDIEXR6rF3AZQqwL6QsA4YwcFh9atbUAAAAASUVORK5CYII=',
     canceling: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAASklEQVR4nGNgGPKAEZfElMU7/qOL5cR6YKhnIlYzLnEMA3BpxiXPhE+SGEOweoEUMNwMwBbP2ACyOgwXEDIEXR6rF3AZQqwL6QsAR+YcFuEAROcAAAAASUVORK5CYII=',
+    saved: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAASklEQVR4nGNgGPKAEZfEW/rU/9FFrJQ+YqhnIlYzLnEMA3BpxiXPhE+SGEOweoEUMNwMwBbP2ACyOgwXEDIEXR6rF3AZQqwL6QsAfe4cFsU7Bl0AAAAASUVORK5CYII=',
+    discarded: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAASklEQVR4nGNgGPKAEZfElMU7/qOL5cR6YKhnIlYzLnEMA3BpxiXPhE+SGEOweoEUMNwMwBbP2ACyOgwXEDIEXR6rF3AZQqwL6QsAR+YcFuEAROcAAAAASUVORK5CYII=',
   };
   return nativeImage.createFromDataURL(`data:image/png;base64,${pngByState[state] ?? pngByState.recording}`);
 }
