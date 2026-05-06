@@ -7,3 +7,5 @@ export { calculateCompositionDuration, rippleDelete } from './composition-utils.
 export { smootherStep, strengthToScale, getZoomTransformForMarker, getZoomTransformAtFrame } from './zoom-transform.js';
 export type { ZoomTransform, ZoomTransformOptions, ZoomCursorPosition } from './zoom-transform.js';
 export { generateAutoZoomMarkers, filterAutoMarkersAgainstExisting } from './auto-zoom.js';
+export { moveZoomMarker, resizeZoomMarkerStart, resizeZoomMarkerEnd, getMarkerMoveBounds } from './zoom-segment-edit.js';
+export type { ZoomSegmentEditOptions } from './zoom-segment-edit.js';
