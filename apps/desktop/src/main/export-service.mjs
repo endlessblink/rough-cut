@@ -338,7 +338,10 @@ export function buildCursorAss({ cursorEvents = [], width = 1920, height = 1080,
   const events = cursorEvents
     .filter((event) => event && event.type === 'move' && Number.isFinite(event.frame) && Number.isFinite(event.x) && Number.isFinite(event.y))
     .sort((a, b) => a.frame - b.frame);
-  if (events.length === 0) return null;
+  const clicks = cursorEvents
+    .filter((event) => event && event.type === 'down' && Number.isFinite(event.frame) && Number.isFinite(event.x) && Number.isFinite(event.y))
+    .sort((a, b) => a.frame - b.frame);
+  if (events.length === 0 && clicks.length === 0) return null;
 
   const stride = Math.max(1, Math.ceil(events.length / maxEvents));
   const sampled = events.filter((_event, index) => index % stride === 0);
@@ -346,8 +349,8 @@ export function buildCursorAss({ cursorEvents = [], width = 1920, height = 1080,
   // its actual final position. Stride filtering can otherwise drop the last
   // event when (events.length - 1) % stride !== 0, leaving the cursor stuck
   // at an earlier sampled position for the tail of the recording.
-  const lastEvent = events[events.length - 1];
-  if (sampled.length === 0 || sampled[sampled.length - 1] !== lastEvent) {
+  const lastEvent = events[events.length - 1] ?? null;
+  if (lastEvent && (sampled.length === 0 || sampled[sampled.length - 1] !== lastEvent)) {
     sampled.push(lastEvent);
   }
   const fpsValue = Number.isFinite(fps) && fps > 0 ? fps : 30;
@@ -368,6 +371,15 @@ export function buildCursorAss({ cursorEvents = [], width = 1920, height = 1080,
     lines.push(`Dialogue: 0,${formatAssTime(startMs)},${formatAssTime(endMs)},Cursor,,0,0,0,,{\\an7\\move(${x},${y},${nextX},${nextY},0,${moveMs})\\p1}m 0 0 l 0 26 l 7 20 l 12 33 l 18 31 l 13 19 l 24 19 l 0 0{\\p0}`);
   }
 
+  for (const click of clicks) {
+    const startFrame = Math.max(0, Math.round(click.frame));
+    const startMs = Math.round((startFrame / fpsValue) * 1000);
+    const endMs = Math.max(startMs + 220, Math.round(((startFrame + 12) / fpsValue) * 1000));
+    const x = roundCursorPosition(click.x);
+    const y = roundCursorPosition(click.y);
+    lines.push(`Dialogue: 1,${formatAssTime(startMs)},${formatAssTime(endMs)},Click,,0,0,0,,{\\an5\\pos(${x},${y})\\1a&HFF&\\3c&HFFAA55&\\3a&H20&\\bord3\\t(0,${endMs - startMs},\\fscx220\\fscy220\\3a&HDD&)}o`);
+  }
+
   return `[Script Info]
 ScriptType: v4.00+
 PlayResX: ${Math.round(width)}
@@ -377,6 +389,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Cursor,Arial,28,&H00FFFFFF,&H00FFFFFF,&H00333A46,&H55000000,-1,0,0,0,100,100,0,0,1,2.2,1.2,7,0,0,0,1
+Style: Click,Arial,42,&H00FFFFFF,&H00FFFFFF,&H007AA7FF,&H00000000,-1,0,0,0,100,100,0,0,1,3,0,5,0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

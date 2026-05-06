@@ -13,6 +13,7 @@ const CURSOR_POLYGON = [
 const CURSOR_FILL = '#ffffff';
 const CURSOR_OUTLINE = '#333A46';
 const CURSOR_OUTLINE_WIDTH = 2.2;
+const CLICK_RING_DURATION_FRAMES = 12;
 
 export function cursorAtFrame(cursorEvents, currentFrame) {
   if (!Array.isArray(cursorEvents) || cursorEvents.length === 0) return null;
@@ -70,6 +71,41 @@ export function drawCursorPath(ctx, x, y) {
   ctx.strokeStyle = CURSOR_OUTLINE;
   ctx.lineWidth = CURSOR_OUTLINE_WIDTH;
   ctx.stroke();
+}
+
+export function activeClickEmphasisAtFrame(cursorEvents, currentFrame, durationFrames = CLICK_RING_DURATION_FRAMES) {
+  if (!Array.isArray(cursorEvents) || !Number.isFinite(currentFrame)) return [];
+  const duration = Number.isFinite(durationFrames) && durationFrames > 0 ? durationFrames : CLICK_RING_DURATION_FRAMES;
+  return cursorEvents
+    .filter((event) => event && event.type === 'down' && Number.isFinite(event.frame) && Number.isFinite(event.x) && Number.isFinite(event.y))
+    .map((event) => {
+      const ageFrames = currentFrame - event.frame;
+      if (ageFrames < 0 || ageFrames > duration) return null;
+      const progress = ageFrames / duration;
+      return {
+        x: event.x,
+        y: event.y,
+        progress,
+        radius: 14 + progress * 18,
+        alpha: Math.max(0, 0.72 * (1 - progress)),
+      };
+    })
+    .filter(Boolean);
+}
+
+export function drawClickEmphasis(ctx, cursorEvents, currentFrame) {
+  if (!ctx) return;
+  const rings = activeClickEmphasisAtFrame(cursorEvents, currentFrame);
+  for (const ring of rings) {
+    ctx.save();
+    ctx.globalAlpha = ring.alpha;
+    ctx.strokeStyle = '#7AA7FF';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(ring.x, ring.y, ring.radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 export function coverSourceRect(sourceWidth, sourceHeight, destWidth, destHeight) {

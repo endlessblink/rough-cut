@@ -12,6 +12,7 @@ const beforePath = join(root, 'before.png');
 const afterScrubPath = join(root, 'after-scrub.png');
 const afterTrimEndPath = join(root, 'after-trim-end.png');
 const afterTrimStartPath = join(root, 'after-trim-start.png');
+const afterRestorePath = join(root, 'after-restore.png');
 
 await mkdir(root, { recursive: true });
 run('ffmpeg', [
@@ -101,6 +102,9 @@ try {
   const trimStartMonitor = trimStartResult.monitor;
   await page.screenshot({ path: afterTrimStartPath, fullPage: true });
 
+  const recovery = await restoreFullSource(page);
+  await page.screenshot({ path: afterRestorePath, fullPage: true });
+
   const activeToolAfter = await activeTool(page);
   const coordinateAfter = await timelineCoordinates(page);
   const coordinateAlignedAfter = coordinateAfter.scrubberMatchesTrack && coordinateAfter.playheadWithinTrack && coordinateAfter.clipLeftAnchored;
@@ -114,6 +118,9 @@ try {
       && rangeWheel.stable
       && trimEndResult.changed
       && trimStartResult.changed
+      && recovery.hiddenControlsVisible
+      && recovery.restored
+      && recovery.activeToolStable
       && scrubMonitor.frameCount >= 50
       && scrubMonitor.badFrames.length === 0
       && trimEndMonitor.frameCount >= 25
@@ -122,7 +129,7 @@ try {
       && trimStartMonitor.badFrames.length === 0,
     root,
     projectPath: project.path,
-    screenshots: { beforePath, afterScrubPath, afterTrimEndPath, afterTrimStartPath },
+    screenshots: { beforePath, afterScrubPath, afterTrimEndPath, afterTrimStartPath, afterRestorePath },
     activeTool: { before: activeToolBefore, after: activeToolAfter, stable: keptActiveTool },
     wheel,
     rangeWheel,
@@ -130,6 +137,7 @@ try {
     coordinateAfter,
     trimEnd: trimEndResult,
     trimStart: trimStartResult,
+    recovery,
     scrubMonitor,
     trimEndMonitor,
     trimStartMonitor,
@@ -162,6 +170,8 @@ console.info(JSON.stringify({
   trimEndBadFrameCount: report?.trimEndMonitor?.badFrames?.length ?? 0,
   trimStartFrameCount: report?.trimStartMonitor?.frameCount ?? 0,
   trimStartBadFrameCount: report?.trimStartMonitor?.badFrames?.length ?? 0,
+  recoveryRestored: report?.recovery?.restored ?? false,
+  hiddenControlsVisible: report?.recovery?.hiddenControlsVisible ?? false,
 }, null, 2));
 if (failure) throw failure;
 
@@ -197,6 +207,31 @@ async function dragTrimHandle(page, label, targetRatio) {
     before: { x: clipBefore.x, width: clipBefore.width },
     after: { x: clipAfter.x, width: clipAfter.width },
     monitor,
+  };
+}
+
+async function restoreFullSource(page) {
+  const beforeTool = await activeTool(page);
+  const track = await requiredBox(page.locator('[data-timeline-lane="screen"] .laneTrack'), 'screen lane track');
+  const clipBefore = await requiredBox(page.locator('[data-timeline-lane="screen"] .clipBar'), 'trimmed screen clip');
+  const hiddenStartVisible = await page.locator('button[aria-label="Restore hidden start"]').count() > 0;
+  const hiddenEndVisible = await page.locator('button[aria-label="Restore hidden end"]').count() > 0;
+  const restore = page.locator('button[aria-label="Restore full source"]');
+  if (await restore.count() > 0) await restore.click();
+  await page.waitForFunction((trackWidth) => {
+    const clip = document.querySelector('[data-timeline-lane="screen"] .clipBar');
+    if (!(clip instanceof HTMLElement)) return false;
+    return Math.abs(clip.getBoundingClientRect().width - trackWidth) < 8;
+  }, track.width, { timeout: 10000 }).catch(() => undefined);
+  const clipAfter = await requiredBox(page.locator('[data-timeline-lane="screen"] .clipBar'), 'restored screen clip');
+  const afterTool = await activeTool(page);
+  return {
+    hiddenControlsVisible: hiddenStartVisible || hiddenEndVisible,
+    restored: clipAfter.width > clipBefore.width + 6 && Math.abs(clipAfter.width - track.width) < 8,
+    activeToolStable: beforeTool === afterTool,
+    before: { x: clipBefore.x, width: clipBefore.width },
+    after: { x: clipAfter.x, width: clipAfter.width },
+    track: { x: track.x, width: track.width },
   };
 }
 
@@ -276,6 +311,7 @@ function summarizeFailure(path, result) {
     coordinateAfter: result.coordinateAfter,
     trimEnd: { ...result.trimEnd, monitor: undefined },
     trimStart: { ...result.trimStart, monitor: undefined },
+    recovery: result.recovery,
     scrubBadFrameCount: result.scrubMonitor.badFrames.length,
     trimEndBadFrameCount: result.trimEndMonitor.badFrames.length,
     trimStartBadFrameCount: result.trimStartMonitor.badFrames.length,

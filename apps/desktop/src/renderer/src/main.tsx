@@ -1,12 +1,16 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import {
+  createDefaultCameraPresentation,
   createDefaultRecordingBackgroundStyle,
   getStyledCanvasResolution,
   PROJECT_ASPECT_RATIO_LABELS,
   PROJECT_ASPECT_RATIOS,
   type ProjectAspectRatio,
   type ProjectDocument,
+  type CameraPosition,
+  type CameraPresentation,
+  type CameraShape,
   type RecordingBackgroundStyle,
   type ZoomMarker,
 } from '@rough-cut/project-model';
@@ -21,17 +25,18 @@ import {
   withDefaultPresentation,
 } from './zoom-markers.mjs';
 import { buildTimelineModel } from './timeline-rail.mjs';
-import { coverSourceRect, cursorAtFrame, drawCursorPath } from './styled-preview.mjs';
+import { coverSourceRect, cursorAtFrame, drawClickEmphasis, drawCursorPath } from './styled-preview.mjs';
 import { generateSuggestionsForProject } from './auto-zoom-suggestions.mjs';
 
 declare global {
   interface Window {
     roughCut: {
       getVersion: () => Promise<string>;
+      openEditor: (projectPath?: string | null) => Promise<void>;
       getMicSources: () => Promise<MicSource[]>;
       getSystemAudioSources: () => Promise<AudioSource[]>;
       getCameraSources: () => Promise<CameraSource[]>;
-      startRecording: (options?: { micSource?: string | null; systemAudioSource?: string | null; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null }) => Promise<RecordingStatus>;
+      startRecording: (options?: { micSource?: string | null; systemAudioSource?: string | null; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean }) => Promise<RecordingStatus>;
       stopRecording: () => Promise<RecordingStatus>;
       getRecordingStatus: () => Promise<RecordingStatus>;
       openProject: () => Promise<ProjectState | null>;
@@ -85,6 +90,19 @@ type RecordingStatus =
     };
 
 const DEFAULT_RECORDING_BACKGROUND = createDefaultRecordingBackgroundStyle();
+const DEFAULT_CAMERA_PRESENTATION = createDefaultCameraPresentation();
+const CAMERA_POSITION_OPTIONS: ReadonlyArray<{ value: CameraPosition; label: string }> = [
+  { value: 'corner-br', label: 'Bottom right' },
+  { value: 'corner-bl', label: 'Bottom left' },
+  { value: 'corner-tr', label: 'Top right' },
+  { value: 'corner-tl', label: 'Top left' },
+  { value: 'center', label: 'Center' },
+];
+const CAMERA_SHAPE_OPTIONS: ReadonlyArray<{ value: CameraShape; label: string }> = [
+  { value: 'rounded', label: 'Rounded' },
+  { value: 'circle', label: 'Circle' },
+  { value: 'square', label: 'Square' },
+];
 const DEFAULT_INSPECTOR_SELECTION: InspectorSelection = {
   group: 'canvas',
   label: 'Project canvas',
@@ -92,6 +110,8 @@ const DEFAULT_INSPECTOR_SELECTION: InspectorSelection = {
 };
 
 function App() {
+  const searchParams = new URLSearchParams(window.location.search);
+  const isRecorderMode = searchParams.get('mode') === 'recorder';
   const [version, setVersion] = React.useState<string>('loading');
   const [recording, setRecording] = React.useState<RecordingStatus>({ state: 'idle' });
   const [project, setProject] = React.useState<ProjectState | null>(null);
@@ -110,7 +130,7 @@ function App() {
   const [captureMode, setCaptureMode] = React.useState<CaptureMode>('display');
   const [captureRegion, setCaptureRegion] = React.useState<CaptureRegion>({ mode: 'region', x: 0, y: 0, width: 1280, height: 720 });
   const [recordingActionPending, setRecordingActionPending] = React.useState(false);
-  const [preRecordPanelOpen, setPreRecordPanelOpen] = React.useState(true);
+  const [preRecordPanelOpen, setPreRecordPanelOpen] = React.useState(isRecorderMode);
   const [setupBoardOpen, setSetupBoardOpen] = React.useState(true);
   const [inspectorOpen, setInspectorOpen] = React.useState(true);
   const [activeTool, setActiveTool] = React.useState<ActiveTool>('background');
@@ -209,6 +229,11 @@ function App() {
         if (stopped.state === 'saved' && stopped.project) {
           setProject(stopped.project);
           setExportResult(null);
+          if (isRecorderMode) {
+            window.setTimeout(() => {
+              void window.roughCut.openEditor(stopped.project?.path ?? null);
+            }, 1000);
+          }
         } else if (stopped.state === 'saved') {
           console.warn('[renderer:recording] saved recording did not include a project payload', stopped);
         }
@@ -224,7 +249,7 @@ function App() {
           captureMode,
           region,
         })}`);
-        setRecording(await window.roughCut.startRecording({ micSource, systemAudioSource, cameraDevicePath, captureRegion: region }));
+        setRecording(await window.roughCut.startRecording({ micSource, systemAudioSource, cameraDevicePath, captureRegion: region, hideWindowDuringRecording: isRecorderMode }));
       }
     } catch (err) {
       console.error('[renderer:recording] recording action failed', err);
@@ -233,6 +258,14 @@ function App() {
       recordingActionPendingRef.current = false;
       setRecordingActionPending(false);
     }
+  }
+
+  function openEditorFromRecorder() {
+    if (isRecorderMode) {
+      void window.roughCut.openEditor(null);
+      return;
+    }
+    setPreRecordPanelOpen(false);
   }
 
   async function openProject() {
@@ -266,6 +299,42 @@ function App() {
       setExportProgress(null);
       setError(err instanceof Error ? err.message : 'Export failed.');
     }
+  }
+
+  if (isRecorderMode) {
+    return (
+      <main className="recordingLauncherShell">
+        {recording.state === 'recording' ? (
+          <RecordingLauncherActive elapsedMs={elapsedMs} actionPending={recordingActionPending} onStop={toggleRecording} />
+        ) : (
+          <PreRecordPanel
+            micSources={micSources}
+            systemAudioSources={systemAudioSources}
+            cameraSources={cameraSources}
+            recordMic={recordMic}
+            recordSystemAudio={recordSystemAudio}
+            recordCamera={recordCamera}
+            selectedMicSource={selectedMicSource}
+            selectedSystemAudioSource={selectedSystemAudioSource}
+            selectedCameraSource={selectedCameraSource}
+            captureMode={captureMode}
+            captureRegion={captureRegion}
+            actionPending={recordingActionPending}
+            onClose={openEditorFromRecorder}
+            onStart={toggleRecording}
+            onRecordMicChange={setRecordMic}
+            onRecordSystemAudioChange={setRecordSystemAudio}
+            onRecordCameraChange={setRecordCamera}
+            onSelectedMicSourceChange={setSelectedMicSource}
+            onSelectedSystemAudioSourceChange={setSelectedSystemAudioSource}
+            onSelectedCameraSourceChange={setSelectedCameraSource}
+            onCaptureModeChange={setCaptureMode}
+            onCaptureRegionChange={setCaptureRegion}
+          />
+        )}
+        <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} error={error} />
+      </main>
+    );
   }
 
   return (
@@ -318,7 +387,7 @@ function App() {
             captureMode={captureMode}
             captureRegion={captureRegion}
             actionPending={recordingActionPending}
-            onClose={() => setPreRecordPanelOpen(false)}
+            onClose={openEditorFromRecorder}
             onStart={toggleRecording}
             onRecordMicChange={setRecordMic}
             onRecordSystemAudioChange={setRecordSystemAudio}
@@ -538,56 +607,25 @@ function PreRecordPanel({
   onCaptureModeChange: (mode: CaptureMode) => void;
   onCaptureRegionChange: (region: CaptureRegion) => void;
 }) {
-  const targetLabel = captureMode === 'region'
-    ? `${captureRegion.width}x${captureRegion.height} region`
-    : 'Full display';
-  const micLabel = recordMic ? selectedSourceLabel(micSources, selectedMicSource, 'Microphone') : 'No microphone';
-  const systemAudioLabel = recordSystemAudio ? selectedSourceLabel(systemAudioSources, selectedSystemAudioSource, 'System audio') : 'No system audio';
-  const cameraLabel = recordCamera ? selectedSourceLabel(cameraSources, selectedCameraSource, 'Camera') : 'No camera';
-
   return (
     <div className="preRecordOverlay" data-ui-region="pre-record-panel" role="dialog" aria-modal="true" aria-labelledby="pre-record-title">
       <section className="preRecordPanel">
         <div className="preRecordHeader">
           <div>
             <p className="eyebrow">New recording</p>
-            <h2 id="pre-record-title">Set up your capture</h2>
+            <h2 id="pre-record-title">Ready to record?</h2>
           </div>
           <button type="button" className="secondary compact" onClick={onClose} disabled={actionPending}>Cancel</button>
         </div>
 
-        <div className="preRecordSummary" aria-label="Recording setup summary">
-          <SetupSummaryCard icon="display" label="Capture" value={targetLabel} detail={captureMode === 'region' ? `Starts at ${captureRegion.x}, ${captureRegion.y}` : 'Screen-only is the safe default.'} />
-          <SetupSummaryCard icon="mic" label="Mic" value={micLabel} detail={micSources.length === 0 ? 'No microphone sources found.' : 'Optional narration track.'} />
-          <SetupSummaryCard icon="volume" label="System" value={systemAudioLabel} detail={systemAudioSources.length === 0 ? 'No system audio sources found.' : 'Optional app audio.'} />
-          <SetupSummaryCard icon="camera" label="Camera" value={cameraLabel} detail={cameraSources.length === 0 ? 'No camera sources found.' : 'Optional PiP recording.'} />
-        </div>
-
         <div className="preRecordControls">
           <section className="preRecordSection">
-            <p className="eyebrow">Capture target</p>
-            <div className="targetCardGrid" aria-label="Capture target choices">
-              <CaptureTargetCard
-                title="Full display"
-                detail="Record the primary X11 display."
-                selected={captureMode === 'display'}
-                disabled={actionPending}
-                onSelect={() => onCaptureModeChange('display')}
-              />
-              <CaptureTargetCard
-                title="Region"
-                detail={`${captureRegion.width}x${captureRegion.height} from ${captureRegion.x}, ${captureRegion.y}`}
-                selected={captureMode === 'region'}
-                disabled={actionPending}
-                onSelect={() => onCaptureModeChange('region')}
-              />
-              <CaptureTargetCard
-                title="Window"
-                detail="Coming after Linux-safe window capture support."
-                selected={false}
-                disabled
-              />
-            </div>
+            <ControlRow icon="display" label="Capture">
+              <select value={captureMode} disabled={actionPending} onChange={(event) => onCaptureModeChange(event.currentTarget.value as CaptureMode)} aria-label="Capture target">
+                <option value="display">Full display</option>
+                <option value="region">Region</option>
+              </select>
+            </ControlRow>
             {captureMode === 'region' ? (
               <div className="regionControls preRecordRegion" aria-label="Pre-record capture region controls">
                 <NumberField label="X" value={captureRegion.x} disabled={actionPending} onChange={(x) => onCaptureRegionChange({ ...captureRegion, x })} />
@@ -598,16 +636,12 @@ function PreRecordPanel({
             ) : null}
           </section>
 
-          <section className="preRecordSection">
-            <p className="eyebrow">Inputs</p>
-            <PreRecordSourceSelect label="Microphone" enabled={recordMic} disabled={actionPending || micSources.length === 0} emptyLabel="No microphone sources found" sources={micSources} value={selectedMicSource} onEnabledChange={onRecordMicChange} onValueChange={onSelectedMicSourceChange} />
-            <PreRecordSourceSelect label="System audio" enabled={recordSystemAudio} disabled={actionPending || systemAudioSources.length === 0} emptyLabel="No system audio sources found" sources={systemAudioSources} value={selectedSystemAudioSource} onEnabledChange={onRecordSystemAudioChange} onValueChange={onSelectedSystemAudioSourceChange} />
-            <PreRecordSourceSelect label="Camera" enabled={recordCamera} disabled={actionPending || cameraSources.length === 0} emptyLabel="No camera sources found" sources={cameraSources} value={selectedCameraSource} onEnabledChange={onRecordCameraChange} onValueChange={onSelectedCameraSourceChange} />
-          </section>
+          <PreRecordSourceSelect icon="mic" label="Mic" enabled={recordMic} disabled={actionPending || micSources.length === 0} emptyLabel="No microphone" offLabel="No microphone" sources={micSources} value={selectedMicSource} onEnabledChange={onRecordMicChange} onValueChange={onSelectedMicSourceChange} />
+          <PreRecordSourceSelect icon="volume" label="System" enabled={recordSystemAudio} disabled={actionPending || systemAudioSources.length === 0} emptyLabel="No system audio" offLabel="No system audio" sources={systemAudioSources} value={selectedSystemAudioSource} onEnabledChange={onRecordSystemAudioChange} onValueChange={onSelectedSystemAudioSourceChange} />
+          <PreRecordSourceSelect icon="camera" label="Camera" enabled={recordCamera} disabled={actionPending || cameraSources.length === 0} emptyLabel="No camera" offLabel="No camera" sources={cameraSources} value={selectedCameraSource} onEnabledChange={onRecordCameraChange} onValueChange={onSelectedCameraSourceChange} />
         </div>
 
         <div className="preRecordFooter">
-          <p>Start a new capture, then Rough Cut will drop you into the editor. You can also skip straight to the editor to open or review an existing project.</p>
           <div className="preRecordActions">
             <button type="button" className="secondary" onClick={onClose} disabled={actionPending} data-open-editor="pre-record">Open editor</button>
             <button type="button" className="primaryAction" onClick={onStart} disabled={actionPending} data-recording-start="pre-record">
@@ -621,58 +655,62 @@ function PreRecordPanel({
   );
 }
 
-function CaptureTargetCard({ title, detail, selected, disabled = false, onSelect }: { title: string; detail: string; selected: boolean; disabled?: boolean; onSelect?: () => void }) {
+function RecordingLauncherActive({ elapsedMs, actionPending, onStop }: { elapsedMs: number; actionPending: boolean; onStop: () => void }) {
   return (
-    <button
-      type="button"
-      className={selected ? 'captureTargetCard selected' : 'captureTargetCard'}
-      disabled={disabled}
-      aria-pressed={selected}
-      onClick={onSelect}
-    >
-      <span className="targetPreview" aria-hidden="true"><i /></span>
-      <strong>{title}</strong>
-      <span>{detail}</span>
-    </button>
-  );
-}
-
-function SetupSummaryCard({ icon, label, value, detail }: { icon: IconName; label: string; value: string; detail: string }) {
-  return (
-    <div className="setupSummaryCard">
-      <span className="setupSummaryIcon"><Icon name={icon} /></span>
-      <p className="eyebrow">{label}</p>
-      <strong>{value}</strong>
-      <span>{detail}</span>
+    <div className="preRecordOverlay" data-ui-region="recording-launcher-active">
+      <section className="preRecordPanel recordingActivePanel">
+        <div className="preRecordHeader">
+          <div>
+            <p className="eyebrow">Recording</p>
+            <h2>{formatElapsed(elapsedMs)}</h2>
+          </div>
+          <span className="liveDot" aria-hidden="true" />
+        </div>
+        <button type="button" onClick={onStop} className="stop primaryAction" disabled={actionPending}>
+          <Icon name="stop" />
+          {actionPending ? 'Stopping...' : 'Stop recording'}
+        </button>
+      </section>
     </div>
   );
 }
 
-function PreRecordSourceSelect<T extends { name: string; label: string; state?: string }>({ label, enabled, disabled, emptyLabel, sources, value, onEnabledChange, onValueChange }: { label: string; enabled: boolean; disabled: boolean; emptyLabel: string; sources: T[]; value: string; onEnabledChange: (checked: boolean) => void; onValueChange: (value: string) => void }) {
+function ControlRow({ icon, label, children }: { icon: IconName; label: string; children: React.ReactNode }) {
   return (
     <div className="preRecordInputRow">
-      <label className="toggleField">
-        <input type="checkbox" checked={enabled} disabled={disabled} onChange={(event) => onEnabledChange(event.currentTarget.checked)} />
-        {label}
-      </label>
-      <select value={value} disabled={disabled || !enabled} onChange={(event) => onValueChange(event.currentTarget.value)} aria-label={`${label} source`}>
-        {sources.length === 0 ? (
-          <option value="">{emptyLabel}</option>
-        ) : (
-          sources.map((source) => (
-            <option key={source.name} value={source.name}>
-              {source.label || source.name}{source.state ? ` (${source.state.toLowerCase()})` : ''}
-            </option>
-          ))
-        )}
-      </select>
+      <span className="controlRowLabel"><Icon name={icon} /> {label}</span>
+      {children}
     </div>
   );
 }
 
-function selectedSourceLabel<T extends { name: string; label: string }>(sources: T[], selectedName: string, fallback: string) {
-  const selected = sources.find((source) => source.name === selectedName);
-  return selected?.label || selected?.name || fallback;
+function PreRecordSourceSelect<T extends { name: string; label: string; state?: string }>({ icon, label, enabled, disabled, emptyLabel, offLabel, sources, value, onEnabledChange, onValueChange }: { icon: IconName; label: string; enabled: boolean; disabled: boolean; emptyLabel: string; offLabel: string; sources: T[]; value: string; onEnabledChange: (checked: boolean) => void; onValueChange: (value: string) => void }) {
+  return (
+    <ControlRow icon={icon} label={label}>
+      <select
+        value={enabled ? value : '__off'}
+        disabled={disabled && sources.length === 0}
+        onChange={(event) => {
+          const next = event.currentTarget.value;
+          if (next === '__off') {
+            onEnabledChange(false);
+            return;
+          }
+          onEnabledChange(true);
+          onValueChange(next);
+        }}
+        aria-label={`${label} source`}
+      >
+        <option value="__off">{offLabel}</option>
+        {sources.length === 0 ? <option value="" disabled>{emptyLabel}</option> : null}
+        {sources.map((source) => (
+          <option key={source.name} value={source.name}>
+            {source.label || source.name}{source.state ? ` (${source.state.toLowerCase()})` : ''}
+          </option>
+        ))}
+      </select>
+    </ControlRow>
+  );
 }
 
 function StateBanner({
@@ -843,8 +881,9 @@ function InspectorContextSummary({ selection }: { selection: InspectorSelection 
   );
 }
 
-function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, trimInfo, onProjectChange, onBackgroundChange, onAspectRatioChange, onSetTrimStart, onSetTrimEnd, onResetTrim }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; trimInfo?: TrimInfo; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onSetTrimStart?: () => void; onSetTrimEnd?: () => void; onResetTrim?: () => void }) {
+function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, trimInfo, onProjectChange, onBackgroundChange, onCameraPresentationChange, onAspectRatioChange, onSetTrimStart, onSetTrimEnd, onResetTrim }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; trimInfo?: TrimInfo; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onSetTrimStart?: () => void; onSetTrimEnd?: () => void; onResetTrim?: () => void }) {
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
+  const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const aspectRatioOptions = PROJECT_ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: PROJECT_ASPECT_RATIO_LABELS[ratio] }));
 
   if (activeTool === 'timeline') {
@@ -895,8 +934,16 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
         <InspectorSection id="cursor" title="Cursor" muted>
           <InspectorNotice>Cursor style controls are planned for TASK-044.</InspectorNotice>
         </InspectorSection>
-        <InspectorSection id="camera" title="Camera" muted>
-          <InspectorNotice>Webcam picture-in-picture controls are planned for TASK-043.</InspectorNotice>
+        <InspectorSection id="camera" title="Camera" muted={!hasCamera} description={hasCamera ? 'Camera PiP settings are saved with the project and used by styled export.' : undefined}>
+          {hasCamera ? (
+            <div data-camera-pip-controls="true">
+              <InspectorToggle label="Show camera" checked={camera.visible} disabled={disabled} onChange={(visible) => onCameraPresentationChange?.({ visible })} />
+              <InspectorSelect label="Position" value={camera.position} options={CAMERA_POSITION_OPTIONS} disabled={disabled || !camera.visible} onChange={(position) => onCameraPresentationChange?.({ position })} />
+              <InspectorSelect label="Shape" value={camera.shape} options={CAMERA_SHAPE_OPTIONS} disabled={disabled || !camera.visible} onChange={(shape) => onCameraPresentationChange?.({ shape })} />
+              <InspectorSlider label="Camera size" value={camera.size} min={50} max={200} step={5} disabled={disabled || !camera.visible} onChange={(size) => onCameraPresentationChange?.({ size })} />
+              <InspectorSlider label="Camera roundness" value={camera.roundness} min={0} max={100} step={5} disabled={disabled || !camera.visible || camera.shape !== 'rounded'} onChange={(roundness) => onCameraPresentationChange?.({ roundness })} />
+            </div>
+          ) : <InspectorNotice>No linked webcam track in this project.</InspectorNotice>}
         </InspectorSection>
         <InspectorSection id="diagnostics" title="Diagnostics" muted>
           <InspectorNotice>Save failures and degraded media states appear here when available.</InspectorNotice>
@@ -1026,6 +1073,11 @@ function ProjectPreview({
   const primaryClip = getPrimaryRecordingClip(project.document, recordingAsset?.id);
   const trimInfo = resolveTrimInfo(primaryClip, project.recording?.duration ?? project.document.composition.duration, project.recording?.fps ?? 30);
   const background = recordingAsset?.presentation?.background ?? DEFAULT_RECORDING_BACKGROUND;
+  const hasCamera = Boolean(recordingAsset?.cameraAssetId && project.cameraMediaUrl);
+  const cameraPresentation: CameraPresentation = {
+    ...DEFAULT_CAMERA_PRESENTATION,
+    ...((recordingAsset?.presentation?.camera as Partial<CameraPresentation> | undefined) ?? {}),
+  };
 
   async function persist(nextDocument: ProjectState['document']) {
     const previous = project;
@@ -1072,6 +1124,29 @@ function ProjectPreview({
           presentation: {
             ...presentation,
             background: nextBackground,
+          },
+        };
+      }),
+    });
+  }
+
+  async function updateCameraPresentation(patch: Partial<CameraPresentation>) {
+    if (!recordingAsset?.id || !hasCamera) return;
+    await persist({
+      ...project.document,
+      assets: project.document.assets?.map((asset) => {
+        if (asset.id !== recordingAsset.id) return asset;
+        const presentation = withDefaultPresentation(asset.presentation);
+        const nextCamera: CameraPresentation = {
+          ...DEFAULT_CAMERA_PRESENTATION,
+          ...(presentation.camera ?? {}),
+          ...patch,
+        };
+        return {
+          ...asset,
+          presentation: {
+            ...presentation,
+            camera: nextCamera,
           },
         };
       }),
@@ -1146,7 +1221,7 @@ function ProjectPreview({
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
       <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} project={project} fps={project.recording?.fps} currentTimeSec={currentTimeSec} background={background} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} trimInfo={trimInfo} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onAspectRatioChange={updateAspectRatio} onSetTrimStart={setTrimStartToPlayhead} onSetTrimEnd={setTrimEndToPlayhead} onResetTrim={resetTrim} />
+      <EditorToolBoard activeTool={activeTool} project={project} fps={project.recording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} trimInfo={trimInfo} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onAspectRatioChange={updateAspectRatio} onSetTrimStart={setTrimStartToPlayhead} onSetTrimEnd={setTrimEndToPlayhead} onResetTrim={resetTrim} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>
@@ -1169,7 +1244,7 @@ function ProjectPreview({
           <p className="eyebrow"><Icon name="timeline" /> Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-          {project.recording ? <VisualTimeline project={project} currentTimeSec={currentTimeSec} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimStart={(sourceTimeSec) => updateTrim(Math.round(sourceTimeSec * project.recording!.fps), trimInfo.endFrame)} onTrimEnd={(sourceTimeSec) => updateTrim(trimInfo.startFrame, Math.round(sourceTimeSec * project.recording!.fps))} onSelectInspectorContext={focusInspectorContext} /> : null}
+          {project.recording ? <VisualTimeline project={project} currentTimeSec={currentTimeSec} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimStart={(sourceTimeSec) => updateTrim(Math.round(sourceTimeSec * project.recording!.fps), trimInfo.endFrame)} onTrimEnd={(sourceTimeSec) => updateTrim(trimInfo.startFrame, Math.round(sourceTimeSec * project.recording!.fps))} onRestoreTrimStart={() => updateTrim(0, trimInfo.endFrame)} onRestoreTrimEnd={() => updateTrim(trimInfo.startFrame, project.recording!.duration)} onResetTrim={resetTrim} onSelectInspectorContext={focusInspectorContext} /> : null}
         </div>
       </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
@@ -1243,7 +1318,7 @@ function preventRangeWheelChange(event: React.WheelEvent<HTMLInputElement>) {
   event.currentTarget.blur();
 }
 
-function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScrubEnd, onTrimStart, onTrimEnd, onSelectInspectorContext }: { project: ProjectState; currentTimeSec: number; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimStart: (sourceTimeSec: number) => void; onTrimEnd: (sourceTimeSec: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void }) {
+function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScrubEnd, onTrimStart, onTrimEnd, onRestoreTrimStart, onRestoreTrimEnd, onResetTrim, onSelectInspectorContext }: { project: ProjectState; currentTimeSec: number; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimStart: (sourceTimeSec: number) => void; onTrimEnd: (sourceTimeSec: number) => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onResetTrim: () => void; onSelectInspectorContext: (selection: InspectorSelection) => void }) {
   const model = buildTimelineModel({
     document: project.document as unknown as ProjectDocument,
     recording: project.recording,
@@ -1253,6 +1328,11 @@ function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScru
 
   const fps = project.recording?.fps && project.recording.fps > 0 ? project.recording.fps : 30;
   const minTrimGapSec = 1 / fps;
+  const sourceFrameDuration = Math.max(1, Math.round(model.durationSec * fps));
+  const hasHiddenStart = model.trimStartFrame > 0;
+  const hasHiddenEnd = model.trimEndFrame < sourceFrameDuration;
+  const hiddenTailLeft = model.lanes.screen[0]?.width ?? 100;
+  const hiddenTailWidth = Math.max(0, 100 - hiddenTailLeft);
 
   function sourceToVisibleTime(sourceTimeSec: number) {
     return Math.max(0, Math.min(sourceTimeSec - (model.trimStartFrame / fps), model.visibleDurationSec));
@@ -1337,6 +1417,9 @@ function VisualTimeline({ project, currentTimeSec, onScrub, onScrubStart, onScru
               <button type="button" className="trimHandle trimHandleEnd" aria-label="Trim end" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => beginTrimDrag('end', event)} />
             </div>
           ))}
+          {hasHiddenStart ? <button type="button" className="hiddenTrimRange hiddenTrimStart" aria-label="Restore hidden start" title={`Restore hidden start (${model.trimStartFrame} frames)`} onClick={onRestoreTrimStart}>Hidden start</button> : null}
+          {hasHiddenEnd ? <button type="button" className="hiddenTrimRange hiddenTrimEnd" aria-label="Restore hidden end" title={`Restore hidden end (${sourceFrameDuration - model.trimEndFrame} frames)`} style={{ left: `${hiddenTailLeft}%`, width: `${hiddenTailWidth}%` }} onClick={onRestoreTrimEnd}>Hidden end</button> : null}
+          {hasHiddenStart || hasHiddenEnd ? <button type="button" className="restoreFullSource" aria-label="Restore full source" onClick={onResetTrim}>Restore full source</button> : null}
         </TimelineLane>
         <TimelineLane label="Zoom" className="zoomLane">
           {model.lanes.zoom.length > 0
@@ -1760,6 +1843,7 @@ function VideoPreview({
       ctx.scale(scale, scale);
       ctx.translate(-sourceWidth / 2, -sourceHeight / 2);
       ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+      drawClickEmphasis(ctx, cursorEvents, currentFrame);
       const cursor = cursorAtFrame(cursorEvents, currentFrame);
       if (cursor) drawCursorPath(ctx, cursor.x, cursor.y);
       ctx.restore();

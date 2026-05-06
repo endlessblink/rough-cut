@@ -118,6 +118,11 @@ input[type="checkbox"] { accent-color: var(--accent); }
   padding: 0.9rem;
 }
 
+.recordingLauncherShell {
+  background: #0b0b10;
+  min-height: 100vh;
+}
+
 .editorShell {
   background: var(--chrome);
   border: 1px solid var(--strong-line);
@@ -277,13 +282,12 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .numberField input { max-width: 4.8rem; }
 
 .preRecordOverlay {
-  align-items: start;
-  background: rgb(4 4 7 / 0.58);
-  backdrop-filter: blur(12px);
+  align-items: center;
+  background: #0b0b10;
   display: grid;
-  inset: 3.45rem 0 0;
+  inset: 0;
   justify-items: center;
-  padding: 1.2rem;
+  padding: 0.8rem;
   position: absolute;
   z-index: 20;
 }
@@ -291,13 +295,13 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .preRecordPanel {
   background: linear-gradient(180deg, #1b1b24, #13131a);
   border: 1px solid rgb(255 255 255 / 0.1);
-  border-radius: 22px;
-  box-shadow: 0 28px 90px rgb(0 0 0 / 0.5), inset 0 1px 0 rgb(255 255 255 / 0.08);
+  border-radius: 18px;
+  box-shadow: 0 22px 70px rgb(0 0 0 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.08);
   display: grid;
-  gap: 1rem;
-  max-width: 58rem;
-  padding: 1rem;
-  width: min(58rem, 100%);
+  gap: 0.6rem;
+  max-width: 24rem;
+  padding: 0.72rem;
+  width: min(24rem, calc(100vw - 1.6rem));
 }
 
 .preRecordHeader,
@@ -308,107 +312,39 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 
 .preRecordHeader,
-.preRecordFooter { justify-content: space-between; gap: 1rem; }
-.preRecordHeader h2 { font-size: 1.45rem; letter-spacing: -0.04em; }
-.preRecordFooter { border-top: 1px solid var(--line); padding-top: 0.85rem; }
-.preRecordFooter p { color: var(--muted); font-size: 0.8rem; line-height: 1.4; margin: 0; max-width: 32rem; }
-.preRecordActions { align-items: center; display: flex; gap: 0.55rem; }
-
-.preRecordSummary {
-  display: grid;
-  gap: 0.7rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.setupSummaryCard,
-.preRecordSection {
-  background: #101015;
-  border: 1px solid #2a2a34;
-  border-radius: 16px;
-}
-
-.setupSummaryCard {
-  display: grid;
-  gap: 0.28rem;
-  min-width: 0;
-  padding: 0.75rem;
-}
-
-.setupSummaryCard strong { color: var(--text); font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.setupSummaryCard span { color: var(--muted); font-size: 0.74rem; line-height: 1.35; }
-.setupSummaryIcon { color: #7aa7ff; }
-.setupSummaryIcon .icon { margin-right: 0; }
+.preRecordFooter { justify-content: space-between; gap: 0.7rem; }
+.preRecordHeader h2 { font-size: 1.08rem; letter-spacing: -0.03em; }
+.preRecordFooter { border-top: 1px solid var(--line); justify-content: end; padding-top: 0.6rem; }
+.preRecordActions { align-items: center; display: flex; gap: 0.48rem; }
+.recordingActivePanel { max-width: 18rem; }
+.recordingActivePanel .primaryAction { width: 100%; }
+.liveDot { background: var(--record); border-radius: 999px; box-shadow: 0 0 0 6px rgb(244 63 94 / 0.12); height: 0.7rem; width: 0.7rem; }
 
 .preRecordControls {
   display: grid;
-  gap: 0.8rem;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 0.4rem;
 }
 
 .preRecordSection {
-  display: grid;
-  gap: 0.7rem;
-  padding: 0.85rem;
+  display: contents;
 }
 
-.preRecordSection .field,
 .preRecordInputRow {
-  display: grid;
-  gap: 0.45rem;
-  grid-template-columns: 8.5rem minmax(0, 1fr);
-}
-
-.preRecordInputRow .toggleField { color: var(--text); font-size: 0.82rem; font-weight: 700; }
-.preRecordInputRow select,
-.preRecordSection .field select { width: 100%; }
-.preRecordRegion { align-items: start; background: transparent; border: 0; padding: 0; }
-
-.targetCardGrid {
-  display: grid;
-  gap: 0.55rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.captureTargetCard {
-  align-items: stretch;
-  background: #171721;
-  border: 1px solid #2a2a34;
-  border-radius: 15px;
-  box-shadow: none;
-  display: grid;
-  gap: 0.38rem;
-  justify-content: stretch;
-  min-height: 8.4rem;
-  padding: 0.62rem;
-  text-align: left;
-}
-
-.captureTargetCard:hover:not(:disabled),
-.captureTargetCard.selected {
-  background: #202335;
-  border-color: rgb(122 167 255 / 0.45);
-  box-shadow: inset 0 0 0 1px rgb(37 99 235 / 0.22), 0 0 0 4px rgb(37 99 235 / 0.08);
-}
-
-.captureTargetCard strong { color: var(--text); font-size: 0.82rem; }
-.captureTargetCard span { color: var(--muted); font-size: 0.72rem; line-height: 1.35; }
-.targetPreview {
   align-items: center;
-  background: radial-gradient(circle at 35% 30%, rgb(122 167 255 / 0.35), transparent 36%), #0b0b10;
-  border: 1px solid rgb(255 255 255 / 0.08);
-  border-radius: 11px;
-  display: flex;
-  height: 3.2rem;
-  justify-content: center;
+  background: #101015;
+  border: 1px solid #24242e;
+  border-radius: 12px;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: 5.7rem minmax(0, 1fr);
+  min-height: 2.65rem;
+  padding: 0.34rem 0.42rem;
 }
 
-.targetPreview i {
-  border: 1px solid rgb(255 255 255 / 0.2);
-  border-radius: 6px;
-  display: block;
-  height: 1.65rem;
-  width: 2.65rem;
-}
+.controlRowLabel { align-items: center; color: var(--muted); display: inline-flex; font-size: 0.74rem; font-weight: 760; gap: 0.34rem; }
+.controlRowLabel .icon { color: #7aa7ff; margin-right: 0; }
+.preRecordInputRow select { background: #181820; width: 100%; }
+.preRecordRegion { align-items: start; background: transparent; border: 0; padding: 0; }
 
 .stateBanner {
   align-items: center;
@@ -810,6 +746,63 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   position: absolute;
   top: 0.35rem;
   z-index: 8;
+}
+
+.hiddenTrimRange {
+  align-items: center;
+  background: repeating-linear-gradient(45deg, rgb(122 167 255 / 0.16), rgb(122 167 255 / 0.16) 6px, rgb(122 167 255 / 0.07) 6px, rgb(122 167 255 / 0.07) 12px);
+  border: 1px dashed rgb(122 167 255 / 0.34);
+  border-radius: 9px;
+  bottom: 0.4rem;
+  box-shadow: none;
+  color: #9dbdff;
+  display: flex;
+  font-size: 0.68rem;
+  font-weight: 760;
+  justify-content: center;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 0.45rem;
+  position: absolute;
+  text-transform: uppercase;
+  top: 0.4rem;
+  white-space: nowrap;
+  z-index: 9;
+}
+
+.hiddenTrimRange:hover:not(:disabled) {
+  background: rgb(37 99 235 / 0.2);
+  box-shadow: inset 0 0 0 1px rgb(122 167 255 / 0.28);
+}
+
+.hiddenTrimStart {
+  left: 0.16rem;
+  max-width: 8rem;
+  transform: translateX(0.8rem);
+}
+
+.hiddenTrimEnd {
+  min-width: 5.6rem;
+}
+
+.restoreFullSource {
+  background: #101827;
+  border: 1px solid rgb(122 167 255 / 0.28);
+  border-radius: 999px;
+  bottom: 0.52rem;
+  box-shadow: none;
+  color: #9dbdff;
+  font-size: 0.68rem;
+  min-height: 1.2rem;
+  padding: 0 0.55rem;
+  position: absolute;
+  right: 0;
+  z-index: 9;
+}
+
+.restoreFullSource:hover:not(:disabled) {
+  background: #172554;
+  box-shadow: inset 0 0 0 1px rgb(122 167 255 / 0.26);
 }
 
 .clipBody {

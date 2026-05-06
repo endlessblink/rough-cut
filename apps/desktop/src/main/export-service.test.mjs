@@ -371,6 +371,19 @@ test('cursor ASS layer keeps final cursor visible through recording end', () => 
   assert(ass.includes('Dialogue: 0,0:00:00.40,0:00:03.00'));
 });
 
+test('cursor ASS layer renders click emphasis events without move telemetry', () => {
+  const ass = buildCursorAss({
+    cursorEvents: [{ frame: 15, x: 320, y: 240, type: 'down', button: 0 }],
+    width: 1280,
+    height: 720,
+    fps: 30,
+  });
+
+  assert(ass.includes('Style: Click'));
+  assert(ass.includes('Dialogue: 1,0:00:00.50,0:00:00.90,Click'));
+  assert(ass.includes('\\pos(320,240)'));
+});
+
 test('unedited export rejects edited projects', async () => {
   const project = createProjectForRecording({
     recording: {

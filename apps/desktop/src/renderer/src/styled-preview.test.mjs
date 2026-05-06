@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { coverSourceRect, cursorAtFrame, drawCursorPath } from './styled-preview.mjs';
+import { activeClickEmphasisAtFrame, coverSourceRect, cursorAtFrame, drawClickEmphasis, drawCursorPath } from './styled-preview.mjs';
 
 test('cursorAtFrame returns null for empty events', () => {
   assert.equal(cursorAtFrame([], 0), null);
@@ -115,6 +115,46 @@ test('drawCursorPath issues canvas operations at the given anchor', () => {
   assert.deepEqual(calls[8], ['closePath']);
   assert.ok(calls.some((c) => c[0] === 'fill'));
   assert.ok(calls.some((c) => c[0] === 'stroke'));
+});
+
+test('activeClickEmphasisAtFrame returns fading click rings during the click window', () => {
+  const events = [{ frame: 30, x: 320, y: 180, type: 'down', button: 0 }];
+
+  assert.deepEqual(activeClickEmphasisAtFrame(events, 29), []);
+  const rings = activeClickEmphasisAtFrame(events, 36);
+  assert.equal(rings.length, 1);
+  assert.equal(rings[0].x, 320);
+  assert.equal(rings[0].y, 180);
+  assert.equal(rings[0].progress, 0.5);
+  assert(rings[0].radius > 14);
+  assert(rings[0].alpha < 0.72);
+  assert.deepEqual(activeClickEmphasisAtFrame(events, 43), []);
+});
+
+test('drawClickEmphasis issues circle stroke operations for active clicks', () => {
+  const calls = [];
+  const ctx = {
+    save: () => calls.push(['save']),
+    restore: () => calls.push(['restore']),
+    beginPath: () => calls.push(['beginPath']),
+    arc: (x, y, radius) => calls.push(['arc', x, y, radius]),
+    stroke: () => calls.push(['stroke']),
+    set globalAlpha(value) {
+      calls.push(['globalAlpha', value]);
+    },
+    set strokeStyle(value) {
+      calls.push(['strokeStyle', value]);
+    },
+    set lineWidth(value) {
+      calls.push(['lineWidth', value]);
+    },
+  };
+
+  drawClickEmphasis(ctx, [{ frame: 10, x: 100, y: 200, type: 'down' }], 10);
+
+  assert.deepEqual(calls[0], ['save']);
+  assert(calls.some((call) => call[0] === 'arc' && call[1] === 100 && call[2] === 200));
+  assert(calls.some((call) => call[0] === 'stroke'));
 });
 
 test('coverSourceRect crops wide camera sources instead of stretching to square', () => {
