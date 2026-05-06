@@ -29,7 +29,7 @@ if (result.error) throw result.error;
 if (result.status !== 0) throw new Error(`Recording-flow UI smoke failed with exit code ${result.status}. Artifacts: ${root}`);
 
 const report = JSON.parse(await readFile(resultPath, 'utf8'));
-if (!report.ok || !report.hasPreRecordPanel || !report.hasCaptureTargetSelect || report.selectedCaptureTarget !== 'display' || report.initialState !== 'idle' || report.savedState !== 'saved' || !report.hasSavedMessage || !report.hasStudioShell || !report.hasCentralStage || !report.hasStyledPreviewCanvas || !report.hasVideo) {
+if (!report.ok || !report.hasPreRecordPanel || !report.hasPreflightPanel || !report.hasPreflightWarningsCopy || !report.hasCaptureTargetSelect || report.selectedCaptureTarget !== 'display' || report.initialState !== 'idle' || report.savedState !== 'saved' || !report.hasSavedMessage || !report.hasStudioShell || !report.hasCentralStage || !report.hasStyledPreviewCanvas || !report.hasVideo) {
   throw new Error(`Recording-flow UI smoke assertions failed: ${JSON.stringify(report)}`);
 }
 

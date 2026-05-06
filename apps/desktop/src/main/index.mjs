@@ -12,6 +12,7 @@ import { remuxMkvToMp4 } from './remux-service.mjs';
 import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording/recording-session.mjs';
 import { listPulseAudioMicSources, listPulseAudioSystemAudioSources } from './recording/audio-sources.mjs';
 import { listV4l2CameraSources } from './recording/camera-sources.mjs';
+import { getRecordingPreflightStatus } from './recording/preflight.mjs';
 import { isXdotoolAvailable, readCursorViaXdotool } from './recording/xdotool-cursor.mjs';
 import { installRuntimeLog } from './runtime-log.mjs';
 
@@ -55,9 +56,9 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
   const isRecorder = mode === 'recorder';
   const window = new BrowserWindow({
     width: isRecorder ? 760 : 1120,
-    height: isRecorder ? 240 : 740,
+    height: isRecorder ? 620 : 740,
     minWidth: isRecorder ? 720 : 860,
-    minHeight: isRecorder ? 220 : 560,
+    minHeight: isRecorder ? 560 : 560,
     resizable: !isRecorder,
     maximizable: !isRecorder,
     autoHideMenuBar: true,
@@ -223,6 +224,21 @@ ipcMain.handle(IPC_CHANNELS.APP_OPEN_EDITOR, (event, projectPath = null) => {
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_MIC_SOURCES, async () => listPulseAudioMicSources());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => listPulseAudioSystemAudioSources());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_CAMERA_SOURCES, async () => listV4l2CameraSources());
+ipcMain.handle(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, async (_event, options = {}) => {
+  const [micSources, systemAudioSources, cameraSources] = await Promise.all([
+    listPulseAudioMicSources().catch(() => []),
+    listPulseAudioSystemAudioSources().catch(() => []),
+    listV4l2CameraSources().catch(() => []),
+  ]);
+  return getRecordingPreflightStatus({
+    recordingsDir,
+    displayInfo: getPrimaryX11DisplayInfo(screen),
+    micSources,
+    systemAudioSources,
+    cameraSources,
+    options,
+  });
+});
 ipcMain.handle(IPC_CHANNELS.RECORDING_START, async (event, options = {}) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   const { hideWindowDuringRecording, ...recordingOptions } = options ?? {};
@@ -754,6 +770,8 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   }
   await waitFor(() => document.querySelector('[data-ui-region="pre-record-panel"]'), 'pre-record panel');
   await waitFor(() => document.querySelector('[data-open-editor="pre-record"]'), 'pre-record open editor button');
+  const preflightPanel = await waitFor(() => document.querySelector('[data-ui-region="recording-preflight-status"]'), 'preflight status panel');
+  const hasPreflightWarningsCopy = document.body.textContent?.includes('screen-only recording') ?? false;
   const captureTargetSelect = await waitFor(
     () => document.querySelector('[data-ui-region="pre-record-panel"] select[aria-label="Capture target"]'),
     'capture target select',
@@ -789,6 +807,8 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     ok: true,
     hasStudioShell,
     hasPreRecordPanel: true,
+    hasPreflightPanel: Boolean(preflightPanel),
+    hasPreflightWarningsCopy,
     hasCaptureTargetSelect: Boolean(captureTargetSelect),
     selectedCaptureTarget: captureTargetSelect.value,
     initialState,

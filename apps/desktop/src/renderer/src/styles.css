@@ -362,6 +362,28 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .preRecordRegion { align-items: start; background: transparent; border: 0; grid-column: 1 / -1; min-height: 0; padding: 0; }
 .preRecordRegion .numberField input { max-width: 5.5rem; }
 
+.preflightSummary {
+  background: #101015;
+  border: 1px solid #24242e;
+  border-radius: 14px;
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.55rem;
+}
+
+.preflightSummary.warn { border-color: rgb(245 158 11 / 0.42); }
+.preflightSummary.critical { border-color: rgb(244 63 94 / 0.55); }
+.preflightHeader { align-items: center; display: flex; gap: 0.7rem; justify-content: space-between; }
+.preflightHeader h3 { font-size: 0.95rem; letter-spacing: -0.02em; margin: 0; }
+.preflightHeader span { color: var(--subtle); font-size: 0.75rem; white-space: nowrap; }
+.preflightGrid { display: grid; gap: 0.4rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.preflightCheck { background: #15151d; border: 1px solid rgb(255 255 255 / 0.06); border-radius: 10px; display: grid; gap: 0.12rem; padding: 0.38rem 0.45rem; }
+.preflightCheck strong { font-size: 0.72rem; }
+.preflightCheck span { color: var(--subtle); font-size: 0.7rem; line-height: 1.25; }
+.preflightCheck.warn { border-color: rgb(245 158 11 / 0.35); }
+.preflightCheck.critical { border-color: rgb(244 63 94 / 0.45); }
+.preflightWarning { color: #facc15; font-size: 0.72rem; line-height: 1.35; margin: 0; }
+
 .stateBanner {
   align-items: center;
   background: #101b2f;

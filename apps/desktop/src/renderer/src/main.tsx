@@ -41,6 +41,7 @@ declare global {
       getMicSources: () => Promise<MicSource[]>;
       getSystemAudioSources: () => Promise<AudioSource[]>;
       getCameraSources: () => Promise<CameraSource[]>;
+      getRecordingPreflightStatus: (options?: RecordingPreflightOptions) => Promise<RecordingPreflightStatus>;
       startRecording: (options?: { micSource?: string | null; systemAudioSource?: string | null; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean }) => Promise<RecordingStatus>;
       stopRecording: () => Promise<RecordingStatus>;
       cancelRecording: () => Promise<RecordingStatus>;
@@ -77,6 +78,9 @@ type AudioSource = { id: string; name: string; label: string; state: string };
 type CameraSource = { id: string; name: string; label: string };
 type CaptureMode = 'display' | 'region';
 type CaptureRegion = { mode: 'region'; x: number; y: number; width: number; height: number };
+type RecordingPreflightOptions = { recordMic: boolean; recordSystemAudio: boolean; recordCamera: boolean; micSource?: string | null; systemAudioSource?: string | null; cameraDevicePath?: string | null; captureMode: CaptureMode; captureRegion?: CaptureRegion | null };
+type RecordingPreflightCheck = { id: string; label: string; severity: 'ok' | 'warn' | 'critical'; detail: string };
+type RecordingPreflightStatus = { status: 'ok' | 'warn' | 'critical'; checkedAt: string; recordingsDir: string; capture: { mode: CaptureMode; width: number; height: number; fps: number }; disk?: { freeBytes: number | null; severity: RecordingPreflightCheck['severity']; detail: string }; checks: RecordingPreflightCheck[] };
 type InspectorGroupId = 'canvas' | 'recording' | 'screen' | 'zoom' | 'cursor' | 'camera' | 'export' | 'diagnostics';
 type InspectorSelection = { group: InspectorGroupId; label: string; detail?: string; markerId?: string };
 type PrimaryClip = { assetId?: string; timelineIn?: number; timelineOut?: number; sourceIn?: number; sourceOut?: number } & Record<string, unknown>;
@@ -143,6 +147,7 @@ function App() {
   const recordingActionPendingRef = React.useRef(false);
   const [elapsedMs, setElapsedMs] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
+  const [preflightStatus, setPreflightStatus] = React.useState<RecordingPreflightStatus | null>(null);
 
   React.useEffect(() => {
     window.roughCut.getVersion().then(setVersion).catch(() => setVersion('unknown'));
@@ -217,6 +222,22 @@ function App() {
   React.useEffect(() => {
     if (recording.state === 'recording') setPreRecordPanelOpen(false);
   }, [recording.state]);
+
+  React.useEffect(() => {
+    if (!preRecordPanelOpen || recording.state === 'recording') return;
+    let cancelled = false;
+    const options = buildPreflightOptions({ recordMic, recordSystemAudio, recordCamera, selectedMicSource, selectedSystemAudioSource, selectedCameraSource, captureMode, captureRegion });
+    window.roughCut.getRecordingPreflightStatus(options)
+      .then((status) => {
+        if (!cancelled) setPreflightStatus(status);
+      })
+      .catch(() => {
+        if (!cancelled) setPreflightStatus(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [preRecordPanelOpen, recording.state, recordMic, recordSystemAudio, recordCamera, selectedMicSource, selectedSystemAudioSource, selectedCameraSource, captureMode, captureRegion]);
 
   async function toggleRecording() {
     if (recordingActionPendingRef.current) {
@@ -345,6 +366,7 @@ function App() {
             selectedCameraSource={selectedCameraSource}
             captureMode={captureMode}
             captureRegion={captureRegion}
+            preflightStatus={preflightStatus}
             actionPending={recordingActionPending}
             onClose={openEditorFromRecorder}
             onStart={toggleRecording}
@@ -417,6 +439,7 @@ function App() {
             selectedCameraSource={selectedCameraSource}
             captureMode={captureMode}
             captureRegion={captureRegion}
+            preflightStatus={preflightStatus}
             actionPending={recordingActionPending}
             onClose={openEditorFromRecorder}
             onStart={toggleRecording}
@@ -591,6 +614,19 @@ function summarizeRecordingStatus(status: RecordingStatus) {
   };
 }
 
+function buildPreflightOptions({ recordMic, recordSystemAudio, recordCamera, selectedMicSource, selectedSystemAudioSource, selectedCameraSource, captureMode, captureRegion }: { recordMic: boolean; recordSystemAudio: boolean; recordCamera: boolean; selectedMicSource: string; selectedSystemAudioSource: string; selectedCameraSource: string; captureMode: CaptureMode; captureRegion: CaptureRegion }): RecordingPreflightOptions {
+  return {
+    recordMic,
+    recordSystemAudio,
+    recordCamera,
+    micSource: recordMic ? selectedMicSource || null : null,
+    systemAudioSource: recordSystemAudio ? selectedSystemAudioSource || null : null,
+    cameraDevicePath: recordCamera ? selectedCameraSource || null : null,
+    captureMode,
+    captureRegion: captureMode === 'region' ? captureRegion : null,
+  };
+}
+
 function PreRecordPanel({
   micSources,
   systemAudioSources,
@@ -603,6 +639,7 @@ function PreRecordPanel({
   selectedCameraSource,
   captureMode,
   captureRegion,
+  preflightStatus,
   actionPending,
   onClose,
   onStart,
@@ -626,6 +663,7 @@ function PreRecordPanel({
   selectedCameraSource: string;
   captureMode: CaptureMode;
   captureRegion: CaptureRegion;
+  preflightStatus: RecordingPreflightStatus | null;
   actionPending: boolean;
   onClose: () => void;
   onStart: () => void;
@@ -671,6 +709,8 @@ function PreRecordPanel({
           <PreRecordSourceSelect icon="volume" label="System" enabled={recordSystemAudio} disabled={actionPending || systemAudioSources.length === 0} emptyLabel="No system audio" offLabel="No system audio" sources={systemAudioSources} value={selectedSystemAudioSource} onEnabledChange={onRecordSystemAudioChange} onValueChange={onSelectedSystemAudioSourceChange} />
           <PreRecordSourceSelect icon="camera" label="Camera" enabled={recordCamera} disabled={actionPending || cameraSources.length === 0} emptyLabel="No camera" offLabel="No camera" sources={cameraSources} value={selectedCameraSource} onEnabledChange={onRecordCameraChange} onValueChange={onSelectedCameraSourceChange} />
         </div>
+
+        <PreflightSummary status={preflightStatus} />
 
         <div className="preRecordFooter">
           <div className="preRecordActions">
@@ -746,6 +786,38 @@ function PreRecordSourceSelect<T extends { name: string; label: string; state?: 
       </select>
     </ControlRow>
   );
+}
+
+function PreflightSummary({ status }: { status: RecordingPreflightStatus | null }) {
+  const checks = status?.checks ?? [];
+  const warnings = checks.filter((check) => check.severity !== 'ok');
+  return (
+    <section className={`preflightSummary ${status?.status ?? 'loading'}`} data-ui-region="recording-preflight-status" aria-live="polite">
+      <div className="preflightHeader">
+        <div>
+          <p className="eyebrow">Preflight</p>
+          <h3>{preflightTitle(status)}</h3>
+        </div>
+        {status ? <span>{status.capture.width || 'unknown'} x {status.capture.height || 'unknown'} @ {status.capture.fps} FPS</span> : <span>Checking...</span>}
+      </div>
+      <div className="preflightGrid">
+        {status ? checks.map((check) => (
+          <div key={check.id} className={`preflightCheck ${check.severity}`}>
+            <strong>{check.label}</strong>
+            <span>{check.detail}</span>
+          </div>
+        )) : <p className="recordingActiveHint">Checking session, tools, save destination, and optional sources.</p>}
+      </div>
+      <p className={warnings.length > 0 ? 'preflightWarning' : 'recordingActiveHint'}>Warnings are visible for this take, but optional mic, system audio, and camera problems will not block safe screen-only recording.</p>
+    </section>
+  );
+}
+
+function preflightTitle(status: RecordingPreflightStatus | null) {
+  if (!status) return 'Checking recording readiness...';
+  if (status.status === 'critical') return 'Critical setup issue detected';
+  if (status.status === 'warn') return 'Ready with visible risks';
+  return 'Ready for a long recording';
 }
 
 function StateBanner({

@@ -72,6 +72,8 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-056 | Add pre-record smoke and packaged checks | P1 | EXTERNAL |
 | TASK-057 | Add timeline interaction visual regression suite | P1 | DONE |
 | TASK-058 | Add non-destructive edit recovery affordances | P2 | DONE |
+| TASK-059 | Add preflight checklist and session-risk warnings | P1 | DONE |
+| TASK-060 | Debug long-smoke post-save failure | P1 | PLANNED |
 
 ## Recently Verified
 
@@ -1824,6 +1826,61 @@ Trim and future cut actions should never feel like they delete source media. Use
 #### Verification
 
 - `pnpm --filter @rough-cut/desktop typecheck`
+
+### TASK-059 Add preflight checklist and session-risk warnings
+
+**Priority:** P1
+**Status:** DONE
+
+#### Context
+
+Long client tutorials fail expensively when a missing tool, wrong session type, unavailable optional source, or low disk space is discovered after recording starts. The pre-record launcher now needs a visible readiness surface before capture begins.
+
+#### Acceptance Criteria
+
+- Show session status, capture target, save destination/disk budget, FFmpeg/FFprobe availability, xdotool/xinput availability, selected mic, selected system audio source, camera state, resolution, and FPS before recording.
+- Warn clearly when disk space is below 30-minute or 60-minute recording budgets.
+- Keep screen-only recording as the safe default when optional mic, system audio, or camera sources are off or unavailable.
+- Do not block recording for optional degraded states, but make the risk visible.
+- Make preflight status available from the pre-record launcher without adding a captured HUD to the X11 recording.
+
+#### Implementation Notes
+
+- Added main-process preflight classification in `apps/desktop/src/main/recording/preflight.mjs`.
+- Added `recording:get-preflight-status` IPC exposure and renderer preflight summary UI.
+- Enlarged the recorder launcher window so the preflight surface is visible before capture.
+- Added smoke assertions for the preflight panel in `scripts/smoke-recording-flow-ui.mjs`.
+
+#### Verification
+
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm smoke:recording-flow-ui`
+
+### TASK-060 Debug long-smoke post-save failure
+
+**Priority:** P1
+**Status:** PLANNED
+
+#### Context
+
+The 10-minute long-recording smoke produced a readable saved recording, diagnostics status `ok`, expected duration, near-30 FPS, cursor telemetry, and zero drop/queue warnings, but the wrapper still exited with `ELIFECYCLE` immediately after `recording:stop` returned the saved recording. This needs a dedicated follow-up so the long gate distinguishes capture safety failures from post-save export or harness failures.
+
+#### Acceptance Criteria
+
+- Reproduce the failure with the existing 10-minute long-smoke artifact path or a shorter targeted variant.
+- Identify whether the failure occurs during raw export, styled export, UI smoke handoff, process teardown, or package-script timeout/exit handling.
+- Log the failing phase explicitly in `scripts/smoke-real-recording.mjs` or the long-smoke wrapper.
+- Preserve the current capture-safety assertions: diagnostics `ok`, duration budget, FPS budget, cursor telemetry, and drop/queue warnings.
+- Ensure post-save/export failure reporting includes artifact paths for the recording, project, diagnostics, raw export, and styled export when available.
+- Re-run the 10-minute long smoke after the fix and document the result.
+
+#### Verification
+
+- Targeted unit or script-level test for phase-specific failure reporting where practical.
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `ROUGH_CUT_LONG_SMOKE_DURATION_MS=600000 pnpm smoke:long-recording`
 - `pnpm visual:timeline`
 - `pnpm visual:scrub`
 
