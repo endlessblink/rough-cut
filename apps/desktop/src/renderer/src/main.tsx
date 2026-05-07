@@ -597,13 +597,11 @@ function App() {
             project={project}
             recording={recording}
             onProjectChange={setProject}
-            onExport={() => exportProjectWithMode(exportMode)}
             onExportMode={exportProjectWithMode}
             onOpenPath={openPath}
             onShowItemInFolder={showItemInFolder}
             onRetake={startRetake}
             exportMode={exportMode}
-            onExportModeChange={setExportMode}
             exportProgress={exportProgress}
             exportResult={exportResult}
             setupBoardOpen={setupBoardOpen}
@@ -1208,7 +1206,7 @@ function NumberField({
 function PostRecordingReview({ project, recording, exportProgress, onExportMode, onOpenProject, onOpenRecordingFolder, onOpenDiagnostics, onRetake }: { project: ProjectState; recording: RecordingStatus; exportProgress: ExportProgress | null; onExportMode: (mode: ExportMode) => void; onOpenProject: () => void; onOpenRecordingFolder: () => void; onOpenDiagnostics: () => void; onRetake: () => void }) {
   const isFreshRecording = recording.state === 'saved' && recording.project?.path === project.path;
   const diagnosticsAvailable = recording.state === 'saved' && Boolean(recording.diagnosticsPath);
-  const cameraWarning = recording.state === 'saved' ? recording.cameraError : null;
+  const cameraWarning = recording.state === 'saved' ? recording.cameraError : getProjectCameraWarning(project);
 
   return (
     <section className="reviewWorkspace" data-ui-region="post-recording-review" aria-label="Post-recording review">
@@ -1224,10 +1222,10 @@ function PostRecordingReview({ project, recording, exportProgress, onExportMode,
         </div>
       ) : null}
       <div className="reviewActions" data-ui-region="post-recording-actions">
-        <button type="button" className="primaryAction" onClick={() => onExportMode('styled')} disabled={!project.recording || Boolean(exportProgress)}>
+        <button type="button" className="primaryAction" data-export-action="styled" onClick={() => onExportMode('styled')} disabled={!project.recording || Boolean(exportProgress)}>
           <Icon name="export" /> Export styled
         </button>
-        <button type="button" className="secondary" onClick={() => onExportMode('raw')} disabled={!project.recording || Boolean(exportProgress)}>
+        <button type="button" className="secondary" data-export-action="raw" onClick={() => onExportMode('raw')} disabled={!project.recording || Boolean(exportProgress)}>
           <Icon name="display" /> Export raw
         </button>
         <button type="button" className="secondary" onClick={onOpenRecordingFolder} disabled={!project.recording?.filePath}><Icon name="folder" /> Folder</button>
@@ -1240,11 +1238,16 @@ function PostRecordingReview({ project, recording, exportProgress, onExportMode,
   );
 }
 
+function getProjectCameraWarning(project: ProjectState) {
+  const metadata = getPrimaryRecordingAsset(project.document)?.metadata;
+  const cameraError = metadata && typeof metadata === 'object' && 'cameraError' in metadata ? metadata.cameraError : null;
+  return typeof cameraError === 'string' && cameraError.trim().length > 0 ? cameraError : null;
+}
+
 function ProjectPreview({
   project,
   recording,
   onProjectChange,
-  onExport,
   onExportMode,
   onOpenPath,
   onShowItemInFolder,
@@ -1252,7 +1255,6 @@ function ProjectPreview({
   exportProgress,
   exportResult,
   exportMode,
-  onExportModeChange,
   setupBoardOpen,
   inspectorOpen,
   activeTool,
@@ -1261,7 +1263,6 @@ function ProjectPreview({
   project: ProjectState;
   recording: RecordingStatus;
   onProjectChange: (next: ProjectState) => void;
-  onExport: () => void;
   onExportMode: (mode: ExportMode) => void;
   onOpenPath: (path?: string | null) => void;
   onShowItemInFolder: (path?: string | null) => void;
@@ -1269,7 +1270,6 @@ function ProjectPreview({
   exportProgress: ExportProgress | null;
   exportResult: ExportResult | null;
   exportMode: ExportMode;
-  onExportModeChange: (mode: ExportMode) => void;
   setupBoardOpen: boolean;
   inspectorOpen: boolean;
   activeTool: ActiveTool;
@@ -1489,21 +1489,12 @@ function ProjectPreview({
           onOpenDiagnostics={() => onOpenPath(recording.state === 'saved' ? recording.diagnosticsPath : null)}
           onRetake={onRetake}
         />
-        <InspectorSection id="export" title="Export">
-          <label className="field inspectorField">
-            <span>Export mode</span>
-            <select data-export-mode-select="true" value={exportMode} onChange={(event) => onExportModeChange(event.target.value as ExportMode)}>
-              <option value="raw">Raw recording</option>
-              <option value="styled">Styled canvas</option>
-            </select>
-          </label>
+        <InspectorSection id="export" title="Export status">
           <ExportPresetDetails mode={exportMode} />
-          <InspectorActionRow region="export-actions-area">
-            <button type="button" onClick={onExport} className="secondary exportButton" disabled={!project.recording}>
-              Export MP4
-            </button>
+          <InspectorActionRow region="export-status-area">
             {exportProgress ? <span className="exportProgress">{exportProgress.phase}: {Math.round(exportProgress.progress * 100)}%</span> : null}
             {exportResult ? <p className="saved">Exported to: {exportResult.outputPath} ({exportResult.bytes} bytes)</p> : null}
+            {!exportProgress && !exportResult ? <p className="inspectorNotice">Choose Styled or Raw from the review actions above.</p> : null}
           </InspectorActionRow>
         </InspectorSection>
         {saveError ? <p className="error">{saveError}</p> : null}

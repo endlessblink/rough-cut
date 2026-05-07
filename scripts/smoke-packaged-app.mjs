@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
+import { createDefaultRecordingPresentation, createZoomMarker } from '../packages/project-model/dist/index.js';
+import { saveProjectFile, saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
 
 const root = process.cwd();
 const artifactRoot = join(root, 'dist', 'rough-cut-mvp-linux-x64');
@@ -34,7 +35,7 @@ run('ffmpeg', [
 
 const startedAt = new Date('2026-01-01T00:00:00.000Z');
 const stoppedAt = new Date(startedAt.getTime() + 2000);
-const project = await saveProjectForRecording({
+let project = await saveProjectForRecording({
   startedAt: startedAt.toISOString(),
   stoppedAt: stoppedAt.toISOString(),
   rawPath: mediaPath,
@@ -42,6 +43,35 @@ const project = await saveProjectForRecording({
   width: 320,
   height: 240,
   fps: 30,
+  cursorEvents: [
+    { frame: 18, x: 80, y: 90, type: 'move', button: 'none' },
+    { frame: 42, x: 120, y: 110, type: 'down', button: 'left' },
+  ],
+  audio: { micSource: 'package-smoke-mic' },
+  camera: {
+    rawPath: mediaPath,
+    outputPath: mediaPath,
+    width: 320,
+    height: 240,
+    sourceInFrames: 0,
+  },
+});
+
+const presentation = createDefaultRecordingPresentation();
+project = await saveProjectFile(project.path, {
+  ...project.document,
+  assets: project.document.assets.map((asset) => asset.type === 'recording'
+    ? {
+        ...asset,
+        presentation: {
+          ...presentation,
+          zoom: {
+            ...presentation.zoom,
+            markers: [createZoomMarker(20, 50)],
+          },
+        },
+      }
+    : asset),
 });
 const projectPath = project.path;
 
@@ -64,7 +94,7 @@ if (result.status !== 0) throw new Error(`Packaged app smoke failed with exit co
 
 const report = JSON.parse(await readFile(resultPath, 'utf8'));
 const screenshotBytes = (await readFile(screenshotPath)).length;
-if (!report.ok || !report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'raw' || !report.hasStyledMode || !report.hasRawPresetDetails || !report.hasStyledPresetDetails || !report.hasVisualScreenshot || report.aspectRatio !== '9:16' || report.padding !== 96 || report.cornerRadius !== 44 || report.shadowSize !== 72 || !(report.duration > 0) || !(screenshotBytes > 1000)) {
+if (!report.ok || !report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'styled' || !report.hasStyledMode || !report.hasStyledPresetDetails || !report.hasReviewExportActions || !report.hasExportStatusArea || !report.hasVisualScreenshot || report.aspectRatio !== '9:16' || report.padding !== 96 || report.cornerRadius !== 44 || report.shadowSize !== 72 || report.cameraPosition !== 'corner-tl' || report.cameraShape !== 'circle' || report.cameraSize !== 130 || !(report.duration > 0) || !(screenshotBytes > 1000)) {
   throw new Error(`Packaged app smoke assertions failed: ${JSON.stringify(report)}`);
 }
 

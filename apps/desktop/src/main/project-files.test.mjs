@@ -98,6 +98,18 @@ test('creates linked camera asset and track when webcam recording is present', (
   assert.equal(getPrimaryRecording(project)?.camera?.sourceInFrames, 30);
 });
 
+test('persists camera warning metadata for screen-only fallback review', () => {
+  const project = createProjectForRecording({
+    recording: {
+      ...recording,
+      cameraError: 'Device or resource busy',
+    },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+
+  assert.equal(project.assets[0].metadata.cameraError, 'Device or resource busy');
+});
+
 test('saves and reopens a roughcut project file', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-project-'));
   const outputPath = join(root, 'capture.mp4');

@@ -53,6 +53,20 @@ const recordingSession = createRecordingSession({
   getCursorPoint: () => readCursorViaXdotool() ?? screen.getCursorScreenPoint(),
 });
 
+async function listCameraSources() {
+  const sources = await listV4l2CameraSources();
+  const smokeCameraPath = process.env.ROUGH_CUT_SMOKE_CAMERA_DEVICE_PATH;
+  if (!smokeCameraPath) return sources;
+  return [
+    {
+      id: smokeCameraPath,
+      name: smokeCameraPath,
+      label: `Smoke camera (${smokeCameraPath})`,
+    },
+    ...sources.filter((source) => source.name !== smokeCameraPath),
+  ];
+}
+
 function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
   const isRecorder = mode === 'recorder';
   const window = new BrowserWindow({
@@ -119,6 +133,7 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
         const result = await window.webContents.executeJavaScript(
           `(${smokeFunction.toString()})(${JSON.stringify({
             doubleStop: process.env.ROUGH_CUT_UI_SMOKE_DOUBLE_STOP === '1',
+            cameraWarning: process.env.ROUGH_CUT_UI_SMOKE_CAMERA_WARNING === '1',
           })})`,
           true,
         );
@@ -231,12 +246,12 @@ ipcMain.handle(IPC_CHANNELS.APP_OPEN_EDITOR, (event, projectPath = null) => {
 });
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_MIC_SOURCES, async () => listPulseAudioMicSources());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => listPulseAudioSystemAudioSources());
-ipcMain.handle(IPC_CHANNELS.RECORDING_GET_CAMERA_SOURCES, async () => listV4l2CameraSources());
+ipcMain.handle(IPC_CHANNELS.RECORDING_GET_CAMERA_SOURCES, async () => listCameraSources());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, async (_event, options = {}) => {
   const [micSources, systemAudioSources, cameraSources] = await Promise.all([
     listPulseAudioMicSources().catch(() => []),
     listPulseAudioSystemAudioSources().catch(() => []),
-    listV4l2CameraSources().catch(() => []),
+    listCameraSources().catch(() => []),
   ]);
   return getRecordingPreflightStatus({
     recordingsDir,
@@ -575,7 +590,7 @@ async function runRendererUiSmoke() {
   const hasCameraLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="camera"] .presenceRegion'), 'camera timeline lane'));
   const hasAudioLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="audio"] .presenceRegion'), 'audio timeline lane'));
   const hasRightInspector = Boolean(await waitFor(() => document.querySelector('[data-ui-region="right-inspector"]'), 'right inspector region'));
-  const hasExportActionsArea = Boolean(await waitFor(() => document.querySelector('[data-ui-region="export-actions-area"]'), 'export actions region'));
+  const hasExportStatusArea = Boolean(await waitFor(() => document.querySelector('[data-ui-region="export-status-area"]'), 'export status region'));
   await waitFor(() => video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0, 'video metadata');
   await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'styled preview canvas');
   const hasStyledPreviewCanvas = true;
@@ -611,10 +626,9 @@ async function runRendererUiSmoke() {
       && document.querySelector('[data-inspector-group="export"]'),
   );
   const hasCameraPipControls = Boolean(document.querySelector('[data-camera-pip-controls="true"]'));
-  const exportMode = await waitFor(() => document.querySelector('[data-export-mode-select="true"]'), 'export mode selection');
+  await waitFor(() => document.querySelector('[data-export-action="styled"]'), 'styled review export action');
+  const hasReviewExportActions = Boolean(document.querySelector('[data-export-action="styled"]') && document.querySelector('[data-export-action="raw"]'));
   const hasRawPresetDetails = document.body.textContent?.includes('Raw export keeps the original recording unchanged.') ?? false;
-  exportMode.value = 'styled';
-  exportMode.dispatchEvent(new Event('change', { bubbles: true }));
   await waitFor(() => document.body.textContent?.includes('Styled preset: selected aspect ratio'), 'styled preset details');
   const hasStyledPresetDetails = true;
 
@@ -695,10 +709,6 @@ async function runRendererUiSmoke() {
   setControlValue(cameraSizeInput, 130);
   await waitFor(() => cameraSizeInput.closest('label')?.querySelector('output')?.textContent === '130', 'camera size output');
 
-  exportMode.value = 'styled';
-  exportMode.dispatchEvent(new Event('change', { bubbles: true }));
-  await waitFor(() => exportMode.value === 'styled', 'styled export mode restored');
-
   // Measure canvas render fps during 1s of playback. The draw counter is
   // incremented by tick() in VideoPreview via window.__roughCutCanvasDrawCount.
   window.__roughCutCanvasDrawCount = 0;
@@ -710,10 +720,7 @@ async function runRendererUiSmoke() {
   const pauseBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('Pause'));
   if (pauseBtn) pauseBtn.click();
 
-  const exportButton = await waitFor(
-    () => Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Export MP4')),
-    'export button',
-  );
+  const exportButton = await waitFor(() => document.querySelector('[data-export-action="styled"]'), 'styled review export button');
   exportButton.click();
 
   await waitFor(() => document.body.textContent?.includes('Exported to:'), 'export completion', 10000);
@@ -726,8 +733,9 @@ async function runRendererUiSmoke() {
     hasPlaybackButton: Boolean(
       Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Play')),
     ),
-    exportMode: exportMode.value,
-    hasStyledMode: Boolean(Array.from(document.querySelectorAll('option')).find((option) => option.value === 'styled')),
+    exportMode: 'styled',
+    hasStyledMode: hasReviewExportActions,
+    hasReviewExportActions,
     hasRawPresetDetails,
     hasStyledPresetDetails,
     hasBackgroundPresetSelection,
@@ -757,7 +765,7 @@ async function runRendererUiSmoke() {
     hasCameraLane,
     hasAudioLane,
     hasRightInspector,
-    hasExportActionsArea,
+    hasExportStatusArea,
     hasExportResult: document.body.textContent?.includes('Exported to:') ?? false,
     canvasRenderFps,
     aspectRatio: aspectRatioSelect.value,
@@ -808,6 +816,16 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   captureTargetSelect.value = 'display';
   captureTargetSelect.dispatchEvent(new Event('change', { bubbles: true }));
   await waitFor(() => captureTargetSelect.value === 'display', 'display target reselected');
+  let selectedCameraSource = null;
+  if (options.cameraWarning) {
+    const cameraSelect = await waitFor(() => document.querySelector('select[aria-label="Camera source"]'), 'camera source select');
+    const cameraOption = Array.from(cameraSelect.options).find((option) => option.value && option.value !== '__off' && !option.disabled);
+    if (!cameraOption) throw new Error('Camera warning smoke requested, but no camera source option was available.');
+    selectedCameraSource = cameraOption.value;
+    cameraSelect.value = selectedCameraSource;
+    cameraSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await waitFor(() => cameraSelect.value === selectedCameraSource, 'camera source selected');
+  }
   const preRecordStartButton = await waitFor(() => document.querySelector('[data-recording-start="pre-record"]'), 'pre-record start button');
   preRecordStartButton.click();
   await waitFor(() => document.querySelector('[data-recording-state="recording"]'), 'recording state banner');
@@ -828,6 +846,12 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   const hasRightInspector = Boolean(document.querySelector('[data-ui-region="right-inspector"]'));
   const hasReviewWorkspace = Boolean(document.querySelector('[data-ui-region="post-recording-review"]'));
   const hasPostRecordingActions = Boolean(document.querySelector('[data-ui-region="post-recording-actions"]'));
+  const reviewActionText = document.querySelector('[data-ui-region="post-recording-actions"]')?.textContent ?? '';
+  const hasReviewExportActions = Boolean(document.querySelector('[data-export-action="styled"]') && document.querySelector('[data-export-action="raw"]'));
+  const hasReviewNextActions = ['Folder', 'Diagnostics', 'Project', 'New'].every((label) => reviewActionText.includes(label));
+  const reviewCameraWarningText = document.querySelector('[data-review-warning="camera"]')?.textContent ?? '';
+  const hasReviewCameraWarning = reviewCameraWarningText.includes('Screen recording preserved') && reviewCameraWarningText.includes('without webcam PiP');
+  const hasStateCameraWarning = document.body.textContent?.includes('Camera was unavailable') ?? false;
   const hasStudioShell = Boolean(document.querySelector('[data-ui-shell="recording-studio"]'));
 
   return {
@@ -847,6 +871,11 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     hasRightInspector,
     hasReviewWorkspace,
     hasPostRecordingActions,
+    hasReviewExportActions,
+    hasReviewNextActions,
+    selectedCameraSource,
+    hasReviewCameraWarning,
+    hasStateCameraWarning,
     hasStyledPreviewCanvas: Boolean(canvas),
     hasVideo: Boolean(video),
     duration: video?.duration ?? null,
@@ -870,6 +899,8 @@ async function runRendererEditorLoadedSmoke() {
   await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'post-recording preview canvas');
   await waitFor(() => document.querySelector('video'), 'post-recording video');
   await waitFor(() => document.querySelector('[data-ui-region="post-recording-review"]'), 'post-recording review workspace');
+  const reviewActionText = document.querySelector('[data-ui-region="post-recording-actions"]')?.textContent ?? '';
+  const reviewCameraWarningText = document.querySelector('[data-review-warning="camera"]')?.textContent ?? '';
 
   return {
     hasStudioShell: Boolean(document.querySelector('[data-ui-shell="recording-studio"]')),
@@ -878,6 +909,9 @@ async function runRendererEditorLoadedSmoke() {
     hasRightInspector: Boolean(document.querySelector('[data-ui-region="right-inspector"]')),
     hasReviewWorkspace: Boolean(document.querySelector('[data-ui-region="post-recording-review"]')),
     hasPostRecordingActions: Boolean(document.querySelector('[data-ui-region="post-recording-actions"]')),
+    hasReviewExportActions: Boolean(document.querySelector('[data-export-action="styled"]') && document.querySelector('[data-export-action="raw"]')),
+    hasReviewNextActions: ['Folder', 'Diagnostics', 'Project', 'New'].every((label) => reviewActionText.includes(label)),
+    hasReviewCameraWarning: reviewCameraWarningText.includes('Screen recording preserved') && reviewCameraWarningText.includes('without webcam PiP'),
     hasStyledPreviewCanvas: Boolean(document.querySelector('canvas.styledPreviewCanvas')),
     hasVideo: Boolean(document.querySelector('video')),
     duration: document.querySelector('video')?.duration ?? null,

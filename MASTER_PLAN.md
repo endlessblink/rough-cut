@@ -64,7 +64,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-048 | Add optional webcam PiP recording and export | P1 | IN PROGRESS |
 | TASK-049 | Build Screen Studio-style editor UI foundation | P1 | DONE |
 | TASK-050 | Add Screen Studio-style pre-record panel | P1 | EXTERNAL |
-| TASK-051 | Add post-recording review workspace | P1 | IN PROGRESS |
+| TASK-051 | Add post-recording review workspace | P1 | DONE |
 | TASK-052 | Add timeline-first playback and edit rail | P1 | DONE |
 | TASK-053 | Add extensible properties inspector system | P1 | DONE |
 | TASK-054 | Add thumbnail source picker for recording targets | P1 | EXTERNAL |
@@ -1889,10 +1889,10 @@ Re-verified with `ROUGH_CUT_LONG_SMOKE_DURATION_MS=600000 pnpm smoke:long-record
 - `pnpm visual:timeline`
 - `pnpm visual:scrub`
 
-### TASK-051 Add post-recording review workspace
+### ~~TASK-051~~ Add post-recording review workspace
 
 **Priority:** P1  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -1922,9 +1922,15 @@ After stop, the user should land in a clear review state rather than hunting for
 - Manual check confirms warnings and next actions are visible after camera-busy recording.
 - `pnpm --filter @rough-cut/desktop test`
 - `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm smoke:recording-flow-ui`
+- `pnpm smoke:ui`
+- `pnpm visual:export`
+- `ROUGH_CUT_LONG_SMOKE_DURATION_MS=600000 pnpm smoke:long-recording`
+- `pnpm smoke:package`
 - `pnpm smoke:recording-flow-double-stop`
+- `pnpm smoke:package-recording-flow`
 
-**Progress (2026-05-07):** Post-recording actions were moved into the Export sidebar and the central preview/timeline was tightened to preserve editing space. Latest polish aligned preview metadata with the recording title and kept `TASK-051` in progress for final visual review, duplicate-export cleanup, and remaining acceptance checks.
+**Completed (2026-05-07):** Post-recording review is now the single next-action workspace for export styled, export raw, folder, diagnostics, project, and retake actions; the duplicate lower Export MP4 CTA was removed and the inspector now reports export status/details only. Camera failure warnings are persisted into the saved project and shown again after reopening the packaged app. Automated coverage now includes the regular recording-flow UI smoke, packaged fixture smoke, and a packaged pre-record -> camera warning -> stop -> save -> review smoke.
 
 ### TASK-052 Add timeline-first playback and edit rail
 

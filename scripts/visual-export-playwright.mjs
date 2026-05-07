@@ -43,10 +43,9 @@ try {
     const video = document.querySelector('video');
     return video && video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0;
   });
-  await page.selectOption('select', 'styled');
-  await page.waitForFunction(() => document.body.textContent?.includes('Styled preset: 1920x1080'));
+  await page.waitForSelector('[data-export-action="styled"]', { timeout: 10000 });
   await captureElectronPage(app, page, appBeforePath);
-  await page.getByRole('button', { name: 'Export MP4' }).click();
+  await page.locator('[data-export-action="styled"]').click();
   await page.waitForFunction(() => document.body.textContent?.includes('Exported to:'), null, { timeout: 180000 });
   await captureElectronPage(app, page, appAfterPath).catch(async (err) => {
     await writeFile(appAfterPath, `after-export screenshot unavailable: ${err.message}\n`, 'utf8');
@@ -169,8 +168,8 @@ async function createFixtureProject() {
 
 function buildFixtureChecks(videoPath) {
   return {
-    topLeftMarker: sampleAverage(videoPath, { x: 116, y: 74, width: 28, height: 28 }),
-    bottomRightMarker: sampleAverage(videoPath, { x: 1778, y: 976, width: 28, height: 28 }),
+    topLeftMarker: sampleAverage(videoPath, { x: 210, y: 136, width: 28, height: 28 }),
+    bottomRightMarker: sampleAverage(videoPath, { x: 1660, y: 900, width: 28, height: 28 }),
     centerCursor: sampleBrightDark(videoPath, { x: 940, y: 514, width: 120, height: 120 }),
   };
 }
@@ -185,7 +184,8 @@ function buildRealProjectChecks(document, videoPath) {
     movementEvents[Math.floor(movementEvents.length / 2)],
     movementEvents.at(-1),
   ]);
-  const scale = Math.min(1728 / recording.metadata.width, 972 / recording.metadata.height);
+  const screenPadding = 96;
+  const scale = Math.min((1920 - screenPadding * 2) / recording.metadata.width, (1080 - screenPadding * 2) / recording.metadata.height);
   const renderedWidth = Math.round(recording.metadata.width * scale);
   const renderedHeight = Math.round(recording.metadata.height * scale);
   const offsetX = Math.round((1920 - renderedWidth) / 2);

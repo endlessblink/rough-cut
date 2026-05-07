@@ -31,6 +31,7 @@ export function createProjectForRecording({ recording, now = new Date() }) {
       cursorTelemetryPath: recording.cursorTelemetryPath,
       cursorEvents: Array.isArray(recording.cursorEvents) ? recording.cursorEvents : [],
       audio: recording.audio ?? null,
+      cameraError: recording.cameraError ?? null,
     },
   });
   const cameraAsset = recording.camera?.outputPath

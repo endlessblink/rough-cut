@@ -52,6 +52,7 @@ ROUGH_CUT_SMOKE_SYSTEM_AUDIO=1 pnpm smoke:mvp
 pnpm smoke:ui
 pnpm smoke:styled-export
 pnpm smoke:package
+pnpm smoke:package-recording-flow
 ```
 
 Passing criteria:
@@ -63,6 +64,7 @@ Passing criteria:
 - UI smoke opens a project, previews, exercises presentation controls, and exports.
 - Styled export smoke verifies dimensions, frame rate, cursor visibility, and zoom scenarios.
 - Package smoke launches the packaged app and verifies preview/export UI from the installed artifact.
+- Package recording-flow smoke records through the packaged pre-record flow, simulates a camera warning, stops, saves, opens review, and verifies post-recording actions plus persisted warning copy.
 
 ## Recording Artifact Gate
 

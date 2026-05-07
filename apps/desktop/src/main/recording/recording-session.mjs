@@ -112,6 +112,9 @@ export function createRecordingSession({
     let cameraStartedAtDate = null;
     let cameraError = null;
     try {
+      if (cameraDevicePath && process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR) {
+        throw new Error(process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR);
+      }
       cameraStartedAtDate = cameraDevicePath ? now() : null;
       cameraCapture = cameraDevicePath
         ? cameraCaptureFactory({

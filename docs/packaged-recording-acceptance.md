@@ -21,6 +21,7 @@ pnpm smoke:mvp
 pnpm smoke:real-recording
 pnpm smoke:long-recording
 pnpm smoke:package
+pnpm smoke:package-recording-flow
 ```
 
 If microphone acceptance is in scope, also run:
@@ -32,7 +33,7 @@ ROUGH_CUT_REAL_SMOKE_EXPECT_AUDIO=1 pnpm smoke:real-recording
 
 ## Manual Packaged-App Flow
 
-1. Build and launch the packaged app with `pnpm smoke:package`, then open the packaged app artifact manually if a visible pass is needed.
+1. Build and launch the packaged app with `pnpm smoke:package` and `pnpm smoke:package-recording-flow`; the recording-flow smoke also covers a persisted camera-warning review state. Open the packaged app artifact manually only if a visible pass is needed.
 2. Confirm the recording controls are visible and the app is idle before recording.
 3. Select a microphone if audio acceptance is in scope.
 4. Select a camera only if webcam PiP acceptance is in scope; otherwise keep camera disabled.
