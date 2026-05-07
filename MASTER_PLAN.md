@@ -25,12 +25,12 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-009 | Add styled export UI preview metadata | P2 | DONE |
 | TASK-010 | Add cursor telemetry recording foundation | P1 | DONE |
 | TASK-011 | Add cursor overlay export rendering | P1 | DONE |
-| TASK-012 | Add cursor overlay preview rendering | P2 | SUPERSEDED → TASK-025 |
+| ~~TASK-012~~ | Add cursor overlay preview rendering | P2 | SUPERSEDED → TASK-025 |
 | TASK-013 | Add click emphasis telemetry and export rendering | P2 | IN PROGRESS |
 | TASK-014 | Add manual zoom marker data model | P1 | DONE |
 | TASK-015 | Add manual zoom marker UI controls | P1 | DONE |
 | TASK-016 | Add smooth manual zoom export rendering | P1 | DONE |
-| TASK-017 | Add zoom preview playback approximation | P2 | SUPERSEDED → TASK-025 |
+| ~~TASK-017~~ | Add zoom preview playback approximation | P2 | SUPERSEDED → TASK-025 |
 | TASK-018 | Add automatic zoom suggestion engine | P2 | DONE |
 | TASK-019 | Add automatic zoom review/apply flow | P2 | DONE |
 | TASK-020 | Add countdown before recording | P2 | PLANNED |
@@ -56,7 +56,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-040 | Add pause, resume, and cancel recording | P1 | DONE |
 | TASK-041 | Add post-recording next-action flow | P1 | PLANNED |
 | TASK-042 | Render click emphasis in preview and export | P1 | DONE |
-| TASK-043 | Add webcam PiP presentation controls | P1 | IN PROGRESS |
+| TASK-043 | Add webcam PiP presentation controls | P1 | DONE |
 | TASK-044 | Add cursor style controls | P2 | PLANNED |
 | TASK-045 | Add background style presets | P2 | DONE |
 | TASK-046 | Add trim start and end controls | P1 | DONE |
@@ -75,6 +75,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-059 | Add preflight checklist and session-risk warnings | P1 | DONE |
 | TASK-060 | Debug long-smoke post-save failure | P1 | DONE |
 | TASK-061 | Fix choppy camera playback via canvas frame dedup | P1 | DONE |
+| TASK-062 | Add real window and region selection UI | P2 | PLANNED |
 
 ## Recently Verified
 
@@ -148,6 +149,15 @@ X11 is being deprecated and the Wayland pivot (TASK-026) is a bounded *swap-out*
 - When Wayland lands, the implementation behind these abstractions changes (compositor-rendered cursor in stream replaces telemetry); call sites stay untouched.
 
 What survives the pivot regardless: project schema, zoom export math, canvas preview rendering, all UI panels, click-effect rendering, auto-zoom marker generation. What gets replaced: `recording-session.mjs` cursor sampling, `xdotool-cursor.mjs`, `buildCursorAss`. Small, isolated, well-tested modules.
+
+### Delivery Lines
+
+Drives the Watchpost flow view (`flow/index.html` parses this block via `parseDeliveryLines`). One sequential lane: tasks are worked top-to-bottom in declared order. Done/superseded tasks are skipped automatically. Tasks not listed stay in the unassigned backlog. Update this block whenever sprint priorities shift — it is the source of truth for "what should I work on next?"
+
+Order follows the Direction section: finish in-flight presentation polish → recording-flow UX polish → long-tail / deferred.
+
+1. **LINE A — Client tutorial recording sprint**:
+Sequence: TASK-013, TASK-048, TASK-041, TASK-020, TASK-021, TASK-022, TASK-023, TASK-047, TASK-005, TASK-026
 
 ## Tasks
 
@@ -461,7 +471,7 @@ Cursor telemetry becomes useful when styled export can render a clean cursor ove
 - Playwright screenshot of extracted styled export cursor frame.
 - Manual packaged export with real cursor telemetry still recommended before release.
 
-### TASK-012 Add cursor overlay preview rendering
+### ~~TASK-012~~ Add cursor overlay preview rendering
 
 **Priority:** P2  
 **Status:** SUPERSEDED → TASK-025
@@ -494,7 +504,7 @@ Users need preview confidence before exporting cursor overlays.
 ### TASK-013 Add click emphasis telemetry and export rendering
 
 **Priority:** P2  
-**Status:** IN PROGRESS (capture done; visual emphasis pending)
+**Status:** IN PROGRESS (capture complete; visual emphasis pending)
 
 #### Context
 
@@ -631,7 +641,7 @@ Manual zoom markers need to affect final exported output with smooth transitions
 - `pnpm smoke:mvp` — record/save/reopen/export pipeline still `ok: true`.
 - **Pending: manual packaged-app round-trip** — record (or open an existing recording), add a manual zoom marker via TASK-015's panel at ~2 s, export styled, scrub the resulting MP4, confirm a smooth zoom-in around 2 s, hold at full zoom, then a smooth zoom-out. Flip status to DONE only after this manual step lands.
 
-### TASK-017 Add zoom preview playback approximation
+### ~~TASK-017~~ Add zoom preview playback approximation
 
 **Priority:** P2  
 **Status:** SUPERSEDED → TASK-025
@@ -1475,7 +1485,7 @@ Click telemetry is already captured. The missing user-visible piece is a tastefu
 ### TASK-043 Add webcam PiP presentation controls
 
 **Priority:** P1  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -1492,9 +1502,17 @@ Camera capture and export paths have started, but the UI still treats webcam PiP
 
 - 2026-05-06: Added main-editor Inspector controls for linked-camera projects: show/hide, position, shape, size, and roundness. Controls persist to `recordingAsset.presentation.camera`, which is already consumed by canvas preview and styled export.
 - 2026-05-06: Extended `smoke:ui` assertions to exercise camera PiP controls on a synthetic linked-camera project, but the run is currently blocked by the separate pre-record instance changes forcing `mode=recorder` even for project-path UI smoke.
-- `pnpm --filter @rough-cut/desktop typecheck`
-- `pnpm --filter @rough-cut/desktop test`
-- `pnpm smoke:styled-export`
+- 2026-05-07: Added a pre-record Camera PiP setup preview card that appears when a camera source is selected, explaining that the webcam is recorded as an editable separate track. Packaged recording-flow smoke now selects the simulated camera device and asserts the setup card appears before recording starts.
+- 2026-05-07: `pnpm --filter @rough-cut/desktop typecheck` — pass.
+- 2026-05-07: `pnpm --filter @rough-cut/desktop test` — 168/168 pass.
+- 2026-05-07: `pnpm smoke:ui` — pass; exercises persisted camera position, shape, and size controls on a synthetic linked-camera project.
+- 2026-05-07: `pnpm smoke:styled-export` — pass; includes synthetic linked-camera styled export.
+- 2026-05-07: `pnpm smoke:package-recording-flow` — pass; packaged app shows the camera setup card, preserves screen recording when the simulated camera is busy, and surfaces the camera warning in review.
+- 2026-05-07: Real webcam PiP manual verification is blocked on this machine because `/dev/video*` devices are unavailable; the packaged gate uses `ROUGH_CUT_SMOKE_CAMERA_DEVICE_PATH=/dev/video9999` to verify the selected-camera setup and degraded screen-only path.
+- 2026-05-08: Replaced the static setup thumbnail with a real `getUserMedia` webcam preview in the pre-record Camera PiP card, added Electron media permission handling, and close the setup panel before starting capture so the preview stream releases the webcam before FFmpeg opens it.
+- 2026-05-08: Re-verified `pnpm --filter @rough-cut/desktop typecheck`, `pnpm --filter @rough-cut/desktop test`, and `pnpm smoke:package-recording-flow` — pass.
+- 2026-05-08: Pre-record mic, system audio, and camera selections now persist in local storage and are restored when the saved device is still available. Dropdown labels are shortened, metadata-only V4L2 camera nodes are filtered out, and the Camera PiP setup copy is reduced to concise preview/editability text.
+- 2026-05-08: Re-verified `pnpm --filter @rough-cut/desktop typecheck` and `pnpm smoke:package-recording-flow` — pass.
 - Unit tests for camera frame geometry.
 - UI smoke verifies controls exist when camera metadata is present.
 - Manual packaged-app recording with webcam PiP.
@@ -2037,3 +2055,26 @@ Also added `window.__roughCutCanvasDrawCount` instrumentation to the smoke test 
 - `pnpm --filter @rough-cut/desktop test`
 - `pnpm --filter @rough-cut/desktop typecheck`
 - `pnpm smoke:ui`
+
+### TASK-062 Add real window and region selection UI
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+The current capture target control is still a basic full-display/region dropdown. Users need an actual source-picking experience for display, window, and region capture instead of manually trusting a rough selector.
+
+#### Acceptance Criteria
+
+- Add a proper pre-record source picker UI for display, window, and region selection.
+- Let users choose a capture region visually, with clear bounds before recording starts.
+- Show available windows with readable names and selected-state feedback when platform support is available.
+- Preserve the existing safe full-display path and disable unsupported modes with clear copy.
+- Keep cursor telemetry, recording metadata, preview, and export transforms aligned with the selected window or region.
+
+#### Verification
+
+- UI smoke covers selecting full display and opening/canceling the region picker.
+- Add automated coverage for region geometry normalization and persisted metadata.
+- Manual packaged-app verification records a selected region and, when supported, a selected window.

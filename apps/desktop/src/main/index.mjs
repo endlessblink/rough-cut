@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, shell, Tray } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -344,6 +344,9 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, { document, outputPath, 
 
 app.whenReady().then(() => {
   registerMediaProtocol();
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === 'media');
+  });
   const startupProjectPath = process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;
   createMainWindow({ mode: startupProjectPath ? 'editor' : 'recorder', projectPath: startupProjectPath });
 
@@ -832,6 +835,10 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     cameraSelect.dispatchEvent(new Event('change', { bubbles: true }));
     await waitFor(() => cameraSelect.value === selectedCameraSource, 'camera source selected');
   }
+  const hasPreRecordCameraSetup = options.cameraWarning
+    ? Boolean(await waitFor(() => document.querySelector('[data-ui-region="pre-record-camera-setup"]'), 'pre-record camera setup'))
+    : Boolean(document.querySelector('[data-ui-region="pre-record-camera-setup"]'));
+  const preRecordCameraPreviewState = document.querySelector('[data-camera-preview-state]')?.getAttribute('data-camera-preview-state') ?? null;
   const preRecordStartButton = await waitFor(() => document.querySelector('[data-recording-start="pre-record"]'), 'pre-record start button');
   preRecordStartButton.click();
   await waitFor(() => document.querySelector('[data-recording-state="recording"]'), 'recording state banner');
@@ -900,6 +907,8 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     hasReviewExportActions,
     hasReviewNextActions,
     selectedCameraSource,
+    hasPreRecordCameraSetup,
+    preRecordCameraPreviewState,
     hasReviewCameraWarning,
     hasStateCameraWarning,
     hasStyledPreviewCanvas: Boolean(canvas),

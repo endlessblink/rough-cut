@@ -104,6 +104,7 @@ type RecordingStatus =
 
 const DEFAULT_RECORDING_BACKGROUND = createDefaultRecordingBackgroundStyle();
 const DEFAULT_CAMERA_PRESENTATION = createDefaultCameraPresentation();
+const PRE_RECORD_PREFS_KEY = 'rough-cut.preRecordPreferences.v1';
 const CAMERA_POSITION_OPTIONS: ReadonlyArray<{ value: CameraPosition; label: string }> = [
   { value: 'corner-br', label: 'Bottom right' },
   { value: 'corner-bl', label: 'Bottom left' },
@@ -122,9 +123,46 @@ const DEFAULT_INSPECTOR_SELECTION: InspectorSelection = {
   detail: 'Project-level presentation controls are active.',
 };
 
+type PreRecordPreferences = {
+  recordMic: boolean;
+  recordSystemAudio: boolean;
+  recordCamera: boolean;
+  micSource: string | null;
+  systemAudioSource: string | null;
+  cameraSource: string | null;
+};
+
+function readPreRecordPreferences(): PreRecordPreferences {
+  const fallback: PreRecordPreferences = { recordMic: false, recordSystemAudio: false, recordCamera: false, micSource: null, systemAudioSource: null, cameraSource: null };
+  try {
+    const raw = window.localStorage.getItem(PRE_RECORD_PREFS_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<PreRecordPreferences>;
+    return {
+      recordMic: parsed.recordMic === true,
+      recordSystemAudio: parsed.recordSystemAudio === true,
+      recordCamera: parsed.recordCamera === true,
+      micSource: typeof parsed.micSource === 'string' ? parsed.micSource : null,
+      systemAudioSource: typeof parsed.systemAudioSource === 'string' ? parsed.systemAudioSource : null,
+      cameraSource: typeof parsed.cameraSource === 'string' ? parsed.cameraSource : null,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function writePreRecordPreferences(preferences: PreRecordPreferences) {
+  try {
+    window.localStorage.setItem(PRE_RECORD_PREFS_KEY, JSON.stringify(preferences));
+  } catch {
+    // Preferences are a convenience; recording must not depend on storage availability.
+  }
+}
+
 function App() {
   const searchParams = new URLSearchParams(window.location.search);
   const isRecorderMode = searchParams.get('mode') === 'recorder';
+  const initialPreRecordPreferences = React.useMemo(readPreRecordPreferences, []);
   const [version, setVersion] = React.useState<string>('loading');
   const [recording, setRecording] = React.useState<RecordingStatus>({ state: 'idle' });
   const [project, setProject] = React.useState<ProjectState | null>(null);
@@ -134,12 +172,12 @@ function App() {
   const [micSources, setMicSources] = React.useState<MicSource[]>([]);
   const [systemAudioSources, setSystemAudioSources] = React.useState<AudioSource[]>([]);
   const [cameraSources, setCameraSources] = React.useState<CameraSource[]>([]);
-  const [recordMic, setRecordMic] = React.useState(false);
-  const [recordSystemAudio, setRecordSystemAudio] = React.useState(false);
-  const [recordCamera, setRecordCamera] = React.useState(false);
-  const [selectedMicSource, setSelectedMicSource] = React.useState<string>('');
-  const [selectedSystemAudioSource, setSelectedSystemAudioSource] = React.useState<string>('');
-  const [selectedCameraSource, setSelectedCameraSource] = React.useState<string>('');
+  const [recordMic, setRecordMic] = React.useState(initialPreRecordPreferences.recordMic);
+  const [recordSystemAudio, setRecordSystemAudio] = React.useState(initialPreRecordPreferences.recordSystemAudio);
+  const [recordCamera, setRecordCamera] = React.useState(initialPreRecordPreferences.recordCamera);
+  const [selectedMicSource, setSelectedMicSource] = React.useState<string>(initialPreRecordPreferences.micSource ?? '');
+  const [selectedSystemAudioSource, setSelectedSystemAudioSource] = React.useState<string>(initialPreRecordPreferences.systemAudioSource ?? '');
+  const [selectedCameraSource, setSelectedCameraSource] = React.useState<string>(initialPreRecordPreferences.cameraSource ?? '');
   const [captureMode, setCaptureMode] = React.useState<CaptureMode>('display');
   const [captureRegion, setCaptureRegion] = React.useState<CaptureRegion>({ mode: 'region', x: 0, y: 0, width: 1280, height: 720 });
   const [recordingActionPending, setRecordingActionPending] = React.useState(false);
@@ -158,23 +196,43 @@ function App() {
     window.roughCut.getMicSources()
       .then((sources) => {
         setMicSources(sources);
-        setSelectedMicSource((current) => current || sources[0]?.name || '');
+        const preferred = initialPreRecordPreferences.micSource;
+        const nextSource = preferred && sources.some((source) => source.name === preferred) ? preferred : sources[0]?.name || '';
+        setSelectedMicSource((current) => (sources.some((source) => source.name === current) ? current : nextSource));
+        if (initialPreRecordPreferences.recordMic && !sources.some((source) => source.name === preferred)) setRecordMic(false);
       })
       .catch(() => setMicSources([]));
     window.roughCut.getSystemAudioSources()
       .then((sources) => {
         setSystemAudioSources(sources);
-        setSelectedSystemAudioSource((current) => current || sources[0]?.name || '');
+        const preferred = initialPreRecordPreferences.systemAudioSource;
+        const nextSource = preferred && sources.some((source) => source.name === preferred) ? preferred : sources[0]?.name || '';
+        setSelectedSystemAudioSource((current) => (sources.some((source) => source.name === current) ? current : nextSource));
+        if (initialPreRecordPreferences.recordSystemAudio && !sources.some((source) => source.name === preferred)) setRecordSystemAudio(false);
       })
       .catch(() => setSystemAudioSources([]));
     window.roughCut.getCameraSources()
       .then((sources) => {
         setCameraSources(sources);
-        setSelectedCameraSource((current) => current || sources[0]?.name || '');
+        const preferred = initialPreRecordPreferences.cameraSource;
+        const nextSource = preferred && sources.some((source) => source.name === preferred) ? preferred : sources[0]?.name || '';
+        setSelectedCameraSource((current) => (sources.some((source) => source.name === current) ? current : nextSource));
+        if (initialPreRecordPreferences.recordCamera && !sources.some((source) => source.name === preferred)) setRecordCamera(false);
       })
       .catch(() => setCameraSources([]));
     return window.roughCut.onExportProgress(setExportProgress);
   }, []);
+
+  React.useEffect(() => {
+    writePreRecordPreferences({
+      recordMic,
+      recordSystemAudio,
+      recordCamera,
+      micSource: selectedMicSource || null,
+      systemAudioSource: selectedSystemAudioSource || null,
+      cameraSource: selectedCameraSource || null,
+    });
+  }, [recordMic, recordSystemAudio, recordCamera, selectedMicSource, selectedSystemAudioSource, selectedCameraSource]);
 
   React.useEffect(() => {
     const projectPath = new URLSearchParams(window.location.search).get('projectPath');
@@ -272,6 +330,8 @@ function App() {
         const systemAudioSource = recordSystemAudio ? selectedSystemAudioSource || null : null;
         const cameraDevicePath = recordCamera ? selectedCameraSource || null : null;
         const region = captureMode === 'region' ? captureRegion : null;
+        setPreRecordPanelOpen(false);
+        await new Promise((resolve) => window.setTimeout(resolve, 100));
         console.info(`[renderer:recording] start requested ${JSON.stringify({
           hasMic: Boolean(micSource),
           hasSystemAudio: Boolean(systemAudioSource),
@@ -284,6 +344,7 @@ function App() {
     } catch (err) {
       console.error('[renderer:recording] recording action failed', err);
       setError(err instanceof Error ? err.message : 'Recording failed.');
+      if (recording.state !== 'recording') setPreRecordPanelOpen(isRecorderMode);
     } finally {
       recordingActionPendingRef.current = false;
       setRecordingActionPending(false);
@@ -746,6 +807,10 @@ function PreRecordPanel({
           <PreRecordSourceSelect icon="camera" label="Camera" enabled={recordCamera} disabled={actionPending || cameraSources.length === 0} emptyLabel="No camera" offLabel="No camera" sources={cameraSources} value={selectedCameraSource} onEnabledChange={onRecordCameraChange} onValueChange={onSelectedCameraSourceChange} />
         </div>
 
+        {recordCamera && selectedCameraSource ? (
+          <PreRecordCameraSetup source={cameraSources.find((source) => source.name === selectedCameraSource)} />
+        ) : null}
+
         <PreflightSummary status={preflightStatus} />
 
         <div className="preRecordFooter">
@@ -759,6 +824,66 @@ function PreRecordPanel({
         </div>
       </section>
     </div>
+  );
+}
+
+function PreRecordCameraSetup({ source }: { source?: CameraSource }) {
+  const label = source ? `${simplifySourceLabel(source.label || source.name, 'Camera')} · ${shortSourceId(source.name, 0)}` : 'Selected camera';
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const [previewState, setPreviewState] = React.useState<'loading' | 'ready' | 'error'>('loading');
+
+  React.useEffect(() => {
+    let cancelled = false;
+    let stream: MediaStream | null = null;
+
+    async function startPreview() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        if (!cancelled) setPreviewState('error');
+        return;
+      }
+
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices().catch(() => [] as MediaDeviceInfo[]);
+        const needle = (source?.label || source?.name || '').toLowerCase();
+        const matchingDevice = devices.find((device) => device.kind === 'videoinput' && needle && (device.label.toLowerCase().includes(needle) || needle.includes(device.label.toLowerCase())));
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: matchingDevice ? { deviceId: { exact: matchingDevice.deviceId } } : true,
+        });
+        if (cancelled) return;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play().catch(() => undefined);
+        }
+        setPreviewState('ready');
+      } catch (err) {
+        console.warn('[renderer:camera-preview] failed to start preview', err);
+        if (!cancelled) setPreviewState('error');
+      }
+    }
+
+    void startPreview();
+    return () => {
+      cancelled = true;
+      stream?.getTracks().forEach((track) => track.stop());
+    };
+  }, [source?.label, source?.name]);
+
+  return (
+    <section className="preRecordCameraSetup" data-ui-region="pre-record-camera-setup" aria-label="Camera PiP setup preview">
+      <div>
+        <p className="eyebrow">Camera PiP</p>
+        <h3>{label}</h3>
+        <p>Preview only. PiP style stays editable after recording.</p>
+      </div>
+      <div className={`cameraSetupPreview ${previewState}`} data-camera-preview-state={previewState}>
+        <video ref={videoRef} muted autoPlay playsInline />
+        {previewState !== 'ready' ? <span className="cameraSetupScreen" /> : null}
+        <span className="cameraSetupBubble"><Icon name="camera" /></span>
+        {previewState === 'loading' ? <span className="cameraSetupStatus">Opening camera...</span> : null}
+        {previewState === 'error' ? <span className="cameraSetupStatus">Preview unavailable</span> : null}
+      </div>
+    </section>
   );
 }
 
@@ -814,14 +939,70 @@ function PreRecordSourceSelect<T extends { name: string; label: string; state?: 
       >
         <option value="__off">{offLabel}</option>
         {sources.length === 0 ? <option value="" disabled>{emptyLabel}</option> : null}
-        {sources.map((source) => (
-          <option key={source.name} value={source.name}>
-            {source.label || source.name}{source.state ? ` (${source.state.toLowerCase()})` : ''}
+        {sources.map((source, index) => (
+          <option key={source.name} value={source.name} title={source.label || source.name}>
+            {formatSourceOptionLabel(source, sources, index, label)}
           </option>
         ))}
       </select>
     </ControlRow>
   );
+}
+
+function formatSourceOptionLabel<T extends { name: string; label: string; state?: string }>(source: T, sources: T[], index: number, groupLabel: string) {
+  const base = simplifySourceLabel(source.label || source.name, groupLabel);
+  const duplicateCount = sources.filter((candidate) => simplifySourceLabel(candidate.label || candidate.name, groupLabel) === base).length;
+  const state = source.state && source.state.toLowerCase() === 'running' ? ' live' : '';
+  if (duplicateCount > 1) return `${base} · ${shortSourceId(source.name, index)}${state}`;
+  return `${base}${state}`;
+}
+
+function simplifySourceLabel(label: string, groupLabel: string) {
+  const withoutPath = label.replace(/\s*\((?:\/dev\/)?[^)]*\)\s*$/u, '').trim();
+  if (groupLabel === 'Camera') {
+    return withoutPath.replace(/\s+Audio:\s*.*$/iu, '').trim() || 'Camera';
+  }
+  const normalized = withoutPath.toLowerCase();
+  if (groupLabel === 'Mic') {
+    if (normalized.includes('q2u')) return 'Q2U mic';
+    if (normalized.includes('lenovo') || normalized.includes('webcam') || normalized.includes('sonix')) return 'Webcam mic';
+    if (normalized.includes('pci-')) return 'Built-in mic';
+    return withoutPath
+      .replace(/^alsa input[. ]/iu, '')
+      .replace(/^usb[- ]/iu, '')
+      .replace(/\bSamson\b\s+\bSamson\b/iu, 'Samson')
+      .replace(/\bTechnologies\b/iu, '')
+      .replace(/\bTechnology Co\. Ltd\.?\b/iu, '')
+      .replace(/\bMicrophone(?:-\d+)?\b/iu, 'Mic')
+      .replace(/analog stereo/iu, '')
+      .replace(/pci-\d+\s+\d+\s+/iu, '')
+      .replace(/\s+/gu, ' ')
+      .trim() || 'Microphone';
+  }
+  if (groupLabel === 'System') {
+    if (normalized.includes('q2u')) return 'Q2U monitor';
+    if (normalized.includes('hdmi')) return 'HDMI audio';
+    if (normalized.includes('iec958') || normalized.includes('spdif')) return 'Digital audio';
+    if (normalized.includes('analog-stereo') || normalized.includes('analog stereo')) return 'Speakers';
+    return withoutPath
+      .replace(/^alsa output[. ]/iu, '')
+      .replace(/\.monitor$/iu, '')
+      .replace(/\bmonitor\b/iu, '')
+      .replace(/^usb[- ]/iu, '')
+      .replace(/\bTechnologies\b/iu, '')
+      .replace(/\bMicrophone(?:-\d+)?\b/iu, '')
+      .replace(/analog stereo/iu, '')
+      .replace(/pci-\d+\s+\d+\s+/iu, '')
+      .replace(/\s+/gu, ' ')
+      .trim() || 'System audio';
+  }
+  return withoutPath || label;
+}
+
+function shortSourceId(sourceName: string, index: number) {
+  const videoMatch = sourceName.match(/\/dev\/(video\d+)/u);
+  if (videoMatch?.[1]) return videoMatch[1];
+  return `${index + 1}`;
 }
 
 function PreflightSummary({ status }: { status: RecordingPreflightStatus | null }) {
