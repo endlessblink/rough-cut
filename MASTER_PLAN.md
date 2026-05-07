@@ -1565,7 +1565,7 @@ Current background controls are numeric. Presets make polished outputs faster an
 ### TASK-046 Add trim start and end controls
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -1580,10 +1580,13 @@ Most demo recordings need at least head/tail cleanup. This should land before a 
 
 #### Verification
 
+- 2026-05-08: Existing implementation verified as complete. The editor exposes start/end trim controls in the Recording inspector, draggable timeline trim handles, hidden start/end restore actions, preview playback bounded to the visible range, raw trim export support, styled trim export support, and linked-camera trim alignment.
+- `apps/desktop/src/renderer/src/timeline-rail.test.mjs` covers lane placement relative to trimmed clips.
+- `apps/desktop/src/main/export-service.test.mjs` covers raw/styled trim export behavior and export eligibility.
+- `apps/desktop/src/main/project-files.test.mjs` covers persisted head/tail trim metadata from primary clips.
 - `pnpm --filter @rough-cut/desktop typecheck`
 - `pnpm --filter @rough-cut/desktop test`
 - `pnpm smoke:ui`
-- `pnpm visual:scrub`
 
 ### TASK-047 Add simple cut removal flow
 
