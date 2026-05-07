@@ -172,6 +172,23 @@ test('styled export args apply source trim before the main input', () => {
   assert.deepEqual(args.slice(args.indexOf('-ss'), args.indexOf('/tmp/source.mp4') + 1), ['-ss', '1.5', '-t', '3', '-i', '/tmp/source.mp4']);
 });
 
+test('styled export args remove middle cut ranges from output video', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceFps: 30,
+    sourceTrimStartFrame: 30,
+    sourceTrimEndFrame: 180,
+    cutRanges: [{ id: 'cut-1', startFrame: 60, endFrame: 90 }],
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes("select='not(between(n\\,30\\,59))'"));
+  assert(joined.includes('setpts=N/FRAME_RATE/TB[base]'));
+  assert(!args.includes('0:a?'));
+  assert(args.includes('-an'));
+});
+
 test('ffmpeg progress parser maps out_time to normalized export progress', () => {
   assert.equal(parseFfmpegProgress('frame=10\nout_time_us=500000\nprogress=continue\n', 2), 0.25);
   assert.equal(parseFfmpegProgress('out_time_ms=3000000\n', 2), 1);

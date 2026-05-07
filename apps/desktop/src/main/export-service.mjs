@@ -25,9 +25,10 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
   const recording = getPrimaryRecording(project);
   if (!recording) throw new Error('Project has no recording to export.');
   assertDistinctExportPath(recording.filePath, outputPath);
-  const canExportRaw = isSingleUneditedRecording(project, recording.assetId);
-  const canExportTrimmedRaw = isSingleTrimmedRecording(project, recording.assetId);
-  const canExportStyled = canExportRaw || canExportTrimmedRaw || isSingleUneditedRecordingWithCamera(project, recording.assetId) || isSingleTrimmedRecordingWithCamera(project, recording.assetId);
+  const hasCutRanges = Array.isArray(recording.cutRanges) && recording.cutRanges.length > 0;
+  const canExportRaw = !hasCutRanges && isSingleUneditedRecording(project, recording.assetId);
+  const canExportTrimmedRaw = !hasCutRanges && isSingleTrimmedRecording(project, recording.assetId);
+  const canExportStyled = canExportRaw || canExportTrimmedRaw || hasCutRanges || isSingleUneditedRecordingWithCamera(project, recording.assetId) || isSingleTrimmedRecordingWithCamera(project, recording.assetId);
   if ((exportMode === EXPORT_MODES.RAW && !canExportRaw) || (exportMode === EXPORT_MODES.STYLED && !canExportStyled)) {
     if (!(exportMode === EXPORT_MODES.RAW && canExportTrimmedRaw)) {
       throw new Error('Only unedited or head/tail-trimmed single-recording exports are supported in the MVP.');
@@ -137,6 +138,7 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       cameraInputPath: recording.camera?.filePath ?? null,
       cameraSourceInFrames: recording.camera?.sourceInFrames ?? 0,
       cameraPresentation: recording.presentation?.camera ?? null,
+      cutRanges: recording.cutRanges ?? [],
     }), {
       onStdout: (chunk) => {
         const progress = parseFfmpegProgress(chunk, durationSeconds);
@@ -188,6 +190,7 @@ export function buildStyledExportArgs({
   cameraInputPath = null,
   cameraSourceInFrames = 0,
   cameraPresentation = null,
+  cutRanges = [],
 }) {
   const safePadding = clampNumber(screenPadding, 0, Math.min(width, height) / 2 - 2);
   const maxVideoWidth = Math.round(width - safePadding * 2);
@@ -210,6 +213,8 @@ export function buildStyledExportArgs({
   const trimStartFrame = Math.max(0, Math.round(sourceTrimStartFrame || 0));
   const trimEndFrame = Number.isFinite(sourceTrimEndFrame) ? Math.max(trimStartFrame + 1, Math.round(sourceTrimEndFrame)) : null;
   const trimDurationFrames = trimEndFrame === null ? null : trimEndFrame - trimStartFrame;
+  const normalizedCutRanges = normalizeCutRanges(cutRanges, trimStartFrame, trimEndFrame);
+  const cutFilter = buildCutSelectFilter(normalizedCutRanges, trimStartFrame);
   const screenInput = cursorAssPath ? '[with_cursor]' : '[base]';
   const zoomActive = Boolean(zoomCropFilter && zoomSendcmdPath);
   const screenStep = zoomActive
@@ -221,7 +226,7 @@ export function buildStyledExportArgs({
   const cameraAlpha = buildRoundedAlphaExpression(cameraRadius);
   const filter = [
     ...backgroundFilter,
-    '[0:v]setpts=PTS-STARTPTS[base]',
+    `[0:v]setpts=PTS-STARTPTS${cutFilter}[base]`,
     ...(cursorAssPath ? [`[base]subtitles=${escapeFilterPath(cursorAssPath)}[with_cursor]`] : []),
     `${screenInput}${screenStep}[screen]`,
     `[screen]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${roundedAlpha}'[rounded]`,
@@ -231,7 +236,7 @@ export function buildStyledExportArgs({
     `[with_shadow][fg]overlay=(W-w)/2:(H-h)/2:shortest=1[with_screen]`,
     ...(cameraFrame
       ? [
-          `[1:v]setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''},scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba[camera_scaled]`,
+          `[1:v]setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba[camera_scaled]`,
           `[camera_scaled]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${cameraAlpha}'[camera_rounded]`,
           `[with_screen][camera_rounded]overlay=${cameraFrame.x}:${cameraFrame.y}:shortest=1,format=yuv420p[v]`,
         ]
@@ -252,8 +257,7 @@ export function buildStyledExportArgs({
     filter,
     '-map',
     '[v]',
-    '-map',
-    '0:a?',
+    ...(normalizedCutRanges.length === 0 ? ['-map', '0:a?'] : ['-an']),
     '-c:v',
     'libx264',
     '-preset',
@@ -270,6 +274,28 @@ export function buildStyledExportArgs({
     `rough_cut_style=canvas:${width}x${height}:studio-demo`,
     outputPath,
   ];
+}
+
+function normalizeCutRanges(ranges, trimStartFrame, trimEndFrame) {
+  const maxFrame = Number.isFinite(trimEndFrame) ? trimEndFrame : Number.POSITIVE_INFINITY;
+  return (Array.isArray(ranges) ? ranges : [])
+    .map((range) => {
+      const startFrame = Math.max(trimStartFrame, Math.round(Number(range?.startFrame) || 0));
+      const endFrame = Math.min(maxFrame, Math.round(Number(range?.endFrame) || 0));
+      return endFrame > startFrame ? { startFrame, endFrame } : null;
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.startFrame - right.startFrame || left.endFrame - right.endFrame);
+}
+
+function buildCutSelectFilter(cutRanges, trimStartFrame) {
+  if (!cutRanges.length) return '';
+  const expressions = cutRanges.map((range) => {
+    const start = Math.max(0, range.startFrame - trimStartFrame);
+    const end = Math.max(start, range.endFrame - trimStartFrame - 1);
+    return `between(n\\,${start}\\,${end})`;
+  });
+  return `,select='not(${expressions.join('+')})',setpts=N/FRAME_RATE/TB`;
 }
 
 function resolveRendererPublicAsset(assetPath) {

@@ -602,6 +602,8 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   padding: 0.65rem;
 }
 
+.cutRangePanel { display: grid; gap: 0.5rem; margin-top: 0.65rem; }
+
 .swatchGrid {
   display: grid;
   gap: 0.5rem;
@@ -1278,10 +1280,12 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .autoZoomHeader .eyebrow { margin: 0; }
 
 .zoomMarkerList,
-.autoZoomList { display: grid; gap: 0.36rem; list-style: none; margin: 0; padding: 0; }
+.autoZoomList,
+.cutRangeList { display: grid; gap: 0.36rem; list-style: none; margin: 0; padding: 0; }
 
 .zoomMarkerRow,
-.autoZoomRow {
+.autoZoomRow,
+.cutRangeRow {
   align-items: center;
   background: #20202a;
   border: 1px solid #2f2f3b;

@@ -29,8 +29,10 @@ import type {
   CameraLayoutMarkerId,
   CameraLayoutMarker,
   RecordingVisibilitySegmentId,
+  CutRangeId,
   RecordingVisibility,
   RecordingVisibilitySegment,
+  CutRange,
   CursorPresentation,
   CameraPresentation,
   RegionCrop,
@@ -90,6 +92,9 @@ function visualAnalysisEntryId(): VisualAnalysisEntryId {
 }
 function recordingVisibilitySegmentId(): RecordingVisibilitySegmentId {
   return generateId() as RecordingVisibilitySegmentId;
+}
+function cutRangeId(): CutRangeId {
+  return generateId() as CutRangeId;
 }
 function zoomMarkerId(): ZoomMarkerId {
   return generateId() as ZoomMarkerId;
@@ -266,6 +271,19 @@ export function createRecordingVisibilitySegment(
     id: recordingVisibilitySegmentId(),
     frame,
     ...createDefaultRecordingVisibility(),
+    ...overrides,
+  };
+}
+
+export function createCutRange(
+  startFrame: number,
+  endFrame: number,
+  overrides?: Partial<CutRange>,
+): CutRange {
+  return {
+    id: cutRangeId(),
+    startFrame,
+    endFrame,
     ...overrides,
   };
 }

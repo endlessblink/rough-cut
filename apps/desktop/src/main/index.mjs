@@ -624,6 +624,11 @@ async function runRendererUiSmoke() {
       && Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Set start to playhead'))
       && Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Set end to playhead')),
   );
+  const hasCutControls = Boolean(
+    document.querySelector('[data-cut-range-panel="true"]')
+      && Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Mark cut start'))
+      && Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Cut to playhead')),
+  );
   document.querySelector('button[aria-label="Inspector"]')?.click();
   const hasInspectorGroups = Boolean(
     document.querySelector('[data-inspector-group="canvas"]')
@@ -760,6 +765,7 @@ async function runRendererUiSmoke() {
     hasInspectorGroups,
     hasCameraPipControls,
     hasTrimControls,
+    hasCutControls,
     hasStyledPreviewCanvas,
     hasStudioShell,
     hasCaptureBar,

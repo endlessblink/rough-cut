@@ -32,6 +32,7 @@ import {
 import { buildTimelineModel, frameRangeToPlacement } from './timeline-rail.mjs';
 import { coverSourceRect, cursorAtFrame, drawClickEmphasis, drawCursorPath } from './styled-preview.mjs';
 import { generateSuggestionsForProject } from './auto-zoom-suggestions.mjs';
+import { addCutRange, clearCutRanges, listCutRanges, removeCutRange, visibleDurationFrames, visibleFrameToSourceFrame } from './cut-ranges.mjs';
 
 declare global {
   interface Window {
@@ -87,6 +88,7 @@ type InspectorGroupId = 'canvas' | 'recording' | 'screen' | 'zoom' | 'cursor' | 
 type InspectorSelection = { group: InspectorGroupId; label: string; detail?: string; markerId?: string };
 type PrimaryClip = { assetId?: string; timelineIn?: number; timelineOut?: number; sourceIn?: number; sourceOut?: number } & Record<string, unknown>;
 type TrimInfo = { startFrame: number; endFrame: number; startSec: number; endSec: number; durationSec: number; isTrimmed: boolean };
+type CutRange = { id: string; startFrame: number; endFrame: number };
 
 type RecordingStatus =
   | { state: 'idle'; canceled?: boolean }
@@ -1218,7 +1220,7 @@ function InspectorContextSummary({ selection }: { selection: InspectorSelection 
   );
 }
 
-function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, selectedZoomMarker = null, trimInfo, onProjectChange, onBackgroundChange, onCameraPresentationChange, onAspectRatioChange, onZoomMarkerRangeChange, onZoomMarkerStrengthChange, onSetTrimStart, onSetTrimEnd, onResetTrim }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onZoomMarkerRangeChange?: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onSetTrimStart?: () => void; onSetTrimEnd?: () => void; onResetTrim?: () => void }) {
+function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, selectedZoomMarker = null, trimInfo, cutRanges = [], pendingCutStartFrame = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onAspectRatioChange, onZoomMarkerRangeChange, onZoomMarkerStrengthChange, onSetTrimStart, onSetTrimEnd, onResetTrim, onMarkCutStart, onCutToPlayhead, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; cutRanges?: CutRange[]; pendingCutStartFrame?: number | null; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onZoomMarkerRangeChange?: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onSetTrimStart?: () => void; onSetTrimEnd?: () => void; onResetTrim?: () => void; onMarkCutStart?: () => void; onCutToPlayhead?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const aspectRatioOptions = PROJECT_ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: PROJECT_ASPECT_RATIO_LABELS[ratio] }));
@@ -1267,6 +1269,25 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
             <button type="button" className="secondary compact" disabled={disabled || !trimInfo} onClick={onSetTrimEnd}>Set end to playhead</button>
             <button type="button" className="secondary compact" disabled={disabled || !trimInfo || !trimInfo.isTrimmed} onClick={onResetTrim}>Reset trim</button>
           </InspectorActionRow>
+          <div className="cutRangePanel" data-cut-range-panel="true">
+            <div className="timelineCompactRow"><span>Cuts</span><strong>{cutRanges.length}</strong></div>
+            {pendingCutStartFrame !== null ? <p className="inspectorNotice">Cut start marked at {formatClock((pendingCutStartFrame - (trimInfo?.startFrame ?? 0)) / (fps || 30))}.</p> : null}
+            <InspectorActionRow>
+              <button type="button" className="secondary compact" disabled={disabled || !trimInfo} onClick={onMarkCutStart}>Mark cut start</button>
+              <button type="button" className="secondary compact" disabled={disabled || !trimInfo || pendingCutStartFrame === null} onClick={onCutToPlayhead}>Cut to playhead</button>
+              <button type="button" className="secondary compact" disabled={disabled || cutRanges.length === 0} onClick={onClearCutRanges}>Clear cuts</button>
+            </InspectorActionRow>
+            {cutRanges.length > 0 ? (
+              <ul className="cutRangeList">
+                {cutRanges.map((range) => (
+                  <li key={range.id} className="cutRangeRow">
+                    <span>{formatClock((range.startFrame - (trimInfo?.startFrame ?? 0)) / (fps || 30))}–{formatClock((range.endFrame - (trimInfo?.startFrame ?? 0)) / (fps || 30))}</span>
+                    <button type="button" className="secondary compact" disabled={disabled} onClick={() => onRemoveCutRange?.(range.id)}>Restore</button>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="inspectorNotice">No removed middle ranges.</p>}
+          </div>
         </InspectorSection>
         <InspectorSection id="zoom" title="Zoom" muted={!selectedZoomMarker}>
           <div data-zoom-controls="true">
@@ -1461,6 +1482,7 @@ function ProjectPreview({
   const [currentTimeSec, setCurrentTimeSec] = React.useState(0);
   const [timelineSeekSec, setTimelineSeekSec] = React.useState(0);
   const [inspectorSelection, setInspectorSelection] = React.useState<InspectorSelection>(DEFAULT_INSPECTOR_SELECTION);
+  const [pendingCutStartFrame, setPendingCutStartFrame] = React.useState<number | null>(null);
   const isTimelineScrubbingRef = React.useRef(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
@@ -1468,6 +1490,8 @@ function ProjectPreview({
   const recordingAsset = getPrimaryRecordingAsset(project.document);
   const primaryClip = getPrimaryRecordingClip(project.document, recordingAsset?.id);
   const trimInfo = resolveTrimInfo(primaryClip, project.recording?.duration ?? project.document.composition.duration, project.recording?.fps ?? 30);
+  const cutRanges = recordingAsset?.id && project.recording ? listCutRanges(project.document as unknown as ProjectDocument, recordingAsset.id, project.recording.duration) as CutRange[] : [];
+  const activeCutRanges = clipCutRangesToTrim(cutRanges, trimInfo);
   const background = recordingAsset?.presentation?.background ?? DEFAULT_RECORDING_BACKGROUND;
   const selectedZoomMarker = inspectorSelection.markerId ? listMarkers(project.document as unknown as ProjectDocument).find((marker) => marker.id === inspectorSelection.markerId) ?? null : null;
   const hasCamera = Boolean(recordingAsset?.cameraAssetId && project.cameraMediaUrl);
@@ -1594,6 +1618,37 @@ function ProjectPreview({
     updateTrim(0, project.recording.duration);
   }
 
+  function currentSourceFrame() {
+    if (!project.recording) return trimInfo.startFrame;
+    const visibleFrame = Math.round(currentTimeSec * project.recording.fps);
+    return trimInfo.startFrame + visibleFrameToSourceFrame(toTrimRelativeCutRanges(activeCutRanges, trimInfo), visibleFrame, trimInfo.endFrame - trimInfo.startFrame);
+  }
+
+  function markCutStart() {
+    setPendingCutStartFrame(currentSourceFrame());
+  }
+
+  async function cutToPlayhead() {
+    if (!recordingAsset?.id || !project.recording || pendingCutStartFrame === null) return;
+    const nextFrame = currentSourceFrame();
+    if (Math.abs(nextFrame - pendingCutStartFrame) < 1) return;
+    const nextDocument = addCutRange(project.document as unknown as ProjectDocument, recordingAsset.id, pendingCutStartFrame, nextFrame, project.recording.duration) as unknown as ProjectState['document'];
+    setPendingCutStartFrame(null);
+    await persist(nextDocument);
+  }
+
+  async function restoreCut(cutRangeId: string) {
+    if (!recordingAsset?.id || !project.recording) return;
+    const nextDocument = removeCutRange(project.document as unknown as ProjectDocument, recordingAsset.id, cutRangeId, project.recording.duration) as unknown as ProjectState['document'];
+    await persist(nextDocument);
+  }
+
+  async function clearCuts() {
+    if (!recordingAsset?.id) return;
+    const nextDocument = clearCutRanges(project.document as unknown as ProjectDocument, recordingAsset.id) as unknown as ProjectState['document'];
+    await persist(nextDocument);
+  }
+
   async function updateZoomMarkerRange(markerId: string, startFrame: number, endFrame: number) {
     const nextDocument = updateMarkerRange(project.document as unknown as ProjectDocument, markerId, startFrame, endFrame) as unknown as ProjectState['document'];
     if (nextDocument === project.document) return;
@@ -1630,7 +1685,7 @@ function ProjectPreview({
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
       <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} project={project} fps={project.recording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} selectedZoomMarker={selectedZoomMarker} trimInfo={trimInfo} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onAspectRatioChange={updateAspectRatio} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onSetTrimStart={setTrimStartToPlayhead} onSetTrimEnd={setTrimEndToPlayhead} onResetTrim={resetTrim} />
+      <EditorToolBoard activeTool={activeTool} project={project} fps={project.recording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} selectedZoomMarker={selectedZoomMarker} trimInfo={trimInfo} cutRanges={activeCutRanges} pendingCutStartFrame={pendingCutStartFrame} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onAspectRatioChange={updateAspectRatio} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onSetTrimStart={setTrimStartToPlayhead} onSetTrimEnd={setTrimEndToPlayhead} onResetTrim={resetTrim} onMarkCutStart={markCutStart} onCutToPlayhead={cutToPlayhead} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>
@@ -1645,7 +1700,7 @@ function ProjectPreview({
           ) : null}
         </div>
         {project.mediaUrl ? (
-          <VideoPreview project={project} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} onCurrentTimeChange={setCurrentTimeSec} />
+          <VideoPreview project={project} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} onCurrentTimeChange={setCurrentTimeSec} />
         ) : (
           <p>No recording asset found in this project.</p>
         )}
@@ -1712,6 +1767,24 @@ function resolveTrimInfo(clip: PrimaryClip | null, totalFrames: number, fps: num
     durationSec: (endFrame - startFrame) / safeFps,
     isTrimmed: startFrame > 0 || endFrame < safeTotalFrames,
   };
+}
+
+function clipCutRangesToTrim(cutRanges: CutRange[], trimInfo: TrimInfo): CutRange[] {
+  return cutRanges
+    .map((range) => ({
+      ...range,
+      startFrame: Math.max(trimInfo.startFrame, Math.min(trimInfo.endFrame, range.startFrame)),
+      endFrame: Math.max(trimInfo.startFrame, Math.min(trimInfo.endFrame, range.endFrame)),
+    }))
+    .filter((range) => range.endFrame > range.startFrame);
+}
+
+function toTrimRelativeCutRanges(cutRanges: CutRange[], trimInfo: TrimInfo): CutRange[] {
+  return cutRanges.map((range) => ({
+    ...range,
+    startFrame: range.startFrame - trimInfo.startFrame,
+    endFrame: range.endFrame - trimInfo.startFrame,
+  }));
 }
 
 function RangeField({ label, value, min, max, step, disabled, onChange }: { label: string; value: number; min: number; max: number; step: number; disabled?: boolean; onChange: (value: number) => void }) {
@@ -2178,12 +2251,14 @@ function VideoPreview({
   seekTimeSec,
   trimStartSec = 0,
   trimEndSec,
+  cutRanges = [],
   onCurrentTimeChange,
 }: {
   project: ProjectState;
   seekTimeSec?: number;
   trimStartSec?: number;
   trimEndSec?: number;
+  cutRanges?: CutRange[];
   onCurrentTimeChange?: (sec: number) => void;
 }) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -2208,7 +2283,29 @@ function VideoPreview({
   const canvasResolution = getStyledCanvasResolution({ aspectRatio, sourceWidth, sourceHeight });
   const background = getPrimaryRecordingAsset(project.document)?.presentation?.background ?? DEFAULT_RECORDING_BACKGROUND;
   const sourceDurationSec = Math.max(0.1, (project.recording?.duration ?? 1) / fps);
-  const visibleDuration = Math.max(0.1, (trimEndSec ?? sourceDurationSec) - trimStartSec);
+  const trimDurationFrames = Math.max(1, Math.round(((trimEndSec ?? sourceDurationSec) - trimStartSec) * fps));
+  const visibleDuration = Math.max(0.1, visibleDurationFrames(cutRanges, trimDurationFrames) / fps);
+
+  function visibleTimeToSourceTime(visibleTimeSec: number) {
+    const visibleFrame = Math.round(Math.max(0, visibleTimeSec) * fps);
+    return trimStartSec + visibleFrameToSourceFrame(cutRanges, visibleFrame, trimDurationFrames) / fps;
+  }
+
+  function sourceTimeToVisibleTime(sourceTimeSec: number) {
+    const relativeFrame = Math.max(0, Math.round((sourceTimeSec - trimStartSec) * fps));
+    let removed = 0;
+    for (const range of cutRanges) {
+      if (relativeFrame <= range.startFrame) continue;
+      removed += Math.min(relativeFrame, range.endFrame) - range.startFrame;
+    }
+    return Math.max(0, (relativeFrame - removed) / fps);
+  }
+
+  function cutEndForSourceTime(sourceTimeSec: number) {
+    const relativeFrame = Math.round((sourceTimeSec - trimStartSec) * fps);
+    const active = cutRanges.find((range) => relativeFrame >= range.startFrame && relativeFrame < range.endFrame);
+    return active ? trimStartSec + active.endFrame / fps : null;
+  }
 
   React.useEffect(() => {
     setDuration(0);
@@ -2252,7 +2349,7 @@ function VideoPreview({
       return;
     }
     const maxTime = video.duration || requestedTime;
-    const nextTime = Math.max(trimStartSec, Math.min(trimStartSec + requestedTime, Math.min(trimEndSec ?? maxTime, maxTime)));
+    const nextTime = Math.max(trimStartSec, Math.min(visibleTimeToSourceTime(requestedTime), Math.min(trimEndSec ?? maxTime, maxTime)));
     pendingSeekRef.current = null;
     if (Math.abs(video.currentTime - nextTime) < 0.05) {
       seekingRef.current = false;
@@ -2261,7 +2358,7 @@ function VideoPreview({
     seekingRef.current = true;
     video.currentTime = nextTime;
     if (cameraVideoRef.current) cameraVideoRef.current.currentTime = nextTime + cameraSourceOffsetSec;
-    setCurrentTime(Math.max(0, nextTime - trimStartSec));
+    setCurrentTime(sourceTimeToVisibleTime(nextTime));
   }
 
   function handleSeekSettled() {
@@ -2351,6 +2448,14 @@ function VideoPreview({
         setCurrentTime(Math.max(0, (trimEndSec ?? video.currentTime) - trimStartSec));
         onCurrentTimeChange?.(Math.max(0, (trimEndSec ?? video.currentTime) - trimStartSec));
       }
+      const cutEnd = cutEndForSourceTime(video.currentTime);
+      if (cutEnd !== null) {
+        video.currentTime = cutEnd;
+        if (cameraVideo) cameraVideo.currentTime = cutEnd + cameraSourceOffsetSec;
+        lastDrawnFrame = -1;
+        rafId = window.requestAnimationFrame(tick);
+        return;
+      }
       let frame;
       try {
         frame = resolveFrame(document, currentFrame, {
@@ -2439,7 +2544,7 @@ function VideoPreview({
     }
     rafId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(rafId);
-  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background, cameraSrc, trimStartSec, trimEndSec, onCurrentTimeChange]);
+  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background, cameraSrc, trimStartSec, trimEndSec, cutRanges, onCurrentTimeChange]);
 
   React.useEffect(() => {
     const cameraVideo = cameraVideoRef.current;
@@ -2476,7 +2581,7 @@ function VideoPreview({
     if (!video) return;
     const nextVisibleTime = Number(value);
     if (!Number.isFinite(nextVisibleTime)) return;
-    const nextSourceTime = trimStartSec + Math.max(0, Math.min(nextVisibleTime, visibleDuration));
+    const nextSourceTime = visibleTimeToSourceTime(Math.max(0, Math.min(nextVisibleTime, visibleDuration)));
     video.currentTime = nextSourceTime;
     if (cameraVideoRef.current) cameraVideoRef.current.currentTime = nextSourceTime + cameraSourceOffsetSec;
     setCurrentTime(nextVisibleTime);
@@ -2502,7 +2607,12 @@ function VideoPreview({
         onError={(event) => setError(videoErrorMessage(event.currentTarget))}
         onTimeUpdate={(event) => {
           const next = event.currentTarget.currentTime;
-          const visibleTime = Math.max(0, next - trimStartSec);
+          const cutEnd = cutEndForSourceTime(next);
+          if (cutEnd !== null) {
+            event.currentTarget.currentTime = cutEnd;
+            return;
+          }
+          const visibleTime = sourceTimeToVisibleTime(next);
           setCurrentTime(Math.min(visibleTime, visibleDuration));
           onCurrentTimeChange?.(Math.min(visibleTime, visibleDuration));
         }}

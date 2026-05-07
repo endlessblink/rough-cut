@@ -188,6 +188,29 @@ test('getPrimaryRecording exposes persisted head and tail trims from the primary
   assert.equal(primary.trimmedDuration, 210);
 });
 
+test('getPrimaryRecording exposes persisted cut ranges and visible duration', () => {
+  const project = createProjectForRecording({
+    recording,
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+  const asset = project.assets[0];
+  const presentation = createDefaultRecordingPresentation();
+  const withCuts = {
+    ...project,
+    assets: [{
+      ...asset,
+      presentation: {
+        ...presentation,
+        cutRanges: [{ id: 'cut-1', startFrame: 30, endFrame: 60 }],
+      },
+    }],
+  };
+
+  const primary = getPrimaryRecording(withCuts);
+  assert.deepEqual(primary.cutRanges, [{ id: 'cut-1', startFrame: 30, endFrame: 60 }]);
+  assert.equal(primary.trimmedDuration, primary.duration - 30);
+});
+
 test('round-trips a manual zoom marker through save and reopen', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-zoom-'));
   const outputPath = join(root, 'capture.mp4');

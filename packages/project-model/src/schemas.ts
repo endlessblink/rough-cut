@@ -181,6 +181,15 @@ export const RecordingVisibilitySegmentSchema = RecordingVisibilitySchema.extend
   frame: nonNegativeInt,
 });
 
+export const CutRangeSchema = z.object({
+  id: z.string().min(1),
+  startFrame: nonNegativeInt,
+  endFrame: nonNegativeInt,
+}).refine((range) => range.endFrame > range.startFrame, {
+  message: 'Cut range endFrame must be greater than startFrame',
+  path: ['endFrame'],
+});
+
 export const RecordingBackgroundStyleSchema = z.object({
   bgColor: hexColor,
   bgGradient: z.string().nullable(),
@@ -204,6 +213,7 @@ export const RecordingPresentationSchema = z.object({
   camera: CameraPresentationSchema,
   cameraLayouts: z.array(CameraLayoutMarkerSchema).optional(),
   visibilitySegments: z.array(RecordingVisibilitySegmentSchema).optional(),
+  cutRanges: z.array(CutRangeSchema).optional(),
   background: RecordingBackgroundStyleSchema.optional(),
   screenFrame: NormalizedRectSchema.optional(),
   cameraFrame: NormalizedRectSchema.optional(),

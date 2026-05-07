@@ -129,13 +129,15 @@ export function getPrimaryRecording(project) {
   const cameraClip = cameraAsset ? getLinkedCameraClip(project, cameraAsset) : null;
   const sourceIn = typeof primaryClip?.sourceIn === 'number' ? primaryClip.sourceIn : 0;
   const sourceOut = typeof primaryClip?.sourceOut === 'number' ? primaryClip.sourceOut : asset.duration;
+  const cutRanges = normalizeCutRanges(asset.presentation?.cutRanges, sourceIn, sourceOut);
+  const removedDuration = cutRanges.reduce((sum, range) => sum + range.endFrame - range.startFrame, 0);
   return {
     assetId: asset.id,
     filePath: asset.filePath,
     duration: asset.duration,
     sourceIn,
     sourceOut,
-    trimmedDuration: Math.max(1, sourceOut - sourceIn),
+    trimmedDuration: Math.max(1, sourceOut - sourceIn - removedDuration),
     width: typeof asset.metadata.width === 'number' ? asset.metadata.width : project.settings.resolution.width,
     height: typeof asset.metadata.height === 'number' ? asset.metadata.height : project.settings.resolution.height,
     fps: typeof asset.metadata.fps === 'number' ? asset.metadata.fps : project.settings.frameRate,
@@ -143,6 +145,7 @@ export function getPrimaryRecording(project) {
     cursorTelemetryPath: typeof asset.metadata.cursorTelemetryPath === 'string' ? asset.metadata.cursorTelemetryPath : null,
     audio: asset.metadata.audio && typeof asset.metadata.audio === 'object' ? asset.metadata.audio : null,
     presentation: asset.presentation ?? null,
+    cutRanges,
     zoomMarkers: Array.isArray(asset.presentation?.zoom?.markers) ? asset.presentation.zoom.markers : [],
     camera: cameraAsset
       ? {
@@ -156,6 +159,22 @@ export function getPrimaryRecording(project) {
         }
       : null,
   };
+}
+
+function normalizeCutRanges(ranges, sourceIn, sourceOut) {
+  return (Array.isArray(ranges) ? ranges : [])
+    .map((range) => {
+      const startFrame = clampFrame(range?.startFrame, sourceIn, sourceOut - 1);
+      const endFrame = clampFrame(range?.endFrame, startFrame + 1, sourceOut);
+      return range?.id && endFrame > startFrame ? { id: String(range.id), startFrame, endFrame } : null;
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.startFrame - right.startFrame || left.endFrame - right.endFrame);
+}
+
+function clampFrame(value, min, max) {
+  const frame = Number.isFinite(value) ? Math.round(value) : min;
+  return Math.max(min, Math.min(max, frame));
 }
 
 export function getLinkedCameraAsset(project, recordingAsset) {

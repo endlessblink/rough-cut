@@ -1591,7 +1591,7 @@ Most demo recordings need at least head/tail cleanup. This should land before a 
 ### TASK-047 Add simple cut removal flow
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -1606,9 +1606,14 @@ After head/tail trim, the next editing primitive is removing a dead section from
 
 #### Verification
 
-- Timeline/model tests for cut ranges.
-- Export tests assert removed ranges do not appear in output duration.
-- Manual packaged-app cut and export check.
+- 2026-05-08: Added non-destructive recording `cutRanges` to the project model, schema validation, renderer helpers, Recording inspector controls to mark/remove/clear middle cuts, preview playback that skips removed ranges, and styled-export video/camera cut filtering. Raw export is intentionally disabled for cut projects so it cannot silently copy the uncut source.
+- `apps/desktop/src/renderer/src/cut-ranges.test.mjs` covers cut creation, restore, visible duration, and source-frame mapping.
+- `apps/desktop/src/main/export-service.test.mjs` covers styled export filter args for removed middle ranges.
+- `apps/desktop/src/main/project-files.test.mjs` covers persisted cut ranges and visible duration.
+- `pnpm --filter @rough-cut/project-model test`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm smoke:ui`
 
 ### TASK-048 Add optional webcam PiP recording and export
 
