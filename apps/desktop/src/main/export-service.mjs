@@ -535,7 +535,8 @@ export function isSingleUneditedRecordingWithCamera(project, assetId) {
   const clips = tracks.flatMap((track) => track.clips);
   const screenClip = clips.find((clip) => clip.assetId === recording.id);
   const cameraClip = clips.find((clip) => clip.assetId === camera.id);
-  return isFullLengthPlainClip(screenClip, recording) && isFullLengthPlainClip(cameraClip, camera) && project.composition.duration === recording.duration;
+  const cameraOffset = Number.isFinite(camera.metadata?.sourceInFrames) ? camera.metadata.sourceInFrames : 0;
+  return isFullLengthPlainClip(screenClip, recording) && isCameraAlignedClip(cameraClip, camera, cameraOffset, 0, recording.duration) && project.composition.duration === recording.duration;
 }
 
 export function isSingleTrimmedRecordingWithCamera(project, assetId) {
@@ -580,6 +581,22 @@ function isFullLengthPlainClip(clip, asset) {
       clip.sourceIn === 0 &&
       clip.timelineOut === asset.duration &&
       clip.sourceOut === asset.duration &&
+      clip.effects.length === 0 &&
+      clip.keyframes.length === 0,
+  );
+}
+
+function isCameraAlignedClip(clip, asset, sourceOffset, timelineIn, timelineOut) {
+  return Boolean(
+    clip &&
+      asset &&
+      clip.assetId === asset.id &&
+      clip.enabled === true &&
+      clip.timelineIn === timelineIn &&
+      clip.timelineOut === timelineOut &&
+      clip.sourceIn === sourceOffset + timelineIn &&
+      clip.sourceOut === sourceOffset + timelineOut &&
+      clip.sourceOut <= asset.duration &&
       clip.effects.length === 0 &&
       clip.keyframes.length === 0,
   );

@@ -474,3 +474,29 @@ test('styled export accepts unedited recording with linked camera asset', () => 
   assert.equal(isSingleUneditedRecording(project, assetId), false);
   assert.equal(isSingleUneditedRecordingWithCamera(project, assetId), true);
 });
+
+test('styled export accepts unedited linked camera with preroll offset', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:03.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      camera: {
+        rawPath: '/tmp/camera.mkv',
+        outputPath: '/tmp/camera.mp4',
+        devicePath: '/dev/video0',
+        width: 1280,
+        height: 720,
+        fps: 30,
+        sourceInFrames: 30,
+        prerollMs: 1000,
+      },
+    },
+  });
+  const assetId = project.assets[0].id;
+
+  assert.equal(isSingleUneditedRecordingWithCamera(project, assetId), true);
+});

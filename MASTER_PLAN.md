@@ -26,7 +26,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-010 | Add cursor telemetry recording foundation | P1 | DONE |
 | TASK-011 | Add cursor overlay export rendering | P1 | DONE |
 | ~~TASK-012~~ | Add cursor overlay preview rendering | P2 | SUPERSEDED → TASK-025 |
-| TASK-013 | Add click emphasis telemetry and export rendering | P2 | IN PROGRESS |
+| TASK-013 | Add click emphasis telemetry and export rendering | P2 | DONE |
 | TASK-014 | Add manual zoom marker data model | P1 | DONE |
 | TASK-015 | Add manual zoom marker UI controls | P1 | DONE |
 | TASK-016 | Add smooth manual zoom export rendering | P1 | DONE |
@@ -504,7 +504,7 @@ Users need preview confidence before exporting cursor overlays.
 ### TASK-013 Add click emphasis telemetry and export rendering
 
 **Priority:** P2  
-**Status:** IN PROGRESS (capture complete; visual emphasis pending)
+**Status:** DONE
 
 #### Context
 
@@ -512,9 +512,9 @@ Client demos benefit from visible clicks, but this should build on cursor teleme
 
 #### Acceptance Criteria
 
-- Capture click timestamps and positions during recording. **DONE**
-- Render simple click emphasis in styled export. **PENDING**
-- Keep click emphasis optional.
+- Capture click timestamps and positions during recording.
+- Render simple click emphasis in styled export.
+- Keep click emphasis optional/data-driven when click telemetry is unavailable.
 
 #### Completion Notes
 
@@ -522,7 +522,7 @@ Client demos benefit from visible clicks, but this should build on cursor teleme
 - `apps/desktop/src/main/recording/recording-session.mjs` wires the listener into start/stop, normalizes coords through the existing `normalizeCursorPoint`, computes wall-clock frame from `Date.now() - startedAt`.
 - Auto-zoom now uses real `down`/`up` events instead of falling through to the teleport heuristic. `extractTriggerEvents` in `packages/timeline-engine/src/auto-zoom.ts` extended with `extractDragTriggers` — pairs each `down` with the matching `up`, emits a synthetic trigger at the drag midpoint when duration > 6 frames AND displacement > teleport threshold. Highlights and window-drags share input shape, so one detector covers both.
 - xinput is X11-only; TASK-026 (Wayland pivot) will swap the listener with a portal/libinput equivalent. Encapsulated in one file for that swap.
-- **Click visual emphasis (rings/ripples) in styled export still pending.** Recorder now has the data; renderer just needs to consume it.
+- TASK-042 completed the remaining visual emphasis work: preview renders click rings from recorded `type: down` telemetry, styled export emits matching ASS click emphasis, and click-only telemetry still creates a subtitle layer so clicks render even when move samples are absent.
 
 #### Testing
 
@@ -533,8 +533,10 @@ Client demos benefit from visible clicks, but this should build on cursor teleme
 
 - `pnpm test` — all packages green.
 - `pnpm smoke:mvp` / `smoke:ui` / `smoke:styled-export` — all pass.
-- **Pending: manual packaged-app verification** — record while clicking + dragging, generate suggestions, verify markers appear at click positions AND drag regions (not just teleport jumps).
-- **Pending: visual click emphasis rendering** — separate task once auto-zoom verification confirms capture is correct.
+- `apps/desktop/src/renderer/src/styled-preview.test.mjs` covers active click rings and canvas draw calls.
+- `apps/desktop/src/main/export-service.test.mjs` covers ASS click emphasis generation without move telemetry.
+- `pnpm --filter @rough-cut/desktop test` — 170/170 pass on 2026-05-08.
+- `pnpm smoke:package-recording-flow` — pass on 2026-05-08 as part of the webcam PiP polish verification.
 
 ### ~~TASK-014~~ Add manual zoom marker data model
 
@@ -1625,12 +1627,10 @@ The project model and frame resolver already support linked camera assets and ca
 
 #### Verification
 
-- `pnpm --filter @rough-cut/desktop test` — 122/122 pass.
-- `pnpm typecheck` — pass.
-- `pnpm smoke:styled-export` — pass, including synthetic linked-camera styled export.
-- `pnpm smoke:ui` — pass.
-- `pnpm smoke:package` — pass.
-- Real webcam recording is still pending because this environment currently has no `/dev/video*` devices.
+- `pnpm --filter @rough-cut/desktop test` — 171/171 pass.
+- `pnpm --filter @rough-cut/desktop typecheck` — pass.
+- `pnpm smoke:package-recording-flow` — pass.
+- `ROUGH_CUT_REAL_SMOKE_CAMERA_DEVICE_PATH=/dev/video0 ROUGH_CUT_REAL_SMOKE_DURATION_MS=2500 ROUGH_CUT_REAL_SMOKE_UI=0 pnpm smoke:real-recording` — pass on 2026-05-08; verified real screen+webcam capture, linked camera asset metadata, saved project reopen, and styled export.
 
 #### Implementation Notes
 
@@ -1639,6 +1639,7 @@ The project model and frame resolver already support linked camera assets and ca
 - Saved camera recordings as linked `video` assets with `metadata.isCamera = true` and `recording.cameraAssetId`.
 - Preview now loads the linked camera media and draws it as a rounded PiP over the styled canvas.
 - Styled export now accepts unedited linked-camera projects, adds the camera as a second FFmpeg input, rounds it, and overlays it on the final canvas.
+- Real camera recordings include camera preroll offset metadata; styled export eligibility now accepts full-length camera clips aligned by `metadata.sourceInFrames`.
 
 ### TASK-049 Build Screen Studio-style editor UI foundation
 

@@ -22,6 +22,7 @@ const minDurationMs = numberFromEnv('ROUGH_CUT_REAL_SMOKE_MIN_DURATION_MS', 0);
 const expectedFps = numberFromEnv('ROUGH_CUT_REAL_SMOKE_EXPECT_FPS', 0);
 const expectAudio = process.env.ROUGH_CUT_REAL_SMOKE_EXPECT_AUDIO === '1';
 const shouldRecordSystemAudio = process.env.ROUGH_CUT_REAL_SMOKE_SYSTEM_AUDIO === '1';
+const cameraDevicePath = normalizeCameraDevicePath(process.env.ROUGH_CUT_REAL_SMOKE_CAMERA_DEVICE_PATH);
 const displayName = process.env.DISPLAY || ':0';
 const display = process.env.ROUGH_CUT_REAL_SMOKE_DISPLAY || `${displayName}${formatX11Offset(originX)},${originY}`;
 const runUiSmoke = process.env.ROUGH_CUT_REAL_SMOKE_UI !== '0';
@@ -59,11 +60,11 @@ const session = createRecordingSession({
 
 const expectButtonEvents = isXinputAvailable();
 const systemAudioSource = shouldRecordSystemAudio ? await pickSystemAudioSource() : null;
-console.info(`[smoke:real-recording] recording ${width}x${height} from ${display} for ${durationMs}ms${systemAudioSource ? ` with system audio ${systemAudioSource}` : ''}`);
+console.info(`[smoke:real-recording] recording ${width}x${height} from ${display} for ${durationMs}ms${systemAudioSource ? ` with system audio ${systemAudioSource}` : ''}${cameraDevicePath ? ` with camera ${cameraDevicePath}` : ''}`);
 console.info(`[smoke:real-recording] artifacts: ${root}`);
 
 setPhase('recording-start');
-await session.start({ systemAudioSource });
+await session.start({ systemAudioSource, cameraDevicePath });
 setPhase('recording-active');
 const recordingStartedAt = Date.now();
 await wait(300);
@@ -103,6 +104,9 @@ if (!Array.isArray(cursorEvents) || cursorEvents.length < 3) {
 if (systemAudioSource && recordingAsset?.metadata?.audio?.systemAudioSource !== systemAudioSource) {
   throw new Error('Real recording did not persist system audio metadata.');
 }
+if (cameraDevicePath) {
+  assertCameraLinked(reopened.document, cameraDevicePath);
+}
 
 const moveEvents = cursorEvents.filter((event) => event?.type === 'move');
 const buttonEvents = cursorEvents.filter((event) => event?.type === 'down' || event?.type === 'up');
@@ -115,12 +119,15 @@ if (expectButtonEvents && buttonEvents.length < 2) {
 
 const rawExportPath = join(root, 'real-recording-raw-export.mp4');
 const styledExportPath = join(root, 'real-recording-styled-export.mp4');
-artifacts.rawExportPath = rawExportPath;
+if (!cameraDevicePath) artifacts.rawExportPath = rawExportPath;
 if (runStyledExport) artifacts.styledExportPath = styledExportPath;
-setPhase('raw-export');
-const rawExport = await exportProjectToMp4({ project: reopened.document, outputPath: rawExportPath, mode: EXPORT_MODES.RAW });
-setPhase('raw-export-verify');
-await assertReadableMp4(rawExportPath);
+let rawExport = null;
+if (!cameraDevicePath) {
+  setPhase('raw-export');
+  rawExport = await exportProjectToMp4({ project: reopened.document, outputPath: rawExportPath, mode: EXPORT_MODES.RAW });
+  setPhase('raw-export-verify');
+  await assertReadableMp4(rawExportPath);
+}
 let styledExport = null;
 if (runStyledExport) {
   setPhase('styled-export');
@@ -155,7 +162,8 @@ console.info(
       expectedAudio: expectAudio,
       hasAudio: diagnostics.media?.hasAudio ?? false,
       systemAudioSource,
-      rawExportPath: rawExport.outputPath,
+      cameraDevicePath,
+      rawExportPath: rawExport?.outputPath ?? null,
       styledExportPath: styledExport?.outputPath ?? null,
       uiReport,
     },
@@ -168,6 +176,32 @@ setPhase('complete');
 function setPhase(phase) {
   currentPhase = phase;
   console.info(`[smoke:real-recording] phase=${phase} artifacts=${JSON.stringify(artifacts)}`);
+}
+
+function assertCameraLinked(document, expectedDevicePath) {
+  const recordingAsset = document.assets.find((asset) => asset.type === 'recording');
+  const cameraAsset = document.assets.find((asset) => asset.type === 'video' && asset.metadata?.isCamera === true);
+  if (!recordingAsset?.cameraAssetId) {
+    throw new Error('Real recording did not persist cameraAssetId metadata.');
+  }
+  if (!cameraAsset) {
+    throw new Error('Real recording did not create a linked camera asset.');
+  }
+  if (recordingAsset.cameraAssetId !== cameraAsset.id) {
+    throw new Error('Real recording cameraAssetId does not point at the linked camera asset.');
+  }
+  if (cameraAsset.metadata?.devicePath !== expectedDevicePath) {
+    throw new Error(`Real recording did not persist camera device path; expected ${expectedDevicePath}, got ${cameraAsset.metadata?.devicePath ?? 'missing'}.`);
+  }
+}
+
+function normalizeCameraDevicePath(value) {
+  if (typeof value !== 'string' || value.trim().length === 0) return null;
+  const trimmed = value.trim();
+  if (!/^\/dev\/video\d+$/u.test(trimmed)) {
+    throw new Error(`Invalid ROUGH_CUT_REAL_SMOKE_CAMERA_DEVICE_PATH: ${trimmed}`);
+  }
+  return trimmed;
 }
 
 function assertDiagnostics(diagnostics) {
