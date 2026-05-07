@@ -1924,6 +1924,8 @@ After stop, the user should land in a clear review state rather than hunting for
 - `pnpm --filter @rough-cut/desktop typecheck`
 - `pnpm smoke:recording-flow-double-stop`
 
+**Progress (2026-05-07):** Post-recording actions were moved into the Export sidebar and the central preview/timeline was tightened to preserve editing space. Latest polish aligned preview metadata with the recording title and kept `TASK-051` in progress for final visual review, duplicate-export cleanup, and remaining acceptance checks.
+
 ### TASK-052 Add timeline-first playback and edit rail
 
 **Priority:** P1  
