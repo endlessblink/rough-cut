@@ -53,7 +53,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-037 | Add packaged recording acceptance runbook | P1 | DONE |
 | TASK-038 | Add system audio capture controls | P1 | DONE |
 | TASK-039 | Add capture target picker | P1 | DONE |
-| TASK-040 | Add pause, resume, and cancel recording | P1 | PLANNED |
+| TASK-040 | Add pause, resume, and cancel recording | P1 | DONE |
 | TASK-041 | Add post-recording next-action flow | P1 | PLANNED |
 | TASK-042 | Render click emphasis in preview and export | P1 | DONE |
 | TASK-043 | Add webcam PiP presentation controls | P1 | IN PROGRESS |
@@ -1394,7 +1394,7 @@ The current flow records the primary X11 display. Screen Studio users expect to 
 ### TASK-040 Add pause, resume, and cancel recording
 
 **Priority:** P1  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -1412,6 +1412,16 @@ The current recording flow supports start and stop. A Screen Studio-like flow ne
 - Unit tests for session state transitions.
 - Smoke test cancel leaves no misleading saved project.
 - Manual packaged-app check for pause/resume or approved alternative.
+
+#### Verification Notes
+
+- `pnpm --filter @rough-cut/desktop typecheck` — pass.
+- `pnpm --filter @rough-cut/desktop test` — 168/168 pass.
+- `pnpm smoke:recording-flow-ui` — pass; save/review path still opens the post-recording workspace.
+- `pnpm smoke:recording-flow-cancel` — pass; cancel returns to idle with no saved message, review workspace, or video.
+- `pnpm smoke:package-recording-flow-cancel` — pass; packaged Linux app starts recording, cancels, returns idle, and does not preserve a review/output state.
+- `pnpm smoke:package-recording-flow` — pass; packaged save/review path still persists camera-warning metadata and opens review.
+- Pause/resume remains an explicit scoped alternative: segment pause is pending, and the user-visible safe behavior is cancel-and-discard for bad takes.
 
 ### TASK-041 Add post-recording next-action flow
 

@@ -134,6 +134,7 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
           `(${smokeFunction.toString()})(${JSON.stringify({
             doubleStop: process.env.ROUGH_CUT_UI_SMOKE_DOUBLE_STOP === '1',
             cameraWarning: process.env.ROUGH_CUT_UI_SMOKE_CAMERA_WARNING === '1',
+            cancelFlow: process.env.ROUGH_CUT_UI_SMOKE_CANCEL_FLOW === '1',
           })})`,
           true,
         );
@@ -290,11 +291,16 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_STOP, async () => {
     throw err;
   }
 });
-ipcMain.handle(IPC_CHANNELS.RECORDING_CANCEL, async () => {
+ipcMain.handle(IPC_CHANNELS.RECORDING_CANCEL, async (event) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  const shouldShowRecorderAfterCancel = Boolean(senderWindow && hiddenRecorderWindow === senderWindow);
   unregisterHiddenRecordingStopShortcut();
   updateRecordingTray(null, 'canceling');
   try {
+    console.info('[recording:cancel] requested');
     const result = await recordingSession.cancel();
+    console.info(`[recording:cancel] completed ${JSON.stringify(result)}`);
+    if (shouldShowRecorderAfterCancel && senderWindow && !senderWindow.isDestroyed()) senderWindow.show();
     updateRecordingTray(null, 'discarded');
     return result;
   } catch (err) {
@@ -830,6 +836,26 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   preRecordStartButton.click();
   await waitFor(() => document.querySelector('[data-recording-state="recording"]'), 'recording state banner');
   await new Promise((resolve) => setTimeout(resolve, 1800));
+  if (options.cancelFlow) {
+    const cancelButton = await waitFor(() => findButton('Cancel and discard'), 'cancel button');
+    cancelButton.click();
+    await waitFor(() => document.querySelector('[data-recording-state="idle"]'), 'idle recording state after cancel', 30000);
+    return {
+      ok: true,
+      hasStudioShell: Boolean(document.querySelector('[data-ui-shell="recording-studio"]')),
+      hasPreRecordPanel: true,
+      hasPreflightPanel: Boolean(preflightPanel),
+      hasPreflightWarningsCopy,
+      hasCaptureTargetSelect: Boolean(captureTargetSelect),
+      selectedCaptureTarget: captureTargetSelect.value,
+      initialState,
+      canceledState: document.querySelector('[data-ui-region="state-banner"]')?.getAttribute('data-recording-state'),
+      hasSavedMessage: document.body.textContent?.includes('Saved to:') ?? false,
+      hasReviewWorkspace: Boolean(document.querySelector('[data-ui-region="post-recording-review"]')),
+      hasVideo: Boolean(document.querySelector('video')),
+      cancelFlow: true,
+    };
+  }
   const stopButton = await waitFor(() => findButton('Stop recording'), 'stop button');
   stopButton.click();
   await waitFor(() => stopButton.textContent.includes('Stopping...') && stopButton.disabled, 'stopping lock');

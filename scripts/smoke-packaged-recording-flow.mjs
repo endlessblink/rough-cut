@@ -10,6 +10,7 @@ const electron = join(artifactRoot, 'electron');
 const smokeRoot = await mkdtemp(join(tmpdir(), 'rough-cut-package-recording-flow-'));
 const resultPath = join(smokeRoot, 'packaged-recording-flow-result.json');
 const screenshotPath = join(smokeRoot, 'packaged-recording-flow.png');
+const cancelFlow = process.env.ROUGH_CUT_UI_SMOKE_CANCEL_FLOW === '1';
 
 await mkdir(smokeRoot, { recursive: true });
 
@@ -18,7 +19,8 @@ const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb'
     ...process.env,
     ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
     ROUGH_CUT_UI_SMOKE_RECORD_FLOW: '1',
-    ROUGH_CUT_UI_SMOKE_CAMERA_WARNING: '1',
+    ROUGH_CUT_UI_SMOKE_CAMERA_WARNING: cancelFlow ? '' : '1',
+    ROUGH_CUT_UI_SMOKE_CANCEL_FLOW: cancelFlow ? '1' : '',
     ROUGH_CUT_SMOKE_CAMERA_DEVICE_PATH: '/dev/video9999',
     ROUGH_CUT_SMOKE_CAMERA_START_ERROR: 'Device or resource busy',
     ROUGH_CUT_UI_SMOKE_DOUBLE_STOP: process.env.ROUGH_CUT_UI_SMOKE_DOUBLE_STOP ?? '',
@@ -36,7 +38,11 @@ if (result.status !== 0) throw new Error(`Packaged recording-flow smoke failed w
 
 const report = JSON.parse(await readFile(resultPath, 'utf8'));
 const screenshotBytes = (await readFile(screenshotPath)).length;
-if (!report.ok || !report.hasPreRecordPanel || !report.hasPreflightPanel || !report.hasPreflightWarningsCopy || !report.hasCaptureTargetSelect || report.selectedCaptureTarget !== 'display' || report.initialState !== 'idle' || report.savedState !== 'saved' || !report.hasSavedMessage || !report.hasStudioShell || !report.hasCentralStage || !report.hasReviewWorkspace || !report.hasPostRecordingActions || !report.hasReviewExportActions || !report.hasReviewNextActions || report.selectedCameraSource !== '/dev/video9999' || !report.hasReviewCameraWarning || !report.hasStateCameraWarning || !report.hasStyledPreviewCanvas || !report.hasVideo || !report.hasStoppingLock || !(screenshotBytes > 1000)) {
+if (cancelFlow) {
+  if (!report.ok || !report.cancelFlow || !report.hasPreRecordPanel || !report.hasPreflightPanel || !report.hasPreflightWarningsCopy || !report.hasCaptureTargetSelect || report.selectedCaptureTarget !== 'display' || report.initialState !== 'idle' || report.canceledState !== 'idle' || report.hasSavedMessage || report.hasReviewWorkspace || report.hasVideo || !(screenshotBytes > 1000)) {
+    throw new Error(`Packaged recording-flow cancel smoke assertions failed: ${JSON.stringify(report)}`);
+  }
+} else if (!report.ok || !report.hasPreRecordPanel || !report.hasPreflightPanel || !report.hasPreflightWarningsCopy || !report.hasCaptureTargetSelect || report.selectedCaptureTarget !== 'display' || report.initialState !== 'idle' || report.savedState !== 'saved' || !report.hasSavedMessage || !report.hasStudioShell || !report.hasCentralStage || !report.hasReviewWorkspace || !report.hasPostRecordingActions || !report.hasReviewExportActions || !report.hasReviewNextActions || report.selectedCameraSource !== '/dev/video9999' || !report.hasReviewCameraWarning || !report.hasStateCameraWarning || !report.hasStyledPreviewCanvas || !report.hasVideo || !report.hasStoppingLock || !(screenshotBytes > 1000)) {
   throw new Error(`Packaged recording-flow smoke assertions failed: ${JSON.stringify(report)}`);
 }
 

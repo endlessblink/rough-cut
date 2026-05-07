@@ -11,6 +11,7 @@
     "smoke:long-recording": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-long-recording.mjs",
     "smoke:recording-flow-ui": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-recording-flow-ui.mjs",
     "smoke:recording-flow-double-stop": "ROUGH_CUT_UI_SMOKE_DOUBLE_STOP=1 pnpm smoke:recording-flow-ui",
+    "smoke:recording-flow-cancel": "ROUGH_CUT_UI_SMOKE_CANCEL_FLOW=1 pnpm smoke:recording-flow-ui",
     "smoke:ui": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-ui.mjs",
     "smoke:styled-export": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-styled-export.mjs",
     "visual:export": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/visual-export-playwright.mjs",
@@ -19,6 +20,7 @@
     "package:linux": "pnpm build && node scripts/package-linux.mjs",
     "smoke:package": "pnpm package:linux && node scripts/smoke-packaged-app.mjs",
     "smoke:package-recording-flow": "pnpm package:linux && node scripts/smoke-packaged-recording-flow.mjs",
+    "smoke:package-recording-flow-cancel": "ROUGH_CUT_UI_SMOKE_CANCEL_FLOW=1 pnpm smoke:package-recording-flow",
     "dev": "pnpm --filter @rough-cut/desktop dev",
     "clean": "pnpm -r --parallel clean"
   },

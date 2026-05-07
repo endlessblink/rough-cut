@@ -189,16 +189,23 @@ function cancelFfmpegProcess(proc, outputPath, tag) {
       return;
     }
     let settled = false;
-    const killTimeout = setTimeout(() => {
-      if (!settled) proc.kill('SIGKILL');
-    }, FFMPEG_SIGTERM_TIMEOUT_MS);
-
-    proc.on('exit', () => {
+    const settle = () => {
       if (settled) return;
       settled = true;
       clearTimeout(killTimeout);
+      clearTimeout(resolveTimeout);
       resolve(outputPath);
-    });
+    };
+    const killTimeout = setTimeout(() => {
+      if (!settled) proc.kill('SIGKILL');
+    }, FFMPEG_SIGTERM_TIMEOUT_MS);
+    const resolveTimeout = setTimeout(() => {
+      console.warn(`${tag} Cancel did not emit exit after SIGTERM/SIGKILL window; continuing cleanup.`);
+      settle();
+    }, FFMPEG_SIGTERM_TIMEOUT_MS + 1000);
+
+    proc.on('exit', settle);
+    proc.on('close', settle);
 
     try {
       proc.stdin?.destroy();

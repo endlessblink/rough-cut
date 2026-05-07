@@ -296,7 +296,9 @@ function App() {
     setRecordingActionPending(true);
     setError(null);
     try {
+      console.info('[renderer:recording] cancel requested');
       const canceled = await window.roughCut.cancelRecording();
+      console.info(`[renderer:recording] cancel completed ${JSON.stringify(summarizeRecordingStatus(canceled))}`);
       setRecording(canceled);
       setProject(null);
       setExportResult(null);
