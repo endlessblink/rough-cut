@@ -1213,9 +1213,9 @@ function PostRecordingReview({ project, recording, exportProgress, onExportMode,
   return (
     <section className="reviewWorkspace" data-ui-region="post-recording-review" aria-label="Post-recording review">
       <div className="reviewStatusCard">
-        <p className="eyebrow">{isFreshRecording ? 'Saved take' : 'Review project'}</p>
-        <h3>{isFreshRecording ? 'Ready to review and export' : 'Project ready'}</h3>
-        <p>{project.recording ? `${project.recording.width}x${project.recording.height} screen recording, ${project.recording.fps} fps.` : 'Preview and export actions are available when recording media is linked.'}</p>
+        <p className="eyebrow">{isFreshRecording ? 'Saved take' : 'Project'}</p>
+        <h3>{isFreshRecording ? 'Saved and ready' : 'Ready'}</h3>
+        <p>{project.recording ? `${project.recording.width}x${project.recording.height} · ${project.recording.fps} fps` : 'No recording media linked.'}</p>
       </div>
       {cameraWarning ? (
         <div className="reviewWarning" data-review-warning="camera">
@@ -1228,14 +1228,14 @@ function PostRecordingReview({ project, recording, exportProgress, onExportMode,
           <Icon name="export" /> Export styled
         </button>
         <button type="button" className="secondary" onClick={() => onExportMode('raw')} disabled={!project.recording || Boolean(exportProgress)}>
-          Export raw
+          <Icon name="display" /> Export raw
         </button>
-        <button type="button" className="secondary" onClick={onOpenRecordingFolder} disabled={!project.recording?.filePath}>Open folder</button>
-        <button type="button" className="secondary" onClick={onOpenDiagnostics} disabled={!diagnosticsAvailable}>Diagnostics</button>
-        <button type="button" className="secondary" onClick={onOpenProject}>Open project file</button>
-        <button type="button" className="secondary" onClick={onRetake}>New recording</button>
+        <button type="button" className="secondary" onClick={onOpenRecordingFolder} disabled={!project.recording?.filePath}><Icon name="folder" /> Folder</button>
+        <button type="button" className="secondary" onClick={onOpenDiagnostics} disabled={!diagnosticsAvailable}><Icon name="settings" /> Diagnostics</button>
+        <button type="button" className="secondary" onClick={onOpenProject}><Icon name="folder" /> Project</button>
+        <button type="button" className="secondary" onClick={onRetake}><Icon name="record" /> New</button>
       </div>
-      <p className="reviewSafetyCopy">New recording keeps this saved take and starts another setup; it does not delete the current media.</p>
+      <p className="reviewSafetyCopy">New keeps this take.</p>
     </section>
   );
 }
@@ -1456,20 +1456,11 @@ function ProjectPreview({
           </div>
           {project.recording ? (
             <p className="meta">
+              {recording.state === 'saved' ? <span className="savedChip">Saved</span> : null}
               {project.recording.width}x{project.recording.height} · {project.recording.fps} fps · {project.recording.duration} frames
             </p>
           ) : null}
         </div>
-        <PostRecordingReview
-          project={project}
-          recording={recording}
-          exportProgress={exportProgress}
-          onExportMode={onExportMode}
-          onOpenProject={() => onOpenPath(project.path)}
-          onOpenRecordingFolder={() => onShowItemInFolder(project.recording?.filePath)}
-          onOpenDiagnostics={() => onOpenPath(recording.state === 'saved' ? recording.diagnosticsPath : null)}
-          onRetake={onRetake}
-        />
         {project.mediaUrl ? (
           <VideoPreview project={project} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} onCurrentTimeChange={setCurrentTimeSec} />
         ) : (
@@ -1488,6 +1479,16 @@ function ProjectPreview({
           <p className="eyebrow"><Icon name="export" /> Export</p>
           <h2>Export</h2>
         </div>
+        <PostRecordingReview
+          project={project}
+          recording={recording}
+          exportProgress={exportProgress}
+          onExportMode={onExportMode}
+          onOpenProject={() => onOpenPath(project.path)}
+          onOpenRecordingFolder={() => onShowItemInFolder(project.recording?.filePath)}
+          onOpenDiagnostics={() => onOpenPath(recording.state === 'saved' ? recording.diagnosticsPath : null)}
+          onRetake={onRetake}
+        />
         <InspectorSection id="export" title="Export">
           <label className="field inspectorField">
             <span>Export mode</span>

@@ -512,22 +512,24 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 
 .reviewWorkspace {
-  background: linear-gradient(135deg, rgb(37 99 235 / 0.14), rgb(20 20 28 / 0.92));
-  border: 1px solid rgb(122 167 255 / 0.2);
-  border-radius: 16px;
+  background: rgb(16 16 22 / 0.74);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 13px;
   display: grid;
-  gap: 0.7rem;
-  margin: 0 0 0.85rem;
-  padding: 0.82rem;
+  gap: 0.5rem;
+  margin: 0 0 0.7rem;
+  padding: 0.58rem;
 }
 
-.reviewStatusCard { display: grid; gap: 0.22rem; }
+.reviewStatusCard { display: grid; gap: 0.08rem; min-width: 0; }
+.reviewStatusCard .eyebrow { margin-bottom: 0; }
+.reviewStatusCard h3 { font-size: 0.82rem; }
 
 .reviewStatusCard p,
 .reviewSafetyCopy {
   color: var(--muted);
-  font-size: 0.78rem;
-  line-height: 1.4;
+  font-size: 0.72rem;
+  line-height: 1.25;
   margin: 0;
 }
 
@@ -543,7 +545,25 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .reviewWarning strong { color: #fde68a; font-size: 0.82rem; }
 .reviewWarning span { color: #fef3c7; font-size: 0.76rem; line-height: 1.4; }
 .reviewActions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
-.reviewActions .primaryAction { min-width: 8rem; }
+.reviewActions button { flex: 1 1 calc(50% - 0.25rem); min-height: 1.9rem; padding: 0.34rem 0.5rem; }
+.reviewActions .primaryAction { flex-basis: 100%; min-width: 0; }
+.reviewActions .icon { height: 0.88rem; width: 0.88rem; }
+.reviewSafetyCopy { display: none; }
+
+.savedChip {
+  background: rgb(34 197 94 / 0.14);
+  border: 1px solid rgb(34 197 94 / 0.24);
+  border-radius: 999px;
+  color: #86efac;
+  display: inline-flex;
+  font-size: 0.68rem;
+  font-weight: 780;
+  letter-spacing: 0.02em;
+  margin-right: 0.5rem;
+  padding: 0.14rem 0.42rem;
+  text-transform: uppercase;
+  vertical-align: 0.08rem;
+}
 
 .inspectorField span { color: var(--muted); }
 .inspectorPresetGroup { display: grid; gap: 0.5rem; }

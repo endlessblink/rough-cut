@@ -74,6 +74,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-058 | Add non-destructive edit recovery affordances | P2 | DONE |
 | TASK-059 | Add preflight checklist and session-risk warnings | P1 | DONE |
 | TASK-060 | Debug long-smoke post-save failure | P1 | DONE |
+| TASK-061 | Fix choppy camera playback via canvas frame dedup | P1 | DONE |
 
 ## Recently Verified
 
@@ -1993,6 +1994,28 @@ The right inspector is already mixing canvas, export, zoom, background, camera, 
 - 2026-05-05: Added reusable inspector primitives for sections, selects, sliders, toggles, preset grids, action rows, notices, and selected-context summaries. Moved existing canvas/screen/background/export controls onto the primitives without changing persistence behavior. Added timeline selection plumbing so screen, zoom, click, camera, and audio regions can focus a future inspector context. UI smoke now asserts inspector groups and zoom context focus. Verified with `pnpm --filter @rough-cut/desktop typecheck`, `pnpm --filter @rough-cut/desktop test`, `pnpm smoke:ui`, and `pnpm visual:scrub`.
 - Component/unit coverage for inspector state and value normalization.
 - UI smoke changes one canvas setting and one presentation setting, saves, and keeps preview/export available.
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm smoke:ui`
+
+### TASK-061 Fix choppy camera playback via canvas frame dedup
+
+**Priority:** P1  
+**Status:** DONE
+
+#### Context
+
+The canvas RAF loop ran at 60fps on a 30fps source, drawing each video frame twice. Each redundant draw included an expensive `ctx.shadowBlur` pass and a 1920×1080 `drawImage` call, competing with the video decoder and causing dropped frames and choppy playback.
+
+#### Fix
+
+Added frame deduplication in the `tick()` function (`apps/desktop/src/renderer/src/main.tsx`). Before drawing, compute `currentFrame = Math.round(video.currentTime * fps)` and skip the draw if it matches `lastDrawnFrame`. This halves canvas work for 30fps sources without changing draw quality or requiring `requestVideoFrameCallback`.
+
+Also added `window.__roughCutCanvasDrawCount` instrumentation to the smoke test to measure real canvas render rate during playback.
+
+#### Verification
+
+- 2026-05-07: Smoke test measured `canvasRenderFps: 33` (≈30fps native rate) confirming frame dedup eliminates double-draws. All 167 unit tests pass. `pnpm smoke:ui` passes.
 - `pnpm --filter @rough-cut/desktop test`
 - `pnpm --filter @rough-cut/desktop typecheck`
 - `pnpm smoke:ui`
