@@ -511,6 +511,40 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   margin: 0;
 }
 
+.reviewWorkspace {
+  background: linear-gradient(135deg, rgb(37 99 235 / 0.14), rgb(20 20 28 / 0.92));
+  border: 1px solid rgb(122 167 255 / 0.2);
+  border-radius: 16px;
+  display: grid;
+  gap: 0.7rem;
+  margin: 0 0 0.85rem;
+  padding: 0.82rem;
+}
+
+.reviewStatusCard { display: grid; gap: 0.22rem; }
+
+.reviewStatusCard p,
+.reviewSafetyCopy {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.reviewWarning {
+  background: rgb(245 158 11 / 0.1);
+  border: 1px solid rgb(245 158 11 / 0.3);
+  border-radius: 12px;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.62rem;
+}
+
+.reviewWarning strong { color: #fde68a; font-size: 0.82rem; }
+.reviewWarning span { color: #fef3c7; font-size: 0.76rem; line-height: 1.4; }
+.reviewActions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.reviewActions .primaryAction { min-width: 8rem; }
+
 .inspectorField span { color: var(--muted); }
 .inspectorPresetGroup { display: grid; gap: 0.5rem; }
 .inspectorActionRow { margin-top: 0.15rem; }

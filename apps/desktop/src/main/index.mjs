@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, Tray } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, shell, Tray } from 'electron';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -211,6 +211,13 @@ function loadRenderer(window, { mode = 'editor', projectPath = null } = {}) {
 }
 
 ipcMain.handle(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion());
+ipcMain.handle(IPC_CHANNELS.SHELL_SHOW_ITEM_IN_FOLDER, (_event, itemPath) => {
+  if (typeof itemPath === 'string' && itemPath.length > 0) shell.showItemInFolder(itemPath);
+});
+ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_PATH, (_event, itemPath) => {
+  if (typeof itemPath !== 'string' || itemPath.length === 0) return 'Missing path.';
+  return shell.openPath(itemPath);
+});
 ipcMain.handle(IPC_CHANNELS.APP_OPEN_EDITOR, (event, projectPath = null) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (!senderWindow) return;
@@ -692,6 +699,17 @@ async function runRendererUiSmoke() {
   exportMode.dispatchEvent(new Event('change', { bubbles: true }));
   await waitFor(() => exportMode.value === 'styled', 'styled export mode restored');
 
+  // Measure canvas render fps during 1s of playback. The draw counter is
+  // incremented by tick() in VideoPreview via window.__roughCutCanvasDrawCount.
+  window.__roughCutCanvasDrawCount = 0;
+  const playBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('Play'));
+  if (playBtn && !playBtn.disabled) playBtn.click();
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  const canvasDrawCount = window.__roughCutCanvasDrawCount ?? 0;
+  const canvasRenderFps = Math.round(canvasDrawCount);
+  const pauseBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('Pause'));
+  if (pauseBtn) pauseBtn.click();
+
   const exportButton = await waitFor(
     () => Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Export MP4')),
     'export button',
@@ -741,6 +759,7 @@ async function runRendererUiSmoke() {
     hasRightInspector,
     hasExportActionsArea,
     hasExportResult: document.body.textContent?.includes('Exported to:') ?? false,
+    canvasRenderFps,
     aspectRatio: aspectRatioSelect.value,
     padding: Number(paddingInput.value),
     cornerRadius: Number(radiusInput.value),
@@ -807,6 +826,8 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   const hasCentralStage = Boolean(document.querySelector('[data-ui-region="central-stage"]'));
   const hasTimelineRail = Boolean(document.querySelector('[data-ui-region="timeline-review-rail"]'));
   const hasRightInspector = Boolean(document.querySelector('[data-ui-region="right-inspector"]'));
+  const hasReviewWorkspace = Boolean(document.querySelector('[data-ui-region="post-recording-review"]'));
+  const hasPostRecordingActions = Boolean(document.querySelector('[data-ui-region="post-recording-actions"]'));
   const hasStudioShell = Boolean(document.querySelector('[data-ui-shell="recording-studio"]'));
 
   return {
@@ -824,6 +845,8 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     hasCentralStage,
     hasTimelineRail,
     hasRightInspector,
+    hasReviewWorkspace,
+    hasPostRecordingActions,
     hasStyledPreviewCanvas: Boolean(canvas),
     hasVideo: Boolean(video),
     duration: video?.duration ?? null,
@@ -846,12 +869,15 @@ async function runRendererEditorLoadedSmoke() {
   await waitFor(() => document.querySelector('[data-ui-shell="recording-studio"]'), 'post-recording editor shell');
   await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'post-recording preview canvas');
   await waitFor(() => document.querySelector('video'), 'post-recording video');
+  await waitFor(() => document.querySelector('[data-ui-region="post-recording-review"]'), 'post-recording review workspace');
 
   return {
     hasStudioShell: Boolean(document.querySelector('[data-ui-shell="recording-studio"]')),
     hasCentralStage: Boolean(document.querySelector('[data-ui-region="central-stage"]')),
     hasTimelineRail: Boolean(document.querySelector('[data-ui-region="timeline-review-rail"]')),
     hasRightInspector: Boolean(document.querySelector('[data-ui-region="right-inspector"]')),
+    hasReviewWorkspace: Boolean(document.querySelector('[data-ui-region="post-recording-review"]')),
+    hasPostRecordingActions: Boolean(document.querySelector('[data-ui-region="post-recording-actions"]')),
     hasStyledPreviewCanvas: Boolean(document.querySelector('canvas.styledPreviewCanvas')),
     hasVideo: Boolean(document.querySelector('video')),
     duration: document.querySelector('video')?.duration ?? null,

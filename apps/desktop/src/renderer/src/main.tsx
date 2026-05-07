@@ -38,6 +38,8 @@ declare global {
     roughCut: {
       getVersion: () => Promise<string>;
       openEditor: (projectPath?: string | null) => Promise<void>;
+      showItemInFolder: (path: string) => Promise<void>;
+      openPath: (path: string) => Promise<string>;
       getMicSources: () => Promise<MicSource[]>;
       getSystemAudioSources: () => Promise<AudioSource[]>;
       getCameraSources: () => Promise<CameraSource[]>;
@@ -96,6 +98,7 @@ type RecordingStatus =
       rawPath: string;
       outputPath: string;
       cameraError?: string | null;
+      diagnosticsPath?: string | null;
       project?: ProjectState;
     };
 
@@ -328,7 +331,7 @@ function App() {
     }
   }
 
-  async function exportProject() {
+  async function exportProjectWithMode(mode: ExportMode = exportMode) {
     if (!project) return;
     setError(null);
     setExportResult(null);
@@ -339,13 +342,41 @@ function App() {
         setExportProgress(null);
         return;
       }
-      const result = await window.roughCut.exportProject({ document: project.document, outputPath, mode: exportMode });
+      setExportMode(mode);
+      const result = await window.roughCut.exportProject({ document: project.document, outputPath, mode });
       setExportResult(result);
       setExportProgress({ phase: 'complete', progress: 1 });
     } catch (err) {
       setExportProgress(null);
       setError(err instanceof Error ? err.message : 'Export failed.');
     }
+  }
+
+  async function openPath(path?: string | null) {
+    if (!path) return;
+    setError(null);
+    try {
+      const result = await window.roughCut.openPath(path);
+      if (result) setError(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Open path failed.');
+    }
+  }
+
+  async function showItemInFolder(path?: string | null) {
+    if (!path) return;
+    setError(null);
+    try {
+      await window.roughCut.showItemInFolder(path);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Open folder failed.');
+    }
+  }
+
+  function startRetake() {
+    setPreRecordPanelOpen(true);
+    setRecording({ state: 'idle' });
+    setExportResult(null);
   }
 
   if (isRecorderMode) {
@@ -564,8 +595,13 @@ function App() {
         {project ? (
           <ProjectPreview
             project={project}
+            recording={recording}
             onProjectChange={setProject}
-            onExport={exportProject}
+            onExport={() => exportProjectWithMode(exportMode)}
+            onExportMode={exportProjectWithMode}
+            onOpenPath={openPath}
+            onShowItemInFolder={showItemInFolder}
+            onRetake={startRetake}
             exportMode={exportMode}
             onExportModeChange={setExportMode}
             exportProgress={exportProgress}
@@ -1169,10 +1205,50 @@ function NumberField({
   );
 }
 
+function PostRecordingReview({ project, recording, exportProgress, onExportMode, onOpenProject, onOpenRecordingFolder, onOpenDiagnostics, onRetake }: { project: ProjectState; recording: RecordingStatus; exportProgress: ExportProgress | null; onExportMode: (mode: ExportMode) => void; onOpenProject: () => void; onOpenRecordingFolder: () => void; onOpenDiagnostics: () => void; onRetake: () => void }) {
+  const isFreshRecording = recording.state === 'saved' && recording.project?.path === project.path;
+  const diagnosticsAvailable = recording.state === 'saved' && Boolean(recording.diagnosticsPath);
+  const cameraWarning = recording.state === 'saved' ? recording.cameraError : null;
+
+  return (
+    <section className="reviewWorkspace" data-ui-region="post-recording-review" aria-label="Post-recording review">
+      <div className="reviewStatusCard">
+        <p className="eyebrow">{isFreshRecording ? 'Saved take' : 'Review project'}</p>
+        <h3>{isFreshRecording ? 'Ready to review and export' : 'Project ready'}</h3>
+        <p>{project.recording ? `${project.recording.width}x${project.recording.height} screen recording, ${project.recording.fps} fps.` : 'Preview and export actions are available when recording media is linked.'}</p>
+      </div>
+      {cameraWarning ? (
+        <div className="reviewWarning" data-review-warning="camera">
+          <strong>Screen recording preserved</strong>
+          <span>Camera finalization failed, so this take was saved without webcam PiP: {cameraWarning}</span>
+        </div>
+      ) : null}
+      <div className="reviewActions" data-ui-region="post-recording-actions">
+        <button type="button" className="primaryAction" onClick={() => onExportMode('styled')} disabled={!project.recording || Boolean(exportProgress)}>
+          <Icon name="export" /> Export styled
+        </button>
+        <button type="button" className="secondary" onClick={() => onExportMode('raw')} disabled={!project.recording || Boolean(exportProgress)}>
+          Export raw
+        </button>
+        <button type="button" className="secondary" onClick={onOpenRecordingFolder} disabled={!project.recording?.filePath}>Open folder</button>
+        <button type="button" className="secondary" onClick={onOpenDiagnostics} disabled={!diagnosticsAvailable}>Diagnostics</button>
+        <button type="button" className="secondary" onClick={onOpenProject}>Open project file</button>
+        <button type="button" className="secondary" onClick={onRetake}>New recording</button>
+      </div>
+      <p className="reviewSafetyCopy">New recording keeps this saved take and starts another setup; it does not delete the current media.</p>
+    </section>
+  );
+}
+
 function ProjectPreview({
   project,
+  recording,
   onProjectChange,
   onExport,
+  onExportMode,
+  onOpenPath,
+  onShowItemInFolder,
+  onRetake,
   exportProgress,
   exportResult,
   exportMode,
@@ -1183,8 +1259,13 @@ function ProjectPreview({
   onActiveToolChange,
 }: {
   project: ProjectState;
+  recording: RecordingStatus;
   onProjectChange: (next: ProjectState) => void;
   onExport: () => void;
+  onExportMode: (mode: ExportMode) => void;
+  onOpenPath: (path?: string | null) => void;
+  onShowItemInFolder: (path?: string | null) => void;
+  onRetake: () => void;
   exportProgress: ExportProgress | null;
   exportResult: ExportResult | null;
   exportMode: ExportMode;
@@ -1379,6 +1460,16 @@ function ProjectPreview({
             </p>
           ) : null}
         </div>
+        <PostRecordingReview
+          project={project}
+          recording={recording}
+          exportProgress={exportProgress}
+          onExportMode={onExportMode}
+          onOpenProject={() => onOpenPath(project.path)}
+          onOpenRecordingFolder={() => onShowItemInFolder(project.recording?.filePath)}
+          onOpenDiagnostics={() => onOpenPath(recording.state === 'saved' ? recording.diagnosticsPath : null)}
+          onRetake={onRetake}
+        />
         {project.mediaUrl ? (
           <VideoPreview project={project} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} onCurrentTimeChange={setCurrentTimeSec} />
         ) : (
@@ -2031,6 +2122,10 @@ function VideoPreview({
     const screenRadius = Math.max(0, Math.min(background.bgCornerRadius, Math.min(screenWidth, screenHeight) / 2));
 
     let rafId = 0;
+    // Frame dedup: track the last frame number drawn so we skip RAF ticks where
+    // the video hasn't advanced to a new frame yet. At 30fps source on a 60fps RAF
+    // loop this halves canvas draw work without changing visual output.
+    let lastDrawnFrame = -1;
     const document = project.document as unknown as ProjectDocument;
     const cursorEvents =
       ((document.assets?.[0] as { metadata?: { cursorEvents?: ReadonlyArray<{ frame: number; x: number; y: number; type?: string }> } } | undefined)?.metadata?.cursorEvents) ?? [];
@@ -2064,13 +2159,23 @@ function VideoPreview({
         rafId = window.requestAnimationFrame(tick);
         return;
       }
+      // Skip draw when the video hasn't advanced to a new frame since last tick.
+      // Math.round(currentTime * fps) is discrete (0, 1, 2 …), so at 30fps it holds
+      // the same value for ~2 consecutive 60fps RAF ticks before incrementing.
+      const currentFrame = Math.max(0, Math.round(video.currentTime * fps));
+      if (currentFrame === lastDrawnFrame) {
+        rafId = window.requestAnimationFrame(tick);
+        return;
+      }
+      lastDrawnFrame = currentFrame;
+      (window as unknown as Record<string, number>).__roughCutCanvasDrawCount =
+        ((window as unknown as Record<string, number>).__roughCutCanvasDrawCount ?? 0) + 1;
       if (Number.isFinite(trimEndSec) && video.currentTime > (trimEndSec ?? video.currentTime) + 0.02) {
         video.pause();
         video.currentTime = trimEndSec ?? video.currentTime;
         setCurrentTime(Math.max(0, (trimEndSec ?? video.currentTime) - trimStartSec));
         onCurrentTimeChange?.(Math.max(0, (trimEndSec ?? video.currentTime) - trimStartSec));
       }
-      const currentFrame = Math.max(0, Math.round(video.currentTime * fps));
       let frame;
       try {
         frame = resolveFrame(document, currentFrame, {

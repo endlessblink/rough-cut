@@ -64,7 +64,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-048 | Add optional webcam PiP recording and export | P1 | IN PROGRESS |
 | TASK-049 | Build Screen Studio-style editor UI foundation | P1 | DONE |
 | TASK-050 | Add Screen Studio-style pre-record panel | P1 | EXTERNAL |
-| TASK-051 | Add post-recording review workspace | P1 | PLANNED |
+| TASK-051 | Add post-recording review workspace | P1 | IN PROGRESS |
 | TASK-052 | Add timeline-first playback and edit rail | P1 | DONE |
 | TASK-053 | Add extensible properties inspector system | P1 | DONE |
 | TASK-054 | Add thumbnail source picker for recording targets | P1 | EXTERNAL |
@@ -1891,7 +1891,7 @@ Re-verified with `ROUGH_CUT_LONG_SMOKE_DURATION_MS=600000 pnpm smoke:long-record
 ### TASK-051 Add post-recording review workspace
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 #### Context
 

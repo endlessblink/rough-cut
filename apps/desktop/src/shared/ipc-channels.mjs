@@ -80,6 +80,8 @@ export const IPC_CHANNELS = {
   // App
   APP_GET_VERSION: 'app:get-version',
   APP_OPEN_EDITOR: 'app:open-editor',
+  SHELL_SHOW_ITEM_IN_FOLDER: 'shell:show-item-in-folder',
+  SHELL_OPEN_PATH: 'shell:open-path',
 
   // Auto-save
   PROJECT_AUTO_SAVE: 'project:auto-save',
@@ -123,8 +125,4 @@ export const IPC_CHANNELS = {
   // Zoom marker persistence (sidecar alongside the recording .webm)
   ZOOM_LOAD_SIDECAR: 'zoom:load-sidecar',
   ZOOM_SAVE_SIDECAR: 'zoom:save-sidecar',
-
-  // Shell
-  SHELL_OPEN_PATH: 'shell:open-path',
-  SHELL_SHOW_ITEM_IN_FOLDER: 'shell:show-item-in-folder',
 };
