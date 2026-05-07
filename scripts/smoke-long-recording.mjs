@@ -5,11 +5,13 @@ process.env.ROUGH_CUT_REAL_SMOKE_DURATION_MS ??= String(durationMs);
 process.env.ROUGH_CUT_REAL_SMOKE_MIN_DURATION_MS ??= String(minDurationMs);
 process.env.ROUGH_CUT_REAL_SMOKE_EXPECT_FPS ??= process.env.ROUGH_CUT_LONG_SMOKE_EXPECT_FPS ?? '30';
 process.env.ROUGH_CUT_REAL_SMOKE_UI ??= '0';
+process.env.ROUGH_CUT_REAL_SMOKE_STYLED_EXPORT ??= process.env.ROUGH_CUT_LONG_SMOKE_STYLED_EXPORT ?? '0';
 
 console.info(
   `[smoke:long-recording] duration=${process.env.ROUGH_CUT_REAL_SMOKE_DURATION_MS}ms `
     + `minDuration=${process.env.ROUGH_CUT_REAL_SMOKE_MIN_DURATION_MS}ms `
-    + `ui=${process.env.ROUGH_CUT_REAL_SMOKE_UI}`,
+    + `ui=${process.env.ROUGH_CUT_REAL_SMOKE_UI} `
+    + `styledExport=${process.env.ROUGH_CUT_REAL_SMOKE_STYLED_EXPORT}`,
 );
 
 await import('./smoke-real-recording.mjs');

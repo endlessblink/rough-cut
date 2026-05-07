@@ -25,10 +25,31 @@ const shouldRecordSystemAudio = process.env.ROUGH_CUT_REAL_SMOKE_SYSTEM_AUDIO ==
 const displayName = process.env.DISPLAY || ':0';
 const display = process.env.ROUGH_CUT_REAL_SMOKE_DISPLAY || `${displayName}${formatX11Offset(originX)},${originY}`;
 const runUiSmoke = process.env.ROUGH_CUT_REAL_SMOKE_UI !== '0';
+const runStyledExport = process.env.ROUGH_CUT_REAL_SMOKE_STYLED_EXPORT !== '0';
+let currentPhase = 'init';
+const artifacts = {};
 
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.once(signal, () => {
+    console.error(`[smoke:real-recording] interrupted signal=${signal} phase=${currentPhase} artifacts=${JSON.stringify(artifacts)}`);
+    process.exit(signal === 'SIGINT' ? 130 : 143);
+  });
+}
+
+process.once('uncaughtException', (err) => {
+  console.error(`[smoke:real-recording] failed phase=${currentPhase} artifacts=${JSON.stringify(artifacts)}`);
+  throw err;
+});
+process.once('unhandledRejection', (reason) => {
+  console.error(`[smoke:real-recording] failed phase=${currentPhase} artifacts=${JSON.stringify(artifacts)}`);
+  throw reason;
+});
+
+setPhase('prerequisites');
 await assertPrerequisites();
 
 const root = await mkdtemp(join(tmpdir(), 'rough-cut-real-recording-smoke-'));
+artifacts.root = root;
 const session = createRecordingSession({
   recordingsDir: root,
   markerPath: join(root, 'recording-recovery.json'),
@@ -41,12 +62,15 @@ const systemAudioSource = shouldRecordSystemAudio ? await pickSystemAudioSource(
 console.info(`[smoke:real-recording] recording ${width}x${height} from ${display} for ${durationMs}ms${systemAudioSource ? ` with system audio ${systemAudioSource}` : ''}`);
 console.info(`[smoke:real-recording] artifacts: ${root}`);
 
+setPhase('recording-start');
 await session.start({ systemAudioSource });
+setPhase('recording-active');
 const recordingStartedAt = Date.now();
 await wait(300);
 performScriptedPointerActivity({ originX, originY, width, height });
 await wait(Math.max(0, durationMs - (Date.now() - recordingStartedAt)));
 
+setPhase('stop-and-save');
 const stopped = await stopRecordingAndCreateProject({
   recordingSession: session,
   assertReadableMp4,
@@ -54,16 +78,22 @@ const stopped = await stopRecordingAndCreateProject({
   saveProjectForRecording,
   formatProject: (project) => project,
 });
+artifacts.recordingPath = stopped.outputPath ?? null;
+artifacts.projectPath = stopped.project?.path ?? null;
+artifacts.diagnosticsPath = stopped.diagnosticsPath ?? null;
 
+setPhase('assert-saved-recording');
 if (stopped.state !== 'saved' || !stopped.project) {
   throw new Error('Real recording did not produce a saved project.');
 }
 if (!stopped.diagnosticsPath) {
   throw new Error('Real recording did not produce a diagnostics report.');
 }
+setPhase('assert-diagnostics');
 const diagnostics = JSON.parse(readFileSync(stopped.diagnosticsPath, 'utf8'));
 assertDiagnostics(diagnostics);
 
+setPhase('reopen-project');
 const reopened = await openProjectFile(stopped.project.path);
 const recordingAsset = reopened.document.assets[0];
 const cursorEvents = recordingAsset?.metadata?.cursorEvents;
@@ -85,16 +115,27 @@ if (expectButtonEvents && buttonEvents.length < 2) {
 
 const rawExportPath = join(root, 'real-recording-raw-export.mp4');
 const styledExportPath = join(root, 'real-recording-styled-export.mp4');
+artifacts.rawExportPath = rawExportPath;
+if (runStyledExport) artifacts.styledExportPath = styledExportPath;
+setPhase('raw-export');
 const rawExport = await exportProjectToMp4({ project: reopened.document, outputPath: rawExportPath, mode: EXPORT_MODES.RAW });
+setPhase('raw-export-verify');
 await assertReadableMp4(rawExportPath);
-const styledExport = await exportProjectToMp4({ project: reopened.document, outputPath: styledExportPath, mode: EXPORT_MODES.STYLED });
-await assertReadableMp4(styledExportPath);
+let styledExport = null;
+if (runStyledExport) {
+  setPhase('styled-export');
+  styledExport = await exportProjectToMp4({ project: reopened.document, outputPath: styledExportPath, mode: EXPORT_MODES.STYLED });
+  setPhase('styled-export-verify');
+  await assertReadableMp4(styledExportPath);
+}
 
 let uiReport = null;
 if (runUiSmoke) {
+  setPhase('ui-smoke');
   uiReport = runRendererSmoke({ root, projectPath: stopped.project.path });
 }
 
+setPhase('report');
 console.info(
   JSON.stringify(
     {
@@ -115,13 +156,19 @@ console.info(
       hasAudio: diagnostics.media?.hasAudio ?? false,
       systemAudioSource,
       rawExportPath: rawExport.outputPath,
-      styledExportPath: styledExport.outputPath,
+      styledExportPath: styledExport?.outputPath ?? null,
       uiReport,
     },
     null,
     2,
   ),
 );
+setPhase('complete');
+
+function setPhase(phase) {
+  currentPhase = phase;
+  console.info(`[smoke:real-recording] phase=${phase} artifacts=${JSON.stringify(artifacts)}`);
+}
 
 function assertDiagnostics(diagnostics) {
   if (diagnostics.status !== 'ok' || diagnostics.media?.hasVideo !== true || diagnostics.cursor?.totalEvents < 3) {

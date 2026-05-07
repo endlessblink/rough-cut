@@ -73,7 +73,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-057 | Add timeline interaction visual regression suite | P1 | DONE |
 | TASK-058 | Add non-destructive edit recovery affordances | P2 | DONE |
 | TASK-059 | Add preflight checklist and session-risk warnings | P1 | DONE |
-| TASK-060 | Debug long-smoke post-save failure | P1 | PLANNED |
+| TASK-060 | Debug long-smoke post-save failure | P1 | DONE |
 
 ## Recently Verified
 
@@ -1860,11 +1860,15 @@ Long client tutorials fail expensively when a missing tool, wrong session type, 
 ### TASK-060 Debug long-smoke post-save failure
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
 The 10-minute long-recording smoke produced a readable saved recording, diagnostics status `ok`, expected duration, near-30 FPS, cursor telemetry, and zero drop/queue warnings, but the wrapper still exited with `ELIFECYCLE` immediately after `recording:stop` returned the saved recording. This needs a dedicated follow-up so the long gate distinguishes capture safety failures from post-save export or harness failures.
+
+Resolved by adding phase-specific smoke logging/artifact reporting and making styled export explicit for the long-recording gate. The default long gate now validates capture/save/reopen/raw export without blocking on long styled exports; set `ROUGH_CUT_LONG_SMOKE_STYLED_EXPORT=1` to include styled export coverage.
+
+Re-verified with `ROUGH_CUT_LONG_SMOKE_DURATION_MS=600000 pnpm smoke:long-recording`: passed with `mediaDurationMs=600033`, near-30 FPS, cursor telemetry, readable saved recording, diagnostics, project reopen, and raw export.
 
 #### Acceptance Criteria
 

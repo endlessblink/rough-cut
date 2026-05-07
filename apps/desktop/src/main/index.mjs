@@ -41,6 +41,7 @@ let recordingTray = null;
 let recordingTrayWindow = null;
 let hiddenRecordingOptions = null;
 let hiddenRecordingStopping = false;
+let activeRecordingFinalizePromise = null;
 const recordingSession = createRecordingSession({
   recordingsDir,
   markerPath,
@@ -354,13 +355,17 @@ function unregisterHiddenRecordingStopShortcut() {
 }
 
 async function finalizeActiveRecording() {
-  return stopRecordingAndCreateProject({
+  if (activeRecordingFinalizePromise) return activeRecordingFinalizePromise;
+  activeRecordingFinalizePromise = stopRecordingAndCreateProject({
     recordingSession,
     assertReadableMp4,
     remuxMkvToMp4,
     saveProjectForRecording,
     formatProject,
+  }).finally(() => {
+    activeRecordingFinalizePromise = null;
   });
+  return activeRecordingFinalizePromise;
 }
 
 async function stopHiddenRecordingAndOpenEditor(window) {
@@ -790,6 +795,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   await new Promise((resolve) => setTimeout(resolve, 1800));
   const stopButton = await waitFor(() => findButton('Stop recording'), 'stop button');
   stopButton.click();
+  await waitFor(() => stopButton.textContent.includes('Stopping...') && stopButton.disabled, 'stopping lock');
   if (options.doubleStop) {
     stopButton.click();
   }
@@ -822,6 +828,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     hasVideo: Boolean(video),
     duration: video?.duration ?? null,
     doubleStop: Boolean(options.doubleStop),
+    hasStoppingLock: true,
   };
 }
 
