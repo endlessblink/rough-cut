@@ -60,8 +60,8 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-044 | Add cursor style controls | P2 | PLANNED |
 | TASK-045 | Add background style presets | P2 | DONE |
 | TASK-046 | Add trim start and end controls | P1 | DONE |
-| TASK-047 | Add simple cut removal flow | P2 | PLANNED |
-| TASK-048 | Add optional webcam PiP recording and export | P1 | IN PROGRESS |
+| TASK-047 | Add simple cut removal flow | P2 | DONE |
+| TASK-048 | Add optional webcam PiP recording and export | P1 | DONE |
 | TASK-049 | Build Screen Studio-style editor UI foundation | P1 | DONE |
 | TASK-050 | Add Screen Studio-style pre-record panel | P1 | EXTERNAL |
 | TASK-051 | Add post-recording review workspace | P1 | DONE |
@@ -1618,7 +1618,7 @@ After head/tail trim, the next editing primitive is removing a dead section from
 ### TASK-048 Add optional webcam PiP recording and export
 
 **Priority:** P1  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -1825,7 +1825,7 @@ The pre-record panel becomes the front door for every capture. It needs direct r
 ### TASK-057 Add timeline interaction visual regression suite
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -1841,6 +1841,7 @@ Timeline trim/scrub bugs showed up as UI movement, tool switching, wheel-driven 
 
 #### Verification
 
+- 2026-05-08: Verified existing `scripts/visual-timeline-interactions-playwright.mjs` covers timeline scrub, trim start/end drag, wheel stability, active-tool stability, coordinate alignment, hidden-trim restore, and per-frame canvas RAF monitoring that fails on gray/blank frames. `scripts/visual-scrub-playwright.mjs` provides the focused scrub/trim visual regression gate.
 - `pnpm --filter @rough-cut/desktop typecheck`
 - `pnpm visual:scrub`
 - `pnpm visual:timeline`

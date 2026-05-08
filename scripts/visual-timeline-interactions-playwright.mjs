@@ -72,7 +72,7 @@ try {
   });
   await page.waitForFunction(() => window.__timelineMonitor.inspect().stats.ok, null, { timeout: 10000 });
   await page.waitForTimeout(800);
-  await page.screenshot({ path: beforePath, fullPage: true });
+  await captureViewport(page, beforePath);
 
   const activeToolBefore = await activeTool(page);
   const scrubber = page.locator('input[aria-label="Scrub timeline"]');
@@ -92,18 +92,18 @@ try {
   await page.mouse.up();
   await page.waitForTimeout(700);
   const scrubMonitor = await page.evaluate(() => window.__timelineMonitor.stop());
-  await page.screenshot({ path: afterScrubPath, fullPage: true });
+  await captureViewport(page, afterScrubPath);
 
   const trimEndResult = await dragTrimHandle(page, 'Trim end', 0.72);
   const trimEndMonitor = trimEndResult.monitor;
-  await page.screenshot({ path: afterTrimEndPath, fullPage: true });
+  await captureViewport(page, afterTrimEndPath);
 
   const trimStartResult = await dragTrimHandle(page, 'Trim start', 0.12);
   const trimStartMonitor = trimStartResult.monitor;
-  await page.screenshot({ path: afterTrimStartPath, fullPage: true });
+  await captureViewport(page, afterTrimStartPath);
 
   const recovery = await restoreFullSource(page);
-  await page.screenshot({ path: afterRestorePath, fullPage: true });
+  await captureViewport(page, afterRestorePath);
 
   const activeToolAfter = await activeTool(page);
   const coordinateAfter = await timelineCoordinates(page);
@@ -208,6 +208,10 @@ async function dragTrimHandle(page, label, targetRatio) {
     after: { x: clipAfter.x, width: clipAfter.width },
     monitor,
   };
+}
+
+async function captureViewport(page, path) {
+  await page.screenshot({ path, fullPage: false, timeout: 10000 });
 }
 
 async function restoreFullSource(page) {
