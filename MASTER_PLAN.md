@@ -1849,7 +1849,7 @@ Timeline trim/scrub bugs showed up as UI movement, tool switching, wheel-driven 
 ### TASK-058 Add non-destructive edit recovery affordances
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -1864,6 +1864,8 @@ Trim and future cut actions should never feel like they delete source media. Use
 
 #### Verification
 
+- 2026-05-08: Added compact non-destructive edit copy in the Recording inspector and timeline-level Restore cut affordances for hidden middle ranges, alongside the existing hidden head/tail restore controls.
+- `node --test apps/desktop/src/renderer/src/cut-ranges.test.mjs apps/desktop/src/renderer/src/timeline-rail.test.mjs`
 - `pnpm --filter @rough-cut/desktop typecheck`
 
 ### TASK-059 Add preflight checklist and session-risk warnings
