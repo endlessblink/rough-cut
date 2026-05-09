@@ -25,9 +25,22 @@ const USE_FFMPEG_CAPTURE =
   (process.env.XDG_SESSION_TYPE === 'x11' ||
     (process.env.DISPLAY !== undefined && process.env.DISPLAY !== ''));
 
+// Screen capture finalization can legitimately take many seconds for libx264
+// to flush a long mux, so the screen path keeps the original generous
+// ceilings. Regression-guarded by ffmpeg-capture-args.test.mjs.
 export const FFMPEG_STOP_TIMEOUT_MS = 60_000;
 export const FFMPEG_SIGINT_TIMEOUT_MS = 60_000;
 export const FFMPEG_SIGTERM_TIMEOUT_MS = 15_000;
+
+// Camera capture has a different failure mode: ffmpeg blocked in an
+// uninterruptible v4l2 read on a stuck device. Soft signals don't reach it,
+// only SIGKILL does, so 60+60+15 = 135s of waiting is purely dead time that
+// freezes the UI after Stop. Use a tighter cascade so camera-stop wedges fall
+// back to "screen-only project" within ~10s. Symptomatic fix; the underlying
+// v4l2 signal-blocking behavior is tracked separately.
+export const FFMPEG_CAMERA_STOP_TIMEOUT_MS = 5_000;
+export const FFMPEG_CAMERA_SIGINT_TIMEOUT_MS = 5_000;
+export const FFMPEG_CAMERA_SIGTERM_TIMEOUT_MS = 3_000;
 
 /**
  * Whether FFmpeg x11grab capture is available on this platform.
@@ -186,7 +199,11 @@ export function startFfmpegCameraCapture({
       }
     },
     stop() {
-      return stopFfmpegProcess(proc, outputPath, '[ffmpeg-camera]', 'camera finalization');
+      return stopFfmpegProcess(proc, outputPath, '[ffmpeg-camera]', 'camera finalization', {
+        stopMs: FFMPEG_CAMERA_STOP_TIMEOUT_MS,
+        sigintMs: FFMPEG_CAMERA_SIGINT_TIMEOUT_MS,
+        sigtermMs: FFMPEG_CAMERA_SIGTERM_TIMEOUT_MS,
+      });
     },
     cancel() {
       return cancelFfmpegProcess(proc, outputPath, '[ffmpeg-camera]');
@@ -278,7 +295,10 @@ export function buildFfmpegCameraCaptureArgs({
   ];
 }
 
-function stopFfmpegProcess(proc, outputPath, tag, finalizationLabel) {
+function stopFfmpegProcess(proc, outputPath, tag, finalizationLabel, timeouts = null) {
+  const stopMs = timeouts?.stopMs ?? FFMPEG_STOP_TIMEOUT_MS;
+  const sigintMs = timeouts?.sigintMs ?? FFMPEG_SIGINT_TIMEOUT_MS;
+  const sigtermMs = timeouts?.sigtermMs ?? FFMPEG_SIGTERM_TIMEOUT_MS;
   return new Promise((resolve) => {
     let settled = false;
     let sigintTimeout = null;
@@ -292,9 +312,9 @@ function stopFfmpegProcess(proc, outputPath, tag, finalizationLabel) {
         sigtermTimeout = setTimeout(() => {
           console.warn(`${tag} Timeout after SIGTERM — forcing SIGKILL; output may be corrupt.`);
           proc.kill('SIGKILL');
-        }, FFMPEG_SIGTERM_TIMEOUT_MS);
-      }, FFMPEG_SIGINT_TIMEOUT_MS);
-    }, FFMPEG_STOP_TIMEOUT_MS);
+        }, sigtermMs);
+      }, sigintMs);
+    }, stopMs);
 
     proc.on('exit', () => {
       if (settled) return;

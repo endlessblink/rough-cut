@@ -6,6 +6,9 @@ import {
   FFMPEG_SIGINT_TIMEOUT_MS,
   FFMPEG_SIGTERM_TIMEOUT_MS,
   FFMPEG_STOP_TIMEOUT_MS,
+  FFMPEG_CAMERA_SIGINT_TIMEOUT_MS,
+  FFMPEG_CAMERA_SIGTERM_TIMEOUT_MS,
+  FFMPEG_CAMERA_STOP_TIMEOUT_MS,
 } from './ffmpeg-capture.mjs';
 
 test('screen capture uses CRF-only H.264 without VBV/CBR constraints', () => {
@@ -99,4 +102,18 @@ test('screen capture allows enough time for mp4 finalization on stop', () => {
   assert.equal(FFMPEG_STOP_TIMEOUT_MS >= 60_000, true);
   assert.equal(FFMPEG_SIGINT_TIMEOUT_MS >= 60_000, true);
   assert.equal(FFMPEG_SIGTERM_TIMEOUT_MS >= 15_000, true);
+});
+
+test('camera capture stop cascade is short so v4l2-stuck ffmpeg falls back fast', () => {
+  // Camera ffmpeg can wedge in an uninterruptible v4l2 read where only
+  // SIGKILL gets through. Long timeouts there are pure dead time that
+  // freezes the post-stop UI. Cap the cascade well under the screen
+  // path's 60s/60s/15s. Also keep camera <= screen so a future
+  // accidental bump on the screen side doesn't silently relax these.
+  assert.ok(FFMPEG_CAMERA_STOP_TIMEOUT_MS <= 10_000);
+  assert.ok(FFMPEG_CAMERA_SIGINT_TIMEOUT_MS <= 10_000);
+  assert.ok(FFMPEG_CAMERA_SIGTERM_TIMEOUT_MS <= 5_000);
+  assert.ok(FFMPEG_CAMERA_STOP_TIMEOUT_MS <= FFMPEG_STOP_TIMEOUT_MS);
+  assert.ok(FFMPEG_CAMERA_SIGINT_TIMEOUT_MS <= FFMPEG_SIGINT_TIMEOUT_MS);
+  assert.ok(FFMPEG_CAMERA_SIGTERM_TIMEOUT_MS <= FFMPEG_SIGTERM_TIMEOUT_MS);
 });
