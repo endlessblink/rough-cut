@@ -34,6 +34,15 @@ protocol.registerSchemesAsPrivileged([
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const recordingsDir = join(app.getPath('documents'), 'Rough Cut MVP', 'recordings');
+
+function buildAllowedProjectRoots() {
+  const roots = [recordingsDir];
+  // Tests / smokes write fixtures to a tmp dir and pass it via ROUGH_CUT_UI_SMOKE_PROJECT_PATH.
+  // Without including its parent dir, validateProjectPath rejects the fixture as outside-root.
+  const smokeProject = process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH;
+  if (smokeProject) roots.push(dirname(smokeProject));
+  return roots;
+}
 const markerPath = join(app.getPath('userData'), 'recording-recovery.json');
 const recordingStopShortcut = 'CommandOrControl+Shift+R';
 const recordingRestartShortcut = 'CommandOrControl+Shift+N';
@@ -319,15 +328,17 @@ ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN, async () => {
     filters: [{ name: 'Rough Cut Project', extensions: ['roughcut'] }],
   });
   if (result.canceled || result.filePaths.length === 0) return null;
-  const safePath = validateProjectPath(result.filePaths[0], { allowedRoots: [recordingsDir] });
+  // The user explicitly picked this path via the OS dialog, so we trust it.
+  // Keep the extension + null-byte checks but skip the allowlist.
+  const safePath = validateProjectPath(result.filePaths[0]);
   return formatProject(await openProjectFile(safePath));
 });
 ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, (_event, projectPath) => {
-  const safePath = validateProjectPath(projectPath, { allowedRoots: [recordingsDir] });
+  const safePath = validateProjectPath(projectPath, { allowedRoots: buildAllowedProjectRoots() });
   return openProjectFile(safePath).then(formatProject);
 });
 ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, (_event, { path, document }) => {
-  const safePath = validateProjectPath(path, { allowedRoots: [recordingsDir] });
+  const safePath = validateProjectPath(path, { allowedRoots: buildAllowedProjectRoots() });
   return saveProjectFile(safePath, document).then(formatProject);
 });
 ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_GET, () => getRecoveryState({ markerPath }));
