@@ -138,6 +138,7 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       cameraInputPath: recording.camera?.filePath ?? null,
       cameraSourceInFrames: recording.camera?.sourceInFrames ?? 0,
       cameraPresentation: recording.presentation?.camera ?? null,
+      cameraFrame: recording.presentation?.cameraFrame ?? null,
       cutRanges: recording.cutRanges ?? [],
     }), {
       onStdout: (chunk) => {
@@ -190,6 +191,7 @@ export function buildStyledExportArgs({
   cameraInputPath = null,
   cameraSourceInFrames = 0,
   cameraPresentation = null,
+  cameraFrame: cameraFrameOverride = null,
   cutRanges = [],
 }) {
   const safePadding = clampNumber(screenPadding, 0, Math.min(width, height) / 2 - 2);
@@ -220,7 +222,7 @@ export function buildStyledExportArgs({
   const screenStep = zoomActive
     ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},scale=${maxVideoWidth}:${maxVideoHeight}:force_original_aspect_ratio=decrease,format=rgba`
     : `crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2,scale=${maxVideoWidth}:${maxVideoHeight}:force_original_aspect_ratio=decrease,format=rgba`;
-  const cameraFrame = cameraInputPath ? resolveCameraOverlayFrame(cameraPresentation, width, height) : null;
+  const cameraFrame = cameraInputPath ? resolveCameraOverlayFrame(cameraPresentation, width, height, cameraFrameOverride) : null;
   const cameraTrim = Math.max(0, Math.round(cameraSourceInFrames));
   const cameraRadius = cameraFrame ? resolveCameraOverlayRadius(cameraPresentation, cameraFrame) : 0;
   const cameraAlpha = buildRoundedAlphaExpression(cameraRadius);
@@ -328,7 +330,17 @@ export function buildRawTrimExportArgs({ inputPath, outputPath, startFrame = 0, 
   ];
 }
 
-function resolveCameraOverlayFrame(camera = null, canvasWidth, canvasHeight) {
+function resolveCameraOverlayFrame(camera = null, canvasWidth, canvasHeight, normalizedFrame = null) {
+  if (normalizedFrame && Number.isFinite(normalizedFrame.x) && Number.isFinite(normalizedFrame.y) && Number.isFinite(normalizedFrame.w) && Number.isFinite(normalizedFrame.h)) {
+    const w = Math.max(2, Math.round(normalizedFrame.w * canvasWidth));
+    const h = Math.max(2, Math.round(normalizedFrame.h * canvasHeight));
+    return {
+      x: Math.max(0, Math.round(normalizedFrame.x * canvasWidth)),
+      y: Math.max(0, Math.round(normalizedFrame.y * canvasHeight)),
+      w,
+      h,
+    };
+  }
   const sizeScale = clampNumber((camera?.size ?? 100) / 100, 0.5, 2);
   const w = Math.round(Math.min(canvasWidth, canvasHeight) * 0.22 * sizeScale);
   const h = w;

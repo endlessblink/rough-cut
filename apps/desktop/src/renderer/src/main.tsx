@@ -9,6 +9,9 @@ import {
   PROJECT_ASPECT_RATIO_LABELS,
   PROJECT_ASPECT_RATIOS,
   RECORDING_BACKGROUND_PRESETS,
+  RECORDING_TEMPLATE_PRESETS,
+  applyRecordingTemplatePreset,
+  findRecordingTemplatePresetId,
   type ProjectAspectRatio,
   type ProjectDocument,
   type CameraPosition,
@@ -1294,6 +1297,34 @@ function InspectorPresetGrid({ label, disabled = false, value, onSelect }: { lab
   );
 }
 
+function TemplatePresetGrid({ disabled = false, value, onSelect }: { disabled?: boolean; value?: string; onSelect?: (id: string) => void }) {
+  return (
+    <div className="inspectorPresetGroup" data-template-preset-grid="true">
+      <div className="templateGrid" aria-label="Recording templates">
+        {RECORDING_TEMPLATE_PRESETS.map((template) => {
+          const ratio = template.aspectRatio === '9:16' ? '9 / 16' : template.aspectRatio === '1:1' ? '1 / 1' : '16 / 9';
+          return (
+            <button
+              type="button"
+              key={template.id}
+              aria-label={template.label}
+              aria-pressed={value === template.id}
+              className={value === template.id ? 'templateCard active' : 'templateCard'}
+              disabled={disabled}
+              data-template-id={template.id}
+              onClick={() => onSelect?.(template.id)}
+              title={template.description}
+            >
+              <span className="templateCardFrame" style={{ aspectRatio: ratio }} aria-hidden="true" />
+              <span className="templateCardLabel">{template.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function InspectorActionRow({ children, region }: { children: React.ReactNode; region?: string }) {
   return <div className="actionsArea inspectorActionRow" data-ui-region={region}>{children}</div>;
 }
@@ -1317,6 +1348,18 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const aspectRatioOptions = PROJECT_ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: PROJECT_ASPECT_RATIO_LABELS[ratio] }));
   const activeBackgroundPreset = RECORDING_BACKGROUND_PRESETS.find((preset) => preset.style.bgImage ? preset.style.bgImage === bg.bgImage : (preset.style.bgColor === bg.bgColor && preset.style.bgGradient === bg.bgGradient))?.id;
+  const activeTemplatePreset = findRecordingTemplatePresetId(aspectRatio, bg);
+  const handleTemplatePresetSelect = (templateId: string) => {
+    const applied = applyRecordingTemplatePreset(bg, templateId);
+    if (!applied) return;
+    onAspectRatioChange?.(applied.aspectRatio);
+    onBackgroundChange?.({
+      bgColor: applied.background.bgColor,
+      bgGradient: applied.background.bgGradient,
+      bgImage: applied.background.bgImage,
+    });
+    onCameraPresentationChange?.(applied.camera);
+  };
   const markerCount = project?.recording ? listMarkers(project.document as unknown as ProjectDocument).length : 0;
 
   if (activeTool === 'timeline') {
@@ -1341,6 +1384,9 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
       <aside className="setupBoard" aria-label="Inspector board">
         <BoardHeader icon="sliders" title="Inspector" />
         <InspectorContextSummary selection={inspectorSelection} />
+        <InspectorSection id="templates" title="Templates" description="One click sets aspect ratio and background together.">
+          <TemplatePresetGrid disabled={disabled} value={activeTemplatePreset} onSelect={handleTemplatePresetSelect} />
+        </InspectorSection>
         <InspectorSection id="canvas" title="Canvas">
           <InspectorSelect label="Aspect ratio" value={aspectRatio} options={aspectRatioOptions} disabled={disabled} onChange={(value) => onAspectRatioChange?.(value)} />
         </InspectorSection>

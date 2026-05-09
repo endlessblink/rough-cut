@@ -107,6 +107,8 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-091 | Add opt-in crash reporting and error telemetry | P3 | PLANNED |
 | TASK-092 | Replace xdotool and xinput stack with uiohook-napi | P2 | PLANNED |
 | TASK-093 | Split countdown and HUD indicator into BrowserWindows | P3 | PLANNED |
+| TASK-094 | Add Inspector templates picker for one-click aspect+background+camera | P2 | DONE |
+| TASK-095 | Add drag-to-reposition camera PiP and screen frame in editor preview | P2 | IN PROGRESS |
 
 ## Recently Verified
 
@@ -204,6 +206,9 @@ Sequence: TASK-070, TASK-071, TASK-073, TASK-078, TASK-083, TASK-084, TASK-080, 
 
 6. **LINE F — Distribution and native rewrites**:
 Sequence: TASK-089, TASK-090, TASK-091, TASK-092, TASK-093, TASK-063, TASK-064
+
+7. **LINE G — Record sidebar authoring toolset**:
+Sequence: ~~TASK-094~~, TASK-095
 
 ## Tasks
 
@@ -2789,3 +2794,56 @@ Recordly renders countdown, source-selector, hud-overlay, update-toast, and the 
 
 - Updated UI smokes cover countdown and HUD windows.
 - Manual: record once, confirm countdown is its own window and the HUD appears immediately and survives focus changes.
+
+### TASK-094 Add Inspector templates picker for one-click aspect+background+camera
+
+**Priority:** P2
+**Status:** DONE
+
+#### Context
+
+The legacy `rough-cut` app exposes a Templates picker in the record sidebar that combines aspect ratio, background, and camera layout. In rough-cut-mvp the equivalent affordances were split across separate Inspector controls: aspect ratio in Canvas, background presets in the Background tool, camera position/size in the Camera section. To pick "Mobile 9:16 with violet dusk" a user had to make three unrelated choices that didn't read as a unit. Watchpost surfaces this gap as the entry point of the "Record sidebar authoring toolset" instance (Instance 58ad3a0f).
+
+#### Acceptance Criteria
+
+- A Templates section appears at the top of the Inspector tool with first-slice cards: Tutorial 16:9, Mobile 9:16, Square 1:1.
+- Selecting a card sets aspect ratio, background preset, and camera position/shape/size together, preserving frame controls (padding, corner radius, shadow size/opacity/distance).
+- The active template is reflected back in the card UI when both aspect ratio and background match a known template.
+- Existing Inspector controls (Canvas, Screen, Recording, Zoom, Cursor, Camera, Diagnostics) remain unchanged.
+- Camera fan-out is a safe no-op when the project has no linked camera asset (`updateCameraPresentation` is gated by `hasCamera`).
+
+#### Verification
+
+- New project-model unit suite `recording-templates.test.ts` covers preset definitions, apply behavior preserving frame controls, camera patches, unknown-id handling, and active-id detection (`pnpm --filter @rough-cut/project-model test` — 109/109 pass).
+- `pnpm --filter @rough-cut/desktop typecheck` — pass.
+- `pnpm --filter @rough-cut/desktop test` — 179/179 pass.
+- `pnpm smoke:ui` — pass; existing `hasInspectorGroups`, `hasInspectorContext`, and aspect-ratio assertions unaffected.
+- 2026-05-09: Templates module landed at `packages/project-model/src/recording-templates.ts` with `RECORDING_TEMPLATE_PRESETS`, `applyRecordingTemplatePreset`, `findRecordingTemplatePresetId`. Renderer wires a `TemplatePresetGrid` in the Inspector that fans selection into the existing `onAspectRatioChange`, `onBackgroundChange`, and `onCameraPresentationChange` handlers, so persistence and styled-export paths reuse already-tested code. Tutorial 16:9 → corner-br circle 110, Mobile 9:16 → corner-bl rounded 150, Square 1:1 → corner-tr circle 100.
+
+### TASK-095 Add drag-to-reposition camera PiP and screen frame in editor preview
+
+**Priority:** P2
+**Status:** IN PROGRESS
+
+#### Context
+
+Today the camera PiP position is picked from a five-slot enum (`corner-br/bl/tr/tl/center`) in the Inspector, and the screen recording fills the styled canvas implicitly determined by the aspect ratio. There is no direct manipulation on the preview itself. Screen Studio is also fixed-slot for camera placement (this is an open feature request on their hub) but supports the next layer up: per-segment **Dynamic Camera Layouts** on a timeline track. The legacy `/rough-cut/` repo carries `screenFrame` and `cameraFrame` normalized rectangles in `recordingAsset.presentation`, which is the data shape required to draw drag handles and persist free placement. rough-cut-mvp's project schema already declares both fields as optional `NormalizedRect` on `RecordingPresentation` and the renderer's `resolveCameraFrame` already consumes them — the gaps are the styled-export pipeline (slice 1) and the editor-preview drag handles (slice 2+).
+
+#### Acceptance Criteria
+
+- Project model exposes `cameraFrame` and `screenFrame` as optional `NormalizedRect` (0..1) on `RecordingPresentation`. (Already in place.)
+- Editor preview renders drag handles on the camera PiP and the screen rectangle when the project has a recording. Dragging updates the normalized frame in project state; resizing keeps aspect ratio of the source.
+- When `cameraFrame` is undefined, position falls back to the existing five-slot enum (no regression for current projects). When set, it overrides the enum.
+- Templates (TASK-094) clear `cameraFrame` / `screenFrame` so a template re-assert returns to its default slot — same behavior as legacy `handleTemplateChange` in `/rough-cut/`.
+- Styled export consumes `cameraFrame` / `screenFrame` when present; raw export is unaffected.
+- Per-frame-rate timing, trim, cut, and zoom marker behavior are all unchanged.
+
+#### Progress
+
+- 2026-05-09: Slice 1 — data plumbing for camera. Discovery confirmed `RecordingPresentation.cameraFrame` and `screenFrame` already exist as optional `NormalizedRect` fields and the renderer's `resolveCameraFrame` already prefers a normalized rect over enum-derived placement. Remaining gap was the export pipeline. Added `cameraFrame` parameter to `buildStyledExportArgs`, threaded through from `recording.presentation?.cameraFrame ?? null` at the call site, and updated `resolveCameraOverlayFrame` to convert the normalized rect to canvas pixels when provided. Two new export-service tests cover the override path (1920×1080 with `{x:0.1,y:0.2,w:0.25,h:0.4}` resolves to `overlay=192:216` and `scale=480:432`) and the enum fallback path. Desktop tests 179/179, typecheck pass, `pnpm smoke:ui` pass.
+- Remaining slices: drag handles in editor preview that mutate `presentation.cameraFrame`; same primitive for `screenFrame` (overrides centered overlay positioning); template selection clears custom frames; styled-export consumption of `screenFrame`.
+
+#### Dependencies
+
+- Builds on TASK-094 (templates) for the "template clears custom frames" behavior.
+- Should land before any future Dynamic Camera Layouts timeline track work.

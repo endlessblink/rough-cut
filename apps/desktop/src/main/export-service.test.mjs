@@ -291,6 +291,41 @@ test('styled export args overlay a camera input when provided', () => {
   assert(joined.includes('format=yuv420p[v]'));
 });
 
+test('styled export args use a normalized cameraFrame override when provided', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    width: 1920,
+    height: 1080,
+    cameraInputPath: '/tmp/camera.mp4',
+    cameraPresentation: { shape: 'circle', position: 'corner-br', roundness: 50, size: 100, visible: true },
+    cameraFrame: { x: 0.1, y: 0.2, w: 0.25, h: 0.4 },
+  });
+  const joined = args.join(' ');
+
+  // Override at 1920x1080 → x=192, y=216, w=480, h=432
+  assert(joined.includes('scale=480:432:force_original_aspect_ratio=increase'));
+  assert(joined.includes('crop=480:432'));
+  assert(joined.includes('overlay=192:216:shortest=1'));
+});
+
+test('styled export args fall back to camera presentation when no normalized frame is set', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    width: 1920,
+    height: 1080,
+    cameraInputPath: '/tmp/camera.mp4',
+    cameraPresentation: { shape: 'circle', position: 'corner-br', roundness: 50, size: 100, visible: true },
+    cameraFrame: null,
+  });
+  const joined = args.join(' ');
+
+  // Enum-derived corner-br placement at default size — should use the legacy formula
+  assert(!joined.includes('overlay=192:216:'));
+  assert(joined.includes('[with_screen][camera_rounded]overlay='));
+});
+
 test('styled export args trim camera pre-roll before overlay', () => {
   const args = buildStyledExportArgs({
     inputPath: '/tmp/source.mp4',
