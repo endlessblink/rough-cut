@@ -411,15 +411,18 @@ function App() {
         const cameraDevicePath = recordCamera ? selectedCameraSource || null : null;
         // Refuse to start when the user wanted camera but no device resolved.
         // Without this guard the recording proceeds silently screen-only and
-        // the user only discovers the missing face cam after the take. Triggered
-        // by a user report on 2026-05-09 where cameraDevicePath was null in the
-        // recording-start event despite the recordCamera toggle being on.
+        // the user discovers their face cam wasn't captured only after the take
+        // (TASK-095 / camera-not-recorded report, 2026-05-09).
         if (recordCamera && !cameraDevicePath) {
           throw new Error('Camera is enabled but no camera device is selected. Pick a camera in the source dropdown or turn the camera toggle off, then start again.');
         }
         const region = captureMode === 'region' ? captureRegion : null;
         setPreRecordPanelOpen(false);
-        await new Promise((resolve) => window.setTimeout(resolve, 100));
+        // Give the panel's PreRecordCameraSetup unmount cleanup time to fire
+        // (track.stop() + srcObject = null) so /dev/video0 is fully released
+        // before ffmpeg-camera tries to open it. 100ms wasn't always enough;
+        // 500ms gives Electron's media pipeline time to drop the V4L2 handle.
+        await new Promise((resolve) => window.setTimeout(resolve, recordCamera ? 500 : 100));
         console.info(`[renderer:recording] start requested ${JSON.stringify({
           hasMic: Boolean(micSource),
           hasSystemAudio: Boolean(systemAudioSource),
@@ -1071,7 +1074,17 @@ function PreRecordCameraSetup({ source }: { source?: CameraSource }) {
     void startPreview();
     return () => {
       cancelled = true;
+      // Detach the stream from the <video> first so Electron's media pipeline
+      // releases its hold on the underlying V4L2 device before we stop tracks.
+      // Without this, the kernel /dev/video0 file handle stays open for an
+      // extra ~100-300ms after track.stop() and ffmpeg-camera fails to grab
+      // it with "Device or resource busy" when the recording starts.
+      if (videoRef.current) {
+        try { videoRef.current.pause(); } catch { /* element gone */ }
+        videoRef.current.srcObject = null;
+      }
       stream?.getTracks().forEach((track) => track.stop());
+      stream = null;
     };
   }, [source?.label, source?.name]);
 
