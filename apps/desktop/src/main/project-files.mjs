@@ -163,14 +163,20 @@ export const PROJECT_BACKUP_SUFFIX = '.bak';
 export async function saveProjectFile(projectPath, project) {
   const document = validateProject({ ...project, modifiedAt: new Date().toISOString() });
   const json = `${JSON.stringify(document, null, 2)}\n`;
-  const tmpPath = `${projectPath}${PROJECT_TEMP_SUFFIX}`;
+  // Use a unique tmp path per call so two concurrent saves can never collide
+  // on the same inode. Without this, parallel `open(tmpPath, 'w')` calls would
+  // truncate each other and write interleaved bytes into the same file,
+  // producing corrupt JSON after rename. The IPC handler in main/index.mjs
+  // already serializes saves; this is defense-in-depth for any caller that
+  // bypasses the queue (e.g. saveProjectForRecording at recording-stop).
+  const tmpPath = `${projectPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 10)}${PROJECT_TEMP_SUFFIX}`;
   const backupPath = `${projectPath}${PROJECT_BACKUP_SUFFIX}`;
 
   await mkdir(dirname(projectPath), { recursive: true });
 
-  // Write to <path>.tmp and fsync so the bytes are durable before we rename.
-  // If the process dies between open and rename, the original file at
-  // projectPath is untouched and any partial tmp can be detected on next read.
+  // Write to the unique tmp and fsync so the bytes are durable before we
+  // rename. If the process dies between open and rename, the original file at
+  // projectPath is untouched and the tmp can be cleaned up on next launch.
   const handle = await open(tmpPath, 'w');
   try {
     await handle.writeFile(json, 'utf8');
@@ -197,9 +203,24 @@ export async function openProjectFile(projectPath) {
   const interruptedTmp = await stat(tmpPath).catch(() => null);
   const backupInfo = await stat(backupPath).catch(() => null);
   const raw = await readFile(projectPath, 'utf8');
+  let document;
+  let recoveredFromBackup = false;
+  try {
+    document = migrate(JSON.parse(raw));
+  } catch (parseError) {
+    // The main file is corrupt (e.g. a previous concurrent-save race left
+    // interleaved bytes). Try the .bak — saveProjectFile snapshots the
+    // previous good file before each atomic replace, so the .bak is the
+    // most recent known-clean generation.
+    if (!backupInfo?.isFile()) throw parseError;
+    const backupRaw = await readFile(backupPath, 'utf8');
+    document = migrate(JSON.parse(backupRaw));
+    recoveredFromBackup = true;
+  }
   return {
     path: projectPath,
-    document: migrate(JSON.parse(raw)),
+    document,
+    recoveredFromBackup,
     interruptedSave: interruptedTmp?.isFile()
       ? { tmpPath, size: interruptedTmp.size, modifiedAt: interruptedTmp.mtime.toISOString() }
       : null,
