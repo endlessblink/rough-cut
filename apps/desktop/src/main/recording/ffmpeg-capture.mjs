@@ -331,15 +331,27 @@ function stopFfmpegProcess(proc, outputPath, tag, finalizationLabel, timeouts = 
     let sigintTimeout = null;
     let sigtermTimeout = null;
     let postKillTimeout = null;
-    const finish = () => {
+    let hardDeadline = null;
+    const finish = (reason) => {
       if (settled) return;
       settled = true;
       clearTimeout(stdinTimeout);
       if (sigintTimeout) clearTimeout(sigintTimeout);
       if (sigtermTimeout) clearTimeout(sigtermTimeout);
       if (postKillTimeout) clearTimeout(postKillTimeout);
+      if (hardDeadline) clearTimeout(hardDeadline);
+      if (reason) console.warn(`${tag} ${reason}`);
       resolve(outputPath);
     };
+    // The proc may have already exited before stopFfmpegProcess was called
+    // (e.g. ffmpeg's -rw_timeout fired during capture, or v4l2 producer
+    // crashed). In that case proc.on('exit') already fired and registering
+    // a new listener catches nothing — the promise would hang forever. Bail
+    // out immediately on any prior-exit signal.
+    if (proc.exitCode !== null || proc.signalCode !== null) {
+      resolve(outputPath);
+      return;
+    }
     const stdinTimeout = setTimeout(() => {
       console.warn(`${tag} Timeout after q — sending SIGINT for ${finalizationLabel}.`);
       proc.kill('SIGINT');
@@ -350,15 +362,24 @@ function stopFfmpegProcess(proc, outputPath, tag, finalizationLabel, timeouts = 
           console.warn(`${tag} Timeout after SIGTERM — forcing SIGKILL; output may be corrupt.`);
           proc.kill('SIGKILL');
           postKillTimeout = setTimeout(() => {
-            if (proc.exitCode !== null || proc.signalCode !== null) return;
-            console.warn(`${tag} Process did not exit after SIGKILL — likely uninterruptible sleep (e.g. stuck v4l2 read). Giving up wait; the zombie will die later. Output is unusable.`);
-            finish();
+            // Resolve regardless: if proc actually exited, exit/close handlers
+            // already finished us; if it's truly stuck in D-state, the zombie
+            // will die when the kernel call returns and we don't care.
+            finish('Process did not exit after SIGKILL — likely uninterruptible sleep (e.g. stuck v4l2 read). Giving up wait; output is unusable.');
           }, FFMPEG_POSTKILL_GRACE_MS);
         }, sigtermMs);
       }, sigintMs);
     }, stopMs);
 
+    // Belt-and-suspenders: even if every cascade step somehow fails to fire,
+    // never let stop() block the recording-stop pipeline beyond this ceiling.
+    // Stop + sigint + sigterm + sigkill grace plus a 1s safety margin.
+    hardDeadline = setTimeout(() => {
+      finish('Hard deadline reached — proceeding without confirmed exit.');
+    }, stopMs + sigintMs + sigtermMs + FFMPEG_POSTKILL_GRACE_MS + 1_000);
+
     proc.on('exit', () => finish());
+    proc.on('close', () => finish());
 
     try {
       proc.stdin?.write('q\n');
