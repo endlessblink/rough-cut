@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startFfmpegCapture } from './recording/ffmpeg-capture.mjs';
 import { assertReadableMp4 } from './media-probe.mjs';
-import { remuxMkvToMp4 } from './remux-service.mjs';
+import { remuxMkvToMp4, RemuxIncompleteError, validateRemuxedMp4 } from './remux-service.mjs';
 
 test('remuxes a short mkv recording to readable mp4', { timeout: 30_000 }, async () => {
   if (!process.env.DISPLAY) return;
@@ -23,8 +23,108 @@ test('remuxes a short mkv recording to readable mp4', { timeout: 30_000 }, async
 
   await new Promise((resolve) => setTimeout(resolve, 1500));
   await capture.stop();
-  await remuxMkvToMp4({ rawPath, outputPath });
+  const result = await remuxMkvToMp4({ rawPath, outputPath });
   await assertReadableMp4(outputPath);
+  // A real short capture should be coherent end-to-end.
+  assert.equal(result.warning, null);
 
   await rm(root, { recursive: true, force: true });
+});
+
+test('validateRemuxedMp4 reports coherent when decoded frames match advertised', async () => {
+  const result = await validateRemuxedMp4('/tmp/fake.mp4', {
+    probe: async () => ({ advertisedFrames: 300, decodedFrames: 300, durationSeconds: 10 }),
+  });
+  assert.equal(result.coherent, true);
+  assert.equal(result.warning, null);
+  assert.equal(result.integrity.decodedFrames, 300);
+});
+
+test('validateRemuxedMp4 reports a partial-recovery warning when decoded < advertised - tolerance', async () => {
+  const result = await validateRemuxedMp4('/tmp/fake.mp4', {
+    probe: async () => ({ advertisedFrames: 300, decodedFrames: 240, durationSeconds: 10 }),
+  });
+  assert.equal(result.coherent, false);
+  assert.match(result.warning ?? '', /Partial recording: 240\/300 frames decoded \(60 missing\)/);
+});
+
+test('validateRemuxedMp4 ignores tiny decoded/advertised gaps within tolerance', async () => {
+  const result = await validateRemuxedMp4('/tmp/fake.mp4', {
+    probe: async () => ({ advertisedFrames: 300, decodedFrames: 298, durationSeconds: 10 }),
+  });
+  assert.equal(result.coherent, true);
+  assert.equal(result.warning, null);
+});
+
+test('validateRemuxedMp4 throws RemuxIncompleteError when no frames decode', async () => {
+  await assert.rejects(
+    () => validateRemuxedMp4('/tmp/fake.mp4', {
+      probe: async () => ({ advertisedFrames: 300, decodedFrames: 0, durationSeconds: 10 }),
+    }),
+    (err) => err instanceof RemuxIncompleteError && err.code === 'REMUX_INCOMPLETE',
+  );
+});
+
+test('validateRemuxedMp4 stays silent when advertisedFrames is unknown', async () => {
+  const result = await validateRemuxedMp4('/tmp/fake.mp4', {
+    probe: async () => ({ advertisedFrames: null, decodedFrames: 240, durationSeconds: 10 }),
+  });
+  assert.equal(result.coherent, true);
+  assert.equal(result.warning, null);
+});
+
+test('remuxMkvToMp4 returns a clean result when ffmpeg succeeds and the validator reports coherent', async () => {
+  const logs = [];
+  const result = await remuxMkvToMp4({
+    rawPath: '/tmp/in.mkv',
+    outputPath: '/tmp/out.mp4',
+    onLog: (line) => logs.push(line),
+    runner: async () => ({ code: 0, stdout: '', stderr: '' }),
+    validate: async () => ({ coherent: true, integrity: { advertisedFrames: 300, decodedFrames: 300 }, warning: null }),
+  });
+  assert.equal(result.outputPath, '/tmp/out.mp4');
+  assert.equal(result.warning, null);
+  assert.equal(logs.some((line) => line.startsWith('[remux] Starting:')), true);
+  assert.equal(logs.some((line) => line.includes('WARN')), false);
+});
+
+test('remuxMkvToMp4 surfaces the validator warning to onLog and the return value', async () => {
+  const logs = [];
+  const result = await remuxMkvToMp4({
+    rawPath: '/tmp/in.mkv',
+    outputPath: '/tmp/out.mp4',
+    onLog: (line) => logs.push(line),
+    runner: async () => ({ code: 0, stdout: '', stderr: '' }),
+    validate: async () => ({
+      coherent: false,
+      integrity: { advertisedFrames: 300, decodedFrames: 240 },
+      warning: 'Partial recording: 240/300 frames decoded (60 missing).',
+    }),
+  });
+  assert.match(result.warning ?? '', /Partial recording/);
+  assert.ok(logs.some((line) => line.includes('WARN Partial recording')), 'warning should be logged');
+});
+
+test('remuxMkvToMp4 throws when the ffmpeg runner exits non-zero', async () => {
+  await assert.rejects(
+    () => remuxMkvToMp4({
+      rawPath: '/tmp/in.mkv',
+      outputPath: '/tmp/out.mp4',
+      runner: async () => ({ code: 1, stdout: '', stderr: 'simulated ffmpeg failure' }),
+      validate: async () => ({ coherent: true, integrity: {}, warning: null }),
+    }),
+    /Failed to remux MKV to MP4: simulated ffmpeg failure/,
+  );
+});
+
+test('remuxMkvToMp4 propagates RemuxIncompleteError from the validator', async () => {
+  await assert.rejects(
+    () => remuxMkvToMp4({
+      rawPath: '/tmp/in.mkv',
+      outputPath: '/tmp/out.mp4',
+      runner: async () => ({ code: 0, stdout: '', stderr: '' }),
+      validate: async () => { throw new RemuxIncompleteError('no decodable frames', { filePath: '/tmp/out.mp4' }); },
+    }),
+    (err) => err instanceof RemuxIncompleteError,
+  );
 });

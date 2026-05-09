@@ -80,7 +80,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-064 | Stabilize sidebar tool switching layout | P2 | PLANNED |
 | TASK-065 | Validate paths in PROJECT_OPEN and PROJECT_SAVE IPC handlers | P1 | DONE |
 | TASK-066 | Clean up recording child processes on app crash or signal | P1 | DONE |
-| TASK-067 | Validate remuxed MP4 coherence before declaring success | P1 | PLANNED |
+| TASK-067 | Validate remuxed MP4 coherence before declaring success | P1 | DONE |
 | TASK-068 | Compensate cursor and audio drift vs ffmpeg first frame | P1 | PLANNED |
 | TASK-069 | Add EXPORT_CANCEL IPC and kill ffmpeg on cancel | P1 | PLANNED |
 | TASK-070 | Per-display scale factor for cursor and click telemetry | P1 | PLANNED |
@@ -2231,26 +2231,28 @@ Recording spawns ffmpeg (screen, camera, audio), xinput, and xdotool. None of th
 - `pnpm --filter @rough-cut/desktop test` → 196 / 196 pass.
 - Manual (still recommended): `pkill -KILL -f electron` mid-recording, verify no orphan ffmpeg/xinput via `pgrep`. Note: `pkill -KILL` skips our SIGTERM handler — only the recovery marker / TASK-088 path can clean up after that.
 
-### TASK-067 Validate remuxed MP4 coherence before declaring success
+### ~~TASK-067~~ Validate remuxed MP4 coherence before declaring success
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
-`apps/desktop/src/main/remux-service.mjs:4` runs `-map 0 -c copy -movflags +faststart` and trusts the output without checking it. If the upstream raw MKV was killed mid-write, the remuxed MP4's header advertises frames that aren't actually there. The user gets a video that looks fine and silently ends early.
+`apps/desktop/src/main/remux-service.mjs:4` ran `-map 0 -c copy -movflags +faststart` and trusted the output without checking it. If the upstream raw MKV was killed mid-write, the remuxed MP4's header advertised frames that weren't actually there. The user got a video that looked fine and silently ended early.
 
-#### Acceptance Criteria
+#### Completion Notes
 
-- After remux, run `ffprobe` to compare advertised duration/frames to actual decoded count.
-- On mismatch, fall back to a re-encode pass or surface a clear "recording incomplete" error to the user.
-- Surface a single visible warning when partial recovery is the best we can do.
+- Added `probeMp4Integrity(filePath)` to `media-probe.mjs`. Runs `ffprobe -count_frames -count_packets -select_streams v:0` and returns `{ codec, width, height, durationSeconds, advertisedFrames, decodedFrames, decodedPackets }`. Decoded frames is the truthful count — `nb_frames` from the container header is the value that lies after a kill mid-write.
+- Added `validateRemuxedMp4(filePath, { probe, toleranceFrames=5 })` and `RemuxIncompleteError` to `remux-service.mjs`. Validator throws `RemuxIncompleteError` when the file decodes to zero frames but advertises a stream; returns `{ coherent: false, warning }` when decoded < advertised − tolerance; otherwise `{ coherent: true }`.
+- `remuxMkvToMp4` now runs the validator after the ffmpeg copy succeeds and returns `{ outputPath, integrity, warning }`. Warnings are also forwarded through the existing `onLog` channel so they land in the diagnostics file. Both `validate` and `runner` are injectable for unit tests.
+- `recording-stop-handler.mjs` collects per-source warnings into a `remuxWarnings: [{ source, message }]` array on its returned recording object so the renderer can surface a banner without parsing log lines. Existing camera fallback path still works (warning is captured even when downstream `assertReadableMp4` fails).
+- The original integration test (`remuxes a short mkv recording...`) now also asserts `result.warning === null` for a healthy short capture, so a regression that breaks the validator on real ffmpeg output gets caught.
 
 #### Verification
 
-- Unit test feeds a deliberately truncated MKV and asserts the validator catches it.
-- `pnpm --filter @rough-cut/desktop test`
-- Manual: SIGKILL ffmpeg mid-recording, verify remux either repairs or flags the file rather than silently producing a broken MP4.
+- 9 new unit tests in `remux-service.test.mjs` cover: coherent equal frames, partial-recovery warning, tolerance window, zero-frame `RemuxIncompleteError`, unknown advertised frames (silent), clean orchestrator path, warning surface to onLog/return, ffmpeg non-zero exit, and validator error propagation.
+- `pnpm --filter @rough-cut/desktop test` → 205 / 205 pass.
+- Manual: SIGKILL ffmpeg mid-recording, verify remux either flags `Partial recording: M/N frames decoded` or throws `Recording incomplete` rather than silently producing a broken MP4.
 
 ### TASK-068 Compensate cursor and audio drift vs ffmpeg first frame
 

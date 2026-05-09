@@ -14,19 +14,25 @@ export async function stopRecordingAndCreateProject({
   if (result.state !== 'saved') return result;
 
   const remuxLogs = [];
+  const remuxWarnings = [];
   const onRemuxLog = (line) => {
     remuxLogs.push(line);
     console.info(line);
   };
+  const captureRemuxWarning = (label, remuxResult) => {
+    if (remuxResult && typeof remuxResult === 'object' && remuxResult.warning) {
+      remuxWarnings.push({ source: label, message: remuxResult.warning });
+    }
+  };
   console.info(`[recording:stop] remuxing screen recording ${result.rawPath} -> ${result.outputPath}`);
-  await remuxMkvToMp4({ rawPath: result.rawPath, outputPath: result.outputPath, onLog: onRemuxLog });
+  captureRemuxWarning('screen', await remuxMkvToMp4({ rawPath: result.rawPath, outputPath: result.outputPath, onLog: onRemuxLog }));
   await assertReadableMp4(result.outputPath);
   console.info(`[recording:stop] screen recording is readable: ${result.outputPath}`);
   let recordingForProject = result;
   if (result.cameraRawPath && result.cameraOutputPath) {
     try {
       console.info(`[recording:stop] remuxing camera recording ${result.cameraRawPath} -> ${result.cameraOutputPath}`);
-      await remuxMkvToMp4({ rawPath: result.cameraRawPath, outputPath: result.cameraOutputPath, onLog: onRemuxLog });
+      captureRemuxWarning('camera', await remuxMkvToMp4({ rawPath: result.cameraRawPath, outputPath: result.cameraOutputPath, onLog: onRemuxLog }));
       await assertReadableMp4(result.cameraOutputPath);
       console.info(`[recording:stop] camera recording is readable: ${result.cameraOutputPath}`);
     } catch (err) {
@@ -62,7 +68,7 @@ export async function stopRecordingAndCreateProject({
     hasCamera: Boolean(recordingForProject.camera),
     cameraError: recordingForProject.cameraError ?? null,
   });
-  return { ...recordingForProject, diagnosticsPath, project: formattedProject };
+  return { ...recordingForProject, diagnosticsPath, project: formattedProject, remuxWarnings };
 }
 
 function summarizeRecordingResult(result) {
