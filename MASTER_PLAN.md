@@ -63,7 +63,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-047 | Add simple cut removal flow | P2 | DONE |
 | TASK-048 | Add optional webcam PiP recording and export | P1 | DONE |
 | TASK-049 | Build Screen Studio-style editor UI foundation | P1 | DONE |
-| TASK-050 | Add Screen Studio-style pre-record panel | P1 | EXTERNAL |
+| TASK-050 | Add Screen Studio-style pre-record panel | P1 | DONE |
 | TASK-051 | Add post-recording review workspace | P1 | DONE |
 | TASK-052 | Add timeline-first playback and edit rail | P1 | DONE |
 | TASK-053 | Add extensible properties inspector system | P1 | DONE |
@@ -1690,9 +1690,9 @@ The current UI grew from MVP controls: one top strip, one preview panel, and a d
 ### TASK-050 Add Screen Studio-style pre-record panel
 
 **Priority:** P1  
-**Status:** EXTERNAL
+**Status:** DONE
 
-**Ownership:** Pre-record work is being developed in another instance. Do not pick up or modify this task from the main-app session unless explicitly reassigned.
+**Ownership:** Reassigned to this session for final verification and closure.
 
 #### Context
 
@@ -1729,7 +1729,7 @@ Recording options are currently inline and crowded. Screen Studio and Recordly b
 - 2026-05-06: Verification pass: `pnpm --filter @rough-cut/desktop typecheck`, `pnpm --filter @rough-cut/desktop test`, and `pnpm smoke:recording-flow-ui` all pass.
 - 2026-05-06: For Linux/X11 `x11grab`, normal visible Electron controls are captured as pixels. Updated recorder mode to hide the launcher before starting FFmpeg, wait briefly for the compositor/X server to repaint, and expose recording status/control through tray menu plus global shortcuts instead of a captured floating HUD.
 - 2026-05-06: Current controls: Stop recording via tray or `CommandOrControl+Shift+R`; Restart recording via tray or `CommandOrControl+Shift+N`. True pause/resume remains pending because it should be implemented as segment-based recording/stitching, not by freezing the FFmpeg process.
-- Pending manual packaged-app verification before marking DONE.
+- 2026-05-09: Final packaged verification passed with `pnpm smoke:package-recording-flow`; the packaged app opens through the pre-record launcher, shows preflight/source controls, starts screen recording from the setup surface, preserves the screen recording when the simulated camera is unavailable, and lands in saved review with post-recording actions and camera-warning copy.
 - UI smoke verifies setup controls, disabled/unavailable messaging, and successful start.
 - Manual check with camera unavailable confirms screen-only fallback is visible and usable.
 - `pnpm --filter @rough-cut/desktop test`
