@@ -18,7 +18,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-002 | Add Electron UI smoke coverage for preview and export | P2 | DONE |
 | TASK-003 | Improve Watchpost compatibility for project task tracking | P2 | DONE |
 | TASK-004 | Package the desktop MVP for local install testing | P2 | DONE |
-| TASK-005 | Document release-ready Linux/X11 verification steps | P3 | PLANNED |
+| TASK-005 | Document release-ready Linux/X11 verification steps | P3 | DONE |
 | TASK-006 | Define client-demo roadmap before editing work | P1 | DONE |
 | TASK-007 | Add export mode selection: raw vs styled | P1 | DONE |
 | TASK-008 | Add styled 16:9 canvas export preset | P1 | DONE |
@@ -33,10 +33,10 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-017~~ | Add zoom preview playback approximation | P2 | SUPERSEDED → TASK-025 |
 | TASK-018 | Add automatic zoom suggestion engine | P2 | DONE |
 | TASK-019 | Add automatic zoom review/apply flow | P2 | DONE |
-| TASK-020 | Add countdown before recording | P2 | PLANNED |
-| TASK-021 | Add clear recording indicator and elapsed time | P2 | PLANNED |
-| TASK-022 | Add open recording/project folder action | P2 | PLANNED |
-| TASK-023 | Add recent projects or recordings list | P2 | PLANNED |
+| TASK-020 | Add countdown before recording | P2 | DONE |
+| TASK-021 | Add clear recording indicator and elapsed time | P2 | DONE |
+| TASK-022 | Add open recording/project folder action | P2 | DONE |
+| TASK-023 | Add recent projects or recordings list | P2 | DONE |
 | TASK-024 | Add microphone recording foundation | P2 | DONE |
 | TASK-025 | Unified preview that mirrors styled export | P1 | DONE |
 | TASK-026 | Switch capture pipeline to xdg-desktop-portal + PipeWire (Wayland) | P1 | PLANNED |
@@ -54,10 +54,10 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-038 | Add system audio capture controls | P1 | DONE |
 | TASK-039 | Add capture target picker | P1 | DONE |
 | TASK-040 | Add pause, resume, and cancel recording | P1 | DONE |
-| TASK-041 | Add post-recording next-action flow | P1 | PLANNED |
+| TASK-041 | Add post-recording next-action flow | P1 | DONE |
 | TASK-042 | Render click emphasis in preview and export | P1 | DONE |
 | TASK-043 | Add webcam PiP presentation controls | P1 | DONE |
-| TASK-044 | Add cursor style controls | P2 | PLANNED |
+| TASK-044 | Add cursor style controls | P2 | DONE |
 | TASK-045 | Add background style presets | P2 | DONE |
 | TASK-046 | Add trim start and end controls | P1 | DONE |
 | TASK-047 | Add simple cut removal flow | P2 | DONE |
@@ -1543,7 +1543,7 @@ The cursor overlay works, but Screen Studio users expect presentation controls s
 ### TASK-045 Add background style presets
 
 **Priority:** P2  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -2013,7 +2013,7 @@ Zoom markers, trims, cuts, clicks, and camera/audio tracks need a timeline surfa
 ### TASK-053 Add extensible properties inspector system
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
