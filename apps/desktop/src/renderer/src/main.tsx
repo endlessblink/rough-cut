@@ -83,7 +83,7 @@ type CaptureMode = 'display' | 'region';
 type CaptureRegion = { mode: 'region'; x: number; y: number; width: number; height: number };
 type RecordingPreflightOptions = { recordMic: boolean; recordSystemAudio: boolean; recordCamera: boolean; micSource?: string | null; systemAudioSource?: string | null; cameraDevicePath?: string | null; captureMode: CaptureMode; captureRegion?: CaptureRegion | null };
 type RecordingPreflightCheck = { id: string; label: string; severity: 'ok' | 'warn' | 'critical'; detail: string };
-type RecordingPreflightStatus = { status: 'ok' | 'warn' | 'critical'; checkedAt: string; recordingsDir: string; capture: { mode: CaptureMode; width: number; height: number; fps: number }; disk?: { freeBytes: number | null; severity: RecordingPreflightCheck['severity']; detail: string }; checks: RecordingPreflightCheck[] };
+type RecordingPreflightStatus = { status: 'ok' | 'warn' | 'critical'; checkedAt: string; recordingsDir: string; display?: { x?: number; y?: number; width?: number; height?: number }; capture: { mode: CaptureMode; width: number; height: number; fps: number }; disk?: { freeBytes: number | null; severity: RecordingPreflightCheck['severity']; detail: string }; checks: RecordingPreflightCheck[] };
 type InspectorGroupId = 'canvas' | 'recording' | 'screen' | 'zoom' | 'cursor' | 'camera' | 'export' | 'diagnostics';
 type InspectorSelection = { group: InspectorGroupId; label: string; detail?: string; markerId?: string };
 type PrimaryClip = { assetId?: string; timelineIn?: number; timelineOut?: number; sourceIn?: number; sourceOut?: number } & Record<string, unknown>;
@@ -775,6 +775,27 @@ function PreRecordPanel({
   onCaptureModeChange: (mode: CaptureMode) => void;
   onCaptureRegionChange: (region: CaptureRegion) => void;
 }) {
+  const [regionPickerOpen, setRegionPickerOpen] = React.useState(false);
+  const [draftRegion, setDraftRegion] = React.useState<CaptureRegion>(captureRegion);
+  const displayWidth = Math.max(2, Math.round(preflightStatus?.display?.width ?? (captureMode === 'region' ? Math.max(captureRegion.x + captureRegion.width, 1920) : preflightStatus?.capture.width ?? 1920)));
+  const displayHeight = Math.max(2, Math.round(preflightStatus?.display?.height ?? (captureMode === 'region' ? Math.max(captureRegion.y + captureRegion.height, 1080) : preflightStatus?.capture.height ?? 1080)));
+
+  function chooseDisplay() {
+    onCaptureModeChange('display');
+    setRegionPickerOpen(false);
+  }
+
+  function openRegionPicker() {
+    onCaptureModeChange('region');
+    setDraftRegion(captureRegion);
+    setRegionPickerOpen(true);
+  }
+
+  function applyDraftRegion() {
+    onCaptureRegionChange(clampRegionToDisplay(draftRegion, displayWidth, displayHeight));
+    setRegionPickerOpen(false);
+  }
+
   return (
     <div className="preRecordOverlay" data-ui-region="pre-record-panel" role="dialog" aria-modal="true" aria-labelledby="pre-record-title">
       <section className="preRecordPanel">
@@ -794,12 +815,27 @@ function PreRecordPanel({
                 <option value="region">Region</option>
               </select>
             </ControlRow>
+            <div className="sourcePickerGrid" data-ui-region="capture-source-picker" aria-label="Capture source picker">
+              <button type="button" className={`sourcePickerCard ${captureMode === 'display' ? 'selected' : ''}`} data-source-option="display" disabled={actionPending} onClick={chooseDisplay}>
+                <span>Full display</span>
+                <small>{displayWidth} x {displayHeight}</small>
+              </button>
+              <button type="button" className={`sourcePickerCard ${captureMode === 'region' ? 'selected' : ''}`} data-source-option="region" disabled={actionPending} onClick={openRegionPicker}>
+                <span>Region</span>
+                <small>{captureRegion.width} x {captureRegion.height}</small>
+              </button>
+              <button type="button" className="sourcePickerCard disabled" data-source-option="window" disabled title="Window capture needs platform-specific support">
+                <span>Window</span>
+                <small>Unavailable on this build</small>
+              </button>
+            </div>
             {captureMode === 'region' ? (
               <div className="regionControls preRecordRegion" aria-label="Pre-record capture region controls">
                 <NumberField label="X" value={captureRegion.x} disabled={actionPending} onChange={(x) => onCaptureRegionChange({ ...captureRegion, x })} />
                 <NumberField label="Y" value={captureRegion.y} disabled={actionPending} onChange={(y) => onCaptureRegionChange({ ...captureRegion, y })} />
                 <NumberField label="W" value={captureRegion.width} min={2} disabled={actionPending} onChange={(width) => onCaptureRegionChange({ ...captureRegion, width })} />
                 <NumberField label="H" value={captureRegion.height} min={2} disabled={actionPending} onChange={(height) => onCaptureRegionChange({ ...captureRegion, height })} />
+                <button type="button" className="secondary compact" data-region-picker-open="true" disabled={actionPending} onClick={openRegionPicker}>Adjust visually</button>
               </div>
             ) : null}
           </section>
@@ -815,6 +851,18 @@ function PreRecordPanel({
 
         <PreflightSummary status={preflightStatus} />
 
+        {regionPickerOpen ? (
+          <RegionPickerPanel
+            region={draftRegion}
+            displayWidth={displayWidth}
+            displayHeight={displayHeight}
+            actionPending={actionPending}
+            onRegionChange={(region) => setDraftRegion(clampRegionToDisplay(region, displayWidth, displayHeight))}
+            onCancel={() => setRegionPickerOpen(false)}
+            onApply={applyDraftRegion}
+          />
+        ) : null}
+
         <div className="preRecordFooter">
           <div className="preRecordActions">
             <button type="button" className="secondary" onClick={onClose} disabled={actionPending} data-open-editor="pre-record">Open editor</button>
@@ -827,6 +875,50 @@ function PreRecordPanel({
       </section>
     </div>
   );
+}
+
+function RegionPickerPanel({ region, displayWidth, displayHeight, actionPending, onRegionChange, onCancel, onApply }: { region: CaptureRegion; displayWidth: number; displayHeight: number; actionPending: boolean; onRegionChange: (region: CaptureRegion) => void; onCancel: () => void; onApply: () => void }) {
+  const previewRegion = clampRegionToDisplay(region, displayWidth, displayHeight);
+  const rectStyle = {
+    left: `${(previewRegion.x / displayWidth) * 100}%`,
+    top: `${(previewRegion.y / displayHeight) * 100}%`,
+    width: `${(previewRegion.width / displayWidth) * 100}%`,
+    height: `${(previewRegion.height / displayHeight) * 100}%`,
+  };
+  const centerRegion = clampRegionToDisplay({ mode: 'region', x: Math.round((displayWidth - 1280) / 2), y: Math.round((displayHeight - 720) / 2), width: Math.min(1280, displayWidth), height: Math.min(720, displayHeight) }, displayWidth, displayHeight);
+  const leftHalf = clampRegionToDisplay({ mode: 'region', x: 0, y: 0, width: Math.round(displayWidth / 2), height: displayHeight }, displayWidth, displayHeight);
+
+  return (
+    <section className="regionPickerPanel" data-ui-region="region-picker-panel" aria-label="Visual region picker">
+      <div className="regionPickerHeader">
+        <div>
+          <p className="eyebrow">Region picker</p>
+          <h3>{previewRegion.width} x {previewRegion.height} at {previewRegion.x}, {previewRegion.y}</h3>
+        </div>
+        <div className="regionPickerActions">
+          <button type="button" className="secondary compact" disabled={actionPending} onClick={onCancel} data-region-picker-cancel="true">Cancel</button>
+          <button type="button" className="primaryAction compact" disabled={actionPending} onClick={onApply} data-region-picker-apply="true">Apply region</button>
+        </div>
+      </div>
+      <div className="regionPreviewMap" aria-hidden="true">
+        <span className="regionPreviewDisplay" />
+        <span className="regionPreviewSelection" style={rectStyle} />
+      </div>
+      <div className="regionPresetRow" aria-label="Region presets">
+        <button type="button" className="secondary compact" disabled={actionPending} onClick={() => onRegionChange({ mode: 'region', x: 0, y: 0, width: displayWidth, height: displayHeight })}>Full display bounds</button>
+        <button type="button" className="secondary compact" disabled={actionPending} onClick={() => onRegionChange(centerRegion)}>Centered 1280x720</button>
+        <button type="button" className="secondary compact" disabled={actionPending} onClick={() => onRegionChange(leftHalf)}>Left half</button>
+      </div>
+    </section>
+  );
+}
+
+function clampRegionToDisplay(region: CaptureRegion, displayWidth: number, displayHeight: number): CaptureRegion {
+  const width = Math.max(2, Math.min(Math.round(region.width), displayWidth));
+  const height = Math.max(2, Math.min(Math.round(region.height), displayHeight));
+  const x = Math.max(0, Math.min(Math.round(region.x), displayWidth - width));
+  const y = Math.max(0, Math.min(Math.round(region.y), displayHeight - height));
+  return { mode: 'region', x, y, width, height };
 }
 
 function PreRecordCameraSetup({ source }: { source?: CameraSource }) {

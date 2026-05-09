@@ -823,14 +823,22 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     () => document.querySelector('[data-ui-region="pre-record-panel"] select[aria-label="Capture target"]'),
     'capture target select',
   );
+  const sourcePicker = await waitFor(() => document.querySelector('[data-ui-region="capture-source-picker"]'), 'capture source picker');
+  const regionSourceCard = await waitFor(() => document.querySelector('[data-source-option="region"]'), 'region source card');
+  const windowSourceCard = await waitFor(() => document.querySelector('[data-source-option="window"]'), 'window source card');
   await waitFor(() => captureTargetSelect.value === 'display', 'display target selected');
-  captureTargetSelect.value = 'region';
-  captureTargetSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  regionSourceCard.click();
   await waitFor(() => captureTargetSelect.value === 'region', 'region target selected');
   await waitFor(() => document.querySelector('[aria-label="Pre-record capture region controls"]'), 'region controls');
+  await waitFor(() => document.querySelector('[data-ui-region="region-picker-panel"]'), 'region picker panel');
+  const regionPickerCancel = await waitFor(() => document.querySelector('[data-region-picker-cancel="true"]'), 'region picker cancel');
+  regionPickerCancel.click();
+  await waitFor(() => !document.querySelector('[data-ui-region="region-picker-panel"]'), 'region picker closed');
   captureTargetSelect.value = 'display';
   captureTargetSelect.dispatchEvent(new Event('change', { bubbles: true }));
   await waitFor(() => captureTargetSelect.value === 'display', 'display target reselected');
+  const hasCaptureSourcePicker = Boolean(sourcePicker);
+  const hasDisabledWindowSource = Boolean(windowSourceCard?.disabled);
   let selectedCameraSource = null;
   if (options.cameraWarning) {
     const cameraSelect = await waitFor(() => document.querySelector('select[aria-label="Camera source"]'), 'camera source select');
@@ -860,6 +868,8 @@ async function runRendererRecordingFlowSmoke(options = {}) {
       hasPreflightPanel: Boolean(preflightPanel),
       hasPreflightWarningsCopy,
       hasCaptureTargetSelect: Boolean(captureTargetSelect),
+      hasCaptureSourcePicker,
+      hasDisabledWindowSource,
       selectedCaptureTarget: captureTargetSelect.value,
       initialState,
       canceledState: document.querySelector('[data-ui-region="state-banner"]')?.getAttribute('data-recording-state'),
@@ -900,6 +910,8 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     hasPreflightPanel: Boolean(preflightPanel),
     hasPreflightWarningsCopy,
     hasCaptureTargetSelect: Boolean(captureTargetSelect),
+    hasCaptureSourcePicker,
+    hasDisabledWindowSource,
     selectedCaptureTarget: captureTargetSelect.value,
     initialState,
     savedState,

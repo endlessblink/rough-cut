@@ -75,7 +75,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-059 | Add preflight checklist and session-risk warnings | P1 | DONE |
 | TASK-060 | Debug long-smoke post-save failure | P1 | DONE |
 | TASK-061 | Fix choppy camera playback via canvas frame dedup | P1 | DONE |
-| TASK-062 | Add real window and region selection UI | P2 | PLANNED |
+| TASK-062 | Add real window and region selection UI | P2 | DONE |
 
 ## Recently Verified
 
@@ -2071,7 +2071,7 @@ Also added `window.__roughCutCanvasDrawCount` instrumentation to the smoke test 
 ### TASK-062 Add real window and region selection UI
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -2087,6 +2087,10 @@ The current capture target control is still a basic full-display/region dropdown
 
 #### Verification
 
+- 2026-05-08: Added pre-record source picker cards for full display, region, and disabled window capture; added an in-panel visual region picker with clear bounds, cancel/apply actions, and safe presets. Window capture remains visibly disabled pending platform-specific capture support.
 - UI smoke covers selecting full display and opening/canceling the region picker.
 - Add automated coverage for region geometry normalization and persisted metadata.
 - Manual packaged-app verification records a selected region and, when supported, a selected window.
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm smoke:recording-flow-ui`
+- `ROUGH_CUT_SMOKE_REGION=1 ROUGH_CUT_SMOKE_REGION_WIDTH=240 ROUGH_CUT_SMOKE_REGION_HEIGHT=180 pnpm smoke:mvp`
