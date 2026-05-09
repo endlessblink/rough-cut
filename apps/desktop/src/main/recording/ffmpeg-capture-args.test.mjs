@@ -49,6 +49,22 @@ test('camera capture uses v4l2 input and writes silent h264 video', () => {
   assert.equal(args.at(-1), '/tmp/camera.mkv');
 });
 
+test('camera capture sets v4l2 reliability flags so shutdown does not wedge in D-state', () => {
+  const args = buildFfmpegCameraCaptureArgs({
+    outputPath: '/tmp/camera.mkv',
+    fps: 30,
+    devicePath: '/dev/video0',
+  });
+  assert.equal(args[args.indexOf('-rw_timeout') + 1], '5000000');
+  assert.equal(args[args.indexOf('-use_wallclock_as_timestamps') + 1], '1');
+  assert.equal(args[args.indexOf('-fflags') + 1], 'nobuffer');
+  assert.equal(args[args.indexOf('-thread_queue_size') + 1], '1024');
+  // Reliability flags must precede the input so they bind to the input
+  // stream; ffmpeg ignores input-side options that come after `-i`.
+  assert.ok(args.indexOf('-rw_timeout') < args.indexOf('-i'));
+  assert.ok(args.indexOf('-thread_queue_size') < args.indexOf('-i'));
+});
+
 test('screen capture maps microphone audio when a mic source is selected', () => {
   const args = buildFfmpegCaptureArgs({
     outputPath: '/tmp/capture.mkv',

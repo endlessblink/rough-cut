@@ -266,8 +266,26 @@ export function buildFfmpegCameraCaptureArgs({
     'pipe:1',
     '-stats_period',
     '0.05',
+    // v4l2 reliability flags — prevent the camera ffmpeg from wedging on
+    // shutdown in an uninterruptible v4l2 read (Linux process state D),
+    // which leaves the device unusable for the next take and forces a hard
+    // restart. Sources: ffmpeg v4l2 docs + Linux UVC quirks. Combined with
+    // the post-SIGKILL grace timer in stopFfmpegProcess for defense.
+    // - rw_timeout 5_000_000 (5s) bounds the v4l2 read; the kernel returns
+    //   EAGAIN/EIO instead of leaving us in D-state forever.
+    // - use_wallclock_as_timestamps 1 sidesteps non-monotonic UVC PTS that
+    //   contributes to internal queue stalls.
+    // - thread_queue_size 1024 (was 512) lets the v4l2 producer thread
+    //   drain its queue cleanly during shutdown.
+    // - fflags nobuffer reduces internal queueing pressure.
+    '-rw_timeout',
+    '5000000',
+    '-use_wallclock_as_timestamps',
+    '1',
+    '-fflags',
+    'nobuffer',
     '-thread_queue_size',
-    '512',
+    '1024',
     '-f',
     'v4l2',
     '-framerate',
