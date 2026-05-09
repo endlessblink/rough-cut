@@ -8,8 +8,10 @@ import {
   createProjectForRecording,
   getPrimaryRecording,
   openProjectFile,
+  ProjectPathError,
   saveProjectFile,
   saveProjectForRecording,
+  validateProjectPath,
 } from './project-files.mjs';
 import {
   createZoomMarker,
@@ -209,6 +211,85 @@ test('getPrimaryRecording exposes persisted cut ranges and visible duration', ()
   const primary = getPrimaryRecording(withCuts);
   assert.deepEqual(primary.cutRanges, [{ id: 'cut-1', startFrame: 30, endFrame: 60 }]);
   assert.equal(primary.trimmedDuration, primary.duration - 30);
+});
+
+test('validateProjectPath accepts a .roughcut file inside an allowed root', () => {
+  const root = join(tmpdir(), 'rough-cut-validate-allowed');
+  const candidate = join(root, 'project.roughcut');
+  const result = validateProjectPath(candidate, { allowedRoots: [root] });
+  assert.equal(result, candidate);
+});
+
+test('validateProjectPath normalizes redundant separators inside an allowed root', () => {
+  const root = join(tmpdir(), 'rough-cut-validate-norm');
+  const candidate = join(root, '.', 'sub', '..', 'project.roughcut');
+  const result = validateProjectPath(candidate, { allowedRoots: [root] });
+  assert.equal(result, join(root, 'project.roughcut'));
+});
+
+test('validateProjectPath rejects ../.. traversal escaping the allowed root', () => {
+  const root = join(tmpdir(), 'rough-cut-validate-traverse');
+  const candidate = join(root, '..', '..', 'etc', 'passwd.roughcut');
+  assert.throws(
+    () => validateProjectPath(candidate, { allowedRoots: [root] }),
+    (err) => err instanceof ProjectPathError && err.reason === 'outside-root',
+  );
+});
+
+test('validateProjectPath rejects an absolute path outside the allowed root', () => {
+  const root = join(tmpdir(), 'rough-cut-validate-abs');
+  assert.throws(
+    () => validateProjectPath('/etc/passwd.roughcut', { allowedRoots: [root] }),
+    (err) => err instanceof ProjectPathError && err.reason === 'outside-root',
+  );
+});
+
+test('validateProjectPath rejects paths missing the .roughcut extension', () => {
+  const root = join(tmpdir(), 'rough-cut-validate-ext');
+  const candidate = join(root, 'project.txt');
+  assert.throws(
+    () => validateProjectPath(candidate, { allowedRoots: [root] }),
+    (err) => err instanceof ProjectPathError && err.reason === 'bad-extension',
+  );
+});
+
+test('validateProjectPath rejects null-byte injection', () => {
+  const root = join(tmpdir(), 'rough-cut-validate-nul');
+  const candidate = `${join(root, 'project')}\0.roughcut`;
+  assert.throws(
+    () => validateProjectPath(candidate, { allowedRoots: [root] }),
+    (err) => err instanceof ProjectPathError && err.reason === 'null-byte',
+  );
+});
+
+test('validateProjectPath rejects empty or non-string input', () => {
+  assert.throws(
+    () => validateProjectPath('', { allowedRoots: [tmpdir()] }),
+    (err) => err instanceof ProjectPathError && err.reason === 'empty',
+  );
+  assert.throws(
+    () => validateProjectPath(undefined, { allowedRoots: [tmpdir()] }),
+    (err) => err instanceof ProjectPathError && err.reason === 'empty',
+  );
+});
+
+test('validateProjectPath without allowedRoots still enforces extension and null bytes', () => {
+  assert.throws(
+    () => validateProjectPath('/tmp/project.txt'),
+    (err) => err instanceof ProjectPathError && err.reason === 'bad-extension',
+  );
+  const ok = validateProjectPath('/tmp/anywhere.roughcut');
+  assert.equal(ok, '/tmp/anywhere.roughcut');
+});
+
+test('validateProjectPath rejects a sibling directory whose name shares the root prefix', () => {
+  const root = join(tmpdir(), 'rough-cut-validate-prefix');
+  const sibling = `${root}-evil`;
+  const candidate = join(sibling, 'project.roughcut');
+  assert.throws(
+    () => validateProjectPath(candidate, { allowedRoots: [root] }),
+    (err) => err instanceof ProjectPathError && err.reason === 'outside-root',
+  );
 });
 
 test('round-trips a manual zoom marker through save and reopen', async () => {

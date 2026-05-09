@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { exportProjectToMp4 } from './export-service.mjs';
 import { assertReadableMp4 } from './media-probe.mjs';
-import { getLinkedCameraAsset, getPrimaryRecording, openProjectFile, saveProjectFile, saveProjectForRecording } from './project-files.mjs';
+import { getLinkedCameraAsset, getPrimaryRecording, openProjectFile, saveProjectFile, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
 import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
 import { registerMediaProtocol, toMediaUrl } from './media-protocol.mjs';
 import { remuxMkvToMp4 } from './remux-service.mjs';
@@ -318,10 +318,17 @@ ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN, async () => {
     filters: [{ name: 'Rough Cut Project', extensions: ['roughcut'] }],
   });
   if (result.canceled || result.filePaths.length === 0) return null;
-  return formatProject(await openProjectFile(result.filePaths[0]));
+  const safePath = validateProjectPath(result.filePaths[0], { allowedRoots: [recordingsDir] });
+  return formatProject(await openProjectFile(safePath));
 });
-ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, (_event, projectPath) => openProjectFile(projectPath).then(formatProject));
-ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, (_event, { path, document }) => saveProjectFile(path, document).then(formatProject));
+ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, (_event, projectPath) => {
+  const safePath = validateProjectPath(projectPath, { allowedRoots: [recordingsDir] });
+  return openProjectFile(safePath).then(formatProject);
+});
+ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, (_event, { path, document }) => {
+  const safePath = validateProjectPath(path, { allowedRoots: [recordingsDir] });
+  return saveProjectFile(safePath, document).then(formatProject);
+});
 ipcMain.handle(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, async (_event, projectName = 'rough-cut-export') => {
   if (process.env.ROUGH_CUT_UI_SMOKE_EXPORT_PATH) return process.env.ROUGH_CUT_UI_SMOKE_EXPORT_PATH;
 

@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   createAsset,
   createClip,
@@ -101,6 +101,60 @@ export function createProjectForRecording({ recording, now = new Date() }) {
       },
     }),
   );
+}
+
+export const PROJECT_FILE_EXTENSION = '.roughcut';
+
+export class ProjectPathError extends Error {
+  constructor(message, { reason, candidate } = {}) {
+    super(message);
+    this.name = 'ProjectPathError';
+    this.code = 'PROJECT_PATH_INVALID';
+    this.reason = reason ?? 'invalid';
+    this.candidate = candidate ?? null;
+  }
+}
+
+export function validateProjectPath(candidate, options = {}) {
+  const { allowedRoots = null, requireExtension = PROJECT_FILE_EXTENSION } = options;
+
+  if (typeof candidate !== 'string' || candidate.length === 0) {
+    throw new ProjectPathError('Project path is required', { reason: 'empty', candidate });
+  }
+  if (candidate.includes('\0')) {
+    throw new ProjectPathError('Project path contains a null byte', { reason: 'null-byte', candidate });
+  }
+
+  const resolved = resolve(candidate);
+
+  if (requireExtension && !resolved.toLowerCase().endsWith(String(requireExtension).toLowerCase())) {
+    throw new ProjectPathError(
+      `Project path must end with ${requireExtension}`,
+      { reason: 'bad-extension', candidate },
+    );
+  }
+
+  if (Array.isArray(allowedRoots) && allowedRoots.length > 0) {
+    const insideAny = allowedRoots.some((root) => isPathWithinRoot(resolved, root));
+    if (!insideAny) {
+      throw new ProjectPathError(
+        'Project path is outside the allowed projects directory',
+        { reason: 'outside-root', candidate },
+      );
+    }
+  }
+
+  return resolved;
+}
+
+function isPathWithinRoot(absolutePath, root) {
+  if (typeof root !== 'string' || root.length === 0) return false;
+  const absoluteRoot = resolve(root);
+  const rel = relative(absoluteRoot, absolutePath);
+  if (rel === '' || rel === '.') return false;
+  if (rel.startsWith('..') && (rel.length === 2 || rel[2] === sep)) return false;
+  if (isAbsolute(rel)) return false;
+  return true;
 }
 
 export async function saveProjectFile(projectPath, project) {

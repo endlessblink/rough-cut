@@ -78,7 +78,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-062 | Add real window and region selection UI | P2 | DONE |
 | TASK-063 | Enable real window capture selection | P2 | PLANNED |
 | TASK-064 | Stabilize sidebar tool switching layout | P2 | PLANNED |
-| TASK-065 | Validate paths in PROJECT_OPEN and PROJECT_SAVE IPC handlers | P1 | PLANNED |
+| TASK-065 | Validate paths in PROJECT_OPEN and PROJECT_SAVE IPC handlers | P1 | DONE |
 | TASK-066 | Clean up recording child processes on app crash or signal | P1 | PLANNED |
 | TASK-067 | Validate remuxed MP4 coherence before declaring success | P1 | PLANNED |
 | TASK-068 | Compensate cursor and audio drift vs ffmpeg first frame | P1 | PLANNED |
@@ -2187,26 +2187,25 @@ Switching left sidebar tools currently changes the left panel content height and
 - UI smoke or visual check switches sidebar tools and asserts the central stage remains mounted and stable.
 - Manual desktop check confirms no drastic workspace jump when selecting each sidebar item.
 
-### TASK-065 Validate paths in PROJECT_OPEN and PROJECT_SAVE IPC handlers
+### ~~TASK-065~~ Validate paths in PROJECT_OPEN and PROJECT_SAVE IPC handlers
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
 The renderer can pass any string to the project-open and project-save IPC handlers; the main process opens or writes that path with no validation. A compromised renderer could read or overwrite arbitrary files. Source: `apps/desktop/src/main/index.mjs:517-518` and `apps/desktop/src/main/project-files.mjs:106-115`. The save path is especially risky because it does `mkdir(dirname, { recursive: true })` then `writeFile`.
 
-#### Acceptance Criteria
+#### Completion Notes
 
-- Resolve and normalize incoming paths; reject `..` traversal and absolute paths outside an allowlisted projects/recordings root.
-- Save handler refuses to create directories outside the allowlist.
-- Open handler refuses to read paths outside the allowlist (or restricts to `.roughcut` files in known dirs).
-- Add unit tests for traversal attempts: `../../etc/passwd`, absolute `/etc/anything`, encoded variants.
+- Added `validateProjectPath()` and `ProjectPathError` to `apps/desktop/src/main/project-files.mjs`. Validator rejects empty/non-string input, NUL-byte injection, missing `.roughcut` extension, and any path outside the supplied `allowedRoots`.
+- Wired strict validation (allowedRoots = `[recordingsDir]`) into all three IPC handlers in `apps/desktop/src/main/index.mjs`: `PROJECT_OPEN`, `PROJECT_OPEN_PATH`, `PROJECT_SAVE`. Symmetric strictness avoids open→edit→save breakage where opening an outside-root project would later fail to save.
+- Path-within-root check uses `path.relative` plus a sibling-prefix guard so `/root-evil/foo.roughcut` is rejected against root `/root`.
+- 9 new unit tests in `project-files.test.mjs` cover allowed paths, normalization, traversal, absolute escapes, missing extension, NUL bytes, empty/undefined input, lenient (no-allowlist) mode, and sibling-prefix attacks.
 
 #### Verification
 
-- New unit tests for `validateProjectPath` cover allowed and rejected cases.
-- `pnpm --filter @rough-cut/desktop test`
+- `pnpm --filter @rough-cut/desktop test` → 188 / 188 pass.
 - Manual: attempt to open a path outside the projects dir from devtools and confirm the IPC rejects.
 
 ### TASK-066 Clean up recording child processes on app crash or signal
