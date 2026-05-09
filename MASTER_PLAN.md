@@ -98,7 +98,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-082 | Improve error UX with actionable copy and diagnostics link | P2 | PLANNED |
 | TASK-083 | Keyboard accessibility for timeline, markers, trim handles | P2 | PLANNED |
 | TASK-084 | Support relative-to-.roughcut asset paths in projects | P2 | PLANNED |
-| TASK-085 | Atomic project file writes with temp-and-rename pattern | P1 | PLANNED |
+| TASK-085 | Atomic project file writes with temp-and-rename pattern | P1 | DONE |
 | TASK-086 | Add GIF and WebM export presets | P2 | PLANNED |
 | TASK-087 | Add 9:16 vertical and 1:1 square export presets | P2 | PLANNED |
 | TASK-088 | Add autosave and crash recovery for orphaned recordings | P1 | PLANNED |
@@ -2603,25 +2603,27 @@ Timeline scrub at `main.tsx:2703` lacks `aria-live` for frame position. Zoom mar
 - Migration unit test.
 - Manual: move a .roughcut directory to a different parent path and reopen successfully.
 
-### TASK-085 Atomic project file writes with temp-and-rename pattern
+### ~~TASK-085~~ Atomic project file writes with temp-and-rename pattern
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
-`apps/desktop/src/main/project-files.mjs:106-110` does a single `writeFile`. If the process dies mid-write, the project file is corrupt and unrecoverable.
+`apps/desktop/src/main/project-files.mjs:106-110` did a single `writeFile`. If the process died mid-write, the project file was corrupt and unrecoverable.
 
-#### Acceptance Criteria
+#### Completion Notes
 
-- Save writes to `<path>.tmp`, `fsync`s, then atomic-renames over the target.
-- Optionally keep a `.bak` of the previous good file.
-- Reads detect a stray `.tmp` and offer recovery if present.
+- `saveProjectFile` now writes to `<path>.tmp` via `fs.open(...).writeFile()` + `fileHandle.sync()` (fsync), then atomically `rename()`s over the target. Tmp file handle is always closed in a `finally` block.
+- Before the rename, the previous good file (if any) is `copyFile`'d to `<path>.bak` so one prior generation is always retained for fallback.
+- `openProjectFile` now stats `<path>.tmp` and `<path>.bak` and surfaces them in the result as `interruptedSave` and `backup` (each with `path`, `size`, `modifiedAt`). The rest of the document load is unchanged.
+- New exported helper `discardInterruptedSave(projectPath)` removes a stray `.tmp` (idempotent — `ENOENT` is silently ignored).
+- Exported `PROJECT_TEMP_SUFFIX` and `PROJECT_BACKUP_SUFFIX` so callers can name the side files consistently.
 
 #### Verification
 
-- Unit test simulates kill-mid-write and asserts the original file remains intact.
-- `pnpm --filter @rough-cut/desktop test`.
+- 4 new tests in `project-files.test.mjs`: tmp cleaned on success, `.bak` snapshot reflects the previous (not the new) contents, opening with a leftover `.tmp` returns the intact original and surfaces `interruptedSave`, `discardInterruptedSave` is idempotent.
+- `pnpm --filter @rough-cut/desktop test` → 192 / 192 pass.
 
 ### TASK-086 Add GIF and WebM export presets
 

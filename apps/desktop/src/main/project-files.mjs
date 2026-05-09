@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, open, readFile, rename, stat, unlink } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   createAsset,
@@ -157,16 +157,64 @@ function isPathWithinRoot(absolutePath, root) {
   return true;
 }
 
+export const PROJECT_TEMP_SUFFIX = '.tmp';
+export const PROJECT_BACKUP_SUFFIX = '.bak';
+
 export async function saveProjectFile(projectPath, project) {
   const document = validateProject({ ...project, modifiedAt: new Date().toISOString() });
+  const json = `${JSON.stringify(document, null, 2)}\n`;
+  const tmpPath = `${projectPath}${PROJECT_TEMP_SUFFIX}`;
+  const backupPath = `${projectPath}${PROJECT_BACKUP_SUFFIX}`;
+
   await mkdir(dirname(projectPath), { recursive: true });
-  await writeFile(projectPath, `${JSON.stringify(document, null, 2)}\n`, 'utf8');
+
+  // Write to <path>.tmp and fsync so the bytes are durable before we rename.
+  // If the process dies between open and rename, the original file at
+  // projectPath is untouched and any partial tmp can be detected on next read.
+  const handle = await open(tmpPath, 'w');
+  try {
+    await handle.writeFile(json, 'utf8');
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+
+  // Snapshot the previous good file (if any) into a .bak before atomic replace
+  // so we always have one prior generation to fall back to.
+  const previous = await stat(projectPath).catch(() => null);
+  if (previous?.isFile()) {
+    await copyFile(projectPath, backupPath);
+  }
+
+  await rename(tmpPath, projectPath);
+
   return { path: projectPath, document };
 }
 
 export async function openProjectFile(projectPath) {
+  const tmpPath = `${projectPath}${PROJECT_TEMP_SUFFIX}`;
+  const backupPath = `${projectPath}${PROJECT_BACKUP_SUFFIX}`;
+  const interruptedTmp = await stat(tmpPath).catch(() => null);
+  const backupInfo = await stat(backupPath).catch(() => null);
   const raw = await readFile(projectPath, 'utf8');
-  return { path: projectPath, document: migrate(JSON.parse(raw)) };
+  return {
+    path: projectPath,
+    document: migrate(JSON.parse(raw)),
+    interruptedSave: interruptedTmp?.isFile()
+      ? { tmpPath, size: interruptedTmp.size, modifiedAt: interruptedTmp.mtime.toISOString() }
+      : null,
+    backup: backupInfo?.isFile()
+      ? { path: backupPath, size: backupInfo.size, modifiedAt: backupInfo.mtime.toISOString() }
+      : null,
+  };
+}
+
+export async function discardInterruptedSave(projectPath) {
+  const tmpPath = `${projectPath}${PROJECT_TEMP_SUFFIX}`;
+  await unlink(tmpPath).catch((err) => {
+    if (err?.code === 'ENOENT') return;
+    throw err;
+  });
 }
 
 export async function saveProjectForRecording(recording) {

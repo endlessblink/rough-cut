@@ -1,13 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   createProjectForRecording,
+  discardInterruptedSave,
   getPrimaryRecording,
   openProjectFile,
+  PROJECT_BACKUP_SUFFIX,
+  PROJECT_TEMP_SUFFIX,
   ProjectPathError,
   saveProjectFile,
   saveProjectForRecording,
@@ -290,6 +293,84 @@ test('validateProjectPath rejects a sibling directory whose name shares the root
     () => validateProjectPath(candidate, { allowedRoots: [root] }),
     (err) => err instanceof ProjectPathError && err.reason === 'outside-root',
   );
+});
+
+test('saveProjectFile leaves no leftover .tmp on success', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-atomic-clean-'));
+  const projectPath = join(root, 'capture.roughcut');
+  const project = createProjectForRecording({
+    recording: { ...recording, outputPath: join(root, 'capture.mp4') },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+  await saveProjectFile(projectPath, project);
+  assert.equal(existsSync(`${projectPath}${PROJECT_TEMP_SUFFIX}`), false);
+  assert.equal(existsSync(projectPath), true);
+  await rm(root, { recursive: true, force: true });
+});
+
+test('saveProjectFile creates a .bak snapshot of the previous good file on rewrite', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-atomic-bak-'));
+  const projectPath = join(root, 'capture.roughcut');
+  const project = createProjectForRecording({
+    recording: { ...recording, outputPath: join(root, 'capture.mp4') },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+  await saveProjectFile(projectPath, project);
+  const firstContents = await readFile(projectPath, 'utf8');
+
+  // Mutate something cheaply observable and save again; .bak must reflect the
+  // previous good file, not the new one.
+  await saveProjectFile(projectPath, { ...project, name: 'capture-renamed' });
+  const backupPath = `${projectPath}${PROJECT_BACKUP_SUFFIX}`;
+  assert.equal(existsSync(backupPath), true);
+  const backupContents = await readFile(backupPath, 'utf8');
+  assert.equal(backupContents, firstContents);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('openProjectFile leaves the original intact and reports a stray .tmp from a killed write', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-atomic-tmp-'));
+  const projectPath = join(root, 'capture.roughcut');
+  const project = createProjectForRecording({
+    recording: { ...recording, outputPath: join(root, 'capture.mp4') },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+  await saveProjectFile(projectPath, project);
+  const originalContents = await readFile(projectPath, 'utf8');
+
+  // Simulate a save that died after opening the temp file but before rename.
+  const tmpPath = `${projectPath}${PROJECT_TEMP_SUFFIX}`;
+  await writeFile(tmpPath, '{ "this is": "garbage", incomplete', 'utf8');
+
+  const opened = await openProjectFile(projectPath);
+  assert.equal(opened.document.name, project.name);
+  assert.equal(opened.interruptedSave?.tmpPath, tmpPath);
+  assert.ok(opened.interruptedSave?.size > 0);
+
+  // Original file untouched on disk.
+  const stillThere = await readFile(projectPath, 'utf8');
+  assert.equal(stillThere, originalContents);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('discardInterruptedSave removes a stray .tmp without touching the project file', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-atomic-discard-'));
+  const projectPath = join(root, 'capture.roughcut');
+  const project = createProjectForRecording({
+    recording: { ...recording, outputPath: join(root, 'capture.mp4') },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+  await saveProjectFile(projectPath, project);
+  const tmpPath = `${projectPath}${PROJECT_TEMP_SUFFIX}`;
+  await writeFile(tmpPath, 'garbage', 'utf8');
+  await discardInterruptedSave(projectPath);
+  assert.equal(existsSync(tmpPath), false);
+  assert.equal(existsSync(projectPath), true);
+  // discardInterruptedSave is idempotent: a second call with no .tmp must not throw.
+  await discardInterruptedSave(projectPath);
+  await rm(root, { recursive: true, force: true });
 });
 
 test('round-trips a manual zoom marker through save and reopen', async () => {
