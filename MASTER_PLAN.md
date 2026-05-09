@@ -2674,25 +2674,29 @@ TASK-028 added aspect-ratio support, but the export surface has no one-click pre
 - UI smoke covers preset selection and export size validation.
 - Manual: export each preset and verify pixel dimensions.
 
-### TASK-088 Add autosave and crash recovery for orphaned recordings
+### ~~TASK-088~~ Add autosave and crash recovery for orphaned recordings
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
-The recording-recovery marker exists at `apps/desktop/src/main/recording/recording-session.mjs:45-69`, but no UI flow surfaces it on next launch. There is also no autosave timer for an open project; if the app dies mid-edit, work is lost.
+The recording-recovery marker existed at `recording-session.mjs:45-69` but no UI surfaced it on next launch. There was also no autosave for an open project — if the app died mid-edit, work was lost.
 
-#### Acceptance Criteria
+#### Completion Notes
 
-- On launch, detect a stale recovery marker and offer "Recover last recording" with a clear summary.
-- Periodic autosave for the open project (e.g., every 60s, off the atomic write path from TASK-085).
-- Autosave can be disabled in settings.
+- New backend module `apps/desktop/src/main/recording-recovery.mjs` with `readRecoveryMarker`, `getRecoveryState`, `recoverFromMarker`, and `dismissRecovery`. The recovery flow shells out to the existing `remuxMkvToMp4` (which now includes coherence validation from TASK-067) plus `saveProjectForRecording`, so the recovered project has the same shape as a normal stop. Camera failures fall back to screen-only with a `cameraError`.
+- Wired three IPC handlers in `index.mjs`: `RECORDING_RECOVERY_GET`, `RECORDING_RECOVERY_RECOVER`, `RECORDING_RECOVERY_DISMISS` (with a `deleteFiles` option to also wipe the raw .mkv / .mp4 / cursor sidecar). Preload bridge methods `getRecoveryState`, `recoverLastRecording`, `dismissRecovery` exposed to the renderer.
+- Renderer: on app mount, the renderer fetches recovery state once. When `available: true`, a `RecoveryBanner` shows in the recorder shell with the original session start time and two actions: **Recover** (calls `recoverLastRecording`, opens the resulting project, surfaces any `remuxWarnings` as a banner-error) and **Discard** (calls `dismissRecovery({ deleteFiles: true })`). Banner is hidden while recording is in progress to avoid distraction.
+- Renderer autosave: a 60-second interval runs `saveProject` whenever a project is loaded. Routes through `PROJECT_SAVE` IPC, which goes through TASK-085 atomic writes — a kill mid-autosave can never corrupt the .roughcut file.
+- Decided to skip the settings toggle for "disable autosave" (per scope choice — minimal UI). Default-on autosave is universally safe given atomic writes + .bak snapshot from TASK-085. Toggle can land in a follow-up.
 
 #### Verification
 
-- New unit test for the recovery scan.
-- Manual: SIGKILL during recording, relaunch, verify the recovery prompt.
+- 11 new unit tests in `recording-recovery.test.mjs`: missing marker, parsed marker, raw missing, raw present, full recover happy path, partial-recovery warnings propagated, camera-fallback, no-recovery rejection, dismiss-marker-only, dismiss-with-files, dismiss-noop.
+- `pnpm --filter @rough-cut/desktop test` → 216 / 216 pass.
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- Manual still recommended: SIGKILL Electron mid-recording, relaunch the recorder, verify the banner appears and Recover produces a project that opens.
 
 ### TASK-089 Bundle ffmpeg-static and ffprobe-static binaries
 

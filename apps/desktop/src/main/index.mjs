@@ -7,6 +7,7 @@ import { exportProjectToMp4 } from './export-service.mjs';
 import { assertReadableMp4 } from './media-probe.mjs';
 import { getLinkedCameraAsset, getPrimaryRecording, openProjectFile, saveProjectFile, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
 import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
+import { dismissRecovery, getRecoveryState, recoverFromMarker } from './recording-recovery.mjs';
 import { registerMediaProtocol, toMediaUrl } from './media-protocol.mjs';
 import { remuxMkvToMp4 } from './remux-service.mjs';
 import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording/recording-session.mjs';
@@ -328,6 +329,20 @@ ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, (_event, projectPath) => {
 ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, (_event, { path, document }) => {
   const safePath = validateProjectPath(path, { allowedRoots: [recordingsDir] });
   return saveProjectFile(safePath, document).then(formatProject);
+});
+ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_GET, () => getRecoveryState({ markerPath }));
+ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_RECOVER, async () => {
+  return recoverFromMarker({
+    markerPath,
+    remuxMkvToMp4,
+    assertReadableMp4,
+    saveProjectForRecording,
+    formatProject,
+    onLog: (line) => console.info(line),
+  });
+});
+ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_DISMISS, (_event, options = {}) => {
+  return dismissRecovery({ markerPath, deleteFiles: Boolean(options?.deleteFiles) });
 });
 ipcMain.handle(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, async (_event, projectName = 'rough-cut-export') => {
   if (process.env.ROUGH_CUT_UI_SMOKE_EXPORT_PATH) return process.env.ROUGH_CUT_UI_SMOKE_EXPORT_PATH;

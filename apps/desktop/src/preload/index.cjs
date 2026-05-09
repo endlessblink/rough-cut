@@ -19,6 +19,9 @@ const IPC_CHANNELS = {
   RECORDING_STOP: 'recording:stop',
   RECORDING_CANCEL: 'recording:cancel',
   RECORDING_STATUS: 'recording:status',
+  RECORDING_RECOVERY_GET: 'recording:recovery-get',
+  RECORDING_RECOVERY_RECOVER: 'recording:recovery-recover',
+  RECORDING_RECOVERY_DISMISS: 'recording:recovery-dismiss',
 };
 
 contextBridge.exposeInMainWorld('roughCut', {
@@ -34,6 +37,9 @@ contextBridge.exposeInMainWorld('roughCut', {
   stopRecording: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_STOP),
   cancelRecording: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_CANCEL),
   getRecordingStatus: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_STATUS),
+  getRecoveryState: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_RECOVERY_GET),
+  recoverLastRecording: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_RECOVERY_RECOVER),
+  dismissRecovery: (options) => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_RECOVERY_DISMISS, options ?? {}),
   openProject: () => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN),
   openProjectPath: (path) => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN_PATH, path),
   saveProject: (project) => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_SAVE, project),

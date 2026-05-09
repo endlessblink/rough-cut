@@ -134,6 +134,37 @@ input[type="checkbox"] { accent-color: var(--accent); }
   overflow: hidden;
 }
 
+.recoveryBanner {
+  align-items: center;
+  background: linear-gradient(#241a0e, #1a1208);
+  border-bottom: 1px solid #b07b3a;
+  color: #f5e7d0;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 0.75rem 1.1rem;
+  position: relative;
+  z-index: 10;
+}
+
+.recoveryBannerCopy .eyebrow {
+  color: #ffb56b;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  margin: 0 0 0.15rem;
+  text-transform: uppercase;
+}
+
+.recoveryBannerCopy p {
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.recoveryBannerActions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .editorShell {
   background: var(--chrome);
   border: 1px solid var(--strong-line);

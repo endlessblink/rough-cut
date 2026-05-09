@@ -55,6 +55,9 @@ declare global {
       openProject: () => Promise<ProjectState | null>;
       openProjectPath: (path: string) => Promise<ProjectState>;
       saveProject: (project: { path: string; document: ProjectState['document'] }) => Promise<ProjectState>;
+      getRecoveryState: () => Promise<{ available: boolean; marker: RecoveryMarker | null; rawAvailable: boolean; cameraRawAvailable?: boolean }>;
+      recoverLastRecording: () => Promise<{ state: 'recovered'; project: ProjectState; remuxWarnings: Array<{ source: string; message: string }> }>;
+      dismissRecovery: (options?: { deleteFiles?: boolean }) => Promise<{ dismissed: boolean; removed: string[] }>;
       pickExportOutputPath: (projectName: string) => Promise<string | null>;
       exportProject: (payload: { document: ProjectState['document']; outputPath: string; mode: ExportMode }) => Promise<ExportResult>;
       onExportProgress: (callback: (progress: ExportProgress) => void) => () => void;
@@ -62,6 +65,15 @@ declare global {
     };
   }
 }
+
+type RecoveryMarker = {
+  startedAt: string;
+  rawPath: string;
+  outputPath: string;
+  width?: number;
+  height?: number;
+  fps?: number;
+};
 
 type ProjectState = {
   path: string;
@@ -194,6 +206,8 @@ function App() {
   const [elapsedMs, setElapsedMs] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
   const [preflightStatus, setPreflightStatus] = React.useState<RecordingPreflightStatus | null>(null);
+  const [recoveryState, setRecoveryState] = React.useState<{ available: boolean; marker: RecoveryMarker | null } | null>(null);
+  const [recoveryActionPending, setRecoveryActionPending] = React.useState(false);
 
   React.useEffect(() => {
     window.roughCut.getVersion().then(setVersion).catch(() => setVersion('unknown'));
@@ -225,8 +239,57 @@ function App() {
         if (initialPreRecordPreferences.recordCamera && !sources.some((source) => source.name === preferred)) setRecordCamera(false);
       })
       .catch(() => setCameraSources([]));
+    window.roughCut.getRecoveryState()
+      .then((state) => setRecoveryState({ available: Boolean(state?.available), marker: state?.marker ?? null }))
+      .catch(() => setRecoveryState(null));
     return window.roughCut.onExportProgress(setExportProgress);
   }, []);
+
+  const handleRecover = React.useCallback(async () => {
+    if (recoveryActionPending) return;
+    setRecoveryActionPending(true);
+    setError(null);
+    try {
+      const result = await window.roughCut.recoverLastRecording();
+      setRecoveryState({ available: false, marker: null });
+      if (result?.project) {
+        setProject(result.project);
+        setExportResult(null);
+        if (Array.isArray(result.remuxWarnings) && result.remuxWarnings.length > 0) {
+          setError(`Recovered project has warnings: ${result.remuxWarnings.map((w) => w.message).join(' / ')}`);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Recovery failed.');
+    } finally {
+      setRecoveryActionPending(false);
+    }
+  }, [recoveryActionPending]);
+
+  const handleDismissRecovery = React.useCallback(async () => {
+    if (recoveryActionPending) return;
+    setRecoveryActionPending(true);
+    try {
+      await window.roughCut.dismissRecovery({ deleteFiles: true });
+      setRecoveryState({ available: false, marker: null });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not dismiss recovery.');
+    } finally {
+      setRecoveryActionPending(false);
+    }
+  }, [recoveryActionPending]);
+
+  // Periodic autosave for the open project. Uses the IPC PROJECT_SAVE path
+  // which goes through the atomic write from TASK-085, so a kill mid-save
+  // can't corrupt the .roughcut file.
+  React.useEffect(() => {
+    if (!project) return undefined;
+    const id = window.setInterval(() => {
+      window.roughCut.saveProject({ path: project.path, document: project.document })
+        .catch((err) => console.warn('[autosave] failed:', err?.message ?? err));
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [project]);
 
   React.useEffect(() => {
     writePreRecordPreferences({
@@ -450,6 +513,14 @@ function App() {
   if (isRecorderMode) {
     return (
       <main className="recordingLauncherShell">
+        {recoveryState?.available && recording.state !== 'recording' ? (
+          <RecoveryBanner
+            marker={recoveryState.marker}
+            actionPending={recoveryActionPending}
+            onRecover={handleRecover}
+            onDismiss={handleDismissRecovery}
+          />
+        ) : null}
         {recording.state === 'recording' ? (
           <RecordingLauncherActive elapsedMs={elapsedMs} actionPending={recordingActionPending} onStop={toggleRecording} onCancel={cancelRecording} />
         ) : (
@@ -1004,6 +1075,39 @@ function RecordingLauncherActive({ elapsedMs, actionPending, onStop, onCancel }:
         </button>
         <p className="recordingActiveHint">Pause is intentionally pending segment recording, so cancel removes the current take instead of saving a corrupt pause.</p>
       </section>
+    </div>
+  );
+}
+
+function RecoveryBanner({
+  marker,
+  actionPending,
+  onRecover,
+  onDismiss,
+}: {
+  marker: RecoveryMarker | null;
+  actionPending: boolean;
+  onRecover: () => void;
+  onDismiss: () => void;
+}) {
+  const startedLabel = marker?.startedAt ? new Date(marker.startedAt).toLocaleString() : 'an earlier session';
+  return (
+    <div className="recoveryBanner" role="alertdialog" aria-label="Recover last recording">
+      <div className="recoveryBannerCopy">
+        <p className="eyebrow">Unfinished recording detected</p>
+        <p>
+          Rough Cut found a recording that wasn’t saved cleanly (started {startedLabel}). Recover it now or discard the
+          leftover files.
+        </p>
+      </div>
+      <div className="recoveryBannerActions">
+        <button type="button" className="primaryAction" onClick={onRecover} disabled={actionPending}>
+          {actionPending ? 'Recovering...' : 'Recover'}
+        </button>
+        <button type="button" className="secondary" onClick={onDismiss} disabled={actionPending}>
+          Discard
+        </button>
+      </div>
     </div>
   );
 }
