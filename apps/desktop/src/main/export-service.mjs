@@ -101,6 +101,18 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
     height: recording.height,
     fps: recording.fps,
     durationFrames: recording.duration,
+    onDownsampleNotice: (info) => {
+      // Send a non-progressive notice through the existing progress channel so
+      // renderer can show a "Cursor detail reduced" toast without us defining
+      // a separate IPC. Progress stays at the current rendering-styled stage —
+      // the notice is informational only.
+      onProgress({
+        phase: 'rendering-styled',
+        progress: 0.01,
+        notice: `Cursor detail reduced: ${info.originalEvents} → ${info.sampledEvents} samples (stride ${info.stride}). Recording is longer than ${info.maxEvents} cursor events.`,
+        downsample: info,
+      });
+    },
   });
   const zoomLayer = await createZoomSendcmdLayer({
     markers: Array.isArray(recording.zoomMarkers) ? recording.zoomMarkers : [],
