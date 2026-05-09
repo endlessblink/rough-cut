@@ -295,6 +295,15 @@ export function buildFfmpegCameraCaptureArgs({
   ];
 }
 
+// Grace period after SIGKILL before we give up waiting for proc.on('exit').
+// On Linux, a process blocked in uninterruptible sleep (state D) — common
+// with stuck v4l2 reads — won't deliver SIGKILL until the kernel-level call
+// returns, which can be effectively never. If we keep awaiting proc.exit,
+// the IPC stop handler hangs forever and the UI is frozen on "finalizing
+// recording". This grace timer lets us resolve the promise and proceed; the
+// zombie proc will die later or until the next app restart.
+const FFMPEG_POSTKILL_GRACE_MS = 1_500;
+
 function stopFfmpegProcess(proc, outputPath, tag, finalizationLabel, timeouts = null) {
   const stopMs = timeouts?.stopMs ?? FFMPEG_STOP_TIMEOUT_MS;
   const sigintMs = timeouts?.sigintMs ?? FFMPEG_SIGINT_TIMEOUT_MS;
@@ -303,6 +312,16 @@ function stopFfmpegProcess(proc, outputPath, tag, finalizationLabel, timeouts = 
     let settled = false;
     let sigintTimeout = null;
     let sigtermTimeout = null;
+    let postKillTimeout = null;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(stdinTimeout);
+      if (sigintTimeout) clearTimeout(sigintTimeout);
+      if (sigtermTimeout) clearTimeout(sigtermTimeout);
+      if (postKillTimeout) clearTimeout(postKillTimeout);
+      resolve(outputPath);
+    };
     const stdinTimeout = setTimeout(() => {
       console.warn(`${tag} Timeout after q — sending SIGINT for ${finalizationLabel}.`);
       proc.kill('SIGINT');
@@ -312,18 +331,16 @@ function stopFfmpegProcess(proc, outputPath, tag, finalizationLabel, timeouts = 
         sigtermTimeout = setTimeout(() => {
           console.warn(`${tag} Timeout after SIGTERM — forcing SIGKILL; output may be corrupt.`);
           proc.kill('SIGKILL');
+          postKillTimeout = setTimeout(() => {
+            if (proc.exitCode !== null || proc.signalCode !== null) return;
+            console.warn(`${tag} Process did not exit after SIGKILL — likely uninterruptible sleep (e.g. stuck v4l2 read). Giving up wait; the zombie will die later. Output is unusable.`);
+            finish();
+          }, FFMPEG_POSTKILL_GRACE_MS);
         }, sigtermMs);
       }, sigintMs);
     }, stopMs);
 
-    proc.on('exit', () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(stdinTimeout);
-      if (sigintTimeout) clearTimeout(sigintTimeout);
-      if (sigtermTimeout) clearTimeout(sigtermTimeout);
-      resolve(outputPath);
-    });
+    proc.on('exit', () => finish());
 
     try {
       proc.stdin?.write('q\n');
