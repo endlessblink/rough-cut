@@ -47,7 +47,9 @@ declare global {
       getMicSources: () => Promise<MicSource[]>;
       getSystemAudioSources: () => Promise<AudioSource[]>;
       getCameraSources: () => Promise<CameraSource[]>;
+      getDisplays: () => Promise<CaptureDisplay[]>;
       getRecordingPreflightStatus: (options?: RecordingPreflightOptions) => Promise<RecordingPreflightStatus>;
+      selectCaptureRegion: (options?: { displayId?: string | null; initialRegion?: CaptureRegion | null }) => Promise<CaptureRegion | null>;
       startRecording: (options?: { micSource?: string | null; systemAudioSource?: string | null; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean }) => Promise<RecordingStatus>;
       stopRecording: () => Promise<RecordingStatus>;
       cancelRecording: () => Promise<RecordingStatus>;
@@ -95,7 +97,8 @@ type MicSource = { id: string; name: string; label: string; state: string };
 type AudioSource = { id: string; name: string; label: string; state: string };
 type CameraSource = { id: string; name: string; label: string };
 type CaptureMode = 'display' | 'region';
-type CaptureRegion = { mode: 'region'; x: number; y: number; width: number; height: number };
+type CaptureDisplay = { id: string; label: string; primary: boolean; scaleFactor: number; bounds: { x: number; y: number; width: number; height: number } };
+type CaptureRegion = { mode: 'region'; x: number; y: number; width: number; height: number; absoluteX?: number; absoluteY?: number; displayId?: string | null; displayLabel?: string | null };
 type RecordingPreflightOptions = { recordMic: boolean; recordSystemAudio: boolean; recordCamera: boolean; micSource?: string | null; systemAudioSource?: string | null; cameraDevicePath?: string | null; captureMode: CaptureMode; captureRegion?: CaptureRegion | null };
 type RecordingPreflightCheck = { id: string; label: string; severity: 'ok' | 'warn' | 'critical'; detail: string };
 type RecordingPreflightStatus = { status: 'ok' | 'warn' | 'critical'; checkedAt: string; recordingsDir: string; display?: { x?: number; y?: number; width?: number; height?: number }; capture: { mode: CaptureMode; width: number; height: number; fps: number }; disk?: { freeBytes: number | null; severity: RecordingPreflightCheck['severity']; detail: string }; checks: RecordingPreflightCheck[] };
@@ -189,6 +192,9 @@ function App() {
   const [micSources, setMicSources] = React.useState<MicSource[]>([]);
   const [systemAudioSources, setSystemAudioSources] = React.useState<AudioSource[]>([]);
   const [cameraSources, setCameraSources] = React.useState<CameraSource[]>([]);
+  const [captureDisplays, setCaptureDisplays] = React.useState<CaptureDisplay[]>([]);
+  const [selectedCaptureDisplayId, setSelectedCaptureDisplayId] = React.useState<string | null>(null);
+  const [screenPickerOpen, setScreenPickerOpen] = React.useState(false);
   const [recordMic, setRecordMic] = React.useState(initialPreRecordPreferences.recordMic);
   const [recordSystemAudio, setRecordSystemAudio] = React.useState(initialPreRecordPreferences.recordSystemAudio);
   const [recordCamera, setRecordCamera] = React.useState(initialPreRecordPreferences.recordCamera);
@@ -239,6 +245,12 @@ function App() {
         if (initialPreRecordPreferences.recordCamera && !sources.some((source) => source.name === preferred)) setRecordCamera(false);
       })
       .catch(() => setCameraSources([]));
+    window.roughCut.getDisplays()
+      .then((displays) => {
+        setCaptureDisplays(displays);
+        setSelectedCaptureDisplayId((current) => current ?? displays.find((display) => display.primary)?.id ?? displays[0]?.id ?? null);
+      })
+      .catch(() => setCaptureDisplays([]));
     window.roughCut.getRecoveryState()
       .then((state) => setRecoveryState({ available: Boolean(state?.available), marker: state?.marker ?? null }))
       .catch(() => setRecoveryState(null));
@@ -419,6 +431,29 @@ function App() {
     }
   }
 
+  async function selectScreenRegion(displayId = selectedCaptureDisplayId) {
+    if (recordingActionPendingRef.current) return;
+    if (!displayId) {
+      setScreenPickerOpen(true);
+      return;
+    }
+    setError(null);
+    try {
+      const selectedRegion = await window.roughCut.selectCaptureRegion({ displayId, initialRegion: captureRegion });
+      if (!selectedRegion) {
+        setScreenPickerOpen(true);
+        return;
+      }
+      setCaptureRegion(selectedRegion);
+      setSelectedCaptureDisplayId(selectedRegion.displayId ?? displayId);
+      setCaptureMode('region');
+      setScreenPickerOpen(false);
+    } catch (err) {
+      console.error('[renderer:recording] region selection failed', err);
+      setError(err instanceof Error ? err.message : 'Region selection failed.');
+    }
+  }
+
   async function cancelRecording() {
     if (recordingActionPendingRef.current || recording.state !== 'recording') return;
     recordingActionPendingRef.current = true;
@@ -536,6 +571,9 @@ function App() {
             selectedCameraSource={selectedCameraSource}
             captureMode={captureMode}
             captureRegion={captureRegion}
+            captureDisplays={captureDisplays}
+            selectedCaptureDisplayId={selectedCaptureDisplayId}
+            screenPickerOpen={screenPickerOpen}
             preflightStatus={preflightStatus}
             actionPending={recordingActionPending}
             onClose={openEditorFromRecorder}
@@ -547,7 +585,9 @@ function App() {
             onSelectedSystemAudioSourceChange={setSelectedSystemAudioSource}
             onSelectedCameraSourceChange={setSelectedCameraSource}
             onCaptureModeChange={setCaptureMode}
-            onCaptureRegionChange={setCaptureRegion}
+            onScreenPickerOpenChange={setScreenPickerOpen}
+            onSelectedCaptureDisplayChange={setSelectedCaptureDisplayId}
+            onSelectCaptureRegion={selectScreenRegion}
           />
         )}
         <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} error={error} />
@@ -609,6 +649,9 @@ function App() {
             selectedCameraSource={selectedCameraSource}
             captureMode={captureMode}
             captureRegion={captureRegion}
+            captureDisplays={captureDisplays}
+            selectedCaptureDisplayId={selectedCaptureDisplayId}
+            screenPickerOpen={screenPickerOpen}
             preflightStatus={preflightStatus}
             actionPending={recordingActionPending}
             onClose={openEditorFromRecorder}
@@ -620,7 +663,9 @@ function App() {
             onSelectedSystemAudioSourceChange={setSelectedSystemAudioSource}
             onSelectedCameraSourceChange={setSelectedCameraSource}
             onCaptureModeChange={setCaptureMode}
-            onCaptureRegionChange={setCaptureRegion}
+            onScreenPickerOpenChange={setScreenPickerOpen}
+            onSelectedCaptureDisplayChange={setSelectedCaptureDisplayId}
+            onSelectCaptureRegion={selectScreenRegion}
           />
         ) : null}
         <div className={setupBoardOpen ? 'recordingStrip' : 'recordingStrip collapsed'} aria-label="Recording setup" data-ui-region="capture-command-area">
@@ -800,6 +845,15 @@ function buildPreflightOptions({ recordMic, recordSystemAudio, recordCamera, sel
   };
 }
 
+function displayPositionLabel(bounds: CaptureDisplay['bounds']) {
+  if (bounds.x === 0 && bounds.y === 0) return 'Origin screen';
+  const horizontal = bounds.x < 0 ? 'left' : bounds.x > 0 ? 'right' : 'center';
+  const vertical = bounds.y < 0 ? 'above' : bounds.y > 0 ? 'below' : 'level';
+  if (horizontal === 'center') return vertical;
+  if (vertical === 'level') return horizontal;
+  return `${horizontal}, ${vertical}`;
+}
+
 function PreRecordPanel({
   micSources,
   systemAudioSources,
@@ -812,6 +866,9 @@ function PreRecordPanel({
   selectedCameraSource,
   captureMode,
   captureRegion,
+  captureDisplays,
+  selectedCaptureDisplayId,
+  screenPickerOpen,
   preflightStatus,
   actionPending,
   onClose,
@@ -823,7 +880,9 @@ function PreRecordPanel({
   onSelectedSystemAudioSourceChange,
   onSelectedCameraSourceChange,
   onCaptureModeChange,
-  onCaptureRegionChange,
+  onScreenPickerOpenChange,
+  onSelectedCaptureDisplayChange,
+  onSelectCaptureRegion,
 }: {
   micSources: MicSource[];
   systemAudioSources: AudioSource[];
@@ -836,6 +895,9 @@ function PreRecordPanel({
   selectedCameraSource: string;
   captureMode: CaptureMode;
   captureRegion: CaptureRegion;
+  captureDisplays: CaptureDisplay[];
+  selectedCaptureDisplayId: string | null;
+  screenPickerOpen: boolean;
   preflightStatus: RecordingPreflightStatus | null;
   actionPending: boolean;
   onClose: () => void;
@@ -847,27 +909,25 @@ function PreRecordPanel({
   onSelectedSystemAudioSourceChange: (source: string) => void;
   onSelectedCameraSourceChange: (source: string) => void;
   onCaptureModeChange: (mode: CaptureMode) => void;
-  onCaptureRegionChange: (region: CaptureRegion) => void;
+  onScreenPickerOpenChange: (open: boolean) => void;
+  onSelectedCaptureDisplayChange: (displayId: string | null) => void;
+  onSelectCaptureRegion: (displayId?: string | null) => void;
 }) {
-  const [regionPickerOpen, setRegionPickerOpen] = React.useState(false);
-  const [draftRegion, setDraftRegion] = React.useState<CaptureRegion>(captureRegion);
   const displayWidth = Math.max(2, Math.round(preflightStatus?.display?.width ?? (captureMode === 'region' ? Math.max(captureRegion.x + captureRegion.width, 1920) : preflightStatus?.capture.width ?? 1920)));
   const displayHeight = Math.max(2, Math.round(preflightStatus?.display?.height ?? (captureMode === 'region' ? Math.max(captureRegion.y + captureRegion.height, 1080) : preflightStatus?.capture.height ?? 1080)));
 
   function chooseDisplay() {
     onCaptureModeChange('display');
-    setRegionPickerOpen(false);
   }
 
-  function openRegionPicker() {
+  function chooseRegion() {
     onCaptureModeChange('region');
-    setDraftRegion(captureRegion);
-    setRegionPickerOpen(true);
+    onScreenPickerOpenChange(true);
   }
 
-  function applyDraftRegion() {
-    onCaptureRegionChange(clampRegionToDisplay(draftRegion, displayWidth, displayHeight));
-    setRegionPickerOpen(false);
+  function chooseCaptureDisplay(displayId: string) {
+    onSelectedCaptureDisplayChange(displayId);
+    onSelectCaptureRegion(displayId);
   }
 
   return (
@@ -881,61 +941,75 @@ function PreRecordPanel({
           <button type="button" className="secondary compact" onClick={onClose} disabled={actionPending}>Cancel</button>
         </div>
 
-        <div className="preRecordControls">
-          <section className="preRecordSection">
-            <ControlRow icon="display" label="Capture">
-              <select value={captureMode} disabled={actionPending} onChange={(event) => onCaptureModeChange(event.currentTarget.value as CaptureMode)} aria-label="Capture target">
-                <option value="display">Full display</option>
-                <option value="region">Region</option>
-              </select>
-            </ControlRow>
-            <div className="sourcePickerGrid" data-ui-region="capture-source-picker" aria-label="Capture source picker">
-              <button type="button" className={`sourcePickerCard ${captureMode === 'display' ? 'selected' : ''}`} data-source-option="display" disabled={actionPending} onClick={chooseDisplay}>
-                <span>Full display</span>
-                <small>{displayWidth} x {displayHeight}</small>
-              </button>
-              <button type="button" className={`sourcePickerCard ${captureMode === 'region' ? 'selected' : ''}`} data-source-option="region" disabled={actionPending} onClick={openRegionPicker}>
-                <span>Region</span>
-                <small>{captureRegion.width} x {captureRegion.height}</small>
-              </button>
-              <button type="button" className="sourcePickerCard disabled" data-source-option="window" disabled title="Window capture needs platform-specific support">
-                <span>Window</span>
-                <small>Unavailable on this build</small>
-              </button>
-            </div>
-            {captureMode === 'region' ? (
-              <div className="regionControls preRecordRegion" aria-label="Pre-record capture region controls">
-                <NumberField label="X" value={captureRegion.x} disabled={actionPending} onChange={(x) => onCaptureRegionChange({ ...captureRegion, x })} />
-                <NumberField label="Y" value={captureRegion.y} disabled={actionPending} onChange={(y) => onCaptureRegionChange({ ...captureRegion, y })} />
-                <NumberField label="W" value={captureRegion.width} min={2} disabled={actionPending} onChange={(width) => onCaptureRegionChange({ ...captureRegion, width })} />
-                <NumberField label="H" value={captureRegion.height} min={2} disabled={actionPending} onChange={(height) => onCaptureRegionChange({ ...captureRegion, height })} />
-                <button type="button" className="secondary compact" data-region-picker-open="true" disabled={actionPending} onClick={openRegionPicker}>Adjust visually</button>
+        <div className="preRecordBody">
+          <div className="preRecordControls">
+            <section className="preRecordSection">
+              <ControlRow icon="display" label="Capture">
+                <select value={captureMode} disabled={actionPending} onChange={(event) => {
+                  const nextMode = event.currentTarget.value as CaptureMode;
+                  if (nextMode === 'region') {
+                    chooseRegion();
+                    return;
+                  }
+                  onCaptureModeChange(nextMode);
+                }} aria-label="Capture target">
+                  <option value="display">Full display</option>
+                  <option value="region">Region</option>
+                </select>
+              </ControlRow>
+              <div className="sourcePickerGrid" data-ui-region="capture-source-picker" aria-label="Capture source picker">
+                <button type="button" className={`sourcePickerCard ${captureMode === 'display' ? 'selected' : ''}`} data-source-option="display" aria-pressed={captureMode === 'display'} disabled={actionPending} onClick={chooseDisplay}>
+                  <span>Full display</span>
+                  <small>{displayWidth} x {displayHeight}</small>
+                </button>
+                <button type="button" className={`sourcePickerCard ${captureMode === 'region' ? 'selected' : ''}`} data-source-option="region" aria-pressed={captureMode === 'region'} disabled={actionPending} onClick={chooseRegion}>
+                  <span>Region</span>
+                  <small>{captureRegion.width} x {captureRegion.height}</small>
+                </button>
+                <button type="button" className="sourcePickerCard disabled" data-source-option="window" disabled title="Window capture needs platform-specific support">
+                  <span>Window</span>
+                  <small>Unavailable on this build</small>
+                </button>
               </div>
-            ) : null}
-          </section>
+              {captureMode === 'region' ? (
+                <div className="preRecordRegionSummary" aria-label="Selected capture region">
+                  <span>{captureRegion.displayLabel ?? captureDisplays.find((display) => display.id === selectedCaptureDisplayId)?.label ?? 'Screen'} · {captureRegion.width} x {captureRegion.height}</span>
+                  <small>{screenPickerOpen ? 'Choose a screen, then mark the region.' : 'Region selected. You can reselect the screen or area.'}</small>
+                  <button type="button" className="secondary compact" disabled={actionPending} onClick={() => onScreenPickerOpenChange(true)}>Reselect screen</button>
+                  <button type="button" className="secondary compact" disabled={actionPending || !selectedCaptureDisplayId} onClick={() => onSelectCaptureRegion(selectedCaptureDisplayId)}>Reselect region</button>
+                </div>
+              ) : null}
+              {captureMode === 'region' && screenPickerOpen ? (
+                <div className="screenPickerGrid" data-ui-region="capture-screen-picker" aria-label="Choose screen for region capture">
+                  {captureDisplays.length > 0 ? captureDisplays.map((display) => (
+                    <button
+                      key={display.id}
+                      type="button"
+                      className={`screenPickerCard ${display.id === selectedCaptureDisplayId ? 'selected' : ''}`}
+                      data-screen-option={display.id}
+                      aria-pressed={display.id === selectedCaptureDisplayId}
+                      disabled={actionPending}
+                      onClick={() => chooseCaptureDisplay(display.id)}
+                    >
+                      <span>{display.label}{display.primary ? ' · Primary' : ''}</span>
+                      <small>{display.bounds.width} x {display.bounds.height} · {displayPositionLabel(display.bounds)}</small>
+                    </button>
+                  )) : <p className="recordingActiveHint">No screens were reported by Electron.</p>}
+                </div>
+              ) : null}
+            </section>
 
-          <PreRecordSourceSelect icon="mic" label="Mic" enabled={recordMic} disabled={actionPending || micSources.length === 0} emptyLabel="No microphone" offLabel="No microphone" sources={micSources} value={selectedMicSource} onEnabledChange={onRecordMicChange} onValueChange={onSelectedMicSourceChange} />
-          <PreRecordSourceSelect icon="volume" label="System" enabled={recordSystemAudio} disabled={actionPending || systemAudioSources.length === 0} emptyLabel="No system audio" offLabel="No system audio" sources={systemAudioSources} value={selectedSystemAudioSource} onEnabledChange={onRecordSystemAudioChange} onValueChange={onSelectedSystemAudioSourceChange} />
-          <PreRecordSourceSelect icon="camera" label="Camera" enabled={recordCamera} disabled={actionPending || cameraSources.length === 0} emptyLabel="No camera" offLabel="No camera" sources={cameraSources} value={selectedCameraSource} onEnabledChange={onRecordCameraChange} onValueChange={onSelectedCameraSourceChange} />
+            <PreRecordSourceSelect icon="mic" label="Mic" enabled={recordMic} disabled={actionPending || micSources.length === 0} emptyLabel="No microphone" offLabel="No microphone" sources={micSources} value={selectedMicSource} onEnabledChange={onRecordMicChange} onValueChange={onSelectedMicSourceChange} />
+            <PreRecordSourceSelect icon="volume" label="System" enabled={recordSystemAudio} disabled={actionPending || systemAudioSources.length === 0} emptyLabel="No system audio" offLabel="No system audio" sources={systemAudioSources} value={selectedSystemAudioSource} onEnabledChange={onRecordSystemAudioChange} onValueChange={onSelectedSystemAudioSourceChange} />
+            <PreRecordSourceSelect icon="camera" label="Camera" enabled={recordCamera} disabled={actionPending || cameraSources.length === 0} emptyLabel="No camera" offLabel="No camera" sources={cameraSources} value={selectedCameraSource} onEnabledChange={onRecordCameraChange} onValueChange={onSelectedCameraSourceChange} />
+          </div>
+
+          {recordCamera && selectedCameraSource ? (
+            <PreRecordCameraSetup source={cameraSources.find((source) => source.name === selectedCameraSource)} />
+          ) : null}
+
+          <PreflightSummary status={preflightStatus} />
         </div>
-
-        {recordCamera && selectedCameraSource ? (
-          <PreRecordCameraSetup source={cameraSources.find((source) => source.name === selectedCameraSource)} />
-        ) : null}
-
-        <PreflightSummary status={preflightStatus} />
-
-        {regionPickerOpen ? (
-          <RegionPickerPanel
-            region={draftRegion}
-            displayWidth={displayWidth}
-            displayHeight={displayHeight}
-            actionPending={actionPending}
-            onRegionChange={(region) => setDraftRegion(clampRegionToDisplay(region, displayWidth, displayHeight))}
-            onCancel={() => setRegionPickerOpen(false)}
-            onApply={applyDraftRegion}
-          />
-        ) : null}
 
         <div className="preRecordFooter">
           <div className="preRecordActions">
@@ -949,50 +1023,6 @@ function PreRecordPanel({
       </section>
     </div>
   );
-}
-
-function RegionPickerPanel({ region, displayWidth, displayHeight, actionPending, onRegionChange, onCancel, onApply }: { region: CaptureRegion; displayWidth: number; displayHeight: number; actionPending: boolean; onRegionChange: (region: CaptureRegion) => void; onCancel: () => void; onApply: () => void }) {
-  const previewRegion = clampRegionToDisplay(region, displayWidth, displayHeight);
-  const rectStyle = {
-    left: `${(previewRegion.x / displayWidth) * 100}%`,
-    top: `${(previewRegion.y / displayHeight) * 100}%`,
-    width: `${(previewRegion.width / displayWidth) * 100}%`,
-    height: `${(previewRegion.height / displayHeight) * 100}%`,
-  };
-  const centerRegion = clampRegionToDisplay({ mode: 'region', x: Math.round((displayWidth - 1280) / 2), y: Math.round((displayHeight - 720) / 2), width: Math.min(1280, displayWidth), height: Math.min(720, displayHeight) }, displayWidth, displayHeight);
-  const leftHalf = clampRegionToDisplay({ mode: 'region', x: 0, y: 0, width: Math.round(displayWidth / 2), height: displayHeight }, displayWidth, displayHeight);
-
-  return (
-    <section className="regionPickerPanel" data-ui-region="region-picker-panel" aria-label="Visual region picker">
-      <div className="regionPickerHeader">
-        <div>
-          <p className="eyebrow">Region picker</p>
-          <h3>{previewRegion.width} x {previewRegion.height} at {previewRegion.x}, {previewRegion.y}</h3>
-        </div>
-        <div className="regionPickerActions">
-          <button type="button" className="secondary compact" disabled={actionPending} onClick={onCancel} data-region-picker-cancel="true">Cancel</button>
-          <button type="button" className="primaryAction compact" disabled={actionPending} onClick={onApply} data-region-picker-apply="true">Apply region</button>
-        </div>
-      </div>
-      <div className="regionPreviewMap" aria-hidden="true">
-        <span className="regionPreviewDisplay" />
-        <span className="regionPreviewSelection" style={rectStyle} />
-      </div>
-      <div className="regionPresetRow" aria-label="Region presets">
-        <button type="button" className="secondary compact" disabled={actionPending} onClick={() => onRegionChange({ mode: 'region', x: 0, y: 0, width: displayWidth, height: displayHeight })}>Full display bounds</button>
-        <button type="button" className="secondary compact" disabled={actionPending} onClick={() => onRegionChange(centerRegion)}>Centered 1280x720</button>
-        <button type="button" className="secondary compact" disabled={actionPending} onClick={() => onRegionChange(leftHalf)}>Left half</button>
-      </div>
-    </section>
-  );
-}
-
-function clampRegionToDisplay(region: CaptureRegion, displayWidth: number, displayHeight: number): CaptureRegion {
-  const width = Math.max(2, Math.min(Math.round(region.width), displayWidth));
-  const height = Math.max(2, Math.min(Math.round(region.height), displayHeight));
-  const x = Math.max(0, Math.min(Math.round(region.x), displayWidth - width));
-  const y = Math.max(0, Math.min(Math.round(region.y), displayHeight - height));
-  return { mode: 'region', x, y, width, height };
 }
 
 function PreRecordCameraSetup({ source }: { source?: CameraSource }) {
@@ -1207,8 +1237,10 @@ function shortSourceId(sourceName: string, index: number) {
 }
 
 function PreflightSummary({ status }: { status: RecordingPreflightStatus | null }) {
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
   const checks = status?.checks ?? [];
   const warnings = checks.filter((check) => check.severity !== 'ok');
+  const visibleChecks = warnings.length > 0 ? warnings : checks.filter((check) => ['session', 'capture', 'destination'].includes(check.id));
   return (
     <section className={`preflightSummary ${status?.status ?? 'loading'}`} data-ui-region="recording-preflight-status" aria-live="polite">
       <div className="preflightHeader">
@@ -1218,8 +1250,8 @@ function PreflightSummary({ status }: { status: RecordingPreflightStatus | null 
         </div>
         {status ? <span>{status.capture.width || 'unknown'} x {status.capture.height || 'unknown'} @ {status.capture.fps} FPS</span> : <span>Checking...</span>}
       </div>
-      <div className="preflightGrid">
-        {status ? checks.map((check) => (
+      <div className="preflightGrid compact">
+        {status ? visibleChecks.map((check) => (
           <div key={check.id} className={`preflightCheck ${check.severity}`}>
             <strong>{check.label}</strong>
             <span>{check.detail}</span>
@@ -1227,6 +1259,21 @@ function PreflightSummary({ status }: { status: RecordingPreflightStatus | null 
         )) : <p className="recordingActiveHint">Checking session, tools, save destination, and optional sources.</p>}
       </div>
       <p className={warnings.length > 0 ? 'preflightWarning' : 'recordingActiveHint'}>Warnings are visible for this take, but optional mic, system audio, and camera problems will not block safe screen-only recording.</p>
+      {status ? (
+        <button type="button" className="secondary compact preflightDetailsToggle" onClick={() => setDetailsOpen((open) => !open)} aria-expanded={detailsOpen}>
+          {detailsOpen ? 'Hide checks' : `Show all checks (${checks.length})`}
+        </button>
+      ) : null}
+      {detailsOpen ? (
+        <div className="preflightGrid details">
+          {checks.map((check) => (
+            <div key={check.id} className={`preflightCheck ${check.severity}`}>
+              <strong>{check.label}</strong>
+              <span>{check.detail}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1795,29 +1842,6 @@ function ProjectPreview({
     });
   }
 
-  async function updateCameraFrame(frame: { x: number; y: number; w: number; h: number } | null) {
-    if (!recordingAsset?.id) return;
-    await persist({
-      ...project.document,
-      assets: project.document.assets?.map((asset) => {
-        if (asset.id !== recordingAsset.id) return asset;
-        const presentation = withDefaultPresentation(asset.presentation) as unknown as Record<string, unknown>;
-        const next: Record<string, unknown> = { ...presentation };
-        if (frame) {
-          next.cameraFrame = {
-            x: clampUnit(frame.x),
-            y: clampUnit(frame.y),
-            w: clampUnit(frame.w, 0.05),
-            h: clampUnit(frame.h, 0.05),
-          };
-        } else {
-          delete next.cameraFrame;
-        }
-        return { ...asset, presentation: next };
-      }),
-    });
-  }
-
   async function updateCameraPresentation(patch: Partial<CameraPresentation>) {
     if (!recordingAsset?.id || !hasCamera) return;
     await persist({
@@ -1837,6 +1861,29 @@ function ProjectPreview({
             camera: nextCamera,
           },
         };
+      }),
+    });
+  }
+
+  async function updateCameraFrame(frame: { x: number; y: number; w: number; h: number } | null) {
+    if (!recordingAsset?.id) return;
+    await persist({
+      ...project.document,
+      assets: project.document.assets?.map((asset) => {
+        if (asset.id !== recordingAsset.id) return asset;
+        const presentation = withDefaultPresentation(asset.presentation) as unknown as Record<string, unknown>;
+        const next: Record<string, unknown> = { ...presentation };
+        if (frame) {
+          next.cameraFrame = {
+            x: clampUnit(frame.x),
+            y: clampUnit(frame.y),
+            w: clampUnit(frame.w, 0.05),
+            h: clampUnit(frame.h, 0.05),
+          };
+        } else {
+          delete next.cameraFrame;
+        }
+        return { ...asset, presentation: next };
       }),
     });
   }
@@ -2540,6 +2587,10 @@ function VideoPreview({
   const backgroundImageRef = React.useRef<HTMLImageElement | null>(null);
   const pendingSeekRef = React.useRef<number | null>(null);
   const seekingRef = React.useRef(false);
+  // Active drag state for the camera PiP. cameraDragRef holds the in-flight
+  // normalized rect so the tick can render it before we persist on pointer-up.
+  // cameraRectRef caches the most recent canvas-pixel camera rect from tick so
+  // pointer handlers can hit-test without recomputing the resolveFrame inputs.
   const cameraDragRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const cameraRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const cameraDragOriginRef = React.useRef<{ pointerId: number; offsetX: number; offsetY: number; width: number; height: number } | null>(null);
@@ -2915,14 +2966,19 @@ function VideoPreview({
           const yCanvas = ((event.clientY - rect.top) * canvas.height) / rect.height;
           const origin = cameraDragOriginRef.current;
           if (origin && origin.pointerId === event.pointerId) {
+            const nextX = (xCanvas - origin.offsetX) / canvas.width;
+            const nextY = (yCanvas - origin.offsetY) / canvas.height;
             const w = origin.width / canvas.width;
             const h = origin.height / canvas.height;
             cameraDragRef.current = {
-              x: Math.max(0, Math.min(1 - w, (xCanvas - origin.offsetX) / canvas.width)),
-              y: Math.max(0, Math.min(1 - h, (yCanvas - origin.offsetY) / canvas.height)),
+              x: clampUnit(nextX, 0),
+              y: clampUnit(nextY, 0),
               w,
               h,
             };
+            // clamp so the rect stays inside the canvas
+            cameraDragRef.current.x = Math.max(0, Math.min(1 - w, cameraDragRef.current.x));
+            cameraDragRef.current.y = Math.max(0, Math.min(1 - h, cameraDragRef.current.y));
             return;
           }
           const cameraRect = cameraRectRef.current;
