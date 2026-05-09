@@ -337,9 +337,24 @@ ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, (_event, projectPath) => {
   const safePath = validateProjectPath(projectPath, { allowedRoots: buildAllowedProjectRoots() });
   return openProjectFile(safePath).then(formatProject);
 });
-ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, (_event, { path, document }) => {
+// Serialize concurrent saves per project path. The renderer can fire two
+// project:save calls in quick succession (e.g. autosave + manual save). The
+// atomic write in saveProjectFile uses a fixed `.tmp` suffix per path; two
+// parallel saves both `open(...,'w')` the same tmp file and write into the
+// same inode at offset 0, producing interleaved bytes and a corrupt JSON
+// after rename. Queueing per path makes saves strictly sequential, which is
+// what saveProjectFile already assumes.
+const projectSaveQueues = new Map();
+ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, async (_event, { path, document }) => {
   const safePath = validateProjectPath(path, { allowedRoots: buildAllowedProjectRoots() });
-  return saveProjectFile(safePath, document).then(formatProject);
+  const prev = projectSaveQueues.get(safePath) ?? Promise.resolve();
+  const next = prev.catch(() => {}).then(() => saveProjectFile(safePath, document).then(formatProject));
+  projectSaveQueues.set(safePath, next);
+  try {
+    return await next;
+  } finally {
+    if (projectSaveQueues.get(safePath) === next) projectSaveQueues.delete(safePath);
+  }
 });
 ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_GET, () => getRecoveryState({ markerPath }));
 ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_RECOVER, async () => {
