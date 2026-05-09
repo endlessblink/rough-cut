@@ -409,6 +409,14 @@ function App() {
         const micSource = recordMic ? selectedMicSource || null : null;
         const systemAudioSource = recordSystemAudio ? selectedSystemAudioSource || null : null;
         const cameraDevicePath = recordCamera ? selectedCameraSource || null : null;
+        // Refuse to start when the user wanted camera but no device resolved.
+        // Without this guard the recording proceeds silently screen-only and
+        // the user only discovers the missing face cam after the take. Triggered
+        // by a user report on 2026-05-09 where cameraDevicePath was null in the
+        // recording-start event despite the recordCamera toggle being on.
+        if (recordCamera && !cameraDevicePath) {
+          throw new Error('Camera is enabled but no camera device is selected. Pick a camera in the source dropdown or turn the camera toggle off, then start again.');
+        }
         const region = captureMode === 'region' ? captureRegion : null;
         setPreRecordPanelOpen(false);
         await new Promise((resolve) => window.setTimeout(resolve, 100));
