@@ -39,7 +39,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-023 | Add recent projects or recordings list | P2 | DONE |
 | TASK-024 | Add microphone recording foundation | P2 | DONE |
 | TASK-025 | Unified preview that mirrors styled export | P1 | DONE |
-| TASK-026 | Switch capture pipeline to xdg-desktop-portal + PipeWire (Wayland) | P1 | PLANNED |
+| TASK-026 | Switch capture pipeline to xdg-desktop-portal + PipeWire (Wayland) | P3-LOW | PLANNED |
 | ~~TASK-027~~ | Cursor-follow zoom (preview + export, parity-preserving) | P1 | DONE (2026-05-06) |
 | TASK-028 | Add aspect ratio presets for styled exports | P1 | DONE |
 | TASK-029 | Build editor shell and screen presentation controls | P1 | DONE |
@@ -76,6 +76,37 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-060 | Debug long-smoke post-save failure | P1 | DONE |
 | TASK-061 | Fix choppy camera playback via canvas frame dedup | P1 | DONE |
 | TASK-062 | Add real window and region selection UI | P2 | DONE |
+| TASK-063 | Enable real window capture selection | P2 | PLANNED |
+| TASK-064 | Stabilize sidebar tool switching layout | P2 | PLANNED |
+| TASK-065 | Validate paths in PROJECT_OPEN and PROJECT_SAVE IPC handlers | P1 | PLANNED |
+| TASK-066 | Clean up recording child processes on app crash or signal | P1 | PLANNED |
+| TASK-067 | Validate remuxed MP4 coherence before declaring success | P1 | PLANNED |
+| TASK-068 | Compensate cursor and audio drift vs ffmpeg first frame | P1 | PLANNED |
+| TASK-069 | Add EXPORT_CANCEL IPC and kill ffmpeg on cancel | P1 | PLANNED |
+| TASK-070 | Per-display scale factor for cursor and click telemetry | P1 | PLANNED |
+| TASK-071 | Surface camera failure during recording, not after | P1 | PLANNED |
+| TASK-072 | Lift or warn on ASS cursor 600-event downsample cap | P1 | PLANNED |
+| TASK-073 | Validate capture region against display bounds | P1 | PLANNED |
+| TASK-074 | Wire or remove inert top-bar folder, comments, undo icons | P1 | PLANNED |
+| TASK-075 | Implement undo and redo with edit history stack | P1 | PLANNED |
+| TASK-076 | Add keyboard shortcuts and a shortcuts cheat sheet dialog | P1 | PLANNED |
+| TASK-077 | Reconcile or remove duplicate region X Y W H inputs | P2 | PLANNED |
+| TASK-078 | Add feedback signal for incorrect auto-zoom suggestions | P3 | PLANNED |
+| TASK-079 | Profile renderer scrub and memoize where DevTools flags | P3 | PLANNED |
+| TASK-080 | Add i18n infrastructure with t() context and RTL CSS | P2 | PLANNED |
+| TASK-081 | Add light theme and semantic color tokens | P3 | PLANNED |
+| TASK-082 | Improve error UX with actionable copy and diagnostics link | P2 | PLANNED |
+| TASK-083 | Keyboard accessibility for timeline, markers, trim handles | P2 | PLANNED |
+| TASK-084 | Support relative-to-.roughcut asset paths in projects | P2 | PLANNED |
+| TASK-085 | Atomic project file writes with temp-and-rename pattern | P1 | PLANNED |
+| TASK-086 | Add GIF and WebM export presets | P2 | PLANNED |
+| TASK-087 | Add 9:16 vertical and 1:1 square export presets | P2 | PLANNED |
+| TASK-088 | Add autosave and crash recovery for orphaned recordings | P1 | PLANNED |
+| TASK-089 | Bundle ffmpeg-static and ffprobe-static binaries | P2 | PLANNED |
+| TASK-090 | Build AppImage and deb installer with electron-updater | P3 | PLANNED |
+| TASK-091 | Add opt-in crash reporting and error telemetry | P3 | PLANNED |
+| TASK-092 | Replace xdotool and xinput stack with uiohook-napi | P2 | PLANNED |
+| TASK-093 | Split countdown and HUD indicator into BrowserWindows | P3 | PLANNED |
 
 ## Recently Verified
 
@@ -158,6 +189,21 @@ Order follows the Direction section: finish in-flight presentation polish → re
 
 1. **LINE A — Client tutorial recording sprint**:
 Sequence: TASK-013, TASK-048, TASK-041, TASK-020, TASK-021, TASK-022, TASK-023, TASK-047, TASK-005, TASK-026
+
+2. **LINE B — Don't lose user data**:
+Sequence: TASK-065, TASK-085, TASK-066, TASK-067, TASK-088, TASK-072
+
+3. **LINE C — Make the UI honest**:
+Sequence: TASK-074, TASK-077, TASK-082, TASK-076, TASK-075
+
+4. **LINE D — Real export options users expect**:
+Sequence: TASK-069, TASK-068, TASK-086, TASK-087
+
+5. **LINE E — Polish, accuracy, accessibility**:
+Sequence: TASK-070, TASK-071, TASK-073, TASK-078, TASK-083, TASK-084, TASK-080, TASK-081, TASK-079
+
+6. **LINE F — Distribution and native rewrites**:
+Sequence: TASK-089, TASK-090, TASK-091, TASK-092, TASK-093, TASK-063, TASK-064
 
 ## Tasks
 
@@ -942,6 +988,7 @@ Until preview matches export, every presentation feature ships blind: users add 
 
 ### TASK-026 Switch capture pipeline to xdg-desktop-portal + PipeWire (Wayland)
 
+**Priority**: P3-LOW
 **Priority:** P1  
 **Status:** PLANNED  
 **Supersedes-on-completion:** TASK-010 (cursor telemetry recording), TASK-011 (cursor overlay export), and the entire reliable-cursor-overlay architecture
@@ -1652,7 +1699,7 @@ The project model and frame resolver already support linked camera assets and ca
 ### TASK-049 Build Screen Studio-style editor UI foundation
 
 **Priority:** P1  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -2088,9 +2135,653 @@ The current capture target control is still a basic full-display/region dropdown
 #### Verification
 
 - 2026-05-08: Added pre-record source picker cards for full display, region, and disabled window capture; added an in-panel visual region picker with clear bounds, cancel/apply actions, and safe presets. Window capture remains visibly disabled pending platform-specific capture support.
-- UI smoke covers selecting full display and opening/canceling the region picker.
+- 2026-05-09: Reworked region selection to remove typed X/Y/W/H controls from the pre-record surface. Region mode now shows the visual picker directly; users drag on the preview map to set the capture area, with presets kept as shortcuts. Preflight now shows a compact readiness summary by default with all checks behind a reveal.
+- UI smoke covers selecting full display, selecting Region, and showing the drag-based region picker.
 - Add automated coverage for region geometry normalization and persisted metadata.
 - Manual packaged-app verification records a selected region and, when supported, a selected window.
 - `pnpm --filter @rough-cut/desktop typecheck`
 - `pnpm smoke:recording-flow-ui`
 - `ROUGH_CUT_SMOKE_REGION=1 ROUGH_CUT_SMOKE_REGION_WIDTH=240 ROUGH_CUT_SMOKE_REGION_HEIGHT=180 pnpm smoke:mvp`
+
+### TASK-063 Enable real window capture selection
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+The pre-record source picker currently shows Window as disabled. Users expect this option to become a real selectable capture target with readable window names and reliable geometry once platform support is implemented.
+
+#### Acceptance Criteria
+
+- Enumerate capturable windows with readable titles and stable identifiers where the current Linux session supports it.
+- Let users select a window from the pre-record source picker instead of seeing the disabled placeholder.
+- Persist selected window/capture geometry in recording metadata.
+- Keep cursor telemetry, preview, and export transforms aligned with the selected window bounds.
+- Keep unsupported sessions visibly disabled with clear copy instead of failing at record time.
+
+#### Verification
+
+- Unit coverage for window metadata normalization and stale selection fallback.
+- UI smoke covers disabled unsupported state and, where supported, selecting a window.
+- Manual packaged-app verification records a selected window.
+
+### TASK-064 Stabilize sidebar tool switching layout
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+Switching left sidebar tools currently changes the left panel content height and can drastically shift or scroll the main workspace. Tool selection should feel like changing controls around the same preview, not like navigating to a different page.
+
+#### Acceptance Criteria
+
+- Keep the central stage, right inspector, and timeline rail visually stable when switching between Background, Timeline, and Inspector tools.
+- Prevent the left setup board from forcing page-level scrollbars or resizing the main preview area.
+- Use internal scrolling/collapsible sections inside the left board when controls exceed available height.
+- Preserve current tool functionality and project persistence.
+
+#### Verification
+
+- UI smoke or visual check switches sidebar tools and asserts the central stage remains mounted and stable.
+- Manual desktop check confirms no drastic workspace jump when selecting each sidebar item.
+
+### TASK-065 Validate paths in PROJECT_OPEN and PROJECT_SAVE IPC handlers
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+The renderer can pass any string to the project-open and project-save IPC handlers; the main process opens or writes that path with no validation. A compromised renderer could read or overwrite arbitrary files. Source: `apps/desktop/src/main/index.mjs:517-518` and `apps/desktop/src/main/project-files.mjs:106-115`. The save path is especially risky because it does `mkdir(dirname, { recursive: true })` then `writeFile`.
+
+#### Acceptance Criteria
+
+- Resolve and normalize incoming paths; reject `..` traversal and absolute paths outside an allowlisted projects/recordings root.
+- Save handler refuses to create directories outside the allowlist.
+- Open handler refuses to read paths outside the allowlist (or restricts to `.roughcut` files in known dirs).
+- Add unit tests for traversal attempts: `../../etc/passwd`, absolute `/etc/anything`, encoded variants.
+
+#### Verification
+
+- New unit tests for `validateProjectPath` cover allowed and rejected cases.
+- `pnpm --filter @rough-cut/desktop test`
+- Manual: attempt to open a path outside the projects dir from devtools and confirm the IPC rejects.
+
+### TASK-066 Clean up recording child processes on app crash or signal
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+Recording spawns ffmpeg (screen, camera, audio), xinput, and xdotool. None of those subprocesses register `process.on('exit')` or SIGINT/SIGTERM handlers. If Electron is force-killed (OOM, force-quit) the children survive holding file handles and CPU. The recovery marker created at `recording-session.mjs:45-69` is also never cleared, and no recovery flow exists yet.
+
+#### Acceptance Criteria
+
+- Track every recording-related child PID in a session-scoped registry.
+- Install signal/exit handlers that send SIGTERM (with timeout to SIGKILL) to all tracked children.
+- Clear the recovery marker on graceful shutdown; on next launch detect a stale marker and surface it.
+- Smoke covers SIGTERM-during-recording producing no zombies.
+
+#### Verification
+
+- New test simulates SIGTERM mid-recording and asserts children are reaped.
+- `pnpm smoke:recording-flow-cancel`
+- Manual: `pkill -KILL -f electron` mid-recording, verify no orphan ffmpeg/xinput/xdotool via `pgrep`.
+
+### TASK-067 Validate remuxed MP4 coherence before declaring success
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+`apps/desktop/src/main/remux-service.mjs:4` runs `-map 0 -c copy -movflags +faststart` and trusts the output without checking it. If the upstream raw MKV was killed mid-write, the remuxed MP4's header advertises frames that aren't actually there. The user gets a video that looks fine and silently ends early.
+
+#### Acceptance Criteria
+
+- After remux, run `ffprobe` to compare advertised duration/frames to actual decoded count.
+- On mismatch, fall back to a re-encode pass or surface a clear "recording incomplete" error to the user.
+- Surface a single visible warning when partial recovery is the best we can do.
+
+#### Verification
+
+- Unit test feeds a deliberately truncated MKV and asserts the validator catches it.
+- `pnpm --filter @rough-cut/desktop test`
+- Manual: SIGKILL ffmpeg mid-recording, verify remux either repairs or flags the file rather than silently producing a broken MP4.
+
+### TASK-068 Compensate cursor and audio drift vs ffmpeg first frame
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+Cursor events are anchored to wall-clock recording-start (`recording-session.mjs:162`). FFmpeg's first encoded frame can lag (HW encoder warmup, codec init) per the first-frame callback at `ffmpeg-capture.mjs:102-111`, with no compensation applied to cursor or audio. On long recordings cursor highlights drift visibly behind real clicks.
+
+#### Acceptance Criteria
+
+- Capture the offset between recording-start and ffmpeg's first encoded out_time_us and apply it to cursor event timestamps before they are persisted.
+- Same offset applied to any audio sidecar tracks that are anchored to wall clock.
+- Regression test asserts a fixture recording with known first-frame lag has cursor events shifted accordingly.
+
+#### Verification
+
+- New unit test validates the offset application.
+- `pnpm smoke:styled-export` confirms cursor overlay timing matches video.
+- Manual: 10-minute recording with frequent clicks, scrub the export and confirm cursor highlight aligns frame-accurately.
+
+### TASK-069 Add EXPORT_CANCEL IPC and kill ffmpeg on cancel
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+`apps/desktop/src/main/export-service.mjs` spawns ffmpeg but never exposes a way to stop the export. The PID is not retained anywhere index.mjs can reach it. If the user closes the export dialog or wants to cancel, ffmpeg keeps running until completion.
+
+#### Acceptance Criteria
+
+- Add `EXPORT_CANCEL` IPC channel and matching renderer affordance ("Cancel export" button visible while exporting).
+- Track the active ffmpeg child PID and send SIGTERM (escalating to SIGKILL) on cancel.
+- Clean up partial output and temp files (`cursorLayer`, `zoomLayer`) on cancel.
+- Cancel-mid-export does not corrupt subsequent exports.
+
+#### Verification
+
+- New unit test verifies cancel kills the spawn and returns `cancelled` status.
+- `pnpm smoke:styled-export` extended to cover cancel.
+- Manual: start a long export, click cancel, verify no orphan ffmpeg and no stale temp files.
+
+### TASK-070 Per-display scale factor for cursor and click telemetry
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+`apps/desktop/src/main/recording/recording-session.mjs:426-430` (normalizeCursorPoint) reads scaleFactor from the primary display only. On mixed-DPI multi-monitor setups (1x + 2x), clicks recorded on the secondary display land in the wrong spot in the styled export. xinput coordinates are physical pixels with no per-display lookup.
+
+#### Acceptance Criteria
+
+- Detect which display the cursor is on at sample time and apply that display's scaleFactor.
+- xinput button events use the same per-display scale.
+- Regression fixture covers mixed-DPI scenarios with cursor and clicks on secondary displays.
+
+#### Verification
+
+- New unit test for per-display scale resolution.
+- Manual: on a 1x + 2x setup, record clicks on the secondary monitor and verify they render at the correct position in the styled export.
+
+### TASK-071 Surface camera failure during recording, not after
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+`apps/desktop/src/main/recording/recording-session.mjs:131-137` catches camera-spawn errors and continues with screen-only. The user only sees a small `cameraError` chip later in `PostRecordingReview` (`main.tsx:1509-1512`). People can record 30 minutes thinking their face cam is rolling.
+
+#### Acceptance Criteria
+
+- Camera failure during recording shows a visible, persistent banner ("Camera not recording") in the recording UI.
+- Banner offers a one-click "Stop and retry with camera off" or "Continue screen-only".
+- Banner does not hide the screen preview.
+- Existing post-recording warning still appears for late failures.
+
+#### Verification
+
+- UI smoke covers camera-failure-during-recording state.
+- Manual: unplug a USB webcam mid-recording, confirm the banner appears immediately.
+
+### TASK-072 Lift or warn on ASS cursor 600-event downsample cap
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+`apps/desktop/src/main/export-service.mjs:421-430` caps cursor events to 600 samples via stride. Any recording longer than ~20 seconds at the current sample rate is silently downsampled, with no log or UI hint. Long styled exports look janky.
+
+#### Acceptance Criteria
+
+- Raise the cap meaningfully (target: stride only when ASS line count would exceed a hard ASS limit).
+- When downsampling does happen, log it and surface a one-line "Cursor detail reduced" notice in the export progress UI.
+- Unit test covers very-large cursorEvents arrays without crashing the ASS builder.
+
+#### Verification
+
+- New unit test on a 60-minute synthetic cursor stream.
+- `pnpm smoke:styled-export`
+- Manual: 30-minute recording produces a styled export with smooth cursor motion.
+
+### TASK-073 Validate capture region against display bounds
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+`apps/desktop/src/main/recording/recording-session.mjs:376-399` accepts whatever region comes in. If the region extends off-screen, x11grab pads with black; the user gets a recording with mystery black bars and no warning.
+
+#### Acceptance Criteria
+
+- Clamp or reject capture regions that extend outside the union of attached display bounds.
+- Reject zero-width, negative, or wildly oversized regions with a clear error before recording starts.
+- New visual region picker (TASK-062 follow-up) honors the same constraints.
+
+#### Verification
+
+- New unit test for region validation.
+- `pnpm smoke:recording-flow-ui` extended for off-screen region rejection.
+- Manual: drag a region partially off the right edge and confirm the picker clamps to display bounds.
+
+### TASK-074 Wire or remove inert top-bar folder, comments, undo icons
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+`apps/desktop/src/renderer/src/main.tsx:505-507` renders three icons (`folder`, `comments`, `undo`) wrapped in `<span>` with no click handlers. They look like buttons but do nothing. `folder` duplicates the working folder-open button at line 534. `comments` and `undo` strongly imply features that do not exist. They read as broken to anyone who clicks them.
+
+#### Acceptance Criteria
+
+- Remove the three decorative `<span>` icons, OR replace them with real buttons that open something useful (e.g., undo wired to TASK-075, folder wired to "open recent", comments wired to a notes panel).
+- No icon in the top bar should be unclickable.
+- UI smoke asserts no inert icon affordances remain.
+
+#### Verification
+
+- UI smoke updated.
+- Manual: hover all top-bar icons and verify each has a tooltip and a real action, or has been removed.
+
+### TASK-075 Implement undo and redo with edit history stack
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+The `undo` icon at `main.tsx:507` implies undo exists; nothing in state tracks history. Cuts, trims, marker edits, background changes, and aspect-ratio swaps are all destructive without a way to revert. Competitors (Recordly, Screen Studio) all support this.
+
+#### Acceptance Criteria
+
+- Add a bounded edit-history stack covering trim, cut, zoom-marker, background, camera-presentation, and aspect-ratio changes.
+- Cmd/Ctrl+Z and Cmd/Ctrl+Shift+Z (or Cmd/Ctrl+Y) trigger undo and redo.
+- The top-bar undo button reflects current undo availability.
+- History is per-session (not persisted across project reopen) by default.
+
+#### Verification
+
+- New unit tests for the history reducer.
+- UI smoke covers undo/redo across each editable operation.
+- Manual: trim, cut, undo, redo and confirm visible state matches.
+
+### TASK-076 Add keyboard shortcuts and a shortcuts cheat sheet dialog
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+There are no global keyboard shortcuts in the renderer (no keydown listeners in `main.tsx` for Space, J/K/L, Cmd+E, arrow-key trim nudge). Recordly ships a `ShortcutsProvider` and `ShortcutsConfigDialog`; rough-cut has none.
+
+#### Acceptance Criteria
+
+- Add a `ShortcutsContext` that registers and dispatches shortcuts, modeled on Recordly's pattern.
+- Default bindings: Space = play/pause, J/K/L = playback rate, ←/→ = scrub, [ and ] = trim nudge, Cmd/Ctrl+E = export, Cmd/Ctrl+Z = undo (TASK-075), `?` = open cheat sheet.
+- A cheat sheet dialog lists all bindings.
+- Shortcuts are inert when an input/textarea is focused.
+
+#### Verification
+
+- UI smoke covers Space-to-play and `?`-opens-sheet.
+- Manual: every documented shortcut works as labeled.
+
+### TASK-077 Reconcile or remove duplicate region X Y W H inputs
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+`apps/desktop/src/renderer/src/main.tsx:667-670` still renders the old NumberField inputs for region x/y/width/height. The in-flight region-selector overlay (uncommitted) replaces this for pre-record. The editor-mode inputs may be dead code or a parallel path that wasn't reconciled.
+
+#### Acceptance Criteria
+
+- Determine whether the editor-mode region inputs still drive any captured behavior.
+- If dead, remove them and their state plumbing.
+- If still relevant, route them through the same overlay/IPC path as the pre-record picker so behavior is consistent.
+
+#### Verification
+
+- Search confirms no references remain if removed.
+- UI smoke for region selection covers both pre-record and editor entry points.
+
+### TASK-078 Add feedback signal for incorrect auto-zoom suggestions
+
+**Priority:** P3  
+**Status:** PLANNED
+
+#### Context
+
+TASK-018/019 are DONE. The user can apply or dismiss auto-zoom suggestions via `AutoZoomSuggestionsPanel` (`main.tsx:2189`), but there is no signal back to the heuristic. No miss data exists for tuning thresholds in `packages/timeline-engine/src/auto-zoom.ts:32-52`.
+
+#### Acceptance Criteria
+
+- Add a "this suggestion was wrong" affordance in the suggestions panel.
+- Persist dismiss/wrong/applied signals in a local feedback log alongside the project (or in a global JSON for cross-project review).
+- A minimal report surface lists recent feedback so the heuristic can be tuned.
+
+#### Verification
+
+- UI smoke covers each feedback action.
+- Manual: dismiss-with-reason on a few suggestions and confirm the log file is written.
+
+### TASK-079 Profile renderer scrub and memoize where DevTools flags
+
+**Priority:** P3  
+**Status:** PLANNED
+
+#### Context
+
+`main.tsx` has 1 `useMemo` across 2,802 lines, no `useCallback` on the 20+ handlers passed to children, no `React.memo`. This is only worth fixing where profiling shows it matters. Recordly is also large but is split — the lesson is "measure, then act," not "split for splitting's sake."
+
+#### Acceptance Criteria
+
+- Capture a React DevTools profiler trace of timeline scrub on a 5-minute project.
+- Memoize only the components or callbacks that show up as hot.
+- Document what was changed and why, with before/after frame times.
+
+#### Verification
+
+- Profiler trace attached to the task.
+- Smoke tests still green.
+
+### TASK-080 Add i18n infrastructure with t() context and RTL CSS
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+~100+ user-visible strings are hardcoded in `main.tsx`. The user works in Hebrew sometimes; there is no i18n library, no RTL CSS, no `dir="rtl"` handling. Recordly has a `src/i18n/` directory and an `i18n:check` lint script in package.json — a working reference.
+
+#### Acceptance Criteria
+
+- Adopt an i18n library (i18next or similar) and add a `useI18n` context modeled on Recordly's.
+- Wrap all visible strings in `t('key', 'fallback')`.
+- Add an `i18n:check` script that fails CI when keys are missing or unused.
+- RTL CSS scaffolding: logical properties or RTL-aware media queries; verify Hebrew layout flips correctly.
+
+#### Verification
+
+- New `pnpm i18n:check` script.
+- UI smoke covers RTL and LTR builds.
+- Manual: switch to Hebrew and walk the recording and editing flow.
+
+### TASK-081 Add light theme and semantic color tokens
+
+**Priority:** P3  
+**Status:** PLANNED
+
+#### Context
+
+`apps/desktop/src/renderer/src/styles.css` has ~15 CSS vars in `:root` but no `prefers-color-scheme` handling and many inline colors (`rgb(255 255 255 / 0.07)`, `#1a1a22`). A light theme today would be a full restyle.
+
+#### Acceptance Criteria
+
+- Introduce semantic color tokens (`--color-bg-base`, `--color-bg-raised`, `--color-fg-primary`, `--color-error-bg`, `--color-focus-ring`, etc).
+- Replace inline colors in styles.css with tokens.
+- Add a light theme variant via `prefers-color-scheme` and a manual toggle.
+
+#### Verification
+
+- Visual snapshot test of light theme.
+- Manual: switch system theme and confirm the app follows.
+
+### TASK-082 Improve error UX with actionable copy and diagnostics link
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+"Recording failed." and "Export failed." are the entire copy on failure. Disk full, ffmpeg crash, and permissions look identical to the user. There is no "open diagnostics" or "retry" affordance on the failure surface.
+
+#### Acceptance Criteria
+
+- Map failure reason codes to user-actionable copy ("Disk full", "ffmpeg exited unexpectedly", "Permission denied", etc).
+- Failure banner offers Retry, Open diagnostics, and Copy log path.
+- Existing diagnostics report is one click away from any failure.
+
+#### Verification
+
+- UI smoke for each failure category renders the expected copy.
+- Manual: trigger a permissions failure and confirm the banner copy and Open diagnostics flow.
+
+### TASK-083 Keyboard accessibility for timeline, markers, trim handles
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+Timeline scrub at `main.tsx:2703` lacks `aria-live` for frame position. Zoom marker list (`main.tsx:2112-2187`) is mouse-only. Trim handles (`main.tsx:1948-1971`) are pointer-only. The pre-record dialog (`main.tsx:805`) has `role="dialog"` but no focus trap or initial-focus directive.
+
+#### Acceptance Criteria
+
+- Arrow-key nudge for trim handles, zoom marker boundaries, and the timeline scrubber.
+- `aria-live` region announces frame position during scrub and current state on key actions.
+- Focus trap and initial focus on dialogs.
+- Tab order across the editor is sensible.
+
+#### Verification
+
+- UI smoke covers keyboard-only end-to-end (record, trim, zoom, export).
+- Manual: navigate the editor with the keyboard alone.
+
+### TASK-084 Support relative-to-.roughcut asset paths in projects
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+`packages/project-model/src/schemas.ts:227` stores `filePath` as absolute. Moving a `.roughcut` directory to another machine (or renaming the parent folder) breaks every clip reference. Projects are not portable.
+
+#### Acceptance Criteria
+
+- New schema field for asset-path mode (relative or absolute), defaulting to relative for new recordings.
+- Migration converts existing absolute paths to relative when both files are siblings.
+- Open path resolution falls back to absolute path if the relative target is missing.
+
+#### Verification
+
+- Migration unit test.
+- Manual: move a .roughcut directory to a different parent path and reopen successfully.
+
+### TASK-085 Atomic project file writes with temp-and-rename pattern
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+`apps/desktop/src/main/project-files.mjs:106-110` does a single `writeFile`. If the process dies mid-write, the project file is corrupt and unrecoverable.
+
+#### Acceptance Criteria
+
+- Save writes to `<path>.tmp`, `fsync`s, then atomic-renames over the target.
+- Optionally keep a `.bak` of the previous good file.
+- Reads detect a stray `.tmp` and offer recovery if present.
+
+#### Verification
+
+- Unit test simulates kill-mid-write and asserts the original file remains intact.
+- `pnpm --filter @rough-cut/desktop test`.
+
+### TASK-086 Add GIF and WebM export presets
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+`packages/project-model/src/schemas.ts:29-30` declares `webm` and `gif` codecs in the schema. `apps/desktop/src/main/export-service.mjs:262-266` hardcodes H.264 MP4. The schema is a stub for codec choice that was never honored.
+
+#### Acceptance Criteria
+
+- Wire codec choice end-to-end so WebM and GIF presets actually emit those formats.
+- GIF preset uses the standard `palettegen` + `paletteuse` two-pass pipeline for quality.
+- WebM uses VP9 with a sane CRF.
+- Export progress/cancel works for both new pipelines.
+
+#### Verification
+
+- New unit/smoke covers GIF and WebM exports producing valid files.
+- `pnpm smoke:styled-export` extended.
+
+### TASK-087 Add 9:16 vertical and 1:1 square export presets
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+TASK-028 added aspect-ratio support, but the export surface has no one-click presets for vertical (TikTok/Reels) or square (Instagram). The user has to know what aspect ratio to pick.
+
+#### Acceptance Criteria
+
+- Named presets in the export panel: "Vertical 9:16 (TikTok/Reels)", "Square 1:1 (Instagram)".
+- Choosing a preset sets canvas resolution, output size, and aspect ratio together.
+- Existing 16:9 default unchanged.
+
+#### Verification
+
+- UI smoke covers preset selection and export size validation.
+- Manual: export each preset and verify pixel dimensions.
+
+### TASK-088 Add autosave and crash recovery for orphaned recordings
+
+**Priority:** P1  
+**Status:** PLANNED
+
+#### Context
+
+The recording-recovery marker exists at `apps/desktop/src/main/recording/recording-session.mjs:45-69`, but no UI flow surfaces it on next launch. There is also no autosave timer for an open project; if the app dies mid-edit, work is lost.
+
+#### Acceptance Criteria
+
+- On launch, detect a stale recovery marker and offer "Recover last recording" with a clear summary.
+- Periodic autosave for the open project (e.g., every 60s, off the atomic write path from TASK-085).
+- Autosave can be disabled in settings.
+
+#### Verification
+
+- New unit test for the recovery scan.
+- Manual: SIGKILL during recording, relaunch, verify the recovery prompt.
+
+### TASK-089 Bundle ffmpeg-static and ffprobe-static binaries
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+`scripts/package-linux.mjs` ships an Electron binary plus a `run.sh`. ffmpeg, ffprobe, xdotool, and xinput are runtime dependencies; the preflight checker warns when they are missing. Recordly bundles `ffmpeg-static` and `ffprobe-static` as npm dependencies (verified in their package.json).
+
+#### Acceptance Criteria
+
+- Add `ffmpeg-static` and `ffprobe-static` as production dependencies.
+- Recording and export resolve their binary path through these packages first, with a system-PATH fallback for dev.
+- Document strategy for `xdotool`/`wmctrl` (system deps until TASK-092 lands).
+
+#### Verification
+
+- Packaged build runs on a clean system without ffmpeg installed.
+- `pnpm smoke:package` passes without system ffmpeg.
+
+### TASK-090 Build AppImage and deb installer with electron-updater
+
+**Priority:** P3  
+**Status:** PLANNED
+
+#### Context
+
+The Linux artifact today is a tar of Electron plus `run.sh`. There is no installer (AppImage/.deb/.rpm), no auto-update channel, no integrity check, no code signing.
+
+#### Acceptance Criteria
+
+- Configure `electron-builder` for AppImage and .deb output.
+- Wire `electron-updater` to a versioned update channel.
+- Document the release flow.
+
+#### Verification
+
+- `pnpm release:create` produces signed AppImage and .deb artifacts.
+- Manual: install AppImage, run, then upgrade through the in-app updater.
+
+### TASK-091 Add opt-in crash reporting and error telemetry
+
+**Priority:** P3  
+**Status:** PLANNED
+
+#### Context
+
+Errors land in console plus a log file the user must find via Diagnostics. There is no Sentry/Bugsnag/equivalent. Real-user issues require the user to email logs.
+
+#### Acceptance Criteria
+
+- Opt-in crash reporting in first-run/settings dialog with clear copy on what is sent.
+- Hook Electron crashReporter and renderer-side error boundary into the chosen channel.
+- Local-only fallback when telemetry is disabled.
+
+#### Verification
+
+- Manual: opt in, force a crash, confirm the report arrives at the destination.
+
+### TASK-092 Replace xdotool and xinput stack with uiohook-napi
+
+**Priority:** P2  
+**Status:** PLANNED
+
+#### Context
+
+`apps/desktop/src/main/recording/xdotool-cursor.mjs` and `apps/desktop/src/main/recording/xinput-button-listener.mjs` spawn separate subprocesses on every recording. Recordly uses `uiohook-napi`, a single native lib that handles cursor+keyboard cross-platform. This eliminates two child-process orphan risks (TASK-066), reduces IPC overhead, and is a precondition for cross-platform support.
+
+#### Acceptance Criteria
+
+- Add `uiohook-napi` and a typed wrapper that produces the existing cursor/click event shape.
+- Gate behind a feature flag during rollout; old xdotool path removable when verified.
+- Existing recording-session, regression fixtures, and test suite continue to pass.
+
+#### Verification
+
+- Unit test parity between old and new sources on a fixed event stream.
+- `pnpm smoke:real-recording` passes on the new source.
+- Manual: long recording with frequent clicks confirms cursor/click telemetry matches old behavior.
+
+### TASK-093 Split countdown and HUD indicator into BrowserWindows
+
+**Priority:** P3  
+**Status:** PLANNED
+
+#### Context
+
+Recordly renders countdown, source-selector, hud-overlay, update-toast, and the editor as separate BrowserWindows. Rough-cut renders the countdown and the recording indicator inside the main React app. The new region-selector overlay (uncommitted) already follows the multi-window pattern; extending it to countdown and a recording HUD aligns with that direction and frees the main editor from full-screen overlays.
+
+#### Acceptance Criteria
+
+- Countdown lives in its own transparent always-on-top BrowserWindow.
+- Recording indicator (HUD) lives in a small always-on-top BrowserWindow with click-through where appropriate.
+- Both windows close cleanly on cancel and recording end.
+- Existing UI smokes adapted to the multi-window flow.
+
+#### Verification
+
+- Updated UI smokes cover countdown and HUD windows.
+- Manual: record once, confirm countdown is its own window and the HUD appears immediately and survives focus changes.
