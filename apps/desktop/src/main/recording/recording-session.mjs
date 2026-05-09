@@ -250,17 +250,23 @@ export function createRecordingSession({
     if (session.cursorTimer) clearInterval(session.cursorTimer);
     if (session.buttonListener) session.buttonListener.stop();
     if (session.eventLogger) session.eventLogger.event('recording-stop');
+    console.info('[recording-session] phase=screen-capture-stop-begin');
     const rawPath = await session.capture.stop();
+    console.info('[recording-session] phase=screen-capture-stop-done');
     let cameraRawPath = null;
     let cameraError = session.cameraError ?? null;
     if (session.cameraCapture) {
       try {
+        console.info('[recording-session] phase=camera-capture-stop-begin');
         cameraRawPath = await session.cameraCapture.stop();
+        console.info('[recording-session] phase=camera-capture-stop-done', { cameraRawPath });
       } catch (err) {
         cameraError = err instanceof Error ? err.message : String(err);
-        console.warn(`[recording-session] camera capture stop failed; continuing screen-only: ${cameraError}`);
+        console.warn(`[recording-session] phase=camera-capture-stop-failed; continuing screen-only: ${cameraError}`);
         session.eventLogger?.event('camera-capture-stop-failed', { error: cameraError, cameraDevicePath: session.cameraDevicePath });
       }
+    } else {
+      console.info('[recording-session] phase=camera-capture-stop-skipped (no camera in session)');
     }
 
     // The firstFrameMs anchor is captured but no longer used to re-anchor
