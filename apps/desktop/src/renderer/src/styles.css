@@ -915,6 +915,11 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   max-width: min(100% - 4rem, 980px);
   object-fit: contain;
   width: auto;
+  touch-action: none;
+}
+
+.styledPreviewCanvas.draggingCamera {
+  cursor: grabbing;
 }
 
 .videoControls {

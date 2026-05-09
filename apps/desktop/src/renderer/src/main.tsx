@@ -1447,7 +1447,7 @@ function InspectorContextSummary({ selection }: { selection: InspectorSelection 
   );
 }
 
-function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, selectedZoomMarker = null, trimInfo, cutRanges = [], pendingCutStartFrame = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onAspectRatioChange, onZoomMarkerRangeChange, onZoomMarkerStrengthChange, onSetTrimStart, onSetTrimEnd, onResetTrim, onMarkCutStart, onCutToPlayhead, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; cutRanges?: CutRange[]; pendingCutStartFrame?: number | null; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onZoomMarkerRangeChange?: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onSetTrimStart?: () => void; onSetTrimEnd?: () => void; onResetTrim?: () => void; onMarkCutStart?: () => void; onCutToPlayhead?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
+function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, selectedZoomMarker = null, trimInfo, cutRanges = [], pendingCutStartFrame = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraFrameChange, onAspectRatioChange, onZoomMarkerRangeChange, onZoomMarkerStrengthChange, onSetTrimStart, onSetTrimEnd, onResetTrim, onMarkCutStart, onCutToPlayhead, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; cutRanges?: CutRange[]; pendingCutStartFrame?: number | null; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onZoomMarkerRangeChange?: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onSetTrimStart?: () => void; onSetTrimEnd?: () => void; onResetTrim?: () => void; onMarkCutStart?: () => void; onCutToPlayhead?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const aspectRatioOptions = PROJECT_ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: PROJECT_ASPECT_RATIO_LABELS[ratio] }));
@@ -1463,6 +1463,7 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
       bgImage: applied.background.bgImage,
     });
     onCameraPresentationChange?.(applied.camera);
+    onCameraFrameChange?.(null);
   };
   const markerCount = project?.recording ? listMarkers(project.document as unknown as ProjectDocument).length : 0;
 
@@ -1794,6 +1795,29 @@ function ProjectPreview({
     });
   }
 
+  async function updateCameraFrame(frame: { x: number; y: number; w: number; h: number } | null) {
+    if (!recordingAsset?.id) return;
+    await persist({
+      ...project.document,
+      assets: project.document.assets?.map((asset) => {
+        if (asset.id !== recordingAsset.id) return asset;
+        const presentation = withDefaultPresentation(asset.presentation) as unknown as Record<string, unknown>;
+        const next: Record<string, unknown> = { ...presentation };
+        if (frame) {
+          next.cameraFrame = {
+            x: clampUnit(frame.x),
+            y: clampUnit(frame.y),
+            w: clampUnit(frame.w, 0.05),
+            h: clampUnit(frame.h, 0.05),
+          };
+        } else {
+          delete next.cameraFrame;
+        }
+        return { ...asset, presentation: next };
+      }),
+    });
+  }
+
   async function updateCameraPresentation(patch: Partial<CameraPresentation>) {
     if (!recordingAsset?.id || !hasCamera) return;
     await persist({
@@ -1928,7 +1952,7 @@ function ProjectPreview({
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
       <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} project={project} fps={project.recording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} selectedZoomMarker={selectedZoomMarker} trimInfo={trimInfo} cutRanges={activeCutRanges} pendingCutStartFrame={pendingCutStartFrame} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onAspectRatioChange={updateAspectRatio} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onSetTrimStart={setTrimStartToPlayhead} onSetTrimEnd={setTrimEndToPlayhead} onResetTrim={resetTrim} onMarkCutStart={markCutStart} onCutToPlayhead={cutToPlayhead} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
+      <EditorToolBoard activeTool={activeTool} project={project} fps={project.recording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} selectedZoomMarker={selectedZoomMarker} trimInfo={trimInfo} cutRanges={activeCutRanges} pendingCutStartFrame={pendingCutStartFrame} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onSetTrimStart={setTrimStartToPlayhead} onSetTrimEnd={setTrimEndToPlayhead} onResetTrim={resetTrim} onMarkCutStart={markCutStart} onCutToPlayhead={cutToPlayhead} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>
@@ -1943,7 +1967,7 @@ function ProjectPreview({
           ) : null}
         </div>
         {project.mediaUrl ? (
-          <VideoPreview project={project} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} onCurrentTimeChange={setCurrentTimeSec} />
+          <VideoPreview project={project} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} onCurrentTimeChange={setCurrentTimeSec} onCameraFrameChange={updateCameraFrame} />
         ) : (
           <p>No recording asset found in this project.</p>
         )}
@@ -2500,6 +2524,7 @@ function VideoPreview({
   trimEndSec,
   cutRanges = [],
   onCurrentTimeChange,
+  onCameraFrameChange,
 }: {
   project: ProjectState;
   seekTimeSec?: number;
@@ -2507,6 +2532,7 @@ function VideoPreview({
   trimEndSec?: number;
   cutRanges?: CutRange[];
   onCurrentTimeChange?: (sec: number) => void;
+  onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void;
 }) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -2514,6 +2540,10 @@ function VideoPreview({
   const backgroundImageRef = React.useRef<HTMLImageElement | null>(null);
   const pendingSeekRef = React.useRef<number | null>(null);
   const seekingRef = React.useRef(false);
+  const cameraDragRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const cameraRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const cameraDragOriginRef = React.useRef<{ pointerId: number; offsetX: number; offsetY: number; width: number; height: number } | null>(null);
+  const [isDraggingCamera, setIsDraggingCamera] = React.useState(false);
   const [duration, setDuration] = React.useState(0);
   const [currentTime, setCurrentTime] = React.useState(0);
   const [isPlaying, setIsPlaying] = React.useState(false);
@@ -2756,7 +2786,11 @@ function VideoPreview({
       if (cursor) drawCursorPath(ctx, cursor.x, cursor.y);
       ctx.restore();
       if (cameraVideo && cameraSrc && cameraVideo.readyState >= 2 && frame.cameraPresentation?.visible !== false) {
-        const cameraFrame = resolveCameraFrame(frame.cameraFrame, frame.cameraPresentation, canvasWidth, canvasHeight);
+        const dragRect = cameraDragRef.current;
+        const cameraFrame = dragRect
+          ? { x: dragRect.x * canvasWidth, y: dragRect.y * canvasHeight, w: dragRect.w * canvasWidth, h: dragRect.h * canvasHeight }
+          : resolveCameraFrame(frame.cameraFrame, frame.cameraPresentation, canvasWidth, canvasHeight);
+        cameraRectRef.current = cameraFrame;
         const cameraRadius = resolveCameraRadius(frame.cameraPresentation, cameraFrame);
         ctx.save();
         if (frame.cameraPresentation?.shadowEnabled !== false) {
@@ -2786,6 +2820,8 @@ function VideoPreview({
           );
         }
         ctx.restore();
+      } else {
+        cameraRectRef.current = null;
       }
       rafId = window.requestAnimationFrame(tick);
     }
@@ -2867,9 +2903,77 @@ function VideoPreview({
       {cameraSrc ? <video ref={cameraVideoRef} src={cameraSrc} preload="auto" className="hiddenSource" muted /> : null}
       <canvas
         ref={canvasRef}
-        className="styledPreviewCanvas"
+        className={`styledPreviewCanvas${isDraggingCamera ? ' draggingCamera' : ''}`}
         aria-label="Styled preview"
+        data-camera-draggable={onCameraFrameChange ? 'true' : 'false'}
         style={{ aspectRatio: `${canvasResolution.width} / ${canvasResolution.height}` }}
+        onPointerMove={(event) => {
+          const canvas = canvasRef.current;
+          if (!canvas || !onCameraFrameChange) return;
+          const rect = canvas.getBoundingClientRect();
+          const xCanvas = ((event.clientX - rect.left) * canvas.width) / rect.width;
+          const yCanvas = ((event.clientY - rect.top) * canvas.height) / rect.height;
+          const origin = cameraDragOriginRef.current;
+          if (origin && origin.pointerId === event.pointerId) {
+            const w = origin.width / canvas.width;
+            const h = origin.height / canvas.height;
+            cameraDragRef.current = {
+              x: Math.max(0, Math.min(1 - w, (xCanvas - origin.offsetX) / canvas.width)),
+              y: Math.max(0, Math.min(1 - h, (yCanvas - origin.offsetY) / canvas.height)),
+              w,
+              h,
+            };
+            return;
+          }
+          const cameraRect = cameraRectRef.current;
+          const overCamera = !!cameraRect && xCanvas >= cameraRect.x && xCanvas <= cameraRect.x + cameraRect.w && yCanvas >= cameraRect.y && yCanvas <= cameraRect.y + cameraRect.h;
+          (event.currentTarget as HTMLCanvasElement).style.cursor = overCamera ? 'grab' : '';
+        }}
+        onPointerDown={(event) => {
+          const canvas = canvasRef.current;
+          if (!canvas || !onCameraFrameChange) return;
+          const cameraRect = cameraRectRef.current;
+          if (!cameraRect) return;
+          const rect = canvas.getBoundingClientRect();
+          const xCanvas = ((event.clientX - rect.left) * canvas.width) / rect.width;
+          const yCanvas = ((event.clientY - rect.top) * canvas.height) / rect.height;
+          const inside = xCanvas >= cameraRect.x && xCanvas <= cameraRect.x + cameraRect.w && yCanvas >= cameraRect.y && yCanvas <= cameraRect.y + cameraRect.h;
+          if (!inside) return;
+          event.preventDefault();
+          (event.currentTarget as HTMLCanvasElement).setPointerCapture(event.pointerId);
+          cameraDragOriginRef.current = {
+            pointerId: event.pointerId,
+            offsetX: xCanvas - cameraRect.x,
+            offsetY: yCanvas - cameraRect.y,
+            width: cameraRect.w,
+            height: cameraRect.h,
+          };
+          cameraDragRef.current = {
+            x: cameraRect.x / canvas.width,
+            y: cameraRect.y / canvas.height,
+            w: cameraRect.w / canvas.width,
+            h: cameraRect.h / canvas.height,
+          };
+          setIsDraggingCamera(true);
+          (event.currentTarget as HTMLCanvasElement).style.cursor = 'grabbing';
+        }}
+        onPointerUp={(event) => {
+          const origin = cameraDragOriginRef.current;
+          if (!origin || origin.pointerId !== event.pointerId) return;
+          const drag = cameraDragRef.current;
+          cameraDragOriginRef.current = null;
+          cameraDragRef.current = null;
+          setIsDraggingCamera(false);
+          (event.currentTarget as HTMLCanvasElement).style.cursor = '';
+          try { (event.currentTarget as HTMLCanvasElement).releasePointerCapture(event.pointerId); } catch {}
+          if (drag) onCameraFrameChange?.(drag);
+        }}
+        onPointerCancel={(event) => {
+          cameraDragOriginRef.current = null;
+          cameraDragRef.current = null;
+          setIsDraggingCamera(false);
+          (event.currentTarget as HTMLCanvasElement).style.cursor = '';
+        }}
       />
       <div className="videoControls" aria-label="Video playback controls">
         <button type="button" className="secondary compact" onClick={togglePlayback}>
@@ -2964,6 +3068,11 @@ function formatElapsed(ms: number) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function clampUnit(value: number, min = 0): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(1, value));
 }
 
 function formatClock(seconds: number) {
