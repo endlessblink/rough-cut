@@ -127,6 +127,12 @@ export function startFfmpegCapture({
 
   return {
     outputPath,
+    getPid() { return proc.pid ?? null; },
+    kill(signal = 'SIGTERM') {
+      if (proc.exitCode === null && proc.signalCode === null) {
+        try { proc.kill(signal); } catch { /* already gone */ }
+      }
+    },
 
     /**
      * Stop the FFmpeg process cleanly by sending 'q' to stdin.
@@ -173,6 +179,12 @@ export function startFfmpegCameraCapture({
 
   return {
     outputPath,
+    getPid() { return proc.pid ?? null; },
+    kill(signal = 'SIGTERM') {
+      if (proc.exitCode === null && proc.signalCode === null) {
+        try { proc.kill(signal); } catch { /* already gone */ }
+      }
+    },
     stop() {
       return stopFfmpegProcess(proc, outputPath, '[ffmpeg-camera]', 'camera finalization');
     },

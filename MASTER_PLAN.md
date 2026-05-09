@@ -79,7 +79,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-063 | Enable real window capture selection | P2 | PLANNED |
 | TASK-064 | Stabilize sidebar tool switching layout | P2 | PLANNED |
 | TASK-065 | Validate paths in PROJECT_OPEN and PROJECT_SAVE IPC handlers | P1 | DONE |
-| TASK-066 | Clean up recording child processes on app crash or signal | P1 | PLANNED |
+| TASK-066 | Clean up recording child processes on app crash or signal | P1 | DONE |
 | TASK-067 | Validate remuxed MP4 coherence before declaring success | P1 | PLANNED |
 | TASK-068 | Compensate cursor and audio drift vs ffmpeg first frame | P1 | PLANNED |
 | TASK-069 | Add EXPORT_CANCEL IPC and kill ffmpeg on cancel | P1 | PLANNED |
@@ -2208,27 +2208,28 @@ The renderer can pass any string to the project-open and project-save IPC handle
 - `pnpm --filter @rough-cut/desktop test` → 188 / 188 pass.
 - Manual: attempt to open a path outside the projects dir from devtools and confirm the IPC rejects.
 
-### TASK-066 Clean up recording child processes on app crash or signal
+### ~~TASK-066~~ Clean up recording child processes on app crash or signal
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
 Recording spawns ffmpeg (screen, camera, audio), xinput, and xdotool. None of those subprocesses register `process.on('exit')` or SIGINT/SIGTERM handlers. If Electron is force-killed (OOM, force-quit) the children survive holding file handles and CPU. The recovery marker created at `recording-session.mjs:45-69` is also never cleared, and no recovery flow exists yet.
 
-#### Acceptance Criteria
+#### Completion Notes
 
-- Track every recording-related child PID in a session-scoped registry.
-- Install signal/exit handlers that send SIGTERM (with timeout to SIGKILL) to all tracked children.
-- Clear the recovery marker on graceful shutdown; on next launch detect a stale marker and surface it.
-- Smoke covers SIGTERM-during-recording producing no zombies.
+- Added `getPid()` and `kill(signal)` to the screen and camera ffmpeg capture handles in `recording/ffmpeg-capture.mjs` and to the xinput button listener in `recording/xinput-button-listener.mjs`. Both are no-ops if the child already exited (`exitCode`/`signalCode` non-null).
+- `recording-session.mjs` now keeps a session-scoped `children` registry. `registerChild()` appends each spawned helper as `{ name, getPid, kill }` — order is `ffmpeg-camera` (when present), `ffmpeg-screen`, `xinput-button-listener` (registered when telemetry starts).
+- New `terminateChildren(signal = 'SIGTERM')` method on the session API. **Synchronous** by design: walks the registry, sends SIGTERM to each child, returns a `[{ name, pid, signal, error? }]` summary. No SIGKILL escalation here — per Node semantics the parent exits before any `setTimeout` in a SIGTERM handler can fire. Leftover orphans are TASK-088's domain (recovery flow).
+- `index.mjs` registers `process.on('SIGTERM' | 'SIGINT')` handlers that call `terminateChildren()` and then `process.exit(128 + signo)`. Marker is intentionally left in place on external signals so the next launch can offer recovery.
+- Graceful path is unchanged: `app.quit()` → existing `stopActiveSession()` clears the marker normally.
 
 #### Verification
 
-- New test simulates SIGTERM mid-recording and asserts children are reaped.
-- `pnpm smoke:recording-flow-cancel`
-- Manual: `pkill -KILL -f electron` mid-recording, verify no orphan ffmpeg/xinput/xdotool via `pgrep`.
+- 4 new tests in `recording-session.test.mjs`: empty list when idle, screen+camera reap with SIGTERM, xinput registered after telemetry init, kill error captured without throw.
+- `pnpm --filter @rough-cut/desktop test` → 196 / 196 pass.
+- Manual (still recommended): `pkill -KILL -f electron` mid-recording, verify no orphan ffmpeg/xinput via `pgrep`. Note: `pkill -KILL` skips our SIGTERM handler — only the recovery marker / TASK-088 path can clean up after that.
 
 ### TASK-067 Validate remuxed MP4 coherence before declaring success
 

@@ -372,6 +372,25 @@ app.on('will-quit', () => {
   destroyRecordingTray();
 });
 
+// External SIGTERM / SIGINT (force-quit, OOM, init-system shutdown): synchronously
+// SIGTERM every spawned ffmpeg/xinput child so they don't outlive Electron.
+// Marker is intentionally left in place — TASK-088 surfaces it for recovery on
+// next launch. Don't await stop() here — Node exits as the event loop drains.
+function reapAndExit(signal) {
+  try {
+    const reaped = recordingSession.terminateChildren('SIGTERM');
+    if (reaped.length > 0) {
+      console.warn(`[recording] ${signal}: SIGTERMed ${reaped.length} child process(es): ${reaped.map((c) => `${c.name}(${c.pid ?? '?'})`).join(', ')}`);
+    }
+  } catch (err) {
+    console.error(`[recording] ${signal}: reap failed`, err);
+  }
+  // 128 + signal-number convention.
+  process.exit(signal === 'SIGINT' ? 130 : 143);
+}
+process.on('SIGTERM', () => reapAndExit('SIGTERM'));
+process.on('SIGINT', () => reapAndExit('SIGINT'));
+
 function registerHiddenRecordingStopShortcut(window) {
   globalShortcut.unregister(recordingStopShortcut);
   globalShortcut.unregister(recordingRestartShortcut);

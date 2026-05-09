@@ -157,8 +157,15 @@ export function createRecordingSession({
       cameraPrerollFrames,
       cursorEvents: [],
       cursorTimer: null,
+      // Track every spawned child so an external SIGTERM can reap them
+      // synchronously from the process-level signal handler. Order: ffmpeg
+      // (screen, then camera) and xinput button listener once telemetry
+      // starts. Each entry is `{ name, getPid, kill }`.
+      children: [],
       ...displayInfo,
     };
+
+    if (cameraCapture) registerChild(session, 'ffmpeg-camera', cameraCapture);
 
     eventLogger.event('recording-start', {
       startedAt: session.startedAt,
@@ -189,10 +196,27 @@ export function createRecordingSession({
       },
     });
 
+    registerChild(session, 'ffmpeg-screen', capture);
     active = { ...session, capture, cameraCapture };
 
     startTelemetryAfterIpcReturn(active, { getCursorPoint, now, sampleIntervalMs, buttonListenerFactory });
     return status();
+  }
+
+  function terminateChildren(signal = 'SIGTERM') {
+    if (!active) return [];
+    const reaped = [];
+    for (const child of active.children ?? []) {
+      const pid = typeof child.getPid === 'function' ? child.getPid() : null;
+      let error = null;
+      try {
+        if (typeof child.kill === 'function') child.kill(signal);
+      } catch (err) {
+        error = err?.message ?? String(err);
+      }
+      reaped.push({ name: child.name, pid, signal, error });
+    }
+    return reaped;
   }
 
   async function stop() {
@@ -303,7 +327,16 @@ export function createRecordingSession({
     return { state: 'idle', canceled: true };
   }
 
-  return { start, stop, cancel, status };
+  return { start, stop, cancel, status, terminateChildren };
+}
+
+function registerChild(session, name, handle) {
+  if (!session?.children || !handle) return;
+  session.children.push({
+    name,
+    getPid: typeof handle.getPid === 'function' ? () => handle.getPid() : () => null,
+    kill: typeof handle.kill === 'function' ? (signal) => handle.kill(signal) : () => {},
+  });
 }
 
 async function cancelCapture(capture) {
@@ -346,6 +379,7 @@ function startTelemetryAfterIpcReturn(session, { getCursorPoint, now, sampleInte
         onButton: (event) => recordButtonEvent(session, event, now),
       });
       session.buttonListener.start();
+      registerChild(session, 'xinput-button-listener', session.buttonListener);
     }
   }, 0);
 }
@@ -372,10 +406,11 @@ export function resolveCaptureDisplayInfo(displayInfo, captureRegion) {
   if (!region) return { ...displayInfo, captureRegion: null };
 
   const scaleFactor = Number.isFinite(displayInfo.scaleFactor) && displayInfo.scaleFactor > 0 ? displayInfo.scaleFactor : 1;
-  const originX = Math.round((displayInfo.originX ?? 0) + region.x * scaleFactor);
-  const originY = Math.round((displayInfo.originY ?? 0) + region.y * scaleFactor);
-  const width = Math.max(2, Math.round(region.width * scaleFactor));
-  const height = Math.max(2, Math.round(region.height * scaleFactor));
+  const hasAbsoluteRegion = Number.isFinite(region.absoluteX) && Number.isFinite(region.absoluteY);
+  const originX = hasAbsoluteRegion ? Math.round(region.absoluteX) : Math.round((displayInfo.originX ?? 0) + region.x * scaleFactor);
+  const originY = hasAbsoluteRegion ? Math.round(region.absoluteY) : Math.round((displayInfo.originY ?? 0) + region.y * scaleFactor);
+  const width = Math.max(2, hasAbsoluteRegion ? Math.round(region.width) : Math.round(region.width * scaleFactor));
+  const height = Math.max(2, hasAbsoluteRegion ? Math.round(region.height) : Math.round(region.height * scaleFactor));
   const baseDisplay = baseX11DisplayName(displayInfo.display ?? process.env.DISPLAY ?? ':0');
 
   return {
@@ -404,7 +439,16 @@ export function normalizeCaptureRegion(value) {
   const width = Math.round(Number(value.width));
   const height = Math.round(Number(value.height));
   if (!Number.isFinite(width) || !Number.isFinite(height) || width < 2 || height < 2) return null;
-  return { mode: 'region', x, y, width, height };
+  const absoluteX = Number(value.absoluteX);
+  const absoluteY = Number(value.absoluteY);
+  return {
+    mode: 'region',
+    x,
+    y,
+    width,
+    height,
+    ...(Number.isFinite(absoluteX) && Number.isFinite(absoluteY) ? { absoluteX, absoluteY } : {}),
+  };
 }
 
 function baseX11DisplayName(display) {

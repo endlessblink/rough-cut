@@ -670,6 +670,26 @@ test('capture region resolution converts relative region to absolute X11 display
   });
 });
 
+test('capture region resolution accepts absolute X11 geometry for secondary displays', () => {
+  const displayInfo = resolveCaptureDisplayInfo(
+    { display: ':0.0+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 },
+    { mode: 'region', x: 0, y: 0, width: 640, height: 360, absoluteX: 1920, absoluteY: 120 },
+  );
+
+  assert.equal(displayInfo.display, ':0.0+1920,120');
+  assert.equal(displayInfo.width, 640);
+  assert.equal(displayInfo.height, 360);
+  assert.deepEqual(displayInfo.captureRegion, {
+    mode: 'region',
+    x: 0,
+    y: 0,
+    width: 640,
+    height: 360,
+    absoluteX: 1920,
+    absoluteY: 120,
+  });
+});
+
 test('cursor point normalization passes off-screen positions through unclamped', () => {
   // Cursor on a monitor to the right of the recorded screen (x past width).
   assert.deepEqual(
@@ -686,4 +706,119 @@ test('cursor point normalization passes off-screen positions through unclamped',
     normalizeCursorPoint({ point: { x: 1950, y: -10 }, originX: 1920, originY: 0, scaleFactor: 1 }),
     { x: 30, y: -10 },
   );
+});
+
+test('terminateChildren returns empty list when no recording is active', async () => {
+  const session = createRecordingSession({
+    recordingsDir: join(tmpdir(), 'rough-cut-no-active'),
+    markerPath: join(tmpdir(), 'rough-cut-no-active.marker.json'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':0.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: () => ({ outputPath: '', stop: async () => '' }),
+  });
+  assert.deepEqual(session.terminateChildren(), []);
+});
+
+test('terminateChildren reaps screen and camera ffmpeg children with SIGTERM', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-reap-'));
+  const screenKill = [];
+  const cameraKill = [];
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    cameraWarmupMs: 0,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => ({
+      outputPath: options.outputPath,
+      getPid: () => 4242,
+      kill: (signal) => screenKill.push(signal),
+      stop: async () => options.outputPath,
+    }),
+    cameraCaptureFactory: (options) => ({
+      outputPath: options.outputPath,
+      getPid: () => 5151,
+      kill: (signal) => cameraKill.push(signal),
+      stop: async () => options.outputPath,
+    }),
+  });
+
+  await session.start({ cameraDevicePath: '/dev/video2' });
+
+  const reaped = session.terminateChildren();
+  const byName = Object.fromEntries(reaped.map((entry) => [entry.name, entry]));
+  assert.equal(byName['ffmpeg-screen'].pid, 4242);
+  assert.equal(byName['ffmpeg-screen'].signal, 'SIGTERM');
+  assert.equal(byName['ffmpeg-camera'].pid, 5151);
+  assert.equal(byName['ffmpeg-camera'].signal, 'SIGTERM');
+  assert.deepEqual(screenKill, ['SIGTERM']);
+  assert.deepEqual(cameraKill, ['SIGTERM']);
+
+  await session.stop();
+  await rm(root, { recursive: true, force: true });
+});
+
+test('terminateChildren registers the xinput button listener once telemetry starts', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-reap-xinput-'));
+  const xinputKill = [];
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => ({
+      outputPath: options.outputPath,
+      getPid: () => 1111,
+      kill: () => {},
+      stop: async () => options.outputPath,
+    }),
+    buttonListenerFactory: () => ({
+      start: () => {},
+      stop: () => {},
+      getPid: () => 9999,
+      kill: (signal) => xinputKill.push(signal),
+    }),
+    getCursorPoint: () => ({ x: 0, y: 0 }),
+  });
+
+  await session.start();
+  // startTelemetryAfterIpcReturn defers via setTimeout(0); the cursor sample
+  // and listener registration land within a few ms.
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  const reaped = session.terminateChildren();
+  const byName = Object.fromEntries(reaped.map((entry) => [entry.name, entry]));
+  assert.ok(byName['xinput-button-listener'], 'xinput listener should be registered');
+  assert.equal(byName['xinput-button-listener'].pid, 9999);
+  assert.equal(byName['xinput-button-listener'].signal, 'SIGTERM');
+  assert.deepEqual(xinputKill, ['SIGTERM']);
+
+  await session.stop();
+  await rm(root, { recursive: true, force: true });
+});
+
+test('terminateChildren records a kill error without throwing', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-reap-err-'));
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => ({
+      outputPath: options.outputPath,
+      getPid: () => 7777,
+      kill: () => { throw new Error('ESRCH'); },
+      stop: async () => options.outputPath,
+    }),
+  });
+
+  await session.start();
+  const reaped = session.terminateChildren();
+  assert.equal(reaped.length, 1);
+  assert.equal(reaped[0].error, 'ESRCH');
+  await session.stop();
+  await rm(root, { recursive: true, force: true });
 });

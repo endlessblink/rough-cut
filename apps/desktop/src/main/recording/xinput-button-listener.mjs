@@ -151,5 +151,12 @@ export function createXinputButtonListener({ onButton, onMotion = null }) {
     reset();
   }
 
-  return { start, stop, isAvailable: isXinputAvailable };
+  function getPid() { return child?.pid ?? null; }
+
+  function kill(signal = 'SIGTERM') {
+    if (!child) return;
+    try { child.kill(signal); } catch { /* already gone */ }
+  }
+
+  return { start, stop, getPid, kill, isAvailable: isXinputAvailable };
 }
