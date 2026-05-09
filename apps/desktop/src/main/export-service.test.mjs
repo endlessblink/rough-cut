@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForRecording } from './project-files.mjs';
-import { buildBackgroundExpression, buildCursorAss, buildRawTrimExportArgs, buildStyledExportArgs, exportProjectToMp4, isSingleTrimmedRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, normalizeExportMode, parseFfmpegProgress } from './export-service.mjs';
+import { buildBackgroundExpression, buildCursorAss, buildRawTrimExportArgs, buildStyledExportArgs, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportProjectToMp4, isSingleTrimmedRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, normalizeExportMode, parseFfmpegProgress } from './export-service.mjs';
 
 test('unedited export copies source mp4 byte-for-byte', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-'));
@@ -428,7 +428,7 @@ test('cursor ASS layer passes negative coordinates through (cursor on a left-sid
 });
 
 test('cursor ASS layer always preserves the final recorded event under subsampling', () => {
-  // 1500 unique cursor events; default maxEvents=600 forces stride=3.
+  // 1500 unique cursor events with maxEvents=500 forces stride=3.
   // Without the explicit last-event preservation, index 1499 would be dropped
   // (1499 % 3 = 2) and the cursor would render stuck at index 1497's position
   // for the tail of the recording.
@@ -439,10 +439,84 @@ test('cursor ASS layer always preserves the final recorded event under subsampli
     type: 'move',
     button: 0,
   }));
-  const ass = buildCursorAss({ cursorEvents: events, width: 1920, height: 1080, fps: 30 });
+  const ass = buildCursorAss({ cursorEvents: events, width: 1920, height: 1080, fps: 30, maxEvents: 500 });
   // The final event has x = 100 + 1499 = 1599; the corresponding ASS \\move
   // call must reference this final position somewhere in the dialogue stream.
   assert(ass.includes('\\move(1599,1599'));
+});
+
+test('cursor ASS default maxEvents is generous enough that short and medium recordings do not stride', () => {
+  assert.equal(DEFAULT_MAX_CURSOR_ASS_EVENTS, 30_000);
+  const events = Array.from({ length: 5_000 }, (_value, index) => ({
+    frame: index,
+    x: 100 + (index % 1280),
+    y: 100 + (index % 720),
+    type: 'move',
+    button: 0,
+  }));
+  const notices = [];
+  const ass = buildCursorAss({
+    cursorEvents: events,
+    width: 1920,
+    height: 1080,
+    fps: 30,
+    onDownsampleNotice: (info) => notices.push(info),
+  });
+  assert.equal((ass.match(/^Dialogue:/gm) ?? []).length, 5_000);
+  assert.equal(notices.length, 0);
+});
+
+test('cursor ASS layer fires a downsample notice when telemetry exceeds the cap', () => {
+  const events = Array.from({ length: 4_000 }, (_value, index) => ({
+    frame: index,
+    x: index,
+    y: index,
+    type: 'move',
+    button: 0,
+  }));
+  const notices = [];
+  buildCursorAss({
+    cursorEvents: events,
+    width: 1920,
+    height: 1080,
+    fps: 30,
+    maxEvents: 1_000,
+    onDownsampleNotice: (info) => notices.push(info),
+  });
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].originalEvents, 4_000);
+  assert.equal(notices[0].stride > 1, true);
+  assert.equal(notices[0].sampledEvents <= 1_000 + 1, true); // +1 for last-event preservation
+});
+
+test('cursor ASS layer copes with a 60-minute synthetic stream without crashing or hanging', () => {
+  // 60 minutes at the 33ms cursor sample rate ≈ 109,090 samples. Pre-TASK-072
+  // this would silently downsample to 600 lines; post-TASK-072 the default
+  // 30k cap still applies but the build must remain fast and stable.
+  const totalEvents = 60 * 60 * 30; // 108,000 (30 fps frame anchor)
+  const events = Array.from({ length: totalEvents }, (_value, index) => ({
+    frame: index,
+    x: (index * 7) % 1920,
+    y: (index * 11) % 1080,
+    type: 'move',
+    button: 0,
+  }));
+  const notices = [];
+  const ass = buildCursorAss({
+    cursorEvents: events,
+    width: 1920,
+    height: 1080,
+    fps: 30,
+    onDownsampleNotice: (info) => notices.push(info),
+  });
+  assert(typeof ass === 'string' && ass.length > 0);
+  assert(ass.includes('PlayResX: 1920'));
+  // Some downsampling should have happened, but the line count should stay at
+  // or just above the cap — never exceed it by more than the last-event guard.
+  const lineCount = (ass.match(/^Dialogue:/gm) ?? []).length;
+  assert(lineCount <= DEFAULT_MAX_CURSOR_ASS_EVENTS + 1);
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].originalEvents, totalEvents);
 });
 
 test('cursor ASS layer keeps final cursor visible through recording end', () => {

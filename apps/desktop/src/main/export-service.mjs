@@ -417,8 +417,31 @@ function formatFilterNumber(value) {
   return Number(value).toFixed(3).replace(/\.?0+$/, '');
 }
 
-export async function createCursorSubtitleLayer({ cursorEvents = [], width, height, fps = 30, durationFrames = null } = {}) {
-  const ass = buildCursorAss({ cursorEvents, width, height, fps, durationFrames });
+// Default cap on dialogue lines emitted by the ASS cursor layer. Each event
+// is one Dialogue line; libass copes well into the tens of thousands. 30k
+// covers ~16 minutes at the 33ms cursor sample rate without striding, which
+// is enough for the long-form recordings TASK-072 is targeting. Beyond that,
+// stride sampling kicks in *and we surface a notice* — silent downsampling
+// is the bug that TASK-072 closes.
+export const DEFAULT_MAX_CURSOR_ASS_EVENTS = 30_000;
+
+export async function createCursorSubtitleLayer({ cursorEvents = [], width, height, fps = 30, durationFrames = null, onDownsampleNotice = null } = {}) {
+  const summary = { downsampled: false, originalEvents: 0, sampledEvents: 0, stride: 1 };
+  const ass = buildCursorAss({
+    cursorEvents,
+    width,
+    height,
+    fps,
+    durationFrames,
+    onDownsampleNotice: (info) => {
+      summary.downsampled = true;
+      summary.originalEvents = info.originalEvents;
+      summary.sampledEvents = info.sampledEvents;
+      summary.stride = info.stride;
+      console.warn(`[cursor-ass] Cursor detail reduced: ${info.originalEvents} samples → ${info.sampledEvents} (stride ${info.stride}).`);
+      if (typeof onDownsampleNotice === 'function') onDownsampleNotice(info);
+    },
+  });
   if (!ass) return null;
 
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-cursor-layer-'));
@@ -427,10 +450,11 @@ export async function createCursorSubtitleLayer({ cursorEvents = [], width, heig
   return {
     path,
     cleanup: () => rm(root, { recursive: true, force: true }),
+    summary,
   };
 }
 
-export function buildCursorAss({ cursorEvents = [], width = 1920, height = 1080, fps = 30, durationFrames = null, maxEvents = 600 } = {}) {
+export function buildCursorAss({ cursorEvents = [], width = 1920, height = 1080, fps = 30, durationFrames = null, maxEvents = DEFAULT_MAX_CURSOR_ASS_EVENTS, onDownsampleNotice = null } = {}) {
   const events = cursorEvents
     .filter((event) => event && event.type === 'move' && Number.isFinite(event.frame) && Number.isFinite(event.x) && Number.isFinite(event.y))
     .sort((a, b) => a.frame - b.frame);
@@ -440,7 +464,10 @@ export function buildCursorAss({ cursorEvents = [], width = 1920, height = 1080,
   if (events.length === 0 && clicks.length === 0) return null;
 
   const stride = Math.max(1, Math.ceil(events.length / maxEvents));
-  const sampled = events.filter((_event, index) => index % stride === 0);
+  const sampled = stride === 1 ? events.slice() : events.filter((_event, index) => index % stride === 0);
+  if (stride > 1 && typeof onDownsampleNotice === 'function') {
+    onDownsampleNotice({ originalEvents: events.length, sampledEvents: sampled.length, stride, maxEvents });
+  }
   // Preserve the very last recorded event so the exported cursor reflects
   // its actual final position. Stride filtering can otherwise drop the last
   // event when (events.length - 1) % stride !== 0, leaving the cursor stuck

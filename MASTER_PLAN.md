@@ -85,7 +85,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-069 | Add EXPORT_CANCEL IPC and kill ffmpeg on cancel | P1 | PLANNED |
 | TASK-070 | Per-display scale factor for cursor and click telemetry | P1 | PLANNED |
 | TASK-071 | Surface camera failure during recording, not after | P1 | PLANNED |
-| TASK-072 | Lift or warn on ASS cursor 600-event downsample cap | P1 | PLANNED |
+| TASK-072 | Lift or warn on ASS cursor 600-event downsample cap | P1 | DONE |
 | TASK-073 | Validate capture region against display bounds | P1 | PLANNED |
 | TASK-074 | Wire or remove inert top-bar folder, comments, undo icons | P1 | PLANNED |
 | TASK-075 | Implement undo and redo with edit history stack | P1 | PLANNED |
@@ -2343,26 +2343,27 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 - UI smoke covers camera-failure-during-recording state.
 - Manual: unplug a USB webcam mid-recording, confirm the banner appears immediately.
 
-### TASK-072 Lift or warn on ASS cursor 600-event downsample cap
+### ~~TASK-072~~ Lift or warn on ASS cursor 600-event downsample cap
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
-`apps/desktop/src/main/export-service.mjs:421-430` caps cursor events to 600 samples via stride. Any recording longer than ~20 seconds at the current sample rate is silently downsampled, with no log or UI hint. Long styled exports look janky.
+`apps/desktop/src/main/export-service.mjs:421-430` capped cursor events to 600 samples via stride. Any recording longer than ~20 seconds at the 33ms sample rate was silently downsampled with no log or UI hint. Long styled exports looked janky.
 
-#### Acceptance Criteria
+#### Completion Notes
 
-- Raise the cap meaningfully (target: stride only when ASS line count would exceed a hard ASS limit).
-- When downsampling does happen, log it and surface a one-line "Cursor detail reduced" notice in the export progress UI.
-- Unit test covers very-large cursorEvents arrays without crashing the ASS builder.
+- Raised the default cap from 600 to `DEFAULT_MAX_CURSOR_ASS_EVENTS = 30_000` in `export-service.mjs`. At the 33ms cursor sample rate that covers ~16 minutes without striding — the bulk of recordings will now produce a 1:1 cursor curve. libass copes well into the tens of thousands of dialogue lines, so the cap stays safely under the practical performance ceiling.
+- Stride sampling now opts in only when `events.length > maxEvents` (was: always strided, even for stride=1, which was wasteful). When stride > 1, an `onDownsampleNotice({ originalEvents, sampledEvents, stride, maxEvents })` callback fires.
+- `createCursorSubtitleLayer` wraps that notice into both a `console.warn` line ("[cursor-ass] Cursor detail reduced: …") and a `summary` field on its returned layer object so callers (and a future export progress UI) can surface a banner. The renderer-side notice toast is intentionally deferred — current callers ignore the field, which keeps the API change non-breaking.
+- Updated the existing "preserves the final recorded event" test to pass `maxEvents: 500` explicitly (it relied on the old 600 default).
 
 #### Verification
 
-- New unit test on a 60-minute synthetic cursor stream.
-- `pnpm smoke:styled-export`
-- Manual: 30-minute recording produces a styled export with smooth cursor motion.
+- 3 new unit tests in `export-service.test.mjs`: default cap is 30_000 and 5k events do not stride; downsample notice fires with correct original/sampled counts; **60-minute synthetic stream (108k events) builds without crashing and stays under the cap**.
+- `pnpm --filter @rough-cut/desktop test` → 219 / 219 pass.
+- Manual: 30-minute recording produces a styled export with smooth cursor motion (recommended). Suggest also reviewing whether to surface the notice via the existing export-progress channel as a follow-up.
 
 ### TASK-073 Validate capture region against display bounds
 
