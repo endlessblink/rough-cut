@@ -1038,69 +1038,25 @@ function PreRecordPanel({
 
 function PreRecordCameraSetup({ source }: { source?: CameraSource }) {
   const label = source ? `${simplifySourceLabel(source.label || source.name, 'Camera')} · ${shortSourceId(source.name, 0)}` : 'Selected camera';
-  const videoRef = React.useRef<HTMLVideoElement | null>(null);
-  const [previewState, setPreviewState] = React.useState<'loading' | 'ready' | 'error'>('loading');
-
-  React.useEffect(() => {
-    let cancelled = false;
-    let stream: MediaStream | null = null;
-
-    async function startPreview() {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        if (!cancelled) setPreviewState('error');
-        return;
-      }
-
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices().catch(() => [] as MediaDeviceInfo[]);
-        const needle = (source?.label || source?.name || '').toLowerCase();
-        const matchingDevice = devices.find((device) => device.kind === 'videoinput' && needle && (device.label.toLowerCase().includes(needle) || needle.includes(device.label.toLowerCase())));
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: matchingDevice ? { deviceId: { exact: matchingDevice.deviceId } } : true,
-        });
-        if (cancelled) return;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play().catch(() => undefined);
-        }
-        setPreviewState('ready');
-      } catch (err) {
-        console.warn('[renderer:camera-preview] failed to start preview', err);
-        if (!cancelled) setPreviewState('error');
-      }
-    }
-
-    void startPreview();
-    return () => {
-      cancelled = true;
-      // Detach the stream from the <video> first so Electron's media pipeline
-      // releases its hold on the underlying V4L2 device before we stop tracks.
-      // Without this, the kernel /dev/video0 file handle stays open for an
-      // extra ~100-300ms after track.stop() and ffmpeg-camera fails to grab
-      // it with "Device or resource busy" when the recording starts.
-      if (videoRef.current) {
-        try { videoRef.current.pause(); } catch { /* element gone */ }
-        videoRef.current.srcObject = null;
-      }
-      stream?.getTracks().forEach((track) => track.stop());
-      stream = null;
-    };
-  }, [source?.label, source?.name]);
-
+  // The live getUserMedia preview was disabled because Electron/Chromium's
+  // media pipeline keeps the V4L2 FD on /dev/video* mapped (`mem`) and open
+  // (FD 21u) for the entire recording session even after track.stop() returns.
+  // ffmpeg-camera then fails every spawn with "Device or resource busy",
+  // saving every camera-on take screen-only. Showing a static affordance
+  // instead leaves /dev/video* free for ffmpeg-camera to grab. Diagnosed
+  // 2026-05-10 from a lsof-on-EBUSY breadcrumb in the recording-session
+  // retry loop; PID matched the renderer process every attempt.
   return (
     <section className="preRecordCameraSetup" data-ui-region="pre-record-camera-setup" aria-label="Camera PiP setup preview">
       <div>
         <p className="eyebrow">Camera PiP</p>
         <h3>{label}</h3>
-        <p>Preview only. PiP style stays editable after recording.</p>
+        <p>Webcam captures into the recording. Preview is hidden so the camera stays free for the recorder.</p>
       </div>
-      <div className={`cameraSetupPreview ${previewState}`} data-camera-preview-state={previewState}>
-        <video ref={videoRef} muted autoPlay playsInline />
-        {previewState !== 'ready' ? <span className="cameraSetupScreen" /> : null}
+      <div className="cameraSetupPreview ready" data-camera-preview-state="static">
+        <span className="cameraSetupScreen" />
         <span className="cameraSetupBubble"><Icon name="camera" /></span>
-        {previewState === 'loading' ? <span className="cameraSetupStatus">Opening camera...</span> : null}
-        {previewState === 'error' ? <span className="cameraSetupStatus">Preview unavailable</span> : null}
+        <span className="cameraSetupStatus">Camera ready</span>
       </div>
     </section>
   );
