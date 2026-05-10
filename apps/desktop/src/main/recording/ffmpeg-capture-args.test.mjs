@@ -61,10 +61,15 @@ test('camera capture sets v4l2 reliability flags so shutdown does not wedge in D
   // rw_timeout was attempted but ffmpeg 6.1's v4l2 demuxer rejects it
   // ("Option rw_timeout not found"). Guard against accidentally re-adding.
   assert.equal(args.includes('-rw_timeout'), false);
+  // Force MJPEG. Without this, UVC webcams negotiate YUYV (uncompressed)
+  // which caps at 10 fps for 1280x720 on common consumer hardware,
+  // producing a stuttering camera in playback regardless of -framerate.
+  assert.equal(args[args.indexOf('-input_format') + 1], 'mjpeg');
   // Reliability flags must precede the input so they bind to the input
   // stream; ffmpeg ignores input-side options that come after `-i`.
   assert.ok(args.indexOf('-thread_queue_size') < args.indexOf('-i'));
   assert.ok(args.indexOf('-fflags') < args.indexOf('-i'));
+  assert.ok(args.indexOf('-input_format') < args.indexOf('-i'));
 });
 
 test('screen capture maps microphone audio when a mic source is selected', () => {

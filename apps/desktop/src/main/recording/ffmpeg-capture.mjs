@@ -292,6 +292,15 @@ export function buildFfmpegCameraCaptureArgs({
     '1024',
     '-f',
     'v4l2',
+    // Force MJPEG input. UVC webcams typically only deliver high-resolution
+    // frames at the requested framerate when negotiating MJPEG; YUYV
+    // (uncompressed) caps at very low fps for 1280x720 (10 fps on the
+    // Lenovo FHD UVC tested 2026-05-10). Without this ffmpeg negotiates
+    // YUYV by default and the recorded camera stream is 10 fps regardless
+    // of -framerate, making playback look "stuttery". Verified via
+    // `v4l2-ctl --list-formats-ext` and a direct ffmpeg run.
+    '-input_format',
+    'mjpeg',
     '-framerate',
     String(frameRate),
     '-video_size',
