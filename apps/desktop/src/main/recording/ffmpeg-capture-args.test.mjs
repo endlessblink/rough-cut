@@ -55,14 +55,16 @@ test('camera capture sets v4l2 reliability flags so shutdown does not wedge in D
     fps: 30,
     devicePath: '/dev/video0',
   });
-  assert.equal(args[args.indexOf('-rw_timeout') + 1], '5000000');
   assert.equal(args[args.indexOf('-use_wallclock_as_timestamps') + 1], '1');
   assert.equal(args[args.indexOf('-fflags') + 1], 'nobuffer');
   assert.equal(args[args.indexOf('-thread_queue_size') + 1], '1024');
+  // rw_timeout was attempted but ffmpeg 6.1's v4l2 demuxer rejects it
+  // ("Option rw_timeout not found"). Guard against accidentally re-adding.
+  assert.equal(args.includes('-rw_timeout'), false);
   // Reliability flags must precede the input so they bind to the input
   // stream; ffmpeg ignores input-side options that come after `-i`.
-  assert.ok(args.indexOf('-rw_timeout') < args.indexOf('-i'));
   assert.ok(args.indexOf('-thread_queue_size') < args.indexOf('-i'));
+  assert.ok(args.indexOf('-fflags') < args.indexOf('-i'));
 });
 
 test('screen capture maps microphone audio when a mic source is selected', () => {
