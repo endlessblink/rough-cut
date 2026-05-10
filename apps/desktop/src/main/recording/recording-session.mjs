@@ -1,4 +1,4 @@
-import { mkdir, open, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isFfmpegCaptureAvailable, startFfmpegCameraCapture, startFfmpegCapture } from './ffmpeg-capture.mjs';
 import { createXinputButtonListener } from './xinput-button-listener.mjs';
@@ -115,27 +115,23 @@ export function createRecordingSession({
       if (cameraDevicePath && process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR) {
         throw new Error(process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR);
       }
-      // Wait for /dev/video* to actually be free before ffmpeg-camera tries
-      // to open it. The renderer's getUserMedia preview holds the V4L2 FD
-      // for a variable window after track.stop() — sometimes 100ms,
-      // occasionally over a second. Without this, ffmpeg-camera races the
-      // renderer's release and fails with "Device or resource busy",
-      // leaving no -camera.mkv on disk and the take saved screen-only.
-      // Poll up to 3s; if the device never frees, fall through to the
-      // existing error path so we still save the screen take.
-      if (cameraDevicePath) {
-        await waitForDeviceAvailable(cameraDevicePath, { timeoutMs: 3000, pollMs: 100 });
-      }
+      // Camera ffmpeg races the renderer's getUserMedia release on /dev/video*.
+      // V4L2 character devices allow multiple file opens; exclusivity is at
+      // the streaming-ioctl level, so a plain fs.open() probe (what a previous
+      // attempt used) lies — it succeeds even when ffmpeg's VIDIOC_REQBUFS
+      // would still get EBUSY. The only reliable busy detector is ffmpeg
+      // itself, so retry the spawn until ffmpeg either streams or we give up.
       cameraStartedAtDate = cameraDevicePath ? now() : null;
-      cameraCapture = cameraDevicePath
-        ? cameraCaptureFactory({
-            outputPath: cameraRawPath,
-            fps: DEFAULT_FPS,
-            devicePath: cameraDevicePath,
-            width: 1280,
-            height: 720,
-          })
-        : null;
+      if (cameraDevicePath) {
+        cameraCapture = await spawnCameraCaptureWithRetry({
+          factory: cameraCaptureFactory,
+          outputPath: cameraRawPath,
+          devicePath: cameraDevicePath,
+          maxAttempts: 6,
+          earlyExitWindowMs: 1500,
+          backoffMs: 500,
+        });
+      }
       if (cameraCapture && cameraWarmupMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, cameraWarmupMs));
       }
@@ -347,32 +343,59 @@ export function createRecordingSession({
   return { start, stop, cancel, status, terminateChildren };
 }
 
-// Try opening the V4L2 device exclusively in non-blocking mode. If another
-// process holds it (e.g. the renderer's getUserMedia preview that hasn't
-// fully released its FD yet), open() returns EBUSY immediately and we
-// poll until either the device frees or timeoutMs elapses. Falling
-// through after timeout lets the existing error path save a screen-only
-// project rather than waiting forever.
-async function waitForDeviceAvailable(devicePath, { timeoutMs = 3000, pollMs = 100 } = {}) {
-  const deadline = Date.now() + timeoutMs;
-  let lastError = null;
-  while (Date.now() < deadline) {
-    let handle = null;
-    try {
-      handle = await open(devicePath, 'r');
-      await handle.close();
-      return;
-    } catch (err) {
-      lastError = err;
-      if (handle) {
-        try { await handle.close(); } catch { /* ignore */ }
-      }
-      // EBUSY = another process holds the device; ENOENT = device gone.
-      // Either way, wait and retry; the renderer might still be releasing.
-      await new Promise((resolve) => setTimeout(resolve, pollMs));
+// Spawn ffmpeg-camera with retry-on-early-exit. The renderer's getUserMedia
+// preview holds /dev/video* for a variable window after track.stop() that
+// can exceed our pre-record delay. ffmpeg's own attempt to VIDIOC_REQBUFS is
+// the only reliable busy probe (a plain fs.open succeeds for V4L2 even when
+// streaming would fail), so we let ffmpeg itself test the device and retry
+// the spawn after a short backoff if it exits within earlyExitWindowMs with
+// a non-zero status. Falls through to the existing error path on
+// maxAttempts exhaustion so the take still saves screen-only.
+async function spawnCameraCaptureWithRetry({
+  factory,
+  outputPath,
+  devicePath,
+  maxAttempts = 6,
+  earlyExitWindowMs = 1500,
+  backoffMs = 500,
+}) {
+  let lastErrorMessage = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const capture = factory({
+      outputPath,
+      fps: DEFAULT_FPS,
+      devicePath,
+      width: 1280,
+      height: 720,
+    });
+    // Test mocks may not expose whenExited; in that case skip the early-exit
+    // race entirely and assume the spawn succeeded. Real ffmpeg-camera
+    // handles always provide it.
+    if (typeof capture.whenExited !== 'function') {
+      return capture;
+    }
+    // Race the early-exit detection window against the proc actually exiting.
+    // If exitInfo lands within the window with a non-zero code, treat it as
+    // an EBUSY-style failure and retry. If the window elapses without exit,
+    // ffmpeg is streaming — return the live handle.
+    const exited = await Promise.race([
+      capture.whenExited(),
+      new Promise((resolve) => setTimeout(() => resolve(null), earlyExitWindowMs)),
+    ]);
+    if (exited === null) {
+      if (attempt > 1) console.info(`[recording-session] camera spawn succeeded on attempt ${attempt}`);
+      return capture;
+    }
+    const stderrTail = (exited.stderr ?? '').split(/\r?\n/).filter(Boolean).slice(-3).join(' | ');
+    lastErrorMessage = `ffmpeg-camera exited early (code=${exited.code} signal=${exited.signal ?? 'null'}): ${stderrTail || 'no stderr'}`;
+    console.warn(`[recording-session] camera spawn attempt ${attempt}/${maxAttempts} failed: ${lastErrorMessage}`);
+    if (attempt < maxAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }
   }
-  console.warn(`[recording-session] ${devicePath} still busy after ${timeoutMs}ms${lastError?.code ? ` (last error: ${lastError.code})` : ''}; attempting capture anyway`);
+  // Throw so the existing catch in start() sets cameraError and continues
+  // screen-only, exactly as if ffmpeg-camera had failed once and we gave up.
+  throw new Error(lastErrorMessage ?? `ffmpeg-camera failed to start ${devicePath} after ${maxAttempts} attempts`);
 }
 
 function registerChild(session, name, handle) {

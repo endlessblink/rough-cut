@@ -174,6 +174,7 @@ export function startFfmpegCameraCapture({
 
   const proc = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
   let stderr = '';
+  let exitInfo = null;
   proc.stdout?.on('data', (chunk) => logProcessOutput('[ffmpeg-camera:stdout]', chunk.toString()));
   proc.stderr?.on('data', (chunk) => {
     const text = chunk.toString();
@@ -181,18 +182,24 @@ export function startFfmpegCameraCapture({
     logProcessOutput('[ffmpeg-camera:stderr]', text);
   });
   proc.on('error', (err) => console.error('[ffmpeg-camera] Process error:', err.message));
-  proc.on('exit', (code, signal) => {
-    if (code !== 0 && signal !== 'SIGINT') {
-      console.warn('[ffmpeg-camera] Exited with code', code, 'signal', signal);
-      if (stderr) console.warn('[ffmpeg-camera] stderr tail:', stderr.slice(-500));
-    } else {
-      console.info('[ffmpeg-camera] Stopped cleanly.');
-    }
+  const exitPromise = new Promise((resolve) => {
+    proc.on('exit', (code, signal) => {
+      exitInfo = { code, signal, stderr };
+      if (code !== 0 && signal !== 'SIGINT') {
+        console.warn('[ffmpeg-camera] Exited with code', code, 'signal', signal);
+        if (stderr) console.warn('[ffmpeg-camera] stderr tail:', stderr.slice(-500));
+      } else {
+        console.info('[ffmpeg-camera] Stopped cleanly.');
+      }
+      resolve(exitInfo);
+    });
   });
 
   return {
     outputPath,
     getPid() { return proc.pid ?? null; },
+    getExitInfo() { return exitInfo; },
+    whenExited() { return exitPromise; },
     kill(signal = 'SIGTERM') {
       if (proc.exitCode === null && proc.signalCode === null) {
         try { proc.kill(signal); } catch { /* already gone */ }
