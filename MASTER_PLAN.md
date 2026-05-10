@@ -109,6 +109,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-093 | Split countdown and HUD indicator into BrowserWindows | P3 | PLANNED |
 | TASK-094 | Add Inspector templates picker for one-click aspect+background+camera | P2 | DONE |
 | TASK-095 | Add drag-to-reposition camera PiP and screen frame in editor preview | P2 | IN PROGRESS |
+| TASK-096 | Single-ffmpeg architecture for live camera preview + capture | P2 | PLANNED |
 
 ## Recently Verified
 
@@ -208,7 +209,7 @@ Sequence: TASK-070, TASK-071, TASK-073, TASK-078, TASK-083, TASK-084, TASK-080, 
 Sequence: TASK-089, TASK-090, TASK-091, TASK-092, TASK-093, TASK-063, TASK-064
 
 7. **LINE G — Record sidebar authoring toolset**:
-Sequence: ~~TASK-094~~, TASK-095
+Sequence: ~~TASK-094~~, TASK-095, TASK-096
 
 ## Tasks
 
@@ -2853,3 +2854,35 @@ Today the camera PiP position is picked from a five-slot enum (`corner-br/bl/tr/
 
 - Builds on TASK-094 (templates) for the "template clears custom frames" behavior.
 - Should land before any future Dynamic Camera Layouts timeline track work.
+
+### TASK-096 Single-ffmpeg architecture for live camera preview + capture
+
+**Priority:** P2
+**Status:** PLANNED
+
+#### Context
+
+Live webcam preview in the pre-record panel is currently disabled (`64c112c`) because Chromium's media pipeline does not synchronously close the V4L2 file descriptor on `MediaStreamTrack.stop()`. Confirmed empirically on 2026-05-10: `lsof /dev/video0` showed the renderer Electron PID holding FD 21u plus a `mem` mapping for the entire recording window, blocking ffmpeg-camera with `Device or resource busy` on every spawn attempt for 12+ seconds. Perplexity research confirmed this is a known Chromium V4L2 behavior with no app-level fix — it's intentional buffer/GPU reference counting that defers FD release.
+
+Production tools (OBS, Loom, etc.) avoid the conflict by having a single long-running ffmpeg own the device and feeding preview frames to the UI via IPC.
+
+#### Acceptance Criteria
+
+- Main process owns one long-running ffmpeg-camera that opens `/dev/video*` once when a camera source is selected.
+- That ffmpeg pipes frames (MJPEG over stdout, or via local socket/MSE) to the renderer for live preview in the pre-record panel.
+- Clicking Record switches the same ffmpeg's encoding/output target to the take's camera mkv without releasing the V4L2 device.
+- `cameraDevicePath` IPC contract preserved so the rest of the recording pipeline is unchanged.
+- Repeat takes back-to-back without restarting Electron; `lsof /dev/video0` shows ffmpeg-camera (not the renderer) as the holder.
+- Replaces the static "Camera ready" placeholder in `PreRecordCameraSetup`.
+
+#### Verification
+
+- Manual: open pre-record panel, see live preview, record, stop, confirm camera mp4 has content matching what was previewed; do this 3× without restart.
+- `lsof /dev/video0` mid-recording shows the main-process ffmpeg as the holder, not the renderer.
+- Existing recording-flow smokes still pass.
+
+#### References
+
+- `64c112c` — current workaround disabling preview.
+- `f12711a` — lsof diagnostic that proved the renderer was the holder.
+- Perplexity research notes (this session, 2026-05-10) recommending the single-ffmpeg pattern.
