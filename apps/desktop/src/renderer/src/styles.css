@@ -785,8 +785,12 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   border: 1px solid rgb(255 255 255 / 0.18);
   border-radius: 6px;
   display: block;
-  width: 60%;
-  max-height: 64px;
+  /* Anchor on height instead of width so each template's aspect-ratio
+     drives a visually distinct shape: 9:16 = tall narrow, 16:9 = wide,
+     1:1 = square. Width caps to prevent the wide variants from overflowing
+     the card. */
+  height: 56px;
+  max-width: 80%;
 }
 
 .templateCardLabel {

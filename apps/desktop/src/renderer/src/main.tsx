@@ -2736,6 +2736,17 @@ function VideoPreview({
         rafId = window.requestAnimationFrame(tick);
         return;
       }
+      // Also wait for the camera video to settle from a seek, otherwise
+      // the screen renders with the new frame while the camera draw block
+      // skips (it requires readyState >= 2) and the camera PiP appears to
+      // disappear and reappear every time the user scrubs the timeline.
+      // Reported by user 2026-05-10. Bypass when camera presentation is
+      // hidden or the source isn't loaded so we don't stall the screen
+      // draw on a permanently-empty camera.
+      if (cameraVideo && cameraSrc && cameraVideo.seeking) {
+        rafId = window.requestAnimationFrame(tick);
+        return;
+      }
       // Skip draw when the video hasn't advanced to a new frame since last tick.
       // Math.round(currentTime * fps) is discrete (0, 1, 2 …), so at 30fps it holds
       // the same value for ~2 consecutive 60fps RAF ticks before incrementing.
