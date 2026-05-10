@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isFfmpegCaptureAvailable, startFfmpegCameraCapture, startFfmpegCapture } from './ffmpeg-capture.mjs';
 import { createXinputButtonListener } from './xinput-button-listener.mjs';
@@ -114,6 +114,17 @@ export function createRecordingSession({
     try {
       if (cameraDevicePath && process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR) {
         throw new Error(process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR);
+      }
+      // Wait for /dev/video* to actually be free before ffmpeg-camera tries
+      // to open it. The renderer's getUserMedia preview holds the V4L2 FD
+      // for a variable window after track.stop() — sometimes 100ms,
+      // occasionally over a second. Without this, ffmpeg-camera races the
+      // renderer's release and fails with "Device or resource busy",
+      // leaving no -camera.mkv on disk and the take saved screen-only.
+      // Poll up to 3s; if the device never frees, fall through to the
+      // existing error path so we still save the screen take.
+      if (cameraDevicePath) {
+        await waitForDeviceAvailable(cameraDevicePath, { timeoutMs: 3000, pollMs: 100 });
       }
       cameraStartedAtDate = cameraDevicePath ? now() : null;
       cameraCapture = cameraDevicePath
@@ -334,6 +345,34 @@ export function createRecordingSession({
   }
 
   return { start, stop, cancel, status, terminateChildren };
+}
+
+// Try opening the V4L2 device exclusively in non-blocking mode. If another
+// process holds it (e.g. the renderer's getUserMedia preview that hasn't
+// fully released its FD yet), open() returns EBUSY immediately and we
+// poll until either the device frees or timeoutMs elapses. Falling
+// through after timeout lets the existing error path save a screen-only
+// project rather than waiting forever.
+async function waitForDeviceAvailable(devicePath, { timeoutMs = 3000, pollMs = 100 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = null;
+  while (Date.now() < deadline) {
+    let handle = null;
+    try {
+      handle = await open(devicePath, 'r');
+      await handle.close();
+      return;
+    } catch (err) {
+      lastError = err;
+      if (handle) {
+        try { await handle.close(); } catch { /* ignore */ }
+      }
+      // EBUSY = another process holds the device; ENOENT = device gone.
+      // Either way, wait and retry; the renderer might still be releasing.
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+    }
+  }
+  console.warn(`[recording-session] ${devicePath} still busy after ${timeoutMs}ms${lastError?.code ? ` (last error: ${lastError.code})` : ''}; attempting capture anyway`);
 }
 
 function registerChild(session, name, handle) {
