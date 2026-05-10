@@ -111,6 +111,8 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-095 | Add drag-to-reposition camera PiP and screen frame in editor preview | P2 | IN PROGRESS |
 | TASK-096 | Single-ffmpeg architecture for live camera preview + capture | P2 | PLANNED |
 | TASK-097 | Fix Inspector Templates click not propagating aspect ratio | P2 | PLANNED |
+| TASK-098 | Verify playback smoothness end-to-end after MJPEG camera fix | P2 | PLANNED |
+| TASK-099 | Verify post-recording blank editor is no longer reproducible | P3 | PLANNED |
 
 ## Recently Verified
 
@@ -210,7 +212,10 @@ Sequence: TASK-070, TASK-071, TASK-073, TASK-078, TASK-083, TASK-084, TASK-080, 
 Sequence: TASK-089, TASK-090, TASK-091, TASK-092, TASK-093, TASK-063, TASK-064
 
 7. **LINE G — Record sidebar authoring toolset**:
-Sequence: ~~TASK-094~~, TASK-097, TASK-095, TASK-096
+Sequence: ~~TASK-094~~
+
+8. **LINE H — Resolve 2026-05-10 session follow-ups**:
+Sequence: TASK-098, TASK-099, TASK-097, TASK-095, TASK-096
 
 ## Tasks
 
@@ -2949,3 +2954,54 @@ Expected when fixed: `aspect AFTER: 9:16`, `pressed AFTER: true`, `canvas ratio:
 2. If `[template-click]` doesn't print, the React handler isn't attached — investigate HMR / event delegation. A full page reload (Ctrl+R) may make the bug disappear, narrowing to "HMR-induced stale handler".
 3. If `[template-click]` prints but `[updateAspectRatio]` doesn't, `onAspectRatioChange` is undefined on the EditorToolBoard prop. Check the prop wiring at the EditorToolBoard call site (`main.tsx` ~line 2023).
 4. If both print but the dropdown stays at `auto`, look at `persist` and the `project:save` IPC queue.
+
+### TASK-098 Verify playback smoothness end-to-end after MJPEG camera fix
+
+**Priority:** P2
+**Status:** PLANNED
+
+#### Context
+
+User reported "playback is not smooth / full fps" on 2026-05-10. Root cause was the camera being captured at 10 fps because ffmpeg's v4l2 demuxer defaulted to YUYV (which caps at 10 fps for 1280x720 on the Lenovo FHD UVC). Fix landed in `4010dde` — `-input_format mjpeg` so the camera negotiates 30 fps. Direct ffmpeg test verified the stream produces 30/30 fps after the flag.
+
+What's not yet verified: that the user, in their actual Electron build, after a fresh take, sees smooth 30 fps playback in the editor preview. The renderer's tick has frame-dedup that draws at most once per source frame, and `049ee2a` synced the canvas redraw to both screen and camera seek-settled state, but neither has been confirmed to render smoothly with a 30 fps camera-mp4 input.
+
+#### Acceptance Criteria
+
+- Record a 5–10 second take with camera enabled.
+- Inspect the resulting `-camera.mp4` with `ffprobe` — must report `30 fps` and frame count ≈ duration_seconds × 30.
+- Open the take in the editor and play it. Visually smooth, no stutter on the camera PiP, no perceptible drops.
+- Scrubbing does not cause camera to disappear/reappear (covered by `049ee2a` but verify in this state).
+
+#### Verification
+
+```bash
+ffprobe -v 0 -select_streams v:0 -show_entries stream=avg_frame_rate,nb_frames \
+  -of default=nw=1 ~/Documents/Rough\ Cut\ MVP/recordings/<latest>-camera.mp4
+```
+
+Expect `avg_frame_rate=30/1` and frame count ≈ 30 × take_duration_sec.
+
+If smoothness is still bad despite the camera reporting 30 fps, the issue is renderer-side — open DevTools → Performance, record 5 s of playback, and inspect which canvas/draw call dominates. Likely culprits in order: `ctx.save()/restore()` overhead per tick, `drawCursorPath` shadow blur, the camera roundedrect clip with shadow. Mitigation: cache the cursor path/shadow on an offscreen canvas, or skip cursor draw when there's no recent move event.
+
+### TASK-099 Verify post-recording blank editor is no longer reproducible
+
+**Priority:** P3
+**Status:** PLANNED
+
+#### Context
+
+Mid-2026-05-10 session, the user shared a screenshot with the editor in a degraded state: gray central stage with no preview, "Saved" chip top-left, and a paragraph of `Saved to: <path>` text rendered in a 1-character-wide column on the right side of the viewport (each character on its own line). It was hit while the user was also experiencing repeated save corruption (the `rough-cut-2026-05-09T20-23-05-118Z.roughcut` had `Unexpected non-whitespace character at position 34739`) and camera-stop hangs.
+
+By the end of the session: save corruption is fixed (`5d9294e` + `5e1ef13`), camera stops cleanly (`256ea58` + `890897c`), and the renderer/main are running clean code. The blank-editor state may have been a transient consequence of one of those broken paths. No fresh repro since.
+
+#### Acceptance Criteria
+
+- Confirm the issue is no longer reproducible: record a fresh take, open the project in the editor, verify the styled preview canvas renders the screen + camera, the timeline rail loads, the inspector populates, and no text rendered as a vertical character column.
+- If it does reproduce: capture the React component tree at that moment and the project file's JSON to root-cause. Likely candidates if the bug is real:
+  - The `<StateBanner>` `Saved to: <path>` paragraph getting rendered into a CSS-grid column with `width: 0` because `.projectEditor` grid `minmax(0, 1fr)` collapsed.
+  - The styled preview canvas failing to mount because `mediaUrl` is null after a partial save recovery.
+
+#### Verification
+
+Record a 5 s take with camera, stop, open the resulting project. Editor renders correctly = task DONE. If it doesn't, file the React DevTools snapshot.
