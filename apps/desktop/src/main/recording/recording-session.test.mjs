@@ -182,6 +182,82 @@ test('recording session applies a selected capture region to x11grab geometry', 
   await rm(root, { recursive: true, force: true });
 });
 
+test('camera spawn retries after early-exit and succeeds on a later attempt', async () => {
+  // Simulates the V4L2 EBUSY race: ffmpeg-camera exits immediately on the
+  // first spawn (renderer hadn't released /dev/video0 yet), then succeeds
+  // on the next try once the device is free.
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-camera-retry-'));
+  let attempts = 0;
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    cameraWarmupMs: 0,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+    cameraCaptureFactory: (options) => {
+      attempts += 1;
+      // First two attempts "exit early" (Promise.resolve immediately -> retry).
+      // Third attempt: whenExited never resolves within the 1500ms window,
+      // so the loop returns this handle as the live capture.
+      if (attempts <= 2) {
+        return {
+          outputPath: options.outputPath,
+          whenExited: () => Promise.resolve({ code: 240, signal: null, stderr: 'Device or resource busy' }),
+          stop: async () => options.outputPath,
+        };
+      }
+      return {
+        outputPath: options.outputPath,
+        whenExited: () => new Promise(() => {}),
+        stop: async () => options.outputPath,
+      };
+    },
+  });
+  const started = await session.start({ cameraDevicePath: '/dev/video2' });
+  assert.equal(started.state, 'recording');
+  assert.equal(attempts, 3, 'should have retried twice before succeeding');
+  const stopped = await session.stop();
+  assert.equal(stopped.state, 'saved');
+  // Camera was successfully spawned on the 3rd attempt → no cameraError.
+  assert.equal(stopped.cameraError, null);
+  await rm(root, { recursive: true, force: true });
+});
+
+test('camera spawn retry exhausts and falls back to screen-only after every attempt fails', async () => {
+  // The 12-second persistent EBUSY scenario from the user's testing. All
+  // retry attempts exit early; the loop throws → start() catches → session
+  // continues screen-only with cameraError set.
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-camera-retry-exhaust-'));
+  let attempts = 0;
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    cameraWarmupMs: 0,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+    cameraCaptureFactory: (options) => {
+      attempts += 1;
+      return {
+        outputPath: options.outputPath,
+        whenExited: () => Promise.resolve({ code: 240, signal: null, stderr: 'Device or resource busy' }),
+        stop: async () => options.outputPath,
+      };
+    },
+  });
+  const started = await session.start({ cameraDevicePath: '/dev/video2' });
+  assert.equal(started.state, 'recording');
+  assert.ok(attempts >= 6, `should retry up to maxAttempts (got ${attempts})`);
+  const stopped = await session.stop();
+  assert.equal(stopped.state, 'saved');
+  assert.equal(stopped.camera, null);
+  assert.match(stopped.cameraError, /Device or resource busy|exited early/);
+  await rm(root, { recursive: true, force: true });
+});
+
 test('recording session continues screen capture when camera start fails', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-camera-busy-'));
   const captureCalls = [];

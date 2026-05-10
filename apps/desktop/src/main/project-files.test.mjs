@@ -355,6 +355,62 @@ test('openProjectFile leaves the original intact and reports a stray .tmp from a
   await rm(root, { recursive: true, force: true });
 });
 
+test('openProjectFile recovers from a corrupt main file by falling back to .bak', async () => {
+  // Regression for save-race corruption: a previous concurrent save left
+  // interleaved bytes in the project file, the next open hit
+  // "Unexpected non-whitespace character at position N". saveProjectFile
+  // always snapshots the prior good file into .bak before atomic rename,
+  // so .bak is the most recent clean generation.
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-open-bak-recover-'));
+  const projectPath = join(root, 'capture.roughcut');
+  const project = createProjectForRecording({
+    recording: { ...recording, outputPath: join(root, 'capture.mp4') },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+  // First save creates the main file; second save snapshots the first into .bak.
+  await saveProjectFile(projectPath, project);
+  await saveProjectFile(projectPath, { ...project, name: 'after-edit' });
+  // Simulate corruption: append junk after the closing `}` to mimic the
+  // observed concurrent-write tail bytes from production failures.
+  const goodMain = await readFile(projectPath, 'utf8');
+  await writeFile(projectPath, `${goodMain}garbage tail bytes from a stale longer write\n}\n`, 'utf8');
+
+  const opened = await openProjectFile(projectPath);
+
+  assert.equal(opened.recoveredFromBackup, true);
+  assert.equal(opened.document.name, project.name); // .bak was the FIRST save's content
+  assert.ok(opened.backup, 'open should still report .bak metadata for diagnostics');
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('openProjectFile rethrows the parse error when no .bak exists', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-open-no-bak-'));
+  const projectPath = join(root, 'capture.roughcut');
+  await writeFile(projectPath, '{ invalid json', 'utf8');
+  await assert.rejects(() => openProjectFile(projectPath), /JSON|Unexpected/);
+  await rm(root, { recursive: true, force: true });
+});
+
+test('saveProjectFile cleans up its unique .tmp so concurrent saves cannot collide', async () => {
+  // Defense in depth: each save gets a uniquely-named tmp so two parallel
+  // saves cannot both open the same inode and interleave bytes. After a
+  // successful save the unique tmp is renamed away, so no leftover with
+  // either the legacy fixed suffix or any unique suffix should remain.
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-unique-tmp-'));
+  const projectPath = join(root, 'capture.roughcut');
+  const project = createProjectForRecording({
+    recording: { ...recording, outputPath: join(root, 'capture.mp4') },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+  await saveProjectFile(projectPath, project);
+  const { readdir } = await import('node:fs/promises');
+  const files = await readdir(root);
+  const strayTmps = files.filter((name) => name.includes(PROJECT_TEMP_SUFFIX));
+  assert.deepEqual(strayTmps, [], `no stray tmp files should remain, got: ${strayTmps.join(', ')}`);
+  await rm(root, { recursive: true, force: true });
+});
+
 test('discardInterruptedSave removes a stray .tmp without touching the project file', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-atomic-discard-'));
   const projectPath = join(root, 'capture.roughcut');
