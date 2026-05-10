@@ -110,6 +110,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-094 | Add Inspector templates picker for one-click aspect+background+camera | P2 | DONE |
 | TASK-095 | Add drag-to-reposition camera PiP and screen frame in editor preview | P2 | IN PROGRESS |
 | TASK-096 | Single-ffmpeg architecture for live camera preview + capture | P2 | PLANNED |
+| TASK-097 | Fix Inspector Templates click not propagating aspect ratio | P2 | PLANNED |
 
 ## Recently Verified
 
@@ -209,7 +210,7 @@ Sequence: TASK-070, TASK-071, TASK-073, TASK-078, TASK-083, TASK-084, TASK-080, 
 Sequence: TASK-089, TASK-090, TASK-091, TASK-092, TASK-093, TASK-063, TASK-064
 
 7. **LINE G — Record sidebar authoring toolset**:
-Sequence: ~~TASK-094~~, TASK-095, TASK-096
+Sequence: ~~TASK-094~~, TASK-097, TASK-095, TASK-096
 
 ## Tasks
 
@@ -2886,3 +2887,65 @@ Production tools (OBS, Loom, etc.) avoid the conflict by having a single long-ru
 - `64c112c` — current workaround disabling preview.
 - `f12711a` — lsof diagnostic that proved the renderer was the holder.
 - Perplexity research notes (this session, 2026-05-10) recommending the single-ffmpeg pattern.
+
+### TASK-097 Fix Inspector Templates click not propagating aspect ratio
+
+**Priority:** P2
+**Status:** PLANNED
+
+#### Context
+
+Reported by user 2026-05-10 after `3f39240` (TASK-094) shipped. Clicking a Templates card in the Inspector (e.g. Mobile 9:16) does not change the Inspector's "Aspect ratio" dropdown, the active-template visual state (`aria-pressed`), or the styled preview's aspect ratio. Camera/background side effects are visually subtle and were not separately confirmed; aspect ratio is the smoking gun because it's directly observable in `getComputedStyle(canvas).aspectRatio`.
+
+DevTools snapshot from the bug session, with the Mobile 9:16 card present and not disabled:
+
+```
+aspect select found? true
+aspect BEFORE click: auto
+card aria-pressed BEFORE click: false
+card?.click()  // returned undefined; no throw
+aspect AFTER click: auto                        // ← unchanged
+card aria-pressed AFTER click: false            // ← unchanged
+preview canvas aspect-ratio: 1920 / 1080         // ← still 16:9
+```
+
+Click event reaches the DOM but no state mutation results. Possible failure points (in order of suspicion):
+
+1. `handleTemplatePresetSelect` is never called because the React click handler isn't attached (HMR-stale closure or React event delegation glitch). A page reload may fix this, in which case the bug is "after a hot-reload templates stop working".
+2. `applyRecordingTemplatePreset(bg, templateId)` returns `undefined` so the early return at `main.tsx:1482` silently no-ops. (Tested unlikely — preset module has unit coverage.)
+3. `onAspectRatioChange` is undefined on the EditorToolBoard prop chain when invoked from the click closure, so `?.` short-circuits.
+4. `updateAspectRatio` runs, sees `nextAspectRatio === aspectRatio` because `aspectRatio` is read from a stale closure, and returns the no-op early branch.
+5. `persist` runs, the IPC `project:save` handler queues the save behind a stuck prior save (`isSaving` true forever in renderer state).
+
+#### Acceptance Criteria
+
+- Clicking each of the three template cards reliably updates: aspect ratio dropdown, `aria-pressed` on the active card, the preview canvas's computed aspect ratio, and (for projects with a linked camera) the camera position/shape/size.
+- Reproduces the user's diagnostic snippet above passing on each card.
+- A regression test exercises the click → state-update path so this can't silently break again.
+
+#### Verification
+
+Reproduce in DevTools console with this self-contained snippet (paste verbatim):
+
+```js
+(() => {
+  const aspectSelect = [...document.querySelectorAll('select')].find(s =>
+    [...s.options].some(o => o.value === '9:16'));
+  const card = document.querySelector('[data-template-id="mobile-9-16"]');
+  console.log('aspect BEFORE:', aspectSelect?.value, 'pressed BEFORE:', card?.getAttribute('aria-pressed'));
+  card?.click();
+  setTimeout(() => {
+    console.log('aspect AFTER:', aspectSelect?.value, 'pressed AFTER:', card?.getAttribute('aria-pressed'));
+    console.log('canvas ratio:', getComputedStyle(document.querySelector('.styledPreviewCanvas'))?.aspectRatio);
+  }, 500);
+})();
+```
+
+Expected when fixed: `aspect AFTER: 9:16`, `pressed AFTER: true`, `canvas ratio: 1080 / 1920`.
+
+#### Investigation steps when picking this up
+
+1. Add `console.info('[template-click]', ...)` at the top of `handleTemplatePresetSelect` and `[updateAspectRatio]` at the top of `updateAspectRatio` in `apps/desktop/src/renderer/src/main.tsx`. Reload, click, observe.
+2. If `[template-click]` doesn't print, the React handler isn't attached — investigate HMR / event delegation. A full page reload (Ctrl+R) may make the bug disappear, narrowing to "HMR-induced stale handler".
+3. If `[template-click]` prints but `[updateAspectRatio]` doesn't, `onAspectRatioChange` is undefined on the EditorToolBoard prop. Check the prop wiring at the EditorToolBoard call site (`main.tsx` ~line 2023).
+4. If both print but the dropdown stays at `auto`, look at `persist` and the `project:save` IPC queue.
