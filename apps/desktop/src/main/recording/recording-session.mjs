@@ -389,6 +389,21 @@ async function spawnCameraCaptureWithRetry({
     const stderrTail = (exited.stderr ?? '').split(/\r?\n/).filter(Boolean).slice(-3).join(' | ');
     lastErrorMessage = `ffmpeg-camera exited early (code=${exited.code} signal=${exited.signal ?? 'null'}): ${stderrTail || 'no stderr'}`;
     console.warn(`[recording-session] camera spawn attempt ${attempt}/${maxAttempts} failed: ${lastErrorMessage}`);
+    // On EBUSY, identify who's still holding the device. Synchronous lsof is
+    // best-effort diagnostic; don't fail the retry if the binary is missing.
+    if (stderrTail.includes('Device or resource busy') || stderrTail.includes('Resource busy')) {
+      try {
+        const { execSync } = await import('node:child_process');
+        const holders = execSync(`lsof ${devicePath} 2>/dev/null || true`, { encoding: 'utf8', timeout: 1000 }).trim();
+        if (holders) {
+          console.warn(`[recording-session] /dev holders during EBUSY:\n${holders}`);
+        } else {
+          console.warn(`[recording-session] lsof showed no holders for ${devicePath} — kernel-side V4L2 lock may be lingering past file-close`);
+        }
+      } catch (probeErr) {
+        console.warn(`[recording-session] could not probe device holders: ${probeErr?.message ?? probeErr}`);
+      }
+    }
     if (attempt < maxAttempts) {
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }
