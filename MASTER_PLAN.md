@@ -216,7 +216,7 @@ Sequence: TASK-089, TASK-090, TASK-091, TASK-092, TASK-093, TASK-063, TASK-064
 Sequence: ~~TASK-094~~
 
 8. **LINE H — Resolve 2026-05-10 session follow-ups**:
-Sequence: ~~TASK-098~~, TASK-100, ~~TASK-099~~, ~~TASK-097~~, ~~TASK-095~~, ~~TASK-096~~
+Sequence: ~~TASK-098~~, ~~TASK-100~~, ~~TASK-099~~, ~~TASK-097~~, ~~TASK-095~~, ~~TASK-096~~
 
 ## Tasks
 
@@ -2864,7 +2864,7 @@ Today the camera PiP position is picked from a five-slot enum (`corner-br/bl/tr/
 - Direct-manipulation placement is now supported for both the screen recording frame and the camera PiP.
 - Templates clear `cameraFrame` and `screenFrame`, restoring preset/default layout behavior.
 - Styled export consumes both normalized frame overrides; raw export remains unaffected.
-- Camera-source validation for fresh recordings remains tracked separately by TASK-098/TASK-099 and is currently blocked while `/dev/video0` is held by `zen`.
+- Camera-source validation for fresh recordings was completed in TASK-098/TASK-099.
 
 #### Dependencies
 

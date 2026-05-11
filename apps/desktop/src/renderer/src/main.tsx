@@ -1076,7 +1076,6 @@ function PreRecordCameraSetup({ source }: { source?: CameraSource }) {
       <div>
         <p className="eyebrow">Camera PiP</p>
         <h3>{label}</h3>
-        <p>Preview is rendered by main-process ffmpeg so the browser never owns the V4L2 camera device.</p>
       </div>
       <div className={`cameraSetupPreview ${previewState}`} data-camera-preview-state={previewState}>
         {preview.frameUrl ? <img src={preview.frameUrl} alt="Live camera preview" /> : <span className="cameraSetupScreen" />}
@@ -1242,7 +1241,6 @@ function PreflightSummary({ status }: { status: RecordingPreflightStatus | null 
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const checks = status?.checks ?? [];
   const warnings = checks.filter((check) => check.severity !== 'ok');
-  const visibleChecks = warnings.length > 0 ? warnings : checks.filter((check) => ['session', 'capture', 'destination'].includes(check.id));
   return (
     <section className={`preflightSummary ${status?.status ?? 'loading'}`} data-ui-region="recording-preflight-status" aria-live="polite">
       <div className="preflightHeader">
@@ -1252,15 +1250,8 @@ function PreflightSummary({ status }: { status: RecordingPreflightStatus | null 
         </div>
         {status ? <span>{status.capture.width || 'unknown'} x {status.capture.height || 'unknown'} @ {status.capture.fps} FPS</span> : <span>Checking...</span>}
       </div>
-      <div className="preflightGrid compact">
-        {status ? visibleChecks.map((check) => (
-          <div key={check.id} className={`preflightCheck ${check.severity}`}>
-            <strong>{check.label}</strong>
-            <span>{check.detail}</span>
-          </div>
-        )) : <p className="recordingActiveHint">Checking session, tools, save destination, and optional sources.</p>}
-      </div>
-      <p className={warnings.length > 0 ? 'preflightWarning' : 'recordingActiveHint'}>Warnings are visible for this take, but optional mic, system audio, and camera problems will not block safe screen-only recording.</p>
+      {!status ? <p className="recordingActiveHint">Checking session, tools, save destination, and optional sources.</p> : null}
+      {status ? <p className={warnings.length > 0 ? 'preflightWarning' : 'recordingActiveHint'}>Optional mic, system audio, and camera problems will not block safe screen-only recording.</p> : null}
       {status ? (
         <button type="button" className="secondary compact preflightDetailsToggle" onClick={() => setDetailsOpen((open) => !open)} aria-expanded={detailsOpen}>
           {detailsOpen ? 'Hide checks' : `Show all checks (${checks.length})`}

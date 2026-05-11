@@ -967,7 +967,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   await waitFor(() => document.querySelector('[data-ui-region="pre-record-panel"]'), 'pre-record panel');
   await waitFor(() => document.querySelector('[data-open-editor="pre-record"]'), 'pre-record open editor button');
   const preflightPanel = await waitFor(() => document.querySelector('[data-ui-region="recording-preflight-status"]'), 'preflight status panel');
-  const hasPreflightWarningsCopy = document.body.textContent?.includes('screen-only recording') ?? false;
+  const hasPreflightWarningsCopy = Boolean(await waitFor(() => document.body.textContent?.includes('screen-only recording'), 'preflight warning copy'));
   const captureTargetSelect = await waitFor(
     () => document.querySelector('[data-ui-region="pre-record-panel"] select[aria-label="Capture target"]'),
     'capture target select',

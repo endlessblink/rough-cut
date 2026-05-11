@@ -370,7 +370,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 .preRecordBody {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.95rem;
   min-height: 0;
   overflow: auto;
   padding-right: 0.12rem;
@@ -378,9 +378,10 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 .preRecordControls {
   display: grid;
-  gap: 0.45rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  column-gap: 0.45rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   min-height: 0;
+  row-gap: 0.55rem;
 }
 
 .preRecordSection {
@@ -459,18 +460,18 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 .preRecordCameraSetup {
   align-items: center;
-  background: radial-gradient(circle at 82% 22%, rgb(122 167 255 / 0.18), transparent 32%), #101015;
+  background: #101015;
   border: 1px solid rgb(122 167 255 / 0.28);
   border-radius: 14px;
   display: grid;
-  gap: 0.7rem;
+  gap: 0.65rem;
   grid-template-columns: minmax(0, 1fr) 8.5rem;
-  min-height: 5.4rem;
-  padding: 0.55rem;
+  margin-top: 0.1rem;
+  min-height: 4.35rem;
+  padding: 0.48rem 0.55rem;
 }
 
 .preRecordCameraSetup h3 { font-size: 0.92rem; letter-spacing: -0.02em; margin: 0; }
-.preRecordCameraSetup p:not(.eyebrow) { color: var(--subtle); font-size: 0.72rem; line-height: 1.35; margin: 0.2rem 0 0; }
 .cameraSetupPreview { aspect-ratio: 16 / 9; background: linear-gradient(135deg, #262633, #171720); border: 1px solid rgb(255 255 255 / 0.1); border-radius: 12px; min-width: 0; overflow: hidden; position: relative; }
 .cameraSetupPreview img { height: 100%; inset: 0; object-fit: cover; position: absolute; width: 100%; }
 .cameraSetupPreview.live { border-color: rgb(125 211 252 / 0.48); }
@@ -485,8 +486,8 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   border: 1px solid #24242e;
   border-radius: 14px;
   display: grid;
-  gap: 0.5rem;
-  padding: 0.55rem;
+  gap: 0.55rem;
+  padding: 0.62rem;
 }
 
 .preflightSummary.warn { border-color: rgb(245 158 11 / 0.42); }
