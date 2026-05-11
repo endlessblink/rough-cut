@@ -6,6 +6,9 @@ export async function stopRecordingAndCreateProject({
   remuxMkvToMp4,
   saveProjectForRecording,
   formatProject,
+  probeVideoTiming = null,
+  probeVideoStreamsTiming = null,
+  computeSyncedRecordingTiming = null,
   writeRecordingDiagnosticsReport = defaultWriteRecordingDiagnosticsReport,
 }) {
   console.info('[recording:stop] phase=session-stop-begin');
@@ -25,7 +28,13 @@ export async function stopRecordingAndCreateProject({
     }
   };
   console.info(`[recording:stop] phase=screen-remux-begin ${result.rawPath} -> ${result.outputPath}`);
-  captureRemuxWarning('screen', await remuxMkvToMp4({ rawPath: result.rawPath, outputPath: result.outputPath, onLog: onRemuxLog }));
+  const isUnifiedCapture = Boolean(result.cameraRawPath && result.cameraRawPath === result.rawPath);
+  captureRemuxWarning('screen', await remuxMkvToMp4({
+    rawPath: result.rawPath,
+    outputPath: result.outputPath,
+    maps: isUnifiedCapture ? ['0:v:0', '0:a?'] : ['0'],
+    onLog: onRemuxLog,
+  }));
   console.info('[recording:stop] phase=screen-remux-done');
   console.info('[recording:stop] phase=screen-assert-begin');
   await assertReadableMp4(result.outputPath);
@@ -34,7 +43,12 @@ export async function stopRecordingAndCreateProject({
   if (result.cameraRawPath && result.cameraOutputPath) {
     try {
       console.info(`[recording:stop] phase=camera-remux-begin ${result.cameraRawPath} -> ${result.cameraOutputPath}`);
-      captureRemuxWarning('camera', await remuxMkvToMp4({ rawPath: result.cameraRawPath, outputPath: result.cameraOutputPath, onLog: onRemuxLog }));
+      captureRemuxWarning('camera', await remuxMkvToMp4({
+        rawPath: result.cameraRawPath,
+        outputPath: result.cameraOutputPath,
+        maps: isUnifiedCapture ? [`0:v:${result.camera?.sourceStreamIndex ?? 1}`] : ['0'],
+        onLog: onRemuxLog,
+      }));
       console.info('[recording:stop] phase=camera-remux-done');
       console.info('[recording:stop] phase=camera-assert-begin');
       await assertReadableMp4(result.cameraOutputPath);
@@ -49,6 +63,60 @@ export async function stopRecordingAndCreateProject({
         camera: null,
         cameraError,
       };
+    }
+  }
+  if (typeof probeVideoTiming === 'function' && typeof computeSyncedRecordingTiming === 'function') {
+    try {
+      console.info('[recording:stop] phase=sync-probe-begin');
+      let screenTiming = null;
+      let cameraTiming = null;
+      let cameraSourceInFrames = recordingForProject.camera?.sourceInFrames ?? 0;
+      if (isUnifiedCapture && typeof probeVideoStreamsTiming === 'function') {
+        const streams = await probeVideoStreamsTiming(recordingForProject.rawPath, { fps: recordingForProject.fps });
+        const screenStream = streams.find((stream) => stream.index === 0) ?? streams[0] ?? null;
+        const cameraStreamIndex = recordingForProject.camera?.sourceStreamIndex ?? 1;
+        const cameraStream = streams.find((stream) => stream.index === cameraStreamIndex) ?? streams[1] ?? null;
+        screenTiming = screenStream;
+        cameraTiming = cameraStream;
+        if (screenStream && cameraStream) {
+          cameraSourceInFrames = Math.max(
+            0,
+            Math.round(((cameraStream.startTimeSeconds ?? 0) - (screenStream.startTimeSeconds ?? 0)) * recordingForProject.fps),
+          );
+          recordingForProject = {
+            ...recordingForProject,
+            camera: recordingForProject.camera
+              ? {
+                  ...recordingForProject.camera,
+                  sourceInFrames: cameraSourceInFrames,
+                  streamTiming: cameraStream,
+                }
+              : null,
+            streamTiming: { screen: screenStream, camera: cameraStream },
+          };
+        }
+      } else {
+        screenTiming = await probeVideoTiming(recordingForProject.outputPath, { fps: recordingForProject.fps });
+        cameraTiming = recordingForProject.camera?.outputPath
+          ? await probeVideoTiming(recordingForProject.camera.outputPath, { fps: recordingForProject.fps })
+          : null;
+      }
+      const sync = computeSyncedRecordingTiming({
+        screen: screenTiming,
+        camera: cameraTiming,
+        cameraSourceInFrames,
+        fps: recordingForProject.fps,
+      });
+      const leakedSyncWarningAsCameraError = sync.syncWarning
+        && recordingForProject.cameraError === sync.syncWarning;
+      recordingForProject = {
+        ...recordingForProject,
+        cameraError: leakedSyncWarningAsCameraError ? null : recordingForProject.cameraError,
+        sync,
+      };
+      console.info('[recording:stop] phase=sync-probe-done', sync);
+    } catch (err) {
+      console.warn('[recording:stop] phase=sync-probe-failed:', err?.message ?? err);
     }
   }
   console.info('[recording:stop] phase=save-project-begin');

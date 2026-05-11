@@ -151,6 +151,7 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       cameraSourceInFrames: recording.camera?.sourceInFrames ?? 0,
       cameraPresentation: recording.presentation?.camera ?? null,
       cameraFrame: recording.presentation?.cameraFrame ?? null,
+      screenFrame: recording.presentation?.screenFrame ?? null,
       cutRanges: recording.cutRanges ?? [],
     }), {
       onStdout: (chunk) => {
@@ -204,13 +205,13 @@ export function buildStyledExportArgs({
   cameraSourceInFrames = 0,
   cameraPresentation = null,
   cameraFrame: cameraFrameOverride = null,
+  screenFrame: screenFrameOverride = null,
   cutRanges = [],
 }) {
   const safePadding = clampNumber(screenPadding, 0, Math.min(width, height) / 2 - 2);
   const maxVideoWidth = Math.round(width - safePadding * 2);
   const maxVideoHeight = Math.round(height - safePadding * 2);
   const cropPercent = 1;
-  const cornerRadius = Math.round(clampNumber(screenCornerRadius, 0, Math.min(maxVideoWidth, maxVideoHeight) / 2));
   const shadowBlur = Math.round(clampNumber(screenShadowBlur, 0, 120));
   const shadowOpacity = screenShadowEnabled ? clampNumber(screenShadowOpacity, 0, 0.8) : 0;
   const shadowOffsetY = Math.round(clampNumber(screenShadowOffsetY, 0, 120));
@@ -220,10 +221,9 @@ export function buildStyledExportArgs({
       ? [
         `nullsrc=s=${width}x${height}:r=${fps},format=rgb24,geq=${backgroundExpression},format=rgba[bg_base]`,
         `movie=${escapeFilterPath(backgroundImagePath)},scale=${width}:${height},format=rgba[bg_image]`,
-        '[bg_base][bg_image]overlay=(W-w)/2:(H-h)/2:shortest=1[bg]',
+        '[bg_base][bg_image]overlay=(W-w)/2:(H-h)/2[bg]',
       ]
     : [`nullsrc=s=${width}x${height}:r=${fps},format=rgb24,geq=${backgroundExpression},format=rgba[bg]`];
-  const roundedAlpha = buildRoundedAlphaExpression(cornerRadius);
   const trimStartFrame = Math.max(0, Math.round(sourceTrimStartFrame || 0));
   const trimEndFrame = Number.isFinite(sourceTrimEndFrame) ? Math.max(trimStartFrame + 1, Math.round(sourceTrimEndFrame)) : null;
   const trimDurationFrames = trimEndFrame === null ? null : trimEndFrame - trimStartFrame;
@@ -231,9 +231,11 @@ export function buildStyledExportArgs({
   const cutFilter = buildCutSelectFilter(normalizedCutRanges, trimStartFrame);
   const screenInput = cursorAssPath ? '[with_cursor]' : '[base]';
   const zoomActive = Boolean(zoomCropFilter && zoomSendcmdPath);
+  const screenFrame = resolveScreenOverlayFrame(width, height, maxVideoWidth, maxVideoHeight, screenFrameOverride);
+  const screenRadius = Math.round(clampNumber(screenCornerRadius, 0, Math.min(screenFrame.w, screenFrame.h) / 2));
   const screenStep = zoomActive
-    ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},scale=${maxVideoWidth}:${maxVideoHeight}:force_original_aspect_ratio=decrease,format=rgba`
-    : `crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2,scale=${maxVideoWidth}:${maxVideoHeight}:force_original_aspect_ratio=decrease,format=rgba`;
+    ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},scale=${screenFrame.w}:${screenFrame.h}:force_original_aspect_ratio=${screenFrame.custom ? 'increase' : 'decrease'}${screenFrame.custom ? `,crop=${screenFrame.w}:${screenFrame.h}` : ''},format=rgba`
+    : `crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2,scale=${screenFrame.w}:${screenFrame.h}:force_original_aspect_ratio=${screenFrame.custom ? 'increase' : 'decrease'}${screenFrame.custom ? `,crop=${screenFrame.w}:${screenFrame.h}` : ''},format=rgba`;
   const cameraFrame = cameraInputPath ? resolveCameraOverlayFrame(cameraPresentation, width, height, cameraFrameOverride) : null;
   const cameraTrim = Math.max(0, Math.round(cameraSourceInFrames));
   const cameraRadius = cameraFrame ? resolveCameraOverlayRadius(cameraPresentation, cameraFrame) : 0;
@@ -243,11 +245,11 @@ export function buildStyledExportArgs({
     `[0:v]setpts=PTS-STARTPTS${cutFilter}[base]`,
     ...(cursorAssPath ? [`[base]subtitles=${escapeFilterPath(cursorAssPath)}[with_cursor]`] : []),
     `${screenInput}${screenStep}[screen]`,
-    `[screen]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${roundedAlpha}'[rounded]`,
+    `[screen]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${buildRoundedAlphaExpression(screenRadius)}'[rounded]`,
     `[rounded]split[shadow_src][fg]`,
     `[shadow_src]colorchannelmixer=rr=0:gg=0:bb=0:aa=${formatFilterNumber(shadowOpacity)},boxblur=${shadowBlur}:5[shadow]`,
-    `[bg][shadow]overlay=(W-w)/2:(H-h)/2+${shadowOffsetY}:shortest=1[with_shadow]`,
-    `[with_shadow][fg]overlay=(W-w)/2:(H-h)/2:shortest=1[with_screen]`,
+    `[bg][shadow]overlay=${screenFrame.x}:${screenFrame.y}+${shadowOffsetY}:shortest=1[with_shadow]`,
+    `[with_shadow][fg]overlay=${screenFrame.x}:${screenFrame.y}:shortest=1[with_screen]`,
     ...(cameraFrame
       ? [
           `[1:v]setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba[camera_scaled]`,
@@ -288,6 +290,27 @@ export function buildStyledExportArgs({
     `rough_cut_style=canvas:${width}x${height}:studio-demo`,
     outputPath,
   ];
+}
+
+function resolveScreenOverlayFrame(canvasWidth, canvasHeight, defaultWidth, defaultHeight, normalizedFrame = null) {
+  if (normalizedFrame && Number.isFinite(normalizedFrame.x) && Number.isFinite(normalizedFrame.y) && Number.isFinite(normalizedFrame.w) && Number.isFinite(normalizedFrame.h)) {
+    const w = Math.max(2, Math.min(canvasWidth, Math.round(normalizedFrame.w * canvasWidth)));
+    const h = Math.max(2, Math.min(canvasHeight, Math.round(normalizedFrame.h * canvasHeight)));
+    return {
+      x: Math.max(0, Math.min(canvasWidth - w, Math.round(normalizedFrame.x * canvasWidth))),
+      y: Math.max(0, Math.min(canvasHeight - h, Math.round(normalizedFrame.y * canvasHeight))),
+      w,
+      h,
+      custom: true,
+    };
+  }
+  return {
+    x: '(W-w)/2',
+    y: '(H-h)/2',
+    w: defaultWidth,
+    h: defaultHeight,
+    custom: false,
+  };
 }
 
 function normalizeCutRanges(ranges, trimStartFrame, trimEndFrame) {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildFfmpegCaptureArgs,
   buildFfmpegCameraCaptureArgs,
+  buildFfmpegUnifiedCaptureArgs,
   FFMPEG_SIGINT_TIMEOUT_MS,
   FFMPEG_SIGTERM_TIMEOUT_MS,
   FFMPEG_STOP_TIMEOUT_MS,
@@ -10,6 +11,14 @@ import {
   FFMPEG_CAMERA_SIGTERM_TIMEOUT_MS,
   FFMPEG_CAMERA_STOP_TIMEOUT_MS,
 } from './ffmpeg-capture.mjs';
+
+function indexesOf(args, value) {
+  const indexes = [];
+  args.forEach((item, index) => {
+    if (item === value) indexes.push(index);
+  });
+  return indexes;
+}
 
 test('screen capture uses CRF-only H.264 without VBV/CBR constraints', () => {
   const args = buildFfmpegCaptureArgs({
@@ -47,6 +56,53 @@ test('camera capture uses v4l2 input and writes silent h264 video', () => {
   assert.equal(args.includes('-an'), true);
   assert.equal(args[args.indexOf('-c:v') + 1], 'libx264');
   assert.equal(args.at(-1), '/tmp/camera.mkv');
+});
+
+test('unified capture maps screen and camera as separate video streams', () => {
+  const args = buildFfmpegUnifiedCaptureArgs({
+    outputPath: '/tmp/unified.mkv',
+    fps: 30,
+    display: ':0+0,0',
+    width: 1920,
+    height: 1080,
+    cameraDevicePath: '/dev/video2',
+    cameraWidth: 1280,
+    cameraHeight: 720,
+  });
+
+  const inputIndexes = indexesOf(args, '-i');
+  assert.equal(inputIndexes.length, 2);
+  assert.equal(args[inputIndexes[0] + 1], ':0+0,0');
+  assert.equal(args[inputIndexes[1] + 1], '/dev/video2');
+  assert.ok(args.indexOf('-draw_mouse') < inputIndexes[0]);
+  assert.ok(args.indexOf('-input_format') < inputIndexes[1]);
+  assert.deepEqual(args.slice(args.indexOf('-map'), args.indexOf('-map') + 4), ['-map', '0:v', '-map', '1:v']);
+  assert.equal(args[args.indexOf('-c:v:0') + 1], 'libx264');
+  assert.equal(args[args.indexOf('-crf:v:0') + 1], '16');
+  assert.equal(args[args.indexOf('-c:v:1') + 1], 'libx264');
+  assert.equal(args[args.indexOf('-crf:v:1') + 1], '18');
+  assert.equal(args.at(-2), 'matroska');
+  assert.equal(args.at(-1), '/tmp/unified.mkv');
+});
+
+test('unified capture keeps camera audio disabled while preserving mic and system mix', () => {
+  const args = buildFfmpegUnifiedCaptureArgs({
+    outputPath: '/tmp/unified.mkv',
+    fps: 30,
+    display: ':0+0,0',
+    width: 1920,
+    height: 1080,
+    cameraDevicePath: '/dev/video2',
+    micSource: 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo',
+    systemAudioSource: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor',
+    systemAudioGainPercent: 50,
+  });
+
+  assert.equal(args.includes('1:a'), false);
+  assert.equal(args.includes('[2:a]volume=0.50[sysa];[sysa][3:a]amix=inputs=2[a]'), true);
+  const mapIndex = args.indexOf('-map');
+  assert.deepEqual(args.slice(mapIndex, mapIndex + 6), ['-map', '0:v', '-map', '1:v', '-map', '[a]']);
+  assert.equal(args[args.indexOf('-c:a') + 1], 'aac');
 });
 
 test('camera capture sets v4l2 reliability flags so shutdown does not wedge in D-state', () => {

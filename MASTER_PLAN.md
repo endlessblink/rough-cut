@@ -108,11 +108,12 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-092 | Replace xdotool and xinput stack with uiohook-napi | P2 | PLANNED |
 | TASK-093 | Split countdown and HUD indicator into BrowserWindows | P3 | PLANNED |
 | TASK-094 | Add Inspector templates picker for one-click aspect+background+camera | P2 | DONE |
-| TASK-095 | Add drag-to-reposition camera PiP and screen frame in editor preview | P2 | IN PROGRESS |
+| TASK-095 | Add drag-to-reposition camera PiP and screen frame in editor preview | P2 | DONE |
 | TASK-096 | Single-ffmpeg architecture for live camera preview + capture | P2 | PLANNED |
-| TASK-097 | Fix Inspector Templates click not propagating aspect ratio | P2 | PLANNED |
-| TASK-098 | Verify playback smoothness end-to-end after MJPEG camera fix | P2 | PLANNED |
+| TASK-097 | Fix Inspector Templates click not propagating aspect ratio | P2 | DONE |
+| TASK-098 | Verify playback smoothness end-to-end after MJPEG camera fix | P2 | IN PROGRESS |
 | TASK-099 | Verify post-recording blank editor is no longer reproducible | P3 | PLANNED |
+| TASK-100 | Migrate screen camera audio capture to one FFmpeg graph | P1 | DONE |
 
 ## Recently Verified
 
@@ -215,7 +216,7 @@ Sequence: TASK-089, TASK-090, TASK-091, TASK-092, TASK-093, TASK-063, TASK-064
 Sequence: ~~TASK-094~~
 
 8. **LINE H — Resolve 2026-05-10 session follow-ups**:
-Sequence: TASK-098, TASK-099, TASK-097, TASK-095, TASK-096
+Sequence: TASK-098, TASK-100, TASK-099, ~~TASK-097~~, ~~TASK-095~~, TASK-096
 
 ## Tasks
 
@@ -2158,7 +2159,7 @@ The current capture target control is still a basic full-display/region dropdown
 ### TASK-063 Enable real window capture selection
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -2181,7 +2182,7 @@ The pre-record source picker currently shows Window as disabled. Users expect th
 ### TASK-064 Stabilize sidebar tool switching layout
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 #### Context
 
@@ -2269,7 +2270,7 @@ Recording spawns ffmpeg (screen, camera, audio), xinput, and xdotool. None of th
 ### TASK-068 Compensate cursor and audio drift vs ffmpeg first frame
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -2290,7 +2291,7 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 ### TASK-069 Add EXPORT_CANCEL IPC and kill ffmpeg on cancel
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -2854,7 +2855,16 @@ Today the camera PiP position is picked from a five-slot enum (`corner-br/bl/tr/
 
 - 2026-05-09: Slice 1 — data plumbing for camera. Discovery confirmed `RecordingPresentation.cameraFrame` and `screenFrame` already exist as optional `NormalizedRect` fields and the renderer's `resolveCameraFrame` already prefers a normalized rect over enum-derived placement. Remaining gap was the export pipeline. Added `cameraFrame` parameter to `buildStyledExportArgs`, threaded through from `recording.presentation?.cameraFrame ?? null` at the call site, and updated `resolveCameraOverlayFrame` to convert the normalized rect to canvas pixels when provided. Two new export-service tests cover the override path (1920×1080 with `{x:0.1,y:0.2,w:0.25,h:0.4}` resolves to `overlay=192:216` and `scale=480:432`) and the enum fallback path. Desktop tests 179/179, typecheck pass, `pnpm smoke:ui` pass.
 - 2026-05-09: Slice 2 — drag handles for the camera PiP. `updateCameraFrame` writes `presentation.cameraFrame` (or clears it) through the same persist path. `VideoPreview` accepts `onCameraFrameChange`, captures canvas-pixel camera rect from the tick into `cameraRectRef`, and runs pointer handlers on the canvas: hover camera rect → cursor `grab`; pointer-down captures the pointer and primes `cameraDragRef`; pointer-move updates the override clamped to canvas bounds so the tick renders instantly; pointer-up commits via the callback. Templates clear `cameraFrame` on apply. Added `clampUnit` helper and `.styledPreviewCanvas { touch-action: none }` + `.draggingCamera { cursor: grabbing }`. Desktop tests 219/219, typecheck pass.
-- Remaining slices: same drag primitive for `screenFrame`; styled-export consumption of `screenFrame`; resize handles for the camera/screen rectangles.
+- 2026-05-11: Slice 3 — styled export now consumes `presentation.screenFrame` when present. The export builder converts the normalized screen rect to canvas pixels, scales/crops the recording into that frame, and positions the rounded screen layer plus shadow at the same coordinates. Added an export-service regression covering `{x:0.1,y:0.2,w:0.5,h:0.4}` → `scale=960:432`, `crop=960:432`, `overlay=192:216`. Verified with `pnpm --filter @rough-cut/desktop typecheck`, `pnpm --filter @rough-cut/desktop test` (244/244), and `pnpm smoke:ui`.
+- 2026-05-11: Slice 4 — editor preview now reuses the camera drag primitive for the screen frame. `updateScreenFrame` persists `presentation.screenFrame`; `VideoPreview` resolves `frame.screenFrame`, renders the screen layer at the custom rect, hit-tests the screen canvas rect, and commits normalized screen drag updates on pointer-up. Camera hit-testing stays first so the PiP remains draggable when it overlaps the screen. Verified with `pnpm --filter @rough-cut/desktop typecheck`, `pnpm --filter @rough-cut/desktop test` (244/244), and `pnpm smoke:ui`.
+- 2026-05-11: Slice 5 — editor preview now draws dashed resize outlines plus bottom-right resize handles for both screen and camera frames. Resize preserves aspect ratio, clamps inside the styled canvas, and marks the preview loop dirty so paused-frame drag/resize feedback redraws immediately instead of waiting for video playback. Verified with `pnpm --filter @rough-cut/desktop typecheck`, `pnpm --filter @rough-cut/desktop test` (244/244), and `pnpm smoke:ui`.
+
+#### Completion Notes
+
+- Direct-manipulation placement is now supported for both the screen recording frame and the camera PiP.
+- Templates clear `cameraFrame` and `screenFrame`, restoring preset/default layout behavior.
+- Styled export consumes both normalized frame overrides; raw export remains unaffected.
+- Camera-source validation for fresh recordings remains tracked separately by TASK-098/TASK-099 and is currently blocked while `/dev/video0` is held by `zen`.
 
 #### Dependencies
 
@@ -2948,6 +2958,18 @@ Reproduce in DevTools console with this self-contained snippet (paste verbatim):
 
 Expected when fixed: `aspect AFTER: 9:16`, `pressed AFTER: true`, `canvas ratio: 1080 / 1920`.
 
+#### Completion Notes
+
+- Verified the template click path in `pnpm smoke:ui`: the smoke selects `[data-template-id="mobile-9-16"]`, waits for the Aspect ratio control to become `9:16`, and confirms the selected template's `aria-pressed` state.
+- Fixed template application to clear stale custom `screenFrame` along with `cameraFrame`, so applying a template cannot leave a custom editor preview frame overriding the preset aspect/layout.
+- Regression coverage: `pnpm smoke:ui` now reports `hasTemplatePresetSelection: true` and `aspectRatio: "9:16"`.
+
+#### Verified
+
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm --filter @rough-cut/desktop test`
+- `pnpm smoke:ui`
+
 #### Investigation steps when picking this up
 
 1. Add `console.info('[template-click]', ...)` at the top of `handleTemplatePresetSelect` and `[updateAspectRatio]` at the top of `updateAspectRatio` in `apps/desktop/src/renderer/src/main.tsx`. Reload, click, observe.
@@ -2983,6 +3005,124 @@ ffprobe -v 0 -select_streams v:0 -show_entries stream=avg_frame_rate,nb_frames \
 Expect `avg_frame_rate=30/1` and frame count ≈ 30 × take_duration_sec.
 
 If smoothness is still bad despite the camera reporting 30 fps, the issue is renderer-side — open DevTools → Performance, record 5 s of playback, and inspect which canvas/draw call dominates. Likely culprits in order: `ctx.save()/restore()` overhead per tick, `drawCursorPath` shadow blur, the camera roundedrect clip with shadow. Mitigation: cache the cursor path/shadow on an offscreen canvas, or skip cursor draw when there's no recent move event.
+
+#### 2026-05-10 follow-up
+
+Verification found a separate sync/tail issue on `/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-05-10T14-43-42-117Z.roughcut`: the screen MP4 had 70 frames, while the linked camera MP4 had a 75-frame preroll offset and only enough overlap for ~56 frames. The editor was still using stale project duration metadata, so playback reached a region where screen/camera media no longer overlapped.
+
+Implemented sync probing after remux with `ffprobe`, stores overlap metadata on the saved project, and clamps preview/timeline duration to the shared screen+camera overlap so both tracks stop together. Added renderer seek/playback clamps so the camera PiP does not disappear or freeze when scrubbing near the tail.
+
+Verified so far:
+
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm --filter @rough-cut/desktop test` (`232/232`)
+- `pnpm --filter @rough-cut/desktop build`
+- `node scripts/repro-task098-playback.mjs "/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-05-10T14-43-42-117Z.roughcut"`
+- `pnpm smoke:ui`
+
+Fresh camera smoke is still pending: `ROUGH_CUT_REAL_SMOKE_CAMERA_DEVICE_PATH=/dev/video0 node scripts/smoke-real-recording.mjs` could not validate camera sync because `/dev/video0` was busy (`zen` held the camera), causing a screen-only fallback.
+
+Perplexity follow-up confirmed the long-duration fix should use one FFmpeg process with x11grab, v4l2, and PulseAudio inputs into an MKV intermediate. The current session still uses separate screen/audio and camera FFmpeg processes, so this task now only fixes saved-project overlap and playback clamping. TASK-100 tracks the capture architecture change required to make 10/30/60-minute drift prevention credible.
+
+2026-05-10 second follow-up: latest take `rough-cut-2026-05-10T16-35-27-030Z` showed why frame-count overlap is wrong. Screen was 201 frames / 6.7 s at 30 fps; camera was 225 decoded frames / 9.233 s at avg ~24.37 fps, with 75-frame preroll. Frame math incorrectly trimmed to 150 frames. Sync math now prefers probed media seconds (`min(screenDurationSec, cameraDurationSec - prerollSec)`) and only then converts to project frames, which keeps this take at the full 201 screen frames.
+
+### TASK-100 Migrate screen camera audio capture to one FFmpeg graph
+
+**Priority:** P1
+**Status:** DONE
+
+#### Context
+
+Separate FFmpeg processes for screen/audio and camera can be aligned after the fact for short recordings, but they cannot guarantee no accumulated drift over 10, 30, or 60 minutes. External research and ffmpeg behavior both point to a single process with multiple inputs as the correct architecture because FFmpeg can synchronize streams by timestamps inside one graph.
+
+This is the real long-term sync task. Do not solve it by adding more preview clamps or frame-count math. TASK-098 already handles short-term saved-project overlap by using probed media seconds. TASK-100 must change capture architecture so new recordings are timestamp-coherent at the source.
+
+Current architecture to replace:
+
+- `apps/desktop/src/main/recording/recording-session.mjs` starts camera first via `startFfmpegCameraCapture()`, waits `ROUGH_CUT_CAMERA_WARMUP_MS`, then starts screen/audio via `startFfmpegCapture()`.
+- `apps/desktop/src/main/recording/ffmpeg-capture.mjs` has separate builders: `buildFfmpegCameraCaptureArgs()` and `buildFfmpegCaptureArgs()`.
+- Project save currently stores camera as a linked asset with `sourceInFrames`/`prerollMs`; these should become derived metadata from stream timestamps, not the primary sync model.
+
+Desired architecture:
+
+- Add one FFmpeg capture path for screen + optional camera + optional PulseAudio inputs into one Matroska intermediate.
+- Use one process when camera is enabled. Keep existing screen-only path unless/until the unified path proves stable.
+- Prefer timestamp preservation and stream probing over decoded frame counts.
+- Camera audio stays disabled by default; camera input is video-only unless a future task explicitly adds camera audio.
+
+Suggested FFmpeg shape to adapt/test, not blindly paste:
+
+```bash
+ffmpeg -y -progress pipe:1 -stats_period 0.05 \
+  -thread_queue_size 1024 -f x11grab -draw_mouse 0 -framerate 30 -video_size <screenWxH> -i <display> \
+  -thread_queue_size 1024 -use_wallclock_as_timestamps 1 -f v4l2 -input_format mjpeg -framerate 30 -video_size 1280x720 -i /dev/video0 \
+  [-thread_queue_size 1024 -f pulse -ac 2 -ar 48000 -i <system-monitor>] \
+  [-thread_queue_size 1024 -f pulse -ac 2 -ar 48000 -i <mic-source>] \
+  -map 0:v -map 1:v [audio maps/filter_complex as today] \
+  -c:v:0 libx264 -preset superfast -crf 16 -pix_fmt yuv420p \
+  -c:v:1 libx264 -preset superfast -crf 18 -pix_fmt yuv420p \
+  [-c:a aac -b:a 192k -ar 48000] \
+  -f matroska <output>.mkv
+```
+
+Investigate whether `-copyts -start_at_zero`, `-fps_mode`, `-vsync`, or v4l2 `-ts mono2abs` improve or hurt this repo’s actual devices before locking them in. Do not use deprecated `-async`; if audio drift appears, use `aresample=async=1:first_pts=0` deliberately in the audio filter path.
+
+Implementation outline:
+
+1. Add a tested command builder, e.g. `buildFfmpegUnifiedCaptureArgs()`, in `apps/desktop/src/main/recording/ffmpeg-capture.mjs`.
+2. Add a capture handle, e.g. `startFfmpegUnifiedCapture()`, with the same stop/cancel semantics and child reaping behavior as existing handles.
+3. Update `recording-session.mjs` to use the unified capture when `cameraDevicePath` is present, instead of spawning `ffmpeg-camera` plus `ffmpeg-screen` separately.
+4. Decide post-stop media products. Preferred low-risk path: keep MKV as source-of-truth, then extract/remux screen and camera preview MP4s for Electron playback while storing stream timing from the MKV probe.
+5. Extend `media-probe.mjs` to probe multi-stream timing: stream index, `start_time`, `duration`, `time_base`, `avg_frame_rate`, decoded frames, and packet `pts_time` samples at start/middle/end if needed.
+6. Update `project-files.mjs` so camera clip placement is derived from probed stream timing/PTS, not `cameraPrerollMs` frame math.
+7. Update export path only if required after project schema/media representation changes; export must use the same timestamp-derived offset as preview.
+
+Important design decision for the next instance:
+
+- If Electron cannot reliably preview two streams from one MKV, do not abandon MKV as source-of-truth. Generate aligned preview MP4 derivatives after stop, but keep original MKV timing metadata as authoritative.
+
+Tests to add before manual recording:
+
+- `ffmpeg-capture-args.test.mjs`: unified command puts input options before each `-i`, maps screen/camera as separate video streams, preserves audio mix behavior, and keeps camera audio disabled.
+- `recording-session.test.mjs`: camera-enabled session starts one unified child, not separate screen/camera children; screen-only session remains unchanged.
+- `media-probe.test.mjs`: multi-stream probe returns per-stream timing and does not use decoded frame count as the primary sync duration.
+- `project-files.test.mjs`: linked camera clip placement comes from stream timing metadata.
+
+#### Acceptance Criteria
+
+- Screen, optional camera, and optional PulseAudio sources are captured by one FFmpeg process when camera is enabled.
+- The capture writes a Matroska intermediate that preserves stream timestamps.
+- Camera audio remains disabled unless explicitly requested; mic/system audio stay primary.
+- Project creation derives screen/camera track placement from probed PTS/duration, not decoded frame counts.
+- Existing screen-only recording flow still works.
+- Existing camera busy fallback still saves a screen-only project with warning metadata.
+- Long-duration validation covers at least 10 minutes before marking done; 30/60 minute smoke can remain manual but documented.
+
+#### Verification
+
+2026-05-10 completion verification:
+
+- `pnpm --filter @rough-cut/desktop typecheck` — pass.
+- `pnpm --filter @rough-cut/desktop test` — 243/243 pass.
+- `pnpm --filter @rough-cut/desktop build` — pass.
+- `pnpm smoke:ui` — pass.
+- Short real camera smoke with `/dev/video0` passed after the unified-capture sync duration fix.
+- 10-minute real camera run saved `/tmp/rough-cut-real-recording-smoke-OIEC76/rough-cut-2026-05-10T18-23-04-102Z.roughcut` from one MKV source. Diagnostics reported `mediaDurationMs=600833`, `durationDeltaMs=-1111`, 17,968 cursor events, no audio as expected, and no drop/queue warnings.
+- Source MKV probe verified two timestamped video streams: screen `640x360`, `30/1`, `start_time=0.000000`; camera `1280x720`, `30/1`, `start_time=0.033000`.
+- Saved project stores timestamp-derived sync: `screenFrames=18025`, `cameraFrames=18025`, `cameraSourceInFrames=1`, `syncedDurationFrames=18024`, `syncWarning=null`.
+- Remuxed derivatives verified: screen MP4 `600.833s` / 18,010 decoded frames; camera MP4 `start_time=0.033000`, `600.700s` / 10,425 decoded frames. Decoded camera frame count is not used as primary sync authority.
+- Styled export verification used 2-second trimmed exports at start, middle, and end of the saved 10-minute project. All three produced readable `1920x1080`, `30/1`, 60-frame MP4s with the linked camera overlay path active.
+- Fixed a blocking styled-export background-image issue discovered during verification: single-frame background images no longer use `shortest=1`, which previously collapsed long exports to one frame.
+
+Useful probe commands:
+
+```bash
+ffprobe -v error -show_format -show_streams -of json <capture>.mkv
+ffprobe -v error -select_streams v:0 -show_packets -show_entries packet=pts_time,dts_time,duration_time,flags -of csv=p=0 <capture>.mkv
+ffprobe -v error -select_streams v:1 -show_packets -show_entries packet=pts_time,dts_time,duration_time,flags -of csv=p=0 <capture>.mkv
+```
+
+Done means: no visible drift at the end of the 10-minute recording and no timestamp evidence of accumulating camera/screen divergence. Do not mark this done based only on a 5-second take.
 
 ### TASK-099 Verify post-recording blank editor is no longer reproducible
 

@@ -11,11 +11,12 @@ import { migrate } from '../../../../packages/project-model/dist/migrations.js';
 
 export function createProjectForRecording({ recording, now = new Date() }) {
   const fps = recording.fps || 30;
-  const cameraSourceInFrames = Math.max(0, Math.round(recording.camera?.sourceInFrames ?? 0));
-  const durationFrames = Math.max(
+  const cameraSourceInFrames = Math.max(0, Math.round(recording.sync?.cameraSourceInFrames ?? recording.camera?.sourceInFrames ?? 0));
+  const wallClockDurationFrames = Math.max(
     1,
     Math.round(((Date.parse(recording.stoppedAt) - Date.parse(recording.startedAt)) / 1000) * fps),
   );
+  const durationFrames = Math.max(1, Math.round(recording.sync?.syncedDurationFrames ?? wallClockDurationFrames));
   const name = basename(recording.outputPath).replace(/\.mp4$/i, '');
   const asset = createAsset('recording', recording.outputPath, {
     duration: durationFrames,
@@ -32,11 +33,13 @@ export function createProjectForRecording({ recording, now = new Date() }) {
       cursorEvents: Array.isArray(recording.cursorEvents) ? recording.cursorEvents : [],
       audio: recording.audio ?? null,
       cameraError: recording.cameraError ?? null,
+      sync: recording.sync ?? null,
+      streamTiming: recording.streamTiming ?? null,
     },
   });
   const cameraAsset = recording.camera?.outputPath
     ? createAsset('video', recording.camera.outputPath, {
-        duration: durationFrames + cameraSourceInFrames,
+        duration: Math.max(durationFrames + cameraSourceInFrames, Math.round(recording.sync?.cameraFrames ?? 0) || durationFrames + cameraSourceInFrames),
         metadata: {
           rawPath: recording.camera.rawPath,
           width: recording.camera.width || 1280,
@@ -48,6 +51,8 @@ export function createProjectForRecording({ recording, now = new Date() }) {
           devicePath: recording.camera.devicePath ?? null,
           sourceInFrames: cameraSourceInFrames,
           prerollMs: recording.camera.prerollMs ?? null,
+          sync: recording.sync ?? null,
+          streamTiming: recording.camera.streamTiming ?? recording.streamTiming?.camera ?? null,
         },
       })
     : null;

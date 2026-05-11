@@ -104,6 +104,189 @@ test('camera finalization failure saves a screen-only project with warning metad
   assert.equal(savedRecordings[0].camera, null);
 });
 
+test('probes screen and camera outputs before saving synced overlap metadata', async () => {
+  const recordingWithCamera = {
+    ...savedRecording,
+    cameraRawPath: '/tmp/camera.mkv',
+    cameraOutputPath: '/tmp/camera.mp4',
+    cameraDevicePath: '/dev/video2',
+    camera: {
+      rawPath: '/tmp/camera.mkv',
+      outputPath: '/tmp/camera.mp4',
+      devicePath: '/dev/video2',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      sourceInFrames: 75,
+      prerollMs: 2500,
+    },
+  };
+  let savedRecordingArg = null;
+
+  const result = await stopRecordingAndCreateProject({
+    recordingSession: { stop: async () => recordingWithCamera },
+    assertReadableMp4: async () => undefined,
+    remuxMkvToMp4: async () => undefined,
+    probeVideoTiming: async (path) => path === '/tmp/camera.mp4' ? { durationFrames: 132 } : { durationFrames: 70 },
+    computeSyncedRecordingTiming: ({ screen, camera, cameraSourceInFrames }) => ({
+      screenFrames: screen.durationFrames,
+      cameraFrames: camera.durationFrames,
+      cameraSourceInFrames,
+      syncedDurationFrames: 57,
+      syncWarning: 'Camera overlap is shorter than screen capture.',
+    }),
+    saveProjectForRecording: async (recording) => {
+      savedRecordingArg = recording;
+      return { path: '/tmp/capture.roughcut', document: { name: 'capture' } };
+    },
+    formatProject: (project) => ({ ...project, mediaUrl: 'media://file/test' }),
+    writeRecordingDiagnosticsReport: async () => ({ path: '/tmp/capture.diagnostics.json', report: {} }),
+  });
+
+  assert.equal(savedRecordingArg.sync.syncedDurationFrames, 57);
+  assert.equal(savedRecordingArg.cameraError, undefined);
+  assert.equal(result.sync.syncedDurationFrames, 57);
+});
+
+test('does not return a sync trim warning as a camera finalization error', async () => {
+  const syncWarning = 'Camera overlap is 4 frames shorter than screen capture; timeline was trimmed to the synced overlap.';
+  const recordingWithCamera = {
+    ...savedRecording,
+    cameraRawPath: '/tmp/camera.mkv',
+    cameraOutputPath: '/tmp/camera.mp4',
+    cameraDevicePath: '/dev/video2',
+    cameraError: syncWarning,
+    camera: {
+      rawPath: '/tmp/camera.mkv',
+      outputPath: '/tmp/camera.mp4',
+      devicePath: '/dev/video2',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      sourceInFrames: 4,
+      prerollMs: 0,
+    },
+  };
+  let savedRecordingArg = null;
+
+  const result = await stopRecordingAndCreateProject({
+    recordingSession: { stop: async () => recordingWithCamera },
+    assertReadableMp4: async () => undefined,
+    remuxMkvToMp4: async () => undefined,
+    probeVideoTiming: async (path) => path === '/tmp/camera.mp4'
+      ? { durationFrames: 566, durationSeconds: 18.871 }
+      : { durationFrames: 566, durationSeconds: 18.871 },
+    computeSyncedRecordingTiming: () => ({
+      screenFrames: 566,
+      cameraFrames: 566,
+      cameraSourceInFrames: 4,
+      syncedDurationFrames: 562,
+      syncWarning,
+    }),
+    saveProjectForRecording: async (recording) => {
+      savedRecordingArg = recording;
+      return { path: '/tmp/capture.roughcut', document: { name: 'capture' } };
+    },
+    formatProject: (project) => ({ ...project, mediaUrl: 'media://file/test' }),
+    writeRecordingDiagnosticsReport: async () => ({ path: '/tmp/capture.diagnostics.json', report: {} }),
+  });
+
+  assert.equal(savedRecordingArg.cameraError, null);
+  assert.equal(result.cameraError, null);
+  assert.equal(result.camera, recordingWithCamera.camera);
+});
+
+test('unified camera recording remuxes explicit screen and camera stream derivatives', async () => {
+  const recordingWithUnifiedCamera = {
+    ...savedRecording,
+    rawPath: '/tmp/unified.mkv',
+    cameraRawPath: '/tmp/unified.mkv',
+    cameraOutputPath: '/tmp/camera.mp4',
+    cameraDevicePath: '/dev/video2',
+    camera: {
+      rawPath: '/tmp/unified.mkv',
+      outputPath: '/tmp/camera.mp4',
+      devicePath: '/dev/video2',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      sourceInFrames: 0,
+      prerollMs: 0,
+      sourceStreamIndex: 1,
+    },
+  };
+  const remuxCalls = [];
+
+  await stopRecordingAndCreateProject({
+    recordingSession: { stop: async () => recordingWithUnifiedCamera },
+    assertReadableMp4: async () => undefined,
+    remuxMkvToMp4: async ({ rawPath, outputPath, maps }) => {
+      remuxCalls.push({ rawPath, outputPath, maps });
+    },
+    saveProjectForRecording: async () => ({ path: '/tmp/capture.roughcut', document: { name: 'capture' } }),
+    formatProject: (project) => ({ ...project, mediaUrl: 'media://file/test' }),
+    writeRecordingDiagnosticsReport: async () => ({ path: '/tmp/capture.diagnostics.json', report: {} }),
+  });
+
+  assert.deepEqual(remuxCalls, [
+    { rawPath: '/tmp/unified.mkv', outputPath: savedRecording.outputPath, maps: ['0:v:0', '0:a?'] },
+    { rawPath: '/tmp/unified.mkv', outputPath: '/tmp/camera.mp4', maps: ['0:v:1'] },
+  ]);
+});
+
+test('unified camera recording derives camera offset from source stream timestamps', async () => {
+  const recordingWithUnifiedCamera = {
+    ...savedRecording,
+    rawPath: '/tmp/unified.mkv',
+    cameraRawPath: '/tmp/unified.mkv',
+    cameraOutputPath: '/tmp/camera.mp4',
+    cameraDevicePath: '/dev/video2',
+    camera: {
+      rawPath: '/tmp/unified.mkv',
+      outputPath: '/tmp/camera.mp4',
+      devicePath: '/dev/video2',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      sourceInFrames: 0,
+      prerollMs: 0,
+      sourceStreamIndex: 1,
+    },
+  };
+  let savedRecordingArg = null;
+
+  const result = await stopRecordingAndCreateProject({
+    recordingSession: { stop: async () => recordingWithUnifiedCamera },
+    assertReadableMp4: async () => undefined,
+    remuxMkvToMp4: async () => undefined,
+    probeVideoTiming: async () => {
+      throw new Error('should probe unified source streams instead');
+    },
+    probeVideoStreamsTiming: async () => [
+      { index: 0, startTimeSeconds: 0.1, durationSeconds: 6.7, durationFrames: 201, frameRate: 30 },
+      { index: 1, startTimeSeconds: 0.2, durationSeconds: 6.7, durationFrames: 201, frameRate: 30 },
+    ],
+    computeSyncedRecordingTiming: ({ screen, camera, cameraSourceInFrames }) => ({
+      screenFrames: screen.durationFrames,
+      cameraFrames: camera.durationFrames,
+      cameraSourceInFrames,
+      syncedDurationFrames: 198,
+      syncWarning: null,
+    }),
+    saveProjectForRecording: async (recording) => {
+      savedRecordingArg = recording;
+      return { path: '/tmp/capture.roughcut', document: { name: 'capture' } };
+    },
+    formatProject: (project) => ({ ...project, mediaUrl: 'media://file/test' }),
+    writeRecordingDiagnosticsReport: async () => ({ path: '/tmp/capture.diagnostics.json', report: {} }),
+  });
+
+  assert.equal(savedRecordingArg.camera.sourceInFrames, 3);
+  assert.equal(savedRecordingArg.sync.cameraSourceInFrames, 3);
+  assert.equal(savedRecordingArg.streamTiming.camera.index, 1);
+  assert.equal(result.sync.syncedDurationFrames, 198);
+});
+
 test('diagnostics failure does not block valid recording project creation', async () => {
   const result = await stopRecordingAndCreateProject({
     recordingSession: { stop: async () => savedRecording },

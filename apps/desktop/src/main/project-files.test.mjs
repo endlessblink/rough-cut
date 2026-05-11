@@ -103,6 +103,77 @@ test('creates linked camera asset and track when webcam recording is present', (
   assert.equal(getPrimaryRecording(project)?.camera?.sourceInFrames, 30);
 });
 
+test('uses probed synced overlap for linked camera project duration', () => {
+  const project = createProjectForRecording({
+    recording: {
+      ...recording,
+      sync: {
+        screenFrames: 70,
+        cameraFrames: 132,
+        cameraSourceInFrames: 75,
+        syncedDurationFrames: 57,
+        syncWarning: 'Camera overlap is shorter than screen capture.',
+      },
+      camera: {
+        rawPath: '/tmp/rough-cut-test-camera.mkv',
+        outputPath: '/tmp/rough-cut-test-camera.mp4',
+        devicePath: '/dev/video2',
+        width: 1280,
+        height: 720,
+        fps: 30,
+        sourceInFrames: 75,
+        prerollMs: 2500,
+      },
+    },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+
+  assert.equal(project.composition.duration, 57);
+  assert.equal(project.assets[0].duration, 57);
+  assert.equal(project.assets[0].metadata.sync.syncedDurationFrames, 57);
+  assert.equal(project.assets[1].duration, 132);
+  assert.equal(project.composition.tracks[0].clips[0].sourceOut, 57);
+  assert.equal(project.composition.tracks[1].clips[0].sourceIn, 75);
+  assert.equal(project.composition.tracks[1].clips[0].sourceOut, 132);
+});
+
+test('uses timestamp-derived sync offset over legacy camera source offset', () => {
+  const project = createProjectForRecording({
+    recording: {
+      ...recording,
+      streamTiming: {
+        screen: { index: 0, startTimeSeconds: 0.1, durationSeconds: 6.7 },
+        camera: { index: 1, startTimeSeconds: 0.2, durationSeconds: 6.7 },
+      },
+      sync: {
+        screenFrames: 201,
+        cameraFrames: 201,
+        cameraSourceInFrames: 3,
+        syncedDurationFrames: 198,
+        syncWarning: null,
+      },
+      camera: {
+        rawPath: '/tmp/rough-cut-test.mkv',
+        outputPath: '/tmp/rough-cut-test-camera.mp4',
+        devicePath: '/dev/video2',
+        width: 1280,
+        height: 720,
+        fps: 30,
+        sourceInFrames: 0,
+        prerollMs: 0,
+        streamTiming: { index: 1, startTimeSeconds: 0.2, durationSeconds: 6.7 },
+      },
+    },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+
+  assert.equal(project.composition.duration, 198);
+  assert.equal(project.assets[1].metadata.sourceInFrames, 3);
+  assert.equal(project.composition.tracks[1].clips[0].sourceIn, 3);
+  assert.equal(project.assets[0].metadata.streamTiming.camera.index, 1);
+  assert.equal(project.assets[1].metadata.streamTiming.index, 1);
+});
+
 test('persists camera warning metadata for screen-only fallback review', () => {
   const project = createProjectForRecording({
     recording: {

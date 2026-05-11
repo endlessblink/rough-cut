@@ -225,6 +225,50 @@ test('camera spawn retries after early-exit and succeeds on a later attempt', as
   await rm(root, { recursive: true, force: true });
 });
 
+test('camera-enabled recording uses one unified capture process by default', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-unified-camera-'));
+  const captureCalls = [];
+  const cameraCaptureCalls = [];
+  const unifiedCalls = [];
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    cameraWarmupMs: 0,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => {
+      captureCalls.push(options);
+      return { outputPath: options.outputPath, stop: async () => options.outputPath };
+    },
+    cameraCaptureFactory: undefined,
+    unifiedCaptureFactory: (options) => {
+      unifiedCalls.push(options);
+      return { outputPath: options.outputPath, stop: async () => options.outputPath };
+    },
+  });
+
+  const started = await session.start({ cameraDevicePath: '/dev/video2' });
+  assert.equal(started.state, 'recording');
+  assert.equal(captureCalls.length, 0);
+  assert.equal(cameraCaptureCalls.length, 0);
+  assert.equal(unifiedCalls.length, 1);
+  assert.equal(unifiedCalls[0].cameraDevicePath, '/dev/video2');
+
+  const marker = JSON.parse(await readFile(join(root, 'recovery.json'), 'utf8'));
+  assert.equal(marker.cameraRawPath, marker.rawPath);
+
+  const stopped = await session.stop();
+  assert.equal(stopped.state, 'saved');
+  assert.equal(stopped.rawPath, stopped.cameraRawPath);
+  assert.equal(stopped.camera.outputPath.endsWith('-camera.mp4'), true);
+  assert.equal(stopped.camera.sourceInFrames, 0);
+  assert.equal(stopped.camera.sourceStreamIndex, 1);
+
+  await rm(root, { recursive: true, force: true });
+});
+
 test('camera spawn retry exhausts and falls back to screen-only after every attempt fails', async () => {
   // The 12-second persistent EBUSY scenario from the user's testing. All
   // retry attempts exit early; the loop throws → start() catches → session

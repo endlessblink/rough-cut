@@ -46,11 +46,13 @@ export class RemuxIncompleteError extends Error {
 export async function remuxMkvToMp4({
   rawPath,
   outputPath,
+  maps = ['0'],
   onLog = () => undefined,
   validate = validateRemuxedMp4,
   runner = run,
 }) {
-  const args = ['-y', '-i', rawPath, '-map', '0', '-c', 'copy', '-movflags', '+faststart', outputPath];
+  const mapArgs = normalizeMaps(maps).flatMap((map) => ['-map', map]);
+  const args = ['-y', '-i', rawPath, ...mapArgs, '-c', 'copy', '-movflags', '+faststart', outputPath];
   onLog('[remux] Starting: ffmpeg ' + args.join(' '));
   const result = await runner('ffmpeg', args, onLog);
   if (result.code !== 0) {
@@ -59,6 +61,14 @@ export async function remuxMkvToMp4({
   const validation = await validate(outputPath);
   if (validation.warning) onLog(`[remux] WARN ${validation.warning}`);
   return { outputPath, integrity: validation.integrity, warning: validation.warning };
+}
+
+function normalizeMaps(maps) {
+  const list = Array.isArray(maps) ? maps : [maps];
+  const normalized = list
+    .map((map) => (typeof map === 'string' ? map.trim() : ''))
+    .filter(Boolean);
+  return normalized.length > 0 ? normalized : ['0'];
 }
 
 function run(command, args, onLog) {

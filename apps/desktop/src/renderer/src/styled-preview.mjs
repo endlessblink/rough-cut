@@ -108,6 +108,21 @@ export function drawClickEmphasis(ctx, cursorEvents, currentFrame) {
   }
 }
 
+export function clampedCameraTime(sourceTimeSec, cameraOffsetSec, cameraDurationSec, frameRate = 30) {
+  const requested = (Number.isFinite(sourceTimeSec) ? sourceTimeSec : 0) + (Number.isFinite(cameraOffsetSec) ? cameraOffsetSec : 0);
+  if (!Number.isFinite(cameraDurationSec) || cameraDurationSec <= 0) return Math.max(0, requested);
+  const frameSlack = 1 / (Number.isFinite(frameRate) && frameRate > 0 ? frameRate : 30);
+  const maxCameraTime = Math.max(0, cameraDurationSec - frameSlack);
+  return Math.max(0, Math.min(requested, maxCameraTime));
+}
+
+export function cameraCoversSourceTime(sourceTimeSec, cameraOffsetSec, cameraDurationSec, frameRate = 30) {
+  if (!Number.isFinite(cameraDurationSec) || cameraDurationSec <= 0) return true;
+  const requested = (Number.isFinite(sourceTimeSec) ? sourceTimeSec : 0) + (Number.isFinite(cameraOffsetSec) ? cameraOffsetSec : 0);
+  const frameSlack = 1 / (Number.isFinite(frameRate) && frameRate > 0 ? frameRate : 30);
+  return requested <= Math.max(0, cameraDurationSec - frameSlack);
+}
+
 export function coverSourceRect(sourceWidth, sourceHeight, destWidth, destHeight) {
   if (![sourceWidth, sourceHeight, destWidth, destHeight].every((value) => Number.isFinite(value) && value > 0)) {
     return null;
@@ -130,4 +145,94 @@ export function coverSourceRect(sourceWidth, sourceHeight, destWidth, destHeight
     sw: sourceWidth,
     sh: height,
   };
+}
+
+export function frameResizeHandles(rect) {
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  const right = rect.x + rect.w;
+  const bottom = rect.y + rect.h;
+  return [
+    { handle: 'nw', x: rect.x, y: rect.y },
+    { handle: 'n', x: cx, y: rect.y },
+    { handle: 'ne', x: right, y: rect.y },
+    { handle: 'e', x: right, y: cy },
+    { handle: 'se', x: right, y: bottom },
+    { handle: 's', x: cx, y: bottom },
+    { handle: 'sw', x: rect.x, y: bottom },
+    { handle: 'w', x: rect.x, y: cy },
+  ];
+}
+
+export function resizeHandleAtPoint(x, y, rect) {
+  const radius = Math.max(12, Math.min(24, Math.min(rect.w, rect.h) * 0.11));
+  let best = null;
+  for (const handle of frameResizeHandles(rect)) {
+    const distance = Math.hypot(x - handle.x, y - handle.y);
+    if (distance <= radius && (!best || distance < best.distance)) best = { handle: handle.handle, distance };
+  }
+  return best?.handle ?? null;
+}
+
+export function cursorForResizeHandle(handle) {
+  if (handle === 'n' || handle === 's') return 'ns-resize';
+  if (handle === 'e' || handle === 'w') return 'ew-resize';
+  if (handle === 'ne' || handle === 'sw') return 'nesw-resize';
+  return 'nwse-resize';
+}
+
+export function moveRectFromPointer(origin, xCanvas, yCanvas, canvasWidth, canvasHeight) {
+  const w = origin.width / canvasWidth;
+  const h = origin.height / canvasHeight;
+  return {
+    x: Math.max(0, Math.min(1 - w, clampUnit((xCanvas - origin.offsetX) / canvasWidth, 0))),
+    y: Math.max(0, Math.min(1 - h, clampUnit((yCanvas - origin.offsetY) / canvasHeight, 0))),
+    w,
+    h,
+  };
+}
+
+export function resizeRectFromPointer(origin, xCanvas, yCanvas, canvasWidth, canvasHeight) {
+  const handle = origin.handle ?? 'se';
+  const minWidth = canvasWidth * 0.05;
+  const minHeight = canvasHeight * 0.05;
+  const right = origin.startX + origin.width;
+  const bottom = origin.startY + origin.height;
+  const centerX = origin.startX + origin.width / 2;
+  const centerY = origin.startY + origin.height / 2;
+  const hasWest = handle.includes('w');
+  const hasEast = handle.includes('e');
+  const hasNorth = handle.includes('n');
+  const hasSouth = handle.includes('s');
+  const anchorX = hasWest ? right : hasEast ? origin.startX : centerX;
+  const anchorY = hasNorth ? bottom : hasSouth ? origin.startY : centerY;
+  const maxWidth = hasWest ? anchorX : hasEast ? canvasWidth - anchorX : 2 * Math.min(anchorX, canvasWidth - anchorX);
+  const maxHeight = hasNorth ? anchorY : hasSouth ? canvasHeight - anchorY : 2 * Math.min(anchorY, canvasHeight - anchorY);
+  const pointerWidth = hasWest || hasEast ? Math.abs(xCanvas - anchorX) : Math.abs(yCanvas - anchorY) * origin.aspect;
+  const pointerHeight = hasNorth || hasSouth ? Math.abs(yCanvas - anchorY) : Math.abs(xCanvas - anchorX) / origin.aspect;
+  let width = Math.max(minWidth, pointerWidth, pointerHeight * origin.aspect);
+  let height = width / origin.aspect;
+  if (width > maxWidth) {
+    width = maxWidth;
+    height = width / origin.aspect;
+  }
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = height * origin.aspect;
+  }
+  width = Math.max(minWidth, width);
+  height = Math.max(minHeight, height);
+  const nextX = hasWest ? anchorX - width : hasEast ? anchorX : anchorX - width / 2;
+  const nextY = hasNorth ? anchorY - height : hasSouth ? anchorY : anchorY - height / 2;
+  return {
+    x: Math.max(0, Math.min(canvasWidth - width, nextX)) / canvasWidth,
+    y: Math.max(0, Math.min(canvasHeight - height, nextY)) / canvasHeight,
+    w: width / canvasWidth,
+    h: height / canvasHeight,
+  };
+}
+
+function clampUnit(value, min = 0) {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(1, value));
 }

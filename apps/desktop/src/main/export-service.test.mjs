@@ -231,6 +231,24 @@ test('styled export args apply presentation padding, radius, and shadow controls
   assert(joined.includes('hypot(44-X,44-Y)'));
 });
 
+test('styled export args use a normalized screenFrame override when provided', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    width: 1920,
+    height: 1080,
+    screenCornerRadius: 36,
+    screenFrame: { x: 0.1, y: 0.2, w: 0.5, h: 0.4 },
+  });
+  const joined = args.join(' ');
+
+  // Override at 1920x1080 -> x=192, y=216, w=960, h=432.
+  assert(joined.includes('scale=960:432:force_original_aspect_ratio=increase,crop=960:432'));
+  assert(joined.includes('overlay=192:216+34:shortest=1[with_shadow]'));
+  assert(joined.includes('overlay=192:216:shortest=1[with_screen]'));
+  assert(joined.includes('hypot(36-X,36-Y)'));
+});
+
 test('styled export args apply preset background colors', () => {
   const args = buildStyledExportArgs({
     inputPath: '/tmp/source.mp4',
@@ -255,6 +273,8 @@ test('styled export args can use an exact background image', () => {
 
   assert(joined.includes('movie=/tmp/backgrounds/dark-waves.png'));
   assert(joined.includes('scale=1920:1080,format=rgba[bg_image]'));
+  assert(joined.includes('[bg_base][bg_image]overlay=(W-w)/2:(H-h)/2[bg]'));
+  assert(!joined.includes('[bg_base][bg_image]overlay=(W-w)/2:(H-h)/2:shortest=1[bg]'));
   assert(!joined.includes('scale=1920:1080:force_original_aspect_ratio=increase'));
   assert(!joined.includes('crop=1920:1080'));
 });

@@ -33,7 +33,8 @@ import {
   withDefaultPresentation,
 } from './zoom-markers.mjs';
 import { buildTimelineModel, frameRangeToPlacement } from './timeline-rail.mjs';
-import { coverSourceRect, cursorAtFrame, drawClickEmphasis, drawCursorPath } from './styled-preview.mjs';
+import { cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFrame, cursorForResizeHandle, drawClickEmphasis, drawCursorPath, frameResizeHandles, moveRectFromPointer, resizeHandleAtPoint, resizeRectFromPointer } from './styled-preview.mjs';
+import type { PreviewDragOrigin } from './styled-preview.mjs';
 import { generateSuggestionsForProject } from './auto-zoom-suggestions.mjs';
 import { addCutRange, clearCutRanges, listCutRanges, removeCutRange, visibleDurationFrames, visibleFrameToSourceFrame } from './cut-ranges.mjs';
 
@@ -1471,13 +1472,17 @@ function InspectorContextSummary({ selection }: { selection: InspectorSelection 
   );
 }
 
-function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, selectedZoomMarker = null, trimInfo, cutRanges = [], pendingCutStartFrame = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraFrameChange, onAspectRatioChange, onZoomMarkerRangeChange, onZoomMarkerStrengthChange, onSetTrimStart, onSetTrimEnd, onResetTrim, onMarkCutStart, onCutToPlayhead, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; cutRanges?: CutRange[]; pendingCutStartFrame?: number | null; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onZoomMarkerRangeChange?: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onSetTrimStart?: () => void; onSetTrimEnd?: () => void; onResetTrim?: () => void; onMarkCutStart?: () => void; onCutToPlayhead?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
+function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, selectedZoomMarker = null, trimInfo, cutRanges = [], pendingCutStartFrame = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onZoomMarkerRangeChange, onZoomMarkerStrengthChange, onSetTrimStart, onSetTrimEnd, onResetTrim, onMarkCutStart, onCutToPlayhead, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; cutRanges?: CutRange[]; pendingCutStartFrame?: number | null; onProjectChange?: (next: ProjectState) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onZoomMarkerRangeChange?: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onSetTrimStart?: () => void; onSetTrimEnd?: () => void; onResetTrim?: () => void; onMarkCutStart?: () => void; onCutToPlayhead?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const aspectRatioOptions = PROJECT_ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: PROJECT_ASPECT_RATIO_LABELS[ratio] }));
   const activeBackgroundPreset = RECORDING_BACKGROUND_PRESETS.find((preset) => preset.style.bgImage ? preset.style.bgImage === bg.bgImage : (preset.style.bgColor === bg.bgColor && preset.style.bgGradient === bg.bgGradient))?.id;
   const activeTemplatePreset = findRecordingTemplatePresetId(aspectRatio, bg);
   const handleTemplatePresetSelect = (templateId: string) => {
+    if (onTemplatePresetSelect) {
+      onTemplatePresetSelect(templateId);
+      return;
+    }
     const applied = applyRecordingTemplatePreset(bg, templateId);
     if (!applied) return;
     onAspectRatioChange?.(applied.aspectRatio);
@@ -1751,14 +1756,23 @@ function ProjectPreview({
   const [timelineSeekSec, setTimelineSeekSec] = React.useState(0);
   const [inspectorSelection, setInspectorSelection] = React.useState<InspectorSelection>(DEFAULT_INSPECTOR_SELECTION);
   const [pendingCutStartFrame, setPendingCutStartFrame] = React.useState<number | null>(null);
+  const [sourceMediaDurationSec, setSourceMediaDurationSec] = React.useState<number | null>(null);
   const isTimelineScrubbingRef = React.useRef(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
   const aspectRatio = project.document.settings?.aspectRatio ?? 'auto';
+  const effectiveRecording = React.useMemo(() => {
+    if (!project.recording) return null;
+    if (!Number.isFinite(sourceMediaDurationSec) || sourceMediaDurationSec === null || sourceMediaDurationSec <= 0) return project.recording;
+    const fps = project.recording.fps || 30;
+    const mediaFrames = Math.max(1, Math.round(sourceMediaDurationSec * fps));
+    return { ...project.recording, duration: Math.min(project.recording.duration, mediaFrames) };
+  }, [project.recording, sourceMediaDurationSec]);
+  const effectiveProject = effectiveRecording ? { ...project, recording: effectiveRecording } : project;
   const recordingAsset = getPrimaryRecordingAsset(project.document);
   const primaryClip = getPrimaryRecordingClip(project.document, recordingAsset?.id);
-  const trimInfo = resolveTrimInfo(primaryClip, project.recording?.duration ?? project.document.composition.duration, project.recording?.fps ?? 30);
-  const cutRanges = recordingAsset?.id && project.recording ? listCutRanges(project.document as unknown as ProjectDocument, recordingAsset.id, project.recording.duration) as CutRange[] : [];
+  const trimInfo = resolveTrimInfo(primaryClip, effectiveRecording?.duration ?? project.document.composition.duration, effectiveRecording?.fps ?? 30);
+  const cutRanges = recordingAsset?.id && effectiveRecording ? listCutRanges(project.document as unknown as ProjectDocument, recordingAsset.id, effectiveRecording.duration) as CutRange[] : [];
   const activeCutRanges = clipCutRangesToTrim(cutRanges, trimInfo);
   const background = recordingAsset?.presentation?.background ?? DEFAULT_RECORDING_BACKGROUND;
   const selectedZoomMarker = inspectorSelection.markerId ? listMarkers(project.document as unknown as ProjectDocument).find((marker) => marker.id === inspectorSelection.markerId) ?? null : null;
@@ -1767,6 +1781,13 @@ function ProjectPreview({
     ...DEFAULT_CAMERA_PRESENTATION,
     ...((recordingAsset?.presentation?.camera as Partial<CameraPresentation> | undefined) ?? {}),
   };
+
+  React.useEffect(() => {
+    if (!effectiveRecording) return;
+    const maxTimeSec = effectiveRecording.duration / (effectiveRecording.fps || 30);
+    setCurrentTimeSec((value) => Math.min(value, maxTimeSec));
+    setTimelineSeekSec((value) => Math.min(value, maxTimeSec));
+  }, [effectiveRecording]);
 
   async function persist(nextDocument: ProjectState['document']) {
     const previous = project;
@@ -1865,13 +1886,64 @@ function ProjectPreview({
     });
   }
 
+  async function updateScreenFrame(frame: { x: number; y: number; w: number; h: number } | null) {
+    if (!recordingAsset?.id) return;
+    await persist({
+      ...project.document,
+      assets: project.document.assets?.map((asset) => {
+        if (asset.id !== recordingAsset.id) return asset;
+        const presentation = withDefaultPresentation(asset.presentation) as unknown as Record<string, unknown>;
+        const next: Record<string, unknown> = { ...presentation };
+        if (frame) {
+          next.screenFrame = {
+            x: clampUnit(frame.x),
+            y: clampUnit(frame.y),
+            w: clampUnit(frame.w, 0.05),
+            h: clampUnit(frame.h, 0.05),
+          };
+        } else {
+          delete next.screenFrame;
+        }
+        return { ...asset, presentation: next };
+      }),
+    });
+  }
+
+  async function applyTemplatePreset(templateId: string) {
+    const applied = applyRecordingTemplatePreset(background, templateId);
+    if (!applied) return;
+    await persist({
+      ...project.document,
+      settings: {
+        ...project.document.settings,
+        aspectRatio: applied.aspectRatio,
+      },
+      assets: project.document.assets?.map((asset) => {
+        if (asset.id !== recordingAsset?.id) return asset;
+        const presentation = withDefaultPresentation(asset.presentation) as unknown as Record<string, unknown>;
+        const nextPresentation: Record<string, unknown> = {
+          ...presentation,
+          background: applied.background,
+          camera: {
+            ...DEFAULT_CAMERA_PRESENTATION,
+            ...((presentation.camera as Partial<CameraPresentation> | undefined) ?? {}),
+            ...applied.camera,
+          },
+        };
+        delete nextPresentation.cameraFrame;
+        delete nextPresentation.screenFrame;
+        return { ...asset, presentation: nextPresentation };
+      }),
+    });
+  }
+
   async function updateTrim(nextStartFrame: number, nextEndFrame: number) {
-    if (!recordingAsset?.id || !project.recording) return;
-    const totalFrames = Math.max(1, project.recording.duration);
+    if (!recordingAsset?.id || !effectiveRecording) return;
+    const totalFrames = Math.max(1, effectiveRecording.duration);
     const startFrame = Math.max(0, Math.min(totalFrames - 1, Math.round(nextStartFrame)));
     const endFrame = Math.max(startFrame + 1, Math.min(totalFrames, Math.round(nextEndFrame)));
     const durationFrames = endFrame - startFrame;
-    const cameraOffset = Math.max(0, Math.round((project.recording.camera as { sourceInFrames?: number } | undefined)?.sourceInFrames ?? 0));
+    const cameraOffset = Math.max(0, Math.round((effectiveRecording.camera as { sourceInFrames?: number } | undefined)?.sourceInFrames ?? 0));
     await persist({
       ...project.document,
       composition: {
@@ -1891,27 +1963,27 @@ function ProjectPreview({
         })),
       },
     });
-    setCurrentTimeSec(Math.min(currentTimeSec, durationFrames / (project.recording.fps || 30)));
+    setCurrentTimeSec(Math.min(currentTimeSec, durationFrames / (effectiveRecording.fps || 30)));
   }
 
   function setTrimStartToPlayhead() {
-    if (!project.recording) return;
-    updateTrim(Math.round(currentTimeSec * project.recording.fps), trimInfo.endFrame);
+    if (!effectiveRecording) return;
+    updateTrim(Math.round(currentTimeSec * effectiveRecording.fps), trimInfo.endFrame);
   }
 
   function setTrimEndToPlayhead() {
-    if (!project.recording) return;
-    updateTrim(trimInfo.startFrame, Math.round(currentTimeSec * project.recording.fps));
+    if (!effectiveRecording) return;
+    updateTrim(trimInfo.startFrame, Math.round(currentTimeSec * effectiveRecording.fps));
   }
 
   function resetTrim() {
-    if (!project.recording) return;
-    updateTrim(0, project.recording.duration);
+    if (!effectiveRecording) return;
+    updateTrim(0, effectiveRecording.duration);
   }
 
   function currentSourceFrame() {
-    if (!project.recording) return trimInfo.startFrame;
-    const visibleFrame = Math.round(currentTimeSec * project.recording.fps);
+    if (!effectiveRecording) return trimInfo.startFrame;
+    const visibleFrame = Math.round(currentTimeSec * effectiveRecording.fps);
     return trimInfo.startFrame + visibleFrameToSourceFrame(toTrimRelativeCutRanges(activeCutRanges, trimInfo), visibleFrame, trimInfo.endFrame - trimInfo.startFrame);
   }
 
@@ -1920,17 +1992,17 @@ function ProjectPreview({
   }
 
   async function cutToPlayhead() {
-    if (!recordingAsset?.id || !project.recording || pendingCutStartFrame === null) return;
+    if (!recordingAsset?.id || !effectiveRecording || pendingCutStartFrame === null) return;
     const nextFrame = currentSourceFrame();
     if (Math.abs(nextFrame - pendingCutStartFrame) < 1) return;
-    const nextDocument = addCutRange(project.document as unknown as ProjectDocument, recordingAsset.id, pendingCutStartFrame, nextFrame, project.recording.duration) as unknown as ProjectState['document'];
+    const nextDocument = addCutRange(project.document as unknown as ProjectDocument, recordingAsset.id, pendingCutStartFrame, nextFrame, effectiveRecording.duration) as unknown as ProjectState['document'];
     setPendingCutStartFrame(null);
     await persist(nextDocument);
   }
 
   async function restoreCut(cutRangeId: string) {
-    if (!recordingAsset?.id || !project.recording) return;
-    const nextDocument = removeCutRange(project.document as unknown as ProjectDocument, recordingAsset.id, cutRangeId, project.recording.duration) as unknown as ProjectState['document'];
+    if (!recordingAsset?.id || !effectiveRecording) return;
+    const nextDocument = removeCutRange(project.document as unknown as ProjectDocument, recordingAsset.id, cutRangeId, effectiveRecording.duration) as unknown as ProjectState['document'];
     await persist(nextDocument);
   }
 
@@ -1976,7 +2048,7 @@ function ProjectPreview({
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
       <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} project={project} fps={project.recording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} selectedZoomMarker={selectedZoomMarker} trimInfo={trimInfo} cutRanges={activeCutRanges} pendingCutStartFrame={pendingCutStartFrame} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onSetTrimStart={setTrimStartToPlayhead} onSetTrimEnd={setTrimEndToPlayhead} onResetTrim={resetTrim} onMarkCutStart={markCutStart} onCutToPlayhead={cutToPlayhead} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
+      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} selectedZoomMarker={selectedZoomMarker} trimInfo={trimInfo} cutRanges={activeCutRanges} pendingCutStartFrame={pendingCutStartFrame} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onSetTrimStart={setTrimStartToPlayhead} onSetTrimEnd={setTrimEndToPlayhead} onResetTrim={resetTrim} onMarkCutStart={markCutStart} onCutToPlayhead={cutToPlayhead} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>
@@ -1986,12 +2058,12 @@ function ProjectPreview({
           {project.recording ? (
             <p className="meta">
               {recording.state === 'saved' ? <span className="savedChip">Saved</span> : null}
-              {project.recording.width}x{project.recording.height} · {project.recording.fps} fps · {project.recording.duration} frames
+              {effectiveRecording?.width ?? project.recording.width}x{effectiveRecording?.height ?? project.recording.height} · {effectiveRecording?.fps ?? project.recording.fps} fps · {effectiveRecording?.duration ?? project.recording.duration} frames
             </p>
           ) : null}
         </div>
         {project.mediaUrl ? (
-          <VideoPreview project={project} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} onCurrentTimeChange={setCurrentTimeSec} onCameraFrameChange={updateCameraFrame} />
+          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} onCurrentTimeChange={setCurrentTimeSec} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} />
         ) : (
           <p>No recording asset found in this project.</p>
         )}
@@ -2000,7 +2072,7 @@ function ProjectPreview({
           <p className="eyebrow"><Icon name="timeline" /> Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-          {project.recording ? <VisualTimeline project={project} currentTimeSec={currentTimeSec} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimStart={(sourceTimeSec) => updateTrim(Math.round(sourceTimeSec * project.recording!.fps), trimInfo.endFrame)} onTrimEnd={(sourceTimeSec) => updateTrim(trimInfo.startFrame, Math.round(sourceTimeSec * project.recording!.fps))} onRestoreTrimStart={() => updateTrim(0, trimInfo.endFrame)} onRestoreTrimEnd={() => updateTrim(trimInfo.startFrame, project.recording!.duration)} onResetTrim={resetTrim} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onSelectInspectorContext={focusInspectorContext} /> : null}
+          {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimStart={(sourceTimeSec) => updateTrim(Math.round(sourceTimeSec * effectiveRecording.fps), trimInfo.endFrame)} onTrimEnd={(sourceTimeSec) => updateTrim(trimInfo.startFrame, Math.round(sourceTimeSec * effectiveRecording.fps))} onRestoreTrimStart={() => updateTrim(0, trimInfo.endFrame)} onRestoreTrimEnd={() => updateTrim(trimInfo.startFrame, effectiveRecording.duration)} onResetTrim={resetTrim} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onSelectInspectorContext={focusInspectorContext} /> : null}
         </div>
       </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
@@ -2549,6 +2621,8 @@ function VideoPreview({
   cutRanges = [],
   onCurrentTimeChange,
   onCameraFrameChange,
+  onScreenFrameChange,
+  onSourceMediaDurationChange,
 }: {
   project: ProjectState;
   seekTimeSec?: number;
@@ -2557,6 +2631,8 @@ function VideoPreview({
   cutRanges?: CutRange[];
   onCurrentTimeChange?: (sec: number) => void;
   onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void;
+  onScreenFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void;
+  onSourceMediaDurationChange?: (sec: number | null) => void;
 }) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -2564,17 +2640,23 @@ function VideoPreview({
   const backgroundImageRef = React.useRef<HTMLImageElement | null>(null);
   const pendingSeekRef = React.useRef<number | null>(null);
   const seekingRef = React.useRef(false);
+  const previewInteractionDirtyRef = React.useRef(false);
   // Active drag state for the camera PiP. cameraDragRef holds the in-flight
   // normalized rect so the tick can render it before we persist on pointer-up.
   // cameraRectRef caches the most recent canvas-pixel camera rect from tick so
   // pointer handlers can hit-test without recomputing the resolveFrame inputs.
   const cameraDragRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const cameraRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
-  const cameraDragOriginRef = React.useRef<{ pointerId: number; offsetX: number; offsetY: number; width: number; height: number } | null>(null);
+  const cameraDragOriginRef = React.useRef<PreviewDragOrigin | null>(null);
+  const screenDragRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const screenRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const screenDragOriginRef = React.useRef<PreviewDragOrigin | null>(null);
   const [isDraggingCamera, setIsDraggingCamera] = React.useState(false);
-  const [duration, setDuration] = React.useState(0);
+  const [isDraggingScreen, setIsDraggingScreen] = React.useState(false);
   const [currentTime, setCurrentTime] = React.useState(0);
   const [isPlaying, setIsPlaying] = React.useState(false);
+  const [sourceMediaDuration, setSourceMediaDuration] = React.useState<number | null>(null);
+  const [cameraMediaDuration, setCameraMediaDuration] = React.useState<number | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const src = project.mediaUrl ?? '';
@@ -2587,13 +2669,24 @@ function VideoPreview({
   const aspectRatio = project.document.settings?.aspectRatio ?? 'auto';
   const canvasResolution = getStyledCanvasResolution({ aspectRatio, sourceWidth, sourceHeight });
   const background = getPrimaryRecordingAsset(project.document)?.presentation?.background ?? DEFAULT_RECORDING_BACKGROUND;
-  const sourceDurationSec = Math.max(0.1, (project.recording?.duration ?? 1) / fps);
-  const trimDurationFrames = Math.max(1, Math.round(((trimEndSec ?? sourceDurationSec) - trimStartSec) * fps));
+  const metadataSourceDurationSec = Math.max(0.1, (project.recording?.duration ?? 1) / fps);
+  const cameraTimelineDurationSec = Number.isFinite(cameraMediaDuration) && cameraMediaDuration !== null && cameraMediaDuration > cameraSourceOffsetSec
+    ? Math.max(0.1, cameraMediaDuration - cameraSourceOffsetSec - 1 / fps)
+    : null;
+  const sourceDurationSec = Math.max(0.1, Math.min(metadataSourceDurationSec, sourceMediaDuration ?? metadataSourceDurationSec, cameraTimelineDurationSec ?? metadataSourceDurationSec));
+  const effectiveTrimEndSec = Math.min(trimEndSec ?? sourceDurationSec, sourceDurationSec);
+  const trimDurationFrames = Math.max(1, Math.round((effectiveTrimEndSec - trimStartSec) * fps));
   const visibleDuration = Math.max(0.1, visibleDurationFrames(cutRanges, trimDurationFrames) / fps);
 
   function visibleTimeToSourceTime(visibleTimeSec: number) {
     const visibleFrame = Math.round(Math.max(0, visibleTimeSec) * fps);
     return trimStartSec + visibleFrameToSourceFrame(cutRanges, visibleFrame, trimDurationFrames) / fps;
+  }
+
+  function syncCameraTime(sourceTimeSec: number) {
+    const cameraVideo = cameraVideoRef.current;
+    if (!cameraVideo) return;
+    cameraVideo.currentTime = clampedCameraTime(sourceTimeSec, cameraSourceOffsetSec, cameraVideo.duration, fps);
   }
 
   function sourceTimeToVisibleTime(sourceTimeSec: number) {
@@ -2613,13 +2706,18 @@ function VideoPreview({
   }
 
   React.useEffect(() => {
-    setDuration(0);
+    setSourceMediaDuration(null);
+    setCameraMediaDuration(null);
     setCurrentTime(0);
     setIsPlaying(false);
     setError(null);
     pendingSeekRef.current = null;
     seekingRef.current = false;
   }, [src]);
+
+  React.useEffect(() => {
+    onSourceMediaDurationChange?.(sourceDurationSec);
+  }, [sourceDurationSec, onSourceMediaDurationChange]);
 
   React.useEffect(() => {
     if (!background.bgImage) {
@@ -2654,7 +2752,7 @@ function VideoPreview({
       return;
     }
     const maxTime = video.duration || requestedTime;
-    const nextTime = Math.max(trimStartSec, Math.min(visibleTimeToSourceTime(requestedTime), Math.min(trimEndSec ?? maxTime, maxTime)));
+    const nextTime = Math.max(trimStartSec, Math.min(visibleTimeToSourceTime(requestedTime), Math.min(effectiveTrimEndSec, maxTime)));
     pendingSeekRef.current = null;
     if (Math.abs(video.currentTime - nextTime) < 0.05) {
       seekingRef.current = false;
@@ -2662,8 +2760,10 @@ function VideoPreview({
     }
     seekingRef.current = true;
     video.currentTime = nextTime;
-    if (cameraVideoRef.current) cameraVideoRef.current.currentTime = nextTime + cameraSourceOffsetSec;
-    setCurrentTime(sourceTimeToVisibleTime(nextTime));
+    syncCameraTime(nextTime);
+    const nextVisibleTime = sourceTimeToVisibleTime(nextTime);
+    setCurrentTime(nextVisibleTime);
+    onCurrentTimeChange?.(nextVisibleTime);
   }
 
   function handleSeekSettled() {
@@ -2692,11 +2792,10 @@ function VideoPreview({
     const maxVideoWidth = canvasWidth - screenPadding * 2;
     const maxVideoHeight = canvasHeight - screenPadding * 2;
     const screenScale = Math.min(maxVideoWidth / sourceWidth, maxVideoHeight / sourceHeight);
-    const screenWidth = sourceWidth * screenScale;
-    const screenHeight = sourceHeight * screenScale;
-    const screenX = (canvasWidth - screenWidth) / 2;
-    const screenY = (canvasHeight - screenHeight) / 2;
-    const screenRadius = Math.max(0, Math.min(background.bgCornerRadius, Math.min(screenWidth, screenHeight) / 2));
+    const defaultScreenWidth = sourceWidth * screenScale;
+    const defaultScreenHeight = sourceHeight * screenScale;
+    const defaultScreenX = (canvasWidth - defaultScreenWidth) / 2;
+    const defaultScreenY = (canvasHeight - defaultScreenHeight) / 2;
 
     let rafId = 0;
     // Frame dedup: track the last frame number drawn so we skip RAF ticks where
@@ -2743,7 +2842,7 @@ function VideoPreview({
       // Reported by user 2026-05-10. Bypass when camera presentation is
       // hidden or the source isn't loaded so we don't stall the screen
       // draw on a permanently-empty camera.
-      if (cameraVideo && cameraSrc && cameraVideo.seeking) {
+      if (cameraVideo && cameraSrc && cameraVideo.seeking && cameraCoversSourceTime(video.currentTime, cameraSourceOffsetSec, cameraVideo.duration, fps)) {
         rafId = window.requestAnimationFrame(tick);
         return;
       }
@@ -2751,23 +2850,25 @@ function VideoPreview({
       // Math.round(currentTime * fps) is discrete (0, 1, 2 …), so at 30fps it holds
       // the same value for ~2 consecutive 60fps RAF ticks before incrementing.
       const currentFrame = Math.max(0, Math.round(video.currentTime * fps));
-      if (currentFrame === lastDrawnFrame) {
+      if (currentFrame === lastDrawnFrame && !previewInteractionDirtyRef.current) {
         rafId = window.requestAnimationFrame(tick);
         return;
       }
+      previewInteractionDirtyRef.current = false;
       lastDrawnFrame = currentFrame;
       (window as unknown as Record<string, number>).__roughCutCanvasDrawCount =
         ((window as unknown as Record<string, number>).__roughCutCanvasDrawCount ?? 0) + 1;
-      if (Number.isFinite(trimEndSec) && video.currentTime > (trimEndSec ?? video.currentTime) + 0.02) {
+      if (Number.isFinite(effectiveTrimEndSec) && video.currentTime > effectiveTrimEndSec + 0.02) {
         video.pause();
-        video.currentTime = trimEndSec ?? video.currentTime;
-        setCurrentTime(Math.max(0, (trimEndSec ?? video.currentTime) - trimStartSec));
-        onCurrentTimeChange?.(Math.max(0, (trimEndSec ?? video.currentTime) - trimStartSec));
+        video.currentTime = effectiveTrimEndSec;
+        const clampedVisibleTime = Math.max(0, effectiveTrimEndSec - trimStartSec);
+        setCurrentTime(clampedVisibleTime);
+        onCurrentTimeChange?.(clampedVisibleTime);
       }
       const cutEnd = cutEndForSourceTime(video.currentTime);
       if (cutEnd !== null) {
         video.currentTime = cutEnd;
-        if (cameraVideo) cameraVideo.currentTime = cutEnd + cameraSourceOffsetSec;
+        syncCameraTime(cutEnd);
         lastDrawnFrame = -1;
         rafId = window.requestAnimationFrame(tick);
         return;
@@ -2783,6 +2884,17 @@ function VideoPreview({
         frame = { cameraTransform: { scale: 1, offsetX: 0, offsetY: 0 } };
       }
       const { scale, offsetX, offsetY } = frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 };
+      const dragScreenRect = screenDragRef.current;
+      const resolvedScreenFrame = dragScreenRect
+        ? { x: dragScreenRect.x * canvasWidth, y: dragScreenRect.y * canvasHeight, w: dragScreenRect.w * canvasWidth, h: dragScreenRect.h * canvasHeight }
+        : resolveScreenFrame(frame.screenFrame, defaultScreenX, defaultScreenY, defaultScreenWidth, defaultScreenHeight, canvasWidth, canvasHeight);
+      const screenDrawScale = Math.min(resolvedScreenFrame.w / sourceWidth, resolvedScreenFrame.h / sourceHeight);
+      const screenWidth = sourceWidth * screenDrawScale;
+      const screenHeight = sourceHeight * screenDrawScale;
+      const screenX = resolvedScreenFrame.x + (resolvedScreenFrame.w - screenWidth) / 2;
+      const screenY = resolvedScreenFrame.y + (resolvedScreenFrame.h - screenHeight) / 2;
+      const screenRadius = Math.max(0, Math.min(background.bgCornerRadius, Math.min(screenWidth, screenHeight) / 2));
+      screenRectRef.current = { x: screenX, y: screenY, w: screenWidth, h: screenHeight };
       const backgroundImage = backgroundImageRef.current;
       if (backgroundImage?.complete && backgroundImage.naturalWidth > 0 && backgroundImage.naturalHeight > 0) {
         fillBackground();
@@ -2811,11 +2923,12 @@ function VideoPreview({
         ctx.stroke();
         ctx.restore();
       }
+      if (onScreenFrameChange) drawEditorFrameControls(ctx, screenRectRef.current, '#38bdf8');
       ctx.save();
       addRoundedRect(ctx, screenX, screenY, screenWidth, screenHeight, screenRadius);
       ctx.clip();
       ctx.translate(screenX, screenY);
-      ctx.scale(screenScale, screenScale);
+      ctx.scale(screenDrawScale, screenDrawScale);
       ctx.translate(sourceWidth / 2 + offsetX, sourceHeight / 2 + offsetY);
       ctx.scale(scale, scale);
       ctx.translate(-sourceWidth / 2, -sourceHeight / 2);
@@ -2824,12 +2937,27 @@ function VideoPreview({
       const cursor = cursorAtFrame(cursorEvents, currentFrame);
       if (cursor) drawCursorPath(ctx, cursor.x, cursor.y);
       ctx.restore();
-      if (cameraVideo && cameraSrc && cameraVideo.readyState >= 2 && frame.cameraPresentation?.visible !== false) {
+      const cameraHasFrame = Boolean(
+        cameraVideo &&
+        cameraSrc &&
+        cameraVideo.readyState >= 2 &&
+        frame.cameraPresentation?.visible !== false &&
+        cameraCoversSourceTime(video.currentTime, cameraSourceOffsetSec, cameraVideo.duration, fps),
+      );
+      if (cameraHasFrame && cameraVideo) {
+        const expectedCameraTime = clampedCameraTime(video.currentTime, cameraSourceOffsetSec, cameraVideo.duration, fps);
+        if (Math.abs(cameraVideo.currentTime - expectedCameraTime) > Math.max(0.12, 2 / fps)) {
+          cameraVideo.currentTime = expectedCameraTime;
+          lastDrawnFrame = -1;
+          rafId = window.requestAnimationFrame(tick);
+          return;
+        }
         const dragRect = cameraDragRef.current;
         const cameraFrame = dragRect
           ? { x: dragRect.x * canvasWidth, y: dragRect.y * canvasHeight, w: dragRect.w * canvasWidth, h: dragRect.h * canvasHeight }
           : resolveCameraFrame(frame.cameraFrame, frame.cameraPresentation, canvasWidth, canvasHeight);
         cameraRectRef.current = cameraFrame;
+        (window as unknown as Record<string, boolean>).__roughCutCameraFramePresent = true;
         const cameraRadius = resolveCameraRadius(frame.cameraPresentation, cameraFrame);
         ctx.save();
         if (frame.cameraPresentation?.shadowEnabled !== false) {
@@ -2859,20 +2987,22 @@ function VideoPreview({
           );
         }
         ctx.restore();
+        if (onCameraFrameChange) drawEditorFrameControls(ctx, cameraFrame, '#f59e0b');
       } else {
         cameraRectRef.current = null;
+        (window as unknown as Record<string, boolean>).__roughCutCameraFramePresent = false;
       }
       rafId = window.requestAnimationFrame(tick);
     }
     rafId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(rafId);
-  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background, cameraSrc, trimStartSec, trimEndSec, cutRanges, onCurrentTimeChange]);
+  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background, cameraSrc, cameraSourceOffsetSec, trimStartSec, effectiveTrimEndSec, cutRanges, onCurrentTimeChange]);
 
   React.useEffect(() => {
     const cameraVideo = cameraVideoRef.current;
     if (!cameraVideo || !cameraSrc) return undefined;
     const syncCameraStart = () => {
-      cameraVideo.currentTime = cameraSourceOffsetSec;
+      syncCameraTime(0);
     };
     cameraVideo.addEventListener('loadedmetadata', syncCameraStart);
     if (cameraVideo.readyState >= 1) syncCameraStart();
@@ -2886,29 +3016,40 @@ function VideoPreview({
 
     if (video.paused) {
       try {
-        if (cameraVideo) cameraVideo.currentTime = video.currentTime + cameraSourceOffsetSec;
+        const atEnd = video.ended || sourceTimeToVisibleTime(video.currentTime) >= visibleDuration - 1 / fps;
+        if (atEnd) {
+          const startTime = visibleTimeToSourceTime(0);
+          video.currentTime = startTime;
+          syncCameraTime(startTime);
+          setCurrentTime(0);
+          onCurrentTimeChange?.(0);
+        } else if (cameraVideo) {
+          syncCameraTime(video.currentTime);
+        }
         await video.play();
         await cameraVideo?.play().catch(() => undefined);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Video playback failed.');
       }
-    } else {
-      video.pause();
-      cameraVideo?.pause();
+      return;
     }
+
+    video.pause();
+    cameraVideo?.pause();
   }
 
-  function seek(value: string) {
-    const video = videoRef.current;
-    if (!video) return;
-    const nextVisibleTime = Number(value);
-    if (!Number.isFinite(nextVisibleTime)) return;
-    const nextSourceTime = visibleTimeToSourceTime(Math.max(0, Math.min(nextVisibleTime, visibleDuration)));
-    video.currentTime = nextSourceTime;
-    if (cameraVideoRef.current) cameraVideoRef.current.currentTime = nextSourceTime + cameraSourceOffsetSec;
-    setCurrentTime(nextVisibleTime);
-    onCurrentTimeChange?.(nextVisibleTime);
-  }
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' || event.repeat) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, button, [contenteditable="true"]')) return;
+      event.preventDefault();
+      void togglePlayback();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [visibleDuration, fps, trimStartSec, cutRanges, onCurrentTimeChange]);
 
   return (
     <div className="videoPreview styledPreview">
@@ -2918,7 +3059,7 @@ function VideoPreview({
         preload="auto"
         className="hiddenSource"
         onLoadedMetadata={(event) => {
-          setDuration(visibleDuration);
+          setSourceMediaDuration(event.currentTarget.duration);
           if (trimStartSec > 0) event.currentTarget.currentTime = trimStartSec;
           setError(null);
         }}
@@ -2939,105 +3080,148 @@ function VideoPreview({
           onCurrentTimeChange?.(Math.min(visibleTime, visibleDuration));
         }}
       />
-      {cameraSrc ? <video ref={cameraVideoRef} src={cameraSrc} preload="auto" className="hiddenSource" muted /> : null}
+      {cameraSrc ? <video ref={cameraVideoRef} src={cameraSrc} preload="auto" className="hiddenSource" muted onLoadedMetadata={(event) => setCameraMediaDuration(event.currentTarget.duration)} /> : null}
       <canvas
         ref={canvasRef}
-        className={`styledPreviewCanvas${isDraggingCamera ? ' draggingCamera' : ''}`}
+        className={`styledPreviewCanvas${isDraggingCamera ? ' draggingCamera' : ''}${isDraggingScreen ? ' draggingScreen' : ''}`}
         aria-label="Styled preview"
         data-camera-draggable={onCameraFrameChange ? 'true' : 'false'}
+        data-screen-draggable={onScreenFrameChange ? 'true' : 'false'}
         style={{ aspectRatio: `${canvasResolution.width} / ${canvasResolution.height}` }}
         onPointerMove={(event) => {
           const canvas = canvasRef.current;
-          if (!canvas || !onCameraFrameChange) return;
+          if (!canvas || (!onCameraFrameChange && !onScreenFrameChange)) return;
           const rect = canvas.getBoundingClientRect();
           const xCanvas = ((event.clientX - rect.left) * canvas.width) / rect.width;
           const yCanvas = ((event.clientY - rect.top) * canvas.height) / rect.height;
           const origin = cameraDragOriginRef.current;
           if (origin && origin.pointerId === event.pointerId) {
-            const nextX = (xCanvas - origin.offsetX) / canvas.width;
-            const nextY = (yCanvas - origin.offsetY) / canvas.height;
-            const w = origin.width / canvas.width;
-            const h = origin.height / canvas.height;
-            cameraDragRef.current = {
-              x: clampUnit(nextX, 0),
-              y: clampUnit(nextY, 0),
-              w,
-              h,
-            };
-            // clamp so the rect stays inside the canvas
-            cameraDragRef.current.x = Math.max(0, Math.min(1 - w, cameraDragRef.current.x));
-            cameraDragRef.current.y = Math.max(0, Math.min(1 - h, cameraDragRef.current.y));
+            cameraDragRef.current = origin.mode === 'resize'
+              ? resizeRectFromPointer(origin, xCanvas, yCanvas, canvas.width, canvas.height)
+              : moveRectFromPointer(origin, xCanvas, yCanvas, canvas.width, canvas.height);
+            previewInteractionDirtyRef.current = true;
+            return;
+          }
+          const screenOrigin = screenDragOriginRef.current;
+          if (screenOrigin && screenOrigin.pointerId === event.pointerId) {
+            screenDragRef.current = screenOrigin.mode === 'resize'
+              ? resizeRectFromPointer(screenOrigin, xCanvas, yCanvas, canvas.width, canvas.height)
+              : moveRectFromPointer(screenOrigin, xCanvas, yCanvas, canvas.width, canvas.height);
+            previewInteractionDirtyRef.current = true;
             return;
           }
           const cameraRect = cameraRectRef.current;
-          const overCamera = !!cameraRect && xCanvas >= cameraRect.x && xCanvas <= cameraRect.x + cameraRect.w && yCanvas >= cameraRect.y && yCanvas <= cameraRect.y + cameraRect.h;
-          (event.currentTarget as HTMLCanvasElement).style.cursor = overCamera ? 'grab' : '';
+          const overCamera = !!onCameraFrameChange && !!cameraRect && xCanvas >= cameraRect.x && xCanvas <= cameraRect.x + cameraRect.w && yCanvas >= cameraRect.y && yCanvas <= cameraRect.y + cameraRect.h;
+          const screenRect = screenRectRef.current;
+          const overScreen = !!onScreenFrameChange && !!screenRect && xCanvas >= screenRect.x && xCanvas <= screenRect.x + screenRect.w && yCanvas >= screenRect.y && yCanvas <= screenRect.y + screenRect.h;
+          const cameraHandle = onCameraFrameChange && cameraRect ? resizeHandleAtPoint(xCanvas, yCanvas, cameraRect) : null;
+          const screenHandle = onScreenFrameChange && screenRect ? resizeHandleAtPoint(xCanvas, yCanvas, screenRect) : null;
+          (event.currentTarget as HTMLCanvasElement).style.cursor = cameraHandle ? cursorForResizeHandle(cameraHandle) : screenHandle ? cursorForResizeHandle(screenHandle) : overCamera || overScreen ? 'grab' : '';
         }}
         onPointerDown={(event) => {
           const canvas = canvasRef.current;
-          if (!canvas || !onCameraFrameChange) return;
-          const cameraRect = cameraRectRef.current;
-          if (!cameraRect) return;
+          if (!canvas || (!onCameraFrameChange && !onScreenFrameChange)) return;
           const rect = canvas.getBoundingClientRect();
           const xCanvas = ((event.clientX - rect.left) * canvas.width) / rect.width;
           const yCanvas = ((event.clientY - rect.top) * canvas.height) / rect.height;
-          const inside = xCanvas >= cameraRect.x && xCanvas <= cameraRect.x + cameraRect.w && yCanvas >= cameraRect.y && yCanvas <= cameraRect.y + cameraRect.h;
-          if (!inside) return;
+          const cameraRect = cameraRectRef.current;
+          const cameraHandle = onCameraFrameChange && cameraRect ? resizeHandleAtPoint(xCanvas, yCanvas, cameraRect) : null;
+          const insideCamera = !!onCameraFrameChange && !!cameraRect && xCanvas >= cameraRect.x && xCanvas <= cameraRect.x + cameraRect.w && yCanvas >= cameraRect.y && yCanvas <= cameraRect.y + cameraRect.h;
+          if ((insideCamera || cameraHandle) && cameraRect) {
+            const mode = cameraHandle ? 'resize' : 'move';
+            event.preventDefault();
+            (event.currentTarget as HTMLCanvasElement).setPointerCapture(event.pointerId);
+            cameraDragOriginRef.current = {
+              pointerId: event.pointerId,
+              mode,
+              handle: cameraHandle ?? undefined,
+              offsetX: xCanvas - cameraRect.x,
+              offsetY: yCanvas - cameraRect.y,
+              startX: cameraRect.x,
+              startY: cameraRect.y,
+              width: cameraRect.w,
+              height: cameraRect.h,
+              aspect: Math.max(0.01, cameraRect.w / Math.max(1, cameraRect.h)),
+            };
+            cameraDragRef.current = {
+              x: cameraRect.x / canvas.width,
+              y: cameraRect.y / canvas.height,
+              w: cameraRect.w / canvas.width,
+              h: cameraRect.h / canvas.height,
+            };
+            setIsDraggingCamera(true);
+            (event.currentTarget as HTMLCanvasElement).style.cursor = cameraHandle ? cursorForResizeHandle(cameraHandle) : 'grabbing';
+            return;
+          }
+          const screenRect = screenRectRef.current;
+          const screenHandle = onScreenFrameChange && screenRect ? resizeHandleAtPoint(xCanvas, yCanvas, screenRect) : null;
+          const insideScreen = !!onScreenFrameChange && !!screenRect && xCanvas >= screenRect.x && xCanvas <= screenRect.x + screenRect.w && yCanvas >= screenRect.y && yCanvas <= screenRect.y + screenRect.h;
+          if ((!insideScreen && !screenHandle) || !screenRect) return;
+          const mode = screenHandle ? 'resize' : 'move';
           event.preventDefault();
           (event.currentTarget as HTMLCanvasElement).setPointerCapture(event.pointerId);
-          cameraDragOriginRef.current = {
+          screenDragOriginRef.current = {
             pointerId: event.pointerId,
-            offsetX: xCanvas - cameraRect.x,
-            offsetY: yCanvas - cameraRect.y,
-            width: cameraRect.w,
-            height: cameraRect.h,
+            mode,
+            handle: screenHandle ?? undefined,
+            offsetX: xCanvas - screenRect.x,
+            offsetY: yCanvas - screenRect.y,
+            startX: screenRect.x,
+            startY: screenRect.y,
+            width: screenRect.w,
+            height: screenRect.h,
+            aspect: sourceWidth / Math.max(1, sourceHeight),
           };
-          cameraDragRef.current = {
-            x: cameraRect.x / canvas.width,
-            y: cameraRect.y / canvas.height,
-            w: cameraRect.w / canvas.width,
-            h: cameraRect.h / canvas.height,
+          screenDragRef.current = {
+            x: screenRect.x / canvas.width,
+            y: screenRect.y / canvas.height,
+            w: screenRect.w / canvas.width,
+            h: screenRect.h / canvas.height,
           };
-          setIsDraggingCamera(true);
-          (event.currentTarget as HTMLCanvasElement).style.cursor = 'grabbing';
+          setIsDraggingScreen(true);
+          (event.currentTarget as HTMLCanvasElement).style.cursor = screenHandle ? cursorForResizeHandle(screenHandle) : 'grabbing';
         }}
         onPointerUp={(event) => {
           const origin = cameraDragOriginRef.current;
-          if (!origin || origin.pointerId !== event.pointerId) return;
-          const drag = cameraDragRef.current;
-          cameraDragOriginRef.current = null;
-          cameraDragRef.current = null;
-          setIsDraggingCamera(false);
+          if (origin && origin.pointerId === event.pointerId) {
+            const drag = cameraDragRef.current;
+            cameraDragOriginRef.current = null;
+            cameraDragRef.current = null;
+            setIsDraggingCamera(false);
+            (event.currentTarget as HTMLCanvasElement).style.cursor = '';
+            try { (event.currentTarget as HTMLCanvasElement).releasePointerCapture(event.pointerId); } catch {}
+            if (drag) onCameraFrameChange?.(drag);
+            return;
+          }
+          const screenOrigin = screenDragOriginRef.current;
+          if (!screenOrigin || screenOrigin.pointerId !== event.pointerId) return;
+          const screenDrag = screenDragRef.current;
+          screenDragOriginRef.current = null;
+          screenDragRef.current = null;
+          setIsDraggingScreen(false);
           (event.currentTarget as HTMLCanvasElement).style.cursor = '';
           try { (event.currentTarget as HTMLCanvasElement).releasePointerCapture(event.pointerId); } catch {}
-          if (drag) onCameraFrameChange?.(drag);
+          if (screenDrag) onScreenFrameChange?.(screenDrag);
         }}
         onPointerCancel={(event) => {
           cameraDragOriginRef.current = null;
           cameraDragRef.current = null;
+          screenDragOriginRef.current = null;
+          screenDragRef.current = null;
           setIsDraggingCamera(false);
+          setIsDraggingScreen(false);
           (event.currentTarget as HTMLCanvasElement).style.cursor = '';
         }}
       />
       <div className="videoControls" aria-label="Video playback controls">
-        <button type="button" className="secondary compact" onClick={togglePlayback}>
+        <button type="button" className="transportButton" onClick={togglePlayback} title="Play or pause (Space)">
           <Icon name={isPlaying ? 'pause' : 'play'} />
           <span className="visuallyHidden">{isPlaying ? 'Pause' : 'Play'}</span>
         </button>
         <span className="timecode">
-          {formatClock(currentTime)} / {formatClock(duration)}
+          {formatClock(currentTime)} / {formatClock(visibleDuration)}
         </span>
-        <input
-          aria-label="Seek video"
-          type="range"
-          min="0"
-          max={visibleDuration || duration || 0}
-          step="0.1"
-          value={Math.min(currentTime, visibleDuration || duration || 0)}
-          onWheelCapture={preventRangeWheelChange}
-          onInput={(event) => seek(event.currentTarget.value)}
-          onChange={(event) => seek(event.currentTarget.value)}
-        />
+        <span className="transportHint"><kbd>Space</kbd> play/pause</span>
       </div>
       {error ? <p className="error">Video failed to load: {error}</p> : null}
     </div>
@@ -3081,6 +3265,47 @@ function resolveCameraFrame(
     w: width,
     h: height,
   };
+}
+
+function resolveScreenFrame(
+  normalizedFrame: { x: number; y: number; w: number; h: number } | undefined,
+  defaultX: number,
+  defaultY: number,
+  defaultWidth: number,
+  defaultHeight: number,
+  canvasWidth: number,
+  canvasHeight: number,
+) {
+  if (!normalizedFrame) return { x: defaultX, y: defaultY, w: defaultWidth, h: defaultHeight };
+  const w = Math.max(2, Math.min(canvasWidth, normalizedFrame.w * canvasWidth));
+  const h = Math.max(2, Math.min(canvasHeight, normalizedFrame.h * canvasHeight));
+  return {
+    x: Math.max(0, Math.min(canvasWidth - w, normalizedFrame.x * canvasWidth)),
+    y: Math.max(0, Math.min(canvasHeight - h, normalizedFrame.y * canvasHeight)),
+    w,
+    h,
+  };
+}
+
+function drawEditorFrameControls(ctx: CanvasRenderingContext2D, rect: { x: number; y: number; w: number; h: number } | null, color: string) {
+  if (!rect) return;
+  const handleSize = Math.max(14, Math.min(26, Math.min(rect.w, rect.h) * 0.12));
+  ctx.save();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = color;
+  ctx.setLineDash([12, 8]);
+  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.setLineDash([]);
+  ctx.fillStyle = color;
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.78)';
+  ctx.lineWidth = 4;
+  for (const handle of frameResizeHandles(rect)) {
+    ctx.beginPath();
+    ctx.roundRect(handle.x - handleSize / 2, handle.y - handleSize / 2, handleSize, handleSize, 5);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function resolveCameraRadius(

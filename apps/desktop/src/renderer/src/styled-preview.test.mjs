@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activeClickEmphasisAtFrame, coverSourceRect, cursorAtFrame, drawClickEmphasis, drawCursorPath } from './styled-preview.mjs';
+import { activeClickEmphasisAtFrame, cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFrame, cursorForResizeHandle, drawClickEmphasis, drawCursorPath, frameResizeHandles, moveRectFromPointer, resizeHandleAtPoint, resizeRectFromPointer } from './styled-preview.mjs';
 
 test('cursorAtFrame returns null for empty events', () => {
   assert.equal(cursorAtFrame([], 0), null);
@@ -178,4 +178,86 @@ test('coverSourceRect crops tall camera sources instead of stretching to square'
 test('coverSourceRect returns null for invalid dimensions', () => {
   assert.equal(coverSourceRect(0, 720, 180, 180), null);
   assert.equal(coverSourceRect(1280, 720, 0, 180), null);
+});
+
+test('clampedCameraTime keeps camera seeks inside the loaded media duration', () => {
+  assert.equal(clampedCameraTime(1, 0.5, 4, 30), 1.5);
+  assert.equal(clampedCameraTime(2.3, 2.5, 4.4, 30), 4.4 - 1 / 30);
+  assert.equal(clampedCameraTime(1, 0.5, Number.NaN, 30), 1.5);
+});
+
+test('cameraCoversSourceTime returns false once the camera tail is exhausted', () => {
+  assert.equal(cameraCoversSourceTime(1, 2.5, 4.4, 30), true);
+  assert.equal(cameraCoversSourceTime(2.3, 2.5, 4.4, 30), false);
+  assert.equal(cameraCoversSourceTime(2.3, 2.5, Number.NaN, 30), true);
+});
+
+test('frame resize handles cover every corner and edge midpoint', () => {
+  const handles = frameResizeHandles({ x: 100, y: 50, w: 400, h: 200 });
+
+  assert.deepEqual(handles.map((handle) => handle.handle), ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']);
+  assert.deepEqual(handles.find((handle) => handle.handle === 'nw'), { handle: 'nw', x: 100, y: 50 });
+  assert.deepEqual(handles.find((handle) => handle.handle === 'n'), { handle: 'n', x: 300, y: 50 });
+  assert.deepEqual(handles.find((handle) => handle.handle === 'e'), { handle: 'e', x: 500, y: 150 });
+  assert.deepEqual(handles.find((handle) => handle.handle === 'se'), { handle: 'se', x: 500, y: 250 });
+});
+
+test('resizeHandleAtPoint resolves nearest handle and cursor shape', () => {
+  const rect = { x: 100, y: 50, w: 400, h: 200 };
+
+  assert.equal(resizeHandleAtPoint(100, 50, rect), 'nw');
+  assert.equal(resizeHandleAtPoint(300, 50, rect), 'n');
+  assert.equal(resizeHandleAtPoint(500, 150, rect), 'e');
+  assert.equal(resizeHandleAtPoint(500, 250, rect), 'se');
+  assert.equal(resizeHandleAtPoint(340, 150, rect), null);
+  assert.equal(cursorForResizeHandle('n'), 'ns-resize');
+  assert.equal(cursorForResizeHandle('e'), 'ew-resize');
+  assert.equal(cursorForResizeHandle('ne'), 'nesw-resize');
+  assert.equal(cursorForResizeHandle('se'), 'nwse-resize');
+});
+
+test('moveRectFromPointer preserves size and clamps inside canvas', () => {
+  const origin = { offsetX: 20, offsetY: 30, width: 400, height: 200 };
+
+  assert.deepEqual(moveRectFromPointer(origin, 420, 230, 1000, 500), { x: 0.4, y: 0.4, w: 0.4, h: 0.4 });
+  assert.deepEqual(moveRectFromPointer(origin, 9999, 9999, 1000, 500), { x: 0.6, y: 0.6, w: 0.4, h: 0.4 });
+  assert.deepEqual(moveRectFromPointer(origin, -9999, -9999, 1000, 500), { x: 0, y: 0, w: 0.4, h: 0.4 });
+});
+
+test('resizeRectFromPointer preserves aspect ratio for all handles', () => {
+  const base = { pointerId: 1, mode: 'resize', offsetX: 0, offsetY: 0, startX: 200, startY: 100, width: 400, height: 200, aspect: 2 };
+  const cases = [
+    ['nw', 100, 0],
+    ['n', 400, 50],
+    ['ne', 700, 0],
+    ['e', 700, 200],
+    ['se', 700, 400],
+    ['s', 400, 400],
+    ['sw', 100, 400],
+    ['w', 100, 200],
+  ];
+
+  for (const [handle, x, y] of cases) {
+    const resized = resizeRectFromPointer({ ...base, handle }, x, y, 1000, 500);
+    assert.equal(Number((resized.w / resized.h).toFixed(6)), 1);
+    assert(resized.x >= 0 && resized.y >= 0, `${handle} should stay within top-left bounds`);
+    assert(resized.x + resized.w <= 1.000001, `${handle} should stay within right bounds`);
+    assert(resized.y + resized.h <= 1.000001, `${handle} should stay within bottom bounds`);
+  }
+});
+
+test('resizeRectFromPointer anchors opposite side for edge and corner handles', () => {
+  const base = { pointerId: 1, mode: 'resize', offsetX: 0, offsetY: 0, startX: 200, startY: 100, width: 400, height: 200, aspect: 2 };
+
+  assert.deepEqual(resizeRectFromPointer({ ...base, handle: 'se' }, 700, 400, 1000, 500), { x: 0.2, y: 0.2, w: 0.6, h: 0.6 });
+  assert.deepEqual(resizeRectFromPointer({ ...base, handle: 'nw' }, 100, 0, 1000, 500), { x: 0, y: 0, w: 0.6, h: 0.6 });
+  assert.deepEqual(resizeRectFromPointer({ ...base, handle: 'n' }, 400, 50, 1000, 500), { x: 0.15, y: 0.1, w: 0.5, h: 0.5 });
+  assert.deepEqual(resizeRectFromPointer({ ...base, handle: 'e' }, 700, 200, 1000, 500), { x: 0.2, y: 0.15, w: 0.5, h: 0.5 });
+});
+
+test('resizeRectFromPointer clamps oversized and undersized resizes', () => {
+  const base = { pointerId: 1, mode: 'resize', offsetX: 0, offsetY: 0, startX: 200, startY: 100, width: 400, height: 200, aspect: 2 };
+
+  assert.deepEqual(resizeRectFromPointer({ ...base, handle: 'se' }, 9999, 9999, 1000, 500), { x: 0.2, y: 0.2, w: 0.8, h: 0.8 });
+  assert.deepEqual(resizeRectFromPointer({ ...base, handle: 'se' }, 201, 101, 1000, 500), { x: 0.2, y: 0.2, w: 0.05, h: 0.05 });
 });

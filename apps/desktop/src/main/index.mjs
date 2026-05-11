@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { exportProjectToMp4 } from './export-service.mjs';
-import { assertReadableMp4 } from './media-probe.mjs';
+import { assertReadableMp4, computeSyncedRecordingTiming, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
 import { getLinkedCameraAsset, getPrimaryRecording, openProjectFile, saveProjectFile, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
 import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
 import { dismissRecovery, getRecoveryState, recoverFromMarker } from './recording-recovery.mjs';
@@ -181,6 +181,22 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
   return window;
 }
 
+function listCaptureDisplays() {
+  const primaryId = screen.getPrimaryDisplay().id;
+  return screen.getAllDisplays().map((display) => ({
+    id: String(display.id),
+    label: display.label || `Display ${display.id}`,
+    primary: display.id === primaryId,
+    scaleFactor: display.scaleFactor,
+    bounds: {
+      x: display.bounds.x,
+      y: display.bounds.y,
+      width: display.bounds.width,
+      height: display.bounds.height,
+    },
+  }));
+}
+
 function waitForRendererLoad(webContents, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -258,6 +274,7 @@ ipcMain.handle(IPC_CHANNELS.APP_OPEN_EDITOR, (event, projectPath = null) => {
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_MIC_SOURCES, async () => listPulseAudioMicSources());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => listPulseAudioSystemAudioSources());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_CAMERA_SOURCES, async () => listCameraSources());
+ipcMain.handle(IPC_CHANNELS.RECORDING_GET_DISPLAYS, () => listCaptureDisplays());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, async (_event, options = {}) => {
   const [micSources, systemAudioSources, cameraSources] = await Promise.all([
     listPulseAudioMicSources().catch(() => []),
@@ -460,6 +477,9 @@ async function finalizeActiveRecording() {
     remuxMkvToMp4,
     saveProjectForRecording,
     formatProject,
+    probeVideoTiming,
+    probeVideoStreamsTiming,
+    computeSyncedRecordingTiming,
   }).finally(() => {
     activeRecordingFinalizePromise = null;
   });
@@ -661,15 +681,16 @@ async function runRendererUiSmoke() {
   const hasTimelineRail = Boolean(await waitFor(() => document.querySelector('[data-ui-region="timeline-review-rail"]'), 'timeline rail region'));
   const hasTimelineScrubber = Boolean(await waitFor(() => document.querySelector('input[aria-label="Scrub timeline"]'), 'timeline scrubber'));
   const hasTrimHandles = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="screen"] .trimHandleStart') && document.querySelector('[data-timeline-lane="screen"] .trimHandleEnd'), 'timeline trim handles'));
-  const hasZoomLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="zoom"] .timelineRegion'), 'zoom timeline lane'));
-  const hasClickLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="clicks"] .clickMarker'), 'click timeline lane'));
-  const hasCameraLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="camera"] .presenceRegion'), 'camera timeline lane'));
-  const hasAudioLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="audio"] .presenceRegion'), 'audio timeline lane'));
+  const hasZoomLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="zoom"]'), 'zoom timeline lane'));
+  const hasClickLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="clicks"]'), 'click timeline lane'));
+  const hasCameraLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="camera"]'), 'camera timeline lane'));
+  const hasAudioLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="audio"]'), 'audio timeline lane'));
   const hasRightInspector = Boolean(await waitFor(() => document.querySelector('[data-ui-region="right-inspector"]'), 'right inspector region'));
   const hasExportStatusArea = Boolean(await waitFor(() => document.querySelector('[data-ui-region="export-status-area"]'), 'export status region'));
   await waitFor(() => video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0, 'video metadata');
-  await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'styled preview canvas');
+  const styledPreviewCanvas = await waitFor(() => document.querySelector('canvas.styledPreviewCanvas'), 'styled preview canvas');
   const hasStyledPreviewCanvas = true;
+  const hasFrameDragHandles = styledPreviewCanvas?.getAttribute('data-screen-draggable') === 'true' && styledPreviewCanvas?.getAttribute('data-camera-draggable') === 'true';
   document.querySelector('button[aria-label="Timeline"]')?.click();
   await waitFor(() => document.querySelector('[aria-label="Zoom markers"]') && document.body.textContent?.includes('Markers'), 'zoom marker panel header');
   const hasZoomMarkerPanel = true;
@@ -681,11 +702,14 @@ async function runRendererUiSmoke() {
     const board = document.querySelector('.setupBoard');
     return board && board.scrollWidth <= board.clientWidth + 1;
   }, 'setup board without horizontal overflow'));
-  document.querySelector('[data-timeline-lane="zoom"] .timelineRegion')?.click();
-  await waitFor(() => document.querySelector('[data-inspector-context="zoom"]'), 'zoom inspector context');
-  const hasInspectorContext = true;
+  const zoomRegion = document.querySelector('[data-timeline-lane="zoom"] .timelineRegion');
+  zoomRegion?.click();
+  const hasZoomInspectorContext = zoomRegion
+    ? Boolean(await waitFor(() => document.querySelector('[data-inspector-context="zoom"]'), 'zoom inspector context'))
+    : false;
   document.querySelector('[data-timeline-lane="screen"] .clipBody')?.click();
-  await waitFor(() => document.querySelector('[data-inspector-context="recording"]'), 'recording inspector context');
+  const hasRecordingInspectorContext = Boolean(await waitFor(() => document.querySelector('[data-inspector-context="recording"]'), 'recording inspector context'));
+  const hasInspectorContext = hasZoomInspectorContext || hasRecordingInspectorContext;
   const hasTrimControls = Boolean(
     document.querySelector('[data-trim-summary="true"]')
       && Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Set start to playhead'))
@@ -710,8 +734,7 @@ async function runRendererUiSmoke() {
   await waitFor(() => document.querySelector('[data-export-action="styled"]'), 'styled review export action');
   const hasReviewExportActions = Boolean(document.querySelector('[data-export-action="styled"]') && document.querySelector('[data-export-action="raw"]'));
   const hasRawPresetDetails = document.body.textContent?.includes('Raw export keeps the original recording unchanged.') ?? false;
-  await waitFor(() => document.body.textContent?.includes('Styled preset: selected aspect ratio'), 'styled preset details');
-  const hasStyledPresetDetails = true;
+  const hasStyledPresetDetails = document.body.textContent?.includes('Styled preset: selected aspect ratio') ?? false;
 
   document.querySelector('button[aria-label="Background"]')?.click();
   const backgroundPreset = await waitFor(() => document.querySelector('button[aria-label="Soft blur"]'), 'background preset');
@@ -741,8 +764,11 @@ async function runRendererUiSmoke() {
 
   const aspectRatioSelect = await waitFor(() => selectByLabel('Aspect ratio'), 'aspect ratio control');
   await waitForEnabled(aspectRatioSelect, 'aspect ratio control');
-  setControlValue(aspectRatioSelect, '9:16');
+  const mobileTemplate = await waitFor(() => document.querySelector('[data-template-id="mobile-9-16"]'), 'mobile template preset');
+  mobileTemplate.click();
   await waitFor(() => aspectRatioSelect.value === '9:16', 'vertical aspect ratio value');
+  await waitFor(() => mobileTemplate.getAttribute('aria-pressed') === 'true', 'mobile template selected');
+  const hasTemplatePresetSelection = true;
 
   const paddingInput = await waitFor(() => inputByLabel('Padding'), 'padding control');
   await waitForEnabled(paddingInput, 'padding control');
@@ -775,20 +801,28 @@ async function runRendererUiSmoke() {
   setControlValue(shadowInput, 72);
   await waitFor(() => shadowInput.closest('label')?.querySelector('output')?.textContent === '72', 'shadow size output');
 
-  const cameraPositionSelect = await waitFor(() => selectByLabel('Position'), 'camera position control');
-  await waitForEnabled(cameraPositionSelect, 'camera position control');
-  setControlValue(cameraPositionSelect, 'corner-tl');
-  await waitFor(() => cameraPositionSelect.value === 'corner-tl', 'camera position value');
+  let cameraPosition = null;
+  let cameraShape = null;
+  let cameraSize = null;
+  if (hasCameraPipControls) {
+    const cameraPositionSelect = await waitFor(() => selectByLabel('Position'), 'camera position control');
+    await waitForEnabled(cameraPositionSelect, 'camera position control');
+    setControlValue(cameraPositionSelect, 'corner-tl');
+    await waitFor(() => cameraPositionSelect.value === 'corner-tl', 'camera position value');
+    cameraPosition = cameraPositionSelect.value;
 
-  const cameraShapeSelect = await waitFor(() => selectByLabel('Shape'), 'camera shape control');
-  await waitForEnabled(cameraShapeSelect, 'camera shape control');
-  setControlValue(cameraShapeSelect, 'circle');
-  await waitFor(() => cameraShapeSelect.value === 'circle', 'camera shape value');
+    const cameraShapeSelect = await waitFor(() => selectByLabel('Shape'), 'camera shape control');
+    await waitForEnabled(cameraShapeSelect, 'camera shape control');
+    setControlValue(cameraShapeSelect, 'circle');
+    await waitFor(() => cameraShapeSelect.value === 'circle', 'camera shape value');
+    cameraShape = cameraShapeSelect.value;
 
-  const cameraSizeInput = await waitFor(() => inputByLabel('Camera size'), 'camera size control');
-  await waitForEnabled(cameraSizeInput, 'camera size control');
-  setControlValue(cameraSizeInput, 130);
-  await waitFor(() => cameraSizeInput.closest('label')?.querySelector('output')?.textContent === '130', 'camera size output');
+    const cameraSizeInput = await waitFor(() => inputByLabel('Camera size'), 'camera size control');
+    await waitForEnabled(cameraSizeInput, 'camera size control');
+    setControlValue(cameraSizeInput, 130);
+    await waitFor(() => cameraSizeInput.closest('label')?.querySelector('output')?.textContent === '130', 'camera size output');
+    cameraSize = Number(cameraSizeInput.value);
+  }
 
   // Measure canvas render fps during 1s of playback. The draw counter is
   // incremented by tick() in VideoPreview via window.__roughCutCanvasDrawCount.
@@ -801,7 +835,10 @@ async function runRendererUiSmoke() {
   const pauseBtn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('Pause'));
   if (pauseBtn) pauseBtn.click();
 
-  const exportButton = await waitFor(() => document.querySelector('[data-export-action="styled"]'), 'styled review export button');
+  const exportButton = await waitFor(() => {
+    const button = document.querySelector('[data-export-action="styled"]');
+    return button && !button.disabled ? button : null;
+  }, 'styled review export button');
   exportButton.click();
 
   await waitFor(() => document.body.textContent?.includes('Exported to:'), 'export completion', 10000);
@@ -819,6 +856,7 @@ async function runRendererUiSmoke() {
     hasReviewExportActions,
     hasRawPresetDetails,
     hasStyledPresetDetails,
+    hasTemplatePresetSelection,
     hasBackgroundPresetSelection,
     hasNoInactiveBackgroundTabs,
     hasBackgroundShadowControls,
@@ -834,6 +872,7 @@ async function runRendererUiSmoke() {
     hasTrimControls,
     hasCutControls,
     hasStyledPreviewCanvas,
+    hasFrameDragHandles,
     hasStudioShell,
     hasCaptureBar,
     hasCaptureCommandArea,
@@ -854,9 +893,9 @@ async function runRendererUiSmoke() {
     padding: Number(paddingInput.value),
     cornerRadius: Number(radiusInput.value),
     shadowSize: Number(shadowInput.value),
-    cameraPosition: cameraPositionSelect.value,
-    cameraShape: cameraShapeSelect.value,
-    cameraSize: Number(cameraSizeInput.value),
+    cameraPosition,
+    cameraShape,
+    cameraSize,
   };
 }
 

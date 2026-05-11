@@ -1,6 +1,6 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isFfmpegCaptureAvailable, startFfmpegCameraCapture, startFfmpegCapture } from './ffmpeg-capture.mjs';
+import { isFfmpegCaptureAvailable, startFfmpegCameraCapture, startFfmpegCapture, startFfmpegUnifiedCapture } from './ffmpeg-capture.mjs';
 import { createXinputButtonListener } from './xinput-button-listener.mjs';
 import { createEventLogger, NULL_EVENT_LOGGER } from './event-logger.mjs';
 
@@ -30,6 +30,7 @@ export function createRecordingSession({
   getCursorPoint = null,
   captureFactory = startFfmpegCapture,
   cameraCaptureFactory = startFfmpegCameraCapture,
+  unifiedCaptureFactory = cameraCaptureFactory === startFfmpegCameraCapture ? startFfmpegUnifiedCapture : null,
   isCaptureAvailable = isFfmpegCaptureAvailable,
   now = () => new Date(),
   sampleIntervalMs = DEFAULT_SAMPLE_INTERVAL_MS,
@@ -109,20 +110,23 @@ export function createRecordingSession({
         : NULL_EVENT_LOGGER;
     eventLogger.start();
     let cameraCapture = null;
+    let unifiedCapture = null;
     let cameraStartedAtDate = null;
     let cameraError = null;
-    try {
-      if (cameraDevicePath && process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR) {
-        throw new Error(process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR);
-      }
-      // Camera ffmpeg races the renderer's getUserMedia release on /dev/video*.
-      // V4L2 character devices allow multiple file opens; exclusivity is at
-      // the streaming-ioctl level, so a plain fs.open() probe (what a previous
-      // attempt used) lies — it succeeds even when ffmpeg's VIDIOC_REQBUFS
-      // would still get EBUSY. The only reliable busy detector is ffmpeg
-      // itself, so retry the spawn until ffmpeg either streams or we give up.
-      cameraStartedAtDate = cameraDevicePath ? now() : null;
-      if (cameraDevicePath) {
+    const canUseUnifiedCapture = cameraDevicePath && typeof unifiedCaptureFactory === 'function';
+
+    if (cameraDevicePath && !canUseUnifiedCapture) {
+      try {
+        if (process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR) {
+          throw new Error(process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR);
+        }
+        // Camera ffmpeg races the renderer's getUserMedia release on /dev/video*.
+        // V4L2 character devices allow multiple file opens; exclusivity is at
+        // the streaming-ioctl level, so a plain fs.open() probe (what a previous
+        // attempt used) lies — it succeeds even when ffmpeg's VIDIOC_REQBUFS
+        // would still get EBUSY. The only reliable busy detector is ffmpeg
+        // itself, so retry the spawn until ffmpeg either streams or we give up.
+        cameraStartedAtDate = now();
         cameraCapture = await spawnCameraCaptureWithRetry({
           factory: cameraCaptureFactory,
           outputPath: cameraRawPath,
@@ -131,16 +135,16 @@ export function createRecordingSession({
           earlyExitWindowMs: 1500,
           backoffMs: 500,
         });
+        if (cameraCapture && cameraWarmupMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, cameraWarmupMs));
+        }
+      } catch (err) {
+        cameraCapture = null;
+        cameraStartedAtDate = null;
+        cameraError = err instanceof Error ? err.message : String(err);
+        console.warn(`[recording-session] camera capture disabled: ${cameraError}`);
+        eventLogger.event('camera-capture-disabled', { error: cameraError, cameraDevicePath });
       }
-      if (cameraCapture && cameraWarmupMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, cameraWarmupMs));
-      }
-    } catch (err) {
-      cameraCapture = null;
-      cameraStartedAtDate = null;
-      cameraError = err instanceof Error ? err.message : String(err);
-      console.warn(`[recording-session] camera capture disabled: ${cameraError}`);
-      eventLogger.event('camera-capture-disabled', { error: cameraError, cameraDevicePath });
     }
 
     const startedAtDate = now();
@@ -150,7 +154,7 @@ export function createRecordingSession({
       startedAt: startedAtDate.toISOString(),
       rawPath,
       outputPath,
-      cameraRawPath,
+      cameraRawPath: canUseUnifiedCapture ? rawPath : cameraRawPath,
       cameraOutputPath,
       cursorTelemetryPath,
       eventsLogPath,
@@ -190,21 +194,56 @@ export function createRecordingSession({
 
     await writeRecoveryMarker(session);
 
-    const capture = captureFactory({
-      outputPath: rawPath,
-      fps: session.fps,
-      display: session.display,
-      width: session.width,
-      height: session.height,
-      micSource: session.micSource,
-      systemAudioSource: session.systemAudioSource,
-      onFirstFrame: (firstFrameMs) => {
-        eventLogger.event('first-frame-anchor', { firstFrameMs });
-      },
-    });
+    let capture = null;
+    if (canUseUnifiedCapture) {
+      try {
+        if (process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR) {
+          throw new Error(process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR);
+        }
+        unifiedCapture = await spawnUnifiedCaptureWithRetry({
+          factory: unifiedCaptureFactory,
+          outputPath: rawPath,
+          fps: session.fps,
+          display: session.display,
+          width: session.width,
+          height: session.height,
+          cameraDevicePath,
+          micSource: session.micSource,
+          systemAudioSource: session.systemAudioSource,
+          onFirstFrame: (firstFrameMs) => {
+            eventLogger.event('first-frame-anchor', { firstFrameMs });
+          },
+          maxAttempts: 6,
+          earlyExitWindowMs: 1500,
+          backoffMs: 500,
+        });
+        capture = unifiedCapture;
+      } catch (err) {
+        unifiedCapture = null;
+        cameraError = err instanceof Error ? err.message : String(err);
+        session.cameraError = cameraError;
+        console.warn(`[recording-session] unified camera capture disabled: ${cameraError}`);
+        eventLogger.event('camera-capture-disabled', { error: cameraError, cameraDevicePath });
+      }
+    }
+
+    if (!capture) {
+      capture = captureFactory({
+        outputPath: rawPath,
+        fps: session.fps,
+        display: session.display,
+        width: session.width,
+        height: session.height,
+        micSource: session.micSource,
+        systemAudioSource: session.systemAudioSource,
+        onFirstFrame: (firstFrameMs) => {
+          eventLogger.event('first-frame-anchor', { firstFrameMs });
+        },
+      });
+    }
 
     registerChild(session, 'ffmpeg-screen', capture);
-    active = { ...session, capture, cameraCapture };
+    active = { ...session, capture, cameraCapture, unifiedCapture };
 
     startTelemetryAfterIpcReturn(active, { getCursorPoint, now, sampleIntervalMs, buttonListenerFactory });
     return status();
@@ -260,7 +299,7 @@ export function createRecordingSession({
     console.info('[recording-session] phase=screen-capture-stop-begin');
     const rawPath = await session.capture.stop();
     console.info('[recording-session] phase=screen-capture-stop-done');
-    let cameraRawPath = null;
+    let cameraRawPath = session.unifiedCapture ? rawPath : null;
     let cameraError = session.cameraError ?? null;
     if (session.cameraCapture) {
       try {
@@ -272,7 +311,7 @@ export function createRecordingSession({
         console.warn(`[recording-session] phase=camera-capture-stop-failed; continuing screen-only: ${cameraError}`);
         session.eventLogger?.event('camera-capture-stop-failed', { error: cameraError, cameraDevicePath: session.cameraDevicePath });
       }
-    } else {
+    } else if (!session.unifiedCapture) {
       console.info('[recording-session] phase=camera-capture-stop-skipped (no camera in session)');
     }
 
@@ -296,11 +335,12 @@ export function createRecordingSession({
       rawPath,
       outputPath: session.outputPath,
       cameraRawPath,
-      cameraOutputPath: cameraRawPath ? session.cameraOutputPath : null,
+      cameraOutputPath: cameraRawPath && !cameraError ? session.cameraOutputPath : null,
       cameraDevicePath: session.cameraDevicePath,
       cameraError,
       camera: session.cameraOutputPath
         && cameraRawPath
+        && !cameraError
         ? {
             rawPath: cameraRawPath,
             outputPath: session.cameraOutputPath,
@@ -308,8 +348,9 @@ export function createRecordingSession({
             width: 1280,
             height: 720,
             fps: session.fps,
-            sourceInFrames: session.cameraPrerollFrames,
-            prerollMs: session.cameraPrerollMs,
+            sourceInFrames: session.unifiedCapture ? 0 : session.cameraPrerollFrames,
+            prerollMs: session.unifiedCapture ? 0 : session.cameraPrerollMs,
+            sourceStreamIndex: session.unifiedCapture ? 1 : 0,
           }
         : null,
       width: session.width,
@@ -411,6 +452,57 @@ async function spawnCameraCaptureWithRetry({
   // Throw so the existing catch in start() sets cameraError and continues
   // screen-only, exactly as if ffmpeg-camera had failed once and we gave up.
   throw new Error(lastErrorMessage ?? `ffmpeg-camera failed to start ${devicePath} after ${maxAttempts} attempts`);
+}
+
+async function spawnUnifiedCaptureWithRetry({
+  factory,
+  outputPath,
+  fps,
+  display,
+  width,
+  height,
+  cameraDevicePath,
+  micSource,
+  systemAudioSource,
+  onFirstFrame,
+  maxAttempts = 6,
+  earlyExitWindowMs = 1500,
+  backoffMs = 500,
+}) {
+  let lastErrorMessage = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const capture = factory({
+      outputPath,
+      fps,
+      display,
+      width,
+      height,
+      cameraDevicePath,
+      cameraWidth: 1280,
+      cameraHeight: 720,
+      micSource,
+      systemAudioSource,
+      onFirstFrame,
+    });
+    if (typeof capture.whenExited !== 'function') {
+      return capture;
+    }
+    const exited = await Promise.race([
+      capture.whenExited(),
+      new Promise((resolve) => setTimeout(() => resolve(null), earlyExitWindowMs)),
+    ]);
+    if (exited === null) {
+      if (attempt > 1) console.info(`[recording-session] unified capture spawn succeeded on attempt ${attempt}`);
+      return capture;
+    }
+    const stderrTail = (exited.stderr ?? '').split(/\r?\n/).filter(Boolean).slice(-3).join(' | ');
+    lastErrorMessage = `ffmpeg-unified exited early (code=${exited.code} signal=${exited.signal ?? 'null'}): ${stderrTail || 'no stderr'}`;
+    console.warn(`[recording-session] unified capture spawn attempt ${attempt}/${maxAttempts} failed: ${lastErrorMessage}`);
+    if (attempt < maxAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
+  }
+  throw new Error(lastErrorMessage ?? `ffmpeg-unified failed to start ${cameraDevicePath} after ${maxAttempts} attempts`);
 }
 
 function registerChild(session, name, handle) {

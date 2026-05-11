@@ -218,6 +218,94 @@ export function startFfmpegCameraCapture({
   };
 }
 
+export function startFfmpegUnifiedCapture({
+  outputPath,
+  fps,
+  display,
+  width,
+  height,
+  cameraDevicePath,
+  cameraWidth = 1280,
+  cameraHeight = 720,
+  micSource = null,
+  systemAudioSource = null,
+  systemAudioGainPercent = 100,
+  onFirstFrame = null,
+}) {
+  const args = buildFfmpegUnifiedCaptureArgs({
+    outputPath,
+    fps,
+    display,
+    width,
+    height,
+    cameraDevicePath,
+    cameraWidth,
+    cameraHeight,
+    micSource,
+    systemAudioSource,
+    systemAudioGainPercent,
+  });
+  console.info('[ffmpeg-unified] Starting:', 'ffmpeg', args.join(' '));
+
+  const proc = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+  let stderr = '';
+  let exitInfo = null;
+  const stderrState = createStderrDropWatcher('[ffmpeg-unified]');
+
+  proc.stderr?.on('data', (chunk) => {
+    const text = chunk.toString();
+    stderr += text;
+    logProcessOutput('[ffmpeg-unified:stderr]', text);
+    stderrState.observe(text);
+  });
+  proc.stdout?.on('data', (chunk) => logProcessOutput('[ffmpeg-unified:stdout]', chunk.toString()));
+
+  if (typeof onFirstFrame === 'function') {
+    const detector = createFirstFrameDetector({
+      onFirstFrame: (ms) => {
+        try {
+          onFirstFrame(ms);
+        } catch (err) {
+          console.warn('[ffmpeg-unified] onFirstFrame callback threw:', err?.message ?? err);
+        }
+      },
+    });
+    proc.stdout?.on('data', (chunk) => detector.observe(chunk.toString(), Date.now()));
+  }
+
+  proc.on('error', (err) => console.error('[ffmpeg-unified] Process error:', err.message));
+  const exitPromise = new Promise((resolve) => {
+    proc.on('exit', (code, signal) => {
+      exitInfo = { code, signal, stderr };
+      if (code !== 0 && signal !== 'SIGINT') {
+        console.warn('[ffmpeg-unified] Exited with code', code, 'signal', signal);
+        if (stderr) console.warn('[ffmpeg-unified] stderr tail:', stderr.slice(-500));
+      } else {
+        console.info('[ffmpeg-unified] Stopped cleanly.');
+      }
+      resolve(exitInfo);
+    });
+  });
+
+  return {
+    outputPath,
+    getPid() { return proc.pid ?? null; },
+    getExitInfo() { return exitInfo; },
+    whenExited() { return exitPromise; },
+    kill(signal = 'SIGTERM') {
+      if (proc.exitCode === null && proc.signalCode === null) {
+        try { proc.kill(signal); } catch { /* already gone */ }
+      }
+    },
+    stop() {
+      return stopFfmpegProcess(proc, outputPath, '[ffmpeg-unified]', 'MKV finalization');
+    },
+    cancel() {
+      return cancelFfmpegProcess(proc, outputPath, '[ffmpeg-unified]');
+    },
+  };
+}
+
 function cancelFfmpegProcess(proc, outputPath, tag) {
   return new Promise((resolve) => {
     if (proc.exitCode !== null || proc.signalCode !== null) {
@@ -541,6 +629,159 @@ export function buildFfmpegCaptureArgs({
   }
 
   args.push(outputPath);
+  return args;
+}
+
+export function buildFfmpegUnifiedCaptureArgs({
+  outputPath,
+  fps,
+  display,
+  width,
+  height,
+  cameraDevicePath,
+  cameraWidth = 1280,
+  cameraHeight = 720,
+  micSource = null,
+  systemAudioSource = null,
+  systemAudioGainPercent = 100,
+}) {
+  if (typeof cameraDevicePath !== 'string' || cameraDevicePath.trim().length === 0) {
+    throw new Error('Camera device path is required for unified capture.');
+  }
+  const frameRate = Number.isFinite(fps) && fps > 0 ? Math.round(fps) : 30;
+  const hasMic = typeof micSource === 'string' && micSource.length > 0;
+  const hasSysAudio = typeof systemAudioSource === 'string' && systemAudioSource.length > 0;
+  const audioInputCount = (hasMic ? 1 : 0) + (hasSysAudio ? 1 : 0);
+  const screenKeyframeInterval = Math.max(30, frameRate);
+  const cameraKeyframeInterval = Math.max(30, frameRate);
+  const captureCameraWidth = Math.max(2, Math.round(cameraWidth));
+  const captureCameraHeight = Math.max(2, Math.round(cameraHeight));
+  const args = [
+    '-y',
+    '-progress',
+    'pipe:1',
+    '-stats_period',
+    '0.05',
+    '-thread_queue_size',
+    '1024',
+    '-f',
+    'x11grab',
+    '-draw_mouse',
+    '0',
+    '-framerate',
+    String(frameRate),
+    '-video_size',
+    `${width}x${height}`,
+    '-i',
+    display,
+    '-use_wallclock_as_timestamps',
+    '1',
+    '-fflags',
+    'nobuffer',
+    '-thread_queue_size',
+    '1024',
+    '-f',
+    'v4l2',
+    '-input_format',
+    'mjpeg',
+    '-framerate',
+    String(frameRate),
+    '-video_size',
+    `${captureCameraWidth}x${captureCameraHeight}`,
+    '-i',
+    cameraDevicePath,
+  ];
+
+  let nextInputIndex = 2;
+  const systemAudioIndex = hasSysAudio ? nextInputIndex++ : null;
+  const micIndex = hasMic ? nextInputIndex++ : null;
+
+  if (hasSysAudio) {
+    args.push(
+      '-thread_queue_size',
+      '1024',
+      '-f',
+      'pulse',
+      '-ac',
+      '2',
+      '-ar',
+      '48000',
+      '-i',
+      systemAudioSource,
+    );
+  }
+  if (hasMic) {
+    args.push(
+      '-thread_queue_size',
+      '1024',
+      '-f',
+      'pulse',
+      '-ac',
+      '2',
+      '-ar',
+      '48000',
+      '-i',
+      micSource,
+    );
+  }
+
+  const systemAudioGain = Math.max(0, Math.min(1, Number(systemAudioGainPercent) / 100 || 0));
+  const needsSystemAudioGain = hasSysAudio && Math.abs(systemAudioGain - 1) > 0.001;
+  if (hasSysAudio && hasMic) {
+    const sysChain = needsSystemAudioGain
+      ? `[${systemAudioIndex}:a]volume=${systemAudioGain.toFixed(2)}[sysa];[sysa][${micIndex}:a]amix=inputs=2[a]`
+      : `[${systemAudioIndex}:a][${micIndex}:a]amix=inputs=2[a]`;
+    args.push('-filter_complex', sysChain);
+    args.push('-map', '0:v', '-map', '1:v', '-map', '[a]');
+  } else if (hasSysAudio) {
+    if (needsSystemAudioGain) {
+      args.push('-filter_complex', `[${systemAudioIndex}:a]volume=${systemAudioGain.toFixed(2)}[a]`);
+      args.push('-map', '0:v', '-map', '1:v', '-map', '[a]');
+    } else {
+      args.push('-map', '0:v', '-map', '1:v', '-map', `${systemAudioIndex}:a`);
+    }
+  } else if (hasMic) {
+    args.push('-map', '0:v', '-map', '1:v', '-map', `${micIndex}:a`);
+  } else {
+    args.push('-map', '0:v', '-map', '1:v');
+  }
+
+  args.push(
+    '-c:v:0',
+    'libx264',
+    '-preset:v:0',
+    'superfast',
+    '-crf:v:0',
+    '16',
+    '-pix_fmt:v:0',
+    'yuv420p',
+    '-g:v:0',
+    String(screenKeyframeInterval),
+    '-keyint_min:v:0',
+    String(screenKeyframeInterval),
+    '-c:v:1',
+    'libx264',
+    '-preset:v:1',
+    'superfast',
+    '-crf:v:1',
+    '18',
+    '-pix_fmt:v:1',
+    'yuv420p',
+    '-g:v:1',
+    String(cameraKeyframeInterval),
+    '-keyint_min:v:1',
+    String(cameraKeyframeInterval),
+    '-x264-params',
+    'scenecut=0:sliced-threads=0',
+    '-threads',
+    '0',
+  );
+
+  if (audioInputCount > 0) {
+    args.push('-c:a', 'aac', '-b:a', '192k', '-ar', '48000');
+  }
+
+  args.push('-f', 'matroska', outputPath);
   return args;
 }
 

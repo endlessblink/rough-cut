@@ -9,7 +9,7 @@ import { isXinputAvailable } from '../apps/desktop/src/main/recording/xinput-but
 import { isXdotoolAvailable, readCursorViaXdotool } from '../apps/desktop/src/main/recording/xdotool-cursor.mjs';
 import { stopRecordingAndCreateProject } from '../apps/desktop/src/main/recording-stop-handler.mjs';
 import { remuxMkvToMp4 } from '../apps/desktop/src/main/remux-service.mjs';
-import { assertReadableMp4 } from '../apps/desktop/src/main/media-probe.mjs';
+import { assertReadableMp4, computeSyncedRecordingTiming, probeVideoStreamsTiming, probeVideoTiming } from '../apps/desktop/src/main/media-probe.mjs';
 import { openProjectFile, saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
 import { EXPORT_MODES, exportProjectToMp4 } from '../apps/desktop/src/main/export-service.mjs';
 
@@ -27,6 +27,7 @@ const displayName = process.env.DISPLAY || ':0';
 const display = process.env.ROUGH_CUT_REAL_SMOKE_DISPLAY || `${displayName}${formatX11Offset(originX)},${originY}`;
 const runUiSmoke = process.env.ROUGH_CUT_REAL_SMOKE_UI !== '0';
 const runStyledExport = process.env.ROUGH_CUT_REAL_SMOKE_STYLED_EXPORT !== '0';
+const expectButtonEventsOverride = process.env.ROUGH_CUT_REAL_SMOKE_EXPECT_BUTTON_EVENTS;
 let currentPhase = 'init';
 const artifacts = {};
 
@@ -58,7 +59,7 @@ const session = createRecordingSession({
   getCursorPoint: readCursorViaXdotool,
 });
 
-const expectButtonEvents = isXinputAvailable();
+const expectButtonEvents = expectButtonEventsOverride === '0' ? false : isXinputAvailable();
 const systemAudioSource = shouldRecordSystemAudio ? await pickSystemAudioSource() : null;
 console.info(`[smoke:real-recording] recording ${width}x${height} from ${display} for ${durationMs}ms${systemAudioSource ? ` with system audio ${systemAudioSource}` : ''}${cameraDevicePath ? ` with camera ${cameraDevicePath}` : ''}`);
 console.info(`[smoke:real-recording] artifacts: ${root}`);
@@ -78,6 +79,9 @@ const stopped = await stopRecordingAndCreateProject({
   remuxMkvToMp4,
   saveProjectForRecording,
   formatProject: (project) => project,
+  probeVideoTiming,
+  probeVideoStreamsTiming,
+  computeSyncedRecordingTiming,
 });
 artifacts.recordingPath = stopped.outputPath ?? null;
 artifacts.projectPath = stopped.project?.path ?? null;
