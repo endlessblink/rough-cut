@@ -218,6 +218,54 @@ export function startFfmpegCameraCapture({
   };
 }
 
+export function startFfmpegCameraPreview({
+  devicePath,
+  fps = 15,
+  width = 1280,
+  height = 720,
+  previewWidth = 320,
+  onFrame = null,
+}) {
+  const args = buildFfmpegCameraPreviewArgs({ devicePath, fps, width, height, previewWidth });
+  console.info('[ffmpeg-camera-preview] Starting:', 'ffmpeg', args.join(' '));
+
+  const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  let stderr = '';
+  const parser = createMjpegFrameParser((frame) => {
+    if (typeof onFrame === 'function') onFrame(frame);
+  });
+  proc.stdout?.on('data', (chunk) => parser.observe(chunk));
+  proc.stderr?.on('data', (chunk) => {
+    const text = chunk.toString();
+    stderr += text;
+    logProcessOutput('[ffmpeg-camera-preview:stderr]', text);
+  });
+  proc.on('error', (err) => console.error('[ffmpeg-camera-preview] Process error:', err.message));
+
+  const exitPromise = new Promise((resolve) => {
+    proc.on('exit', (code, signal) => {
+      if (code !== 0 && signal !== 'SIGTERM' && signal !== 'SIGINT') {
+        console.warn('[ffmpeg-camera-preview] Exited with code', code, 'signal', signal);
+        if (stderr) console.warn('[ffmpeg-camera-preview] stderr tail:', stderr.slice(-500));
+      } else {
+        console.info('[ffmpeg-camera-preview] Stopped cleanly.');
+      }
+      resolve({ code, signal, stderr });
+    });
+  });
+
+  return {
+    getPid() { return proc.pid ?? null; },
+    whenExited() { return exitPromise; },
+    stop() {
+      if (proc.exitCode === null && proc.signalCode === null) {
+        try { proc.kill('SIGTERM'); } catch { /* already gone */ }
+      }
+      return exitPromise;
+    },
+  };
+}
+
 export function startFfmpegUnifiedCapture({
   outputPath,
   fps,
@@ -412,6 +460,82 @@ export function buildFfmpegCameraCaptureArgs({
     'scenecut=0:sliced-threads=0',
     outputPath,
   ];
+}
+
+export function buildFfmpegCameraPreviewArgs({
+  devicePath,
+  fps = 15,
+  width = 1280,
+  height = 720,
+  previewWidth = 320,
+}) {
+  if (typeof devicePath !== 'string' || devicePath.trim().length === 0) {
+    throw new Error('Camera device path is required for preview.');
+  }
+  const frameRate = Number.isFinite(fps) && fps > 0 ? Math.round(fps) : 15;
+  const captureWidth = Math.max(2, Math.round(width));
+  const captureHeight = Math.max(2, Math.round(height));
+  const outputWidth = Math.max(2, Math.round(previewWidth));
+  return [
+    '-hide_banner',
+    '-loglevel',
+    'warning',
+    '-fflags',
+    'nobuffer',
+    '-flags',
+    'low_delay',
+    '-thread_queue_size',
+    '1024',
+    '-f',
+    'v4l2',
+    '-input_format',
+    'mjpeg',
+    '-framerate',
+    String(frameRate),
+    '-video_size',
+    `${captureWidth}x${captureHeight}`,
+    '-i',
+    devicePath,
+    '-an',
+    '-vf',
+    `fps=${frameRate},scale=${outputWidth}:-1`,
+    '-q:v',
+    '6',
+    '-f',
+    'mjpeg',
+    'pipe:1',
+  ];
+}
+
+export function createMjpegFrameParser(onFrame) {
+  let buffer = Buffer.alloc(0);
+  return {
+    observe(chunk) {
+      buffer = Buffer.concat([buffer, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)]);
+      while (buffer.length >= 4) {
+        const start = findMarker(buffer, 0xff, 0xd8, 0);
+        if (start < 0) {
+          buffer = Buffer.alloc(0);
+          return;
+        }
+        const end = findMarker(buffer, 0xff, 0xd9, start + 2);
+        if (end < 0) {
+          if (start > 0) buffer = buffer.subarray(start);
+          return;
+        }
+        const frame = buffer.subarray(start, end + 2);
+        buffer = buffer.subarray(end + 2);
+        onFrame(Buffer.from(frame));
+      }
+    },
+  };
+}
+
+function findMarker(buffer, first, second, fromIndex) {
+  for (let index = Math.max(0, fromIndex); index < buffer.length - 1; index += 1) {
+    if (buffer[index] === first && buffer[index + 1] === second) return index;
+  }
+  return -1;
 }
 
 // Grace period after SIGKILL before we give up waiting for proc.on('exit').

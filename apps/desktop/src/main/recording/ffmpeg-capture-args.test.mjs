@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import {
   buildFfmpegCaptureArgs,
   buildFfmpegCameraCaptureArgs,
+  buildFfmpegCameraPreviewArgs,
   buildFfmpegUnifiedCaptureArgs,
+  createMjpegFrameParser,
   FFMPEG_SIGINT_TIMEOUT_MS,
   FFMPEG_SIGTERM_TIMEOUT_MS,
   FFMPEG_STOP_TIMEOUT_MS,
@@ -56,6 +58,39 @@ test('camera capture uses v4l2 input and writes silent h264 video', () => {
   assert.equal(args.includes('-an'), true);
   assert.equal(args[args.indexOf('-c:v') + 1], 'libx264');
   assert.equal(args.at(-1), '/tmp/camera.mkv');
+});
+
+test('camera preview uses main-process v4l2 ffmpeg and emits mjpeg frames', () => {
+  const args = buildFfmpegCameraPreviewArgs({
+    devicePath: '/dev/video2',
+    fps: 15,
+    width: 1280,
+    height: 720,
+    previewWidth: 320,
+  });
+
+  const inputIndex = args.indexOf('-i');
+  assert.equal(args[inputIndex + 1], '/dev/video2');
+  assert.equal(args[args.indexOf('-f') + 1], 'v4l2');
+  assert.equal(args[args.indexOf('-input_format') + 1], 'mjpeg');
+  assert.equal(args[args.indexOf('-video_size') + 1], '1280x720');
+  assert.equal(args[args.indexOf('-vf') + 1], 'fps=15,scale=320:-1');
+  assert.equal(args.at(-2), 'mjpeg');
+  assert.equal(args.at(-1), 'pipe:1');
+});
+
+test('mjpeg frame parser extracts split jpeg frames and discards junk', () => {
+  const frames = [];
+  const parser = createMjpegFrameParser((frame) => frames.push(frame));
+  const frameA = Buffer.from([0xff, 0xd8, 0x01, 0x02, 0xff, 0xd9]);
+  const frameB = Buffer.from([0xff, 0xd8, 0x03, 0xff, 0xd9]);
+
+  parser.observe(Buffer.concat([Buffer.from([0x00, 0x11]), frameA.subarray(0, 3)]));
+  parser.observe(Buffer.concat([frameA.subarray(3), frameB]));
+
+  assert.equal(frames.length, 2);
+  assert.deepEqual(frames[0], frameA);
+  assert.deepEqual(frames[1], frameB);
 });
 
 test('unified capture maps screen and camera as separate video streams', () => {

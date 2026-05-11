@@ -11,6 +11,7 @@ import { dismissRecovery, getRecoveryState, recoverFromMarker } from './recordin
 import { registerMediaProtocol, toMediaUrl } from './media-protocol.mjs';
 import { remuxMkvToMp4 } from './remux-service.mjs';
 import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording/recording-session.mjs';
+import { startFfmpegCameraPreview } from './recording/ffmpeg-capture.mjs';
 import { listPulseAudioMicSources, listPulseAudioSystemAudioSources } from './recording/audio-sources.mjs';
 import { listV4l2CameraSources } from './recording/camera-sources.mjs';
 import { getRecordingPreflightStatus } from './recording/preflight.mjs';
@@ -52,6 +53,7 @@ let recordingTrayWindow = null;
 let hiddenRecordingOptions = null;
 let hiddenRecordingStopping = false;
 let activeRecordingFinalizePromise = null;
+let activeCameraPreview = null;
 const recordingSession = createRecordingSession({
   recordingsDir,
   markerPath,
@@ -252,6 +254,20 @@ function loadRenderer(window, { mode = 'editor', projectPath = null } = {}) {
   }
 }
 
+async function stopActiveCameraPreview(token = null) {
+  const preview = activeCameraPreview;
+  if (!preview || (token && preview.token !== token)) return;
+  activeCameraPreview = null;
+  try {
+    await Promise.race([
+      preview.handle.stop(),
+      new Promise((resolve) => setTimeout(resolve, 2500)),
+    ]);
+  } catch (err) {
+    console.warn('[camera-preview] stop failed:', err?.message ?? err);
+  }
+}
+
 ipcMain.handle(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion());
 ipcMain.handle(IPC_CHANNELS.SHELL_SHOW_ITEM_IN_FOLDER, (_event, itemPath) => {
   if (typeof itemPath === 'string' && itemPath.length > 0) shell.showItemInFolder(itemPath);
@@ -274,6 +290,32 @@ ipcMain.handle(IPC_CHANNELS.APP_OPEN_EDITOR, (event, projectPath = null) => {
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_MIC_SOURCES, async () => listPulseAudioMicSources());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => listPulseAudioSystemAudioSources());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_CAMERA_SOURCES, async () => listCameraSources());
+ipcMain.handle(IPC_CHANNELS.RECORDING_CAMERA_PREVIEW_START, async (event, options = {}) => {
+  const devicePath = typeof options.devicePath === 'string' ? options.devicePath.trim() : '';
+  if (!devicePath) throw new Error('Camera device path is required.');
+  await stopActiveCameraPreview();
+  const token = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const sender = event.sender;
+  const handle = startFfmpegCameraPreview({
+    devicePath,
+    onFrame: (frame) => {
+      if (activeCameraPreview?.token !== token || sender.isDestroyed()) return;
+      sender.send(IPC_CHANNELS.RECORDING_CAMERA_PREVIEW_FRAME, {
+        token,
+        dataUrl: `data:image/jpeg;base64,${frame.toString('base64')}`,
+      });
+    },
+  });
+  activeCameraPreview = { token, sender, handle };
+  sender.once('destroyed', () => {
+    if (activeCameraPreview?.token === token) void stopActiveCameraPreview(token);
+  });
+  return { token, pid: handle.getPid?.() ?? null };
+});
+ipcMain.handle(IPC_CHANNELS.RECORDING_CAMERA_PREVIEW_STOP, async (_event, token = null) => {
+  await stopActiveCameraPreview(token);
+  return { stopped: true };
+});
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_DISPLAYS, () => listCaptureDisplays());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, async (_event, options = {}) => {
   const [micSources, systemAudioSources, cameraSources] = await Promise.all([
@@ -293,6 +335,7 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, async (_event, optio
 ipcMain.handle(IPC_CHANNELS.RECORDING_START, async (event, options = {}) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   const { hideWindowDuringRecording, ...recordingOptions } = options ?? {};
+  await stopActiveCameraPreview();
   if (hideWindowDuringRecording && senderWindow) {
     hiddenRecorderWindow = senderWindow;
     hiddenRecordingOptions = recordingOptions;
@@ -935,11 +978,8 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   await waitFor(() => captureTargetSelect.value === 'display', 'display target selected');
   regionSourceCard.click();
   await waitFor(() => captureTargetSelect.value === 'region', 'region target selected');
-  await waitFor(() => document.querySelector('[aria-label="Pre-record capture region controls"]'), 'region controls');
-  await waitFor(() => document.querySelector('[data-ui-region="region-picker-panel"]'), 'region picker panel');
-  const regionPickerCancel = await waitFor(() => document.querySelector('[data-region-picker-cancel="true"]'), 'region picker cancel');
-  regionPickerCancel.click();
-  await waitFor(() => !document.querySelector('[data-ui-region="region-picker-panel"]'), 'region picker closed');
+  await waitFor(() => document.querySelector('[aria-label="Selected capture region"]'), 'selected region summary');
+  await waitFor(() => document.querySelector('[data-ui-region="capture-screen-picker"]'), 'region screen picker');
   captureTargetSelect.value = 'display';
   captureTargetSelect.dispatchEvent(new Event('change', { bubbles: true }));
   await waitFor(() => captureTargetSelect.value === 'display', 'display target reselected');
@@ -948,8 +988,10 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   let selectedCameraSource = null;
   if (options.cameraWarning) {
     const cameraSelect = await waitFor(() => document.querySelector('select[aria-label="Camera source"]'), 'camera source select');
-    const cameraOption = Array.from(cameraSelect.options).find((option) => option.value && option.value !== '__off' && !option.disabled);
-    if (!cameraOption) throw new Error('Camera warning smoke requested, but no camera source option was available.');
+    const cameraOption = await waitFor(
+      () => Array.from(cameraSelect.options).find((option) => option.value && option.value !== '__off' && !option.disabled),
+      'camera source option',
+    );
     selectedCameraSource = cameraOption.value;
     cameraSelect.value = selectedCameraSource;
     cameraSelect.dispatchEvent(new Event('change', { bubbles: true }));
@@ -958,7 +1000,9 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   const hasPreRecordCameraSetup = options.cameraWarning
     ? Boolean(await waitFor(() => document.querySelector('[data-ui-region="pre-record-camera-setup"]'), 'pre-record camera setup'))
     : Boolean(document.querySelector('[data-ui-region="pre-record-camera-setup"]'));
-  const preRecordCameraPreviewState = document.querySelector('[data-camera-preview-state]')?.getAttribute('data-camera-preview-state') ?? null;
+  const preRecordCameraPreviewState = options.cameraWarning
+    ? await waitFor(() => document.querySelector('[data-camera-preview-state="live"]')?.getAttribute('data-camera-preview-state'), 'live camera preview', 15000)
+    : document.querySelector('[data-camera-preview-state]')?.getAttribute('data-camera-preview-state') ?? null;
   const preRecordStartButton = await waitFor(() => document.querySelector('[data-recording-start="pre-record"]'), 'pre-record start button');
   preRecordStartButton.click();
   await waitFor(() => document.querySelector('[data-recording-state="recording"]'), 'recording state banner');

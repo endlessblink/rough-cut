@@ -472,8 +472,9 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .preRecordCameraSetup h3 { font-size: 0.92rem; letter-spacing: -0.02em; margin: 0; }
 .preRecordCameraSetup p:not(.eyebrow) { color: var(--subtle); font-size: 0.72rem; line-height: 1.35; margin: 0.2rem 0 0; }
 .cameraSetupPreview { aspect-ratio: 16 / 9; background: linear-gradient(135deg, #262633, #171720); border: 1px solid rgb(255 255 255 / 0.1); border-radius: 12px; min-width: 0; overflow: hidden; position: relative; }
-.cameraSetupPreview video { height: 100%; inset: 0; object-fit: cover; opacity: 0; position: absolute; width: 100%; }
-.cameraSetupPreview.ready video { opacity: 1; }
+.cameraSetupPreview img { height: 100%; inset: 0; object-fit: cover; position: absolute; width: 100%; }
+.cameraSetupPreview.live { border-color: rgb(125 211 252 / 0.48); }
+.cameraSetupPreview.error { border-color: rgb(248 113 113 / 0.55); }
 .cameraSetupScreen { background: linear-gradient(135deg, rgb(255 255 255 / 0.12), rgb(255 255 255 / 0.02)); border-radius: 8px; inset: 0.65rem; position: absolute; }
 .cameraSetupBubble { align-items: center; background: linear-gradient(135deg, #7aa7ff, #9a7aff); border: 2px solid rgb(255 255 255 / 0.75); border-radius: 999px; bottom: 0.55rem; box-shadow: 0 10px 22px rgb(0 0 0 / 0.3); color: #fff; display: flex; height: 2.2rem; justify-content: center; position: absolute; right: 0.55rem; width: 2.2rem; }
 .cameraSetupBubble .icon { height: 1rem; margin: 0; width: 1rem; }

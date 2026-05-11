@@ -48,6 +48,9 @@ declare global {
       getMicSources: () => Promise<MicSource[]>;
       getSystemAudioSources: () => Promise<AudioSource[]>;
       getCameraSources: () => Promise<CameraSource[]>;
+      startCameraPreview: (options: { devicePath: string }) => Promise<{ token: string; pid: number | null }>;
+      stopCameraPreview: (token?: string | null) => Promise<{ stopped: boolean }>;
+      onCameraPreviewFrame: (callback: (frame: { token: string; dataUrl: string }) => void) => () => void;
       getDisplays: () => Promise<CaptureDisplay[]>;
       getRecordingPreflightStatus: (options?: RecordingPreflightOptions) => Promise<RecordingPreflightStatus>;
       selectCaptureRegion: (options?: { displayId?: string | null; initialRegion?: CaptureRegion | null }) => Promise<CaptureRegion | null>;
@@ -419,11 +422,9 @@ function App() {
         }
         const region = captureMode === 'region' ? captureRegion : null;
         setPreRecordPanelOpen(false);
-        // Give the panel's PreRecordCameraSetup unmount cleanup time to fire
-        // (track.stop() + srcObject = null) so /dev/video0 is fully released
-        // before ffmpeg-camera tries to open it. 100ms wasn't always enough;
-        // 500ms gives Electron's media pipeline time to drop the V4L2 handle.
-        await new Promise((resolve) => window.setTimeout(resolve, recordCamera ? 500 : 100));
+        // The preview is main-process ffmpeg, not getUserMedia; unmount stops it
+        // predictably before the recording ffmpeg opens the same V4L2 device.
+        await new Promise((resolve) => window.setTimeout(resolve, recordCamera ? 250 : 100));
         console.info(`[renderer:recording] start requested ${JSON.stringify({
           hasMic: Boolean(micSource),
           hasSystemAudio: Boolean(systemAudioSource),
@@ -1039,25 +1040,48 @@ function PreRecordPanel({
 
 function PreRecordCameraSetup({ source }: { source?: CameraSource }) {
   const label = source ? `${simplifySourceLabel(source.label || source.name, 'Camera')} · ${shortSourceId(source.name, 0)}` : 'Selected camera';
-  // The live getUserMedia preview was disabled because Electron/Chromium's
-  // media pipeline keeps the V4L2 FD on /dev/video* mapped (`mem`) and open
-  // (FD 21u) for the entire recording session even after track.stop() returns.
-  // ffmpeg-camera then fails every spawn with "Device or resource busy",
-  // saving every camera-on take screen-only. Showing a static affordance
-  // instead leaves /dev/video* free for ffmpeg-camera to grab. Diagnosed
-  // 2026-05-10 from a lsof-on-EBUSY breadcrumb in the recording-session
-  // retry loop; PID matched the renderer process every attempt.
+  const [preview, setPreview] = React.useState<{ token: string | null; frameUrl: string | null; state: 'starting' | 'live' | 'error'; error: string | null }>({ token: null, frameUrl: null, state: 'starting', error: null });
+
+  React.useEffect(() => {
+    if (!source?.name) return undefined;
+    let cancelled = false;
+    let token: string | null = null;
+    setPreview({ token: null, frameUrl: null, state: 'starting', error: null });
+    const removeFrameListener = window.roughCut.onCameraPreviewFrame((frame) => {
+      if (cancelled || frame.token !== token) return;
+      setPreview({ token, frameUrl: frame.dataUrl, state: 'live', error: null });
+    });
+    window.roughCut.startCameraPreview({ devicePath: source.name })
+      .then((started) => {
+        if (cancelled) {
+          void window.roughCut.stopCameraPreview(started.token);
+          return;
+        }
+        token = started.token;
+        setPreview((current) => ({ ...current, token }));
+      })
+      .catch((err) => {
+        if (!cancelled) setPreview({ token: null, frameUrl: null, state: 'error', error: err instanceof Error ? err.message : 'Camera preview failed.' });
+      });
+    return () => {
+      cancelled = true;
+      removeFrameListener();
+      if (token) void window.roughCut.stopCameraPreview(token);
+    };
+  }, [source?.name]);
+
+  const previewState = preview.state === 'live' ? 'live' : preview.state === 'error' ? 'error' : 'starting';
   return (
     <section className="preRecordCameraSetup" data-ui-region="pre-record-camera-setup" aria-label="Camera PiP setup preview">
       <div>
         <p className="eyebrow">Camera PiP</p>
         <h3>{label}</h3>
-        <p>Webcam captures into the recording. Preview is hidden so the camera stays free for the recorder.</p>
+        <p>Preview is rendered by main-process ffmpeg so the browser never owns the V4L2 camera device.</p>
       </div>
-      <div className="cameraSetupPreview ready" data-camera-preview-state="static">
-        <span className="cameraSetupScreen" />
+      <div className={`cameraSetupPreview ${previewState}`} data-camera-preview-state={previewState}>
+        {preview.frameUrl ? <img src={preview.frameUrl} alt="Live camera preview" /> : <span className="cameraSetupScreen" />}
         <span className="cameraSetupBubble"><Icon name="camera" /></span>
-        <span className="cameraSetupStatus">Camera ready</span>
+        <span className="cameraSetupStatus">{previewState === 'live' ? 'Live preview' : previewState === 'error' ? preview.error ?? 'Preview unavailable' : 'Starting preview'}</span>
       </div>
     </section>
   );

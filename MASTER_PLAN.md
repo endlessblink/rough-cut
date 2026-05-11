@@ -109,7 +109,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-093 | Split countdown and HUD indicator into BrowserWindows | P3 | PLANNED |
 | TASK-094 | Add Inspector templates picker for one-click aspect+background+camera | P2 | DONE |
 | TASK-095 | Add drag-to-reposition camera PiP and screen frame in editor preview | P2 | DONE |
-| TASK-096 | Single-ffmpeg architecture for live camera preview + capture | P2 | PLANNED |
+| TASK-096 | Single-ffmpeg architecture for live camera preview + capture | P2 | DONE |
 | TASK-097 | Fix Inspector Templates click not propagating aspect ratio | P2 | DONE |
 | TASK-098 | Verify playback smoothness end-to-end after MJPEG camera fix | P2 | DONE |
 | TASK-099 | Verify post-recording blank editor is no longer reproducible | P3 | DONE |
@@ -216,7 +216,7 @@ Sequence: TASK-089, TASK-090, TASK-091, TASK-092, TASK-093, TASK-063, TASK-064
 Sequence: ~~TASK-094~~
 
 8. **LINE H — Resolve 2026-05-10 session follow-ups**:
-Sequence: ~~TASK-098~~, TASK-100, ~~TASK-099~~, ~~TASK-097~~, ~~TASK-095~~, TASK-096
+Sequence: ~~TASK-098~~, TASK-100, ~~TASK-099~~, ~~TASK-097~~, ~~TASK-095~~, ~~TASK-096~~
 
 ## Tasks
 
@@ -2313,7 +2313,7 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 ### TASK-070 Per-display scale factor for cursor and click telemetry
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -2896,6 +2896,14 @@ Production tools (OBS, Loom, etc.) avoid the conflict by having a single long-ru
 - Manual: open pre-record panel, see live preview, record, stop, confirm camera mp4 has content matching what was previewed; do this 3× without restart.
 - `lsof /dev/video0` mid-recording shows the main-process ffmpeg as the holder, not the renderer.
 - Existing recording-flow smokes still pass.
+
+#### Completion Notes
+
+- Added a main-process ffmpeg camera preview path that owns `/dev/video*`, pipes MJPEG frames over stdout, and forwards JPEG data URLs to the renderer over IPC.
+- Replaced the static pre-record camera placeholder with a live preview state while keeping Chromium/getUserMedia out of camera ownership.
+- Recording start stops the preview ffmpeg before the unified recording ffmpeg opens the same V4L2 device; the existing `cameraDevicePath` contract remains unchanged.
+- Added regression coverage for preview ffmpeg args and split MJPEG frame parsing.
+- Verified with `pnpm --filter @rough-cut/desktop typecheck`, `pnpm --filter @rough-cut/desktop test` (252/252), `pnpm smoke:ui`, and `ROUGH_CUT_UI_SMOKE_CAMERA_WARNING=1 ROUGH_CUT_SMOKE_CAMERA_DEVICE_PATH=/dev/video0 node scripts/smoke-recording-flow-ui.mjs`.
 
 #### References
 

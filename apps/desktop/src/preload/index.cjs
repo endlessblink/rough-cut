@@ -14,6 +14,9 @@ const IPC_CHANNELS = {
   RECORDING_GET_MIC_SOURCES: 'recording:get-mic-sources',
   RECORDING_GET_SYSTEM_AUDIO_SOURCES: 'recording:get-system-audio-sources',
   RECORDING_GET_CAMERA_SOURCES: 'recording:get-camera-sources',
+  RECORDING_CAMERA_PREVIEW_START: 'recording:camera-preview-start',
+  RECORDING_CAMERA_PREVIEW_STOP: 'recording:camera-preview-stop',
+  RECORDING_CAMERA_PREVIEW_FRAME: 'recording:camera-preview-frame',
   RECORDING_GET_DISPLAYS: 'recording:get-displays',
   RECORDING_GET_PREFLIGHT_STATUS: 'recording:get-preflight-status',
   RECORDING_SELECT_CAPTURE_REGION: 'recording:select-capture-region',
@@ -34,6 +37,13 @@ contextBridge.exposeInMainWorld('roughCut', {
   getMicSources: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_MIC_SOURCES),
   getSystemAudioSources: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES),
   getCameraSources: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_CAMERA_SOURCES),
+  startCameraPreview: (options) => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_CAMERA_PREVIEW_START, options),
+  stopCameraPreview: (token) => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_CAMERA_PREVIEW_STOP, token),
+  onCameraPreviewFrame: (callback) => {
+    const listener = (_event, frame) => callback(frame);
+    ipcRenderer.on(IPC_CHANNELS.RECORDING_CAMERA_PREVIEW_FRAME, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.RECORDING_CAMERA_PREVIEW_FRAME, listener);
+  },
   getDisplays: () => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_DISPLAYS),
   getRecordingPreflightStatus: (options) => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, options),
   selectCaptureRegion: (options) => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_SELECT_CAPTURE_REGION, options),
