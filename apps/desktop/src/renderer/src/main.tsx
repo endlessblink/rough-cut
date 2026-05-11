@@ -614,19 +614,16 @@ function App() {
         <header className="topBar" data-ui-region="capture-bar">
           <div className="brandCluster">
             <span className="windowDots" aria-hidden="true"><i /><i /><i /></span>
-            <span className="titleIcon"><Icon name="folder" /></span>
-            <span className="titleIcon"><Icon name="comments" /></span>
-            <span className="titleIcon"><Icon name="undo" /></span>
             <div>
               <p className="eyebrow">Rough Cut</p>
               <h1>Studio</h1>
             </div>
           </div>
           <div className="topActions">
-            <button type="button" className="iconButton" onClick={() => setSetupBoardOpen((open) => !open)} aria-pressed={setupBoardOpen} aria-label="Toggle setup board">
+            <button type="button" className="iconButton" onClick={() => setSetupBoardOpen((open) => !open)} aria-pressed={setupBoardOpen} aria-label="Toggle setup board" title="Toggle setup board">
               <Icon name="sparkle" />
             </button>
-            <button type="button" className="iconButton" onClick={() => setInspectorOpen((open) => !open)} aria-pressed={inspectorOpen} aria-label="Toggle inspector board">
+            <button type="button" className="iconButton" onClick={() => setInspectorOpen((open) => !open)} aria-pressed={inspectorOpen} aria-label="Toggle inspector board" title="Toggle inspector board">
               <Icon name="sliders" />
             </button>
             <button
@@ -1021,10 +1018,10 @@ function PreRecordPanel({
             <PreRecordCameraSetup source={cameraSources.find((source) => source.name === selectedCameraSource)} />
           ) : null}
 
-          <PreflightSummary status={preflightStatus} />
         </div>
 
         <div className="preRecordFooter">
+          <PreflightSummary status={preflightStatus} />
           <div className="preRecordActions">
             <button type="button" className="secondary" onClick={onClose} disabled={actionPending} data-open-editor="pre-record">Open editor</button>
             <button type="button" className="primaryAction" onClick={onStart} disabled={actionPending} data-recording-start="pre-record">
@@ -1241,22 +1238,21 @@ function PreflightSummary({ status }: { status: RecordingPreflightStatus | null 
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const checks = status?.checks ?? [];
   const warnings = checks.filter((check) => check.severity !== 'ok');
+  const statusLabel = status ? (warnings.length > 0 ? `${warnings.length} risk${warnings.length === 1 ? '' : 's'}` : 'Ready') : 'Checking';
   return (
     <section className={`preflightSummary ${status?.status ?? 'loading'}`} data-ui-region="recording-preflight-status" aria-live="polite">
-      <div className="preflightHeader">
-        <div>
-          <p className="eyebrow">Preflight</p>
-          <h3>{preflightTitle(status)}</h3>
-        </div>
-        {status ? <span>{status.capture.width || 'unknown'} x {status.capture.height || 'unknown'} @ {status.capture.fps} FPS</span> : <span>Checking...</span>}
+      <div className="preflightCompactRow">
+        <span className="preflightIcon" aria-hidden="true"><Icon name="settings" /></span>
+        <span className="preflightLabel">Preflight</span>
+        <span className={`preflightStatusPill ${warnings.length > 0 ? 'warn' : ''}`}>{statusLabel}</span>
+        {status ? <span className="preflightMeta"><Icon name="display" /> {status.capture.width || 'unknown'} x {status.capture.height || 'unknown'}</span> : <span className="preflightMeta">Checking</span>}
+        {status ? <span className="preflightMeta"><Icon name="timeline" /> {status.capture.fps} FPS</span> : null}
+        {status ? (
+          <button type="button" className="secondary compact preflightDetailsToggle" onClick={() => setDetailsOpen((open) => !open)} aria-expanded={detailsOpen}>
+            <Icon name="sliders" /> {detailsOpen ? 'Hide' : checks.length}
+          </button>
+        ) : null}
       </div>
-      {!status ? <p className="recordingActiveHint">Checking session, tools, save destination, and optional sources.</p> : null}
-      {status ? <p className={warnings.length > 0 ? 'preflightWarning' : 'recordingActiveHint'}>Optional mic, system audio, and camera problems will not block safe screen-only recording.</p> : null}
-      {status ? (
-        <button type="button" className="secondary compact preflightDetailsToggle" onClick={() => setDetailsOpen((open) => !open)} aria-expanded={detailsOpen}>
-          {detailsOpen ? 'Hide checks' : `Show all checks (${checks.length})`}
-        </button>
-      ) : null}
       {detailsOpen ? (
         <div className="preflightGrid details">
           {checks.map((check) => (
@@ -1269,13 +1265,6 @@ function PreflightSummary({ status }: { status: RecordingPreflightStatus | null 
       ) : null}
     </section>
   );
-}
-
-function preflightTitle(status: RecordingPreflightStatus | null) {
-  if (!status) return 'Checking recording readiness...';
-  if (status.status === 'critical') return 'Critical setup issue detected';
-  if (status.status === 'warn') return 'Ready with visible risks';
-  return 'Ready for a long recording';
 }
 
 function StateBanner({
@@ -1331,14 +1320,12 @@ function captureStatusLabel(recording: RecordingStatus, elapsedMs: number) {
   return 'Screen';
 }
 
-type IconName = 'folder' | 'comments' | 'undo' | 'sparkle' | 'sliders' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause';
+type IconName = 'folder' | 'sparkle' | 'sliders' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause';
 type ActiveTool = 'background' | 'timeline' | 'inspector';
 
 function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, React.ReactNode> = {
     folder: <path d="M3 6.5h6l1.5 2H21v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-11.5Z" />,
-    comments: <path d="M4 5h16v10H8l-4 4V5Z" />,
-    undo: <path d="M9 7 5 11l4 4M5 11h9a5 5 0 1 1 0 10h-2" />,
     sparkle: <path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3ZM19 3l.8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3Z" />,
     sliders: <path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 5v4M8 15v4" />,
     record: <circle cx="12" cy="12" r="5" fill="currentColor" />,

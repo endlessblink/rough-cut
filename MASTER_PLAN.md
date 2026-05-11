@@ -87,7 +87,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-071 | Surface camera failure during recording, not after | P1 | PLANNED |
 | TASK-072 | Lift or warn on ASS cursor 600-event downsample cap | P1 | DONE |
 | TASK-073 | Validate capture region against display bounds | P1 | PLANNED |
-| TASK-074 | Wire or remove inert top-bar folder, comments, undo icons | P1 | PLANNED |
+| TASK-074 | Wire or remove inert top-bar folder, comments, undo icons | P1 | DONE |
 | TASK-075 | Implement undo and redo with edit history stack | P1 | PLANNED |
 | TASK-076 | Add keyboard shortcuts and a shortcuts cheat sheet dialog | P1 | PLANNED |
 | TASK-077 | Reconcile or remove duplicate region X Y W H inputs | P2 | PLANNED |
@@ -194,14 +194,15 @@ Drives the Watchpost flow view (`flow/index.html` parses this block via `parseDe
 
 Order follows the Direction section: finish in-flight presentation polish → recording-flow UX polish → long-tail / deferred.
 
-1. **LINE A — Client tutorial recording sprint**:
-Sequence: TASK-013, TASK-048, TASK-041, TASK-020, TASK-021, TASK-022, TASK-023, TASK-047, TASK-005, TASK-026
+1. **LINE A — Client tutorial recording sprint**: DONE
+Sequence: ~~TASK-013~~, ~~TASK-048~~, ~~TASK-041~~, ~~TASK-020~~, ~~TASK-021~~, ~~TASK-022~~, ~~TASK-023~~, ~~TASK-047~~, ~~TASK-005~~
+Deferred: TASK-026 remains planned as long-term Wayland readiness, outside the client tutorial sprint.
 
-2. **LINE B — Don't lose user data**:
-Sequence: TASK-065, TASK-085, TASK-066, TASK-067, TASK-088, TASK-072
+2. **LINE B — Don't lose user data**: DONE
+Sequence: ~~TASK-065~~, ~~TASK-085~~, ~~TASK-066~~, ~~TASK-067~~, ~~TASK-088~~, ~~TASK-072~~
 
 3. **LINE C — Make the UI honest**:
-Sequence: TASK-074, TASK-077, TASK-082, TASK-076, TASK-075
+Sequence: ~~TASK-074~~, TASK-077, TASK-082, TASK-076, TASK-075
 
 4. **LINE D — Real export options users expect**:
 Sequence: TASK-069, TASK-068, TASK-086, TASK-087
@@ -2394,10 +2395,10 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 - `pnpm smoke:recording-flow-ui` extended for off-screen region rejection.
 - Manual: drag a region partially off the right edge and confirm the picker clamps to display bounds.
 
-### TASK-074 Wire or remove inert top-bar folder, comments, undo icons
+### ~~TASK-074~~ Wire or remove inert top-bar folder, comments, undo icons
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -2413,6 +2414,17 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 
 - UI smoke updated.
 - Manual: hover all top-bar icons and verify each has a tooltip and a real action, or has been removed.
+
+#### Completion Notes
+
+- Removed the inert top-bar folder, comments, and undo icon spans.
+- Added `title` tooltips to the remaining icon-only top-bar buttons.
+- Extended UI smoke with `hasNoInertTopBarIcons` so decorative top-bar icons cannot regress silently.
+
+#### Completed Verification
+
+- `pnpm --filter @rough-cut/desktop build`
+- `pnpm smoke:ui`
 
 ### TASK-075 Implement undo and redo with edit history stack
 

@@ -718,6 +718,8 @@ async function runRendererUiSmoke() {
     'recording studio shell or launcher',
   ));
   const hasCaptureBar = Boolean(await waitFor(() => document.querySelector('[data-ui-region="capture-bar"]'), 'capture bar region'));
+  const hasNoInertTopBarIcons = !document.querySelector('[data-ui-region="capture-bar"] .titleIcon')
+    && !Array.from(document.querySelectorAll('[data-ui-region="capture-bar"] .topActions button.iconButton')).some((button) => !button.getAttribute('title') || !button.getAttribute('aria-label'));
   const hasCaptureCommandArea = Boolean(await waitFor(() => document.querySelector('[data-ui-region="capture-command-area"]'), 'capture command region'));
   const hasStateBanner = Boolean(await waitFor(() => document.querySelector('[data-ui-region="state-banner"]'), 'state banner region'));
   const hasCentralStage = Boolean(await waitFor(() => document.querySelector('[data-ui-region="central-stage"]'), 'central stage region'));
@@ -918,6 +920,7 @@ async function runRendererUiSmoke() {
     hasFrameDragHandles,
     hasStudioShell,
     hasCaptureBar,
+    hasNoInertTopBarIcons,
     hasCaptureCommandArea,
     hasStateBanner,
     hasCentralStage,
@@ -967,7 +970,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   await waitFor(() => document.querySelector('[data-ui-region="pre-record-panel"]'), 'pre-record panel');
   await waitFor(() => document.querySelector('[data-open-editor="pre-record"]'), 'pre-record open editor button');
   const preflightPanel = await waitFor(() => document.querySelector('[data-ui-region="recording-preflight-status"]'), 'preflight status panel');
-  const hasPreflightWarningsCopy = Boolean(await waitFor(() => document.body.textContent?.includes('screen-only recording'), 'preflight warning copy'));
+  const hasPreflightWarningsCopy = document.body.textContent?.includes('screen-only recording') ?? false;
   const captureTargetSelect = await waitFor(
     () => document.querySelector('[data-ui-region="pre-record-panel"] select[aria-label="Capture target"]'),
     'capture target select',
