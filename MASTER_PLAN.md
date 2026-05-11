@@ -111,8 +111,8 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-095 | Add drag-to-reposition camera PiP and screen frame in editor preview | P2 | DONE |
 | TASK-096 | Single-ffmpeg architecture for live camera preview + capture | P2 | PLANNED |
 | TASK-097 | Fix Inspector Templates click not propagating aspect ratio | P2 | DONE |
-| TASK-098 | Verify playback smoothness end-to-end after MJPEG camera fix | P2 | IN PROGRESS |
-| TASK-099 | Verify post-recording blank editor is no longer reproducible | P3 | PLANNED |
+| TASK-098 | Verify playback smoothness end-to-end after MJPEG camera fix | P2 | DONE |
+| TASK-099 | Verify post-recording blank editor is no longer reproducible | P3 | DONE |
 | TASK-100 | Migrate screen camera audio capture to one FFmpeg graph | P1 | DONE |
 
 ## Recently Verified
@@ -216,7 +216,7 @@ Sequence: TASK-089, TASK-090, TASK-091, TASK-092, TASK-093, TASK-063, TASK-064
 Sequence: ~~TASK-094~~
 
 8. **LINE H — Resolve 2026-05-10 session follow-ups**:
-Sequence: TASK-098, TASK-100, TASK-099, ~~TASK-097~~, ~~TASK-095~~, TASK-096
+Sequence: ~~TASK-098~~, TASK-100, ~~TASK-099~~, ~~TASK-097~~, ~~TASK-095~~, TASK-096
 
 ## Tasks
 
@@ -2980,7 +2980,7 @@ Expected when fixed: `aspect AFTER: 9:16`, `pressed AFTER: true`, `canvas ratio:
 ### TASK-098 Verify playback smoothness end-to-end after MJPEG camera fix
 
 **Priority:** P2
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -3025,6 +3025,8 @@ Fresh camera smoke is still pending: `ROUGH_CUT_REAL_SMOKE_CAMERA_DEVICE_PATH=/d
 Perplexity follow-up confirmed the long-duration fix should use one FFmpeg process with x11grab, v4l2, and PulseAudio inputs into an MKV intermediate. The current session still uses separate screen/audio and camera FFmpeg processes, so this task now only fixes saved-project overlap and playback clamping. TASK-100 tracks the capture architecture change required to make 10/30/60-minute drift prevention credible.
 
 2026-05-10 second follow-up: latest take `rough-cut-2026-05-10T16-35-27-030Z` showed why frame-count overlap is wrong. Screen was 201 frames / 6.7 s at 30 fps; camera was 225 decoded frames / 9.233 s at avg ~24.37 fps, with 75-frame preroll. Frame math incorrectly trimmed to 150 frames. Sync math now prefers probed media seconds (`min(screenDurationSec, cameraDurationSec - prerollSec)`) and only then converts to project frames, which keeps this take at the full 201 screen frames.
+
+2026-05-11 camera validation: after releasing `/dev/video0`, `ROUGH_CUT_REAL_SMOKE_CAMERA_DEVICE_PATH=/dev/video0 node scripts/smoke-real-recording.mjs` passed end-to-end using unified capture. The smoke saved `/tmp/rough-cut-real-recording-smoke-RyIG2B/rough-cut-2026-05-11T06-52-33-419Z.roughcut`, produced a linked camera MP4, reopened the project in the editor, verified the styled preview UI, and exported a styled MP4. Camera probe reported `avg_frame_rate=30/1`, `duration=4.300000`, and `nb_frames=129`; sync probe reported `screenFrames=131`, `cameraFrames=131`, `cameraSourceInFrames=1`, `syncedDurationFrames=130`, and `syncWarning=null`.
 
 ### TASK-100 Migrate screen camera audio capture to one FFmpeg graph
 
@@ -3127,7 +3129,7 @@ Done means: no visible drift at the end of the 10-minute recording and no timest
 ### TASK-099 Verify post-recording blank editor is no longer reproducible
 
 **Priority:** P3
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -3145,3 +3147,9 @@ By the end of the session: save corruption is fixed (`5d9294e` + `5e1ef13`), cam
 #### Verification
 
 Record a 5 s take with camera, stop, open the resulting project. Editor renders correctly = task DONE. If it doesn't, file the React DevTools snapshot.
+
+#### Completion Notes
+
+- 2026-05-11: Real camera smoke saved and reopened `/tmp/rough-cut-real-recording-smoke-RyIG2B/rough-cut-2026-05-11T06-52-33-419Z.roughcut` with `uiReport.ok: true`.
+- The reopened editor reported `hasStyledPreviewCanvas`, `hasFrameDragHandles`, `hasTimelineRail`, `hasRightInspector`, `hasExportStatusArea`, and `hasVisualScreenshot` all true.
+- No blank central stage or vertical `Saved to:` text column reproduced during the fresh camera recording flow.
