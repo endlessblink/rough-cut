@@ -2836,7 +2836,7 @@ The legacy `rough-cut` app exposes a Templates picker in the record sidebar that
 ### TASK-095 Add drag-to-reposition camera PiP and screen frame in editor preview
 
 **Priority:** P2
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -2857,7 +2857,7 @@ Today the camera PiP position is picked from a five-slot enum (`corner-br/bl/tr/
 - 2026-05-09: Slice 2 — drag handles for the camera PiP. `updateCameraFrame` writes `presentation.cameraFrame` (or clears it) through the same persist path. `VideoPreview` accepts `onCameraFrameChange`, captures canvas-pixel camera rect from the tick into `cameraRectRef`, and runs pointer handlers on the canvas: hover camera rect → cursor `grab`; pointer-down captures the pointer and primes `cameraDragRef`; pointer-move updates the override clamped to canvas bounds so the tick renders instantly; pointer-up commits via the callback. Templates clear `cameraFrame` on apply. Added `clampUnit` helper and `.styledPreviewCanvas { touch-action: none }` + `.draggingCamera { cursor: grabbing }`. Desktop tests 219/219, typecheck pass.
 - 2026-05-11: Slice 3 — styled export now consumes `presentation.screenFrame` when present. The export builder converts the normalized screen rect to canvas pixels, scales/crops the recording into that frame, and positions the rounded screen layer plus shadow at the same coordinates. Added an export-service regression covering `{x:0.1,y:0.2,w:0.5,h:0.4}` → `scale=960:432`, `crop=960:432`, `overlay=192:216`. Verified with `pnpm --filter @rough-cut/desktop typecheck`, `pnpm --filter @rough-cut/desktop test` (244/244), and `pnpm smoke:ui`.
 - 2026-05-11: Slice 4 — editor preview now reuses the camera drag primitive for the screen frame. `updateScreenFrame` persists `presentation.screenFrame`; `VideoPreview` resolves `frame.screenFrame`, renders the screen layer at the custom rect, hit-tests the screen canvas rect, and commits normalized screen drag updates on pointer-up. Camera hit-testing stays first so the PiP remains draggable when it overlaps the screen. Verified with `pnpm --filter @rough-cut/desktop typecheck`, `pnpm --filter @rough-cut/desktop test` (244/244), and `pnpm smoke:ui`.
-- 2026-05-11: Slice 5 — editor preview now draws dashed resize outlines plus bottom-right resize handles for both screen and camera frames. Resize preserves aspect ratio, clamps inside the styled canvas, and marks the preview loop dirty so paused-frame drag/resize feedback redraws immediately instead of waiting for video playback. Verified with `pnpm --filter @rough-cut/desktop typecheck`, `pnpm --filter @rough-cut/desktop test` (244/244), and `pnpm smoke:ui`.
+- 2026-05-11: Slice 5 — editor preview now draws dashed resize outlines plus all eight edge/corner resize handles for both screen and camera frames. Resize preserves aspect ratio, clamps inside the styled canvas, and marks the preview loop dirty so paused-frame drag/resize feedback redraws immediately instead of waiting for video playback. Verified with `pnpm --filter @rough-cut/desktop typecheck`, `pnpm --filter @rough-cut/desktop test` (250/250), and `pnpm smoke:ui`.
 
 #### Completion Notes
 
@@ -2906,7 +2906,7 @@ Production tools (OBS, Loom, etc.) avoid the conflict by having a single long-ru
 ### TASK-097 Fix Inspector Templates click not propagating aspect ratio
 
 **Priority:** P2
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -2980,7 +2980,7 @@ Expected when fixed: `aspect AFTER: 9:16`, `pressed AFTER: true`, `canvas ratio:
 ### TASK-098 Verify playback smoothness end-to-end after MJPEG camera fix
 
 **Priority:** P2
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 #### Context
 
