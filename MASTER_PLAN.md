@@ -207,6 +207,8 @@ Sequence: ~~TASK-074~~, ~~TASK-077~~, ~~TASK-082~~, ~~TASK-076~~, ~~TASK-075~~
 4. **LINE D — Real export options users expect**:
 Sequence: TASK-069, TASK-068, TASK-086, TASK-087
 
+Next task when continuing: start TASK-069, "Add EXPORT_CANCEL IPC and kill ffmpeg on cancel". Begin by tracing the existing `EXPORT_START` IPC path and `exportProjectToMp4` child-process lifecycle, then add cancel IPC plus a smoke or unit test proving an in-flight export can be stopped cleanly.
+
 5. **LINE E — Polish, accuracy, accessibility**:
 Sequence: TASK-070, TASK-071, TASK-073, TASK-078, TASK-083, TASK-084, TASK-080, TASK-081, TASK-079
 

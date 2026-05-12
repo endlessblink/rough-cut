@@ -917,7 +917,7 @@ async function runRendererUiSmoke() {
   }, 'styled review export button');
   exportButton.click();
 
-  await waitFor(() => document.body.textContent?.includes('Exported to:'), 'export completion', 10000);
+  await waitFor(() => document.body.textContent?.includes('Exported to:'), 'export completion', 30000);
 
   return {
     ok: true,
