@@ -318,8 +318,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .recordingStrip > .setupPill { flex: 0 0 auto; }
 .setupPill select { background: transparent; border: 0; max-width: 8.8rem; min-height: 1.5rem; padding: 0.1rem; }
 .regionControls { align-items: center; display: flex; flex-wrap: wrap; gap: 0.34rem; }
-.numberField { align-items: center; color: var(--muted); display: flex; gap: 0.22rem; font-size: 0.72rem; font-weight: 740; }
-.numberField input { max-width: 4.8rem; }
+.regionSummary { color: var(--muted); font-size: 0.72rem; font-weight: 740; padding: 0 0.25rem; white-space: nowrap; }
 
 .preRecordOverlay {
   align-items: center;
@@ -533,6 +532,38 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .stateBanner.error { background: #2a1118; border-bottom-color: #5a1d2c; color: #fecdd3; }
 .stateBanner p { line-height: 1.35; margin: 0; }
 .stateBanner .warning { margin-top: 0.35rem; }
+.stateBannerActions { align-items: center; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.stateBannerActions .secondary { background: rgb(255 255 255 / 0.08); color: currentColor; }
+
+.shortcutsScrim {
+  align-items: center;
+  background: rgb(0 0 0 / 0.58);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 1rem;
+  position: fixed;
+  z-index: 40;
+}
+
+.shortcutsDialog {
+  background: #111119;
+  border: 1px solid var(--strong-line);
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.48);
+  color: var(--text);
+  display: grid;
+  gap: 0.9rem;
+  max-width: 28rem;
+  padding: 1rem;
+  width: min(28rem, 100%);
+}
+
+.shortcutsHeader { align-items: center; display: flex; justify-content: space-between; gap: 1rem; }
+.shortcutsList { display: grid; gap: 0.45rem; }
+.shortcutRow { align-items: center; display: grid; gap: 0.75rem; grid-template-columns: 8.5rem minmax(0, 1fr); }
+.shortcutRow kbd { background: #1a1a22; border: 1px solid var(--line); border-radius: 8px; color: #dbe7ff; font-size: 0.72rem; padding: 0.32rem 0.45rem; text-align: center; }
+.shortcutRow span { color: var(--muted); font-size: 0.82rem; }
 
 .projectEditor {
   display: grid;

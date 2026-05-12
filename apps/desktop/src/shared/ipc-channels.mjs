@@ -84,6 +84,7 @@ export const IPC_CHANNELS = {
 
   // App
   APP_GET_VERSION: 'app:get-version',
+  APP_GET_RUNTIME_LOG_PATH: 'app:get-runtime-log-path',
   APP_OPEN_EDITOR: 'app:open-editor',
   SHELL_SHOW_ITEM_IN_FOLDER: 'shell:show-item-in-folder',
   SHELL_OPEN_PATH: 'shell:open-path',

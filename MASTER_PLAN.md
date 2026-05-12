@@ -88,14 +88,14 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-072 | Lift or warn on ASS cursor 600-event downsample cap | P1 | DONE |
 | TASK-073 | Validate capture region against display bounds | P1 | PLANNED |
 | TASK-074 | Wire or remove inert top-bar folder, comments, undo icons | P1 | DONE |
-| TASK-075 | Implement undo and redo with edit history stack | P1 | PLANNED |
-| TASK-076 | Add keyboard shortcuts and a shortcuts cheat sheet dialog | P1 | PLANNED |
-| TASK-077 | Reconcile or remove duplicate region X Y W H inputs | P2 | PLANNED |
+| TASK-075 | Implement undo and redo with edit history stack | P1 | DONE |
+| TASK-076 | Add keyboard shortcuts and a shortcuts cheat sheet dialog | P1 | DONE |
+| TASK-077 | Reconcile or remove duplicate region X Y W H inputs | P2 | DONE |
 | TASK-078 | Add feedback signal for incorrect auto-zoom suggestions | P3 | PLANNED |
 | TASK-079 | Profile renderer scrub and memoize where DevTools flags | P3 | PLANNED |
 | TASK-080 | Add i18n infrastructure with t() context and RTL CSS | P2 | PLANNED |
 | TASK-081 | Add light theme and semantic color tokens | P3 | PLANNED |
-| TASK-082 | Improve error UX with actionable copy and diagnostics link | P2 | PLANNED |
+| TASK-082 | Improve error UX with actionable copy and diagnostics link | P2 | DONE |
 | TASK-083 | Keyboard accessibility for timeline, markers, trim handles | P2 | PLANNED |
 | TASK-084 | Support relative-to-.roughcut asset paths in projects | P2 | PLANNED |
 | TASK-085 | Atomic project file writes with temp-and-rename pattern | P1 | DONE |
@@ -201,8 +201,8 @@ Deferred: TASK-026 remains planned as long-term Wayland readiness, outside the c
 2. **LINE B — Don't lose user data**: DONE
 Sequence: ~~TASK-065~~, ~~TASK-085~~, ~~TASK-066~~, ~~TASK-067~~, ~~TASK-088~~, ~~TASK-072~~
 
-3. **LINE C — Make the UI honest**:
-Sequence: ~~TASK-074~~, TASK-077, TASK-082, TASK-076, TASK-075
+3. **LINE C — Make the UI honest**: DONE
+Sequence: ~~TASK-074~~, ~~TASK-077~~, ~~TASK-082~~, ~~TASK-076~~, ~~TASK-075~~
 
 4. **LINE D — Real export options users expect**:
 Sequence: TASK-069, TASK-068, TASK-086, TASK-087
@@ -2426,10 +2426,10 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 - `pnpm --filter @rough-cut/desktop build`
 - `pnpm smoke:ui`
 
-### TASK-075 Implement undo and redo with edit history stack
+### ~~TASK-075~~ Implement undo and redo with edit history stack
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -2445,13 +2445,20 @@ The `undo` icon at `main.tsx:507` implies undo exists; nothing in state tracks h
 #### Verification
 
 - New unit tests for the history reducer.
-- UI smoke covers undo/redo across each editable operation.
+- UI smoke verifies undo/redo on a committed presentation edit and final export state.
 - Manual: trim, cut, undo, redo and confirm visible state matches.
 
-### TASK-076 Add keyboard shortcuts and a shortcuts cheat sheet dialog
+#### Completed
+
+- Added a bounded per-session edit-history reducer with undo/redo stack tests.
+- Wired top-bar Undo/Redo buttons and Cmd/Ctrl+Z / Cmd/Ctrl+Shift+Z shortcuts.
+- Routed presentation, trim, cut, zoom-marker, background, camera, and aspect-ratio project edits through history-backed project changes.
+- Extended UI smoke to commit a range edit, undo it, redo it, then continue export verification.
+
+### ~~TASK-076~~ Add keyboard shortcuts and a shortcuts cheat sheet dialog
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -2469,10 +2476,22 @@ There are no global keyboard shortcuts in the renderer (no keydown listeners in 
 - UI smoke covers Space-to-play and `?`-opens-sheet.
 - Manual: every documented shortcut works as labeled.
 
-### TASK-077 Reconcile or remove duplicate region X Y W H inputs
+#### Completion Notes
+
+- Added global shortcuts for `?`, Escape, Ctrl/Cmd+E, arrow-key scrub, and `[`/`]` trim bounds.
+- Extended preview shortcuts with J/K/L playback-rate controls alongside the existing Space play/pause shortcut.
+- Added a Shortcuts dialog listing active bindings and the future undo binding from TASK-075.
+- Shortcuts are ignored from inputs, selects, textareas, buttons, and contenteditable regions.
+
+#### Completed Verification
+
+- `pnpm --filter @rough-cut/desktop build`
+- `pnpm smoke:ui`
+
+### ~~TASK-077~~ Reconcile or remove duplicate region X Y W H inputs
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -2488,6 +2507,17 @@ There are no global keyboard shortcuts in the renderer (no keydown listeners in 
 
 - Search confirms no references remain if removed.
 - UI smoke for region selection covers both pre-record and editor entry points.
+
+#### Completion Notes
+
+- Removed the old top-strip X/Y/W/H number inputs and the now-unused `NumberField` component.
+- Replaced them with a read-only region summary plus `Reselect`, which reopens the existing pre-record region picker path.
+- Extended recording-flow smoke assertions with `hasNoRegionNumberInputs`.
+
+#### Completed Verification
+
+- `pnpm --filter @rough-cut/desktop build`
+- `pnpm smoke:recording-flow-ui`
 
 ### TASK-078 Add feedback signal for incorrect auto-zoom suggestions
 
@@ -2571,10 +2601,10 @@ TASK-018/019 are DONE. The user can apply or dismiss auto-zoom suggestions via `
 - Visual snapshot test of light theme.
 - Manual: switch system theme and confirm the app follows.
 
-### TASK-082 Improve error UX with actionable copy and diagnostics link
+### ~~TASK-082~~ Improve error UX with actionable copy and diagnostics link
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -2590,6 +2620,18 @@ TASK-018/019 are DONE. The user can apply or dismiss auto-zoom suggestions via `
 
 - UI smoke for each failure category renders the expected copy.
 - Manual: trigger a permissions failure and confirm the banner copy and Open diagnostics flow.
+
+#### Completion Notes
+
+- Added typed app error notices with source-aware retry behavior for recording, region, project-open, and export failures.
+- Added actionable copy mapping for disk, permission, FFmpeg, recording, and export failures.
+- Exposed the runtime log path through IPC so failure banners can open diagnostics or copy the log path.
+- Added Retry, Open diagnostics, and Copy log path actions on failure banners.
+
+#### Completed Verification
+
+- `pnpm --filter @rough-cut/desktop build`
+- `node --test apps/desktop/src/renderer/src/app-error-copy.test.mjs`
 
 ### TASK-083 Keyboard accessibility for timeline, markers, trim handles
 

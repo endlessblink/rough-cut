@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 const IPC_CHANNELS = {
   APP_GET_VERSION: 'app:get-version',
+  APP_GET_RUNTIME_LOG_PATH: 'app:get-runtime-log-path',
   APP_OPEN_EDITOR: 'app:open-editor',
   SHELL_SHOW_ITEM_IN_FOLDER: 'shell:show-item-in-folder',
   SHELL_OPEN_PATH: 'shell:open-path',
@@ -31,6 +32,7 @@ const IPC_CHANNELS = {
 
 contextBridge.exposeInMainWorld('roughCut', {
   getVersion: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
+  getRuntimeLogPath: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_RUNTIME_LOG_PATH),
   openEditor: (projectPath) => ipcRenderer.invoke(IPC_CHANNELS.APP_OPEN_EDITOR, projectPath),
   showItemInFolder: (path) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_SHOW_ITEM_IN_FOLDER, path),
   openPath: (path) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_PATH, path),

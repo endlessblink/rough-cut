@@ -18,7 +18,7 @@ import { getRecordingPreflightStatus } from './recording/preflight.mjs';
 import { isXdotoolAvailable, readCursorViaXdotool } from './recording/xdotool-cursor.mjs';
 import { installRuntimeLog } from './runtime-log.mjs';
 
-installRuntimeLog();
+const runtimeLogPath = installRuntimeLog();
 
 if (process.platform === 'linux' && !isXdotoolAvailable()) {
   console.warn(
@@ -269,6 +269,7 @@ async function stopActiveCameraPreview(token = null) {
 }
 
 ipcMain.handle(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion());
+ipcMain.handle(IPC_CHANNELS.APP_GET_RUNTIME_LOG_PATH, () => runtimeLogPath);
 ipcMain.handle(IPC_CHANNELS.SHELL_SHOW_ITEM_IN_FOLDER, (_event, itemPath) => {
   if (typeof itemPath === 'string' && itemPath.length > 0) shell.showItemInFolder(itemPath);
 });
@@ -720,6 +721,10 @@ async function runRendererUiSmoke() {
   const hasCaptureBar = Boolean(await waitFor(() => document.querySelector('[data-ui-region="capture-bar"]'), 'capture bar region'));
   const hasNoInertTopBarIcons = !document.querySelector('[data-ui-region="capture-bar"] .titleIcon')
     && !Array.from(document.querySelectorAll('[data-ui-region="capture-bar"] .topActions button.iconButton')).some((button) => !button.getAttribute('title') || !button.getAttribute('aria-label'));
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
+  const hasShortcutsDialog = Boolean(await waitFor(() => document.querySelector('[data-ui-region="shortcuts-dialog"]'), 'shortcuts dialog'));
+  document.querySelector('[data-ui-region="shortcuts-dialog"] button')?.click();
+  await waitFor(() => !document.querySelector('[data-ui-region="shortcuts-dialog"]'), 'shortcuts dialog closed');
   const hasCaptureCommandArea = Boolean(await waitFor(() => document.querySelector('[data-ui-region="capture-command-area"]'), 'capture command region'));
   const hasStateBanner = Boolean(await waitFor(() => document.querySelector('[data-ui-region="state-banner"]'), 'state banner region'));
   const hasCentralStage = Boolean(await waitFor(() => document.querySelector('[data-ui-region="central-stage"]'), 'central stage region'));
@@ -798,12 +803,19 @@ async function runRendererUiSmoke() {
     const label = Array.from(document.querySelectorAll('label')).find((label) => label.textContent?.includes(text));
     return label?.querySelector(`input[type="${type}"]`) ?? null;
   };
+  const outputTextByLabel = (text) => {
+    const label = Array.from(document.querySelectorAll('label')).find((label) => label.textContent?.includes(text));
+    return label?.querySelector('output')?.textContent ?? null;
+  };
   const setControlValue = (control, value) => {
     const prototype = control instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
     const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
     valueSetter?.call(control, String(value));
     control.dispatchEvent(new Event('input', { bubbles: true }));
     control.dispatchEvent(new Event('change', { bubbles: true }));
+    if (control instanceof HTMLInputElement && control.type === 'range') {
+      control.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+    }
   };
   const waitForEnabled = (control, label) => waitFor(() => !control.disabled, `${label} enabled`);
 
@@ -838,8 +850,27 @@ async function runRendererUiSmoke() {
 
   const radiusInput = await waitFor(() => inputByLabel('Round corners'), 'corner radius control');
   await waitForEnabled(radiusInput, 'corner radius control');
+  const initialCornerRadius = outputTextByLabel('Round corners');
   setControlValue(radiusInput, 44);
-  await waitFor(() => radiusInput.closest('label')?.querySelector('output')?.textContent === '44', 'corner radius output');
+  await waitFor(() => outputTextByLabel('Round corners') === '44', 'corner radius output');
+  await waitForEnabled(radiusInput, 'corner radius save complete');
+  const undoButton = await waitFor(() => {
+    const button = document.querySelector('button[aria-label="Undo last edit"]');
+    return button && !button.disabled ? button : null;
+  }, 'undo button enabled');
+  undoButton.click();
+  await waitFor(() => initialCornerRadius && outputTextByLabel('Round corners') === initialCornerRadius, 'corner radius undo output');
+  await waitFor(() => {
+    const control = inputByLabel('Round corners');
+    return control && !control.disabled ? control : null;
+  }, 'corner radius undo save complete');
+  const redoButton = await waitFor(() => {
+    const button = document.querySelector('button[aria-label="Redo last edit"]');
+    return button && !button.disabled ? button : null;
+  }, 'redo button enabled');
+  redoButton.click();
+  await waitFor(() => outputTextByLabel('Round corners') === '44', 'corner radius redo output');
+  const hasUndoRedoControls = true;
 
   const shadowInput = await waitFor(() => inputByLabel('Shadow size'), 'shadow size control');
   await waitForEnabled(shadowInput, 'shadow size control');
@@ -918,9 +949,11 @@ async function runRendererUiSmoke() {
     hasCutControls,
     hasStyledPreviewCanvas,
     hasFrameDragHandles,
+    hasUndoRedoControls,
     hasStudioShell,
     hasCaptureBar,
     hasNoInertTopBarIcons,
+    hasShortcutsDialog,
     hasCaptureCommandArea,
     hasStateBanner,
     hasCentralStage,
@@ -983,6 +1016,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   await waitFor(() => captureTargetSelect.value === 'region', 'region target selected');
   await waitFor(() => document.querySelector('[aria-label="Selected capture region"]'), 'selected region summary');
   await waitFor(() => document.querySelector('[data-ui-region="capture-screen-picker"]'), 'region screen picker');
+  const hasNoRegionNumberInputs = !document.querySelector('.numberField, .regionControls input[type="number"]');
   captureTargetSelect.value = 'display';
   captureTargetSelect.dispatchEvent(new Event('change', { bubbles: true }));
   await waitFor(() => captureTargetSelect.value === 'display', 'display target reselected');
@@ -1023,6 +1057,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
       hasCaptureTargetSelect: Boolean(captureTargetSelect),
       hasCaptureSourcePicker,
       hasDisabledWindowSource,
+      hasNoRegionNumberInputs,
       selectedCaptureTarget: captureTargetSelect.value,
       initialState,
       canceledState: document.querySelector('[data-ui-region="state-banner"]')?.getAttribute('data-recording-state'),
@@ -1065,6 +1100,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     hasCaptureTargetSelect: Boolean(captureTargetSelect),
     hasCaptureSourcePicker,
     hasDisabledWindowSource,
+    hasNoRegionNumberInputs,
     selectedCaptureTarget: captureTargetSelect.value,
     initialState,
     savedState,

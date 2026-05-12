@@ -18,6 +18,8 @@ export function installRuntimeLog(logPath = resolve(process.cwd(), '../../.logs/
   process.on('unhandledRejection', (reason) => {
     console.error('[process] unhandledRejection', reason);
   });
+
+  return logPath;
 }
 
 function appendLine(logPath, level, args) {
