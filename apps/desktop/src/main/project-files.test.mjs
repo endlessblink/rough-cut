@@ -214,12 +214,13 @@ test('saveProjectFile stores same-folder recording paths relative to the roughcu
     now: new Date('2026-04-28T12:00:11.000Z'),
   });
 
-  await saveProjectFile(projectPath, project);
+  const saved = await saveProjectFile(projectPath, project);
   const raw = JSON.parse(await readFile(projectPath, 'utf8'));
 
   assert.equal(raw.assets[0].filePath, 'capture.mp4');
   assert.equal(raw.assets[0].pathMode, 'relative');
   assert.equal(raw.assets[0].metadata.absoluteFilePath, outputPath);
+  assert.equal(getPrimaryRecording(saved.document)?.filePath, outputPath);
 
   await rm(root, { recursive: true, force: true });
 });

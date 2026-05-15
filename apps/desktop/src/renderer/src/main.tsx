@@ -1104,6 +1104,7 @@ function PreRecordPanel({
   onSelectedCaptureDisplayChange: (displayId: string | null) => void;
   onSelectCaptureRegion: (displayId?: string | null) => void;
 }) {
+  const dialogRef = useDialogFocusTrap<HTMLDivElement>(true, onClose);
   const displayWidth = Math.max(2, Math.round(preflightStatus?.display?.width ?? (captureMode === 'region' ? Math.max(captureRegion.x + captureRegion.width, 1920) : preflightStatus?.capture.width ?? 1920)));
   const displayHeight = Math.max(2, Math.round(preflightStatus?.display?.height ?? (captureMode === 'region' ? Math.max(captureRegion.y + captureRegion.height, 1080) : preflightStatus?.capture.height ?? 1080)));
 
@@ -1122,7 +1123,7 @@ function PreRecordPanel({
   }
 
   return (
-    <div className="preRecordOverlay" data-ui-region="pre-record-panel" role="dialog" aria-modal="true" aria-labelledby="pre-record-title">
+    <div ref={dialogRef} className="preRecordOverlay" data-ui-region="pre-record-panel" role="dialog" aria-modal="true" aria-labelledby="pre-record-title" data-focus-trap="true">
       <section className="preRecordPanel">
         <div className="preRecordHeader">
           <div>
@@ -1534,10 +1535,12 @@ function stateCopy(recording: RecordingStatus, elapsedMs: number, state: string,
 }
 
 function ShortcutsDialog({ onClose }: { onClose: () => void }) {
+  const dialogRef = useDialogFocusTrap<HTMLDivElement>(true, onClose);
   const shortcuts = [
     ['Space', 'Play or pause preview'],
     ['J / K / L', 'Slow playback, pause, speed up'],
     ['Left / Right', 'Scrub one second'],
+    ['Trim / zoom focus + arrows', 'Nudge one frame; hold Shift for one second'],
     ['[ / ]', 'Set trim start or end to playhead'],
     ['Ctrl/Cmd + E', 'Export with the selected preset'],
     ['?', 'Show this shortcut sheet'],
@@ -1545,7 +1548,7 @@ function ShortcutsDialog({ onClose }: { onClose: () => void }) {
     ['Ctrl/Cmd + Shift + Z', 'Redo last edit'],
   ];
   return (
-    <div className="shortcutsScrim" data-ui-region="shortcuts-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+    <div ref={dialogRef} className="shortcutsScrim" data-ui-region="shortcuts-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title" data-focus-trap="true">
       <section className="shortcutsDialog">
         <div className="shortcutsHeader">
           <div>
@@ -1565,6 +1568,58 @@ function ShortcutsDialog({ onClose }: { onClose: () => void }) {
       </section>
     </div>
   );
+}
+
+function useDialogFocusTrap<T extends HTMLElement>(active: boolean, onEscape?: () => void) {
+  const ref = React.useRef<T | null>(null);
+  React.useEffect(() => {
+    if (!active) return undefined;
+    const root = ref.current;
+    if (!root) return undefined;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusables = getFocusableElements(root);
+    (focusables[0] ?? root).focus({ preventScroll: true });
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && onEscape) {
+        event.preventDefault();
+        onEscape();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const items = getFocusableElements(root);
+      if (items.length === 0) {
+        event.preventDefault();
+        root.focus({ preventScroll: true });
+        return;
+      }
+      const first = items[0] as HTMLElement;
+      const last = items[items.length - 1] as HTMLElement;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    root.addEventListener('keydown', handleKeyDown);
+    return () => {
+      root.removeEventListener('keydown', handleKeyDown);
+      previousFocus?.focus({ preventScroll: true });
+    };
+  }, [active, onEscape]);
+  return ref;
+}
+
+function getFocusableElements(root: HTMLElement) {
+  return Array.from(root.querySelectorAll<HTMLElement>([
+    'button:not([disabled])',
+    '[href]',
+    'input:not([disabled])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+  ].join(','))).filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true');
 }
 
 function captureStatusLabel(recording: RecordingStatus, elapsedMs: number) {
@@ -2547,6 +2602,26 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     window.addEventListener('pointercancel', up, { once: true });
   }
 
+  function nudgeTrimHandle(kind: 'start' | 'end', direction: -1 | 1, largeStep: boolean) {
+    const stepFrames = largeStep ? Math.max(1, Math.round(fps)) : 1;
+    if (kind === 'start') {
+      const nextStartFrame = Math.max(0, Math.min(model.trimEndFrame - 1, model.trimStartFrame + direction * stepFrames));
+      onTrimStart(nextStartFrame / fps);
+      onScrubEnd(sourceToVisibleTime(nextStartFrame / fps));
+      return;
+    }
+    const nextEndFrame = Math.max(model.trimStartFrame + 1, Math.min(sourceFrameDuration, model.trimEndFrame + direction * stepFrames));
+    onTrimEnd(nextEndFrame / fps);
+    onScrubEnd(sourceToVisibleTime(nextEndFrame / fps));
+  }
+
+  function handleTrimHandleKey(kind: 'start' | 'end', event: React.KeyboardEvent<HTMLButtonElement>) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    event.stopPropagation();
+    nudgeTrimHandle(kind, event.key === 'ArrowRight' ? 1 : -1, event.shiftKey);
+  }
+
   function beginZoomDrag(region: { id: string; startFrame?: number; endFrame?: number }, mode: 'move' | 'start' | 'end', event: React.PointerEvent<HTMLElement>) {
     if (!Number.isFinite(region.startFrame) || !Number.isFinite(region.endFrame)) return;
     event.preventDefault();
@@ -2592,6 +2667,39 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     window.addEventListener('pointercancel', up, { once: true });
   }
 
+  function nudgeZoomRegion(region: { id: string; startFrame?: number; endFrame?: number }, mode: 'move' | 'start' | 'end', direction: -1 | 1, largeStep: boolean) {
+    if (!Number.isFinite(region.startFrame) || !Number.isFinite(region.endFrame)) return;
+    const stepFrames = largeStep ? Math.max(1, Math.round(fps)) : 1;
+    const delta = direction * stepFrames;
+    const initialStart = Math.round(region.startFrame ?? 0);
+    const initialEnd = Math.round(region.endFrame ?? initialStart + 15);
+    const duration = Math.max(15, initialEnd - initialStart);
+    const maxFrame = Math.max(1, Math.round(project.recording?.duration ?? sourceFrameDuration));
+    if (mode === 'move') {
+      const startFrame = Math.max(0, Math.min(maxFrame - duration, initialStart + delta));
+      onZoomMarkerRangeChange(region.id, startFrame, startFrame + duration);
+      return;
+    }
+    if (mode === 'start') {
+      onZoomMarkerRangeChange(region.id, Math.max(0, Math.min(initialEnd - 15, initialStart + delta)), initialEnd);
+      return;
+    }
+    onZoomMarkerRangeChange(region.id, initialStart, Math.max(initialStart + 15, Math.min(maxFrame, initialEnd + delta)));
+  }
+
+  function handleZoomKeyboard(region: { id: string; startFrame?: number; endFrame?: number }, mode: 'move' | 'start' | 'end', event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+      onSelectInspectorContext({ group: 'zoom', label: 'Zoom region', detail: 'Zoom region selected from the timeline.', markerId: region.id });
+      return;
+    }
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    event.stopPropagation();
+    nudgeZoomRegion(region, mode, event.key === 'ArrowRight' ? 1 : -1, event.shiftKey);
+  }
+
   function zoomRegionStyle(region: { id: string; left: number; width: number; startFrame?: number; endFrame?: number }) {
     if (zoomDragPreview?.id !== region.id) return { left: `${region.left}%`, width: `${region.width}%` };
     const placement = frameRangeToPlacement(zoomDragPreview.startFrame - model.trimStartFrame, zoomDragPreview.endFrame - model.trimStartFrame, fps, model.durationSec);
@@ -2600,6 +2708,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
 
   return (
     <div className="visualTimeline" aria-label="Timeline overview">
+      <span className="visuallyHidden" data-ui-region="timeline-live-region" aria-live="polite">Timeline position {formatClock(model.currentTimeSec)}</span>
       <div className="timelineRuler" aria-hidden="true">
         <span />
         {model.ticks.map((tick) => <span key={tick}>{formatClock(tick)}</span>)}
@@ -2614,6 +2723,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
             max={model.durationSec}
             step="0.1"
             value={model.currentTimeSec}
+            aria-valuetext={`Timeline position ${formatClock(model.currentTimeSec)}`}
             onWheelCapture={preventRangeWheelChange}
             onPointerDown={onScrubStart}
             onPointerUp={(event) => commitScrub(event.currentTarget.value)}
@@ -2628,9 +2738,9 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
         <TimelineLane label="Screen" className="screenLane">
           {model.lanes.screen.map((region) => (
             <div key={region.id} className="clipBar" style={{ left: `${region.left}%`, width: `${region.width}%` }}>
-              <button type="button" className="trimHandle trimHandleStart" aria-label="Trim start" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => beginTrimDrag('start', event)} />
+              <button type="button" role="slider" className="trimHandle trimHandleStart" aria-label="Trim start" aria-valuemin={0} aria-valuemax={Math.max(0, model.trimEndFrame - 1)} aria-valuenow={model.trimStartFrame} aria-valuetext={`Trim start ${model.trimStartFrame} frames`} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleTrimHandleKey('start', event)} onPointerDown={(event) => beginTrimDrag('start', event)} />
               <button type="button" className="clipBody" onClick={() => onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: 'Source clip selected from the timeline.' })}><Icon name="frame" /> Clip</button>
-              <button type="button" className="trimHandle trimHandleEnd" aria-label="Trim end" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => beginTrimDrag('end', event)} />
+              <button type="button" role="slider" className="trimHandle trimHandleEnd" aria-label="Trim end" aria-valuemin={model.trimStartFrame + 1} aria-valuemax={sourceFrameDuration} aria-valuenow={model.trimEndFrame} aria-valuetext={`Trim end ${model.trimEndFrame} frames`} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleTrimHandleKey('end', event)} onPointerDown={(event) => beginTrimDrag('end', event)} />
             </div>
           ))}
           {hasHiddenStart ? <button type="button" className="hiddenTrimRange hiddenTrimStart" aria-label="Restore hidden start" title={`Restore hidden start (${model.trimStartFrame} frames)`} onClick={onRestoreTrimStart}>Hidden start</button> : null}
@@ -2648,10 +2758,10 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
                 const kind = region.kind ?? 'manual';
                 const selected = selectedZoomMarkerId === region.id;
                 return (
-                  <button key={region.id} type="button" className={`timelineRegion zoomLayer${Math.min(1, region.layer ?? 0)} ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} title={label} style={zoomRegionStyle(region)} onClick={() => onSelectInspectorContext({ group: 'zoom', label, detail: `${kind} zoom region selected.`, markerId: region.id })} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
-                    <span className="zoomResizeHandle zoomResizeStart" onPointerDown={(event) => beginZoomDrag(region, 'start', event)} />
-                    <span className="zoomResizeHandle zoomResizeEnd" onPointerDown={(event) => beginZoomDrag(region, 'end', event)} />
-                  </button>
+                  <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker.`} className={`timelineRegion zoomLayer${Math.min(1, region.layer ?? 0)} ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} title={label} style={zoomRegionStyle(region)} onClick={() => onSelectInspectorContext({ group: 'zoom', label, detail: `${kind} zoom region selected.`, markerId: region.id })} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
+                    <span role="slider" tabIndex={0} aria-label={`${label} start boundary`} aria-valuemin={0} aria-valuemax={Math.max(0, Math.round((region.endFrame ?? 15) - 15))} aria-valuenow={Math.round(region.startFrame ?? 0)} className="zoomResizeHandle zoomResizeStart" onKeyDown={(event) => handleZoomKeyboard(region, 'start', event)} onPointerDown={(event) => beginZoomDrag(region, 'start', event)} />
+                    <span role="slider" tabIndex={0} aria-label={`${label} end boundary`} aria-valuemin={Math.round((region.startFrame ?? 0) + 15)} aria-valuemax={sourceFrameDuration} aria-valuenow={Math.round(region.endFrame ?? 15)} className="zoomResizeHandle zoomResizeEnd" onKeyDown={(event) => handleZoomKeyboard(region, 'end', event)} onPointerDown={(event) => beginZoomDrag(region, 'end', event)} />
+                  </div>
                 );
               })
             : <p>No zoom markers yet.</p>}

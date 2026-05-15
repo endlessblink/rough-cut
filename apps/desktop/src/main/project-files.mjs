@@ -203,7 +203,7 @@ export async function saveProjectFile(projectPath, project) {
 
   await rename(tmpPath, projectPath);
 
-  return { path: projectPath, document };
+  return { path: projectPath, document: await resolveProjectAssetPaths(projectPath, document) };
 }
 
 export async function openProjectFile(projectPath) {

@@ -813,6 +813,11 @@ async function runRendererUiSmoke() {
   const hasTimelineRail = Boolean(await waitFor(() => document.querySelector('[data-ui-region="timeline-review-rail"]'), 'timeline rail region'));
   const hasTimelineScrubber = Boolean(await waitFor(() => document.querySelector('input[aria-label="Scrub timeline"]'), 'timeline scrubber'));
   const hasTrimHandles = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="screen"] .trimHandleStart') && document.querySelector('[data-timeline-lane="screen"] .trimHandleEnd'), 'timeline trim handles'));
+  const hasTimelineLiveRegion = Boolean(document.querySelector('[data-ui-region="timeline-live-region"][aria-live="polite"]'));
+  const hasKeyboardTrimHandles = Boolean(
+    document.querySelector('[data-timeline-lane="screen"] .trimHandleStart[role="slider"][aria-valuenow]')
+      && document.querySelector('[data-timeline-lane="screen"] .trimHandleEnd[role="slider"][aria-valuenow]'),
+  );
   const hasZoomLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="zoom"]'), 'zoom timeline lane'));
   const hasClickLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="clicks"]'), 'click timeline lane'));
   const hasCameraLane = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="camera"]'), 'camera timeline lane'));
@@ -831,6 +836,11 @@ async function runRendererUiSmoke() {
   await waitFor(() => document.querySelector('[aria-label="Auto-zoom suggestions"]') && document.body.textContent?.includes('Suggestions'), 'auto-zoom suggestions panel header');
   const hasAutoZoomSuggestionsPanel = true;
   const hasZoomResizeHandles = Boolean(document.querySelector('[data-timeline-lane="zoom"] .zoomResizeStart') && document.querySelector('[data-timeline-lane="zoom"] .zoomResizeEnd'));
+  const hasKeyboardZoomControls = Boolean(
+    document.querySelector('[data-timeline-lane="zoom"] .timelineRegion[role="button"][tabindex="0"]')
+      && document.querySelector('[data-timeline-lane="zoom"] .zoomResizeStart[role="slider"][tabindex="0"]')
+      && document.querySelector('[data-timeline-lane="zoom"] .zoomResizeEnd[role="slider"][tabindex="0"]'),
+  );
   const hasNoSetupBoardHorizontalOverflow = Boolean(await waitFor(() => {
     const board = document.querySelector('.setupBoard');
     return board && board.scrollWidth <= board.clientWidth + 1;
@@ -1033,6 +1043,9 @@ async function runRendererUiSmoke() {
     hasTimelineZoomControlPanel,
     hasStableToolSwitchLayout,
     hasZoomResizeHandles,
+    hasKeyboardZoomControls,
+    hasTimelineLiveRegion,
+    hasKeyboardTrimHandles,
     hasNoSetupBoardHorizontalOverflow,
     hasAutoZoomSuggestionsPanel,
     hasInspectorContext,

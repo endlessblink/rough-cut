@@ -3,4 +3,5 @@ dist/
 *.tsbuildinfo
 .turbo/
 .logs/
+.watchpost/
 recordings/

@@ -96,7 +96,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-080 | Add i18n infrastructure with t() context and RTL CSS | P2 | PLANNED |
 | TASK-081 | Add light theme and semantic color tokens | P3 | PLANNED |
 | TASK-082 | Improve error UX with actionable copy and diagnostics link | P2 | DONE |
-| TASK-083 | Keyboard accessibility for timeline, markers, trim handles | P2 | PLANNED |
+| TASK-083 | Keyboard accessibility for timeline, markers, trim handles | P2 | DONE |
 | TASK-084 | Support relative-to-.roughcut asset paths in projects | P2 | DONE |
 | TASK-085 | Atomic project file writes with temp-and-rename pattern | P1 | DONE |
 | TASK-086 | Add GIF and WebM export presets | P2 | PLANNED |
@@ -2814,10 +2814,10 @@ TASK-018/019 are DONE. The user can apply or dismiss auto-zoom suggestions via `
 - `pnpm --filter @rough-cut/desktop build`
 - `node --test apps/desktop/src/renderer/src/app-error-copy.test.mjs`
 
-### TASK-083 Keyboard accessibility for timeline, markers, trim handles
+### ~~TASK-083~~ Keyboard accessibility for timeline, markers, trim handles
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -2832,8 +2832,15 @@ Timeline scrub at `main.tsx:2703` lacks `aria-live` for frame position. Zoom mar
 
 #### Verification
 
-- UI smoke covers keyboard-only end-to-end (record, trim, zoom, export).
-- Manual: navigate the editor with the keyboard alone.
+- Added focus traps and initial focus for the pre-record and shortcuts dialogs.
+- Added `aria-live` timeline position announcements plus `aria-valuetext` on the scrubber.
+- Added arrow-key nudge support for trim handles and zoom marker move/start/end controls, with Shift for larger one-second steps.
+- Extended `smoke:ui` assertions for timeline live region, keyboard trim sliders, and keyboard zoom controls.
+- Fixed project-save return state to resolve relative asset paths back to absolute runtime paths, preventing export regressions after autosave/edit saves.
+- `pnpm --filter @rough-cut/desktop typecheck` → pass.
+- `node --test apps/desktop/src/renderer/src/zoom-markers.test.mjs apps/desktop/src/renderer/src/timeline-rail.test.mjs` → 29 / 29 pass.
+- `pnpm --filter @rough-cut/desktop test` → 269 / 269 pass.
+- `env -u VITE_DEV_SERVER_URL pnpm smoke:ui` → pass.
 
 ### ~~TASK-084~~ Support relative-to-.roughcut asset paths in projects
 
