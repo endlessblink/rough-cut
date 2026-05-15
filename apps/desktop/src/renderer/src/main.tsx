@@ -3094,8 +3094,8 @@ function CameraFollowPanel({
     await persist(nextDocument as ProjectDocument);
   }
 
-  if (!zoom) return null;
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  if (!zoom) return null;
   const followDisabled = isSaving || zoom.followCursor === false;
   const smoothingValue = zoom.cursorSmoothing ?? 0.6;
   const hasCustomSmoothing = typeof zoom.cursorSmoothing === 'number';
