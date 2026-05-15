@@ -134,19 +134,26 @@ function getMarkerScale(
   return targetScale;
 }
 
-// Critically damped spring chasing a cursor-derived target. Integrates from
-// `fromFrame` (inclusive) to `toFrame` (inclusive) so the engine remains a
-// pure function: any call returns the same focal trajectory deterministic
-// from the marker, cursor data, and integration range.
+// Safe-zone camera: the camera focus holds still while the cursor is inside
+// an inner safe zone of the visible window. When the cursor would leave that
+// zone, the camera shifts just enough to keep the cursor inside it. The
+// analytic spring then smooths the (mostly piecewise-constant) camera target.
 //
-// Cursor input is pre-smoothed with an EMA filter to remove sub-pixel hand
-// tremor and 30 Hz sample noise. The spring's target each step is the EMA-
-// filtered cursor passed through the leash (using marker.targetScale for a
-// stable radius), with a stationary-snap polish to eliminate micro-jitter
-// when the cursor pauses.
+// This produces three properties we need:
+//   1. Stationary cursor → stationary camera (no chase-jitter on hand tremor)
+//   2. Fast cursor → camera shifts immediately to keep cursor on screen
+//      (guarantees the cursor never falls out of the safe zone)
+//   3. Spring smooths the camera step-changes so the move feels natural
 //
-// This is called only during the HOLD phase — ramp-in / ramp-out use a stable
-// focal target with no cursor influence (see `getMarkerFocalPoint`).
+// Pattern from Recordly's `computeCursorFollowFocus` (AGPL) reimplemented from
+// the described algorithm — no code copied.
+//
+// `followPadding` ∈ [0, 0.45] sets the safe-zone inset as a fraction of the
+// visible span on each axis. 0 = camera moves with any cursor motion; 0.4 =
+// large dead zone in the middle, camera only moves on near-edge cursor.
+//
+// Integrates from `fromFrame` to `toFrame` so the function stays pure for
+// deterministic export.
 function resolveSpringSmoothedFocal(
   fromFrame: Frame,
   toFrame: Frame,
@@ -160,9 +167,15 @@ function resolveSpringSmoothedFocal(
   const emaAlpha = CURSOR_EMA_ALPHA[followAnimation];
   const dtMs = 1000 / Math.max(1, fps);
   const targetScale = strengthToScale(marker.strength);
+  const safeZoneRatio = clamp(followPadding, 0, 0.45);
 
-  const stateX = createSpringState(marker.focalPoint.x);
-  const stateY = createSpringState(marker.focalPoint.y);
+  // Camera target — what we want the spring to chase. Initialized at the
+  // marker's authored focal point so the very first hold frame doesn't snap.
+  let camTargetX = marker.focalPoint.x;
+  let camTargetY = marker.focalPoint.y;
+
+  const stateX = createSpringState(camTargetX);
+  const stateY = createSpringState(camTargetY);
   let emaX: number | null = null;
   let emaY: number | null = null;
 
@@ -179,24 +192,36 @@ function resolveSpringSmoothedFocal(
       }
     }
 
-    let targetX = marker.focalPoint.x;
-    let targetY = marker.focalPoint.y;
     if (emaX !== null && emaY !== null) {
-      const target = edgeSnapFocus({ x: emaX, y: emaY }, targetScale, followPadding);
-      targetX = target.x;
-      targetY = target.y;
+      const scaleAtF = getMarkerScale(f, marker, targetScale);
+      const halfSpan = 1 / (2 * scaleAtF);
+      const visibleSpan = halfSpan * 2;
+      const inset = visibleSpan * safeZoneRatio;
+
+      // Safe zone in source-normalized coords, centered on current camera target
+      const safeLeft = camTargetX - halfSpan + inset;
+      const safeRight = camTargetX + halfSpan - inset;
+      const safeTop = camTargetY - halfSpan + inset;
+      const safeBottom = camTargetY + halfSpan - inset;
+
+      // Shift the camera ONLY when the cursor leaves the safe zone, and only
+      // by enough to put the cursor back at the safe-zone edge. This produces
+      // a piecewise-constant target — spring rests for most of the timeline.
+      if (emaX < safeLeft) camTargetX -= safeLeft - emaX;
+      else if (emaX > safeRight) camTargetX += emaX - safeRight;
+      if (emaY < safeTop) camTargetY -= safeTop - emaY;
+      else if (emaY > safeBottom) camTargetY += emaY - safeBottom;
+
+      // Source-bound clamp so the camera target never points outside the
+      // valid in-source window for the current scale.
+      const minXY = 1 / (2 * scaleAtF);
+      const maxXY = 1 - 1 / (2 * scaleAtF);
+      camTargetX = clamp(camTargetX, minXY, maxXY);
+      camTargetY = clamp(camTargetY, minXY, maxXY);
     }
 
-    // Source-bound clamp at the frame's current scale so the spring chases a
-    // valid in-source target.
-    const scaleAtF = getMarkerScale(f, marker, targetScale);
-    const minXY = 1 / (2 * scaleAtF);
-    const maxXY = 1 - 1 / (2 * scaleAtF);
-    targetX = clamp(targetX, minXY, maxXY);
-    targetY = clamp(targetY, minXY, maxXY);
-
-    stepSpring(stateX, targetX, dtMs, cfg);
-    stepSpring(stateY, targetY, dtMs, cfg);
+    stepSpring(stateX, camTargetX, dtMs, cfg);
+    stepSpring(stateY, camTargetY, dtMs, cfg);
   }
 
   return { x: stateX.value, y: stateY.value };
@@ -307,10 +332,12 @@ function getMarkerFocalPoint(
     return sourceClamp(contained.x, contained.y);
   }
 
-  // Phase 3 — ramp-out: ignore live cursor movement, but do not stay fully
-  // cursor-focused. As the scale returns to 1, ease the focal back to center
-  // so the exit feels like revealing the full frame rather than tracking the
-  // cursor until the last moment.
+  // Phase 3 — ramp-out: freeze the focal at the last hold position (Recordly's
+  // `frozenFocus` pattern). Easing toward center actively pulls the camera
+  // away from the cursor while the viewport is still zoomed in — cropping the
+  // cursor. By holding the focal, the source-bound clamp naturally slides it
+  // toward 0.5 as scale → 1, so the cursor stays inside the widening window
+  // and the marker exits cleanly at center when scale reaches 1.
   const holdEndFocal = hasHold
     ? containCursorInVisibleWindow(
         resolveSpringSmoothedFocal(
@@ -326,14 +353,7 @@ function getMarkerFocalPoint(
         strengthToScale(marker.strength),
       )
     : marker.focalPoint;
-  const rampOutT =
-    marker.zoomOutDuration > 0
-      ? smootherStep((frame - holdEnd) / marker.zoomOutDuration)
-      : 1;
-  return sourceClamp(
-    holdEndFocal.x + (0.5 - holdEndFocal.x) * rampOutT,
-    holdEndFocal.y + (0.5 - holdEndFocal.y) * rampOutT,
-  );
+  return sourceClamp(holdEndFocal.x, holdEndFocal.y);
 }
 
 /**

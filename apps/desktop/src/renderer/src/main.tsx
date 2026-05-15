@@ -1645,7 +1645,7 @@ function captureStatusLabel(recording: RecordingStatus, elapsedMs: number) {
 }
 
 type IconName = 'folder' | 'sparkle' | 'sliders' | 'undo' | 'redo' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause';
-type ActiveTool = 'background' | 'timeline' | 'inspector' | 'cursor';
+type ActiveTool = 'background' | 'timeline' | 'inspector' | 'cursor' | 'camera';
 
 function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -1687,6 +1687,7 @@ function ToolRail({ active, onSelect }: { active: ActiveTool; onSelect: (tool: A
     { id: 'timeline', icon: 'timeline', label: 'Timeline' },
     { id: 'inspector', icon: 'sliders', label: 'Inspector' },
     { id: 'cursor', icon: 'cursor', label: 'Cursor' },
+    { id: 'camera', icon: 'camera', label: 'Camera' },
   ];
   return (
     <nav className="toolRail" aria-label="Editor tools">
@@ -1755,6 +1756,61 @@ function InspectorPresetGrid({ label, disabled = false, value, onSelect }: { lab
   );
 }
 
+function CursorStylePicker({ value, disabled = false, onChange }: { value: CursorStyle; disabled?: boolean; onChange: (value: CursorStyle) => void }) {
+  return (
+    <div className="segmentedPicker" role="radiogroup" aria-label="Cursor style">
+      {CURSOR_STYLE_OPTIONS.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          role="radio"
+          aria-checked={value === option.value}
+          disabled={disabled}
+          className={`segmentedOption cursorStyleOption cursorStyle-${option.value}${value === option.value ? ' active' : ''}`}
+          onClick={() => onChange(option.value)}
+          data-cursor-style={option.value}
+        >
+          <span className="cursorStyleSwatch" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22">
+              {option.value === 'spotlight' ? <circle cx="12" cy="14" r="9" fill="rgba(122,167,255,0.28)" /> : null}
+              <path d="m6 3 11 11-5 1.2L9.4 20 6 3Z" fill="#ffffff" stroke={option.value === 'spotlight' ? '#7AA7FF' : '#333A46'} strokeWidth={option.value === 'spotlight' ? 1.6 : 1.2} opacity={option.value === 'subtle' ? 0.6 : 1} />
+            </svg>
+          </span>
+          <span className="segmentedLabel">{option.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function CursorClickEffectPicker({ value, disabled = false, onChange }: { value: ClickEffect; disabled?: boolean; onChange: (value: ClickEffect) => void }) {
+  return (
+    <div className="segmentedPicker" role="radiogroup" aria-label="Click effect">
+      {CURSOR_CLICK_EFFECT_OPTIONS.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          role="radio"
+          aria-checked={value === option.value}
+          disabled={disabled}
+          className={`segmentedOption clickEffectOption clickEffect-${option.value}${value === option.value ? ' active' : ''}`}
+          onClick={() => onChange(option.value)}
+          data-click-effect={option.value}
+        >
+          <span className="cursorStyleSwatch" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22">
+              {option.value === 'ring' ? <circle cx="12" cy="12" r="8" fill="none" stroke="#7AA7FF" strokeWidth="2" /> : null}
+              {option.value === 'ripple' ? <circle cx="12" cy="12" r="8" fill="rgba(122,167,255,0.36)" /> : null}
+              {option.value === 'none' ? <path d="M5 5l14 14M5 19L19 5" stroke="#6b7280" strokeWidth="1.6" strokeLinecap="round" /> : null}
+            </svg>
+          </span>
+          <span className="segmentedLabel">{option.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function TemplatePresetGrid({ disabled = false, value, onSelect }: { disabled?: boolean; value?: string; onSelect?: (id: string) => void }) {
   return (
     <div className="inspectorPresetGroup" data-template-preset-grid="true">
@@ -1785,10 +1841,6 @@ function TemplatePresetGrid({ disabled = false, value, onSelect }: { disabled?: 
 
 function InspectorActionRow({ children, region }: { children: React.ReactNode; region?: string }) {
   return <div className="actionsArea inspectorActionRow" data-ui-region={region}>{children}</div>;
-}
-
-function InspectorNotice({ children }: { children: React.ReactNode }) {
-  return <p className="inspectorNotice">{children}</p>;
 }
 
 function InspectorContextSummary({ selection }: { selection: InspectorSelection }) {
@@ -1836,9 +1888,16 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
             <div className="timelineCompactRow"><span>Playhead</span><strong>{formatClock(currentTimeSec)}</strong></div>
             <ZoomMarkerPanel project={project} fps={fps} currentTimeSec={currentTimeSec} markerCount={markerCount} onProjectChange={onProjectChange} />
             <AutoZoomSuggestionsPanel project={project} onProjectChange={onProjectChange} />
+            <InspectorSection id="zoom" title={selectedZoomMarker ? 'Selected marker' : 'Marker editor'} muted={!selectedZoomMarker} description={selectedZoomMarker ? undefined : 'Pick a marker from the timeline to edit its range and depth.'}>
+              <div data-zoom-controls="true">
+                <InspectorSlider label="Start frame" value={selectedZoomMarker?.startFrame ?? 0} min={0} max={Math.max(1, project?.recording?.duration ?? 1)} step={1} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerRangeChange?.(selectedZoomMarker.id, value, selectedZoomMarker.endFrame) : undefined} />
+                <InspectorSlider label="End frame" value={selectedZoomMarker?.endFrame ?? 0} min={0} max={Math.max(1, project?.recording?.duration ?? 1)} step={1} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerRangeChange?.(selectedZoomMarker.id, selectedZoomMarker.startFrame, value) : undefined} />
+                <InspectorSlider label="Depth" value={Math.round((selectedZoomMarker?.strength ?? 0) * 100)} min={0} max={100} step={5} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerStrengthChange?.(selectedZoomMarker.id, value / 100) : undefined} />
+              </div>
+            </InspectorSection>
           </div>
         ) : (
-          <p className="boardNote">Open a project to edit zoom markers and suggestions.</p>
+          <p className="boardNote">Record or open a project to edit zoom markers.</p>
         )}
       </aside>
     );
@@ -1855,8 +1914,7 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
         <InspectorSection id="canvas" title="Canvas" description="Padding, corners, and shadow live in the Background tool.">
           <InspectorSelect label="Aspect ratio" value={aspectRatio} options={aspectRatioOptions} disabled={disabled} onChange={(value) => onAspectRatioChange?.(value)} />
         </InspectorSection>
-        <InspectorSection id="recording" title="Recording" description="Head and tail trims keep the original source recording untouched.">
-          <p className="editRecoveryNotice">Trims and cuts only hide source ranges. Restore buttons bring them back; exports use the visible timeline.</p>
+        <InspectorSection id="recording" title="Recording" description="Trims and cuts are non-destructive. Restore brings any hidden range back.">
           <div className="trimSummary" data-trim-summary="true">
             <span>Start {formatClock(trimInfo?.startSec ?? 0)}</span>
             <span>End {formatClock(trimInfo?.endSec ?? 0)}</span>
@@ -1887,15 +1945,16 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
             ) : <p className="inspectorNotice">No removed middle ranges.</p>}
           </div>
         </InspectorSection>
-        <InspectorSection id="zoom" title="Zoom" muted={!selectedZoomMarker}>
-          <div data-zoom-controls="true">
-            <InspectorSlider label="Start frame" value={selectedZoomMarker?.startFrame ?? 0} min={0} max={Math.max(1, project?.recording?.duration ?? 1)} step={1} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerRangeChange?.(selectedZoomMarker.id, value, selectedZoomMarker.endFrame) : undefined} />
-            <InspectorSlider label="End frame" value={selectedZoomMarker?.endFrame ?? 0} min={0} max={Math.max(1, project?.recording?.duration ?? 1)} step={1} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerRangeChange?.(selectedZoomMarker.id, selectedZoomMarker.startFrame, value) : undefined} />
-            <InspectorSlider label="Depth" value={Math.round((selectedZoomMarker?.strength ?? 0) * 100)} min={0} max={100} step={5} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerStrengthChange?.(selectedZoomMarker.id, value / 100) : undefined} />
-          </div>
-        </InspectorSection>
-        <InspectorSection id="camera" title="Camera" muted={!hasCamera} description={hasCamera ? 'Camera PiP settings are saved with the project and used by styled export.' : undefined}>
-          {hasCamera ? (
+      </aside>
+    );
+  }
+
+  if (activeTool === 'camera') {
+    return (
+      <aside className="setupBoard" aria-label="Camera board">
+        <BoardHeader icon="camera" title="Camera" action="Reset" actionDisabled={disabled || !hasCamera} onAction={() => onCameraPresentationChange?.(DEFAULT_CAMERA_PRESENTATION)} />
+        {hasCamera ? (
+          <InspectorSection id="camera" title="Webcam PiP" description="Saved with the project; styled export uses these values.">
             <div data-camera-pip-controls="true">
               <InspectorToggle label="Show camera" checked={camera.visible} disabled={disabled} onChange={(visible) => onCameraPresentationChange?.({ visible })} />
               <InspectorSelect label="Position" value={camera.position} options={CAMERA_POSITION_OPTIONS} disabled={disabled || !camera.visible} onChange={(position) => onCameraPresentationChange?.({ position })} />
@@ -1903,32 +1962,29 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
               <InspectorSlider label="Camera size" value={camera.size} min={50} max={200} step={5} disabled={disabled || !camera.visible} onChange={(size) => onCameraPresentationChange?.({ size })} />
               <InspectorSlider label="Camera roundness" value={camera.roundness} min={0} max={100} step={5} disabled={disabled || !camera.visible || camera.shape !== 'rounded'} onChange={(roundness) => onCameraPresentationChange?.({ roundness })} />
             </div>
-          ) : <InspectorNotice>No linked webcam track in this project.</InspectorNotice>}
-        </InspectorSection>
+          </InspectorSection>
+        ) : (
+          <p className="boardNote">No webcam track linked to this project. Re-record with camera enabled to add one.</p>
+        )}
       </aside>
     );
   }
 
   if (activeTool === 'cursor') {
     return (
-      <aside className="setupBoard" aria-label="Cursor board">
+      <aside className="setupBoard cursorBoard" aria-label="Cursor board">
         <BoardHeader icon="cursor" title="Cursor" action="Reset" actionDisabled={disabled || !projectLoaded} onAction={() => onCursorPresentationChange?.(DEFAULT_CURSOR_PRESENTATION)} />
-        <InspectorSection id="cursor" title="Cursor style" description="Applies to preview and styled export.">
-          {projectLoaded ? (
-            <div data-cursor-controls="true">
-              <InspectorSelect label="Style" value={cursor.style} options={CURSOR_STYLE_OPTIONS} disabled={disabled} onChange={(style) => onCursorPresentationChange?.({ style })} />
-              <InspectorSlider label="Cursor size" value={cursor.sizePercent} min={50} max={150} step={5} disabled={disabled} onChange={(sizePercent) => onCursorPresentationChange?.({ sizePercent })} />
-            </div>
-          ) : <InspectorNotice>Open a project to edit cursor style.</InspectorNotice>}
-        </InspectorSection>
-        <InspectorSection id="cursor-clicks" title="Clicks" description="Visual feedback rendered when a click event lands on the timeline.">
-          {projectLoaded ? (
-            <div data-cursor-clicks="true">
-              <InspectorSelect label="Click effect" value={cursor.clickEffect} options={CURSOR_CLICK_EFFECT_OPTIONS} disabled={disabled} onChange={(clickEffect) => onCursorPresentationChange?.({ clickEffect })} />
-              <InspectorToggle label="Click sound" checked={cursor.clickSoundEnabled} disabled={disabled} onChange={(clickSoundEnabled) => onCursorPresentationChange?.({ clickSoundEnabled })} />
-            </div>
-          ) : null}
-        </InspectorSection>
+        {projectLoaded ? (
+          <div className="flatGroup" data-inspector-group="cursor" data-cursor-controls="true">
+            <CursorStylePicker value={cursor.style} disabled={disabled} onChange={(style) => onCursorPresentationChange?.({ style })} />
+            <InspectorSlider label="Size" value={cursor.sizePercent} min={50} max={150} step={5} disabled={disabled} onChange={(sizePercent) => onCursorPresentationChange?.({ sizePercent })} />
+            <div className="flatGroupDivider" aria-hidden="true" />
+            <CursorClickEffectPicker value={cursor.clickEffect} disabled={disabled} onChange={(clickEffect) => onCursorPresentationChange?.({ clickEffect })} />
+            <InspectorToggle label="Play click sound" checked={cursor.clickSoundEnabled} disabled={disabled} onChange={(clickSoundEnabled) => onCursorPresentationChange?.({ clickSoundEnabled })} />
+          </div>
+        ) : (
+          <p className="boardNote">Open a project to edit cursor style.</p>
+        )}
       </aside>
     );
   }

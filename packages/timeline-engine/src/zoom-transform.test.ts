@@ -211,7 +211,12 @@ describe('getZoomTransformForMarker', () => {
     expect(focalFromTransform(zoomOut!).x).toBeCloseTo(focalFromTransform(holdEnd!).x, 1);
   });
 
-  it('eases the zoom-out focal back toward center instead of staying fully cursor-focused', () => {
+  it('keeps the cursor inside the visible window throughout zoom-out (no cropping)', () => {
+    // Regression: the old code eased focal toward 0.5 during ramp-out, which
+    // pulled the camera away from a near-edge cursor while scale was still
+    // high — cropping the cursor out of frame. The frozen-focal approach lets
+    // the source-bound clamp slide focal toward center as scale → 1 instead,
+    // keeping the cursor inside the widening window.
     const marker = createZoomMarker(0, 60, {
       kind: 'auto',
       strength: 1,
@@ -219,22 +224,24 @@ describe('getZoomTransformForMarker', () => {
       zoomOutDuration: 15,
       focalPoint: { x: 0.5, y: 0.5 },
     });
+    const cursorAtFrame = (frame: number) => (frame < 45 ? { x: 0.8, y: 0.5 } : { x: 0.8, y: 0.5 });
     const options = {
       followCursor: true,
       followAnimation: 'focused' as const,
       followPadding: 0.25,
       fps: 30,
-      getCursorPosition: (frame: number) => (frame < 45 ? { x: 0.8, y: 0.5 } : { x: 0.2, y: 0.5 }),
+      getCursorPosition: cursorAtFrame,
     };
 
-    const holdEnd = getZoomTransformForMarker(44, marker, options);
-    const zoomOutMid = getZoomTransformForMarker(52, marker, options);
+    for (const frame of [45, 48, 52, 56, 59]) {
+      const t = getZoomTransformForMarker(frame, marker, options);
+      expect(t, `frame ${frame}`).not.toBeNull();
+      expect(cursorInsideVisibleWindow(t!, cursorAtFrame(frame)), `frame ${frame}`).toBe(true);
+    }
 
-    expect(holdEnd).not.toBeNull();
-    expect(zoomOutMid).not.toBeNull();
-    const holdFocal = focalFromTransform(holdEnd!);
-    const midFocal = focalFromTransform(zoomOutMid!);
-    expect(Math.abs(midFocal.x - 0.5)).toBeLessThan(Math.abs(holdFocal.x - 0.5));
+    // Marker reaches scale 1 at endFrame, focal naturally pinned to 0.5 by clamp
+    const last = getZoomTransformForMarker(59, marker, options);
+    expect(last!.scale).toBeLessThan(1.1);
   });
 
   it('uses marker focal instead of live cursor position during zoom-in', () => {
