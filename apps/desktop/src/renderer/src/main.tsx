@@ -119,7 +119,7 @@ type CutRange = { id: string; startFrame: number; endFrame: number };
 
 type RecordingStatus =
   | { state: 'idle'; canceled?: boolean }
-  | { state: 'recording'; startedAt: string; rawPath: string; outputPath: string; micSource?: string | null; systemAudioSource?: string | null; cameraDevicePath?: string | null }
+  | { state: 'recording'; startedAt: string; rawPath: string; outputPath: string; micSource?: string | null; systemAudioSource?: string | null; cameraDevicePath?: string | null; cameraError?: string | null }
   | {
       state: 'saved';
       startedAt: string;
@@ -226,6 +226,7 @@ function App() {
   const [preflightStatus, setPreflightStatus] = React.useState<RecordingPreflightStatus | null>(null);
   const [recoveryState, setRecoveryState] = React.useState<{ available: boolean; marker: RecoveryMarker | null } | null>(null);
   const [recoveryActionPending, setRecoveryActionPending] = React.useState(false);
+  const [dismissedCameraFailureForStartedAt, setDismissedCameraFailureForStartedAt] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     window.roughCut.getVersion().then(setVersion).catch(() => setVersion('unknown'));
@@ -360,6 +361,24 @@ function App() {
     update();
     const id = window.setInterval(update, 250);
     return () => window.clearInterval(id);
+  }, [recording]);
+
+  React.useEffect(() => {
+    if (recording.state !== 'recording') return;
+    let cancelled = false;
+    const pollStatus = () => {
+      window.roughCut.getRecordingStatus()
+        .then((status) => {
+          if (!cancelled && status.state === 'recording' && status.cameraError && status.cameraError !== recording.cameraError) setRecording(status);
+        })
+        .catch(() => undefined);
+    };
+    pollStatus();
+    const id = window.setInterval(pollStatus, 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
   }, [recording]);
 
   React.useEffect(() => {
@@ -516,6 +535,14 @@ function App() {
     }
   }
 
+  async function stopAndRetryWithCameraOff() {
+    if (recording.state !== 'recording') return;
+    await cancelRecording();
+    setRecordCamera(false);
+    setDismissedCameraFailureForStartedAt(null);
+    setPreRecordPanelOpen(true);
+  }
+
   function openEditorFromRecorder() {
     if (isRecorderMode) {
       void window.roughCut.openEditor(null);
@@ -635,8 +662,13 @@ function App() {
   function startRetake() {
     setPreRecordPanelOpen(true);
     setRecording({ state: 'idle' });
+    setDismissedCameraFailureForStartedAt(null);
     setExportResult(null);
   }
+
+  const activeCameraFailure = recording.state === 'recording' && recording.cameraError && dismissedCameraFailureForStartedAt !== recording.startedAt
+    ? { startedAt: recording.startedAt, error: recording.cameraError }
+    : null;
 
   function applyProjectChange(next: ProjectState, options: ProjectChangeOptions = {}) {
     if (options.history && options.previous) {
@@ -694,7 +726,15 @@ function App() {
           />
         ) : null}
         {recording.state === 'recording' ? (
-          <RecordingLauncherActive elapsedMs={elapsedMs} actionPending={recordingActionPending} onStop={toggleRecording} onCancel={cancelRecording} />
+          <RecordingLauncherActive
+            elapsedMs={elapsedMs}
+            actionPending={recordingActionPending}
+            cameraFailure={activeCameraFailure}
+            onStop={toggleRecording}
+            onCancel={cancelRecording}
+            onRetryWithoutCamera={stopAndRetryWithCameraOff}
+            onContinueScreenOnly={() => setDismissedCameraFailureForStartedAt(recording.state === 'recording' ? recording.startedAt : null)}
+          />
         ) : (
           <PreRecordPanel
             micSources={micSources}
@@ -917,6 +957,14 @@ function App() {
           ) : null}
         </div>
         <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} error={error} diagnosticsPath={failureDiagnosticsPath} onRetry={retryLastFailedAction} onOpenDiagnostics={() => void openPath(failureDiagnosticsPath)} onCopyDiagnosticsPath={copyFailureDiagnosticsPath} />
+        {activeCameraFailure ? (
+          <CameraFailureBanner
+            error={activeCameraFailure.error}
+            actionPending={recordingActionPending}
+            onRetryWithoutCamera={stopAndRetryWithCameraOff}
+            onContinueScreenOnly={() => setDismissedCameraFailureForStartedAt(activeCameraFailure.startedAt)}
+          />
+        ) : null}
         {project ? (
           <ProjectPreview
             project={project}
@@ -962,6 +1010,7 @@ function summarizeRecordingStatus(status: RecordingStatus) {
       state: status.state,
       outputPath: status.outputPath,
       cameraDevicePath: status.cameraDevicePath ?? null,
+      cameraError: status.cameraError ?? null,
     };
   }
   return {
@@ -1215,7 +1264,7 @@ function PreRecordCameraSetup({ source }: { source?: CameraSource }) {
   );
 }
 
-function RecordingLauncherActive({ elapsedMs, actionPending, onStop, onCancel }: { elapsedMs: number; actionPending: boolean; onStop: () => void; onCancel: () => void }) {
+function RecordingLauncherActive({ elapsedMs, actionPending, cameraFailure, onStop, onCancel, onRetryWithoutCamera, onContinueScreenOnly }: { elapsedMs: number; actionPending: boolean; cameraFailure: { error: string } | null; onStop: () => void; onCancel: () => void; onRetryWithoutCamera: () => void; onContinueScreenOnly: () => void }) {
   return (
     <div className="preRecordOverlay" data-ui-region="recording-launcher-active">
       <section className="preRecordPanel recordingActivePanel">
@@ -1233,9 +1282,32 @@ function RecordingLauncherActive({ elapsedMs, actionPending, onStop, onCancel }:
         <button type="button" onClick={onCancel} className="secondary" disabled={actionPending}>
           Cancel and discard
         </button>
+        {cameraFailure ? (
+          <CameraFailureBanner
+            error={cameraFailure.error}
+            actionPending={actionPending}
+            onRetryWithoutCamera={onRetryWithoutCamera}
+            onContinueScreenOnly={onContinueScreenOnly}
+          />
+        ) : null}
         <p className="recordingActiveHint">Pause is intentionally pending segment recording, so cancel removes the current take instead of saving a corrupt pause.</p>
       </section>
     </div>
+  );
+}
+
+function CameraFailureBanner({ error, actionPending, onRetryWithoutCamera, onContinueScreenOnly }: { error: string; actionPending: boolean; onRetryWithoutCamera: () => void; onContinueScreenOnly: () => void }) {
+  return (
+    <section className="cameraFailureBanner" data-ui-region="recording-camera-failure" role="alert" aria-live="assertive">
+      <div>
+        <p className="eyebrow">Camera not recording</p>
+        <p>The screen capture is still running, but webcam PiP is off: {error}</p>
+      </div>
+      <div className="cameraFailureActions">
+        <button type="button" className="secondary compact" disabled={actionPending} onClick={onRetryWithoutCamera}>Stop and retry with camera off</button>
+        <button type="button" className="secondary compact" disabled={actionPending} onClick={onContinueScreenOnly}>Continue screen-only</button>
+      </div>
+    </section>
   );
 }
 

@@ -83,6 +83,7 @@ export function createRecordingSession({
       micSource: active.micSource,
       systemAudioSource: active.systemAudioSource,
       cameraDevicePath: active.cameraDevicePath,
+      cameraError: active.cameraError ?? null,
     };
   }
 
@@ -244,6 +245,7 @@ export function createRecordingSession({
 
     registerChild(session, 'ffmpeg-screen', capture);
     active = { ...session, capture, cameraCapture, unifiedCapture };
+    monitorCameraCaptureExit(active);
 
     startTelemetryAfterIpcReturn(active, { getCursorPoint, now, sampleIntervalMs, buttonListenerFactory });
     return status();
@@ -511,6 +513,21 @@ function registerChild(session, name, handle) {
     name,
     getPid: typeof handle.getPid === 'function' ? () => handle.getPid() : () => null,
     kill: typeof handle.kill === 'function' ? (signal) => handle.kill(signal) : () => {},
+  });
+}
+
+function monitorCameraCaptureExit(session) {
+  if (!session.cameraCapture || typeof session.cameraCapture.whenExited !== 'function') return;
+  session.cameraCapture.whenExited().then((exited) => {
+    if (session.stopped || !exited || exited.code === 0 || exited.signal === 'SIGINT' || exited.signal === 'SIGTERM') return;
+    const stderrTail = (exited.stderr ?? '').split(/\r?\n/).filter(Boolean).slice(-3).join(' | ');
+    session.cameraError = `ffmpeg-camera exited during recording (code=${exited.code} signal=${exited.signal ?? 'null'}): ${stderrTail || 'no stderr'}`;
+    console.warn(`[recording-session] camera failed during recording: ${session.cameraError}`);
+    session.eventLogger?.event('camera-capture-failed-during-recording', { error: session.cameraError, cameraDevicePath: session.cameraDevicePath });
+  }).catch((err) => {
+    if (session.stopped) return;
+    session.cameraError = err instanceof Error ? err.message : String(err);
+    session.eventLogger?.event('camera-capture-monitor-failed', { error: session.cameraError, cameraDevicePath: session.cameraDevicePath });
   });
 }
 

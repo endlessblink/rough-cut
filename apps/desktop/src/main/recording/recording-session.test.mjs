@@ -323,6 +323,7 @@ test('recording session continues screen capture when camera start fails', async
 
   const started = await session.start({ cameraDevicePath: '/dev/video2' });
   assert.equal(started.state, 'recording');
+  assert.match(started.cameraError, /Device or resource busy/);
   assert.equal(captureCalls.length, 1);
 
   const stopped = await session.stop();
@@ -332,6 +333,44 @@ test('recording session continues screen capture when camera start fails', async
   assert.equal(stopped.cameraOutputPath, null);
   assert.match(stopped.cameraError, /Device or resource busy/);
 
+  await rm(root, { recursive: true, force: true });
+});
+
+test('recording status exposes camera failures while the screen keeps recording', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-camera-live-failure-'));
+  let resolveCameraExit;
+  const cameraExit = new Promise((resolve) => {
+    resolveCameraExit = resolve;
+  });
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    cameraWarmupMs: 0,
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+    cameraCaptureFactory: (options) => ({
+      outputPath: options.outputPath,
+      whenExited: () => cameraExit,
+      stop: async () => options.outputPath,
+    }),
+  });
+
+  const started = await session.start({ cameraDevicePath: '/dev/video2' });
+  assert.equal(started.state, 'recording');
+  assert.equal(started.cameraError, null);
+
+  resolveCameraExit({ code: 1, signal: null, stderr: 'No such device' });
+  await cameraExit;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const status = session.status();
+  assert.equal(status.state, 'recording');
+  assert.match(status.cameraError, /No such device/);
+
+  await session.cancel();
   await rm(root, { recursive: true, force: true });
 });
 

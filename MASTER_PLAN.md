@@ -81,10 +81,10 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-065 | Validate paths in PROJECT_OPEN and PROJECT_SAVE IPC handlers | P1 | DONE |
 | TASK-066 | Clean up recording child processes on app crash or signal | P1 | DONE |
 | TASK-067 | Validate remuxed MP4 coherence before declaring success | P1 | DONE |
-| TASK-068 | Compensate cursor and audio drift vs ffmpeg first frame | P1 | PLANNED |
+| TASK-068 | Compensate cursor and audio drift vs ffmpeg first frame | P1 | DONE |
 | TASK-069 | Add EXPORT_CANCEL IPC and kill ffmpeg on cancel | P1 | DONE |
-| TASK-070 | Per-display scale factor for cursor and click telemetry | P1 | PLANNED |
-| TASK-071 | Surface camera failure during recording, not after | P1 | PLANNED |
+| TASK-070 | Per-display scale factor for cursor and click telemetry | P1 | DONE |
+| TASK-071 | Surface camera failure during recording, not after | P1 | DONE |
 | TASK-072 | Lift or warn on ASS cursor 600-event downsample cap | P1 | DONE |
 | TASK-073 | Validate capture region against display bounds | P1 | PLANNED |
 | TASK-074 | Wire or remove inert top-bar folder, comments, undo icons | P1 | DONE |
@@ -346,7 +346,7 @@ Sequence: TASK-104, TASK-105
 Depends-on: LANE P3-A
 Sequence: TASK-106
 
-Next task when continuing: start TASK-068, "Compensate cursor and audio drift vs ffmpeg first frame". Begin by tracing how recording start, ffmpeg first frame timing, cursor telemetry, click telemetry, and audio timestamps are aligned in saved projects and styled export.
+Next task when continuing: start TASK-073, "Validate capture region against display bounds". Begin by tracing capture-region selection, normalization, and x11grab geometry so invalid saved/input regions cannot start a broken recording.
 
 ## Tasks
 
@@ -2480,7 +2480,7 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 ### TASK-071 Surface camera failure during recording, not after
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -2497,6 +2497,20 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 
 - UI smoke covers camera-failure-during-recording state.
 - Manual: unplug a USB webcam mid-recording, confirm the banner appears immediately.
+
+#### Completion Notes
+
+- Live recording status now includes `cameraError` when camera startup falls back to screen-only or when a separate camera capture process exits mid-recording.
+- Renderer polls live recording status while recording and shows a persistent `Camera not recording` banner without hiding the capture UI.
+- Banner actions let the user cancel/retry with camera off or dismiss the warning and continue screen-only.
+- Recording-flow smoke now asserts the live camera-failure banner and both actions during simulated camera failure.
+
+#### Completion Verification
+
+- `pnpm --filter @rough-cut/desktop test` — 264/264 pass.
+- `pnpm typecheck` — pass across all packages.
+- `env -u VITE_DEV_SERVER_URL ROUGH_CUT_UI_SMOKE_CAMERA_WARNING=1 ROUGH_CUT_SMOKE_CAMERA_DEVICE_PATH=/dev/video9999 ROUGH_CUT_SMOKE_CAMERA_START_ERROR='Device or resource busy' pnpm smoke:recording-flow-ui` — pass, including `hasLiveCameraFailureBanner: true` and `hasLiveCameraFailureActions: true`.
+- `env -u VITE_DEV_SERVER_URL pnpm smoke:ui` — pass.
 
 ### ~~TASK-072~~ Lift or warn on ASS cursor 600-event downsample cap
 

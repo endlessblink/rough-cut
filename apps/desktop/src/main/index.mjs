@@ -1054,11 +1054,17 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     ? Boolean(await waitFor(() => document.querySelector('[data-ui-region="pre-record-camera-setup"]'), 'pre-record camera setup'))
     : Boolean(document.querySelector('[data-ui-region="pre-record-camera-setup"]'));
   const preRecordCameraPreviewState = options.cameraWarning
-    ? await waitFor(() => document.querySelector('[data-camera-preview-state="live"]')?.getAttribute('data-camera-preview-state'), 'live camera preview', 15000)
+    ? await waitFor(() => document.querySelector('[data-camera-preview-state]')?.getAttribute('data-camera-preview-state'), 'camera preview state', 15000)
     : document.querySelector('[data-camera-preview-state]')?.getAttribute('data-camera-preview-state') ?? null;
   const preRecordStartButton = await waitFor(() => document.querySelector('[data-recording-start="pre-record"]'), 'pre-record start button');
   preRecordStartButton.click();
   await waitFor(() => document.querySelector('[data-recording-state="recording"]'), 'recording state banner');
+  const liveCameraFailureBanner = options.cameraWarning
+    ? await waitFor(() => document.querySelector('[data-ui-region="recording-camera-failure"]'), 'live camera failure banner', 15000)
+    : document.querySelector('[data-ui-region="recording-camera-failure"]');
+  const hasLiveCameraFailureBanner = Boolean(liveCameraFailureBanner);
+  const hasLiveCameraFailureActions = Boolean(liveCameraFailureBanner)
+    && ['Stop and retry with camera off', 'Continue screen-only'].every((label) => liveCameraFailureBanner.textContent?.includes(label));
   await new Promise((resolve) => setTimeout(resolve, 1800));
   if (options.cancelFlow) {
     const cancelButton = await waitFor(() => findButton('Cancel and discard'), 'cancel button');
@@ -1081,6 +1087,8 @@ async function runRendererRecordingFlowSmoke(options = {}) {
       hasReviewWorkspace: Boolean(document.querySelector('[data-ui-region="post-recording-review"]')),
       hasVideo: Boolean(document.querySelector('video')),
       cancelFlow: true,
+      hasLiveCameraFailureBanner,
+      hasLiveCameraFailureActions,
     };
   }
   const stopButton = await waitFor(() => findButton('Stop recording'), 'stop button');
@@ -1134,6 +1142,8 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     preRecordCameraPreviewState,
     hasReviewCameraWarning,
     hasStateCameraWarning,
+    hasLiveCameraFailureBanner,
+    hasLiveCameraFailureActions,
     hasStyledPreviewCanvas: Boolean(canvas),
     hasVideo: Boolean(video),
     duration: video?.duration ?? null,

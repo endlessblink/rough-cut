@@ -15,6 +15,7 @@ const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb'
     ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
     ROUGH_CUT_LOAD_BUILT_RENDERER: '1',
     ROUGH_CUT_UI_SMOKE_RECORD_FLOW: '1',
+    ROUGH_CUT_UI_SMOKE_CAMERA_WARNING: process.env.ROUGH_CUT_UI_SMOKE_CAMERA_WARNING ?? '',
     ROUGH_CUT_UI_SMOKE_CANCEL_FLOW: process.env.ROUGH_CUT_UI_SMOKE_CANCEL_FLOW ?? '',
     ROUGH_CUT_UI_SMOKE_DOUBLE_STOP: process.env.ROUGH_CUT_UI_SMOKE_DOUBLE_STOP ?? '',
     ROUGH_CUT_UI_SMOKE_RESULT_PATH: resultPath,
@@ -34,7 +35,7 @@ if (process.env.ROUGH_CUT_UI_SMOKE_CANCEL_FLOW === '1') {
   if (!report.ok || !report.cancelFlow || !report.hasPreRecordPanel || !report.hasPreflightPanel || !report.hasCaptureTargetSelect || !report.hasCaptureSourcePicker || !report.hasDisabledWindowSource || !report.hasNoRegionNumberInputs || report.selectedCaptureTarget !== 'display' || report.initialState !== 'idle' || report.canceledState !== 'idle' || report.hasSavedMessage || report.hasReviewWorkspace || report.hasVideo) {
     throw new Error(`Recording-flow cancel smoke assertions failed: ${JSON.stringify(report)}`);
   }
-} else if (!report.ok || !report.hasPreRecordPanel || !report.hasPreflightPanel || !report.hasCaptureTargetSelect || !report.hasCaptureSourcePicker || !report.hasDisabledWindowSource || !report.hasNoRegionNumberInputs || report.selectedCaptureTarget !== 'display' || report.initialState !== 'idle' || report.savedState !== 'saved' || !report.hasSavedMessage || !report.hasStudioShell || !report.hasCentralStage || !report.hasReviewWorkspace || !report.hasPostRecordingActions || !report.hasReviewExportActions || !report.hasReviewNextActions || !report.hasStyledPreviewCanvas || !report.hasVideo || !report.hasStoppingLock) {
+} else if (!report.ok || !report.hasPreRecordPanel || !report.hasPreflightPanel || !report.hasCaptureTargetSelect || !report.hasCaptureSourcePicker || !report.hasDisabledWindowSource || !report.hasNoRegionNumberInputs || report.selectedCaptureTarget !== 'display' || report.initialState !== 'idle' || report.savedState !== 'saved' || !report.hasSavedMessage || !report.hasStudioShell || !report.hasCentralStage || !report.hasReviewWorkspace || !report.hasPostRecordingActions || !report.hasReviewExportActions || !report.hasReviewNextActions || !report.hasStyledPreviewCanvas || !report.hasVideo || !report.hasStoppingLock || (process.env.ROUGH_CUT_UI_SMOKE_CAMERA_WARNING === '1' && (!report.hasLiveCameraFailureBanner || !report.hasLiveCameraFailureActions))) {
   throw new Error(`Recording-flow UI smoke assertions failed: ${JSON.stringify(report)}`);
 }
 

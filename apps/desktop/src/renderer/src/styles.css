@@ -360,7 +360,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .preRecordFooter { border-top: 1px solid var(--line); flex: 0 0 auto; justify-content: space-between; padding-top: 0.42rem; }
 .preRecordActions { align-items: center; display: flex; gap: 0.48rem; }
 .preRecordFooter .preflightGrid.details { bottom: calc(100% + 0.35rem); top: auto; }
-.recordingActivePanel { max-width: 18rem; }
+.recordingActivePanel { max-width: 26rem; }
 .recordingActivePanel .primaryAction,
 .recordingActivePanel .secondary { width: 100%; }
 .recordingActiveHint { color: var(--subtle); font-size: 0.72rem; line-height: 1.35; margin: 0; }
@@ -534,6 +534,28 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .stateBanner .warning { margin-top: 0.35rem; }
 .stateBannerActions { align-items: center; display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .stateBannerActions .secondary { background: rgb(255 255 255 / 0.08); color: currentColor; }
+
+.cameraFailureBanner {
+  align-items: center;
+  background: linear-gradient(135deg, #30131a, #1e1014);
+  border-bottom: 1px solid rgb(251 113 133 / 0.35);
+  color: #fecdd3;
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 0.68rem 0.9rem;
+}
+
+.recordingActivePanel .cameraFailureBanner {
+  border: 1px solid rgb(251 113 133 / 0.35);
+  border-radius: 13px;
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0.65rem;
+}
+
+.cameraFailureBanner p { line-height: 1.35; margin: 0; }
+.cameraFailureActions { align-items: center; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.cameraFailureActions .secondary { background: rgb(255 255 255 / 0.08); color: currentColor; }
 
 .shortcutsScrim {
   align-items: center;
