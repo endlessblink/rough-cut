@@ -76,8 +76,8 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-060 | Debug long-smoke post-save failure | P1 | DONE |
 | TASK-061 | Fix choppy camera playback via canvas frame dedup | P1 | DONE |
 | TASK-062 | Add real window and region selection UI | P2 | DONE |
-| TASK-063 | Enable real window capture selection | P2 | PLANNED |
-| TASK-064 | Stabilize sidebar tool switching layout | P2 | PLANNED |
+| TASK-063 | Enable real window capture selection | P2 | DONE |
+| TASK-064 | Stabilize sidebar tool switching layout | P2 | DONE |
 | TASK-065 | Validate paths in PROJECT_OPEN and PROJECT_SAVE IPC handlers | P1 | DONE |
 | TASK-066 | Clean up recording child processes on app crash or signal | P1 | DONE |
 | TASK-067 | Validate remuxed MP4 coherence before declaring success | P1 | DONE |
@@ -133,11 +133,11 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 
 ## Recently Verified
 
-- `pnpm --filter @rough-cut/desktop test` — desktop 160/160 pass.
+- `pnpm --filter @rough-cut/desktop test` — desktop 266/266 pass.
 - `pnpm --filter @rough-cut/timeline-engine test` — timeline-engine 184/184 pass.
 - `pnpm typecheck` — clean across all 5 packages.
 - `pnpm smoke:mvp` verifies record, remux, `.roughcut` save/reopen, export, and FFprobe validation.
-- `pnpm smoke:ui` verifies renderer preview/export UI against a synthetic project — `hasZoomMarkerPanel`, `hasAutoZoomSuggestionsPanel`, `hasStyledPreviewCanvas`, `hasExportResult` all true.
+- `pnpm smoke:ui` verifies renderer preview/export UI against a synthetic project — `hasZoomMarkerPanel`, `hasAutoZoomSuggestionsPanel`, `hasStableToolSwitchLayout`, `hasStyledPreviewCanvas`, `hasExportResult` all true.
 - `pnpm smoke:recording-flow-ui` verifies the live Record -> Stop recording -> saved project -> video metadata -> styled preview canvas transition.
 - `pnpm smoke:styled-export` verifies both no-zoom and zoom-marker scenarios produce 1920×1080 / 30 fps MP4s with cursor visibility intact.
 - `pnpm smoke:package` verifies the packaged Linux artifact launches, previews, and exports.
@@ -346,7 +346,7 @@ Sequence: TASK-104, TASK-105
 Depends-on: LANE P3-A
 Sequence: TASK-106
 
-Next task when continuing: start TASK-063, "Enable real window capture selection". Begin by tracing current display/region capture options and the disabled window source card so window capture either becomes real or stays clearly unavailable.
+Next task when continuing: start TASK-088, "Add autosave and crash recovery for orphaned recordings". Begin by tracing the current recording save lifecycle and identifying where orphaned captures can be detected without corrupting normal project saves.
 
 ## Tasks
 
@@ -2309,10 +2309,10 @@ The pre-record source picker currently shows Window as disabled. Users expect th
 - UI smoke covers disabled unsupported state and, where supported, selecting a window.
 - Manual packaged-app verification records a selected window.
 
-### TASK-064 Stabilize sidebar tool switching layout
+### ~~TASK-064~~ Stabilize sidebar tool switching layout
 
 **Priority:** P2  
-**Status:** IN PROGRESS
+**Status:** DONE
 
 #### Context
 
@@ -2327,8 +2327,12 @@ Switching left sidebar tools currently changes the left panel content height and
 
 #### Verification
 
-- UI smoke or visual check switches sidebar tools and asserts the central stage remains mounted and stable.
-- Manual desktop check confirms no drastic workspace jump when selecting each sidebar item.
+- 2026-05-15: Added editor shell containment so the project editor stretches to the available app height while the setup board owns its vertical scrolling with a stable gutter.
+- 2026-05-15: Added UI smoke coverage that switches Timeline -> Inspector -> Background -> Inspector and asserts the central stage bounding rect stays stable.
+- `pnpm typecheck`
+- `env -u VITE_DEV_SERVER_URL pnpm smoke:ui`
+- `pnpm --filter @rough-cut/desktop test`
+- `git diff --check`
 
 ### ~~TASK-065~~ Validate paths in PROJECT_OPEN and PROJECT_SAVE IPC handlers
 

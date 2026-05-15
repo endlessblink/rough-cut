@@ -757,6 +757,7 @@ async function runRendererUiSmoke() {
   const hasStyledPreviewCanvas = true;
   const hasFrameDragHandles = styledPreviewCanvas?.getAttribute('data-screen-draggable') === 'true' && styledPreviewCanvas?.getAttribute('data-camera-draggable') === 'true';
   document.querySelector('button[aria-label="Timeline"]')?.click();
+  const stageRectBeforeToolSwitch = rectToRoundedObject(document.querySelector('[data-ui-region="central-stage"]')?.getBoundingClientRect());
   await waitFor(() => document.querySelector('[aria-label="Zoom markers"]') && document.body.textContent?.includes('Markers'), 'zoom marker panel header');
   const hasZoomMarkerPanel = true;
   const hasTimelineZoomControlPanel = Boolean(document.querySelector('[data-ui-region="timeline-zoom-control-panel"]'));
@@ -786,6 +787,14 @@ async function runRendererUiSmoke() {
       && Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Cut to playhead')),
   );
   document.querySelector('button[aria-label="Inspector"]')?.click();
+  await waitFor(() => document.querySelector('[data-inspector-context]'), 'inspector board active');
+  const stageRectAfterInspectorSwitch = rectToRoundedObject(document.querySelector('[data-ui-region="central-stage"]')?.getBoundingClientRect());
+  document.querySelector('button[aria-label="Background"]')?.click();
+  await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board active');
+  const stageRectAfterBackgroundSwitch = rectToRoundedObject(document.querySelector('[data-ui-region="central-stage"]')?.getBoundingClientRect());
+  const hasStableToolSwitchLayout = sameRect(stageRectBeforeToolSwitch, stageRectAfterInspectorSwitch) && sameRect(stageRectBeforeToolSwitch, stageRectAfterBackgroundSwitch);
+  document.querySelector('button[aria-label="Inspector"]')?.click();
+  await waitFor(() => document.querySelector('[data-inspector-group="camera"]'), 'inspector groups after tool stability check');
   const hasInspectorGroups = Boolean(
     document.querySelector('[data-inspector-group="canvas"]')
       && document.querySelector('[data-inspector-group="screen"]')
@@ -955,6 +964,7 @@ async function runRendererUiSmoke() {
     hasCustomRangeSkin,
     hasZoomMarkerPanel,
     hasTimelineZoomControlPanel,
+    hasStableToolSwitchLayout,
     hasZoomResizeHandles,
     hasNoSetupBoardHorizontalOverflow,
     hasAutoZoomSuggestionsPanel,
@@ -993,6 +1003,21 @@ async function runRendererUiSmoke() {
     cameraShape,
     cameraSize,
   };
+
+  function rectToRoundedObject(rect) {
+    if (!rect) return null;
+    return {
+      left: Math.round(rect.left),
+      top: Math.round(rect.top),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    };
+  }
+
+  function sameRect(a, b) {
+    if (!a || !b) return false;
+    return ['left', 'top', 'width', 'height'].every((key) => Math.abs(a[key] - b[key]) <= 1);
+  }
 }
 
 async function runRendererRecordingFlowSmoke(options = {}) {
