@@ -28,6 +28,12 @@ export interface ZoomTransformOptions {
   readonly followCursor?: boolean;
   readonly followAnimation?: 'focused' | 'smooth';
   readonly followPadding?: number;
+  /**
+   * Continuous cursor-spring smoothness, range [0, 2]. When provided,
+   * supersedes the `followAnimation` preset and feeds `getCursorSpringConfig`
+   * directly. 0 = near-instant follow, 0.6 ≈ current 'smooth' preset, 2 = floaty.
+   */
+  readonly cursorSmoothing?: number;
   readonly getCursorPosition?: (frame: Frame) => ZoomCursorPosition | null;
   /**
    * Frame rate for spring-physics integration. dt = 1/fps. Defaults to 30
@@ -162,22 +168,52 @@ function resolveSpringSmoothedFocal(
   followAnimation: 'focused' | 'smooth',
   followPadding: number,
   fps: number,
+  cursorSmoothing?: number,
 ): ZoomCursorPosition {
-  const cfg = CURSOR_SPRING[followAnimation];
+  // Continuous slider overrides the preset when provided.
+  const cfg =
+    typeof cursorSmoothing === 'number'
+      ? getCursorSpringConfig(cursorSmoothing)
+      : CURSOR_SPRING[followAnimation];
   const emaAlpha = CURSOR_EMA_ALPHA[followAnimation];
   const dtMs = 1000 / Math.max(1, fps);
   const targetScale = strengthToScale(marker.strength);
   const safeZoneRatio = clamp(followPadding, 0, 0.45);
 
   // Camera target — what we want the spring to chase. Initialized at the
-  // marker's authored focal point so the very first hold frame doesn't snap.
+  // marker's authored focal point, then nudged once by the cursor at
+  // fromFrame so the spring's rest state matches where the safe-zone logic
+  // would converge. Without this, frame 0 of the hold phase falls back to
+  // marker.focalPoint while frame 1 jumps to the safe-zone position — a
+  // large visible camera move on the first hold frame.
   let camTargetX = marker.focalPoint.x;
   let camTargetY = marker.focalPoint.y;
+  let emaX: number | null = null;
+  let emaY: number | null = null;
+
+  const seedRaw = getCursorPosition(fromFrame);
+  if (seedRaw !== null) {
+    emaX = seedRaw.x;
+    emaY = seedRaw.y;
+    const seedScale = getMarkerScale(fromFrame, marker, targetScale);
+    const seedHalfSpan = 1 / (2 * seedScale);
+    const seedInset = seedHalfSpan * 2 * safeZoneRatio;
+    const seedSafeLeft = camTargetX - seedHalfSpan + seedInset;
+    const seedSafeRight = camTargetX + seedHalfSpan - seedInset;
+    const seedSafeTop = camTargetY - seedHalfSpan + seedInset;
+    const seedSafeBottom = camTargetY + seedHalfSpan - seedInset;
+    if (seedRaw.x < seedSafeLeft) camTargetX -= seedSafeLeft - seedRaw.x;
+    else if (seedRaw.x > seedSafeRight) camTargetX += seedRaw.x - seedSafeRight;
+    if (seedRaw.y < seedSafeTop) camTargetY -= seedSafeTop - seedRaw.y;
+    else if (seedRaw.y > seedSafeBottom) camTargetY += seedRaw.y - seedSafeBottom;
+    const seedMinXY = seedHalfSpan;
+    const seedMaxXY = 1 - seedHalfSpan;
+    camTargetX = clamp(camTargetX, seedMinXY, seedMaxXY);
+    camTargetY = clamp(camTargetY, seedMinXY, seedMaxXY);
+  }
 
   const stateX = createSpringState(camTargetX);
   const stateY = createSpringState(camTargetY);
-  let emaX: number | null = null;
-  let emaY: number | null = null;
 
   for (let f = fromFrame + 1; f <= toFrame; f += 1) {
     const raw = getCursorPosition(f);
@@ -193,6 +229,7 @@ function resolveSpringSmoothedFocal(
     }
 
     if (emaX !== null && emaY !== null) {
+
       const scaleAtF = getMarkerScale(f, marker, targetScale);
       const halfSpan = 1 / (2 * scaleAtF);
       const visibleSpan = halfSpan * 2;
@@ -227,22 +264,6 @@ function resolveSpringSmoothedFocal(
   return { x: stateX.value, y: stateY.value };
 }
 
-function edgeSnapFocus(
-  cursor: ZoomCursorPosition,
-  scale: number,
-  snapToEdgesRatio: number,
-): ZoomCursorPosition {
-  const snap = clamp(snapToEdgesRatio, 0.05, 0.45);
-  const minCenter = 1 / (2 * scale);
-  const maxCenter = 1 - minCenter;
-  const snappedX = clampedInterpolate(cursor.x, snap, 1 - snap);
-  const snappedY = clampedInterpolate(cursor.y, snap, 1 - snap);
-  return {
-    x: minCenter + snappedX * (maxCenter - minCenter),
-    y: minCenter + snappedY * (maxCenter - minCenter),
-  };
-}
-
 function containCursorInVisibleWindow(
   focal: ZoomCursorPosition,
   cursor: ZoomCursorPosition | null,
@@ -263,11 +284,6 @@ function containCursorInVisibleWindow(
     x: clamp(x, halfVisibleWidth, 1 - halfVisibleWidth),
     y: clamp(y, halfVisibleHeight, 1 - halfVisibleHeight),
   };
-}
-
-function clampedInterpolate(value: number, inMin: number, inMax: number): number {
-  if (inMax <= inMin) return 0;
-  return clamp((value - inMin) / (inMax - inMin), 0, 1);
 }
 
 // Phase-aware focal point resolution. The marker's life splits into three
@@ -323,6 +339,7 @@ function getMarkerFocalPoint(
       followAnimation,
       followPadding,
       fps,
+      options.cursorSmoothing,
     );
     const contained = containCursorInVisibleWindow(
       followed,
@@ -348,6 +365,7 @@ function getMarkerFocalPoint(
           followAnimation,
           followPadding,
           fps,
+          options.cursorSmoothing,
         ),
         options.getCursorPosition(Math.max(holdStart, holdEnd - 1)),
         strengthToScale(marker.strength),
