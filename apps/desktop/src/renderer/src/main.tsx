@@ -2739,7 +2739,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
             type="range"
             min="0"
             max={model.durationSec}
-            step="0.1"
+            step="any"
             value={model.currentTimeSec}
             aria-valuetext={`Timeline position ${formatClock(model.currentTimeSec)}`}
             onWheelCapture={preventRangeWheelChange}
@@ -2747,7 +2747,10 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
             onPointerUp={(event) => commitScrub(event.currentTarget.value)}
             onPointerCancel={(event) => commitScrub(event.currentTarget.value)}
             onKeyDown={handleScrubberKeyDown}
-            onKeyUp={(event) => commitScrub(event.currentTarget.value)}
+            onKeyUp={(event) => {
+              if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') return;
+              commitScrub(event.currentTarget.value);
+            }}
             onInput={(event) => scrubFromInput(event.currentTarget.value)}
             onChange={(event) => scrubFromInput(event.currentTarget.value)}
           />
