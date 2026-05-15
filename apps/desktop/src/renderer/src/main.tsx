@@ -52,7 +52,9 @@ import {
   addManualMarkerAt,
   applySuggestion,
   canAddMarkerAt,
+  getZoomPresentation,
   listMarkers,
+  patchZoomPresentation,
   removeMarker,
   updateMarkerRange,
   updateMarkerStrength,
@@ -1667,7 +1669,7 @@ function captureStatusLabel(recording: RecordingStatus, elapsedMs: number) {
 }
 
 type IconName = 'folder' | 'sparkle' | 'sliders' | 'undo' | 'redo' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause';
-type ActiveTool = 'background' | 'timeline' | 'inspector' | 'cursor' | 'camera';
+type ActiveTool = 'background' | 'timeline' | 'cursor' | 'camera';
 
 const ICON_COMPONENT_MAP: Record<IconName, PhosphorIconType> = {
   folder: PhosphorFolder,
@@ -1709,7 +1711,6 @@ function ToolRail({ active, onSelect }: { active: ActiveTool; onSelect: (tool: A
   const tools: Array<{ id: ActiveTool; icon: IconName; label: string }> = [
     { id: 'background', icon: 'sparkle', label: 'Background' },
     { id: 'timeline', icon: 'timeline', label: 'Timeline' },
-    { id: 'inspector', icon: 'sliders', label: 'Inspector' },
     { id: 'cursor', icon: 'cursor', label: 'Cursor' },
     { id: 'camera', icon: 'camera', label: 'Camera' },
   ];
@@ -1807,6 +1808,21 @@ function CursorStylePicker({ value, disabled = false, onChange }: { value: Curso
   );
 }
 
+function EmptyState({ icon, title, description, action, size = 'default' }: { icon: IconName; title: string; description?: string; action?: { label: string; onClick: () => void; disabled?: boolean }; size?: 'default' | 'compact' }) {
+  return (
+    <div className={`emptyState emptyState-${size}`} role="status">
+      <span className="emptyStateIcon" aria-hidden="true"><Icon name={icon} /></span>
+      <p className="emptyStateTitle">{title}</p>
+      {description ? <p className="emptyStateDescription">{description}</p> : null}
+      {action ? (
+        <button type="button" className="secondary compact emptyStateAction" disabled={action.disabled} onClick={action.onClick}>
+          {action.label}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function CursorClickEffectPicker({ value, disabled = false, onChange }: { value: ClickEffect; disabled?: boolean; onChange: (value: ClickEffect) => void }) {
   return (
     <div className="segmentedPicker" role="radiogroup" aria-label="Click effect">
@@ -1867,17 +1883,7 @@ function InspectorActionRow({ children, region }: { children: React.ReactNode; r
   return <div className="actionsArea inspectorActionRow" data-ui-region={region}>{children}</div>;
 }
 
-function InspectorContextSummary({ selection }: { selection: InspectorSelection }) {
-  return (
-    <div className="inspectorContext" data-inspector-context={selection.group}>
-      <p className="eyebrow">Selected context</p>
-      <strong>{selection.label}</strong>
-      {selection.detail ? <span>{selection.detail}</span> : null}
-    </div>
-  );
-}
-
-function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, selectedZoomMarker = null, trimInfo, cutRanges = [], pendingCutStartFrame = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCursorPresentationChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onZoomMarkerRangeChange, onZoomMarkerStrengthChange, onSetTrimStart, onSetTrimEnd, onResetTrim, onMarkCutStart, onCutToPlayhead, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; cutRanges?: CutRange[]; pendingCutStartFrame?: number | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onZoomMarkerRangeChange?: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onSetTrimStart?: () => void; onSetTrimEnd?: () => void; onResetTrim?: () => void; onMarkCutStart?: () => void; onCutToPlayhead?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
+function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, selectedZoomMarker = null, trimInfo, cutRanges = [], pendingCutStartFrame = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCursorPresentationChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onZoomMarkerRangeChange, onZoomMarkerStrengthChange, onResetTrim, onMarkCutStart, onCutToPlayhead, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; cutRanges?: CutRange[]; pendingCutStartFrame?: number | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onZoomMarkerRangeChange?: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onMarkCutStart?: () => void; onCutToPlayhead?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const cursor = cursorPresentation ?? DEFAULT_CURSOR_PRESENTATION;
@@ -1906,7 +1912,7 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
   if (activeTool === 'timeline') {
     return (
       <aside className="setupBoard" aria-label="Timeline board">
-        <BoardHeader icon="timeline" title="Timeline" />
+        <BoardHeader icon="timeline" title="Timeline" action={trimInfo?.isTrimmed ? 'Reset trim' : undefined} actionDisabled={disabled || !trimInfo?.isTrimmed} onAction={onResetTrim} />
         {project?.recording && fps && onProjectChange ? (
           <div className="timelineBoardStack" data-ui-region="timeline-zoom-control-panel">
             <div className="timelineCompactRow"><span>Playhead</span><strong>{formatClock(currentTimeSec)}</strong></div>
@@ -1919,56 +1925,31 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
                 <InspectorSlider label="Depth" value={Math.round((selectedZoomMarker?.strength ?? 0) * 100)} min={0} max={100} step={5} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerStrengthChange?.(selectedZoomMarker.id, value / 100) : undefined} />
               </div>
             </InspectorSection>
+            <InspectorSection id="cuts" title="Cuts" description="Mark a start frame, then cut from there to the playhead.">
+              <div className="cutRangePanel" data-cut-range-panel="true">
+                <div className="timelineCompactRow"><span>Removed</span><strong>{cutRanges.length}</strong></div>
+                {pendingCutStartFrame !== null ? <p className="inspectorNotice">Cut start marked at {formatClock((pendingCutStartFrame - (trimInfo?.startFrame ?? 0)) / (fps || 30))}.</p> : null}
+                <InspectorActionRow>
+                  <button type="button" className="secondary compact" disabled={disabled || !trimInfo} onClick={onMarkCutStart}>Mark cut start</button>
+                  <button type="button" className="secondary compact" disabled={disabled || !trimInfo || pendingCutStartFrame === null} onClick={onCutToPlayhead}>Cut to playhead</button>
+                  <button type="button" className="secondary compact" disabled={disabled || cutRanges.length === 0} onClick={onClearCutRanges}>Clear cuts</button>
+                </InspectorActionRow>
+                {cutRanges.length > 0 ? (
+                  <ul className="cutRangeList">
+                    {cutRanges.map((range) => (
+                      <li key={range.id} className="cutRangeRow">
+                        <span>{formatClock((range.startFrame - (trimInfo?.startFrame ?? 0)) / (fps || 30))}–{formatClock((range.endFrame - (trimInfo?.startFrame ?? 0)) / (fps || 30))}</span>
+                        <button type="button" className="secondary compact" disabled={disabled} onClick={() => onRemoveCutRange?.(range.id)}>Restore</button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            </InspectorSection>
           </div>
         ) : (
-          <p className="boardNote">Record or open a project to edit zoom markers.</p>
+          <EmptyState icon="timeline" title="No timeline yet" description="Record a take or open a project to edit zoom markers, trims, and cuts." />
         )}
-      </aside>
-    );
-  }
-
-  if (activeTool === 'inspector') {
-    return (
-      <aside className="setupBoard" aria-label="Inspector board">
-        <BoardHeader icon="sliders" title="Inspector" />
-        <InspectorContextSummary selection={inspectorSelection} />
-        <InspectorSection id="templates" title="Templates" description="One click sets aspect ratio and background together.">
-          <TemplatePresetGrid disabled={disabled} value={activeTemplatePreset} onSelect={handleTemplatePresetSelect} />
-        </InspectorSection>
-        <InspectorSection id="canvas" title="Canvas" description="Padding, corners, and shadow live in the Background tool.">
-          <InspectorSelect label="Aspect ratio" value={aspectRatio} options={aspectRatioOptions} disabled={disabled} onChange={(value) => onAspectRatioChange?.(value)} />
-        </InspectorSection>
-        <InspectorSection id="recording" title="Recording" description="Trims and cuts are non-destructive. Restore brings any hidden range back.">
-          <div className="trimSummary" data-trim-summary="true">
-            <span>Start {formatClock(trimInfo?.startSec ?? 0)}</span>
-            <span>End {formatClock(trimInfo?.endSec ?? 0)}</span>
-            <span>Duration {formatClock(trimInfo?.durationSec ?? 0)}</span>
-          </div>
-          <InspectorActionRow>
-            <button type="button" className="secondary compact" disabled={disabled || !trimInfo} onClick={onSetTrimStart}>Set start to playhead</button>
-            <button type="button" className="secondary compact" disabled={disabled || !trimInfo} onClick={onSetTrimEnd}>Set end to playhead</button>
-            <button type="button" className="secondary compact" disabled={disabled || !trimInfo || !trimInfo.isTrimmed} onClick={onResetTrim}>Reset trim</button>
-          </InspectorActionRow>
-          <div className="cutRangePanel" data-cut-range-panel="true">
-            <div className="timelineCompactRow"><span>Cuts</span><strong>{cutRanges.length}</strong></div>
-            {pendingCutStartFrame !== null ? <p className="inspectorNotice">Cut start marked at {formatClock((pendingCutStartFrame - (trimInfo?.startFrame ?? 0)) / (fps || 30))}.</p> : null}
-            <InspectorActionRow>
-              <button type="button" className="secondary compact" disabled={disabled || !trimInfo} onClick={onMarkCutStart}>Mark cut start</button>
-              <button type="button" className="secondary compact" disabled={disabled || !trimInfo || pendingCutStartFrame === null} onClick={onCutToPlayhead}>Cut to playhead</button>
-              <button type="button" className="secondary compact" disabled={disabled || cutRanges.length === 0} onClick={onClearCutRanges}>Clear cuts</button>
-            </InspectorActionRow>
-            {cutRanges.length > 0 ? (
-              <ul className="cutRangeList">
-                {cutRanges.map((range) => (
-                  <li key={range.id} className="cutRangeRow">
-                    <span>{formatClock((range.startFrame - (trimInfo?.startFrame ?? 0)) / (fps || 30))}–{formatClock((range.endFrame - (trimInfo?.startFrame ?? 0)) / (fps || 30))}</span>
-                    <button type="button" className="secondary compact" disabled={disabled} onClick={() => onRemoveCutRange?.(range.id)}>Restore</button>
-                  </li>
-                ))}
-              </ul>
-            ) : <p className="inspectorNotice">No removed middle ranges.</p>}
-          </div>
-        </InspectorSection>
       </aside>
     );
   }
@@ -1988,7 +1969,7 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
             </div>
           </InspectorSection>
         ) : (
-          <p className="boardNote">No webcam track linked to this project. Re-record with camera enabled to add one.</p>
+          <EmptyState icon="camera" title="No webcam recorded" description="This take was captured without a camera. Start a new recording with the camera enabled to add a PiP overlay." />
         )}
       </aside>
     );
@@ -2007,7 +1988,7 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
             <InspectorToggle label="Play click sound" checked={cursor.clickSoundEnabled} disabled={disabled} onChange={(clickSoundEnabled) => onCursorPresentationChange?.({ clickSoundEnabled })} />
           </div>
         ) : (
-          <p className="boardNote">Open a project to edit cursor style.</p>
+          <EmptyState icon="cursor" title="No project loaded" description="Open a recording or start a new one to tweak cursor style and click effects." />
         )}
       </aside>
     );
@@ -2016,6 +1997,12 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
   return (
     <aside className="setupBoard" aria-label="Background board">
       <BoardHeader icon="sparkle" title="Background" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.(DEFAULT_RECORDING_BACKGROUND)} />
+      <InspectorSection id="templates" title="Templates" description="One click sets aspect ratio and background together.">
+        <TemplatePresetGrid disabled={disabled} value={activeTemplatePreset} onSelect={handleTemplatePresetSelect} />
+      </InspectorSection>
+      <InspectorSection id="canvas" title="Canvas">
+        <InspectorSelect label="Aspect ratio" value={aspectRatio} options={aspectRatioOptions} disabled={disabled} onChange={(value) => onAspectRatioChange?.(value)} />
+      </InspectorSection>
       <InspectorSection id="canvas-background" title="Canvas background">
         <InspectorPresetGrid label="Background presets" disabled={disabled} value={activeBackgroundPreset} onSelect={(presetId) => onBackgroundChange?.(applyRecordingBackgroundPreset(bg, presetId))} />
       </InspectorSection>
@@ -2495,13 +2482,18 @@ function ProjectPreview({
 
   function focusInspectorContext(selection: InspectorSelection) {
     setInspectorSelection(selection);
-    onActiveToolChange('inspector');
+    // Timeline owns zoom marker, recording-clip, and cursor-event selections; camera lives on its own tab.
+    if (selection.group === 'camera') {
+      onActiveToolChange('camera');
+    } else if (selection.group === 'cursor' || selection.group === 'zoom' || selection.group === 'recording') {
+      onActiveToolChange('timeline');
+    }
   }
 
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
       <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} selectedZoomMarker={selectedZoomMarker} trimInfo={trimInfo} cutRanges={activeCutRanges} pendingCutStartFrame={pendingCutStartFrame} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCursorPresentationChange={updateCursorPresentation} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onSetTrimStart={setTrimStartToPlayhead} onSetTrimEnd={setTrimEndToPlayhead} onResetTrim={resetTrim} onMarkCutStart={markCutStart} onCutToPlayhead={cutToPlayhead} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
+      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} selectedZoomMarker={selectedZoomMarker} trimInfo={trimInfo} cutRanges={activeCutRanges} pendingCutStartFrame={pendingCutStartFrame} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCursorPresentationChange={updateCursorPresentation} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onResetTrim={resetTrim} onMarkCutStart={markCutStart} onCutToPlayhead={cutToPlayhead} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>
@@ -3002,8 +2994,53 @@ function ZoomMarkerPanel({
     await persist(nextDocument);
   }
 
+  const zoom = getZoomPresentation(document);
+  async function patchZoom(patch: Record<string, unknown>) {
+    const nextDocument = patchZoomPresentation(document, patch);
+    if (nextDocument === document) return;
+    await persist(nextDocument as ProjectDocument);
+  }
+  const followDisabled = isSaving || !zoom || zoom.followCursor === false;
+  const usingSlider = zoom ? typeof zoom.cursorSmoothing === 'number' : false;
+
   return (
     <div className="zoomMarkerPanel" aria-label="Zoom markers">
+      {zoom ? (
+        <div className="inspectorSection">
+          <p className="eyebrow">Camera follow</p>
+          <InspectorToggle
+            label="Follow cursor"
+            checked={zoom.followCursor}
+            disabled={isSaving}
+            onChange={(checked) => { void patchZoom({ followCursor: checked }); }}
+          />
+          <InspectorSelect
+            label="Animation style"
+            value={zoom.followAnimation}
+            options={[{ value: 'smooth', label: 'Smooth' }, { value: 'focused', label: 'Focused' }] as const}
+            disabled={followDisabled || usingSlider}
+            onChange={(value) => { void patchZoom({ followAnimation: value }); }}
+          />
+          <InspectorSlider
+            label={`Cursor smoothing${usingSlider ? '' : ' (preset)'}`}
+            value={zoom.cursorSmoothing ?? 0.6}
+            min={0}
+            max={2}
+            step={0.05}
+            disabled={followDisabled}
+            onChange={(value) => { void patchZoom({ cursorSmoothing: value }); }}
+          />
+          <InspectorSlider
+            label="Safe zone"
+            value={zoom.followPadding}
+            min={0}
+            max={0.3}
+            step={0.01}
+            disabled={followDisabled}
+            onChange={(value) => { void patchZoom({ followPadding: value }); }}
+          />
+        </div>
+      ) : null}
       <div className="timelineCompactRow"><span>Markers</span><strong>{markerCount}</strong><button type="button" className="secondary compact" onClick={handleAdd} disabled={!canAdd || isSaving}>+ Add</button></div>
       {markers.length === 0 ? (
         <p className="zoomMarkerEmpty">No markers</p>

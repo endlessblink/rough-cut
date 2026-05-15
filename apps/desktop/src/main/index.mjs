@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
@@ -8,6 +8,7 @@ import { assertReadableMp4, computeSyncedRecordingTiming, probeVideoStreamsTimin
 import { getLinkedCameraAsset, getPrimaryRecording, openProjectFile, saveProjectFile, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
 import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
 import { dismissRecovery, getRecoveryState, recoverFromMarker } from './recording-recovery.mjs';
+import { listProjectSummaries } from './project-gallery.mjs';
 import { registerMediaProtocol, toMediaUrl } from './media-protocol.mjs';
 import { remuxMkvToMp4 } from './remux-service.mjs';
 import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording/recording-session.mjs';
@@ -422,6 +423,31 @@ ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE, async (_event, { path, document }) => 
   } finally {
     if (projectSaveQueues.get(safePath) === next) projectSaveQueues.delete(safePath);
   }
+});
+ipcMain.handle(IPC_CHANNELS.RECENT_PROJECTS_GET, async () => {
+  await mkdir(recordingsDir, { recursive: true });
+  return listProjectSummaries({
+    dir: recordingsDir,
+    onError: (path, err) => console.warn('[recent-projects] skipping unreadable project', path, err?.message ?? err),
+  });
+});
+ipcMain.handle(IPC_CHANNELS.RECENT_PROJECTS_REMOVE, async (_event, projectPath) => {
+  const safePath = validateProjectPath(projectPath, { allowedRoots: buildAllowedProjectRoots() });
+  await Promise.all([
+    safePath,
+    `${safePath}.bak`,
+    `${safePath}.tmp`,
+  ].map((path) => unlink(path).catch((err) => {
+    if (err?.code === 'ENOENT') return;
+    throw err;
+  })));
+  return { removed: safePath };
+});
+ipcMain.handle(IPC_CHANNELS.RECENT_PROJECTS_CLEAR, () => {
+  // The gallery is a live folder scan, not a curated list — there is no
+  // separate "recent" store to clear. Returning a no-op keeps the channel
+  // contract honest while leaving destructive bulk-delete out of scope.
+  return { cleared: false, reason: 'gallery-is-live-scan' };
 });
 ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_GET, () => getRecoveryState({ markerPath }));
 ipcMain.handle(IPC_CHANNELS.RECORDING_RECOVERY_RECOVER, async () => {
@@ -857,36 +883,37 @@ async function runRendererUiSmoke() {
     const board = document.querySelector('.setupBoard');
     return board && board.scrollWidth <= board.clientWidth + 1;
   }, 'setup board without horizontal overflow'));
+  // Clicking a zoom region or clip on the timeline switches the active tool to Timeline
+  // (where the marker editor and cut list live).
   const zoomRegion = document.querySelector('[data-timeline-lane="zoom"] .timelineRegion');
   zoomRegion?.click();
   const hasZoomInspectorContext = zoomRegion
-    ? Boolean(await waitFor(() => document.querySelector('[data-inspector-context="zoom"]'), 'zoom inspector context'))
+    ? Boolean(await waitFor(() => document.querySelector('[aria-label="Timeline board"]'), 'timeline board active after zoom region click'))
     : false;
   document.querySelector('[data-timeline-lane="screen"] .clipBody')?.click();
-  const hasRecordingInspectorContext = Boolean(await waitFor(() => document.querySelector('[data-inspector-context="recording"]'), 'recording inspector context'));
+  const hasRecordingInspectorContext = Boolean(await waitFor(() => document.querySelector('[aria-label="Timeline board"]'), 'timeline board active after clip click'));
   const hasInspectorContext = hasZoomInspectorContext || hasRecordingInspectorContext;
-  const hasTrimControls = Boolean(
-    document.querySelector('[data-trim-summary="true"]')
-      && Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Set start to playhead'))
-      && Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Set end to playhead')),
-  );
+  // Cut controls now live on Timeline tab.
   const hasCutControls = Boolean(
     document.querySelector('[data-cut-range-panel="true"]')
       && Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Mark cut start'))
       && Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Cut to playhead')),
   );
-  document.querySelector('button[aria-label="Inspector"]')?.click();
-  await waitFor(() => document.querySelector('[data-inspector-context]'), 'inspector board active');
+  // Tool-switch stability: Cursor -> Background -> Cursor.
+  document.querySelector('button[aria-label="Cursor"]')?.click();
+  await waitFor(() => document.querySelector('[aria-label="Cursor board"]'), 'cursor board active');
   const stageRectAfterInspectorSwitch = rectToRoundedObject(document.querySelector('[data-ui-region="central-stage"]')?.getBoundingClientRect());
   document.querySelector('button[aria-label="Background"]')?.click();
   await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board active');
   const stageRectAfterBackgroundSwitch = rectToRoundedObject(document.querySelector('[data-ui-region="central-stage"]')?.getBoundingClientRect());
   const hasStableToolSwitchLayout = sameRect(stageRectBeforeToolSwitch, stageRectAfterInspectorSwitch) && sameRect(stageRectBeforeToolSwitch, stageRectAfterBackgroundSwitch);
-  document.querySelector('button[aria-label="Inspector"]')?.click();
-  await waitFor(() => document.querySelector('[data-inspector-group="recording"]'), 'inspector groups after tool stability check');
+  // Background tab now hosts templates, canvas (aspect ratio), background presets, frame, shadow.
   const hasInspectorGroups = Boolean(
-    document.querySelector('[data-inspector-group="canvas"]')
-      && document.querySelector('[data-inspector-group="recording"]')
+    document.querySelector('[data-inspector-group="templates"]')
+      && document.querySelector('[data-inspector-group="canvas"]')
+      && document.querySelector('[data-inspector-group="canvas-background"]')
+      && document.querySelector('[data-inspector-group="screen-frame"]')
+      && document.querySelector('[data-inspector-group="screen-shadow"]')
       && document.querySelector('[data-inspector-group="export"]'),
   );
   const hasExportAspectChip = Boolean(document.querySelector('.exportPresetChip[data-active-aspect-ratio]'));
@@ -900,9 +927,9 @@ async function runRendererUiSmoke() {
   await waitFor(() => document.querySelector('[aria-label="Camera board"]'), 'camera board active');
   const hasCameraTab = Boolean(document.querySelector('button[aria-label="Camera"]'));
   const hasCameraPipControls = Boolean(document.querySelector('[data-camera-pip-controls="true"]'));
-  // Return to Inspector for the remaining assertions.
-  document.querySelector('button[aria-label="Inspector"]')?.click();
-  await waitFor(() => document.querySelector('[aria-label="Inspector board"]'), 'inspector board re-active after camera tab');
+  // Return to Background for the remaining assertions (Background owns templates + aspect ratio now).
+  document.querySelector('button[aria-label="Background"]')?.click();
+  await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board re-active after camera tab');
   await waitFor(() => document.querySelector('[data-export-action="styled"]'), 'styled review export action');
   const hasReviewExportActions = Boolean(document.querySelector('[data-export-action="styled"]') && document.querySelector('[data-export-action="raw"]'));
   const hasRawPresetDetails = document.body.textContent?.includes('Raw export keeps the original recording unchanged.') ?? false;
@@ -940,8 +967,9 @@ async function runRendererUiSmoke() {
   };
   const waitForEnabled = (control, label) => waitFor(() => !control.disabled, `${label} enabled`);
 
-  // Inspector tool owns selection-driven controls: aspect ratio, template picker, camera PiP.
-  document.querySelector('button[aria-label="Inspector"]')?.click();
+  // Templates + Aspect ratio + Padding/Radius/Softness all live on Background now.
+  document.querySelector('button[aria-label="Background"]')?.click();
+  await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board re-active');
   const aspectRatioSelect = await waitFor(() => selectByLabel('Aspect ratio'), 'aspect ratio control');
   await waitForEnabled(aspectRatioSelect, 'aspect ratio control');
   const mobileTemplate = await waitFor(() => document.querySelector('[data-template-id="mobile-9-16"]'), 'mobile template preset');
@@ -950,9 +978,6 @@ async function runRendererUiSmoke() {
   await waitFor(() => mobileTemplate.getAttribute('aria-pressed') === 'true', 'mobile template selected');
   const hasTemplatePresetSelection = true;
 
-  // Switch to Background tool — Padding/Radius/Softness live exclusively here.
-  document.querySelector('button[aria-label="Background"]')?.click();
-  await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board re-active');
   const paddingInput = await waitFor(() => inputByLabel('Padding'), 'padding control');
   await waitForEnabled(paddingInput, 'padding control');
   const paddingRangeLabel = paddingInput.closest('label');
@@ -1002,10 +1027,6 @@ async function runRendererUiSmoke() {
   await waitForEnabled(shadowInput, 'shadow softness control');
   setControlValue(shadowInput, 72);
   await waitFor(() => shadowInput.closest('label')?.querySelector('output')?.textContent === '72', 'shadow softness output');
-
-  // Switch back to Inspector for camera PiP and chip assertions.
-  document.querySelector('button[aria-label="Inspector"]')?.click();
-  await waitFor(() => document.querySelector('[aria-label="Inspector board"]'), 'inspector board re-active');
 
   let cameraPosition = null;
   let cameraShape = null;
@@ -1087,7 +1108,6 @@ async function runRendererUiSmoke() {
     hasCameraTab,
     hasExportAspectChip,
     hasCameraPipControls,
-    hasTrimControls,
     hasCutControls,
     hasStyledPreviewCanvas,
     hasFrameDragHandles,
