@@ -82,9 +82,11 @@ async function listCameraSources() {
 
 function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
   const isRecorder = mode === 'recorder';
+  const smokeWindowWidth = Number(process.env.ROUGH_CUT_UI_SMOKE_WINDOW_WIDTH);
+  const smokeWindowHeight = Number(process.env.ROUGH_CUT_UI_SMOKE_WINDOW_HEIGHT);
   const window = new BrowserWindow({
-    width: isRecorder ? 760 : 1120,
-    height: isRecorder ? 620 : 740,
+    width: Number.isFinite(smokeWindowWidth) && smokeWindowWidth > 0 ? smokeWindowWidth : isRecorder ? 760 : 1120,
+    height: Number.isFinite(smokeWindowHeight) && smokeWindowHeight > 0 ? smokeWindowHeight : isRecorder ? 620 : 740,
     minWidth: isRecorder ? 720 : 860,
     minHeight: isRecorder ? 560 : 560,
     resizable: !isRecorder,
@@ -140,7 +142,9 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
     window.webContents.once('did-finish-load', async () => {
       try {
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        const smokeFunction = process.env.ROUGH_CUT_UI_SMOKE_RECORD_FLOW === '1'
+        const smokeFunction = process.env.ROUGH_CUT_UI_SMOKE_LAYOUT_ONLY === '1'
+          ? runRendererSidebarLayoutSmoke
+          : process.env.ROUGH_CUT_UI_SMOKE_RECORD_FLOW === '1'
           ? runRendererRecordingFlowSmoke
           : runRendererUiSmoke;
         const result = await window.webContents.executeJavaScript(
@@ -472,10 +476,11 @@ app.whenReady().then(() => {
     callback(permission === 'media');
   });
   const startupProjectPath = process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;
-  createMainWindow({ mode: startupProjectPath ? 'editor' : 'recorder', projectPath: startupProjectPath });
+  const startupMode = process.env.ROUGH_CUT_UI_SMOKE_FORCE_EDITOR === '1' ? 'editor' : startupProjectPath ? 'editor' : 'recorder';
+  createMainWindow({ mode: startupMode, projectPath: startupProjectPath });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow({ mode: startupProjectPath ? 'editor' : 'recorder', projectPath: startupProjectPath });
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow({ mode: startupMode, projectPath: startupProjectPath });
   });
 });
 
@@ -488,6 +493,68 @@ app.on('will-quit', () => {
   globalShortcut.unregister(recordingRestartShortcut);
   destroyRecordingTray();
 });
+
+async function runRendererSidebarLayoutSmoke() {
+  const waitFor = async (predicate, label, timeoutMs = 5000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const value = predicate();
+      if (value) return value;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`Timed out waiting for ${label}`);
+  };
+  const waitForFrame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+  await waitFor(() => document.querySelector('[data-ui-region="editor-workspace"]'), 'editor workspace');
+  if (new URL(window.location.href).searchParams.has('projectPath')) {
+    await waitFor(() => document.querySelector('video'), 'loaded project video', 10000);
+  }
+  const snapshots = [];
+  for (const label of ['Background', 'Timeline', 'Inspector']) {
+    document.querySelector(`button[aria-label="${label}"]`)?.click();
+    await waitFor(() => document.querySelector(`[aria-label="${label} board"]`), `${label} board`);
+    await waitForFrame();
+    snapshots.push({ tool: label, rects: collectRects() });
+  }
+
+  const baseline = snapshots[0]?.rects ?? {};
+  const stableRegions = ['shell', 'editor', 'stage', 'timeline', 'inspector', 'preview'].every((region) => snapshots.every((snapshot) => sameRect(baseline[region], snapshot.rects[region])));
+  return {
+    ok: stableRegions,
+    hasStableToolSwitchLayout: stableRegions,
+    width: window.innerWidth,
+    height: window.innerHeight,
+    mode: document.querySelector('video') ? 'loaded' : 'empty',
+    snapshots,
+  };
+
+  function collectRects() {
+    return {
+      shell: rectToRoundedObject(document.querySelector('[data-ui-shell="recording-studio"]')?.getBoundingClientRect()),
+      editor: rectToRoundedObject(document.querySelector('[data-ui-region="editor-workspace"]')?.getBoundingClientRect()),
+      stage: rectToRoundedObject(document.querySelector('[data-ui-region="central-stage"]')?.getBoundingClientRect()),
+      timeline: rectToRoundedObject(document.querySelector('[data-ui-region="timeline-review-rail"]')?.getBoundingClientRect()),
+      inspector: rectToRoundedObject(document.querySelector('[data-ui-region="right-inspector"]')?.getBoundingClientRect()),
+      preview: rectToRoundedObject((document.querySelector('canvas.styledPreviewCanvas') ?? document.querySelector('.emptyStage'))?.getBoundingClientRect()),
+    };
+  }
+
+  function rectToRoundedObject(rect) {
+    if (!rect) return null;
+    return {
+      left: Math.round(rect.left),
+      top: Math.round(rect.top),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    };
+  }
+
+  function sameRect(a, b) {
+    if (!a || !b) return false;
+    return ['left', 'top', 'width', 'height'].every((key) => Math.abs(a[key] - b[key]) <= 1);
+  }
+}
 
 // External SIGTERM / SIGINT (force-quit, OOM, init-system shutdown): synchronously
 // SIGTERM every spawned ffmpeg/xinput child so they don't outlive Electron.

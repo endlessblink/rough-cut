@@ -591,7 +591,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   align-self: stretch;
   display: grid;
   grid-template-columns: 4rem 22rem minmax(0, 1fr) 21rem;
-  height: 100%;
+  height: calc(100vh - 1.8rem - 3.45rem - 3.15rem - 1.75rem - 2px);
   min-height: 0;
   overflow: hidden;
 }
@@ -641,8 +641,29 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   overflow-x: hidden;
   overflow-y: auto;
   padding: 1rem;
+  scrollbar-color: #3a3a46 #101015;
   scrollbar-gutter: stable;
+  scrollbar-width: thin;
   transition: opacity 140ms ease;
+}
+
+.setupBoard::-webkit-scrollbar {
+  width: 0.7rem;
+}
+
+.setupBoard::-webkit-scrollbar-track {
+  background: #101015;
+  border-left: 1px solid #24242e;
+}
+
+.setupBoard::-webkit-scrollbar-thumb {
+  background: #3a3a46;
+  border: 2px solid #101015;
+  border-radius: 999px;
+}
+
+.setupBoard::-webkit-scrollbar-thumb:hover {
+  background: #4b4b58;
 }
 
 .setupClosed .setupBoard,
@@ -1658,11 +1679,12 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .autoZoomActions { flex: 0 0 auto; gap: 0.35rem; }
 
 @media (max-width: 980px) {
-  body { overflow: auto; }
-  .editorShell { height: auto; min-height: 100vh; }
-  .projectEditor { grid-template-columns: 1fr; }
-  .stageColumn { border-right: 0; }
-  .inspector { grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
+  .projectEditor { grid-template-columns: 3.5rem 16rem minmax(0, 1fr) 16rem; }
+  .projectEditor.setupClosed { grid-template-columns: 3.5rem 0 minmax(0, 1fr) 16rem; }
+  .projectEditor.inspectorClosed { grid-template-columns: 3.5rem 16rem minmax(0, 1fr) 0; }
+  .projectEditor.setupClosed.inspectorClosed { grid-template-columns: 3.5rem 0 minmax(0, 1fr) 0; }
+  .toolRail { padding-left: 0.45rem; padding-right: 0.45rem; }
+  .toolButton { height: 2.25rem; width: 2.25rem; }
 }
 
 @media (max-width: 640px) {

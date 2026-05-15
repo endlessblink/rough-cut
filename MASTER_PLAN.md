@@ -138,6 +138,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 - `pnpm typecheck` — clean across all 5 packages.
 - `pnpm smoke:mvp` verifies record, remux, `.roughcut` save/reopen, export, and FFprobe validation.
 - `pnpm smoke:ui` verifies renderer preview/export UI against a synthetic project — `hasZoomMarkerPanel`, `hasAutoZoomSuggestionsPanel`, `hasStableToolSwitchLayout`, `hasStyledPreviewCanvas`, `hasExportResult` all true.
+- `pnpm smoke:sidebar-layout` verifies sidebar tool switching keeps the editor shell stable at 900px with and without a recording loaded.
 - `pnpm smoke:recording-flow-ui` verifies the live Record -> Stop recording -> saved project -> video metadata -> styled preview canvas transition.
 - `pnpm smoke:styled-export` verifies both no-zoom and zoom-marker scenarios produce 1920×1080 / 30 fps MP4s with cursor visibility intact.
 - `pnpm smoke:package` verifies the packaged Linux artifact launches, previews, and exports.
@@ -2329,7 +2330,9 @@ Switching left sidebar tools currently changes the left panel content height and
 
 - 2026-05-15: Added editor shell containment so the project editor stretches to the available app height while the setup board owns its vertical scrolling with a stable gutter.
 - 2026-05-15: Added UI smoke coverage that switches Timeline -> Inspector -> Background -> Inspector and asserts the central stage bounding rect stays stable.
+- 2026-05-15: Follow-up fix after visual repro: the prior smoke only covered the default wide loaded-project window. Added `pnpm smoke:sidebar-layout`, reproduced the jump at 900px in both empty and loaded editor states, then kept the compact editor as a stable four-column shell instead of stacking the setup board above the stage.
 - `pnpm typecheck`
+- `pnpm smoke:sidebar-layout`
 - `env -u VITE_DEV_SERVER_URL pnpm smoke:ui`
 - `pnpm --filter @rough-cut/desktop test`
 - `git diff --check`
