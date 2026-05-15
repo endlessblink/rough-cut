@@ -120,7 +120,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-104 | Define AI motion suggestion data model | P4 | PLANNED |
 | TASK-105 | Add safe AI motion preview and apply flow | P4 | PLANNED |
 | TASK-106 | Define cloud sharing and collaboration scope | P4 | PLANNED |
-| TASK-107 | Audit sidebar controls and remove placeholder affordances | P2 | PLANNED |
+| TASK-107 | Audit sidebar controls and remove placeholder affordances | P2 | DONE |
 | TASK-108 | Wire all visible sidebar controls to real editor behavior | P2 | PLANNED |
 | TASK-109 | Redesign sidebar information architecture and section density | P2 | PLANNED |
 | TASK-110 | Replace recording preview card with compact horizontal controls | P2 | PLANNED |
@@ -3544,7 +3544,7 @@ Cloud sharing, comments, team workspaces, and hosted review links are useful but
 ### TASK-107 Audit sidebar controls and remove placeholder affordances
 
 **Priority:** P2
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -3565,6 +3565,75 @@ This covers the current Background/Timeline/Inspector sidebars, the right export
 
 - `pnpm smoke:ui`
 - Manual packaged-app pass: click every visible sidebar tab/action/control and confirm it either changes editor state, opens a real flow, or is clearly disabled with a reason.
+
+#### Audit Findings (2026-05-15)
+
+Inventory at `apps/desktop/src/renderer/src/main.tsx`. Classification key: ✅ wired · 🔁 duplicate · 🚧 placeholder · 💀 dead · ⚠️ misleading · ℹ️ informational/empty-state.
+
+**A. Top bar (`.topBar` / `capture-bar`)** — 778
+
+| Control | Line | Status |
+| --- | --- | --- |
+| Toggle setup board (sparkle) | 787 | ✅ |
+| Toggle inspector board (sliders) | 790 | ✅ |
+| Undo | 793 | ✅ (disabled state correct) |
+| Redo | 796 | ✅ |
+| Record / Stop | 799 | ✅ |
+| Cancel take (only while recording) | 809 | ✅ |
+| Open project | 813 | ✅ |
+
+**B. Tool rail (`ToolRail`)** — 1668: all three tabs (Background / Timeline / Inspector) ✅.
+
+**C. Background board** (activeTool=`background`) — 1905
+
+| Control | Line | Status |
+| --- | --- | --- |
+| BoardHeader "Reset" (canvas background) | 1907 | ✅ |
+| Background presets grid | 1909 | ✅ |
+| BoardHeader "Reset" (frame) | 1911 | ✅ |
+| Frame: Outline / Radius / Padding sliders | 1913–1915 | 🔁 Padding+Radius also live in Inspector → Screen |
+| BoardHeader "Reset" (shadow) | 1917 | ✅ |
+| Shadow: Enable / Strength / Softness / Distance | 1919–1922 | 🔁 Enable+Softness duplicate Inspector → Screen (with different ranges) |
+
+**D. Timeline board** (activeTool=`timeline`) — 1811: Playhead clock (ℹ️ read-only), `ZoomMarkerPanel` add/remove ✅, `AutoZoomSuggestionsPanel` generate/apply/discard ✅. Closed-project fallback ℹ️.
+
+**E. Inspector board** (activeTool=`inspector`) — 1828
+
+| Section | Controls | Status |
+| --- | --- | --- |
+| Context summary | header showing selection | ℹ️ |
+| Templates | `TemplatePresetGrid` (16:9 / 9:16 / 1:1) | ✅ |
+| Canvas | Aspect ratio select | ✅ |
+| Screen | Padding / Round corners / Screen shadow / Shadow size | 🔁 same fields as Background board, two surfaces edit one truth |
+| Recording | Trim summary, set start/end to playhead, Reset trim | ✅ |
+| Recording | Mark cut start, Cut to playhead, Clear cuts, per-range Restore | ✅ |
+| Zoom | Start/End frame, Depth sliders | ✅ (muted when no marker) |
+| **Cursor** | `<InspectorNotice>Cursor style controls are planned for TASK-044.</InspectorNotice>` | 🚧 **TASK-044 is DONE — copy is stale.** Model has `cursorPresentation` (`packages/project-model/src/types.ts:197`); the UI never got wired. |
+| Camera | Show / Position / Shape / Size / Roundness | ✅ (when `hasCamera`) |
+| Camera (no webcam) | "No linked webcam track in this project." | ℹ️ |
+| **Diagnostics** | `<InspectorNotice>Save failures and degraded media states appear here when available.</InspectorNotice>` | 💀 **Always renders the placeholder string — no signal source ever flows into it.** Real diagnostics live in StateBanner / PostRecordingReview camera-warning / saveError strings elsewhere. |
+
+**F. Right export panel** (`right-inspector`) — 2393
+
+| Control | Line | Status |
+| --- | --- | --- |
+| `PostRecordingReview` status card | 1974 | ℹ️ |
+| Camera warning conditional banner | 1979 | ✅ |
+| Export styled / Export raw / Cancel export | 1986–1992 | ✅ |
+| Folder / Diagnostics / Project / New | 1993–1996 | ✅ (correct disabled states) |
+| `ExportPresetDetails` paragraph | 3012 | ⚠️ Static prose; says "selected aspect ratio" but doesn't show which preset is active and gives no path to change it from this panel — user must hunt the Inspector. |
+| Export status area (progress meter / saved / fallback) | 2411 | ✅ |
+| Empty workspace right panel: "Export controls appear here once a project is loaded." | 1960 | ℹ️ |
+
+**Summary of action items going into TASK-108:**
+
+1. 🚧 **Inspector → Cursor**: wire the placeholder to real cursor presentation controls (`cursorPresentation` already in model). Or remove the section if cursor controls are intentionally restricted to a different surface.
+2. 💀 **Inspector → Diagnostics**: either feed real signals (saveError, camera errors, degraded-media states) into this surface, or remove. Currently it's perpetual placeholder copy.
+3. 🔁 **Padding / Radius / Shadow duplication** between Background board and Inspector → Screen: pick one canonical surface. Recommend keeping Background board (since it has Reset affordances and grouped Frame/Shadow headers) and removing the Screen subgroup from Inspector — Inspector should be context-driven (selection-aware), Background board should be the style authoring surface.
+4. ⚠️ **`ExportPresetDetails`**: turn the static paragraph into an active chip showing the current aspect ratio + a hint/link to where to change it, or just remove the prose since the Inspector already owns aspect ratio.
+5. ℹ️ **Empty-workspace right panel**: copy is fine, but consider replacing with a CTA ("Open project" or "Record") since the user already sees those in the top bar.
+
+Out-of-scope but noted: top-bar `iconButton` toggles for setup/inspector boards have no keyboard shortcut and no visual hover affordance beyond opacity; not a placeholder per se, just thin.
 
 ### TASK-108 Wire all visible sidebar controls to real editor behavior
 
