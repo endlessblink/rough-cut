@@ -18,6 +18,7 @@ const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb'
     ROUGH_CUT_UI_SMOKE_CAMERA_WARNING: process.env.ROUGH_CUT_UI_SMOKE_CAMERA_WARNING ?? '',
     ROUGH_CUT_UI_SMOKE_CANCEL_FLOW: process.env.ROUGH_CUT_UI_SMOKE_CANCEL_FLOW ?? '',
     ROUGH_CUT_UI_SMOKE_DOUBLE_STOP: process.env.ROUGH_CUT_UI_SMOKE_DOUBLE_STOP ?? '',
+    ROUGH_CUT_UI_SMOKE_INVALID_REGION: process.env.ROUGH_CUT_UI_SMOKE_INVALID_REGION ?? '',
     ROUGH_CUT_UI_SMOKE_RESULT_PATH: resultPath,
     ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH: screenshotPath,
   },
@@ -32,10 +33,10 @@ if (result.status !== 0) throw new Error(`Recording-flow UI smoke failed with ex
 
 const report = JSON.parse(await readFile(resultPath, 'utf8'));
 if (process.env.ROUGH_CUT_UI_SMOKE_CANCEL_FLOW === '1') {
-  if (!report.ok || !report.cancelFlow || !report.hasPreRecordPanel || !report.hasPreflightPanel || !report.hasCaptureTargetSelect || !report.hasCaptureSourcePicker || !report.hasDisabledWindowSource || !report.hasNoRegionNumberInputs || report.selectedCaptureTarget !== 'display' || report.initialState !== 'idle' || report.canceledState !== 'idle' || report.hasSavedMessage || report.hasReviewWorkspace || report.hasVideo) {
+  if (!report.ok || !report.cancelFlow || !report.hasPreRecordPanel || !report.hasPreflightPanel || !report.hasCaptureTargetSelect || !report.hasCaptureSourcePicker || !report.hasDisabledWindowSource || !report.hasNoRegionNumberInputs || !report.hasInvalidRegionRejected || report.selectedCaptureTarget !== 'display' || report.initialState !== 'idle' || report.canceledState !== 'idle' || report.hasSavedMessage || report.hasReviewWorkspace || report.hasVideo) {
     throw new Error(`Recording-flow cancel smoke assertions failed: ${JSON.stringify(report)}`);
   }
-} else if (!report.ok || !report.hasPreRecordPanel || !report.hasPreflightPanel || !report.hasCaptureTargetSelect || !report.hasCaptureSourcePicker || !report.hasDisabledWindowSource || !report.hasNoRegionNumberInputs || report.selectedCaptureTarget !== 'display' || report.initialState !== 'idle' || report.savedState !== 'saved' || !report.hasSavedMessage || !report.hasStudioShell || !report.hasCentralStage || !report.hasReviewWorkspace || !report.hasPostRecordingActions || !report.hasReviewExportActions || !report.hasReviewNextActions || !report.hasStyledPreviewCanvas || !report.hasVideo || !report.hasStoppingLock || (process.env.ROUGH_CUT_UI_SMOKE_CAMERA_WARNING === '1' && (!report.hasLiveCameraFailureBanner || !report.hasLiveCameraFailureActions))) {
+} else if (!report.ok || !report.hasPreRecordPanel || !report.hasPreflightPanel || !report.hasCaptureTargetSelect || !report.hasCaptureSourcePicker || !report.hasDisabledWindowSource || !report.hasNoRegionNumberInputs || !report.hasInvalidRegionRejected || report.selectedCaptureTarget !== 'display' || report.initialState !== 'idle' || report.savedState !== 'saved' || !report.hasSavedMessage || !report.hasStudioShell || !report.hasCentralStage || !report.hasReviewWorkspace || !report.hasPostRecordingActions || !report.hasReviewExportActions || !report.hasReviewNextActions || !report.hasStyledPreviewCanvas || !report.hasVideo || !report.hasStoppingLock || (process.env.ROUGH_CUT_UI_SMOKE_CAMERA_WARNING === '1' && (!report.hasLiveCameraFailureBanner || !report.hasLiveCameraFailureActions))) {
   throw new Error(`Recording-flow UI smoke assertions failed: ${JSON.stringify(report)}`);
 }
 

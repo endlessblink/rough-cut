@@ -782,6 +782,9 @@ test('primary display info converts Electron display bounds to x11grab input', (
         bounds: { x: 10, y: 20, width: 800, height: 600 },
         scaleFactor: 2,
       }),
+      getAllDisplays: () => [
+        { bounds: { x: 10, y: 20, width: 800, height: 600 }, scaleFactor: 2 },
+      ],
     },
     ':99.0',
   );
@@ -793,6 +796,7 @@ test('primary display info converts Electron display bounds to x11grab input', (
     scaleFactor: 2,
     width: 1600,
     height: 1200,
+    displayBounds: [{ x: 20, y: 40, width: 1600, height: 1200 }],
   });
 });
 
@@ -806,7 +810,33 @@ test('cursor point normalization converts display DIP to captured pixels', () =>
 test('capture region normalization rejects invalid regions', () => {
   assert.equal(normalizeCaptureRegion(null), null);
   assert.equal(normalizeCaptureRegion({ mode: 'display', x: 0, y: 0, width: 640, height: 360 }), null);
+  assert.equal(normalizeCaptureRegion({ mode: 'region', x: -1, y: 0, width: 640, height: 360 }), null);
   assert.equal(normalizeCaptureRegion({ mode: 'region', x: 0, y: 0, width: 1, height: 360 }), null);
+});
+
+test('recording session rejects invalid capture regions before capture starts', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-invalid-region-'));
+  let captureStarted = false;
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 }),
+    captureFactory: (options) => {
+      captureStarted = true;
+      return { outputPath: options.outputPath, stop: async () => options.outputPath };
+    },
+  });
+
+  await assert.rejects(
+    () => session.start({ captureRegion: { mode: 'region', x: -1, y: 0, width: 640, height: 360 } }),
+    /Capture region is invalid/,
+  );
+  assert.equal(captureStarted, false);
+  assert.equal(session.status().state, 'idle');
+
+  await rm(root, { recursive: true, force: true });
 });
 
 test('capture region resolution converts relative region to absolute X11 display geometry', () => {
@@ -831,7 +861,18 @@ test('capture region resolution converts relative region to absolute X11 display
 
 test('capture region resolution accepts absolute X11 geometry for secondary displays', () => {
   const displayInfo = resolveCaptureDisplayInfo(
-    { display: ':0.0+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 },
+    {
+      display: ':0.0+0,0',
+      originX: 0,
+      originY: 0,
+      scaleFactor: 1,
+      width: 1920,
+      height: 1080,
+      displayBounds: [
+        { x: 0, y: 0, width: 1920, height: 1080 },
+        { x: 1920, y: 0, width: 1280, height: 720 },
+      ],
+    },
     { mode: 'region', x: 0, y: 0, width: 640, height: 360, absoluteX: 1920, absoluteY: 120 },
   );
 
@@ -847,6 +888,16 @@ test('capture region resolution accepts absolute X11 geometry for secondary disp
     absoluteX: 1920,
     absoluteY: 120,
   });
+});
+
+test('capture region resolution rejects regions outside display bounds', () => {
+  assert.throws(
+    () => resolveCaptureDisplayInfo(
+      { display: ':0.0+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 },
+      { mode: 'region', x: 1800, y: 100, width: 400, height: 300 },
+    ),
+    /outside the attached display bounds/,
+  );
 });
 
 test('cursor point normalization passes off-screen positions through unclamped', () => {

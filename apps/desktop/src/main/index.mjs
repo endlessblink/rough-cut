@@ -148,6 +148,7 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
             doubleStop: process.env.ROUGH_CUT_UI_SMOKE_DOUBLE_STOP === '1',
             cameraWarning: process.env.ROUGH_CUT_UI_SMOKE_CAMERA_WARNING === '1',
             cancelFlow: process.env.ROUGH_CUT_UI_SMOKE_CANCEL_FLOW === '1',
+            invalidRegion: process.env.ROUGH_CUT_UI_SMOKE_INVALID_REGION === '1',
           })})`,
           true,
         );
@@ -1038,6 +1039,16 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   await waitFor(() => captureTargetSelect.value === 'display', 'display target reselected');
   const hasCaptureSourcePicker = Boolean(sourcePicker);
   const hasDisabledWindowSource = Boolean(windowSourceCard?.disabled);
+  let hasInvalidRegionRejected = !options.invalidRegion;
+  if (options.invalidRegion) {
+    try {
+      await window.roughCut.startRecording({ captureRegion: { mode: 'region', x: 1900, y: 100, width: 400, height: 300 } });
+      hasInvalidRegionRejected = false;
+      await window.roughCut.cancelRecording().catch(() => undefined);
+    } catch (err) {
+      hasInvalidRegionRejected = /outside the attached display bounds|Capture region is invalid/.test(err?.message ?? String(err));
+    }
+  }
   let selectedCameraSource = null;
   if (options.cameraWarning) {
     const cameraSelect = await waitFor(() => document.querySelector('select[aria-label="Camera source"]'), 'camera source select');
@@ -1080,6 +1091,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
       hasCaptureSourcePicker,
       hasDisabledWindowSource,
       hasNoRegionNumberInputs,
+      hasInvalidRegionRejected,
       selectedCaptureTarget: captureTargetSelect.value,
       initialState,
       canceledState: document.querySelector('[data-ui-region="state-banner"]')?.getAttribute('data-recording-state'),
@@ -1125,6 +1137,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     hasCaptureSourcePicker,
     hasDisabledWindowSource,
     hasNoRegionNumberInputs,
+    hasInvalidRegionRejected,
     selectedCaptureTarget: captureTargetSelect.value,
     initialState,
     savedState,

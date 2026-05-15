@@ -86,7 +86,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-070 | Per-display scale factor for cursor and click telemetry | P1 | DONE |
 | TASK-071 | Surface camera failure during recording, not after | P1 | DONE |
 | TASK-072 | Lift or warn on ASS cursor 600-event downsample cap | P1 | DONE |
-| TASK-073 | Validate capture region against display bounds | P1 | PLANNED |
+| TASK-073 | Validate capture region against display bounds | P1 | DONE |
 | TASK-074 | Wire or remove inert top-bar folder, comments, undo icons | P1 | DONE |
 | TASK-075 | Implement undo and redo with edit history stack | P1 | DONE |
 | TASK-076 | Add keyboard shortcuts and a shortcuts cheat sheet dialog | P1 | DONE |
@@ -346,7 +346,7 @@ Sequence: TASK-104, TASK-105
 Depends-on: LANE P3-A
 Sequence: TASK-106
 
-Next task when continuing: start TASK-073, "Validate capture region against display bounds". Begin by tracing capture-region selection, normalization, and x11grab geometry so invalid saved/input regions cannot start a broken recording.
+Next task when continuing: start TASK-063, "Enable real window capture selection". Begin by tracing current display/region capture options and the disabled window source card so window capture either becomes real or stays clearly unavailable.
 
 ## Tasks
 
@@ -2537,7 +2537,7 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 ### TASK-073 Validate capture region against display bounds
 
 **Priority:** P1  
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -2554,6 +2554,20 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 - New unit test for region validation.
 - `pnpm smoke:recording-flow-ui` extended for off-screen region rejection.
 - Manual: drag a region partially off the right edge and confirm the picker clamps to display bounds.
+
+#### Completion Notes
+
+- Invalid `mode: region` requests now fail before ffmpeg starts instead of silently falling back to full-display capture.
+- Region normalization now rejects negative/non-finite coordinates and too-small dimensions.
+- Region resolution validates the final X11 geometry against attached display bounds, including absolute regions on secondary displays.
+- `getPrimaryX11DisplayInfo` now carries physical bounds for all Electron displays so capture validation can distinguish valid secondary-monitor regions from off-screen regions.
+- Recording-flow smoke can inject an off-screen region and assert it is rejected before continuing with a valid recording.
+
+#### Completion Verification
+
+- `pnpm --filter @rough-cut/desktop test` — 266/266 pass.
+- `pnpm typecheck` — pass across all packages.
+- `env -u VITE_DEV_SERVER_URL ROUGH_CUT_UI_SMOKE_INVALID_REGION=1 pnpm smoke:recording-flow-ui` — pass, including `hasInvalidRegionRejected: true`.
 
 ### ~~TASK-074~~ Wire or remove inert top-bar folder, comments, undo icons
 

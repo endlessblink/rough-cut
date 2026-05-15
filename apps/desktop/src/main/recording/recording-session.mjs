@@ -595,7 +595,12 @@ function normalizeCameraDevicePath(value) {
 
 export function resolveCaptureDisplayInfo(displayInfo, captureRegion) {
   const region = normalizeCaptureRegion(captureRegion);
-  if (!region) return { ...displayInfo, captureRegion: null };
+  if (!region) {
+    if (captureRegion && typeof captureRegion === 'object' && captureRegion.mode === 'region') {
+      throw new Error('Capture region is invalid. Select a region at least 2 x 2 pixels inside an attached display.');
+    }
+    return { ...displayInfo, captureRegion: null };
+  }
 
   const scaleFactor = Number.isFinite(displayInfo.scaleFactor) && displayInfo.scaleFactor > 0 ? displayInfo.scaleFactor : 1;
   const hasAbsoluteRegion = Number.isFinite(region.absoluteX) && Number.isFinite(region.absoluteY);
@@ -603,6 +608,7 @@ export function resolveCaptureDisplayInfo(displayInfo, captureRegion) {
   const originY = hasAbsoluteRegion ? Math.round(region.absoluteY) : Math.round((displayInfo.originY ?? 0) + region.y * scaleFactor);
   const width = Math.max(2, hasAbsoluteRegion ? Math.round(region.width) : Math.round(region.width * scaleFactor));
   const height = Math.max(2, hasAbsoluteRegion ? Math.round(region.height) : Math.round(region.height * scaleFactor));
+  assertCaptureRegionWithinBounds({ originX, originY, width, height, displayInfo });
   const baseDisplay = baseX11DisplayName(displayInfo.display ?? process.env.DISPLAY ?? ':0');
 
   return {
@@ -626,11 +632,12 @@ export function resolveCaptureDisplayInfo(displayInfo, captureRegion) {
 
 export function normalizeCaptureRegion(value) {
   if (!value || typeof value !== 'object' || value.mode !== 'region') return null;
-  const x = Math.max(0, Math.round(Number(value.x)) || 0);
-  const y = Math.max(0, Math.round(Number(value.y)) || 0);
+  const x = Math.round(Number(value.x));
+  const y = Math.round(Number(value.y));
   const width = Math.round(Number(value.width));
   const height = Math.round(Number(value.height));
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 2 || height < 2) return null;
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height)) return null;
+  if (x < 0 || y < 0 || width < 2 || height < 2) return null;
   const absoluteX = Number(value.absoluteX);
   const absoluteY = Number(value.absoluteY);
   return {
@@ -641,6 +648,26 @@ export function normalizeCaptureRegion(value) {
     height,
     ...(Number.isFinite(absoluteX) && Number.isFinite(absoluteY) ? { absoluteX, absoluteY } : {}),
   };
+}
+
+function assertCaptureRegionWithinBounds({ originX, originY, width, height, displayInfo }) {
+  if (!Number.isFinite(originX) || !Number.isFinite(originY) || !Number.isFinite(width) || !Number.isFinite(height) || width < 2 || height < 2) {
+    throw new Error('Capture region is invalid. Select a region at least 2 x 2 pixels inside an attached display.');
+  }
+  const bounds = Array.isArray(displayInfo.displayBounds) && displayInfo.displayBounds.length > 0
+    ? displayInfo.displayBounds
+    : [{ x: displayInfo.originX ?? 0, y: displayInfo.originY ?? 0, width: displayInfo.width, height: displayInfo.height }];
+  const insideDisplay = bounds.some((display) => {
+    const x = Math.round(Number(display.x));
+    const y = Math.round(Number(display.y));
+    const w = Math.round(Number(display.width));
+    const h = Math.round(Number(display.height));
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return false;
+    return originX >= x && originY >= y && originX + width <= x + w && originY + height <= y + h;
+  });
+  if (!insideDisplay) {
+    throw new Error('Capture region extends outside the attached display bounds. Reselect a region fully inside one screen.');
+  }
 }
 
 function baseX11DisplayName(display) {
@@ -672,6 +699,17 @@ export function getPrimaryX11DisplayInfo(screen, displayName = process.env.DISPL
     scaleFactor,
     width,
     height,
+    displayBounds: typeof screen.getAllDisplays === 'function'
+      ? screen.getAllDisplays().map((display) => {
+          const displayScaleFactor = display.scaleFactor || 1;
+          return {
+            x: Math.round(display.bounds.x * displayScaleFactor),
+            y: Math.round(display.bounds.y * displayScaleFactor),
+            width: Math.round(display.bounds.width * displayScaleFactor),
+            height: Math.round(display.bounds.height * displayScaleFactor),
+          };
+        })
+      : [{ x, y, width, height }],
   };
 }
 
