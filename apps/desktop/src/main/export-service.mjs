@@ -20,7 +20,7 @@ export function normalizeExportMode(mode = EXPORT_MODES.RAW) {
   throw new Error(`Unsupported export mode: ${mode}`);
 }
 
-export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MODES.RAW, onProgress = () => undefined }) {
+export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MODES.RAW, onProgress = () => undefined, signal = null } = {}) {
   const exportMode = normalizeExportMode(mode);
   const recording = getPrimaryRecording(project);
   if (!recording) throw new Error('Project has no recording to export.');
@@ -36,11 +36,11 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
   }
 
   if (exportMode === EXPORT_MODES.STYLED) {
-    return exportStyledProjectToMp4({ project, recording, outputPath, onProgress });
+    return exportStyledProjectToMp4({ project, recording, outputPath, onProgress, signal });
   }
 
   if (canExportTrimmedRaw && !canExportRaw) {
-    return exportRawTrimmedProjectToMp4({ recording, outputPath, onProgress });
+    return exportRawTrimmedProjectToMp4({ recording, outputPath, onProgress, signal });
   }
 
   onProgress({ phase: 'copying', progress: 0 });
@@ -57,7 +57,7 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
   };
 }
 
-async function exportRawTrimmedProjectToMp4({ recording, outputPath, onProgress = () => undefined }) {
+async function exportRawTrimmedProjectToMp4({ recording, outputPath, onProgress = () => undefined, signal = null }) {
   onProgress({ phase: 'trimming', progress: 0 });
   await mkdir(dirname(outputPath), { recursive: true });
   const fps = Number.isFinite(recording.fps) && recording.fps > 0 ? recording.fps : 30;
@@ -67,7 +67,11 @@ async function exportRawTrimmedProjectToMp4({ recording, outputPath, onProgress 
     startFrame: recording.sourceIn ?? 0,
     endFrame: recording.sourceOut ?? recording.duration,
     fps,
-  }));
+  }), { signal });
+  if (result.cancelled) {
+    await rm(outputPath, { force: true });
+    return createCancelledExportResult({ outputPath, sourcePath: recording.filePath });
+  }
   if (result.code !== 0) throw new Error(`Raw trim export failed: ${result.stderr.trim()}`);
   const exported = await stat(outputPath);
   onProgress({ phase: 'complete', progress: 1 });
@@ -84,7 +88,7 @@ function assertDistinctExportPath(sourcePath, outputPath) {
   throw new Error('Export output must be different from the source recording. Choose a new file name.');
 }
 
-export async function exportStyledProjectToMp4({ project, recording, outputPath, onProgress = () => undefined }) {
+export async function exportStyledProjectToMp4({ project, recording, outputPath, onProgress = () => undefined, signal = null }) {
   onProgress({ phase: 'rendering-styled', progress: 0.01 });
   await mkdir(dirname(outputPath), { recursive: true });
   const canvas = getStyledCanvasResolution({
@@ -154,6 +158,7 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       screenFrame: recording.presentation?.screenFrame ?? null,
       cutRanges: recording.cutRanges ?? [],
     }), {
+      signal,
       onStdout: (chunk) => {
         const progress = parseFfmpegProgress(chunk, durationSeconds);
         if (progress !== null) {
@@ -161,6 +166,10 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
         }
       },
     });
+    if (result.cancelled) {
+      await rm(outputPath, { force: true });
+      return createCancelledExportResult({ outputPath, sourcePath: recording.filePath });
+    }
     if (result.code !== 0) {
       throw new Error(`Styled export failed: ${result.stderr.trim()}`);
     }
@@ -176,6 +185,16 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
     sourcePath: recording.filePath,
     bytes: exported.size,
     byteEqualCandidate: false,
+  };
+}
+
+function createCancelledExportResult({ outputPath, sourcePath }) {
+  return {
+    outputPath,
+    sourcePath,
+    bytes: 0,
+    byteEqualCandidate: false,
+    cancelled: true,
   };
 }
 
@@ -702,11 +721,32 @@ function isCameraAlignedClip(clip, asset, sourceOffset, timelineIn, timelineOut)
   );
 }
 
-function run(command, args, { onStdout = () => undefined } = {}) {
+function run(command, args, { onStdout = () => undefined, signal = null } = {}) {
   return new Promise((resolve, reject) => {
     const proc = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
+    let cancelled = false;
+    let killTimer = null;
+
+    const cleanupAbortListener = () => {
+      if (killTimer) clearTimeout(killTimer);
+      signal?.removeEventListener?.('abort', abortExport);
+    };
+
+    const abortExport = () => {
+      cancelled = true;
+      if (proc.killed || proc.exitCode !== null) return;
+      proc.kill('SIGTERM');
+      killTimer = setTimeout(() => {
+        if (!proc.killed && proc.exitCode === null) proc.kill('SIGKILL');
+      }, 2000);
+      killTimer.unref?.();
+    };
+
+    if (signal?.aborted) abortExport();
+    else signal?.addEventListener?.('abort', abortExport, { once: true });
+
     proc.stdout.on('data', (chunk) => {
       const text = chunk.toString();
       stdout += text;
@@ -715,7 +755,13 @@ function run(command, args, { onStdout = () => undefined } = {}) {
     proc.stderr.on('data', (chunk) => {
       stderr += chunk.toString();
     });
-    proc.on('error', reject);
-    proc.on('close', (code) => resolve({ code, stdout, stderr }));
+    proc.on('error', (err) => {
+      cleanupAbortListener();
+      reject(err);
+    });
+    proc.on('close', (code) => {
+      cleanupAbortListener();
+      resolve({ code, stdout, stderr, cancelled });
+    });
   });
 }

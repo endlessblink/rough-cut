@@ -20,6 +20,12 @@ test('maps ffmpeg failures to diagnostics-first copy', () => {
   assert.match(copy.detail, /Open diagnostics/);
 });
 
+test('maps stale Electron main process export cancel failures to restart copy', () => {
+  const copy = errorStateCopy(appError('export', new Error("Error invoking remote method 'export:cancel': Error: No handler registered for 'export:cancel'")));
+  assert.equal(copy.title, 'Export cancel is not available yet');
+  assert.match(copy.detail, /Restart Rough Cut/);
+});
+
 test('keeps source-specific recording and export fallback copy', () => {
   assert.equal(errorStateCopy(appError('recording', 'Camera is enabled but no camera device is selected.')).title, 'Recording could not continue');
   assert.equal(errorStateCopy(appError('export', 'Output path was not writable.')).title, 'Export did not finish');

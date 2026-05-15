@@ -54,6 +54,7 @@ let hiddenRecordingOptions = null;
 let hiddenRecordingStopping = false;
 let activeRecordingFinalizePromise = null;
 let activeCameraPreview = null;
+let activeExportController = null;
 const recordingSession = createRecordingSession({
   recordingsDir,
   markerPath,
@@ -443,12 +444,25 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, async (_event, projectName 
   return result.filePath;
 });
 ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, { document, outputPath, mode }) => {
-  return exportProjectToMp4({
-    project: document,
-    outputPath,
-    mode,
-    onProgress: (progress) => event.sender.send(IPC_CHANNELS.EXPORT_PROGRESS_EMIT, progress),
-  });
+  if (activeExportController) throw new Error('An export is already running. Cancel it before starting another export.');
+  const controller = new AbortController();
+  activeExportController = controller;
+  try {
+    return await exportProjectToMp4({
+      project: document,
+      outputPath,
+      mode,
+      signal: controller.signal,
+      onProgress: (progress) => event.sender.send(IPC_CHANNELS.EXPORT_PROGRESS_EMIT, progress),
+    });
+  } finally {
+    if (activeExportController === controller) activeExportController = null;
+  }
+});
+ipcMain.handle(IPC_CHANNELS.EXPORT_CANCEL, () => {
+  if (!activeExportController) return { cancelled: false };
+  activeExportController.abort();
+  return { cancelled: true };
 });
 
 app.whenReady().then(() => {
@@ -916,6 +930,7 @@ async function runRendererUiSmoke() {
     return button && !button.disabled ? button : null;
   }, 'styled review export button');
   exportButton.click();
+  const hasExportProgressMeter = Boolean(await waitFor(() => document.querySelector('[data-export-progress-meter="true"]'), 'export progress meter', 5000).catch(() => null));
 
   await waitFor(() => document.body.textContent?.includes('Exported to:'), 'export completion', 30000);
 
@@ -966,6 +981,7 @@ async function runRendererUiSmoke() {
     hasAudioLane,
     hasRightInspector,
     hasExportStatusArea,
+    hasExportProgressMeter,
     hasExportResult: document.body.textContent?.includes('Exported to:') ?? false,
     canvasRenderFps,
     aspectRatio: aspectRatioSelect.value,

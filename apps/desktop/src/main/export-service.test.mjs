@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForRecording } from './project-files.mjs';
@@ -63,6 +63,60 @@ test('raw export mode keeps byte-for-byte copy behavior', async () => {
   assert.deepEqual(await readFile(outputPath), sourceBytes);
 
   await rm(root, { recursive: true, force: true });
+});
+
+test('trimmed ffmpeg export can be cancelled and removes partial output', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-cancel-'));
+  const binDir = join(root, 'bin');
+  const sourcePath = join(root, 'source.mp4');
+  const outputPath = join(root, 'exported.mp4');
+  const fakeFfmpegPath = join(binDir, 'ffmpeg');
+  await mkdir(binDir, { recursive: true });
+  await writeFile(sourcePath, Buffer.from('source'));
+  await writeFile(fakeFfmpegPath, `#!/usr/bin/env bash
+out="${'$'}{@: -1}"
+printf partial > "${'$'}out"
+trap 'exit 143' TERM
+while true; do sleep 1; done
+`);
+  await chmod(fakeFfmpegPath, 0o755);
+
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:05.000Z',
+      outputPath: sourcePath,
+      width: 1280,
+      height: 720,
+      fps: 30,
+    },
+  });
+  const clip = project.composition.tracks[0].clips[0];
+  const trimmed = {
+    ...project,
+    composition: {
+      ...project.composition,
+      duration: 90,
+      tracks: [{ ...project.composition.tracks[0], clips: [{ ...clip, timelineIn: 0, timelineOut: 90, sourceIn: 30, sourceOut: 120 }] }],
+    },
+  };
+  const controller = new AbortController();
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}:${originalPath ?? ''}`;
+
+  try {
+    const exportPromise = exportProjectToMp4({ project: trimmed, outputPath, mode: 'raw', signal: controller.signal });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    controller.abort();
+    const result = await exportPromise;
+
+    assert.equal(result.cancelled, true);
+    await assert.rejects(() => readFile(outputPath), /ENOENT/);
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('raw trim export args cut to the persisted source frame range', () => {

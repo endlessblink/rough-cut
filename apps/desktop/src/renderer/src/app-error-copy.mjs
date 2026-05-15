@@ -14,6 +14,9 @@ export function errorStateCopy(error) {
   if (normalized.includes('ffmpeg') || normalized.includes('exited') || normalized.includes('spawn')) {
     return { label: 'Media pipeline failed', title: 'FFmpeg stopped unexpectedly', detail: `${message} Open diagnostics for the command log before retrying.` };
   }
+  if (normalized.includes('no handler registered') && normalized.includes('export:cancel')) {
+    return { label: 'Restart needed', title: 'Export cancel is not available yet', detail: `${message} Restart Rough Cut so the Electron main process loads the latest cancel handler.` };
+  }
   if (error.source === 'export') {
     return { label: 'Export needs attention', title: 'Export did not finish', detail: `${message} Check the output path and diagnostics, then retry the export.` };
   }

@@ -11,6 +11,7 @@ const IPC_CHANNELS = {
   PROJECT_SAVE: 'project:save',
   EXPORT_PICK_OUTPUT_PATH: 'export:pick-output-path',
   EXPORT_START: 'export:start',
+  EXPORT_CANCEL: 'export:cancel',
   EXPORT_PROGRESS_EMIT: 'export:progress-emit',
   RECORDING_GET_MIC_SOURCES: 'recording:get-mic-sources',
   RECORDING_GET_SYSTEM_AUDIO_SOURCES: 'recording:get-system-audio-sources',
@@ -61,6 +62,7 @@ contextBridge.exposeInMainWorld('roughCut', {
   saveProject: (project) => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_SAVE, project),
   pickExportOutputPath: (projectName) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, projectName),
   exportProject: (payload) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_START, payload),
+  cancelExport: () => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_CANCEL),
   onExportProgress: (callback) => {
     const listener = (_event, progress) => callback(progress);
     ipcRenderer.on(IPC_CHANNELS.EXPORT_PROGRESS_EMIT, listener);

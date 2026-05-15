@@ -82,7 +82,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-066 | Clean up recording child processes on app crash or signal | P1 | DONE |
 | TASK-067 | Validate remuxed MP4 coherence before declaring success | P1 | DONE |
 | TASK-068 | Compensate cursor and audio drift vs ffmpeg first frame | P1 | PLANNED |
-| TASK-069 | Add EXPORT_CANCEL IPC and kill ffmpeg on cancel | P1 | PLANNED |
+| TASK-069 | Add EXPORT_CANCEL IPC and kill ffmpeg on cancel | P1 | DONE |
 | TASK-070 | Per-display scale factor for cursor and click telemetry | P1 | PLANNED |
 | TASK-071 | Surface camera failure during recording, not after | P1 | PLANNED |
 | TASK-072 | Lift or warn on ASS cursor 600-event downsample cap | P1 | DONE |
@@ -114,6 +114,22 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-098 | Verify playback smoothness end-to-end after MJPEG camera fix | P2 | DONE |
 | TASK-099 | Verify post-recording blank editor is no longer reproducible | P3 | DONE |
 | TASK-100 | Migrate screen camera audio capture to one FFmpeg graph | P1 | DONE |
+| TASK-101 | Define feature-flagged Full Editor shell | P3 | PLANNED |
+| TASK-102 | Add advanced timeline tracks for rich revisions | P3 | PLANNED |
+| TASK-103 | Add annotation and callout track foundation | P3 | PLANNED |
+| TASK-104 | Define AI motion suggestion data model | P4 | PLANNED |
+| TASK-105 | Add safe AI motion preview and apply flow | P4 | PLANNED |
+| TASK-106 | Define cloud sharing and collaboration scope | P4 | PLANNED |
+| TASK-107 | Audit sidebar controls and remove placeholder affordances | P2 | PLANNED |
+| TASK-108 | Wire all visible sidebar controls to real editor behavior | P2 | PLANNED |
+| TASK-109 | Redesign sidebar information architecture and section density | P2 | PLANNED |
+| TASK-110 | Replace recording preview card with compact horizontal controls | P2 | PLANNED |
+| TASK-111 | Add sidebar interaction and visual regression coverage | P2 | PLANNED |
+| TASK-112 | Add export benchmark harness and performance budget | P1 | PLANNED |
+| TASK-113 | Profile styled export filter graph bottlenecks | P1 | PLANNED |
+| TASK-114 | Add fast-path exports for no-zoom/no-camera cases | P1 | PLANNED |
+| TASK-115 | Optimize cursor and zoom layer generation overhead | P2 | PLANNED |
+| TASK-116 | Add export speed preset controls with quality guardrails | P2 | PLANNED |
 
 ## Recently Verified
 
@@ -188,38 +204,149 @@ X11 is being deprecated and the Wayland pivot (TASK-026) is a bounded *swap-out*
 
 What survives the pivot regardless: project schema, zoom export math, canvas preview rendering, all UI panels, click-effect rendering, auto-zoom marker generation. What gets replaced: `recording-session.mjs` cursor sampling, `xdotool-cursor.mjs`, `buildCursorAss`. Small, isolated, well-tested modules.
 
-### Delivery Lines
+### Safety-First Product Roadmap
 
-Drives the Watchpost flow view (`flow/index.html` parses this block via `parseDeliveryLines`). One sequential lane: tasks are worked top-to-bottom in declared order. Done/superseded tasks are skipped automatically. Tasks not listed stay in the unassigned backlog. Update this block whenever sprint priorities shift — it is the source of truth for "what should I work on next?"
+Rough Cut advances in production-safe bricks. Later feature bricks should not start until the foundation they rely on is reliable in real recordings, automated tests, packaged-app checks, and preview/export parity. This is intentionally conservative: Screen Studio/Focusee/Recordly parity comes from trust, polish, and speed in the core creator loop, not from adding every competitor feature at once.
 
-Order follows the Direction section: finish in-flight presentation polish → recording-flow UX polish → long-tail / deferred.
+Phase gates are pragmatic, not absolute. A phase does not require impossible "perfect" coverage, but it does require no known P0/P1 bugs in the core workflow, regression coverage for the risky rendering path, real-recording dogfooding, and a packaged-app verification pass.
 
-1. **LINE A — Client tutorial recording sprint**: DONE
-Sequence: ~~TASK-013~~, ~~TASK-048~~, ~~TASK-041~~, ~~TASK-020~~, ~~TASK-021~~, ~~TASK-022~~, ~~TASK-023~~, ~~TASK-047~~, ~~TASK-005~~
-Deferred: TASK-026 remains planned as long-term Wayland readiness, outside the client tutorial sprint.
+#### Phase 0 — Foundation Safety
 
-2. **LINE B — Don't lose user data**: DONE
-Sequence: ~~TASK-065~~, ~~TASK-085~~, ~~TASK-066~~, ~~TASK-067~~, ~~TASK-088~~, ~~TASK-072~~
+Goal: recording, preview, export, project recovery, and undo are boringly reliable.
 
-3. **LINE C — Make the UI honest**: DONE
-Sequence: ~~TASK-074~~, ~~TASK-077~~, ~~TASK-082~~, ~~TASK-076~~, ~~TASK-075~~
+Exit gate:
 
-4. **LINE D — Real export options users expect**:
-Sequence: TASK-069, TASK-068, TASK-086, TASK-087
+- No known P0/P1 bugs in record -> preview -> edit -> export.
+- Preview/export parity is covered by regression tests.
+- 30-minute recording smoke passes on target Linux/X11 hardware.
+- Autosave/recovery protects common failure cases.
+- Packaged app passes real-recording verification.
 
-Next task when continuing: start TASK-069, "Add EXPORT_CANCEL IPC and kill ffmpeg on cancel". Begin by tracing the existing `EXPORT_START` IPC path and `exportProjectToMp4` child-process lifecycle, then add cancel IPC plus a smoke or unit test proving an in-flight export can be stopped cleanly.
+Product lanes:
 
-5. **LINE E — Polish, accuracy, accessibility**:
-Sequence: TASK-070, TASK-071, TASK-073, TASK-078, TASK-083, TASK-084, TASK-080, TASK-081, TASK-079
+- Foundation Safety: capture/render correctness, diagnostics, regression coverage.
+- Recording Fidelity: target selection, region bounds, camera/audio failure visibility, cursor scale accuracy.
+- Export Confidence: export cancellation, drift compensation, validation, common output formats.
+- Project Trust: autosave, crash recovery, relative assets, reliable reopen.
 
-6. **LINE F — Distribution and native rewrites**:
-Sequence: TASK-089, TASK-090, TASK-091, TASK-092, TASK-093, TASK-063, TASK-064
+#### Phase 1 — MVP Polish Parity
 
-7. **LINE G — Record sidebar authoring toolset**:
-Sequence: ~~TASK-094~~
+Goal: Screen Studio/Focusee-lite quality from the compact editor.
 
-8. **LINE H — Resolve 2026-05-10 session follow-ups**:
-Sequence: ~~TASK-098~~, ~~TASK-100~~, ~~TASK-099~~, ~~TASK-097~~, ~~TASK-095~~, ~~TASK-096~~
+Exit gate:
+
+- A user can record, review, tweak zooms, style, trim, and export without manual fiddling.
+- 16:9, 9:16, and 1:1 exports feel polished and match preview.
+- Cursor, clicks, zooms, framing, and camera PiP feel intentional.
+- Beta feedback says the app feels premium and reliable.
+
+Product lanes:
+
+- Cursor And Input: cursor accuracy, styling, clicks, smoothing, later keystroke visualization.
+- Zoom Intelligence: auto-zoom review, feedback, smarter timing, manual override.
+- Compact Timeline: trim, cut, split, speed, zoom markers, captions later.
+- Presentation Polish: canvas, backgrounds, shadows, aspect ratios, camera layout, templates.
+- Export Speed: measured export time budgets, safe ffmpeg fast paths, and quality-preserving presets.
+- Sidebar UX Maturity: every visible sidebar element is real, compact, grouped by intent, and visually stable.
+- Audio Basics: sync, normalization, silence detection/removal, basic cleanup.
+
+#### Phase 2 — v1 Workflow Depth
+
+Goal: add more editing power without damaging the simple workflow.
+
+Exit gate:
+
+- Phase 1 workflow remains stable.
+- Advanced editing is optional and feature-flagged.
+- Complex revisions can be completed without data loss or timeline confusion.
+
+Future lanes:
+
+- Presenter: richer webcam layouts, placement presets, later face tracking/background removal.
+- Captions And Transcript: captions first, transcript editing later.
+- Templates And Branding: save/apply style presets before team brand libraries.
+- Advanced Editor: optional full editor mode, precise tracks, annotations, keyframing only where needed.
+- Project Revision: stronger history/versioning beyond crash recovery.
+
+#### Phase 3 — AI Motion Design
+
+Goal: optional, non-destructive AI motion suggestions on top of a stable timeline/render system.
+
+Exit gate:
+
+- AI suggestions never corrupt projects.
+- Preview/export parity remains intact.
+- Motion edits are always editable or reversible.
+
+Future lanes:
+
+- AI Motion Suggestions: suggested camera moves, zoom timing, emphasis moments.
+- Smart Timing: voice/click/typing-aware motion and cuts.
+- Motion Paths: editable easing, paths, motion blur, transitions.
+- Preview Caching: performance-safe previews for generated motion.
+
+#### Phase 4 — Later Platform And Collaboration
+
+Goal: broaden distribution and collaboration only after the local creator workflow is strong.
+
+Future lanes:
+
+- Cloud Sharing: hosted review links and quick share flows.
+- Team Collaboration: comments, workspaces, permissions.
+- Template Ecosystem: shared themes and brand libraries.
+
+### Delivery Lanes
+
+Drives the Watchpost flow view (`flow/index.html` parses this block via `parseDeliveryLines`, with legacy `Delivery Lines` support). `Sequence:` is strict order inside a lane. `Depends-on:` locks a lane until the named lane is done. `Supports:` lists useful parallel/supporting work that is not on the lane's main critical path. Done/superseded tasks are skipped automatically. Tasks not listed stay in the unassigned backlog. Update this block whenever sprint priorities shift — it is the source of truth for "what should I work on next?"
+
+Active flow uses pragmatic phase gating: Phase 0 foundation lanes may run in parallel unless they touch the same subsystem, and Phase 1 lanes wait only for the specific Phase 0 foundation they depend on. Full Editor, AI Motion, and Cloud/Collab appear as locked future lanes so they are visible in the flow view without competing with the active foundation work.
+
+1. **LANE P0-A — Export confidence foundation**:
+Sequence: TASK-069, TASK-068
+
+2. **LANE P0-B — Recording fidelity foundation**:
+Sequence: TASK-070, TASK-071, TASK-073, TASK-063
+Supports: TASK-026, TASK-092, TASK-093
+
+3. **LANE P0-C — Project trust foundation**:
+Sequence: TASK-088, TASK-084
+
+4. **LANE P0-D — Preview and editor stability**:
+Sequence: TASK-064, TASK-079, TASK-083
+
+5. **LANE P1-A — Social export polish**:
+Depends-on: LANE P0-A
+Sequence: TASK-086, TASK-087
+
+6. **LANE P1-B — Zoom intelligence polish**:
+Depends-on: LANE P0-A, LANE P0-B
+Sequence: TASK-078
+
+7. **LANE P1-C — Sidebar UX maturity**:
+Depends-on: LANE P0-D
+Sequence: TASK-107, TASK-108, TASK-109, TASK-110, TASK-111
+
+8. **LANE P1-D — Export speed**:
+Depends-on: LANE P0-A
+Sequence: TASK-112, TASK-113, TASK-114, TASK-115, TASK-116
+
+9. **LANE P1-E — Distribution readiness**:
+Depends-on: LANE P0-A, LANE P0-B, LANE P0-C
+Sequence: TASK-089, TASK-090, TASK-091
+
+10. **LANE P2-A — Future advanced editor mode**:
+Depends-on: LANE P1-A, LANE P1-B, LANE P1-C, LANE P1-D
+Sequence: TASK-101, TASK-102, TASK-103
+
+11. **LANE P3-A — Future AI motion design**:
+Depends-on: LANE P2-A
+Sequence: TASK-104, TASK-105
+
+12. **LANE P4-A — Future cloud and collaboration**:
+Depends-on: LANE P3-A
+Sequence: TASK-106
+
+Next task when continuing: start TASK-068, "Compensate cursor and audio drift vs ffmpeg first frame". Begin by tracing how recording start, ffmpeg first frame timing, cursor telemetry, click telemetry, and audio timestamps are aligned in saved projects and styled export.
 
 ## Tasks
 
@@ -2310,8 +2437,25 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 #### Verification
 
 - New unit test verifies cancel kills the spawn and returns `cancelled` status.
-- `pnpm smoke:styled-export` extended to cover cancel.
+- `pnpm --filter @rough-cut/desktop test` covers cancel through a fake ffmpeg process.
 - Manual: start a long export, click cancel, verify no orphan ffmpeg and no stale temp files.
+
+#### Completion Notes
+
+- Added `AbortSignal` support to ffmpeg-backed exports in `export-service.mjs`.
+- Added an active export controller in `index.mjs` and wired `EXPORT_CANCEL` IPC to abort the current export.
+- Exposed `cancelExport()` from preload and added a renderer "Cancel export" action while export progress is active.
+- Cancelled ffmpeg exports now return `cancelled: true` and remove partial output files; cursor/zoom temp layers still clean up through the existing `finally` path.
+- Added a cancellation unit test using a fake ffmpeg binary to prove cancel returns a cancelled result and removes the partial export.
+- Added a visible export progress meter with phase label and percentage in the export status panel.
+- Fixed a completion/cancel race where `exportProgress` could remain stuck at `cancelling: 100%` after a successful export, leaving export buttons disabled.
+- Added targeted error copy for stale Electron main processes that do not yet have the `export:cancel` IPC handler registered.
+
+#### Completion Verification
+
+- `pnpm --filter @rough-cut/desktop test` — 263/263 pass.
+- `pnpm typecheck` — pass across all packages.
+- `env -u VITE_DEV_SERVER_URL pnpm smoke:ui` — pass, including `hasExportProgressMeter: true`.
 
 ### TASK-070 Per-display scale factor for cursor and click telemetry
 
@@ -3217,3 +3361,371 @@ Record a 5 s take with camera, stop, open the resulting project. Editor renders 
 - 2026-05-11: Real camera smoke saved and reopened `/tmp/rough-cut-real-recording-smoke-RyIG2B/rough-cut-2026-05-11T06-52-33-419Z.roughcut` with `uiReport.ok: true`.
 - The reopened editor reported `hasStyledPreviewCanvas`, `hasFrameDragHandles`, `hasTimelineRail`, `hasRightInspector`, `hasExportStatusArea`, and `hasVisualScreenshot` all true.
 - No blank central stage or vertical `Saved to:` text column reproduced during the fresh camera recording flow.
+
+### TASK-101 Define feature-flagged Full Editor shell
+
+**Priority:** P3
+**Status:** PLANNED
+
+#### Context
+
+Rough Cut should keep the compact Screen Studio-style workflow as the default. A fuller editor can unlock richer revisions, but it must not destabilize record -> review -> polish -> export. This task defines the optional Full Editor shell behind a feature flag before any advanced editing systems are implemented.
+
+#### Acceptance Criteria
+
+- Full Editor is specified as an optional mode, not the default editor path.
+- The feature flag boundary is documented: entry point, persistence behavior, fallback behavior, and rollback path.
+- The compact editor remains the source of truth for MVP workflows.
+- The proposed shell lists the minimum surfaces needed for later tracks, annotations, captions, and keyframed presentation edits.
+- No implementation starts until Phase 1 export/zoom/presentation gates are stable.
+
+#### Verification
+
+- Planning/design review only until implementation is approved.
+- Confirm Watchpost keeps this lane locked behind Phase 1 dependencies.
+
+### TASK-102 Add advanced timeline tracks for rich revisions
+
+**Priority:** P3
+**Status:** PLANNED
+
+#### Context
+
+Advanced revision work needs more timeline structure than the compact editor, but only after the compact workflow is safe. This task introduces track concepts for richer revisions without turning Rough Cut into a general-purpose NLE.
+
+#### Acceptance Criteria
+
+- Track model supports screen, camera, audio, zooms, captions, and annotations as separate editable concepts.
+- Existing compact timeline projects migrate or render without behavior changes.
+- Preview and export use the same timeline interpretation.
+- Undo/redo and autosave cover all new track edits.
+- The feature remains behind the Full Editor flag until dogfooding proves it stable.
+
+#### Verification
+
+- Unit tests for timeline model conversion and edit operations.
+- Preview/export parity regression for a project using multiple track types.
+- Manual packaged-app check with a real recording opened in compact mode and Full Editor mode.
+
+### TASK-103 Add annotation and callout track foundation
+
+**Priority:** P3
+**Status:** PLANNED
+
+#### Context
+
+Annotations are useful for tutorials, but they can easily become a large drawing tool. This task keeps scope narrow: timeline-bound callouts that help explain demos without adding full design-editor complexity.
+
+#### Acceptance Criteria
+
+- Add a minimal annotation/callout track model with text, arrow/highlight box, time range, position, and style.
+- Annotations render identically in preview and export.
+- Annotations are non-destructive, undoable, and saved in project files.
+- Compact editor is not cluttered; authoring can live in Full Editor or a gated panel.
+
+#### Verification
+
+- Unit tests for annotation schema and timeline edits.
+- Visual regression for preview/export annotation parity.
+- Manual export check with at least one text callout and one highlight box.
+
+### TASK-104 Define AI motion suggestion data model
+
+**Priority:** P4
+**Status:** PLANNED
+
+#### Context
+
+AI motion design should be a late-stage enhancement, not a foundation. Suggestions must be optional, editable, reversible, and represented as normal timeline data so export and preview stay deterministic.
+
+#### Acceptance Criteria
+
+- Define a suggestion model for proposed zooms, pans, camera moves, cuts, and emphasis moments.
+- Each suggestion includes confidence, source signals, affected time range, and a safe fallback.
+- Applying a suggestion creates normal project edits that can be undone or manually adjusted.
+- Rejected suggestions do not mutate project state.
+- The model does not require cloud AI; local or external analysis can be plugged in later.
+
+#### Verification
+
+- Schema/unit tests for suggestion serialization and apply/reject behavior.
+- Design review confirms suggestions can degrade gracefully when analysis is uncertain.
+
+### TASK-105 Add safe AI motion preview and apply flow
+
+**Priority:** P4
+**Status:** PLANNED
+
+#### Context
+
+AI-generated motion can damage trust if it causes jank, export mismatch, or confusing edits. This task adds a safe preview/apply flow after the suggestion model and advanced editor foundations are stable.
+
+#### Acceptance Criteria
+
+- AI motion suggestions preview as overlays before mutating the timeline.
+- Applying suggestions is atomic, undoable, and recoverable through autosave.
+- Preview caching prevents generated motion from making playback unusable.
+- Export output matches the accepted preview.
+- Basic users can ignore the AI motion panel entirely.
+
+#### Verification
+
+- Unit tests for atomic apply/undo behavior.
+- Visual regression comparing accepted AI motion preview to export.
+- Performance smoke for previewing generated motion on target hardware.
+
+### TASK-106 Define cloud sharing and collaboration scope
+
+**Priority:** P4
+**Status:** PLANNED
+
+#### Context
+
+Cloud sharing, comments, team workspaces, and hosted review links are useful but not required for local-first Screen Studio-style parity. This task keeps collaboration out of the core product until the local creator workflow is stable.
+
+#### Acceptance Criteria
+
+- Define which sharing/collaboration capabilities belong in Rough Cut and which are explicitly out of scope.
+- Identify backend, privacy, storage, account, and billing implications before implementation.
+- Preserve local-first export as the primary workflow.
+- Do not start implementation until Phase 3 motion/design work is stable or the product strategy changes.
+
+#### Verification
+
+- Product review only.
+- Confirm no cloud dependency is introduced into local record/edit/export flows.
+
+### TASK-107 Audit sidebar controls and remove placeholder affordances
+
+**Priority:** P2
+**Status:** PLANNED
+
+#### Context
+
+The editor sidebars currently expose controls and icon tabs that do not all behave like finished product surfaces. The design rule is explicit: if a control is visible, it should do something. This task inventories every left-rail icon, sidebar section, inspector action, reset button, slider, preset, empty state, and disabled-looking affordance so placeholder UI is either wired, intentionally disabled with clear copy, or removed.
+
+This covers the current Background/Timeline/Inspector sidebars, the right export sidebar, and any recording/review panels that appear in the main editor shell.
+
+#### Acceptance Criteria
+
+- Produce a sidebar control inventory grouped by visible surface: left rail, left panel, central preview controls, timeline rail, right export panel.
+- Mark each element as wired, intentionally disabled, misleading, duplicate, dead, or placeholder.
+- Remove or hide controls that cannot be implemented in the current phase.
+- Replace misleading empty states with compact copy that explains the next action.
+- Keep the right sidebar export-focused; do not move presentation authoring back into the export area.
+- Update smoke assertions to fail if known placeholder labels or inert buttons return.
+
+#### Verification
+
+- `pnpm smoke:ui`
+- Manual packaged-app pass: click every visible sidebar tab/action/control and confirm it either changes editor state, opens a real flow, or is clearly disabled with a reason.
+
+### TASK-108 Wire all visible sidebar controls to real editor behavior
+
+**Priority:** P2
+**Status:** PLANNED
+
+#### Context
+
+After the audit, remaining visible controls need real behavior. Background presets, reset actions, frame/shadow sliders, timeline marker actions, zoom controls, trim/cut controls, export utilities, and top/side icon actions should either mutate project state, focus the correct editor selection, run the expected command, or be removed from the visible UI.
+
+#### Acceptance Criteria
+
+- Every visible sidebar button has a working handler or a deliberate disabled state with accessible explanation.
+- Reset actions restore the correct scoped defaults and update preview immediately.
+- Background/frame/shadow/presentation controls persist into the project and match export output.
+- Timeline and zoom controls focus or modify the matching timeline region instead of acting as disconnected form controls.
+- Disabled actions cannot look like primary available actions.
+- Undo/redo covers project-state changes made from sidebars.
+
+#### Verification
+
+- Unit or renderer tests for each newly wired state mutation.
+- `pnpm smoke:ui` with assertions for sidebar actions and project-state changes.
+- Manual preview/export parity check for at least one background, frame, shadow, zoom, and trim change made from the sidebar.
+
+### TASK-109 Redesign sidebar information architecture and section density
+
+**Priority:** P2
+**Status:** PLANNED
+
+#### Context
+
+Current sidebar panels are visually heavy and tall: large cards, repeated headings, paragraph-heavy helper text, and section stacking make the editor feel like a settings form instead of a focused screen-recording editor. The sidebars need a clearer information architecture with compact groups, better visual hierarchy, fewer nested boxes, and options organized by user intent.
+
+#### Acceptance Criteria
+
+- Define the final sidebar map: which controls belong in Background/Presentation, Timeline, Inspector, Recording, Export, and future panels.
+- Reduce nested cards and repeated headings; each section should scan quickly at narrow sidebar width.
+- Group controls by outcome, not implementation detail: canvas look, screen frame, cursor/clicks, camera, trim/cuts, zooms, export.
+- Use icons and compact labels where they improve scanning, but preserve accessible names/tooltips.
+- Replace long helper paragraphs with short inline hints, status chips, or contextual empty states.
+- Ensure sidebars remain usable at laptop-height viewports without excessive internal scrolling.
+
+#### Verification
+
+- Visual regression or Playwright screenshot comparison for each sidebar tab.
+- Manual pass at common desktop sizes, including a small laptop viewport.
+- Accessibility check for tab order, labels, and focus states on icon-only or compact controls.
+
+### TASK-110 Replace recording preview card with compact horizontal controls
+
+**Priority:** P2
+**Status:** PLANNED
+
+#### Context
+
+The recording preview panel should not be a large square/card competing with the main preview. It should be minimal, mostly icon-led, horizontal, and action-oriented: record state, source/camera/audio status, quick toggles, and next action. This keeps the central stage as the product surface and avoids duplicating editor panels inside the preview area.
+
+#### Acceptance Criteria
+
+- Replace the square/card-like recording preview panel with a compact horizontal control strip.
+- Use mostly icons with accessible labels/tooltips for source, mic, system audio, camera, status, and record/retry actions.
+- Show only essential recording/review state; move detailed setup or diagnostics into the appropriate sidebar/panel.
+- Preserve clear next actions: record, stop, retake/new, open project, export, or diagnostics when needed.
+- The strip should not cause the central preview, timeline, or sidebars to jump when state changes.
+- Empty/no-project state remains understandable without becoming a large placeholder card.
+
+#### Verification
+
+- `pnpm smoke:recording-flow-ui`
+- `pnpm smoke:ui`
+- Manual packaged-app check: fresh launch, pre-record setup, active recording, stopped review, reopened project.
+
+### TASK-111 Add sidebar interaction and visual regression coverage
+
+**Priority:** P2
+**Status:** PLANNED
+
+#### Context
+
+Sidebar polish will regress unless it is covered. The app already has preview/export and timeline interaction coverage; sidebar interactions need the same standard because tool switching, dense panels, and compact controls can easily break layout or become inert again.
+
+#### Acceptance Criteria
+
+- Add UI smoke coverage that switches every sidebar tab and verifies the central stage remains mounted and stable.
+- Assert representative controls in each sidebar mutate project/editor state or expose a real disabled reason.
+- Add visual regression snapshots for Background/Presentation, Timeline, Inspector, Export, and compact recording preview states.
+- Include a no-placeholder assertion for known dead labels/buttons from the audit.
+- Capture at least one small viewport case to catch vertical overflow and excessive scrolling.
+
+#### Verification
+
+- `pnpm smoke:ui`
+- `pnpm visual:scrub` or the project’s current visual regression command for editor/sidebar states.
+- Manual packaged-app sidebar click-through after redesign tasks land.
+
+### TASK-112 Add export benchmark harness and performance budget
+
+**Priority:** P1
+**Status:** PLANNED
+
+#### Context
+
+Export speed is now part of perceived parity with Screen Studio/Focusee/Recordly. Before optimizing, Rough Cut needs repeatable timing numbers for representative projects so changes can be judged against a budget instead of subjective waiting.
+
+#### Acceptance Criteria
+
+- Add a benchmark command that exports representative fixture projects and reports wall-clock time, source duration, output duration, export mode, resolution, fps, feature mix, and speed multiplier.
+- Cover at least these cases: raw copy, raw trim, styled no-zoom/no-camera, styled with cursor/clicks, styled with zooms, styled with camera PiP, styled with background image.
+- Store the benchmark result as JSON so CI/local runs can compare future changes.
+- Define initial performance budgets for short 1080p demo exports and longer 10-minute exports.
+- Do not change ffmpeg quality settings yet; this task measures before optimizing.
+
+#### Verification
+
+- `pnpm benchmark:export` or equivalent command runs locally and prints a concise summary.
+- Unit or smoke coverage validates the benchmark harness fails on missing fixture output or invalid media.
+- Manual run on one real recording captures baseline numbers in task completion notes.
+
+### TASK-113 Profile styled export filter graph bottlenecks
+
+**Priority:** P1
+**Status:** PLANNED
+
+#### Context
+
+Styled export uses a complex ffmpeg graph for background, cursor subtitles, zoom crop/sendcmd, rounded screen, shadow, camera PiP, and cuts. We need to know which graph stages dominate export time before adding fast paths.
+
+#### Acceptance Criteria
+
+- Add profiling runs or temporary benchmark variants that isolate cursor subtitles, zoom crop/sendcmd, background image, rounded alpha, shadow blur, and camera overlay.
+- Record whether bottlenecks come from filter complexity, encoder preset/CRF, input decode, subtitles/libass, image background, or camera overlay.
+- Identify safe fast-path candidates that preserve preview/export parity.
+- Document at least one optimization to avoid because it breaks visual quality or parity.
+
+#### Verification
+
+- Profiling notes include before/after timing for each isolated graph variant.
+- `pnpm smoke:styled-export` still passes after any profiling-only instrumentation is removed or gated.
+
+### TASK-114 Add fast-path exports for no-zoom/no-camera cases
+
+**Priority:** P1
+**Status:** PLANNED
+
+#### Context
+
+Many user exports are simple: screen recording, styled canvas, cursor/clicks, no camera, no manual zoom. These should not pay for camera/zoom graph complexity. Add fast paths only where output remains visually identical to the preview.
+
+#### Acceptance Criteria
+
+- Detect simple styled-export shapes: no camera, no zoom, no cuts, no background image where applicable.
+- Build slimmer ffmpeg args for those cases, avoiding unused inputs and filters.
+- Preserve cursor/click rendering and screen styling when enabled.
+- Fall back to the full graph for camera, zoom, cuts, custom screen frame, or unsupported combinations.
+- Benchmark shows meaningful improvement on the no-zoom/no-camera fixture without regressing full styled exports.
+
+#### Verification
+
+- Unit tests for fast-path eligibility and generated ffmpeg args.
+- `pnpm smoke:styled-export`
+- `pnpm benchmark:export` shows the simple styled case improved versus baseline.
+- Visual regression confirms fast-path output matches the full-graph output within accepted tolerance.
+
+### TASK-115 Optimize cursor and zoom layer generation overhead
+
+**Priority:** P2
+**Status:** PLANNED
+
+#### Context
+
+Long recordings can spend noticeable time generating cursor ASS files and zoom sendcmd files before ffmpeg even starts. This lane should reduce pre-render overhead without lowering cursor fidelity or zoom smoothness.
+
+#### Acceptance Criteria
+
+- Measure cursor ASS and zoom sendcmd generation time separately in export progress/benchmark output.
+- Skip generating cursor or zoom temp layers when the project has no relevant data.
+- Cache or stream large temp layer generation where safe.
+- Avoid unnecessary downsampling for recordings under the cursor-event cap.
+- Keep temp-file cleanup reliable on success, failure, and cancel.
+
+#### Verification
+
+- Unit tests for no-data skips and cleanup paths.
+- Benchmark shows pre-ffmpeg setup time for cursor-heavy fixtures.
+- `pnpm --filter @rough-cut/desktop test`
+
+### TASK-116 Add export speed preset controls with quality guardrails
+
+**Priority:** P2
+**Status:** PLANNED
+
+#### Context
+
+Users may accept faster drafts while still needing high-quality finals. Add speed/quality presets only after benchmarked fast paths exist, and make the defaults safe for polished client demos.
+
+#### Acceptance Criteria
+
+- Add export preset choices such as Draft, Balanced, and High Quality with clear copy.
+- Default remains quality-safe and does not surprise users with degraded output.
+- Presets map to explicit ffmpeg settings, not vague UI labels.
+- Warn or prevent combinations that would break transparency, antialiasing, cursor clarity, or preview/export parity.
+- Persist the chosen export speed preset in project or session settings if appropriate.
+
+#### Verification
+
+- Unit tests for preset-to-ffmpeg-setting mapping.
+- UI smoke confirms preset control appears and selected value reaches export args.
+- Benchmark reports speed/quality preset in output JSON.
+- Manual visual review compares Draft/Balanced/High Quality on one real recording.

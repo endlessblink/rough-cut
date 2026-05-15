@@ -69,6 +69,7 @@ declare global {
       dismissRecovery: (options?: { deleteFiles?: boolean }) => Promise<{ dismissed: boolean; removed: string[] }>;
       pickExportOutputPath: (projectName: string) => Promise<string | null>;
       exportProject: (payload: { document: ProjectState['document']; outputPath: string; mode: ExportMode }) => Promise<ExportResult>;
+      cancelExport: () => Promise<{ cancelled: boolean }>;
       onExportProgress: (callback: (progress: ExportProgress) => void) => () => void;
       channels: Record<string, string>;
     };
@@ -99,7 +100,7 @@ type ProjectState = {
 type ProjectChangeOptions = { history?: boolean; previous?: ProjectState };
 
 type ExportProgress = { phase: string; progress: number };
-type ExportResult = { outputPath: string; sourcePath: string; bytes: number; byteEqualCandidate: boolean };
+type ExportResult = { outputPath: string; sourcePath: string; bytes: number; byteEqualCandidate: boolean; cancelled?: boolean };
 type ExportMode = 'raw' | 'styled';
 type MicSource = { id: string; name: string; label: string; state: string };
 type AudioSource = { id: string; name: string; label: string; state: string };
@@ -557,11 +558,29 @@ function App() {
       }
       setExportMode(mode);
       const result = await window.roughCut.exportProject({ document: project.document, outputPath, mode });
+      if (result.cancelled) {
+        setExportProgress(null);
+        return;
+      }
       setExportResult(result);
-      setExportProgress({ phase: 'complete', progress: 1 });
+      setExportProgress(null);
     } catch (err) {
       setExportProgress(null);
       setError(appError('export', err, 'Export failed.'));
+    }
+  }
+
+  async function cancelExport() {
+    setError(null);
+    try {
+      const result = await window.roughCut.cancelExport();
+      if (!result.cancelled) {
+        setExportProgress(null);
+        return;
+      }
+      setExportProgress((current) => current ? { phase: 'cancelling', progress: current.progress } : null);
+    } catch (err) {
+      setError(appError('export', err, 'Export cancel failed.'));
     }
   }
 
@@ -904,6 +923,7 @@ function App() {
             recording={recording}
             onProjectChange={applyProjectChange}
             onExportMode={exportProjectWithMode}
+            onCancelExport={cancelExport}
             onOpenPath={openPath}
             onShowItemInFolder={showItemInFolder}
             onRetake={startRetake}
@@ -1817,7 +1837,7 @@ function EmptyWorkspace({ setupBoardOpen, inspectorOpen, activeTool, onActiveToo
   );
 }
 
-function PostRecordingReview({ project, recording, exportProgress, onExportMode, onOpenProject, onOpenRecordingFolder, onOpenDiagnostics, onRetake }: { project: ProjectState; recording: RecordingStatus; exportProgress: ExportProgress | null; onExportMode: (mode: ExportMode) => void; onOpenProject: () => void; onOpenRecordingFolder: () => void; onOpenDiagnostics: () => void; onRetake: () => void }) {
+function PostRecordingReview({ project, recording, exportProgress, onExportMode, onCancelExport, onOpenProject, onOpenRecordingFolder, onOpenDiagnostics, onRetake }: { project: ProjectState; recording: RecordingStatus; exportProgress: ExportProgress | null; onExportMode: (mode: ExportMode) => void; onCancelExport: () => void; onOpenProject: () => void; onOpenRecordingFolder: () => void; onOpenDiagnostics: () => void; onRetake: () => void }) {
   const isFreshRecording = recording.state === 'saved' && recording.project?.path === project.path;
   const diagnosticsAvailable = recording.state === 'saved' && Boolean(recording.diagnosticsPath);
   const cameraWarning = recording.state === 'saved' ? recording.cameraError : getProjectCameraWarning(project);
@@ -1842,6 +1862,7 @@ function PostRecordingReview({ project, recording, exportProgress, onExportMode,
         <button type="button" className="secondary" data-export-action="raw" onClick={() => onExportMode('raw')} disabled={!project.recording || Boolean(exportProgress)}>
           <Icon name="display" /> Export raw
         </button>
+        {exportProgress ? <button type="button" className="secondary danger" data-export-action="cancel" onClick={onCancelExport}><Icon name="stop" /> Cancel export</button> : null}
         <button type="button" className="secondary" onClick={onOpenRecordingFolder} disabled={!project.recording?.filePath}><Icon name="folder" /> Folder</button>
         <button type="button" className="secondary" onClick={onOpenDiagnostics} disabled={!diagnosticsAvailable}><Icon name="settings" /> Diagnostics</button>
         <button type="button" className="secondary" onClick={onOpenProject}><Icon name="folder" /> Project</button>
@@ -1863,6 +1884,7 @@ function ProjectPreview({
   recording,
   onProjectChange,
   onExportMode,
+  onCancelExport,
   onOpenPath,
   onShowItemInFolder,
   onRetake,
@@ -1878,6 +1900,7 @@ function ProjectPreview({
   recording: RecordingStatus;
   onProjectChange: (next: ProjectState, options?: ProjectChangeOptions) => void;
   onExportMode: (mode: ExportMode) => void;
+  onCancelExport: () => void;
   onOpenPath: (path?: string | null) => void;
   onShowItemInFolder: (path?: string | null) => void;
   onRetake: () => void;
@@ -2250,6 +2273,7 @@ function ProjectPreview({
           recording={recording}
           exportProgress={exportProgress}
           onExportMode={onExportMode}
+          onCancelExport={onCancelExport}
           onOpenProject={() => onOpenPath(project.path)}
           onOpenRecordingFolder={() => onShowItemInFolder(project.recording?.filePath)}
           onOpenDiagnostics={() => onOpenPath(recording.state === 'saved' ? recording.diagnosticsPath : null)}
@@ -2258,7 +2282,7 @@ function ProjectPreview({
         <InspectorSection id="export" title="Export status">
           <ExportPresetDetails mode={exportMode} />
           <InspectorActionRow region="export-status-area">
-            {exportProgress ? <span className="exportProgress">{exportProgress.phase}: {Math.round(exportProgress.progress * 100)}%</span> : null}
+            {exportProgress ? <ExportProgressMeter progress={exportProgress} /> : null}
             {exportResult ? <p className="saved">Exported to: {exportResult.outputPath} ({exportResult.bytes} bytes)</p> : null}
             {!exportProgress && !exportResult ? <p className="inspectorNotice">Choose Styled or Raw from the review actions above.</p> : null}
           </InspectorActionRow>
@@ -2266,6 +2290,22 @@ function ProjectPreview({
         {saveError ? <p className="error">{saveError}</p> : null}
       </aside>
     </section>
+  );
+}
+
+function ExportProgressMeter({ progress }: { progress: ExportProgress }) {
+  const percent = Math.max(0, Math.min(100, Math.round(progress.progress * 100)));
+  const label = progress.phase === 'cancelling' ? 'Cancelling export' : progress.phase === 'picking' ? 'Preparing export' : progress.phase.replace(/-/g, ' ');
+  return (
+    <div className="exportProgressMeter" data-export-progress-meter="true" aria-label={`Export progress: ${label} ${percent}%`}>
+      <div className="exportProgressMeta">
+        <span>{label}</span>
+        <strong>{percent}%</strong>
+      </div>
+      <div className="exportProgressTrack" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+        <span style={{ width: `${percent}%` }} />
+      </div>
+    </div>
   );
 }
 
