@@ -122,7 +122,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-106 | Define cloud sharing and collaboration scope | P4 | PLANNED |
 | TASK-107 | Audit sidebar controls and remove placeholder affordances | P2 | DONE |
 | TASK-108 | Wire all visible sidebar controls to real editor behavior | P2 | DONE |
-| TASK-109 | Redesign sidebar information architecture and section density | P2 | PLANNED |
+| TASK-109 | Redesign sidebar information architecture and section density | P2 | DONE |
 | TASK-110 | Replace recording preview card with compact horizontal controls | P2 | PLANNED |
 | TASK-111 | Add sidebar interaction and visual regression coverage | P2 | PLANNED |
 | TASK-112 | Add export benchmark harness and performance budget | P1 | PLANNED |
@@ -3684,7 +3684,7 @@ Spinoff tasks created for deferred features (engine-supported, no UI yet): TASK-
 ### TASK-109 Redesign sidebar information architecture and section density
 
 **Priority:** P2
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -3704,6 +3704,27 @@ Current sidebar panels are visually heavy and tall: large cards, repeated headin
 - Visual regression or Playwright screenshot comparison for each sidebar tab.
 - Manual pass at common desktop sizes, including a small laptop viewport.
 - Accessibility check for tab order, labels, and focus states on icon-only or compact controls.
+
+#### Completion Notes (2026-05-16)
+
+The IA redesign shipped iteratively across several commits in response to live user feedback rather than as a single redesign push:
+
+- **Sidebar map finalized**: Inspector tab eliminated. Tool rail is now Background / Timeline / Cursor / Camera. Background owns canvas-shape decisions (Templates, Aspect ratio, Frame, Shadow, Background presets). Timeline owns playhead + zoom markers + auto-zoom suggestions + per-marker editor + cut workflow. Cursor and Camera are dedicated tabs for their respective presentation controls.
+- **Nested cards removed**: Cursor tab in particular went from two nested cards ("Cursor style" + "Clicks") to a single flat group with a divider. Padding/Radius/Shadow duplication between Background and Inspector was removed when Inspector itself was deleted.
+- **Helper-paragraph chrome cut**: the verbose "Trims and cuts only hide source ranges. Restore buttons bring them back; exports use the visible timeline." notice was distilled into the section description. The InspectorContextSummary meta-chrome was deleted entirely.
+- **Visual identity upgrade**: replaced hand-written inline SVG paths with `@phosphor-icons/react` using the duotone weight. Distinctive without being saturated.
+- **Segmented visual pickers**: cursor Style and Click effect now use segmented swatch pickers that preview the rendered look (spotlight halo, subtle alpha, ripple fill, etc.) instead of plain dropdowns.
+- **Consistent EmptyState**: new shared component (icon + title + description + optional CTA) used across Camera/Cursor/Timeline empty branches. Replaces ad-hoc thin gray paragraphs.
+- **Stale copy replaced**: "will live in this bottom rail", "appear here once a project is loaded", "planned for TASK-044", etc. all gone.
+
+Commits: `0e3a3f9` (audit), `1c177e5` (plan), `ebd1d43` (TASK-108 wire), `41bcf25` (cursor renderer fix + own tab), `b006a74` (split into focused tabs), `b0e04fa` (Phosphor icons), `c905c47` (cursor-follow spring seed fix), `009d99d` (Inspector teardown + EmptyState).
+
+**Verified**:
+- `pnpm --filter @rough-cut/desktop typecheck` clean
+- `pnpm --filter @rough-cut/desktop test` — 282/282 pass
+- `env -u VITE_DEV_SERVER_URL pnpm smoke:ui` green with new assertions: `hasCursorPresentationControls`, `hasCursorTab`, `hasCameraTab`, `hasExportAspectChip`, `hasTimelineScrubberFineStep`, `hasTimelineArrowKeyAdvance`.
+
+Out of scope, deferred: full Playwright per-tab screenshot diffs (would need a baseline harness — TASK-111 is the natural home).
 
 ### TASK-110 Replace recording preview card with compact horizontal controls
 
