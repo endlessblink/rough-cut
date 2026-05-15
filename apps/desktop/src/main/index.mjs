@@ -812,6 +812,7 @@ async function runRendererUiSmoke() {
   const hasCentralStage = Boolean(await waitFor(() => document.querySelector('[data-ui-region="central-stage"]'), 'central stage region'));
   const hasTimelineRail = Boolean(await waitFor(() => document.querySelector('[data-ui-region="timeline-review-rail"]'), 'timeline rail region'));
   const hasTimelineScrubber = Boolean(await waitFor(() => document.querySelector('input[aria-label="Scrub timeline"]'), 'timeline scrubber'));
+  const hasKeyboardTimelineScrubber = Boolean(document.querySelector('input[aria-label="Scrub timeline"][aria-valuetext]'));
   const hasTrimHandles = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="screen"] .trimHandleStart') && document.querySelector('[data-timeline-lane="screen"] .trimHandleEnd'), 'timeline trim handles'));
   const hasTimelineLiveRegion = Boolean(document.querySelector('[data-ui-region="timeline-live-region"][aria-live="polite"]'));
   const hasKeyboardTrimHandles = Boolean(
@@ -1065,6 +1066,7 @@ async function runRendererUiSmoke() {
     hasCentralStage,
     hasTimelineRail,
     hasTimelineScrubber,
+    hasKeyboardTimelineScrubber,
     hasTrimHandles,
     hasZoomLane,
     hasClickLane,

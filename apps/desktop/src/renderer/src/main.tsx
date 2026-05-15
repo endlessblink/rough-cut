@@ -1539,8 +1539,8 @@ function ShortcutsDialog({ onClose }: { onClose: () => void }) {
   const shortcuts = [
     ['Space', 'Play or pause preview'],
     ['J / K / L', 'Slow playback, pause, speed up'],
-    ['Left / Right', 'Scrub one second'],
-    ['Trim / zoom focus + arrows', 'Nudge one frame; hold Shift for one second'],
+    ['Timeline focus + arrows', 'Move playhead one frame; hold Shift for one second'],
+    ['Trim / zoom focus + arrows', 'Nudge selected boundary one frame; hold Shift for one second'],
     ['[ / ]', 'Set trim start or end to playhead'],
     ['Ctrl/Cmd + E', 'Export with the selected preset'],
     ['?', 'Show this shortcut sheet'],
@@ -2562,6 +2562,24 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     if (Number.isFinite(nextSourceTime)) onScrubEnd(sourceToVisibleTime(nextSourceTime));
   }
 
+  function nudgeTimelinePlayhead(direction: -1 | 1, largeStep: boolean) {
+    const stepSec = largeStep ? 1 : 1 / fps;
+    const nextSourceTime = Math.max(0, Math.min(model.durationSec, model.currentTimeSec + direction * stepSec));
+    const nextVisibleTime = sourceToVisibleTime(nextSourceTime);
+    onScrub(nextVisibleTime);
+    onScrubEnd(nextVisibleTime);
+  }
+
+  function handleScrubberKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+      onScrubStart();
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    nudgeTimelinePlayhead(event.key === 'ArrowRight' ? 1 : -1, event.shiftKey);
+  }
+
   function sourceTimeFromClient(handle: HTMLElement, clientX: number) {
     const track = handle.closest('.timelineLane')?.querySelector('.laneTrack');
     if (!(track instanceof HTMLElement)) return null;
@@ -2728,7 +2746,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
             onPointerDown={onScrubStart}
             onPointerUp={(event) => commitScrub(event.currentTarget.value)}
             onPointerCancel={(event) => commitScrub(event.currentTarget.value)}
-            onKeyDown={onScrubStart}
+            onKeyDown={handleScrubberKeyDown}
             onKeyUp={(event) => commitScrub(event.currentTarget.value)}
             onInput={(event) => scrubFromInput(event.currentTarget.value)}
             onChange={(event) => scrubFromInput(event.currentTarget.value)}
