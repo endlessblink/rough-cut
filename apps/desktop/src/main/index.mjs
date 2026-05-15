@@ -887,12 +887,18 @@ async function runRendererUiSmoke() {
   const hasInspectorGroups = Boolean(
     document.querySelector('[data-inspector-group="canvas"]')
       && document.querySelector('[data-inspector-group="zoom"]')
-      && document.querySelector('[data-inspector-group="cursor"]')
       && document.querySelector('[data-inspector-group="camera"]')
       && document.querySelector('[data-inspector-group="export"]'),
   );
-  const hasCursorPresentationControls = Boolean(document.querySelector('[data-cursor-controls="true"]'));
   const hasExportAspectChip = Boolean(document.querySelector('.exportPresetChip[data-active-aspect-ratio]'));
+  // Cursor controls now live on a dedicated Cursor tab in the tool rail.
+  document.querySelector('button[aria-label="Cursor"]')?.click();
+  await waitFor(() => document.querySelector('[aria-label="Cursor board"]'), 'cursor board active');
+  const hasCursorPresentationControls = Boolean(document.querySelector('[data-cursor-controls="true"]'));
+  const hasCursorTab = Boolean(document.querySelector('button[aria-label="Cursor"]'));
+  // Return to Inspector for the remaining assertions.
+  document.querySelector('button[aria-label="Inspector"]')?.click();
+  await waitFor(() => document.querySelector('[aria-label="Inspector board"]'), 'inspector board re-active after cursor tab');
   const hasCameraPipControls = Boolean(document.querySelector('[data-camera-pip-controls="true"]'));
   await waitFor(() => document.querySelector('[data-export-action="styled"]'), 'styled review export action');
   const hasReviewExportActions = Boolean(document.querySelector('[data-export-action="styled"]') && document.querySelector('[data-export-action="raw"]'));
@@ -1071,6 +1077,7 @@ async function runRendererUiSmoke() {
     hasInspectorContext,
     hasInspectorGroups,
     hasCursorPresentationControls,
+    hasCursorTab,
     hasExportAspectChip,
     hasCameraPipControls,
     hasTrimControls,

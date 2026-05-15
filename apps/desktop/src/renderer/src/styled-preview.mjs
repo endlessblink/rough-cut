@@ -58,19 +58,37 @@ export function cursorAtFrame(cursorEvents, currentFrame) {
   };
 }
 
-export function drawCursorPath(ctx, x, y) {
+export function drawCursorPath(ctx, x, y, options = {}) {
   if (!ctx) return;
+  const style = options.style === 'subtle' || options.style === 'spotlight' ? options.style : 'default';
+  const rawSize = Number.isFinite(options.sizePercent) ? options.sizePercent : 100;
+  const scale = Math.max(0.5, Math.min(1.5, rawSize / 100));
+
+  if (style === 'spotlight' && typeof ctx.save === 'function') {
+    ctx.save();
+    if (typeof ctx.beginPath === 'function') ctx.beginPath();
+    if (typeof ctx.arc === 'function') ctx.arc(x + 12 * scale, y + 16 * scale, 36 * scale, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(122, 167, 255, 0.22)';
+    if (typeof ctx.fill === 'function') ctx.fill();
+    if (typeof ctx.restore === 'function') ctx.restore();
+  }
+
+  if (style === 'subtle' && typeof ctx.save === 'function') ctx.save();
+  if (style === 'subtle') ctx.globalAlpha = 0.6;
+
   ctx.beginPath();
-  ctx.moveTo(x + CURSOR_POLYGON[0][0], y + CURSOR_POLYGON[0][1]);
+  ctx.moveTo(x + CURSOR_POLYGON[0][0] * scale, y + CURSOR_POLYGON[0][1] * scale);
   for (let i = 1; i < CURSOR_POLYGON.length; i += 1) {
-    ctx.lineTo(x + CURSOR_POLYGON[i][0], y + CURSOR_POLYGON[i][1]);
+    ctx.lineTo(x + CURSOR_POLYGON[i][0] * scale, y + CURSOR_POLYGON[i][1] * scale);
   }
   ctx.closePath();
   ctx.fillStyle = CURSOR_FILL;
   ctx.fill();
-  ctx.strokeStyle = CURSOR_OUTLINE;
-  ctx.lineWidth = CURSOR_OUTLINE_WIDTH;
+  ctx.strokeStyle = style === 'spotlight' ? '#7AA7FF' : CURSOR_OUTLINE;
+  ctx.lineWidth = (style === 'spotlight' ? CURSOR_OUTLINE_WIDTH * 1.6 : CURSOR_OUTLINE_WIDTH) * scale;
   ctx.stroke();
+
+  if (style === 'subtle' && typeof ctx.restore === 'function') ctx.restore();
 }
 
 export function activeClickEmphasisAtFrame(cursorEvents, currentFrame, durationFrames = CLICK_RING_DURATION_FRAMES) {
@@ -93,17 +111,25 @@ export function activeClickEmphasisAtFrame(cursorEvents, currentFrame, durationF
     .filter(Boolean);
 }
 
-export function drawClickEmphasis(ctx, cursorEvents, currentFrame) {
+export function drawClickEmphasis(ctx, cursorEvents, currentFrame, clickEffect = 'ring') {
   if (!ctx) return;
+  if (clickEffect === 'none') return;
   const rings = activeClickEmphasisAtFrame(cursorEvents, currentFrame);
   for (const ring of rings) {
     ctx.save();
     ctx.globalAlpha = ring.alpha;
-    ctx.strokeStyle = '#7AA7FF';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(ring.x, ring.y, ring.radius, 0, Math.PI * 2);
-    ctx.stroke();
+    if (clickEffect === 'ripple') {
+      ctx.fillStyle = 'rgba(122, 167, 255, 0.32)';
+      ctx.beginPath();
+      ctx.arc(ring.x, ring.y, ring.radius, 0, Math.PI * 2);
+      if (typeof ctx.fill === 'function') ctx.fill();
+    } else {
+      ctx.strokeStyle = '#7AA7FF';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(ring.x, ring.y, ring.radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 }

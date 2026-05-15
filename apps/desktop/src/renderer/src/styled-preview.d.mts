@@ -3,7 +3,12 @@ export function cursorAtFrame(
   currentFrame: number,
 ): { x: number; y: number } | null;
 
-export function drawCursorPath(ctx: CanvasRenderingContext2D, x: number, y: number): void;
+export function drawCursorPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  options?: { style?: 'subtle' | 'default' | 'spotlight'; sizePercent?: number },
+): void;
 
 export function activeClickEmphasisAtFrame(
   cursorEvents: ReadonlyArray<{ frame: number; x: number; y: number; type?: string }> | null | undefined,
@@ -15,6 +20,7 @@ export function drawClickEmphasis(
   ctx: CanvasRenderingContext2D,
   cursorEvents: ReadonlyArray<{ frame: number; x: number; y: number; type?: string }> | null | undefined,
   currentFrame: number,
+  clickEffect?: 'none' | 'ring' | 'ripple',
 ): void;
 
 export function clampedCameraTime(

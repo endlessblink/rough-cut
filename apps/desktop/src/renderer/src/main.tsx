@@ -1645,7 +1645,7 @@ function captureStatusLabel(recording: RecordingStatus, elapsedMs: number) {
 }
 
 type IconName = 'folder' | 'sparkle' | 'sliders' | 'undo' | 'redo' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause';
-type ActiveTool = 'background' | 'timeline' | 'inspector';
+type ActiveTool = 'background' | 'timeline' | 'inspector' | 'cursor';
 
 function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -1686,6 +1686,7 @@ function ToolRail({ active, onSelect }: { active: ActiveTool; onSelect: (tool: A
     { id: 'background', icon: 'sparkle', label: 'Background' },
     { id: 'timeline', icon: 'timeline', label: 'Timeline' },
     { id: 'inspector', icon: 'sliders', label: 'Inspector' },
+    { id: 'cursor', icon: 'cursor', label: 'Cursor' },
   ];
   return (
     <nav className="toolRail" aria-label="Editor tools">
@@ -1893,16 +1894,6 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
             <InspectorSlider label="Depth" value={Math.round((selectedZoomMarker?.strength ?? 0) * 100)} min={0} max={100} step={5} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerStrengthChange?.(selectedZoomMarker.id, value / 100) : undefined} />
           </div>
         </InspectorSection>
-        <InspectorSection id="cursor" title="Cursor" muted={!projectLoaded} description={projectLoaded ? 'Cursor style applies to preview and styled export.' : undefined}>
-          {projectLoaded ? (
-            <div data-cursor-controls="true">
-              <InspectorSelect label="Style" value={cursor.style} options={CURSOR_STYLE_OPTIONS} disabled={disabled} onChange={(style) => onCursorPresentationChange?.({ style })} />
-              <InspectorSelect label="Click effect" value={cursor.clickEffect} options={CURSOR_CLICK_EFFECT_OPTIONS} disabled={disabled} onChange={(clickEffect) => onCursorPresentationChange?.({ clickEffect })} />
-              <InspectorSlider label="Cursor size" value={cursor.sizePercent} min={50} max={150} step={5} disabled={disabled} onChange={(sizePercent) => onCursorPresentationChange?.({ sizePercent })} />
-              <InspectorToggle label="Click sound" checked={cursor.clickSoundEnabled} disabled={disabled} onChange={(clickSoundEnabled) => onCursorPresentationChange?.({ clickSoundEnabled })} />
-            </div>
-          ) : <InspectorNotice>Open a project to edit cursor style.</InspectorNotice>}
-        </InspectorSection>
         <InspectorSection id="camera" title="Camera" muted={!hasCamera} description={hasCamera ? 'Camera PiP settings are saved with the project and used by styled export.' : undefined}>
           {hasCamera ? (
             <div data-camera-pip-controls="true">
@@ -1913,6 +1904,30 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
               <InspectorSlider label="Camera roundness" value={camera.roundness} min={0} max={100} step={5} disabled={disabled || !camera.visible || camera.shape !== 'rounded'} onChange={(roundness) => onCameraPresentationChange?.({ roundness })} />
             </div>
           ) : <InspectorNotice>No linked webcam track in this project.</InspectorNotice>}
+        </InspectorSection>
+      </aside>
+    );
+  }
+
+  if (activeTool === 'cursor') {
+    return (
+      <aside className="setupBoard" aria-label="Cursor board">
+        <BoardHeader icon="cursor" title="Cursor" action="Reset" actionDisabled={disabled || !projectLoaded} onAction={() => onCursorPresentationChange?.(DEFAULT_CURSOR_PRESENTATION)} />
+        <InspectorSection id="cursor" title="Cursor style" description="Applies to preview and styled export.">
+          {projectLoaded ? (
+            <div data-cursor-controls="true">
+              <InspectorSelect label="Style" value={cursor.style} options={CURSOR_STYLE_OPTIONS} disabled={disabled} onChange={(style) => onCursorPresentationChange?.({ style })} />
+              <InspectorSlider label="Cursor size" value={cursor.sizePercent} min={50} max={150} step={5} disabled={disabled} onChange={(sizePercent) => onCursorPresentationChange?.({ sizePercent })} />
+            </div>
+          ) : <InspectorNotice>Open a project to edit cursor style.</InspectorNotice>}
+        </InspectorSection>
+        <InspectorSection id="cursor-clicks" title="Clicks" description="Visual feedback rendered when a click event lands on the timeline.">
+          {projectLoaded ? (
+            <div data-cursor-clicks="true">
+              <InspectorSelect label="Click effect" value={cursor.clickEffect} options={CURSOR_CLICK_EFFECT_OPTIONS} disabled={disabled} onChange={(clickEffect) => onCursorPresentationChange?.({ clickEffect })} />
+              <InspectorToggle label="Click sound" checked={cursor.clickSoundEnabled} disabled={disabled} onChange={(clickSoundEnabled) => onCursorPresentationChange?.({ clickSoundEnabled })} />
+            </div>
+          ) : null}
         </InspectorSection>
       </aside>
     );
@@ -3388,9 +3403,15 @@ function VideoPreview({
       ctx.scale(scale, scale);
       ctx.translate(-sourceWidth / 2, -sourceHeight / 2);
       ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
-      drawClickEmphasis(ctx, cursorEvents, currentFrame);
-      const cursor = cursorAtFrame(cursorEvents, currentFrame);
-      if (cursor) drawCursorPath(ctx, cursor.x, cursor.y);
+      const resolvedCursor = frame.cursor;
+      drawClickEmphasis(ctx, cursorEvents, currentFrame, resolvedCursor?.clickEffect ?? 'ring');
+      const cursorPos = cursorAtFrame(cursorEvents, currentFrame);
+      if (cursorPos && resolvedCursor?.visible !== false) {
+        drawCursorPath(ctx, cursorPos.x, cursorPos.y, {
+          style: resolvedCursor?.style ?? 'default',
+          sizePercent: resolvedCursor?.sizePercent ?? 100,
+        });
+      }
       ctx.restore();
       const cameraHasFrame = Boolean(
         cameraVideo &&

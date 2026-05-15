@@ -103,18 +103,66 @@ test('drawCursorPath issues canvas operations at the given anchor', () => {
 
   drawCursorPath(ctx, 100, 200);
 
-  assert.deepEqual(calls[0], ['beginPath']);
-  assert.deepEqual(calls[1], ['moveTo', 100, 200]);
+  // Find the polygon ops starting with moveTo at the anchor.
+  const moveToIdx = calls.findIndex((c) => c[0] === 'moveTo' && c[1] === 100 && c[2] === 200);
+  assert.ok(moveToIdx >= 0, 'moveTo at anchor present');
   // Polygon vertices anchored at (100, 200): m 0 0 l 0 26 l 7 20 l 12 33 l 18 31 l 13 19 l 24 19
-  assert.deepEqual(calls[2], ['lineTo', 100, 226]);
-  assert.deepEqual(calls[3], ['lineTo', 107, 220]);
-  assert.deepEqual(calls[4], ['lineTo', 112, 233]);
-  assert.deepEqual(calls[5], ['lineTo', 118, 231]);
-  assert.deepEqual(calls[6], ['lineTo', 113, 219]);
-  assert.deepEqual(calls[7], ['lineTo', 124, 219]);
-  assert.deepEqual(calls[8], ['closePath']);
+  assert.deepEqual(calls[moveToIdx + 1], ['lineTo', 100, 226]);
+  assert.deepEqual(calls[moveToIdx + 2], ['lineTo', 107, 220]);
+  assert.deepEqual(calls[moveToIdx + 3], ['lineTo', 112, 233]);
+  assert.deepEqual(calls[moveToIdx + 4], ['lineTo', 118, 231]);
+  assert.deepEqual(calls[moveToIdx + 5], ['lineTo', 113, 219]);
+  assert.deepEqual(calls[moveToIdx + 6], ['lineTo', 124, 219]);
+  assert.deepEqual(calls[moveToIdx + 7], ['closePath']);
   assert.ok(calls.some((c) => c[0] === 'fill'));
   assert.ok(calls.some((c) => c[0] === 'stroke'));
+});
+
+test('drawCursorPath scales the polygon by sizePercent', () => {
+  const calls = [];
+  const ctx = {
+    beginPath: () => calls.push(['beginPath']),
+    moveTo: (x, y) => calls.push(['moveTo', x, y]),
+    lineTo: (x, y) => calls.push(['lineTo', x, y]),
+    closePath: () => calls.push(['closePath']),
+    fill: () => calls.push(['fill']),
+    stroke: () => calls.push(['stroke']),
+    set fillStyle(_value) {},
+    set strokeStyle(_value) {},
+    set lineWidth(_value) {},
+  };
+
+  drawCursorPath(ctx, 0, 0, { style: 'default', sizePercent: 150 });
+
+  // Last polygon vertex (24, 19) at scale 1.5 should land at (36, 28.5).
+  const lastLineTo = [...calls].reverse().find((c) => c[0] === 'lineTo');
+  assert.deepEqual(lastLineTo, ['lineTo', 36, 28.5]);
+});
+
+test('drawCursorPath spotlight style draws a glow halo before the cursor', () => {
+  const calls = [];
+  const ctx = {
+    save: () => calls.push(['save']),
+    restore: () => calls.push(['restore']),
+    beginPath: () => calls.push(['beginPath']),
+    moveTo: (x, y) => calls.push(['moveTo', x, y]),
+    lineTo: (x, y) => calls.push(['lineTo', x, y]),
+    closePath: () => calls.push(['closePath']),
+    arc: (x, y, r) => calls.push(['arc', x, y, r]),
+    fill: () => calls.push(['fill']),
+    stroke: () => calls.push(['stroke']),
+    set fillStyle(_value) {},
+    set strokeStyle(_value) {},
+    set lineWidth(_value) {},
+    set globalAlpha(_value) {},
+  };
+
+  drawCursorPath(ctx, 50, 50, { style: 'spotlight', sizePercent: 100 });
+
+  const glow = calls.find((c) => c[0] === 'arc');
+  assert.ok(glow, 'spotlight halo draws an arc');
+  const cursorMoveTo = calls.find((c) => c[0] === 'moveTo' && c[1] === 50 && c[2] === 50);
+  assert.ok(cursorMoveTo, 'cursor polygon still drawn after halo');
 });
 
 test('activeClickEmphasisAtFrame returns fading click rings during the click window', () => {
@@ -155,6 +203,47 @@ test('drawClickEmphasis issues circle stroke operations for active clicks', () =
   assert.deepEqual(calls[0], ['save']);
   assert(calls.some((call) => call[0] === 'arc' && call[1] === 100 && call[2] === 200));
   assert(calls.some((call) => call[0] === 'stroke'));
+});
+
+test('drawClickEmphasis is a no-op when clickEffect is none', () => {
+  const calls = [];
+  const ctx = {
+    save: () => calls.push(['save']),
+    restore: () => calls.push(['restore']),
+    beginPath: () => calls.push(['beginPath']),
+    arc: (x, y, radius) => calls.push(['arc', x, y, radius]),
+    stroke: () => calls.push(['stroke']),
+    fill: () => calls.push(['fill']),
+    set globalAlpha(_value) {},
+    set strokeStyle(_value) {},
+    set fillStyle(_value) {},
+    set lineWidth(_value) {},
+  };
+
+  drawClickEmphasis(ctx, [{ frame: 10, x: 100, y: 200, type: 'down' }], 10, 'none');
+
+  assert.equal(calls.length, 0);
+});
+
+test('drawClickEmphasis ripple effect fills instead of stroking', () => {
+  const calls = [];
+  const ctx = {
+    save: () => calls.push(['save']),
+    restore: () => calls.push(['restore']),
+    beginPath: () => calls.push(['beginPath']),
+    arc: (x, y, radius) => calls.push(['arc', x, y, radius]),
+    stroke: () => calls.push(['stroke']),
+    fill: () => calls.push(['fill']),
+    set globalAlpha(_value) {},
+    set strokeStyle(_value) {},
+    set fillStyle(_value) {},
+    set lineWidth(_value) {},
+  };
+
+  drawClickEmphasis(ctx, [{ frame: 10, x: 100, y: 200, type: 'down' }], 10, 'ripple');
+
+  assert.ok(calls.some((c) => c[0] === 'fill'));
+  assert.ok(!calls.some((c) => c[0] === 'stroke'));
 });
 
 test('coverSourceRect crops wide camera sources instead of stretching to square', () => {

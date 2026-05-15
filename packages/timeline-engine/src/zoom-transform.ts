@@ -1,4 +1,10 @@
 import type { ZoomMarker, Frame } from '@rough-cut/project-model';
+import {
+  createSpringState,
+  stepSpring,
+  getCursorSpringConfig,
+  type SpringConfig,
+} from './spring-solver.js';
 
 /**
  * Result of computing the zoom transform at a given frame.
@@ -90,32 +96,23 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-// Critically damped spring stiffness presets (units: 1/sec²). Damping is
-// derived as 2*sqrt(stiffness) for critical damping (no overshoot, fastest
-// settle without oscillation). Settle time ≈ 4/sqrt(stiffness).
-//   smooth:   stiffness 95 → ≈0.41 s settle. Deliberately calm for default exports.
-//   focused:  stiffness 280 → ≈0.24 s settle. Snappy, responsive.
-const SPRING_STIFFNESS: Record<'smooth' | 'focused', number> = {
-  smooth: 95,
-  focused: 280,
+// Spring presets routed through the analytic solver. The cursor-EMA pre-filter
+// still removes sub-pixel hand tremor, but jitter from a paused cursor is now
+// handled by the solver's restDelta / restSpeed thresholds rather than ad-hoc
+// stationary-snap and deadband layers (which themselves produced visible jumps).
+//
+// `smooth` maps to a comfortable Recordly-style smoothing of 0.6, `focused` to
+// a snappier 0.35 — both still produce zeta ≥ 1 (overshoot clamp engages on
+// target reversal).
+const CURSOR_SPRING: Record<'smooth' | 'focused', SpringConfig> = {
+  smooth: getCursorSpringConfig(0.6),
+  focused: getCursorSpringConfig(0.35),
 };
 
 const CURSOR_EMA_ALPHA: Record<'smooth' | 'focused', number> = {
   smooth: 0.24,
   focused: 0.5,
 };
-
-// Stationary-snap polish (per open-recorder): if the spring TARGET hasn't
-// moved more than this normalized epsilon for STATIONARY_FRAMES consecutive
-// steps, snap position to target and zero velocity. Eliminates micro-
-// oscillation when cursor pauses.
-const STATIONARY_EPSILON = 0.001;
-const STATIONARY_FRAMES = 2;
-
-// Normalized target deadband. Cursor telemetry can wobble by a few source
-// pixels when the hand is visually still; ignore tiny focus-target changes so
-// the camera does not breathe around a paused cursor.
-const TARGET_DEADBAND = 0.008;
 
 function getMarkerScale(
   frame: Frame,
@@ -159,27 +156,19 @@ function resolveSpringSmoothedFocal(
   followPadding: number,
   fps: number,
 ): ZoomCursorPosition {
-  const stiffness = SPRING_STIFFNESS[followAnimation];
+  const cfg = CURSOR_SPRING[followAnimation];
   const emaAlpha = CURSOR_EMA_ALPHA[followAnimation];
-  const damping = 2 * Math.sqrt(stiffness);
-  const dt = 1 / Math.max(1, fps);
+  const dtMs = 1000 / Math.max(1, fps);
   const targetScale = strengthToScale(marker.strength);
 
-  let posX = marker.focalPoint.x;
-  let posY = marker.focalPoint.y;
-  let velX = 0;
-  let velY = 0;
-  let prevTargetX = marker.focalPoint.x;
-  let prevTargetY = marker.focalPoint.y;
-  let stationaryCount = 0;
+  const stateX = createSpringState(marker.focalPoint.x);
+  const stateY = createSpringState(marker.focalPoint.y);
   let emaX: number | null = null;
   let emaY: number | null = null;
 
   for (let f = fromFrame + 1; f <= toFrame; f += 1) {
     const raw = getCursorPosition(f);
 
-    // EMA-smooth the raw cursor input. First sample initializes the filter
-    // exactly so we don't bias trajectory toward (0, 0).
     if (raw !== null) {
       if (emaX === null || emaY === null) {
         emaX = raw.x;
@@ -199,59 +188,18 @@ function resolveSpringSmoothedFocal(
     }
 
     // Source-bound clamp at the frame's current scale so the spring chases a
-    // valid in-source target. During hold scaleAtF == targetScale so this is
-    // effectively a no-op except as a guard.
+    // valid in-source target.
     const scaleAtF = getMarkerScale(f, marker, targetScale);
     const minXY = 1 / (2 * scaleAtF);
     const maxXY = 1 - 1 / (2 * scaleAtF);
     targetX = clamp(targetX, minXY, maxXY);
     targetY = clamp(targetY, minXY, maxXY);
 
-    if (
-      Math.abs(targetX - prevTargetX) < TARGET_DEADBAND &&
-      Math.abs(targetY - prevTargetY) < TARGET_DEADBAND
-    ) {
-      targetX = prevTargetX;
-      targetY = prevTargetY;
-    }
-
-    // Snap-to-stationary fires only when the target is stable AND the spring
-    // has nearly settled on it. Otherwise it would teleport the spring
-    // forward when the cursor stabilizes far from the spring's current
-    // position (e.g. moments after marker entry, with the spring still
-    // accelerating toward a stationary cursor).
-    const targetMoved =
-      Math.abs(targetX - prevTargetX) > STATIONARY_EPSILON ||
-      Math.abs(targetY - prevTargetY) > STATIONARY_EPSILON;
-    const springSettled =
-      Math.abs(targetX - posX) < STATIONARY_EPSILON * 5 &&
-      Math.abs(targetY - posY) < STATIONARY_EPSILON * 5;
-    if (!targetMoved && springSettled) {
-      stationaryCount += 1;
-      if (stationaryCount >= STATIONARY_FRAMES) {
-        posX = targetX;
-        posY = targetY;
-        velX = 0;
-        velY = 0;
-        prevTargetX = targetX;
-        prevTargetY = targetY;
-        continue;
-      }
-    } else {
-      stationaryCount = 0;
-    }
-    prevTargetX = targetX;
-    prevTargetY = targetY;
-
-    const accelX = stiffness * (targetX - posX) - damping * velX;
-    const accelY = stiffness * (targetY - posY) - damping * velY;
-    velX += accelX * dt;
-    velY += accelY * dt;
-    posX += velX * dt;
-    posY += velY * dt;
+    stepSpring(stateX, targetX, dtMs, cfg);
+    stepSpring(stateY, targetY, dtMs, cfg);
   }
 
-  return { x: posX, y: posY };
+  return { x: stateX.value, y: stateY.value };
 }
 
 function edgeSnapFocus(
