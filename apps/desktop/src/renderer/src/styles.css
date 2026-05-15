@@ -84,16 +84,17 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 }
 
 .icon {
+  color: currentColor;
   display: inline-block;
   flex: 0 0 auto;
-  height: 1rem;
-  width: 1rem;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
-  vertical-align: -0.18em;
+  height: 1.05rem;
+  width: 1.05rem;
+  vertical-align: -0.22em;
+}
+.toolButton .icon,
+.iconButton .icon {
+  height: 1.25rem;
+  width: 1.25rem;
 }
 
 button .icon { margin-right: 0.4rem; }

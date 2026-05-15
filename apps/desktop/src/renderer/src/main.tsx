@@ -1,6 +1,28 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import {
+  ArrowClockwise as PhosphorArrowClockwise,
+  ArrowCounterClockwise as PhosphorArrowCounterClockwise,
+  ClosedCaptioning as PhosphorClosedCaptioning,
+  CursorClick as PhosphorCursorClick,
+  Export as PhosphorExport,
+  FilmStrip as PhosphorFilmStrip,
+  Folder as PhosphorFolder,
+  FrameCorners as PhosphorFrameCorners,
+  GearSix as PhosphorGearSix,
+  Icon as PhosphorIconType,
+  Microphone as PhosphorMicrophone,
+  Monitor as PhosphorMonitor,
+  Pause as PhosphorPause,
+  Play as PhosphorPlay,
+  Record as PhosphorRecord,
+  SlidersHorizontal as PhosphorSlidersHorizontal,
+  Sparkle as PhosphorSparkle,
+  SpeakerHigh as PhosphorSpeakerHigh,
+  Stop as PhosphorStop,
+  VideoCamera as PhosphorVideoCamera,
+} from '@phosphor-icons/react';
+import {
   createDefaultCameraPresentation,
   createDefaultCursorPresentation,
   createDefaultRecordingBackgroundStyle,
@@ -1647,29 +1669,31 @@ function captureStatusLabel(recording: RecordingStatus, elapsedMs: number) {
 type IconName = 'folder' | 'sparkle' | 'sliders' | 'undo' | 'redo' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause';
 type ActiveTool = 'background' | 'timeline' | 'inspector' | 'cursor' | 'camera';
 
+const ICON_COMPONENT_MAP: Record<IconName, PhosphorIconType> = {
+  folder: PhosphorFolder,
+  sparkle: PhosphorSparkle,
+  sliders: PhosphorSlidersHorizontal,
+  undo: PhosphorArrowCounterClockwise,
+  redo: PhosphorArrowClockwise,
+  record: PhosphorRecord,
+  stop: PhosphorStop,
+  frame: PhosphorFrameCorners,
+  timeline: PhosphorFilmStrip,
+  cursor: PhosphorCursorClick,
+  camera: PhosphorVideoCamera,
+  caption: PhosphorClosedCaptioning,
+  settings: PhosphorGearSix,
+  export: PhosphorExport,
+  display: PhosphorMonitor,
+  mic: PhosphorMicrophone,
+  volume: PhosphorSpeakerHigh,
+  play: PhosphorPlay,
+  pause: PhosphorPause,
+};
+
 function Icon({ name }: { name: IconName }) {
-  const paths: Record<IconName, React.ReactNode> = {
-    folder: <path d="M3 6.5h6l1.5 2H21v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-11.5Z" />,
-    sparkle: <path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3ZM19 3l.8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3Z" />,
-    sliders: <path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 5v4M8 15v4" />,
-    undo: <path d="M9 7 5 11l4 4M5 11h9a5 5 0 1 1 0 10h-2" />,
-    redo: <path d="m15 7 4 4-4 4m4-4h-9a5 5 0 1 0 0 10h2" />,
-    record: <circle cx="12" cy="12" r="5" fill="currentColor" />,
-    stop: <rect x="8" y="8" width="8" height="8" rx="1.5" fill="currentColor" />,
-    frame: <path d="M5 5h14v14H5V5Zm3 3h8v8H8V8Z" />,
-    timeline: <path d="M4 17h16M6 13h6M14 13h4M9 9h9M5 5h5" />,
-    cursor: <path d="m6 3 11 11-5 1.2L9.4 20 6 3Z" />,
-    camera: <path d="M4 8h3l1.5-2h7L17 8h3v10H4V8Zm8 8a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />,
-    caption: <path d="M4 6h16v12H4V6Zm3 4h5M7 14h10" />,
-    settings: <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-5v3m0 12v3M4.2 4.2l2.1 2.1m11.4 11.4 2.1 2.1M3 12h3m12 0h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />,
-    export: <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v3h14v-3" />,
-    display: <path d="M4 5h16v11H4V5Zm6 15h4m-2-4v4" />,
-    mic: <path d="M12 4a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3Zm-7 8a7 7 0 0 0 14 0M12 19v3" />,
-    volume: <path d="M4 10v4h4l5 4V6l-5 4H4Zm12-1a4 4 0 0 1 0 6m2.5-9a8 8 0 0 1 0 12" />,
-    play: <path d="m9 6 9 6-9 6V6Z" />,
-    pause: <path d="M8 6h3v12H8V6Zm5 0h3v12h-3V6Z" />,
-  };
-  return <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
+  const Component = ICON_COMPONENT_MAP[name];
+  return <Component size={20} weight="duotone" className="icon" aria-hidden />;
 }
 
 function BoardHeader({ icon, title, action, onAction, actionDisabled = false }: { icon: IconName; title: string; action?: string; onAction?: () => void; actionDisabled?: boolean }) {
