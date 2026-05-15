@@ -813,6 +813,17 @@ async function runRendererUiSmoke() {
   const hasTimelineRail = Boolean(await waitFor(() => document.querySelector('[data-ui-region="timeline-review-rail"]'), 'timeline rail region'));
   const hasTimelineScrubber = Boolean(await waitFor(() => document.querySelector('input[aria-label="Scrub timeline"]'), 'timeline scrubber'));
   const hasKeyboardTimelineScrubber = Boolean(document.querySelector('input[aria-label="Scrub timeline"][aria-valuetext]'));
+  const timelineScrubberInput = document.querySelector('input[aria-label="Scrub timeline"]');
+  const hasTimelineScrubberFineStep = timelineScrubberInput?.getAttribute('step') === 'any';
+  let hasTimelineArrowKeyAdvance = false;
+  if (timelineScrubberInput instanceof HTMLInputElement) {
+    timelineScrubberInput.focus();
+    const beforeValue = Number(timelineScrubberInput.value);
+    timelineScrubberInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    timelineScrubberInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    await waitFor(() => Number(timelineScrubberInput.value) > beforeValue, 'timeline arrow key advance');
+    hasTimelineArrowKeyAdvance = Number(timelineScrubberInput.value) > beforeValue;
+  }
   const hasTrimHandles = Boolean(await waitFor(() => document.querySelector('[data-timeline-lane="screen"] .trimHandleStart') && document.querySelector('[data-timeline-lane="screen"] .trimHandleEnd'), 'timeline trim handles'));
   const hasTimelineLiveRegion = Boolean(document.querySelector('[data-ui-region="timeline-live-region"][aria-live="polite"]'));
   const hasKeyboardTrimHandles = Boolean(
@@ -1067,6 +1078,8 @@ async function runRendererUiSmoke() {
     hasTimelineRail,
     hasTimelineScrubber,
     hasKeyboardTimelineScrubber,
+    hasTimelineScrubberFineStep,
+    hasTimelineArrowKeyAdvance,
     hasTrimHandles,
     hasZoomLane,
     hasClickLane,
