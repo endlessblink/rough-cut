@@ -39,6 +39,7 @@ export function createProjectForRecording({ recording, now = new Date() }) {
   });
   const cameraAsset = recording.camera?.outputPath
     ? createAsset('video', recording.camera.outputPath, {
+        pathMode: 'relative',
         duration: Math.max(durationFrames + cameraSourceInFrames, Math.round(recording.sync?.cameraFrames ?? 0) || durationFrames + cameraSourceInFrames),
         metadata: {
           rawPath: recording.camera.rawPath,
@@ -166,7 +167,10 @@ export const PROJECT_TEMP_SUFFIX = '.tmp';
 export const PROJECT_BACKUP_SUFFIX = '.bak';
 
 export async function saveProjectFile(projectPath, project) {
-  const document = validateProject({ ...project, modifiedAt: new Date().toISOString() });
+  const document = validateProject(prepareProjectForSave(projectPath, {
+    ...project,
+    modifiedAt: new Date().toISOString(),
+  }));
   const json = `${JSON.stringify(document, null, 2)}\n`;
   // Use a unique tmp path per call so two concurrent saves can never collide
   // on the same inode. Without this, parallel `open(tmpPath, 'w')` calls would
@@ -222,6 +226,7 @@ export async function openProjectFile(projectPath) {
     document = migrate(JSON.parse(backupRaw));
     recoveredFromBackup = true;
   }
+  document = await resolveProjectAssetPaths(projectPath, document);
   return {
     path: projectPath,
     document,
@@ -233,6 +238,55 @@ export async function openProjectFile(projectPath) {
       ? { path: backupPath, size: backupInfo.size, modifiedAt: backupInfo.mtime.toISOString() }
       : null,
   };
+}
+
+function prepareProjectForSave(projectPath, project) {
+  const projectDir = dirname(projectPath);
+  return {
+    ...project,
+    assets: project.assets.map((asset) => prepareAssetForSave(projectDir, asset)),
+  };
+}
+
+function prepareAssetForSave(projectDir, asset) {
+  if (asset.pathMode !== 'relative') return { ...asset, pathMode: 'absolute' };
+  const absoluteFilePath = isAbsolute(asset.filePath) ? asset.filePath : resolve(projectDir, asset.filePath);
+  const relativeFilePath = relative(projectDir, absoluteFilePath);
+  if (!relativeFilePath || relativeFilePath.startsWith('..') || isAbsolute(relativeFilePath)) {
+    return { ...asset, filePath: absoluteFilePath, pathMode: 'absolute' };
+  }
+  const metadata = asset.metadata && typeof asset.metadata === 'object' ? asset.metadata : {};
+  return {
+    ...asset,
+    filePath: relativeFilePath,
+    pathMode: 'relative',
+    metadata: {
+      ...metadata,
+      absoluteFilePath: typeof metadata.absoluteFilePath === 'string'
+        ? metadata.absoluteFilePath
+        : absoluteFilePath,
+    },
+  };
+}
+
+async function resolveProjectAssetPaths(projectPath, project) {
+  const projectDir = dirname(projectPath);
+  return {
+    ...project,
+    assets: await Promise.all(project.assets.map((asset) => resolveAssetPath(projectDir, asset))),
+  };
+}
+
+async function resolveAssetPath(projectDir, asset) {
+  if (asset.pathMode !== 'relative' || isAbsolute(asset.filePath)) return asset;
+  const relativeCandidate = resolve(projectDir, asset.filePath);
+  const relativeInfo = await stat(relativeCandidate).catch(() => null);
+  if (relativeInfo?.isFile()) return { ...asset, filePath: relativeCandidate };
+  const fallback = asset.metadata?.absoluteFilePath;
+  if (typeof fallback === 'string' && isAbsolute(fallback)) {
+    return { ...asset, filePath: fallback };
+  }
+  return { ...asset, filePath: relativeCandidate };
 }
 
 export async function discardInterruptedSave(projectPath) {

@@ -26,6 +26,7 @@ export type MouseButton = 0 | 1 | 2; // left | middle | right
 // Union types
 export type EasingType = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'cubic-bezier';
 export type AssetType = 'video' | 'audio' | 'image' | 'recording' | 'motion';
+export type AssetPathMode = 'relative' | 'absolute';
 export type TrackType = 'video' | 'audio';
 export type ExportFormat = 'mp4' | 'webm' | 'gif';
 export type ExportCodec = 'h264' | 'h265' | 'vp9';
@@ -314,6 +315,7 @@ export interface Asset {
   readonly id: AssetId;
   readonly type: AssetType;
   readonly filePath: string;
+  readonly pathMode: AssetPathMode;
   readonly duration: Frame;
   readonly metadata: Record<string, unknown>;
   readonly thumbnailPath?: string;

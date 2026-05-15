@@ -25,6 +25,7 @@ export const EasingTypeSchema = z.enum([
 ]);
 
 export const AssetTypeSchema = z.enum(['video', 'audio', 'image', 'recording', 'motion']);
+export const AssetPathModeSchema = z.enum(['relative', 'absolute']);
 export const TrackTypeSchema = z.enum(['video', 'audio']);
 export const ExportFormatSchema = z.enum(['mp4', 'webm', 'gif']);
 export const ExportCodecSchema = z.enum(['h264', 'h265', 'vp9']);
@@ -225,6 +226,7 @@ export const AssetSchema = z.object({
   id: z.string().min(1),
   type: AssetTypeSchema,
   filePath: z.string().min(1),
+  pathMode: AssetPathModeSchema.default('absolute'),
   duration: nonNegativeInt,
   metadata: z.record(z.unknown()),
   thumbnailPath: z.string().optional(),

@@ -275,6 +275,62 @@ describe('migrations', () => {
     expect(result.settings.aspectRatio).toBe('auto');
   });
 
+  it('migrates version 11 sibling recording asset paths to relative with absolute fallback', () => {
+    const project = createProject({ name: 'capture' });
+    const legacy = {
+      ...project,
+      version: 11,
+      assets: [
+        {
+          id: 'recording-1',
+          type: 'recording',
+          filePath: '/tmp/rough-cut-test/capture.mp4',
+          duration: 90,
+          metadata: {},
+        },
+        {
+          id: 'camera-1',
+          type: 'video',
+          filePath: '/tmp/rough-cut-test/capture-camera.mp4',
+          duration: 90,
+          metadata: { isCamera: true },
+        },
+      ],
+    };
+
+    const result = migrate(legacy);
+
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    expect(result.assets[0]?.filePath).toBe('capture.mp4');
+    expect(result.assets[0]?.pathMode).toBe('relative');
+    expect(result.assets[0]?.metadata.absoluteFilePath).toBe('/tmp/rough-cut-test/capture.mp4');
+    expect(result.assets[1]?.filePath).toBe('capture-camera.mp4');
+    expect(result.assets[1]?.pathMode).toBe('relative');
+    expect(result.assets[1]?.metadata.absoluteFilePath).toBe('/tmp/rough-cut-test/capture-camera.mp4');
+  });
+
+  it('migrates version 11 non-sibling absolute asset paths as absolute', () => {
+    const project = createProject({ name: 'capture' });
+    const legacy = {
+      ...project,
+      version: 11,
+      assets: [
+        {
+          id: 'recording-1',
+          type: 'recording',
+          filePath: '/tmp/shared/other.mp4',
+          duration: 90,
+          metadata: {},
+        },
+      ],
+    };
+
+    const result = migrate(legacy);
+
+    expect(result.assets[0]?.filePath).toBe('/tmp/shared/other.mp4');
+    expect(result.assets[0]?.pathMode).toBe('absolute');
+  });
+
   it('migrates version 1 documents by backfilling zoom marker focalPoint and durations', () => {
     const project = createProject();
     const legacy = {

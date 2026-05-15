@@ -217,7 +217,74 @@ const migrations: readonly Migration[] = [
       },
     }),
   },
+  {
+    // v11 → v12: add asset path mode and make same-folder recording assets portable.
+    fromVersion: 11,
+    toVersion: 12,
+    migrate: (doc) => {
+      const assets = (doc['assets'] as Array<Record<string, unknown>>) ?? [];
+      return {
+        ...doc,
+        version: 12,
+        assets: assets.map((asset) => migrateAssetPathMode(doc, asset)),
+      };
+    },
+  },
 ];
+
+function migrateAssetPathMode(
+  doc: Record<string, unknown>,
+  asset: Record<string, unknown>,
+): Record<string, unknown> {
+  const filePath = asset['filePath'];
+  if (typeof filePath !== 'string' || filePath.length === 0) {
+    return { ...asset, pathMode: asset['pathMode'] === 'relative' ? 'relative' : 'absolute' };
+  }
+
+  if (asset['pathMode'] === 'relative' || asset['pathMode'] === 'absolute') return asset;
+
+  if (isLikelySiblingRecordingAsset(doc, asset, filePath)) {
+    const metadata = (asset['metadata'] as Record<string, unknown> | undefined) ?? {};
+    return {
+      ...asset,
+      filePath: basenamePath(filePath),
+      pathMode: 'relative',
+      metadata: {
+        ...metadata,
+        absoluteFilePath: typeof metadata['absoluteFilePath'] === 'string'
+          ? metadata['absoluteFilePath']
+          : filePath,
+      },
+    };
+  }
+
+  return { ...asset, pathMode: 'absolute' };
+}
+
+function isLikelySiblingRecordingAsset(
+  doc: Record<string, unknown>,
+  asset: Record<string, unknown>,
+  filePath: string,
+): boolean {
+  if (!isAbsolutePath(filePath)) return false;
+  if (asset['type'] !== 'recording' && asset['type'] !== 'video') return false;
+  const projectName = typeof doc['name'] === 'string' ? doc['name'] : '';
+  if (!projectName) return false;
+  const fileName = basenamePath(filePath);
+  const extensionIndex = fileName.lastIndexOf('.');
+  const stem = extensionIndex > 0 ? fileName.slice(0, extensionIndex) : fileName;
+  return stem === projectName || stem.startsWith(`${projectName}-`);
+}
+
+function isAbsolutePath(filePath: string): boolean {
+  return filePath.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(filePath);
+}
+
+function basenamePath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/');
+  const index = normalized.lastIndexOf('/');
+  return index >= 0 ? normalized.slice(index + 1) : normalized;
+}
 
 /**
  * Returns the ordered chain of migrations needed to go

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -44,6 +44,7 @@ test('creates a valid project document for a screen recording', () => {
   assert.equal(project.assets.length, 1);
   assert.equal(project.assets[0].type, 'recording');
   assert.equal(project.assets[0].filePath, recording.outputPath);
+  assert.equal(project.assets[0].pathMode, 'relative');
   assert.deepEqual(project.assets[0].metadata.audio, recording.audio);
   assert.equal(project.assets[0].metadata.display, null);
   assert.equal(project.assets[0].metadata.capture, null);
@@ -93,6 +94,7 @@ test('creates linked camera asset and track when webcam recording is present', (
   assert.equal(project.assets.length, 2);
   assert.equal(project.assets[0].cameraAssetId, project.assets[1].id);
   assert.equal(project.assets[1].metadata.isCamera, true);
+  assert.equal(project.assets[1].pathMode, 'relative');
   assert.equal(project.assets[1].duration, project.composition.duration + 30);
   assert.equal(project.assets[1].metadata.sourceInFrames, 30);
   assert.equal(project.composition.tracks.length, 2);
@@ -201,6 +203,81 @@ test('saves and reopens a roughcut project file', async () => {
   assert.equal(getPrimaryRecording(opened.document)?.cursorEvents.length, 1);
 
   await rm(root, { recursive: true, force: true });
+});
+
+test('saveProjectFile stores same-folder recording paths relative to the roughcut file', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-relative-save-'));
+  const outputPath = join(root, 'capture.mp4');
+  const projectPath = join(root, 'capture.roughcut');
+  const project = createProjectForRecording({
+    recording: { ...recording, outputPath },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+
+  await saveProjectFile(projectPath, project);
+  const raw = JSON.parse(await readFile(projectPath, 'utf8'));
+
+  assert.equal(raw.assets[0].filePath, 'capture.mp4');
+  assert.equal(raw.assets[0].pathMode, 'relative');
+  assert.equal(raw.assets[0].metadata.absoluteFilePath, outputPath);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('openProjectFile resolves relative asset paths from a moved roughcut directory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-relative-open-'));
+  const outputPath = join(root, 'capture.mp4');
+  const projectPath = join(root, 'capture.roughcut');
+  await writeFile(outputPath, 'media', 'utf8');
+  const project = createProjectForRecording({
+    recording: { ...recording, outputPath },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+  await saveProjectFile(projectPath, project);
+
+  const movedRoot = await mkdtemp(join(tmpdir(), 'rough-cut-relative-moved-'));
+  const movedProjectPath = join(movedRoot, 'capture.roughcut');
+  const movedOutputPath = join(movedRoot, 'capture.mp4');
+  await writeFile(movedProjectPath, await readFile(projectPath, 'utf8'), 'utf8');
+  await writeFile(movedOutputPath, 'media', 'utf8');
+
+  const opened = await openProjectFile(movedProjectPath);
+
+  assert.equal(getPrimaryRecording(opened.document)?.filePath, movedOutputPath);
+
+  await rm(root, { recursive: true, force: true });
+  await rm(movedRoot, { recursive: true, force: true });
+});
+
+test('openProjectFile falls back to absolute asset path when relative target is missing', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-relative-fallback-'));
+  const fallbackRoot = await mkdtemp(join(tmpdir(), 'rough-cut-relative-fallback-src-'));
+  const fallbackPath = join(fallbackRoot, 'capture.mp4');
+  const projectPath = join(root, 'capture.roughcut');
+  const project = createProjectForRecording({
+    recording: { ...recording, outputPath: fallbackPath },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+  const portableProject = {
+    ...project,
+    assets: project.assets.map((asset) => ({
+      ...asset,
+      filePath: 'capture.mp4',
+      pathMode: 'relative',
+      metadata: { ...asset.metadata, absoluteFilePath: fallbackPath },
+    })),
+  };
+  await writeFile(projectPath, `${JSON.stringify(portableProject, null, 2)}\n`, 'utf8');
+  await unlink(join(root, 'capture.mp4')).catch((err) => {
+    if (err?.code !== 'ENOENT') throw err;
+  });
+
+  const opened = await openProjectFile(projectPath);
+
+  assert.equal(getPrimaryRecording(opened.document)?.filePath, fallbackPath);
+
+  await rm(root, { recursive: true, force: true });
+  await rm(fallbackRoot, { recursive: true, force: true });
 });
 
 test('getPrimaryRecording exposes zoomMarkers from the asset presentation', () => {

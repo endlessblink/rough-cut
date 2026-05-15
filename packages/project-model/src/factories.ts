@@ -197,6 +197,7 @@ export function createAsset(type: AssetType, filePath: string, overrides?: Parti
     id: assetId(),
     type,
     filePath,
+    pathMode: type === 'recording' ? 'relative' : 'absolute',
     duration: 0,
     metadata: {},
     ...overrides,

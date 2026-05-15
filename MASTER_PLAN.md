@@ -97,7 +97,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-081 | Add light theme and semantic color tokens | P3 | PLANNED |
 | TASK-082 | Improve error UX with actionable copy and diagnostics link | P2 | DONE |
 | TASK-083 | Keyboard accessibility for timeline, markers, trim handles | P2 | PLANNED |
-| TASK-084 | Support relative-to-.roughcut asset paths in projects | P2 | PLANNED |
+| TASK-084 | Support relative-to-.roughcut asset paths in projects | P2 | DONE |
 | TASK-085 | Atomic project file writes with temp-and-rename pattern | P1 | DONE |
 | TASK-086 | Add GIF and WebM export presets | P2 | PLANNED |
 | TASK-087 | Add 9:16 vertical and 1:1 square export presets | P2 | PLANNED |
@@ -2835,7 +2835,7 @@ Timeline scrub at `main.tsx:2703` lacks `aria-live` for frame position. Zoom mar
 - UI smoke covers keyboard-only end-to-end (record, trim, zoom, export).
 - Manual: navigate the editor with the keyboard alone.
 
-### TASK-084 Support relative-to-.roughcut asset paths in projects
+### ~~TASK-084~~ Support relative-to-.roughcut asset paths in projects
 
 **Priority:** P2  
 **Status:** PLANNED
@@ -2852,8 +2852,12 @@ Timeline scrub at `main.tsx:2703` lacks `aria-live` for frame position. Zoom mar
 
 #### Verification
 
-- Migration unit test.
-- Manual: move a .roughcut directory to a different parent path and reopen successfully.
+- Added migration tests for v11 sibling recording/camera assets converting to relative paths with absolute fallback, and non-sibling assets remaining absolute.
+- Added desktop project-file tests for relative on-disk saves, moved-directory reopen resolution, and missing-relative fallback to the retained absolute path.
+- `pnpm --filter @rough-cut/project-model test` → 111 / 111 pass.
+- `pnpm --filter @rough-cut/desktop test` → 269 / 269 pass.
+- `pnpm typecheck` → pass.
+- `git diff --check` → pass.
 
 ### ~~TASK-085~~ Atomic project file writes with temp-and-rename pattern
 
