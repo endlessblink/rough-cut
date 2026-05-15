@@ -1,4 +1,4 @@
-import type { Asset, ProjectDocument, RecordingPresentation, ZoomMarker } from '@rough-cut/project-model';
+import type { Asset, ProjectDocument, RecordingPresentation, ZoomMarker, ZoomPresentation } from '@rough-cut/project-model';
 
 export function getPrimaryRecordingAsset(document: ProjectDocument): Asset | null;
 
@@ -37,3 +37,10 @@ export function applySuggestion(
 export function withDefaultPresentation(
   presentation?: Partial<RecordingPresentation>,
 ): RecordingPresentation;
+
+export function getZoomPresentation(document: ProjectDocument): ZoomPresentation | null;
+
+export function patchZoomPresentation(
+  document: ProjectDocument,
+  patch: Partial<ZoomPresentation>,
+): ProjectDocument;

@@ -97,6 +97,12 @@ export interface ZoomPresentation {
   readonly followCursor: boolean;
   readonly followAnimation: ZoomFollowAnimation;
   readonly followPadding: number; // 0–0.3 normalized viewport padding per edge
+  /**
+   * Continuous cursor-spring smoothness override. 0 = near-instant, 2 = very
+   * floaty. When present, supersedes the `followAnimation` preset. Optional
+   * so projects saved before the slider was added still load.
+   */
+  readonly cursorSmoothing?: number;
   readonly markers: readonly ZoomMarker[];
   /** When true (default), auto zoom markers are generated from recorded mouse clicks. */
   readonly autoFromClicks?: boolean;

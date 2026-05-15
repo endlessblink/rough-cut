@@ -111,6 +111,7 @@ function resolveCameraTransformForFrame(
     followCursor: zoom.followCursor,
     followAnimation: zoom.followAnimation,
     followPadding: zoom.followPadding,
+    cursorSmoothing: zoom.cursorSmoothing,
     fps,
     getCursorPosition:
       options?.assetId && options.getCursorPosition

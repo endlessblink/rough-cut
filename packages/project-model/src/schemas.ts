@@ -92,6 +92,7 @@ export const ZoomPresentationSchema = z.object({
   followCursor: z.boolean().default(true),
   followAnimation: ZoomFollowAnimationSchema.default('smooth'),
   followPadding: z.number().min(0).max(0.3).default(0.22),
+  cursorSmoothing: z.number().min(0).max(2).optional(),
   markers: z.array(ZoomMarkerSchema),
   autoFromClicks: z.boolean().optional(),
 });

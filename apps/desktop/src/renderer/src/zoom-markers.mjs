@@ -142,6 +142,28 @@ export function listMarkers(document) {
   return asset?.presentation?.zoom?.markers ?? [];
 }
 
+export function getZoomPresentation(document) {
+  const asset = getPrimaryRecordingAsset(document);
+  if (!asset) return null;
+  const presentation = withDefaultPresentation(asset.presentation);
+  return presentation.zoom;
+}
+
+export function patchZoomPresentation(document, patch) {
+  const asset = getPrimaryRecordingAsset(document);
+  if (!asset) return document;
+  const presentation = withDefaultPresentation(asset.presentation);
+  const nextZoom = { ...presentation.zoom, ...patch };
+  const nextAsset = {
+    ...asset,
+    presentation: { ...presentation, zoom: nextZoom },
+  };
+  return {
+    ...document,
+    assets: document.assets.map((item) => (item.id === asset.id ? nextAsset : item)),
+  };
+}
+
 export function applySuggestion(document, suggestion) {
   if (!suggestion) return document;
   const asset = getPrimaryRecordingAsset(document);

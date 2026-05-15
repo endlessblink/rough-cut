@@ -281,7 +281,9 @@ test('disabled followCursor produces a static crop window even with cursor data'
   assert.equal(xs.size, 1);
 });
 
-test('cursor movement during zoom ramps does not move export crop target', () => {
+test('cursor movement during zoom ramps moves export crop target (unified system)', () => {
+  // Unified safe-zone camera follows the cursor through every phase, for every
+  // marker kind. This replaces the old "static during ramp" assertion.
   const sourceWidth = 1280;
   const sourceHeight = 720;
   const rampMarker = marker({
@@ -302,34 +304,21 @@ test('cursor movement during zoom ramps does not move export crop target', () =>
   });
 
   const zoomInLeft = parseCropWindows(buildWithCursorEvents([
-    { frame: 0, timeMs: 0, x: 896, y: 360, type: 'move', button: 0 },
+    { frame: 0, timeMs: 0, x: 256, y: 360, type: 'move', button: 0 },
     { frame: 10, timeMs: 333, x: 256, y: 360, type: 'move', button: 0 },
   ]).sendcmdContent);
   const zoomInRight = parseCropWindows(buildWithCursorEvents([
-    { frame: 0, timeMs: 0, x: 896, y: 360, type: 'move', button: 0 },
+    { frame: 0, timeMs: 0, x: 1152, y: 360, type: 'move', button: 0 },
     { frame: 10, timeMs: 333, x: 1152, y: 360, type: 'move', button: 0 },
   ]).sendcmdContent);
-  assert.equal(zoomInLeft[10].x, zoomInRight[10].x);
-  assert.equal(zoomInLeft[10].y, zoomInRight[10].y);
-
-  const zoomOutLeft = parseCropWindows(buildWithCursorEvents([
-    { frame: 0, timeMs: 0, x: 896, y: 360, type: 'move', button: 0 },
-    { frame: 44, timeMs: 1467, x: 896, y: 360, type: 'move', button: 0 },
-    { frame: 52, timeMs: 1733, x: 256, y: 360, type: 'move', button: 0 },
-  ]).sendcmdContent);
-  const zoomOutRight = parseCropWindows(buildWithCursorEvents([
-    { frame: 0, timeMs: 0, x: 896, y: 360, type: 'move', button: 0 },
-    { frame: 44, timeMs: 1467, x: 896, y: 360, type: 'move', button: 0 },
-    { frame: 52, timeMs: 1733, x: 1152, y: 360, type: 'move', button: 0 },
-  ]).sendcmdContent);
-  assert.equal(zoomOutLeft[52].x, zoomOutRight[52].x);
-  assert.equal(zoomOutLeft[52].y, zoomOutRight[52].y);
+  // Different cursor positions during ramp-in should produce different crop x.
+  assert.notEqual(zoomInLeft[10].x, zoomInRight[10].x);
+  assert(zoomInLeft[10].x < zoomInRight[10].x, 'crop x for left cursor should be smaller');
 });
 
-test('export crop keeps cursor visible until zoom-out starts', () => {
+test('export crop keeps cursor visible throughout the entire marker (no cropping)', () => {
   const sourceWidth = 1280;
   const sourceHeight = 720;
-  const holdEnd = 70;
   const result = buildZoomSendcmd({
     markers: [marker({
       kind: 'auto',
@@ -340,10 +329,9 @@ test('export crop keeps cursor visible until zoom-out starts', () => {
       focalPoint: { x: 0.5, y: 0.5 },
     })],
     cursorEvents: [
-      { frame: 0, timeMs: 0, x: 640, y: 360, type: 'move', button: 0 },
-      { frame: holdEnd - 2, timeMs: 2267, x: 640, y: 360, type: 'move', button: 0 },
-      { frame: holdEnd - 1, timeMs: 2300, x: 1216, y: 58, type: 'move', button: 0 },
-      { frame: holdEnd, timeMs: 2333, x: 128, y: 648, type: 'move', button: 0 },
+      { frame: 0, timeMs: 0, x: 1100, y: 100, type: 'move', button: 0 },
+      { frame: 60, timeMs: 2000, x: 1100, y: 100, type: 'move', button: 0 },
+      { frame: 89, timeMs: 2967, x: 1100, y: 100, type: 'move', button: 0 },
     ],
     sourceWidth,
     sourceHeight,
@@ -353,13 +341,16 @@ test('export crop keeps cursor visible until zoom-out starts', () => {
   });
 
   const windows = parseCropWindows(result.sendcmdContent);
-  const finalHoldWindow = windows[holdEnd - 1];
-  assert(finalHoldWindow.x <= 1216);
-  assert(finalHoldWindow.x + finalHoldWindow.w >= 1216);
-  assert(finalHoldWindow.y <= 58);
-  assert(finalHoldWindow.y + finalHoldWindow.h >= 58);
-  assert.equal(windows[holdEnd].x, finalHoldWindow.x);
-  assert.equal(windows[holdEnd].y, finalHoldWindow.y);
+  // The cursor sits near (1100, 100) the entire time. Once the camera has had
+  // a few frames to settle, every window from there until the very end should
+  // contain the cursor point.
+  for (let frame = 20; frame < windows.length; frame += 1) {
+    const w = windows[frame];
+    assert(w.x <= 1100, `frame ${frame}: cursor x 1100 left of window (x=${w.x}, w=${w.w})`);
+    assert(w.x + w.w >= 1100, `frame ${frame}: cursor x 1100 right of window`);
+    assert(w.y <= 100, `frame ${frame}: cursor y 100 above window (y=${w.y}, h=${w.h})`);
+    assert(w.y + w.h >= 100, `frame ${frame}: cursor y 100 below window`);
+  }
 });
 
 test('emitted sendcmd content ends with a newline and has no leading blank line', () => {

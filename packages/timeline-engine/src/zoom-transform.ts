@@ -318,60 +318,27 @@ function getMarkerFocalPoint(
   const followPadding = options.followPadding ?? 0.25;
   const fps = options.fps ?? 30;
 
-  const holdStart = marker.startFrame + marker.zoomInDuration;
-  const holdEnd = marker.endFrame - marker.zoomOutDuration;
-  const hasHold = holdEnd > holdStart;
-
-  // Phase 1 — ramp-in: keep the focal target stable while scale changes.
-  // Chasing or lerping focal during the scale ramp creates visible jitter.
-  if (frame < holdStart) {
-    return sourceClamp(marker.focalPoint.x, marker.focalPoint.y);
-  }
-
-  // Phase 2 — hold: spring tracks filtered cursor, guarded against losing
-  // the cursor outside the visible window.
-  if (frame < holdEnd && hasHold) {
-    const followed = resolveSpringSmoothedFocal(
-      holdStart,
-      frame,
-      marker,
-      options.getCursorPosition,
-      followAnimation,
-      followPadding,
-      fps,
-      options.cursorSmoothing,
-    );
-    const contained = containCursorInVisibleWindow(
-      followed,
-      options.getCursorPosition(frame),
-      scale,
-    );
-    return sourceClamp(contained.x, contained.y);
-  }
-
-  // Phase 3 — ramp-out: freeze the focal at the last hold position (Recordly's
-  // `frozenFocus` pattern). Easing toward center actively pulls the camera
-  // away from the cursor while the viewport is still zoomed in — cropping the
-  // cursor. By holding the focal, the source-bound clamp naturally slides it
-  // toward 0.5 as scale → 1, so the cursor stays inside the widening window
-  // and the marker exits cleanly at center when scale reaches 1.
-  const holdEndFocal = hasHold
-    ? containCursorInVisibleWindow(
-        resolveSpringSmoothedFocal(
-          holdStart,
-          Math.max(holdStart, holdEnd - 1),
-          marker,
-          options.getCursorPosition,
-          followAnimation,
-          followPadding,
-          fps,
-          options.cursorSmoothing,
-        ),
-        options.getCursorPosition(Math.max(holdStart, holdEnd - 1)),
-        strengthToScale(marker.strength),
-      )
-    : marker.focalPoint;
-  return sourceClamp(holdEndFocal.x, holdEndFocal.y);
+  // Unified path: the safe-zone camera + cursor spring run continuously from
+  // the marker's startFrame through every phase (ramp-in, hold, ramp-out) and
+  // for every marker kind (manual + auto). One system for all zooms. The
+  // source-bound clamp at the current scale naturally widens as scale → 1
+  // during ramp-out, so the focal slides back toward center on its own.
+  const followed = resolveSpringSmoothedFocal(
+    marker.startFrame,
+    frame,
+    marker,
+    options.getCursorPosition,
+    followAnimation,
+    followPadding,
+    fps,
+    options.cursorSmoothing,
+  );
+  const contained = containCursorInVisibleWindow(
+    followed,
+    options.getCursorPosition(frame),
+    scale,
+  );
+  return sourceClamp(contained.x, contained.y);
 }
 
 /**

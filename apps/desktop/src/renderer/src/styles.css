@@ -123,8 +123,17 @@ input[type="range"] { accent-color: var(--accent); }
 input[type="checkbox"] { accent-color: var(--accent); }
 
 .shell {
-  min-height: 100vh;
-  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  /* Clamp to the viewport so the editor's `1fr` row + libraryBody's
+     overflow-y: auto have a finite parent to resolve against, and the
+     bottom view-tab strip stays pinned at the visible bottom edge no matter
+     how many cards the gallery renders. */
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+  padding: 0.9rem 0.9rem 0;
 }
 
 .recordingLauncherShell {
@@ -167,11 +176,15 @@ input[type="checkbox"] { accent-color: var(--accent); }
 .editorShell {
   background: var(--chrome);
   border: 1px solid var(--strong-line);
-  border-radius: 20px;
+  border-radius: 20px 20px 0 0;
+  border-bottom: 0;
   box-shadow: var(--shadow);
   display: grid;
-  grid-template-rows: 3.45rem 3.15rem auto minmax(0, 1fr) 1.75rem;
-  height: calc(100vh - 1.8rem);
+  /* Editor-internal rows only. The app-level view-tab strip is a sibling at
+     .shell level, not a row here. Conditional children (preRecordPanel,
+     state banners) land in the `auto` rows which collapse to 0 when absent. */
+  grid-template-rows: 3.45rem 3.15rem auto minmax(0, 1fr);
+  flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
   position: relative;
@@ -1590,7 +1603,8 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .timelineCompactRow strong { color: var(--text); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 
 .zoomMarkerPanel,
-.autoZoomSuggestionsPanel { min-height: 0; }
+.autoZoomSuggestionsPanel,
+.cameraFollowPanel { min-height: 0; }
 
 .timelineHeader { justify-content: space-between; }
 .emptyTimeline p { margin: 0; }
@@ -1615,7 +1629,8 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 .inspectorSection,
 .zoomMarkerPanel,
-.autoZoomSuggestionsPanel {
+.autoZoomSuggestionsPanel,
+.cameraFollowPanel {
   background: #181820;
   border: 1px solid #2a2a34;
   border-radius: 14px;
@@ -1623,6 +1638,62 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   gap: 0.66rem;
   padding: 0.8rem;
 }
+
+.rangeAnchors {
+  color: var(--muted);
+  display: flex;
+  font-size: 0.7rem;
+  font-weight: 500;
+  justify-content: space-between;
+  letter-spacing: 0.02em;
+  margin: -0.3rem 0 0;
+  padding: 0 2px;
+}
+
+.cameraFollowDisclosure {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid #2a2a34;
+  box-shadow: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin: 0.2rem -0.8rem -0.4rem;
+  padding: 0.55rem 0.8rem;
+  text-align: left;
+  text-transform: uppercase;
+  transition: color 140ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.cameraFollowDisclosure:hover { color: var(--text); }
+.cameraFollowDisclosure:active { transform: scale(0.99); }
+
+.cameraFollowAdvanced {
+  border-top: 1px solid #2a2a34;
+  display: grid;
+  gap: 0.66rem;
+  margin: -0.4rem -0.8rem -0.8rem;
+  padding: 0.7rem 0.8rem 0.8rem;
+}
+
+.cameraFollowReset {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: #7aa7ff;
+  cursor: pointer;
+  font-size: 0.78rem;
+  justify-self: end;
+  min-height: 0;
+  padding: 0;
+  text-align: right;
+  transition: opacity 140ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.cameraFollowReset:hover { opacity: 0.75; }
+.cameraFollowReset:active { transform: scale(0.97); }
 
 .mutedSection { background: #15151c; }
 
@@ -1846,3 +1917,352 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   .stateBanner { grid-template-columns: 1fr; }
   .styledPreviewCanvas { max-width: min(100% - 1rem, 1040px); width: min(100% - 1rem, 1040px); }
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Library shell — DaVinci-style project picker. Renders when no project is
+ * loaded. Replaces the editor surface entirely (no ToolRail, no inspector).
+ * ──────────────────────────────────────────────────────────────────────── */
+
+.libraryShell {
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  height: 100%;
+  min-height: 0;
+  padding: 1.25rem 1.5rem 1.5rem;
+}
+
+.libraryHeader {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+.libraryHeaderTitle .eyebrow { margin: 0 0 0.15rem; }
+.libraryHeaderTitle h2 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+.libraryHeaderControls { align-items: center; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+.libraryViewSwitcher,
+.librarySizeSwitcher {
+  align-items: center;
+  background: rgb(255 255 255 / 0.04);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 8px;
+  display: inline-flex;
+  overflow: hidden;
+  padding: 2px;
+}
+.libraryViewChip,
+.librarySizeChip {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: rgb(226 232 240 / 0.7);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 500;
+  padding: 0.32rem 0.7rem;
+  transition: background 120ms ease, color 120ms ease;
+}
+.librarySizeChip { min-width: 1.8rem; padding: 0.32rem 0.55rem; }
+.libraryViewChip:hover,
+.librarySizeChip:hover { color: rgb(226 232 240 / 0.95); }
+.libraryViewChip.active,
+.librarySizeChip.active {
+  background: rgb(96 165 250 / 0.18);
+  color: rgb(226 232 240);
+}
+
+.libraryOpenFile {
+  background: rgb(255 255 255 / 0.04);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 500;
+  padding: 0.4rem 0.75rem;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.libraryOpenFile:hover { background: rgb(255 255 255 / 0.08); border-color: rgb(255 255 255 / 0.18); }
+
+.libraryBody {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.libraryEmptyState {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: auto 0;
+  padding: 4rem 1rem;
+  text-align: center;
+}
+.libraryEmptyError { color: rgb(248 113 113 / 0.92); }
+
+.libraryGroup { display: flex; flex-direction: column; gap: 0.7rem; }
+.libraryGroupHeader {
+  align-items: baseline;
+  display: flex;
+  gap: 0.55rem;
+  padding: 0 0.1rem;
+}
+.libraryGroupHeader h3 {
+  color: rgb(226 232 240 / 0.85);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin: 0;
+  text-transform: uppercase;
+}
+.libraryGroupCount {
+  color: rgb(226 232 240 / 0.45);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Grid view ──────────────────────────────────────────────────────────── */
+
+.galleryGrid {
+  --gallery-card-w: 280px;
+  --gallery-card-media-h: 158px;
+  align-content: start;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(var(--gallery-card-w), 1fr));
+}
+
+.galleryCard {
+  background: rgb(255 255 255 / 0.03);
+  border: 1px solid rgb(255 255 255 / 0.07);
+  border-radius: 12px;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  text-align: left;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+}
+.galleryCard:hover {
+  background: rgb(255 255 255 / 0.06);
+  border-color: rgb(255 255 255 / 0.2);
+  box-shadow: 0 10px 30px -18px rgb(0 0 0 / 0.6);
+  transform: translateY(-1px);
+}
+.galleryCard:active { transform: translateY(0); }
+.galleryCard:focus-visible { outline: 2px solid rgb(96 165 250 / 0.85); outline-offset: 2px; }
+
+.galleryCardMedia {
+  background: linear-gradient(135deg, rgb(96 165 250 / 0.18), rgb(168 85 247 / 0.18));
+  /* Belt + suspenders: aspect-ratio for resize behaviour, min-height so the
+     card never collapses if neither <img> nor <video> loads. */
+  aspect-ratio: 16 / 9;
+  min-height: var(--gallery-card-media-h);
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+.galleryCardImg,
+.galleryCardVideo {
+  display: block;
+  height: 100%;
+  left: 0;
+  object-fit: cover;
+  position: absolute;
+  top: 0;
+  width: 100%;
+}
+.galleryCardVideo { pointer-events: none; }
+.galleryCardMediaPlaceholder {
+  background: linear-gradient(135deg, rgb(96 165 250 / 0.25), rgb(168 85 247 / 0.25));
+  height: 100%;
+  width: 100%;
+}
+
+.galleryChip {
+  background: rgb(15 23 42 / 0.78);
+  border-radius: 6px;
+  color: rgb(226 232 240 / 0.95);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 0.18rem 0.45rem;
+  position: absolute;
+  z-index: 2;
+}
+.galleryChipResolution { left: 0.55rem; top: 0.55rem; }
+.galleryChipCamera { right: 0.55rem; top: 0.55rem; }
+.galleryChipDuration {
+  bottom: 0.55rem;
+  font-variant-numeric: tabular-nums;
+  right: 0.55rem;
+}
+
+.galleryCardBody { display: flex; flex-direction: column; gap: 0.15rem; padding: 0.55rem 0.75rem 0.7rem; }
+.galleryCardName {
+  font-size: 0.84rem;
+  font-weight: 500;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.galleryCardMeta {
+  color: rgb(226 232 240 / 0.55);
+  font-size: 0.72rem;
+  margin: 0;
+}
+
+/* ─── List view ──────────────────────────────────────────────────────────── */
+
+.galleryList { display: flex; flex-direction: column; }
+.galleryListHeader,
+.galleryRow {
+  align-items: center;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 96px minmax(0, 1fr) 88px 80px 60px 140px;
+  padding: 0.5rem 0.6rem;
+}
+.galleryListHeader {
+  color: rgb(226 232 240 / 0.5);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgb(255 255 255 / 0.06);
+}
+.galleryRow {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgb(255 255 255 / 0.04);
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.82rem;
+  text-align: left;
+  transition: background 120ms ease;
+}
+.galleryRow:hover { background: rgb(255 255 255 / 0.04); }
+.galleryRow:focus-visible { outline: 2px solid rgb(96 165 250 / 0.85); outline-offset: -2px; }
+.galleryRowThumb {
+  background: linear-gradient(135deg, rgb(96 165 250 / 0.2), rgb(168 85 247 / 0.2));
+  border-radius: 6px;
+  display: block;
+  height: 54px;
+  overflow: hidden;
+  position: relative;
+  width: 96px;
+}
+.galleryRowThumb img { display: block; height: 100%; object-fit: cover; width: 100%; }
+.galleryRowThumbPlaceholder { background: inherit; height: 100%; width: 100%; }
+.galleryRowName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.galleryRowRes,
+.galleryRowDuration,
+.galleryRowCam,
+.galleryRowDate {
+  color: rgb(226 232 240 / 0.7);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * App-level view tab strip — Resolve-style "Pages" bar at the bottom of the
+ * editor shell. Switches between full-screen workspaces (Projects, Editor,
+ * future Color/Deliver/etc.).
+ * ──────────────────────────────────────────────────────────────────────── */
+
+/* App-level view-tab strip. Lives at the .shell level, not inside .editorShell —
+ * it's app navigation, not editor chrome. Pinned to the bottom of the viewport,
+ * full-bleed, distinct visual stratum so the user reads it as load-bearing chrome.
+ * Active state combines color + an accent indicator (no color-only signal). */
+.appViewTabStrip {
+  align-items: center;
+  background: #0a0a0e;
+  border-top: 1px solid var(--strong-line);
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.15rem;
+  height: 3.25rem;
+  justify-content: center;
+  margin: 0 -0.9rem;
+  padding: 0 1rem;
+  position: relative;
+  z-index: 5;
+}
+
+.appViewTab {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: rgb(226 232 240 / 0.5);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 500;
+  gap: 0.5rem;
+  height: 2.3rem;
+  letter-spacing: 0.01em;
+  padding: 0 0.95rem;
+  position: relative;
+  transition: color 120ms ease, background 120ms ease;
+}
+.appViewTab svg {
+  height: 1rem;
+  width: 1rem;
+  opacity: 0.9;
+}
+.appViewTab:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.03);
+  color: rgb(226 232 240 / 0.9);
+}
+.appViewTab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.appViewTab:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+.appViewTab.active {
+  color: rgb(226 232 240);
+}
+.appViewTab.active::before {
+  background: var(--accent);
+  content: '';
+  height: 2px;
+  left: 0.95rem;
+  position: absolute;
+  right: 0.95rem;
+  top: 0;
+}
+.appViewTabLabel { font-feature-settings: 'tnum'; }
+
+@media (prefers-reduced-motion: reduce) {
+  .appViewTab { transition: none; }
+}
+
+/* Editor view when no project is loaded — small empty state with a CTA back
+ * to the Projects view. */
+.editorEmptyState {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  justify-content: center;
+  padding: 4rem 1.5rem;
+  text-align: center;
+}
+.editorEmptyState h2 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+.editorEmptyState p { color: rgb(226 232 240 / 0.6); margin: 0; max-width: 28rem; }
+.editorEmptyState .primaryAction { margin-top: 0.75rem; }

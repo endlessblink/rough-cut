@@ -48,6 +48,8 @@ import {
 } from '@rough-cut/project-model';
 import { resolveFrame } from '@rough-cut/frame-resolver';
 import './styles.css';
+import { LibraryShell } from './library/library-shell';
+import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
   addManualMarkerAt,
   applySuggestion,
@@ -99,6 +101,23 @@ declare global {
       exportProject: (payload: { document: ProjectState['document']; outputPath: string; mode: ExportMode }) => Promise<ExportResult>;
       cancelExport: () => Promise<{ cancelled: boolean }>;
       onExportProgress: (callback: (progress: ExportProgress) => void) => () => void;
+      listRecentProjects: () => Promise<Array<{
+        path: string;
+        name: string;
+        createdAt: string | null;
+        modifiedAt: string | null;
+        durationMs: number;
+        durationFrames: number;
+        frameRate: number;
+        width: number | null;
+        height: number | null;
+        resolutionLabel: string | null;
+        hasCamera: boolean;
+        thumbnailUrl: string | null;
+        recordingUrl: string | null;
+      }>>;
+      removeRecentProject: (path: string) => Promise<{ removed: string }>;
+      clearRecentProjects: () => Promise<{ cleared: boolean; reason?: string }>;
       channels: Record<string, string>;
     };
   }
@@ -231,7 +250,9 @@ function App() {
   const searchParams = new URLSearchParams(window.location.search);
   const isRecorderMode = searchParams.get('mode') === 'recorder';
   const initialPreRecordPreferences = React.useMemo(readPreRecordPreferences, []);
-  const [version, setVersion] = React.useState<string>('loading');
+  // Version is fetched for diagnostics / about-dialog use; the dev label is
+  // no longer rendered in chrome. Kept stateful so future surfaces can show it.
+  const [, setVersion] = React.useState<string>('loading');
   const [recording, setRecording] = React.useState<RecordingStatus>({ state: 'idle' });
   const [project, setProject] = React.useState<ProjectState | null>(null);
   const [exportProgress, setExportProgress] = React.useState<ExportProgress | null>(null);
@@ -255,6 +276,7 @@ function App() {
   const [preRecordPanelOpen, setPreRecordPanelOpen] = React.useState(isRecorderMode);
   const [setupBoardOpen, setSetupBoardOpen] = React.useState(true);
   const [inspectorOpen, setInspectorOpen] = React.useState(true);
+  const [activeAppView, setActiveAppView] = React.useState<AppViewId>(DEFAULT_APP_VIEW_ID);
   const [activeTool, setActiveTool] = React.useState<ActiveTool>('background');
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
   const [editHistory, setEditHistory] = React.useState<EditHistory<ProjectState>>(EMPTY_EDIT_HISTORY);
@@ -605,6 +627,22 @@ function App() {
         setProject(opened);
         setEditHistory(EMPTY_EDIT_HISTORY);
         setExportResult(null);
+        setActiveAppView('editor');
+      }
+    } catch (err) {
+      setError(appError('project', err, 'Project open failed.'));
+    }
+  }
+
+  async function openProjectByPath(path: string) {
+    setError(null);
+    try {
+      const opened = await window.roughCut.openProjectPath(path);
+      if (opened) {
+        setProject(opened);
+        setEditHistory(EMPTY_EDIT_HISTORY);
+        setExportResult(null);
+        setActiveAppView('editor');
       }
     } catch (err) {
       setError(appError('project', err, 'Project open failed.'));
@@ -1004,7 +1042,9 @@ function App() {
             onContinueScreenOnly={() => setDismissedCameraFailureForStartedAt(activeCameraFailure.startedAt)}
           />
         ) : null}
-        {project ? (
+        {activeAppView === 'projects' ? (
+          <LibraryShell onOpenProjectByPath={openProjectByPath} onOpenProjectDialog={openProject} />
+        ) : project ? (
           <ProjectPreview
             project={project}
             recording={recording}
@@ -1026,19 +1066,52 @@ function App() {
             }}
           />
         ) : (
-          <EmptyWorkspace
-            setupBoardOpen={setupBoardOpen}
-            inspectorOpen={inspectorOpen}
-            activeTool={activeTool}
-            onActiveToolChange={(tool) => {
-              setActiveTool(tool);
-              setSetupBoardOpen(true);
-            }}
-          />
+          <EditorEmptyState onGoToProjects={() => setActiveAppView('projects')} />
         )}
-        <p className="version">Electron app version: {version}</p>
       </section>
+      <AppViewTabStrip
+        activeId={activeAppView}
+        onChange={setActiveAppView}
+        editorEnabled={project !== null}
+      />
     </main>
+  );
+}
+
+function AppViewTabStrip({ activeId, onChange, editorEnabled }: { activeId: AppViewId; onChange: (id: AppViewId) => void; editorEnabled: boolean }) {
+  return (
+    <nav className="appViewTabStrip" aria-label="App views" data-ui-region="app-view-tabstrip">
+      {APP_VIEWS.filter((view) => !view.hiddenFromStrip).map((view) => {
+        const disabled = view.id === 'editor' && !editorEnabled;
+        return (
+          <button
+            key={view.id}
+            type="button"
+            className={`appViewTab ${view.id === activeId ? 'active' : ''}`}
+            onClick={() => onChange(view.id)}
+            aria-pressed={view.id === activeId}
+            disabled={disabled}
+            title={disabled ? 'Open a project from the Projects view first' : view.label}
+          >
+            <Icon name={view.iconName} />
+            <span className="appViewTabLabel">{view.label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function EditorEmptyState({ onGoToProjects }: { onGoToProjects: () => void }) {
+  return (
+    <section className="editorEmptyState" data-ui-region="editor-empty">
+      <p className="eyebrow">Editor</p>
+      <h2>No project loaded</h2>
+      <p>Pick a project from the Projects view, or record a new take.</p>
+      <button type="button" className="primaryAction" onClick={onGoToProjects}>
+        <Icon name="folder" /> Open Projects
+      </button>
+    </section>
   );
 }
 
@@ -1917,6 +1990,7 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
           <div className="timelineBoardStack" data-ui-region="timeline-zoom-control-panel">
             <div className="timelineCompactRow"><span>Playhead</span><strong>{formatClock(currentTimeSec)}</strong></div>
             <ZoomMarkerPanel project={project} fps={fps} currentTimeSec={currentTimeSec} markerCount={markerCount} onProjectChange={onProjectChange} />
+            <CameraFollowPanel project={project} onProjectChange={onProjectChange} />
             <AutoZoomSuggestionsPanel project={project} onProjectChange={onProjectChange} />
             <InspectorSection id="zoom" title={selectedZoomMarker ? 'Selected marker' : 'Marker editor'} muted={!selectedZoomMarker} description={selectedZoomMarker ? undefined : 'Pick a marker from the timeline to edit its range and depth.'}>
               <div data-zoom-controls="true">
@@ -2023,44 +2097,6 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
   );
 }
 
-function EmptyWorkspace({ setupBoardOpen, inspectorOpen, activeTool, onActiveToolChange }: { setupBoardOpen: boolean; inspectorOpen: boolean; activeTool: ActiveTool; onActiveToolChange: (tool: ActiveTool) => void }) {
-  return (
-    <section className={`projectEditor emptyWorkspace ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
-      <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} disabled />
-      <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
-        <div className="projectHeader">
-          <div>
-            <p className="eyebrow">Stage</p>
-            <h2>No project loaded</h2>
-          </div>
-          <p className="meta">Record or open a project to preview it here.</p>
-        </div>
-        <div className="emptyStage">
-          <div className="emptyPreviewMock" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </div>
-          <p className="eyebrow">Preview surface</p>
-          <h2>Your saved recording will stay centered here</h2>
-          <p>Camera or audio problems should appear as warnings without hiding the screen preview.</p>
-        </div>
-        <div className="timelineDock emptyTimeline" aria-label="Timeline and review rail" data-ui-region="timeline-review-rail">
-          <p className="eyebrow">Timeline</p>
-          <p>Record or open a project to edit the timeline.</p>
-          <div className="timelineSkeleton" aria-hidden="true"><span /><span /><span /></div>
-        </div>
-      </div>
-      <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
-        <section className="inspectorSection mutedSection" data-ui-region="export-actions-area">
-          <p className="eyebrow"><Icon name="export" /> Export</p>
-          <p>Open a project or record a take to export.</p>
-        </section>
-      </aside>
-    </section>
-  );
-}
 
 function PostRecordingReview({ project, recording, exportProgress, onExportMode, onCancelExport, onOpenProject, onOpenRecordingFolder, onOpenDiagnostics, onRetake }: { project: ProjectState; recording: RecordingStatus; exportProgress: ExportProgress | null; onExportMode: (mode: ExportMode) => void; onCancelExport: () => void; onOpenProject: () => void; onOpenRecordingFolder: () => void; onOpenDiagnostics: () => void; onRetake: () => void }) {
   const isFreshRecording = recording.state === 'saved' && recording.project?.path === project.path;
@@ -2994,53 +3030,8 @@ function ZoomMarkerPanel({
     await persist(nextDocument);
   }
 
-  const zoom = getZoomPresentation(document);
-  async function patchZoom(patch: Record<string, unknown>) {
-    const nextDocument = patchZoomPresentation(document, patch);
-    if (nextDocument === document) return;
-    await persist(nextDocument as ProjectDocument);
-  }
-  const followDisabled = isSaving || !zoom || zoom.followCursor === false;
-  const usingSlider = zoom ? typeof zoom.cursorSmoothing === 'number' : false;
-
   return (
     <div className="zoomMarkerPanel" aria-label="Zoom markers">
-      {zoom ? (
-        <div className="inspectorSection">
-          <p className="eyebrow">Camera follow</p>
-          <InspectorToggle
-            label="Follow cursor"
-            checked={zoom.followCursor}
-            disabled={isSaving}
-            onChange={(checked) => { void patchZoom({ followCursor: checked }); }}
-          />
-          <InspectorSelect
-            label="Animation style"
-            value={zoom.followAnimation}
-            options={[{ value: 'smooth', label: 'Smooth' }, { value: 'focused', label: 'Focused' }] as const}
-            disabled={followDisabled || usingSlider}
-            onChange={(value) => { void patchZoom({ followAnimation: value }); }}
-          />
-          <InspectorSlider
-            label={`Cursor smoothing${usingSlider ? '' : ' (preset)'}`}
-            value={zoom.cursorSmoothing ?? 0.6}
-            min={0}
-            max={2}
-            step={0.05}
-            disabled={followDisabled}
-            onChange={(value) => { void patchZoom({ cursorSmoothing: value }); }}
-          />
-          <InspectorSlider
-            label="Safe zone"
-            value={zoom.followPadding}
-            min={0}
-            max={0.3}
-            step={0.01}
-            disabled={followDisabled}
-            onChange={(value) => { void patchZoom({ followPadding: value }); }}
-          />
-        </div>
-      ) : null}
       <div className="timelineCompactRow"><span>Markers</span><strong>{markerCount}</strong><button type="button" className="secondary compact" onClick={handleAdd} disabled={!canAdd || isSaving}>+ Add</button></div>
       {markers.length === 0 ? (
         <p className="zoomMarkerEmpty">No markers</p>
@@ -3063,6 +3054,102 @@ function ZoomMarkerPanel({
           ))}
         </ul>
       )}
+      {saveError ? <p className="error">{saveError}</p> : null}
+    </div>
+  );
+}
+
+function CameraFollowPanel({
+  project,
+  onProjectChange,
+}: {
+  project: ProjectState;
+  onProjectChange: (next: ProjectState, options?: ProjectChangeOptions) => void;
+}) {
+  const document = project.document as unknown as ProjectDocument;
+  const zoom = getZoomPresentation(document);
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+
+  async function persist(nextDocument: ProjectDocument) {
+    const previous = project;
+    const optimistic = { ...project, document: nextDocument as unknown as ProjectState['document'] };
+    setSaveError(null);
+    setIsSaving(true);
+    onProjectChange(optimistic, { history: true, previous });
+    try {
+      const saved = await window.roughCut.saveProject({ path: project.path, document: optimistic.document });
+      onProjectChange(saved);
+    } catch (err) {
+      onProjectChange(previous);
+      setSaveError(err instanceof Error ? err.message : 'Save failed.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function patchZoom(patch: Record<string, unknown>) {
+    const nextDocument = patchZoomPresentation(document, patch);
+    if (nextDocument === document) return;
+    await persist(nextDocument as ProjectDocument);
+  }
+
+  if (!zoom) return null;
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const followDisabled = isSaving || zoom.followCursor === false;
+  const smoothingValue = zoom.cursorSmoothing ?? 0.6;
+  const hasCustomSmoothing = typeof zoom.cursorSmoothing === 'number';
+
+  return (
+    <div className="cameraFollowPanel" aria-label="Camera follow">
+      <p className="eyebrow">Camera follow</p>
+      <InspectorSlider
+        label="Camera smoothness"
+        value={smoothingValue}
+        min={0}
+        max={2}
+        step={0.05}
+        disabled={followDisabled}
+        onChange={(value) => { void patchZoom({ cursorSmoothing: value }); }}
+      />
+      <p className="rangeAnchors" aria-hidden="true"><span>Snappy</span><span>Floaty</span></p>
+      <button
+        type="button"
+        className="cameraFollowDisclosure"
+        aria-expanded={advancedOpen}
+        onClick={() => setAdvancedOpen((v) => !v)}
+      >
+        {advancedOpen ? 'Hide advanced' : 'Advanced'}
+      </button>
+      {advancedOpen ? (
+        <div className="cameraFollowAdvanced">
+          <InspectorToggle
+            label="Follow cursor during zoom"
+            checked={zoom.followCursor}
+            disabled={isSaving}
+            onChange={(checked) => { void patchZoom({ followCursor: checked }); }}
+          />
+          <InspectorSlider
+            label="Safe zone"
+            value={zoom.followPadding}
+            min={0}
+            max={0.3}
+            step={0.01}
+            disabled={followDisabled}
+            onChange={(value) => { void patchZoom({ followPadding: value }); }}
+          />
+          <p className="rangeAnchors" aria-hidden="true"><span>Hold still</span><span>React fast</span></p>
+          {hasCustomSmoothing && !followDisabled ? (
+            <button
+              type="button"
+              className="cameraFollowReset"
+              onClick={() => { void patchZoom({ cursorSmoothing: undefined }); }}
+            >
+              Reset to preset
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {saveError ? <p className="error">{saveError}</p> : null}
     </div>
   );

@@ -187,30 +187,6 @@ describe('getZoomTransformForMarker', () => {
     expect(focal.y).toBeCloseTo(0.5, 2);
   });
 
-  it('freezes focal point during zoom-out instead of chasing a late cursor move', () => {
-    const marker = createZoomMarker(0, 60, {
-      kind: 'auto',
-      strength: 1,
-      zoomInDuration: 0,
-      zoomOutDuration: 15,
-      focalPoint: { x: 0.5, y: 0.5 },
-    });
-    const options = {
-      followCursor: true,
-      followAnimation: 'focused' as const,
-      followPadding: 0.25,
-      fps: 30,
-      getCursorPosition: (frame: number) => (frame < 45 ? { x: 0.8, y: 0.5 } : { x: 0.2, y: 0.5 }),
-    };
-
-    const holdEnd = getZoomTransformForMarker(44, marker, options);
-    const zoomOut = getZoomTransformForMarker(45, marker, options);
-
-    expect(holdEnd).not.toBeNull();
-    expect(zoomOut).not.toBeNull();
-    expect(focalFromTransform(zoomOut!).x).toBeCloseTo(focalFromTransform(holdEnd!).x, 1);
-  });
-
   it('keeps the cursor inside the visible window throughout zoom-out (no cropping)', () => {
     // Regression: the old code eased focal toward 0.5 during ramp-out, which
     // pulled the camera away from a near-edge cursor while scale was still
@@ -244,54 +220,28 @@ describe('getZoomTransformForMarker', () => {
     expect(last!.scale).toBeLessThan(1.1);
   });
 
-  it('uses marker focal instead of live cursor position during zoom-in', () => {
+  it('follows the cursor during zoom-in (unified system, all phases track cursor)', () => {
+    // Replaces the old "uses marker focal during zoom-in" assertion. The unified
+    // safe-zone camera now runs through every phase — manual + auto markers
+    // alike behave the same way.
     const marker = createZoomMarker(0, 60, {
-      kind: 'auto',
+      kind: 'manual',
       strength: 1,
       zoomInDuration: 20,
       zoomOutDuration: 0,
       focalPoint: { x: 0.5, y: 0.5 },
     });
-    const t = getZoomTransformForMarker(10, marker, {
+    const t = getZoomTransformForMarker(15, marker, {
       followCursor: true,
       followAnimation: 'smooth',
       followPadding: 0.25,
       fps: 30,
-      getCursorPosition: (frame: number) => (frame === 0 ? { x: 0.2, y: 0.5 } : { x: 0.8, y: 0.5 }),
+      getCursorPosition: () => ({ x: 0.8, y: 0.5 }),
     });
 
     expect(t).not.toBeNull();
-    expect(focalFromTransform(t!).x).toBeCloseTo(0.5, 5);
-  });
-
-  it('keeps the zoom-in focal stable even when the cursor moves during the ramp', () => {
-    const marker = createZoomMarker(0, 60, {
-      kind: 'auto',
-      strength: 1,
-      zoomInDuration: 20,
-      zoomOutDuration: 0,
-      focalPoint: { x: 0.5, y: 0.5 },
-    });
-    const baseOptions = {
-      followCursor: true,
-      followAnimation: 'focused' as const,
-      followPadding: 0.25,
-      fps: 30,
-    };
-
-    const leftDuringRamp = getZoomTransformForMarker(10, marker, {
-      ...baseOptions,
-      getCursorPosition: (frame: number) => (frame === 0 ? { x: 0.7, y: 0.5 } : { x: 0.2, y: 0.5 }),
-    });
-    const rightDuringRamp = getZoomTransformForMarker(10, marker, {
-      ...baseOptions,
-      getCursorPosition: (frame: number) => (frame === 0 ? { x: 0.7, y: 0.5 } : { x: 0.9, y: 0.5 }),
-    });
-
-    expect(leftDuringRamp).not.toBeNull();
-    expect(rightDuringRamp).not.toBeNull();
-    expect(focalFromTransform(leftDuringRamp!).x).toBeCloseTo(focalFromTransform(rightDuringRamp!).x, 5);
-    expect(leftDuringRamp!.translateX).toBeCloseTo(rightDuringRamp!.translateX, 5);
+    // Cursor is off-center right; camera should have shifted right too
+    expect(focalFromTransform(t!).x).toBeGreaterThan(0.5);
   });
 
   it('keeps cursor visible when cursor-follow zoom enters hold after ramp-in', () => {
@@ -318,35 +268,6 @@ describe('getZoomTransformForMarker', () => {
     expect(cursorInsideVisibleWindow(holdStart!, options.getCursorPosition(24))).toBe(true);
   });
 
-  it('keeps the zoom-out focal stable even when the cursor moves during the ramp', () => {
-    const marker = createZoomMarker(0, 60, {
-      kind: 'auto',
-      strength: 1,
-      zoomInDuration: 0,
-      zoomOutDuration: 15,
-      focalPoint: { x: 0.5, y: 0.5 },
-    });
-    const baseOptions = {
-      followCursor: true,
-      followAnimation: 'focused' as const,
-      followPadding: 0.25,
-      fps: 30,
-    };
-
-    const leftDuringRamp = getZoomTransformForMarker(52, marker, {
-      ...baseOptions,
-      getCursorPosition: (frame: number) => (frame < 45 ? { x: 0.7, y: 0.5 } : { x: 0.2, y: 0.5 }),
-    });
-    const rightDuringRamp = getZoomTransformForMarker(52, marker, {
-      ...baseOptions,
-      getCursorPosition: (frame: number) => (frame < 45 ? { x: 0.7, y: 0.5 } : { x: 0.9, y: 0.5 }),
-    });
-
-    expect(leftDuringRamp).not.toBeNull();
-    expect(rightDuringRamp).not.toBeNull();
-    expect(focalFromTransform(leftDuringRamp!).x).toBeCloseTo(focalFromTransform(rightDuringRamp!).x, 5);
-    expect(leftDuringRamp!.translateX).toBeCloseTo(rightDuringRamp!.translateX, 5);
-  });
 
   it('ignores tiny cursor target wobble during hold', () => {
     const marker = createZoomMarker(0, 90, {
@@ -424,32 +345,6 @@ describe('getZoomTransformForMarker', () => {
     expect(cursorInsideVisibleWindow(transform!, cursorAtFrame(frame))).toBe(true);
   });
 
-  it('starts zoom-out from the final contained hold focal', () => {
-    const marker = createZoomMarker(0, 90, {
-      kind: 'auto',
-      strength: 1,
-      zoomInDuration: 10,
-      zoomOutDuration: 20,
-      focalPoint: { x: 0.5, y: 0.5 },
-    });
-    const holdEnd = marker.endFrame - marker.zoomOutDuration;
-    const cursorAtFrame = (frame: number) => (frame < holdEnd ? { x: 0.95, y: 0.08 } : { x: 0.1, y: 0.9 });
-    const options = {
-      followCursor: true,
-      followAnimation: 'focused' as const,
-      followPadding: 0.25,
-      fps: 30,
-      getCursorPosition: cursorAtFrame,
-    };
-
-    const finalHold = getZoomTransformForMarker(holdEnd - 1, marker, options);
-    const zoomOutStart = getZoomTransformForMarker(holdEnd, marker, options);
-
-    expect(finalHold).not.toBeNull();
-    expect(zoomOutStart).not.toBeNull();
-    expect(focalFromTransform(zoomOutStart!).x).toBeCloseTo(focalFromTransform(finalHold!).x, 5);
-    expect(focalFromTransform(zoomOutStart!).y).toBeCloseTo(focalFromTransform(finalHold!).y, 5);
-  });
 
   it('keeps deterministic cursor-follow fixtures inside the visible zoom window', () => {
     const marker = createZoomMarker(0, 90, {
@@ -495,6 +390,37 @@ describe('getZoomTransformForMarker', () => {
         expect(cursorInsideVisibleWindow(transform!, fixture.cursorAtFrame(frame)), fixture.name).toBe(true);
       }
     }
+  });
+
+  it('cursorSmoothing overrides followAnimation preset and changes follow latency', () => {
+    // With cursorSmoothing=0 the camera should chase the cursor much faster
+    // than with cursorSmoothing=2. Compare the focal-x distance from the target
+    // after 12 hold frames following a fast cursor move.
+    const marker = createZoomMarker(0, 90, {
+      kind: 'auto',
+      strength: 1,
+      zoomInDuration: 0,
+      zoomOutDuration: 0,
+      focalPoint: { x: 0.5, y: 0.5 },
+    });
+    const cursorAtFrame = (frame: number) => ({ x: frame < 2 ? 0.5 : 0.85, y: 0.5 });
+    const base = {
+      followCursor: true,
+      followAnimation: 'smooth' as const,
+      followPadding: 0.25,
+      fps: 30,
+      getCursorPosition: cursorAtFrame,
+    };
+
+    const snappy = getZoomTransformForMarker(14, marker, { ...base, cursorSmoothing: 0 });
+    const floaty = getZoomTransformForMarker(14, marker, { ...base, cursorSmoothing: 2 });
+
+    expect(snappy).not.toBeNull();
+    expect(floaty).not.toBeNull();
+    const snappyDist = Math.abs(focalFromTransform(snappy!).x - 0.85);
+    const floatyDist = Math.abs(focalFromTransform(floaty!).x - 0.85);
+    // Snappy (smoothing=0) must be closer to the target than floaty (smoothing=2)
+    expect(snappyDist).toBeLessThan(floatyDist);
   });
 
   it('keeps off-screen cursor-follow focal points finite and source bounded', () => {
