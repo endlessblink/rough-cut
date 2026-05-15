@@ -886,13 +886,13 @@ async function runRendererUiSmoke() {
   await waitFor(() => document.querySelector('[data-inspector-group="camera"]'), 'inspector groups after tool stability check');
   const hasInspectorGroups = Boolean(
     document.querySelector('[data-inspector-group="canvas"]')
-      && document.querySelector('[data-inspector-group="screen"]')
       && document.querySelector('[data-inspector-group="zoom"]')
       && document.querySelector('[data-inspector-group="cursor"]')
       && document.querySelector('[data-inspector-group="camera"]')
-      && document.querySelector('[data-inspector-group="diagnostics"]')
       && document.querySelector('[data-inspector-group="export"]'),
   );
+  const hasCursorPresentationControls = Boolean(document.querySelector('[data-cursor-controls="true"]'));
+  const hasExportAspectChip = Boolean(document.querySelector('.exportPresetChip[data-active-aspect-ratio]'));
   const hasCameraPipControls = Boolean(document.querySelector('[data-camera-pip-controls="true"]'));
   await waitFor(() => document.querySelector('[data-export-action="styled"]'), 'styled review export action');
   const hasReviewExportActions = Boolean(document.querySelector('[data-export-action="styled"]') && document.querySelector('[data-export-action="raw"]'));
@@ -906,7 +906,6 @@ async function runRendererUiSmoke() {
   const hasBackgroundPresetSelection = true;
   const hasNoInactiveBackgroundTabs = !Array.from(document.querySelectorAll('button')).some((button) => button.textContent === 'Image' || button.textContent === 'Video');
   const hasBackgroundShadowControls = ['Enable shadow', 'Strength', 'Softness', 'Distance'].every((text) => document.body.textContent?.includes(text));
-  document.querySelector('button[aria-label="Inspector"]')?.click();
 
   const selectByLabel = (text) => {
     const label = Array.from(document.querySelectorAll('label')).find((label) => label.textContent?.includes(text));
@@ -932,6 +931,8 @@ async function runRendererUiSmoke() {
   };
   const waitForEnabled = (control, label) => waitFor(() => !control.disabled, `${label} enabled`);
 
+  // Inspector tool owns selection-driven controls: aspect ratio, template picker, camera PiP.
+  document.querySelector('button[aria-label="Inspector"]')?.click();
   const aspectRatioSelect = await waitFor(() => selectByLabel('Aspect ratio'), 'aspect ratio control');
   await waitForEnabled(aspectRatioSelect, 'aspect ratio control');
   const mobileTemplate = await waitFor(() => document.querySelector('[data-template-id="mobile-9-16"]'), 'mobile template preset');
@@ -940,6 +941,9 @@ async function runRendererUiSmoke() {
   await waitFor(() => mobileTemplate.getAttribute('aria-pressed') === 'true', 'mobile template selected');
   const hasTemplatePresetSelection = true;
 
+  // Switch to Background tool — Padding/Radius/Softness live exclusively here.
+  document.querySelector('button[aria-label="Background"]')?.click();
+  await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board re-active');
   const paddingInput = await waitFor(() => inputByLabel('Padding'), 'padding control');
   await waitForEnabled(paddingInput, 'padding control');
   const paddingRangeLabel = paddingInput.closest('label');
@@ -961,20 +965,20 @@ async function runRendererUiSmoke() {
   setControlValue(paddingInput, 96);
   await waitFor(() => paddingInput.closest('label')?.querySelector('output')?.textContent === '96', 'padding output');
 
-  const radiusInput = await waitFor(() => inputByLabel('Round corners'), 'corner radius control');
+  const radiusInput = await waitFor(() => inputByLabel('Radius'), 'corner radius control');
   await waitForEnabled(radiusInput, 'corner radius control');
-  const initialCornerRadius = outputTextByLabel('Round corners');
+  const initialCornerRadius = outputTextByLabel('Radius');
   setControlValue(radiusInput, 44);
-  await waitFor(() => outputTextByLabel('Round corners') === '44', 'corner radius output');
+  await waitFor(() => outputTextByLabel('Radius') === '44', 'corner radius output');
   await waitForEnabled(radiusInput, 'corner radius save complete');
   const undoButton = await waitFor(() => {
     const button = document.querySelector('button[aria-label="Undo last edit"]');
     return button && !button.disabled ? button : null;
   }, 'undo button enabled');
   undoButton.click();
-  await waitFor(() => initialCornerRadius && outputTextByLabel('Round corners') === initialCornerRadius, 'corner radius undo output');
+  await waitFor(() => initialCornerRadius && outputTextByLabel('Radius') === initialCornerRadius, 'corner radius undo output');
   await waitFor(() => {
-    const control = inputByLabel('Round corners');
+    const control = inputByLabel('Radius');
     return control && !control.disabled ? control : null;
   }, 'corner radius undo save complete');
   const redoButton = await waitFor(() => {
@@ -982,13 +986,17 @@ async function runRendererUiSmoke() {
     return button && !button.disabled ? button : null;
   }, 'redo button enabled');
   redoButton.click();
-  await waitFor(() => outputTextByLabel('Round corners') === '44', 'corner radius redo output');
+  await waitFor(() => outputTextByLabel('Radius') === '44', 'corner radius redo output');
   const hasUndoRedoControls = true;
 
-  const shadowInput = await waitFor(() => inputByLabel('Shadow size'), 'shadow size control');
-  await waitForEnabled(shadowInput, 'shadow size control');
+  const shadowInput = await waitFor(() => inputByLabel('Softness'), 'shadow softness control');
+  await waitForEnabled(shadowInput, 'shadow softness control');
   setControlValue(shadowInput, 72);
-  await waitFor(() => shadowInput.closest('label')?.querySelector('output')?.textContent === '72', 'shadow size output');
+  await waitFor(() => shadowInput.closest('label')?.querySelector('output')?.textContent === '72', 'shadow softness output');
+
+  // Switch back to Inspector for camera PiP and chip assertions.
+  document.querySelector('button[aria-label="Inspector"]')?.click();
+  await waitFor(() => document.querySelector('[aria-label="Inspector board"]'), 'inspector board re-active');
 
   let cameraPosition = null;
   let cameraShape = null;
@@ -1062,6 +1070,8 @@ async function runRendererUiSmoke() {
     hasAutoZoomSuggestionsPanel,
     hasInspectorContext,
     hasInspectorGroups,
+    hasCursorPresentationControls,
+    hasExportAspectChip,
     hasCameraPipControls,
     hasTrimControls,
     hasCutControls,

@@ -121,7 +121,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-105 | Add safe AI motion preview and apply flow | P4 | PLANNED |
 | TASK-106 | Define cloud sharing and collaboration scope | P4 | PLANNED |
 | TASK-107 | Audit sidebar controls and remove placeholder affordances | P2 | DONE |
-| TASK-108 | Wire all visible sidebar controls to real editor behavior | P2 | PLANNED |
+| TASK-108 | Wire all visible sidebar controls to real editor behavior | P2 | DONE |
 | TASK-109 | Redesign sidebar information architecture and section density | P2 | PLANNED |
 | TASK-110 | Replace recording preview card with compact horizontal controls | P2 | PLANNED |
 | TASK-111 | Add sidebar interaction and visual regression coverage | P2 | PLANNED |
@@ -130,6 +130,9 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-114 | Add fast-path exports for no-zoom/no-camera cases | P1 | PLANNED |
 | TASK-115 | Optimize cursor and zoom layer generation overhead | P2 | PLANNED |
 | TASK-116 | Add export speed preset controls with quality guardrails | P2 | PLANNED |
+| TASK-117 | Add screen and camera crop region UI | P3 | PLANNED |
+| TASK-118 | Add camera layout markers UI | P3 | PLANNED |
+| TASK-119 | Add recording visibility segments UI | P3 | PLANNED |
 
 ## Recently Verified
 
@@ -3638,7 +3641,7 @@ Out-of-scope but noted: top-bar `iconButton` toggles for setup/inspector boards 
 ### TASK-108 Wire all visible sidebar controls to real editor behavior
 
 **Priority:** P2
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -3658,6 +3661,25 @@ After the audit, remaining visible controls need real behavior. Background prese
 - Unit or renderer tests for each newly wired state mutation.
 - `pnpm smoke:ui` with assertions for sidebar actions and project-state changes.
 - Manual preview/export parity check for at least one background, frame, shadow, zoom, and trim change made from the sidebar.
+
+#### Completion Notes (2026-05-15)
+
+Five action items from TASK-107's audit resolved:
+
+1. **Inspector → Cursor wired**: `updateCursorPresentation` added to `ProjectPreview` (mirrors `updateCameraPresentation` pattern). Inspector now renders Style / Click effect / Cursor size / Click sound controls when a project is loaded; falls back to a short "open a project" notice otherwise. Fields flow through to `frame-resolver` (`packages/frame-resolver/src/resolve-frame.ts:155-158`), already honored by the export pipeline.
+2. **Inspector → Diagnostics removed**: dead section with placeholder copy deleted (`apps/desktop/src/renderer/src/main.tsx`). Real diagnostics already surface via `StateBanner`, `PostRecordingReview` camera warnings, and per-section `saveError` strings.
+3. **Inspector → Screen subsection removed**: Padding/Round corners/Shadow controls were duplicated between Background board and Inspector → Screen. Background board is now the canonical style surface (richer shadow controls + Reset affordances). Inspector → Canvas description updated to point users to Background.
+4. **`ExportPresetDetails` shows active aspect ratio**: a chip (`.exportPresetChip`) is rendered next to the styled-export prose; data-bound to current `ProjectAspectRatio`. Smoke asserts `hasExportAspectChip`.
+5. **Window-capture disabled state clarified**: kept the disabled card (smoke depends on it) but added a visible inline badge "Coming with portal support" so the unavailable state is user-facing copy, not hover-only.
+
+Stale empty-workspace strings ("will live in this bottom rail", "appear here once a project is loaded") replaced with present-tense action copy.
+
+Spinoff tasks created for deferred features (engine-supported, no UI yet): TASK-117 (crop), TASK-118 (camera layout markers), TASK-119 (visibility segments).
+
+**Verified**:
+- `pnpm --filter @rough-cut/desktop typecheck` — clean.
+- `pnpm --filter @rough-cut/desktop test` — 269/269 pass.
+- `env -u VITE_DEV_SERVER_URL pnpm smoke:ui` — green, with new `hasCursorPresentationControls` and `hasExportAspectChip` assertions wired into the fail chain. Smoke restructured: Inspector tool handles aspect/template/camera; Background tool handles Padding/Radius/Softness drills.
 
 ### TASK-109 Redesign sidebar information architecture and section density
 
@@ -3844,3 +3866,67 @@ Users may accept faster drafts while still needing high-quality finals. Add spee
 - UI smoke confirms preset control appears and selected value reaches export args.
 - Benchmark reports speed/quality preset in output JSON.
 - Manual visual review compares Draft/Balanced/High Quality on one real recording.
+
+### TASK-117 Add screen and camera crop region UI
+
+**Priority:** P3
+**Status:** PLANNED
+
+#### Context
+
+`RecordingPresentation.screenCrop` and `RecordingPresentation.cameraCrop` already exist in the project model (`packages/project-model/src/types.ts:205-206`) as `RegionCrop` records and are honored end-to-end by the export pipeline (`packages/frame-resolver/src/resolve-frame.ts:295-306`). No UI surfaces them yet — users cannot crop into a region of the source recording or the camera feed. Spun off from TASK-108's audit (TASK-107 findings).
+
+#### Acceptance Criteria
+
+- New Inspector section or Background subsection exposes crop region editing for screen and camera separately.
+- Support the enumerated `CropAspectRatio` values (`free | 16:9 | 9:16 | 1:1 | 4:3`) via a select.
+- Visual handles on the preview canvas (re-use the camera/screen frame drag pattern at `apps/desktop/src/renderer/src/main.tsx` ~line 3056) for in-place region adjustment.
+- Persist into project; preview and styled export render the cropped region identically.
+
+#### Verification
+
+- Unit/renderer test covering `RegionCrop` mutation round-trip.
+- Smoke screenshot diffs with crop enabled.
+- Manual: enable a 9:16 screen crop on a 16:9 source, verify both preview and export use the cropped framing.
+
+### TASK-118 Add camera layout markers UI
+
+**Priority:** P3
+**Status:** PLANNED
+
+#### Context
+
+`RecordingPresentation.cameraLayouts` (`packages/project-model/src/types.ts:199`) lets the camera PiP position/shape/size change at specific source frames. The frame-resolver honors active markers (`packages/frame-resolver/src/resolve-frame.ts:275`) but no UI lets a user place or edit them. Spun off from TASK-108's audit.
+
+#### Acceptance Criteria
+
+- A new timeline lane shows camera-layout marker dots at their source frames.
+- Inspector section (when a marker is selected) edits the per-marker camera presentation (position/shape/size).
+- Add/remove flow mirrors the existing `ZoomMarkerPanel` pattern.
+
+#### Verification
+
+- Unit test for marker placement and removal.
+- Renderer test: changing a marker mutates `cameraLayouts` and the preview reflects the new layout at that frame.
+- Manual: place two markers with different camera positions, scrub the playhead across them, confirm the preview animates the layout.
+
+### TASK-119 Add recording visibility segments UI
+
+**Priority:** P3
+**Status:** PLANNED
+
+#### Context
+
+`RecordingPresentation.visibilitySegments` (`packages/project-model/src/types.ts:200`) lets the recording show or hide screen/camera/clicks per source frame range. The frame-resolver consumes them (`packages/frame-resolver/src/resolve-frame.ts:271`) but there is no editor UI. Spun off from TASK-108's audit.
+
+#### Acceptance Criteria
+
+- Timeline overlay shows visibility segments stacked under the screen/camera/clicks lanes.
+- Inspector section toggles per-segment visibility flags (screenVisible / cameraVisible / clicksVisible).
+- Add/remove flow with start/end frame inputs and a list view, mirroring the existing cut-range list (`apps/desktop/src/renderer/src/main.tsx` recording section).
+
+#### Verification
+
+- Unit test for segment add/remove and frame-range clamping.
+- Renderer test: toggling `cameraVisible` for a segment hides the camera PiP in preview during that range.
+- Manual: hide the camera for the first 5 seconds, verify export reflects the hidden range.

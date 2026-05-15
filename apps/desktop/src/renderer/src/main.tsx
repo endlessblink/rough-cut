@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   createDefaultCameraPresentation,
+  createDefaultCursorPresentation,
   createDefaultRecordingBackgroundStyle,
   applyRecordingBackgroundPreset,
   getRecordingBackgroundColors,
@@ -17,6 +18,9 @@ import {
   type CameraPosition,
   type CameraPresentation,
   type CameraShape,
+  type ClickEffect,
+  type CursorPresentation,
+  type CursorStyle,
   type RecordingBackgroundStyle,
   type ZoomMarker,
 } from '@rough-cut/project-model';
@@ -133,6 +137,17 @@ type RecordingStatus =
 
 const DEFAULT_RECORDING_BACKGROUND = createDefaultRecordingBackgroundStyle();
 const DEFAULT_CAMERA_PRESENTATION = createDefaultCameraPresentation();
+const DEFAULT_CURSOR_PRESENTATION = createDefaultCursorPresentation();
+const CURSOR_STYLE_OPTIONS: ReadonlyArray<{ value: CursorStyle; label: string }> = [
+  { value: 'subtle', label: 'Subtle' },
+  { value: 'default', label: 'Default' },
+  { value: 'spotlight', label: 'Spotlight' },
+];
+const CURSOR_CLICK_EFFECT_OPTIONS: ReadonlyArray<{ value: ClickEffect; label: string }> = [
+  { value: 'none', label: 'None' },
+  { value: 'ripple', label: 'Ripple' },
+  { value: 'ring', label: 'Ring' },
+];
 const PRE_RECORD_PREFS_KEY = 'rough-cut.preRecordPreferences.v1';
 const CAMERA_POSITION_OPTIONS: ReadonlyArray<{ value: CameraPosition; label: string }> = [
   { value: 'corner-br', label: 'Bottom right' },
@@ -1161,6 +1176,7 @@ function PreRecordPanel({
                 <button type="button" className="sourcePickerCard disabled" data-source-option="window" disabled title="Window capture needs platform-specific support">
                   <span>Window</span>
                   <small>Unavailable on this build</small>
+                  <span className="sourcePickerCardBadge" aria-hidden="true">Coming with portal support</span>
                 </button>
               </div>
               {captureMode === 'region' ? (
@@ -1784,9 +1800,11 @@ function InspectorContextSummary({ selection }: { selection: InspectorSelection 
   );
 }
 
-function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, selectedZoomMarker = null, trimInfo, cutRanges = [], pendingCutStartFrame = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onZoomMarkerRangeChange, onZoomMarkerStrengthChange, onSetTrimStart, onSetTrimEnd, onResetTrim, onMarkCutStart, onCutToPlayhead, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; cutRanges?: CutRange[]; pendingCutStartFrame?: number | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onZoomMarkerRangeChange?: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onSetTrimStart?: () => void; onSetTrimEnd?: () => void; onResetTrim?: () => void; onMarkCutStart?: () => void; onCutToPlayhead?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
+function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, inspectorSelection = DEFAULT_INSPECTOR_SELECTION, selectedZoomMarker = null, trimInfo, cutRanges = [], pendingCutStartFrame = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCursorPresentationChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onZoomMarkerRangeChange, onZoomMarkerStrengthChange, onSetTrimStart, onSetTrimEnd, onResetTrim, onMarkCutStart, onCutToPlayhead, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; inspectorSelection?: InspectorSelection; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; cutRanges?: CutRange[]; pendingCutStartFrame?: number | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onZoomMarkerRangeChange?: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onSetTrimStart?: () => void; onSetTrimEnd?: () => void; onResetTrim?: () => void; onMarkCutStart?: () => void; onCutToPlayhead?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
+  const cursor = cursorPresentation ?? DEFAULT_CURSOR_PRESENTATION;
+  const projectLoaded = Boolean(project?.recording);
   const aspectRatioOptions = PROJECT_ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: PROJECT_ASPECT_RATIO_LABELS[ratio] }));
   const activeBackgroundPreset = RECORDING_BACKGROUND_PRESETS.find((preset) => preset.style.bgImage ? preset.style.bgImage === bg.bgImage : (preset.style.bgColor === bg.bgColor && preset.style.bgGradient === bg.bgGradient))?.id;
   const activeTemplatePreset = findRecordingTemplatePresetId(aspectRatio, bg);
@@ -1833,14 +1851,8 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
         <InspectorSection id="templates" title="Templates" description="One click sets aspect ratio and background together.">
           <TemplatePresetGrid disabled={disabled} value={activeTemplatePreset} onSelect={handleTemplatePresetSelect} />
         </InspectorSection>
-        <InspectorSection id="canvas" title="Canvas">
+        <InspectorSection id="canvas" title="Canvas" description="Padding, corners, and shadow live in the Background tool.">
           <InspectorSelect label="Aspect ratio" value={aspectRatio} options={aspectRatioOptions} disabled={disabled} onChange={(value) => onAspectRatioChange?.(value)} />
-        </InspectorSection>
-        <InspectorSection id="screen" title="Screen">
-          <InspectorSlider label="Padding" value={bg.bgPadding} min={0} max={260} step={4} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgPadding: value })} />
-          <InspectorSlider label="Round corners" value={bg.bgCornerRadius} min={0} max={120} step={2} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgCornerRadius: value })} />
-          <InspectorToggle label="Screen shadow" checked={bg.bgShadowEnabled} disabled={disabled} onChange={(checked) => onBackgroundChange?.({ bgShadowEnabled: checked })} />
-          <InspectorSlider label="Shadow size" value={bg.bgShadowBlur} min={0} max={120} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowBlur: value })} />
         </InspectorSection>
         <InspectorSection id="recording" title="Recording" description="Head and tail trims keep the original source recording untouched.">
           <p className="editRecoveryNotice">Trims and cuts only hide source ranges. Restore buttons bring them back; exports use the visible timeline.</p>
@@ -1881,8 +1893,15 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
             <InspectorSlider label="Depth" value={Math.round((selectedZoomMarker?.strength ?? 0) * 100)} min={0} max={100} step={5} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerStrengthChange?.(selectedZoomMarker.id, value / 100) : undefined} />
           </div>
         </InspectorSection>
-        <InspectorSection id="cursor" title="Cursor" muted>
-          <InspectorNotice>Cursor style controls are planned for TASK-044.</InspectorNotice>
+        <InspectorSection id="cursor" title="Cursor" muted={!projectLoaded} description={projectLoaded ? 'Cursor style applies to preview and styled export.' : undefined}>
+          {projectLoaded ? (
+            <div data-cursor-controls="true">
+              <InspectorSelect label="Style" value={cursor.style} options={CURSOR_STYLE_OPTIONS} disabled={disabled} onChange={(style) => onCursorPresentationChange?.({ style })} />
+              <InspectorSelect label="Click effect" value={cursor.clickEffect} options={CURSOR_CLICK_EFFECT_OPTIONS} disabled={disabled} onChange={(clickEffect) => onCursorPresentationChange?.({ clickEffect })} />
+              <InspectorSlider label="Cursor size" value={cursor.sizePercent} min={50} max={150} step={5} disabled={disabled} onChange={(sizePercent) => onCursorPresentationChange?.({ sizePercent })} />
+              <InspectorToggle label="Click sound" checked={cursor.clickSoundEnabled} disabled={disabled} onChange={(clickSoundEnabled) => onCursorPresentationChange?.({ clickSoundEnabled })} />
+            </div>
+          ) : <InspectorNotice>Open a project to edit cursor style.</InspectorNotice>}
         </InspectorSection>
         <InspectorSection id="camera" title="Camera" muted={!hasCamera} description={hasCamera ? 'Camera PiP settings are saved with the project and used by styled export.' : undefined}>
           {hasCamera ? (
@@ -1894,9 +1913,6 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
               <InspectorSlider label="Camera roundness" value={camera.roundness} min={0} max={100} step={5} disabled={disabled || !camera.visible || camera.shape !== 'rounded'} onChange={(roundness) => onCameraPresentationChange?.({ roundness })} />
             </div>
           ) : <InspectorNotice>No linked webcam track in this project.</InspectorNotice>}
-        </InspectorSection>
-        <InspectorSection id="diagnostics" title="Diagnostics" muted>
-          <InspectorNotice>Save failures and degraded media states appear here when available.</InspectorNotice>
         </InspectorSection>
       </aside>
     );
@@ -1950,14 +1966,14 @@ function EmptyWorkspace({ setupBoardOpen, inspectorOpen, activeTool, onActiveToo
         </div>
         <div className="timelineDock emptyTimeline" aria-label="Timeline and review rail" data-ui-region="timeline-review-rail">
           <p className="eyebrow">Timeline</p>
-          <p>Zoom markers, clicks, trims, and review actions will live in this bottom rail.</p>
+          <p>Record or open a project to edit the timeline.</p>
           <div className="timelineSkeleton" aria-hidden="true"><span /><span /><span /></div>
         </div>
       </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
         <section className="inspectorSection mutedSection" data-ui-region="export-actions-area">
           <p className="eyebrow"><Icon name="export" /> Export</p>
-          <p>Export controls appear here once a project is loaded.</p>
+          <p>Open a project or record a take to export.</p>
         </section>
       </aside>
     </section>
@@ -2068,6 +2084,10 @@ function ProjectPreview({
     ...DEFAULT_CAMERA_PRESENTATION,
     ...((recordingAsset?.presentation?.camera as Partial<CameraPresentation> | undefined) ?? {}),
   };
+  const cursorPresentation: CursorPresentation = {
+    ...DEFAULT_CURSOR_PRESENTATION,
+    ...((recordingAsset?.presentation?.cursor as Partial<CursorPresentation> | undefined) ?? {}),
+  };
 
   React.useEffect(() => {
     if (!effectiveRecording) return;
@@ -2121,6 +2141,29 @@ function ProjectPreview({
           presentation: {
             ...presentation,
             background: nextBackground,
+          },
+        };
+      }),
+    });
+  }
+
+  async function updateCursorPresentation(patch: Partial<CursorPresentation>) {
+    if (!recordingAsset?.id) return;
+    await persist({
+      ...project.document,
+      assets: project.document.assets?.map((asset) => {
+        if (asset.id !== recordingAsset.id) return asset;
+        const presentation = withDefaultPresentation(asset.presentation);
+        const nextCursor: CursorPresentation = {
+          ...DEFAULT_CURSOR_PRESENTATION,
+          ...(presentation.cursor ?? {}),
+          ...patch,
+        };
+        return {
+          ...asset,
+          presentation: {
+            ...presentation,
+            cursor: nextCursor,
           },
         };
       }),
@@ -2363,7 +2406,7 @@ function ProjectPreview({
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
       <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} selectedZoomMarker={selectedZoomMarker} trimInfo={trimInfo} cutRanges={activeCutRanges} pendingCutStartFrame={pendingCutStartFrame} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onSetTrimStart={setTrimStartToPlayhead} onSetTrimEnd={setTrimEndToPlayhead} onResetTrim={resetTrim} onMarkCutStart={markCutStart} onCutToPlayhead={cutToPlayhead} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
+      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} inspectorSelection={inspectorSelection} selectedZoomMarker={selectedZoomMarker} trimInfo={trimInfo} cutRanges={activeCutRanges} pendingCutStartFrame={pendingCutStartFrame} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCursorPresentationChange={updateCursorPresentation} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onSetTrimStart={setTrimStartToPlayhead} onSetTrimEnd={setTrimEndToPlayhead} onResetTrim={resetTrim} onMarkCutStart={markCutStart} onCutToPlayhead={cutToPlayhead} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>
@@ -2407,7 +2450,7 @@ function ProjectPreview({
           onRetake={onRetake}
         />
         <InspectorSection id="export" title="Export status">
-          <ExportPresetDetails mode={exportMode} />
+          <ExportPresetDetails mode={exportMode} aspectRatio={aspectRatio} />
           <InspectorActionRow region="export-status-area">
             {exportProgress ? <ExportProgressMeter progress={exportProgress} /> : null}
             {exportResult ? <p className="saved">Exported to: {exportResult.outputPath} ({exportResult.bytes} bytes)</p> : null}
@@ -3009,15 +3052,19 @@ function AutoZoomSuggestionsPanel({
   );
 }
 
-function ExportPresetDetails({ mode }: { mode: ExportMode }) {
+function ExportPresetDetails({ mode, aspectRatio }: { mode: ExportMode; aspectRatio?: ProjectAspectRatio }) {
   if (mode === 'raw') {
     return <p className="exportPreset">Raw export keeps the original recording unchanged.</p>;
   }
 
+  const activeRatio = aspectRatio ?? 'auto';
   return (
-    <p className="exportPreset">
-      Styled preset: selected aspect ratio, full-screen fit, pastel background, rounded screen, soft shadow.
-    </p>
+    <div className="exportPresetDetails">
+      <p className="exportPreset">
+        Styled preset: selected aspect ratio, full-screen fit, pastel background, rounded screen, soft shadow.
+      </p>
+      <span className="exportPresetChip" data-active-aspect-ratio={activeRatio}>{PROJECT_ASPECT_RATIO_LABELS[activeRatio]}</span>
+    </div>
   );
 }
 
