@@ -322,8 +322,8 @@ describe('resolveFrame', () => {
             "shadowBlur": 64,
           },
           "camera": {
-            "offsetX": 0,
-            "offsetY": 0,
+            "offsetX": 14.198,
+            "offsetY": 7.987,
             "scale": 1.75,
           },
           "frame": 15,
@@ -336,7 +336,7 @@ describe('resolveFrame', () => {
             "shadowBlur": 64,
           },
           "camera": {
-            "offsetX": -404.36,
+            "offsetX": -404.202,
             "offsetY": 36,
             "scale": 2.5,
           },

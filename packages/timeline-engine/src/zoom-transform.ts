@@ -180,12 +180,9 @@ function resolveSpringSmoothedFocal(
   const targetScale = strengthToScale(marker.strength);
   const safeZoneRatio = clamp(followPadding, 0, 0.45);
 
-  // Camera target — what we want the spring to chase. Initialized at the
-  // marker's authored focal point, then nudged once by the cursor at
-  // fromFrame so the spring's rest state matches where the safe-zone logic
-  // would converge. Without this, frame 0 of the hold phase falls back to
-  // marker.focalPoint while frame 1 jumps to the safe-zone position — a
-  // large visible camera move on the first hold frame.
+  // Camera target — seed DIRECTLY at the cursor on the marker's first frame
+  // so zoom-in is pure scale change (no pan to the cursor while scale ramps).
+  // Falls back to marker.focalPoint if no cursor sample is available yet.
   let camTargetX = marker.focalPoint.x;
   let camTargetY = marker.focalPoint.y;
   let emaX: number | null = null;
@@ -195,22 +192,19 @@ function resolveSpringSmoothedFocal(
   if (seedRaw !== null) {
     emaX = seedRaw.x;
     emaY = seedRaw.y;
-    const seedScale = getMarkerScale(fromFrame, marker, targetScale);
-    const seedHalfSpan = 1 / (2 * seedScale);
-    const seedInset = seedHalfSpan * 2 * safeZoneRatio;
-    const seedSafeLeft = camTargetX - seedHalfSpan + seedInset;
-    const seedSafeRight = camTargetX + seedHalfSpan - seedInset;
-    const seedSafeTop = camTargetY - seedHalfSpan + seedInset;
-    const seedSafeBottom = camTargetY + seedHalfSpan - seedInset;
-    if (seedRaw.x < seedSafeLeft) camTargetX -= seedSafeLeft - seedRaw.x;
-    else if (seedRaw.x > seedSafeRight) camTargetX += seedRaw.x - seedSafeRight;
-    if (seedRaw.y < seedSafeTop) camTargetY -= seedSafeTop - seedRaw.y;
-    else if (seedRaw.y > seedSafeBottom) camTargetY += seedRaw.y - seedSafeBottom;
-    const seedMinXY = seedHalfSpan;
-    const seedMaxXY = 1 - seedHalfSpan;
-    camTargetX = clamp(camTargetX, seedMinXY, seedMaxXY);
-    camTargetY = clamp(camTargetY, seedMinXY, seedMaxXY);
+    // Source-bound clamp at TARGET scale so the seed is valid for the hold
+    // phase (the largest scale). The transform's own clamp will rein this in
+    // during ramps where the visible window is narrower than the source.
+    const seedMin = 1 / (2 * targetScale);
+    const seedMax = 1 - seedMin;
+    camTargetX = clamp(seedRaw.x, seedMin, seedMax);
+    camTargetY = clamp(seedRaw.y, seedMin, seedMax);
   }
+
+  // Pre-compute the start of ramp-out so we can FREEZE the camera target once
+  // the marker starts zooming out. Cursor motion during the ramp-out tail
+  // shouldn't add jitter on top of the geometric scale-driven slide.
+  const rampOutStart = marker.endFrame - marker.zoomOutDuration;
 
   const stateX = createSpringState(camTargetX);
   const stateY = createSpringState(camTargetY);
@@ -228,8 +222,12 @@ function resolveSpringSmoothedFocal(
       }
     }
 
-    if (emaX !== null && emaY !== null) {
+    // Freeze the camera target during ramp-out: cursor motion in this window
+    // shouldn't add panning jitter on top of the geometric scale-driven slide.
+    // The scale ramp alone produces the visible zoom-out motion.
+    const inRampOut = f >= rampOutStart && marker.zoomOutDuration > 0;
 
+    if (emaX !== null && emaY !== null && !inRampOut) {
       const scaleAtF = getMarkerScale(f, marker, targetScale);
       const halfSpan = 1 / (2 * scaleAtF);
       const visibleSpan = halfSpan * 2;

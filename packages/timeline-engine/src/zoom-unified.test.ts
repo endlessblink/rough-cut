@@ -119,6 +119,8 @@ describe('unified zoom — slider controls', () => {
     // safe zone is what's LEFT after the inset is removed. So:
     //   followPadding=0    → safe zone == full visible window → camera barely moves
     //   followPadding=0.3  → tiny safe zone → camera reacts to any cursor motion
+    // Use a cursor that STARTS centered (so the seed is at 0.5) and drifts
+    // sideways — that's where the safe-zone behavior differs between settings.
     const marker = createZoomMarker(0, 90, {
       kind: 'manual',
       strength: 1,
@@ -126,16 +128,16 @@ describe('unified zoom — slider controls', () => {
       zoomOutDuration: 0,
       focalPoint: { x: 0.5, y: 0.5 },
     });
-    const cursor = { x: 0.65, y: 0.5 };
-    const calm = getZoomTransformForMarker(15, marker, {
+    const cursorAtFrame = (frame: number) => ({ x: 0.5 + frame * 0.005, y: 0.5 });
+    const calm = getZoomTransformForMarker(20, marker, {
       ...baseOptions,
       followPadding: 0,
-      getCursorPosition: () => cursor,
+      getCursorPosition: cursorAtFrame,
     });
-    const reactive = getZoomTransformForMarker(15, marker, {
+    const reactive = getZoomTransformForMarker(20, marker, {
       ...baseOptions,
       followPadding: 0.3,
-      getCursorPosition: () => cursor,
+      getCursorPosition: cursorAtFrame,
     });
     expect(calm).not.toBeNull();
     expect(reactive).not.toBeNull();
