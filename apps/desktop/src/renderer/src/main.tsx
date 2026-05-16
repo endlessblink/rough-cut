@@ -1054,7 +1054,11 @@ function App() {
           />
         ) : null}
         {activeAppView === 'projects' ? (
-          <LibraryShell onOpenProjectByPath={openProjectByPath} onOpenProjectDialog={openProject} />
+          <LibraryShell
+            onOpenProjectByPath={openProjectByPath}
+            onOpenProjectDialog={openProject}
+            openProjectPath={project?.path ?? null}
+          />
         ) : project ? (
           <ProjectPreview
             project={project}
@@ -2899,7 +2903,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
       onSelectInspectorContext({ group: 'zoom', label: 'Zoom region', detail: 'Zoom region selected from the timeline.', markerId: region.id });
       return;
     }
-    if ((event.key === 'Delete' || event.key === 'Backspace') && mode === 'move' && onZoomMarkerRemove) {
+    if (event.key === 'Delete' && mode === 'move' && onZoomMarkerRemove) {
       event.preventDefault();
       event.stopPropagation();
       onZoomMarkerRemove(region.id);

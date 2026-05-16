@@ -1551,40 +1551,50 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .zoomResizeStart { left: 0; }
 .zoomResizeEnd { right: 0; }
 
+/* Lift the whole region (and its child delete button) above siblings on
+   hover/focus/selection. Without this, an overlapping sibling region with
+   the same z-index could cover the × button visually. */
+.timelineRegion:hover,
+.timelineRegion:focus-within,
+.timelineRegion.selectedRegion {
+  z-index: 15;
+}
+
 .zoomRegionDelete {
   align-items: center;
-  background: rgb(15 23 42 / 0.7);
+  background: rgb(15 23 42 / 0.85);
   border: 0;
   border-radius: 999px;
   color: #fff;
   cursor: pointer;
   display: flex;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   font-weight: 700;
-  height: 1.05rem;
+  height: 1.15rem;
   justify-content: center;
   line-height: 1;
   min-height: 0;
   opacity: 0;
   padding: 0;
+  pointer-events: auto;
   position: absolute;
-  right: 0.15rem;
-  top: 50%;
-  transform: translateY(-50%) scale(0.9);
-  transition: opacity 120ms cubic-bezier(0.23, 1, 0.32, 1), transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
-  width: 1.05rem;
-  z-index: 2;
+  right: -0.55rem;
+  top: -0.55rem;
+  transform: scale(0.85);
+  transition: opacity 120ms cubic-bezier(0.23, 1, 0.32, 1), transform 120ms cubic-bezier(0.23, 1, 0.32, 1), background 120ms ease;
+  width: 1.15rem;
+  z-index: 3;
 }
 
 .timelineRegion:hover .zoomRegionDelete,
 .timelineRegion:focus-within .zoomRegionDelete,
 .timelineRegion.selectedRegion .zoomRegionDelete {
   opacity: 1;
-  transform: translateY(-50%) scale(1);
+  transform: scale(1);
 }
 
 .zoomRegionDelete:hover { background: rgb(248 113 113 / 0.95); }
-.zoomRegionDelete:active { transform: translateY(-50%) scale(0.94); }
+.zoomRegionDelete:active { transform: scale(0.92); }
 
 .autoRegion { background: linear-gradient(180deg, #99f6e4, #14b8a6); }
 .manualRegion { background: linear-gradient(180deg, #d8b4fe, #8b5cf6); }
@@ -2118,6 +2128,30 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 .galleryCard:active { transform: translateY(0); }
 .galleryCard:focus-visible { outline: 2px solid rgb(96 165 250 / 0.85); outline-offset: 2px; }
+.galleryCard.isSelected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.galleryCardCheck {
+  align-items: center;
+  background: var(--accent);
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 700;
+  height: 1.4rem;
+  justify-content: center;
+  left: 0.55rem;
+  line-height: 1;
+  position: absolute;
+  top: 0.55rem;
+  width: 1.4rem;
+  z-index: 3;
+}
+/* When a check appears the resolution chip slides down so they don't collide. */
+.galleryCard.isSelected .galleryChipResolution { top: 2.25rem; }
+
 
 .galleryCardMedia {
   background: linear-gradient(135deg, rgb(96 165 250 / 0.18), rgb(168 85 247 / 0.18));
@@ -2230,6 +2264,200 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   color: rgb(226 232 240 / 0.7);
   font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
+}
+.galleryRow.isSelected {
+  background: rgb(96 165 250 / 0.12);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* Per-group "Select all" affordance in date-section headers. Tiny ghost
+ * button — only catches attention when the user has already started a
+ * selection. */
+.libraryGroupSelectAll {
+  background: transparent;
+  border: 0;
+  color: rgb(226 232 240 / 0.55);
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  margin-left: auto;
+  padding: 0.18rem 0.45rem;
+  text-transform: uppercase;
+  transition: color 120ms ease;
+}
+.libraryGroupSelectAll:hover { color: var(--accent); }
+.libraryGroupHeader { gap: 0.55rem; }
+
+/* Bulk action bar — slides in between the header and body when at least one
+ * card is selected. Lives inside .libraryShell so it inherits the dark surface
+ * and the global scrollbar tokens. */
+.bulkActionBar {
+  align-items: center;
+  animation: bulkBarSlideIn 160ms ease-out;
+  background: rgb(96 165 250 / 0.08);
+  border: 1px solid rgb(96 165 250 / 0.35);
+  border-radius: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  padding: 0.55rem 0.75rem;
+}
+@keyframes bulkBarSlideIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bulkActionBar { animation: none; }
+}
+.bulkActionCount {
+  color: rgb(226 232 240);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.bulkActionWarning {
+  color: #fcd34d;
+  font-size: 0.72rem;
+  font-style: italic;
+}
+.bulkActionGroup {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+.bulkActionSecondary,
+.bulkActionDanger,
+.bulkActionGhost,
+.bulkActionPrimary {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 500;
+  height: 1.95rem;
+  padding: 0 0.85rem;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.bulkActionSecondary {
+  background: rgb(255 255 255 / 0.05);
+  border-color: rgb(255 255 255 / 0.1);
+  color: rgb(226 232 240);
+}
+.bulkActionSecondary:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.08);
+  border-color: rgb(255 255 255 / 0.18);
+}
+.bulkActionDanger {
+  background: rgb(244 63 94 / 0.18);
+  border-color: rgb(244 63 94 / 0.45);
+  color: #fecaca;
+}
+.bulkActionDanger:hover:not(:disabled) {
+  background: rgb(244 63 94 / 0.28);
+  border-color: rgb(244 63 94 / 0.65);
+  color: #fff;
+}
+.bulkActionPrimary {
+  background: var(--accent);
+  color: #fff;
+}
+.bulkActionPrimary:hover:not(:disabled) { background: var(--accent-hover); }
+.bulkActionGhost {
+  background: transparent;
+  color: rgb(226 232 240 / 0.6);
+}
+.bulkActionGhost:hover:not(:disabled) { color: rgb(226 232 240); }
+.bulkActionSecondary:disabled,
+.bulkActionDanger:disabled,
+.bulkActionPrimary:disabled,
+.bulkActionGhost:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.bulkRenameForm {
+  align-items: center;
+  display: flex;
+  gap: 0.4rem;
+}
+.bulkRenameInput {
+  background: rgb(15 23 42 / 0.7);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 6px;
+  color: rgb(226 232 240);
+  font-size: 0.78rem;
+  height: 1.95rem;
+  min-width: 16rem;
+  padding: 0 0.55rem;
+}
+.bulkRenameInput:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.bulkActionError {
+  color: #fca5a5;
+  font-size: 0.72rem;
+  width: 100%;
+}
+
+/* Delete confirm modal — backdrop covers the whole viewport, dialog sits on
+ * top of every other surface. */
+.deleteConfirmBackdrop {
+  align-items: center;
+  background: rgb(0 0 0 / 0.55);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 50;
+}
+.deleteConfirmDialog {
+  background: var(--panel);
+  border: 1px solid var(--strong-line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  max-width: 26rem;
+  padding: 1.25rem 1.25rem 1rem;
+  width: min(92vw, 26rem);
+}
+.deleteConfirmHeading {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+.deleteConfirmBody {
+  color: rgb(226 232 240 / 0.7);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin: 0;
+}
+.deleteConfirmList {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.78rem;
+  gap: 0.15rem;
+  list-style: none;
+  margin: 0;
+  max-height: 9rem;
+  overflow-y: auto;
+  padding: 0;
+}
+.deleteConfirmList li {
+  color: rgb(226 232 240 / 0.85);
+  overflow: hidden;
+  padding: 0.15rem 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.deleteConfirmMore { color: rgb(226 232 240 / 0.5); font-style: italic; }
+.deleteConfirmActions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
