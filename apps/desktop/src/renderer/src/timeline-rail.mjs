@@ -102,7 +102,7 @@ function assignZoomLayers(regions) {
 }
 
 function getPrimaryAsset(document) {
-  return document?.assets?.find((asset) => asset.type === 'recording' || asset.type === 'video') ?? null;
+  return document?.assets?.find((asset) => asset.type === 'recording') ?? null;
 }
 
 function getPrimaryClip(document, asset) {

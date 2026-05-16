@@ -12,8 +12,11 @@ const DEFAULT_FPS = 30;
 
 function getPrimaryRecordingAsset(document) {
   if (!document || !Array.isArray(document.assets)) return null;
+  // Only the screen recording carries cursor telemetry / source dimensions.
+  // Camera assets are `type: 'video'` and must not be selected here, or
+  // accessors return empty events and 640×480 dimensions.
   for (const asset of document.assets) {
-    if (asset?.type === 'recording' || asset?.type === 'video') return asset;
+    if (asset?.type === 'recording') return asset;
   }
   return null;
 }

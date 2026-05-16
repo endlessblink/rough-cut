@@ -8,7 +8,7 @@ const DEFAULT_MIN_SPAN_FRAMES = 15;
 
 export function getPrimaryRecordingAsset(document) {
   for (const asset of document.assets) {
-    if (asset.type === 'recording' || asset.type === 'video') return asset;
+    if (asset.type === 'recording') return asset;
   }
   return null;
 }
