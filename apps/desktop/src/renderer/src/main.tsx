@@ -2011,11 +2011,17 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
         <BoardHeader icon="timeline" title="Timeline" action={trimInfo?.isTrimmed ? 'Reset trim' : undefined} actionDisabled={disabled || !trimInfo?.isTrimmed} onAction={onResetTrim} />
         {project?.recording && fps && onProjectChange ? (
           <div className="timelineBoardStack" data-ui-region="timeline-zoom-control-panel">
-            <div className="timelineCompactRow"><span>Playhead</span><strong>{formatClock(currentTimeSec)}</strong></div>
-            <ZoomMarkerPanel project={project} fps={fps} currentTimeSec={currentTimeSec} markerCount={markerCount} onProjectChange={onProjectChange} />
-            <InspectorSection id="zoom" title={selectedZoomMarker ? 'Selected marker' : 'Marker editor'} muted={!selectedZoomMarker} description={selectedZoomMarker ? undefined : 'Pick a marker on the timeline. Drag the edges to resize. Delete to remove.'}>
+            <InspectorSection id="zoom" title="Zoom markers" muted={!selectedZoomMarker}>
               <div data-zoom-controls="true">
-                {selectedZoomMarker ? <p className="markerRangeReadout">{selectedZoomMarker.startFrame}–{selectedZoomMarker.endFrame} f</p> : null}
+                <ZoomMarkerPanel project={project} fps={fps} currentTimeSec={currentTimeSec} markerCount={markerCount} onProjectChange={onProjectChange} />
+                <div className="timelineCompactRow">
+                  <span>Selection</span>
+                  <strong>
+                    {selectedZoomMarker
+                      ? `${formatClock((selectedZoomMarker.startFrame - (trimInfo?.startFrame ?? 0)) / (fps || 30))}–${formatClock((selectedZoomMarker.endFrame - (trimInfo?.startFrame ?? 0)) / (fps || 30))}`
+                      : 'None'}
+                  </strong>
+                </div>
                 <InspectorSlider label="Depth" value={Math.round((selectedZoomMarker?.strength ?? 0) * 100)} min={0} max={100} step={5} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerStrengthChange?.(selectedZoomMarker.id, value / 100) : undefined} />
               </div>
             </InspectorSection>
@@ -3123,7 +3129,6 @@ function ZoomMarkerPanel({
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
   const document = project.document as unknown as ProjectDocument;
-  const markers = listMarkers(document);
   const canAdd = canAddMarkerAt(document, currentTimeSec, fps);
 
   async function persist(nextDocument: ProjectDocument) {
@@ -3151,21 +3156,11 @@ function ZoomMarkerPanel({
 
   return (
     <div className="zoomMarkerPanel" aria-label="Zoom markers">
-      <p className="eyebrow">Markers</p>
-      <div className="timelineCompactRow"><span>Count</span><strong>{markerCount}</strong><button type="button" className="secondary compact" onClick={handleAdd} disabled={!canAdd || isSaving}>+ Add</button></div>
-      {markers.length === 0 ? (
-        <p className="zoomMarkerEmpty">No markers</p>
-      ) : (
-        <ul className="zoomMarkerList">
-          {markers.map((marker) => (
-            <li key={marker.id} className="zoomMarkerRow" title="Delete from the timeline (Delete key on a selected marker)">
-              <span className="zoomMarkerRange">
-                {marker.startFrame}–{marker.endFrame} f · {Math.round(marker.strength * 100)}%
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="timelineCompactRow">
+        <span>Count</span>
+        <strong>{markerCount}</strong>
+        <button type="button" className="secondary compact" onClick={handleAdd} disabled={!canAdd || isSaving}>+ Add</button>
+      </div>
       {saveError ? <p className="error">{saveError}</p> : null}
     </div>
   );
