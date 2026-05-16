@@ -1533,8 +1533,11 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   z-index: 5;
 }
 
-.zoomLayer0 { bottom: 0.92rem; top: 0.28rem; }
-.zoomLayer1 { bottom: 0.28rem; top: 0.92rem; }
+/* Single-layer case (the only zoom layer used): region fills the lane. */
+.zoomLayer0 { bottom: 0.28rem; top: 0.28rem; }
+/* Two-layer case (overlapping markers): split the lane into upper/lower halves. */
+.zoomLayerCount2 .zoomLayer0 { bottom: 0.92rem; top: 0.28rem; }
+.zoomLayerCount2 .zoomLayer1 { bottom: 0.28rem; top: 0.92rem; }
 
 .selectedRegion {
   box-shadow: 0 0 0 2px rgb(255 255 255 / 0.28), 0 0 0 5px rgb(37 99 235 / 0.16);
@@ -1672,6 +1675,63 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .autoZoomSuggestionsPanel,
 .cameraFollowPanel { min-height: 0; }
 
+/* Timeline tool board — flat sections instead of stacked cards.
+ * Designed via `/impeccable critique` against PRODUCT.md anti-references
+ * ("identical card grids") and DESIGN.md rules ("dense and scannable,
+ * no hero cards inside tool panels"). Mirrors `.cursorBoard .flatGroup`.
+ * Scoped under `.timelineBoardStack` so the panel classes keep their card
+ * chrome anywhere else they appear. Previous attempt (a8443f2, reverted)
+ * broke layout by zeroing inner padding — this keeps padding 0.8rem 0.1rem. */
+.timelineBoardStack { gap: 0; }
+
+.timelineBoardStack > .inspectorSection,
+.timelineBoardStack > .zoomMarkerPanel,
+.timelineBoardStack > .autoZoomSuggestionsPanel,
+.timelineBoardStack > .cameraFollowPanel {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0.8rem 0.1rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.timelineBoardStack > .timelineCompactRow {
+  border-bottom: 0;
+  padding: 0.4rem 0.1rem;
+}
+
+/* Hairline divider between adjacent sections. Skip when previous is the
+ * Playhead row (it already separates visually from the board header). */
+.timelineBoardStack > * + *:not(.timelineCompactRow) {
+  background-image: linear-gradient(90deg,
+    transparent,
+    rgb(255 255 255 / 0.08) 18%,
+    rgb(255 255 255 / 0.08) 82%,
+    transparent);
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
+  background-position: top left;
+}
+
+/* Eyebrow sits tight to its content inside flat sections. */
+.timelineBoardStack > .inspectorSection > .eyebrow,
+.timelineBoardStack > .zoomMarkerPanel > .eyebrow,
+.timelineBoardStack > .autoZoomSuggestionsPanel > .eyebrow,
+.timelineBoardStack > .cameraFollowPanel > .eyebrow {
+  margin: 0;
+}
+
+/* Empty-state rows must hold their height so layout stays stable
+ * (DESIGN.md: prefer disabled controls over disappearing layout). */
+.timelineBoardStack .zoomMarkerEmpty,
+.timelineBoardStack .autoZoomEmpty {
+  color: var(--subtle);
+  font-size: 0.78rem;
+  margin: 0;
+  min-height: 1.6rem;
+  padding: 0.2rem 0;
+}
 
 .timelineHeader { justify-content: space-between; }
 .emptyTimeline p { margin: 0; }
