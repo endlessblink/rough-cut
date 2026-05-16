@@ -1738,6 +1738,62 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   padding: 0.2rem 0;
 }
 
+/* Section labels (eyebrows) inside the Timeline tool board are brighter so
+ * section identity is legible at a glance. Scoped — other boards keep the
+ * quieter --subtle treatment. */
+.timelineBoardStack > * > .eyebrow { color: var(--muted); }
+
+/* Selected zoom marker's frame range, shown above the Depth slider so the
+ * user can see what they're editing without the (removed) Start/End sliders. */
+.markerRangeReadout {
+  color: var(--subtle);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+/* Cut tool toolbar — sits inline above the timeline lanes. */
+.timelineToolbar {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0.1rem 0 0.3rem;
+}
+.timelineToolButton {
+  align-items: center;
+  background: transparent;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  height: 1.85rem;
+  justify-content: center;
+  padding: 0;
+  transition: background 140ms cubic-bezier(0.22, 1, 0.36, 1), color 140ms ease-out, border-color 140ms ease-out;
+  width: 1.85rem;
+}
+.timelineToolButton:hover { color: var(--text); background: rgb(255 255 255 / 0.04); }
+.timelineToolButton.active {
+  background: rgb(122 167 255 / 0.18);
+  border-color: rgb(122 167 255 / 0.45);
+  color: var(--text);
+}
+
+/* When cut mode is active, the screen lane's track shows a crosshair so the
+ * user understands a drag will mark a cut range, not move the playhead. */
+.timelineLane.cutModeActive .laneTrack { cursor: crosshair; }
+
+/* Ghost preview of the in-progress cut drag. */
+.cutDragPreview {
+  background: rgb(248 113 113 / 0.22);
+  border: 1px solid rgb(248 113 113 / 0.65);
+  border-radius: 4px;
+  bottom: 0.2rem;
+  pointer-events: none;
+  position: absolute;
+  top: 0.2rem;
+}
+
 .timelineHeader { justify-content: space-between; }
 .emptyTimeline p { margin: 0; }
 .timelineSkeleton { display: grid; gap: 0.42rem; margin-top: 0.2rem; }
