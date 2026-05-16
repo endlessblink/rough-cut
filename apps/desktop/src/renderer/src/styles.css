@@ -31,6 +31,27 @@
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; min-height: 100%; overflow: hidden; }
 body { margin: 0; overflow: hidden; }
+
+/* Global scrollbar — applies to every scrollable surface in the app so we
+ * never see the platform default chunky bar. Hoisted from the editor's
+ * setupBoard style. Per-element overrides (e.g. .setupBoard's own rules
+ * below) keep working because their selector specificity is higher. */
+html {
+  scrollbar-color: #3a3a46 #101015;
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar { width: 0.7rem; height: 0.7rem; }
+*::-webkit-scrollbar-track {
+  background: #101015;
+  border-left: 1px solid #24242e;
+}
+*::-webkit-scrollbar-thumb {
+  background: #3a3a46;
+  border: 2px solid #101015;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover { background: #4b4b58; }
+*::-webkit-scrollbar-corner { background: #101015; }
 button, select, input { font: inherit; }
 h1, h2, h3, p { margin-top: 0; }
 
@@ -1607,6 +1628,38 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .zoomMarkerPanel,
 .autoZoomSuggestionsPanel,
 .cameraFollowPanel { min-height: 0; }
+
+/* Timeline tool board sections — direct children of `.timelineBoardStack` —
+ * share one chrome treatment instead of each component carrying its own
+ * card background+border. The board itself is the card; sections inside
+ * get eyebrows + thin top dividers between siblings. Matches the cursor
+ * tool's flat-group pattern. */
+.timelineBoardStack > .zoomMarkerPanel,
+.timelineBoardStack > .cameraFollowPanel,
+.timelineBoardStack > .autoZoomSuggestionsPanel,
+.timelineBoardStack > .inspectorSection {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0.25rem 0 0;
+}
+.timelineBoardStack > .timelineCompactRow + .zoomMarkerPanel,
+.timelineBoardStack > .timelineCompactRow + .cameraFollowPanel,
+.timelineBoardStack > .timelineCompactRow + .autoZoomSuggestionsPanel,
+.timelineBoardStack > .timelineCompactRow + .inspectorSection,
+.timelineBoardStack > .zoomMarkerPanel + *,
+.timelineBoardStack > .cameraFollowPanel + *,
+.timelineBoardStack > .autoZoomSuggestionsPanel + *,
+.timelineBoardStack > .inspectorSection + * {
+  border-top: 1px solid rgb(255 255 255 / 0.06);
+  margin-top: 0.45rem;
+  padding-top: 0.85rem;
+}
+.timelineBoardStack { gap: 0.5rem; }
+.timelineBoardStack > .timelineCompactRow {
+  border-bottom: 0;
+  padding-bottom: 0.1rem;
+}
 
 .timelineHeader { justify-content: space-between; }
 .emptyTimeline p { margin: 0; }

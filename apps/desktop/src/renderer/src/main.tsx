@@ -1991,8 +1991,6 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
           <div className="timelineBoardStack" data-ui-region="timeline-zoom-control-panel">
             <div className="timelineCompactRow"><span>Playhead</span><strong>{formatClock(currentTimeSec)}</strong></div>
             <ZoomMarkerPanel project={project} fps={fps} currentTimeSec={currentTimeSec} markerCount={markerCount} onProjectChange={onProjectChange} />
-            <CameraFollowPanel project={project} onProjectChange={onProjectChange} />
-            <AutoZoomSuggestionsPanel project={project} onProjectChange={onProjectChange} />
             <InspectorSection id="zoom" title={selectedZoomMarker ? 'Selected marker' : 'Marker editor'} muted={!selectedZoomMarker} description={selectedZoomMarker ? undefined : 'Pick a marker from the timeline to edit its range and depth.'}>
               <div data-zoom-controls="true">
                 <InspectorSlider label="Start frame" value={selectedZoomMarker?.startFrame ?? 0} min={0} max={Math.max(1, project?.recording?.duration ?? 1)} step={1} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerRangeChange?.(selectedZoomMarker.id, value, selectedZoomMarker.endFrame) : undefined} />
@@ -2000,6 +1998,8 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
                 <InspectorSlider label="Depth" value={Math.round((selectedZoomMarker?.strength ?? 0) * 100)} min={0} max={100} step={5} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerStrengthChange?.(selectedZoomMarker.id, value / 100) : undefined} />
               </div>
             </InspectorSection>
+            <AutoZoomSuggestionsPanel project={project} onProjectChange={onProjectChange} />
+            <CameraFollowPanel project={project} onProjectChange={onProjectChange} />
             <InspectorSection id="cuts" title="Cuts" description="Mark a start frame, then cut from there to the playhead.">
               <div className="cutRangePanel" data-cut-range-panel="true">
                 <div className="timelineCompactRow"><span>Removed</span><strong>{cutRanges.length}</strong></div>
@@ -3033,7 +3033,8 @@ function ZoomMarkerPanel({
 
   return (
     <div className="zoomMarkerPanel" aria-label="Zoom markers">
-      <div className="timelineCompactRow"><span>Markers</span><strong>{markerCount}</strong><button type="button" className="secondary compact" onClick={handleAdd} disabled={!canAdd || isSaving}>+ Add</button></div>
+      <p className="eyebrow">Markers</p>
+      <div className="timelineCompactRow"><span>Count</span><strong>{markerCount}</strong><button type="button" className="secondary compact" onClick={handleAdd} disabled={!canAdd || isSaving}>+ Add</button></div>
       {markers.length === 0 ? (
         <p className="zoomMarkerEmpty">No markers</p>
       ) : (
@@ -3209,6 +3210,7 @@ function AutoZoomSuggestionsPanel({
 
   return (
     <div className="autoZoomSuggestionsPanel" aria-label="Auto-zoom suggestions">
+      <p className="eyebrow">Auto zoom</p>
       <div className="timelineCompactRow">
         <span>Suggestions</span>
         <strong>{hasGenerated ? suggestions.length : '—'}</strong>
