@@ -120,26 +120,6 @@ const CURSOR_EMA_ALPHA: Record<'smooth' | 'focused', number> = {
   focused: 0.5,
 };
 
-function getMarkerScale(
-  frame: Frame,
-  marker: ZoomMarker,
-  targetScale: number,
-): number {
-  if (frame < marker.startFrame || frame >= marker.endFrame) return 1;
-  const relFrame = frame - marker.startFrame;
-  const totalDuration = marker.endFrame - marker.startFrame;
-  if (relFrame < marker.zoomInDuration && marker.zoomInDuration > 0) {
-    const t = relFrame / marker.zoomInDuration;
-    return 1 + (targetScale - 1) * smootherStep(t);
-  }
-  if (relFrame >= totalDuration - marker.zoomOutDuration && marker.zoomOutDuration > 0) {
-    const framesIntoRamp = relFrame - (totalDuration - marker.zoomOutDuration);
-    const t = framesIntoRamp / marker.zoomOutDuration;
-    return targetScale - (targetScale - 1) * smootherStep(t);
-  }
-  return targetScale;
-}
-
 // Safe-zone camera: the camera focus holds still while the cursor is inside
 // an inner safe zone of the visible window. When the cursor would leave that
 // zone, the camera shifts just enough to keep the cursor inside it. The
@@ -228,29 +208,29 @@ function resolveSpringSmoothedFocal(
     const inRampOut = f >= rampOutStart && marker.zoomOutDuration > 0;
 
     if (emaX !== null && emaY !== null && !inRampOut) {
-      const scaleAtF = getMarkerScale(f, marker, targetScale);
-      const halfSpan = 1 / (2 * scaleAtF);
+      // Use the TARGET scale for safe-zone math, not the current frame's
+      // ramp-time scale. Recomputing the safe zone at the ramp-time scale
+      // (smaller during ramp-in) shrinks the safe zone and pulls camTarget
+      // toward center during the ramp, then releases it as scale grows —
+      // visible as the "over the cursor, then correct" vertical jitter.
+      const halfSpan = 1 / (2 * targetScale);
       const visibleSpan = halfSpan * 2;
       const inset = visibleSpan * safeZoneRatio;
 
-      // Safe zone in source-normalized coords, centered on current camera target
       const safeLeft = camTargetX - halfSpan + inset;
       const safeRight = camTargetX + halfSpan - inset;
       const safeTop = camTargetY - halfSpan + inset;
       const safeBottom = camTargetY + halfSpan - inset;
 
-      // Shift the camera ONLY when the cursor leaves the safe zone, and only
-      // by enough to put the cursor back at the safe-zone edge. This produces
-      // a piecewise-constant target — spring rests for most of the timeline.
       if (emaX < safeLeft) camTargetX -= safeLeft - emaX;
       else if (emaX > safeRight) camTargetX += emaX - safeRight;
       if (emaY < safeTop) camTargetY -= safeTop - emaY;
       else if (emaY > safeBottom) camTargetY += emaY - safeBottom;
 
-      // Source-bound clamp so the camera target never points outside the
-      // valid in-source window for the current scale.
-      const minXY = 1 / (2 * scaleAtF);
-      const maxXY = 1 - 1 / (2 * scaleAtF);
+      // Clamp at target scale (constant for the marker). computeTranslate
+      // does the per-frame scale-aware clamping at render time.
+      const minXY = 1 / (2 * targetScale);
+      const maxXY = 1 - 1 / (2 * targetScale);
       camTargetX = clamp(camTargetX, minXY, maxXY);
       camTargetY = clamp(camTargetY, minXY, maxXY);
     }
