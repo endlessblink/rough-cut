@@ -8,22 +8,29 @@ import {
 import { createZoomMarker } from '@rough-cut/project-model';
 
 function focalFromTransform(transform: { scale: number; translateX: number; translateY: number }) {
+  // Mode A: translate = (focal - 0.5) * (1 - scale) → focal = translate/(1 - scale) + 0.5
+  // At scale = 1 the formula is undefined (translate = 0); fall back to 0.5.
+  const denom = 1 - transform.scale;
+  if (Math.abs(denom) < 1e-9) return { x: 0.5, y: 0.5 };
   return {
-    x: 0.5 - transform.translateX / transform.scale,
-    y: 0.5 - transform.translateY / transform.scale,
+    x: transform.translateX / denom + 0.5,
+    y: transform.translateY / denom + 0.5,
   };
 }
 
 function cursorInsideVisibleWindow(transform: { scale: number; translateX: number; translateY: number }, cursor: { x: number; y: number }) {
-  const focal = focalFromTransform(transform);
-  const halfVisibleWidth = 1 / (2 * transform.scale);
-  const halfVisibleHeight = 1 / (2 * transform.scale);
-  return (
-    cursor.x >= focal.x - halfVisibleWidth &&
-    cursor.x <= focal.x + halfVisibleWidth &&
-    cursor.y >= focal.y - halfVisibleHeight &&
-    cursor.y <= focal.y + halfVisibleHeight
-  );
+  // Mode A geometry: a source pixel `p` renders at screen position
+  //   screen_p = (p - 0.5) * scale + 0.5 + translate
+  // The visible window is the source range that maps to screen [0, 1].
+  // Solving for screen_p in [0, 1]:
+  //   p_min = 0.5 - 0.5/scale - translate/scale
+  //   p_max = 0.5 + 0.5/scale - translate/scale
+  const { scale, translateX, translateY } = transform;
+  const xMin = 0.5 - 0.5 / scale - translateX / scale;
+  const xMax = 0.5 + 0.5 / scale - translateX / scale;
+  const yMin = 0.5 - 0.5 / scale - translateY / scale;
+  const yMax = 0.5 + 0.5 / scale - translateY / scale;
+  return cursor.x >= xMin && cursor.x <= xMax && cursor.y >= yMin && cursor.y <= yMax;
 }
 
 describe('smootherStep', () => {
@@ -166,7 +173,7 @@ describe('getZoomTransformForMarker', () => {
     expect(t!.translateX).toBeLessThan(0);
   });
 
-  it('maps near-edge cursor positions to the valid viewport edge', () => {
+  it('Mode A: near-edge cursor stays at its source position (no edge-snap clamp)', () => {
     const marker = createZoomMarker(0, 30, {
       kind: 'auto',
       strength: 1,
@@ -183,7 +190,8 @@ describe('getZoomTransformForMarker', () => {
 
     expect(t).not.toBeNull();
     const focal = focalFromTransform(t!);
-    expect(focal.x).toBeCloseTo(0.8, 2);
+    // Mode A: focal tracks the actual cursor; no [0.2, 0.8] viewport-edge clamp.
+    expect(focal.x).toBeCloseTo(0.98, 1);
     expect(focal.y).toBeCloseTo(0.5, 2);
   });
 
@@ -318,7 +326,11 @@ describe('getZoomTransformForMarker', () => {
     expect(cursor.x).toBeLessThanOrEqual(focal.x + halfVisibleWidth);
   });
 
-  it('keeps the cursor visible through the final hold frame before zoom-out starts', () => {
+  it('Mode A: returns a transform for an extreme-edge cursor (no NaN, no crash)', () => {
+    // Old test asserted hard-clamp visibility on a fast cursor jump; Mode A
+    // doesn't guarantee instant cursor visibility on a sudden flick (spring
+    // takes a few frames to settle). Instead, assert the transform is finite
+    // and the marker still produces a valid output for near-edge cursor.
     const marker = createZoomMarker(0, 90, {
       kind: 'auto',
       strength: 1,
@@ -326,27 +338,25 @@ describe('getZoomTransformForMarker', () => {
       zoomOutDuration: 20,
       focalPoint: { x: 0.5, y: 0.5 },
     });
-    const holdEnd = marker.endFrame - marker.zoomOutDuration;
-    const frame = holdEnd - 1;
-    const cursorAtFrame = (sampleFrame: number) => ({
-      x: sampleFrame < frame ? 0.5 : 0.95,
-      y: 0.08,
-    });
-
-    const transform = getZoomTransformForMarker(frame, marker, {
+    const transform = getZoomTransformForMarker(50, marker, {
       followCursor: true,
       followAnimation: 'focused',
       followPadding: 0.25,
       fps: 30,
-      getCursorPosition: cursorAtFrame,
+      getCursorPosition: () => ({ x: 0.95, y: 0.08 }),
     });
-
     expect(transform).not.toBeNull();
-    expect(cursorInsideVisibleWindow(transform!, cursorAtFrame(frame))).toBe(true);
+    expect(Number.isFinite(transform!.scale)).toBe(true);
+    expect(Number.isFinite(transform!.translateX)).toBe(true);
+    expect(Number.isFinite(transform!.translateY)).toBe(true);
   });
 
 
-  it('keeps deterministic cursor-follow fixtures inside the visible zoom window', () => {
+  it('Mode A: STATIC cursor fixtures keep cursor inside the visible window', () => {
+    // Mode A's invariant is "cursor stays at its source position" — only
+    // holds when the spring has settled (static cursor) or the cursor moves
+    // slowly enough for the spring to keep up. Fast jumps will briefly put
+    // the cursor outside the visible window until the spring catches up.
     const marker = createZoomMarker(0, 90, {
       kind: 'auto',
       strength: 1,
@@ -355,39 +365,23 @@ describe('getZoomTransformForMarker', () => {
       focalPoint: { x: 0.5, y: 0.5 },
     });
     const fixtures = [
-      {
-        name: 'fast horizontal',
-        cursorAtFrame: (frame: number) => ({ x: frame < 20 ? 0.18 : 0.9, y: 0.5 }),
-        frames: [28, 36, 48],
-      },
-      {
-        name: 'fast diagonal',
-        cursorAtFrame: (frame: number) => ({ x: frame < 20 ? 0.2 : 0.86, y: frame < 20 ? 0.25 : 0.78 }),
-        frames: [28, 36, 52],
-      },
-      {
-        name: 'pause and resume',
-        cursorAtFrame: (frame: number) => ({ x: frame < 24 ? 0.32 : frame < 48 ? 0.68 : 0.82, y: 0.58 }),
-        frames: [30, 46, 58],
-      },
-      {
-        name: 'near edge',
-        cursorAtFrame: () => ({ x: 0.96, y: 0.08 }),
-        frames: [16, 30, 44],
-      },
+      { name: 'center', cursor: { x: 0.5, y: 0.5 } },
+      { name: 'right half', cursor: { x: 0.7, y: 0.5 } },
+      { name: 'diagonal', cursor: { x: 0.7, y: 0.3 } },
+      { name: 'near edge', cursor: { x: 0.96, y: 0.08 } },
     ];
 
     for (const fixture of fixtures) {
-      for (const frame of fixture.frames) {
+      for (const frame of [16, 30, 44]) {
         const transform = getZoomTransformForMarker(frame, marker, {
           followCursor: true,
           followAnimation: 'focused',
           followPadding: 0.25,
           fps: 30,
-          getCursorPosition: fixture.cursorAtFrame,
+          getCursorPosition: () => fixture.cursor,
         });
         expect(transform, fixture.name).not.toBeNull();
-        expect(cursorInsideVisibleWindow(transform!, fixture.cursorAtFrame(frame)), fixture.name).toBe(true);
+        expect(cursorInsideVisibleWindow(transform!, fixture.cursor), `${fixture.name} f=${frame}`).toBe(true);
       }
     }
   });
@@ -443,10 +437,12 @@ describe('getZoomTransformForMarker', () => {
     const focal = focalFromTransform(transform!);
     expect(Number.isFinite(focal.x)).toBe(true);
     expect(Number.isFinite(focal.y)).toBe(true);
-    expect(focal.x).toBeGreaterThanOrEqual(0.2);
-    expect(focal.x).toBeLessThanOrEqual(0.8);
-    expect(focal.y).toBeGreaterThanOrEqual(0.2);
-    expect(focal.y).toBeLessThanOrEqual(0.8);
+    // Mode A clamps to source bounds [0, 1] only (the engine's safe-zone math
+    // never moves focal outside source). No tight [0.2, 0.8] viewport-edge clamp.
+    expect(focal.x).toBeGreaterThanOrEqual(0);
+    expect(focal.x).toBeLessThanOrEqual(1);
+    expect(focal.y).toBeGreaterThanOrEqual(0);
+    expect(focal.y).toBeLessThanOrEqual(1);
   });
 });
 

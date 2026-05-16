@@ -69,32 +69,31 @@ export function strengthToScale(strength: number): number {
 
 /**
  * Compute the translate offset for a given scale and focal point.
- * The focal point is in normalized coords (0–1), with 0.5 being center.
- * Returns the CSS translate offset as a fraction of container size.
+ *
+ * Mode A (zoom-around-cursor): the focal point stays at its source-relative
+ * screen position throughout the zoom — the rest of the frame magnifies around
+ * it. Matches Recordly / Screen Studio behavior. Avoids the cursor-slides-
+ * across-screen visual that the old "zoom-toward-center" model produced
+ * during ramp-in/out.
+ *
+ * Formula: translate = (focal - 0.5) * (1 - scale)
+ *
+ * At scale = 1 → translate = 0 (identity).
+ * As scale grows → translate accumulates in the direction that keeps the
+ * focal point fixed at its source-x screen position.
+ *
+ * No clamping needed: focal ∈ [0, 1] always produces a visible window that
+ * stays within source bounds, because the formula derives from the constraint
+ * that the focal point itself stays inside the viewport.
  */
 function computeTranslate(
   scale: number,
   focalX: number,
   focalY: number,
 ): { translateX: number; translateY: number } {
-  // At scale S, the visible window is 1/S of the source.
-  // Maximum pan range in each direction:
-  const maxOffsetX = (1 - 1 / scale) / 2;
-  const maxOffsetY = (1 - 1 / scale) / 2;
-
-  // Desired offset from center
-  const desiredX = focalX - 0.5;
-  const desiredY = focalY - 0.5;
-
-  // Clamp to available pan range
-  const clampedX = Math.max(-maxOffsetX, Math.min(maxOffsetX, desiredX));
-  const clampedY = Math.max(-maxOffsetY, Math.min(maxOffsetY, desiredY));
-
-  // Negate because to pan the viewport toward the focal point,
-  // we move the content in the opposite direction
   return {
-    translateX: -clampedX * scale,
-    translateY: -clampedY * scale,
+    translateX: (focalX - 0.5) * (1 - scale),
+    translateY: (focalY - 0.5) * (1 - scale),
   };
 }
 
@@ -175,10 +174,9 @@ function resolveSpringSmoothedFocal(
     // Source-bound clamp at TARGET scale so the seed is valid for the hold
     // phase (the largest scale). The transform's own clamp will rein this in
     // during ramps where the visible window is narrower than the source.
-    const seedMin = 1 / (2 * targetScale);
-    const seedMax = 1 - seedMin;
-    camTargetX = clamp(seedRaw.x, seedMin, seedMax);
-    camTargetY = clamp(seedRaw.y, seedMin, seedMax);
+    // Mode A: no source-bound clamp needed; focal in [0, 1] always valid.
+    camTargetX = clamp(seedRaw.x, 0, 1);
+    camTargetY = clamp(seedRaw.y, 0, 1);
   }
 
   // Pre-compute the start of ramp-out so we can FREEZE the camera target once
@@ -227,12 +225,10 @@ function resolveSpringSmoothedFocal(
       if (emaY < safeTop) camTargetY -= safeTop - emaY;
       else if (emaY > safeBottom) camTargetY += emaY - safeBottom;
 
-      // Clamp at target scale (constant for the marker). computeTranslate
-      // does the per-frame scale-aware clamping at render time.
-      const minXY = 1 / (2 * targetScale);
-      const maxXY = 1 - 1 / (2 * targetScale);
-      camTargetX = clamp(camTargetX, minXY, maxXY);
-      camTargetY = clamp(camTargetY, minXY, maxXY);
+      // Mode A: clamp only to source [0, 1]; the new computeTranslate keeps
+      // the visible window valid for any focal in this range.
+      camTargetX = clamp(camTargetX, 0, 1);
+      camTargetY = clamp(camTargetY, 0, 1);
     }
 
     stepSpring(stateX, camTargetX, dtMs, cfg);
@@ -240,28 +236,6 @@ function resolveSpringSmoothedFocal(
   }
 
   return { x: stateX.value, y: stateY.value };
-}
-
-function containCursorInVisibleWindow(
-  focal: ZoomCursorPosition,
-  cursor: ZoomCursorPosition | null,
-  scale: number,
-): ZoomCursorPosition {
-  if (cursor === null) return focal;
-  const halfVisibleWidth = 1 / (2 * scale);
-  const halfVisibleHeight = 1 / (2 * scale);
-  let x = focal.x;
-  let y = focal.y;
-
-  if (cursor.x < x - halfVisibleWidth) x = cursor.x + halfVisibleWidth;
-  if (cursor.x > x + halfVisibleWidth) x = cursor.x - halfVisibleWidth;
-  if (cursor.y < y - halfVisibleHeight) y = cursor.y + halfVisibleHeight;
-  if (cursor.y > y + halfVisibleHeight) y = cursor.y - halfVisibleHeight;
-
-  return {
-    x: clamp(x, halfVisibleWidth, 1 - halfVisibleWidth),
-    y: clamp(y, halfVisibleHeight, 1 - halfVisibleHeight),
-  };
 }
 
 // Phase-aware focal point resolution. The marker's life splits into three
@@ -277,17 +251,13 @@ function getMarkerFocalPoint(
   scale: number,
   options: ZoomTransformOptions | undefined,
 ): ZoomCursorPosition {
-  // Clamp focal to the bounds valid at the marker's TARGET scale (the largest
-  // scale this marker will reach). Render-time computeTranslate then clamps
-  // the translate offset for the current frame's actual scale. Using the
-  // ramp-time `scale` here would force focal toward 0.5 at low scales and
-  // release it as scale grew — visible as wobble during ramp-in/out.
-  const targetScaleForClamp = strengthToScale(marker.strength);
-  const minXY = 1 / (2 * targetScaleForClamp);
-  const maxXY = 1 - 1 / (2 * targetScaleForClamp);
+  // Mode A (zoom-around-cursor) needs no source-bound clamp on focal: the
+  // computeTranslate formula `translate = (focal - 0.5) * (1 - scale)`
+  // produces a valid visible window for any focal in [0, 1]. We only clamp
+  // away from off-source values to keep telemetry sane.
   const sourceClamp = (x: number, y: number) => ({
-    x: clamp(x, minXY, maxXY),
-    y: clamp(y, minXY, maxXY),
+    x: clamp(x, 0, 1),
+    y: clamp(y, 0, 1),
   });
   void scale; // retained in signature for caller compatibility
 
@@ -318,19 +288,11 @@ function getMarkerFocalPoint(
     fps,
     options.cursorSmoothing,
   );
-  // Use targetScale here, NOT the ramp-time `scale`. With ramp-time scale,
-  // the cursor-visibility clamp at small scales (near scale=1) forces focal
-  // toward 0.5 — then releases as scale grows, producing a visible vertical/
-  // horizontal "over the cursor, then correct" wobble during ramp-in.
-  // computeTranslate at the render boundary still does scale-aware clamping
-  // of the final translate offset, so framing geometry stays correct.
-  const targetScale = strengthToScale(marker.strength);
-  const contained = containCursorInVisibleWindow(
-    followed,
-    options.getCursorPosition(frame),
-    targetScale,
-  );
-  return sourceClamp(contained.x, contained.y);
+  // Mode A: the spring-tracked focal IS the cursor (within source bounds),
+  // and the new computeTranslate keeps the cursor at its source-relative
+  // screen position. No visible-window clamp needed — the geometry is
+  // automatically valid for any focal ∈ [0, 1].
+  return sourceClamp(followed.x, followed.y);
 }
 
 /**

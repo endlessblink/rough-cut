@@ -12,7 +12,9 @@ import { createZoomMarker } from '@rough-cut/project-model';
  */
 
 function focalFromTransform(t: { scale: number; translateX: number; translateY: number }) {
-  return { x: 0.5 - t.translateX / t.scale, y: 0.5 - t.translateY / t.scale };
+  const denom = 1 - t.scale;
+  if (Math.abs(denom) < 1e-9) return { x: 0.5, y: 0.5 };
+  return { x: t.translateX / denom + 0.5, y: t.translateY / denom + 0.5 };
 }
 
 const baseOptions = {
@@ -156,9 +158,15 @@ describe('wobble — focal must not reverse direction during ramp for static cur
 });
 
 describe('wobble — screen-position smoothness (geometric correctness)', () => {
-  it('static cursor near edge: cursor screen-position changes monotonically during ramp-in', () => {
-    // Verify the rendered SCREEN position of the cursor (focal*scale + translate)
-    // changes monotonically — no double-back. This is the user-perceptible signal.
+  it('Mode A: static cursor near edge stays at its screen position throughout the ramp', () => {
+    // In zoom-around-cursor mode, the cursor's rendered screen position should
+    // remain essentially constant throughout the zoom — content magnifies
+    // around it. The total cursor drift across all frames must be tiny (no
+    // visible slide).
+    //
+    // Screen position formula (Mode A):
+    //   screen_p = (cursor - 0.5) * scale + 0.5 + (focal - 0.5) * (1 - scale)
+    // When focal = cursor exactly, screen_p = cursor (constant).
     const marker = createZoomMarker(0, 60, {
       kind: 'manual',
       strength: 1,
@@ -168,12 +176,12 @@ describe('wobble — screen-position smoothness (geometric correctness)', () => 
     });
     const cursor = { x: 0.85, y: 0.15 };
     const samples = sampleTrajectory(marker, cursor);
-    // screen_p = (cursor_p - focal_p) * scale + 0.5
-    const screenX = samples.map((s) => (cursor.x - s.focalX) * s.scale + 0.5);
-    const screenY = samples.map((s) => (cursor.y - s.focalY) * s.scale + 0.5);
-    const xResult = isMonotonic(screenX);
-    const yResult = isMonotonic(screenY);
-    expect(xResult.ok, `screen X wobbled: ${xResult.details}`).toBe(true);
-    expect(yResult.ok, `screen Y wobbled: ${yResult.details}`).toBe(true);
+    const screenX = samples.map((s) => (cursor.x - 0.5) * s.scale + 0.5 + (s.focalX - 0.5) * (1 - s.scale));
+    const screenY = samples.map((s) => (cursor.y - 0.5) * s.scale + 0.5 + (s.focalY - 0.5) * (1 - s.scale));
+    // Total drift across the entire marker must be < 0.02 (≈ 20 pixels on a 1080p canvas).
+    const driftX = Math.max(...screenX) - Math.min(...screenX);
+    const driftY = Math.max(...screenY) - Math.min(...screenY);
+    expect(driftX, `cursor X drifted ${driftX.toFixed(4)} on screen during zoom`).toBeLessThan(0.02);
+    expect(driftY, `cursor Y drifted ${driftY.toFixed(4)} on screen during zoom`).toBeLessThan(0.02);
   });
 });

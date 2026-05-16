@@ -12,24 +12,22 @@ import { createZoomMarker } from '@rough-cut/project-model';
  */
 
 function focalFromTransform(t: { scale: number; translateX: number; translateY: number }) {
-  return {
-    x: 0.5 - t.translateX / t.scale,
-    y: 0.5 - t.translateY / t.scale,
-  };
+  const denom = 1 - t.scale;
+  if (Math.abs(denom) < 1e-9) return { x: 0.5, y: 0.5 };
+  return { x: t.translateX / denom + 0.5, y: t.translateY / denom + 0.5 };
 }
 
 function cursorInsideVisibleWindow(
   t: { scale: number; translateX: number; translateY: number },
   cursor: { x: number; y: number },
 ) {
-  const f = focalFromTransform(t);
-  const half = 1 / (2 * t.scale);
-  return (
-    cursor.x >= f.x - half &&
-    cursor.x <= f.x + half &&
-    cursor.y >= f.y - half &&
-    cursor.y <= f.y + half
-  );
+  // Mode A geometry.
+  const { scale, translateX, translateY } = t;
+  const xMin = 0.5 - 0.5 / scale - translateX / scale;
+  const xMax = 0.5 + 0.5 / scale - translateX / scale;
+  const yMin = 0.5 - 0.5 / scale - translateY / scale;
+  const yMax = 0.5 + 0.5 / scale - translateY / scale;
+  return cursor.x >= xMin && cursor.x <= xMax && cursor.y >= yMin && cursor.y <= yMax;
 }
 
 const baseOptions = {
