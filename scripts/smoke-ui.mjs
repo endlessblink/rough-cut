@@ -10,6 +10,7 @@ const mediaPath = join(root, 'preview-source.mp4');
 const exportPath = join(root, 'export.mp4');
 const resultPath = join(root, 'ui-smoke-result.json');
 const screenshotPath = join(root, 'ui-smoke.png');
+const timelineScreenshotPath = join(root, 'ui-smoke-timeline.png');
 
 await mkdir(root, { recursive: true });
 run('ffmpeg', [
@@ -80,6 +81,9 @@ const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb'
     ROUGH_CUT_UI_SMOKE_EXPORT_PATH: exportPath,
     ROUGH_CUT_UI_SMOKE_RESULT_PATH: resultPath,
     ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH: screenshotPath,
+    ROUGH_CUT_UI_SMOKE_SCREENSHOT_TIMELINE_PATH: timelineScreenshotPath,
+    ROUGH_CUT_UI_SMOKE_WINDOW_WIDTH: '1280',
+    ROUGH_CUT_UI_SMOKE_WINDOW_HEIGHT: '900',
   },
   encoding: 'utf8',
 });

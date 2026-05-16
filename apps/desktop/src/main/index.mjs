@@ -168,6 +168,14 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
           await writeFile(process.env.ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH, image.toPNG());
           result.hasVisualScreenshot = true;
         }
+        if (process.env.ROUGH_CUT_UI_SMOKE_SCREENSHOT_TIMELINE_PATH) {
+          await window.webContents.executeJavaScript(`document.querySelector('button[aria-label="Timeline"]')?.click();`, true);
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          const timelineImage = await window.webContents.capturePage();
+          await mkdir(dirname(process.env.ROUGH_CUT_UI_SMOKE_SCREENSHOT_TIMELINE_PATH), { recursive: true });
+          await writeFile(process.env.ROUGH_CUT_UI_SMOKE_SCREENSHOT_TIMELINE_PATH, timelineImage.toPNG());
+          result.hasTimelineScreenshot = true;
+        }
         await mkdir(dirname(process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH), { recursive: true });
         await writeFile(process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH, `${JSON.stringify(result, null, 2)}\n`);
         console.info(`[ui-smoke] wrote ${process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH}`);

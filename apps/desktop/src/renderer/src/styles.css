@@ -23,6 +23,15 @@
   --control-range-thumb-start: #ffffff;
   --control-range-thumb-end: #d8dee9;
   --control-range-thumb-border: rgb(15 23 42 / 0.45);
+  /* Scrollbar tokens — applied app-wide via the global rule below. Override
+     per-component only when a specific pane truly needs a different size. */
+  --scrollbar-size: 0.7rem;
+  --scrollbar-track: #101015;
+  --scrollbar-track-border: #24242e;
+  --scrollbar-thumb: #3a3a46;
+  --scrollbar-thumb-hover: #4b4b58;
+  --scrollbar-thumb-border-width: 2px;
+  --scrollbar-thumb-radius: 999px;
   color: var(--text);
   background: var(--bg);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -37,21 +46,24 @@ body { margin: 0; overflow: hidden; }
  * setupBoard style. Per-element overrides (e.g. .setupBoard's own rules
  * below) keep working because their selector specificity is higher. */
 html {
-  scrollbar-color: #3a3a46 #101015;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: thin;
 }
-*::-webkit-scrollbar { width: 0.7rem; height: 0.7rem; }
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
 *::-webkit-scrollbar-track {
-  background: #101015;
-  border-left: 1px solid #24242e;
+  background: var(--scrollbar-track);
+  border-left: 1px solid var(--scrollbar-track-border);
 }
 *::-webkit-scrollbar-thumb {
-  background: #3a3a46;
-  border: 2px solid #101015;
-  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  border: var(--scrollbar-thumb-border-width) solid var(--scrollbar-track);
+  border-radius: var(--scrollbar-thumb-radius);
 }
-*::-webkit-scrollbar-thumb:hover { background: #4b4b58; }
-*::-webkit-scrollbar-corner { background: #101015; }
+*::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+*::-webkit-scrollbar-corner { background: var(--scrollbar-track); }
 button, select, input { font: inherit; }
 h1, h2, h3, p { margin-top: 0; }
 
@@ -687,30 +699,16 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   overflow-x: hidden;
   overflow-y: auto;
   padding: 1rem;
-  scrollbar-color: #3a3a46 #101015;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   transition: opacity 140ms ease;
 }
 
-.setupBoard::-webkit-scrollbar {
-  width: 0.7rem;
-}
-
-.setupBoard::-webkit-scrollbar-track {
-  background: #101015;
-  border-left: 1px solid #24242e;
-}
-
-.setupBoard::-webkit-scrollbar-thumb {
-  background: #3a3a46;
-  border: 2px solid #101015;
-  border-radius: 999px;
-}
-
-.setupBoard::-webkit-scrollbar-thumb:hover {
-  background: #4b4b58;
-}
+/* .setupBoard previously redefined the scrollbar locally; the global rule
+   above now covers every scrollable surface using --scrollbar-* tokens.
+   Keep only setupBoard-specific overrides if/when they diverge from the
+   global. Today they match exactly, so no per-element rules are needed. */
 
 .setupClosed .setupBoard,
 .inspectorClosed .inspector {
@@ -1629,37 +1627,6 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .autoZoomSuggestionsPanel,
 .cameraFollowPanel { min-height: 0; }
 
-/* Timeline tool board sections — direct children of `.timelineBoardStack` —
- * share one chrome treatment instead of each component carrying its own
- * card background+border. The board itself is the card; sections inside
- * get eyebrows + thin top dividers between siblings. Matches the cursor
- * tool's flat-group pattern. */
-.timelineBoardStack > .zoomMarkerPanel,
-.timelineBoardStack > .cameraFollowPanel,
-.timelineBoardStack > .autoZoomSuggestionsPanel,
-.timelineBoardStack > .inspectorSection {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  padding: 0.25rem 0 0;
-}
-.timelineBoardStack > .timelineCompactRow + .zoomMarkerPanel,
-.timelineBoardStack > .timelineCompactRow + .cameraFollowPanel,
-.timelineBoardStack > .timelineCompactRow + .autoZoomSuggestionsPanel,
-.timelineBoardStack > .timelineCompactRow + .inspectorSection,
-.timelineBoardStack > .zoomMarkerPanel + *,
-.timelineBoardStack > .cameraFollowPanel + *,
-.timelineBoardStack > .autoZoomSuggestionsPanel + *,
-.timelineBoardStack > .inspectorSection + * {
-  border-top: 1px solid rgb(255 255 255 / 0.06);
-  margin-top: 0.45rem;
-  padding-top: 0.85rem;
-}
-.timelineBoardStack { gap: 0.5rem; }
-.timelineBoardStack > .timelineCompactRow {
-  border-bottom: 0;
-  padding-bottom: 0.1rem;
-}
 
 .timelineHeader { justify-content: space-between; }
 .emptyTimeline p { margin: 0; }
