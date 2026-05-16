@@ -204,6 +204,7 @@ export const RecordingBackgroundStyleSchema = z.object({
   bgShadowBlur: nonNegativeInt,
   bgShadowOpacity: unit,
   bgShadowOffsetY: nonNegativeInt.optional(),
+  bgShadowOffsetX: z.number().int().optional(),
 });
 
 // --- RecordingPresentation ---

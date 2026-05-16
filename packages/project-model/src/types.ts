@@ -183,6 +183,7 @@ export interface RecordingBackgroundStyle {
   readonly bgShadowBlur: number;
   readonly bgShadowOpacity: number;
   readonly bgShadowOffsetY?: number;
+  readonly bgShadowOffsetX?: number;
 }
 
 export type CropAspectRatio = 'free' | '16:9' | '9:16' | '1:1' | '4:3';

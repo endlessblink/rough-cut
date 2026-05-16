@@ -194,6 +194,10 @@ describe('factories', () => {
     it('persists the default shadow distance', () => {
       expect(createDefaultRecordingBackgroundStyle().bgShadowOffsetY).toBe(34);
     });
+
+    it('defaults the shadow X offset to zero (angle 0 = straight down)', () => {
+      expect(createDefaultRecordingBackgroundStyle().bgShadowOffsetX).toBe(0);
+    });
   });
 
   describe('recording visibility factories', () => {

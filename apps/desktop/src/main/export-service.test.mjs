@@ -285,6 +285,39 @@ test('styled export args apply presentation padding, radius, and shadow controls
   assert(joined.includes('hypot(44-X,44-Y)'));
 });
 
+test('styled export args apply signed shadow X offset and omit it when zero', () => {
+  const positive = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    width: 1920,
+    height: 1080,
+    screenShadowOffsetY: 34,
+    screenShadowOffsetX: 24,
+  }).join(' ');
+  assert(positive.includes('overlay=(W-w)/2+24:(H-h)/2+34:shortest=1[with_shadow]'));
+
+  const negative = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    width: 1920,
+    height: 1080,
+    screenShadowOffsetY: 34,
+    screenShadowOffsetX: -18,
+  }).join(' ');
+  assert(negative.includes('overlay=(W-w)/2-18:(H-h)/2+34:shortest=1[with_shadow]'));
+
+  const zero = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    width: 1920,
+    height: 1080,
+    screenShadowOffsetY: 34,
+    screenShadowOffsetX: 0,
+  }).join(' ');
+  // Back-compat: when X is zero, no `+0` is emitted in the overlay expression.
+  assert(zero.includes('overlay=(W-w)/2:(H-h)/2+34:shortest=1[with_shadow]'));
+});
+
 test('styled export args use a normalized screenFrame override when provided', () => {
   const args = buildStyledExportArgs({
     inputPath: '/tmp/source.mp4',

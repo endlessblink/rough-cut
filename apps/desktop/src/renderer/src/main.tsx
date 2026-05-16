@@ -129,6 +129,13 @@ declare global {
         mediaUrl: string | null;
         cameraMediaUrl?: string | null;
       }>;
+      duplicateProject: (payload: { path: string }) => Promise<{
+        path: string;
+        document: ProjectState['document'];
+        recording: ProjectState['recording'];
+        mediaUrl: string | null;
+        cameraMediaUrl?: string | null;
+      }>;
       channels: Record<string, string>;
     };
   }
@@ -2098,12 +2105,30 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
         <InspectorSlider label="Radius" value={bg.bgCornerRadius} min={0} max={120} step={2} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgCornerRadius: value })} />
         <InspectorSlider label="Padding" value={bg.bgPadding} min={0} max={260} step={4} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgPadding: value })} />
       </InspectorSection>
-      <BoardHeader icon="frame" title="Shadow" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.({ bgShadowEnabled: DEFAULT_RECORDING_BACKGROUND.bgShadowEnabled, bgShadowBlur: DEFAULT_RECORDING_BACKGROUND.bgShadowBlur, bgShadowOpacity: DEFAULT_RECORDING_BACKGROUND.bgShadowOpacity, bgShadowOffsetY: DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetY })} />
+      <BoardHeader icon="frame" title="Shadow" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.({ bgShadowEnabled: DEFAULT_RECORDING_BACKGROUND.bgShadowEnabled, bgShadowBlur: DEFAULT_RECORDING_BACKGROUND.bgShadowBlur, bgShadowOpacity: DEFAULT_RECORDING_BACKGROUND.bgShadowOpacity, bgShadowOffsetY: DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetY, bgShadowOffsetX: DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetX })} />
       <InspectorSection id="screen-shadow" title="Shadow">
         <InspectorToggle label="Enable shadow" checked={bg.bgShadowEnabled} disabled={disabled} onChange={(checked) => onBackgroundChange?.({ bgShadowEnabled: checked })} />
         <InspectorSlider label="Strength" value={bg.bgShadowOpacity} min={0} max={0.8} step={0.05} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowOpacity: value })} />
         <InspectorSlider label="Softness" value={bg.bgShadowBlur} min={0} max={140} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowBlur: value })} />
-        <InspectorSlider label="Distance" value={bg.bgShadowOffsetY ?? DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetY ?? 34} min={0} max={120} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => onBackgroundChange?.({ bgShadowOffsetY: value })} />
+        {(() => {
+          const offsetX = bg.bgShadowOffsetX ?? 0;
+          const offsetY = bg.bgShadowOffsetY ?? DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetY ?? 34;
+          const distance = Math.round(Math.hypot(offsetX, offsetY));
+          const angle = distance === 0 ? 0 : Math.round((Math.atan2(offsetX, offsetY) * 180) / Math.PI);
+          const setPolar = (nextDistance: number, nextAngle: number) => {
+            const rad = (nextAngle * Math.PI) / 180;
+            onBackgroundChange?.({
+              bgShadowOffsetY: Math.round(nextDistance * Math.cos(rad)),
+              bgShadowOffsetX: Math.round(nextDistance * Math.sin(rad)),
+            });
+          };
+          return (
+            <>
+              <InspectorSlider label="Distance" value={distance} min={0} max={120} step={2} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => setPolar(value, angle)} />
+              <InspectorSlider label="Angle" value={angle} min={-90} max={90} step={1} disabled={disabled || !bg.bgShadowEnabled} onChange={(value) => setPolar(distance, value)} />
+            </>
+          );
+        })()}
       </InspectorSection>
     </aside>
   );
@@ -3669,10 +3694,12 @@ function VideoPreview({
         const shadowBlur = Math.max(0, background.bgShadowBlur);
         const shadowOpacity = Math.min(0.8, Math.max(0, background.bgShadowOpacity));
         const shadowOffsetY = Math.max(0, background.bgShadowOffsetY ?? DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetY ?? 34);
+        const shadowOffsetX = background.bgShadowOffsetX ?? 0;
         ctx.shadowColor = `rgba(0, 0, 0, ${shadowOpacity})`;
         ctx.shadowBlur = shadowBlur;
         ctx.shadowOffsetY = shadowOffsetY;
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.01)';
+        ctx.shadowOffsetX = shadowOffsetX;
+        ctx.fillStyle = '#000';
         addRoundedRect(ctx, screenX, screenY, screenWidth, screenHeight, screenRadius);
         ctx.fill();
         ctx.restore();

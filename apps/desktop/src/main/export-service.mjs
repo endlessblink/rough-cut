@@ -140,6 +140,7 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       screenShadowBlur: presentationStyle.screenShadowBlur,
       screenShadowOpacity: presentationStyle.screenShadowOpacity,
       screenShadowOffsetY: presentationStyle.screenShadowOffsetY,
+      screenShadowOffsetX: presentationStyle.screenShadowOffsetX,
       backgroundStart,
       backgroundEnd,
       backgroundImagePath,
@@ -215,6 +216,7 @@ export function buildStyledExportArgs({
   screenShadowBlur = 58,
   screenShadowOpacity = 0.2,
   screenShadowOffsetY = 34,
+  screenShadowOffsetX = 0,
   backgroundStart = '#e8ebf0',
   backgroundEnd = '#f0e8e8',
   backgroundImagePath = null,
@@ -234,6 +236,7 @@ export function buildStyledExportArgs({
   const shadowBlur = Math.round(clampNumber(screenShadowBlur, 0, 120));
   const shadowOpacity = screenShadowEnabled ? clampNumber(screenShadowOpacity, 0, 0.8) : 0;
   const shadowOffsetY = Math.round(clampNumber(screenShadowOffsetY, 0, 120));
+  const shadowOffsetX = Math.round(clampNumber(screenShadowOffsetX, -120, 120));
   const backgroundExpression = buildBackgroundExpression(backgroundStart, backgroundEnd);
   const fps = Number.isFinite(sourceFps) && sourceFps > 0 ? sourceFps : 30;
   const backgroundFilter = backgroundImagePath
@@ -267,7 +270,7 @@ export function buildStyledExportArgs({
     `[screen]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${buildRoundedAlphaExpression(screenRadius)}'[rounded]`,
     `[rounded]split[shadow_src][fg]`,
     `[shadow_src]colorchannelmixer=rr=0:gg=0:bb=0:aa=${formatFilterNumber(shadowOpacity)},boxblur=${shadowBlur}:5[shadow]`,
-    `[bg][shadow]overlay=${screenFrame.x}:${screenFrame.y}+${shadowOffsetY}:shortest=1[with_shadow]`,
+    `[bg][shadow]overlay=${screenFrame.x}${shadowOffsetX === 0 ? '' : shadowOffsetX > 0 ? `+${shadowOffsetX}` : shadowOffsetX}:${screenFrame.y}+${shadowOffsetY}:shortest=1[with_shadow]`,
     `[with_shadow][fg]overlay=${screenFrame.x}:${screenFrame.y}:shortest=1[with_screen]`,
     ...(cameraFrame
       ? [
@@ -435,6 +438,7 @@ function normalizePresentationStyle(background = null) {
     screenShadowBlur: Number.isFinite(background?.bgShadowBlur) ? background.bgShadowBlur : 58,
     screenShadowOpacity: Number.isFinite(background?.bgShadowOpacity) ? background.bgShadowOpacity : 0.2,
     screenShadowOffsetY: Number.isFinite(background?.bgShadowOffsetY) ? background.bgShadowOffsetY : 34,
+    screenShadowOffsetX: Number.isFinite(background?.bgShadowOffsetX) ? background.bgShadowOffsetX : 0,
   };
 }
 
