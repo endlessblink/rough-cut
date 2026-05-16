@@ -116,8 +116,18 @@ declare global {
         thumbnailUrl: string | null;
         recordingUrl: string | null;
       }>>;
-      removeRecentProject: (path: string) => Promise<{ removed: string }>;
+      removeRecentProjects: (payload: { paths: string[]; openProjectPath?: string | null }) => Promise<{
+        deleted: string[];
+        failed: Array<{ path: string; error: string; code: string | null }>;
+      }>;
       clearRecentProjects: () => Promise<{ cleared: boolean; reason?: string }>;
+      renameProject: (payload: { path: string; name: string; openProjectPath?: string | null }) => Promise<{
+        path: string;
+        document: ProjectState['document'];
+        recording: ProjectState['recording'];
+        mediaUrl: string | null;
+        cameraMediaUrl?: string | null;
+      }>;
       channels: Record<string, string>;
     };
   }
@@ -2473,6 +2483,12 @@ function ProjectPreview({
     await persist(nextDocument);
   }
 
+  async function removeZoomMarker(markerId: string) {
+    const nextDocument = removeMarker(project.document as unknown as ProjectDocument, markerId) as unknown as ProjectState['document'];
+    if (nextDocument === project.document) return;
+    await persist(nextDocument);
+  }
+
   function handleTimelineScrub(nextTimeSec: number) {
     setCurrentTimeSec(nextTimeSec);
     if (isTimelineScrubbingRef.current) return;
@@ -2554,7 +2570,7 @@ function ProjectPreview({
           <p className="eyebrow"><Icon name="timeline" /> Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-          {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimStart={(sourceTimeSec) => updateTrim(Math.round(sourceTimeSec * effectiveRecording.fps), trimInfo.endFrame)} onTrimEnd={(sourceTimeSec) => updateTrim(trimInfo.startFrame, Math.round(sourceTimeSec * effectiveRecording.fps))} onRestoreTrimStart={() => updateTrim(0, trimInfo.endFrame)} onRestoreTrimEnd={() => updateTrim(trimInfo.startFrame, effectiveRecording.duration)} onResetTrim={resetTrim} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onSelectInspectorContext={focusInspectorContext} /> : null}
+          {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimStart={(sourceTimeSec) => updateTrim(Math.round(sourceTimeSec * effectiveRecording.fps), trimInfo.endFrame)} onTrimEnd={(sourceTimeSec) => updateTrim(trimInfo.startFrame, Math.round(sourceTimeSec * effectiveRecording.fps))} onRestoreTrimStart={() => updateTrim(0, trimInfo.endFrame)} onRestoreTrimEnd={() => updateTrim(trimInfo.startFrame, effectiveRecording.duration)} onResetTrim={resetTrim} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onSelectInspectorContext={focusInspectorContext} /> : null}
         </div>
       </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
@@ -2698,7 +2714,7 @@ function preventRangeWheelChange(event: React.WheelEvent<HTMLInputElement>) {
   event.currentTarget.blur();
 }
 
-function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, cutRanges = [], onScrub, onScrubStart, onScrubEnd, onTrimStart, onTrimEnd, onRestoreTrimStart, onRestoreTrimEnd, onResetTrim, onRestoreCut, onZoomMarkerRangeChange, onSelectInspectorContext }: { project: ProjectState; currentTimeSec: number; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimStart: (sourceTimeSec: number) => void; onTrimEnd: (sourceTimeSec: number) => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onResetTrim: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void }) {
+function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, cutRanges = [], onScrub, onScrubStart, onScrubEnd, onTrimStart, onTrimEnd, onRestoreTrimStart, onRestoreTrimEnd, onResetTrim, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onSelectInspectorContext }: { project: ProjectState; currentTimeSec: number; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimStart: (sourceTimeSec: number) => void; onTrimEnd: (sourceTimeSec: number) => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onResetTrim: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onSelectInspectorContext: (selection: InspectorSelection) => void }) {
   const model = buildTimelineModel({
     document: project.document as unknown as ProjectDocument,
     recording: project.recording,
@@ -2817,7 +2833,11 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     const initialStart = Math.round(region.startFrame ?? 0);
     const initialEnd = Math.round(region.endFrame ?? initialStart + 15);
     const duration = Math.max(15, initialEnd - initialStart);
-    const maxFrame = Math.max(1, Math.round(project.recording?.duration ?? sourceFrameDuration));
+    // Clamp drag to the VISIBLE trim window, not the raw recording duration.
+    // Dragging a marker past the trim boundary would silently remove it from
+    // the rail (the rail filters markers to those overlapping [trimStart, trimEnd]).
+    const minFrame = Math.max(0, model.trimStartFrame);
+    const maxFrame = Math.max(minFrame + 1, Math.min(sourceFrameDuration, model.trimEndFrame));
     let latest = { id: region.id, startFrame: initialStart, endFrame: initialEnd };
     setZoomDragPreview(latest);
 
@@ -2826,10 +2846,10 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
       if (frame === null) return;
       if (mode === 'move') {
         const delta = frame - initialFrame;
-        const startFrame = Math.max(0, Math.min(maxFrame - duration, initialStart + delta));
+        const startFrame = Math.max(minFrame, Math.min(maxFrame - duration, initialStart + delta));
         latest = { id: region.id, startFrame, endFrame: startFrame + duration };
       } else if (mode === 'start') {
-        const startFrame = Math.max(0, Math.min(initialEnd - 15, frame));
+        const startFrame = Math.max(minFrame, Math.min(initialEnd - 15, frame));
         latest = { id: region.id, startFrame, endFrame: initialEnd };
       } else {
         const endFrame = Math.max(initialStart + 15, Math.min(maxFrame, frame));
@@ -2877,6 +2897,12 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
       event.preventDefault();
       event.stopPropagation();
       onSelectInspectorContext({ group: 'zoom', label: 'Zoom region', detail: 'Zoom region selected from the timeline.', markerId: region.id });
+      return;
+    }
+    if ((event.key === 'Delete' || event.key === 'Backspace') && mode === 'move' && onZoomMarkerRemove) {
+      event.preventDefault();
+      event.stopPropagation();
+      onZoomMarkerRemove(region.id);
       return;
     }
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
@@ -2946,9 +2972,19 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
                 const kind = region.kind ?? 'manual';
                 const selected = selectedZoomMarkerId === region.id;
                 return (
-                  <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker.`} className={`timelineRegion zoomLayer${Math.min(1, region.layer ?? 0)} ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} title={label} style={zoomRegionStyle(region)} onClick={() => onSelectInspectorContext({ group: 'zoom', label, detail: `${kind} zoom region selected.`, markerId: region.id })} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
+                  <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker. Delete to remove.`} className={`timelineRegion zoomLayer${Math.min(1, region.layer ?? 0)} ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} title={`${label} — Delete to remove`} style={zoomRegionStyle(region)} onClick={() => onSelectInspectorContext({ group: 'zoom', label, detail: `${kind} zoom region selected.`, markerId: region.id })} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
                     <span role="slider" tabIndex={0} aria-label={`${label} start boundary`} aria-valuemin={0} aria-valuemax={Math.max(0, Math.round((region.endFrame ?? 15) - 15))} aria-valuenow={Math.round(region.startFrame ?? 0)} className="zoomResizeHandle zoomResizeStart" onKeyDown={(event) => handleZoomKeyboard(region, 'start', event)} onPointerDown={(event) => beginZoomDrag(region, 'start', event)} />
                     <span role="slider" tabIndex={0} aria-label={`${label} end boundary`} aria-valuemin={Math.round((region.startFrame ?? 0) + 15)} aria-valuemax={sourceFrameDuration} aria-valuenow={Math.round(region.endFrame ?? 15)} className="zoomResizeHandle zoomResizeEnd" onKeyDown={(event) => handleZoomKeyboard(region, 'end', event)} onPointerDown={(event) => beginZoomDrag(region, 'end', event)} />
+                    {onZoomMarkerRemove ? (
+                      <button
+                        type="button"
+                        className="zoomRegionDelete"
+                        aria-label={`Delete ${label}`}
+                        title="Delete this zoom"
+                        onClick={(event) => { event.stopPropagation(); onZoomMarkerRemove(region.id); }}
+                        onPointerDown={(event) => { event.stopPropagation(); }}
+                      >×</button>
+                    ) : null}
                   </div>
                 );
               })

@@ -1551,6 +1551,41 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .zoomResizeStart { left: 0; }
 .zoomResizeEnd { right: 0; }
 
+.zoomRegionDelete {
+  align-items: center;
+  background: rgb(15 23 42 / 0.7);
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  font-size: 0.8rem;
+  font-weight: 700;
+  height: 1.05rem;
+  justify-content: center;
+  line-height: 1;
+  min-height: 0;
+  opacity: 0;
+  padding: 0;
+  position: absolute;
+  right: 0.15rem;
+  top: 50%;
+  transform: translateY(-50%) scale(0.9);
+  transition: opacity 120ms cubic-bezier(0.23, 1, 0.32, 1), transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
+  width: 1.05rem;
+  z-index: 2;
+}
+
+.timelineRegion:hover .zoomRegionDelete,
+.timelineRegion:focus-within .zoomRegionDelete,
+.timelineRegion.selectedRegion .zoomRegionDelete {
+  opacity: 1;
+  transform: translateY(-50%) scale(1);
+}
+
+.zoomRegionDelete:hover { background: rgb(248 113 113 / 0.95); }
+.zoomRegionDelete:active { transform: translateY(-50%) scale(0.94); }
+
 .autoRegion { background: linear-gradient(180deg, #99f6e4, #14b8a6); }
 .manualRegion { background: linear-gradient(180deg, #d8b4fe, #8b5cf6); }
 

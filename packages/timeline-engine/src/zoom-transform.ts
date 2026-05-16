@@ -277,12 +277,19 @@ function getMarkerFocalPoint(
   scale: number,
   options: ZoomTransformOptions | undefined,
 ): ZoomCursorPosition {
-  const minXY = 1 / (2 * scale);
-  const maxXY = 1 - 1 / (2 * scale);
+  // Clamp focal to the bounds valid at the marker's TARGET scale (the largest
+  // scale this marker will reach). Render-time computeTranslate then clamps
+  // the translate offset for the current frame's actual scale. Using the
+  // ramp-time `scale` here would force focal toward 0.5 at low scales and
+  // release it as scale grew — visible as wobble during ramp-in/out.
+  const targetScaleForClamp = strengthToScale(marker.strength);
+  const minXY = 1 / (2 * targetScaleForClamp);
+  const maxXY = 1 - 1 / (2 * targetScaleForClamp);
   const sourceClamp = (x: number, y: number) => ({
     x: clamp(x, minXY, maxXY),
     y: clamp(y, minXY, maxXY),
   });
+  void scale; // retained in signature for caller compatibility
 
   // Cursor-follow disabled (or no cursor data wired): static focal.
   if (
@@ -311,10 +318,17 @@ function getMarkerFocalPoint(
     fps,
     options.cursorSmoothing,
   );
+  // Use targetScale here, NOT the ramp-time `scale`. With ramp-time scale,
+  // the cursor-visibility clamp at small scales (near scale=1) forces focal
+  // toward 0.5 — then releases as scale grows, producing a visible vertical/
+  // horizontal "over the cursor, then correct" wobble during ramp-in.
+  // computeTranslate at the render boundary still does scale-aware clamping
+  // of the final translate offset, so framing geometry stays correct.
+  const targetScale = strengthToScale(marker.strength);
   const contained = containCursorInVisibleWindow(
     followed,
     options.getCursorPosition(frame),
-    scale,
+    targetScale,
   );
   return sourceClamp(contained.x, contained.y);
 }
