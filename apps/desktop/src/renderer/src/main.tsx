@@ -401,6 +401,7 @@ function App() {
         setProject(opened);
         setEditHistory(EMPTY_EDIT_HISTORY);
         setExportResult(null);
+        setActiveAppView('editor');
       })
       .catch((err) => {
         if (!cancelled) setError(appError('project', err, 'Project open failed.'));
