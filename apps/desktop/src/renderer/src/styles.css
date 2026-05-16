@@ -1671,9 +1671,14 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .timelineCompactRow span { color: var(--muted); font-size: 0.8rem; }
 .timelineCompactRow strong { color: var(--text); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 
-.zoomMarkerPanel,
-.autoZoomSuggestionsPanel,
-.cameraFollowPanel { min-height: 0; }
+/* `min-height: 0` was added to allow these panels to shrink inside a
+ * fixed-height grid track. With the flat-section Timeline layout below
+ * relying on auto-row sizing, allowing shrink-below-content makes the
+ * children overflow outside the parent box (visible content collision).
+ * Scope the shrink to non-timeline contexts only. */
+:not(.timelineBoardStack) > .zoomMarkerPanel,
+:not(.timelineBoardStack) > .autoZoomSuggestionsPanel,
+:not(.timelineBoardStack) > .cameraFollowPanel { min-height: 0; }
 
 /* Timeline tool board — flat sections instead of stacked cards.
  * Designed via `/impeccable critique` against PRODUCT.md anti-references

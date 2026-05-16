@@ -83,7 +83,7 @@ const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb'
     ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH: screenshotPath,
     ROUGH_CUT_UI_SMOKE_SCREENSHOT_TIMELINE_PATH: timelineScreenshotPath,
     ROUGH_CUT_UI_SMOKE_WINDOW_WIDTH: '1280',
-    ROUGH_CUT_UI_SMOKE_WINDOW_HEIGHT: '900',
+    ROUGH_CUT_UI_SMOKE_WINDOW_HEIGHT: '1300',
   },
   encoding: 'utf8',
 });
