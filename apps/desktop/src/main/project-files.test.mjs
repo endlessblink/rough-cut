@@ -7,11 +7,13 @@ import { tmpdir } from 'node:os';
 import {
   createProjectForRecording,
   discardInterruptedSave,
+  duplicateProjectFile,
   getPrimaryRecording,
   openProjectFile,
   PROJECT_BACKUP_SUFFIX,
   PROJECT_TEMP_SUFFIX,
   ProjectPathError,
+  renameProjectFile,
   saveProjectFile,
   saveProjectForRecording,
   validateProjectPath,
@@ -614,4 +616,143 @@ test('round-trips a manual zoom marker through save and reopen', async () => {
   assert.deepEqual(loaded, marker);
 
   await rm(root, { recursive: true, force: true });
+});
+
+test('renameProjectFile renames the .roughcut, the .bak, and updates the JSON name', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-rename-'));
+  try {
+    const fromPath = join(root, 'old.roughcut');
+    const oldBak = `${fromPath}${PROJECT_BACKUP_SUFFIX}`;
+    const project = createProjectForRecording({ recording });
+    await saveProjectFile(fromPath, project);
+    // Force a second save to produce a .bak (saveProjectFile snapshots prior generation).
+    await saveProjectFile(fromPath, project);
+    assert.equal(existsSync(oldBak), true, '.bak exists before rename');
+
+    const result = await renameProjectFile({ fromPath, toName: 'shiny new name' });
+    const newPath = join(root, 'shiny new name.roughcut');
+    assert.equal(result.path, newPath);
+    assert.equal(existsSync(newPath), true);
+    assert.equal(existsSync(fromPath), false);
+    assert.equal(existsSync(`${newPath}${PROJECT_BACKUP_SUFFIX}`), true, '.bak moved alongside');
+    assert.equal(existsSync(oldBak), false, 'old .bak gone');
+
+    const reopened = await openProjectFile(newPath);
+    assert.equal(reopened.document.name, 'shiny new name');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('renameProjectFile rejects invalid names', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-rename-bad-'));
+  try {
+    const fromPath = join(root, 'src.roughcut');
+    await saveProjectFile(fromPath, createProjectForRecording({ recording }));
+    await assert.rejects(() => renameProjectFile({ fromPath, toName: '' }), /required/);
+    await assert.rejects(() => renameProjectFile({ fromPath, toName: 'a/b' }), /slashes/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('renameProjectFile refuses to overwrite an existing project with the same target name', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-rename-collide-'));
+  try {
+    const fromPath = join(root, 'source.roughcut');
+    const otherPath = join(root, 'taken.roughcut');
+    await saveProjectFile(fromPath, createProjectForRecording({ recording }));
+    await saveProjectFile(otherPath, createProjectForRecording({ recording }));
+    await assert.rejects(
+      () => renameProjectFile({ fromPath, toName: 'taken' }),
+      (err) => err?.code === 'PROJECT_NAME_TAKEN',
+    );
+    assert.equal(existsSync(fromPath), true, 'source untouched after collision');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('renameProjectFile preserves relative asset paths so media links still resolve', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-rename-relative-'));
+  try {
+    const mediaPath = join(root, 'rough-cut-test.mp4');
+    await writeFile(mediaPath, 'fake-mp4');
+    const fromPath = join(root, 'orig.roughcut');
+    const project = createProjectForRecording({
+      recording: { ...recording, outputPath: mediaPath },
+    });
+    await saveProjectFile(fromPath, project);
+
+    const result = await renameProjectFile({ fromPath, toName: 'renamed' });
+    const reopened = await openProjectFile(result.path);
+    const asset = reopened.document.assets[0];
+    // The asset's filePath should still resolve to the same media file on disk
+    // because the dirname did not change and pathMode='relative' is preserved.
+    assert.equal(existsSync(asset.filePath), true, 'media file is still reachable from the renamed project');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('duplicateProjectFile copies the .roughcut + every canonical sibling and updates name', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-dup-'));
+  try {
+    const fromPath = join(root, 'src.roughcut');
+    // Drop canonical siblings on disk too so we can confirm they're all copied.
+    await saveProjectFile(fromPath, createProjectForRecording({ recording: { ...recording, outputPath: join(root, 'src.mp4') } }));
+    await writeFile(join(root, 'src.mp4'), 'fake-mp4');
+    await writeFile(join(root, 'src.thumb.jpg'), 'fake-thumb');
+    await writeFile(join(root, 'src.cursor.json'), '[]');
+
+    const result = await duplicateProjectFile({ fromPath });
+    const expectedPath = join(root, 'src (copy).roughcut');
+    assert.equal(result.path, expectedPath);
+    assert.equal(existsSync(expectedPath), true);
+    assert.equal(existsSync(join(root, 'src (copy).mp4')), true, 'mp4 sibling copied');
+    assert.equal(existsSync(join(root, 'src (copy).thumb.jpg')), true, 'thumbnail sibling copied');
+    assert.equal(existsSync(join(root, 'src (copy).cursor.json')), true, 'cursor sibling copied');
+    // Source untouched
+    assert.equal(existsSync(fromPath), true);
+    assert.equal(existsSync(join(root, 'src.mp4')), true);
+    const opened = await openProjectFile(expectedPath);
+    assert.equal(opened.document.name, 'src (copy)');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('duplicateProjectFile auto-suffixes when "(copy)" already exists', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-dup-collide-'));
+  try {
+    const fromPath = join(root, 'foo.roughcut');
+    await saveProjectFile(fromPath, createProjectForRecording({ recording }));
+    // Pre-create the first-tier copy so the auto-suffix has to escalate.
+    await writeFile(join(root, 'foo (copy).roughcut'), '{}');
+
+    const result = await duplicateProjectFile({ fromPath });
+    assert.equal(result.path, join(root, 'foo (copy 2).roughcut'));
+    assert.equal(existsSync(result.path), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('duplicateProjectFile preserves relative asset paths so the copy still resolves media', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-dup-relative-'));
+  try {
+    const mediaPath = join(root, 'orig.mp4');
+    await writeFile(mediaPath, 'fake-mp4');
+    const fromPath = join(root, 'orig.roughcut');
+    await saveProjectFile(fromPath, createProjectForRecording({ recording: { ...recording, outputPath: mediaPath } }));
+
+    const result = await duplicateProjectFile({ fromPath });
+    const reopened = await openProjectFile(result.path);
+    const recordingAsset = reopened.document.assets.find((a) => a.type === 'recording');
+    // The copy's recording-asset filePath resolves to either the new media
+    // copy or back to the original; either way it must exist on disk.
+    assert.equal(existsSync(recordingAsset.filePath), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

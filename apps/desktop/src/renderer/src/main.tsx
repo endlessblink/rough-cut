@@ -2006,15 +2006,6 @@ function CursorClickEffectPicker({ value, disabled = false, onChange }: { value:
   );
 }
 
-function aspectRatioCss(aspectRatio: string): string {
-  if (aspectRatio === '9:16') return '9 / 16';
-  if (aspectRatio === '1:1') return '1 / 1';
-  if (aspectRatio === '4:3') return '4 / 3';
-  if (aspectRatio === '3:4') return '3 / 4';
-  if (aspectRatio === '4:5') return '4 / 5';
-  return '16 / 9';
-}
-
 function aspectRatioDims(aspectRatio: string): [number, number] {
   if (aspectRatio === '9:16') return [9, 16];
   if (aspectRatio === '1:1') return [1, 1];
@@ -2040,22 +2031,26 @@ type TemplateThumbnailProps = {
   bgColor: string;
 };
 
+// Blueprint-schematic thumbnail. Not a miniature render: at 56px the
+// pictorial approach reads as muddy color blocks. Instead this draws a
+// stroke-first diagram of the configuration — outer frame = canvas
+// aspect, inner rect = screen placement, warm marker = camera position
+// and shape. A faint background tint preserves "which preset is this"
+// recognition without dominating.
 function TemplateThumbnail({ aspectRatio, screenFrame, cameraFrame, camera, bgColor }: TemplateThumbnailProps) {
   const [aspectW, aspectH] = aspectRatioDims(aspectRatio);
   const vbW = aspectW * 10;
   const vbH = aspectH * 10;
   const minDim = Math.min(vbW, vbH);
 
-  // Screen rect: built-ins never set screenFrame, so default to a 6% inset
-  // on every side — viewer sees "screen with margin of background".
-  const sx = (screenFrame?.x ?? 0.06) * vbW;
-  const sy = (screenFrame?.y ?? 0.06) * vbH;
-  const sw = (screenFrame?.w ?? 0.88) * vbW;
-  const sh = (screenFrame?.h ?? 0.88) * vbH;
-  const screenRadius = minDim * 0.04;
+  const sx = (screenFrame?.x ?? 0.08) * vbW;
+  const sy = (screenFrame?.y ?? 0.08) * vbH;
+  const sw = (screenFrame?.w ?? 0.84) * vbW;
+  const sh = (screenFrame?.h ?? 0.84) * vbH;
+  const screenRadius = minDim * 0.05;
 
-  // Camera marker mirrors resolveCameraFrame: square side = min × 0.22 × sizeScale,
-  // 6% margin, position from the enum. `camera.aspectRatio` is intentionally
+  // Camera marker mirrors resolveCameraFrame: square side, 6% margin,
+  // position from the enum. `camera.aspectRatio` is intentionally
   // ignored — the renderer ignores it too.
   let cw: number;
   let ch: number;
@@ -2083,7 +2078,6 @@ function TemplateThumbnail({ aspectRatio, screenFrame, cameraFrame, camera, bgCo
       cy = top ? margin : vbH - ch - margin;
     }
   }
-  // Match resolveCameraRadius exactly.
   const camMin = Math.min(cw, ch);
   const camRadius =
     camera.shape === 'square' ? 0
@@ -2091,8 +2085,14 @@ function TemplateThumbnail({ aspectRatio, screenFrame, cameraFrame, camera, bgCo
     : (camMin / 2) * Math.max(0, Math.min(1, (camera.roundness ?? 50) / 100));
   const camCenterX = cx + cw / 2;
   const camCenterY = cy + ch / 2;
-  const camFill = 'rgba(255, 255, 255, 0.78)';
-  const camStroke = 'rgba(15, 23, 42, 0.45)';
+
+  // Semantic palette: camera uses the editor's drag-handle amber
+  // (drawEditorFrameControls in main.tsx uses #f59e0b) so a viewer who's
+  // dragged the camera in the canvas recognizes the same color here.
+  const cameraColor = '#f59e0b';
+  const screenStroke = 'rgba(255, 255, 255, 0.42)';
+  const screenFill = 'rgba(255, 255, 255, 0.05)';
+  const frameStroke = 'rgba(255, 255, 255, 0.16)';
 
   return (
     <svg
@@ -2103,7 +2103,23 @@ function TemplateThumbnail({ aspectRatio, screenFrame, cameraFrame, camera, bgCo
       role="img"
       aria-hidden="true"
     >
-      <rect x={0} y={0} width={vbW} height={vbH} fill={bgColor} />
+      {/* Background tint at low opacity so dark presets don't black-hole
+          into the card surface and light presets don't pop. The card's
+          own background shows through underneath. */}
+      <rect x={0} y={0} width={vbW} height={vbH} fill={bgColor} fillOpacity={0.32} />
+      {/* Canvas frame — the outer rect users are configuring. */}
+      <rect
+        x={0.3}
+        y={0.3}
+        width={vbW - 0.6}
+        height={vbH - 0.6}
+        rx={minDim * 0.03}
+        ry={minDim * 0.03}
+        fill="none"
+        stroke={frameStroke}
+        strokeWidth={0.6}
+      />
+      {/* Screen rect — stroke-led so it reads against any backdrop. */}
       <rect
         x={sx}
         y={sy}
@@ -2111,9 +2127,9 @@ function TemplateThumbnail({ aspectRatio, screenFrame, cameraFrame, camera, bgCo
         height={sh}
         rx={screenRadius}
         ry={screenRadius}
-        fill="rgba(15, 23, 42, 0.55)"
-        stroke="rgba(255, 255, 255, 0.22)"
-        strokeWidth={0.6}
+        fill={screenFill}
+        stroke={screenStroke}
+        strokeWidth={0.8}
       />
       {camera.visible !== false ? (
         camera.shape === 'circle' ? (
@@ -2122,9 +2138,9 @@ function TemplateThumbnail({ aspectRatio, screenFrame, cameraFrame, camera, bgCo
             cy={camCenterY}
             rx={cw / 2}
             ry={ch / 2}
-            fill={camFill}
-            stroke={camStroke}
-            strokeWidth={0.6}
+            fill={cameraColor}
+            stroke="rgba(15, 23, 42, 0.6)"
+            strokeWidth={0.5}
           />
         ) : (
           <rect
@@ -2134,9 +2150,9 @@ function TemplateThumbnail({ aspectRatio, screenFrame, cameraFrame, camera, bgCo
             height={ch}
             rx={camRadius}
             ry={camRadius}
-            fill={camFill}
-            stroke={camStroke}
-            strokeWidth={0.6}
+            fill={cameraColor}
+            stroke="rgba(15, 23, 42, 0.6)"
+            strokeWidth={0.5}
           />
         )
       ) : null}
@@ -2284,7 +2300,9 @@ function TemplatePresetGrid({
               if (isRenaming) {
                 return (
                   <div key={template.id} className="templateCard editing" data-user-template-id={template.id}>
-                    <span className="templateCardFrame" style={{ aspectRatio: aspectRatioCss(template.aspectRatio) }} aria-hidden="true" />
+                    <span className="templateCardFrame" aria-hidden="true">
+                      <TemplateThumbnail {...userTemplateThumbnailProps(template)} />
+                    </span>
                     <input
                       ref={renameInputRef}
                       className="templateCardInput"
@@ -2329,7 +2347,9 @@ function TemplatePresetGrid({
                     title={template.label}
                     onClick={() => onApplyUserTemplate?.(template)}
                   >
-                    <span className="templateCardFrame" style={{ aspectRatio: aspectRatioCss(template.aspectRatio) }} aria-hidden="true" />
+                    <span className="templateCardFrame" aria-hidden="true">
+                      <TemplateThumbnail {...userTemplateThumbnailProps(template)} />
+                    </span>
                     <span className="templateCardLabel">{template.label}</span>
                   </button>
                   <div className="templateCardActions">
@@ -2356,44 +2376,42 @@ function TemplatePresetGrid({
               );
             })}
 
-            {onSaveUserTemplate ? (
-              savePending ? (
-                <div className="templateCard adding editing" data-template-add-form="true">
-                  <span className="templateCardFrame templateCardFrameEmpty" aria-hidden="true" />
-                  <input
-                    ref={saveInputRef}
-                    className="templateCardInput"
-                    type="text"
-                    value={saveLabel}
-                    placeholder="Template name"
-                    maxLength={40}
-                    disabled={inputsDisabled}
-                    onChange={(e) => setSaveLabel(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') { e.preventDefault(); commitSave(); }
-                      else if (e.key === 'Escape') { e.preventDefault(); closeSave(); }
-                    }}
-                    onBlur={() => commitSave()}
-                    aria-label="New template name"
-                  />
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className="templateCard adding"
-                  disabled={disabled || busy || !canSave}
-                  data-template-add="true"
-                  title={canSave ? 'Save current settings as a template' : 'Open a recording to save a template'}
-                  onClick={() => setSavePending(true)}
-                >
-                  <span className="templateCardFrame templateCardFrameEmpty" aria-hidden="true">
-                    <PhosphorPlus size={18} weight="bold" />
-                  </span>
-                  <span className="templateCardLabel">Save current</span>
-                </button>
-              )
-            ) : null}
           </div>
+          {onSaveUserTemplate ? (
+            savePending ? (
+              <div className="templateSaveRow editing" data-template-add-form="true">
+                <input
+                  ref={saveInputRef}
+                  className="templateSaveInput"
+                  type="text"
+                  value={saveLabel}
+                  placeholder="Name this template…"
+                  maxLength={40}
+                  disabled={inputsDisabled}
+                  onChange={(e) => setSaveLabel(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); commitSave(); }
+                    else if (e.key === 'Escape') { e.preventDefault(); closeSave(); }
+                  }}
+                  onBlur={() => commitSave()}
+                  aria-label="New template name"
+                />
+                <span className="templateSaveHint">Enter to save · Esc to cancel</span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="templateSaveRow"
+                disabled={disabled || busy || !canSave}
+                data-template-add="true"
+                title={canSave ? 'Save current settings as a template' : 'Open a recording to save a template'}
+                onClick={() => setSavePending(true)}
+              >
+                <PhosphorPlus size={13} weight="bold" />
+                <span>Save current as template</span>
+              </button>
+            )
+          ) : null}
         </>
       ) : null}
     </div>
@@ -2434,24 +2452,6 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
         <BoardHeader icon="timeline" title="Timeline" action={trimInfo?.isTrimmed ? 'Reset trim' : undefined} actionDisabled={disabled || !trimInfo?.isTrimmed} onAction={onResetTrim} />
         {project?.recording && fps && onProjectChange ? (
           <div className="timelineBoardStack" data-ui-region="timeline-zoom-control-panel">
-            <InspectorSection
-              id="zoom"
-              title="Zoom markers"
-              muted={!selectedZoomMarker}
-              action={<ZoomMarkerPanel project={project} fps={fps} currentTimeSec={currentTimeSec} onProjectChange={onProjectChange} />}
-            >
-              <div data-zoom-controls="true">
-                <div className="timelineCompactRow">
-                  <span>Selection</span>
-                  <strong>
-                    {selectedZoomMarker
-                      ? `${formatClock((selectedZoomMarker.startFrame - (trimInfo?.startFrame ?? 0)) / (fps || 30))}–${formatClock((selectedZoomMarker.endFrame - (trimInfo?.startFrame ?? 0)) / (fps || 30))}`
-                      : 'None'}
-                  </strong>
-                </div>
-                <InspectorSlider label="Depth" value={Math.round((selectedZoomMarker?.strength ?? 0) * 100)} min={0} max={100} step={5} disabled={disabled || !selectedZoomMarker} onChange={(value) => selectedZoomMarker ? onZoomMarkerStrengthChange?.(selectedZoomMarker.id, value / 100) : undefined} />
-              </div>
-            </InspectorSection>
             <AutoZoomSuggestionsPanel project={project} onProjectChange={onProjectChange} />
             <CameraFollowPanel project={project} onProjectChange={onProjectChange} />
             <InspectorSection id="cuts" title="Cuts" description="Use the cut tool above the timeline to drag a range you want to hide.">
@@ -3101,7 +3101,7 @@ function ProjectPreview({
           <p className="eyebrow"><Icon name="timeline" /> Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-          {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimStart={(sourceTimeSec) => updateTrim(Math.round(sourceTimeSec * effectiveRecording.fps), trimInfo.endFrame)} onTrimEnd={(sourceTimeSec) => updateTrim(trimInfo.startFrame, Math.round(sourceTimeSec * effectiveRecording.fps))} onRestoreTrimStart={() => updateTrim(0, trimInfo.endFrame)} onRestoreTrimEnd={() => updateTrim(trimInfo.startFrame, effectiveRecording.duration)} onResetTrim={resetTrim} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} /> : null}
+          {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimStart={(sourceTimeSec) => updateTrim(Math.round(sourceTimeSec * effectiveRecording.fps), trimInfo.endFrame)} onTrimEnd={(sourceTimeSec) => updateTrim(trimInfo.startFrame, Math.round(sourceTimeSec * effectiveRecording.fps))} onRestoreTrimStart={() => updateTrim(0, trimInfo.endFrame)} onRestoreTrimEnd={() => updateTrim(trimInfo.startFrame, effectiveRecording.duration)} onResetTrim={resetTrim} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} /> : null}
         </div>
       </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
@@ -3245,7 +3245,7 @@ function preventRangeWheelChange(event: React.WheelEvent<HTMLInputElement>) {
   event.currentTarget.blur();
 }
 
-function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimStart, onTrimEnd, onRestoreTrimStart, onRestoreTrimEnd, onResetTrim, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext }: { project: ProjectState; currentTimeSec: number; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimStart: (sourceTimeSec: number) => void; onTrimEnd: (sourceTimeSec: number) => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onResetTrim: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void }) {
+function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimStart, onTrimEnd, onRestoreTrimStart, onRestoreTrimEnd, onResetTrim, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext }: { project: ProjectState; currentTimeSec: number; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimStart: (sourceTimeSec: number) => void; onTrimEnd: (sourceTimeSec: number) => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onResetTrim: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void }) {
   const model = buildTimelineModel({
     document: project.document as unknown as ProjectDocument,
     recording: project.recording,
@@ -3578,7 +3578,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
           })}
           {hasHiddenStart || hasHiddenEnd ? <button type="button" className="restoreFullSource" aria-label="Restore full source" onClick={onResetTrim}>Restore full source</button> : null}
         </TimelineLane>
-        <TimelineLane label="Zoom" className="zoomLane" onTrackPointerDown={onAddZoomMarkerAt ? handleZoomLanePointerDown : undefined} trackTitle="Click to add a zoom marker">
+        <TimelineLane label="Zoom" className="zoomLane" aria-label="Zoom markers" onTrackPointerDown={onAddZoomMarkerAt ? handleZoomLanePointerDown : undefined} trackTitle="Click to add a zoom marker">
           {model.lanes.zoom.length > 0
             ? model.lanes.zoom.map((region) => {
                 const label = region.label ?? 'Zoom region';
@@ -3586,13 +3586,9 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
                 const selected = selectedZoomMarkerId === region.id;
                 const strength = Math.max(0, Math.min(1, region.strength ?? 0.5));
                 const depthPct = Math.round(strength * 100);
-                const startSec = (region.startFrame ?? 0) / fps;
-                const endSec = (region.endFrame ?? 0) / fps;
-                const narrow = (region.width ?? 100) < 8;
                 return (
-                  <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker. Delete to remove.`} className={`timelineRegion ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} data-narrow={narrow ? 'true' : undefined} data-layer={region.layer ?? 0} title={`${label} · ${depthPct}% · Click × to delete`} style={zoomRegionStyle(region)} onClick={() => onSelectInspectorContext({ group: 'zoom', label, detail: `${kind} zoom region selected.`, markerId: region.id })} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
+                  <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker. Delete to remove.`} className={`timelineRegion ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} data-layer={region.layer ?? 0} title={`${label} · ${depthPct}% · Click × to delete`} style={zoomRegionStyle(region)} onClick={() => onSelectInspectorContext({ group: 'zoom', label, detail: `${kind} zoom region selected.`, markerId: region.id })} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
                     <div className="zoomDepthFill" style={{ height: `${depthPct}%` }} aria-hidden="true" />
-                    <span className="zoomRangeLabel">{formatClock(startSec)}–{formatClock(endSec)}</span>
                     <span role="slider" tabIndex={0} aria-label={`${label} start boundary`} aria-valuemin={0} aria-valuemax={Math.max(0, Math.round((region.endFrame ?? 15) - 15))} aria-valuenow={Math.round(region.startFrame ?? 0)} className="zoomResizeHandle zoomResizeStart" onKeyDown={(event) => handleZoomKeyboard(region, 'start', event)} onPointerDown={(event) => beginZoomDrag(region, 'start', event)} />
                     <span role="slider" tabIndex={0} aria-label={`${label} end boundary`} aria-valuemin={Math.round((region.startFrame ?? 0) + 15)} aria-valuemax={sourceFrameDuration} aria-valuenow={Math.round(region.endFrame ?? 15)} className="zoomResizeHandle zoomResizeEnd" onKeyDown={(event) => handleZoomKeyboard(region, 'end', event)} onPointerDown={(event) => beginZoomDrag(region, 'end', event)} />
                     {onZoomMarkerRemove ? (
@@ -3609,6 +3605,33 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
                 );
               })
             : null}
+          {(() => {
+            const selectedRegion = model.lanes.zoom.find((r) => r.id === selectedZoomMarkerId);
+            if (!selectedRegion || !onZoomMarkerStrengthChange) return null;
+            const startSec = (selectedRegion.startFrame ?? 0) / fps;
+            const endSec = (selectedRegion.endFrame ?? 0) / fps;
+            const strength = Math.max(0, Math.min(1, selectedRegion.strength ?? 0.5));
+            const depthPct = Math.round(strength * 100);
+            const chipLeft = (selectedRegion.left ?? 0) + (selectedRegion.width ?? 0) / 2;
+            return (
+              <div className="zoomEditorChip" style={{ left: `${chipLeft}%` }} role="group" aria-label="Selected zoom editor" onPointerDown={(event) => event.stopPropagation()}>
+                <span className="zoomEditorChip__range">{formatClock(startSec)}–{formatClock(endSec)}</span>
+                <span className="zoomEditorChip__divider" aria-hidden="true" />
+                <span className="zoomEditorChip__depthLabel">Depth</span>
+                <input
+                  type="range"
+                  className="zoomEditorChip__slider"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={depthPct}
+                  aria-label={`Depth for ${selectedRegion.label ?? 'zoom'}`}
+                  onChange={(event) => onZoomMarkerStrengthChange(selectedRegion.id, Number(event.currentTarget.value) / 100)}
+                />
+                <span className="zoomEditorChip__value">{depthPct}%</span>
+              </div>
+            );
+          })()}
         </TimelineLane>
         <TimelineLane label="Clicks" className="clickLane">
           {model.lanes.clicks.length > 0
@@ -3630,9 +3653,9 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
   );
 }
 
-function TimelineLane({ label, className, children, onTrackDoubleClick, onTrackPointerDown, trackTitle, trackClassName }: { label: string; className: string; children: React.ReactNode; onTrackDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void; onTrackPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void; trackTitle?: string; trackClassName?: string }) {
+function TimelineLane({ label, className, children, onTrackDoubleClick, onTrackPointerDown, trackTitle, trackClassName, ['aria-label']: ariaLabel }: { label: string; className: string; children: React.ReactNode; onTrackDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void; onTrackPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void; trackTitle?: string; trackClassName?: string; 'aria-label'?: string }) {
   return (
-    <div className={`timelineLane ${className}`} data-timeline-lane={label.toLowerCase()}>
+    <div className={`timelineLane ${className}`} data-timeline-lane={label.toLowerCase()} aria-label={ariaLabel}>
       <span className="laneLabel">{label}</span>
       <div className={`laneTrack ${trackClassName ?? ''}`} onDoubleClick={onTrackDoubleClick} onPointerDown={onTrackPointerDown} title={trackTitle}>{children}</div>
     </div>

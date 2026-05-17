@@ -8,6 +8,7 @@ import {
   validateProject,
 } from '../../../../packages/project-model/dist/index.js';
 import { migrate } from '../../../../packages/project-model/dist/migrations.js';
+import { PROJECT_SIBLING_SPECS } from './project-sibling-specs.mjs';
 
 export function createProjectForRecording({ recording, now = new Date() }) {
   const fps = recording.fps || 30;
@@ -287,6 +288,111 @@ async function resolveAssetPath(projectDir, asset) {
     return { ...asset, filePath: fallback };
   }
   return { ...asset, filePath: relativeCandidate };
+}
+
+// Rename a project file on disk:
+//   1. Atomically renames the .roughcut from fromPath to newPath
+//   2. Renames the .bak sibling if it exists (keeps prior-generation safety net)
+//   3. Reads the moved file, sets document.name = toName, saves through
+//      saveProjectFile (atomic tmp+rename). This step also re-resolves asset
+//      paths with the new dirname, but the dirname is the same so relative
+//      paths are unchanged.
+// Returns the new project state in the same shape as openProjectFile, so the
+// renderer can swap React state and have its useEffect-bound autosave re-bind
+// against the new path.
+//
+// Caller is responsible for serializing through the IPC save queue.
+export async function renameProjectFile({ fromPath, toName }) {
+  const trimmed = typeof toName === 'string' ? toName.trim() : '';
+  if (!trimmed) throw new Error('Project name is required');
+  if (/[\\/\0]/.test(trimmed)) throw new Error('Project name cannot contain slashes or null bytes');
+
+  const dir = dirname(fromPath);
+  const newPath = join(dir, `${trimmed}${PROJECT_FILE_EXTENSION}`);
+
+  if (newPath !== fromPath) {
+    const collision = await stat(newPath).catch(() => null);
+    if (collision) {
+      const err = new Error(`A project named "${trimmed}" already exists`);
+      err.code = 'PROJECT_NAME_TAKEN';
+      throw err;
+    }
+    await rename(fromPath, newPath);
+    // Move the .bak sibling alongside so backup recovery still works.
+    const fromBak = `${fromPath}${PROJECT_BACKUP_SUFFIX}`;
+    const toBak = `${newPath}${PROJECT_BACKUP_SUFFIX}`;
+    const bakExists = await stat(fromBak).catch(() => null);
+    if (bakExists?.isFile()) {
+      await rename(fromBak, toBak).catch(() => undefined);
+    }
+  }
+
+  const opened = await openProjectFile(newPath);
+  const renamedDocument = { ...opened.document, name: trimmed };
+  const saved = await saveProjectFile(newPath, renamedDocument);
+  return { path: saved.path, document: saved.document };
+}
+
+// Duplicate a project (.roughcut + every canonical sibling) to a new
+// non-colliding name under the same directory. Reuses PROJECT_SIBLING_SPECS so
+// it can never drift from deleteProjectFiles' notion of "what's a project."
+//
+// Auto-suffixes the new name with " (copy)", " (copy 2)", … bounded to 100
+// tries. Updates the new project's JSON `name` field to match the new stem.
+//
+// Caller wraps this in `enqueueProjectOp(sourcePath, ...)` so concurrent
+// duplicates of the same source serialize and can't both pick the same name.
+// fs.copyFile uses libuv off-thread + copy_file_range on Linux — large
+// .mp4/.mkv files copy without blocking the event loop.
+export async function duplicateProjectFile({ fromPath }) {
+  const dir = dirname(fromPath);
+  const sourceStem = basename(fromPath).replace(new RegExp(`${escapeRegExp(PROJECT_FILE_EXTENSION)}$`, 'i'), '');
+
+  // Pick a target name. Try plain " (copy)" first, then " (copy 2)" etc.
+  let targetStem = `${sourceStem} (copy)`;
+  let targetPath = join(dir, `${targetStem}${PROJECT_FILE_EXTENSION}`);
+  for (let i = 2; i <= 100; i += 1) {
+    const exists = await stat(targetPath).catch(() => null);
+    if (!exists) break;
+    targetStem = `${sourceStem} (copy ${i})`;
+    targetPath = join(dir, `${targetStem}${PROJECT_FILE_EXTENSION}`);
+  }
+  // If we somehow exhausted 100 tries, throw — caller surfaces the error.
+  const finalCollision = await stat(targetPath).catch(() => null);
+  if (finalCollision) {
+    const err = new Error(`Could not find a free duplicate name after 100 tries for ${fromPath}`);
+    err.code = 'PROJECT_DUPLICATE_NAME_EXHAUSTED';
+    throw err;
+  }
+
+  // Copy the .roughcut first so even if a sibling copy fails the duplicate is
+  // at least visible in the gallery.
+  await copyFile(fromPath, targetPath);
+
+  // Copy every canonical sibling that exists.
+  for (const spec of PROJECT_SIBLING_SPECS) {
+    const sourceSibling = spec.kind === 'append'
+      ? `${fromPath}${spec.suffix}`
+      : join(dir, `${sourceStem}${spec.suffix}`);
+    const targetSibling = spec.kind === 'append'
+      ? `${targetPath}${spec.suffix}`
+      : join(dir, `${targetStem}${spec.suffix}`);
+    const sourceExists = await stat(sourceSibling).catch(() => null);
+    if (!sourceExists?.isFile()) continue;
+    await copyFile(sourceSibling, targetSibling);
+  }
+
+  // Rewrite the duplicate's JSON name to match the new stem so the gallery
+  // and editor surfaces show the copy as a distinct project. saveProjectFile
+  // refreshes modifiedAt as a side effect, landing the duplicate in "Today".
+  const opened = await openProjectFile(targetPath);
+  const renamedDoc = { ...opened.document, name: targetStem };
+  const saved = await saveProjectFile(targetPath, renamedDoc);
+  return { path: saved.path, document: saved.document };
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export async function discardInterruptedSave(projectPath) {

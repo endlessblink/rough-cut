@@ -15,6 +15,14 @@ export const IPC_CHANNELS = {
   RECENT_PROJECTS_GET: 'recent-projects:get',
   RECENT_PROJECTS_REMOVE: 'recent-projects:remove',
   RECENT_PROJECTS_CLEAR: 'recent-projects:clear',
+  PROJECT_RENAME: 'project:rename',
+  PROJECT_DUPLICATE: 'project:duplicate',
+
+  // User templates (app-wide saved layouts)
+  USER_TEMPLATE_LIST: 'user-template:list',
+  USER_TEMPLATE_SAVE: 'user-template:save',
+  USER_TEMPLATE_RENAME: 'user-template:rename',
+  USER_TEMPLATE_DELETE: 'user-template:delete',
 
   // Export
   EXPORT_START: 'export:start',

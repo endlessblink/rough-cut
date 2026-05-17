@@ -911,21 +911,28 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 
 .templateCard.active {
-  border-color: rgb(96 165 250 / 0.7);
-  box-shadow: 0 0 0 2px rgb(37 99 235 / 0.45);
+  /* Inset 1px ring — Linear-style restraint over the original 2px outer
+     glow that read as a dashboard alert. */
+  border-color: rgb(96 165 250 / 0.55);
+  box-shadow: inset 0 0 0 1px rgb(96 165 250 / 0.45);
 }
 
 .templateCardFrame {
-  background: linear-gradient(135deg, rgb(96 165 250 / 0.35), rgb(168 85 247 / 0.35));
-  border: 1px solid rgb(255 255 255 / 0.18);
-  border-radius: 6px;
+  /* Container for the SVG mini-diagram. Height-anchored so each aspect
+     ratio drives a visually distinct shape; the SVG paints its own
+     background and content. */
+  align-items: center;
+  border-radius: 5px;
+  display: flex;
+  height: 52px;
+  justify-content: center;
+  max-width: 86%;
+  overflow: hidden;
+}
+.templateThumbSvg {
   display: block;
-  /* Anchor on height instead of width so each template's aspect-ratio
-     drives a visually distinct shape: 9:16 = tall narrow, 16:9 = wide,
-     1:1 = square. Width caps to prevent the wide variants from overflowing
-     the card. */
-  height: 56px;
-  max-width: 80%;
+  height: 100%;
+  width: auto;
 }
 
 .templateCardLabel {
@@ -1047,29 +1054,65 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   outline-offset: 1px;
 }
 
-/* The "Save current" affordance lives in the same grid as the saved cards.
-   Dashed border distinguishes it from filled cards; no separate add button. */
-.templateCard.adding {
-  background: transparent;
-  border-style: dashed;
-  color: var(--muted);
-}
-.templateCard.adding:hover:not(:disabled) {
-  border-color: rgb(96 165 250 / 0.55);
-  color: var(--text);
-}
-.templateCard.adding .templateCardFrameEmpty {
+/* Inline save row sits beneath the saved-templates grid. Visually
+   demoted so it reads as an action, not as another template card. */
+.templateSaveRow {
   align-items: center;
   background: transparent;
-  border-color: rgb(255 255 255 / 0.12);
-  border-style: dashed;
-  color: var(--subtle);
+  border: 0;
+  border-top: 1px dashed rgb(255 255 255 / 0.1);
+  color: var(--muted);
+  cursor: pointer;
   display: flex;
-  justify-content: center;
+  font: inherit;
+  font-size: 0.7rem;
+  gap: 0.4rem;
+  justify-content: flex-start;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.1rem 0.1rem;
+  text-align: left;
+  transition: color 150ms ease-out;
+  width: 100%;
 }
-.templateCard.adding:hover:not(:disabled) .templateCardFrameEmpty {
-  border-color: rgb(96 165 250 / 0.5);
-  color: var(--accent-hover);
+.templateSaveRow:hover:not(:disabled) {
+  color: var(--text);
+}
+.templateSaveRow:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.templateSaveRow:focus-visible {
+  color: var(--text);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.templateSaveRow.editing {
+  cursor: default;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+  padding-top: 0.55rem;
+}
+.templateSaveInput {
+  background: rgb(15 15 21 / 0.9);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.35rem 0.5rem;
+  width: 100%;
+}
+.templateSaveInput:focus {
+  outline: none;
+}
+.templateSaveInput::placeholder {
+  color: var(--subtle);
+}
+.templateSaveHint {
+  color: var(--subtle);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
 }
 
 /* Editing state: input replaces label in-place; card keeps its size so the
@@ -1785,24 +1828,51 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   transition: height 80ms linear;
 }
 
-/* Range readout centred inside the pill. Hidden when the pill is too narrow
- * to read it — the fill alone communicates depth at small widths. */
-.zoomRangeLabel {
+/* The selected-pill chip floats UP out of the lane row. The default
+ * `.timelineLane { overflow: hidden }` would clip it, so the zoom lane
+ * opts out and lifts its stacking context above neighboring lanes. */
+.zoomLane,
+.zoomLane .laneTrack { overflow: visible; }
+.zoomLane { z-index: 20; }
+
+/* Floating editor chip — anchored above the selected zoom pill, replacing
+ * the old sidebar Zoom markers section. Single row: range readout + depth
+ * slider + value. Tracks the pill via `left: X%` from the region model. */
+.zoomEditorChip {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--strong-line);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.35);
+  bottom: calc(100% + 0.42rem);
   color: var(--text);
-  display: block;
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
-  max-width: 100%;
-  overflow: hidden;
-  padding: 0.12rem 0.4rem;
-  pointer-events: none;
-  position: relative;
-  text-align: center;
-  text-overflow: ellipsis;
+  display: flex;
+  font-size: 0.74rem;
+  gap: 0.55rem;
+  padding: 0.36rem 0.6rem;
+  pointer-events: auto;
+  position: absolute;
+  transform: translateX(-50%);
   white-space: nowrap;
-  z-index: 1;
+  z-index: 25;
 }
-.timelineRegion[data-narrow="true"] .zoomRangeLabel { display: none; }
+.zoomEditorChip::after {
+  background: var(--panel);
+  border-bottom: 1px solid var(--strong-line);
+  border-right: 1px solid var(--strong-line);
+  bottom: -4px;
+  content: '';
+  height: 7px;
+  left: 50%;
+  position: absolute;
+  transform: translateX(-50%) rotate(45deg);
+  width: 7px;
+}
+.zoomEditorChip__range { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
+.zoomEditorChip__divider { background: var(--line); display: inline-block; height: 0.9rem; width: 1px; }
+.zoomEditorChip__depthLabel { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.zoomEditorChip__slider { accent-color: var(--accent); cursor: pointer; height: 0.85rem; margin: 0; width: 8rem; }
+.zoomEditorChip__value { color: var(--text); font-variant-numeric: tabular-nums; min-width: 2.5em; text-align: right; }
 
 /* Per-pill delete affordance — quiet by default, revealed on hover or focus.
  * Restrained chrome tone (not a second accent) so it reads as a tool button,
