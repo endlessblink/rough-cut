@@ -32,7 +32,15 @@ This rule exists because shipping CSS changes without a design pass produced vis
 - **Camera live preview is on only when the recorder window is active or on first startup** — the main editor window must not keep camera preview running. If you see the camera light on while in Projects or Recording edit view, that is a bug.
 - The `editor` view's user-facing label is `"Recording edit"`. The internal id stays `editor` for wiring (`activeAppView === 'editor'`, `setActiveAppView('editor')` on project open).
 
-## Scrollbars (HARD RULE)
+## Dev DX (HARD RULE — `pnpm dev` is the only command)
+
+The user never has to run `pkill`, `lsof`, or restart Electron by hand. `pnpm --filter @rough-cut/desktop dev` must:
+
+1. **Pre-cleanup stale processes.** `apps/desktop/scripts/predev-cleanup.mjs` runs first, killing anything on port 7545 (Vite) and any leftover Electron from this project. Failures are non-fatal — nothing to clean up is the happy path.
+2. **Auto-restart Electron on main/preload/shared changes.** `apps/desktop/scripts/electron-dev.mjs` spawns Electron, watches `src/main/`, `src/preload/`, `src/shared/` via recursive `fs.watch`, and respawns on changes (200ms debounce). Renderer changes still HMR through Vite — no respawn needed for those.
+3. **Propagate Ctrl+C cleanly.** `concurrently --kill-others -k` makes sure killing either Vite or the electron-dev orchestrator tears down both children.
+
+Do not add new dev steps the user has to remember. If a change makes `pnpm dev` insufficient, fix the script — never the workflow.
 
 - **Never the platform default scrollbar — anywhere in the app.** A global rule in `apps/desktop/src/renderer/src/styles.css` (right after the `html, body, #root` reset) applies the thin dark scrollbar (`*::-webkit-scrollbar*` + `scrollbar-color`/`scrollbar-width` on `html`) to every scrollable surface.
 - The rule is **token-driven**. Tokens in `:root`:
