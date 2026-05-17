@@ -230,6 +230,16 @@ const migrations: readonly Migration[] = [
       };
     },
   },
+  {
+    // v12 → v13: bump version only. The new fields `transcript`,
+    // `captionTracks`, and `tracks` are all optional, so omitting them on
+    // existing documents is correct — they'll be populated later by AI
+    // pipelines and the NLE editor as the user uses those features.
+    // Added by P-AI-C/TASK-164 for the AI architecture rewrite.
+    fromVersion: 12,
+    toVersion: 13,
+    migrate: (doc) => ({ ...doc, version: 13 }),
+  },
 ];
 
 function migrateAssetPathMode(
