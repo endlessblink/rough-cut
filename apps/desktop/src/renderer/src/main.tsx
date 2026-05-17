@@ -2879,7 +2879,17 @@ function ProjectPreview({
   }, []);
 
   async function applyUserTemplate(template: UserRecordingTemplate) {
+    // Saved user templates are authoritative for layout. Replace the camera
+    // and frame fields fully (no merge with current presentation) so the
+    // user gets back exactly what they saved, including the drag positions.
     setAppliedUserTemplateId(template.id);
+    // Strip undefined values from template.camera so they don't shadow
+    // DEFAULT_CAMERA_PRESENTATION (older saved templates omit the optional
+    // shadow/padding fields entirely; we want defaults to fill in).
+    const templateCamera: Partial<CameraPresentation> = {};
+    for (const [key, value] of Object.entries(template.camera)) {
+      if (value !== undefined) (templateCamera as Record<string, unknown>)[key] = value;
+    }
     await persist({
       ...project.document,
       settings: { ...project.document.settings, aspectRatio: template.aspectRatio },
@@ -2889,11 +2899,7 @@ function ProjectPreview({
         const nextPresentation: Record<string, unknown> = {
           ...presentation,
           background: template.background,
-          camera: {
-            ...DEFAULT_CAMERA_PRESENTATION,
-            ...((presentation.camera as Partial<CameraPresentation> | undefined) ?? {}),
-            ...template.camera,
-          },
+          camera: { ...DEFAULT_CAMERA_PRESENTATION, ...templateCamera },
         };
         if (template.screenFrame) nextPresentation.screenFrame = template.screenFrame;
         else delete nextPresentation.screenFrame;

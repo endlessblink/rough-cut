@@ -956,7 +956,7 @@ async function runRendererUiSmoke() {
   const hasFrameDragHandles = styledPreviewCanvas?.getAttribute('data-screen-draggable') === 'true' && styledPreviewCanvas?.getAttribute('data-camera-draggable') === 'true';
   document.querySelector('button[aria-label="Timeline"]')?.click();
   const stageRectBeforeToolSwitch = rectToRoundedObject(document.querySelector('[data-ui-region="central-stage"]')?.getBoundingClientRect());
-  await waitFor(() => document.querySelector('[aria-label="Zoom markers"]') && document.body.textContent?.includes('Zoom markers'), 'zoom marker panel header');
+  await waitFor(() => document.querySelector('[data-timeline-lane="zoom"][aria-label="Zoom markers"]'), 'zoom marker lane');
   const hasZoomMarkerPanel = true;
   const hasTimelineZoomControlPanel = Boolean(document.querySelector('[data-ui-region="timeline-zoom-control-panel"]'));
   await waitFor(() => document.querySelector('[aria-label="Auto-zoom suggestions"]') && document.body.textContent?.includes('Suggestions'), 'auto-zoom suggestions panel header');
