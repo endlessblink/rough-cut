@@ -75,14 +75,18 @@ export function LibraryShell({
         setImportError(IMPORT_REJECTION_MESSAGE);
         return;
       }
-      // Pick succeeded. Wiring into project creation is TASK-168.
-      // eslint-disable-next-line no-console
-      console.info('[library] picked import file', result.filePath, result.mimeType);
+      // P-AI-C/TASK-168 — create a sibling .roughcut and open it.
+      const created = await window.roughCut.createProjectFromImport({
+        importedFilePath: result.filePath,
+        importedMimeType: result.mimeType,
+      });
+      onOpenProjectByPath(created.path);
+      setRefreshKey((n) => n + 1);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setImportError(message);
     }
-  }, []);
+  }, [onOpenProjectByPath]);
 
   React.useEffect(() => {
     let cancelled = false;

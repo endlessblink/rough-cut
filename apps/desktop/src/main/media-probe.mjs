@@ -185,6 +185,86 @@ function firstFiniteNumber(...values) {
   return null;
 }
 
+// P-AI-C/TASK-168 — universal probe for the Library "Import file" flow.
+// Returns the metadata the import factory needs: durationSeconds (always when
+// available), width/height/fps (video only). Throws if ffprobe fails.
+// `runner` is injectable for tests.
+export async function probeImportedMedia(filePath, { kind = 'video', runner = run } = {}) {
+  if (kind === 'image') {
+    const result = await runner('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height',
+      '-of', 'json',
+      filePath,
+    ]);
+    if (result.code !== 0) throw new Error(`ffprobe failed for ${filePath}: ${result.stderr.trim()}`);
+    const parsed = JSON.parse(result.stdout);
+    const stream = Array.isArray(parsed.streams) ? parsed.streams[0] : null;
+    return {
+      kind: 'image',
+      durationSeconds: null,
+      width: stream ? toFiniteOrNull(stream.width) : null,
+      height: stream ? toFiniteOrNull(stream.height) : null,
+      fps: null,
+    };
+  }
+
+  if (kind === 'audio') {
+    const result = await runner('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'a:0',
+      '-show_entries', 'stream=duration',
+      '-show_entries', 'format=duration',
+      '-of', 'json',
+      filePath,
+    ]);
+    if (result.code !== 0) throw new Error(`ffprobe failed for ${filePath}: ${result.stderr.trim()}`);
+    const parsed = JSON.parse(result.stdout);
+    const stream = Array.isArray(parsed.streams) ? parsed.streams[0] : null;
+    const durationSeconds = firstFiniteNumber(stream?.duration, parsed.format?.duration);
+    return {
+      kind: 'audio',
+      durationSeconds,
+      width: null,
+      height: null,
+      fps: null,
+    };
+  }
+
+  // video — reuse the same query shape probeVideoTiming uses, but include
+  // width/height so the import factory can preserve aspect ratio.
+  const result = await runner('ffprobe', [
+    '-v', 'error',
+    '-select_streams', 'v:0',
+    '-show_entries', 'stream=width,height,duration,nb_frames,avg_frame_rate,r_frame_rate',
+    '-show_entries', 'format=duration',
+    '-of', 'json',
+    filePath,
+  ]);
+  if (result.code !== 0) throw new Error(`ffprobe failed for ${filePath}: ${result.stderr.trim()}`);
+  const parsed = JSON.parse(result.stdout);
+  const stream = Array.isArray(parsed.streams) ? parsed.streams[0] : null;
+  if (!stream) throw new Error(`No video stream in ${filePath}`);
+  const fps = firstFiniteNumber(parseRate(stream.avg_frame_rate), parseRate(stream.r_frame_rate));
+  const durationSeconds = firstFiniteNumber(stream.duration, parsed.format?.duration);
+  return {
+    kind: 'video',
+    width: toFiniteOrNull(stream.width),
+    height: toFiniteOrNull(stream.height),
+    fps,
+    durationSeconds,
+    durationFrames: Number.isFinite(durationSeconds) && Number.isFinite(fps) && fps > 0
+      ? Math.max(1, Math.round(durationSeconds * fps))
+      : null,
+  };
+}
+
+function toFiniteOrNull(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 function run(command, args) {
   return new Promise((resolve, reject) => {
     const proc = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });

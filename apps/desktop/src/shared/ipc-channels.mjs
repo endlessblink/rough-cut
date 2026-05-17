@@ -13,6 +13,9 @@ export const IPC_CHANNELS = {
   // P-AI-C/TASK-167 — open a system dialog filtered to the import whitelist
   // (mp4/mov/mp3/wav/png/jpg). Returns {filePath, mimeType} or null on cancel.
   LIBRARY_PICK_IMPORT_FILE: 'library:pick-import-file',
+  // P-AI-C/TASK-168 — probe the imported file and create a new .roughcut
+  // referencing it in place. Returns the saved {path, document}.
+  LIBRARY_CREATE_FROM_IMPORT: 'library:create-from-import',
 
   // Recent Projects
   RECENT_PROJECTS_GET: 'recent-projects:get',

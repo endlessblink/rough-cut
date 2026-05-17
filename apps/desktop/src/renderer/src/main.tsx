@@ -99,6 +99,7 @@ declare global {
       openProjectPath: (path: string) => Promise<ProjectState>;
       saveProject: (project: { path: string; document: ProjectState['document'] }) => Promise<ProjectState>;
       pickImportFile: () => Promise<{ filePath: string; mimeType: string | null } | null>;
+      createProjectFromImport: (payload: { importedFilePath: string; importedMimeType: string | null }) => Promise<ProjectState>;
       getRecoveryState: () => Promise<{ available: boolean; marker: RecoveryMarker | null; rawAvailable: boolean; cameraRawAvailable?: boolean }>;
       recoverLastRecording: () => Promise<{ state: 'recovered'; project: ProjectState; remuxWarnings: Array<{ source: string; message: string }> }>;
       dismissRecovery: (options?: { deleteFiles?: boolean }) => Promise<{ dismissed: boolean; removed: string[] }>;

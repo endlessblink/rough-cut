@@ -5,16 +5,19 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+  createProjectForImport,
   createProjectForRecording,
   discardInterruptedSave,
   duplicateProjectFile,
   getPrimaryRecording,
   openProjectFile,
+  pickImportProjectPath,
   PROJECT_BACKUP_SUFFIX,
   PROJECT_TEMP_SUFFIX,
   ProjectPathError,
   renameProjectFile,
   saveProjectFile,
+  saveProjectForImport,
   saveProjectForRecording,
   validateProjectPath,
 } from './project-files.mjs';
@@ -752,6 +755,127 @@ test('duplicateProjectFile preserves relative asset paths so the copy still reso
     // The copy's recording-asset filePath resolves to either the new media
     // copy or back to the original; either way it must exist on disk.
     assert.equal(existsSync(recordingAsset.filePath), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// --- P-AI-C/TASK-168: Import flow ---
+
+test('createProjectForImport builds a validated video project from a probe', () => {
+  const project = createProjectForImport({
+    importedFilePath: '/tmp/imports/cool clip.MP4',
+    mimeType: 'video/mp4',
+    probe: { width: 1920, height: 1080, fps: 30, durationSeconds: 12.5, durationFrames: 375 },
+    now: new Date('2026-05-18T00:00:00.000Z'),
+  });
+
+  assert.equal(project.name, 'cool clip');
+  assert.equal(project.assets.length, 1);
+  const asset = project.assets[0];
+  assert.equal(asset.type, 'video');
+  assert.equal(asset.filePath, '/tmp/imports/cool clip.MP4');
+  assert.equal(asset.pathMode, 'absolute');
+  assert.equal(asset.duration, 375);
+  assert.equal(asset.metadata.width, 1920);
+  assert.equal(asset.metadata.height, 1080);
+  assert.equal(asset.metadata.fps, 30);
+  assert.equal(asset.metadata.mimeType, 'video/mp4');
+  assert.equal(asset.metadata.importKind, 'video');
+  assert.equal(project.settings.resolution.width, 1920);
+  assert.equal(project.settings.frameRate, 30);
+  assert.equal(project.composition.duration, 375);
+  assert.equal(project.composition.tracks.length, 1);
+  assert.equal(project.composition.tracks[0].clips[0].assetId, asset.id);
+});
+
+test('createProjectForImport falls back to defaults when fps is non-standard', () => {
+  const project = createProjectForImport({
+    importedFilePath: '/tmp/odd.mov',
+    mimeType: 'video/quicktime',
+    probe: { width: 1280, height: 720, fps: 29.97, durationSeconds: 3, durationFrames: 90 },
+  });
+  // Schema enforces fps ∈ {24, 30, 60}; 29.97 maps to the nearest (30).
+  assert.equal(project.settings.frameRate, 30);
+});
+
+test('createProjectForImport handles audio with audio track and null video metadata', () => {
+  const project = createProjectForImport({
+    importedFilePath: '/tmp/voice.mp3',
+    mimeType: 'audio/mpeg',
+    probe: { durationSeconds: 8 },
+  });
+  assert.equal(project.assets[0].type, 'audio');
+  assert.equal(project.assets[0].metadata.width, null);
+  assert.equal(project.assets[0].metadata.height, null);
+  assert.equal(project.assets[0].metadata.importKind, 'audio');
+  assert.equal(project.composition.tracks[0].type, 'audio');
+  assert.equal(project.composition.tracks[0].clips[0].sourceOut, 240); // 8s * 30fps
+});
+
+test('createProjectForImport handles images with the default 5s duration', () => {
+  const project = createProjectForImport({
+    importedFilePath: '/tmp/poster.png',
+    mimeType: 'image/png',
+    probe: { width: 800, height: 600, durationSeconds: null },
+  });
+  assert.equal(project.assets[0].type, 'image');
+  assert.equal(project.assets[0].metadata.importKind, 'image');
+  // 5 seconds at 30 fps default.
+  assert.equal(project.composition.duration, 150);
+});
+
+test('createProjectForImport rejects an empty importedFilePath', () => {
+  assert.throws(
+    () => createProjectForImport({ importedFilePath: '', mimeType: 'video/mp4', probe: {} }),
+    /importedFilePath/,
+  );
+});
+
+test('pickImportProjectPath suffixes on collision and writes the .roughcut next to the source', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-import-pick-'));
+  try {
+    const importedFilePath = join(root, 'src', 'clip.mp4');
+    await writeFile(importedFilePath, Buffer.alloc(0)).catch(async () => {
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(join(root, 'src'), { recursive: true });
+      await writeFile(importedFilePath, Buffer.alloc(0));
+    });
+    const recordingsDir = join(root, 'recordings');
+
+    const first = await pickImportProjectPath({ importedFilePath, recordingsDir });
+    assert.match(first, /clip\.roughcut$/);
+    await writeFile(first, '{}');
+
+    const second = await pickImportProjectPath({ importedFilePath, recordingsDir });
+    assert.match(second, /clip \(2\)\.roughcut$/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('saveProjectForImport writes the .roughcut and references the imported file in place', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-import-save-'));
+  try {
+    const importedFilePath = join(root, 'capture.mp4');
+    await writeFile(importedFilePath, Buffer.alloc(0));
+    const recordingsDir = join(root, 'recordings');
+
+    const saved = await saveProjectForImport({
+      importedFilePath,
+      mimeType: 'video/mp4',
+      probe: { width: 1920, height: 1080, fps: 30, durationSeconds: 2, durationFrames: 60 },
+      recordingsDir,
+    });
+
+    assert.match(saved.path, /capture\.roughcut$/);
+    assert.equal(existsSync(saved.path), true);
+    // Imported file must not have been copied or moved.
+    assert.equal(existsSync(importedFilePath), true);
+    const reopened = await openProjectFile(saved.path);
+    const asset = reopened.document.assets[0];
+    assert.equal(asset.filePath, importedFilePath);
+    assert.equal(asset.pathMode, 'absolute');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

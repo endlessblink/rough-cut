@@ -409,6 +409,179 @@ export async function saveProjectForRecording(recording) {
   return saveProjectFile(projectPath, project);
 }
 
+// P-AI-C/TASK-168 — Build a validated ProjectDocument for an imported file.
+// `probe` carries whatever metadata the caller could extract (durationFrames,
+// width/height/fps for video). Pure: no I/O — that's the IPC handler's job.
+const IMPORT_DEFAULT_FRAME_RATE = 30;
+const IMPORT_DEFAULT_IMAGE_DURATION_SECONDS = 5;
+const IMPORT_DEFAULT_RESOLUTION = { width: 1920, height: 1080 };
+
+export function createProjectForImport({
+  importedFilePath,
+  mimeType,
+  probe,
+  now = new Date(),
+}) {
+  if (typeof importedFilePath !== 'string' || importedFilePath.length === 0) {
+    throw new Error('createProjectForImport requires importedFilePath');
+  }
+  const kind = classifyImportKind(mimeType);
+  const fps = Number.isFinite(probe?.fps) && probe.fps > 0 ? probe.fps : IMPORT_DEFAULT_FRAME_RATE;
+  const width = Number.isFinite(probe?.width) && probe.width > 0
+    ? ensureEven(probe.width)
+    : IMPORT_DEFAULT_RESOLUTION.width;
+  const height = Number.isFinite(probe?.height) && probe.height > 0
+    ? ensureEven(probe.height)
+    : IMPORT_DEFAULT_RESOLUTION.height;
+  const durationFrames = computeImportDurationFrames({ kind, probe, fps });
+
+  const name = basename(importedFilePath).replace(/\.[^./\\]+$/, '') || 'Imported clip';
+  const assetType = kind === 'audio' ? 'audio' : kind === 'image' ? 'image' : 'video';
+  const trackType = kind === 'audio' ? 'audio' : 'video';
+
+  const asset = createAsset(assetType, importedFilePath, {
+    pathMode: 'absolute',
+    duration: durationFrames,
+    metadata: {
+      width: kind === 'audio' ? null : width,
+      height: kind === 'audio' ? null : height,
+      fps: kind === 'audio' ? null : fps,
+      mimeType: typeof mimeType === 'string' ? mimeType : null,
+      importedAt: now.toISOString(),
+      importKind: kind,
+    },
+  });
+
+  const track = createTrack(trackType, {
+    name: kind === 'audio' ? 'Audio' : 'Imported',
+    index: 0,
+  });
+  const clip = createClip(asset.id, track.id, {
+    name,
+    timelineIn: 0,
+    timelineOut: durationFrames,
+    sourceIn: 0,
+    sourceOut: durationFrames,
+  });
+
+  return validateProject(
+    createProject({
+      name,
+      createdAt: now.toISOString(),
+      modifiedAt: now.toISOString(),
+      settings: {
+        resolution: { width, height },
+        frameRate: pickAllowedFps(fps),
+        backgroundColor: '#000000',
+        sampleRate: 48000,
+        destinationPresetId: null,
+      },
+      assets: [asset],
+      composition: {
+        duration: durationFrames,
+        tracks: [{ ...track, clips: [clip] }],
+        transitions: [],
+      },
+      exportSettings: {
+        format: 'mp4',
+        codec: 'h264',
+        bitrate: 15_000_000,
+        resolution: { width, height },
+        frameRate: pickAllowedFps(fps),
+        keepClickSounds: true,
+      },
+    }),
+  );
+}
+
+function classifyImportKind(mimeType) {
+  if (typeof mimeType === 'string') {
+    if (mimeType.startsWith('video/')) return 'video';
+    if (mimeType.startsWith('audio/')) return 'audio';
+    if (mimeType.startsWith('image/')) return 'image';
+  }
+  return 'video';
+}
+
+function computeImportDurationFrames({ kind, probe, fps }) {
+  if (Number.isFinite(probe?.durationFrames) && probe.durationFrames > 0) {
+    return Math.max(1, Math.round(probe.durationFrames));
+  }
+  if (Number.isFinite(probe?.durationSeconds) && probe.durationSeconds > 0) {
+    return Math.max(1, Math.round(probe.durationSeconds * fps));
+  }
+  if (kind === 'image') {
+    return Math.max(1, Math.round(IMPORT_DEFAULT_IMAGE_DURATION_SECONDS * fps));
+  }
+  return Math.max(1, Math.round(5 * fps));
+}
+
+// Schema enforces FrameRate ∈ {24, 30, 60}. Map arbitrary source fps to the
+// closest allowed setting for the project — clip duration stays in frames so
+// playback length is preserved.
+function pickAllowedFps(fps) {
+  const allowed = [24, 30, 60];
+  let best = 30;
+  let bestDelta = Infinity;
+  for (const candidate of allowed) {
+    const delta = Math.abs(candidate - fps);
+    if (delta < bestDelta) {
+      best = candidate;
+      bestDelta = delta;
+    }
+  }
+  return best;
+}
+
+// Pick a writable .roughcut path next to the imported file, falling back to
+// `recordingsDir` if the source folder isn't writable. Always returns a path
+// that does not exist yet (suffixed with " (2)", " (3)", ... on collision).
+export async function pickImportProjectPath({ importedFilePath, recordingsDir }) {
+  const stem = basename(importedFilePath).replace(/\.[^./\\]+$/, '') || 'Imported clip';
+  const candidates = [dirname(importedFilePath), recordingsDir];
+  for (const dir of candidates) {
+    try {
+      await mkdir(dir, { recursive: true });
+      const path = await firstAvailableSuffixedPath(dir, stem);
+      // Probe writability by touching the tmp suffix file.
+      const probe = `${path}${PROJECT_TEMP_SUFFIX}`;
+      await writeFileExclusive(probe).catch(() => null);
+      await unlink(probe).catch(() => null);
+      return path;
+    } catch {
+      // try the next candidate dir
+    }
+  }
+  throw new Error('Could not find a writable location for the new project');
+}
+
+async function firstAvailableSuffixedPath(dir, stem) {
+  for (let i = 0; i < 100; i += 1) {
+    const suffix = i === 0 ? '' : ` (${i + 1})`;
+    const candidate = join(dir, `${stem}${suffix}${PROJECT_FILE_EXTENSION}`);
+    const exists = await stat(candidate).then(() => true).catch(() => false);
+    if (!exists) return candidate;
+  }
+  return join(dir, `${stem}-${Date.now()}${PROJECT_FILE_EXTENSION}`);
+}
+
+async function writeFileExclusive(path) {
+  const handle = await open(path, 'wx');
+  await handle.close();
+}
+
+export async function saveProjectForImport({
+  importedFilePath,
+  mimeType,
+  probe,
+  recordingsDir,
+  now = new Date(),
+}) {
+  const project = createProjectForImport({ importedFilePath, mimeType, probe, now });
+  const projectPath = await pickImportProjectPath({ importedFilePath, recordingsDir });
+  return saveProjectFile(projectPath, project);
+}
+
 export function getPrimaryRecording(project) {
   const asset = project.assets.find((item) => item.type === 'recording' || item.type === 'video');
   if (!asset) return null;

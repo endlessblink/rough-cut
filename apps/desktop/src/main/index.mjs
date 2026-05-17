@@ -3,10 +3,10 @@ import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
-import { mimeForExtension } from '../shared/import-mime.mjs';
+import { isImportableMimeType, mimeForExtension } from '../shared/import-mime.mjs';
 import { exportProjectToMp4 } from './export-service.mjs';
-import { assertReadableMp4, computeSyncedRecordingTiming, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
-import { duplicateProjectFile, getLinkedCameraAsset, getPrimaryRecording, openProjectFile, renameProjectFile, saveProjectFile, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
+import { assertReadableMp4, computeSyncedRecordingTiming, probeImportedMedia, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
+import { duplicateProjectFile, getLinkedCameraAsset, getPrimaryRecording, openProjectFile, renameProjectFile, saveProjectFile, saveProjectForImport, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
 import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
 import { dismissRecovery, getRecoveryState, recoverFromMarker } from './recording-recovery.mjs';
 import { deleteProjectFiles, listProjectSummaries } from './project-gallery.mjs';
@@ -460,6 +460,31 @@ ipcMain.handle(IPC_CHANNELS.LIBRARY_PICK_IMPORT_FILE, async () => {
   const filePath = result.filePaths[0];
   const mimeType = mimeForExtension(filePath);
   return { filePath, mimeType };
+});
+// P-AI-C/TASK-168 — probe the imported file in place and write a sibling
+// .roughcut. The file itself is never copied or moved.
+ipcMain.handle(IPC_CHANNELS.LIBRARY_CREATE_FROM_IMPORT, async (_event, payload) => {
+  const importedFilePath = payload?.importedFilePath;
+  const importedMimeType = payload?.importedMimeType;
+  if (typeof importedFilePath !== 'string' || importedFilePath.length === 0) {
+    throw new Error('importedFilePath is required');
+  }
+  const mime = typeof importedMimeType === 'string' && importedMimeType.length > 0
+    ? importedMimeType
+    : mimeForExtension(importedFilePath);
+  if (!isImportableMimeType(mime ?? '')) {
+    throw new Error('Unsupported file type for import');
+  }
+  const kind = mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'image';
+  const probe = await probeImportedMedia(importedFilePath, { kind });
+  await mkdir(recordingsDir, { recursive: true });
+  const saved = await saveProjectForImport({
+    importedFilePath,
+    mimeType: mime,
+    probe,
+    recordingsDir,
+  });
+  return formatProject(saved);
 });
 ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, (_event, projectPath) => {
   const safePath = validateProjectPath(projectPath, { allowedRoots: buildAllowedProjectRoots() });

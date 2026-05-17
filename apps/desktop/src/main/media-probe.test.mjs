@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { assertReadableMp4, computeSyncedRecordingTiming, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
+import { assertReadableMp4, computeSyncedRecordingTiming, probeImportedMedia, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
 
 test('rejects invalid mp4 files before project save', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-invalid-mp4-'));
@@ -86,6 +86,75 @@ test('probeVideoTiming derives frame count from ffprobe JSON', async () => {
   assert.equal(timing.frameRate, 30);
   assert.equal(timing.durationSeconds, 2.333);
   assert.equal(timing.startTimeSeconds, 0.033);
+});
+
+test('probeImportedMedia (video) returns width/height/fps/duration from ffprobe', async () => {
+  const probe = await probeImportedMedia('/tmp/clip.mp4', {
+    kind: 'video',
+    runner: async () => ({
+      code: 0,
+      stderr: '',
+      stdout: JSON.stringify({
+        streams: [{
+          width: 1920,
+          height: 1080,
+          duration: '12.5',
+          avg_frame_rate: '30/1',
+          r_frame_rate: '30/1',
+        }],
+        format: { duration: '12.5' },
+      }),
+    }),
+  });
+  assert.equal(probe.kind, 'video');
+  assert.equal(probe.width, 1920);
+  assert.equal(probe.height, 1080);
+  assert.equal(probe.fps, 30);
+  assert.equal(probe.durationSeconds, 12.5);
+  assert.equal(probe.durationFrames, 375);
+});
+
+test('probeImportedMedia (audio) returns duration only', async () => {
+  const probe = await probeImportedMedia('/tmp/voice.mp3', {
+    kind: 'audio',
+    runner: async () => ({
+      code: 0,
+      stderr: '',
+      stdout: JSON.stringify({
+        streams: [{ duration: '4.2' }],
+        format: { duration: '4.2' },
+      }),
+    }),
+  });
+  assert.equal(probe.kind, 'audio');
+  assert.equal(probe.durationSeconds, 4.2);
+  assert.equal(probe.width, null);
+  assert.equal(probe.height, null);
+});
+
+test('probeImportedMedia (image) returns dimensions and null duration', async () => {
+  const probe = await probeImportedMedia('/tmp/photo.png', {
+    kind: 'image',
+    runner: async () => ({
+      code: 0,
+      stderr: '',
+      stdout: JSON.stringify({ streams: [{ width: 800, height: 600 }] }),
+    }),
+  });
+  assert.equal(probe.kind, 'image');
+  assert.equal(probe.width, 800);
+  assert.equal(probe.height, 600);
+  assert.equal(probe.durationSeconds, null);
+});
+
+test('probeImportedMedia rejects when ffprobe exits non-zero', async () => {
+  await assert.rejects(
+    () => probeImportedMedia('/tmp/missing.mp4', {
+      kind: 'video',
+      runner: async () => ({ code: 1, stderr: 'No such file', stdout: '' }),
+    }),
+    /ffprobe failed/,
+  );
 });
 
 test('probeVideoStreamsTiming returns per-stream timing and prefers duration seconds', async () => {
