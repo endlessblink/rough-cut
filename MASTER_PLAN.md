@@ -148,8 +148,8 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-124 | Provider registry + reasoning capability router | P1 | PLANNED |
 | TASK-125 | Cost meter + background job system + top-bar progress chip | P2 | PLANNED |
 | ~~TASK-162~~ | ✅ Add transcript / captionTracks / tracks types to project-model | P1 | ✅ DONE (2026-05-18) |
-| TASK-163 | Extend Zod schemas for transcript / captionTracks / tracks | P1 | PLANNED |
-| TASK-164 | Migration v12 → v13 (additive defaults for new fields) | P1 | PLANNED |
+| ~~TASK-163~~ | ✅ Extend Zod schemas for transcript / captionTracks / tracks | P1 | ✅ DONE (2026-05-18) |
+| ~~TASK-164~~ | ✅ Migration v12 → v13 (additive defaults for new fields) | P1 | ✅ DONE (2026-05-18) |
 | TASK-165 | Migration tests + round-trip + idempotent re-migration | P1 | PLANNED |
 | TASK-166 | LibraryShell topbar: Import / Blank / Template buttons | P2 | PLANNED |
 | TASK-167 | Import handler: file picker + whitelist (mp4/mov/mp3/wav/png/jpg) | P2 | PLANNED |
@@ -477,7 +477,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-163, "Extend Zod schemas for transcript / captionTracks / tracks". ~30 min scope: mirror the types from TASK-162 (commit `192fb90`) in `packages/project-model/src/schemas.ts` as `.optional()` fields. Notes from TASK-162 to carry forward: caption type is `CaptionStyleKind` (not `CaptionStyle` — name collision avoided), and the new track type is `NleTrack` (composition-level `Track` is unchanged). See `gentle-dancing-patterson.md` for full context.
+Next task when continuing: start TASK-165, "Migration tests + round-trip + idempotent re-migration". ~30 min scope: extend `packages/project-model/src/migrations.test.ts` with cases for the new v12→v13 migration committed in `a9cb125`. Verify (a) a v12 fixture document gets stamped to v13 with no field-level changes, (b) a v13 doc is unchanged on re-migration (idempotent), (c) the full v1→v13 chain still works for ancient projects, (d) corrupt input (missing `version`) is handled gracefully. See `gentle-dancing-patterson.md` for full context.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -4453,10 +4453,10 @@ First atomic step of the v12 → v13 migration: add the new type definitions onl
 - `pnpm --filter @rough-cut/project-model build` — ✅ clean (tsc).
 - `pnpm --filter @rough-cut/project-model test` — ✅ 133/133 pass (up from 132 — count increase is incidental).
 
-### TASK-163 Extend Zod schemas for transcript / captionTracks / tracks
+### ~~TASK-163~~ Extend Zod schemas for transcript / captionTracks / tracks
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — commit `8e6f87d`. Schemas added with the same renames as TASK-162 (`CaptionStyleKind`, `NleTrack*`). 10 new schema tests added. 143/143 tests pass.
 **Lane:** P-AI-C
 **Supersedes part of:** TASK-126
 
@@ -4477,10 +4477,10 @@ Mirror TASK-162's TypeScript types in Zod schemas so `validateProject()` accepts
 - `pnpm --filter @rough-cut/project-model test` — existing `schemas.test.ts` (23 tests) still passes.
 - New tests in `schemas.test.ts` (or sibling file): valid `Transcript` parses, malformed `Transcript` rejected, projects without transcript still valid.
 
-### TASK-164 Migration v12 → v13 (additive defaults for new fields)
+### ~~TASK-164~~ Migration v12 → v13 (additive defaults for new fields)
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — commit `a9cb125`. `CURRENT_SCHEMA_VERSION` bumped 12→13. Migration is additive + idempotent (re-running on v13 is a no-op). The three v13 fields are all optional, so no field-level transform is needed — just a version stamp.
 **Lane:** P-AI-C
 **Supersedes part of:** TASK-126
 
