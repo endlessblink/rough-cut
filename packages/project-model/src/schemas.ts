@@ -453,6 +453,70 @@ export const MotionCompositionSchema = z.object({
   createdAt: z.string().datetime(),
 });
 
+// --- v13 AI architecture: transcript / caption tracks / NLE tracks (TASK-163) ---
+
+export const TranscriptParagraphSchema = z.object({
+  startFrame: nonNegativeInt,
+  endFrame: nonNegativeInt,
+  text: z.string(),
+  speaker: z.string().min(1).optional(),
+});
+
+export const TranscriptNonSpeechKindSchema = z.enum(['silence', 'music', 'noise']);
+
+export const TranscriptNonSpeechSegmentSchema = z.object({
+  kind: TranscriptNonSpeechKindSchema,
+  startFrame: nonNegativeInt,
+  endFrame: nonNegativeInt,
+});
+
+export const TranscriptSchema = z.object({
+  words: z.array(TranscriptWordSchema),
+  paragraphs: z.array(TranscriptParagraphSchema),
+  nonSpeech: z.array(TranscriptNonSpeechSegmentSchema),
+});
+
+// Renamed from spec's `CaptionStyleSchema` — the existing CaptionStyleSchema
+// describes a per-segment rendering style ({fontSize, position, ...}). The new
+// kind union (subtitle / submagic / karaoke) is a distinct concept.
+export const CaptionStyleKindSchema = z.enum(['subtitle', 'submagic', 'karaoke']);
+
+export const CaptionPhraseSchema = z.object({
+  text: z.string(),
+  startFrame: nonNegativeInt,
+  endFrame: nonNegativeInt,
+  emphasisWordIndex: z.number().int().nonnegative().optional(),
+  paletteColorIndex: z.number().int().nonnegative().optional(),
+});
+
+export const CaptionTrackSchema = z.object({
+  id: z.string().min(1),
+  style: CaptionStyleKindSchema,
+  phrases: z.array(CaptionPhraseSchema),
+});
+
+// Renamed from spec's `TrackSchema` — the existing TrackSchema is the
+// composition-level track. The new NLE-level track lives alongside it under
+// `ProjectDocument.tracks?` (optional in v13).
+export const NleTrackKindSchema = z.enum(['video', 'audio', 'captions', 'motion-graphics']);
+
+export const NleTrackClipSchema = z.object({
+  assetId: z.string().min(1),
+  timelineIn: nonNegativeInt,
+  timelineOut: nonNegativeInt,
+  sourceIn: nonNegativeInt,
+  sourceOut: nonNegativeInt,
+});
+
+export const NleTrackSchema = z.object({
+  id: z.string().min(1),
+  kind: NleTrackKindSchema,
+  label: z.string().min(1),
+  locked: z.boolean(),
+  muted: z.boolean(),
+  clips: z.array(NleTrackClipSchema),
+});
+
 // --- ProjectDocument ---
 
 export const ProjectDocumentSchema = z.object({
@@ -469,6 +533,10 @@ export const ProjectDocumentSchema = z.object({
   aiAnnotations: AIAnnotationsSchema,
   motionCompositions: z.array(MotionCompositionSchema),
   libraryReferences: z.array(ProjectLibraryReferenceSchema),
+  // v13 additions (P-AI-C / TASK-163). All optional so v12 documents still validate.
+  transcript: TranscriptSchema.optional(),
+  captionTracks: z.array(CaptionTrackSchema).optional(),
+  tracks: z.array(NleTrackSchema).optional(),
 });
 
 /**

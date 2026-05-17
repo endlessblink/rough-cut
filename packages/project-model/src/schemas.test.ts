@@ -5,6 +5,9 @@ import {
   ProjectDocumentSchema,
   LibraryDocumentSchema,
   ZoomMarkerSchema,
+  TranscriptSchema,
+  CaptionTrackSchema,
+  NleTrackSchema,
 } from './schemas.js';
 import {
   createProject,
@@ -234,5 +237,108 @@ describe('ZoomMarker', () => {
   it('rejects non-integer zoomInDuration', () => {
     const marker = { ...createZoomMarker(30, 90), zoomInDuration: 1.5 };
     expect(ZoomMarkerSchema.safeParse(marker).success).toBe(false);
+  });
+});
+
+describe('v13 AI architecture schemas (P-AI-C/TASK-163)', () => {
+  it('accepts a valid Transcript', () => {
+    const transcript = {
+      words: [{ word: 'hello', startFrame: 0, endFrame: 12, confidence: 0.95 }],
+      paragraphs: [{ startFrame: 0, endFrame: 12, text: 'hello', speaker: 'Noam' }],
+      nonSpeech: [{ kind: 'silence' as const, startFrame: 12, endFrame: 24 }],
+    };
+    expect(() => TranscriptSchema.parse(transcript)).not.toThrow();
+  });
+
+  it('rejects a Transcript with an invalid non-speech kind', () => {
+    const bad = {
+      words: [],
+      paragraphs: [],
+      nonSpeech: [{ kind: 'applause', startFrame: 0, endFrame: 12 }],
+    };
+    expect(TranscriptSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('rejects a Transcript with a negative startFrame', () => {
+    const bad = {
+      words: [{ word: 'x', startFrame: -1, endFrame: 12, confidence: 0.9 }],
+      paragraphs: [],
+      nonSpeech: [],
+    };
+    expect(TranscriptSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('accepts a valid CaptionTrack', () => {
+    const track = {
+      id: 'ct-1',
+      style: 'submagic' as const,
+      phrases: [
+        { text: 'hello world', startFrame: 0, endFrame: 30, emphasisWordIndex: 1 },
+      ],
+    };
+    expect(() => CaptionTrackSchema.parse(track)).not.toThrow();
+  });
+
+  it('rejects a CaptionTrack with an unknown style', () => {
+    const bad = { id: 'ct-1', style: 'fancy', phrases: [] };
+    expect(CaptionTrackSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('accepts a valid NleTrack', () => {
+    const track = {
+      id: 'tr-1',
+      kind: 'video' as const,
+      label: 'V1',
+      locked: false,
+      muted: false,
+      clips: [{ assetId: 'a-1', timelineIn: 0, timelineOut: 120, sourceIn: 0, sourceOut: 120 }],
+    };
+    expect(() => NleTrackSchema.parse(track)).not.toThrow();
+  });
+
+  it('rejects an NleTrack with an unknown kind', () => {
+    const bad = {
+      id: 'tr-1',
+      kind: 'subtitles',
+      label: 'X',
+      locked: false,
+      muted: false,
+      clips: [],
+    };
+    expect(NleTrackSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('accepts a ProjectDocument with the new v13 fields populated', () => {
+    const project = createProject();
+    const extended = {
+      ...project,
+      transcript: { words: [], paragraphs: [], nonSpeech: [] },
+      captionTracks: [{ id: 'ct-1', style: 'subtitle' as const, phrases: [] }],
+      tracks: [
+        {
+          id: 'tr-1',
+          kind: 'audio' as const,
+          label: 'A1',
+          locked: false,
+          muted: false,
+          clips: [],
+        },
+      ],
+    };
+    expect(() => validateProject(extended)).not.toThrow();
+  });
+
+  it('accepts a v12-shaped ProjectDocument with none of the new fields', () => {
+    const project = createProject();
+    expect(() => validateProject(project)).not.toThrow();
+  });
+
+  it('rejects a ProjectDocument whose transcript is malformed', () => {
+    const project = createProject();
+    const bad = {
+      ...project,
+      transcript: { words: 'nope', paragraphs: [], nonSpeech: [] },
+    };
+    expect(ProjectDocumentSchema.safeParse(bad).success).toBe(false);
   });
 });
