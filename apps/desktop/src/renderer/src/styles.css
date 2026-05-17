@@ -1480,6 +1480,25 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   width: 100%;
 }
 
+/* Size row: inline preview + slider. The preview gives the user
+ * immediate visual feedback because the styled preview canvas often
+ * doesn't show a cursor at the current playhead. */
+.cursorSizeRow {
+  align-items: center;
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: 32px minmax(0, 1fr);
+}
+.cursorSizePreview {
+  background: rgb(0 0 0 / 0.35);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: block;
+  flex: 0 0 auto;
+  height: 32px;
+  width: 32px;
+}
+
 .segmentedPicker {
   background: rgb(255 255 255 / 0.025);
   border-radius: 10px;

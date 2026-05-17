@@ -1990,6 +1990,36 @@ function InspectorPresetGrid({ label, disabled = false, value, onSelect }: { lab
   );
 }
 
+// Inline cursor-size preview for the Cursor inspector. The preview canvas
+// often shows a frame where the cursor isn't visible (cursor parked off-
+// screen at the current playhead), so the Size slider feels like a no-op.
+// This SVG mirrors the styled-export polygon and scales with sizePercent
+// so the user gets immediate feedback next to the slider.
+const CURSOR_PREVIEW_POLYGON = '0,0 0,26 7,20 12,33 18,31 13,19 24,19';
+function CursorSizePreview({ sizePercent }: { sizePercent: number }) {
+  const clamped = Math.max(50, Math.min(150, Number.isFinite(sizePercent) ? sizePercent : 100));
+  const scale = clamped / 100;
+  // ViewBox covers the polygon (24×33) plus a small margin so the largest
+  // scale (1.5×) still fits without clipping. Render area is fixed so the
+  // slider row's height never shifts as the user drags.
+  const vbSize = 60;
+  const inset = (vbSize - 24 * scale) / 2;
+  const insetY = (vbSize - 33 * scale) / 2;
+  return (
+    <svg
+      className="cursorSizePreview"
+      width={32}
+      height={32}
+      viewBox={`0 0 ${vbSize} ${vbSize}`}
+      aria-hidden="true"
+    >
+      <g transform={`translate(${inset}, ${insetY}) scale(${scale})`}>
+        <polygon points={CURSOR_PREVIEW_POLYGON} fill="#ffffff" stroke="#333A46" strokeWidth={2.2 / scale} strokeLinejoin="round" />
+      </g>
+    </svg>
+  );
+}
+
 function CursorStylePicker({ value, disabled = false, onChange }: { value: CursorStyle; disabled?: boolean; onChange: (value: CursorStyle) => void }) {
   return (
     <div className="segmentedPicker" role="radiogroup" aria-label="Cursor style">
@@ -2504,7 +2534,10 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
         {projectLoaded ? (
           <div className="flatGroup" data-inspector-group="cursor" data-cursor-controls="true">
             <CursorStylePicker value={cursor.style} disabled={disabled} onChange={(style) => onCursorPresentationChange?.({ style })} />
-            <InspectorSlider label="Size" value={cursor.sizePercent} min={50} max={150} step={5} disabled={disabled} onChange={(sizePercent) => onCursorPresentationChange?.({ sizePercent })} />
+            <div className="cursorSizeRow">
+              <CursorSizePreview sizePercent={cursor.sizePercent} />
+              <InspectorSlider label="Size" value={cursor.sizePercent} min={50} max={150} step={5} disabled={disabled} onChange={(sizePercent) => onCursorPresentationChange?.({ sizePercent })} />
+            </div>
             <div className="flatGroupDivider" aria-hidden="true" />
             <CursorClickEffectPicker value={cursor.clickEffect} disabled={disabled} onChange={(clickEffect) => onCursorPresentationChange?.({ clickEffect })} />
             <InspectorToggle label="Play click sound" checked={cursor.clickSoundEnabled} disabled={disabled} onChange={(clickSoundEnabled) => onCursorPresentationChange?.({ clickSoundEnabled })} />
