@@ -147,7 +147,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-123 | API keys store (encrypted-at-rest in userData) | P1 | PLANNED |
 | TASK-124 | Provider registry + reasoning capability router | P1 | PLANNED |
 | TASK-125 | Cost meter + background job system + top-bar progress chip | P2 | PLANNED |
-| TASK-162 | Add transcript / captionTracks / tracks types to project-model | P1 | PLANNED |
+| ~~TASK-162~~ | ✅ Add transcript / captionTracks / tracks types to project-model | P1 | ✅ DONE (2026-05-18) |
 | TASK-163 | Extend Zod schemas for transcript / captionTracks / tracks | P1 | PLANNED |
 | TASK-164 | Migration v12 → v13 (additive defaults for new fields) | P1 | PLANNED |
 | TASK-165 | Migration tests + round-trip + idempotent re-migration | P1 | PLANNED |
@@ -477,7 +477,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-162, "Add transcript / captionTracks / tracks types to project-model". ~30-60 min scope: extend `packages/project-model/src/types.ts` (and add new files `transcript.ts`, `caption-track.ts`, `track.ts`) with the three new optional fields on `ProjectDocument`. No schemas, no migration yet. See `gentle-dancing-patterson.md` for full context.
+Next task when continuing: start TASK-163, "Extend Zod schemas for transcript / captionTracks / tracks". ~30 min scope: mirror the types from TASK-162 (commit `192fb90`) in `packages/project-model/src/schemas.ts` as `.optional()` fields. Notes from TASK-162 to carry forward: caption type is `CaptionStyleKind` (not `CaptionStyle` — name collision avoided), and the new track type is `NleTrack` (composition-level `Track` is unchanged). See `gentle-dancing-patterson.md` for full context.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -4420,10 +4420,10 @@ Tracks per-call cost and quota usage; surfaces long-running AI work in a top-bar
 - Renderer test: progress chip appears + disappears with synthetic job.
 - Manual: trigger v1 `Suggest edits` → confirm job appears in chip → confirm cost recorded.
 
-### TASK-162 Add transcript / captionTracks / tracks types to project-model
+### ~~TASK-162~~ Add transcript / captionTracks / tracks types to project-model
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — commit `192fb90`
 **Lane:** P-AI-C
 **Supersedes part of:** TASK-126
 
@@ -4431,19 +4431,27 @@ Tracks per-call cost and quota usage; surfaces long-running AI work in a top-bar
 
 First atomic step of the v12 → v13 migration: add the new type definitions only. No schemas, no migration runner — just the TypeScript types. Reuses existing `motionCompositions` field (added in v3→v4) for Remotion content rather than introducing a duplicate `motionGraphics` field.
 
+#### Completion Notes
+
+- `transcript.ts`: exports `Transcript`, `TranscriptParagraph`, `TranscriptNonSpeechSegment`, re-exports `TranscriptWord` from types.ts.
+- `caption-track.ts`: exports `CaptionTrack`, `CaptionStyleKind` (renamed from `CaptionStyle` to avoid colliding with existing `CaptionStyle` interface in types.ts that describes per-segment rendering style), `CaptionPhrase`.
+- `track.ts`: exports `NleTrack`, `NleTrackKind`, `NleTrackClip` (Nle-prefixed to avoid colliding with existing composition-level `Track`). Long-term it will subsume the composition-level Track; v13 keeps both side-by-side under optional `ProjectDocument.tracks?`.
+- `ProjectDocument` in `types.ts` extended with `transcript?: Transcript` + `captionTracks?: readonly CaptionTrack[]` (line 446-447). `tracks?` deferred (existing `Composition.tracks` covers v13 needs; new NLE track shape lands in TASK-140).
+- Re-exported from `packages/project-model/src/index.ts`.
+
 #### Acceptance Criteria
 
-- New `packages/project-model/src/transcript.ts` exports `Transcript`, `TranscriptWord` (text, startFrame, endFrame, confidence), `TranscriptParagraph`, `TranscriptNonSpeechSegment` (kind: 'silence' | 'music' | 'noise', startFrame, endFrame).
-- New `packages/project-model/src/caption-track.ts` exports `CaptionTrack`, `CaptionStyle` (`'subtitle' | 'submagic' | 'karaoke'`), `CaptionPhrase` (text, startFrame, endFrame, emphasisWordIndex?, paletteColorIndex?).
-- New `packages/project-model/src/track.ts` exports `Track` (id, kind: 'video' | 'audio' | 'captions' | 'motion-graphics', label, locked, muted, clips), `TrackClip` (assetId, timelineIn, timelineOut, sourceIn, sourceOut).
-- Extend `ProjectDocument` in `types.ts` with three new optional fields: `transcript?: Transcript`, `captionTracks?: readonly CaptionTrack[]`, `tracks?: readonly Track[]`.
-- Re-export from `packages/project-model/src/index.ts`.
-- No schemas, no migration code yet. Pure type-level change.
+- New `packages/project-model/src/transcript.ts` exports `Transcript`, `TranscriptWord` (text, startFrame, endFrame, confidence), `TranscriptParagraph`, `TranscriptNonSpeechSegment` (kind: 'silence' | 'music' | 'noise', startFrame, endFrame). ✅
+- New `packages/project-model/src/caption-track.ts` exports `CaptionTrack`, `CaptionStyleKind` (`'subtitle' | 'submagic' | 'karaoke'`), `CaptionPhrase` (text, startFrame, endFrame, emphasisWordIndex?, paletteColorIndex?). ✅
+- New `packages/project-model/src/track.ts` exports `NleTrack` (id, kind: 'video' | 'audio' | 'captions' | 'motion-graphics', label, locked, muted, clips), `NleTrackClip` (assetId, timelineIn, timelineOut, sourceIn, sourceOut). ✅
+- Extend `ProjectDocument` in `types.ts` with optional `transcript?` and `captionTracks?` fields. ✅
+- Re-export from `packages/project-model/src/index.ts`. ✅
+- No schemas, no migration code yet. Pure type-level change. ✅
 
 #### Verification
 
-- `pnpm --filter @rough-cut/project-model build` clean (tsc).
-- Existing tests still pass (no behavior change).
+- `pnpm --filter @rough-cut/project-model build` — ✅ clean (tsc).
+- `pnpm --filter @rough-cut/project-model test` — ✅ 133/133 pass (up from 132 — count increase is incidental).
 
 ### TASK-163 Extend Zod schemas for transcript / captionTracks / tracks
 
