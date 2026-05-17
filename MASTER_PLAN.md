@@ -133,6 +133,46 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-117 | Add screen and camera crop region UI | P3 | PLANNED |
 | TASK-118 | Add camera layout markers UI | P3 | PLANNED |
 | TASK-119 | Add recording visibility segments UI | P3 | PLANNED |
+| TASK-152 | Launchpad: scaffold capability registry + base shell | P1 | PLANNED |
+| TASK-153 | Launchpad: capability grid with sections (Transform/Generate/Assemble/Meta) | P1 | PLANNED |
+| TASK-154 | Launchpad: dynamic hero card (recommends next-relevant capability) | P1 | PLANNED |
+| TASK-155 | Launchpad: search input + recents persistence (localStorage) | P1 | PLANNED |
+| TASK-156 | Launchpad: wire Suggest edits + Suggest title cards to AI v1 IPC | P1 | PLANNED |
+| TASK-157 | Launchpad: mount in main.tsx, retire ai-shell.tsx | P1 | PLANNED |
+| TASK-158 | Settings: gear icon + sliding modal chrome + Esc/backdrop close | P1 | PLANNED |
+| TASK-159 | Settings: atomic settings.json persistence layer + IPC | P1 | PLANNED |
+| TASK-160 | Settings: AI Providers section (stub rows for 5 providers) | P1 | PLANNED |
+| TASK-161 | Settings: Cost & Quotas + Language + Advanced sections (placeholders) | P1 | PLANNED |
+| TASK-122 | CLI detection: Claude CLI + Codex CLI subprocess pattern | P1 | PLANNED |
+| TASK-123 | API keys store (encrypted-at-rest in userData) | P1 | PLANNED |
+| TASK-124 | Provider registry + reasoning capability router | P1 | PLANNED |
+| TASK-125 | Cost meter + background job system + top-bar progress chip | P2 | PLANNED |
+| TASK-126 | Project document v3 → v4 migration (transcript / captions / tracks / MG defaults) | P1 | PLANNED |
+| TASK-127 | Project creation flow: Record / Import / Blank / Template | P2 | PLANNED |
+| TASK-128 | WhisperX install flow + OpenAI Whisper API cloud fallback | P1 | PLANNED |
+| TASK-129 | Transcript IPC + persistence inside .roughcut | P1 | PLANNED |
+| TASK-130 | NLE Editor app view skeleton (4th tab, multi-track scaffold, asset panel tabs) | P1 | PLANNED |
+| TASK-131 | Recording edit ↔ NLE shared React state plumbing | P1 | PLANNED |
+| TASK-132 | Transcript editor pane (Descript-style: click-scrub, delete-cut) | P1 | PLANNED |
+| TASK-133 | Word-level cut with silence-snap + 20ms audio crossfade | P1 | PLANNED |
+| TASK-134 | Caption track data model + ASS subtitle render path | P1 | PLANNED |
+| TASK-135 | Remotion bundled into renderer + Submagic caption composition | P1 | PLANNED |
+| TASK-136 | AI keyword emphasis per phrase (Claude/Codex CLI batched) | P1 | PLANNED |
+| TASK-137 | .srt / .vtt sidecar export + Hebrew/English language priority | P2 | PLANNED |
+| TASK-138 | Filler + silence detector from transcript word-timing | P2 | PLANNED |
+| TASK-139 | Proposed-cut overlays on NLE timeline + apply flow | P2 | PLANNED |
+| TASK-140 | Full multi-track timeline expansion (multi video + audio lanes) | P2 | PLANNED |
+| TASK-141 | Cross-project AI asset pool (userData/ai-assets/ + index + Generated tab UI) | P2 | PLANNED |
+| TASK-142 | TTS generation flow (ElevenLabs + Codex CLI gpt-4o-mini-tts) | P2 | PLANNED |
+| TASK-143 | Image generation flow (Codex CLI $imagegen + Replicate / fal.ai fallback) | P2 | PLANNED |
+| TASK-144 | Auto-assembly agent → multi-AR derivative .roughcut files (16:9 + 9:16 + 1:1) | P2 | PLANNED |
+| TASK-145 | Motion graphics agent (AI-generated Remotion compositions) | P3 | PLANNED |
+| TASK-146 | Executable templates (vlog / tutorial / podcast clip with auto-fire actions) | P3 | PLANNED |
+| TASK-147 | Voice cloning (ElevenLabs Pro Voice) | P4 | PLANNED |
+| TASK-148 | Music generation (Stable Audio Open / Suno when API exists) | P4 | PLANNED |
+| TASK-149 | Multi-recording on one timeline | P3 | PLANNED |
+| TASK-150 | Video generation (Replicate / fal.ai with LTX-Video / Veo3) | P4 | PLANNED |
+| TASK-151 | User-wide AI memory + active learning | P4 | PLANNED |
 
 ## Recently Verified
 
@@ -350,7 +390,54 @@ Sequence: TASK-104, TASK-105
 Depends-on: LANE P3-A
 Sequence: TASK-106
 
-Next task when continuing: start TASK-088, "Add autosave and crash recovery for orphaned recordings". Begin by tracing the current recording save lifecycle and identifying where orphaned captures can be detected without corrupting normal project saves.
+---
+
+**AI ARCHITECTURE LANES** — see `/home/endlessblink/.claude/plans/gentle-dancing-patterson.md` for the full architecture plan. These supersede TASK-104 and TASK-105 (folded into TASK-144 + TASK-145).
+
+13. **LANE P-AI-A — Launchpad foundation** (Phase 0 part 1):
+Sequence: TASK-152, TASK-153, TASK-154, TASK-155, TASK-156, TASK-157, TASK-158, TASK-159, TASK-160, TASK-161
+Note: TASK-152–157 = launchpad refactor (formerly EPIC TASK-120). TASK-158–161 = settings modal (formerly EPIC TASK-121). Launchpad ships before settings since the settings UI is invoked from launchpad cards.
+
+14. **LANE P-AI-B — Provider abstraction** (Phase 0 part 2):
+Depends-on: LANE P-AI-A
+Sequence: TASK-122, TASK-123, TASK-124, TASK-125
+
+15. **LANE P-AI-C — Project model v4 + creation flow** (Phase 0 part 3):
+Sequence: TASK-126, TASK-127
+
+16. **LANE P-AI-D — Transcription** (Phase 1 part 1):
+Depends-on: LANE P-AI-B, LANE P-AI-C
+Sequence: TASK-128, TASK-129
+
+17. **LANE P-AI-E — NLE Editor view skeleton** (Phase 1 part 2):
+Depends-on: LANE P-AI-C
+Sequence: TASK-130, TASK-131
+
+18. **LANE P-AI-F — Transcript editor + word-cut** (Phase 1 part 3):
+Depends-on: LANE P-AI-D, LANE P-AI-E
+Sequence: TASK-132, TASK-133
+
+19. **LANE P-AI-G — Captions pipeline** (Phase 1 ship gate):
+Depends-on: LANE P-AI-F, LANE P-AI-B
+Sequence: TASK-134, TASK-135, TASK-136, TASK-137
+
+20. **LANE P-AI-H — Filler & silence removal** (Phase 2):
+Depends-on: LANE P-AI-F
+Sequence: TASK-138, TASK-139
+
+21. **LANE P-AI-I — Multi-track NLE + generation v1** (Phase 3):
+Depends-on: LANE P-AI-E, LANE P-AI-G
+Sequence: TASK-140, TASK-141, TASK-142, TASK-143
+
+22. **LANE P-AI-J — Auto-assembly + motion graphics + templates** (Phase 4):
+Depends-on: LANE P-AI-I, LANE P-AI-D
+Sequence: TASK-144, TASK-145, TASK-146
+
+23. **LANE P-AI-K — Deferred AI** (Phase 5+):
+Depends-on: LANE P-AI-J
+Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
+
+Next task when continuing: start TASK-152, "Launchpad: scaffold capability registry + base shell". ~1-2 hour scope: create `apps/desktop/src/renderer/src/launchpad/` directory, define `Capability` descriptor type + registry array, render an empty shell that lists all capability labels. No interactivity yet. See plan file for the full sequence.
 
 ## Tasks
 
@@ -3951,3 +4038,934 @@ Users may accept faster drafts while still needing high-quality finals. Add spee
 - Unit test for segment add/remove and frame-range clamping.
 - Renderer test: toggling `cameraVisible` for a segment hides the camera PiP in preview during that range.
 - Manual: hide the camera for the first 5 seconds, verify export reflects the hidden range.
+
+### TASK-152 Launchpad: scaffold capability registry + base shell
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-A
+**Supersedes part of:** TASK-120
+
+#### Context
+
+Smallest first slice of the launchpad rebuild. No interactivity, no IPC — just the directory structure, the `Capability` descriptor type, the static registry array, and a base shell that lists capability labels. Every subsequent launchpad task layers on top of this.
+
+#### Acceptance Criteria
+
+- New directory: `apps/desktop/src/renderer/src/launchpad/`.
+- New file `capabilities.ts` exports `Capability` type (id, label, icon, category: 'transform' | 'generate' | 'assemble' | 'meta', phaseAvailable: number, ipc?: string) and `CAPABILITIES` array with all 8 entries (transcribe, cut-filler, suggest-edits, generate-tts, generate-image, generate-motion-graphic, auto-assemble, suggest-title).
+- New `launchpad-shell.tsx` renders an unstyled `<section>` with a `<ul>` of capability labels. No cards yet.
+- Not yet mounted in `main.tsx`. ai-shell stays intact.
+
+#### Verification
+
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- Existing tests still pass (no behavior change).
+
+### TASK-153 Launchpad: capability grid with sections (Transform/Generate/Assemble/Meta)
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-A
+**Supersedes part of:** TASK-120
+
+#### Context
+
+Render the capability list as a styled grid of cards, grouped by category. Cards are visual-only — clicks do nothing yet. Defines `LaunchpadCard` as a reusable component.
+
+#### Acceptance Criteria
+
+- New `launchpad-card.tsx` component: icon + label + optional subtitle + disabled state.
+- `launchpad-shell.tsx` groups CAPABILITIES by `category` and renders sectioned grids with `<h3>` headers.
+- Card styling follows project's dark editorial language (see `PRODUCT.md` brand: "DaVinci Resolve's confidence at Linear's restraint"). Match LibraryShell's restraint level.
+- Disabled cards (phaseAvailable > 0 and current phase < that) render with reduced opacity + a small "Phase N" pill.
+
+#### Verification
+
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- `pnpm smoke:ui` (after TASK-157 mounts it) — for now, render in isolation via a temporary route or just verify it compiles.
+
+### TASK-154 Launchpad: dynamic hero card (recommends next-relevant capability)
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-A
+**Supersedes part of:** TASK-120
+
+#### Context
+
+Above the grid, a single large hero card recommends the most contextually-relevant action. Logic: if project has no transcript → "Transcribe this recording". If transcript but no captions → "Add captions". If captions exist but no cuts → "Cut filler & silence". Else: "Suggest edits". Updates on project change.
+
+#### Acceptance Criteria
+
+- New `hero-recommendation.ts` pure function: `recommendCapability(project: ProjectLike) → CapabilityId`.
+- Decision tree:
+  1. No project → "open a project" CTA card (not a capability).
+  2. Project has no transcript → 'transcribe'.
+  3. Has transcript but no captionTracks → 'caption' (mapped to phase-gated capability).
+  4. Has captions but no cuts and transcript has filler words → 'cut-filler'.
+  5. Otherwise → 'suggest-edits'.
+- `launchpad-shell.tsx` renders the hero card at the top with the recommended capability's icon + label + descriptive copy.
+- Hero card is clickable (handler stubbed until TASK-156).
+
+#### Verification
+
+- Unit tests for `recommendCapability` covering each branch.
+- Renderer test: snapshot hero card for each project state.
+
+### TASK-155 Launchpad: search input + recents persistence (localStorage)
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-A
+**Supersedes part of:** TASK-120
+
+#### Context
+
+Search box filters the capability grid by label. Recently-used capabilities (last 5) surface in a "Recent" section above the categorized grid.
+
+#### Acceptance Criteria
+
+- Search input above the grid. Filters cards by `label.toLowerCase().includes(query)`.
+- New `useRecents.ts` hook with `recents: CapabilityId[]` + `recordUse(id)` that persists to `localStorage` under `rough-cut.launchpad.recents` (max 5, MRU order).
+- "Recent" section shown only when recents non-empty AND no search query active.
+- Search query persists in React state only (resets on tab switch).
+
+#### Verification
+
+- Unit tests for the recents reducer (add new, push existing to front, cap at 5).
+- Renderer test: type "trans" → grid narrows to Transcribe.
+
+### TASK-156 Launchpad: wire Suggest edits + Suggest title cards to AI v1 IPC
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-A
+**Supersedes part of:** TASK-120
+
+#### Context
+
+Two cards become functional. They reuse today's `AI_ANALYZE_PROJECT` IPC and the validator/apply logic from the v1 shell. Other cards stay disabled with "Phase N" pills.
+
+#### Acceptance Criteria
+
+- Clicking "Suggest edits" opens a sub-view (modal or slide-over) showing today's analysis flow — same UX as `ai-shell.tsx` but inside the launchpad's chrome.
+- Clicking "Suggest title" runs the same IPC but renders only the title suggestion card (filters `kind === 'title'`).
+- Reuses `validateSuggestion` from `@rough-cut/project-model` and the existing apply mutators (`addManualMarkerAtFrame`, `addCutRange`, doc.name update).
+- `recordUse(capabilityId)` fires when a card is opened (feeds TASK-155 recents).
+- "Applied" suggestions return to the launchpad with a success toast.
+
+#### Verification
+
+- Renderer test: synthetic IPC response → suggestions render → apply succeeds.
+- Manual: click "Suggest edits" → behavior matches today's v1 flow.
+
+### TASK-157 Launchpad: mount in main.tsx, retire ai-shell.tsx
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-A
+**Supersedes part of:** TASK-120
+
+#### Context
+
+Final step: swap the `ai` view's render to use `launchpad-shell.tsx` instead of `ai-shell.tsx`. Delete the old shell (keep `ai-suggestions.ts` validator in project-model; that's reused).
+
+#### Acceptance Criteria
+
+- `main.tsx` `activeAppView === 'ai'` branch renders `<LaunchpadShell project={project} onProjectChange={applyProjectChange} ... />`.
+- `apps/desktop/src/renderer/src/ai/ai-shell.tsx` deleted (or moved to `_archive/` if you want a backup).
+- Visual smoke (`pnpm smoke:ui`) screenshot shows the launchpad instead of the v1 view.
+- `pnpm smoke:recording-flow-ui` still green (no regression in the editor flow).
+
+#### Verification
+
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- `pnpm --filter @rough-cut/desktop test` all pass.
+- `pnpm smoke:ui` — visual diff against pre-launchpad smoke; expected change is in the AI tab area only.
+- Manual: AI tab → launchpad renders → Suggest edits + Suggest title work → other cards visibly disabled.
+
+### TASK-158 Settings: gear icon + sliding modal chrome + Esc/backdrop close
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-A
+**Supersedes part of:** TASK-121
+
+#### Context
+
+Top-right gear icon in the topBar. Click → sliding right-side modal panel (no settings content yet, just chrome and section scaffolding).
+
+#### Acceptance Criteria
+
+- New `apps/desktop/src/renderer/src/settings/settings-modal.tsx`.
+- New gear button in the topBar next to existing Record + Open project buttons (use `PhosphorGearSix` from existing icon map).
+- Modal slides in from the right (CSS transform transition, ~200ms).
+- Section headers stubbed: `AI Providers`, `Cost & Quotas`, `Language`, `Advanced`. All section bodies empty.
+- Esc key closes the modal.
+- Clicking the backdrop closes the modal.
+- Reduced-motion preference honored (instant snap, no slide).
+
+#### Verification
+
+- Renderer test: open → close via Esc → open → close via backdrop click.
+- `pnpm smoke:ui` confirms gear icon visible in topBar.
+
+### TASK-159 Settings: atomic settings.json persistence layer + IPC
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-A
+**Supersedes part of:** TASK-121
+
+#### Context
+
+Backend persistence for settings. Atomic write (tmp file + rename) so a crash mid-save can't corrupt the file. IPC channels expose read/update/subscribe.
+
+#### Acceptance Criteria
+
+- New `apps/desktop/src/main/settings-store.mjs` with `loadSettings()`, `updateSettings(patch)`, `subscribe(listener)`.
+- Backing file: `userData/settings.json`.
+- Atomic write via `fs.rename` from `.tmp` sibling.
+- Schema validated via Zod (extend `packages/project-model` with `Settings` schema, or keep main-process-local).
+- IPC: `SETTINGS_GET`, `SETTINGS_UPDATE`, `SETTINGS_CHANGED` (emit on update for renderer subscriptions).
+- Preload exposes `getSettings`, `updateSettings`, `onSettingsChange`.
+
+#### Verification
+
+- Unit tests for atomic round-trip and concurrent-update safety (last-write-wins).
+- Manual: update a settings field → kill app → reopen → setting persists.
+
+### TASK-160 Settings: AI Providers section (stub rows for 5 providers)
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-A
+**Supersedes part of:** TASK-121
+
+#### Context
+
+Visible UI section listing the 5 providers with status badges. All badges show "Not configured" until TASK-122 (CLI detect) and TASK-123 (API key store) populate them. This task just builds the static UI shape.
+
+#### Acceptance Criteria
+
+- Section: "AI Providers".
+- Five rows, each with: provider icon, name, status badge ("Not configured" gray), "Configure" button (disabled — wired in TASK-122/123).
+- Providers: Claude CLI, Codex CLI, Anthropic API key, OpenAI API key, ElevenLabs API key.
+- Hover on a row shows a tooltip: what the provider is used for ("Reasoning + image gen + TTS via your ChatGPT Plus subscription").
+
+#### Verification
+
+- Renderer test: 5 rows render with correct labels.
+- Manual: open Settings → see 5 rows → tooltips on hover.
+
+### TASK-161 Settings: Cost & Quotas + Language + Advanced sections (placeholders)
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-A
+**Supersedes part of:** TASK-121
+
+#### Context
+
+Round out the Settings UI shape so future tasks have a home for their controls. All content is placeholder; real controls land when their parent capability ships (TASK-125 wires cost meter to Cost & Quotas; TASK-128 wires language hint to Language; etc.).
+
+#### Acceptance Criteria
+
+- Section "Cost & Quotas": stub monthly-cap input ($25 default, disabled), stub current-usage line ("$0.00 / $25.00").
+- Section "Language": stub dropdown ("Auto-detect" default, with "English" and "Hebrew" as visible options, others greyed-out).
+- Section "Advanced": empty placeholder with copy "Future: filler word list, transcript model picker, etc."
+- All controls disabled in v1; they wire up in their owning task.
+
+#### Verification
+
+- Renderer test: 3 sections render with stubbed content.
+- Manual: open Settings → all 4 sections visible (AI Providers from TASK-160 + the 3 here) → no controls active.
+
+### TASK-122 CLI detection: Claude CLI + Codex CLI subprocess pattern
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-B
+
+#### Context
+
+Detect whether `claude` and `codex` are installed and authenticated. Establishes the subprocess pattern that every CLI-auth provider uses. Runs at app launch and on settings open.
+
+#### Acceptance Criteria
+
+- New `apps/desktop/src/main/ai-providers/auth/detect-cli.mjs` with `detectClaudeCli()` + `detectCodexCli()`.
+- Each returns `{ installed: boolean, version: string | null, authenticated: boolean | 'unknown' }`.
+- Detection via `spawn` with short timeout (3s). No PATH lookups.
+- IPC channel `AI_PROVIDER_STATUS` returns combined status for the settings UI.
+- Status surfaced in TASK-121's `AI Providers` section.
+
+#### Verification
+
+- Unit tests with mocked `child_process` covering: not installed, installed but unauthed, installed + authed, timeout.
+- Manual: open Settings → see "Claude CLI: ✓ authenticated" (or appropriate status).
+
+### TASK-123 API keys store (encrypted-at-rest in userData)
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-B
+
+#### Context
+
+API key fallback path for Anthropic / OpenAI / ElevenLabs / Replicate. Keys stored at-rest with at least file-mode 0600; encryption via Electron `safeStorage` when available (falls back to plaintext + warning if `safeStorage.isEncryptionAvailable()` is false).
+
+#### Acceptance Criteria
+
+- New `apps/desktop/src/main/ai-providers/auth/api-keys-store.mjs`.
+- Reads/writes `userData/api-keys.json` (encrypted blob via `safeStorage` when available).
+- IPC `AI_KEYS_GET_STATUS` returns `{provider, configured, source: 'env' | 'userData' | null}` per provider.
+- IPC `AI_KEYS_SET` accepts `{provider, apiKey}` and persists. Never echoes the key back.
+- Settings UI password fields use these IPCs.
+- Migrates today's `ai-config.json` (single Anthropic key) into the new multi-provider store.
+
+#### Verification
+
+- Unit tests for encrypt/decrypt round-trip + plaintext-fallback warning.
+- Manual: paste a fake key in Settings → restart app → confirm "configured" status persists.
+
+### TASK-124 Provider registry + reasoning capability router
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-B
+
+#### Context
+
+Central capability router that picks the best available provider per capability. First capability: reasoning. Future tasks add transcription, image-gen, tts, video-gen, motion-graphics.
+
+#### Acceptance Criteria
+
+- New `apps/desktop/src/main/ai-providers/provider-registry.mjs` with declarative capability × provider matrix.
+- `apps/desktop/src/main/ai-providers/capabilities/reasoning.mjs` with priority: Claude CLI → Codex CLI → Anthropic API → OpenAI API.
+- Existing `ai-service.mjs` refactored to use the router. Behavior preserved for v1 `Suggest edits` / `Suggest title`.
+- IPC `AI_ANALYZE_PROJECT` keeps its contract; internally routes via the registry.
+- Settings UI shows the active provider for the reasoning capability ("Currently using: Claude CLI").
+
+#### Verification
+
+- Unit tests covering each routing fallback path.
+- Existing v1 IPC tests still pass.
+- Manual: with Claude CLI authed, confirm reasoning routes through it (capture subprocess invocation in logs).
+
+### TASK-125 Cost meter + background job system + top-bar progress chip
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-B
+
+#### Context
+
+Tracks per-call cost and quota usage; surfaces long-running AI work in a top-bar progress chip with cancel support.
+
+#### Acceptance Criteria
+
+- New `apps/desktop/src/main/cost-meter.mjs` tracking calls per provider, $ where known, quota where known (Codex usage).
+- Background job system: every long-running AI capability registers a job with `{id, kind, status, progress, cancel}`.
+- Top-bar progress chip appears when any job is active; clicking opens a panel listing jobs with cancel buttons.
+- Pre-call cost estimates surfaced as toasts before high-cost actions ("This will use ~3000 tokens, ~$0.02").
+- Hard cap from Settings: pauses cloud calls when reached; CLI-auth + local always exempt.
+- Monthly tracker visible in Settings → Cost & Quotas section.
+
+#### Verification
+
+- Unit tests for cost accumulation, cap enforcement, job cancel.
+- Renderer test: progress chip appears + disappears with synthetic job.
+- Manual: trigger v1 `Suggest edits` → confirm job appears in chip → confirm cost recorded.
+
+### TASK-126 Project document v3 → v4 migration
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-C
+
+#### Context
+
+Add `transcript`, `captionTracks`, `motionGraphics`, `tracks` first-class fields to `ProjectDocument`. Additive migration so existing v3 projects continue to open. Unblocks transcription (TASK-129), captions (TASK-134/135), and NLE multi-track (TASK-140).
+
+#### Acceptance Criteria
+
+- Extend `packages/project-model/src/types.ts` with the new fields, all optional initially.
+- Add new files: `transcript.ts`, `caption-track.ts`, `motion-graphics.ts`, `track.ts`.
+- Extend `packages/project-model/src/schemas.ts` with Zod schemas.
+- Migration in `packages/project-model/src/migrations.ts`: v3 → v4 sets empty defaults if absent.
+- Re-export from `packages/project-model/src/index.ts`.
+- All 132+ existing project-model tests still pass.
+- Add migration tests covering: v3 doc → v4 (defaults applied), already-v4 doc (no-op), corrupt input (error).
+
+#### Verification
+
+- `pnpm --filter @rough-cut/project-model test` 132+ pass plus new migration tests.
+- Open an existing real .roughcut project from the user's machine → confirm migration runs silently.
+
+### TASK-127 Project creation flow: Record / Import / Blank / Template
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-C
+
+#### Context
+
+The app identity has expanded beyond "recorder." Project creation expands to four sources. Reflects in Projects view header.
+
+#### Acceptance Criteria
+
+- `LibraryShell` topbar gets four creation actions: `New recording` (existing), `Import file`, `Blank project`, `From template` (template picker stub for now).
+- `Import file` accepts mp4 / mov / mp3 / wav / png / jpg only; rejects others with "convert first" toast.
+- Imports create a new `.roughcut` with the imported file as a recording asset (asset.type = 'recording' or 'media' depending on shape).
+- `Blank project` creates an empty `.roughcut` with no recording asset.
+- `From template` opens a stub picker with placeholder entries (full templates land in TASK-146).
+
+#### Verification
+
+- Unit tests for the import file-type filter.
+- Manual: drop a .mov → project created; drop a .mkv → rejected with toast.
+
+### TASK-128 WhisperX install flow + OpenAI Whisper API cloud fallback
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-D
+
+#### Context
+
+First-time transcription installs WhisperX into a managed Python venv (~2 GB models). Cloud fallback when local fails or user opts out. Auto-detects spoken language (Hebrew + English priority).
+
+#### Acceptance Criteria
+
+- New `apps/desktop/src/main/whisperx/install.mjs`: detects Python 3.10+, creates venv in `userData/whisperx/`, pip-installs whisperx + faster-whisper, downloads `medium` or `large-v3` model based on user choice.
+- New `apps/desktop/src/main/whisperx/run.mjs`: spawns WhisperX, parses word-level JSON output.
+- Cloud fallback via OpenAI Whisper API (`AI_KEYS_GET_STATUS` for openai).
+- First-run UI: install progress modal with disk-footprint disclosure, model picker (`medium` 1 GB / `large-v3` 3 GB), "use cloud instead" option.
+- IPC `AI_TRANSCRIBE_RECORDING` with `{recordingPath, languageHint?: string}` → returns transcript JSON.
+- Routes via the provider registry (TASK-124 pattern).
+
+#### Verification
+
+- Unit tests with mocked subprocess for install detection + parse logic.
+- Manual: fresh user with no Python → guided to install Python OR cloud fallback; install completes; transcribe a 10s English fixture; transcribe a 10s Hebrew fixture.
+
+### TASK-129 Transcript IPC + persistence inside .roughcut
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-D
+
+#### Context
+
+Transcripts produced by TASK-128 land in the project document as first-class data. Word-level timing preserved.
+
+#### Acceptance Criteria
+
+- Wire TASK-128's transcription result through `ProjectDocument.transcript` (from TASK-126 schema).
+- Background job during transcription (uses TASK-125 job system).
+- Autosave persists transcript via existing project autosave path.
+- Transcript readable across both Recording edit and NLE Editor views (single source of truth).
+- Re-run transcription replaces the existing transcript (no merge for v1).
+
+#### Verification
+
+- Unit tests: round-trip transcript through save + reopen.
+- Manual: record 30s → trigger transcription → reload project → transcript persists.
+
+### TASK-130 NLE Editor app view skeleton
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-E
+
+#### Context
+
+4th app view alongside Projects / Recording edit / AI. Same React state as Recording edit (TASK-131). Day-one scope: empty multi-track scaffold, asset panel with Project + Generated tabs.
+
+#### Acceptance Criteria
+
+- New `apps/desktop/src/renderer/src/nle/` directory with `nle-shell.tsx`, `nle-timeline.tsx`, `asset-panel.tsx`.
+- Adds `nle` to `AppViewId` in `app-views.ts`; APP_VIEWS entry with filmstrip icon and label "Editor".
+- Renders empty multi-track scaffold (placeholder lanes for Video / Audio / Captions / MG).
+- Asset panel sidebar with two tabs: "Project assets" (lists project recording + imports), "Generated" (empty until TASK-141).
+- Renders inside main.tsx render switch.
+- Bottom tab strip shows 4 tabs.
+
+#### Verification
+
+- `pnpm smoke:ui` confirms 4-tab strip.
+- Manual: click NLE tab → empty scaffold renders.
+
+### TASK-131 Recording edit ↔ NLE shared React state plumbing
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-E
+
+#### Context
+
+Both editor views must reflect the same project state instantly. Single source of truth in App; views are different layouts.
+
+#### Acceptance Criteria
+
+- `project`, `editHistory`, `applyProjectChange` already live in App. NLE consumes them via props (same as Recording edit's `ProjectPreview`).
+- Edits in Recording edit propagate to NLE on view switch (already the case if single source of truth).
+- No duplicate state; no sync bridge.
+- Smoke test: open project, edit in Recording edit, switch to NLE, confirm same state visible (caption-level placeholder for now).
+
+#### Verification
+
+- Renderer test: synthetic edit propagates across both view branches.
+- Manual: add a zoom marker in Recording edit, switch to NLE, confirm marker visible on the timeline scaffold.
+
+### TASK-132 Transcript editor pane (Descript-style: click-scrub, delete-cut)
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-F
+
+#### Context
+
+The headline NLE Editor feature: a paragraph-formatted transcript pane where clicking a word scrubs the timeline and deleting a word cuts that span from the timeline.
+
+#### Acceptance Criteria
+
+- New `apps/desktop/src/renderer/src/nle/transcript-pane.tsx` rendering `ProjectDocument.transcript` as paragraphs with word-level spans.
+- Click a word → scrub to that word's startFrame.
+- Select word range + Delete → fires TASK-133's cut.
+- Non-speech segments rendered as `[silence]` / `[music]` markers (when WhisperX returns them).
+- Live updates while transcription is running (streaming if supported).
+- RTL layout for Hebrew transcript.
+
+#### Verification
+
+- Unit tests for word-selection logic.
+- Manual: transcribe a recording, click various words, confirm scrub; select a range, delete, confirm timeline cut.
+
+### TASK-133 Word-level cut with silence-snap + 20ms audio crossfade
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-F
+
+#### Context
+
+When a word is deleted from transcript, the timeline cut should snap to the nearest silence boundary and apply a 20ms audio crossfade to avoid pops.
+
+#### Acceptance Criteria
+
+- New helper in `apps/desktop/src/renderer/src/zoom-markers.mjs` (or sibling): `snapToSilence(transcript, startFrame, endFrame) → {startFrame, endFrame}`.
+- Uses transcript word/non-speech segment boundaries from WhisperX.
+- Creates a CutRange via existing `addCutRange` from `cut-ranges.mjs`.
+- Export pipeline applies a 20ms `afade` at each cut boundary (extend `export-service.mjs` audio chain).
+- Preview playback respects the crossfade visually (no abrupt cut feel).
+
+#### Verification
+
+- Unit tests for `snapToSilence` covering edge cases (cut at word start, mid-silence, end of transcript).
+- Smoke export test: cut a word, export, confirm no audio pop in the output mp4.
+
+### TASK-134 Caption track data model + ASS subtitle render path
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-G
+
+#### Context
+
+Caption track persists on the project document. ASS subtitle render path covers the "subtitle" style (low-cost option) via the existing ffmpeg pipeline.
+
+#### Acceptance Criteria
+
+- `packages/project-model/src/caption-track.ts` exports `CaptionTrack`, `CaptionStyle` (`'subtitle' | 'submagic' | 'karaoke'`), `CaptionPhrase` (per-phrase styling).
+- Generated from transcript on user action ("Add captions" button in NLE).
+- Subtitle style renders via existing ASS export pipeline (`apps/desktop/src/main/export-service.mjs`).
+- Stored in `ProjectDocument.captionTracks` (from TASK-126 schema).
+
+#### Verification
+
+- Unit tests for caption generation from a transcript fixture.
+- Smoke export: subtitle-style caption visible burned into a styled export.
+
+### TASK-135 Remotion bundled into renderer + Submagic caption composition
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-G
+
+#### Context
+
+Bundle Remotion into the Electron renderer (preview AND export render via Remotion). Build the Submagic-style caption composition (multi-color emphasis, bouncy entrances, tight kerning).
+
+#### Acceptance Criteria
+
+- New workspace package `packages/remotion-compositions/` with Remotion as dep.
+- Submagic composition: word-by-word reveal, current-word highlight, bouncy entry animation, configurable color palette per phrase.
+- Renderer integration: preview canvas uses Remotion's React renderer.
+- Export integration: ffmpeg overlays Remotion-rendered transparent PNG sequence (or webm) on top of the styled video.
+- Bundle-size impact measured and documented in task notes.
+
+#### Verification
+
+- Smoke render test: 5s caption fixture produces a PNG sequence with bouncy text.
+- Manual: enable Submagic style on a transcribed recording, preview real-time, export, confirm captions visible.
+
+### TASK-136 AI keyword emphasis per phrase (Claude/Codex CLI batched)
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-G
+
+#### Context
+
+For Submagic-style captions, AI picks the most impactful word per phrase to emphasize. Batched per request (multiple phrases per call) to control cost. Routes via the reasoning capability (TASK-124).
+
+#### Acceptance Criteria
+
+- New main-process function `pickEmphasisWords(phrases) → emphasis[]` using the reasoning capability.
+- Batches up to 20 phrases per call.
+- Rotates through a 4-color palette per phrase.
+- Caches results on the phrase ID; re-runs only when the phrase text changes.
+- Settings allows toggling between AI emphasis and heuristic (longest non-stop-word).
+- Cost-meter tracks each call.
+
+#### Verification
+
+- Unit tests for the batch builder and color rotation.
+- Manual: transcribe 30s, enable Submagic captions, confirm one colored word per phrase, colors cycle.
+
+### TASK-137 .srt / .vtt sidecar export + Hebrew/English language priority
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-G
+
+#### Context
+
+Captions also exportable as plain `.srt` / `.vtt` for downstream platforms (YouTube, podcast hosts). Hebrew and English priority for v1.
+
+#### Acceptance Criteria
+
+- Export menu adds "Export captions (.srt)" + "Export captions (.vtt)" actions.
+- RTL formatting preserved in `.srt` for Hebrew.
+- Sidecar file written alongside the .mp4 export.
+- Language auto-detected from WhisperX; user override in Settings → Language.
+
+#### Verification
+
+- Unit tests for SRT/VTT formatting (timing precision, RTL).
+- Manual: export captions, open in VLC alongside the .mp4, confirm timing.
+
+### TASK-138 Filler + silence detector from transcript word-timing
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-H
+
+#### Context
+
+Reads `ProjectDocument.transcript` (TASK-129), identifies filler words and silent gaps, produces proposed cuts.
+
+#### Acceptance Criteria
+
+- New `packages/project-model/src/filler-detector.ts` with `detectFiller(transcript, options)` → `CutRangeProposal[]`.
+- Default filler lists: English (um, uh, uhm, like, you-know, basically, literally, kinda), Hebrew (אהה, אממ, יעני, כאילו, בעצם).
+- Silence threshold configurable (default 600ms).
+- User-extensible filler lists in Settings → Advanced.
+
+#### Verification
+
+- Unit tests with transcript fixtures covering English + Hebrew filler cases, silent gaps, short/long silences.
+
+### TASK-139 Proposed-cut overlays on NLE timeline + apply flow
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-H
+
+#### Context
+
+Visualizes the proposals from TASK-138 as ghost overlays on the NLE timeline. Apply-all + per-cut review.
+
+#### Acceptance Criteria
+
+- "Cut filler & silence" capability card in the launchpad invokes TASK-138 + opens NLE.
+- Proposals rendered as semi-transparent overlays on the timeline.
+- Per-cut hover shows the transcript text + reason.
+- "Apply all" / "Apply selected" buttons commit via `addCutRange`.
+- Reuses TASK-133's silence-snap + audio crossfade.
+
+#### Verification
+
+- Renderer test: synthetic proposals render correctly.
+- Manual: transcribe 1-minute recording, run filler cut, review overlays, apply, confirm timeline updated.
+
+### TASK-140 Full multi-track timeline expansion
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-I
+
+#### Context
+
+Expands the NLE timeline scaffold (TASK-130) into a real multi-track surface: multiple video lanes, multiple audio lanes (mic / system / TTS / SFX / music), captions track (from TASK-135), MG track.
+
+#### Acceptance Criteria
+
+- Generalized `Track` data model in `packages/project-model/src/track.ts`.
+- Timeline component renders N tracks vertically with per-track header (label + lock + mute).
+- Drag-drop reorder of tracks.
+- Per-track height adjustable.
+- Asset clips on tracks: position by drag, trim handles at clip edges.
+- Frame-resolver extended to composite from track stack (z-order: bottom to top for video, sum for audio).
+- Existing single-recording projects render with a single video track + audio track (back-compat).
+
+#### Verification
+
+- Unit tests for track stack compositing.
+- Manual: open a recording in NLE, see video on video track + audio on audio track; drop a generated TTS onto a new audio track (after TASK-142).
+
+### TASK-141 Cross-project AI asset pool
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-I
+
+#### Context
+
+Generated assets (TTS / images / SFX) live in a cross-project pool in `userData/ai-assets/` and are referenced from projects by stable ID. Visible in the NLE asset panel's "Generated" tab.
+
+#### Acceptance Criteria
+
+- New `apps/desktop/src/main/ai-assets-store.mjs` with index file (sqlite or JSON) at `userData/ai-assets/index.json`.
+- `AiAsset` schema in `packages/project-model/src/ai-assets.ts`: id, kind, providerId, sourcePrompt, createdAt, tags, sessionId, filePath.
+- IPC: `AI_ASSETS_LIST`, `AI_ASSETS_DELETE`, `AI_ASSETS_TAG`.
+- "Generated" tab in the NLE asset panel: filter by type / tag / session, search by prompt text.
+- Drag from "Generated" tab onto an NLE timeline track creates a project-level reference (by ID).
+- Asset preview (audio waveform / image / video thumb) inline in the panel.
+
+#### Verification
+
+- Unit tests for the index round-trip and the ID-reference resolution.
+- Manual: generate TTS (TASK-142), confirm it appears in "Generated", drag to timeline.
+
+### TASK-142 TTS generation flow
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-I
+
+#### Context
+
+Generate narration via ElevenLabs (preset voices) or OpenAI gpt-4o-mini-tts (via Codex CLI auth). Result lands in the AI asset pool.
+
+#### Acceptance Criteria
+
+- New capability module `apps/desktop/src/main/ai-providers/capabilities/tts.mjs` with router: ElevenLabs API > OpenAI gpt-4o-mini-tts (Codex CLI) > local Piper (future).
+- IPC `AI_GENERATE_TTS` with `{text, voice, provider?}` → `{assetId}`.
+- "Generate narration" launchpad card opens a modal: text input, voice picker (preset voices per provider), preview, generate.
+- Result saved to AI asset pool (TASK-141).
+- Voice cloning deferred to TASK-147.
+
+#### Verification
+
+- Smoke: generate a 10s TTS from text → confirm .mp3 in `userData/ai-assets/`.
+- Manual: generate narration, drag to an audio track, hear in NLE preview.
+
+### TASK-143 Image generation flow
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-I
+
+#### Context
+
+Generate images via Codex CLI `$imagegen` (gpt-image-2, primary) with Replicate / fal.ai fallback. Result lands in the AI asset pool.
+
+#### Acceptance Criteria
+
+- Capability `apps/desktop/src/main/ai-providers/capabilities/image-gen.mjs` with router: Codex CLI $imagegen > Replicate > fal.ai > OpenAI API.
+- IPC `AI_GENERATE_IMAGE` with `{prompt, aspectRatio?}` → `{assetId}`.
+- "Generate image" launchpad card opens modal: prompt input, aspect ratio (auto from project), variations count (default 4), provider picker.
+- Codex CLI subprocess invokes `$imagegen` skill.
+- Results saved to AI asset pool.
+
+#### Verification
+
+- Manual: generate a 1024x1024 image via Codex CLI auth → file appears in `userData/ai-assets/`.
+- Manual fallback test: Codex CLI not authed → router falls through to Replicate (with API key configured).
+
+### TASK-144 Auto-assembly agent → multi-AR derivative .roughcut files
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-J
+
+#### Context
+
+Agent reads a project's footage + transcript, plans cuts/transitions, produces 3 derivative `.roughcut` files at different aspect ratios (16:9, 9:16, 1:1). Original untouched.
+
+**Supersedes:** TASK-104 (AI motion suggestion data model), TASK-105 (Safe AI motion preview and apply flow).
+
+#### Acceptance Criteria
+
+- New capability `apps/desktop/src/main/ai-providers/capabilities/auto-assembly.mjs` using reasoning provider with structured-output prompt.
+- Agent plan schema includes: target length per AR, cut list, zoom markers, transition hints.
+- Outputs 3 derivative .roughcut sibling files: `<name>-16x9.roughcut`, `<name>-9x16.roughcut`, `<name>-1x1.roughcut`.
+- Each derivative includes a `derivedFrom: <originalId>` pointer for traceability.
+- Launchpad card "Auto-assemble rough cut" opens the flow.
+- Plan is validated against the project (frame ranges in-bounds, cuts don't empty timeline) before deriving.
+
+#### Verification
+
+- Manual: 5-minute recording → trigger auto-assemble → 3 .roughcut siblings appear in Projects view → open one, confirm it's a coherent shorter cut.
+
+### TASK-145 Motion graphics agent (AI-generated Remotion compositions)
+
+**Priority:** P3
+**Status:** PLANNED
+**Lane:** P-AI-J
+
+#### Context
+
+AI writes Remotion React composition code given a prompt ("animated lower-third with my name"). Generated code lives in `packages/motion-compositions/<id>.tsx`; rendered inside the bundled Remotion runtime (TASK-135).
+
+**Supersedes:** TASK-104, TASK-105 (combined with TASK-144).
+
+#### Acceptance Criteria
+
+- Capability `apps/desktop/src/main/ai-providers/capabilities/motion-graphics.mjs`.
+- IPC `AI_GENERATE_MOTION_GRAPHIC` with `{prompt, durationFrames}` → `{compositionId}`.
+- Generated TSX runs through a strict allowlist (Remotion imports + React + typed props only — no `eval`, no `fs`, no network).
+- Sandboxed render in the renderer via Remotion (no Node access from the composition).
+- Generated comp appears in AI asset pool with type `motion-graphic`.
+- Drag to NLE MG track.
+
+#### Verification
+
+- Unit tests for the allowlist + sandbox.
+- Manual: generate "animated lower-third with my name" → see the comp render in NLE preview on the MG track.
+
+### TASK-146 Executable templates (vlog / tutorial / podcast clip)
+
+**Priority:** P3
+**Status:** PLANNED
+**Lane:** P-AI-J
+
+#### Context
+
+Templates are executable pipelines: picking a template configures aspect ratio + canvas + safe areas + caption style + pre-laid tracks + auto-fires AI actions on project creation.
+
+#### Acceptance Criteria
+
+- New `packages/project-model/src/templates.ts` with template descriptors (id, label, aspectRatio, safeAreas, captionStyle, trackLayout, onCreateActions).
+- 3 built-in templates: `short-form-vlog` (9:16, Submagic captions, pre-laid Music+Voice+Captions tracks, auto-transcribe), `tutorial` (16:9, subtitle captions, cursor-emphasis defaults, auto-zoom suggestions), `podcast-clip` (1:1, ear-zone safe areas, subtitle captions).
+- Template picker in TASK-127's "From template" entry.
+- On project creation, `onCreateActions` queue runs through the background job system (TASK-125).
+
+#### Verification
+
+- Unit tests for template descriptor + action queue.
+- Manual: pick `short-form-vlog` template, attach a recording, confirm captions auto-generate.
+
+### TASK-147 Voice cloning (ElevenLabs Pro Voice)
+
+**Priority:** P4
+**Status:** PLANNED
+**Lane:** P-AI-K
+
+#### Context
+
+User-uploaded voice samples cloned via ElevenLabs Pro Voice API. Cloned voices appear in the TTS voice picker (TASK-142) as user-specific options.
+
+#### Acceptance Criteria
+
+- Settings → Voices section: upload 30s+ sample → POST to ElevenLabs clone endpoint → store voice ID per user.
+- TASK-142 voice picker shows cloned voices alongside presets.
+- Disclaimer + consent flow before upload.
+
+#### Verification
+
+- Manual: upload sample, generate TTS with the cloned voice, confirm output matches sample timbre.
+
+### TASK-148 Music generation
+
+**Priority:** P4
+**Status:** PLANNED
+**Lane:** P-AI-K
+
+#### Context
+
+Music generation via Stable Audio Open (local) or Suno (when public API exists). Result lands in AI asset pool.
+
+#### Acceptance Criteria
+
+- Capability `apps/desktop/src/main/ai-providers/capabilities/music-gen.mjs`.
+- Stable Audio Open local model (if user opts in) + provider stub for Suno API.
+- Launchpad "Generate music" card with mood/genre/duration controls.
+
+#### Verification
+
+- Manual: generate 30s of "lo-fi study beat" → confirm .mp3 in asset pool → drag to NLE.
+
+### TASK-149 Multi-recording on one timeline
+
+**Priority:** P3
+**Status:** PLANNED
+**Lane:** P-AI-K
+
+#### Context
+
+Today the project model assumes a single primary recording asset. Phase 2 of the NLE: multiple recordings on one timeline (different takes side-by-side, or A-roll + B-roll).
+
+#### Acceptance Criteria
+
+- ProjectDocument schema allows N recording assets.
+- Frame resolver routes per-clip to the right asset.
+- NLE asset panel "Project assets" tab lists all recordings; drag to add to a video track.
+
+#### Verification
+
+- Manual: create blank project → record A → record B → drag both to NLE timeline side-by-side → preview cuts cleanly between them.
+
+### TASK-150 Video generation (Replicate / fal.ai)
+
+**Priority:** P4
+**Status:** PLANNED
+**Lane:** P-AI-K
+
+#### Context
+
+AI video generation via Replicate / fal.ai (LTX-Video / Veo3 / others). Result lands in AI asset pool as a video clip.
+
+#### Acceptance Criteria
+
+- Capability `apps/desktop/src/main/ai-providers/capabilities/video-gen.mjs`.
+- Provider picker (LTX-Video / Veo3 / Pika).
+- High-cost warning + confirmation before each generation (TASK-125 pre-call estimate).
+
+#### Verification
+
+- Manual: generate 4s of "drone flyover of mountains" → file in asset pool → drag to NLE video track.
+
+### TASK-151 User-wide AI memory + active learning
+
+**Priority:** P4
+**Status:** PLANNED
+**Lane:** P-AI-K
+
+#### Context
+
+Promotes per-project memory (v1) into a user-wide preference store. Active learning infers preferences from user actions ("undid the last 3 loose cuts → prefer tighter").
+
+#### Acceptance Criteria
+
+- New `userData/ai-preferences.json`.
+- Active learning hooks on `applyProjectChange` + undo events.
+- AI prompts read user preferences when planning (TASK-144 / TASK-145 / TASK-146).
+- Settings → AI Memory section: view inferred preferences, clear / override.
+
+#### Verification
+
+- Manual: undo 3 AI-applied cuts → next AI run prefers shorter cuts → confirm preference saved.
