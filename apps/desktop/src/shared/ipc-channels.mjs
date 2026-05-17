@@ -10,6 +10,9 @@ export const IPC_CHANNELS = {
   LIBRARY_SAVE: 'library:save',
   LIBRARY_SAVE_AS: 'library:save-as',
   LIBRARY_OPEN_PATH: 'library:open-path',
+  // P-AI-C/TASK-167 — open a system dialog filtered to the import whitelist
+  // (mp4/mov/mp3/wav/png/jpg). Returns {filePath, mimeType} or null on cancel.
+  LIBRARY_PICK_IMPORT_FILE: 'library:pick-import-file',
 
   // Recent Projects
   RECENT_PROJECTS_GET: 'recent-projects:get',

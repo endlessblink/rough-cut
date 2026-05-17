@@ -3,6 +3,7 @@ import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
+import { mimeForExtension } from '../shared/import-mime.mjs';
 import { exportProjectToMp4 } from './export-service.mjs';
 import { assertReadableMp4, computeSyncedRecordingTiming, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
 import { duplicateProjectFile, getLinkedCameraAsset, getPrimaryRecording, openProjectFile, renameProjectFile, saveProjectFile, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
@@ -435,6 +436,30 @@ ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN, async () => {
   // Keep the extension + null-byte checks but skip the allowlist.
   const safePath = validateProjectPath(result.filePaths[0]);
   return formatProject(await openProjectFile(safePath));
+});
+// P-AI-C/TASK-167 — Library "Import file" picker. Filters the dialog to the
+// supported types so the common case never sees a rejection. Returns
+// {filePath, mimeType} on success, null if the user cancelled, or
+// {filePath, mimeType: null} if the user switched to "All files" and picked
+// something unsupported (renderer surfaces the rejection toast).
+ipcMain.handle(IPC_CHANNELS.LIBRARY_PICK_IMPORT_FILE, async () => {
+  await mkdir(recordingsDir, { recursive: true });
+  const result = await dialog.showOpenDialog({
+    title: 'Import file',
+    defaultPath: recordingsDir,
+    properties: ['openFile'],
+    filters: [
+      { name: 'Media', extensions: ['mp4', 'mov', 'mp3', 'wav', 'png', 'jpg', 'jpeg'] },
+      { name: 'Video', extensions: ['mp4', 'mov'] },
+      { name: 'Audio', extensions: ['mp3', 'wav'] },
+      { name: 'Image', extensions: ['png', 'jpg', 'jpeg'] },
+      { name: 'All files', extensions: ['*'] },
+    ],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  const filePath = result.filePaths[0];
+  const mimeType = mimeForExtension(filePath);
+  return { filePath, mimeType };
 });
 ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, (_event, projectPath) => {
   const safePath = validateProjectPath(projectPath, { allowedRoots: buildAllowedProjectRoots() });

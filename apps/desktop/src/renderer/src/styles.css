@@ -2719,6 +2719,32 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 .libraryOpenFile:hover { background: rgb(255 255 255 / 0.08); border-color: rgb(255 255 255 / 0.18); }
 
+/* P-AI-C/TASK-167 — transient banner for Import-file rejection. */
+.libraryImportError {
+  align-items: center;
+  background: rgb(248 113 113 / 0.12);
+  border: 1px solid rgb(248 113 113 / 0.35);
+  border-radius: 8px;
+  color: rgb(254 226 226);
+  display: flex;
+  font-size: 0.78rem;
+  gap: 0.75rem;
+  justify-content: space-between;
+  margin-top: 0.75rem;
+  padding: 0.55rem 0.85rem;
+}
+.libraryImportError button {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.7;
+  padding: 0 0.25rem;
+}
+.libraryImportError button:hover { opacity: 1; }
+
 .libraryBody {
   display: flex;
   flex: 1 1 auto;

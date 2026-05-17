@@ -9,6 +9,7 @@ import { SelectModeToggle } from './select-mode-toggle';
 import { FilterToSelect } from './filter-to-select';
 import { ContextMenu } from './context-menu';
 import { resolveContextTargets } from './context-targets.mjs';
+import { IMPORT_REJECTION_MESSAGE, isImportableMimeType } from '../../../shared/import-mime.mjs';
 
 const SIZE_STEPS: ReadonlyArray<SizeStep> = ['S', 'M', 'L'];
 
@@ -61,7 +62,27 @@ export function LibraryShell({
   const [pendingDelete, setPendingDelete] = React.useState<ProjectSummary[] | null>(null);
   const [bulkBusy, setBulkBusy] = React.useState(false);
   const [bulkError, setBulkError] = React.useState<string | null>(null);
+  // P-AI-C/TASK-167 — transient error banner for Import-file rejection.
+  const [importError, setImportError] = React.useState<string | null>(null);
   const activeView = findView(viewId);
+
+  const handleImportClick = React.useCallback(async () => {
+    setImportError(null);
+    try {
+      const result = await window.roughCut.pickImportFile();
+      if (!result) return; // user cancelled
+      if (!isImportableMimeType(result.mimeType ?? '')) {
+        setImportError(IMPORT_REJECTION_MESSAGE);
+        return;
+      }
+      // Pick succeeded. Wiring into project creation is TASK-168.
+      // eslint-disable-next-line no-console
+      console.info('[library] picked import file', result.filePath, result.mimeType);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setImportError(message);
+    }
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -365,10 +386,7 @@ export function LibraryShell({
             type="button"
             className="libraryOpenFile"
             data-testid="library-import-file"
-            onClick={() => {
-              // eslint-disable-next-line no-console
-              console.info('[library] Import file: not yet implemented (TASK-167)');
-            }}
+            onClick={handleImportClick}
           >
             Import file
           </button>
@@ -396,6 +414,22 @@ export function LibraryShell({
           </button>
         </div>
       </header>
+      {importError ? (
+        <div
+          role="alert"
+          data-testid="library-import-error"
+          className="libraryImportError"
+        >
+          <span>{importError}</span>
+          <button
+            type="button"
+            aria-label="Dismiss import error"
+            onClick={() => setImportError(null)}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
       <FilterToSelect
         summaries={state.status === 'ready' ? state.summaries : []}
         onAddMany={handleAddMany}
