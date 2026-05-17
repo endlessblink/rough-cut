@@ -147,8 +147,15 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-123 | API keys store (encrypted-at-rest in userData) | P1 | PLANNED |
 | TASK-124 | Provider registry + reasoning capability router | P1 | PLANNED |
 | TASK-125 | Cost meter + background job system + top-bar progress chip | P2 | PLANNED |
-| TASK-126 | Project document v3 → v4 migration (transcript / captions / tracks / MG defaults) | P1 | PLANNED |
-| TASK-127 | Project creation flow: Record / Import / Blank / Template | P2 | PLANNED |
+| TASK-162 | Add transcript / captionTracks / tracks types to project-model | P1 | PLANNED |
+| TASK-163 | Extend Zod schemas for transcript / captionTracks / tracks | P1 | PLANNED |
+| TASK-164 | Migration v12 → v13 (additive defaults for new fields) | P1 | PLANNED |
+| TASK-165 | Migration tests + round-trip + idempotent re-migration | P1 | PLANNED |
+| TASK-166 | LibraryShell topbar: Import / Blank / Template buttons | P2 | PLANNED |
+| TASK-167 | Import handler: file picker + whitelist (mp4/mov/mp3/wav/png/jpg) | P2 | PLANNED |
+| TASK-168 | Import creates a new .roughcut referencing the imported file | P2 | PLANNED |
+| TASK-169 | Blank-project handler + Recording edit safe-empty-state | P2 | PLANNED |
+| TASK-170 | Template picker stub modal (3 entries, no execution yet) | P3 | PLANNED |
 | TASK-128 | WhisperX install flow + OpenAI Whisper API cloud fallback | P1 | PLANNED |
 | TASK-129 | Transcript IPC + persistence inside .roughcut | P1 | PLANNED |
 | TASK-130 | NLE Editor app view skeleton (4th tab, multi-track scaffold, asset panel tabs) | P1 | PLANNED |
@@ -392,34 +399,35 @@ Sequence: TASK-106
 
 ---
 
-**AI ARCHITECTURE LANES** — see `/home/endlessblink/.claude/plans/gentle-dancing-patterson.md` for the full architecture plan. These supersede TASK-104 and TASK-105 (folded into TASK-144 + TASK-145).
+**AI ARCHITECTURE LANES** — see `/home/endlessblink/.claude/plans/gentle-dancing-patterson.md` for the full architecture plan. These supersede TASK-104 and TASK-105 (folded into TASK-144 + TASK-145). Lane order revised 2026-05-18: NLE foundation lanes (C, E) execute before the launchpad (A), since the launchpad is a directory of capabilities that don't exist until later lanes ship.
 
-13. **LANE P-AI-A — Launchpad foundation** (Phase 0 part 1):
-Sequence: TASK-152, TASK-153, TASK-154, TASK-155, TASK-156, TASK-157, TASK-158, TASK-159, TASK-160, TASK-161
-Note: TASK-152–157 = launchpad refactor (formerly EPIC TASK-120). TASK-158–161 = settings modal (formerly EPIC TASK-121). Launchpad ships before settings since the settings UI is invoked from launchpad cards.
+13. **LANE P-AI-C — Project model v13 + creation flow** (Phase 0 foundation):
+Sequence: TASK-162, TASK-163, TASK-164, TASK-165, TASK-166, TASK-167, TASK-168, TASK-169, TASK-170
+Note: 162–165 = schema + migration (formerly EPIC TASK-126). 166–170 = creation flow (formerly EPIC TASK-127). Migration is v12 → v13 (current schema is at v12); adds `transcript`, `captionTracks`, `tracks` fields. Reuses existing `motionCompositions` for Remotion content rather than duplicating.
 
-14. **LANE P-AI-B — Provider abstraction** (Phase 0 part 2):
-Depends-on: LANE P-AI-A
+14. **LANE P-AI-E — NLE Editor view skeleton** (Phase 0/1 — depends on C):
+Depends-on: LANE P-AI-C
+Sequence: TASK-130, TASK-131
+
+15. **LANE P-AI-B — Provider abstraction** (Phase 0 — parallel with E):
 Sequence: TASK-122, TASK-123, TASK-124, TASK-125
-
-15. **LANE P-AI-C — Project model v4 + creation flow** (Phase 0 part 3):
-Sequence: TASK-126, TASK-127
 
 16. **LANE P-AI-D — Transcription** (Phase 1 part 1):
 Depends-on: LANE P-AI-B, LANE P-AI-C
 Sequence: TASK-128, TASK-129
 
-17. **LANE P-AI-E — NLE Editor view skeleton** (Phase 1 part 2):
-Depends-on: LANE P-AI-C
-Sequence: TASK-130, TASK-131
-
-18. **LANE P-AI-F — Transcript editor + word-cut** (Phase 1 part 3):
+17. **LANE P-AI-F — Transcript editor + word-cut** (Phase 1 part 2):
 Depends-on: LANE P-AI-D, LANE P-AI-E
 Sequence: TASK-132, TASK-133
 
-19. **LANE P-AI-G — Captions pipeline** (Phase 1 ship gate):
+18. **LANE P-AI-G — Captions pipeline** (Phase 1 ship gate):
 Depends-on: LANE P-AI-F, LANE P-AI-B
 Sequence: TASK-134, TASK-135, TASK-136, TASK-137
+
+19. **LANE P-AI-A — Launchpad foundation** (Phase 1.5 — wires real capabilities):
+Depends-on: LANE P-AI-G, LANE P-AI-B
+Sequence: TASK-152, TASK-153, TASK-154, TASK-155, TASK-156, TASK-157, TASK-158, TASK-159, TASK-160, TASK-161
+Note: 152–157 = launchpad refactor (formerly EPIC TASK-120). 158–161 = settings modal (formerly EPIC TASK-121). The existing AI v1 view (`ai-shell.tsx` from commit 0ce91c6) keeps shipping until 152–157 land.
 
 20. **LANE P-AI-H — Filler & silence removal** (Phase 2):
 Depends-on: LANE P-AI-F
@@ -437,7 +445,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-152, "Launchpad: scaffold capability registry + base shell". ~1-2 hour scope: create `apps/desktop/src/renderer/src/launchpad/` directory, define `Capability` descriptor type + registry array, render an empty shell that lists all capability labels. No interactivity yet. See plan file for the full sequence.
+Next task when continuing: start TASK-162, "Add transcript / captionTracks / tracks types to project-model". ~30-60 min scope: extend `packages/project-model/src/types.ts` (and add new files `transcript.ts`, `caption-track.ts`, `track.ts`) with the three new optional fields on `ProjectDocument`. No schemas, no migration yet. See `gentle-dancing-patterson.md` for full context.
 
 ## Tasks
 
@@ -4378,53 +4386,222 @@ Tracks per-call cost and quota usage; surfaces long-running AI work in a top-bar
 - Renderer test: progress chip appears + disappears with synthetic job.
 - Manual: trigger v1 `Suggest edits` → confirm job appears in chip → confirm cost recorded.
 
-### TASK-126 Project document v3 → v4 migration
+### TASK-162 Add transcript / captionTracks / tracks types to project-model
 
 **Priority:** P1
 **Status:** PLANNED
 **Lane:** P-AI-C
+**Supersedes part of:** TASK-126
 
 #### Context
 
-Add `transcript`, `captionTracks`, `motionGraphics`, `tracks` first-class fields to `ProjectDocument`. Additive migration so existing v3 projects continue to open. Unblocks transcription (TASK-129), captions (TASK-134/135), and NLE multi-track (TASK-140).
+First atomic step of the v12 → v13 migration: add the new type definitions only. No schemas, no migration runner — just the TypeScript types. Reuses existing `motionCompositions` field (added in v3→v4) for Remotion content rather than introducing a duplicate `motionGraphics` field.
 
 #### Acceptance Criteria
 
-- Extend `packages/project-model/src/types.ts` with the new fields, all optional initially.
-- Add new files: `transcript.ts`, `caption-track.ts`, `motion-graphics.ts`, `track.ts`.
-- Extend `packages/project-model/src/schemas.ts` with Zod schemas.
-- Migration in `packages/project-model/src/migrations.ts`: v3 → v4 sets empty defaults if absent.
+- New `packages/project-model/src/transcript.ts` exports `Transcript`, `TranscriptWord` (text, startFrame, endFrame, confidence), `TranscriptParagraph`, `TranscriptNonSpeechSegment` (kind: 'silence' | 'music' | 'noise', startFrame, endFrame).
+- New `packages/project-model/src/caption-track.ts` exports `CaptionTrack`, `CaptionStyle` (`'subtitle' | 'submagic' | 'karaoke'`), `CaptionPhrase` (text, startFrame, endFrame, emphasisWordIndex?, paletteColorIndex?).
+- New `packages/project-model/src/track.ts` exports `Track` (id, kind: 'video' | 'audio' | 'captions' | 'motion-graphics', label, locked, muted, clips), `TrackClip` (assetId, timelineIn, timelineOut, sourceIn, sourceOut).
+- Extend `ProjectDocument` in `types.ts` with three new optional fields: `transcript?: Transcript`, `captionTracks?: readonly CaptionTrack[]`, `tracks?: readonly Track[]`.
 - Re-export from `packages/project-model/src/index.ts`.
-- All 132+ existing project-model tests still pass.
-- Add migration tests covering: v3 doc → v4 (defaults applied), already-v4 doc (no-op), corrupt input (error).
+- No schemas, no migration code yet. Pure type-level change.
 
 #### Verification
 
-- `pnpm --filter @rough-cut/project-model test` 132+ pass plus new migration tests.
-- Open an existing real .roughcut project from the user's machine → confirm migration runs silently.
+- `pnpm --filter @rough-cut/project-model build` clean (tsc).
+- Existing tests still pass (no behavior change).
 
-### TASK-127 Project creation flow: Record / Import / Blank / Template
+### TASK-163 Extend Zod schemas for transcript / captionTracks / tracks
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-C
+**Supersedes part of:** TASK-126
+
+#### Context
+
+Mirror TASK-162's TypeScript types in Zod schemas so `validateProject()` accepts the new fields. All new fields marked `.optional()` since existing v12 documents won't have them.
+
+#### Acceptance Criteria
+
+- Add `TranscriptSchema`, `TranscriptWordSchema`, `TranscriptParagraphSchema`, `TranscriptNonSpeechSegmentSchema` to `schemas.ts`.
+- Add `CaptionTrackSchema`, `CaptionStyleSchema`, `CaptionPhraseSchema`.
+- Add `TrackSchema`, `TrackClipSchema`, `TrackKindSchema`.
+- Extend `ProjectDocumentSchema` with three new `.optional()` fields wired to the schemas above.
+- Existing schema validation behavior unchanged for v12 documents (they pass since the new fields are optional).
+
+#### Verification
+
+- `pnpm --filter @rough-cut/project-model test` — existing `schemas.test.ts` (23 tests) still passes.
+- New tests in `schemas.test.ts` (or sibling file): valid `Transcript` parses, malformed `Transcript` rejected, projects without transcript still valid.
+
+### TASK-164 Migration v12 → v13 (additive defaults for new fields)
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-C
+**Supersedes part of:** TASK-126
+
+#### Context
+
+Bump `CURRENT_SCHEMA_VERSION` from 12 → 13. Add the migration registry entry that adds default empty values for the three new fields when an existing v12 document is opened.
+
+#### Acceptance Criteria
+
+- `packages/project-model/src/constants.ts`: bump `CURRENT_SCHEMA_VERSION` to 13.
+- `migrations.ts`: append a `{fromVersion: 12, toVersion: 13}` entry following the existing additive pattern. Sets `transcript`, `captionTracks`, `tracks` to undefined or omits them entirely (since they're optional). The `version: 13` field is the only mandatory addition.
+- Migration is idempotent: re-running on a v13 document is a no-op.
+- Documented in migration entry comment: "Added by P-AI-C/TASK-164 for the AI architecture rewrite."
+
+#### Verification
+
+- `pnpm --filter @rough-cut/project-model test` — existing 132 tests still pass.
+- Open an existing real `.roughcut` from the user's recordings dir → confirm it loads, gets bumped to v13, autosaves with new version.
+
+### TASK-165 Migration tests + round-trip + idempotent re-migration
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-C
+**Supersedes part of:** TASK-126
+
+#### Context
+
+Tests for the migration: v12 → v13 applies defaults, already-v13 is a no-op, full round-trip (v1 → v13) still works for ancient projects.
+
+#### Acceptance Criteria
+
+- Extend `migrations.test.ts` with cases:
+  - v12 document → v13 (version bumped, no other changes).
+  - v13 document → v13 (no-op).
+  - v1 ancient document → v13 (all 12 migrations chained correctly).
+  - Corrupt input (missing `version`) handled gracefully.
+- Test fixture for a v12 document with realistic shape.
+
+#### Verification
+
+- `pnpm --filter @rough-cut/project-model test` — 132+ tests pass plus the new migration tests.
+
+### TASK-166 LibraryShell topbar: Import / Blank / Template buttons
 
 **Priority:** P2
 **Status:** PLANNED
 **Lane:** P-AI-C
+**Supersedes part of:** TASK-127
 
 #### Context
 
-The app identity has expanded beyond "recorder." Project creation expands to four sources. Reflects in Projects view header.
+Add three new project-creation entry points alongside the existing "Open file…" button at `apps/desktop/src/renderer/src/library/library-shell.tsx:362`. Buttons render but don't do anything yet — handlers wired in TASK-167–170.
 
 #### Acceptance Criteria
 
-- `LibraryShell` topbar gets four creation actions: `New recording` (existing), `Import file`, `Blank project`, `From template` (template picker stub for now).
-- `Import file` accepts mp4 / mov / mp3 / wav / png / jpg only; rejects others with "convert first" toast.
-- Imports create a new `.roughcut` with the imported file as a recording asset (asset.type = 'recording' or 'media' depending on shape).
-- `Blank project` creates an empty `.roughcut` with no recording asset.
-- `From template` opens a stub picker with placeholder entries (full templates land in TASK-146).
+- LibraryShell topbar gets three new buttons: `Import file`, `Blank project`, `From template`.
+- Visual styling matches the existing "Open file…" button (restrained, no emphasis).
+- Each button click is wired to a stub handler (`console.info('[library] not yet implemented')`).
+- No regression to the existing "Open file…" or "Record" flows.
 
 #### Verification
 
-- Unit tests for the import file-type filter.
-- Manual: drop a .mov → project created; drop a .mkv → rejected with toast.
+- `pnpm smoke:ui` — confirm new buttons render in the Library view (visible in the smoke screenshot).
+- Manual: click each → console log fires, no crashes.
+
+### TASK-167 Import handler: file picker + whitelist + reject toast
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-C
+**Supersedes part of:** TASK-127
+
+#### Context
+
+Wire the `Import file` button to an OS file picker. Filter accepted formats: mp4, mov, mp3, wav, png, jpg. Reject others with a toast explaining why.
+
+#### Acceptance Criteria
+
+- New IPC `LIBRARY_PICK_IMPORT_FILE` → returns `{filePath, mimeType}` or `null` if cancelled.
+- Main-process handler shows a system dialog filtered to the 6 accepted extensions.
+- Renderer-side: rejected file types (anything outside the whitelist) show a toast: "Only mp4 / mov / mp3 / wav / png / jpg are supported. Convert your file first."
+- Helper `isImportableMimeType(mime: string): boolean` for the filter logic; tested unit-level.
+
+#### Verification
+
+- Unit tests for `isImportableMimeType` covering each accepted type + rejection cases.
+- Manual: click `Import file` → pick a .mov → see file path logged; pick a .mkv → see rejection toast.
+
+### TASK-168 Import creates a new .roughcut referencing the imported file
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-C
+**Supersedes part of:** TASK-127
+
+#### Context
+
+After TASK-167 picks a valid file, create a new `.roughcut` project that references the imported file as a recording asset. Reuses `saveProjectForRecording` or a new helper if the shape doesn't fit cleanly.
+
+#### Acceptance Criteria
+
+- New IPC `LIBRARY_CREATE_FROM_IMPORT` accepts `{importedFilePath, importedMimeType}`.
+- Probes the file with ffprobe to get duration / dimensions / fps (video) or duration only (audio/image).
+- Creates a new `.roughcut` adjacent to the imported file (or in the user's default recordings dir), with a recording asset pointing to the absolute imported path.
+- Imported file is NOT copied or moved — referenced in place.
+- Returns the new project state so the renderer can open it in Recording edit.
+
+#### Verification
+
+- Unit test: probe a fixture .mp4 → assert the resulting `.roughcut` has correct duration/dimensions.
+- Manual: import a real .mov → confirm new `.roughcut` appears in the gallery; open it in Recording edit; preview plays.
+
+### TASK-169 Blank-project handler + Recording edit safe-empty-state
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-C
+**Supersedes part of:** TASK-127
+
+#### Context
+
+`Blank project` creates a `.roughcut` with no recording asset. Existing Recording edit assumes a primary recording exists at several access sites (`getPrimaryRecordingAsset(project.document)` in `main.tsx:2645, 2702, 3984`). Currently null-safe at the access points (optional chaining), but `ProjectPreview` has no dedicated empty-state for projects with no recording.
+
+#### Acceptance Criteria
+
+- New IPC `LIBRARY_CREATE_BLANK_PROJECT` creates a `.roughcut` with an empty `assets` array and a stub composition `{duration: 0, tracks: []}`.
+- New project opens in **NLE Editor view** (not Recording edit) since Recording edit's mental model is single-recording.
+- Recording edit, if opened on a blank project (e.g., via tab switch), shows an empty-state card: "This project has no recording yet. Open it in the NLE Editor or record a new take." (CTA: switch view).
+- No NPE / crash if user navigates to Recording edit on a blank project.
+
+#### Verification
+
+- Unit test: blank project document validates against `ProjectDocumentSchema`.
+- Renderer test: ProjectPreview on a blank project renders the empty-state card.
+- Manual: click `Blank project` → opens in NLE → switch to Recording edit → see empty-state card with switch-view button.
+
+### TASK-170 Template picker stub modal (3 entries, no execution yet)
+
+**Priority:** P3
+**Status:** PLANNED
+**Lane:** P-AI-C
+**Supersedes part of:** TASK-127
+
+#### Context
+
+`From template` opens a modal listing three template stubs: `Short-form vlog`, `Tutorial`, `Podcast clip`. Each is a card with label + aspect ratio + brief description. Selecting one creates a blank project (TASK-169) with the corresponding aspect ratio preset — no auto-fire actions yet (those land in TASK-146).
+
+#### Acceptance Criteria
+
+- New `apps/desktop/src/renderer/src/library/template-picker-modal.tsx`.
+- Three template stubs hard-coded (will be data-driven in TASK-146):
+  - `short-form-vlog`: 9:16 aspect ratio
+  - `tutorial`: 16:9 aspect ratio
+  - `podcast-clip`: 1:1 aspect ratio
+- Selecting a template → creates a blank project with the chosen aspect ratio in `settings.aspectRatio`.
+- Modal closable via Esc + backdrop.
+- No template-pipeline execution (auto-transcribe, auto-caption, etc.) — that's TASK-146.
+
+#### Verification
+
+- Renderer test: open modal → 3 templates render → click one → new project created with correct AR.
+- Manual: pick `Short-form vlog` → confirm new project opens at 9:16.
 
 ### TASK-128 WhisperX install flow + OpenAI Whisper API cloud fallback
 
