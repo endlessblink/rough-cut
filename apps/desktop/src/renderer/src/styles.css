@@ -240,7 +240,6 @@ input[type="checkbox"] { accent-color: var(--accent); }
 .toggleField,
 .windowDots,
 .timelineHeader,
-.zoomMarkerHeader,
 .autoZoomHeader,
 .autoZoomActions {
   align-items: center;
@@ -934,6 +933,222 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   font-weight: 500;
   letter-spacing: 0.01em;
   line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+/* Divider between built-in and user-saved templates. Hairline rule on the
+   right keeps the label anchored to the start of the row without adding a
+   second alignment grid. */
+.templateGridDivider {
+  align-items: center;
+  color: var(--muted);
+  display: grid;
+  font-size: 0.65rem;
+  font-weight: 500;
+  gap: 0.5rem;
+  grid-template-columns: auto 1fr auto;
+  letter-spacing: 0.08em;
+  margin: 0.65rem 0 0.4rem;
+  text-transform: uppercase;
+}
+.templateGridDivider::after {
+  background: var(--line);
+  content: "";
+  display: block;
+  grid-column: 2;
+  height: 1px;
+}
+.templateGridDividerCount {
+  color: var(--subtle);
+  font-feature-settings: "tnum";
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+}
+
+/* User-saved template cards keep the same shape as built-ins; the only
+   distinguisher is the hover-reveal action group in the top-right. */
+.templateCard.userTemplate {
+  padding: 0;
+  position: relative;
+}
+.templateCard.userTemplate .templateCardSurface {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  font: inherit;
+  gap: 0.4rem;
+  padding: 0.55rem 0.45rem 0.5rem;
+  text-align: center;
+  width: 100%;
+}
+.templateCard.userTemplate .templateCardSurface:disabled {
+  cursor: not-allowed;
+}
+.templateCard.userTemplate .templateCardSurface:focus-visible {
+  outline: none;
+}
+.templateCard.userTemplate:focus-within {
+  border-color: rgb(255 255 255 / 0.18);
+}
+
+.templateCardActions {
+  display: flex;
+  gap: 0.15rem;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  right: 0.25rem;
+  top: 0.25rem;
+  transition: opacity 150ms ease-out;
+}
+.templateCard.userTemplate:hover .templateCardActions,
+.templateCard.userTemplate:focus-within .templateCardActions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.templateCardActionButton {
+  align-items: center;
+  background: rgb(15 15 21 / 0.7);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 4px;
+  color: rgb(226 232 240 / 0.8);
+  cursor: pointer;
+  display: inline-flex;
+  height: 18px;
+  justify-content: center;
+  padding: 0;
+  transition: background 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out;
+  width: 18px;
+}
+.templateCardActionButton:hover:not(:disabled) {
+  background: rgb(30 30 40 / 0.95);
+  border-color: rgb(255 255 255 / 0.2);
+  color: var(--text);
+}
+.templateCardActionButton.danger:hover:not(:disabled) {
+  background: rgb(127 29 29 / 0.85);
+  border-color: rgb(248 113 113 / 0.6);
+  color: rgb(254 226 226);
+}
+.templateCardActionButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.templateCardActionButton:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The "Save current" affordance lives in the same grid as the saved cards.
+   Dashed border distinguishes it from filled cards; no separate add button. */
+.templateCard.adding {
+  background: transparent;
+  border-style: dashed;
+  color: var(--muted);
+}
+.templateCard.adding:hover:not(:disabled) {
+  border-color: rgb(96 165 250 / 0.55);
+  color: var(--text);
+}
+.templateCard.adding .templateCardFrameEmpty {
+  align-items: center;
+  background: transparent;
+  border-color: rgb(255 255 255 / 0.12);
+  border-style: dashed;
+  color: var(--subtle);
+  display: flex;
+  justify-content: center;
+}
+.templateCard.adding:hover:not(:disabled) .templateCardFrameEmpty {
+  border-color: rgb(96 165 250 / 0.5);
+  color: var(--accent-hover);
+}
+
+/* Editing state: input replaces label in-place; card keeps its size so the
+   grid doesn't reflow when the user starts naming a template. */
+.templateCard.editing {
+  align-items: center;
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  justify-content: flex-start;
+  padding: 0.55rem 0.45rem 0.5rem;
+}
+.templateCardInput {
+  background: rgb(15 15 21 / 0.9);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 0.2rem 0.35rem;
+  text-align: center;
+  width: 100%;
+}
+.templateCardInput:focus {
+  outline: none;
+}
+.templateCardInput::placeholder {
+  color: var(--subtle);
+}
+
+/* Delete confirmation reuses the card slot — no modal — so the user never
+   loses context of which card they're acting on. */
+.templateCard.confirming {
+  align-items: stretch;
+  background: rgb(127 29 29 / 0.18);
+  border-color: rgb(248 113 113 / 0.45);
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  justify-content: center;
+  padding: 0.5rem 0.4rem;
+}
+.templateCardConfirmTitle {
+  color: rgb(254 226 226);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-align: center;
+}
+.templateCardConfirmActions {
+  display: flex;
+  gap: 0.25rem;
+  justify-content: center;
+}
+.templateCardConfirmButton {
+  background: transparent;
+  border: 1px solid rgb(255 255 255 / 0.16);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.65rem;
+  padding: 0.15rem 0.5rem;
+  transition: background 150ms ease-out, border-color 150ms ease-out;
+}
+.templateCardConfirmButton:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.05);
+}
+.templateCardConfirmButton.danger {
+  background: rgb(220 38 38 / 0.85);
+  border-color: rgb(248 113 113 / 0.5);
+  color: white;
+}
+.templateCardConfirmButton.danger:hover:not(:disabled) {
+  background: rgb(239 68 68);
+}
+.templateCardConfirmButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .stageColumn {
@@ -992,7 +1207,6 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .saved,
 .exportPreset,
 .inspector p,
-.zoomMarkerEmpty,
 .autoZoomEmpty,
 .autoZoomConflicts {
   color: var(--muted);
@@ -1268,7 +1482,6 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .timecode,
 .timelineHeader span,
 .zoomMarkerTime,
-.zoomMarkerRange,
 .autoZoomRange {
   color: var(--muted);
   font-size: 0.78rem;
@@ -1518,30 +1731,74 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   z-index: 1;
 }
 
+/* Zoom-lane pill — flat, token-driven, depth-fill encodes strength.
+ * Anchor: Screen Studio's "purple block" lane treatment, restrained to the
+ * Rough Cut dark theme. Depth is shown as an inner fill that climbs from the
+ * pill's baseline, so a row of pills reads as a "zoom score" instead of a
+ * stack of identical bars. */
 .timelineRegion,
 .presenceRegion {
-  background: linear-gradient(180deg, #d8b4fe, #8b5cf6);
-  border: 0;
+  background: color-mix(in oklch, var(--accent) 14%, var(--panel));
+  border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: none;
   bottom: 0.28rem;
   cursor: grab;
   min-height: 0;
+  overflow: hidden;
   padding: 0;
   position: absolute;
   top: 0.28rem;
   z-index: 5;
 }
 
-/* Single-layer case (the only zoom layer used): region fills the lane. */
-.zoomLayer0 { bottom: 0.28rem; top: 0.28rem; }
-/* Two-layer case (overlapping markers): split the lane into upper/lower halves. */
-.zoomLayerCount2 .zoomLayer0 { bottom: 0.92rem; top: 0.28rem; }
-.zoomLayerCount2 .zoomLayer1 { bottom: 0.28rem; top: 0.92rem; }
+/* Auto-generated suggestions read quieter than the user's own markers. */
+.autoRegion { background: color-mix(in oklch, var(--accent) 7%, var(--panel)); }
+.manualRegion { background: color-mix(in oklch, var(--accent) 14%, var(--panel)); }
 
+/* Selected: a single crisp accent ring, no double-glow chrome. */
 .selectedRegion {
-  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.28), 0 0 0 5px rgb(37 99 235 / 0.16);
+  border-color: transparent;
+  box-shadow: 0 0 0 1.5px var(--accent);
+  z-index: 15;
 }
+
+/* Legacy overlapping markers (data may still have these) — inset the back
+ * pill 4 px and dim it instead of stacking two cards. */
+.timelineRegion[data-layer="1"] {
+  top: 0.62rem;
+  bottom: 0.62rem;
+  opacity: 0.55;
+  z-index: 4;
+}
+
+/* Strength fill: climbs from the baseline by `strength %`. */
+.zoomDepthFill {
+  background: var(--accent);
+  border-radius: 6px;
+  bottom: 1px;
+  left: 1px;
+  opacity: 0.55;
+  pointer-events: none;
+  position: absolute;
+  right: 1px;
+  transition: height 80ms linear;
+}
+
+/* Range readout centred inside the pill. Hidden when the pill is too narrow
+ * to read it — the fill alone communicates depth at small widths. */
+.zoomRangeLabel {
+  color: var(--text);
+  display: block;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0.12rem 0.4rem;
+  pointer-events: none;
+  position: relative;
+  text-align: center;
+  z-index: 1;
+}
+.timelineRegion[data-narrow="true"] .zoomRangeLabel { display: none; }
 
 .zoomResizeHandle {
   bottom: 0;
@@ -1549,58 +1806,21 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   position: absolute;
   top: 0;
   width: 0.42rem;
+  z-index: 2;
 }
-
 .zoomResizeStart { left: 0; }
 .zoomResizeEnd { right: 0; }
 
-/* Lift the whole region (and its child delete button) above siblings on
-   hover/focus/selection. Without this, an overlapping sibling region with
-   the same z-index could cover the × button visually. */
 .timelineRegion:hover,
-.timelineRegion:focus-within,
-.timelineRegion.selectedRegion {
-  z-index: 15;
+.timelineRegion:focus-within { z-index: 15; }
+
+/* Hover lift — restrained, no scale, no bounce. */
+.timelineRegion:hover {
+  background: color-mix(in oklch, var(--accent) 20%, var(--panel));
 }
 
-.zoomRegionDelete {
-  align-items: center;
-  background: rgb(15 23 42 / 0.85);
-  border: 0;
-  border-radius: 999px;
-  color: #fff;
-  cursor: pointer;
-  display: flex;
-  font-size: 0.85rem;
-  font-weight: 700;
-  height: 1.15rem;
-  justify-content: center;
-  line-height: 1;
-  min-height: 0;
-  opacity: 0;
-  padding: 0;
-  pointer-events: auto;
-  position: absolute;
-  right: -0.55rem;
-  top: -0.55rem;
-  transform: scale(0.85);
-  transition: opacity 120ms cubic-bezier(0.23, 1, 0.32, 1), transform 120ms cubic-bezier(0.23, 1, 0.32, 1), background 120ms ease;
-  width: 1.15rem;
-  z-index: 3;
-}
-
-.timelineRegion:hover .zoomRegionDelete,
-.timelineRegion:focus-within .zoomRegionDelete,
-.timelineRegion.selectedRegion .zoomRegionDelete {
-  opacity: 1;
-  transform: scale(1);
-}
-
-.zoomRegionDelete:hover { background: rgb(248 113 113 / 0.95); }
-.zoomRegionDelete:active { transform: scale(0.92); }
-
-.autoRegion { background: linear-gradient(180deg, #99f6e4, #14b8a6); }
-.manualRegion { background: linear-gradient(180deg, #d8b4fe, #8b5cf6); }
+/* Click-to-add affordance on the zoom lane background. */
+.zoomLane .laneTrack { cursor: copy; }
 
 .clickMarker {
   background: #f97316;
@@ -1660,7 +1880,6 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 
 .timelineCompactRow span,
-.zoomMarkerRange,
 .autoZoomRange {
   min-width: 0;
   overflow: hidden;
@@ -1676,7 +1895,6 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
  * relying on auto-row sizing, allowing shrink-below-content makes the
  * children overflow outside the parent box (visible content collision).
  * Scope the shrink to non-timeline contexts only. */
-:not(.timelineBoardStack) > .zoomMarkerPanel,
 :not(.timelineBoardStack) > .autoZoomSuggestionsPanel,
 :not(.timelineBoardStack) > .cameraFollowPanel { min-height: 0; }
 
@@ -1690,7 +1908,6 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .timelineBoardStack { gap: 0; }
 
 .timelineBoardStack > .inspectorSection,
-.timelineBoardStack > .zoomMarkerPanel,
 .timelineBoardStack > .autoZoomSuggestionsPanel,
 .timelineBoardStack > .cameraFollowPanel {
   background: transparent;
@@ -1721,7 +1938,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 /* Eyebrow sits tight to its content inside flat sections. */
 .timelineBoardStack > .inspectorSection > .eyebrow,
-.timelineBoardStack > .zoomMarkerPanel > .eyebrow,
+.timelineBoardStack > .inspectorSection > .inspectorSectionHead > .eyebrow,
 .timelineBoardStack > .autoZoomSuggestionsPanel > .eyebrow,
 .timelineBoardStack > .cameraFollowPanel > .eyebrow {
   margin: 0;
@@ -1729,7 +1946,6 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 /* Empty-state rows must hold their height so layout stays stable
  * (DESIGN.md: prefer disabled controls over disappearing layout). */
-.timelineBoardStack .zoomMarkerEmpty,
 .timelineBoardStack .autoZoomEmpty {
   color: var(--subtle);
   font-size: 0.78rem;
@@ -1742,15 +1958,6 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
  * section identity is legible at a glance. Scoped — other boards keep the
  * quieter --subtle treatment. */
 .timelineBoardStack > * > .eyebrow { color: var(--muted); }
-
-/* Selected zoom marker's frame range, shown above the Depth slider so the
- * user can see what they're editing without the (removed) Start/End sliders. */
-.markerRangeReadout {
-  color: var(--subtle);
-  font-size: 0.78rem;
-  font-variant-numeric: tabular-nums;
-  margin: 0;
-}
 
 /* Cut tool toolbar — sits inline above the timeline lanes. */
 .timelineToolbar {
@@ -1816,7 +2023,6 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .inspectorHeader { border-bottom: 1px solid var(--line); padding: 0 0 0.72rem; }
 
 .inspectorSection,
-.zoomMarkerPanel,
 .autoZoomSuggestionsPanel,
 .cameraFollowPanel {
   background: #181820;
@@ -1826,6 +2032,19 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   gap: 0.66rem;
   padding: 0.8rem;
 }
+
+/* Section heading row: title on the left, action (e.g. + Add) on the right.
+ * Matches the BoardHeader title/action pattern so all section headers feel
+ * the same regardless of nesting depth. */
+.inspectorSectionHead {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+  min-height: 1.2rem;
+}
+.inspectorSectionHead > .eyebrow { margin: 0; }
+.inspectorSectionAction { display: inline-flex; gap: 0.3rem; }
 
 .rangeAnchors {
   color: var(--muted);
@@ -2060,20 +2279,15 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   padding: 0.38rem 0.75rem;
 }
 
-.zoomMarkerHeader,
 .autoZoomHeader { gap: 0.65rem; justify-content: space-between; }
 
-.zoomMarkerHeader > span:first-child,
 .autoZoomHeader > span:first-child { display: grid; gap: 0.12rem; }
 
-.zoomMarkerHeader .eyebrow,
 .autoZoomHeader .eyebrow { margin: 0; }
 
-.zoomMarkerList,
 .autoZoomList,
 .cutRangeList { display: grid; gap: 0.36rem; list-style: none; margin: 0; padding: 0; }
 
-.zoomMarkerRow,
 .autoZoomRow,
 .cutRangeRow {
   align-items: center;
@@ -2159,6 +2373,55 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .libraryViewChip.active,
 .librarySizeChip.active {
   background: rgb(96 165 250 / 0.18);
+  color: rgb(226 232 240);
+}
+
+.librarySelectModeChip {
+  background: rgb(255 255 255 / 0.04);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 8px;
+  color: rgb(226 232 240 / 0.85);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 500;
+  padding: 0.4rem 0.75rem;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.librarySelectModeChip:hover { background: rgb(255 255 255 / 0.08); border-color: rgb(255 255 255 / 0.18); }
+.librarySelectModeChip.active {
+  background: rgb(96 165 250 / 0.18);
+  border-color: rgb(96 165 250 / 0.55);
+  color: rgb(226 232 240);
+}
+
+/* Quick-select filter row — sits between the header and the library body
+ * (or the bulk bar when present). Subtle by default, ghost chips. */
+.libraryFilterRow {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.libraryFilterLabel {
+  color: rgb(226 232 240 / 0.5);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  margin-right: 0.1rem;
+}
+.libraryFilterChip {
+  background: rgb(255 255 255 / 0.03);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 999px;
+  color: rgb(226 232 240 / 0.7);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 0.22rem 0.65rem;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.libraryFilterChip:hover {
+  background: rgb(96 165 250 / 0.14);
+  border-color: rgb(96 165 250 / 0.4);
   color: rgb(226 232 240);
 }
 
@@ -2253,25 +2516,51 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
 }
-.galleryCardCheck {
+
+/* Always-available card checkbox. <span role="checkbox">, not <button>, so it
+ * can live inside the card's own <button> without nested-interactive issues.
+ * Stays subtle until hover / focus / when checked, then full-opacity. */
+.cardCheckbox {
   align-items: center;
-  background: var(--accent);
+  background: rgb(15 23 42 / 0.55);
+  border: 1px solid rgb(255 255 255 / 0.22);
   border-radius: 999px;
-  color: #fff;
+  cursor: pointer;
   display: inline-flex;
-  font-size: 0.78rem;
-  font-weight: 700;
-  height: 1.4rem;
+  height: 1.5rem;
   justify-content: center;
   left: 0.55rem;
-  line-height: 1;
+  opacity: 0;
   position: absolute;
   top: 0.55rem;
-  width: 1.4rem;
+  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  width: 1.5rem;
   z-index: 3;
 }
-/* When a check appears the resolution chip slides down so they don't collide. */
-.galleryCard.isSelected .galleryChipResolution { top: 2.25rem; }
+.galleryCard:hover .cardCheckbox,
+.galleryCard:focus-within .cardCheckbox,
+.cardCheckbox.isChecked,
+.cardCheckbox:focus-visible,
+.cardCheckbox:hover { opacity: 1; }
+.cardCheckbox.isChecked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.cardCheckbox:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.cardCheckboxGlyph {
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Move resolution chip to top-right and stack it under the camera chip when
+ * both are visible — keeps the top-left clear for the checkbox. */
+.galleryChipResolution { right: 0.55rem; left: auto; top: 0.55rem; }
+.galleryCard[data-has-camera="true"] .galleryChipResolution { top: 2.55rem; }
 
 
 .galleryCardMedia {
@@ -2343,8 +2632,15 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   align-items: center;
   display: grid;
   gap: 1rem;
-  grid-template-columns: 96px minmax(0, 1fr) 88px 80px 60px 140px;
+  grid-template-columns: 2rem 96px minmax(0, 1fr) 88px 80px 60px 140px;
   padding: 0.5rem 0.6rem;
+}
+.galleryRowCheck { position: relative; width: 2rem; height: 1.6rem; }
+.galleryRowCheck .cardCheckbox {
+  left: 0;
+  opacity: 1;
+  position: static;
+  top: 0;
 }
 .galleryListHeader {
   color: rgb(226 232 240 / 0.5);
@@ -2579,6 +2875,47 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   display: flex;
   gap: 0.5rem;
   justify-content: flex-end;
+}
+
+/* Right-click context menu — portaled to document.body, fixed at the cursor.
+ * z-index 60 sits above the delete-confirm modal (z-50). The two surfaces
+ * don't coexist in practice — opening the modal closes the menu. */
+.contextMenu {
+  background: var(--panel);
+  border: 1px solid var(--strong-line);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px -10px rgb(0 0 0 / 0.55);
+  display: flex;
+  flex-direction: column;
+  min-width: 11rem;
+  padding: 0.25rem;
+  position: fixed;
+  z-index: 60;
+}
+.contextMenuItem {
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: rgb(226 232 240 / 0.9);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.4rem 0.7rem;
+  text-align: left;
+  transition: background 100ms ease, color 100ms ease;
+}
+.contextMenuItem:hover:not(:disabled) {
+  background: rgb(96 165 250 / 0.18);
+  color: rgb(226 232 240);
+}
+.contextMenuItem:disabled {
+  color: rgb(226 232 240 / 0.35);
+  cursor: not-allowed;
+}
+.contextMenuItem.isDanger { color: rgb(252 165 165); }
+.contextMenuItem.isDanger:hover:not(:disabled) {
+  background: rgb(244 63 94 / 0.22);
+  color: #fff;
 }
 
 /* ───────────────────────────────────────────────────────────────────────────

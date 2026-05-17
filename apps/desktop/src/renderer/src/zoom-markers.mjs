@@ -56,6 +56,76 @@ export function addManualMarkerAt(document, currentTimeSec, fps) {
   };
 }
 
+/**
+ * Find a non-overlapping span that contains `atFrame`, biased to start at
+ * `atFrame` and extend forward up to `defaultSpan`, clamped by the next
+ * existing marker (or asset duration) and the previous existing marker. If
+ * `atFrame` falls inside an existing marker, or the available gap is below
+ * `minSpan`, returns null.
+ */
+export function findAvailableSpan(document, atFrame, options = {}) {
+  const defaultSpan = options.defaultSpan ?? DEFAULT_MARKER_SPAN_FRAMES;
+  const minSpan = options.minSpan ?? DEFAULT_MIN_SPAN_FRAMES;
+  if (!Number.isFinite(atFrame) || atFrame < 0) return null;
+
+  const asset = getPrimaryRecordingAsset(document);
+  if (!asset || asset.duration <= 0) return null;
+
+  const startFrame = Math.round(atFrame);
+  if (startFrame < 0 || startFrame >= asset.duration) return null;
+
+  const presentation = withDefaultPresentation(asset.presentation);
+  const markers = [...presentation.zoom.markers].sort((a, b) => a.startFrame - b.startFrame);
+
+  for (const m of markers) {
+    if (startFrame >= m.startFrame && startFrame < m.endFrame) return null;
+  }
+
+  let gapStart = 0;
+  let gapEnd = asset.duration;
+  for (const m of markers) {
+    if (m.endFrame <= startFrame) gapStart = Math.max(gapStart, m.endFrame);
+    else if (m.startFrame > startFrame) { gapEnd = Math.min(gapEnd, m.startFrame); break; }
+  }
+
+  const clampedStart = Math.max(gapStart, startFrame);
+  const clampedEnd = Math.min(gapEnd, clampedStart + defaultSpan);
+  if (clampedEnd - clampedStart < minSpan) return null;
+  return { startFrame: clampedStart, endFrame: clampedEnd };
+}
+
+/**
+ * Add a manual zoom marker at a precise source frame (used by lane
+ * click-to-add). Differs from {@link addManualMarkerAt} which uses the
+ * playhead's source time and does not clamp to non-overlap.
+ */
+export function addManualMarkerAtFrame(document, atFrame, fps, options = {}) {
+  if (!Number.isFinite(fps) || fps <= 0) return document;
+  const span = findAvailableSpan(document, atFrame, options);
+  if (!span) return document;
+
+  const asset = getPrimaryRecordingAsset(document);
+  if (!asset) return document;
+
+  const marker = createZoomMarker(span.startFrame, span.endFrame);
+  const presentation = withDefaultPresentation(asset.presentation);
+  const nextMarkers = [...presentation.zoom.markers, marker].sort(
+    (a, b) => a.startFrame - b.startFrame,
+  );
+  const nextAsset = {
+    ...asset,
+    presentation: {
+      ...presentation,
+      zoom: { ...presentation.zoom, markers: nextMarkers },
+    },
+  };
+
+  return {
+    ...document,
+    assets: document.assets.map((item) => (item.id === asset.id ? nextAsset : item)),
+  };
+}
+
 export function removeMarker(document, markerId) {
   const asset = getPrimaryRecordingAsset(document);
   if (!asset || !asset.presentation) return document;

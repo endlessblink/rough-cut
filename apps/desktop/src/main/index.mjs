@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { exportProjectToMp4 } from './export-service.mjs';
 import { assertReadableMp4, computeSyncedRecordingTiming, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
-import { getLinkedCameraAsset, getPrimaryRecording, openProjectFile, saveProjectFile, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
+import { duplicateProjectFile, getLinkedCameraAsset, getPrimaryRecording, openProjectFile, renameProjectFile, saveProjectFile, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
 import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
 import { dismissRecovery, getRecoveryState, recoverFromMarker } from './recording-recovery.mjs';
-import { listProjectSummaries } from './project-gallery.mjs';
+import { deleteProjectFiles, listProjectSummaries } from './project-gallery.mjs';
 import { registerMediaProtocol, toMediaUrl } from './media-protocol.mjs';
 import { remuxMkvToMp4 } from './remux-service.mjs';
 import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording/recording-session.mjs';
@@ -18,6 +18,7 @@ import { listV4l2CameraSources } from './recording/camera-sources.mjs';
 import { getRecordingPreflightStatus } from './recording/preflight.mjs';
 import { isXdotoolAvailable, readCursorViaXdotool } from './recording/xdotool-cursor.mjs';
 import { installRuntimeLog } from './runtime-log.mjs';
+import { createUserTemplatesStore, defaultUserTemplatesPath } from './user-templates-store.mjs';
 
 const runtimeLogPath = installRuntimeLog();
 
@@ -46,6 +47,10 @@ function buildAllowedProjectRoots() {
   return roots;
 }
 const markerPath = join(app.getPath('userData'), 'recording-recovery.json');
+const userTemplatesStore = createUserTemplatesStore({
+  filePath: defaultUserTemplatesPath(app.getPath('userData')),
+  onLog: (msg) => console.warn(msg),
+});
 const recordingStopShortcut = 'CommandOrControl+Shift+R';
 const recordingRestartShortcut = 'CommandOrControl+Shift+N';
 let hiddenRecorderWindow = null;
@@ -439,18 +444,93 @@ ipcMain.handle(IPC_CHANNELS.RECENT_PROJECTS_GET, async () => {
     onError: (path, err) => console.warn('[recent-projects] skipping unreadable project', path, err?.message ?? err),
   });
 });
-ipcMain.handle(IPC_CHANNELS.RECENT_PROJECTS_REMOVE, async (_event, projectPath) => {
-  const safePath = validateProjectPath(projectPath, { allowedRoots: buildAllowedProjectRoots() });
-  await Promise.all([
-    safePath,
-    `${safePath}.bak`,
-    `${safePath}.tmp`,
-  ].map((path) => unlink(path).catch((err) => {
-    if (err?.code === 'ENOENT') return;
-    throw err;
-  })));
-  return { removed: safePath };
+// Enqueue an operation onto the per-path projectSaveQueues so any in-flight
+// save completes before mutate runs and so back-to-back mutations on the same
+// project serialize cleanly. Callers must handle their own errors — this
+// wrapper only manages ordering.
+function enqueueProjectOp(safePath, op) {
+  const prev = projectSaveQueues.get(safePath) ?? Promise.resolve();
+  const next = prev.catch(() => undefined).then(() => op());
+  projectSaveQueues.set(safePath, next);
+  next.finally(() => {
+    if (projectSaveQueues.get(safePath) === next) projectSaveQueues.delete(safePath);
+  });
+  return next;
+}
+
+class OpenProjectLockedError extends Error {
+  constructor(targetPath) {
+    super('Cannot rename or delete the currently-open project. Close it first.');
+    this.name = 'OpenProjectLockedError';
+    this.code = 'OPEN_PROJECT_LOCKED';
+    this.path = targetPath;
+  }
+}
+
+// Bulk delete. Sequential to keep error reporting tractable — a Promise.all
+// failure on item 3 of 5 would leave 4-5 in an indeterminate state.
+ipcMain.handle(IPC_CHANNELS.RECENT_PROJECTS_REMOVE, async (_event, payload) => {
+  const list = Array.isArray(payload?.paths)
+    ? payload.paths
+    : Array.isArray(payload)
+      ? payload
+      : typeof payload === 'string' ? [payload] : typeof payload?.path === 'string' ? [payload.path] : [];
+  const openProjectPath = typeof payload?.openProjectPath === 'string' ? payload.openProjectPath : null;
+  const deleted = [];
+  const failed = [];
+
+  for (const candidate of list) {
+    try {
+      const safePath = validateProjectPath(candidate, { allowedRoots: buildAllowedProjectRoots() });
+      if (openProjectPath && safePath === openProjectPath) {
+        throw new OpenProjectLockedError(safePath);
+      }
+      await enqueueProjectOp(safePath, () => deleteProjectFiles(safePath, {
+        onError: (path, err) => console.warn('[delete] sibling cleanup failed', path, err?.message ?? err),
+      }));
+      deleted.push(safePath);
+    } catch (err) {
+      failed.push({
+        path: typeof candidate === 'string' ? candidate : String(candidate),
+        error: err?.message ?? String(err),
+        code: err?.code ?? null,
+      });
+    }
+  }
+
+  return { deleted, failed };
 });
+
+ipcMain.handle(IPC_CHANNELS.PROJECT_DUPLICATE, async (_event, payload) => {
+  const fromPath = typeof payload?.path === 'string' ? payload.path : null;
+  if (!fromPath) throw new Error('duplicate: path is required');
+  const safePath = validateProjectPath(fromPath, { allowedRoots: buildAllowedProjectRoots() });
+  // Duplicate doesn't mutate the source, so the open-project lock doesn't
+  // apply. We still serialize through the source's projectSaveQueues so an
+  // autosave on the source can't race the read.
+  const result = await enqueueProjectOp(safePath, () => duplicateProjectFile({ fromPath: safePath }));
+  return formatProject(result);
+});
+
+ipcMain.handle(IPC_CHANNELS.PROJECT_RENAME, async (_event, payload) => {
+  const fromPath = typeof payload?.path === 'string' ? payload.path : null;
+  const toName = typeof payload?.name === 'string' ? payload.name : null;
+  if (!fromPath || !toName) throw new Error('rename: path and name are required');
+
+  // Renaming the currently-open project is now allowed. The renderer pauses
+  // autosave during the rename via `renameInFlightRef`, and the resulting
+  // ProjectState is fed back through setProject so the autosave useEffect
+  // re-binds to the new path. The save-queue serialization here keeps
+  // pre-flight autosaves ordered correctly with the rename.
+  const safePath = validateProjectPath(fromPath, { allowedRoots: buildAllowedProjectRoots() });
+  const result = await enqueueProjectOp(safePath, () => renameProjectFile({ fromPath: safePath, toName }));
+  return formatProject(result);
+});
+ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_LIST, () => userTemplatesStore.list());
+ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_SAVE, (_event, payload) => userTemplatesStore.save(payload ?? {}));
+ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_RENAME, (_event, payload) => userTemplatesStore.rename(payload ?? {}));
+ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_DELETE, (_event, payload) => userTemplatesStore.delete(payload ?? {}));
+
 ipcMain.handle(IPC_CHANNELS.RECENT_PROJECTS_CLEAR, () => {
   // The gallery is a live folder scan, not a curated list — there is no
   // separate "recent" store to clear. Returning a no-op keeps the channel
@@ -876,7 +956,7 @@ async function runRendererUiSmoke() {
   const hasFrameDragHandles = styledPreviewCanvas?.getAttribute('data-screen-draggable') === 'true' && styledPreviewCanvas?.getAttribute('data-camera-draggable') === 'true';
   document.querySelector('button[aria-label="Timeline"]')?.click();
   const stageRectBeforeToolSwitch = rectToRoundedObject(document.querySelector('[data-ui-region="central-stage"]')?.getBoundingClientRect());
-  await waitFor(() => document.querySelector('[aria-label="Zoom markers"]') && document.body.textContent?.includes('Markers'), 'zoom marker panel header');
+  await waitFor(() => document.querySelector('[aria-label="Zoom markers"]') && document.body.textContent?.includes('Zoom markers'), 'zoom marker panel header');
   const hasZoomMarkerPanel = true;
   const hasTimelineZoomControlPanel = Boolean(document.querySelector('[data-ui-region="timeline-zoom-control-panel"]'));
   await waitFor(() => document.querySelector('[aria-label="Auto-zoom suggestions"]') && document.body.textContent?.includes('Suggestions'), 'auto-zoom suggestions panel header');

@@ -14,9 +14,12 @@ import {
   Microphone as PhosphorMicrophone,
   Monitor as PhosphorMonitor,
   Pause as PhosphorPause,
+  PencilSimple as PhosphorPencilSimple,
   Play as PhosphorPlay,
+  Plus as PhosphorPlus,
   Record as PhosphorRecord,
   Scissors as PhosphorScissors,
+  Trash as PhosphorTrash,
   SlidersHorizontal as PhosphorSlidersHorizontal,
   Sparkle as PhosphorSparkle,
   SpeakerHigh as PhosphorSpeakerHigh,
@@ -36,7 +39,9 @@ import {
   RECORDING_TEMPLATE_PRESETS,
   applyRecordingTemplatePreset,
   findRecordingTemplatePresetId,
+  type NormalizedRect,
   type ProjectAspectRatio,
+  type UserRecordingTemplate,
   type ProjectDocument,
   type CameraPosition,
   type CameraPresentation,
@@ -53,6 +58,7 @@ import { LibraryShell } from './library/library-shell';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
   addManualMarkerAt,
+addManualMarkerAtFrame,
   applySuggestion,
   canAddMarkerAt,
   getZoomPresentation,
@@ -136,6 +142,16 @@ declare global {
         mediaUrl: string | null;
         cameraMediaUrl?: string | null;
       }>;
+      listUserTemplates: () => Promise<UserRecordingTemplate[]>;
+      saveUserTemplate: (payload: {
+        label: string;
+        aspectRatio: ProjectAspectRatio;
+        background: RecordingBackgroundStyle;
+        camera: CameraPresentation;
+        presentation: { screenFrame: NormalizedRect | null; cameraFrame: NormalizedRect | null };
+      }) => Promise<UserRecordingTemplate>;
+      renameUserTemplate: (payload: { id: string; label: string }) => Promise<UserRecordingTemplate>;
+      deleteUserTemplate: (payload: { id: string }) => Promise<{ removed: boolean }>;
       channels: Record<string, string>;
     };
   }
@@ -264,6 +280,22 @@ function writePreRecordPreferences(preferences: PreRecordPreferences) {
   }
 }
 
+// Shared rename-in-flight flag. App() flips it; module-scope
+// `saveProjectGuarded` reads it. Lives at module scope because save call
+// sites in helper components (ProjectPreview, ZoomMarkerPanel, etc.) are
+// outside App's closure but still need to honor the same gate.
+const renameInFlight = { current: false };
+
+async function saveProjectGuarded(payload: { path: string; document: ProjectState['document'] }): Promise<ProjectState> {
+  if (renameInFlight.current) {
+    // Synthetic ProjectState matching the input; the disk save is skipped
+    // for the ~200ms rename window. Caller's setProject(saved) stays
+    // coherent because path + document round-trip unchanged.
+    return { path: payload.path, document: payload.document, recording: null, mediaUrl: null };
+  }
+  return window.roughCut.saveProject(payload);
+}
+
 function App() {
   const searchParams = new URLSearchParams(window.location.search);
   const isRecorderMode = searchParams.get('mode') === 'recorder';
@@ -271,6 +303,14 @@ function App() {
   // Version is fetched for diagnostics / about-dialog use; the dev label is
   // no longer rendered in chrome. Kept stateful so future surfaces can show it.
   const [, setVersion] = React.useState<string>('loading');
+  // Rename guard: while a project rename is in flight, autosave and explicit
+  // saves are suppressed (via module-scope `renameInFlight` + `saveProjectGuarded`)
+  // to prevent the "autosave resurrects the old path" race. The autosave
+  // interval reads `renameInFlight.current` at each tick, so the flag flip
+  // takes effect without needing to re-run any useEffect.
+  const setRenameInFlight = React.useCallback((flag: boolean) => {
+    renameInFlight.current = flag;
+  }, []);
   const [recording, setRecording] = React.useState<RecordingStatus>({ state: 'idle' });
   const [project, setProject] = React.useState<ProjectState | null>(null);
   const [exportProgress, setExportProgress] = React.useState<ExportProgress | null>(null);
@@ -387,10 +427,13 @@ function App() {
 
   // Periodic autosave for the open project. Uses the IPC PROJECT_SAVE path
   // which goes through the atomic write from TASK-085, so a kill mid-save
-  // can't corrupt the .roughcut file.
+  // can't corrupt the .roughcut file. Skips ticking when a rename is in
+  // flight — saving with the stale path would resurrect the old file after
+  // the rename moves it.
   React.useEffect(() => {
     if (!project) return undefined;
     const id = window.setInterval(() => {
+      if (renameInFlight.current) return;
       window.roughCut.saveProject({ path: project.path, document: project.document })
         .catch((err) => console.warn('[autosave] failed:', err?.message ?? err));
     }, 60_000);
@@ -776,7 +819,7 @@ function App() {
   async function restoreProjectSnapshot(next: ProjectState) {
     setProject(next);
     try {
-      const saved = await window.roughCut.saveProject({ path: next.path, document: next.document });
+      const saved = await saveProjectGuarded({ path: next.path, document: next.document });
       setProject(saved);
     } catch (err) {
       setError(appError('project', err, 'Could not save undo history change.'));
@@ -1066,6 +1109,19 @@ function App() {
             onOpenProjectByPath={openProjectByPath}
             onOpenProjectDialog={openProject}
             openProjectPath={project?.path ?? null}
+            onRenameInFlight={setRenameInFlight}
+            onCloseOpenProject={() => {
+              setProject(null);
+              setActiveAppView('projects');
+              setEditHistory(EMPTY_EDIT_HISTORY);
+              setExportResult(null);
+            }}
+            onProjectRenamed={(oldPath, updated) => {
+              // Only the open project's state needs to swap. Other renames
+              // are just visible in the gallery list (refreshKey already
+              // triggers a re-fetch in LibraryShell).
+              setProject((current) => (current && current.path === oldPath ? (updated as unknown as ProjectState) : current));
+            }}
           />
         ) : project ? (
           <ProjectPreview
@@ -1821,10 +1877,13 @@ function ToolRail({ active, onSelect }: { active: ActiveTool; onSelect: (tool: A
   );
 }
 
-function InspectorSection({ id, title, children, description, muted = false }: { id: InspectorGroupId | string; title: string; children: React.ReactNode; description?: string; muted?: boolean }) {
+function InspectorSection({ id, title, children, description, muted = false, action }: { id: InspectorGroupId | string; title: string; children: React.ReactNode; description?: string; muted?: boolean; action?: React.ReactNode }) {
   return (
-    <section className={`inspectorSection ${muted ? 'mutedSection' : ''}`} data-inspector-group={id}>
-      <p className="eyebrow">{title}</p>
+    <section className={`inspectorSection ${muted ? 'mutedSection' : ''}`} data-inspector-group={id} aria-label={title}>
+      <div className="inspectorSectionHead">
+        <p className="eyebrow">{title}</p>
+        {action ? <div className="inspectorSectionAction">{action}</div> : null}
+      </div>
       {description ? <p className="inspectorHelp">{description}</p> : null}
       {children}
     </section>
@@ -1947,30 +2006,230 @@ function CursorClickEffectPicker({ value, disabled = false, onChange }: { value:
   );
 }
 
-function TemplatePresetGrid({ disabled = false, value, onSelect }: { disabled?: boolean; value?: string; onSelect?: (id: string) => void }) {
+function aspectRatioCss(aspectRatio: string): string {
+  if (aspectRatio === '9:16') return '9 / 16';
+  if (aspectRatio === '1:1') return '1 / 1';
+  if (aspectRatio === '4:3') return '4 / 3';
+  if (aspectRatio === '3:4') return '3 / 4';
+  if (aspectRatio === '4:5') return '4 / 5';
+  return '16 / 9';
+}
+
+function TemplatePresetGrid({
+  disabled = false,
+  value,
+  onSelect,
+  userTemplates = [],
+  appliedUserTemplateId = null,
+  onApplyUserTemplate,
+  onSaveUserTemplate,
+  onRenameUserTemplate,
+  onDeleteUserTemplate,
+  canSave = false,
+}: {
+  disabled?: boolean;
+  value?: string;
+  onSelect?: (id: string) => void;
+  userTemplates?: UserRecordingTemplate[];
+  appliedUserTemplateId?: string | null;
+  onApplyUserTemplate?: (template: UserRecordingTemplate) => void;
+  onSaveUserTemplate?: (label: string) => Promise<void> | void;
+  onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void;
+  onDeleteUserTemplate?: (id: string) => Promise<void> | void;
+  canSave?: boolean;
+}) {
+  const [savePending, setSavePending] = React.useState(false);
+  const [saveLabel, setSaveLabel] = React.useState('');
+  const [renamingId, setRenamingId] = React.useState<string | null>(null);
+  const [renameLabel, setRenameLabel] = React.useState('');
+  const [pendingDeleteId, setPendingDeleteId] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const saveInputRef = React.useRef<HTMLInputElement | null>(null);
+  const renameInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    if (savePending) saveInputRef.current?.focus();
+  }, [savePending]);
+  React.useEffect(() => {
+    if (renamingId) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [renamingId]);
+
+  const closeSave = () => { setSavePending(false); setSaveLabel(''); };
+  const closeRename = () => { setRenamingId(null); setRenameLabel(''); };
+
+  const commitSave = async () => {
+    const label = saveLabel.trim();
+    if (!label || !onSaveUserTemplate) { closeSave(); return; }
+    setBusy(true);
+    try { await onSaveUserTemplate(label); closeSave(); } finally { setBusy(false); }
+  };
+
+  const commitRename = async () => {
+    const label = renameLabel.trim();
+    if (!renamingId || !label || !onRenameUserTemplate) { closeRename(); return; }
+    setBusy(true);
+    try { await onRenameUserTemplate(renamingId, label); closeRename(); } finally { setBusy(false); }
+  };
+
+  const commitDelete = async (id: string) => {
+    if (!onDeleteUserTemplate) return;
+    setBusy(true);
+    try { await onDeleteUserTemplate(id); setPendingDeleteId(null); } finally { setBusy(false); }
+  };
+
+  const inputsDisabled = disabled || busy;
+  const showSavedSection = userTemplates.length > 0 || onSaveUserTemplate != null;
+
   return (
     <div className="inspectorPresetGroup" data-template-preset-grid="true">
       <div className="templateGrid" aria-label="Recording templates">
-        {RECORDING_TEMPLATE_PRESETS.map((template) => {
-          const ratio = template.aspectRatio === '9:16' ? '9 / 16' : template.aspectRatio === '1:1' ? '1 / 1' : '16 / 9';
-          return (
-            <button
-              type="button"
-              key={template.id}
-              aria-label={template.label}
-              aria-pressed={value === template.id}
-              className={value === template.id ? 'templateCard active' : 'templateCard'}
-              disabled={disabled}
-              data-template-id={template.id}
-              onClick={() => onSelect?.(template.id)}
-              title={template.description}
-            >
-              <span className="templateCardFrame" style={{ aspectRatio: ratio }} aria-hidden="true" />
-              <span className="templateCardLabel">{template.label}</span>
-            </button>
-          );
-        })}
+        {RECORDING_TEMPLATE_PRESETS.map((template) => (
+          <button
+            type="button"
+            key={template.id}
+            aria-label={template.label}
+            aria-pressed={value === template.id}
+            className={value === template.id ? 'templateCard active' : 'templateCard'}
+            disabled={disabled}
+            data-template-id={template.id}
+            onClick={() => onSelect?.(template.id)}
+            title={template.description}
+          >
+            <span className="templateCardFrame" style={{ aspectRatio: aspectRatioCss(template.aspectRatio) }} aria-hidden="true" />
+            <span className="templateCardLabel">{template.label}</span>
+          </button>
+        ))}
       </div>
+
+      {showSavedSection ? (
+        <>
+          <div className="templateGridDivider" role="presentation">
+            <span>Saved</span>
+            <span className="templateGridDividerCount" aria-label={`${userTemplates.length} saved`}>{userTemplates.length}</span>
+          </div>
+          <div className="templateGrid" aria-label="Saved templates" data-user-template-grid="true">
+            {userTemplates.map((template) => {
+              const isActive = appliedUserTemplateId === template.id;
+              const isRenaming = renamingId === template.id;
+              const isPendingDelete = pendingDeleteId === template.id;
+              if (isRenaming) {
+                return (
+                  <div key={template.id} className="templateCard editing" data-user-template-id={template.id}>
+                    <span className="templateCardFrame" style={{ aspectRatio: aspectRatioCss(template.aspectRatio) }} aria-hidden="true" />
+                    <input
+                      ref={renameInputRef}
+                      className="templateCardInput"
+                      type="text"
+                      value={renameLabel}
+                      maxLength={40}
+                      disabled={inputsDisabled}
+                      onChange={(e) => setRenameLabel(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+                        else if (e.key === 'Escape') { e.preventDefault(); closeRename(); }
+                      }}
+                      onBlur={() => commitRename()}
+                      aria-label="Rename template"
+                    />
+                  </div>
+                );
+              }
+              if (isPendingDelete) {
+                return (
+                  <div key={template.id} className="templateCard confirming" data-user-template-id={template.id}>
+                    <span className="templateCardConfirmTitle">Delete?</span>
+                    <div className="templateCardConfirmActions">
+                      <button type="button" className="templateCardConfirmButton danger" disabled={inputsDisabled} onClick={() => commitDelete(template.id)}>Delete</button>
+                      <button type="button" className="templateCardConfirmButton" disabled={inputsDisabled} onClick={() => setPendingDeleteId(null)}>Cancel</button>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div
+                  key={template.id}
+                  className={isActive ? 'templateCard userTemplate active' : 'templateCard userTemplate'}
+                  data-user-template-id={template.id}
+                >
+                  <button
+                    type="button"
+                    className="templateCardSurface"
+                    aria-label={template.label}
+                    aria-pressed={isActive}
+                    disabled={disabled}
+                    title={template.label}
+                    onClick={() => onApplyUserTemplate?.(template)}
+                  >
+                    <span className="templateCardFrame" style={{ aspectRatio: aspectRatioCss(template.aspectRatio) }} aria-hidden="true" />
+                    <span className="templateCardLabel">{template.label}</span>
+                  </button>
+                  <div className="templateCardActions">
+                    <button
+                      type="button"
+                      className="templateCardActionButton"
+                      aria-label={`Rename ${template.label}`}
+                      disabled={inputsDisabled}
+                      onClick={() => { setRenamingId(template.id); setRenameLabel(template.label); }}
+                    >
+                      <PhosphorPencilSimple size={12} weight="duotone" />
+                    </button>
+                    <button
+                      type="button"
+                      className="templateCardActionButton danger"
+                      aria-label={`Delete ${template.label}`}
+                      disabled={inputsDisabled}
+                      onClick={() => setPendingDeleteId(template.id)}
+                    >
+                      <PhosphorTrash size={12} weight="duotone" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+            {onSaveUserTemplate ? (
+              savePending ? (
+                <div className="templateCard adding editing" data-template-add-form="true">
+                  <span className="templateCardFrame templateCardFrameEmpty" aria-hidden="true" />
+                  <input
+                    ref={saveInputRef}
+                    className="templateCardInput"
+                    type="text"
+                    value={saveLabel}
+                    placeholder="Template name"
+                    maxLength={40}
+                    disabled={inputsDisabled}
+                    onChange={(e) => setSaveLabel(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); commitSave(); }
+                      else if (e.key === 'Escape') { e.preventDefault(); closeSave(); }
+                    }}
+                    onBlur={() => commitSave()}
+                    aria-label="New template name"
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="templateCard adding"
+                  disabled={disabled || busy || !canSave}
+                  data-template-add="true"
+                  title={canSave ? 'Save current settings as a template' : 'Open a recording to save a template'}
+                  onClick={() => setSavePending(true)}
+                >
+                  <span className="templateCardFrame templateCardFrameEmpty" aria-hidden="true">
+                    <PhosphorPlus size={18} weight="bold" />
+                  </span>
+                  <span className="templateCardLabel">Save current</span>
+                </button>
+              )
+            ) : null}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -1979,7 +2238,7 @@ function InspectorActionRow({ children, region }: { children: React.ReactNode; r
   return <div className="actionsArea inspectorActionRow" data-ui-region={region}>{children}</div>;
 }
 
-function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, selectedZoomMarker = null, trimInfo, cutRanges = [], onProjectChange, onBackgroundChange, onCameraPresentationChange, onCursorPresentationChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onZoomMarkerStrengthChange, onResetTrim, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; cutRanges?: CutRange[]; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
+function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, selectedZoomMarker = null, trimInfo, cutRanges = [], userTemplates = [], appliedUserTemplateId = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCursorPresentationChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onApplyUserTemplate, onSaveUserTemplate, onRenameUserTemplate, onDeleteUserTemplate, onZoomMarkerStrengthChange, onResetTrim, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; cutRanges?: CutRange[]; userTemplates?: UserRecordingTemplate[]; appliedUserTemplateId?: string | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onApplyUserTemplate?: (template: UserRecordingTemplate) => void; onSaveUserTemplate?: (label: string) => Promise<void> | void; onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void; onDeleteUserTemplate?: (id: string) => Promise<void> | void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const cursor = cursorPresentation ?? DEFAULT_CURSOR_PRESENTATION;
@@ -2003,17 +2262,19 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
     onCameraPresentationChange?.(applied.camera);
     onCameraFrameChange?.(null);
   };
-  const markerCount = project?.recording ? listMarkers(project.document as unknown as ProjectDocument).length : 0;
-
   if (activeTool === 'timeline') {
     return (
       <aside className="setupBoard" aria-label="Timeline board">
         <BoardHeader icon="timeline" title="Timeline" action={trimInfo?.isTrimmed ? 'Reset trim' : undefined} actionDisabled={disabled || !trimInfo?.isTrimmed} onAction={onResetTrim} />
         {project?.recording && fps && onProjectChange ? (
           <div className="timelineBoardStack" data-ui-region="timeline-zoom-control-panel">
-            <InspectorSection id="zoom" title="Zoom markers" muted={!selectedZoomMarker}>
+            <InspectorSection
+              id="zoom"
+              title="Zoom markers"
+              muted={!selectedZoomMarker}
+              action={<ZoomMarkerPanel project={project} fps={fps} currentTimeSec={currentTimeSec} onProjectChange={onProjectChange} />}
+            >
               <div data-zoom-controls="true">
-                <ZoomMarkerPanel project={project} fps={fps} currentTimeSec={currentTimeSec} markerCount={markerCount} onProjectChange={onProjectChange} />
                 <div className="timelineCompactRow">
                   <span>Selection</span>
                   <strong>
@@ -2096,8 +2357,19 @@ function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, backgro
   return (
     <aside className="setupBoard" aria-label="Background board">
       <BoardHeader icon="sparkle" title="Background" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.(DEFAULT_RECORDING_BACKGROUND)} />
-      <InspectorSection id="templates" title="Templates" description="One click sets aspect ratio and background together.">
-        <TemplatePresetGrid disabled={disabled} value={activeTemplatePreset} onSelect={handleTemplatePresetSelect} />
+      <InspectorSection id="templates" title="Templates" description="One click sets aspect ratio, background, and camera together.">
+        <TemplatePresetGrid
+          disabled={disabled}
+          value={activeTemplatePreset}
+          onSelect={handleTemplatePresetSelect}
+          userTemplates={userTemplates}
+          appliedUserTemplateId={appliedUserTemplateId}
+          onApplyUserTemplate={onApplyUserTemplate}
+          onSaveUserTemplate={onSaveUserTemplate}
+          onRenameUserTemplate={onRenameUserTemplate}
+          onDeleteUserTemplate={onDeleteUserTemplate}
+          canSave={projectLoaded}
+        />
       </InspectorSection>
       <InspectorSection id="canvas" title="Canvas">
         <InspectorSelect label="Aspect ratio" value={aspectRatio} options={aspectRatioOptions} disabled={disabled} onChange={(value) => onAspectRatioChange?.(value)} />
@@ -2224,6 +2496,8 @@ function ProjectPreview({
   const isTimelineScrubbingRef = React.useRef(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [userTemplates, setUserTemplates] = React.useState<UserRecordingTemplate[]>([]);
+  const [appliedUserTemplateId, setAppliedUserTemplateId] = React.useState<string | null>(null);
   const aspectRatio = project.document.settings?.aspectRatio ?? 'auto';
   const effectiveRecording = React.useMemo(() => {
     if (!project.recording) return null;
@@ -2264,7 +2538,7 @@ function ProjectPreview({
     setIsSaving(true);
     onProjectChange(optimistic, { history: true, previous });
     try {
-      const saved = await window.roughCut.saveProject({ path: project.path, document: nextDocument });
+      const saved = await saveProjectGuarded({ path: project.path, document: nextDocument });
       onProjectChange(saved);
     } catch (err) {
       onProjectChange(previous);
@@ -2426,6 +2700,68 @@ function ProjectPreview({
         return { ...asset, presentation: nextPresentation };
       }),
     });
+    setAppliedUserTemplateId(null);
+  }
+
+  React.useEffect(() => {
+    let cancelled = false;
+    window.roughCut.listUserTemplates().then(
+      (list) => { if (!cancelled) setUserTemplates(list); },
+      () => { /* missing or unreadable file → empty list is the right default */ },
+    );
+    return () => { cancelled = true; };
+  }, []);
+
+  async function applyUserTemplate(template: UserRecordingTemplate) {
+    setAppliedUserTemplateId(template.id);
+    await persist({
+      ...project.document,
+      settings: { ...project.document.settings, aspectRatio: template.aspectRatio },
+      assets: project.document.assets?.map((asset) => {
+        if (asset.id !== recordingAsset?.id) return asset;
+        const presentation = withDefaultPresentation(asset.presentation) as unknown as Record<string, unknown>;
+        const nextPresentation: Record<string, unknown> = {
+          ...presentation,
+          background: template.background,
+          camera: {
+            ...DEFAULT_CAMERA_PRESENTATION,
+            ...((presentation.camera as Partial<CameraPresentation> | undefined) ?? {}),
+            ...template.camera,
+          },
+        };
+        if (template.screenFrame) nextPresentation.screenFrame = template.screenFrame;
+        else delete nextPresentation.screenFrame;
+        if (template.cameraFrame) nextPresentation.cameraFrame = template.cameraFrame;
+        else delete nextPresentation.cameraFrame;
+        return { ...asset, presentation: nextPresentation };
+      }),
+    });
+  }
+
+  async function saveUserTemplate(label: string) {
+    const recPresentation = recordingAsset?.presentation as Record<string, unknown> | undefined;
+    const screenFrame = (recPresentation?.screenFrame as NormalizedRect | undefined) ?? null;
+    const cameraFrame = (recPresentation?.cameraFrame as NormalizedRect | undefined) ?? null;
+    const saved = await window.roughCut.saveUserTemplate({
+      label,
+      aspectRatio,
+      background,
+      camera: cameraPresentation,
+      presentation: { screenFrame, cameraFrame },
+    });
+    setUserTemplates((list) => [...list, saved]);
+    setAppliedUserTemplateId(saved.id);
+  }
+
+  async function renameUserTemplate(id: string, label: string) {
+    const updated = await window.roughCut.renameUserTemplate({ id, label });
+    setUserTemplates((list) => list.map((t) => (t.id === id ? updated : t)));
+  }
+
+  async function deleteUserTemplate(id: string) {
+    await window.roughCut.deleteUserTemplate({ id });
+    setUserTemplates((list) => list.filter((t) => t.id !== id));
+    setAppliedUserTemplateId((current) => (current === id ? null : current));
   }
 
   async function updateTrim(nextStartFrame: number, nextEndFrame: number) {
@@ -2504,7 +2840,9 @@ function ProjectPreview({
 
   async function addZoomMarkerAtTime(sourceTimeSec: number) {
     if (!effectiveRecording) return;
-    const nextDocument = addManualMarkerAt(project.document as unknown as ProjectDocument, sourceTimeSec, effectiveRecording.fps) as unknown as ProjectState['document'];
+    const fps = effectiveRecording.fps;
+    const frame = Math.round(sourceTimeSec * fps);
+    const nextDocument = addManualMarkerAtFrame(project.document as unknown as ProjectDocument, frame, fps) as unknown as ProjectState['document'];
     if (nextDocument === project.document) return;
     await persist(nextDocument);
   }
@@ -2573,7 +2911,7 @@ function ProjectPreview({
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
       <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} selectedZoomMarker={selectedZoomMarker} trimInfo={trimInfo} cutRanges={activeCutRanges} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCursorPresentationChange={updateCursorPresentation} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onResetTrim={resetTrim} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
+      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} selectedZoomMarker={selectedZoomMarker} trimInfo={trimInfo} cutRanges={activeCutRanges} userTemplates={userTemplates} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCursorPresentationChange={updateCursorPresentation} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onResetTrim={resetTrim} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>
@@ -2798,13 +3136,28 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     window.addEventListener('pointercancel', up, { once: true });
   }
 
-  function handleZoomLaneDoubleClick(event: React.MouseEvent<HTMLDivElement>) {
+  function handleZoomLanePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (!onAddZoomMarkerAt) return;
-    // Skip if the click landed on an existing region (don't add inside markers).
-    if ((event.target as HTMLElement).closest('.timelineRegion, .zoomResizeHandle, .zoomRegionDelete')) return;
-    const sourceTimeSec = sourceTimeFromClient(event.currentTarget, event.clientX);
-    if (sourceTimeSec === null) return;
-    onAddZoomMarkerAt(sourceTimeSec);
+    if (event.button !== 0) return;
+    // Skip if the press landed on an existing region (don't add inside markers).
+    if ((event.target as HTMLElement).closest('.timelineRegion, .zoomResizeHandle')) return;
+    const track = event.currentTarget;
+    const downFrame = sourceFrameFromClient(track, event.clientX);
+    if (downFrame === null) return;
+    event.preventDefault();
+    track.setPointerCapture(event.pointerId);
+    const up = (upEvent: PointerEvent) => {
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      const upFrame = sourceFrameFromClient(track, upEvent.clientX);
+      if (upFrame === null) return;
+      // Mirror cut tool's click-vs-drag gate: only fire on a low-movement
+      // release so accidental drags don't drop phantom markers.
+      if (Math.abs(upFrame - downFrame) >= 2) return;
+      onAddZoomMarkerAt(downFrame / fps);
+    };
+    window.addEventListener('pointerup', up, { once: true });
+    window.addEventListener('pointercancel', up, { once: true });
   }
 
   function sourceToVisibleTime(sourceTimeSec: number) {
@@ -3059,30 +3412,27 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
           })}
           {hasHiddenStart || hasHiddenEnd ? <button type="button" className="restoreFullSource" aria-label="Restore full source" onClick={onResetTrim}>Restore full source</button> : null}
         </TimelineLane>
-        <TimelineLane label="Zoom" className={`zoomLane zoomLayerCount${Math.min(2, model.zoomLayerCount)}`} onTrackDoubleClick={onAddZoomMarkerAt ? handleZoomLaneDoubleClick : undefined} trackTitle="Double-click empty space to add a zoom marker">
+        <TimelineLane label="Zoom" className="zoomLane" onTrackPointerDown={onAddZoomMarkerAt ? handleZoomLanePointerDown : undefined} trackTitle="Click to add a zoom marker">
           {model.lanes.zoom.length > 0
             ? model.lanes.zoom.map((region) => {
                 const label = region.label ?? 'Zoom region';
                 const kind = region.kind ?? 'manual';
                 const selected = selectedZoomMarkerId === region.id;
+                const strength = Math.max(0, Math.min(1, region.strength ?? 0.5));
+                const depthPct = Math.round(strength * 100);
+                const startSec = (region.startFrame ?? 0) / fps;
+                const endSec = (region.endFrame ?? 0) / fps;
+                const narrow = (region.width ?? 100) < 6;
                 return (
-                  <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker. Delete to remove.`} className={`timelineRegion zoomLayer${Math.min(1, region.layer ?? 0)} ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} title={`${label} — Delete to remove`} style={zoomRegionStyle(region)} onClick={() => onSelectInspectorContext({ group: 'zoom', label, detail: `${kind} zoom region selected.`, markerId: region.id })} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
+                  <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker. Delete to remove.`} className={`timelineRegion ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} data-narrow={narrow ? 'true' : undefined} data-layer={region.layer ?? 0} title={`${label} · ${depthPct}% · Delete to remove`} style={zoomRegionStyle(region)} onClick={() => onSelectInspectorContext({ group: 'zoom', label, detail: `${kind} zoom region selected.`, markerId: region.id })} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
+                    <div className="zoomDepthFill" style={{ height: `${depthPct}%` }} aria-hidden="true" />
+                    <span className="zoomRangeLabel">{formatClock(startSec)}–{formatClock(endSec)}</span>
                     <span role="slider" tabIndex={0} aria-label={`${label} start boundary`} aria-valuemin={0} aria-valuemax={Math.max(0, Math.round((region.endFrame ?? 15) - 15))} aria-valuenow={Math.round(region.startFrame ?? 0)} className="zoomResizeHandle zoomResizeStart" onKeyDown={(event) => handleZoomKeyboard(region, 'start', event)} onPointerDown={(event) => beginZoomDrag(region, 'start', event)} />
                     <span role="slider" tabIndex={0} aria-label={`${label} end boundary`} aria-valuemin={Math.round((region.startFrame ?? 0) + 15)} aria-valuemax={sourceFrameDuration} aria-valuenow={Math.round(region.endFrame ?? 15)} className="zoomResizeHandle zoomResizeEnd" onKeyDown={(event) => handleZoomKeyboard(region, 'end', event)} onPointerDown={(event) => beginZoomDrag(region, 'end', event)} />
-                    {onZoomMarkerRemove ? (
-                      <button
-                        type="button"
-                        className="zoomRegionDelete"
-                        aria-label={`Delete ${label}`}
-                        title="Delete this zoom"
-                        onClick={(event) => { event.stopPropagation(); onZoomMarkerRemove(region.id); }}
-                        onPointerDown={(event) => { event.stopPropagation(); }}
-                      >×</button>
-                    ) : null}
                   </div>
                 );
               })
-            : <p>No zoom markers yet.</p>}
+            : null}
         </TimelineLane>
         <TimelineLane label="Clicks" className="clickLane">
           {model.lanes.clicks.length > 0
@@ -3117,13 +3467,11 @@ function ZoomMarkerPanel({
   project,
   fps,
   currentTimeSec,
-  markerCount,
   onProjectChange,
 }: {
   project: ProjectState;
   fps: number;
   currentTimeSec: number;
-  markerCount: number;
   onProjectChange: (next: ProjectState, options?: ProjectChangeOptions) => void;
 }) {
   const [saveError, setSaveError] = React.useState<string | null>(null);
@@ -3138,7 +3486,7 @@ function ZoomMarkerPanel({
     setIsSaving(true);
     onProjectChange(optimistic, { history: true, previous });
     try {
-      const saved = await window.roughCut.saveProject({ path: project.path, document: optimistic.document });
+      const saved = await saveProjectGuarded({ path: project.path, document: optimistic.document });
       onProjectChange(saved);
     } catch (err) {
       onProjectChange(previous);
@@ -3155,14 +3503,18 @@ function ZoomMarkerPanel({
   }
 
   return (
-    <div className="zoomMarkerPanel" aria-label="Zoom markers">
-      <div className="timelineCompactRow">
-        <span>Count</span>
-        <strong>{markerCount}</strong>
-        <button type="button" className="secondary compact" onClick={handleAdd} disabled={!canAdd || isSaving}>+ Add</button>
-      </div>
-      {saveError ? <p className="error">{saveError}</p> : null}
-    </div>
+    <>
+      <button
+        type="button"
+        className="secondary compact"
+        onClick={handleAdd}
+        disabled={!canAdd || isSaving}
+        title={canAdd ? 'Add a zoom marker at the playhead' : 'Playhead is too close to an existing marker'}
+      >
+        + Add
+      </button>
+      {saveError ? <p className="error" role="alert">{saveError}</p> : null}
+    </>
   );
 }
 
@@ -3185,7 +3537,7 @@ function CameraFollowPanel({
     setIsSaving(true);
     onProjectChange(optimistic, { history: true, previous });
     try {
-      const saved = await window.roughCut.saveProject({ path: project.path, document: optimistic.document });
+      const saved = await saveProjectGuarded({ path: project.path, document: optimistic.document });
       onProjectChange(saved);
     } catch (err) {
       onProjectChange(previous);
@@ -3292,7 +3644,7 @@ function AutoZoomSuggestionsPanel({
     setIsSaving(true);
     onProjectChange(optimistic, { history: true, previous });
     try {
-      const saved = await window.roughCut.saveProject({ path: project.path, document: optimistic.document });
+      const saved = await saveProjectGuarded({ path: project.path, document: optimistic.document });
       onProjectChange(saved);
     } catch (err) {
       onProjectChange(previous);

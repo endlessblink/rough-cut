@@ -8,8 +8,10 @@ import {
 } from '@rough-cut/project-model';
 import {
   addManualMarkerAt,
+  addManualMarkerAtFrame,
   applySuggestion,
   canAddMarkerAt,
+  findAvailableSpan,
   getPrimaryRecordingAsset,
   listMarkers,
   removeMarker,
@@ -283,4 +285,44 @@ test('applySuggestion is a no-op when there is no recording asset', () => {
     zoomOutDuration: 9,
   });
   assert.equal(next, project);
+});
+
+test('addManualMarkerAtFrame creates a 60-frame marker on an empty lane', () => {
+  const project = projectWithRecording({ duration: 600 });
+  const next = addManualMarkerAtFrame(project, 100, 30);
+  const markers = listMarkers(next);
+  assert.equal(markers.length, 1);
+  assert.equal(markers[0].startFrame, 100);
+  assert.equal(markers[0].endFrame, 160);
+});
+
+test('addManualMarkerAtFrame clamps the new span to the gap before the next marker', () => {
+  let project = projectWithRecording({ duration: 600 });
+  project = addManualMarkerAt(project, 150 / 30, 30); // marker at [150, 210]
+  const next = addManualMarkerAtFrame(project, 100, 30); // would want [100, 160] but clamped to [100, 150]
+  const markers = listMarkers(next).filter((m) => m.startFrame === 100);
+  assert.equal(markers.length, 1);
+  assert.equal(markers[0].endFrame, 150);
+});
+
+test('addManualMarkerAtFrame is a no-op when atFrame lands inside an existing marker', () => {
+  let project = projectWithRecording({ duration: 600 });
+  project = addManualMarkerAt(project, 100 / 30, 30); // marker at [100, 160]
+  const next = addManualMarkerAtFrame(project, 120, 30);
+  assert.equal(next, project);
+});
+
+test('addManualMarkerAtFrame is a no-op when the available gap is below minSpan', () => {
+  let project = projectWithRecording({ duration: 600 });
+  project = addManualMarkerAt(project, 100 / 30, 30); // marker at [100, 160]
+  project = addManualMarkerAt(project, 170 / 30, 30); // marker at [170, 230]
+  // Only 10 frames of gap between 160..170 → below default minSpan=15.
+  const next = addManualMarkerAtFrame(project, 162, 30);
+  assert.equal(next, project);
+});
+
+test('findAvailableSpan returns null when atFrame is inside an existing marker', () => {
+  let project = projectWithRecording({ duration: 600 });
+  project = addManualMarkerAt(project, 100 / 30, 30); // marker at [100, 160]
+  assert.equal(findAvailableSpan(project, 120), null);
 });

@@ -55,6 +55,7 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
       kind: marker.kind,
       startFrame: marker.startFrame,
       endFrame: marker.endFrame,
+      strength: marker.strength,
       label: marker.kind === 'auto' ? 'Auto zoom' : 'Manual zoom',
       ...frameRangeToPlacement(marker.startFrame - trimStartFrame, marker.endFrame - trimStartFrame, fps, durationSec),
     })));

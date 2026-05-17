@@ -16,6 +16,7 @@ export type TimelineRegion = {
   layer?: number;
   kind?: string;
   label?: string;
+  strength?: number;
 };
 
 export type TimelineEventMarker = {

@@ -15,6 +15,19 @@ export function addManualMarkerAt(
   fps: number,
 ): ProjectDocument;
 
+export function findAvailableSpan(
+  document: ProjectDocument,
+  atFrame: number,
+  options?: { defaultSpan?: number; minSpan?: number },
+): { startFrame: number; endFrame: number } | null;
+
+export function addManualMarkerAtFrame(
+  document: ProjectDocument,
+  atFrame: number,
+  fps: number,
+  options?: { defaultSpan?: number; minSpan?: number },
+): ProjectDocument;
+
 export function removeMarker(document: ProjectDocument, markerId: string): ProjectDocument;
 
 export function updateMarkerRange(
