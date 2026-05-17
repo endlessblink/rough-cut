@@ -16,7 +16,6 @@ import {
   Pause as PhosphorPause,
   PencilSimple as PhosphorPencilSimple,
   Play as PhosphorPlay,
-  Plus as PhosphorPlus,
   Record as PhosphorRecord,
   Scissors as PhosphorScissors,
   Trash as PhosphorTrash,
@@ -55,6 +54,7 @@ import {
 import { resolveFrame } from '@rough-cut/frame-resolver';
 import './styles.css';
 import { LibraryShell } from './library/library-shell';
+import { AiShell } from './ai/ai-shell';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
   addManualMarkerAtFrame,
@@ -1130,6 +1130,17 @@ function App() {
               setProject((current) => (current && current.path === oldPath ? (updated as unknown as ProjectState) : current));
             }}
           />
+        ) : activeAppView === 'ai' ? (
+          <AiShell
+            project={project}
+            fps={project?.document?.composition?.frameRate ?? 30}
+            recordingDurationFrames={project?.document?.composition?.duration ?? 0}
+            primaryAssetId={
+              (project?.document?.assets ?? []).find((a) => a.type === 'recording')?.id ?? null
+            }
+            onProjectChange={applyProjectChange}
+            onGoToProjects={() => setActiveAppView('projects')}
+          />
         ) : project ? (
           <ProjectPreview
             project={project}
@@ -2153,19 +2164,6 @@ function builtInTemplateThumbnailProps(template: typeof RECORDING_TEMPLATE_PRESE
   };
 }
 
-function userTemplateThumbnailProps(template: UserRecordingTemplate): TemplateThumbnailProps {
-  return {
-    aspectRatio: template.aspectRatio,
-    cameraFrame: template.cameraFrame,
-    camera: {
-      position: template.camera.position,
-      shape: template.camera.shape,
-      size: template.camera.size,
-      roundness: template.camera.roundness,
-      visible: template.camera.visible,
-    },
-  };
-}
 
 function TemplatePresetGrid({
   disabled = false,
@@ -2178,7 +2176,6 @@ function TemplatePresetGrid({
   onRenameUserTemplate,
   onDeleteUserTemplate,
   canSave = false,
-  currentThumbnail = null,
 }: {
   disabled?: boolean;
   value?: string;
@@ -2190,9 +2187,6 @@ function TemplatePresetGrid({
   onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void;
   onDeleteUserTemplate?: (id: string) => Promise<void> | void;
   canSave?: boolean;
-  // Live snapshot of what "Save current" would persist. Recomputed by the
-  // caller each render so dragging the camera/screen updates the preview.
-  currentThumbnail?: { props: TemplateThumbnailProps; meta: string } | null;
 }) {
   const [savePending, setSavePending] = React.useState(false);
   const [saveLabel, setSaveLabel] = React.useState('');
@@ -2271,20 +2265,17 @@ function TemplatePresetGrid({
             <span>Saved</span>
             <span className="templateGridDividerCount" aria-label={`${userTemplates.length} saved`}>{userTemplates.length}</span>
           </div>
-          <div className="templateGrid" aria-label="Saved templates" data-user-template-grid="true">
+          <ul className="presetList" aria-label="Saved presets" data-user-template-grid="true">
             {userTemplates.map((template) => {
               const isActive = appliedUserTemplateId === template.id;
               const isRenaming = renamingId === template.id;
               const isPendingDelete = pendingDeleteId === template.id;
               if (isRenaming) {
                 return (
-                  <div key={template.id} className="templateCard editing" data-user-template-id={template.id}>
-                    <span className="templateCardFrame" aria-hidden="true">
-                      <TemplateThumbnail {...userTemplateThumbnailProps(template)} />
-                    </span>
+                  <li key={template.id} className="presetRow editing" data-user-template-id={template.id}>
                     <input
                       ref={renameInputRef}
-                      className="templateCardInput"
+                      className="presetRowInput"
                       type="text"
                       value={renameLabel}
                       maxLength={40}
@@ -2295,126 +2286,92 @@ function TemplatePresetGrid({
                         else if (e.key === 'Escape') { e.preventDefault(); closeRename(); }
                       }}
                       onBlur={() => commitRename()}
-                      aria-label="Rename template"
+                      aria-label="Rename preset"
                     />
-                  </div>
+                  </li>
                 );
               }
               if (isPendingDelete) {
                 return (
-                  <div key={template.id} className="templateCard confirming" data-user-template-id={template.id}>
-                    <span className="templateCardConfirmTitle">Delete?</span>
-                    <div className="templateCardConfirmActions">
-                      <button type="button" className="templateCardConfirmButton danger" disabled={inputsDisabled} onClick={() => commitDelete(template.id)}>Delete</button>
-                      <button type="button" className="templateCardConfirmButton" disabled={inputsDisabled} onClick={() => setPendingDeleteId(null)}>Cancel</button>
+                  <li key={template.id} className="presetRow confirming" data-user-template-id={template.id}>
+                    <span className="presetRowConfirmTitle">Delete &ldquo;{template.label}&rdquo;?</span>
+                    <div className="presetRowConfirmActions">
+                      <button type="button" className="presetRowConfirmButton danger" disabled={inputsDisabled} onClick={() => commitDelete(template.id)}>Delete</button>
+                      <button type="button" className="presetRowConfirmButton" disabled={inputsDisabled} onClick={() => setPendingDeleteId(null)}>Cancel</button>
                     </div>
-                  </div>
+                  </li>
                 );
               }
               return (
-                <div
+                <li
                   key={template.id}
-                  className={isActive ? 'templateCard userTemplate active' : 'templateCard userTemplate'}
+                  className={isActive ? 'presetRow active' : 'presetRow'}
                   data-user-template-id={template.id}
                 >
                   <button
                     type="button"
-                    className="templateCardSurface"
-                    aria-label={template.label}
+                    className="presetRowLabel"
+                    aria-label={`Apply ${template.label}`}
                     aria-pressed={isActive}
                     disabled={disabled}
-                    title={template.label}
+                    title={`Apply ${template.label}`}
                     onClick={() => onApplyUserTemplate?.(template)}
                   >
-                    <span className="templateCardFrame" aria-hidden="true">
-                      <TemplateThumbnail {...userTemplateThumbnailProps(template)} />
-                    </span>
-                    <span className="templateCardText">
-                      <span className="templateCardLabel">{template.label}</span>
-                      <span className="templateCardMeta">{templateMetaLine(template.aspectRatio, template.camera.position)}</span>
-                    </span>
+                    {isActive ? <span className="presetRowActiveDot" aria-hidden="true" /> : null}
+                    <span className="presetRowName">{template.label || 'Untitled preset'}</span>
                   </button>
-                  <div className="templateCardActions">
-                    <button
-                      type="button"
-                      className="templateCardActionButton"
-                      aria-label={`Rename ${template.label}`}
-                      disabled={inputsDisabled}
-                      onClick={() => { setRenamingId(template.id); setRenameLabel(template.label); }}
-                    >
-                      <PhosphorPencilSimple size={12} weight="duotone" />
-                    </button>
-                    <button
-                      type="button"
-                      className="templateCardActionButton danger"
-                      aria-label={`Delete ${template.label}`}
-                      disabled={inputsDisabled}
-                      onClick={() => setPendingDeleteId(template.id)}
-                    >
-                      <PhosphorTrash size={12} weight="duotone" />
-                    </button>
-                  </div>
-                </div>
+                  <button
+                    type="button"
+                    className="presetRowAction"
+                    aria-label={`Rename ${template.label}`}
+                    title="Rename"
+                    disabled={inputsDisabled}
+                    onClick={() => { setRenamingId(template.id); setRenameLabel(template.label); }}
+                  >
+                    <PhosphorPencilSimple size={13} weight="duotone" />
+                  </button>
+                  <button
+                    type="button"
+                    className="presetRowAction danger"
+                    aria-label={`Delete ${template.label}`}
+                    title="Delete"
+                    disabled={inputsDisabled}
+                    onClick={() => setPendingDeleteId(template.id)}
+                  >
+                    <PhosphorTrash size={13} weight="duotone" />
+                  </button>
+                </li>
               );
             })}
-
-          </div>
+          </ul>
           {onSaveUserTemplate ? (
-            savePending ? (
-              <div className="templateSaveCard editing" data-template-add-form="true">
-                {currentThumbnail ? (
-                  <span className="templateCardFrame" aria-hidden="true">
-                    <TemplateThumbnail {...currentThumbnail.props} />
-                  </span>
-                ) : (
-                  <span className="templateCardFrame" aria-hidden="true" />
-                )}
-                <div className="templateSaveCardForm">
-                  <input
-                    ref={saveInputRef}
-                    className="templateSaveInput"
-                    type="text"
-                    value={saveLabel}
-                    placeholder="Name this template…"
-                    maxLength={40}
-                    disabled={inputsDisabled}
-                    onChange={(e) => setSaveLabel(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') { e.preventDefault(); commitSave(); }
-                      else if (e.key === 'Escape') { e.preventDefault(); closeSave(); }
-                    }}
-                    onBlur={() => commitSave()}
-                    aria-label="New template name"
-                  />
-                  <span className="templateSaveHint">Enter to save · Esc to cancel</span>
-                </div>
-              </div>
-            ) : (
+            <div className="presetSaveRow" data-template-add-form="true">
+              <input
+                ref={saveInputRef}
+                className="presetSaveInput"
+                type="text"
+                value={saveLabel}
+                placeholder="Name a new preset…"
+                maxLength={40}
+                disabled={inputsDisabled || !canSave}
+                onChange={(e) => { setSaveLabel(e.target.value); if (!savePending) setSavePending(true); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); commitSave(); }
+                  else if (e.key === 'Escape') { e.preventDefault(); closeSave(); }
+                }}
+                onFocus={() => setSavePending(true)}
+                aria-label="New preset name"
+              />
               <button
                 type="button"
-                className="templateCard templateSaveCard"
-                disabled={disabled || busy || !canSave}
-                data-template-add="true"
-                title={canSave ? 'Save current settings as a template' : 'Open a recording to save a template'}
-                onClick={() => setSavePending(true)}
+                className="presetSaveButton"
+                disabled={disabled || busy || !canSave || !saveLabel.trim()}
+                title={canSave ? 'Save current settings as a preset' : 'Open a recording to save a preset'}
+                onClick={() => commitSave()}
               >
-                {currentThumbnail ? (
-                  <span className="templateCardFrame" aria-hidden="true">
-                    <TemplateThumbnail {...currentThumbnail.props} />
-                  </span>
-                ) : (
-                  <span className="templateCardFrame templateCardFrameEmpty" aria-hidden="true">
-                    <PhosphorPlus size={14} weight="bold" />
-                  </span>
-                )}
-                <span className="templateCardText">
-                  <span className="templateCardLabel">
-                    <PhosphorPlus size={11} weight="bold" /> Save current
-                  </span>
-                  <span className="templateCardMeta">{currentThumbnail?.meta ?? 'Live snapshot of canvas'}</span>
-                </span>
+                Save
               </button>
-            )
+            </div>
           ) : null}
         </>
       ) : null}
@@ -2434,26 +2391,6 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
   const aspectRatioOptions = PROJECT_ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: PROJECT_ASPECT_RATIO_LABELS[ratio] }));
   const activeBackgroundPreset = RECORDING_BACKGROUND_PRESETS.find((preset) => preset.style.bgImage ? preset.style.bgImage === bg.bgImage : (preset.style.bgColor === bg.bgColor && preset.style.bgGradient === bg.bgGradient))?.id;
   const activeTemplatePreset = findRecordingTemplatePresetId(aspectRatio, bg);
-  // Live snapshot for the Save-current card. Recomputed every render so
-  // dragging the camera or screen on the preview updates the indicator.
-  const currentThumbnail = projectLoaded ? (() => {
-    const recAsset = getPrimaryRecordingAsset(project!.document);
-    const presentation = recAsset?.presentation as { cameraFrame?: NormalizedRect } | undefined;
-    return {
-      props: {
-        aspectRatio,
-        cameraFrame: presentation?.cameraFrame ?? null,
-        camera: {
-          position: camera.position,
-          shape: camera.shape,
-          size: camera.size,
-          roundness: camera.roundness,
-          visible: camera.visible,
-        },
-      } satisfies TemplateThumbnailProps,
-      meta: templateMetaLine(aspectRatio, camera.position),
-    };
-  })() : null;
   const handleTemplatePresetSelect = (templateId: string) => {
     if (onTemplatePresetSelect) {
       onTemplatePresetSelect(templateId);
@@ -2559,7 +2496,6 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
           onRenameUserTemplate={onRenameUserTemplate}
           onDeleteUserTemplate={onDeleteUserTemplate}
           canSave={projectLoaded}
-          currentThumbnail={currentThumbnail}
         />
       </InspectorSection>
       <InspectorSection id="canvas" title="Canvas">

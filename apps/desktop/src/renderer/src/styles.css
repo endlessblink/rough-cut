@@ -990,52 +990,174 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   letter-spacing: 0.04em;
 }
 
-/* User-saved template cards keep the same compact layout as built-ins;
-   the only distinguisher is the hover-reveal action group in the top-right. */
-.templateCard.userTemplate {
+/* Saved presets list — Screen-Studio style: plain text rows with
+ * trailing icon-only actions, no thumbnails, no card chrome. The grid
+ * of built-in templates above keeps its visual cards (1-time picks);
+ * saved presets are name-first because the user wrote the name. */
+.presetList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  list-style: none;
+  margin: 0;
   padding: 0;
-  position: relative;
 }
-.templateCard.userTemplate .templateCardSurface {
+.presetRow {
+  align-items: center;
+  border-radius: 6px;
+  display: grid;
+  gap: 0.1rem;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  min-height: 1.85rem;
+  padding: 0 0.2rem 0 0;
+}
+.presetRow:hover { background: rgb(255 255 255 / 0.04); }
+.presetRow.active { background: rgb(96 165 250 / 0.08); }
+
+.presetRowLabel {
   align-items: center;
   background: transparent;
   border: 0;
-  border-radius: inherit;
-  color: inherit;
+  color: rgb(226 232 240 / 0.95);
   cursor: pointer;
-  display: grid;
+  display: inline-flex;
   font: inherit;
-  gap: 0.5rem;
-  grid-template-columns: 26px minmax(0, 1fr);
-  padding: 0.4rem 0.55rem;
+  font-size: 0.78rem;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
   text-align: left;
   width: 100%;
 }
-.templateCard.userTemplate .templateCardSurface:disabled {
-  cursor: not-allowed;
+.presetRowLabel:disabled { cursor: not-allowed; opacity: 0.45; }
+.presetRowLabel:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
+.presetRow.active .presetRowLabel { color: var(--text); font-weight: 500; }
+
+.presetRowName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.templateCard.userTemplate .templateCardSurface:focus-visible {
-  outline: none;
-}
-.templateCard.userTemplate:focus-within {
-  border-color: rgb(255 255 255 / 0.18);
+.presetRowActiveDot {
+  background: var(--accent);
+  border-radius: 999px;
+  flex: 0 0 auto;
+  height: 0.4rem;
+  width: 0.4rem;
 }
 
-.templateCardActions {
+.presetRowAction {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: rgb(226 232 240 / 0.55);
+  cursor: pointer;
+  display: inline-flex;
+  height: 1.4rem;
+  justify-content: center;
+  padding: 0;
+  transition: background 150ms ease, color 150ms ease;
+  width: 1.4rem;
+}
+.presetRowAction:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.06);
+  color: var(--text);
+}
+.presetRowAction.danger:hover:not(:disabled) {
+  background: rgb(127 29 29 / 0.4);
+  color: rgb(254 226 226);
+}
+.presetRowAction:disabled { cursor: not-allowed; opacity: 0.3; }
+.presetRowAction:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+
+.presetRow.editing {
+  grid-template-columns: 1fr;
+  padding: 0.25rem 0.4rem;
+}
+.presetRowInput {
+  background: rgb(15 15 21 / 0.9);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.3rem 0.45rem;
+  width: 100%;
+}
+.presetRowInput:focus { outline: none; }
+
+.presetRow.confirming {
+  align-items: center;
+  background: rgb(127 29 29 / 0.15);
   display: flex;
-  gap: 0.15rem;
-  opacity: 0;
-  pointer-events: none;
-  position: absolute;
-  right: 0.25rem;
-  top: 0.25rem;
-  transition: opacity 150ms ease-out;
+  gap: 0.5rem;
+  justify-content: space-between;
+  padding: 0.3rem 0.5rem;
 }
-.templateCard.userTemplate:hover .templateCardActions,
-.templateCard.userTemplate:focus-within .templateCardActions {
-  opacity: 1;
-  pointer-events: auto;
+.presetRowConfirmTitle {
+  color: rgb(254 226 226);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.presetRowConfirmActions { display: flex; gap: 0.3rem; }
+.presetRowConfirmButton {
+  background: transparent;
+  border: 1px solid rgb(255 255 255 / 0.15);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 0.22rem 0.5rem;
+}
+.presetRowConfirmButton.danger {
+  background: rgb(127 29 29 / 0.7);
+  border-color: rgb(248 113 113 / 0.6);
+}
+.presetRowConfirmButton.danger:hover:not(:disabled) {
+  background: rgb(159 18 57 / 0.85);
+}
+
+/* Inline save row — text input + Save button, no card wrapper. */
+.presetSaveRow {
+  align-items: center;
+  display: grid;
+  gap: 0.4rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: 0.4rem;
+}
+.presetSaveInput {
+  background: rgb(15 15 21 / 0.6);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 5px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.4rem 0.55rem;
+  width: 100%;
+}
+.presetSaveInput:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.presetSaveInput::placeholder { color: var(--subtle); }
+.presetSaveButton {
+  background: var(--accent);
+  border: 0;
+  border-radius: 5px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.4rem 0.85rem;
+  transition: background 120ms ease;
+}
+.presetSaveButton:hover:not(:disabled) { background: var(--accent-hover); }
+.presetSaveButton:disabled { cursor: not-allowed; opacity: 0.45; }
 .templateCardActionButton {
   align-items: center;
   background: rgb(15 15 21 / 0.7);
@@ -1907,17 +2029,19 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
  * Restrained chrome tone (not a second accent) so it reads as a tool button,
  * not a status badge. Sits inside the pill so it never collides with siblings.
  * Hidden entirely on narrow pills (delete fallback: select + Delete key). */
+/* Glyph-only delete affordance. No circular badge — the × character itself
+ * is the button so it never collides with the pill's rounded corner.
+ * Vertically centred so it stays clear of the top/bottom border curves. */
 .zoomRegionDelete {
   align-items: center;
-  background: color-mix(in oklch, var(--text) 55%, var(--panel-alt));
+  background: transparent;
   border: 0;
-  border-radius: 999px;
-  color: var(--bg);
+  color: rgb(255 255 255 / 0.65);
   cursor: pointer;
   display: flex;
-  font-size: 0.78rem;
+  font-size: 0.95rem;
   font-weight: 700;
-  height: 0.95rem;
+  height: 1rem;
   justify-content: center;
   line-height: 1;
   min-height: 0;
@@ -1925,19 +2049,17 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   padding: 0;
   pointer-events: auto;
   position: absolute;
-  right: 0.18rem;
-  top: 0.18rem;
-  transition: opacity 120ms ease, background 120ms ease;
-  width: 0.95rem;
+  right: 0.25rem;
+  top: 50%;
+  transform: translateY(-50%);
+  transition: color 120ms ease, opacity 120ms ease;
+  width: 1rem;
   z-index: 3;
 }
 .timelineRegion:hover .zoomRegionDelete,
 .timelineRegion:focus-within .zoomRegionDelete,
 .timelineRegion.selectedRegion .zoomRegionDelete { opacity: 1; }
-.zoomRegionDelete:hover {
-  background: color-mix(in oklch, #ef4444 70%, var(--panel-alt));
-  color: #fff;
-}
+.zoomRegionDelete:hover { color: #ef4444; }
 .timelineRegion[data-narrow="true"] .zoomRegionDelete { display: none; }
 
 .zoomResizeHandle {
@@ -3149,3 +3271,144 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .editorEmptyState h2 { font-size: 1.05rem; font-weight: 600; margin: 0; }
 .editorEmptyState p { color: rgb(226 232 240 / 0.6); margin: 0; max-width: 28rem; }
 .editorEmptyState .primaryAction { margin-top: 0.75rem; }
+
+/* AI view — Claude-powered editing suggestions panel.
+ * Self-contained vertical column. Sits inside the editor section flex
+ * container the same way LibraryShell does. */
+.aiShell {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+  overflow: auto;
+  padding: 1.5rem 2rem;
+}
+.aiHeader {
+  align-items: flex-start;
+  display: flex;
+  gap: 1.5rem;
+  justify-content: space-between;
+}
+.aiHeader h2 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+.aiHeaderHint { color: rgb(226 232 240 / 0.55); font-size: 0.78rem; margin: 0.25rem 0 0; }
+.aiEmptyState {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  justify-content: center;
+  margin: auto;
+  max-width: 32rem;
+  padding: 3rem 1rem;
+  text-align: center;
+}
+.aiEmptyState h2 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+.aiEmptyState p { color: rgb(226 232 240 / 0.65); margin: 0; }
+.aiEmptyState code {
+  background: rgb(15 23 42 / 0.55);
+  border-radius: 3px;
+  font-size: 0.85em;
+  padding: 0.05em 0.4em;
+}
+.aiKeyInput {
+  background: rgb(15 23 42 / 0.6);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+  width: 100%;
+}
+.aiKeyInput:focus { border-color: rgb(96 165 250 / 0.55); outline: none; }
+.aiKeyActions {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+.aiKeyError { color: rgb(248 113 113); font-size: 0.78rem; }
+.aiBanner {
+  border-radius: 6px;
+  font-size: 0.85rem;
+  padding: 0.65rem 0.85rem;
+}
+.aiBannerError {
+  background: rgb(248 113 113 / 0.08);
+  border: 1px solid rgb(248 113 113 / 0.25);
+  color: rgb(252 165 165);
+}
+.aiSummary {
+  background: rgb(255 255 255 / 0.02);
+  border: 1px solid rgb(255 255 255 / 0.06);
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+}
+.aiSummary h3 {
+  color: rgb(226 232 240 / 0.7);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  margin: 0 0 0.4rem;
+  text-transform: uppercase;
+}
+.aiSummary p { color: rgb(226 232 240 / 0.85); line-height: 1.55; margin: 0; }
+.aiSuggestionList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.aiEmptyHint {
+  color: rgb(226 232 240 / 0.5);
+  font-size: 0.85rem;
+  margin: 0;
+  padding: 1rem 0;
+}
+.aiSuggestionCard {
+  align-items: flex-start;
+  background: rgb(255 255 255 / 0.02);
+  border: 1px solid rgb(255 255 255 / 0.06);
+  border-radius: 6px;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 0.75rem 0.95rem;
+}
+.aiSuggestionCard.applied {
+  background: rgb(34 197 94 / 0.04);
+  border-color: rgb(34 197 94 / 0.2);
+  opacity: 0.7;
+}
+.aiSuggestionCard.invalid {
+  background: rgb(248 113 113 / 0.03);
+  border-color: rgb(248 113 113 / 0.2);
+}
+.aiSuggestionBody { flex: 1; min-width: 0; }
+.aiSuggestionKind {
+  color: rgb(226 232 240 / 0.5);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.aiSuggestionBody h4 {
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin: 0.25rem 0 0.4rem;
+}
+.aiSuggestionBody p {
+  color: rgb(226 232 240 / 0.7);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  margin: 0;
+}
+.aiValidationError {
+  color: rgb(252 165 165);
+  font-size: 0.75rem;
+  margin-top: 0.4rem !important;
+}
+.aiSuggestionActions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
