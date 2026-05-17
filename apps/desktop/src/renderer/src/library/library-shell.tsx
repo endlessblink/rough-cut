@@ -360,6 +360,40 @@ export function LibraryShell({
           ) : null}
           <SelectModeToggle active={selectMode} onToggle={() => setSelectMode((on) => !on)} />
           <button type="button" className="libraryOpenFile" onClick={onOpenProjectDialog}>Open file…</button>
+          {/* P-AI-C/TASK-166: stub entry points. Handlers wired in TASK-167–170. */}
+          <button
+            type="button"
+            className="libraryOpenFile"
+            data-testid="library-import-file"
+            onClick={() => {
+              // eslint-disable-next-line no-console
+              console.info('[library] Import file: not yet implemented (TASK-167)');
+            }}
+          >
+            Import file
+          </button>
+          <button
+            type="button"
+            className="libraryOpenFile"
+            data-testid="library-blank-project"
+            onClick={() => {
+              // eslint-disable-next-line no-console
+              console.info('[library] Blank project: not yet implemented (TASK-169)');
+            }}
+          >
+            Blank project
+          </button>
+          <button
+            type="button"
+            className="libraryOpenFile"
+            data-testid="library-from-template"
+            onClick={() => {
+              // eslint-disable-next-line no-console
+              console.info('[library] From template: not yet implemented (TASK-170)');
+            }}
+          >
+            From template
+          </button>
         </div>
       </header>
       <FilterToSelect
