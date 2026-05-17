@@ -1132,13 +1132,50 @@ function App() {
           />
         ) : activeAppView === 'ai' ? (
           <AiShell
-            project={project}
-            fps={project?.document?.composition?.frameRate ?? 30}
+            project={project ? { path: project.path, document: project.document } : null}
+            fps={project?.recording?.fps ?? 30}
             recordingDurationFrames={project?.document?.composition?.duration ?? 0}
-            primaryAssetId={
-              (project?.document?.assets ?? []).find((a) => a.type === 'recording')?.id ?? null
-            }
-            onProjectChange={applyProjectChange}
+            existingCutRanges={(() => {
+              const asset = project?.document?.assets?.find((a) => a.type === 'recording');
+              const presentation = asset?.presentation as
+                | { cutRanges?: ReadonlyArray<{ startFrame: number; endFrame: number }> }
+                | undefined;
+              return presentation?.cutRanges ?? [];
+            })()}
+            onApplyZoomMarker={(suggestion) => {
+              if (!project) return;
+              const next = addManualMarkerAtFrame(
+                project.document as unknown as ProjectDocument,
+                suggestion.startFrame as unknown as number,
+                project.recording?.fps ?? 30,
+                {
+                  defaultSpan:
+                    (suggestion.endFrame as unknown as number) -
+                    (suggestion.startFrame as unknown as number),
+                },
+              );
+              applyProjectChange({ ...project, document: next as unknown as ProjectState['document'] });
+            }}
+            onApplyCutRange={(suggestion) => {
+              if (!project) return;
+              const recordingAsset = project.document.assets?.find((a) => a.type === 'recording');
+              if (!recordingAsset?.id) return;
+              const next = addCutRange(
+                project.document as unknown as ProjectDocument,
+                recordingAsset.id,
+                suggestion.startFrame as unknown as number,
+                suggestion.endFrame as unknown as number,
+                project.document.composition.duration,
+              );
+              applyProjectChange({ ...project, document: next as unknown as ProjectState['document'] });
+            }}
+            onApplyTitle={(suggestion) => {
+              if (!project) return;
+              applyProjectChange({
+                ...project,
+                document: { ...project.document, name: suggestion.title },
+              });
+            }}
             onGoToProjects={() => setActiveAppView('projects')}
           />
         ) : project ? (

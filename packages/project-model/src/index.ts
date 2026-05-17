@@ -13,3 +13,4 @@ export * from './aspect-ratio.js';
 export * from './background-presets.js';
 export * from './recording-templates.js';
 export * from './user-templates.js';
+export * from './ai-suggestions.js';

@@ -38,6 +38,9 @@ const IPC_CHANNELS = {
   USER_TEMPLATE_SAVE: 'user-template:save',
   USER_TEMPLATE_RENAME: 'user-template:rename',
   USER_TEMPLATE_DELETE: 'user-template:delete',
+  AI_GET_KEY_STATUS: 'ai:get-key-status',
+  AI_SET_API_KEY: 'ai:set-api-key',
+  AI_ANALYZE_PROJECT: 'ai:analyze-project',
 };
 
 contextBridge.exposeInMainWorld('roughCut', {
@@ -75,6 +78,9 @@ contextBridge.exposeInMainWorld('roughCut', {
   saveUserTemplate: (payload) => ipcRenderer.invoke(IPC_CHANNELS.USER_TEMPLATE_SAVE, payload),
   renameUserTemplate: (payload) => ipcRenderer.invoke(IPC_CHANNELS.USER_TEMPLATE_RENAME, payload),
   deleteUserTemplate: (payload) => ipcRenderer.invoke(IPC_CHANNELS.USER_TEMPLATE_DELETE, payload),
+  getAiKeyStatus: () => ipcRenderer.invoke(IPC_CHANNELS.AI_GET_KEY_STATUS),
+  setAiApiKey: (apiKey) => ipcRenderer.invoke(IPC_CHANNELS.AI_SET_API_KEY, apiKey),
+  analyzeProjectWithAi: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ANALYZE_PROJECT, payload),
   openProject: () => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN),
   openProjectPath: (path) => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN_PATH, path),
   saveProject: (project) => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_SAVE, project),

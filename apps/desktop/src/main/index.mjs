@@ -19,6 +19,11 @@ import { getRecordingPreflightStatus } from './recording/preflight.mjs';
 import { isXdotoolAvailable, readCursorViaXdotool } from './recording/xdotool-cursor.mjs';
 import { installRuntimeLog } from './runtime-log.mjs';
 import { createUserTemplatesStore, defaultUserTemplatesPath } from './user-templates-store.mjs';
+import {
+  analyzeProject,
+  getKeyStatus as getAiKeyStatus,
+  setApiKey as setAiApiKey,
+} from './ai-service.mjs';
 
 const runtimeLogPath = installRuntimeLog();
 
@@ -547,6 +552,26 @@ ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_LIST, () => userTemplatesStore.list())
 ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_SAVE, (_event, payload) => userTemplatesStore.save(payload ?? {}));
 ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_RENAME, (_event, payload) => userTemplatesStore.rename(payload ?? {}));
 ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_DELETE, (_event, payload) => userTemplatesStore.delete(payload ?? {}));
+
+ipcMain.handle(IPC_CHANNELS.AI_GET_KEY_STATUS, () => getAiKeyStatus());
+ipcMain.handle(IPC_CHANNELS.AI_SET_API_KEY, async (_event, payload) => {
+  const key = typeof payload === 'string' ? payload : payload?.apiKey;
+  return setAiApiKey(key);
+});
+ipcMain.handle(IPC_CHANNELS.AI_ANALYZE_PROJECT, async (_event, payload) => {
+  try {
+    return await analyzeProject(payload ?? {});
+  } catch (err) {
+    // Re-shape into a serializable payload so the renderer can render a
+    // human-readable error without losing the code field.
+    return {
+      error: {
+        code: err?.code ?? 'AI_UNKNOWN',
+        message: err?.message ?? String(err),
+      },
+    };
+  }
+});
 
 ipcMain.handle(IPC_CHANNELS.RECENT_PROJECTS_CLEAR, () => {
   // The gallery is a live folder scan, not a curated list — there is no

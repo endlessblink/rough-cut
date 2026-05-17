@@ -120,6 +120,9 @@ export const IPC_CHANNELS = {
   AI_GET_API_KEY: 'ai:get-api-key',
   AI_GET_PROVIDER_CONFIG: 'ai:get-provider-config',
   AI_SET_PROVIDER_CONFIG: 'ai:set-provider-config',
+  // AI editing-suggestions view (new)
+  AI_ANALYZE_PROJECT: 'ai:analyze-project',
+  AI_GET_KEY_STATUS: 'ai:get-key-status',
 
   // File system
   READ_TEXT_FILE: 'fs:read-text-file',
