@@ -14,3 +14,6 @@ export * from './background-presets.js';
 export * from './recording-templates.js';
 export * from './user-templates.js';
 export * from './ai-suggestions.js';
+export * from './transcript.js';
+export * from './caption-track.js';
+export * from './track.js';
