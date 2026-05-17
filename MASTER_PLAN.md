@@ -158,8 +158,12 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-170 | Template picker stub modal (3 entries, no execution yet) | P3 | PLANNED |
 | TASK-128 | WhisperX install flow + OpenAI Whisper API cloud fallback | P1 | PLANNED |
 | TASK-129 | Transcript IPC + persistence inside .roughcut | P1 | PLANNED |
-| TASK-130 | NLE Editor app view skeleton (4th tab, multi-track scaffold, asset panel tabs) | P1 | PLANNED |
-| TASK-131 | Recording edit ↔ NLE shared React state plumbing | P1 | PLANNED |
+| TASK-171 | NLE: register 'nle' AppViewId + APP_VIEWS entry + 4th tab in strip | P1 | PLANNED |
+| TASK-172 | NLE: shell scaffold + main.tsx render branch (empty container) | P1 | PLANNED |
+| TASK-173 | NLE: multi-track placeholder lanes (Video / Audio / Captions / MG headers) | P1 | PLANNED |
+| TASK-174 | NLE: asset panel sidebar with Project + Generated tabs (empty states) | P1 | PLANNED |
+| TASK-175 | NLE: empty-state when no project is open (CTA back to Projects) | P1 | PLANNED |
+| TASK-176 | NLE: shared state — consume project + applyProjectChange from App | P1 | PLANNED |
 | TASK-132 | Transcript editor pane (Descript-style: click-scrub, delete-cut) | P1 | PLANNED |
 | TASK-133 | Word-level cut with silence-snap + 20ms audio crossfade | P1 | PLANNED |
 | TASK-134 | Caption track data model + ASS subtitle render path | P1 | PLANNED |
@@ -401,13 +405,41 @@ Sequence: TASK-106
 
 **AI ARCHITECTURE LANES** — see `/home/endlessblink/.claude/plans/gentle-dancing-patterson.md` for the full architecture plan. These supersede TASK-104 and TASK-105 (folded into TASK-144 + TASK-145). Lane order revised 2026-05-18: NLE foundation lanes (C, E) execute before the launchpad (A), since the launchpad is a directory of capabilities that don't exist until later lanes ship.
 
+#### Lane Decomposition Protocol (READ BEFORE STARTING A LANE)
+
+Many lanes contain **EPIC** tasks: scope-too-large items that need to be broken into 3-8 atomic sub-tasks before any code is written. An **atomic** task:
+
+- Touches one cohesive area (one feature, one bug, one small refactor).
+- Is implementable + verifiable in **30 min – 3 hours**.
+- Lands as **one git commit**.
+- Has its own `Acceptance Criteria` + `Verification` section.
+
+**How to tell which tasks are EPIC vs atomic:**
+
+- A lane Sequence whose tasks are already atomic will have **many** entries (~5-10), each scoped to one commit. Example: Lane P-AI-C → TASK-162 through TASK-170 (9 atomic tasks).
+- A lane Sequence with **few** entries (2-4 tasks) is almost certainly an EPIC lane — every task in that sequence needs decomposition.
+- Each EPIC task's entry header in the Tasks section is marked `**EPIC — decompose before execution.**`
+
+**Procedure when starting a new lane:**
+
+1. Read all EPIC tasks in the lane's Sequence.
+2. Re-read `/home/endlessblink/.claude/plans/gentle-dancing-patterson.md` for fresh architectural context.
+3. For each EPIC, draft 3-8 atomic sub-tasks. Use the next available TASK-### IDs (continuing from the highest in this file). Each sub-task gets its own Status Summary table row + full detail entry.
+4. Edit the lane's Sequence line to list the new atomic IDs (drop the EPIC IDs).
+5. Mark the original EPIC entry header as superseded (e.g., `**Supersedes part of:** TASK-NNN`).
+6. Commit the decomposition as its own commit (`docs(plan): atomize Lane P-AI-X`) before starting implementation.
+7. Then begin work on the **first** atomic task.
+
+Tasks in already-atomized lanes (Sequence is long, no EPIC marker on task entries) skip this step and go straight to implementation.
+
 13. **LANE P-AI-C — Project model v13 + creation flow** (Phase 0 foundation):
 Sequence: TASK-162, TASK-163, TASK-164, TASK-165, TASK-166, TASK-167, TASK-168, TASK-169, TASK-170
 Note: 162–165 = schema + migration (formerly EPIC TASK-126). 166–170 = creation flow (formerly EPIC TASK-127). Migration is v12 → v13 (current schema is at v12); adds `transcript`, `captionTracks`, `tracks` fields. Reuses existing `motionCompositions` for Remotion content rather than duplicating.
 
 14. **LANE P-AI-E — NLE Editor view skeleton** (Phase 0/1 — depends on C):
 Depends-on: LANE P-AI-C
-Sequence: TASK-130, TASK-131
+Sequence: TASK-171, TASK-172, TASK-173, TASK-174, TASK-175, TASK-176
+Note: 171–176 = NLE skeleton (formerly EPIC TASK-130 + TASK-131). Day-one scope is scaffold + empty multi-track placeholder + asset panel tabs (no clip rendering, no drag/drop, no transcript yet). State sharing with Recording edit (176) is mostly free since `project` and `applyProjectChange` already live in App.
 
 15. **LANE P-AI-B — Provider abstraction** (Phase 0 — parallel with E):
 Sequence: TASK-122, TASK-123, TASK-124, TASK-125
@@ -446,6 +478,8 @@ Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
 Next task when continuing: start TASK-162, "Add transcript / captionTracks / tracks types to project-model". ~30-60 min scope: extend `packages/project-model/src/types.ts` (and add new files `transcript.ts`, `caption-track.ts`, `track.ts`) with the three new optional fields on `ProjectDocument`. No schemas, no migration yet. See `gentle-dancing-patterson.md` for full context.
+
+Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
 ## Tasks
 
@@ -4295,7 +4329,7 @@ Round out the Settings UI shape so future tasks have a home for their controls. 
 **Priority:** P1
 **Status:** PLANNED
 **Lane:** P-AI-B
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Detect whether `claude` and `codex` are installed and authenticated. Establishes the subprocess pattern that every CLI-auth provider uses. Runs at app launch and on settings open.
@@ -4318,7 +4352,7 @@ Detect whether `claude` and `codex` are installed and authenticated. Establishes
 **Priority:** P1
 **Status:** PLANNED
 **Lane:** P-AI-B
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 API key fallback path for Anthropic / OpenAI / ElevenLabs / Replicate. Keys stored at-rest with at least file-mode 0600; encryption via Electron `safeStorage` when available (falls back to plaintext + warning if `safeStorage.isEncryptionAvailable()` is false).
@@ -4342,7 +4376,7 @@ API key fallback path for Anthropic / OpenAI / ElevenLabs / Replicate. Keys stor
 **Priority:** P1
 **Status:** PLANNED
 **Lane:** P-AI-B
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Central capability router that picks the best available provider per capability. First capability: reasoning. Future tasks add transcription, image-gen, tts, video-gen, motion-graphics.
@@ -4366,7 +4400,7 @@ Central capability router that picks the best available provider per capability.
 **Priority:** P2
 **Status:** PLANNED
 **Lane:** P-AI-B
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Tracks per-call cost and quota usage; surfaces long-running AI work in a top-bar progress chip with cancel support.
@@ -4608,7 +4642,7 @@ After TASK-167 picks a valid file, create a new `.roughcut` project that referen
 **Priority:** P1
 **Status:** PLANNED
 **Lane:** P-AI-D
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 First-time transcription installs WhisperX into a managed Python venv (~2 GB models). Cloud fallback when local fails or user opts out. Auto-detects spoken language (Hebrew + English priority).
@@ -4632,7 +4666,7 @@ First-time transcription installs WhisperX into a managed Python venv (~2 GB mod
 **Priority:** P1
 **Status:** PLANNED
 **Lane:** P-AI-D
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Transcripts produced by TASK-128 land in the project document as first-class data. Word-level timing preserved.
@@ -4650,58 +4684,155 @@ Transcripts produced by TASK-128 land in the project document as first-class dat
 - Unit tests: round-trip transcript through save + reopen.
 - Manual: record 30s → trigger transcription → reload project → transcript persists.
 
-### TASK-130 NLE Editor app view skeleton
+### TASK-171 NLE: register 'nle' AppViewId + APP_VIEWS entry + 4th tab in strip
 
 **Priority:** P1
 **Status:** PLANNED
 **Lane:** P-AI-E
+**Supersedes part of:** TASK-130
 
 #### Context
 
-4th app view alongside Projects / Recording edit / AI. Same React state as Recording edit (TASK-131). Day-one scope: empty multi-track scaffold, asset panel with Project + Generated tabs.
+First atomic step: just register the new view in the type system + app-views registry so the bottom tab strip renders 4 tabs. No content yet — clicking NLE just shows an empty placeholder.
 
 #### Acceptance Criteria
 
-- New `apps/desktop/src/renderer/src/nle/` directory with `nle-shell.tsx`, `nle-timeline.tsx`, `asset-panel.tsx`.
-- Adds `nle` to `AppViewId` in `app-views.ts`; APP_VIEWS entry with filmstrip icon and label "Editor".
-- Renders empty multi-track scaffold (placeholder lanes for Video / Audio / Captions / MG).
-- Asset panel sidebar with two tabs: "Project assets" (lists project recording + imports), "Generated" (empty until TASK-141).
-- Renders inside main.tsx render switch.
-- Bottom tab strip shows 4 tabs.
+- `apps/desktop/src/renderer/src/app-views.ts`: extend `AppViewId` union to include `'nle'`.
+- `APP_VIEWS` array adds the entry: `{ id: 'nle', label: 'Editor', iconName: 'sliders' }` (or `filmstrip` if a clearer icon is available — check existing icon map).
+- Tab strip in `main.tsx` already iterates `APP_VIEWS` → 4 tabs render automatically.
+- main.tsx render switch: add a stub branch `activeAppView === 'nle' ? <div data-ui-region="nle-workspace">NLE coming soon</div> : ...` so the tab doesn't crash when clicked.
+- View-pinning logic in main.tsx accepts `view=nle` URL param.
 
 #### Verification
 
-- `pnpm smoke:ui` confirms 4-tab strip.
-- Manual: click NLE tab → empty scaffold renders.
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- `pnpm smoke:ui` — confirm 4-tab strip in the bottom screenshot.
+- Manual: click NLE tab → see "NLE coming soon" text. Switch back to other tabs cleanly.
 
-### TASK-131 Recording edit ↔ NLE shared React state plumbing
+### TASK-172 NLE: shell scaffold + main.tsx render branch (empty container)
 
 **Priority:** P1
 **Status:** PLANNED
 **Lane:** P-AI-E
+**Supersedes part of:** TASK-130
 
 #### Context
 
-Both editor views must reflect the same project state instantly. Single source of truth in App; views are different layouts.
+Real NLE shell component replaces the "coming soon" stub from TASK-171. Empty flex container with header + body areas. No timeline or asset panel yet — those land in TASK-173 + TASK-174.
 
 #### Acceptance Criteria
 
-- `project`, `editHistory`, `applyProjectChange` already live in App. NLE consumes them via props (same as Recording edit's `ProjectPreview`).
-- Edits in Recording edit propagate to NLE on view switch (already the case if single source of truth).
-- No duplicate state; no sync bridge.
-- Smoke test: open project, edit in Recording edit, switch to NLE, confirm same state visible (caption-level placeholder for now).
+- New directory `apps/desktop/src/renderer/src/nle/`.
+- New `nle-shell.tsx` exporting `NleShell` — a `<section className="nleShell" data-ui-region="nle-workspace" aria-label="NLE editor">` with a header (project name) and an empty body div.
+- main.tsx render switch: NLE branch renders `<NleShell project={project} onProjectChange={applyProjectChange} onGoToProjects={() => setActiveAppView('projects')} />`.
+- New CSS section for `.nleShell` in styles.css (basic flex column layout, dark editorial style consistent with PRODUCT.md).
+- Stub from TASK-171 removed.
 
 #### Verification
 
-- Renderer test: synthetic edit propagates across both view branches.
-- Manual: add a zoom marker in Recording edit, switch to NLE, confirm marker visible on the timeline scaffold.
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- `pnpm smoke:ui` — visual screenshot inspection: NLE tab → empty container with header visible.
+
+### TASK-173 NLE: multi-track placeholder lanes (Video / Audio / Captions / MG headers)
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-E
+**Supersedes part of:** TASK-130
+
+#### Context
+
+Render 4 placeholder track lanes in the NLE body. Each lane is a horizontal strip with a label on the left and an empty timeline area on the right. No clips, no playhead, no scrubber yet — just the visual scaffold.
+
+#### Acceptance Criteria
+
+- New `apps/desktop/src/renderer/src/nle/nle-timeline.tsx` exporting `NleTimeline`.
+- Renders 4 fixed lanes: `Video`, `Audio`, `Captions`, `Motion graphics`. Each is a `<div className="nleTrackLane">` with header + empty content area.
+- Lane heights are fixed (e.g., 60px each). Lane order top-to-bottom: Video, Audio, Captions, MG.
+- Each lane has `data-track-kind="video"` / `audio` / `captions` / `motion-graphics` attrs for future hooks.
+- NLE shell renders `<NleTimeline />` in its body.
+- Empty content area shows a muted "No clips yet" placeholder centered in the lane.
+
+#### Verification
+
+- Renderer test: 4 lanes render with correct labels + data-track-kind attrs.
+- Manual: open NLE → see 4 stacked empty lanes.
+
+### TASK-174 NLE: asset panel sidebar with Project + Generated tabs (empty states)
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-E
+**Supersedes part of:** TASK-130
+
+#### Context
+
+Right (or left) sidebar in the NLE shell with two tabs: `Project assets` (lists project recording + imports — initially empty stubs) + `Generated` (empty until TASK-141 wires the cross-project AI pool). Drag-to-timeline not implemented yet — that's TASK-141.
+
+#### Acceptance Criteria
+
+- New `apps/desktop/src/renderer/src/nle/asset-panel.tsx` exporting `AssetPanel`.
+- Two tabs: `Project assets`, `Generated`. Tab state local to the component.
+- `Project assets` tab: lists `project.document.assets` (recording + import assets). Each shows a thumbnail + label + duration. Empty state: "No assets in this project yet. Record a take or import a file."
+- `Generated` tab: empty state: "AI-generated assets land here. Wire-up in Phase 3."
+- NLE shell layout splits horizontally: timeline (large) + asset panel (~280px width).
+
+#### Verification
+
+- Renderer test: two tabs render, switch by click, empty states visible.
+- Manual: open NLE with a project that has a recording → see the recording in the Project assets tab; open with a blank project (after TASK-169) → see empty state.
+
+### TASK-175 NLE: empty-state when no project is open (CTA back to Projects)
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-E
+**Supersedes part of:** TASK-130
+
+#### Context
+
+When the user lands on NLE without a project loaded, show a friendly empty-state instead of a blank multi-track scaffold. CTA: switch back to Projects view.
+
+#### Acceptance Criteria
+
+- `NleShell` checks `project === null` and renders an `NleEmptyState` component instead of the timeline + asset panel.
+- Empty state: centered text "No project open" + body "Open a project from Projects, or start a blank one to begin editing." + primary button "Go to Projects".
+- Clicking the button calls `onGoToProjects` prop (which switches `activeAppView` to `'projects'`).
+
+#### Verification
+
+- Renderer test: NLE with `project={null}` renders empty state with button.
+- Manual: open NLE without loading a project → see empty state; click button → return to Projects.
+
+### TASK-176 NLE: shared state — consume project + applyProjectChange from App
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-E
+**Supersedes part of:** TASK-131
+
+#### Context
+
+Verify the architectural promise: NLE and Recording edit share the same project state via prop-drilling from App. Since `project`, `editHistory`, and `applyProjectChange` already live in App (and are passed to `ProjectPreview` today), this task is mostly about wiring the same props into `NleShell` and confirming the shared-state behavior with a test.
+
+#### Acceptance Criteria
+
+- main.tsx render branch for NLE passes `project`, `applyProjectChange`, `editHistory` (read-only) into `NleShell` (same props ProjectPreview receives).
+- No new state in NleShell — all writes go through `onProjectChange`.
+- Add a renderer test: mount both views in sequence, mutate via `applyProjectChange` while NLE is active, switch to Recording edit, confirm state visible.
+- Existing autosave + undo paths work identically for edits made from either view.
+
+#### Verification
+
+- New renderer test in `apps/desktop/src/renderer/src/nle/nle-shell.test.tsx` (or sibling).
+- Manual: open project, switch between NLE and Recording edit, edit project name in one view (when transcript editor exists this will be more meaningful), confirm change visible in the other view immediately.
 
 ### TASK-132 Transcript editor pane (Descript-style: click-scrub, delete-cut)
 
 **Priority:** P1
 **Status:** PLANNED
 **Lane:** P-AI-F
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 The headline NLE Editor feature: a paragraph-formatted transcript pane where clicking a word scrubs the timeline and deleting a word cuts that span from the timeline.
@@ -4725,7 +4856,7 @@ The headline NLE Editor feature: a paragraph-formatted transcript pane where cli
 **Priority:** P1
 **Status:** PLANNED
 **Lane:** P-AI-F
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 When a word is deleted from transcript, the timeline cut should snap to the nearest silence boundary and apply a 20ms audio crossfade to avoid pops.
@@ -4748,7 +4879,7 @@ When a word is deleted from transcript, the timeline cut should snap to the near
 **Priority:** P1
 **Status:** PLANNED
 **Lane:** P-AI-G
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Caption track persists on the project document. ASS subtitle render path covers the "subtitle" style (low-cost option) via the existing ffmpeg pipeline.
@@ -4770,7 +4901,7 @@ Caption track persists on the project document. ASS subtitle render path covers 
 **Priority:** P1
 **Status:** PLANNED
 **Lane:** P-AI-G
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Bundle Remotion into the Electron renderer (preview AND export render via Remotion). Build the Submagic-style caption composition (multi-color emphasis, bouncy entrances, tight kerning).
@@ -4793,7 +4924,7 @@ Bundle Remotion into the Electron renderer (preview AND export render via Remoti
 **Priority:** P1
 **Status:** PLANNED
 **Lane:** P-AI-G
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 For Submagic-style captions, AI picks the most impactful word per phrase to emphasize. Batched per request (multiple phrases per call) to control cost. Routes via the reasoning capability (TASK-124).
@@ -4817,7 +4948,7 @@ For Submagic-style captions, AI picks the most impactful word per phrase to emph
 **Priority:** P2
 **Status:** PLANNED
 **Lane:** P-AI-G
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Captions also exportable as plain `.srt` / `.vtt` for downstream platforms (YouTube, podcast hosts). Hebrew and English priority for v1.
@@ -4839,7 +4970,7 @@ Captions also exportable as plain `.srt` / `.vtt` for downstream platforms (YouT
 **Priority:** P2
 **Status:** PLANNED
 **Lane:** P-AI-H
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Reads `ProjectDocument.transcript` (TASK-129), identifies filler words and silent gaps, produces proposed cuts.
@@ -4860,7 +4991,7 @@ Reads `ProjectDocument.transcript` (TASK-129), identifies filler words and silen
 **Priority:** P2
 **Status:** PLANNED
 **Lane:** P-AI-H
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Visualizes the proposals from TASK-138 as ghost overlays on the NLE timeline. Apply-all + per-cut review.
@@ -4883,7 +5014,7 @@ Visualizes the proposals from TASK-138 as ghost overlays on the NLE timeline. Ap
 **Priority:** P2
 **Status:** PLANNED
 **Lane:** P-AI-I
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Expands the NLE timeline scaffold (TASK-130) into a real multi-track surface: multiple video lanes, multiple audio lanes (mic / system / TTS / SFX / music), captions track (from TASK-135), MG track.
@@ -4908,7 +5039,7 @@ Expands the NLE timeline scaffold (TASK-130) into a real multi-track surface: mu
 **Priority:** P2
 **Status:** PLANNED
 **Lane:** P-AI-I
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Generated assets (TTS / images / SFX) live in a cross-project pool in `userData/ai-assets/` and are referenced from projects by stable ID. Visible in the NLE asset panel's "Generated" tab.
@@ -4932,7 +5063,7 @@ Generated assets (TTS / images / SFX) live in a cross-project pool in `userData/
 **Priority:** P2
 **Status:** PLANNED
 **Lane:** P-AI-I
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Generate narration via ElevenLabs (preset voices) or OpenAI gpt-4o-mini-tts (via Codex CLI auth). Result lands in the AI asset pool.
@@ -4955,7 +5086,7 @@ Generate narration via ElevenLabs (preset voices) or OpenAI gpt-4o-mini-tts (via
 **Priority:** P2
 **Status:** PLANNED
 **Lane:** P-AI-I
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Generate images via Codex CLI `$imagegen` (gpt-image-2, primary) with Replicate / fal.ai fallback. Result lands in the AI asset pool.
@@ -4978,7 +5109,7 @@ Generate images via Codex CLI `$imagegen` (gpt-image-2, primary) with Replicate 
 **Priority:** P2
 **Status:** PLANNED
 **Lane:** P-AI-J
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Agent reads a project's footage + transcript, plans cuts/transitions, produces 3 derivative `.roughcut` files at different aspect ratios (16:9, 9:16, 1:1). Original untouched.
@@ -5003,7 +5134,7 @@ Agent reads a project's footage + transcript, plans cuts/transitions, produces 3
 **Priority:** P3
 **Status:** PLANNED
 **Lane:** P-AI-J
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 AI writes Remotion React composition code given a prompt ("animated lower-third with my name"). Generated code lives in `packages/motion-compositions/<id>.tsx`; rendered inside the bundled Remotion runtime (TASK-135).
@@ -5029,7 +5160,7 @@ AI writes Remotion React composition code given a prompt ("animated lower-third 
 **Priority:** P3
 **Status:** PLANNED
 **Lane:** P-AI-J
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Templates are executable pipelines: picking a template configures aspect ratio + canvas + safe areas + caption style + pre-laid tracks + auto-fires AI actions on project creation.
@@ -5051,7 +5182,7 @@ Templates are executable pipelines: picking a template configures aspect ratio +
 **Priority:** P4
 **Status:** PLANNED
 **Lane:** P-AI-K
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 User-uploaded voice samples cloned via ElevenLabs Pro Voice API. Cloned voices appear in the TTS voice picker (TASK-142) as user-specific options.
@@ -5071,7 +5202,7 @@ User-uploaded voice samples cloned via ElevenLabs Pro Voice API. Cloned voices a
 **Priority:** P4
 **Status:** PLANNED
 **Lane:** P-AI-K
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Music generation via Stable Audio Open (local) or Suno (when public API exists). Result lands in AI asset pool.
@@ -5091,7 +5222,7 @@ Music generation via Stable Audio Open (local) or Suno (when public API exists).
 **Priority:** P3
 **Status:** PLANNED
 **Lane:** P-AI-K
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Today the project model assumes a single primary recording asset. Phase 2 of the NLE: multiple recordings on one timeline (different takes side-by-side, or A-roll + B-roll).
@@ -5111,7 +5242,7 @@ Today the project model assumes a single primary recording asset. Phase 2 of the
 **Priority:** P4
 **Status:** PLANNED
 **Lane:** P-AI-K
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 AI video generation via Replicate / fal.ai (LTX-Video / Veo3 / others). Result lands in AI asset pool as a video clip.
@@ -5131,7 +5262,7 @@ AI video generation via Replicate / fal.ai (LTX-Video / Veo3 / others). Result l
 **Priority:** P4
 **Status:** PLANNED
 **Lane:** P-AI-K
-
+**EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
 #### Context
 
 Promotes per-project memory (v1) into a user-wide preference store. Active learning infers preferences from user actions ("undid the last 3 loose cuts → prefer tighter").
