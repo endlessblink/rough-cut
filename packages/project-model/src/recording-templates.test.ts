@@ -8,12 +8,27 @@ import {
 import { RECORDING_BACKGROUND_PRESETS } from './background-presets.js';
 
 describe('recording template presets', () => {
-  it('exposes the three first-slice templates', () => {
+  it('exposes the built-in templates in display order', () => {
     expect(RECORDING_TEMPLATE_PRESETS.map((preset) => preset.id)).toEqual([
       'tutorial-16-9',
       'mobile-9-16',
       'square-1-1',
+      'reel-4-5',
+      'portrait-3-4',
+      'classic-4-3',
+      'native-auto',
     ]);
+  });
+
+  it('built-in templates cover every supported aspect ratio', () => {
+    const coveredRatios = new Set(RECORDING_TEMPLATE_PRESETS.map((preset) => preset.aspectRatio));
+    expect(coveredRatios.has('16:9')).toBe(true);
+    expect(coveredRatios.has('9:16')).toBe(true);
+    expect(coveredRatios.has('1:1')).toBe(true);
+    expect(coveredRatios.has('4:5')).toBe(true);
+    expect(coveredRatios.has('3:4')).toBe(true);
+    expect(coveredRatios.has('4:3')).toBe(true);
+    expect(coveredRatios.has('auto')).toBe(true);
   });
 
   it('every template references a real background preset', () => {

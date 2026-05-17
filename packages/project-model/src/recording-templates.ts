@@ -51,6 +51,38 @@ export const RECORDING_TEMPLATE_PRESETS: readonly RecordingTemplatePreset[] = [
     backgroundPresetId: 'soft-blur',
     camera: { position: 'corner-tr', shape: 'circle', aspectRatio: '1:1', size: 100, roundness: 50, visible: true },
   },
+  {
+    id: 'reel-4-5',
+    label: 'Reel 4:5',
+    description: 'Instagram feed canvas, pink-folds background, rounded PiP in the bottom right.',
+    aspectRatio: '4:5',
+    backgroundPresetId: 'pink-folds',
+    camera: { position: 'corner-br', shape: 'rounded', aspectRatio: '1:1', size: 130, roundness: 40, visible: true },
+  },
+  {
+    id: 'portrait-3-4',
+    label: 'Portrait 3:4',
+    description: 'Tall canvas, mint-depth background, rounded PiP in the bottom left.',
+    aspectRatio: '3:4',
+    backgroundPresetId: 'mint-depth',
+    camera: { position: 'corner-bl', shape: 'rounded', aspectRatio: '1:1', size: 120, roundness: 40, visible: true },
+  },
+  {
+    id: 'classic-4-3',
+    label: 'Classic 4:3',
+    description: 'Traditional canvas, aqua-haze background, compact circular PiP in the bottom right.',
+    aspectRatio: '4:3',
+    backgroundPresetId: 'aqua-haze',
+    camera: { position: 'corner-br', shape: 'circle', aspectRatio: '1:1', size: 110, roundness: 50, visible: true },
+  },
+  {
+    id: 'native-auto',
+    label: 'Native',
+    description: 'Match the recording source aspect ratio, black-sand background, compact circular PiP.',
+    aspectRatio: 'auto',
+    backgroundPresetId: 'black-sand',
+    camera: { position: 'corner-br', shape: 'circle', aspectRatio: '1:1', size: 110, roundness: 50, visible: true },
+  },
 ];
 
 export function getRecordingTemplatePreset(presetId: string): RecordingTemplatePreset | undefined {
