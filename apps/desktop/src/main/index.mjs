@@ -1037,10 +1037,11 @@ async function runRendererUiSmoke() {
   await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board active');
   const stageRectAfterBackgroundSwitch = rectToRoundedObject(document.querySelector('[data-ui-region="central-stage"]')?.getBoundingClientRect());
   const hasStableToolSwitchLayout = sameRect(stageRectBeforeToolSwitch, stageRectAfterInspectorSwitch) && sameRect(stageRectBeforeToolSwitch, stageRectAfterBackgroundSwitch);
-  // Background tab now hosts templates, canvas (aspect ratio), background presets, frame, shadow.
+  // Background tab now hosts templates, background presets, frame, shadow.
+  // (The standalone "canvas" aspect-ratio section was removed — aspect ratio
+  // is now driven by template selection.)
   const hasInspectorGroups = Boolean(
     document.querySelector('[data-inspector-group="templates"]')
-      && document.querySelector('[data-inspector-group="canvas"]')
       && document.querySelector('[data-inspector-group="canvas-background"]')
       && document.querySelector('[data-inspector-group="screen-frame"]')
       && document.querySelector('[data-inspector-group="screen-shadow"]')
@@ -1097,14 +1098,16 @@ async function runRendererUiSmoke() {
   };
   const waitForEnabled = (control, label) => waitFor(() => !control.disabled, `${label} enabled`);
 
-  // Templates + Aspect ratio + Padding/Radius/Softness all live on Background now.
+  // Templates + Padding/Radius/Softness all live on Background now. The
+  // standalone aspect-ratio dropdown was removed — aspect ratio is now
+  // implicit in the applied template. Verify via the export preset chip's
+  // `data-active-aspect-ratio` attribute instead.
   document.querySelector('button[aria-label="Background"]')?.click();
   await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board re-active');
-  const aspectRatioSelect = await waitFor(() => selectByLabel('Aspect ratio'), 'aspect ratio control');
-  await waitForEnabled(aspectRatioSelect, 'aspect ratio control');
+  const aspectRatioChip = await waitFor(() => document.querySelector('.exportPresetChip[data-active-aspect-ratio]'), 'aspect ratio chip');
   const mobileTemplate = await waitFor(() => document.querySelector('[data-template-id="mobile-9-16"]'), 'mobile template preset');
   mobileTemplate.click();
-  await waitFor(() => aspectRatioSelect.value === '9:16', 'vertical aspect ratio value');
+  await waitFor(() => aspectRatioChip.getAttribute('data-active-aspect-ratio') === '9:16', 'vertical aspect ratio value');
   await waitFor(() => mobileTemplate.getAttribute('aria-pressed') === 'true', 'mobile template selected');
   const hasTemplatePresetSelection = true;
 
@@ -1264,7 +1267,7 @@ async function runRendererUiSmoke() {
     hasExportProgressMeter,
     hasExportResult: document.body.textContent?.includes('Exported to:') ?? false,
     canvasRenderFps,
-    aspectRatio: aspectRatioSelect.value,
+    aspectRatio: aspectRatioChip.getAttribute('data-active-aspect-ratio'),
     padding: Number(paddingInput.value),
     cornerRadius: Number(radiusInput.value),
     shadowSize: Number(shadowInput.value),

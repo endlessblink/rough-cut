@@ -33,7 +33,6 @@ import {
   getRecordingBackgroundColors,
   getStyledCanvasResolution,
   PROJECT_ASPECT_RATIO_LABELS,
-  PROJECT_ASPECT_RATIOS,
   RECORDING_BACKGROUND_PRESETS,
   RECORDING_TEMPLATE_PRESETS,
   applyRecordingTemplatePreset,
@@ -2425,7 +2424,6 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const cursor = cursorPresentation ?? DEFAULT_CURSOR_PRESENTATION;
   const projectLoaded = Boolean(project?.recording);
-  const aspectRatioOptions = PROJECT_ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: PROJECT_ASPECT_RATIO_LABELS[ratio] }));
   const activeBackgroundPreset = RECORDING_BACKGROUND_PRESETS.find((preset) => preset.style.bgImage ? preset.style.bgImage === bg.bgImage : (preset.style.bgColor === bg.bgColor && preset.style.bgGradient === bg.bgGradient))?.id;
   const activeTemplatePreset = findRecordingTemplatePresetId(aspectRatio, bg);
   const handleTemplatePresetSelect = (templateId: string) => {
@@ -2534,9 +2532,6 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
           onDeleteUserTemplate={onDeleteUserTemplate}
           canSave={projectLoaded}
         />
-      </InspectorSection>
-      <InspectorSection id="canvas" title="Canvas">
-        <InspectorSelect label="Aspect ratio" value={aspectRatio} options={aspectRatioOptions} disabled={disabled} onChange={(value) => onAspectRatioChange?.(value)} />
       </InspectorSection>
       <InspectorSection id="canvas-background" title="Canvas background">
         <InspectorPresetGrid label="Background presets" disabled={disabled} value={activeBackgroundPreset} onSelect={(presetId) => onBackgroundChange?.(applyRecordingBackgroundPreset(bg, presetId))} />
