@@ -1792,13 +1792,54 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   display: block;
   font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
+  max-width: 100%;
+  overflow: hidden;
   padding: 0.12rem 0.4rem;
   pointer-events: none;
   position: relative;
   text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   z-index: 1;
 }
 .timelineRegion[data-narrow="true"] .zoomRangeLabel { display: none; }
+
+/* Per-pill delete affordance — quiet by default, revealed on hover or focus.
+ * Restrained chrome tone (not a second accent) so it reads as a tool button,
+ * not a status badge. Sits inside the pill so it never collides with siblings.
+ * Hidden entirely on narrow pills (delete fallback: select + Delete key). */
+.zoomRegionDelete {
+  align-items: center;
+  background: color-mix(in oklch, var(--text) 55%, var(--panel-alt));
+  border: 0;
+  border-radius: 999px;
+  color: var(--bg);
+  cursor: pointer;
+  display: flex;
+  font-size: 0.78rem;
+  font-weight: 700;
+  height: 0.95rem;
+  justify-content: center;
+  line-height: 1;
+  min-height: 0;
+  opacity: 0;
+  padding: 0;
+  pointer-events: auto;
+  position: absolute;
+  right: 0.18rem;
+  top: 0.18rem;
+  transition: opacity 120ms ease, background 120ms ease;
+  width: 0.95rem;
+  z-index: 3;
+}
+.timelineRegion:hover .zoomRegionDelete,
+.timelineRegion:focus-within .zoomRegionDelete,
+.timelineRegion.selectedRegion .zoomRegionDelete { opacity: 1; }
+.zoomRegionDelete:hover {
+  background: color-mix(in oklch, #ef4444 70%, var(--panel-alt));
+  color: #fff;
+}
+.timelineRegion[data-narrow="true"] .zoomRegionDelete { display: none; }
 
 .zoomResizeHandle {
   bottom: 0;

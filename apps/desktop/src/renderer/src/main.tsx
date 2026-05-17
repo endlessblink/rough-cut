@@ -2015,6 +2015,170 @@ function aspectRatioCss(aspectRatio: string): string {
   return '16 / 9';
 }
 
+function aspectRatioDims(aspectRatio: string): [number, number] {
+  if (aspectRatio === '9:16') return [9, 16];
+  if (aspectRatio === '1:1') return [1, 1];
+  if (aspectRatio === '4:3') return [4, 3];
+  if (aspectRatio === '3:4') return [3, 4];
+  if (aspectRatio === '4:5') return [4, 5];
+  return [16, 9];
+}
+
+type CameraThumbProps = {
+  position: CameraPosition;
+  shape: CameraShape;
+  size: number;
+  roundness: number;
+  visible: boolean;
+};
+
+type TemplateThumbnailProps = {
+  aspectRatio: ProjectAspectRatio;
+  screenFrame: NormalizedRect | null;
+  cameraFrame: NormalizedRect | null;
+  camera: CameraThumbProps;
+  bgColor: string;
+};
+
+function TemplateThumbnail({ aspectRatio, screenFrame, cameraFrame, camera, bgColor }: TemplateThumbnailProps) {
+  const [aspectW, aspectH] = aspectRatioDims(aspectRatio);
+  const vbW = aspectW * 10;
+  const vbH = aspectH * 10;
+  const minDim = Math.min(vbW, vbH);
+
+  // Screen rect: built-ins never set screenFrame, so default to a 6% inset
+  // on every side — viewer sees "screen with margin of background".
+  const sx = (screenFrame?.x ?? 0.06) * vbW;
+  const sy = (screenFrame?.y ?? 0.06) * vbH;
+  const sw = (screenFrame?.w ?? 0.88) * vbW;
+  const sh = (screenFrame?.h ?? 0.88) * vbH;
+  const screenRadius = minDim * 0.04;
+
+  // Camera marker mirrors resolveCameraFrame: square side = min × 0.22 × sizeScale,
+  // 6% margin, position from the enum. `camera.aspectRatio` is intentionally
+  // ignored — the renderer ignores it too.
+  let cw: number;
+  let ch: number;
+  let cx: number;
+  let cy: number;
+  if (cameraFrame) {
+    cx = cameraFrame.x * vbW;
+    cy = cameraFrame.y * vbH;
+    cw = cameraFrame.w * vbW;
+    ch = cameraFrame.h * vbH;
+  } else {
+    const sizeScale = Math.max(0.5, Math.min(2, (camera.size ?? 100) / 100));
+    const side = minDim * 0.22 * sizeScale;
+    cw = side;
+    ch = side;
+    const margin = minDim * 0.06;
+    const position = camera.position ?? 'corner-br';
+    if (position === 'center') {
+      cx = (vbW - cw) / 2;
+      cy = (vbH - ch) / 2;
+    } else {
+      const left = position.endsWith('bl') || position.endsWith('tl');
+      const top = position.endsWith('tl') || position.endsWith('tr');
+      cx = left ? margin : vbW - cw - margin;
+      cy = top ? margin : vbH - ch - margin;
+    }
+  }
+  // Match resolveCameraRadius exactly.
+  const camMin = Math.min(cw, ch);
+  const camRadius =
+    camera.shape === 'square' ? 0
+    : camera.shape === 'circle' ? camMin / 2
+    : (camMin / 2) * Math.max(0, Math.min(1, (camera.roundness ?? 50) / 100));
+  const camCenterX = cx + cw / 2;
+  const camCenterY = cy + ch / 2;
+  const camFill = 'rgba(255, 255, 255, 0.78)';
+  const camStroke = 'rgba(15, 23, 42, 0.45)';
+
+  return (
+    <svg
+      className="templateThumbSvg"
+      viewBox={`0 0 ${vbW} ${vbH}`}
+      preserveAspectRatio="xMidYMid meet"
+      style={{ aspectRatio: `${aspectW} / ${aspectH}` }}
+      role="img"
+      aria-hidden="true"
+    >
+      <rect x={0} y={0} width={vbW} height={vbH} fill={bgColor} />
+      <rect
+        x={sx}
+        y={sy}
+        width={sw}
+        height={sh}
+        rx={screenRadius}
+        ry={screenRadius}
+        fill="rgba(15, 23, 42, 0.55)"
+        stroke="rgba(255, 255, 255, 0.22)"
+        strokeWidth={0.6}
+      />
+      {camera.visible !== false ? (
+        camera.shape === 'circle' ? (
+          <ellipse
+            cx={camCenterX}
+            cy={camCenterY}
+            rx={cw / 2}
+            ry={ch / 2}
+            fill={camFill}
+            stroke={camStroke}
+            strokeWidth={0.6}
+          />
+        ) : (
+          <rect
+            x={cx}
+            y={cy}
+            width={cw}
+            height={ch}
+            rx={camRadius}
+            ry={camRadius}
+            fill={camFill}
+            stroke={camStroke}
+            strokeWidth={0.6}
+          />
+        )
+      ) : null}
+    </svg>
+  );
+}
+
+const DEFAULT_THUMB_BG_COLOR = '#1f1f28';
+
+function builtInTemplateThumbnailProps(template: typeof RECORDING_TEMPLATE_PRESETS[number]): TemplateThumbnailProps {
+  const preset = RECORDING_BACKGROUND_PRESETS.find((p) => p.id === template.backgroundPresetId);
+  return {
+    aspectRatio: template.aspectRatio,
+    screenFrame: null,
+    cameraFrame: null,
+    camera: {
+      position: template.camera.position,
+      shape: template.camera.shape,
+      size: template.camera.size,
+      roundness: template.camera.roundness,
+      visible: template.camera.visible,
+    },
+    bgColor: preset?.style.bgColor ?? DEFAULT_THUMB_BG_COLOR,
+  };
+}
+
+function userTemplateThumbnailProps(template: UserRecordingTemplate): TemplateThumbnailProps {
+  return {
+    aspectRatio: template.aspectRatio,
+    screenFrame: template.screenFrame,
+    cameraFrame: template.cameraFrame,
+    camera: {
+      position: template.camera.position,
+      shape: template.camera.shape,
+      size: template.camera.size,
+      roundness: template.camera.roundness,
+      visible: template.camera.visible,
+    },
+    bgColor: template.background.bgColor ?? DEFAULT_THUMB_BG_COLOR,
+  };
+}
+
 function TemplatePresetGrid({
   disabled = false,
   value,
@@ -2098,7 +2262,9 @@ function TemplatePresetGrid({
             onClick={() => onSelect?.(template.id)}
             title={template.description}
           >
-            <span className="templateCardFrame" style={{ aspectRatio: aspectRatioCss(template.aspectRatio) }} aria-hidden="true" />
+            <span className="templateCardFrame" aria-hidden="true">
+              <TemplateThumbnail {...builtInTemplateThumbnailProps(template)} />
+            </span>
             <span className="templateCardLabel">{template.label}</span>
           </button>
         ))}
@@ -3140,7 +3306,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     if (!onAddZoomMarkerAt) return;
     if (event.button !== 0) return;
     // Skip if the press landed on an existing region (don't add inside markers).
-    if ((event.target as HTMLElement).closest('.timelineRegion, .zoomResizeHandle')) return;
+    if ((event.target as HTMLElement).closest('.timelineRegion, .zoomResizeHandle, .zoomRegionDelete')) return;
     const track = event.currentTarget;
     const downFrame = sourceFrameFromClient(track, event.clientX);
     if (downFrame === null) return;
@@ -3422,13 +3588,23 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
                 const depthPct = Math.round(strength * 100);
                 const startSec = (region.startFrame ?? 0) / fps;
                 const endSec = (region.endFrame ?? 0) / fps;
-                const narrow = (region.width ?? 100) < 6;
+                const narrow = (region.width ?? 100) < 8;
                 return (
-                  <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker. Delete to remove.`} className={`timelineRegion ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} data-narrow={narrow ? 'true' : undefined} data-layer={region.layer ?? 0} title={`${label} · ${depthPct}% · Delete to remove`} style={zoomRegionStyle(region)} onClick={() => onSelectInspectorContext({ group: 'zoom', label, detail: `${kind} zoom region selected.`, markerId: region.id })} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
+                  <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker. Delete to remove.`} className={`timelineRegion ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} data-narrow={narrow ? 'true' : undefined} data-layer={region.layer ?? 0} title={`${label} · ${depthPct}% · Click × to delete`} style={zoomRegionStyle(region)} onClick={() => onSelectInspectorContext({ group: 'zoom', label, detail: `${kind} zoom region selected.`, markerId: region.id })} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
                     <div className="zoomDepthFill" style={{ height: `${depthPct}%` }} aria-hidden="true" />
                     <span className="zoomRangeLabel">{formatClock(startSec)}–{formatClock(endSec)}</span>
                     <span role="slider" tabIndex={0} aria-label={`${label} start boundary`} aria-valuemin={0} aria-valuemax={Math.max(0, Math.round((region.endFrame ?? 15) - 15))} aria-valuenow={Math.round(region.startFrame ?? 0)} className="zoomResizeHandle zoomResizeStart" onKeyDown={(event) => handleZoomKeyboard(region, 'start', event)} onPointerDown={(event) => beginZoomDrag(region, 'start', event)} />
                     <span role="slider" tabIndex={0} aria-label={`${label} end boundary`} aria-valuemin={Math.round((region.startFrame ?? 0) + 15)} aria-valuemax={sourceFrameDuration} aria-valuenow={Math.round(region.endFrame ?? 15)} className="zoomResizeHandle zoomResizeEnd" onKeyDown={(event) => handleZoomKeyboard(region, 'end', event)} onPointerDown={(event) => beginZoomDrag(region, 'end', event)} />
+                    {onZoomMarkerRemove ? (
+                      <button
+                        type="button"
+                        className="zoomRegionDelete"
+                        aria-label={`Delete ${label}`}
+                        title="Delete this zoom"
+                        onClick={(event) => { event.stopPropagation(); onZoomMarkerRemove(region.id); }}
+                        onPointerDown={(event) => { event.stopPropagation(); }}
+                      >×</button>
+                    ) : null}
                   </div>
                 );
               })
