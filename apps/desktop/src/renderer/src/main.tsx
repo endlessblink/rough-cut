@@ -57,10 +57,8 @@ import './styles.css';
 import { LibraryShell } from './library/library-shell';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
-  addManualMarkerAt,
-addManualMarkerAtFrame,
+  addManualMarkerAtFrame,
   applySuggestion,
-  canAddMarkerAt,
   getZoomPresentation,
   listMarkers,
   patchZoomPresentation,
@@ -2422,7 +2420,7 @@ function InspectorActionRow({ children, region }: { children: React.ReactNode; r
   return <div className="actionsArea inspectorActionRow" data-ui-region={region}>{children}</div>;
 }
 
-function EditorToolBoard({ activeTool, project, fps, currentTimeSec = 0, background, cameraPresentation, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, selectedZoomMarker = null, trimInfo, cutRanges = [], userTemplates = [], appliedUserTemplateId = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCursorPresentationChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onApplyUserTemplate, onSaveUserTemplate, onRenameUserTemplate, onDeleteUserTemplate, onZoomMarkerStrengthChange, onResetTrim, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; cutRanges?: CutRange[]; userTemplates?: UserRecordingTemplate[]; appliedUserTemplateId?: string | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onApplyUserTemplate?: (template: UserRecordingTemplate) => void; onSaveUserTemplate?: (label: string) => Promise<void> | void; onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void; onDeleteUserTemplate?: (id: string) => Promise<void> | void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
+function EditorToolBoard({ activeTool, project, fps, background, cameraPresentation, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, trimInfo, cutRanges = [], userTemplates = [], appliedUserTemplateId = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCursorPresentationChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onApplyUserTemplate, onSaveUserTemplate, onRenameUserTemplate, onDeleteUserTemplate, onResetTrim, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; cutRanges?: CutRange[]; userTemplates?: UserRecordingTemplate[]; appliedUserTemplateId?: string | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onApplyUserTemplate?: (template: UserRecordingTemplate) => void; onSaveUserTemplate?: (label: string) => Promise<void> | void; onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void; onDeleteUserTemplate?: (id: string) => Promise<void> | void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const cursor = cursorPresentation ?? DEFAULT_CURSOR_PRESENTATION;
@@ -2852,6 +2850,10 @@ function ProjectPreview({
       assets: project.document.assets?.map((asset) => {
         if (asset.id !== recordingAsset?.id) return asset;
         const presentation = withDefaultPresentation(asset.presentation) as unknown as Record<string, unknown>;
+        // Built-in templates set aspect + background + camera defaults, but
+        // do NOT touch the user's manually-dragged camera/screen positions.
+        // To reset layout, the user applies a saved user-template (which
+        // captures and restores the full layout including cameraFrame/screenFrame).
         const nextPresentation: Record<string, unknown> = {
           ...presentation,
           background: applied.background,
@@ -2861,8 +2863,6 @@ function ProjectPreview({
             ...applied.camera,
           },
         };
-        delete nextPresentation.cameraFrame;
-        delete nextPresentation.screenFrame;
         return { ...asset, presentation: nextPresentation };
       }),
     });
@@ -3077,7 +3077,7 @@ function ProjectPreview({
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
       <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} currentTimeSec={currentTimeSec} background={background} cameraPresentation={cameraPresentation} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} selectedZoomMarker={selectedZoomMarker} trimInfo={trimInfo} cutRanges={activeCutRanges} userTemplates={userTemplates} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCursorPresentationChange={updateCursorPresentation} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onResetTrim={resetTrim} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
+      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} background={background} cameraPresentation={cameraPresentation} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} trimInfo={trimInfo} cutRanges={activeCutRanges} userTemplates={userTemplates} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCursorPresentationChange={updateCursorPresentation} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onResetTrim={resetTrim} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>
@@ -3662,60 +3662,6 @@ function TimelineLane({ label, className, children, onTrackDoubleClick, onTrackP
   );
 }
 
-function ZoomMarkerPanel({
-  project,
-  fps,
-  currentTimeSec,
-  onProjectChange,
-}: {
-  project: ProjectState;
-  fps: number;
-  currentTimeSec: number;
-  onProjectChange: (next: ProjectState, options?: ProjectChangeOptions) => void;
-}) {
-  const [saveError, setSaveError] = React.useState<string | null>(null);
-  const [isSaving, setIsSaving] = React.useState(false);
-  const document = project.document as unknown as ProjectDocument;
-  const canAdd = canAddMarkerAt(document, currentTimeSec, fps);
-
-  async function persist(nextDocument: ProjectDocument) {
-    const previous = project;
-    const optimistic = { ...project, document: nextDocument as unknown as ProjectState['document'] };
-    setSaveError(null);
-    setIsSaving(true);
-    onProjectChange(optimistic, { history: true, previous });
-    try {
-      const saved = await saveProjectGuarded({ path: project.path, document: optimistic.document });
-      onProjectChange(saved);
-    } catch (err) {
-      onProjectChange(previous);
-      setSaveError(err instanceof Error ? err.message : 'Save failed.');
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  async function handleAdd() {
-    const nextDocument = addManualMarkerAt(document, currentTimeSec, fps);
-    if (nextDocument === document) return;
-    await persist(nextDocument);
-  }
-
-  return (
-    <>
-      <button
-        type="button"
-        className="secondary compact"
-        onClick={handleAdd}
-        disabled={!canAdd || isSaving}
-        title={canAdd ? 'Add a zoom marker at the playhead' : 'Playhead is too close to an existing marker'}
-      >
-        + Add
-      </button>
-      {saveError ? <p className="error" role="alert">{saveError}</p> : null}
-    </>
-  );
-}
 
 function CameraFollowPanel({
   project,
