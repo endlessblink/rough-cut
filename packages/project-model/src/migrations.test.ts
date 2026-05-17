@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { migrate, getMigrationChain } from './migrations.js';
 import { createProject } from './factories.js';
 import { CURRENT_SCHEMA_VERSION } from './constants.js';
+import type { ProjectDocument } from './types.js';
 
 describe('migrations', () => {
   it('passes through a document at current version unchanged', () => {
@@ -455,6 +456,110 @@ describe('migrations', () => {
     expect(marker?.focalPoint).toEqual({ x: 0.25, y: 0.75 });
     expect(marker?.zoomInDuration).toBe(12);
     expect(marker?.zoomOutDuration).toBe(18);
+  });
+
+  it('migrates a v12 document to v13 by stamping version only (no field changes)', () => {
+    // Build a realistic v12 fixture by taking a current-version project, then
+    // stripping the v13-only optional fields and rewinding `version` to 12.
+    const project = createProject();
+    const {
+      transcript: _t,
+      captionTracks: _ct,
+      tracks: _tr,
+      ...v12Base
+    } = project as ProjectDocument & Record<string, unknown>;
+    const legacy = { ...v12Base, version: 12 };
+
+    const result = migrate(legacy);
+
+    expect(result.version).toBe(13);
+    // No other field should have changed besides version.
+    expect(result).toEqual({ ...legacy, version: 13 });
+    // The three v13 fields remain unset (optional, not auto-populated).
+    expect(result.transcript).toBeUndefined();
+    expect(result.captionTracks).toBeUndefined();
+    expect(result.tracks).toBeUndefined();
+  });
+
+  it('treats a v13 document as a no-op (re-migration is idempotent)', () => {
+    const project = createProject();
+    const result1 = migrate(project);
+    const result2 = migrate(result1);
+    expect(result2).toEqual(result1);
+    expect(result2.version).toBe(13);
+  });
+
+  it('preserves v13 fields when they are already populated on a v12 → v13 migration', () => {
+    const project = createProject();
+    const legacy: Record<string, unknown> = {
+      ...(project as unknown as Record<string, unknown>),
+      version: 12,
+      transcript: { words: [], paragraphs: [], nonSpeech: [] },
+      captionTracks: [{ id: 'ct-pre', style: 'karaoke', phrases: [] }],
+    };
+
+    const result = migrate(legacy);
+
+    expect(result.version).toBe(13);
+    expect(result.transcript).toEqual({ words: [], paragraphs: [], nonSpeech: [] });
+    expect(result.captionTracks).toHaveLength(1);
+    expect(result.captionTracks?.[0]?.id).toBe('ct-pre');
+  });
+
+  it('chains v1 → v13 end-to-end for an ancient document', () => {
+    // Reuse the existing v1 fixture shape (zoom-marker backfill case) but
+    // verify it ends at v13 and includes none of the new optional fields.
+    const project = createProject();
+    const legacy = {
+      ...project,
+      version: 1,
+      assets: [
+        {
+          id: 'recording-1',
+          type: 'recording',
+          filePath: '/tmp/recording.webm',
+          duration: 90,
+          metadata: {},
+          presentation: {
+            templateId: 'screen-cam-br-16x9',
+            zoom: {
+              autoIntensity: 0.5,
+              followCursor: true,
+              followAnimation: 'focused',
+              followPadding: 0.18,
+              markers: [],
+            },
+            cursor: {
+              style: 'default',
+              clickEffect: 'ripple',
+              sizePercent: 100,
+              clickSoundEnabled: false,
+            },
+            camera: {
+              shape: 'rounded',
+              aspectRatio: '1:1',
+              position: 'corner-br',
+              roundness: 50,
+              size: 100,
+              visible: true,
+              padding: 0,
+              inset: 0,
+              insetColor: '#ffffff',
+              shadowEnabled: true,
+              shadowBlur: 24,
+              shadowOpacity: 0.45,
+            },
+          },
+        },
+      ],
+    };
+
+    const result = migrate(legacy);
+
+    expect(result.version).toBe(13);
+    expect(result.transcript).toBeUndefined();
+    expect(result.captionTracks).toBeUndefined();
+    expect(result.tracks).toBeUndefined();
   });
 
   it('preserves an existing keepClickSounds=false on v9 -> v10', () => {
