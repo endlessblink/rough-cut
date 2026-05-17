@@ -19,6 +19,15 @@ export interface UserTemplateCameraPatch {
   readonly size: number;
   readonly roundness: number;
   readonly visible: boolean;
+  // Optional extended fields. Older saved templates (file v1 before this
+  // expansion) won't have these and the apply path falls back to renderer
+  // defaults for missing values.
+  readonly padding?: number;
+  readonly inset?: number;
+  readonly insetColor?: string;
+  readonly shadowEnabled?: boolean;
+  readonly shadowBlur?: number;
+  readonly shadowOpacity?: number;
 }
 
 export interface UserRecordingTemplate {
@@ -44,6 +53,12 @@ const UserTemplateCameraPatchSchema = z.object({
   size: z.number().int().positive(),
   roundness: z.number().int().min(0).max(50),
   visible: z.boolean(),
+  padding: z.number().int().nonnegative().optional(),
+  inset: z.number().int().nonnegative().optional(),
+  insetColor: z.string().optional(),
+  shadowEnabled: z.boolean().optional(),
+  shadowBlur: z.number().int().nonnegative().optional(),
+  shadowOpacity: z.number().min(0).max(1).optional(),
 });
 
 export const UserRecordingTemplateSchema = z.object({
@@ -88,6 +103,12 @@ export function captureUserTemplate(input: CaptureUserTemplateInput): UserRecord
       size: input.camera.size,
       roundness: input.camera.roundness,
       visible: input.camera.visible,
+      padding: input.camera.padding,
+      inset: input.camera.inset,
+      insetColor: input.camera.insetColor,
+      shadowEnabled: input.camera.shadowEnabled,
+      shadowBlur: input.camera.shadowBlur,
+      shadowOpacity: input.camera.shadowOpacity,
     },
     screenFrame: input.presentation?.screenFrame ?? null,
     cameraFrame: input.presentation?.cameraFrame ?? null,

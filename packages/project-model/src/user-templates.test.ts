@@ -30,7 +30,7 @@ describe('captureUserTemplate', () => {
     expect(t.label).toBe('My Template');
     expect(t.aspectRatio).toBe('9:16');
     expect(t.background.bgPadding).toBe(96);
-    expect(t.camera).toEqual({
+    expect(t.camera).toMatchObject({
       position: 'corner-br',
       shape: 'rounded',
       aspectRatio: '1:1',
@@ -38,6 +38,12 @@ describe('captureUserTemplate', () => {
       roundness: 50,
       visible: true,
     });
+    // Extended fields (padding/inset/shadow*) now captured too so apply
+    // can fully round-trip the user's layout.
+    expect(t.camera.padding).toBe(0);
+    expect(t.camera.shadowEnabled).toBe(true);
+    expect(t.camera.shadowBlur).toBe(24);
+    expect(t.camera.shadowOpacity).toBe(0.45);
     expect(t.createdAt).toBe(NOW);
     expect(t.updatedAt).toBe(NOW);
   });

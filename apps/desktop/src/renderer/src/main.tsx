@@ -297,6 +297,15 @@ async function saveProjectGuarded(payload: { path: string; document: ProjectStat
 function App() {
   const searchParams = new URLSearchParams(window.location.search);
   const isRecorderMode = searchParams.get('mode') === 'recorder';
+  // Initial app view: honor ?view= override from the main process. Used when
+  // a project is opened from disk (jumps straight to editor) and by smoke
+  // harnesses that need the editor surface mounted at boot. Falls back to
+  // the registry default (Projects gallery) for a plain launch.
+  const initialAppView: AppViewId = (() => {
+    const requested = searchParams.get('view');
+    if (requested === 'projects' || requested === 'editor') return requested;
+    return DEFAULT_APP_VIEW_ID;
+  })();
   const initialPreRecordPreferences = React.useMemo(readPreRecordPreferences, []);
   // Version is fetched for diagnostics / about-dialog use; the dev label is
   // no longer rendered in chrome. Kept stateful so future surfaces can show it.
@@ -332,7 +341,7 @@ function App() {
   const [preRecordPanelOpen, setPreRecordPanelOpen] = React.useState(isRecorderMode);
   const [setupBoardOpen, setSetupBoardOpen] = React.useState(true);
   const [inspectorOpen, setInspectorOpen] = React.useState(true);
-  const [activeAppView, setActiveAppView] = React.useState<AppViewId>(DEFAULT_APP_VIEW_ID);
+  const [activeAppView, setActiveAppView] = React.useState<AppViewId>(initialAppView);
   const [activeTool, setActiveTool] = React.useState<ActiveTool>('background');
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
   const [editHistory, setEditHistory] = React.useState<EditHistory<ProjectState>>(EMPTY_EDIT_HISTORY);
@@ -2023,74 +2032,55 @@ type CameraThumbProps = {
 
 type TemplateThumbnailProps = {
   aspectRatio: ProjectAspectRatio;
-  screenFrame: NormalizedRect | null;
   cameraFrame: NormalizedRect | null;
   camera: CameraThumbProps;
-  bgColor: string;
 };
 
-// Blueprint-schematic thumbnail. Not a miniature render: at 56px the
-// pictorial approach reads as muddy color blocks. Instead this draws a
-// stroke-first diagram of the configuration — outer frame = canvas
-// aspect, inner rect = screen placement, warm marker = camera position
-// and shape. A faint background tint preserves "which preset is this"
-// recognition without dominating.
-function TemplateThumbnail({ aspectRatio, screenFrame, cameraFrame, camera, bgColor }: TemplateThumbnailProps) {
+// Pictorial mini-render. CSS background handles solid + gradient natively
+// (no SVG gradient-parse), SVG overlay paints the screen and camera with
+// depth so the thumbnail reads as a tiny preview of the canvas, not as a
+// schematic. Faithful to resolveCameraFrame / resolveCameraRadius.
+// Minimal indicator. The Recordly approach for layout previews is a tiny
+// icon, not a fake render — they use real <img> tiles only for true
+// background images. We don't have real screenshots, so the icon shows
+// only what's structurally informative: canvas aspect (outer rect),
+// camera position (dot in corner). No background tint, no fake screen
+// gradient, no fake webcam blob. Keep it small.
+function TemplateThumbnail({ aspectRatio, cameraFrame, camera }: TemplateThumbnailProps) {
   const [aspectW, aspectH] = aspectRatioDims(aspectRatio);
-  const vbW = aspectW * 10;
-  const vbH = aspectH * 10;
+  const vbW = aspectW * 100;
+  const vbH = aspectH * 100;
   const minDim = Math.min(vbW, vbH);
 
-  const sx = (screenFrame?.x ?? 0.08) * vbW;
-  const sy = (screenFrame?.y ?? 0.08) * vbH;
-  const sw = (screenFrame?.w ?? 0.84) * vbW;
-  const sh = (screenFrame?.h ?? 0.84) * vbH;
-  const screenRadius = minDim * 0.05;
-
-  // Camera marker mirrors resolveCameraFrame: square side, 6% margin,
-  // position from the enum. `camera.aspectRatio` is intentionally
-  // ignored — the renderer ignores it too.
-  let cw: number;
-  let ch: number;
-  let cx: number;
-  let cy: number;
+  // Camera position: corner inset or center. The dot is fixed-size in
+  // viewbox units so it reads as the same physical size on every aspect
+  // ratio. If the user dragged a custom cameraFrame, honor its center.
+  const dotRadius = minDim * 0.1;
+  const margin = minDim * 0.16;
+  let dotX: number;
+  let dotY: number;
   if (cameraFrame) {
-    cx = cameraFrame.x * vbW;
-    cy = cameraFrame.y * vbH;
-    cw = cameraFrame.w * vbW;
-    ch = cameraFrame.h * vbH;
+    dotX = (cameraFrame.x + cameraFrame.w / 2) * vbW;
+    dotY = (cameraFrame.y + cameraFrame.h / 2) * vbH;
   } else {
-    const sizeScale = Math.max(0.5, Math.min(2, (camera.size ?? 100) / 100));
-    const side = minDim * 0.22 * sizeScale;
-    cw = side;
-    ch = side;
-    const margin = minDim * 0.06;
     const position = camera.position ?? 'corner-br';
     if (position === 'center') {
-      cx = (vbW - cw) / 2;
-      cy = (vbH - ch) / 2;
+      dotX = vbW / 2;
+      dotY = vbH / 2;
     } else {
       const left = position.endsWith('bl') || position.endsWith('tl');
       const top = position.endsWith('tl') || position.endsWith('tr');
-      cx = left ? margin : vbW - cw - margin;
-      cy = top ? margin : vbH - ch - margin;
+      dotX = left ? margin : vbW - margin;
+      dotY = top ? margin : vbH - margin;
     }
   }
-  const camMin = Math.min(cw, ch);
-  const camRadius =
-    camera.shape === 'square' ? 0
-    : camera.shape === 'circle' ? camMin / 2
-    : (camMin / 2) * Math.max(0, Math.min(1, (camera.roundness ?? 50) / 100));
-  const camCenterX = cx + cw / 2;
-  const camCenterY = cy + ch / 2;
 
-  // Semantic palette: camera uses the editor's drag-handle amber
-  // (drawEditorFrameControls in main.tsx uses #f59e0b) so a viewer who's
-  // dragged the camera in the canvas recognizes the same color here.
-  const cameraColor = '#f59e0b';
-  const screenStroke = 'rgba(255, 255, 255, 0.42)';
-  const screenFill = 'rgba(255, 255, 255, 0.05)';
-  const frameStroke = 'rgba(255, 255, 255, 0.16)';
+  // Camera shape signal — circle vs rounded vs square via the dot's own
+  // corner radius. Subtle but encodes the shape choice.
+  const dotShapeRadius =
+    camera.shape === 'square' ? 0
+    : camera.shape === 'circle' ? dotRadius
+    : dotRadius * 0.45;
 
   return (
     <svg
@@ -2101,56 +2091,36 @@ function TemplateThumbnail({ aspectRatio, screenFrame, cameraFrame, camera, bgCo
       role="img"
       aria-hidden="true"
     >
-      {/* Background tint at low opacity so dark presets don't black-hole
-          into the card surface and light presets don't pop. The card's
-          own background shows through underneath. */}
-      <rect x={0} y={0} width={vbW} height={vbH} fill={bgColor} fillOpacity={0.32} />
-      {/* Canvas frame — the outer rect users are configuring. */}
+      {/* Canvas outline — represents the aspect ratio. No fill, just a
+          thin border so the dot reads against any card background. */}
       <rect
-        x={0.3}
-        y={0.3}
-        width={vbW - 0.6}
-        height={vbH - 0.6}
-        rx={minDim * 0.03}
-        ry={minDim * 0.03}
-        fill="none"
-        stroke={frameStroke}
-        strokeWidth={0.6}
-      />
-      {/* Screen rect — stroke-led so it reads against any backdrop. */}
-      <rect
-        x={sx}
-        y={sy}
-        width={sw}
-        height={sh}
-        rx={screenRadius}
-        ry={screenRadius}
-        fill={screenFill}
-        stroke={screenStroke}
-        strokeWidth={0.8}
+        x={2}
+        y={2}
+        width={vbW - 4}
+        height={vbH - 4}
+        rx={minDim * 0.06}
+        ry={minDim * 0.06}
+        fill="rgba(255, 255, 255, 0.04)"
+        stroke="rgba(255, 255, 255, 0.32)"
+        strokeWidth={1.5}
       />
       {camera.visible !== false ? (
         camera.shape === 'circle' ? (
-          <ellipse
-            cx={camCenterX}
-            cy={camCenterY}
-            rx={cw / 2}
-            ry={ch / 2}
-            fill={cameraColor}
-            stroke="rgba(15, 23, 42, 0.6)"
-            strokeWidth={0.5}
+          <circle
+            cx={dotX}
+            cy={dotY}
+            r={dotRadius}
+            fill="var(--accent)"
           />
         ) : (
           <rect
-            x={cx}
-            y={cy}
-            width={cw}
-            height={ch}
-            rx={camRadius}
-            ry={camRadius}
-            fill={cameraColor}
-            stroke="rgba(15, 23, 42, 0.6)"
-            strokeWidth={0.5}
+            x={dotX - dotRadius}
+            y={dotY - dotRadius}
+            width={dotRadius * 2}
+            height={dotRadius * 2}
+            rx={dotShapeRadius}
+            ry={dotShapeRadius}
+            fill="var(--accent)"
           />
         )
       ) : null}
@@ -2158,13 +2128,20 @@ function TemplateThumbnail({ aspectRatio, screenFrame, cameraFrame, camera, bgCo
   );
 }
 
-const DEFAULT_THUMB_BG_COLOR = '#1f1f28';
+function templateMetaLine(aspectRatio: string, position: CameraPosition): string {
+  const corner =
+    position === 'center' ? 'Center camera'
+    : position === 'corner-br' ? 'BR camera'
+    : position === 'corner-bl' ? 'BL camera'
+    : position === 'corner-tr' ? 'TR camera'
+    : position === 'corner-tl' ? 'TL camera'
+    : '';
+  return `${aspectRatio} · ${corner}`;
+}
 
 function builtInTemplateThumbnailProps(template: typeof RECORDING_TEMPLATE_PRESETS[number]): TemplateThumbnailProps {
-  const preset = RECORDING_BACKGROUND_PRESETS.find((p) => p.id === template.backgroundPresetId);
   return {
     aspectRatio: template.aspectRatio,
-    screenFrame: null,
     cameraFrame: null,
     camera: {
       position: template.camera.position,
@@ -2173,14 +2150,12 @@ function builtInTemplateThumbnailProps(template: typeof RECORDING_TEMPLATE_PRESE
       roundness: template.camera.roundness,
       visible: template.camera.visible,
     },
-    bgColor: preset?.style.bgColor ?? DEFAULT_THUMB_BG_COLOR,
   };
 }
 
 function userTemplateThumbnailProps(template: UserRecordingTemplate): TemplateThumbnailProps {
   return {
     aspectRatio: template.aspectRatio,
-    screenFrame: template.screenFrame,
     cameraFrame: template.cameraFrame,
     camera: {
       position: template.camera.position,
@@ -2189,7 +2164,6 @@ function userTemplateThumbnailProps(template: UserRecordingTemplate): TemplateTh
       roundness: template.camera.roundness,
       visible: template.camera.visible,
     },
-    bgColor: template.background.bgColor ?? DEFAULT_THUMB_BG_COLOR,
   };
 }
 
@@ -2204,6 +2178,7 @@ function TemplatePresetGrid({
   onRenameUserTemplate,
   onDeleteUserTemplate,
   canSave = false,
+  currentThumbnail = null,
 }: {
   disabled?: boolean;
   value?: string;
@@ -2215,6 +2190,9 @@ function TemplatePresetGrid({
   onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void;
   onDeleteUserTemplate?: (id: string) => Promise<void> | void;
   canSave?: boolean;
+  // Live snapshot of what "Save current" would persist. Recomputed by the
+  // caller each render so dragging the camera/screen updates the preview.
+  currentThumbnail?: { props: TemplateThumbnailProps; meta: string } | null;
 }) {
   const [savePending, setSavePending] = React.useState(false);
   const [saveLabel, setSaveLabel] = React.useState('');
@@ -2279,7 +2257,10 @@ function TemplatePresetGrid({
             <span className="templateCardFrame" aria-hidden="true">
               <TemplateThumbnail {...builtInTemplateThumbnailProps(template)} />
             </span>
-            <span className="templateCardLabel">{template.label}</span>
+            <span className="templateCardText">
+              <span className="templateCardLabel">{template.label}</span>
+              <span className="templateCardMeta">{templateMetaLine(template.aspectRatio, template.camera.position)}</span>
+            </span>
           </button>
         ))}
       </div>
@@ -2348,7 +2329,10 @@ function TemplatePresetGrid({
                     <span className="templateCardFrame" aria-hidden="true">
                       <TemplateThumbnail {...userTemplateThumbnailProps(template)} />
                     </span>
-                    <span className="templateCardLabel">{template.label}</span>
+                    <span className="templateCardText">
+                      <span className="templateCardLabel">{template.label}</span>
+                      <span className="templateCardMeta">{templateMetaLine(template.aspectRatio, template.camera.position)}</span>
+                    </span>
                   </button>
                   <div className="templateCardActions">
                     <button
@@ -2377,36 +2361,58 @@ function TemplatePresetGrid({
           </div>
           {onSaveUserTemplate ? (
             savePending ? (
-              <div className="templateSaveRow editing" data-template-add-form="true">
-                <input
-                  ref={saveInputRef}
-                  className="templateSaveInput"
-                  type="text"
-                  value={saveLabel}
-                  placeholder="Name this template…"
-                  maxLength={40}
-                  disabled={inputsDisabled}
-                  onChange={(e) => setSaveLabel(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); commitSave(); }
-                    else if (e.key === 'Escape') { e.preventDefault(); closeSave(); }
-                  }}
-                  onBlur={() => commitSave()}
-                  aria-label="New template name"
-                />
-                <span className="templateSaveHint">Enter to save · Esc to cancel</span>
+              <div className="templateSaveCard editing" data-template-add-form="true">
+                {currentThumbnail ? (
+                  <span className="templateCardFrame" aria-hidden="true">
+                    <TemplateThumbnail {...currentThumbnail.props} />
+                  </span>
+                ) : (
+                  <span className="templateCardFrame" aria-hidden="true" />
+                )}
+                <div className="templateSaveCardForm">
+                  <input
+                    ref={saveInputRef}
+                    className="templateSaveInput"
+                    type="text"
+                    value={saveLabel}
+                    placeholder="Name this template…"
+                    maxLength={40}
+                    disabled={inputsDisabled}
+                    onChange={(e) => setSaveLabel(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); commitSave(); }
+                      else if (e.key === 'Escape') { e.preventDefault(); closeSave(); }
+                    }}
+                    onBlur={() => commitSave()}
+                    aria-label="New template name"
+                  />
+                  <span className="templateSaveHint">Enter to save · Esc to cancel</span>
+                </div>
               </div>
             ) : (
               <button
                 type="button"
-                className="templateSaveRow"
+                className="templateCard templateSaveCard"
                 disabled={disabled || busy || !canSave}
                 data-template-add="true"
                 title={canSave ? 'Save current settings as a template' : 'Open a recording to save a template'}
                 onClick={() => setSavePending(true)}
               >
-                <PhosphorPlus size={13} weight="bold" />
-                <span>Save current as template</span>
+                {currentThumbnail ? (
+                  <span className="templateCardFrame" aria-hidden="true">
+                    <TemplateThumbnail {...currentThumbnail.props} />
+                  </span>
+                ) : (
+                  <span className="templateCardFrame templateCardFrameEmpty" aria-hidden="true">
+                    <PhosphorPlus size={14} weight="bold" />
+                  </span>
+                )}
+                <span className="templateCardText">
+                  <span className="templateCardLabel">
+                    <PhosphorPlus size={11} weight="bold" /> Save current
+                  </span>
+                  <span className="templateCardMeta">{currentThumbnail?.meta ?? 'Live snapshot of canvas'}</span>
+                </span>
               </button>
             )
           ) : null}
@@ -2428,6 +2434,26 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
   const aspectRatioOptions = PROJECT_ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: PROJECT_ASPECT_RATIO_LABELS[ratio] }));
   const activeBackgroundPreset = RECORDING_BACKGROUND_PRESETS.find((preset) => preset.style.bgImage ? preset.style.bgImage === bg.bgImage : (preset.style.bgColor === bg.bgColor && preset.style.bgGradient === bg.bgGradient))?.id;
   const activeTemplatePreset = findRecordingTemplatePresetId(aspectRatio, bg);
+  // Live snapshot for the Save-current card. Recomputed every render so
+  // dragging the camera or screen on the preview updates the indicator.
+  const currentThumbnail = projectLoaded ? (() => {
+    const recAsset = getPrimaryRecordingAsset(project!.document);
+    const presentation = recAsset?.presentation as { cameraFrame?: NormalizedRect } | undefined;
+    return {
+      props: {
+        aspectRatio,
+        cameraFrame: presentation?.cameraFrame ?? null,
+        camera: {
+          position: camera.position,
+          shape: camera.shape,
+          size: camera.size,
+          roundness: camera.roundness,
+          visible: camera.visible,
+        },
+      } satisfies TemplateThumbnailProps,
+      meta: templateMetaLine(aspectRatio, camera.position),
+    };
+  })() : null;
   const handleTemplatePresetSelect = (templateId: string) => {
     if (onTemplatePresetSelect) {
       onTemplatePresetSelect(templateId);
@@ -2533,6 +2559,7 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
           onRenameUserTemplate={onRenameUserTemplate}
           onDeleteUserTemplate={onDeleteUserTemplate}
           canSave={projectLoaded}
+          currentThumbnail={currentThumbnail}
         />
       </InspectorSection>
       <InspectorSection id="canvas" title="Canvas">

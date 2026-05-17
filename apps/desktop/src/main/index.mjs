@@ -243,10 +243,24 @@ function waitForRendererLoad(webContents, timeoutMs = 30000) {
   });
 }
 
+// When mode is 'editor' and the caller has signaled a project (either a real
+// projectPath or the smoke FORCE_EDITOR escape hatch), the renderer's
+// initial app view is pinned to 'editor'. Without this, the new Library
+// rewrite makes 'projects' the default and smoke harnesses that rely on the
+// editor surface being mounted at boot time out waiting for the Inspector.
+function rendererInitialView({ mode, projectPath }) {
+  if (mode === 'recorder') return null;
+  if (projectPath) return 'editor';
+  if (process.env.ROUGH_CUT_UI_SMOKE_FORCE_EDITOR === '1') return 'editor';
+  return null;
+}
+
 function rendererSearch({ mode = 'editor', projectPath = null } = {}) {
   const params = new URLSearchParams();
   if (projectPath) params.set('projectPath', projectPath);
   if (mode === 'recorder') params.set('mode', 'recorder');
+  const initialView = rendererInitialView({ mode, projectPath });
+  if (initialView) params.set('view', initialView);
   const value = params.toString();
   return value ? `?${value}` : undefined;
 }
@@ -254,11 +268,13 @@ function rendererSearch({ mode = 'editor', projectPath = null } = {}) {
 function loadRenderer(window, { mode = 'editor', projectPath = null } = {}) {
   const search = rendererSearch({ mode, projectPath });
   const shouldLoadBuiltRenderer = process.env.ROUGH_CUT_LOAD_BUILT_RENDERER === '1' || process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH;
+  const initialView = rendererInitialView({ mode, projectPath });
 
   if (process.env.VITE_DEV_SERVER_URL) {
     const url = new URL(process.env.VITE_DEV_SERVER_URL);
     if (projectPath) url.searchParams.set('projectPath', projectPath);
     if (mode === 'recorder') url.searchParams.set('mode', 'recorder');
+    if (initialView) url.searchParams.set('view', initialView);
     window.loadURL(url.toString());
   } else if (!app.isPackaged) {
     if (shouldLoadBuiltRenderer) {
@@ -267,6 +283,7 @@ function loadRenderer(window, { mode = 'editor', projectPath = null } = {}) {
       const url = new URL('http://127.0.0.1:7545');
       if (projectPath) url.searchParams.set('projectPath', projectPath);
       if (mode === 'recorder') url.searchParams.set('mode', 'recorder');
+      if (initialView) url.searchParams.set('view', initialView);
       window.loadURL(url.toString());
     }
   } else {
