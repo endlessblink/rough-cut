@@ -252,14 +252,32 @@ type PreRecordPreferences = {
   micSource: string | null;
   systemAudioSource: string | null;
   cameraSource: string | null;
+  captureMode: CaptureMode | null;
+  captureDisplayId: string | null;
+  captureRegion: CaptureRegion | null;
 };
 
 function readPreRecordPreferences(): PreRecordPreferences {
-  const fallback: PreRecordPreferences = { recordMic: false, recordSystemAudio: false, recordCamera: false, micSource: null, systemAudioSource: null, cameraSource: null };
+  const fallback: PreRecordPreferences = {
+    recordMic: false, recordSystemAudio: false, recordCamera: false,
+    micSource: null, systemAudioSource: null, cameraSource: null,
+    captureMode: null, captureDisplayId: null, captureRegion: null,
+  };
   try {
     const raw = window.localStorage.getItem(PRE_RECORD_PREFS_KEY);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Partial<PreRecordPreferences>;
+    // CaptureMode is a string union; defensively accept only known values.
+    const captureMode: CaptureMode | null = parsed.captureMode === 'display' || parsed.captureMode === 'region' ? parsed.captureMode : null;
+    // CaptureRegion needs a full shape; reject partial/corrupt blobs.
+    const region = parsed.captureRegion;
+    const captureRegion: CaptureRegion | null = region && typeof region === 'object'
+      && region.mode === 'region'
+      && Number.isFinite(region.x) && Number.isFinite(region.y)
+      && Number.isFinite(region.width) && Number.isFinite(region.height)
+      && region.width > 0 && region.height > 0
+      ? { mode: 'region', x: region.x, y: region.y, width: region.width, height: region.height }
+      : null;
     return {
       recordMic: parsed.recordMic === true,
       recordSystemAudio: parsed.recordSystemAudio === true,
@@ -267,6 +285,9 @@ function readPreRecordPreferences(): PreRecordPreferences {
       micSource: typeof parsed.micSource === 'string' ? parsed.micSource : null,
       systemAudioSource: typeof parsed.systemAudioSource === 'string' ? parsed.systemAudioSource : null,
       cameraSource: typeof parsed.cameraSource === 'string' ? parsed.cameraSource : null,
+      captureMode,
+      captureDisplayId: typeof parsed.captureDisplayId === 'string' ? parsed.captureDisplayId : null,
+      captureRegion,
     };
   } catch {
     return fallback;
@@ -338,8 +359,8 @@ function App() {
   const [selectedMicSource, setSelectedMicSource] = React.useState<string>(initialPreRecordPreferences.micSource ?? '');
   const [selectedSystemAudioSource, setSelectedSystemAudioSource] = React.useState<string>(initialPreRecordPreferences.systemAudioSource ?? '');
   const [selectedCameraSource, setSelectedCameraSource] = React.useState<string>(initialPreRecordPreferences.cameraSource ?? '');
-  const [captureMode, setCaptureMode] = React.useState<CaptureMode>('display');
-  const [captureRegion, setCaptureRegion] = React.useState<CaptureRegion>({ mode: 'region', x: 0, y: 0, width: 1280, height: 720 });
+  const [captureMode, setCaptureMode] = React.useState<CaptureMode>(initialPreRecordPreferences.captureMode ?? 'display');
+  const [captureRegion, setCaptureRegion] = React.useState<CaptureRegion>(initialPreRecordPreferences.captureRegion ?? { mode: 'region', x: 0, y: 0, width: 1280, height: 720 });
   const [recordingActionPending, setRecordingActionPending] = React.useState(false);
   const [preRecordPanelOpen, setPreRecordPanelOpen] = React.useState(isRecorderMode);
   const [setupBoardOpen, setSetupBoardOpen] = React.useState(true);
@@ -391,7 +412,14 @@ function App() {
     window.roughCut.getDisplays()
       .then((displays) => {
         setCaptureDisplays(displays);
-        setSelectedCaptureDisplayId((current) => current ?? displays.find((display) => display.primary)?.id ?? displays[0]?.id ?? null);
+        // Restore previously-selected display if it's still attached, otherwise
+        // fall back to primary, then first available.
+        const preferred = initialPreRecordPreferences.captureDisplayId;
+        setSelectedCaptureDisplayId((current) => {
+          if (current) return current;
+          if (preferred && displays.some((display) => display.id === preferred)) return preferred;
+          return displays.find((display) => display.primary)?.id ?? displays[0]?.id ?? null;
+        });
       })
       .catch(() => setCaptureDisplays([]));
     window.roughCut.getRecoveryState()
@@ -458,8 +486,11 @@ function App() {
       micSource: selectedMicSource || null,
       systemAudioSource: selectedSystemAudioSource || null,
       cameraSource: selectedCameraSource || null,
+      captureMode,
+      captureDisplayId: selectedCaptureDisplayId,
+      captureRegion: captureMode === 'region' ? captureRegion : null,
     });
-  }, [recordMic, recordSystemAudio, recordCamera, selectedMicSource, selectedSystemAudioSource, selectedCameraSource]);
+  }, [recordMic, recordSystemAudio, recordCamera, selectedMicSource, selectedSystemAudioSource, selectedCameraSource, captureMode, selectedCaptureDisplayId, captureRegion]);
 
   React.useEffect(() => {
     const projectPath = new URLSearchParams(window.location.search).get('projectPath');
