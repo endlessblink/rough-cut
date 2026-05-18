@@ -4,6 +4,7 @@ import { AssetPanel } from './asset-panel';
 import { NleProgramMonitor } from './program-monitor';
 import { NleTransport } from './transport';
 import { resolveProjectFps, resolveCompositionDurationFrames } from './project-shape.mjs';
+import { clampFrame, isTypingTarget } from './keyboard.mjs';
 import type { NleProject } from './types';
 
 export function NleShell({
@@ -35,6 +36,39 @@ export function NleShell({
   const fps = resolveProjectFps(project);
   const durationFrames = resolveCompositionDurationFrames(project);
   const clampedPlayhead = Math.max(0, Math.min(durationFrames, playheadFrame));
+
+  React.useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (isTypingTarget(e.target)) return;
+      if (e.key === ' ') {
+        e.preventDefault();
+        setIsPlaying((playing) => !playing);
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        const direction = e.key === 'ArrowLeft' ? -1 : 1;
+        const step = e.shiftKey ? 10 : 1;
+        setPlayheadFrame((frame) => clampFrame(frame + direction * step, durationFrames));
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setPlayheadFrame(0);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        setPlayheadFrame(durationFrames);
+      } else if (e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        setIsPlaying(false);
+      } else if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        setIsPlaying(true);
+      } else if (e.key === 'j' || e.key === 'J') {
+        e.preventDefault();
+        setIsPlaying(false);
+        setPlayheadFrame((frame) => clampFrame(frame - Math.round(fps), durationFrames));
+      }
+    }
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [durationFrames, fps]);
 
   return (
     <section className="nleShell" data-ui-region="nle-workspace" aria-label="NLE editor">

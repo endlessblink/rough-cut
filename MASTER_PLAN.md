@@ -4721,6 +4721,35 @@ TASK-179 made the NLE interactive, but the playhead had no time landmarks beyond
 - `pnpm smoke:ui` passes.
 - NLE-only visual smoke: `nle-ruler-result.json` reports `hasNleRuler`, `hasNleRulerLabels`, `hasNlePlayhead`, `hasNleClipBlock`, and `rulerAlignedToBodies`; screenshot verified at `/tmp/rough-cut-ui-smoke-RREzT1/nle-ruler-smoke.png`.
 
+### TASK-181 NLE: keyboard transport shortcuts
+
+**Priority:** P1
+**Status:** ✅ DONE (2026-05-18) — NLE shell now owns document-level keyboard transport while mounted: Space toggles play/pause with default suppression, arrows step the model playhead by 1 frame or 10 with Shift, Home/End jump to bounds, K pauses, L plays forward, and J uses the MVP reverse fallback of pausing and stepping back about one second.
+**Lane:** P-AI-E follow-up
+**Follows:** TASK-180
+**Pulled-forward-from:** TASK-140
+
+#### Context
+
+TASK-179 shipped mouse-first transport, but the NLE still lacked expected editing muscle memory. This task adds the smallest keyboard layer without making the video element source-of-truth: shortcuts write to the shell's `playheadFrame` / `isPlaying` model state, and the program monitor continues to follow that state.
+
+#### Acceptance Criteria
+
+- Space toggles play/pause and calls `preventDefault`.
+- ArrowLeft / ArrowRight step the playhead by 1 frame; Shift+Arrow steps by 10 frames.
+- Home / End jump to frame 0 / `durationFrames`.
+- J / K / L map to reverse fallback / pause / play forward. Reverse playback is an MVP fallback because Chromium does not reliably support negative `HTMLVideoElement.playbackRate`.
+- Handlers bail when typing in `input`, `textarea`, `select`, or contenteditable targets.
+- Listener is attached only while `NleShell` is mounted, keeping shortcuts scoped to the NLE view.
+
+#### Verification
+
+- `nle/keyboard.test.mjs` covers typing-target detection and frame clamping.
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- `pnpm --filter @rough-cut/desktop test` 412/412 pass.
+- NLE-only smoke verifies ArrowRight advances the NLE transport time and Space is default-prevented.
+- Manual-equivalent: open NLE, press Space and arrows; behavior is shell-owned and scoped to the NLE view.
+
 ### TASK-178 NLE: read-only clip blocks on Video / Audio lanes
 
 **Priority:** P2

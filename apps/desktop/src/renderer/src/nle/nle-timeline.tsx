@@ -4,6 +4,7 @@ import { buildLaneClips } from './timeline-clips.mjs';
 import type { NleLaneClipBlock, NleLaneKind } from './timeline-clips.mjs';
 import { removeClipById, splitClipById } from './clip-mutations.mjs';
 import { TimelineRuler } from './timeline-ruler';
+import { isTypingTarget } from './keyboard.mjs';
 import type { NleProject } from './types';
 
 export function NleTimeline({
@@ -66,12 +67,6 @@ export function NleTimeline({
   // Keyboard: Delete removes selection, S splits selection at playhead.
   // Bail when the user is typing into a form field.
   React.useEffect(() => {
-    function isTypingTarget(target: EventTarget | null): boolean {
-      if (!(target instanceof HTMLElement)) return false;
-      const tag = target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
-      return target.isContentEditable;
-    }
     function handleKey(e: KeyboardEvent) {
       if (isTypingTarget(e.target)) return;
       if (!project) return;

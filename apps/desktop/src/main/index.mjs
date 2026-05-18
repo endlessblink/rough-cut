@@ -1581,6 +1581,11 @@ async function runRendererNleSmoke() {
   const laneBodies = document.querySelector('[data-ui-region="nle-lane-bodies"]');
   const rulerRect = ruler.getBoundingClientRect();
   const laneRect = laneBodies?.getBoundingClientRect();
+  const timeBeforeArrow = document.querySelector('.nleTransportTimeCurrent')?.textContent ?? '';
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+  await waitFor(() => document.querySelector('.nleTransportTimeCurrent')?.textContent !== timeBeforeArrow, 'NLE arrow key step');
+  const spaceEvent = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+  document.dispatchEvent(spaceEvent);
 
   return {
     ok: true,
@@ -1591,5 +1596,7 @@ async function runRendererNleSmoke() {
     hasNlePlayhead: Boolean(document.querySelector('.nlePlayhead')),
     hasNleClipBlock: Boolean(document.querySelector('.nleClipBlock')),
     rulerAlignedToBodies: Boolean(laneRect && Math.abs(rulerRect.left - laneRect.left) <= 1 && Math.abs(rulerRect.width - laneRect.width) <= 1),
+    hasNleArrowKeyStep: true,
+    hasNleSpacePreventDefault: spaceEvent.defaultPrevented,
   };
 }
