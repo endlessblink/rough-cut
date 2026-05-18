@@ -458,7 +458,7 @@ describe('migrations', () => {
     expect(marker?.zoomOutDuration).toBe(18);
   });
 
-  it('migrates a v12 document through v14 with generalized NLE tracks', () => {
+  it('migrates a v12 document through v15 with generalized NLE tracks and shared timeline', () => {
     // Build a realistic v12 fixture by taking a current-version project, then
     // stripping the optional AI fields and rewinding `version` to 12.
     const project = createProject();
@@ -472,7 +472,7 @@ describe('migrations', () => {
 
     const result = migrate(legacy);
 
-    expect(result.version).toBe(14);
+    expect(result.version).toBe(15);
     expect(result.transcript).toBeUndefined();
     expect(result.captionTracks).toBeUndefined();
     expect(result.tracks).toHaveLength(project.composition.tracks.length);
@@ -482,14 +482,16 @@ describe('migrations', () => {
       label: project.composition.tracks[0]?.name,
       index: project.composition.tracks[0]?.index,
     });
+    expect(result.timeline.tracks).toEqual(result.tracks);
+    expect(result.timeline.exportSettings).toEqual(result.exportSettings);
   });
 
-  it('treats a v14 document as a no-op (re-migration is idempotent)', () => {
+  it('treats a current document as a no-op (re-migration is idempotent)', () => {
     const project = createProject();
     const result1 = migrate(project);
     const result2 = migrate(result1);
     expect(result2).toEqual(result1);
-    expect(result2.version).toBe(14);
+    expect(result2.version).toBe(CURRENT_SCHEMA_VERSION);
   });
 
   it('preserves AI fields when they are already populated through migration', () => {
@@ -515,16 +517,16 @@ describe('migrations', () => {
 
     const result = migrate(legacy);
 
-    expect(result.version).toBe(14);
+    expect(result.version).toBe(15);
     expect(result.transcript).toEqual({ words: [], paragraphs: [], nonSpeech: [] });
     expect(result.captionTracks).toHaveLength(1);
     expect(result.captionTracks?.[0]?.id).toBe('ct-pre');
     expect(result.tracks?.[0]?.id).toBe('nle-pre');
   });
 
-  it('chains v1 → v14 end-to-end for an ancient document', () => {
+  it('chains v1 → v15 end-to-end for an ancient document', () => {
     // Reuse the existing v1 fixture shape (zoom-marker backfill case) but
-    // verify it ends at v14 and includes the backfilled NLE tracks.
+    // verify it ends at the current version and includes the shared timeline.
     const project = createProject();
     const legacy = {
       ...project,
@@ -572,10 +574,11 @@ describe('migrations', () => {
 
     const result = migrate(legacy);
 
-    expect(result.version).toBe(14);
+    expect(result.version).toBe(15);
     expect(result.transcript).toBeUndefined();
     expect(result.captionTracks).toBeUndefined();
     expect(result.tracks).toHaveLength(project.composition.tracks.length);
+    expect(result.timeline.tracks).toEqual(result.tracks);
   });
 
   it('backfills v13 documents with empty NLE tracks for blank projects', () => {
@@ -584,8 +587,9 @@ describe('migrations', () => {
 
     const result = migrate(legacy);
 
-    expect(result.version).toBe(14);
+    expect(result.version).toBe(15);
     expect(result.tracks).toEqual([]);
+    expect(result.timeline.tracks).toEqual([]);
   });
 
   it('preserves an existing keepClickSounds=false on v9 -> v10', () => {

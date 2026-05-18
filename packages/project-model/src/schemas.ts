@@ -510,6 +510,12 @@ export const NleTrackClipSchema = z.object({
   timelineOut: nonNegativeInt,
   sourceIn: nonNegativeInt,
   sourceOut: nonNegativeInt,
+}).refine((clip) => clip.timelineOut > clip.timelineIn, {
+  message: 'Clip timelineOut must be greater than timelineIn',
+  path: ['timelineOut'],
+}).refine((clip) => clip.sourceOut > clip.sourceIn, {
+  message: 'Clip sourceOut must be greater than sourceIn',
+  path: ['sourceOut'],
 });
 
 export const NleTrackSchema = z.object({
@@ -521,6 +527,113 @@ export const NleTrackSchema = z.object({
   locked: z.boolean(),
   muted: z.boolean(),
   clips: z.array(NleTrackClipSchema),
+});
+
+export const TimelineSourceKindSchema = z.enum([
+  'screen',
+  'camera',
+  'mic-audio',
+  'system-audio',
+  'cursor-telemetry',
+  'project-asset',
+  'generated-asset',
+]);
+export const TimelineSourceMediaTypeSchema = z.enum(['video', 'audio', 'telemetry', 'data']);
+
+export const TimelineSourceSchema = z.object({
+  id: z.string().min(1),
+  kind: TimelineSourceKindSchema,
+  mediaType: TimelineSourceMediaTypeSchema,
+  assetId: z.string().min(1).optional(),
+  label: z.string().min(1),
+  duration: nonNegativeInt,
+});
+
+export const TimelineLinkedGroupSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(['recording', 'generated-set', 'manual-sync']),
+  sourceIds: z.array(z.string().min(1)).min(1),
+  primarySourceId: z.string().min(1),
+  syncPolicy: z.enum(['frame-locked', 'manual-offset']),
+});
+
+export const TimelineMarkerKindSchema = z.enum([
+  'zoom',
+  'click',
+  'cursor-style',
+  'camera-layout',
+  'annotation',
+]);
+
+export const TimelineMarkerSchema = z.object({
+  id: z.string().min(1),
+  kind: TimelineMarkerKindSchema,
+  startFrame: nonNegativeInt,
+  endFrame: nonNegativeInt,
+  sourceId: z.string().min(1).optional(),
+  linkedGroupId: z.string().min(1).optional(),
+  params: z.record(z.unknown()),
+}).refine((marker) => marker.endFrame > marker.startFrame, {
+  message: 'Marker endFrame must be greater than startFrame',
+  path: ['endFrame'],
+}).refine((marker) => marker.sourceId !== undefined || marker.linkedGroupId !== undefined, {
+  message: 'Marker must be owned by a source or linked group',
+  path: ['sourceId'],
+});
+
+export const TimelineEffectSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(['cursor', 'click', 'camera-pip', 'zoom', 'annotation']),
+  ownerId: z.string().min(1),
+  ownerType: z.enum(['clip', 'track', 'source', 'linked-group', 'timeline']),
+  enabled: z.boolean(),
+  params: z.record(z.unknown()),
+});
+
+export const SharedTimelineSchema = z.object({
+  sources: z.array(TimelineSourceSchema),
+  linkedGroups: z.array(TimelineLinkedGroupSchema),
+  tracks: z.array(NleTrackSchema),
+  markers: z.array(TimelineMarkerSchema),
+  effects: z.array(TimelineEffectSchema),
+  exportSettings: ExportSettingsSchema,
+}).superRefine((timeline, context) => {
+  const sourceIds = new Set(timeline.sources.map((source) => source.id));
+  const linkedGroupIds = new Set(timeline.linkedGroups.map((group) => group.id));
+  for (const group of timeline.linkedGroups) {
+    if (!sourceIds.has(group.primarySourceId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Linked group primarySourceId must reference a timeline source',
+        path: ['linkedGroups'],
+      });
+    }
+    for (const sourceId of group.sourceIds) {
+      if (!sourceIds.has(sourceId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Linked group sourceIds must reference timeline sources',
+          path: ['linkedGroups'],
+        });
+      }
+    }
+  }
+  for (const marker of timeline.markers) {
+    if (marker.sourceId && !sourceIds.has(marker.sourceId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Marker sourceId must reference a timeline source',
+        path: ['markers'],
+      });
+    }
+    if (marker.linkedGroupId && !linkedGroupIds.has(marker.linkedGroupId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Marker linkedGroupId must reference a linked group',
+        path: ['markers'],
+      });
+    }
+  }
 });
 
 // --- ProjectDocument ---
@@ -543,6 +656,7 @@ export const ProjectDocumentSchema = z.object({
   transcript: TranscriptSchema.optional(),
   captionTracks: z.array(CaptionTrackSchema).optional(),
   tracks: z.array(NleTrackSchema).optional(),
+  timeline: SharedTimelineSchema,
 });
 
 /**

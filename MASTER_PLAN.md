@@ -189,7 +189,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-205~~ | ✅ Recording edit/NLE share presentation state and controls | P1 | ✅ DONE (2026-05-18) |
 | TASK-187 | NLE trim handles for selected clip edges | P1 | REWORK REQUIRED → TASK-211 |
 | ~~TASK-206~~ | ✅ Shared timeline invariant: one timeline, two toolsets | P1 | ✅ DONE (2026-05-18) |
-| TASK-207 | Shared timeline schema for sources, tracks, clips, markers | P1 | PLANNED |
+| ~~TASK-207~~ | ✅ Shared timeline schema for sources, tracks, clips, markers | P1 | ✅ DONE (2026-05-19) |
 | TASK-208 | Migrate Recording edit cuts/trims into shared timeline | P1 | PLANNED |
 | TASK-209 | Recording edit selectors/actions over shared timeline | P1 | PLANNED |
 | TASK-210 | NLE selectors/actions over shared timeline | P1 | PLANNED |
@@ -514,7 +514,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-206, "Shared timeline invariant: one timeline, two toolsets". Do not continue TASK-188 drag or TASK-187 trim rework until Recording edit and NLE are confirmed as two toolsets over the same shared timeline model.
+Next task when continuing: start TASK-208, "Migrate Recording edit cuts/trims into shared timeline". Do not continue TASK-188 drag or TASK-187 trim rework until the shared timeline foundation tasks are complete.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–204). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -5534,7 +5534,7 @@ Recording edit and NLE are not separate timelines and not a primary/derived hier
 ### TASK-207 Shared timeline schema for sources, tracks, clips, markers
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-19)
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -5552,8 +5552,10 @@ The project model needs a clean JSON-friendly shape for the shared timeline: sou
 
 #### Verification
 
-- Project-model schema/type tests cover valid/invalid tracks, clips, linked groups, and markers.
-- Migration tests prove existing projects still validate.
+- Added `packages/project-model/src/shared-timeline.ts` with source, linked group, marker, effect, track, and export-setting ownership.
+- Added `timeline` to `ProjectDocument`, `ProjectDocumentSchema`, `createProject`, and v14→v15 migration while preserving legacy `composition.tracks` and top-level `tracks` as transitional fields.
+- Project-model schema tests cover valid recording sources, linked groups, marker/effect ownership, invalid clip intervals, and broken marker/group references.
+- Migration tests prove older projects backfill the shared timeline and still validate.
 
 ### TASK-208 Migrate Recording edit cuts/trims into shared timeline
 

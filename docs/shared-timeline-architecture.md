@@ -53,6 +53,19 @@ During migration, legacy fields may coexist with the shared timeline model, but 
 
 Every transitional field needs an explicit sync or migration rule before new trim/drag/export behavior depends on it.
 
+## Shared Timeline Schema
+
+`ProjectDocument.timeline` is the canonical shared timeline envelope. It owns:
+
+- `sources`: screen, camera, mic audio, system audio, cursor telemetry, project assets, and generated assets.
+- `linkedGroups`: frame-locked or manually-offset groups that keep related sources synchronized, especially screen recordings with camera/audio/cursor sidecars.
+- `tracks`: integer-frame NLE tracks and clips using half-open `sourceIn`/`sourceOut` and `timelineIn`/`timelineOut` ranges.
+- `markers`: timeline-owned zoom, click, cursor-style, camera-layout, and annotation markers.
+- `effects`: cursor, click, camera PiP, zoom, and annotation presentation state attached to clips, tracks, sources, linked groups, or the whole timeline.
+- `exportSettings`: the export shape resolved from the same timeline that Recording edit and NLE mutate.
+
+Legacy fields remain during migration, but new shared behaviors should target `ProjectDocument.timeline` first and explicitly sync transitional fields until they can be removed.
+
 ## Interaction Rule
 
 Timeline interactions such as trim and drag must use local preview/session state while the pointer moves. Commit one pure shared timeline mutation on pointerup so undo/redo records a single action.
@@ -62,7 +75,7 @@ Do not mutate project state on every pointermove. Do not let UI-only preview sta
 ## Implementation Order
 
 1. Lock this invariant with tests and docs.
-2. Define the shared timeline schema for sources, tracks, clips, linked groups, markers/effects, and export settings.
+2. Define the shared timeline schema for sources, tracks, clips, linked groups, markers/effects, and export settings. Done in TASK-207.
 3. Migrate Recording edit cuts/trims into the shared timeline without changing export output.
 4. Route Recording edit actions through shared timeline selectors/actions.
 5. Route NLE actions through shared timeline selectors/actions.

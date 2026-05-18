@@ -8,6 +8,8 @@ import {
   TranscriptSchema,
   CaptionTrackSchema,
   NleTrackSchema,
+  NleTrackClipSchema,
+  SharedTimelineSchema,
 } from './schemas.js';
 import {
   createProject,
@@ -307,6 +309,21 @@ describe('AI architecture schemas', () => {
     expect(() => NleTrackSchema.parse(track)).not.toThrow();
   });
 
+  it('rejects NLE clips that do not use half-open positive intervals', () => {
+    const badTimeline = {
+      id: 'clip-1',
+      source: { kind: 'project-asset' as const, id: 'a-1' },
+      timelineIn: 30,
+      timelineOut: 30,
+      sourceIn: 0,
+      sourceOut: 30,
+    };
+    const badSource = { ...badTimeline, timelineOut: 60, sourceIn: 20, sourceOut: 20 };
+
+    expect(NleTrackClipSchema.safeParse(badTimeline).success).toBe(false);
+    expect(NleTrackClipSchema.safeParse(badSource).success).toBe(false);
+  });
+
   it('accepts an NleTrack clip that references an AI asset', () => {
     const track = {
       id: 'tr-1',
@@ -364,6 +381,51 @@ describe('AI architecture schemas', () => {
       ],
     };
     expect(() => validateProject(extended)).not.toThrow();
+  });
+
+  it('accepts a shared timeline with recording sources, linked groups, markers, effects, and export settings', () => {
+    const presentation = createDefaultRecordingPresentation();
+    const asset = createAsset('recording', '/tmp/recording.webm', {
+      duration: 300,
+      presentation: {
+        ...presentation,
+        zoom: { ...presentation.zoom, markers: [createZoomMarker(30, 90)] },
+      },
+      cameraAssetId: 'camera-asset-1',
+    });
+    const project = createProject({ assets: [asset] });
+
+    expect(() => SharedTimelineSchema.parse(project.timeline)).not.toThrow();
+    expect(project.timeline.sources.map((source) => source.kind)).toEqual([
+      'screen',
+      'cursor-telemetry',
+      'system-audio',
+      'mic-audio',
+      'camera',
+    ]);
+    expect(project.timeline.linkedGroups[0]).toMatchObject({
+      kind: 'recording',
+      primarySourceId: `source:${asset.id}:screen`,
+      syncPolicy: 'frame-locked',
+    });
+    expect(project.timeline.markers[0]).toMatchObject({ kind: 'zoom', linkedGroupId: `linked:${asset.id}` });
+    expect(project.timeline.effects.map((effect) => effect.kind)).toEqual(['cursor', 'click', 'camera-pip']);
+    expect(project.timeline.exportSettings).toEqual(project.exportSettings);
+  });
+
+  it('rejects shared timeline markers and groups that reference missing owners', () => {
+    const project = createProject();
+    const missingSourceGroup = {
+      ...project.timeline,
+      linkedGroups: [{ id: 'g1', kind: 'recording' as const, sourceIds: ['missing'], primarySourceId: 'missing', syncPolicy: 'frame-locked' as const }],
+    };
+    const missingMarkerOwner = {
+      ...project.timeline,
+      markers: [{ id: 'm1', kind: 'zoom' as const, startFrame: 0, endFrame: 1, linkedGroupId: 'missing', params: {} }],
+    };
+
+    expect(SharedTimelineSchema.safeParse(missingSourceGroup).success).toBe(false);
+    expect(SharedTimelineSchema.safeParse(missingMarkerOwner).success).toBe(false);
   });
 
   it('accepts a document with none of the optional AI architecture fields', () => {

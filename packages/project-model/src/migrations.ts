@@ -1,5 +1,6 @@
 import { CURRENT_SCHEMA_VERSION } from './constants.js';
 import { validateProject } from './schemas.js';
+import { createSharedTimeline } from './shared-timeline.js';
 import { createNleTracksFromComposition } from './track.js';
 import type { ProjectDocument } from './types.js';
 
@@ -255,6 +256,31 @@ const migrations: readonly Migration[] = [
         tracks: Array.isArray(doc['tracks'])
           ? doc['tracks'].map((track) => backfillNleTrack(track))
           : createNleTracksFromComposition(composition ?? { tracks: [] }),
+      };
+    },
+  },
+  {
+    // v14 → v15: add the canonical shared timeline envelope. Existing top-level
+    // NLE tracks remain as transitional compatibility data while both toolsets
+    // migrate onto `timeline`.
+    fromVersion: 14,
+    toVersion: 15,
+    migrate: (doc) => {
+      const project = doc as unknown as ProjectDocument;
+      const tracks = Array.isArray(project.tracks)
+        ? project.tracks
+        : createNleTracksFromComposition(project.composition ?? { tracks: [] });
+      return {
+        ...doc,
+        version: 15,
+        tracks,
+        timeline: typeof doc['timeline'] === 'object' && doc['timeline'] !== null
+          ? doc['timeline']
+          : createSharedTimeline({
+              assets: project.assets ?? [],
+              tracks,
+              exportSettings: project.exportSettings,
+            }),
       };
     },
   },

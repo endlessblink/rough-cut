@@ -51,6 +51,7 @@ import type {
   ProjectLibraryReference,
   MotionCompositionId,
   MotionComposition,
+  ExportSettings,
 } from './types.js';
 import {
   CURRENT_SCHEMA_VERSION,
@@ -60,6 +61,7 @@ import {
   DEFAULT_BACKGROUND_COLOR,
 } from './constants.js';
 import { createNleTracksFromComposition } from './track.js';
+import { createSharedTimeline } from './shared-timeline.js';
 
 function projectId(): ProjectId {
   return generateId() as ProjectId;
@@ -506,6 +508,17 @@ export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocu
     ],
     transitions: [],
   };
+  const tracks = overrides?.tracks ?? createNleTracksFromComposition(composition);
+  const assets = overrides?.assets ?? [];
+  const exportSettings: ExportSettings = overrides?.exportSettings ?? {
+    format: 'mp4',
+    codec: 'h264',
+    bitrate: 15_000_000,
+    resolution: { ...DEFAULT_RESOLUTION },
+    frameRate: DEFAULT_FRAME_RATE,
+    keepClickSounds: true,
+  };
+
   return {
     version: CURRENT_SCHEMA_VERSION,
     id: projectId(),
@@ -521,21 +534,15 @@ export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocu
       recordingDefaults: createDefaultRecordingPresentation(),
       destinationPresetId: null,
     },
-    assets: [],
+    assets,
     composition,
     motionPresets: [],
-    exportSettings: {
-      format: 'mp4',
-      codec: 'h264',
-      bitrate: 15_000_000,
-      resolution: { ...DEFAULT_RESOLUTION },
-      frameRate: DEFAULT_FRAME_RATE,
-      keepClickSounds: true,
-    },
+    exportSettings,
     aiAnnotations: createDefaultAIAnnotations(),
     motionCompositions: [],
     libraryReferences: [],
-    tracks: overrides?.tracks ?? createNleTracksFromComposition(composition),
+    tracks,
+    timeline: overrides?.timeline ?? createSharedTimeline({ assets, tracks, exportSettings }),
     ...overrides,
   };
 }

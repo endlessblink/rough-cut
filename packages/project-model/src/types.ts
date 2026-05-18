@@ -445,4 +445,5 @@ export interface ProjectDocument {
   readonly transcript?: import('./transcript.js').Transcript;
   readonly captionTracks?: readonly import('./caption-track.js').CaptionTrack[];
   readonly tracks?: readonly import('./track.js').NleTrack[];
+  readonly timeline: import('./shared-timeline.js').SharedTimeline;
 }
