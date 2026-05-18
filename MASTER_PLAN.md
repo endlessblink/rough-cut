@@ -185,7 +185,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-143 | Image generation flow (Codex CLI $imagegen + Replicate / fal.ai fallback) | P2 | SUPERSEDED → TASK-201–204 |
 | ~~TASK-184~~ | ✅ Track model: generalized NLE tracks + migration defaults | P1 | ✅ DONE (2026-05-18) |
 | ~~TASK-185~~ | ✅ Frame resolver: video stack selection + audio mix plan | P1 | ✅ DONE (2026-05-18) |
-| TASK-186 | NLE timeline: render dynamic tracks from project data | P1 | PLANNED |
+| ~~TASK-186~~ | ✅ NLE timeline: render dynamic tracks from project data | P1 | ✅ DONE (2026-05-18) |
 | TASK-205 | Recording edit/NLE share presentation state and controls | P1 | PLANNED |
 | TASK-187 | NLE trim handles for selected clip edges | P1 | PLANNED |
 | TASK-188 | NLE drag clips within a track with collision rules | P1 | PLANNED |
@@ -506,7 +506,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-186, "NLE timeline: render dynamic tracks from project data". Use the generalized NLE tracks from TASK-184 and the resolver from TASK-185; do not fork presentation controls because TASK-205 follows immediately.
+Next task when continuing: start TASK-205, "Recording edit/NLE share presentation state and controls". Do this before trim/drag work so shared presentation controls do not fork between Recording edit and NLE.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–204). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -5416,7 +5416,7 @@ Rendering and preview need one deterministic answer for "what is active at frame
 ### TASK-186 NLE timeline: render dynamic tracks from project data
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — NLE timeline now renders project-owned dynamic tracks, including legacy recording fallback rows and empty-project guidance. Split/delete mutations keep generalized NLE track clips synchronized with composition clips until the renderer fully moves off legacy composition tracks.
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -5434,7 +5434,10 @@ The current NLE timeline has fixed display lanes. This task switches rendering t
 #### Verification
 
 - Renderer tests cover single recording, blank project, and multiple-track fixtures.
-- `pnpm smoke:ui` still passes and NLE screenshot shows dynamic rows cleanly.
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- `pnpm --filter @rough-cut/desktop test` 422/422 pass.
+- `pnpm smoke:ui` passed on retry after one unrelated vertical-aspect wait flake.
+- NLE-only smoke passed and screenshot showed dynamic rows cleanly.
 
 ### TASK-205 Recording edit/NLE share presentation state and controls
 

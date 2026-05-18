@@ -33,15 +33,44 @@ function replaceTrack(project, trackIndex, nextTrack) {
   const composition = project.document.composition;
   const tracks = composition.tracks.slice();
   tracks[trackIndex] = nextTrack;
+  const nleTracks = replaceNleTrackClips(project.document.tracks, nextTrack.id, nextTrack.clips);
   return {
     ...project,
     document: {
       ...project.document,
+      ...(nleTracks ? { tracks: nleTracks } : {}),
       composition: {
         ...composition,
         tracks,
       },
     },
+  };
+}
+
+function replaceNleTrackClips(nleTracks, trackId, compositionClips) {
+  if (!Array.isArray(nleTracks)) return null;
+  let changed = false;
+  const nextTracks = nleTracks.map((track) => {
+    if (track?.id !== trackId) return track;
+    changed = true;
+    const currentClips = Array.isArray(track.clips) ? track.clips : [];
+    return {
+      ...track,
+      clips: compositionClips.map((clip) => toNleClip(clip, currentClips)),
+    };
+  });
+  return changed ? nextTracks : nleTracks;
+}
+
+function toNleClip(clip, currentClips) {
+  const previous = currentClips.find((item) => item?.id === clip.id);
+  return {
+    id: clip.id,
+    source: previous?.source ?? { kind: 'project-asset', id: clip.assetId },
+    timelineIn: clip.timelineIn,
+    timelineOut: clip.timelineOut,
+    sourceIn: clip.sourceIn,
+    sourceOut: clip.sourceOut,
   };
 }
 

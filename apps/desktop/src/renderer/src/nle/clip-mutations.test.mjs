@@ -10,6 +10,30 @@ const makeProject = (tracks) => ({
   },
 });
 
+const makeProjectWithNleTracks = (tracks) => ({
+  ...makeProject(tracks),
+  document: {
+    ...makeProject(tracks).document,
+    tracks: tracks.map((track) => ({
+      id: track.id,
+      kind: track.type,
+      index: track.index ?? 0,
+      label: track.name ?? track.type,
+      enabled: track.visible !== false,
+      locked: track.locked === true,
+      muted: track.type === 'audio' && track.volume === 0,
+      clips: track.clips.map((clip) => ({
+        id: clip.id,
+        source: { kind: 'project-asset', id: clip.assetId },
+        timelineIn: clip.timelineIn,
+        timelineOut: clip.timelineOut,
+        sourceIn: clip.sourceIn,
+        sourceOut: clip.sourceOut,
+      })),
+    })),
+  },
+});
+
 const baseClip = {
   id: 'c1',
   assetId: 'a1',
@@ -55,6 +79,27 @@ test('splitClipById replaces the original clip with two new clips covering the s
   assert.notEqual(clips[0].id, baseClip.id);
   assert.notEqual(clips[1].id, baseClip.id);
   assert.notEqual(clips[0].id, clips[1].id);
+});
+
+test('splitClipById keeps top-level NLE tracks in sync for dynamic timeline rendering', () => {
+  const project = makeProjectWithNleTracks([{ id: 't1', type: 'video', clips: [baseClip] }]);
+  const next = splitClipById(project, 'c1', 100);
+  const compositionClips = next.document.composition.tracks[0].clips;
+  const nleClips = next.document.tracks[0].clips;
+
+  assert.equal(nleClips.length, 2);
+  assert.deepEqual(nleClips.map((clip) => clip.id), compositionClips.map((clip) => clip.id));
+  assert.deepEqual(nleClips.map((clip) => [clip.timelineIn, clip.timelineOut]), [[0, 100], [100, 300]]);
+  assert.equal(nleClips[0].source.id, 'a1');
+});
+
+test('removeClipById keeps top-level NLE tracks in sync for dynamic timeline rendering', () => {
+  const project = makeProjectWithNleTracks([{ id: 't1', type: 'video', clips: [baseClip, { ...baseClip, id: 'c2', timelineIn: 300, timelineOut: 600 }] }]);
+  const next = removeClipById(project, 'c1');
+
+  assert.equal(next.document.composition.tracks[0].clips.length, 1);
+  assert.equal(next.document.tracks[0].clips.length, 1);
+  assert.equal(next.document.tracks[0].clips[0].id, 'c2');
 });
 
 test('splitClipById is a no-op at clip edges or outside', () => {

@@ -3678,17 +3678,29 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   width: 8px;
 }
 .nleTrackLaneHeader {
-  align-items: center;
+  align-items: flex-start;
   background: rgb(255 255 255 / 0.03);
   border-radius: 6px;
   color: rgb(226 232 240 / 0.7);
   display: flex;
+  flex-direction: column;
   font-size: 0.7rem;
   font-weight: 600;
   height: 60px;
+  justify-content: center;
   letter-spacing: 0.08em;
   padding: 0 0.85rem;
   text-transform: uppercase;
+}
+.nleTrackLaneHeader.empty {
+  color: rgb(226 232 240 / 0.42);
+}
+.nleTrackLaneMeta {
+  color: rgb(226 232 240 / 0.36);
+  font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  margin-top: 0.2rem;
 }
 .nleTrackLaneBody {
   align-items: center;
@@ -3699,6 +3711,10 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   height: 60px;
   justify-content: center;
   position: relative;
+}
+.nleTrackLaneBody.empty {
+  justify-content: flex-start;
+  padding: 0 0.9rem;
 }
 .nleTrackLaneEmpty {
   color: rgb(226 232 240 / 0.35);
@@ -3726,6 +3742,14 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .nleTrackLaneBody[data-track-kind="audio"] .nleClipBlock {
   background: linear-gradient(180deg, rgb(52 211 153 / 0.3), rgb(52 211 153 / 0.16));
   border-color: rgb(52 211 153 / 0.45);
+}
+.nleTrackLaneBody[data-track-kind="captions"] .nleClipBlock {
+  background: linear-gradient(180deg, rgb(251 191 36 / 0.28), rgb(251 191 36 / 0.14));
+  border-color: rgb(251 191 36 / 0.45);
+}
+.nleTrackLaneBody[data-track-kind="motion-graphics"] .nleClipBlock {
+  background: linear-gradient(180deg, rgb(192 132 252 / 0.28), rgb(192 132 252 / 0.14));
+  border-color: rgb(192 132 252 / 0.45);
 }
 .nleClipBlock.disabled { opacity: 0.4; }
 .nleClipBlock.selected {

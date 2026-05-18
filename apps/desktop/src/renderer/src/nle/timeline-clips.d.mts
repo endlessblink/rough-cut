@@ -9,4 +9,15 @@ export interface NleLaneClipBlock {
 
 export type NleLaneKind = 'video' | 'audio' | 'captions' | 'motion-graphics';
 
+export interface NleTimelineTrackRow {
+  readonly id: string;
+  readonly kind: NleLaneKind;
+  readonly label: string;
+  readonly enabled: boolean;
+  readonly locked: boolean;
+  readonly muted: boolean;
+  readonly blocks: readonly NleLaneClipBlock[];
+}
+
 export function buildLaneClips(project: unknown, kind: NleLaneKind): NleLaneClipBlock[];
+export function buildTimelineTracks(project: unknown): NleTimelineTrackRow[];

@@ -1,7 +1,5 @@
 import React from 'react';
-import { NLE_TRACK_LANES } from './asset-format.mjs';
-import { buildLaneClips } from './timeline-clips.mjs';
-import type { NleLaneClipBlock, NleLaneKind } from './timeline-clips.mjs';
+import { buildTimelineTracks } from './timeline-clips.mjs';
 import { removeClipById } from './clip-mutations.mjs';
 import { TimelineRuler } from './timeline-ruler';
 import { isTypingTarget } from './keyboard.mjs';
@@ -92,15 +90,23 @@ export function NleTimeline({
 
   const playheadPct =
     durationFrames > 0 ? Math.max(0, Math.min(100, (playheadFrame / durationFrames) * 100)) : 0;
+  const trackRows = project ? buildTimelineTracks(project) : [];
 
   return (
     <div className="nleTimeline" data-ui-region="nle-timeline">
       <div className="nleTimelineLanes">
         <div className="nleLaneHeaders" aria-hidden="true">
           <div className="nleTimelineRulerSpacer" />
-          {NLE_TRACK_LANES.map((lane) => (
-            <div key={lane.kind} className="nleTrackLaneHeader" data-track-kind={lane.kind}>
-              {lane.label}
+          {trackRows.length === 0 ? (
+            <div className="nleTrackLaneHeader empty" data-track-kind="empty">
+              Empty
+            </div>
+          ) : trackRows.map((track) => (
+            <div key={track.id} className="nleTrackLaneHeader" data-track-kind={track.kind}>
+              <span>{track.label}</span>
+              <span className="nleTrackLaneMeta">
+                {track.locked ? 'LOCKED' : track.muted ? 'MUTED' : track.enabled ? track.kind : 'OFF'}
+              </span>
             </div>
           ))}
         </div>
@@ -116,36 +122,35 @@ export function NleTimeline({
             fps={fps}
             onSeekFrame={(clientX) => onPlayheadFrameChange(frameFromClientX(clientX, true))}
           />
-          {NLE_TRACK_LANES.map((lane) => {
-            const blocks: NleLaneClipBlock[] = project
-              ? buildLaneClips(project, lane.kind as NleLaneKind)
-              : [];
-            return (
-              <div key={lane.kind} className="nleTrackLaneBody" data-track-kind={lane.kind}>
-                {blocks.length === 0 ? (
-                  <span className="nleTrackLaneEmpty">No clips yet</span>
-                ) : (
-                  blocks.map((block, index) => {
-                    const selected = block.id !== null && block.id === selectedClipId;
-                    return (
-                      <div
-                        key={block.id ?? `${lane.kind}-${index}`}
-                        className={`nleClipBlock ${block.enabled ? '' : 'disabled'} ${selected ? 'selected' : ''}`}
-                        data-clip-id={block.id ?? ''}
-                        data-asset-id={block.assetId ?? ''}
-                        style={{ left: `${block.leftPct}%`, width: `${block.widthPct}%` }}
-                        title={block.name ?? undefined}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => handleClipClick(e, block.id)}
-                      >
-                        <span className="nleClipBlockLabel">{block.name ?? 'Clip'}</span>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            );
-          })}
+          {trackRows.length === 0 ? (
+            <div className="nleTrackLaneBody empty" data-track-kind="empty">
+              <span className="nleTrackLaneEmpty">Import media or generate an asset to start building the timeline</span>
+            </div>
+          ) : trackRows.map((track) => (
+            <div key={track.id} className="nleTrackLaneBody" data-track-kind={track.kind}>
+              {track.blocks.length === 0 ? (
+                <span className="nleTrackLaneEmpty">No clips yet</span>
+              ) : (
+                track.blocks.map((block, index) => {
+                  const selected = block.id !== null && block.id === selectedClipId;
+                  return (
+                    <div
+                      key={block.id ?? `${track.id}-${index}`}
+                      className={`nleClipBlock ${block.enabled && track.enabled ? '' : 'disabled'} ${selected ? 'selected' : ''}`}
+                      data-clip-id={block.id ?? ''}
+                      data-asset-id={block.assetId ?? ''}
+                      style={{ left: `${block.leftPct}%`, width: `${block.widthPct}%` }}
+                      title={block.name ?? undefined}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => handleClipClick(e, block.id)}
+                    >
+                      <span className="nleClipBlockLabel">{block.name ?? 'Clip'}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          ))}
           <div
             className="nlePlayhead"
             style={{ left: `${playheadPct}%` }}
