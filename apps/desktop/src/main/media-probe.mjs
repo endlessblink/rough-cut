@@ -248,6 +248,37 @@ export async function probeImportedMedia(filePath, { kind = 'video', runner = ru
   if (!stream) throw new Error(`No video stream in ${filePath}`);
   const fps = firstFiniteNumber(parseRate(stream.avg_frame_rate), parseRate(stream.r_frame_rate));
   const durationSeconds = firstFiniteNumber(stream.duration, parsed.format?.duration);
+
+  // P-AI-C/TASK-177 — second probe call for a:0 so the import factory knows
+  // whether to emit a sibling audio asset. ffprobe exits 0 with an empty
+  // `streams` array when no audio stream exists; that's the only signal
+  // we need. A failed audio probe is not fatal — the import still proceeds
+  // as a silent video, matching the pre-TASK-177 behavior.
+  let hasAudio = false;
+  let audioDurationSeconds = null;
+  let audioSampleRate = null;
+  try {
+    const audioResult = await runner('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'a:0',
+      '-show_entries', 'stream=codec_name,duration,sample_rate',
+      '-show_entries', 'format=duration',
+      '-of', 'json',
+      filePath,
+    ]);
+    if (audioResult.code === 0) {
+      const audioParsed = JSON.parse(audioResult.stdout);
+      const audioStream = Array.isArray(audioParsed.streams) ? audioParsed.streams[0] : null;
+      if (audioStream && typeof audioStream.codec_name === 'string' && audioStream.codec_name) {
+        hasAudio = true;
+        audioDurationSeconds = firstFiniteNumber(audioStream.duration, audioParsed.format?.duration);
+        audioSampleRate = toFiniteOrNull(audioStream.sample_rate);
+      }
+    }
+  } catch {
+    // Treat probe errors as "no audio detected" — import still proceeds.
+  }
+
   return {
     kind: 'video',
     width: toFiniteOrNull(stream.width),
@@ -257,6 +288,9 @@ export async function probeImportedMedia(filePath, { kind = 'video', runner = ru
     durationFrames: Number.isFinite(durationSeconds) && Number.isFinite(fps) && fps > 0
       ? Math.max(1, Math.round(durationSeconds * fps))
       : null,
+    hasAudio,
+    audioDurationSeconds,
+    audioSampleRate,
   };
 }
 

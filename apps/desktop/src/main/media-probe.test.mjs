@@ -88,23 +88,38 @@ test('probeVideoTiming derives frame count from ffprobe JSON', async () => {
   assert.equal(timing.startTimeSeconds, 0.033);
 });
 
-test('probeImportedMedia (video) returns width/height/fps/duration from ffprobe', async () => {
+// P-AI-C/TASK-177 — probeImportedMedia (video) now makes two ffprobe calls:
+// first the video stream, then a:0 to detect embedded audio. Tests use a
+// queue-based runner so each call gets its own canned response.
+function queueRunner(responses) {
+  const queue = [...responses];
+  return async () => {
+    if (queue.length === 0) throw new Error('queueRunner ran out of responses');
+    return queue.shift();
+  };
+}
+
+test('probeImportedMedia (video) returns width/height/fps/duration + hasAudio:false when no audio stream', async () => {
   const probe = await probeImportedMedia('/tmp/clip.mp4', {
     kind: 'video',
-    runner: async () => ({
-      code: 0,
-      stderr: '',
-      stdout: JSON.stringify({
-        streams: [{
-          width: 1920,
-          height: 1080,
-          duration: '12.5',
-          avg_frame_rate: '30/1',
-          r_frame_rate: '30/1',
-        }],
-        format: { duration: '12.5' },
-      }),
-    }),
+    runner: queueRunner([
+      {
+        code: 0,
+        stderr: '',
+        stdout: JSON.stringify({
+          streams: [{
+            width: 1920,
+            height: 1080,
+            duration: '12.5',
+            avg_frame_rate: '30/1',
+            r_frame_rate: '30/1',
+          }],
+          format: { duration: '12.5' },
+        }),
+      },
+      // Audio probe: ffprobe returns empty streams array for files without audio.
+      { code: 0, stderr: '', stdout: JSON.stringify({ streams: [], format: {} }) },
+    ]),
   });
   assert.equal(probe.kind, 'video');
   assert.equal(probe.width, 1920);
@@ -112,6 +127,61 @@ test('probeImportedMedia (video) returns width/height/fps/duration from ffprobe'
   assert.equal(probe.fps, 30);
   assert.equal(probe.durationSeconds, 12.5);
   assert.equal(probe.durationFrames, 375);
+  assert.equal(probe.hasAudio, false);
+  assert.equal(probe.audioDurationSeconds, null);
+  assert.equal(probe.audioSampleRate, null);
+});
+
+test('probeImportedMedia (video) reports hasAudio + sample rate when ffprobe finds a:0', async () => {
+  const probe = await probeImportedMedia('/tmp/clip.mp4', {
+    kind: 'video',
+    runner: queueRunner([
+      {
+        code: 0,
+        stderr: '',
+        stdout: JSON.stringify({
+          streams: [{
+            width: 1920, height: 1080, duration: '8',
+            avg_frame_rate: '30/1', r_frame_rate: '30/1',
+          }],
+          format: { duration: '8' },
+        }),
+      },
+      {
+        code: 0,
+        stderr: '',
+        stdout: JSON.stringify({
+          streams: [{ codec_name: 'aac', duration: '8.02', sample_rate: '48000' }],
+          format: { duration: '8' },
+        }),
+      },
+    ]),
+  });
+  assert.equal(probe.hasAudio, true);
+  assert.equal(probe.audioDurationSeconds, 8.02);
+  assert.equal(probe.audioSampleRate, 48000);
+});
+
+test('probeImportedMedia (video) treats audio-probe failure as no-audio (silent video import still succeeds)', async () => {
+  const probe = await probeImportedMedia('/tmp/clip.mp4', {
+    kind: 'video',
+    runner: queueRunner([
+      {
+        code: 0,
+        stderr: '',
+        stdout: JSON.stringify({
+          streams: [{
+            width: 1280, height: 720, duration: '3',
+            avg_frame_rate: '30/1', r_frame_rate: '30/1',
+          }],
+          format: { duration: '3' },
+        }),
+      },
+      { code: 1, stderr: 'audio probe blew up', stdout: '' },
+    ]),
+  });
+  assert.equal(probe.width, 1280);
+  assert.equal(probe.hasAudio, false);
 });
 
 test('probeImportedMedia (audio) returns duration only', async () => {

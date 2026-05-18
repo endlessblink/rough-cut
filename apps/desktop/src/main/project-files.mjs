@@ -475,6 +475,52 @@ export function createProjectForImport({
     sourceOut: durationFrames,
   });
 
+  // P-AI-C/TASK-177 — video imports with an embedded audio stream get a
+  // sibling audio asset over the same source file plus a dedicated audio
+  // track. No demux: both assets reference `importedFilePath`. The
+  // Recording-edit preview uses the asset.metadata.importKind === 'video'
+  // signal to decide whether to unmute the source video element; the audio
+  // asset/track makes the audio surface as a first-class timeline citizen
+  // for transcription + per-track mute later.
+  const includeSiblingAudio = kind === 'video' && probe?.hasAudio === true;
+  const siblingAudioAsset = includeSiblingAudio
+    ? createAsset('audio', importedFilePath, {
+        pathMode: 'absolute',
+        duration: durationFrames,
+        metadata: {
+          width: null,
+          height: null,
+          fps: null,
+          sourceFps: null,
+          mimeType: typeof mimeType === 'string' ? mimeType : null,
+          importedAt: now.toISOString(),
+          importKind: 'video',
+          sourceAssetId: asset.id,
+          audioSampleRate: toFiniteOrNull(probe?.audioSampleRate),
+        },
+      })
+    : null;
+  const siblingAudioTrack = includeSiblingAudio
+    ? createTrack('audio', { name: 'Imported audio', index: 1 })
+    : null;
+  const siblingAudioClip = includeSiblingAudio
+    ? createClip(siblingAudioAsset.id, siblingAudioTrack.id, {
+        name: `${name} (audio)`,
+        timelineIn: 0,
+        timelineOut: durationFrames,
+        sourceIn: 0,
+        sourceOut: durationFrames,
+      })
+    : null;
+
+  const assets = includeSiblingAudio ? [asset, siblingAudioAsset] : [asset];
+  const tracks = includeSiblingAudio
+    ? [
+        { ...track, clips: [clip] },
+        { ...siblingAudioTrack, clips: [siblingAudioClip] },
+      ]
+    : [{ ...track, clips: [clip] }];
+
   return validateProject(
     createProject({
       name,
@@ -487,10 +533,10 @@ export function createProjectForImport({
         sampleRate: 48000,
         destinationPresetId: null,
       },
-      assets: [asset],
+      assets,
       composition: {
         duration: durationFrames,
-        tracks: [{ ...track, clips: [clip] }],
+        tracks,
         transitions: [],
       },
       exportSettings: {
@@ -712,4 +758,9 @@ function getPrimaryAssetClip(project, asset) {
 function ensureEven(value) {
   const rounded = Math.max(2, Math.round(value));
   return rounded % 2 === 0 ? rounded : rounded + 1;
+}
+
+function toFiniteOrNull(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }

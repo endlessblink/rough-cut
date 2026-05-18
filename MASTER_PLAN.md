@@ -156,6 +156,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-168~~ | ✅ Import creates a new .roughcut referencing the imported file | P2 | ✅ DONE (2026-05-18) |
 | ~~TASK-169~~ | ✅ Blank-project handler + Recording edit safe-empty-state | P2 | ✅ DONE (2026-05-18) |
 | ~~TASK-170~~ | ✅ Template picker stub modal (3 entries, no execution yet) | P3 | ✅ DONE (2026-05-18) |
+| TASK-177 | Import audio passthrough (embedded video audio + audio-only imports) | P2 | ⚠️ DATA-LAYER DONE (2026-05-18) / RENDERER VERIFY |
 | TASK-128 | WhisperX install flow + OpenAI Whisper API cloud fallback | P1 | PLANNED |
 | TASK-129 | Transcript IPC + persistence inside .roughcut | P1 | PLANNED |
 | ~~TASK-171~~ | ✅ NLE: register 'nle' AppViewId + APP_VIEWS entry + 4th tab in strip | P1 | ✅ DONE (2026-05-18) |
@@ -4648,7 +4649,7 @@ After TASK-167 picks a valid file, create a new `.roughcut` project that referen
 ### TASK-177 Import audio passthrough (embedded video audio + audio-only imports)
 
 **Priority:** P2
-**Status:** PLANNED
+**Status:** ⚠️ DATA-LAYER DONE / RENDERER VERIFY (2026-05-18) — `probeImportedMedia` now makes a second ffprobe call on a:0 for video imports, returning `hasAudio` / `audioDurationSeconds` / `audioSampleRate`; `createProjectForImport` emits a sibling audio asset + dedicated audio track over the same source `filePath` when `probe.hasAudio === true`. Tests added in `media-probe.test.mjs` (hasAudio detection + failed audio probe = silent video import) and `project-files.test.mjs` (two assets/tracks when hasAudio, single asset when not). Renderer-side acceptance criteria (preview audio gating + export audio passthrough) inspected: the primary preview `<video>` has no explicit `muted` attr or programmatic mute, and `export-service.mjs` already maps `0:a?` so embedded audio survives export by default. The spec's "video element is effectively muted" description does not match the current renderer — no mute to flip. Imports may already play audio after the data-layer change. **Manual verification still required:** import a recorded mp4 → confirm preview audio + exported mp4 has an audio stream; import an mp3 → confirm preview + export. If silent playback reproduces, file a follow-up with the specific path.
 **Lane:** P-AI-C follow-up
 **Follows:** TASK-168
 

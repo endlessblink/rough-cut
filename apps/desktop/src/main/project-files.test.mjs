@@ -852,6 +852,49 @@ test('createProjectForImport handles images with the default 5s duration', () =>
   assert.equal(project.composition.duration, 150);
 });
 
+// P-AI-C/TASK-177 — audio passthrough for video imports with embedded audio.
+test('createProjectForImport emits a sibling audio asset + audio track when video probe reports hasAudio', () => {
+  const project = createProjectForImport({
+    importedFilePath: '/tmp/imports/with-sound.mp4',
+    mimeType: 'video/mp4',
+    probe: {
+      width: 1920, height: 1080, fps: 30, durationSeconds: 4, durationFrames: 120,
+      hasAudio: true, audioDurationSeconds: 4.02, audioSampleRate: 48000,
+    },
+  });
+
+  // Two assets — video + audio — both pointing at the same source file.
+  assert.equal(project.assets.length, 2);
+  const [videoAsset, audioAsset] = project.assets;
+  assert.equal(videoAsset.type, 'video');
+  assert.equal(audioAsset.type, 'audio');
+  assert.equal(videoAsset.filePath, '/tmp/imports/with-sound.mp4');
+  assert.equal(audioAsset.filePath, '/tmp/imports/with-sound.mp4');
+  assert.equal(audioAsset.metadata.importKind, 'video');
+  assert.equal(audioAsset.metadata.sourceAssetId, videoAsset.id);
+  assert.equal(audioAsset.metadata.audioSampleRate, 48000);
+
+  // Two tracks — video + audio — each carrying its asset's clip.
+  assert.equal(project.composition.tracks.length, 2);
+  const trackTypes = project.composition.tracks.map((t) => t.type);
+  assert.deepEqual(trackTypes, ['video', 'audio']);
+  assert.equal(project.composition.tracks[1].clips[0].assetId, audioAsset.id);
+});
+
+test('createProjectForImport stays single-asset when video probe reports hasAudio:false (silent video import unchanged)', () => {
+  const project = createProjectForImport({
+    importedFilePath: '/tmp/silent.mp4',
+    mimeType: 'video/mp4',
+    probe: {
+      width: 1280, height: 720, fps: 30, durationSeconds: 2, durationFrames: 60,
+      hasAudio: false,
+    },
+  });
+  assert.equal(project.assets.length, 1);
+  assert.equal(project.assets[0].type, 'video');
+  assert.equal(project.composition.tracks.length, 1);
+});
+
 test('createProjectForImport rejects an empty importedFilePath', () => {
   assert.throws(
     () => createProjectForImport({ importedFilePath: '', mimeType: 'video/mp4', probe: {} }),
