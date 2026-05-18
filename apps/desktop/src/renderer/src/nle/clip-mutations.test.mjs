@@ -34,6 +34,34 @@ const makeProjectWithNleTracks = (tracks) => ({
   },
 });
 
+const makeProjectWithSharedTimelineTracks = (tracks, timelineTracks = tracks.map(toNleTrack)) => ({
+  ...makeProjectWithNleTracks(tracks),
+  document: {
+    ...makeProjectWithNleTracks(tracks).document,
+    timeline: { tracks: timelineTracks },
+  },
+});
+
+function toNleTrack(track) {
+  return {
+    id: track.id,
+    kind: track.type,
+    index: track.index ?? 0,
+    label: track.name ?? track.type,
+    enabled: track.visible !== false,
+    locked: track.locked === true,
+    muted: track.type === 'audio' && track.volume === 0,
+    clips: track.clips.map((clip) => ({
+      id: clip.id,
+      source: { kind: 'project-asset', id: clip.assetId },
+      timelineIn: clip.timelineIn,
+      timelineOut: clip.timelineOut,
+      sourceIn: clip.sourceIn,
+      sourceOut: clip.sourceOut,
+    })),
+  };
+}
+
 const baseClip = {
   id: 'c1',
   assetId: 'a1',
@@ -100,6 +128,20 @@ test('removeClipById keeps top-level NLE tracks in sync for dynamic timeline ren
   assert.equal(next.document.composition.tracks[0].clips.length, 1);
   assert.equal(next.document.tracks[0].clips.length, 1);
   assert.equal(next.document.tracks[0].clips[0].id, 'c2');
+});
+
+test('removeClipById uses shared timeline tracks first and mirrors transitional fields', () => {
+  const compositionClip = { ...baseClip, timelineOut: 300, sourceOut: 300 };
+  const timelineClip = { id: 'c1', source: { kind: 'project-asset', id: 'a1' }, timelineIn: 40, timelineOut: 260, sourceIn: 40, sourceOut: 260 };
+  const project = makeProjectWithSharedTimelineTracks(
+    [{ id: 't1', type: 'video', clips: [compositionClip, { ...baseClip, id: 'c2', timelineIn: 300, timelineOut: 600 }] }],
+    [{ id: 't1', kind: 'video', index: 0, label: 'Video', enabled: true, locked: false, muted: false, clips: [timelineClip] }],
+  );
+
+  const next = removeClipById(project, 'c1');
+  assert.equal(next.document.timeline.tracks[0].clips.length, 0);
+  assert.deepEqual(next.document.tracks[0].clips.map((clip) => clip.id), []);
+  assert.deepEqual(next.document.composition.tracks[0].clips.map((clip) => clip.id), []);
 });
 
 test('splitClipById is a no-op at clip edges or outside', () => {
@@ -182,4 +224,31 @@ test('trimClipById keeps top-level NLE tracks in sync', () => {
   assert.equal(next.document.composition.tracks[0].clips[0].timelineIn, 90);
   assert.equal(next.document.tracks[0].clips[0].timelineIn, 90);
   assert.equal(next.document.tracks[0].clips[0].sourceIn, 90);
+});
+
+test('splitClipById keeps shared timeline, top-level tracks, and composition tracks in sync', () => {
+  const project = makeProjectWithSharedTimelineTracks([{ id: 't1', type: 'video', clips: [baseClip] }]);
+  const next = splitClipById(project, 'c1', 120);
+
+  const timelineClips = next.document.timeline.tracks[0].clips;
+  const nleClips = next.document.tracks[0].clips;
+  const compositionClips = next.document.composition.tracks[0].clips;
+  assert.equal(timelineClips.length, 2);
+  assert.deepEqual(nleClips.map((clip) => clip.id), timelineClips.map((clip) => clip.id));
+  assert.deepEqual(compositionClips.map((clip) => clip.id), timelineClips.map((clip) => clip.id));
+  assert.deepEqual(timelineClips.map((clip) => [clip.timelineIn, clip.timelineOut]), [[0, 120], [120, 300]]);
+  assert.deepEqual(compositionClips.map((clip) => clip.assetId), ['a1', 'a1']);
+});
+
+test('trimClipById uses shared timeline source range when mirrors are stale', () => {
+  const project = makeProjectWithSharedTimelineTracks(
+    [{ id: 't1', type: 'video', clips: [{ ...baseClip, timelineIn: 0, timelineOut: 300, sourceIn: 0, sourceOut: 300 }] }],
+    [{ id: 't1', kind: 'video', index: 0, label: 'Video', enabled: true, locked: false, muted: false, clips: [{ id: 'c1', source: { kind: 'project-asset', id: 'a1' }, timelineIn: 50, timelineOut: 250, sourceIn: 50, sourceOut: 250 }] }],
+  );
+
+  const next = trimClipById(project, 'c1', 'left', 80);
+  assert.equal(next.document.timeline.tracks[0].clips[0].timelineIn, 80);
+  assert.equal(next.document.timeline.tracks[0].clips[0].sourceIn, 80);
+  assert.equal(next.document.tracks[0].clips[0].timelineIn, 80);
+  assert.equal(next.document.composition.tracks[0].clips[0].timelineIn, 80);
 });

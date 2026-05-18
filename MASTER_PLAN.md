@@ -192,7 +192,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-207~~ | ✅ Shared timeline schema for sources, tracks, clips, markers | P1 | ✅ DONE (2026-05-19) |
 | ~~TASK-208~~ | ✅ Migrate Recording edit cuts/trims into shared timeline | P1 | ✅ DONE (2026-05-19) |
 | ~~TASK-209~~ | ✅ Recording edit selectors/actions over shared timeline | P1 | ✅ DONE (2026-05-19) |
-| TASK-210 | NLE selectors/actions over shared timeline | P1 | PLANNED |
+| ~~TASK-210~~ | ✅ NLE selectors/actions over shared timeline | P1 | ✅ DONE (2026-05-19) |
 | TASK-211 | Replace trim UI with local preview sessions | P1 | PLANNED |
 | TASK-212 | Shared export composition/EDL from one timeline | P1 | PLANNED |
 | TASK-213 | Cross-tool sync and migration smoke coverage | P1 | PLANNED |
@@ -514,7 +514,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-210, "NLE selectors/actions over shared timeline". Do not continue TASK-188 drag or TASK-187 trim rework until the shared timeline foundation tasks are complete.
+Next task when continuing: start TASK-211, "Replace trim UI with local preview sessions". Do not continue TASK-188 drag until the shared timeline foundation tasks are complete.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–204). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -5613,7 +5613,7 @@ Recording edit remains a canonical editing surface, but its tools must operate o
 ### TASK-210 NLE selectors/actions over shared timeline
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** DONE (2026-05-19)
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -5632,6 +5632,13 @@ NLE is the advanced toolset for the same timeline. Its track/clip view must not 
 
 - Renderer tests cover NLE split/delete appearing in Recording edit.
 - Source guards prevent NLE-only parallel cut/clip stores for shared concepts.
+
+#### Completed Notes
+
+- NLE timeline rows now render from canonical `document.timeline.tracks` first, then transitional top-level `document.tracks`, then legacy `composition.tracks`.
+- NLE remove/split/trim actions locate clips in shared timeline tracks first and mirror the resulting track clips into top-level NLE tracks and legacy composition tracks.
+- Added regression coverage for stale top-level mirrors, shared-timeline-first trim reads, and split/remove synchronization across all transitional stores.
+- Verified with focused NLE renderer tests, desktop typecheck, and full desktop test suite.
 
 ### TASK-211 Replace trim UI with local preview sessions
 

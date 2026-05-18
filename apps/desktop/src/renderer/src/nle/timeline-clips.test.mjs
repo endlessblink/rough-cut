@@ -13,6 +13,14 @@ const makeNleProject = ({ duration = 300, tracks = [] } = {}) => ({
   },
 });
 
+const makeSharedTimelineProject = ({ duration = 300, timelineTracks = [], tracks = [] } = {}) => ({
+  document: {
+    composition: { duration, tracks: [] },
+    tracks,
+    timeline: { tracks: timelineTracks },
+  },
+});
+
 test('buildLaneClips returns [] for null/empty projects', () => {
   assert.deepEqual(buildLaneClips(null, 'video'), []);
   assert.deepEqual(buildLaneClips({}, 'video'), []);
@@ -57,6 +65,40 @@ test('buildTimelineTracks maps single-recording NLE tracks into dynamic rows', (
   assert.equal(rows[0].label, 'Screen Recording');
   assert.equal(rows[0].blocks[0].assetId, 'recording-asset');
   assert.equal(rows[0].blocks[0].widthPct, 100);
+});
+
+test('buildTimelineTracks reads shared timeline tracks before transitional top-level tracks', () => {
+  const project = makeSharedTimelineProject({
+    duration: 200,
+    timelineTracks: [{
+      id: 'timeline-v1',
+      kind: 'video',
+      index: 0,
+      label: 'Canonical Video',
+      enabled: true,
+      locked: false,
+      muted: false,
+      clips: [{ id: 'canonical', source: { kind: 'project-asset', id: 'asset-canonical' }, timelineIn: 50, timelineOut: 150, sourceIn: 0, sourceOut: 100 }],
+    }],
+    tracks: [{
+      id: 'stale-v1',
+      kind: 'video',
+      index: 0,
+      label: 'Stale Video',
+      enabled: true,
+      locked: false,
+      muted: false,
+      clips: [{ id: 'stale', source: { kind: 'project-asset', id: 'asset-stale' }, timelineIn: 0, timelineOut: 200, sourceIn: 0, sourceOut: 200 }],
+    }],
+  });
+
+  const rows = buildTimelineTracks(project);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, 'timeline-v1');
+  assert.equal(rows[0].label, 'Canonical Video');
+  assert.equal(rows[0].blocks[0].id, 'canonical');
+  assert.equal(rows[0].blocks[0].leftPct, 25);
+  assert.equal(rows[0].blocks[0].widthPct, 50);
 });
 
 test('buildTimelineTracks preserves multi-track order and generated track kinds', () => {

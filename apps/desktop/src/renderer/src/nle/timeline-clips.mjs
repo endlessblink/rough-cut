@@ -17,8 +17,9 @@ export function buildTimelineTracks(project) {
   const totalFrames = Number(composition?.duration);
   if (!Number.isFinite(totalFrames) || totalFrames <= 0) return [];
 
+  const timelineTracks = Array.isArray(document?.timeline?.tracks) ? document.timeline.tracks : null;
   const nleTracks = Array.isArray(document?.tracks) ? document.tracks : null;
-  const tracks = nleTracks ?? buildLegacyTracks(composition);
+  const tracks = timelineTracks ?? nleTracks ?? buildLegacyTracks(composition);
   return tracks
     .filter((track) => track && SUPPORTED_KINDS.includes(track.kind))
     .sort((a, b) => Number(b.index ?? 0) - Number(a.index ?? 0))

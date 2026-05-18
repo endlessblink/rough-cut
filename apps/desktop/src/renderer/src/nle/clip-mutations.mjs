@@ -15,39 +15,52 @@ function newClipId(prefix) {
 }
 
 function findClipLocation(project, clipId) {
-  const tracks = project?.document?.composition?.tracks;
-  if (!Array.isArray(tracks)) return null;
-  for (let trackIndex = 0; trackIndex < tracks.length; trackIndex += 1) {
-    const track = tracks[trackIndex];
-    const clips = Array.isArray(track?.clips) ? track.clips : [];
-    for (let clipIndex = 0; clipIndex < clips.length; clipIndex += 1) {
-      if (clips[clipIndex]?.id === clipId) {
-        return { trackIndex, clipIndex, track, clip: clips[clipIndex] };
+  const document = project?.document;
+  const candidates = [document?.timeline?.tracks, document?.tracks, document?.composition?.tracks];
+
+  for (const tracks of candidates) {
+    if (!Array.isArray(tracks)) continue;
+    for (let trackIndex = 0; trackIndex < tracks.length; trackIndex += 1) {
+      const track = tracks[trackIndex];
+      const clips = Array.isArray(track?.clips) ? track.clips : [];
+      for (let clipIndex = 0; clipIndex < clips.length; clipIndex += 1) {
+        if (clips[clipIndex]?.id === clipId) {
+          return { trackIndex, clipIndex, track, clip: clips[clipIndex] };
+        }
       }
     }
   }
   return null;
 }
 
-function replaceTrack(project, trackIndex, nextTrack) {
+function replaceTrack(project, loc, nextTrack) {
+  const trackId = nextTrack?.id ?? loc.track?.id;
   const composition = project.document.composition;
-  const tracks = composition.tracks.slice();
-  tracks[trackIndex] = nextTrack;
-  const nleTracks = replaceNleTrackClips(project.document.tracks, nextTrack.id, nextTrack.clips);
+  const compositionTracks = replaceCompositionTrack(project.document.composition?.tracks, trackId, nextTrack);
+  const nleTracks = replaceNleTrack(project.document.tracks, trackId, nextTrack);
+  const timelineTracks = replaceNleTrack(project.document.timeline?.tracks, trackId, nextTrack);
   return {
     ...project,
     document: {
       ...project.document,
       ...(nleTracks ? { tracks: nleTracks } : {}),
+      ...(project.document.timeline
+        ? {
+            timeline: {
+              ...project.document.timeline,
+              ...(timelineTracks ? { tracks: timelineTracks } : {}),
+            },
+          }
+        : {}),
       composition: {
         ...composition,
-        tracks,
+        ...(compositionTracks ? { tracks: compositionTracks } : {}),
       },
     },
   };
 }
 
-function replaceNleTrackClips(nleTracks, trackId, compositionClips) {
+function replaceNleTrack(nleTracks, trackId, nextTrack) {
   if (!Array.isArray(nleTracks)) return null;
   let changed = false;
   const nextTracks = nleTracks.map((track) => {
@@ -56,17 +69,48 @@ function replaceNleTrackClips(nleTracks, trackId, compositionClips) {
     const currentClips = Array.isArray(track.clips) ? track.clips : [];
     return {
       ...track,
-      clips: compositionClips.map((clip) => toNleClip(clip, currentClips)),
+      clips: (nextTrack.clips ?? []).map((clip) => toNleClip(clip, currentClips)),
     };
   });
   return changed ? nextTracks : nleTracks;
 }
 
+function replaceCompositionTrack(compositionTracks, trackId, nextTrack) {
+  if (!Array.isArray(compositionTracks)) return null;
+  let changed = false;
+  const nextTracks = compositionTracks.map((track) => {
+    if (track?.id !== trackId) return track;
+    changed = true;
+    const currentClips = Array.isArray(track.clips) ? track.clips : [];
+    return {
+      ...track,
+      clips: (nextTrack.clips ?? []).map((clip) => toCompositionClip(clip, currentClips)),
+    };
+  });
+  return changed ? nextTracks : compositionTracks;
+}
+
 function toNleClip(clip, currentClips) {
   const previous = currentClips.find((item) => item?.id === clip.id);
+  const source = clip.source && typeof clip.source === 'object' ? clip.source : null;
   return {
     id: clip.id,
-    source: previous?.source ?? { kind: 'project-asset', id: clip.assetId },
+    source: previous?.source ?? source ?? { kind: 'project-asset', id: clip.assetId },
+    timelineIn: clip.timelineIn,
+    timelineOut: clip.timelineOut,
+    sourceIn: clip.sourceIn,
+    sourceOut: clip.sourceOut,
+  };
+}
+
+function toCompositionClip(clip, currentClips) {
+  const previous = currentClips.find((item) => item?.id === clip.id);
+  const source = clip.source && typeof clip.source === 'object' ? clip.source : null;
+  const assetId = previous?.assetId ?? clip.assetId ?? (source?.kind === 'project-asset' ? source.id : undefined);
+  return {
+    ...(previous ?? {}),
+    id: clip.id,
+    ...(assetId ? { assetId } : {}),
     timelineIn: clip.timelineIn,
     timelineOut: clip.timelineOut,
     sourceIn: clip.sourceIn,
@@ -79,10 +123,10 @@ function toNleClip(clip, currentClips) {
 export function removeClipById(project, clipId) {
   const loc = findClipLocation(project, clipId);
   if (!loc) return project;
-  const { trackIndex, track, clipIndex } = loc;
+  const { track, clipIndex } = loc;
   const nextClips = track.clips.slice();
   nextClips.splice(clipIndex, 1);
-  return replaceTrack(project, trackIndex, { ...track, clips: nextClips });
+  return replaceTrack(project, loc, { ...track, clips: nextClips });
 }
 
 // Split a clip at a timeline frame using the half-open invariant from
@@ -96,7 +140,7 @@ export function splitClipById(project, clipId, splitFrame) {
   const left = { ...split.left, id: newClipId('clip-l') };
   const right = { ...split.right, id: newClipId('clip-r') };
   const nextTrack = applySplitOnTrack(loc.track, clipId, left, right);
-  return replaceTrack(project, loc.trackIndex, nextTrack);
+  return replaceTrack(project, loc, nextTrack);
 }
 
 export function canSplitClipById(project, clipId, splitFrame) {
@@ -147,7 +191,7 @@ export function trimClipById(project, clipId, edge, frame) {
 
   const nextClips = track.clips.slice();
   nextClips[clipIndex] = nextClipValue;
-  return replaceTrack(project, loc.trackIndex, { ...track, clips: nextClips });
+  return replaceTrack(project, loc, { ...track, clips: nextClips });
 }
 
 function nearestPreviousClip(clips, clipIndex) {
