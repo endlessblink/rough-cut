@@ -3624,6 +3624,40 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   gap: 0.4rem;
   position: relative;
 }
+.nleTimelineRulerSpacer {
+  height: 28px;
+}
+.nleTimelineRuler {
+  background: rgb(255 255 255 / 0.02);
+  border: 1px solid rgb(255 255 255 / 0.04);
+  border-radius: 6px;
+  cursor: ew-resize;
+  flex: 0 0 28px;
+  position: relative;
+}
+.nleTimelineRulerTick {
+  background: rgb(226 232 240 / 0.28);
+  bottom: 0;
+  display: block;
+  pointer-events: none;
+  position: absolute;
+  top: 12px;
+  width: 1px;
+}
+.nleTimelineRulerTick.major {
+  background: rgb(226 232 240 / 0.5);
+  top: 7px;
+}
+.nleTimelineRulerLabel {
+  color: rgb(226 232 240 / 0.62);
+  font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+  left: 5px;
+  letter-spacing: 0.02em;
+  position: absolute;
+  top: -5px;
+  white-space: nowrap;
+}
 .nlePlayhead {
   background: rgb(248 113 113 / 0.9);
   bottom: 0;

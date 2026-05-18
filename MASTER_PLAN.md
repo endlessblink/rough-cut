@@ -4692,6 +4692,35 @@ After TASK-178 made clip blocks visible, the next gap was that the lanes were in
 - `pnpm smoke:ui` passes.
 - Hands-on iteration **required** — Chromium media quirks on Linux/X11 (autoplay, RVFC presence, seek latency on h264) need real testing.
 
+### TASK-180 NLE: time ruler with adaptive ticks above lanes
+
+**Priority:** P1
+**Status:** ✅ DONE (2026-05-18) — NLE timeline now renders a compact time ruler above the lane bodies with adaptive major labels, second-level minor ticks when labels are sparse, click-to-seek, and drag-scrub support. The ruler is measured against the bodies column and the playhead line extends through it.
+**Lane:** P-AI-E follow-up
+**Follows:** TASK-179
+**Pulled-forward-from:** TASK-140
+
+#### Context
+
+TASK-179 made the NLE interactive, but the playhead had no time landmarks beyond its relative position in the lane strip. This made the editor feel unfinished and made scrubbing harder to orient. TASK-180 adds the smallest pro-editor cue: a ruler that lives above the tracks, uses the same body-column frame math as lane scrubbing, and avoids introducing timeline zoom.
+
+#### Acceptance Criteria
+
+- New `nle/timeline-ruler.tsx` renders ticks above the lanes, inside `.nleTimelineLanes`.
+- Ruler spans only the lane bodies column, not the lane header column.
+- `nle/ruler-ticks.mjs` picks adaptive major intervals: 1s for short timelines, 5s+ for medium timelines, and wider intervals for long timelines while preserving at least 40px between labels.
+- Major labels use `mm:ss:00`; minor ticks render at one-second intervals when major labels are wider than one second.
+- Clicking or drag-scrubbing the ruler seeks with the same body-column `frameFromClientX` math as the lane bodies.
+- The playhead line extends through the ruler.
+
+#### Verification
+
+- `nle/ruler-ticks.test.mjs` covers short, medium, long, minimum label spacing, generated major/minor ticks, and `mm:ss:00` formatting.
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- `pnpm --filter @rough-cut/desktop test` 409/409 pass.
+- `pnpm smoke:ui` passes.
+- NLE-only visual smoke: `nle-ruler-result.json` reports `hasNleRuler`, `hasNleRulerLabels`, `hasNlePlayhead`, `hasNleClipBlock`, and `rulerAlignedToBodies`; screenshot verified at `/tmp/rough-cut-ui-smoke-RREzT1/nle-ruler-smoke.png`.
+
 ### TASK-178 NLE: read-only clip blocks on Video / Audio lanes
 
 **Priority:** P2

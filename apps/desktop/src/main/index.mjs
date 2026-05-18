@@ -158,6 +158,8 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
           ? runRendererSidebarLayoutSmoke
           : process.env.ROUGH_CUT_UI_SMOKE_RECORD_FLOW === '1'
           ? runRendererRecordingFlowSmoke
+          : process.env.ROUGH_CUT_UI_SMOKE_NLE_ONLY === '1'
+          ? runRendererNleSmoke
           : runRendererUiSmoke;
         const result = await window.webContents.executeJavaScript(
           `(${smokeFunction.toString()})(${JSON.stringify({
@@ -256,6 +258,7 @@ function waitForRendererLoad(webContents, timeoutMs = 30000) {
 // editor surface being mounted at boot time out waiting for the Inspector.
 function rendererInitialView({ mode, projectPath }) {
   if (mode === 'recorder') return null;
+  if (process.env.ROUGH_CUT_UI_SMOKE_FORCE_NLE === '1') return 'nle';
   if (projectPath) return 'editor';
   if (process.env.ROUGH_CUT_UI_SMOKE_FORCE_EDITOR === '1') return 'editor';
   return null;
@@ -1554,5 +1557,39 @@ async function runRendererEditorLoadedSmoke() {
     hasStyledPreviewCanvas: Boolean(document.querySelector('canvas.styledPreviewCanvas')),
     hasVideo: Boolean(document.querySelector('video')),
     duration: document.querySelector('video')?.duration ?? null,
+  };
+}
+
+async function runRendererNleSmoke() {
+  const waitFor = async (predicate, label, timeoutMs = 10000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const value = predicate();
+      if (value) return value;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`Timed out waiting for ${label}; body=${document.body.innerText.slice(0, 800)}`);
+  };
+
+  await waitFor(() => document.body.textContent?.includes('preview-source') || document.querySelector('[data-ui-region="nle-workspace"]'), 'loaded smoke project', 30000);
+  const nleTab = document.querySelector('button[title="Editor"]')
+    ?? Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Editor'));
+  nleTab?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  await waitFor(() => document.querySelector('[data-ui-region="nle-workspace"]'), `NLE workspace; tabs=${Array.from(document.querySelectorAll('button')).map((button) => button.textContent?.trim()).join('|')}`);
+  const ruler = await waitFor(() => document.querySelector('[data-ui-region="nle-time-ruler"]'), 'NLE time ruler');
+  const labels = Array.from(document.querySelectorAll('.nleTimelineRulerLabel')).map((node) => node.textContent ?? '');
+  const laneBodies = document.querySelector('[data-ui-region="nle-lane-bodies"]');
+  const rulerRect = ruler.getBoundingClientRect();
+  const laneRect = laneBodies?.getBoundingClientRect();
+
+  return {
+    ok: true,
+    hasNleWorkspace: Boolean(document.querySelector('[data-ui-region="nle-workspace"]')),
+    hasNleRuler: Boolean(ruler),
+    hasNleRulerLabels: labels.length > 0,
+    firstNleRulerLabel: labels[0] ?? null,
+    hasNlePlayhead: Boolean(document.querySelector('.nlePlayhead')),
+    hasNleClipBlock: Boolean(document.querySelector('.nleClipBlock')),
+    rulerAlignedToBodies: Boolean(laneRect && Math.abs(rulerRect.left - laneRect.left) <= 1 && Math.abs(rulerRect.width - laneRect.width) <= 1),
   };
 }

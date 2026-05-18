@@ -3,12 +3,14 @@ import { NLE_TRACK_LANES } from './asset-format.mjs';
 import { buildLaneClips } from './timeline-clips.mjs';
 import type { NleLaneClipBlock, NleLaneKind } from './timeline-clips.mjs';
 import { removeClipById, splitClipById } from './clip-mutations.mjs';
+import { TimelineRuler } from './timeline-ruler';
 import type { NleProject } from './types';
 
 export function NleTimeline({
   project,
   playheadFrame,
   durationFrames,
+  fps,
   selectedClipId,
   onPlayheadFrameChange,
   onSelectedClipChange,
@@ -17,6 +19,7 @@ export function NleTimeline({
   project: NleProject | null;
   playheadFrame: number;
   durationFrames: number;
+  fps: number;
   selectedClipId: string | null;
   onPlayheadFrameChange: (frame: number) => void;
   onSelectedClipChange: (clipId: string | null) => void;
@@ -99,6 +102,7 @@ export function NleTimeline({
     <div className="nleTimeline" data-ui-region="nle-timeline">
       <div className="nleTimelineLanes">
         <div className="nleLaneHeaders" aria-hidden="true">
+          <div className="nleTimelineRulerSpacer" />
           {NLE_TRACK_LANES.map((lane) => (
             <div key={lane.kind} className="nleTrackLaneHeader" data-track-kind={lane.kind}>
               {lane.label}
@@ -111,6 +115,12 @@ export function NleTimeline({
           data-ui-region="nle-lane-bodies"
           onPointerDown={startScrub}
         >
+          <TimelineRuler
+            bodiesRef={bodiesRef}
+            durationFrames={durationFrames}
+            fps={fps}
+            onSeekFrame={(clientX) => onPlayheadFrameChange(frameFromClientX(clientX))}
+          />
           {NLE_TRACK_LANES.map((lane) => {
             const blocks: NleLaneClipBlock[] = project
               ? buildLaneClips(project, lane.kind as NleLaneKind)

@@ -65,6 +65,7 @@ export function NleShell({
             project={project}
             playheadFrame={clampedPlayhead}
             durationFrames={durationFrames}
+            fps={fps}
             selectedClipId={selectedClipId}
             onPlayheadFrameChange={setPlayheadFrame}
             onSelectedClipChange={setSelectedClipId}
