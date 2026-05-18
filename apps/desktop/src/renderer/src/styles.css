@@ -1702,6 +1702,21 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   white-space: nowrap;
 }
 
+.cursorOffscreenHint {
+  align-items: center;
+  background: rgb(245 158 11 / 0.12);
+  border: 1px solid rgb(245 158 11 / 0.28);
+  border-radius: 999px;
+  color: #f5c06f;
+  display: inline-flex;
+  font-size: 0.66rem;
+  font-weight: 720;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  padding: 0.25rem 0.44rem;
+  white-space: nowrap;
+}
+
 .timelineDock {
   background: #121218;
   border-top: 1px solid var(--line);

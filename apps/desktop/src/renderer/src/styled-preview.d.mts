@@ -3,6 +3,18 @@ export function cursorAtFrame(
   currentFrame: number,
 ): { x: number; y: number } | null;
 
+export function cursorAtTimeMs(
+  cursorEvents: ReadonlyArray<{ frame?: number; timeMs?: number; x: number; y: number; type?: string }> | null | undefined,
+  currentTimeMs: number,
+  fps?: number,
+): { x: number; y: number } | null;
+
+export function getCursorBoundsStatus(
+  cursor: { x: number; y: number } | null | undefined,
+  sourceWidth: number,
+  sourceHeight: number,
+): { inside: boolean; side: 'inside' | 'left' | 'right' | 'top' | 'bottom'; distance: number } | null;
+
 export function drawCursorPath(
   ctx: CanvasRenderingContext2D,
   x: number,

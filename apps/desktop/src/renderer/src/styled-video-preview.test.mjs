@@ -12,3 +12,19 @@ test('styled video preview reads cursor events through the recording asset acces
   assert.match(source, /getCursorEvents\(document\)/);
   assert.doesNotMatch(source, /assets\?\.\[0\].*cursorEvents/s);
 });
+
+test('styled video preview draws cursor from source media time without changing video resolver asset', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+
+  assert.match(source, /cursorAtTimeMs\(cursorEvents, video\.currentTime \* 1000, fps\)/);
+  assert.doesNotMatch(source, /preferredPlaybackAssetId: recordingAssetId/);
+});
+
+test('styled video preview surfaces offscreen cursor state without clamping cursor draw', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+
+  assert.match(source, /getCursorBoundsStatus\(cursorPos, sourceWidth, sourceHeight\)/);
+  assert.match(source, /cursorBounds\?\.inside !== false/);
+  assert.match(source, /cursorOffscreenHint/);
+  assert.doesNotMatch(source, /drawCursorPath\(ctx, Math\.max/);
+});

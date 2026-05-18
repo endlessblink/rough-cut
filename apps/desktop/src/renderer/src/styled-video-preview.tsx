@@ -17,11 +17,12 @@ import {
   cameraCoversSourceTime,
   clampedCameraTime,
   coverSourceRect,
-  cursorAtFrame,
+  cursorAtTimeMs,
   cursorForResizeHandle,
   drawClickEmphasis,
   drawCursorPath,
   frameResizeHandles,
+  getCursorBoundsStatus,
   moveRectFromPointer,
   resizeHandleAtPoint,
   resizeRectFromPointer,
@@ -48,6 +49,8 @@ export type StyledPreviewProject = {
 };
 
 type CutRange = { id: string; startFrame: number; endFrame: number };
+type CursorOffscreenSide = 'left' | 'right' | 'top' | 'bottom';
+type CursorOffscreenStatus = null | { side: CursorOffscreenSide; distance: number };
 
 export function StyledVideoPreview({
   project,
@@ -96,6 +99,8 @@ export function StyledVideoPreview({
   const [sourceMediaDuration, setSourceMediaDuration] = React.useState<number | null>(null);
   const [cameraMediaDuration, setCameraMediaDuration] = React.useState<number | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [cursorOffscreen, setCursorOffscreen] = React.useState<CursorOffscreenStatus>(null);
+  const cursorOffscreenRef = React.useRef<CursorOffscreenStatus>(null);
 
   const isPlaying = controlledPlaying ?? internalPlaying;
   const src = project.mediaUrl ?? '';
@@ -149,6 +154,8 @@ export function StyledVideoPreview({
     setCameraMediaDuration(null);
     setCurrentTime(0);
     setInternalPlaying(false);
+    setCursorOffscreen(null);
+    cursorOffscreenRef.current = null;
     setError(null);
     pendingSeekRef.current = null;
     seekingRef.current = false;
@@ -255,7 +262,7 @@ export function StyledVideoPreview({
     const recordingAssetId = getPrimaryRecordingAsset(document)?.id ?? null;
     const getCursorPositionForFrame = (assetId: string, frame: number) => {
       if (!recordingAssetId || assetId !== recordingAssetId) return null;
-      const sourcePoint = cursorAtFrame(cursorEvents, frame);
+      const sourcePoint = cursorAtTimeMs(cursorEvents, (frame / fps) * 1000, fps);
       if (!sourcePoint) return null;
       return {
         x: sourcePoint.x / sourceWidth,
@@ -373,14 +380,33 @@ export function StyledVideoPreview({
       ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
       const resolvedCursor = frame.cursor;
       drawClickEmphasis(ctx, cursorEvents, currentFrame, resolvedCursor?.clickEffect ?? 'ring');
-      const cursorPos = cursorAtFrame(cursorEvents, currentFrame);
-      if (cursorPos && resolvedCursor?.visible !== false) {
+      const cursorPos = cursorAtTimeMs(cursorEvents, video.currentTime * 1000, fps);
+      const cursorBounds = getCursorBoundsStatus(cursorPos, sourceWidth, sourceHeight);
+      const nextOffscreen = cursorBounds && !cursorBounds.inside
+        ? { side: cursorBounds.side as 'left' | 'right' | 'top' | 'bottom', distance: cursorBounds.distance }
+        : null;
+      publishCursorOffscreenStatus(nextOffscreen);
+      if (cursorPos && resolvedCursor?.visible !== false && cursorBounds?.inside !== false) {
         drawCursorPath(ctx, cursorPos.x, cursorPos.y, {
           style: resolvedCursor?.style ?? 'default',
           sizePercent: resolvedCursor?.sizePercent ?? 100,
         });
       }
       ctx.restore();
+      if (nextOffscreen) {
+        drawCursorOffscreenMarker(ctx, nextOffscreen, cursorPos, {
+          screenX,
+          screenY,
+          screenWidth,
+          screenHeight,
+          screenDrawScale,
+          sourceWidth,
+          sourceHeight,
+          scale,
+          offsetX,
+          offsetY,
+        });
+      }
       const cameraHasFrame = Boolean(
         cameraVideo &&
         cameraSrc &&
@@ -440,6 +466,13 @@ export function StyledVideoPreview({
     }
     rafId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(rafId);
+    function publishCursorOffscreenStatus(next: CursorOffscreenStatus) {
+      const previous = cursorOffscreenRef.current;
+      const same = previous?.side === next?.side && Math.round((previous?.distance ?? 0) / 25) === Math.round((next?.distance ?? 0) / 25);
+      if (same) return;
+      cursorOffscreenRef.current = next;
+      setCursorOffscreen(next);
+    }
   }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background, cameraSrc, cameraSourceOffsetSec, trimStartSec, effectiveTrimEndSec, cutRanges, visibleDuration, onCurrentTimeChange]);
 
   React.useEffect(() => {
@@ -699,6 +732,11 @@ export function StyledVideoPreview({
           <span className="timecode">
             {formatClock(currentTime)} / {formatClock(visibleDuration)}
           </span>
+          {cursorOffscreen ? (
+            <span className="cursorOffscreenHint" title={`Cursor is ${Math.round(cursorOffscreen.distance)}px outside the captured screen`}>
+              Cursor off-screen {offscreenArrow(cursorOffscreen.side)}
+            </span>
+          ) : null}
           <span className="transportHint"><kbd>Space</kbd> play/pause</span>
         </div>
       ) : null}
@@ -714,6 +752,119 @@ function videoErrorMessage(video: HTMLVideoElement) {
   if (code === MediaError.MEDIA_ERR_DECODE) return 'The video could not be decoded.';
   if (code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) return 'The video source is not supported.';
   return 'Unknown media error.';
+}
+
+function offscreenArrow(side: CursorOffscreenSide) {
+  if (side === 'left') return '←';
+  if (side === 'right') return '→';
+  if (side === 'top') return '↑';
+  return '↓';
+}
+
+function drawCursorOffscreenMarker(
+  ctx: CanvasRenderingContext2D,
+  status: NonNullable<CursorOffscreenStatus>,
+  cursor: { x: number; y: number } | null,
+  geometry: {
+    screenX: number;
+    screenY: number;
+    screenWidth: number;
+    screenHeight: number;
+    screenDrawScale: number;
+    sourceWidth: number;
+    sourceHeight: number;
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+  },
+) {
+  const {
+    screenX,
+    screenY,
+    screenWidth,
+    screenHeight,
+    screenDrawScale,
+    sourceWidth,
+    sourceHeight,
+    scale,
+    offsetX,
+    offsetY,
+  } = geometry;
+  const sourceX = cursor?.x ?? sourceWidth / 2;
+  const sourceY = cursor?.y ?? sourceHeight / 2;
+  const projected = projectSourcePoint({
+    x: Math.max(0, Math.min(sourceWidth, sourceX)),
+    y: Math.max(0, Math.min(sourceHeight, sourceY)),
+    screenX,
+    screenY,
+    screenDrawScale,
+    sourceWidth,
+    sourceHeight,
+    scale,
+    offsetX,
+    offsetY,
+  });
+  const inset = 9;
+  const x = status.side === 'left'
+    ? screenX + inset
+    : status.side === 'right'
+      ? screenX + screenWidth - inset
+      : Math.max(screenX + 18, Math.min(screenX + screenWidth - 18, projected.x));
+  const y = status.side === 'top'
+    ? screenY + inset
+    : status.side === 'bottom'
+      ? screenY + screenHeight - inset
+      : Math.max(screenY + 18, Math.min(screenY + screenHeight - 18, projected.y));
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(245, 158, 11, 0.96)';
+  ctx.strokeStyle = 'rgba(45, 32, 12, 0.7)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  if (status.side === 'right' || status.side === 'left') {
+    const direction = status.side === 'right' ? 1 : -1;
+    ctx.moveTo(x + direction * 7, y);
+    ctx.lineTo(x - direction * 3, y - 6);
+    ctx.lineTo(x - direction * 3, y + 6);
+  } else {
+    const direction = status.side === 'bottom' ? 1 : -1;
+    ctx.moveTo(x, y + direction * 7);
+    ctx.lineTo(x - 6, y - direction * 3);
+    ctx.lineTo(x + 6, y - direction * 3);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function projectSourcePoint({
+  x,
+  y,
+  screenX,
+  screenY,
+  screenDrawScale,
+  sourceWidth,
+  sourceHeight,
+  scale,
+  offsetX,
+  offsetY,
+}: {
+  x: number;
+  y: number;
+  screenX: number;
+  screenY: number;
+  screenDrawScale: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+}) {
+  return {
+    x: screenX + screenDrawScale * (sourceWidth / 2 + offsetX + scale * (x - sourceWidth / 2)),
+    y: screenY + screenDrawScale * (sourceHeight / 2 + offsetY + scale * (y - sourceHeight / 2)),
+  };
 }
 
 function resolveCameraFrame(

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activeClickEmphasisAtFrame, cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFrame, cursorForResizeHandle, drawClickEmphasis, drawCursorPath, frameResizeHandles, moveRectFromPointer, resizeHandleAtPoint, resizeRectFromPointer } from './styled-preview.mjs';
+import { activeClickEmphasisAtFrame, cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFrame, cursorAtTimeMs, cursorForResizeHandle, drawClickEmphasis, drawCursorPath, frameResizeHandles, getCursorBoundsStatus, moveRectFromPointer, resizeHandleAtPoint, resizeRectFromPointer } from './styled-preview.mjs';
 
 test('cursorAtFrame returns null for empty events', () => {
   assert.equal(cursorAtFrame([], 0), null);
@@ -79,6 +79,30 @@ test('cursorAtFrame skips events with non-finite or non-move types', () => {
   // Only frame 10 and 70 are valid move events. Frame 40 should interpolate
   // between them: 100 + (700-100)*(40-10)/(70-10) = 100 + 300 = 400. y similar.
   assert.deepEqual(cursorAtFrame(events, 40), { x: 400, y: 500 });
+});
+
+test('cursorAtTimeMs prefers telemetry time over frame numbers', () => {
+  const events = [
+    { frame: 0, timeMs: 0, x: 100, y: 200, type: 'move' },
+    { frame: 60, timeMs: 1000, x: 500, y: 600, type: 'move' },
+  ];
+
+  assert.deepEqual(cursorAtTimeMs(events, 500, 24), { x: 300, y: 400 });
+});
+
+test('cursorAtTimeMs falls back to frame timing when timeMs is missing', () => {
+  const events = [
+    { frame: 0, x: 100, y: 200, type: 'move' },
+    { frame: 30, x: 500, y: 600, type: 'move' },
+  ];
+
+  assert.deepEqual(cursorAtTimeMs(events, 500, 30), { x: 300, y: 400 });
+});
+
+test('getCursorBoundsStatus reports offscreen side without clamping', () => {
+  assert.deepEqual(getCursorBoundsStatus({ x: 1311, y: 484 }, 1920, 1080), { inside: true, side: 'inside', distance: 0 });
+  assert.deepEqual(getCursorBoundsStatus({ x: 2524, y: 178 }, 1920, 1080), { inside: false, side: 'right', distance: 604 });
+  assert.deepEqual(getCursorBoundsStatus({ x: 200, y: -48 }, 1920, 1080), { inside: false, side: 'top', distance: 48 });
 });
 
 test('drawCursorPath issues canvas operations at the given anchor', () => {

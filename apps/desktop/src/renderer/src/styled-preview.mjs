@@ -58,6 +58,72 @@ export function cursorAtFrame(cursorEvents, currentFrame) {
   };
 }
 
+export function cursorAtTimeMs(cursorEvents, currentTimeMs, fps = 30) {
+  if (!Array.isArray(cursorEvents) || cursorEvents.length === 0) return null;
+  if (!Number.isFinite(currentTimeMs)) return null;
+
+  const fpsValue = Number.isFinite(fps) && fps > 0 ? fps : 30;
+  const sorted = cursorEvents
+    .map((event) => {
+      if (!event || (event.type !== undefined && event.type !== 'move')) return null;
+      if (!Number.isFinite(event.x) || !Number.isFinite(event.y)) return null;
+      const timeMs = Number.isFinite(event.timeMs)
+        ? event.timeMs
+        : Number.isFinite(event.frame)
+          ? (event.frame / fpsValue) * 1000
+          : Number.NaN;
+      return Number.isFinite(timeMs) ? { timeMs, x: event.x, y: event.y } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.timeMs - b.timeMs);
+
+  if (sorted.length === 0) return null;
+  if (currentTimeMs <= sorted[0].timeMs) return { x: sorted[0].x, y: sorted[0].y };
+  if (currentTimeMs >= sorted[sorted.length - 1].timeMs) {
+    const last = sorted[sorted.length - 1];
+    return { x: last.x, y: last.y };
+  }
+
+  let lo = 0;
+  let hi = sorted.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (sorted[mid].timeMs <= currentTimeMs) lo = mid;
+    else hi = mid;
+  }
+  const a = sorted[lo];
+  const b = sorted[hi];
+  const span = b.timeMs - a.timeMs;
+  if (span <= 0) return { x: a.x, y: a.y };
+  const t = (currentTimeMs - a.timeMs) / span;
+  return {
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+  };
+}
+
+export function getCursorBoundsStatus(cursor, sourceWidth, sourceHeight) {
+  if (!cursor || !Number.isFinite(cursor.x) || !Number.isFinite(cursor.y)) return null;
+  const width = Number.isFinite(sourceWidth) && sourceWidth > 0 ? sourceWidth : 1920;
+  const height = Number.isFinite(sourceHeight) && sourceHeight > 0 ? sourceHeight : 1080;
+  const outsideLeft = cursor.x < 0;
+  const outsideRight = cursor.x > width;
+  const outsideTop = cursor.y < 0;
+  const outsideBottom = cursor.y > height;
+  if (!outsideLeft && !outsideRight && !outsideTop && !outsideBottom) {
+    return { inside: true, side: 'inside', distance: 0 };
+  }
+
+  const distances = [
+    outsideLeft ? { side: 'left', distance: -cursor.x } : null,
+    outsideRight ? { side: 'right', distance: cursor.x - width } : null,
+    outsideTop ? { side: 'top', distance: -cursor.y } : null,
+    outsideBottom ? { side: 'bottom', distance: cursor.y - height } : null,
+  ].filter(Boolean);
+  distances.sort((a, b) => b.distance - a.distance);
+  return { inside: false, side: distances[0].side, distance: distances[0].distance };
+}
+
 export function drawCursorPath(ctx, x, y, options = {}) {
   if (!ctx) return;
   const style = options.style === 'subtle' || options.style === 'spotlight' ? options.style : 'default';
