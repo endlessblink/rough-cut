@@ -240,7 +240,7 @@ describe('ZoomMarker', () => {
   });
 });
 
-describe('v13 AI architecture schemas (P-AI-C/TASK-163)', () => {
+describe('AI architecture schemas', () => {
   it('accepts a valid Transcript', () => {
     const transcript = {
       words: [{ word: 'hello', startFrame: 0, endFrame: 12, confidence: 0.95 }],
@@ -288,10 +288,42 @@ describe('v13 AI architecture schemas (P-AI-C/TASK-163)', () => {
     const track = {
       id: 'tr-1',
       kind: 'video' as const,
+      index: 0,
       label: 'V1',
       locked: false,
       muted: false,
-      clips: [{ assetId: 'a-1', timelineIn: 0, timelineOut: 120, sourceIn: 0, sourceOut: 120 }],
+      clips: [
+        {
+          id: 'clip-1',
+          source: { kind: 'project-asset' as const, id: 'a-1' },
+          timelineIn: 0,
+          timelineOut: 120,
+          sourceIn: 0,
+          sourceOut: 120,
+        },
+      ],
+    };
+    expect(() => NleTrackSchema.parse(track)).not.toThrow();
+  });
+
+  it('accepts an NleTrack clip that references an AI asset', () => {
+    const track = {
+      id: 'tr-1',
+      kind: 'audio' as const,
+      index: 0,
+      label: 'Generated VO',
+      locked: false,
+      muted: false,
+      clips: [
+        {
+          id: 'clip-tts',
+          source: { kind: 'ai-asset' as const, id: 'ai-asset-1' },
+          timelineIn: 0,
+          timelineOut: 90,
+          sourceIn: 0,
+          sourceOut: 90,
+        },
+      ],
     };
     expect(() => NleTrackSchema.parse(track)).not.toThrow();
   });
@@ -300,6 +332,7 @@ describe('v13 AI architecture schemas (P-AI-C/TASK-163)', () => {
     const bad = {
       id: 'tr-1',
       kind: 'subtitles',
+      index: 0,
       label: 'X',
       locked: false,
       muted: false,
@@ -308,7 +341,7 @@ describe('v13 AI architecture schemas (P-AI-C/TASK-163)', () => {
     expect(NleTrackSchema.safeParse(bad).success).toBe(false);
   });
 
-  it('accepts a ProjectDocument with the new v13 fields populated', () => {
+  it('accepts a ProjectDocument with the AI architecture fields populated', () => {
     const project = createProject();
     const extended = {
       ...project,
@@ -318,6 +351,7 @@ describe('v13 AI architecture schemas (P-AI-C/TASK-163)', () => {
         {
           id: 'tr-1',
           kind: 'audio' as const,
+          index: 0,
           label: 'A1',
           locked: false,
           muted: false,
@@ -328,9 +362,10 @@ describe('v13 AI architecture schemas (P-AI-C/TASK-163)', () => {
     expect(() => validateProject(extended)).not.toThrow();
   });
 
-  it('accepts a v12-shaped ProjectDocument with none of the new fields', () => {
+  it('accepts a document with none of the optional AI architecture fields', () => {
     const project = createProject();
-    expect(() => validateProject(project)).not.toThrow();
+    const { transcript: _t, captionTracks: _ct, tracks: _tr, ...withoutAiFields } = project;
+    expect(() => validateProject(withoutAiFields)).not.toThrow();
   });
 
   it('rejects a ProjectDocument whose transcript is malformed', () => {

@@ -59,6 +59,7 @@ import {
   DEFAULT_RESOLUTION,
   DEFAULT_BACKGROUND_COLOR,
 } from './constants.js';
+import { createNleTracksFromComposition } from './track.js';
 
 function projectId(): ProjectId {
   return generateId() as ProjectId;
@@ -495,6 +496,16 @@ export function createMotionComposition(
 
 export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocument {
   const now = new Date().toISOString();
+  const composition = overrides?.composition ?? {
+    duration: 0,
+    tracks: [
+      createTrack('video', { name: 'Video 1', index: 3 }),
+      createTrack('video', { name: 'Video 2', index: 2 }),
+      createTrack('audio', { name: 'Audio 1', index: 1 }),
+      createTrack('audio', { name: 'Audio 2', index: 0 }),
+    ],
+    transitions: [],
+  };
   return {
     version: CURRENT_SCHEMA_VERSION,
     id: projectId(),
@@ -511,16 +522,7 @@ export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocu
       destinationPresetId: null,
     },
     assets: [],
-    composition: {
-      duration: 0,
-      tracks: [
-        createTrack('video', { name: 'Video 1', index: 3 }),
-        createTrack('video', { name: 'Video 2', index: 2 }),
-        createTrack('audio', { name: 'Audio 1', index: 1 }),
-        createTrack('audio', { name: 'Audio 2', index: 0 }),
-      ],
-      transitions: [],
-    },
+    composition,
     motionPresets: [],
     exportSettings: {
       format: 'mp4',
@@ -533,6 +535,7 @@ export function createProject(overrides?: Partial<ProjectDocument>): ProjectDocu
     aiAnnotations: createDefaultAIAnnotations(),
     motionCompositions: [],
     libraryReferences: [],
+    tracks: overrides?.tracks ?? createNleTracksFromComposition(composition),
     ...overrides,
   };
 }

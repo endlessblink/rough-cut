@@ -183,7 +183,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-141 | Cross-project AI asset pool (userData/ai-assets/ + index + Generated tab UI) | P2 | SUPERSEDED → TASK-192–196 |
 | TASK-142 | TTS generation flow (ElevenLabs + Codex CLI gpt-4o-mini-tts) | P2 | SUPERSEDED → TASK-197–200 |
 | TASK-143 | Image generation flow (Codex CLI $imagegen + Replicate / fal.ai fallback) | P2 | SUPERSEDED → TASK-201–204 |
-| TASK-184 | Track model: generalized NLE tracks + migration defaults | P1 | PLANNED |
+| ~~TASK-184~~ | ✅ Track model: generalized NLE tracks + migration defaults | P1 | ✅ DONE (2026-05-18) |
 | TASK-185 | Frame resolver: video stack selection + audio mix plan | P1 | PLANNED |
 | TASK-186 | NLE timeline: render dynamic tracks from project data | P1 | PLANNED |
 | TASK-187 | NLE trim handles for selected clip edges | P1 | PLANNED |
@@ -505,7 +505,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-184, "Track model: generalized NLE tracks + migration defaults". Keep it schema-only: model types, Zod/defaults, migration fixtures, and no renderer behavior yet.
+Next task when continuing: start TASK-185, "Frame resolver: video stack selection + audio mix plan". Keep it pure/model-level: no renderer behavior yet.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–204). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -5364,7 +5364,7 @@ Generate images via Codex CLI `$imagegen` (gpt-image-2, primary) with Replicate 
 ### TASK-184 Track model: generalized NLE tracks + migration defaults
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — Schema v14 now has generalized NLE tracks derived from composition tracks, with project-asset and AI-asset clip references. Existing v13 projects migrate into top-level NLE tracks; blank projects stay empty.
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -5381,8 +5381,10 @@ The NLE needs a first-class track model before renderer drag/drop or generation 
 
 #### Verification
 
-- Project-model tests cover schema validation and migration defaults from older fixtures.
-- Desktop typecheck stays clean.
+- `pnpm --filter @rough-cut/project-model typecheck` clean.
+- `pnpm --filter @rough-cut/project-model test` 149/149 pass.
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- `pnpm --filter @rough-cut/desktop test` 417/417 pass.
 
 ### TASK-185 Frame resolver: video stack selection + audio mix plan
 

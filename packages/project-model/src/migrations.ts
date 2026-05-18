@@ -1,5 +1,6 @@
 import { CURRENT_SCHEMA_VERSION } from './constants.js';
 import { validateProject } from './schemas.js';
+import { createNleTracksFromComposition } from './track.js';
 import type { ProjectDocument } from './types.js';
 
 /**
@@ -239,6 +240,23 @@ const migrations: readonly Migration[] = [
     fromVersion: 12,
     toVersion: 13,
     migrate: (doc) => ({ ...doc, version: 13 }),
+  },
+  {
+    // v13 → v14: add top-level generalized NLE tracks derived from the
+    // existing composition tracks. Future tasks will make the renderer read
+    // these directly; for now this gives existing projects a stable bridge.
+    fromVersion: 13,
+    toVersion: 14,
+    migrate: (doc) => {
+      const composition = doc['composition'] as ProjectDocument['composition'] | undefined;
+      return {
+        ...doc,
+        version: 14,
+        tracks: Array.isArray(doc['tracks'])
+          ? doc['tracks']
+          : createNleTracksFromComposition(composition ?? { tracks: [] }),
+      };
+    },
   },
 ];
 

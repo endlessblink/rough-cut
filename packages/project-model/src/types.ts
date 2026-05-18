@@ -440,9 +440,8 @@ export interface ProjectDocument {
   readonly aiAnnotations: AIAnnotations;
   readonly motionCompositions: readonly MotionComposition[];
   readonly libraryReferences: readonly ProjectLibraryReference[];
-  // v13 AI architecture additions (P-AI-C / TASK-162). All optional so v12
-  // documents continue to validate; the v12→v13 migration (TASK-164) bumps
-  // `version` without populating these fields.
+  // AI architecture additions. `tracks` is optional while renderer creation
+  // paths are migrating, but v13→v14 backfills it for existing documents.
   readonly transcript?: import('./transcript.js').Transcript;
   readonly captionTracks?: readonly import('./caption-track.js').CaptionTrack[];
   readonly tracks?: readonly import('./track.js').NleTrack[];

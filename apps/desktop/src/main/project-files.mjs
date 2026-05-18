@@ -646,8 +646,8 @@ export async function saveProjectForImport({
 // "Blank project" Library entry point and by the template-picker stub
 // (TASK-170) which will pass an aspectRatio override.
 export function createBlankProject({ name = 'Untitled', aspectRatio, now = new Date() } = {}) {
-  // createProject() already produces near-blank shape; we strip default tracks
-  // (NLE editor will own track creation) and optionally override aspectRatio.
+  // createProject() already produces near-blank shape; blank projects strip both
+  // composition and generalized NLE tracks until the user imports or creates media.
   const base = createProject({
     name,
     createdAt: now.toISOString(),
@@ -657,6 +657,7 @@ export function createBlankProject({ name = 'Untitled', aspectRatio, now = new D
     ...base,
     assets: [],
     composition: { duration: 0, tracks: [], transitions: [] },
+    tracks: [],
     settings: aspectRatio ? { ...base.settings, aspectRatio } : base.settings,
   };
   return validateProject(merged);

@@ -458,9 +458,9 @@ describe('migrations', () => {
     expect(marker?.zoomOutDuration).toBe(18);
   });
 
-  it('migrates a v12 document to v13 by stamping version only (no field changes)', () => {
+  it('migrates a v12 document through v14 with generalized NLE tracks', () => {
     // Build a realistic v12 fixture by taking a current-version project, then
-    // stripping the v13-only optional fields and rewinding `version` to 12.
+    // stripping the optional AI fields and rewinding `version` to 12.
     const project = createProject();
     const {
       transcript: _t,
@@ -472,43 +472,58 @@ describe('migrations', () => {
 
     const result = migrate(legacy);
 
-    expect(result.version).toBe(13);
-    // No other field should have changed besides version.
-    expect(result).toEqual({ ...legacy, version: 13 });
-    // The three v13 fields remain unset (optional, not auto-populated).
+    expect(result.version).toBe(14);
     expect(result.transcript).toBeUndefined();
     expect(result.captionTracks).toBeUndefined();
-    expect(result.tracks).toBeUndefined();
+    expect(result.tracks).toHaveLength(project.composition.tracks.length);
+    expect(result.tracks?.[0]).toMatchObject({
+      id: project.composition.tracks[0]?.id,
+      kind: project.composition.tracks[0]?.type,
+      label: project.composition.tracks[0]?.name,
+      index: project.composition.tracks[0]?.index,
+    });
   });
 
-  it('treats a v13 document as a no-op (re-migration is idempotent)', () => {
+  it('treats a v14 document as a no-op (re-migration is idempotent)', () => {
     const project = createProject();
     const result1 = migrate(project);
     const result2 = migrate(result1);
     expect(result2).toEqual(result1);
-    expect(result2.version).toBe(13);
+    expect(result2.version).toBe(14);
   });
 
-  it('preserves v13 fields when they are already populated on a v12 → v13 migration', () => {
+  it('preserves AI fields when they are already populated through migration', () => {
     const project = createProject();
     const legacy: Record<string, unknown> = {
       ...(project as unknown as Record<string, unknown>),
       version: 12,
       transcript: { words: [], paragraphs: [], nonSpeech: [] },
       captionTracks: [{ id: 'ct-pre', style: 'karaoke', phrases: [] }],
+      tracks: [
+        {
+          id: 'nle-pre',
+          kind: 'audio',
+          index: 0,
+          label: 'Generated VO',
+          locked: false,
+          muted: false,
+          clips: [],
+        },
+      ],
     };
 
     const result = migrate(legacy);
 
-    expect(result.version).toBe(13);
+    expect(result.version).toBe(14);
     expect(result.transcript).toEqual({ words: [], paragraphs: [], nonSpeech: [] });
     expect(result.captionTracks).toHaveLength(1);
     expect(result.captionTracks?.[0]?.id).toBe('ct-pre');
+    expect(result.tracks?.[0]?.id).toBe('nle-pre');
   });
 
-  it('chains v1 → v13 end-to-end for an ancient document', () => {
+  it('chains v1 → v14 end-to-end for an ancient document', () => {
     // Reuse the existing v1 fixture shape (zoom-marker backfill case) but
-    // verify it ends at v13 and includes none of the new optional fields.
+    // verify it ends at v14 and includes the backfilled NLE tracks.
     const project = createProject();
     const legacy = {
       ...project,
@@ -556,10 +571,20 @@ describe('migrations', () => {
 
     const result = migrate(legacy);
 
-    expect(result.version).toBe(13);
+    expect(result.version).toBe(14);
     expect(result.transcript).toBeUndefined();
     expect(result.captionTracks).toBeUndefined();
-    expect(result.tracks).toBeUndefined();
+    expect(result.tracks).toHaveLength(project.composition.tracks.length);
+  });
+
+  it('backfills v13 documents with empty NLE tracks for blank projects', () => {
+    const project = createProject({ composition: { duration: 0, tracks: [], transitions: [] } });
+    const legacy = { ...project, version: 13, tracks: undefined } as Record<string, unknown>;
+
+    const result = migrate(legacy);
+
+    expect(result.version).toBe(14);
+    expect(result.tracks).toEqual([]);
   });
 
   it('preserves an existing keepClickSounds=false on v9 -> v10', () => {

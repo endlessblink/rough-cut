@@ -953,17 +953,17 @@ test('saveProjectForImport writes the .roughcut and references the imported file
 
 // --- P-AI-C/TASK-169: Blank project ---
 
-test("createBlankProject produces a validated v13 document with empty assets/tracks", () => {
+test("createBlankProject produces a validated document with empty assets/tracks", () => {
   const project = createBlankProject({ name: "Fresh start" });
   assert.equal(project.name, "Fresh start");
   assert.equal(project.assets.length, 0);
   assert.equal(project.composition.duration, 0);
   assert.equal(project.composition.tracks.length, 0);
   assert.equal(project.composition.transitions.length, 0);
-  // v13 fields stay unset on a fresh project.
+  // Blank projects stay empty until the user imports or creates media.
   assert.equal(project.transcript, undefined);
   assert.equal(project.captionTracks, undefined);
-  assert.equal(project.tracks, undefined);
+  assert.deepEqual(project.tracks, []);
 });
 
 test("createBlankProject applies an aspectRatio override when provided (for TASK-170 templates)", () => {

@@ -453,7 +453,7 @@ export const MotionCompositionSchema = z.object({
   createdAt: z.string().datetime(),
 });
 
-// --- v13 AI architecture: transcript / caption tracks / NLE tracks (TASK-163) ---
+// --- AI architecture: transcript / caption tracks / NLE tracks ---
 
 export const TranscriptParagraphSchema = z.object({
   startFrame: nonNegativeInt,
@@ -495,13 +495,17 @@ export const CaptionTrackSchema = z.object({
   phrases: z.array(CaptionPhraseSchema),
 });
 
-// Renamed from spec's `TrackSchema` — the existing TrackSchema is the
-// composition-level track. The new NLE-level track lives alongside it under
-// `ProjectDocument.tracks?` (optional in v13).
 export const NleTrackKindSchema = z.enum(['video', 'audio', 'captions', 'motion-graphics']);
+export const NleClipSourceKindSchema = z.enum(['project-asset', 'ai-asset']);
+
+export const NleClipSourceSchema = z.object({
+  kind: NleClipSourceKindSchema,
+  id: z.string().min(1),
+});
 
 export const NleTrackClipSchema = z.object({
-  assetId: z.string().min(1),
+  id: z.string().min(1),
+  source: NleClipSourceSchema,
   timelineIn: nonNegativeInt,
   timelineOut: nonNegativeInt,
   sourceIn: nonNegativeInt,
@@ -511,6 +515,7 @@ export const NleTrackClipSchema = z.object({
 export const NleTrackSchema = z.object({
   id: z.string().min(1),
   kind: NleTrackKindSchema,
+  index: z.number().int().nonnegative(),
   label: z.string().min(1),
   locked: z.boolean(),
   muted: z.boolean(),
@@ -533,7 +538,7 @@ export const ProjectDocumentSchema = z.object({
   aiAnnotations: AIAnnotationsSchema,
   motionCompositions: z.array(MotionCompositionSchema),
   libraryReferences: z.array(ProjectLibraryReferenceSchema),
-  // v13 additions (P-AI-C / TASK-163). All optional so v12 documents still validate.
+  // AI architecture additions. Optional until renderer creation paths all own them.
   transcript: TranscriptSchema.optional(),
   captionTracks: z.array(CaptionTrackSchema).optional(),
   tracks: z.array(NleTrackSchema).optional(),
