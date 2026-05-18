@@ -4780,6 +4780,33 @@ TASK-179 made `S` split a selected clip, but there was no visible affordance. Th
 - `pnpm --filter @rough-cut/desktop test` 413/413 pass.
 - NLE-only smoke verifies the Split button is disabled before selection, enables after selecting a clip, and creates a second clip when clicked.
 
+### TASK-183 NLE: snap playhead to clip edges during scrub
+
+**Priority:** P1
+**Status:** ✅ DONE (2026-05-18) — Pointer scrubbing now snaps the NLE playhead to nearby clip edges, frame 0, and timeline end using a pixel-scaled threshold. Keyboard stepping remains unsnapped for precision.
+**Lane:** P-AI-E follow-up
+**Follows:** TASK-182
+**Pulled-forward-from:** TASK-140
+
+#### Context
+
+After click/drag scrubbing landed, stopping a few pixels away from a clip boundary was too easy. This task adds a small pro-editor behavior without introducing full magnetic timeline editing: only pointer scrub seeks snap, and the threshold scales with the current body-column width.
+
+#### Acceptance Criteria
+
+- New `nle/snap.mjs` exports `snapFrameToClipEdges(targetFrame, project, snapPixelsToFrames)`.
+- Snap candidates include `timelineIn` and `timelineOut` for clips on all tracks.
+- Snap candidates also include frame 0 and `composition.duration`.
+- The effective threshold is about 6px, converted to frames from the current lane-body width.
+- Snapping is wired into pointer/ruler scrubbing only; keyboard frame-step remains exact.
+
+#### Verification
+
+- `nle/snap.test.mjs` covers candidates from all tracks, threshold boundaries, timeline bounds, and open-space no-op behavior.
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- `pnpm --filter @rough-cut/desktop test` 417/417 pass.
+- `pnpm smoke:ui` passes.
+
 ### TASK-178 NLE: read-only clip blocks on Video / Audio lanes
 
 **Priority:** P2

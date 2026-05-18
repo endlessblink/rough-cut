@@ -5,6 +5,7 @@ import type { NleLaneClipBlock, NleLaneKind } from './timeline-clips.mjs';
 import { removeClipById } from './clip-mutations.mjs';
 import { TimelineRuler } from './timeline-ruler';
 import { isTypingTarget } from './keyboard.mjs';
+import { snapFrameToClipEdges } from './snap.mjs';
 import type { NleProject } from './types';
 
 export function NleTimeline({
@@ -33,13 +34,14 @@ export function NleTimeline({
   // bodies land on frame 0 without an off-by-header-width error.
   const bodiesRef = React.useRef<HTMLDivElement | null>(null);
 
-  function frameFromClientX(clientX: number): number {
+  function frameFromClientX(clientX: number, snap: boolean): number {
     const el = bodiesRef.current;
     if (!el || durationFrames <= 0) return 0;
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0) return 0;
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    return Math.round(ratio * durationFrames);
+    const frame = Math.round(ratio * durationFrames);
+    return snap && project ? snapFrameToClipEdges(frame, project, 6 * (durationFrames / rect.width)) : frame;
   }
 
   // Pointer-drag scrub: install global pointermove/up listeners on
@@ -51,8 +53,8 @@ export function NleTimeline({
     if (target?.closest('[data-clip-id]')) return;
     e.preventDefault();
     onSelectedClipChange(null);
-    onPlayheadFrameChange(frameFromClientX(e.clientX));
-    const handleMove = (ev: PointerEvent) => onPlayheadFrameChange(frameFromClientX(ev.clientX));
+    onPlayheadFrameChange(frameFromClientX(e.clientX, true));
+    const handleMove = (ev: PointerEvent) => onPlayheadFrameChange(frameFromClientX(ev.clientX, true));
     const handleUp = () => {
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleUp);
@@ -112,7 +114,7 @@ export function NleTimeline({
             bodiesRef={bodiesRef}
             durationFrames={durationFrames}
             fps={fps}
-            onSeekFrame={(clientX) => onPlayheadFrameChange(frameFromClientX(clientX))}
+            onSeekFrame={(clientX) => onPlayheadFrameChange(frameFromClientX(clientX, true))}
           />
           {NLE_TRACK_LANES.map((lane) => {
             const blocks: NleLaneClipBlock[] = project
