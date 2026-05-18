@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { migrate, getMigrationChain } from './migrations.js';
-import { createProject } from './factories.js';
+import { createAsset, createClip, createDefaultRecordingPresentation, createProject, createTrack } from './factories.js';
 import { CURRENT_SCHEMA_VERSION } from './constants.js';
 import type { ProjectDocument } from './types.js';
 
@@ -590,6 +590,65 @@ describe('migrations', () => {
     expect(result.version).toBe(15);
     expect(result.tracks).toEqual([]);
     expect(result.timeline.tracks).toEqual([]);
+  });
+
+  it('backfills recording cut ranges into shared timeline markers', () => {
+    const project = createProject();
+    const recording = createAsset('recording', '/tmp/recording.webm', {
+      duration: 300,
+      presentation: {
+        ...createDefaultRecordingPresentation(),
+        cutRanges: [{ id: 'cut-1' as never, startFrame: 30, endFrame: 60 }],
+      },
+    });
+    const { timeline: _timeline, ...withoutTimeline } = {
+      ...project,
+      version: 14,
+      assets: [recording],
+    } as ProjectDocument & Record<string, unknown>;
+
+    const result = migrate(withoutTimeline);
+
+    expect(result.version).toBe(15);
+    expect(result.timeline.markers).toContainEqual({
+      id: 'cut-1',
+      kind: 'cut',
+      startFrame: 30,
+      endFrame: 60,
+      linkedGroupId: `linked:${recording.id}`,
+      params: { range: { id: 'cut-1', startFrame: 30, endFrame: 60 } },
+    });
+  });
+
+  it('backfills recording head/tail trims into shared timeline track clips', () => {
+    const recording = createAsset('recording', '/tmp/recording.webm', { duration: 300 });
+    const track = createTrack('video', { name: 'Screen Recording', index: 0 });
+    const clip = createClip(recording.id, track.id, {
+      timelineIn: 0,
+      timelineOut: 210,
+      sourceIn: 30,
+      sourceOut: 240,
+    });
+    const project = createProject({
+      assets: [recording],
+      composition: { duration: 210, tracks: [{ ...track, clips: [clip] }], transitions: [] },
+    });
+    const { tracks: _tracks, timeline: _timeline, ...legacy } = {
+      ...project,
+      version: 13,
+    } as ProjectDocument & Record<string, unknown>;
+
+    const result = migrate(legacy);
+    const timelineClip = result.timeline.tracks[0]?.clips[0];
+
+    expect(result.version).toBe(15);
+    expect(timelineClip).toMatchObject({
+      id: clip.id,
+      timelineIn: 0,
+      timelineOut: 210,
+      sourceIn: 30,
+      sourceOut: 240,
+    });
   });
 
   it('preserves an existing keepClickSounds=false on v9 -> v10', () => {

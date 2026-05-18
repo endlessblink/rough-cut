@@ -16,6 +16,25 @@ test('addCutRange persists normalized non-destructive cut ranges', () => {
   assert.equal(ranges[0].endFrame, 90);
 });
 
+test('addCutRange mirrors removed ranges into shared timeline cut markers', () => {
+  const project = createProject();
+  const asset = createAsset('recording', '/tmp/source.mp4', { duration: 300 });
+  const document = { ...project, assets: [asset], timeline: { ...project.timeline, linkedGroups: [{ id: `linked:${asset.id}`, kind: 'recording', sourceIds: [`source:${asset.id}:screen`], primarySourceId: `source:${asset.id}:screen`, syncPolicy: 'frame-locked' }], markers: [] } };
+
+  const next = addCutRange(document, asset.id, 30, 90, 300);
+  const range = listCutRanges(next, asset.id, 300)[0];
+
+  assert.equal(next.timeline.markers.length, 1);
+  assert.deepEqual(next.timeline.markers[0], {
+    id: range.id,
+    kind: 'cut',
+    startFrame: 30,
+    endFrame: 90,
+    linkedGroupId: `linked:${asset.id}`,
+    params: { range },
+  });
+});
+
 test('removeCutRange restores a removed middle range', () => {
   const project = createProject();
   const asset = createAsset('recording', '/tmp/source.mp4', { duration: 300 });
@@ -25,6 +44,28 @@ test('removeCutRange restores a removed middle range', () => {
   const restored = removeCutRange(document, asset.id, cutId, 300);
 
   assert.equal(listCutRanges(restored, asset.id, 300).length, 0);
+  assert.equal(restored.timeline.markers.filter((marker) => marker.kind === 'cut').length, 0);
+});
+
+test('listCutRanges reads shared timeline cut markers before legacy presentation ranges', () => {
+  const project = createProject();
+  const asset = createAsset('recording', '/tmp/source.mp4', {
+    duration: 300,
+    presentation: {
+      ...project.settings.recordingDefaults,
+      cutRanges: [{ id: 'legacy-cut', startFrame: 10, endFrame: 20 }],
+    },
+  });
+  const document = {
+    ...project,
+    assets: [asset],
+    timeline: {
+      ...project.timeline,
+      markers: [{ id: 'timeline-cut', kind: 'cut', startFrame: 30, endFrame: 60, linkedGroupId: `linked:${asset.id}`, params: {} }],
+    },
+  };
+
+  assert.deepEqual(listCutRanges(document, asset.id, 300), [{ id: 'timeline-cut', startFrame: 30, endFrame: 60 }]);
 });
 
 test('visible/source frame mapping skips removed ranges', () => {

@@ -6,7 +6,8 @@ export function listCutRanges(document, assetId = null, totalFrames = Number.POS
   const asset = assetId
     ? document?.assets?.find((item) => item.id === assetId)
     : document?.assets?.find((item) => item.type === 'recording');
-  return normalizeCutRanges(asset?.presentation?.cutRanges, totalFrames);
+  const timelineRanges = listTimelineCutRanges(document, asset?.id, totalFrames);
+  return timelineRanges.length > 0 ? timelineRanges : normalizeCutRanges(asset?.presentation?.cutRanges, totalFrames);
 }
 
 export function normalizeCutRanges(ranges, totalFrames = Number.POSITIVE_INFINITY) {
@@ -88,13 +89,48 @@ export function visibleDurationFrames(cutRanges, totalFrames) {
 function updateRecordingPresentation(document, assetId, updater) {
   if (!assetId) return document;
   let changed = false;
+  let nextCutRanges = null;
   const assets = document.assets?.map((asset) => {
     if (asset.id !== assetId) return asset;
     changed = true;
     const presentation = { ...createDefaultRecordingPresentation(), ...(asset.presentation ?? {}) };
-    return { ...asset, presentation: updater(presentation) };
+    const nextPresentation = updater(presentation);
+    nextCutRanges = nextPresentation.cutRanges ?? [];
+    return { ...asset, presentation: nextPresentation };
   });
-  return changed ? { ...document, assets } : document;
+  if (!changed) return document;
+  return syncTimelineCutMarkers({ ...document, assets }, assetId, nextCutRanges ?? []);
+}
+
+function listTimelineCutRanges(document, assetId, totalFrames) {
+  if (!assetId || !Array.isArray(document?.timeline?.markers)) return [];
+  const linkedGroupId = `linked:${assetId}`;
+  const ranges = document.timeline.markers
+    .filter((marker) => marker?.kind === 'cut' && marker.linkedGroupId === linkedGroupId)
+    .map((marker) => ({ id: marker.id, startFrame: marker.startFrame, endFrame: marker.endFrame }));
+  return normalizeCutRanges(ranges, totalFrames);
+}
+
+function syncTimelineCutMarkers(document, assetId, cutRanges) {
+  if (!document?.timeline) return document;
+  const linkedGroupId = `linked:${assetId}`;
+  const existingMarkers = Array.isArray(document.timeline.markers) ? document.timeline.markers : [];
+  const nonCutMarkers = existingMarkers.filter((marker) => marker?.kind !== 'cut' || marker.linkedGroupId !== linkedGroupId);
+  const cutMarkers = normalizeCutRanges(cutRanges).map((range) => ({
+    id: range.id,
+    kind: 'cut',
+    startFrame: range.startFrame,
+    endFrame: range.endFrame,
+    linkedGroupId,
+    params: { range },
+  }));
+  return {
+    ...document,
+    timeline: {
+      ...document.timeline,
+      markers: [...nonCutMarkers, ...cutMarkers].sort((left, right) => left.startFrame - right.startFrame || left.endFrame - right.endFrame),
+    },
+  };
 }
 
 function clampFrame(value, min, max) {

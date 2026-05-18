@@ -559,6 +559,7 @@ export const TimelineLinkedGroupSchema = z.object({
 
 export const TimelineMarkerKindSchema = z.enum([
   'zoom',
+  'cut',
   'click',
   'cursor-style',
   'camera-layout',

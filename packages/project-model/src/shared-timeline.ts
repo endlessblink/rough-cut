@@ -33,6 +33,7 @@ export interface TimelineLinkedGroup {
 
 export type TimelineMarkerKind =
   | 'zoom'
+  | 'cut'
   | 'click'
   | 'cursor-style'
   | 'camera-layout'
@@ -191,8 +192,16 @@ function timelineMarkersForAsset(asset: Asset): TimelineMarker[] {
     linkedGroupId,
     params: { marker },
   }));
+  const cuts = (presentation.cutRanges ?? []).map((range) => ({
+    id: range.id,
+    kind: 'cut' as const,
+    startFrame: range.startFrame,
+    endFrame: range.endFrame,
+    linkedGroupId,
+    params: { range },
+  }));
 
-  return [...zoom, ...cameraLayouts];
+  return [...zoom, ...cuts, ...cameraLayouts];
 }
 
 function timelineEffectsForAsset(asset: Asset): TimelineEffect[] {

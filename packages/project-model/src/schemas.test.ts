@@ -413,6 +413,27 @@ describe('AI architecture schemas', () => {
     expect(project.timeline.exportSettings).toEqual(project.exportSettings);
   });
 
+  it('maps recording cut ranges into shared timeline cut markers', () => {
+    const presentation = createDefaultRecordingPresentation();
+    const asset = createAsset('recording', '/tmp/recording.webm', {
+      duration: 300,
+      presentation: {
+        ...presentation,
+        cutRanges: [{ id: 'cut-1' as never, startFrame: 30, endFrame: 60 }],
+      },
+    });
+    const project = createProject({ assets: [asset] });
+
+    expect(project.timeline.markers).toContainEqual({
+      id: 'cut-1',
+      kind: 'cut',
+      startFrame: 30,
+      endFrame: 60,
+      linkedGroupId: `linked:${asset.id}`,
+      params: { range: { id: 'cut-1', startFrame: 30, endFrame: 60 } },
+    });
+  });
+
   it('rejects shared timeline markers and groups that reference missing owners', () => {
     const project = createProject();
     const missingSourceGroup = {
