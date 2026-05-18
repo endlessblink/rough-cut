@@ -2764,6 +2764,84 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .projectPreviewEmpty p { color: rgb(148 163 184); font-size: 0.85rem; margin: 0; max-width: 38ch; }
 .projectPreviewEmpty button { margin-top: 0.5rem; }
 
+/* P-AI-C/TASK-170 — template picker stub modal. */
+.templatePickerBackdrop {
+  align-items: center;
+  background: rgb(0 0 0 / 0.55);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 100;
+}
+.templatePickerModal {
+  background: rgb(15 23 42);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.5);
+  color: rgb(226 232 240);
+  max-width: 560px;
+  padding: 1.5rem;
+  width: calc(100% - 4rem);
+}
+.templatePickerHeader {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+.templatePickerHeader h2 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+.templatePickerClose {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1.4rem;
+  line-height: 1;
+  opacity: 0.6;
+  padding: 0 0.25rem;
+}
+.templatePickerClose:hover { opacity: 1; }
+.templatePickerList {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: 1fr;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.templatePickerCard {
+  background: rgb(255 255 255 / 0.04);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 10px;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 0.25rem;
+  grid-template-columns: 1fr auto;
+  padding: 0.85rem 1rem;
+  text-align: left;
+  transition: background 120ms ease, border-color 120ms ease;
+  width: 100%;
+}
+.templatePickerCard:hover {
+  background: rgb(255 255 255 / 0.08);
+  border-color: rgb(255 255 255 / 0.2);
+}
+.templatePickerCardLabel { font-size: 0.95rem; font-weight: 600; }
+.templatePickerCardAspect {
+  align-self: center;
+  background: rgb(255 255 255 / 0.06);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  letter-spacing: 0.04em;
+  padding: 0.3rem 0.7rem;
+}
+.templatePickerCardDesc { color: rgb(148 163 184); font-size: 0.78rem; grid-column: 1; }
+
 .libraryBody {
   display: flex;
   flex: 1 1 auto;

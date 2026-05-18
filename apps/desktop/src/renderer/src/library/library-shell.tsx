@@ -10,6 +10,7 @@ import { FilterToSelect } from './filter-to-select';
 import { ContextMenu } from './context-menu';
 import { resolveContextTargets } from './context-targets.mjs';
 import { IMPORT_REJECTION_MESSAGE, isImportableMimeType } from '../../../shared/import-mime.mjs';
+import { TemplatePickerModal } from './template-picker-modal';
 
 const SIZE_STEPS: ReadonlyArray<SizeStep> = ['S', 'M', 'L'];
 
@@ -64,6 +65,8 @@ export function LibraryShell({
   const [bulkError, setBulkError] = React.useState<string | null>(null);
   // P-AI-C/TASK-167 — transient error banner for Import-file rejection.
   const [importError, setImportError] = React.useState<string | null>(null);
+  // P-AI-C/TASK-170 — template picker stub modal open state.
+  const [templatePickerOpen, setTemplatePickerOpen] = React.useState(false);
   const activeView = findView(viewId);
 
   const handleImportClick = React.useCallback(async () => {
@@ -417,8 +420,8 @@ export function LibraryShell({
             className="libraryOpenFile"
             data-testid="library-from-template"
             onClick={() => {
-              // eslint-disable-next-line no-console
-              console.info('[library] From template: not yet implemented (TASK-170)');
+              setImportError(null);
+              setTemplatePickerOpen(true);
             }}
           >
             From template
@@ -507,6 +510,25 @@ export function LibraryShell({
           })()}
         />
       ) : null}
+      <TemplatePickerModal
+        open={templatePickerOpen}
+        onClose={() => setTemplatePickerOpen(false)}
+        onSelect={async (template) => {
+          setTemplatePickerOpen(false);
+          setImportError(null);
+          try {
+            const created = await window.roughCut.createBlankProject({
+              name: template.label,
+              aspectRatio: template.aspectRatio,
+            });
+            onOpenProjectByPath(created.path);
+            setRefreshKey((n) => n + 1);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            setImportError(message);
+          }
+        }}
+      />
     </section>
   );
 }
