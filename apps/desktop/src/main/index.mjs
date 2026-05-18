@@ -1586,6 +1586,13 @@ async function runRendererNleSmoke() {
   await waitFor(() => document.querySelector('.nleTransportTimeCurrent')?.textContent !== timeBeforeArrow, 'NLE arrow key step');
   const spaceEvent = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
   document.dispatchEvent(spaceEvent);
+  const splitButton = await waitFor(() => document.querySelector('button[aria-label="Split at playhead"]'), 'NLE split button');
+  const splitDisabledBeforeSelection = splitButton.disabled === true;
+  document.querySelector('.nleClipBlock')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  await waitFor(() => splitButton.disabled === false, 'NLE split button enabled after clip selection');
+  const clipCountBeforeSplit = document.querySelectorAll('.nleClipBlock').length;
+  splitButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  await waitFor(() => document.querySelectorAll('.nleClipBlock').length > clipCountBeforeSplit, 'NLE split button creates a second clip');
 
   return {
     ok: true,
@@ -1598,5 +1605,8 @@ async function runRendererNleSmoke() {
     rulerAlignedToBodies: Boolean(laneRect && Math.abs(rulerRect.left - laneRect.left) <= 1 && Math.abs(rulerRect.width - laneRect.width) <= 1),
     hasNleArrowKeyStep: true,
     hasNleSpacePreventDefault: spaceEvent.defaultPrevented,
+    hasNleSplitButton: Boolean(splitButton),
+    hasNleSplitDisabledWithoutSelection: splitDisabledBeforeSelection,
+    hasNleSplitButtonMutation: document.querySelectorAll('.nleClipBlock').length > clipCountBeforeSplit,
   };
 }

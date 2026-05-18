@@ -2,7 +2,7 @@ import React from 'react';
 import { NLE_TRACK_LANES } from './asset-format.mjs';
 import { buildLaneClips } from './timeline-clips.mjs';
 import type { NleLaneClipBlock, NleLaneKind } from './timeline-clips.mjs';
-import { removeClipById, splitClipById } from './clip-mutations.mjs';
+import { removeClipById } from './clip-mutations.mjs';
 import { TimelineRuler } from './timeline-ruler';
 import { isTypingTarget } from './keyboard.mjs';
 import type { NleProject } from './types';
@@ -16,6 +16,7 @@ export function NleTimeline({
   onPlayheadFrameChange,
   onSelectedClipChange,
   onProjectChange,
+  onSplit,
 }: {
   project: NleProject | null;
   playheadFrame: number;
@@ -25,6 +26,7 @@ export function NleTimeline({
   onPlayheadFrameChange: (frame: number) => void;
   onSelectedClipChange: (clipId: string | null) => void;
   onProjectChange?: (next: NleProject) => void;
+  onSplit: () => void;
 }) {
   // The "bodies column" is the body-only strip (no headers). Click→frame
   // math measures it directly, so clicks at the visual start of the
@@ -79,16 +81,12 @@ export function NleTimeline({
         }
       } else if ((e.key === 's' || e.key === 'S') && selectedClipId) {
         e.preventDefault();
-        const next = splitClipById(project, selectedClipId, playheadFrame);
-        if (next !== project && onProjectChange) {
-          onProjectChange(next as unknown as NleProject);
-          onSelectedClipChange(null);
-        }
+        onSplit();
       }
     }
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
-  }, [project, playheadFrame, selectedClipId, onProjectChange, onSelectedClipChange]);
+  }, [project, selectedClipId, onProjectChange, onSelectedClipChange, onSplit]);
 
   const playheadPct =
     durationFrames > 0 ? Math.max(0, Math.min(100, (playheadFrame / durationFrames) * 100)) : 0;

@@ -5,6 +5,7 @@ import { NleProgramMonitor } from './program-monitor';
 import { NleTransport } from './transport';
 import { resolveProjectFps, resolveCompositionDurationFrames } from './project-shape.mjs';
 import { clampFrame, isTypingTarget } from './keyboard.mjs';
+import { canSplitClipById, splitClipById } from './clip-mutations.mjs';
 import type { NleProject } from './types';
 
 export function NleShell({
@@ -36,6 +37,16 @@ export function NleShell({
   const fps = resolveProjectFps(project);
   const durationFrames = resolveCompositionDurationFrames(project);
   const clampedPlayhead = Math.max(0, Math.min(durationFrames, playheadFrame));
+  const canSplit = selectedClipId !== null && canSplitClipById(project, selectedClipId, clampedPlayhead);
+
+  function splitSelectedClip() {
+    if (!selectedClipId || !onProjectChange) return;
+    const next = splitClipById(project, selectedClipId, clampedPlayhead);
+    if (next !== project) {
+      onProjectChange(next as unknown as NleProject);
+      setSelectedClipId(null);
+    }
+  }
 
   React.useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -94,6 +105,8 @@ export function NleShell({
             isPlaying={isPlaying}
             onTogglePlay={() => setIsPlaying((v) => !v)}
             onPlayheadFrameChange={setPlayheadFrame}
+            canSplit={canSplit}
+            onSplit={splitSelectedClip}
           />
           <NleTimeline
             project={project}
@@ -104,6 +117,7 @@ export function NleShell({
             onPlayheadFrameChange={setPlayheadFrame}
             onSelectedClipChange={setSelectedClipId}
             onProjectChange={onProjectChange}
+            onSplit={splitSelectedClip}
           />
         </div>
         <AssetPanel project={project} />

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { removeClipById, splitClipById } from './clip-mutations.mjs';
+import { canSplitClipById, removeClipById, splitClipById } from './clip-mutations.mjs';
 
 const makeProject = (tracks) => ({
   path: '/tmp/p.roughcut',
@@ -62,6 +62,13 @@ test('splitClipById is a no-op at clip edges or outside', () => {
   assert.equal(splitClipById(project, 'c1', 0), project);
   assert.equal(splitClipById(project, 'c1', 300), project);
   assert.equal(splitClipById(project, 'c1', 1000), project);
+});
+
+test('canSplitClipById reports whether splitClipById would mutate', () => {
+  const project = makeProject([{ id: 't1', type: 'video', clips: [baseClip] }]);
+  assert.equal(canSplitClipById(project, 'c1', 100), true);
+  assert.equal(canSplitClipById(project, 'c1', 0), false);
+  assert.equal(canSplitClipById(project, 'missing', 100), false);
 });
 
 test('splitClipById is a no-op for an unknown clip id', () => {

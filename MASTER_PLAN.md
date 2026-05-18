@@ -159,6 +159,9 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-177 | Import audio passthrough (embedded video audio + audio-only imports) | P2 | ⚠️ DATA-LAYER DONE (2026-05-18) / RENDERER VERIFY |
 | ~~TASK-178~~ | ✅ NLE: read-only clip blocks on Video / Audio lanes | P2 | ✅ DONE (2026-05-18) |
 | TASK-179 | NLE MVP: program monitor + playhead + click-seek + select/delete/split | P1 | ⚠️ IN APP (2026-05-18) / NEEDS HANDS-ON ITERATION |
+| ~~TASK-180~~ | ✅ NLE: time ruler with adaptive ticks above lanes | P1 | ✅ DONE (2026-05-18) |
+| ~~TASK-181~~ | ✅ NLE: keyboard transport shortcuts | P1 | ✅ DONE (2026-05-18) |
+| ~~TASK-182~~ | ✅ NLE: Split at playhead transport button | P1 | ✅ DONE (2026-05-18) |
 | TASK-128 | WhisperX install flow + OpenAI Whisper API cloud fallback | P1 | PLANNED |
 | TASK-129 | Transcript IPC + persistence inside .roughcut | P1 | PLANNED |
 | ~~TASK-171~~ | ✅ NLE: register 'nle' AppViewId + APP_VIEWS entry + 4th tab in strip | P1 | ✅ DONE (2026-05-18) |
@@ -4749,6 +4752,33 @@ TASK-179 shipped mouse-first transport, but the NLE still lacked expected editin
 - `pnpm --filter @rough-cut/desktop test` 412/412 pass.
 - NLE-only smoke verifies ArrowRight advances the NLE transport time and Space is default-prevented.
 - Manual-equivalent: open NLE, press Space and arrows; behavior is shell-owned and scoped to the NLE view.
+
+### TASK-182 NLE: Split at playhead transport button
+
+**Priority:** P1
+**Status:** ✅ DONE (2026-05-18) — Transport now exposes a visible Split button that calls the same shell-owned split path as the `S` shortcut. It is disabled when no clip is selected or when the selected clip cannot be split at the current playhead frame.
+**Lane:** P-AI-E follow-up
+**Follows:** TASK-181
+**Pulled-forward-from:** TASK-140
+
+#### Context
+
+TASK-179 made `S` split a selected clip, but there was no visible affordance. This task adds the smallest discoverable control without adding more transport surface area: a single Split button next to the existing play/start controls.
+
+#### Acceptance Criteria
+
+- `nle/transport.tsx` renders a Split button with a scissor icon and `Split` label.
+- Button is disabled when `selectedClipId === null` or when splitting at the current playhead would be a no-op.
+- Button uses the same shell-owned `onSplit` callback as the `S` shortcut.
+- Disabled state lowers opacity and uses `cursor: not-allowed`.
+- No Delete button is added.
+
+#### Verification
+
+- `nle/clip-mutations.test.mjs` covers `canSplitClipById` so the disabled state can be computed without mutating or allocating split IDs.
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- `pnpm --filter @rough-cut/desktop test` 413/413 pass.
+- NLE-only smoke verifies the Split button is disabled before selection, enables after selecting a clip, and creates a second clip when clicked.
 
 ### TASK-178 NLE: read-only clip blocks on Video / Audio lanes
 

@@ -7,6 +7,8 @@ export function NleTransport({
   isPlaying,
   onTogglePlay,
   onPlayheadFrameChange,
+  canSplit,
+  onSplit,
 }: {
   playheadFrame: number;
   durationFrames: number;
@@ -14,6 +16,8 @@ export function NleTransport({
   isPlaying: boolean;
   onTogglePlay: () => void;
   onPlayheadFrameChange: (frame: number) => void;
+  canSplit: boolean;
+  onSplit: () => void;
 }) {
   return (
     <div className="nleTransport" data-ui-region="nle-transport">
@@ -33,6 +37,17 @@ export function NleTransport({
         title="Go to start"
       >
         ⏮
+      </button>
+      <button
+        type="button"
+        className="nleTransportButton secondary"
+        onClick={onSplit}
+        disabled={!canSplit}
+        aria-label="Split at playhead"
+        title="Split at playhead"
+      >
+        <span aria-hidden="true">✂</span>
+        <span className="nleTransportButtonText">Split</span>
       </button>
       <div className="nleTransportTime" aria-live="off">
         <span className="nleTransportTimeCurrent">{formatTimecode(playheadFrame, fps)}</span>

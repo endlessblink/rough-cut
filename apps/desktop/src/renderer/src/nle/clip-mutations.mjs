@@ -69,3 +69,8 @@ export function splitClipById(project, clipId, splitFrame) {
   const nextTrack = applySplitOnTrack(loc.track, clipId, left, right);
   return replaceTrack(project, loc.trackIndex, nextTrack);
 }
+
+export function canSplitClipById(project, clipId, splitFrame) {
+  const loc = findClipLocation(project, clipId);
+  return Boolean(loc && splitClipAtFrame(loc.clip, splitFrame));
+}

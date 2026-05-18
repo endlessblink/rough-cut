@@ -3792,8 +3792,19 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   background: rgb(255 255 255 / 0.09);
   border-color: rgb(255 255 255 / 0.15);
 }
+.nleTransportButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.nleTransportButton:disabled:hover {
+  background: rgb(255 255 255 / 0.05);
+  border-color: rgb(255 255 255 / 0.08);
+}
 .nleTransportButton.secondary {
   font-size: 0.85rem;
+}
+.nleTransportButtonText {
+  margin-left: 0.35rem;
 }
 .nleTransportTime {
   color: rgb(226 232 240 / 0.85);
