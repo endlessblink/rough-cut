@@ -9,7 +9,7 @@ import {
   type ProjectDocument,
   type RecordingBackgroundStyle,
 } from '@rough-cut/project-model';
-import { resolveFrame, type RenderFrame } from '@rough-cut/frame-resolver';
+import { resolveFrame } from '@rough-cut/frame-resolver';
 import { visibleDurationFrames, visibleFrameToSourceFrame } from './cut-ranges.mjs';
 import { getCursorEvents } from './cursor-data.mjs';
 import { getPrimaryRecordingAsset } from './zoom-markers.mjs';
@@ -311,14 +311,13 @@ export function StyledVideoPreview({
         setCurrentTime(Math.min(visibleTime, visibleDuration));
         onCurrentTimeChange?.(Math.min(visibleTime, visibleDuration));
       }
-      let frame: RenderFrame;
+      let frame;
       try {
         frame = resolveFrame(document, currentFrame, {
           getCursorPosition: getCursorPositionForFrame,
-          preferredPlaybackAssetId: recordingAssetId,
         });
       } catch {
-        frame = createFallbackRenderFrame(currentFrame, canvasWidth, canvasHeight);
+        frame = { cameraTransform: { scale: 1, offsetX: 0, offsetY: 0 } };
       }
       const { scale, offsetX, offsetY } = frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 };
       const dragScreenRect = screenDragRef.current;
@@ -372,10 +371,9 @@ export function StyledVideoPreview({
       ctx.scale(scale, scale);
       ctx.translate(-sourceWidth / 2, -sourceHeight / 2);
       ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
-      const cursorSourceFrame = resolveCursorSourceFrame(frame, recordingAssetId, currentFrame);
       const resolvedCursor = frame.cursor;
-      drawClickEmphasis(ctx, cursorEvents, cursorSourceFrame, resolvedCursor?.clickEffect ?? 'ring');
-      const cursorPos = cursorAtFrame(cursorEvents, cursorSourceFrame);
+      drawClickEmphasis(ctx, cursorEvents, currentFrame, resolvedCursor?.clickEffect ?? 'ring');
+      const cursorPos = cursorAtFrame(cursorEvents, currentFrame);
       if (cursorPos && resolvedCursor?.visible !== false) {
         drawCursorPath(ctx, cursorPos.x, cursorPos.y, {
           style: resolvedCursor?.style ?? 'default',
@@ -716,33 +714,6 @@ function videoErrorMessage(video: HTMLVideoElement) {
   if (code === MediaError.MEDIA_ERR_DECODE) return 'The video could not be decoded.';
   if (code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) return 'The video source is not supported.';
   return 'Unknown media error.';
-}
-
-function resolveCursorSourceFrame(frame: Pick<RenderFrame, 'layers'> | { layers?: undefined }, recordingAssetId: string | null, fallbackFrame: number) {
-  if (!recordingAssetId) return fallbackFrame;
-  const recordingLayer = frame.layers?.find((layer) => layer.assetId === recordingAssetId && !layer.isCamera);
-  return recordingLayer?.sourceFrame ?? fallbackFrame;
-}
-
-function createFallbackRenderFrame(frame: number, width: number, height: number): RenderFrame {
-  return {
-    frame,
-    width,
-    height,
-    backgroundColor: '#000000',
-    layers: [],
-    transitions: [],
-    cameraTransform: { scale: 1, offsetX: 0, offsetY: 0 },
-    cursor: {
-      visible: true,
-      style: 'default',
-      clickEffect: 'none',
-      sizePercent: 100,
-      clickSoundEnabled: false,
-      clicksVisible: true,
-      overlaysVisible: true,
-    },
-  };
 }
 
 function resolveCameraFrame(
