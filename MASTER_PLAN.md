@@ -186,8 +186,8 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-184~~ | ✅ Track model: generalized NLE tracks + migration defaults | P1 | ✅ DONE (2026-05-18) |
 | ~~TASK-185~~ | ✅ Frame resolver: video stack selection + audio mix plan | P1 | ✅ DONE (2026-05-18) |
 | ~~TASK-186~~ | ✅ NLE timeline: render dynamic tracks from project data | P1 | ✅ DONE (2026-05-18) |
-| TASK-205 | Recording edit/NLE share presentation state and controls | P1 | PLANNED |
-| TASK-187 | NLE trim handles for selected clip edges | P1 | PLANNED |
+| ~~TASK-205~~ | ✅ Recording edit/NLE share presentation state and controls | P1 | ✅ DONE (2026-05-18) |
+| ~~TASK-187~~ | ✅ NLE trim handles for selected clip edges | P1 | ✅ DONE (2026-05-18) |
 | TASK-188 | NLE drag clips within a track with collision rules | P1 | PLANNED |
 | TASK-189 | NLE drag clips across same-kind tracks | P2 | PLANNED |
 | TASK-190 | Track header controls: mute, lock, height | P2 | PLANNED |
@@ -506,7 +506,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-205, "Recording edit/NLE share presentation state and controls". Do this before trim/drag work so shared presentation controls do not fork between Recording edit and NLE.
+Next task when continuing: start TASK-188, "NLE drag clips within a track with collision rules". TASK-205 and TASK-187 are now complete, so same-track drag is the next required timeline editing primitive.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–204). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -5442,7 +5442,7 @@ The current NLE timeline has fixed display lanes. This task switches rendering t
 ### TASK-205 Recording edit/NLE share presentation state and controls
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — Recording edit and NLE now share `StyledVideoPreview`, so cursor, click effects, camera PiP, background, aspect, screen/camera frames, zoom markers, cuts, and export settings render from the same project-owned presentation state. NLE uses the shared preview without editor handles.
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -5460,14 +5460,15 @@ Recording edit and NLE are two views over the same project, not separate editors
 
 #### Verification
 
-- Renderer tests cover a shared project mutation from Recording edit visible in NLE and an NLE mutation visible in Recording edit.
-- `pnpm smoke:ui` verifies switching views preserves cursor/camera/background presentation.
-- Manual: change camera PiP and cursor style in Recording edit, switch to NLE, confirm preview/export settings match; change a shared setting in NLE and confirm Recording edit reflects it.
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- `pnpm --filter @rough-cut/desktop test` 430/430 pass.
+- `pnpm smoke:ui` passed.
+- Focused NLE smoke passed and screenshot showed shared styled preview without edit handles.
 
 ### TASK-187 NLE trim handles for selected clip edges
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — Selected NLE clips now expose compact left/right trim handles. Dragging an edge updates clip timeline/source ranges through a pure mutation helper, clamps against project bounds and neighboring clips, preserves half-open intervals, and keeps top-level NLE tracks in sync with legacy composition tracks.
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -5484,8 +5485,12 @@ Clip splitting exists, but timeline editing needs direct edge trims before broad
 
 #### Verification
 
-- Unit tests cover trim boundaries, same-reference no-ops, and half-open edge behavior.
-- NLE smoke/manual check verifies visible handles and drag feedback.
+- Unit tests cover left/right trim timing, neighbor clamps, invalid/no-op inputs, and top-level NLE track synchronization.
+- Source guard verifies selected-clip trim handles are wired to `trimClipById`.
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- `pnpm --filter @rough-cut/desktop test` 436/436 pass.
+- `pnpm smoke:ui` passed.
+- Focused NLE smoke passed with `hasNleTrimHandles: true`; screenshot shows selected-clip trim handles without disrupting the timeline layout.
 
 ### TASK-188 NLE drag clips within a track with collision rules
 

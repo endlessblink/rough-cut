@@ -103,3 +103,67 @@ export function canSplitClipById(project, clipId, splitFrame) {
   const loc = findClipLocation(project, clipId);
   return Boolean(loc && splitClipAtFrame(loc.clip, splitFrame));
 }
+
+export function trimClipById(project, clipId, edge, frame) {
+  const loc = findClipLocation(project, clipId);
+  if (!loc) return project;
+  const normalizedEdge = edge === 'left' || edge === 'right' ? edge : null;
+  const nextFrame = Math.round(Number(frame));
+  if (!normalizedEdge || !Number.isFinite(nextFrame)) return project;
+
+  const { track, clip, clipIndex } = loc;
+  const timelineIn = Number(clip.timelineIn);
+  const timelineOut = Number(clip.timelineOut);
+  const sourceIn = Number(clip.sourceIn ?? 0);
+  const sourceOut = Number(clip.sourceOut ?? sourceIn + (timelineOut - timelineIn));
+  if (![timelineIn, timelineOut, sourceIn, sourceOut].every(Number.isFinite)) return project;
+
+  const minSpan = 1;
+  const previousClip = nearestPreviousClip(track.clips, clipIndex);
+  const nextClip = nearestNextClip(track.clips, clipIndex);
+  const compositionDuration = Number(project?.document?.composition?.duration);
+  const trackStart = Math.max(0, Number(previousClip?.timelineOut ?? 0));
+  const trackEnd = Math.min(
+    Number.isFinite(compositionDuration) && compositionDuration > 0 ? compositionDuration : Number.POSITIVE_INFINITY,
+    Number(nextClip?.timelineIn ?? Number.POSITIVE_INFINITY),
+  );
+
+  let nextClipValue = null;
+  if (normalizedEdge === 'left') {
+    const maxLeft = timelineOut - minSpan;
+    const minLeft = Math.max(trackStart, timelineIn - sourceIn);
+    const nextIn = Math.max(minLeft, Math.min(maxLeft, nextFrame));
+    if (nextIn === timelineIn) return project;
+    const delta = nextIn - timelineIn;
+    nextClipValue = { ...clip, timelineIn: nextIn, sourceIn: sourceIn + delta };
+  } else {
+    const minRight = timelineIn + minSpan;
+    const maxRight = trackEnd;
+    const nextOut = Math.max(minRight, Math.min(maxRight, nextFrame));
+    if (nextOut === timelineOut) return project;
+    const delta = nextOut - timelineOut;
+    nextClipValue = { ...clip, timelineOut: nextOut, sourceOut: sourceOut + delta };
+  }
+
+  const nextClips = track.clips.slice();
+  nextClips[clipIndex] = nextClipValue;
+  return replaceTrack(project, loc.trackIndex, { ...track, clips: nextClips });
+}
+
+function nearestPreviousClip(clips, clipIndex) {
+  const current = clips[clipIndex];
+  const currentIn = Number(current?.timelineIn);
+  if (!Number.isFinite(currentIn)) return null;
+  return clips
+    .filter((clip, index) => index !== clipIndex && Number.isFinite(Number(clip?.timelineOut)) && Number(clip.timelineOut) <= currentIn)
+    .sort((a, b) => Number(b.timelineOut) - Number(a.timelineOut))[0] ?? null;
+}
+
+function nearestNextClip(clips, clipIndex) {
+  const current = clips[clipIndex];
+  const currentOut = Number(current?.timelineOut);
+  if (!Number.isFinite(currentOut)) return null;
+  return clips
+    .filter((clip, index) => index !== clipIndex && Number.isFinite(Number(clip?.timelineIn)) && Number(clip.timelineIn) >= currentOut)
+    .sort((a, b) => Number(a.timelineIn) - Number(b.timelineIn))[0] ?? null;
+}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canSplitClipById, removeClipById, splitClipById } from './clip-mutations.mjs';
+import { canSplitClipById, removeClipById, splitClipById, trimClipById } from './clip-mutations.mjs';
 
 const makeProject = (tracks) => ({
   path: '/tmp/p.roughcut',
@@ -129,4 +129,57 @@ test('clip-mutations preserve sibling tracks (only the touched track is replaced
   ]);
   const next = removeClipById(project, 'c1');
   assert.equal(next.document.composition.tracks[1], otherTrack, 'sibling track preserved by reference');
+});
+
+test('trimClipById trims the left edge and keeps source timing aligned', () => {
+  const project = makeProject([{ id: 't1', type: 'video', clips: [baseClip] }]);
+  const next = trimClipById(project, 'c1', 'left', 80);
+  assert.notEqual(next, project);
+  const clip = next.document.composition.tracks[0].clips[0];
+  assert.equal(clip.timelineIn, 80);
+  assert.equal(clip.timelineOut, 300);
+  assert.equal(clip.sourceIn, 80);
+  assert.equal(clip.sourceOut, 300);
+});
+
+test('trimClipById trims the right edge and keeps source timing aligned', () => {
+  const project = makeProject([{ id: 't1', type: 'video', clips: [baseClip] }]);
+  const next = trimClipById(project, 'c1', 'right', 180);
+  const clip = next.document.composition.tracks[0].clips[0];
+  assert.equal(clip.timelineIn, 0);
+  assert.equal(clip.timelineOut, 180);
+  assert.equal(clip.sourceIn, 0);
+  assert.equal(clip.sourceOut, 180);
+});
+
+test('trimClipById clamps trims before neighbors and preserves half-open span', () => {
+  const project = makeProject([{ id: 't1', type: 'video', clips: [
+    { ...baseClip, id: 'c0', timelineIn: 0, timelineOut: 80, sourceIn: 0, sourceOut: 80 },
+    { ...baseClip, id: 'c1', timelineIn: 100, timelineOut: 300, sourceIn: 100, sourceOut: 300 },
+    { ...baseClip, id: 'c2', timelineIn: 340, timelineOut: 500, sourceIn: 0, sourceOut: 160 },
+  ] }]);
+
+  const left = trimClipById(project, 'c1', 'left', 20).document.composition.tracks[0].clips[1];
+  assert.equal(left.timelineIn, 80);
+  assert.equal(left.sourceIn, 80);
+
+  const right = trimClipById(project, 'c1', 'right', 500).document.composition.tracks[0].clips[1];
+  assert.equal(right.timelineOut, 340);
+  assert.equal(right.sourceOut, 340);
+});
+
+test('trimClipById refuses inverted edge trims and invalid clips', () => {
+  const project = makeProject([{ id: 't1', type: 'video', clips: [baseClip] }]);
+  assert.equal(trimClipById(project, 'c1', 'left', 300).document.composition.tracks[0].clips[0].timelineIn, 299);
+  assert.equal(trimClipById(project, 'c1', 'right', 0).document.composition.tracks[0].clips[0].timelineOut, 1);
+  assert.equal(trimClipById(project, 'missing', 'right', 100), project);
+  assert.equal(trimClipById(project, 'c1', 'middle', 100), project);
+});
+
+test('trimClipById keeps top-level NLE tracks in sync', () => {
+  const project = makeProjectWithNleTracks([{ id: 't1', type: 'video', clips: [baseClip] }]);
+  const next = trimClipById(project, 'c1', 'left', 90);
+  assert.equal(next.document.composition.tracks[0].clips[0].timelineIn, 90);
+  assert.equal(next.document.tracks[0].clips[0].timelineIn, 90);
+  assert.equal(next.document.tracks[0].clips[0].sourceIn, 90);
 });

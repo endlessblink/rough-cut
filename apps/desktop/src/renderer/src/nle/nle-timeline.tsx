@@ -1,6 +1,6 @@
 import React from 'react';
 import { buildTimelineTracks } from './timeline-clips.mjs';
-import { removeClipById } from './clip-mutations.mjs';
+import { removeClipById, trimClipById } from './clip-mutations.mjs';
 import { TimelineRuler } from './timeline-ruler';
 import { isTypingTarget } from './keyboard.mjs';
 import { snapFrameToClipEdges } from './snap.mjs';
@@ -64,6 +64,28 @@ export function NleTimeline({
   function handleClipClick(e: React.MouseEvent, blockId: string | null) {
     e.stopPropagation();
     if (blockId) onSelectedClipChange(blockId);
+  }
+
+  function startTrim(e: React.PointerEvent<HTMLButtonElement>, blockId: string | null, edge: 'left' | 'right') {
+    if (e.button !== 0 || !project || !blockId || !onProjectChange) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onSelectedClipChange(blockId);
+    let latestFrame = frameFromClientX(e.clientX, false);
+    const handleMove = (ev: PointerEvent) => {
+      latestFrame = frameFromClientX(ev.clientX, false);
+      onPlayheadFrameChange(latestFrame);
+    };
+    const handleUp = () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      const next = trimClipById(project, blockId, edge, latestFrame);
+      if (next !== project) {
+        onProjectChange(next as unknown as NleProject);
+      }
+    };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
   }
 
   // Keyboard: Delete removes selection, S splits selection at playhead.
@@ -144,7 +166,23 @@ export function NleTimeline({
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => handleClipClick(e, block.id)}
                     >
+                      {selected ? (
+                        <button
+                          type="button"
+                          className="nleClipTrimHandle left"
+                          aria-label="Trim selected clip start"
+                          onPointerDown={(e) => startTrim(e, block.id, 'left')}
+                        />
+                      ) : null}
                       <span className="nleClipBlockLabel">{block.name ?? 'Clip'}</span>
+                      {selected ? (
+                        <button
+                          type="button"
+                          className="nleClipTrimHandle right"
+                          aria-label="Trim selected clip end"
+                          onPointerDown={(e) => startTrim(e, block.id, 'right')}
+                        />
+                      ) : null}
                     </div>
                   );
                 })

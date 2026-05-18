@@ -1590,6 +1590,9 @@ async function runRendererNleSmoke() {
   const splitDisabledBeforeSelection = splitButton.disabled === true;
   document.querySelector('.nleClipBlock')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
   await waitFor(() => splitButton.disabled === false, 'NLE split button enabled after clip selection');
+  const hasNleTrimHandles = Boolean(
+    document.querySelector('.nleClipTrimHandle.left') && document.querySelector('.nleClipTrimHandle.right'),
+  );
   const clipCountBeforeSplit = document.querySelectorAll('.nleClipBlock').length;
   splitButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
   await waitFor(() => document.querySelectorAll('.nleClipBlock').length > clipCountBeforeSplit, 'NLE split button creates a second clip');
@@ -1607,6 +1610,7 @@ async function runRendererNleSmoke() {
     hasNleSpacePreventDefault: spaceEvent.defaultPrevented,
     hasNleSplitButton: Boolean(splitButton),
     hasNleSplitDisabledWithoutSelection: splitDisabledBeforeSelection,
+    hasNleTrimHandles,
     hasNleSplitButtonMutation: document.querySelectorAll('.nleClipBlock').length > clipCountBeforeSplit,
   };
 }
