@@ -39,7 +39,7 @@ export function addManualMarkerAt(document, currentTimeSec, fps) {
   const marker = createZoomMarker(startFrame, endFrame);
 
   const presentation = withDefaultPresentation(asset.presentation);
-  const nextMarkers = [...presentation.zoom.markers, marker].sort(
+  const nextMarkers = [...listMarkers(document), marker].sort(
     (a, b) => a.startFrame - b.startFrame,
   );
   const nextAsset = {
@@ -50,10 +50,10 @@ export function addManualMarkerAt(document, currentTimeSec, fps) {
     },
   };
 
-  return {
+  return syncTimelineZoomMarkers({
     ...document,
     assets: document.assets.map((item) => (item.id === asset.id ? nextAsset : item)),
-  };
+  }, asset.id, nextMarkers);
 }
 
 /**
@@ -74,8 +74,7 @@ export function findAvailableSpan(document, atFrame, options = {}) {
   const startFrame = Math.round(atFrame);
   if (startFrame < 0 || startFrame >= asset.duration) return null;
 
-  const presentation = withDefaultPresentation(asset.presentation);
-  const markers = [...presentation.zoom.markers].sort((a, b) => a.startFrame - b.startFrame);
+  const markers = [...listMarkers(document)].sort((a, b) => a.startFrame - b.startFrame);
 
   for (const m of markers) {
     if (startFrame >= m.startFrame && startFrame < m.endFrame) return null;
@@ -109,7 +108,7 @@ export function addManualMarkerAtFrame(document, atFrame, fps, options = {}) {
 
   const marker = createZoomMarker(span.startFrame, span.endFrame);
   const presentation = withDefaultPresentation(asset.presentation);
-  const nextMarkers = [...presentation.zoom.markers, marker].sort(
+  const nextMarkers = [...listMarkers(document), marker].sort(
     (a, b) => a.startFrame - b.startFrame,
   );
   const nextAsset = {
@@ -120,10 +119,10 @@ export function addManualMarkerAtFrame(document, atFrame, fps, options = {}) {
     },
   };
 
-  return {
+  return syncTimelineZoomMarkers({
     ...document,
     assets: document.assets.map((item) => (item.id === asset.id ? nextAsset : item)),
-  };
+  }, asset.id, nextMarkers);
 }
 
 export function removeMarker(document, markerId) {
@@ -131,7 +130,7 @@ export function removeMarker(document, markerId) {
   if (!asset || !asset.presentation) return document;
 
   const presentation = withDefaultPresentation(asset.presentation);
-  const markers = presentation.zoom.markers;
+  const markers = listMarkers(document);
   const nextMarkers = markers.filter((marker) => marker.id !== markerId);
   if (nextMarkers.length === markers.length) return document;
 
@@ -143,10 +142,10 @@ export function removeMarker(document, markerId) {
     },
   };
 
-  return {
+  return syncTimelineZoomMarkers({
     ...document,
     assets: document.assets.map((item) => (item.id === asset.id ? nextAsset : item)),
-  };
+  }, asset.id, nextMarkers);
 }
 
 export function updateMarkerRange(document, markerId, startFrame, endFrame, options = {}) {
@@ -154,7 +153,7 @@ export function updateMarkerRange(document, markerId, startFrame, endFrame, opti
   if (!asset || !asset.presentation) return document;
 
   const presentation = withDefaultPresentation(asset.presentation);
-  const markers = presentation.zoom.markers;
+  const markers = listMarkers(document);
   const marker = markers.find((item) => item.id === markerId);
   if (!marker) return document;
 
@@ -175,10 +174,10 @@ export function updateMarkerRange(document, markerId, startFrame, endFrame, opti
     },
   };
 
-  return {
+  return syncTimelineZoomMarkers({
     ...document,
     assets: document.assets.map((item) => (item.id === asset.id ? nextAsset : item)),
-  };
+  }, asset.id, nextMarkers);
 }
 
 export function updateMarkerStrength(document, markerId, strength) {
@@ -186,37 +185,40 @@ export function updateMarkerStrength(document, markerId, strength) {
   if (!asset || !asset.presentation) return document;
 
   const presentation = withDefaultPresentation(asset.presentation);
-  const markers = presentation.zoom.markers;
+  const markers = listMarkers(document);
   const marker = markers.find((item) => item.id === markerId);
   if (!marker) return document;
 
   const safeStrength = Math.max(0, Math.min(1, Number.isFinite(strength) ? strength : marker.strength));
   if (safeStrength === marker.strength) return document;
 
+  const nextMarkers = markers.map((item) => (item.id === markerId ? { ...item, strength: safeStrength } : item));
   const nextAsset = {
     ...asset,
     presentation: {
       ...presentation,
-      zoom: { ...presentation.zoom, markers: markers.map((item) => (item.id === markerId ? { ...item, strength: safeStrength } : item)) },
+      zoom: { ...presentation.zoom, markers: nextMarkers },
     },
   };
 
-  return {
+  return syncTimelineZoomMarkers({
     ...document,
     assets: document.assets.map((item) => (item.id === asset.id ? nextAsset : item)),
-  };
+  }, asset.id, nextMarkers);
 }
 
 export function listMarkers(document) {
   const asset = getPrimaryRecordingAsset(document);
-  return asset?.presentation?.zoom?.markers ?? [];
+  if (!asset) return [];
+  const timelineMarkers = listTimelineZoomMarkers(document, asset.id);
+  return timelineMarkers.length > 0 ? timelineMarkers : asset.presentation?.zoom?.markers ?? [];
 }
 
 export function getZoomPresentation(document) {
   const asset = getPrimaryRecordingAsset(document);
   if (!asset) return null;
   const presentation = withDefaultPresentation(asset.presentation);
-  return presentation.zoom;
+  return { ...presentation.zoom, markers: listMarkers(document) };
 }
 
 export function patchZoomPresentation(document, patch) {
@@ -228,10 +230,10 @@ export function patchZoomPresentation(document, patch) {
     ...asset,
     presentation: { ...presentation, zoom: nextZoom },
   };
-  return {
+  return syncTimelineZoomMarkers({
     ...document,
     assets: document.assets.map((item) => (item.id === asset.id ? nextAsset : item)),
-  };
+  }, asset.id, nextZoom.markers);
 }
 
 export function applySuggestion(document, suggestion) {
@@ -252,7 +254,7 @@ export function applySuggestion(document, suggestion) {
   });
 
   const presentation = withDefaultPresentation(asset.presentation);
-  const nextMarkers = [...presentation.zoom.markers, appliedMarker].sort(
+  const nextMarkers = [...listMarkers(document), appliedMarker].sort(
     (a, b) => a.startFrame - b.startFrame,
   );
   const nextAsset = {
@@ -263,10 +265,59 @@ export function applySuggestion(document, suggestion) {
     },
   };
 
-  return {
+  return syncTimelineZoomMarkers({
     ...document,
     assets: document.assets.map((item) => (item.id === asset.id ? nextAsset : item)),
+  }, asset.id, nextMarkers);
+}
+
+function listTimelineZoomMarkers(document, assetId) {
+  if (!assetId || !Array.isArray(document?.timeline?.markers)) return [];
+  const linkedGroupId = `linked:${assetId}`;
+  return document.timeline.markers
+    .filter((marker) => marker?.kind === 'zoom' && marker.linkedGroupId === linkedGroupId)
+    .map((marker) => marker.params?.marker ?? marker)
+    .sort((a, b) => a.startFrame - b.startFrame);
+}
+
+function syncTimelineZoomMarkers(document, assetId, markers) {
+  if (!document?.timeline) return document;
+  const linkedGroupId = `linked:${assetId}`;
+  const sourceId = `source:${assetId}:screen`;
+  const asset = document.assets?.find((item) => item.id === assetId);
+  const sources = ensureTimelineSource(document.timeline.sources, sourceId, assetId, asset?.duration ?? 0);
+  const linkedGroups = ensureTimelineLinkedGroup(document.timeline.linkedGroups, linkedGroupId, sourceId);
+  const existingMarkers = Array.isArray(document.timeline.markers) ? document.timeline.markers : [];
+  const nonZoomMarkers = existingMarkers.filter((marker) => marker?.kind !== 'zoom' || marker.linkedGroupId !== linkedGroupId);
+  const zoomMarkers = (Array.isArray(markers) ? markers : []).map((marker) => ({
+    id: marker.id,
+    kind: 'zoom',
+    startFrame: marker.startFrame,
+    endFrame: marker.endFrame,
+    linkedGroupId,
+    params: { marker },
+  }));
+  return {
+    ...document,
+    timeline: {
+      ...document.timeline,
+      sources,
+      linkedGroups,
+      markers: [...nonZoomMarkers, ...zoomMarkers].sort((left, right) => left.startFrame - right.startFrame || left.endFrame - right.endFrame),
+    },
   };
+}
+
+function ensureTimelineSource(sources, sourceId, assetId, duration) {
+  const existing = Array.isArray(sources) ? sources : [];
+  if (existing.some((source) => source.id === sourceId)) return existing;
+  return [...existing, { id: sourceId, kind: 'screen', mediaType: 'video', assetId, label: 'Screen', duration: Math.max(0, Math.round(duration || 0)) }];
+}
+
+function ensureTimelineLinkedGroup(groups, linkedGroupId, sourceId) {
+  const existing = Array.isArray(groups) ? groups : [];
+  if (existing.some((group) => group.id === linkedGroupId)) return existing;
+  return [...existing, { id: linkedGroupId, kind: 'recording', sourceIds: [sourceId], primarySourceId: sourceId, syncPolicy: 'frame-locked' }];
 }
 
 export function withDefaultPresentation(presentation) {

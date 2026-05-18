@@ -126,6 +126,49 @@ test('addManualMarkerAt appends a manual marker at the rounded frame', () => {
   assert.equal(markers[0].zoomOutDuration, 18);
 });
 
+test('addManualMarkerAt mirrors zoom markers into the shared timeline', () => {
+  const project = projectWithRecording();
+  const asset = project.assets[0];
+
+  const next = addManualMarkerAt(project, 2.0, 30);
+  const marker = listMarkers(next)[0];
+
+  assert.deepEqual(next.timeline.markers.filter((item) => item.kind === 'zoom'), [{
+    id: marker.id,
+    kind: 'zoom',
+    startFrame: marker.startFrame,
+    endFrame: marker.endFrame,
+    linkedGroupId: `linked:${asset.id}`,
+    params: { marker },
+  }]);
+});
+
+test('listMarkers reads shared timeline zoom markers before legacy presentation markers', () => {
+  const project = projectWithRecording();
+  const asset = project.assets[0];
+  const legacyMarker = createDefaultRecordingPresentation().zoom.markers[0];
+  const timelineMarker = {
+    id: 'timeline-zoom',
+    startFrame: 90,
+    endFrame: 150,
+    kind: 'manual',
+    strength: 0.7,
+    focalPoint: { x: 0.5, y: 0.5 },
+    zoomInDuration: 18,
+    zoomOutDuration: 18,
+  };
+  const document = {
+    ...project,
+    assets: [{ ...asset, presentation: { ...asset.presentation, zoom: { ...asset.presentation.zoom, markers: legacyMarker ? [legacyMarker] : [] } } }],
+    timeline: {
+      ...project.timeline,
+      markers: [{ id: timelineMarker.id, kind: 'zoom', startFrame: 90, endFrame: 150, linkedGroupId: `linked:${asset.id}`, params: { marker: timelineMarker } }],
+    },
+  };
+
+  assert.deepEqual(listMarkers(document), [timelineMarker]);
+});
+
 test('addManualMarkerAt clamps endFrame to asset duration', () => {
   const project = projectWithRecording({ duration: 80 });
   const next = addManualMarkerAt(project, 1.0, 30);
@@ -221,6 +264,17 @@ test('updateMarkerStrength updates and clamps marker zoom strength', () => {
 
   project = updateMarkerStrength(project, target.id, 2);
   assert.equal(listMarkers(project)[0].strength, 1);
+});
+
+test('updateMarkerRange and removeMarker keep shared timeline zoom markers synced', () => {
+  let project = addManualMarkerAt(projectWithRecording(), 2.0, 30);
+  const target = listMarkers(project)[0];
+
+  project = updateMarkerRange(project, target.id, 120, 180);
+  assert.equal(project.timeline.markers.find((marker) => marker.id === target.id)?.startFrame, 120);
+
+  project = removeMarker(project, target.id);
+  assert.equal(project.timeline.markers.some((marker) => marker.id === target.id), false);
 });
 
 test('applySuggestion appends an auto marker preserving suggestion fields with a fresh id', () => {

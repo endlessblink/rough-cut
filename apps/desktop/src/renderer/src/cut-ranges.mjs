@@ -114,6 +114,10 @@ function listTimelineCutRanges(document, assetId, totalFrames) {
 function syncTimelineCutMarkers(document, assetId, cutRanges) {
   if (!document?.timeline) return document;
   const linkedGroupId = `linked:${assetId}`;
+  const sourceId = `source:${assetId}:screen`;
+  const asset = document.assets?.find((item) => item.id === assetId);
+  const sources = ensureTimelineSource(document.timeline.sources, sourceId, assetId, asset?.duration ?? 0);
+  const linkedGroups = ensureTimelineLinkedGroup(document.timeline.linkedGroups, linkedGroupId, sourceId);
   const existingMarkers = Array.isArray(document.timeline.markers) ? document.timeline.markers : [];
   const nonCutMarkers = existingMarkers.filter((marker) => marker?.kind !== 'cut' || marker.linkedGroupId !== linkedGroupId);
   const cutMarkers = normalizeCutRanges(cutRanges).map((range) => ({
@@ -128,9 +132,23 @@ function syncTimelineCutMarkers(document, assetId, cutRanges) {
     ...document,
     timeline: {
       ...document.timeline,
+      sources,
+      linkedGroups,
       markers: [...nonCutMarkers, ...cutMarkers].sort((left, right) => left.startFrame - right.startFrame || left.endFrame - right.endFrame),
     },
   };
+}
+
+function ensureTimelineSource(sources, sourceId, assetId, duration) {
+  const existing = Array.isArray(sources) ? sources : [];
+  if (existing.some((source) => source.id === sourceId)) return existing;
+  return [...existing, { id: sourceId, kind: 'screen', mediaType: 'video', assetId, label: 'Screen', duration: Math.max(0, Math.round(duration || 0)) }];
+}
+
+function ensureTimelineLinkedGroup(groups, linkedGroupId, sourceId) {
+  const existing = Array.isArray(groups) ? groups : [];
+  if (existing.some((group) => group.id === linkedGroupId)) return existing;
+  return [...existing, { id: linkedGroupId, kind: 'recording', sourceIds: [sourceId], primarySourceId: sourceId, syncPolicy: 'frame-locked' }];
 }
 
 function clampFrame(value, min, max) {

@@ -73,6 +73,7 @@ import { cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFra
 import type { PreviewDragOrigin } from './styled-preview.mjs';
 import { generateSuggestionsForProject } from './auto-zoom-suggestions.mjs';
 import { addCutRange, clearCutRanges, listCutRanges, removeCutRange, visibleDurationFrames, visibleFrameToSourceFrame } from './cut-ranges.mjs';
+import { getRecordingTimelineClip, syncRecordingTimelinePresentation, updateRecordingTimelineTrim } from './recording-timeline.mjs';
 import { appError, errorStateCopy, type AppError } from './app-error-copy.mjs';
 import { EMPTY_EDIT_HISTORY, recordEdit, redoEdit, undoEdit, type EditHistory } from './edit-history.mjs';
 
@@ -2815,7 +2816,7 @@ function ProjectPreview({
 
   async function updateCursorPresentation(patch: Partial<CursorPresentation>) {
     if (!recordingAsset?.id) return;
-    await persist({
+    const nextDocument = {
       ...project.document,
       assets: project.document.assets?.map((asset) => {
         if (asset.id !== recordingAsset.id) return asset;
@@ -2833,12 +2834,13 @@ function ProjectPreview({
           },
         };
       }),
-    });
+    };
+    await persist(syncRecordingTimelinePresentation(nextDocument, recordingAsset.id) as ProjectState['document']);
   }
 
   async function updateCameraPresentation(patch: Partial<CameraPresentation>) {
     if (!recordingAsset?.id || !hasCamera) return;
-    await persist({
+    const nextDocument = {
       ...project.document,
       assets: project.document.assets?.map((asset) => {
         if (asset.id !== recordingAsset.id) return asset;
@@ -2856,7 +2858,8 @@ function ProjectPreview({
           },
         };
       }),
-    });
+    };
+    await persist(syncRecordingTimelinePresentation(nextDocument, recordingAsset.id) as ProjectState['document']);
   }
 
   async function updateCameraFrame(frame: { x: number; y: number; w: number; h: number } | null) {
@@ -3011,25 +3014,7 @@ function ProjectPreview({
     const endFrame = Math.max(startFrame + 1, Math.min(totalFrames, Math.round(nextEndFrame)));
     const durationFrames = endFrame - startFrame;
     const cameraOffset = Math.max(0, Math.round((effectiveRecording.camera as { sourceInFrames?: number } | undefined)?.sourceInFrames ?? 0));
-    await persist({
-      ...project.document,
-      composition: {
-        ...project.document.composition,
-        duration: durationFrames,
-        tracks: project.document.composition.tracks?.map((track) => ({
-          ...track,
-          clips: track.clips?.map((clip) => {
-            if (clip.assetId === recordingAsset.id) {
-              return { ...clip, timelineIn: 0, timelineOut: durationFrames, sourceIn: startFrame, sourceOut: endFrame };
-            }
-            if (recordingAsset.cameraAssetId && clip.assetId === recordingAsset.cameraAssetId) {
-              return { ...clip, timelineIn: 0, timelineOut: durationFrames, sourceIn: cameraOffset + startFrame, sourceOut: cameraOffset + endFrame };
-            }
-            return clip;
-          }),
-        })),
-      },
-    });
+    await persist(updateRecordingTimelineTrim(project.document, { assetId: recordingAsset.id, cameraAssetId: recordingAsset.cameraAssetId as string | null | undefined, cameraOffset, startFrame, endFrame }) as ProjectState['document']);
     setCurrentTimeSec(Math.min(currentTimeSec, durationFrames / (effectiveRecording.fps || 30)));
   }
 
@@ -3237,6 +3222,8 @@ function getPrimaryRecordingAsset(document: ProjectState['document']) {
 
 function getPrimaryRecordingClip(document: ProjectState['document'], assetId?: string | null): PrimaryClip | null {
   if (!assetId) return null;
+  const timelineClip = getRecordingTimelineClip(document, assetId) as PrimaryClip | null;
+  if (timelineClip) return timelineClip;
   for (const track of document.composition.tracks ?? []) {
     const clip = track.clips?.find((item) => item.assetId === assetId);
     if (clip) return clip;

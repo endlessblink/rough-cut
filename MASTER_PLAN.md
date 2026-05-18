@@ -191,7 +191,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-206~~ | ✅ Shared timeline invariant: one timeline, two toolsets | P1 | ✅ DONE (2026-05-18) |
 | ~~TASK-207~~ | ✅ Shared timeline schema for sources, tracks, clips, markers | P1 | ✅ DONE (2026-05-19) |
 | ~~TASK-208~~ | ✅ Migrate Recording edit cuts/trims into shared timeline | P1 | ✅ DONE (2026-05-19) |
-| TASK-209 | Recording edit selectors/actions over shared timeline | P1 | PLANNED |
+| ~~TASK-209~~ | ✅ Recording edit selectors/actions over shared timeline | P1 | ✅ DONE (2026-05-19) |
 | TASK-210 | NLE selectors/actions over shared timeline | P1 | PLANNED |
 | TASK-211 | Replace trim UI with local preview sessions | P1 | PLANNED |
 | TASK-212 | Shared export composition/EDL from one timeline | P1 | PLANNED |
@@ -514,7 +514,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-209, "Recording edit selectors/actions over shared timeline". Do not continue TASK-188 drag or TASK-187 trim rework until the shared timeline foundation tasks are complete.
+Next task when continuing: start TASK-210, "NLE selectors/actions over shared timeline". Do not continue TASK-188 drag or TASK-187 trim rework until the shared timeline foundation tasks are complete.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–204). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -2892,7 +2892,7 @@ TASK-018/019 are DONE. The user can apply or dismiss auto-zoom suggestions via `
 ### TASK-079 Profile renderer scrub and memoize where DevTools flags
 
 **Priority:** P3  
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-19)
 
 #### Context
 
@@ -5603,8 +5603,12 @@ Recording edit remains a canonical editing surface, but its tools must operate o
 
 #### Verification
 
-- Renderer tests cover edits made in Recording edit appearing in NLE.
-- Smoke/manual check switches between tabs after cuts/zooms/camera/cursor edits and confirms parity.
+- Added `recording-timeline.mjs` selectors/actions for Recording edit trim reads and writes over shared timeline data.
+- Recording edit trim writes now sync legacy `composition.tracks`, transitional top-level `tracks`, and canonical `timeline.tracks`, so NLE rows update without reload.
+- Recording edit cut helpers read timeline cut markers first and keep legacy cut ranges mirrored for current preview/export compatibility.
+- Recording edit zoom helpers read timeline zoom markers first and mirror add/update/remove/suggestion edits into shared timeline zoom markers.
+- Cursor and camera presentation changes mirror into shared timeline effects while preserving existing asset presentation compatibility.
+- Renderer tests cover Recording edit trims appearing in NLE rows, timeline-first reads, zoom/cut marker sync, and cursor/camera effect sync.
 
 ### TASK-210 NLE selectors/actions over shared timeline
 
