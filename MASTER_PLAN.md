@@ -187,7 +187,15 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-185~~ | ✅ Frame resolver: video stack selection + audio mix plan | P1 | ✅ DONE (2026-05-18) |
 | ~~TASK-186~~ | ✅ NLE timeline: render dynamic tracks from project data | P1 | ✅ DONE (2026-05-18) |
 | ~~TASK-205~~ | ✅ Recording edit/NLE share presentation state and controls | P1 | ✅ DONE (2026-05-18) |
-| ~~TASK-187~~ | ✅ NLE trim handles for selected clip edges | P1 | ✅ DONE (2026-05-18) |
+| TASK-187 | NLE trim handles for selected clip edges | P1 | REWORK REQUIRED → TASK-211 |
+| ~~TASK-206~~ | ✅ Shared timeline invariant: one timeline, two toolsets | P1 | ✅ DONE (2026-05-18) |
+| TASK-207 | Shared timeline schema for sources, tracks, clips, markers | P1 | PLANNED |
+| TASK-208 | Migrate Recording edit cuts/trims into shared timeline | P1 | PLANNED |
+| TASK-209 | Recording edit selectors/actions over shared timeline | P1 | PLANNED |
+| TASK-210 | NLE selectors/actions over shared timeline | P1 | PLANNED |
+| TASK-211 | Replace trim UI with local preview sessions | P1 | PLANNED |
+| TASK-212 | Shared export composition/EDL from one timeline | P1 | PLANNED |
+| TASK-213 | Cross-tool sync and migration smoke coverage | P1 | PLANNED |
 | TASK-188 | NLE drag clips within a track with collision rules | P1 | PLANNED |
 | TASK-189 | NLE drag clips across same-kind tracks | P2 | PLANNED |
 | TASK-190 | Track header controls: mute, lock, height | P2 | PLANNED |
@@ -496,7 +504,7 @@ Sequence: TASK-138, TASK-139
 
 21. **LANE P-AI-I — Multi-track NLE + generation v1** (Phase 3):
 Depends-on: LANE P-AI-E, LANE P-AI-G
-Sequence: TASK-184, TASK-185, TASK-186, TASK-205, TASK-187, TASK-188, TASK-189, TASK-190, TASK-191, TASK-192, TASK-193, TASK-194, TASK-195, TASK-196, TASK-197, TASK-198, TASK-199, TASK-200, TASK-201, TASK-202, TASK-203, TASK-204
+Sequence: TASK-184, TASK-185, TASK-186, TASK-205, TASK-206, TASK-207, TASK-208, TASK-209, TASK-210, TASK-211, TASK-212, TASK-213, TASK-188, TASK-189, TASK-190, TASK-191, TASK-192, TASK-193, TASK-194, TASK-195, TASK-196, TASK-197, TASK-198, TASK-199, TASK-200, TASK-201, TASK-202, TASK-203, TASK-204
 
 22. **LANE P-AI-J — Auto-assembly + motion graphics + templates** (Phase 4):
 Depends-on: LANE P-AI-I, LANE P-AI-D
@@ -506,7 +514,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-188, "NLE drag clips within a track with collision rules". TASK-205 and TASK-187 are now complete, so same-track drag is the next required timeline editing primitive.
+Next task when continuing: start TASK-206, "Shared timeline invariant: one timeline, two toolsets". Do not continue TASK-188 drag or TASK-187 trim rework until Recording edit and NLE are confirmed as two toolsets over the same shared timeline model.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–204). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -5468,7 +5476,7 @@ Recording edit and NLE are two views over the same project, not separate editors
 ### TASK-187 NLE trim handles for selected clip edges
 
 **Priority:** P1
-**Status:** ✅ DONE (2026-05-18) — Selected NLE clips now expose compact left/right trim handles. Dragging an edge updates clip timeline/source ranges through a pure mutation helper, clamps against project bounds and neighboring clips, preserves half-open intervals, and keeps top-level NLE tracks in sync with legacy composition tracks.
+**Status:** REWORK REQUIRED → TASK-211 — The first implementation added selected-clip visible trim buttons, but the interaction is not the correct professional timeline model. Trim must be rebuilt as edge hit-zones with local drag preview sessions after the shared one-timeline/two-toolsets model is fixed.
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -5491,6 +5499,201 @@ Clip splitting exists, but timeline editing needs direct edge trims before broad
 - `pnpm --filter @rough-cut/desktop test` 436/436 pass.
 - `pnpm smoke:ui` passed.
 - Focused NLE smoke passed with `hasNleTrimHandles: true`; screenshot shows selected-clip trim handles without disrupting the timeline layout.
+
+#### Rework Notes
+
+- Do not build TASK-188 on top of the current trim UI.
+- Keep useful pure mutation tests only if they still match the shared timeline model.
+- Replace layout-affecting handle buttons with edge hit-zones/brackets.
+- During pointer drag, update local preview state only; commit one shared timeline mutation on pointerup.
+- Recording edit and NLE must both reflect the trim because they are toolsets over the same timeline.
+
+### TASK-206 Shared timeline invariant: one timeline, two toolsets
+
+**Priority:** P1
+**Status:** ✅ DONE (2026-05-18) — Added `docs/shared-timeline-architecture.md` and a test guard that names the invariant: one timeline, two canonical toolsets. The doc identifies shared edit concepts, transitional fields, interaction rules, and the implementation order that blocks further trim/drag work until shared timeline semantics are explicit.
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+Recording edit and NLE are not separate timelines and not a primary/derived hierarchy. They are two toolsets over one shared timeline model. The current code still has legacy Recording edit concepts (`cutRanges`, trim state, presentation controls) and newer NLE tracks/clips that can drift or be interpreted differently.
+
+#### Acceptance Criteria
+
+- Write down the shared timeline invariant in code-adjacent docs/tests: one timeline, two canonical toolsets.
+- Identify every persisted edit concept that must be shared: cuts, trims, zooms, cursor/click effects, camera PiP, aspect, background, export settings, screen/camera frames.
+- Define which project model fields are canonical and which are transitional/legacy.
+- Block new trim/drag work unless it routes through the shared timeline mutation path.
+
+#### Verification
+
+- `apps/desktop/src/renderer/src/shared-timeline-invariant.test.mjs` verifies the invariant doc names one timeline, two canonical toolsets, shared edit concepts, and pointer preview/commit rules.
+- `python3 /home/endlessblink/.codex/skills/.system/skill-creator/scripts/quick_validate.py /home/endlessblink/.codex/skills/rough-cut-zoom-timeline` passed after updating the Rough Cut timeline skill.
+
+### TASK-207 Shared timeline schema for sources, tracks, clips, markers
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+The project model needs a clean JSON-friendly shape for the shared timeline: source media, tracks, clips, linked groups, markers/effects, and export settings. Existing model fields can be migrated incrementally, but the target shape must be explicit before more UI interactions are added.
+
+#### Acceptance Criteria
+
+- Define source/media references for screen, camera, mic/system audio, and cursor telemetry.
+- Define tracks/clips with integer-frame `sourceIn`, `sourceOut`, `timelineIn`, `timelineOut` and half-open intervals.
+- Define linked media/group rules so screen, camera, audio, cursor telemetry, zoom/click markers, and presentation state remain synchronized.
+- Define marker/effect ownership for zoom, clicks, cursor style, camera PiP, and annotations.
+- Preserve existing project compatibility through migrations or transitional fields.
+
+#### Verification
+
+- Project-model schema/type tests cover valid/invalid tracks, clips, linked groups, and markers.
+- Migration tests prove existing projects still validate.
+
+### TASK-208 Migrate Recording edit cuts/trims into shared timeline
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+Current Recording edit uses concepts like single-recording trim and `cutRanges`. These must become edits on the shared timeline without changing current export output. The migration can be internal/transitional, but both toolsets must see the same resulting timeline.
+
+#### Acceptance Criteria
+
+- Convert existing single-recording trim/cut ranges into shared timeline clip segments or equivalent canonical timeline edits.
+- Preserve the current visible duration, source mappings, zoom/cursor/click timing, camera PiP sync, and export behavior.
+- Define restore behavior for removed ranges in the shared model.
+- Leave original media files untouched.
+
+#### Verification
+
+- Migration fixtures cover no cuts, one cut, overlapping/adjacent cuts, head/tail trim, and camera/audio/cursor sidecars.
+- Preview/export composition before and after migration is equivalent for existing fixtures.
+
+### TASK-209 Recording edit selectors/actions over shared timeline
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+Recording edit remains a canonical editing surface, but its tools must operate on the shared timeline. It should present simplified screen-recording controls while mutating the same model that NLE shows.
+
+#### Acceptance Criteria
+
+- Add selectors that present Recording edit's simplified lanes/tools from the shared timeline.
+- Route Recording edit cuts, trims, zoom edits, camera/cursor presentation changes, aspect/background/export edits through shared timeline/project mutations.
+- Ensure switching to NLE immediately shows the same cuts/segments/markers without reload.
+- Do not duplicate shared edit state in Recording edit component state.
+
+#### Verification
+
+- Renderer tests cover edits made in Recording edit appearing in NLE.
+- Smoke/manual check switches between tabs after cuts/zooms/camera/cursor edits and confirms parity.
+
+### TASK-210 NLE selectors/actions over shared timeline
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+NLE is the advanced toolset for the same timeline. Its track/clip view must not reinterpret Recording edit edits or store parallel state.
+
+#### Acceptance Criteria
+
+- Add selectors that render NLE tracks/clips from the shared timeline model.
+- Route NLE split/delete/future trim/drag actions through the same pure shared timeline actions used by Recording edit.
+- Ensure switching back to Recording edit preserves screen-recording semantics and does not flatten or discard advanced edits silently.
+- Define a user-facing warning or disabled state for NLE edits that Recording edit cannot faithfully present yet.
+
+#### Verification
+
+- Renderer tests cover NLE split/delete appearing in Recording edit.
+- Source guards prevent NLE-only parallel cut/clip stores for shared concepts.
+
+### TASK-211 Replace trim UI with local preview sessions
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+The first trim-handle implementation is not shippable. Proper trim needs edge hit-zones, local preview state, snap/collision feedback, and one shared project mutation on pointerup.
+
+#### Acceptance Criteria
+
+- Remove layout-affecting trim buttons from clip content.
+- Add invisible edge hit-zones and selected/hover bracket affordances.
+- Create a local `trimSession` model containing clip id, edge, start geometry, original clip, preview range, snap target, and clamp/invalid reason.
+- During pointermove, update only the local preview; do not mutate the project.
+- On pointerup, commit one pure shared timeline trim mutation that both Recording edit and NLE reflect.
+
+#### Verification
+
+- Unit tests cover preview/commit trim math, source bounds, neighbor collision, min duration, and half-open intervals.
+- Electron smoke performs an actual edge drag and verifies clip bounds changed once and both toolsets show the result.
+- Screenshots confirm handles are bracket-like, compact, and do not shift labels.
+
+### TASK-212 Shared export composition/EDL from one timeline
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+Preview and export must read one composition plan from the shared timeline. Recording edit export and NLE export should not have separate composition logic for the same content.
+
+#### Acceptance Criteria
+
+- Implement or formalize a shared composition/EDL resolver from sources, tracks, clips, markers, linked media, and export settings.
+- Raw export reads the primary screen timeline segments.
+- Styled export composites screen, background, aspect, camera PiP, cursor/click effects, zoom markers, and cuts from the same resolver.
+- Gaps, trims, splits, and linked camera/audio/cursor timing are represented explicitly.
+
+#### Verification
+
+- Unit tests cover resolver output for trim, cut, split, camera/audio/cursor sync, and markers.
+- Smoke/export tests prove Recording edit and NLE exports use the same composition plan.
+
+### TASK-213 Cross-tool sync and migration smoke coverage
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+The one-timeline rule needs end-to-end protection. Unit tests alone will not catch tab-switch drift, local-state forks, or preview/export mismatch.
+
+#### Acceptance Criteria
+
+- Add smoke coverage that opens an existing project, edits in Recording edit, switches to NLE, and verifies matching timeline state.
+- Add smoke coverage that edits in NLE, switches to Recording edit, and verifies the simplified toolset reflects the same timeline.
+- Add migration smoke for an old project with trim/cutRanges/zoom/camera/cursor metadata.
+- Capture screenshots for both surfaces after the same edit.
+
+#### Verification
+
+- `pnpm smoke:ui` or a focused smoke reports explicit cross-tool sync booleans.
+- Screenshots are inspected before marking shared timeline work done.
 
 ### TASK-188 NLE drag clips within a track with collision rules
 
