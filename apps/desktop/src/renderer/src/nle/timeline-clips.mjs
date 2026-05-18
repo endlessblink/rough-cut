@@ -81,6 +81,8 @@ function buildClipBlock(clip, totalFrames) {
         ? source.id
         : null,
     name: typeof clip.name === 'string' && clip.name ? clip.name : null,
+    timelineIn: safeIn,
+    timelineOut: safeOut,
     leftPct,
     widthPct,
     enabled: clip.enabled !== false,

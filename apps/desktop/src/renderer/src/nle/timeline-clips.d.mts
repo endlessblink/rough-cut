@@ -2,6 +2,8 @@ export interface NleLaneClipBlock {
   readonly id: string | null;
   readonly assetId: string | null;
   readonly name: string | null;
+  readonly timelineIn: number;
+  readonly timelineOut: number;
   readonly leftPct: number;
   readonly widthPct: number;
   readonly enabled: boolean;

@@ -4,7 +4,9 @@ import { removeClipById, trimClipById } from './clip-mutations.mjs';
 import { TimelineRuler } from './timeline-ruler';
 import { isTypingTarget } from './keyboard.mjs';
 import { snapFrameToClipEdges } from './snap.mjs';
+import { createTrimSession, updateTrimSession } from './trim-session.mjs';
 import type { NleProject } from './types';
+import type { TrimEdge, TrimSession } from './trim-session.mjs';
 
 export function NleTimeline({
   project,
@@ -31,6 +33,7 @@ export function NleTimeline({
   // math measures it directly, so clicks at the visual start of the
   // bodies land on frame 0 without an off-by-header-width error.
   const bodiesRef = React.useRef<HTMLDivElement | null>(null);
+  const [trimSession, setTrimSession] = React.useState<TrimSession | null>(null);
 
   function frameFromClientX(clientX: number, snap: boolean): number {
     const el = bodiesRef.current;
@@ -66,20 +69,27 @@ export function NleTimeline({
     if (blockId) onSelectedClipChange(blockId);
   }
 
-  function startTrim(e: React.PointerEvent<HTMLButtonElement>, blockId: string | null, edge: 'left' | 'right') {
+  function startTrim(e: React.PointerEvent<HTMLButtonElement>, blockId: string | null, edge: TrimEdge) {
     if (e.button !== 0 || !project || !blockId || !onProjectChange) return;
     e.preventDefault();
     e.stopPropagation();
     onSelectedClipChange(blockId);
-    let latestFrame = frameFromClientX(e.clientX, false);
+    let latestFrame = frameFromClientX(e.clientX, true);
+    let latestSession = createTrimSession(project, blockId, edge, latestFrame, durationFrames);
+    if (!latestSession) return;
+    setTrimSession(latestSession);
     const handleMove = (ev: PointerEvent) => {
-      latestFrame = frameFromClientX(ev.clientX, false);
+      latestFrame = frameFromClientX(ev.clientX, true);
+      latestSession = updateTrimSession(latestSession, latestFrame);
+      setTrimSession(latestSession);
       onPlayheadFrameChange(latestFrame);
     };
     const handleUp = () => {
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleUp);
-      const next = trimClipById(project, blockId, edge, latestFrame);
+      setTrimSession(null);
+      const commitFrame = latestSession?.snapFrame ?? latestFrame;
+      const next = trimClipById(project, blockId, edge, commitFrame);
       if (next !== project) {
         onProjectChange(next as unknown as NleProject);
       }
@@ -155,13 +165,17 @@ export function NleTimeline({
               ) : (
                 track.blocks.map((block, index) => {
                   const selected = block.id !== null && block.id === selectedClipId;
+                  const trimPreview = block.id !== null && block.id === trimSession?.clipId ? trimSession.preview : null;
+                  const leftPct = trimPreview && durationFrames > 0 ? Math.max(0, Math.min(100, (trimPreview.timelineIn / durationFrames) * 100)) : block.leftPct;
+                  const widthPct = trimPreview && durationFrames > 0 ? Math.max(0, Math.min(100 - leftPct, ((trimPreview.timelineOut - trimPreview.timelineIn) / durationFrames) * 100)) : block.widthPct;
                   return (
                     <div
                       key={block.id ?? `${track.id}-${index}`}
-                      className={`nleClipBlock ${block.enabled && track.enabled ? '' : 'disabled'} ${selected ? 'selected' : ''}`}
+                      className={`nleClipBlock ${block.enabled && track.enabled ? '' : 'disabled'} ${selected ? 'selected' : ''} ${trimPreview ? 'trimming' : ''}`}
                       data-clip-id={block.id ?? ''}
                       data-asset-id={block.assetId ?? ''}
-                      style={{ left: `${block.leftPct}%`, width: `${block.widthPct}%` }}
+                      data-trim-edge={trimPreview ? trimSession?.edge : undefined}
+                      style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
                       title={block.name ?? undefined}
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => handleClipClick(e, block.id)}
@@ -169,8 +183,12 @@ export function NleTimeline({
                       {selected ? (
                         <button
                           type="button"
+                          role="slider"
                           className="nleClipTrimHandle left"
                           aria-label="Trim selected clip start"
+                          aria-valuemin={0}
+                          aria-valuemax={Math.max(0, block.timelineOut - 1)}
+                          aria-valuenow={Math.round(trimPreview?.timelineIn ?? block.timelineIn)}
                           onPointerDown={(e) => startTrim(e, block.id, 'left')}
                         />
                       ) : null}
@@ -178,8 +196,12 @@ export function NleTimeline({
                       {selected ? (
                         <button
                           type="button"
+                          role="slider"
                           className="nleClipTrimHandle right"
                           aria-label="Trim selected clip end"
+                          aria-valuemin={block.timelineIn + 1}
+                          aria-valuemax={durationFrames}
+                          aria-valuenow={Math.round(trimPreview?.timelineOut ?? block.timelineOut)}
                           onPointerDown={(e) => startTrim(e, block.id, 'right')}
                         />
                       ) : null}

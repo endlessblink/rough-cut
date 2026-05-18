@@ -3740,54 +3740,79 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
  * Video lane shows a single wide block for a typical recording. */
 .nleClipBlock {
   align-items: center;
-  background: linear-gradient(180deg, rgb(96 165 250 / 0.32), rgb(96 165 250 / 0.18));
-  border: 1px solid rgb(96 165 250 / 0.45);
+  background: color-mix(in oklch, var(--accent) 18%, var(--panel));
+  border: 1px solid color-mix(in oklch, var(--accent) 46%, var(--line));
   border-radius: 4px;
   bottom: 6px;
   color: rgb(226 232 240 / 0.92);
   cursor: pointer;
   display: flex;
   overflow: hidden;
-  padding: 0 0.5rem;
+  padding: 0 0.72rem;
   position: absolute;
   top: 6px;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  transition: border-color 120ms ease, box-shadow 120ms ease, left 90ms ease-out, width 90ms ease-out;
   z-index: 3;
 }
 .nleClipTrimHandle {
-  align-self: stretch;
-  background: rgb(248 250 252 / 0.72);
+  background: transparent;
   border: 0;
-  border-radius: 3px;
+  bottom: 0;
   cursor: ew-resize;
-  flex: 0 0 6px;
-  margin: 5px 0;
-  opacity: 0.88;
   padding: 0;
-  position: relative;
+  position: absolute;
+  top: 0;
+  width: 14px;
+  z-index: 2;
 }
-.nleClipTrimHandle.left { margin-left: -0.25rem; margin-right: 0.35rem; }
-.nleClipTrimHandle.right { margin-left: 0.35rem; margin-right: -0.25rem; }
+.nleClipTrimHandle::before {
+  background: rgb(248 250 252 / 0.82);
+  border-radius: 2px;
+  bottom: 7px;
+  content: '';
+  opacity: 0;
+  position: absolute;
+  top: 7px;
+  transition: opacity 120ms ease, transform 120ms ease;
+  width: 2px;
+}
+.nleClipTrimHandle.left { left: 0; }
+.nleClipTrimHandle.right { right: 0; }
+.nleClipTrimHandle.left::before { left: 4px; }
+.nleClipTrimHandle.right::before { right: 4px; }
+.nleClipBlock.selected .nleClipTrimHandle::before,
+.nleClipBlock.trimming .nleClipTrimHandle::before,
+.nleClipTrimHandle:hover::before,
+.nleClipTrimHandle:focus-visible::before {
+  opacity: 1;
+}
+.nleClipTrimHandle.left:hover::before,
+.nleClipTrimHandle.left:focus-visible::before { transform: translateX(-1px); }
+.nleClipTrimHandle.right:hover::before,
+.nleClipTrimHandle.right:focus-visible::before { transform: translateX(1px); }
 .nleClipTrimHandle:focus-visible {
   outline: 2px solid rgb(96 165 250 / 0.95);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 .nleTrackLaneBody[data-track-kind="audio"] .nleClipBlock {
-  background: linear-gradient(180deg, rgb(52 211 153 / 0.3), rgb(52 211 153 / 0.16));
+  background: color-mix(in oklch, oklch(0.72 0.12 165) 18%, var(--panel));
   border-color: rgb(52 211 153 / 0.45);
 }
 .nleTrackLaneBody[data-track-kind="captions"] .nleClipBlock {
-  background: linear-gradient(180deg, rgb(251 191 36 / 0.28), rgb(251 191 36 / 0.14));
+  background: color-mix(in oklch, oklch(0.82 0.13 85) 16%, var(--panel));
   border-color: rgb(251 191 36 / 0.45);
 }
 .nleTrackLaneBody[data-track-kind="motion-graphics"] .nleClipBlock {
-  background: linear-gradient(180deg, rgb(192 132 252 / 0.28), rgb(192 132 252 / 0.14));
+  background: color-mix(in oklch, oklch(0.68 0.14 305) 16%, var(--panel));
   border-color: rgb(192 132 252 / 0.45);
 }
 .nleClipBlock.disabled { opacity: 0.4; }
 .nleClipBlock.selected {
   border-color: rgb(248 250 252 / 0.9);
   box-shadow: 0 0 0 1px rgb(248 250 252 / 0.6), 0 4px 14px rgb(15 23 42 / 0.5);
+}
+.nleClipBlock.trimming {
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 70%, var(--text)), 0 4px 14px rgb(15 23 42 / 0.5);
 }
 .nleClipBlockLabel {
   font-size: 0.72rem;

@@ -1593,6 +1593,19 @@ async function runRendererNleSmoke() {
   const hasNleTrimHandles = Boolean(
     document.querySelector('.nleClipTrimHandle.left') && document.querySelector('.nleClipTrimHandle.right'),
   );
+  const trimHandle = document.querySelector('.nleClipTrimHandle.left');
+  const clipBeforeTrim = trimHandle?.closest('.nleClipBlock');
+  const trimRect = clipBeforeTrim?.getBoundingClientRect();
+  const trimLeftBefore = clipBeforeTrim?.style.left ?? '';
+  if (trimHandle && trimRect) {
+    trimHandle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 7, clientX: trimRect.left + 2, clientY: trimRect.top + trimRect.height / 2 }));
+    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, button: 0, pointerId: 7, clientX: trimRect.left + trimRect.width * 0.12, clientY: trimRect.top + trimRect.height / 2 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerId: 7, clientX: trimRect.left + trimRect.width * 0.12, clientY: trimRect.top + trimRect.height / 2 }));
+  }
+  const hasNleTrimDragMutation = Boolean(await waitFor(() => {
+    const clip = document.querySelector('.nleClipBlock');
+    return clip && clip.style.left !== trimLeftBefore ? clip : null;
+  }, 'NLE trim drag mutates clip bounds'));
   const clipCountBeforeSplit = document.querySelectorAll('.nleClipBlock').length;
   splitButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
   await waitFor(() => document.querySelectorAll('.nleClipBlock').length > clipCountBeforeSplit, 'NLE split button creates a second clip');
@@ -1611,6 +1624,7 @@ async function runRendererNleSmoke() {
     hasNleSplitButton: Boolean(splitButton),
     hasNleSplitDisabledWithoutSelection: splitDisabledBeforeSelection,
     hasNleTrimHandles,
+    hasNleTrimDragMutation,
     hasNleSplitButtonMutation: document.querySelectorAll('.nleClipBlock').length > clipCountBeforeSplit,
   };
 }

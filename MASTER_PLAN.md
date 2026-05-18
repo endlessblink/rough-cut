@@ -193,7 +193,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-208~~ | ✅ Migrate Recording edit cuts/trims into shared timeline | P1 | ✅ DONE (2026-05-19) |
 | ~~TASK-209~~ | ✅ Recording edit selectors/actions over shared timeline | P1 | ✅ DONE (2026-05-19) |
 | ~~TASK-210~~ | ✅ NLE selectors/actions over shared timeline | P1 | ✅ DONE (2026-05-19) |
-| TASK-211 | Replace trim UI with local preview sessions | P1 | PLANNED |
+| ~~TASK-211~~ | ✅ Replace trim UI with local preview sessions | P1 | ✅ DONE (2026-05-19) |
 | TASK-212 | Shared export composition/EDL from one timeline | P1 | PLANNED |
 | TASK-213 | Cross-tool sync and migration smoke coverage | P1 | PLANNED |
 | TASK-188 | NLE drag clips within a track with collision rules | P1 | PLANNED |
@@ -514,7 +514,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-211, "Replace trim UI with local preview sessions". Do not continue TASK-188 drag until the shared timeline foundation tasks are complete.
+Next task when continuing: start TASK-212, "Shared export composition/EDL from one timeline". Do not continue TASK-188 drag until the shared timeline foundation tasks are complete.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–204). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -5643,7 +5643,7 @@ NLE is the advanced toolset for the same timeline. Its track/clip view must not 
 ### TASK-211 Replace trim UI with local preview sessions
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** DONE (2026-05-19)
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -5664,6 +5664,14 @@ The first trim-handle implementation is not shippable. Proper trim needs edge hi
 - Unit tests cover preview/commit trim math, source bounds, neighbor collision, min duration, and half-open intervals.
 - Electron smoke performs an actual edge drag and verifies clip bounds changed once and both toolsets show the result.
 - Screenshots confirm handles are bracket-like, compact, and do not shift labels.
+
+#### Completed Notes
+
+- Replaced inline NLE trim buttons with absolute edge hit-zones and bracket affordances that do not shift clip labels.
+- Added local `trimSession` preview state with original range, bounds, snap/commit frame, and clamp reason; pointermove updates only local preview and playhead.
+- Pointerup commits one shared timeline trim mutation through `trimClipById`, preserving Recording edit/NLE sync.
+- Added unit coverage for source bounds, neighbor collision, min duration, no project mutation during preview, and compact edge-handle styling.
+- Extended NLE UI smoke to perform an actual left-edge trim drag and verify clip bounds mutate once, then split still works.
 
 ### TASK-212 Shared export composition/EDL from one timeline
 
