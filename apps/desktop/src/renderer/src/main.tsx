@@ -55,6 +55,7 @@ import './styles.css';
 import { LibraryShell } from './library/library-shell';
 import { AiShell } from './ai/ai-shell';
 import { NleShell } from './nle/nle-shell';
+import { StyledVideoPreview as VideoPreview } from './styled-video-preview';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
   addManualMarkerAtFrame,
@@ -3972,7 +3973,7 @@ function ExportPresetDetails({ mode, aspectRatio }: { mode: ExportMode; aspectRa
   );
 }
 
-function VideoPreview({
+export function LegacyVideoPreview({
   project,
   seekTimeSec,
   trimStartSec = 0,
