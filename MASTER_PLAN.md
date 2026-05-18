@@ -162,6 +162,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-180~~ | ✅ NLE: time ruler with adaptive ticks above lanes | P1 | ✅ DONE (2026-05-18) |
 | ~~TASK-181~~ | ✅ NLE: keyboard transport shortcuts | P1 | ✅ DONE (2026-05-18) |
 | ~~TASK-182~~ | ✅ NLE: Split at playhead transport button | P1 | ✅ DONE (2026-05-18) |
+| ~~TASK-183~~ | ✅ NLE: snap playhead to clip edges during scrub | P1 | ✅ DONE (2026-05-18) |
 | TASK-128 | WhisperX install flow + OpenAI Whisper API cloud fallback | P1 | PLANNED |
 | TASK-129 | Transcript IPC + persistence inside .roughcut | P1 | PLANNED |
 | ~~TASK-171~~ | ✅ NLE: register 'nle' AppViewId + APP_VIEWS entry + 4th tab in strip | P1 | ✅ DONE (2026-05-18) |
@@ -178,10 +179,31 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-137 | .srt / .vtt sidecar export + Hebrew/English language priority | P2 | PLANNED |
 | TASK-138 | Filler + silence detector from transcript word-timing | P2 | PLANNED |
 | TASK-139 | Proposed-cut overlays on NLE timeline + apply flow | P2 | PLANNED |
-| TASK-140 | Full multi-track timeline expansion (multi video + audio lanes) | P2 | PLANNED |
-| TASK-141 | Cross-project AI asset pool (userData/ai-assets/ + index + Generated tab UI) | P2 | PLANNED |
-| TASK-142 | TTS generation flow (ElevenLabs + Codex CLI gpt-4o-mini-tts) | P2 | PLANNED |
-| TASK-143 | Image generation flow (Codex CLI $imagegen + Replicate / fal.ai fallback) | P2 | PLANNED |
+| TASK-140 | Full multi-track timeline expansion (multi video + audio lanes) | P2 | SUPERSEDED → TASK-184–191 |
+| TASK-141 | Cross-project AI asset pool (userData/ai-assets/ + index + Generated tab UI) | P2 | SUPERSEDED → TASK-192–196 |
+| TASK-142 | TTS generation flow (ElevenLabs + Codex CLI gpt-4o-mini-tts) | P2 | SUPERSEDED → TASK-197–200 |
+| TASK-143 | Image generation flow (Codex CLI $imagegen + Replicate / fal.ai fallback) | P2 | SUPERSEDED → TASK-201–204 |
+| TASK-184 | Track model: generalized NLE tracks + migration defaults | P1 | PLANNED |
+| TASK-185 | Frame resolver: video stack selection + audio mix plan | P1 | PLANNED |
+| TASK-186 | NLE timeline: render dynamic tracks from project data | P1 | PLANNED |
+| TASK-187 | NLE trim handles for selected clip edges | P1 | PLANNED |
+| TASK-188 | NLE drag clips within a track with collision rules | P1 | PLANNED |
+| TASK-189 | NLE drag clips across same-kind tracks | P2 | PLANNED |
+| TASK-190 | Track header controls: mute, lock, height | P2 | PLANNED |
+| TASK-191 | Track reorder controls with z-order preservation | P2 | PLANNED |
+| TASK-192 | AI asset schema: stable generated asset references | P1 | PLANNED |
+| TASK-193 | AI assets store: userData index + file layout | P1 | PLANNED |
+| TASK-194 | AI asset IPC: list, delete, tag, resolve | P1 | PLANNED |
+| TASK-195 | Generated tab: browse, filter, search, preview | P1 | PLANNED |
+| TASK-196 | Drag Generated assets onto compatible NLE tracks | P1 | PLANNED |
+| TASK-197 | TTS capability router and request validation | P1 | PLANNED |
+| TASK-198 | Generate narration modal with voice selection | P2 | PLANNED |
+| TASK-199 | TTS generation job saves audio into AI asset pool | P1 | PLANNED |
+| TASK-200 | TTS asset preview, timeline playback, export bake-in | P1 | PLANNED |
+| TASK-201 | Image generation router via Codex CLI and fallbacks | P1 | PLANNED |
+| TASK-202 | Generate image modal with aspect and variations | P2 | PLANNED |
+| TASK-203 | Image generation saves previews into AI asset pool | P1 | PLANNED |
+| TASK-204 | Image assets drag onto video tracks and preview | P1 | PLANNED |
 | TASK-144 | Auto-assembly agent → multi-AR derivative .roughcut files (16:9 + 9:16 + 1:1) | P2 | PLANNED |
 | TASK-145 | Motion graphics agent (AI-generated Remotion compositions) | P3 | PLANNED |
 | TASK-146 | Executable templates (vlog / tutorial / podcast clip with auto-fire actions) | P3 | PLANNED |
@@ -473,7 +495,7 @@ Sequence: TASK-138, TASK-139
 
 21. **LANE P-AI-I — Multi-track NLE + generation v1** (Phase 3):
 Depends-on: LANE P-AI-E, LANE P-AI-G
-Sequence: TASK-140, TASK-141, TASK-142, TASK-143
+Sequence: TASK-184, TASK-185, TASK-186, TASK-187, TASK-188, TASK-189, TASK-190, TASK-191, TASK-192, TASK-193, TASK-194, TASK-195, TASK-196, TASK-197, TASK-198, TASK-199, TASK-200, TASK-201, TASK-202, TASK-203, TASK-204
 
 22. **LANE P-AI-J — Auto-assembly + motion graphics + templates** (Phase 4):
 Depends-on: LANE P-AI-I, LANE P-AI-D
@@ -483,9 +505,9 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-165, "Migration tests + round-trip + idempotent re-migration". ~30 min scope: extend `packages/project-model/src/migrations.test.ts` with cases for the new v12→v13 migration committed in `a9cb125`. Verify (a) a v12 fixture document gets stamped to v13 with no field-level changes, (b) a v13 doc is unchanged on re-migration (idempotent), (c) the full v1→v13 chain still works for ancient projects, (d) corrupt input (missing `version`) is handled gracefully. See `gentle-dancing-patterson.md` for full context.
+Next task when continuing: start TASK-184, "Track model: generalized NLE tracks + migration defaults". Keep it schema-only: model types, Zod/defaults, migration fixtures, and no renderer behavior yet.
 
-Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
+Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–204). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
 ## Tasks
 
@@ -5246,6 +5268,7 @@ Visualizes the proposals from TASK-138 as ghost overlays on the NLE timeline. Ap
 **Status:** PLANNED
 **Lane:** P-AI-I
 **EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
+**Supersedes part of:** TASK-184, TASK-185, TASK-186, TASK-187, TASK-188, TASK-189, TASK-190, TASK-191
 #### Context
 
 Expands the NLE timeline scaffold (TASK-130) into a real multi-track surface: multiple video lanes, multiple audio lanes (mic / system / TTS / SFX / music), captions track (from TASK-135), MG track.
@@ -5271,6 +5294,7 @@ Expands the NLE timeline scaffold (TASK-130) into a real multi-track surface: mu
 **Status:** PLANNED
 **Lane:** P-AI-I
 **EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
+**Supersedes part of:** TASK-192, TASK-193, TASK-194, TASK-195, TASK-196
 #### Context
 
 Generated assets (TTS / images / SFX) live in a cross-project pool in `userData/ai-assets/` and are referenced from projects by stable ID. Visible in the NLE asset panel's "Generated" tab.
@@ -5295,6 +5319,7 @@ Generated assets (TTS / images / SFX) live in a cross-project pool in `userData/
 **Status:** PLANNED
 **Lane:** P-AI-I
 **EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
+**Supersedes part of:** TASK-197, TASK-198, TASK-199, TASK-200
 #### Context
 
 Generate narration via ElevenLabs (preset voices) or OpenAI gpt-4o-mini-tts (via Codex CLI auth). Result lands in the AI asset pool.
@@ -5318,6 +5343,7 @@ Generate narration via ElevenLabs (preset voices) or OpenAI gpt-4o-mini-tts (via
 **Status:** PLANNED
 **Lane:** P-AI-I
 **EPIC — decompose before execution. See "Lane Decomposition Protocol" in the Delivery Lanes block above.**
+**Supersedes part of:** TASK-201, TASK-202, TASK-203, TASK-204
 #### Context
 
 Generate images via Codex CLI `$imagegen` (gpt-image-2, primary) with Replicate / fal.ai fallback. Result lands in the AI asset pool.
@@ -5334,6 +5360,478 @@ Generate images via Codex CLI `$imagegen` (gpt-image-2, primary) with Replicate 
 
 - Manual: generate a 1024x1024 image via Codex CLI auth → file appears in `userData/ai-assets/`.
 - Manual fallback test: Codex CLI not authed → router falls through to Replicate (with API key configured).
+
+### TASK-184 Track model: generalized NLE tracks + migration defaults
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+The NLE needs a first-class track model before renderer drag/drop or generation assets can be safely attached to the timeline. This task is data-model only.
+
+#### Acceptance Criteria
+
+- Add generalized track types for video, audio, captions, and motion-graphics in the project model.
+- Add clip references that can point at project media or AI assets without duplicating files.
+- Add migration defaults for existing `.roughcut` projects so current recordings open with one video track and one audio track when applicable.
+- Preserve existing single-recording behavior in Recording edit.
+
+#### Verification
+
+- Project-model tests cover schema validation and migration defaults from older fixtures.
+- Desktop typecheck stays clean.
+
+### TASK-185 Frame resolver: video stack selection + audio mix plan
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+Rendering and preview need one deterministic answer for "what is active at frame N" across a stacked timeline.
+
+#### Acceptance Criteria
+
+- Add a pure frame resolver for generalized tracks.
+- Video resolution walks enabled/unlocked video tracks by z-order and returns the top active opaque clip.
+- Audio resolution returns all enabled/unmuted active audio clips for later sum-mix.
+- Half-open intervals remain `[timelineIn, timelineOut)`.
+
+#### Verification
+
+- Unit tests cover z-order, muted/locked/disabled tracks, overlapping clips, and boundary frames.
+
+### TASK-186 NLE timeline: render dynamic tracks from project data
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+The current NLE timeline has fixed display lanes. This task switches rendering to project-owned tracks without adding editing gestures yet.
+
+#### Acceptance Criteria
+
+- Render N timeline tracks from the project model.
+- Track headers show name, type, and basic status.
+- Existing recordings still show sensible Video and Audio rows.
+- Empty projects show an add/import hint instead of broken lanes.
+
+#### Verification
+
+- Renderer tests cover single recording, blank project, and multiple-track fixtures.
+- `pnpm smoke:ui` still passes and NLE screenshot shows dynamic rows cleanly.
+
+### TASK-187 NLE trim handles for selected clip edges
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+Clip splitting exists, but timeline editing needs direct edge trims before broader drag/drop editing.
+
+#### Acceptance Criteria
+
+- Selected clips show left and right trim handles.
+- Dragging a handle adjusts `timelineIn` or `timelineOut` through a pure mutation helper.
+- Trims cannot invert a clip, cross neighboring clips on the same track, or leave project bounds.
+- Keyboard frame stepping remains independent from pointer snap behavior.
+
+#### Verification
+
+- Unit tests cover trim boundaries, same-reference no-ops, and half-open edge behavior.
+- NLE smoke/manual check verifies visible handles and drag feedback.
+
+### TASK-188 NLE drag clips within a track with collision rules
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+Once clips can be trimmed, users need to reposition clips on the same track without corrupting the timeline.
+
+#### Acceptance Criteria
+
+- Dragging a selected clip repositions it within its current track.
+- Collision rules prevent overlap with neighboring clips.
+- Dragging preserves clip duration and source offsets.
+- Snap-to-edge applies during pointer drag only.
+
+#### Verification
+
+- Unit tests cover no-overlap, bounds, duration preservation, and same-reference no-ops.
+- NLE smoke/manual check verifies drag affordance and resulting project mutation.
+
+### TASK-189 NLE drag clips across same-kind tracks
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+Multi-track editing is only useful if clips can move between compatible lanes.
+
+#### Acceptance Criteria
+
+- Dragging supports video-to-video and audio-to-audio moves.
+- Cross-kind drops are rejected with clear visual feedback.
+- Drop collision rules match same-track dragging.
+- The selected clip remains selected after a successful move.
+
+#### Verification
+
+- Unit tests cover compatible drops, incompatible drops, collisions, and selection preservation.
+- Manual NLE check verifies video and audio track moves.
+
+### TASK-190 Track header controls: mute, lock, height
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+Track-level controls make larger timelines navigable and prevent accidental edits.
+
+#### Acceptance Criteria
+
+- Track headers expose mute where applicable, lock, and height controls.
+- Locked tracks reject trim, split, delete, and drag mutations.
+- Muted audio tracks are excluded from audio resolution and export planning.
+- Height choices persist in the project document.
+
+#### Verification
+
+- Unit tests cover lock/mute effects in mutation helpers and resolver helpers.
+- Renderer smoke/manual check verifies the controls do not crowd small timelines.
+
+### TASK-191 Track reorder controls with z-order preservation
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+Video compositing depends on track order, so reorder must be explicit, testable, and undoable.
+
+#### Acceptance Criteria
+
+- Add track reorder controls or drag handles in the track headers.
+- Reorder persists in project data and is routed through `applyProjectChange`.
+- Video resolver respects the reordered stack.
+- Audio track order changes do not alter summed audio semantics.
+
+#### Verification
+
+- Unit tests cover reorder mutations and resolver z-order changes.
+- Manual NLE check verifies undo/redo around reorder.
+
+### TASK-192 AI asset schema: stable generated asset references
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-141
+
+#### Context
+
+Generated assets must be reusable across projects and referenced by stable IDs from timeline clips.
+
+#### Acceptance Criteria
+
+- Add `AiAsset` schema with id, kind, providerId, sourcePrompt, createdAt, tags, sessionId, and filePath.
+- Add project clip reference shape for AI assets.
+- Validate supported asset kinds for audio, image, video, and motion graphics.
+
+#### Verification
+
+- Project-model tests cover schema validation and invalid kind rejection.
+
+### TASK-193 AI assets store: userData index + file layout
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-141
+
+#### Context
+
+The desktop main process needs durable storage for generated files and their metadata.
+
+#### Acceptance Criteria
+
+- Add `apps/desktop/src/main/ai-assets-store.mjs`.
+- Store an atomic JSON index at `userData/ai-assets/index.json`.
+- Store generated files under stable type/session folders.
+- Index writes use temp-and-rename semantics.
+
+#### Verification
+
+- Main-process unit tests cover add/list/update/delete and corrupted-index recovery.
+
+### TASK-194 AI asset IPC: list, delete, tag, resolve
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-141
+
+#### Context
+
+Renderer UI and generation flows need a narrow IPC surface over the asset store.
+
+#### Acceptance Criteria
+
+- Add IPC channels for list, delete, tag, and resolve-by-id.
+- Preload exposes typed asset methods without leaking arbitrary file access.
+- Delete removes or tombstones assets safely when referenced by open projects.
+
+#### Verification
+
+- IPC tests cover success, missing asset, bad payload, and referenced delete behavior.
+
+### TASK-195 Generated tab: browse, filter, search, preview
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-141
+
+#### Context
+
+The existing Generated tab is an empty placeholder. It needs to become the browser for reusable AI assets.
+
+#### Acceptance Criteria
+
+- Generated tab lists assets from the IPC-backed store.
+- Users can filter by kind/tag/session and search prompt text.
+- Inline previews render audio, image, and video assets when available.
+- Empty and loading states are explicit.
+
+#### Verification
+
+- Renderer tests cover filtering, search, empty states, and preview selection.
+- `pnpm smoke:ui` confirms the tab still fits the NLE layout.
+
+### TASK-196 Drag Generated assets onto compatible NLE tracks
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-141
+
+#### Context
+
+The pool becomes useful when generated assets can become timeline clips by reference.
+
+#### Acceptance Criteria
+
+- Drag from Generated tab creates a clip reference on a compatible track.
+- Audio assets can drop on audio tracks; image/video assets can drop on video tracks.
+- Incompatible drops are rejected with feedback.
+- The created clip uses the asset ID, not a copied file path.
+
+#### Verification
+
+- Unit tests cover clip creation by asset reference and incompatible drops.
+- Manual NLE check confirms an asset appears on the timeline after drop.
+
+### TASK-197 TTS capability router and request validation
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-142
+
+#### Context
+
+TTS generation depends on the provider abstraction and background job system from Lane P-AI-B.
+
+#### Acceptance Criteria
+
+- Add TTS capability module with provider order: ElevenLabs API, Codex CLI gpt-4o-mini-tts, then future local Piper.
+- Validate text, voice, provider override, and duration/size limits before launching work.
+- Return structured provider errors suitable for the renderer.
+- Declare dependency on TASK-122 through TASK-125 before execution.
+
+#### Verification
+
+- Unit tests cover routing order, validation failures, and provider fallback behavior with mocked providers.
+
+### TASK-198 Generate narration modal with voice selection
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-142
+
+#### Context
+
+Users need a small generation surface before the backend job creates assets.
+
+#### Acceptance Criteria
+
+- Launchpad "Generate narration" opens a modal with text input, provider/voice selection, and cost estimate placeholder.
+- Voice picker reflects available provider presets.
+- Generate is disabled for empty or invalid text.
+- The modal can be closed safely while a job is pending.
+
+#### Verification
+
+- Renderer tests cover validation, provider/voice switching, and pending state.
+
+### TASK-199 TTS generation job saves audio into AI asset pool
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-142
+
+#### Context
+
+Generated narration should land in the cross-project pool, not directly mutate a project.
+
+#### Acceptance Criteria
+
+- Add `AI_GENERATE_TTS` IPC that runs through the background job system.
+- Generated audio is written under `userData/ai-assets/` and indexed as an `AiAsset`.
+- Job progress and failure status are visible through existing job UI primitives.
+- Result returns `{ assetId }`.
+
+#### Verification
+
+- Main-process tests mock provider output and assert asset creation.
+- Manual smoke generates a short narration and sees it in the Generated tab.
+
+### TASK-200 TTS asset preview, timeline playback, export bake-in
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-142
+
+#### Context
+
+The TTS ship gate is hearing generated narration in preview and export.
+
+#### Acceptance Criteria
+
+- Generated TTS assets can be previewed from the asset panel.
+- Dragged TTS assets play on audio tracks in NLE preview.
+- Styled/raw export includes the generated audio at the correct timeline position.
+- Missing asset files produce a clear recoverable error.
+
+#### Verification
+
+- Playback/export tests cover asset reference resolution and timing.
+- Manual: generate narration, drag to audio track, hear in preview, export with audio baked in.
+
+### TASK-201 Image generation router via Codex CLI and fallbacks
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-143
+
+#### Context
+
+Image generation uses Codex CLI auth first, with API providers as fallback.
+
+#### Acceptance Criteria
+
+- Add image-generation capability module with provider order: Codex CLI `$imagegen`, Replicate, fal.ai, OpenAI API.
+- Validate prompt, aspect ratio, variations, and provider override.
+- Capture provider metadata for the resulting asset record.
+
+#### Verification
+
+- Unit tests cover routing order, validation, and fallback with mocked providers.
+
+### TASK-202 Generate image modal with aspect and variations
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-143
+
+#### Context
+
+Users need a lightweight prompt UI that matches the current project context.
+
+#### Acceptance Criteria
+
+- Launchpad "Generate image" opens a modal with prompt, aspect ratio, variations count, and provider picker.
+- Default aspect ratio follows the active project/export context when available.
+- Generate is disabled for invalid prompt or variations count.
+- Pending/error/success states are clear.
+
+#### Verification
+
+- Renderer tests cover validation, aspect defaults, provider switching, and result state.
+
+### TASK-203 Image generation saves previews into AI asset pool
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-143
+
+#### Context
+
+Generated images should be visible and reusable immediately after generation.
+
+#### Acceptance Criteria
+
+- Add `AI_GENERATE_IMAGE` IPC returning generated asset IDs.
+- Store image files and thumbnails/previews under the AI asset file layout.
+- Index prompt, provider metadata, aspect ratio, and variation number.
+- Generated tab refreshes after successful generation.
+
+#### Verification
+
+- Main-process tests mock provider output and assert files/index entries.
+- Manual: generate an image and confirm it appears in Generated with preview.
+
+### TASK-204 Image assets drag onto video tracks and preview
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-143
+
+#### Context
+
+Generated images become useful when they can be placed as visual clips in the NLE.
+
+#### Acceptance Criteria
+
+- Image assets can be dragged from Generated onto video tracks.
+- New image clips get a sensible default duration and can be trimmed later.
+- Program monitor resolves and previews image clips at the correct frame.
+- Export includes image clips in the video stack.
+
+#### Verification
+
+- Unit tests cover image clip creation and frame resolution.
+- Manual: generate image, drag to video track, preview, and export.
 
 ### TASK-144 Auto-assembly agent → multi-AR derivative .roughcut files
 
