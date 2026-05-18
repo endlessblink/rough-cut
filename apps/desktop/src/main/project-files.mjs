@@ -426,14 +426,22 @@ export function createProjectForImport({
     throw new Error('createProjectForImport requires importedFilePath');
   }
   const kind = classifyImportKind(mimeType);
-  const fps = Number.isFinite(probe?.fps) && probe.fps > 0 ? probe.fps : IMPORT_DEFAULT_FRAME_RATE;
+  const sourceFps = Number.isFinite(probe?.fps) && probe.fps > 0 ? probe.fps : IMPORT_DEFAULT_FRAME_RATE;
+  // Snap the project's working fps to a schema-allowed value (24/30/60). The
+  // playback transport reads `project.recording.fps` to convert
+  // `video.currentTime → currentFrame`; if that fps disagrees with the
+  // project's settings.frameRate, the canvas redraw cadence and the video's
+  // native playback cadence drift and the user sees ~1 Hz stutter.
+  // Always keep them equal. We still preserve the raw probe fps as
+  // metadata.sourceFps for diagnostics / future re-conform.
+  const projectFps = pickAllowedFps(sourceFps);
   const width = Number.isFinite(probe?.width) && probe.width > 0
     ? ensureEven(probe.width)
     : IMPORT_DEFAULT_RESOLUTION.width;
   const height = Number.isFinite(probe?.height) && probe.height > 0
     ? ensureEven(probe.height)
     : IMPORT_DEFAULT_RESOLUTION.height;
-  const durationFrames = computeImportDurationFrames({ kind, probe, fps });
+  const durationFrames = computeImportDurationFrames({ kind, probe, fps: projectFps });
 
   const name = basename(importedFilePath).replace(/\.[^./\\]+$/, '') || 'Imported clip';
   const assetType = kind === 'audio' ? 'audio' : kind === 'image' ? 'image' : 'video';
@@ -445,7 +453,10 @@ export function createProjectForImport({
     metadata: {
       width: kind === 'audio' ? null : width,
       height: kind === 'audio' ? null : height,
-      fps: kind === 'audio' ? null : fps,
+      // fps recorded here drives the playback transport — must match the
+      // project's frameRate (see comment on projectFps above).
+      fps: kind === 'audio' ? null : projectFps,
+      sourceFps: kind === 'audio' ? null : sourceFps,
       mimeType: typeof mimeType === 'string' ? mimeType : null,
       importedAt: now.toISOString(),
       importKind: kind,
@@ -471,7 +482,7 @@ export function createProjectForImport({
       modifiedAt: now.toISOString(),
       settings: {
         resolution: { width, height },
-        frameRate: pickAllowedFps(fps),
+        frameRate: projectFps,
         backgroundColor: '#000000',
         sampleRate: 48000,
         destinationPresetId: null,
@@ -487,7 +498,7 @@ export function createProjectForImport({
         codec: 'h264',
         bitrate: 15_000_000,
         resolution: { width, height },
-        frameRate: pickAllowedFps(fps),
+        frameRate: projectFps,
         keepClickSounds: true,
       },
     }),
@@ -504,11 +515,14 @@ function classifyImportKind(mimeType) {
 }
 
 function computeImportDurationFrames({ kind, probe, fps }) {
-  if (Number.isFinite(probe?.durationFrames) && probe.durationFrames > 0) {
-    return Math.max(1, Math.round(probe.durationFrames));
-  }
+  // Prefer seconds * project-fps over probe.durationFrames so the timeline
+  // matches the project's frame rate (probe.durationFrames was computed at
+  // the source's native fps, which may differ).
   if (Number.isFinite(probe?.durationSeconds) && probe.durationSeconds > 0) {
     return Math.max(1, Math.round(probe.durationSeconds * fps));
+  }
+  if (Number.isFinite(probe?.durationFrames) && probe.durationFrames > 0) {
+    return Math.max(1, Math.round(probe.durationFrames));
   }
   if (kind === 'image') {
     return Math.max(1, Math.round(IMPORT_DEFAULT_IMAGE_DURATION_SECONDS * fps));

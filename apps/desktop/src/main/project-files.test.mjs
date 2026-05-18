@@ -799,6 +799,31 @@ test('createProjectForImport falls back to defaults when fps is non-standard', (
   assert.equal(project.settings.frameRate, 30);
 });
 
+test('createProjectForImport keeps asset.metadata.fps in lockstep with settings.frameRate (no-stutter invariant)', () => {
+  // The renderer playback loop reads project.recording.fps (sourced from
+  // asset.metadata.fps) to convert video.currentTime → frame number. If that
+  // value disagrees with settings.frameRate, the canvas redraw cadence and
+  // the HTML5 video's native cadence drift apart and the user sees a
+  // periodic stutter. Pin them equal here so a future refactor can't
+  // silently regress that.
+  const cases = [
+    { fps: 29.97, expected: 30 },
+    { fps: 60.0006, expected: 60 },
+    { fps: 23.976, expected: 24 },
+    { fps: 30, expected: 30 },
+  ];
+  for (const { fps, expected } of cases) {
+    const project = createProjectForImport({
+      importedFilePath: '/tmp/clip.mp4',
+      mimeType: 'video/mp4',
+      probe: { width: 1920, height: 1080, fps, durationSeconds: 2 },
+    });
+    assert.equal(project.settings.frameRate, expected, `settings.frameRate for ${fps}`);
+    assert.equal(project.assets[0].metadata.fps, expected, `asset.metadata.fps for ${fps}`);
+    assert.equal(project.assets[0].metadata.sourceFps, fps, `metadata.sourceFps preserved for ${fps}`);
+  }
+});
+
 test('createProjectForImport handles audio with audio track and null video metadata', () => {
   const project = createProjectForImport({
     importedFilePath: '/tmp/voice.mp3',
