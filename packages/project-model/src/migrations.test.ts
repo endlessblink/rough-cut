@@ -505,6 +505,7 @@ describe('migrations', () => {
           kind: 'audio',
           index: 0,
           label: 'Generated VO',
+          enabled: true,
           locked: false,
           muted: false,
           clips: [],

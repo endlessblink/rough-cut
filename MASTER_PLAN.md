@@ -184,8 +184,9 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-142 | TTS generation flow (ElevenLabs + Codex CLI gpt-4o-mini-tts) | P2 | SUPERSEDED → TASK-197–200 |
 | TASK-143 | Image generation flow (Codex CLI $imagegen + Replicate / fal.ai fallback) | P2 | SUPERSEDED → TASK-201–204 |
 | ~~TASK-184~~ | ✅ Track model: generalized NLE tracks + migration defaults | P1 | ✅ DONE (2026-05-18) |
-| TASK-185 | Frame resolver: video stack selection + audio mix plan | P1 | PLANNED |
+| ~~TASK-185~~ | ✅ Frame resolver: video stack selection + audio mix plan | P1 | ✅ DONE (2026-05-18) |
 | TASK-186 | NLE timeline: render dynamic tracks from project data | P1 | PLANNED |
+| TASK-205 | Recording edit/NLE share presentation state and controls | P1 | PLANNED |
 | TASK-187 | NLE trim handles for selected clip edges | P1 | PLANNED |
 | TASK-188 | NLE drag clips within a track with collision rules | P1 | PLANNED |
 | TASK-189 | NLE drag clips across same-kind tracks | P2 | PLANNED |
@@ -495,7 +496,7 @@ Sequence: TASK-138, TASK-139
 
 21. **LANE P-AI-I — Multi-track NLE + generation v1** (Phase 3):
 Depends-on: LANE P-AI-E, LANE P-AI-G
-Sequence: TASK-184, TASK-185, TASK-186, TASK-187, TASK-188, TASK-189, TASK-190, TASK-191, TASK-192, TASK-193, TASK-194, TASK-195, TASK-196, TASK-197, TASK-198, TASK-199, TASK-200, TASK-201, TASK-202, TASK-203, TASK-204
+Sequence: TASK-184, TASK-185, TASK-186, TASK-205, TASK-187, TASK-188, TASK-189, TASK-190, TASK-191, TASK-192, TASK-193, TASK-194, TASK-195, TASK-196, TASK-197, TASK-198, TASK-199, TASK-200, TASK-201, TASK-202, TASK-203, TASK-204
 
 22. **LANE P-AI-J — Auto-assembly + motion graphics + templates** (Phase 4):
 Depends-on: LANE P-AI-I, LANE P-AI-D
@@ -505,7 +506,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-185, "Frame resolver: video stack selection + audio mix plan". Keep it pure/model-level: no renderer behavior yet.
+Next task when continuing: start TASK-186, "NLE timeline: render dynamic tracks from project data". Use the generalized NLE tracks from TASK-184 and the resolver from TASK-185; do not fork presentation controls because TASK-205 follows immediately.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–204). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -5389,7 +5390,7 @@ The NLE needs a first-class track model before renderer drag/drop or generation 
 ### TASK-185 Frame resolver: video stack selection + audio mix plan
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — Added `resolveNleFrame` for generalized NLE tracks. Video resolution picks the highest enabled/unlocked active video clip; audio resolution returns all enabled/unlocked/unmuted active audio clips for later mixing. Clip inclusion remains half-open.
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -5406,7 +5407,11 @@ Rendering and preview need one deterministic answer for "what is active at frame
 
 #### Verification
 
-- Unit tests cover z-order, muted/locked/disabled tracks, overlapping clips, and boundary frames.
+- `pnpm --filter @rough-cut/project-model typecheck` clean.
+- `pnpm --filter @rough-cut/project-model test` 154/154 pass.
+- `pnpm --filter @rough-cut/project-model build` clean.
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- `pnpm --filter @rough-cut/desktop test` 417/417 pass.
 
 ### TASK-186 NLE timeline: render dynamic tracks from project data
 
@@ -5430,6 +5435,31 @@ The current NLE timeline has fixed display lanes. This task switches rendering t
 
 - Renderer tests cover single recording, blank project, and multiple-track fixtures.
 - `pnpm smoke:ui` still passes and NLE screenshot shows dynamic rows cleanly.
+
+### TASK-205 Recording edit/NLE share presentation state and controls
+
+**Priority:** P1
+**Status:** PLANNED
+**Lane:** P-AI-I
+**Parent EPIC:** TASK-140
+
+#### Context
+
+Recording edit and NLE are two views over the same project, not separate editors. Presentation controls must not fork: cursor, click effects, camera PiP, background, aspect ratio, screen/camera frames, zoom markers, cuts, and export settings should be owned once and reflected in both views.
+
+#### Acceptance Criteria
+
+- Audit Recording edit presentation state and NLE state for duplicated cursor/camera/background/export fields.
+- NLE reads and writes the same project-owned presentation objects as Recording edit.
+- Changing cursor, click, camera, background, aspect, zoom, cuts, or export settings in one view is visible after switching to the other view without reload.
+- No NLE-only parallel inspector state is introduced for shared presentation controls.
+- Mutations continue through `applyProjectChange` so undo/redo remains one shared stack.
+
+#### Verification
+
+- Renderer tests cover a shared project mutation from Recording edit visible in NLE and an NLE mutation visible in Recording edit.
+- `pnpm smoke:ui` verifies switching views preserves cursor/camera/background presentation.
+- Manual: change camera PiP and cursor style in Recording edit, switch to NLE, confirm preview/export settings match; change a shared setting in NLE and confirm Recording edit reflects it.
 
 ### TASK-187 NLE trim handles for selected clip edges
 

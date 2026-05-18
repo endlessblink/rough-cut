@@ -253,12 +253,21 @@ const migrations: readonly Migration[] = [
         ...doc,
         version: 14,
         tracks: Array.isArray(doc['tracks'])
-          ? doc['tracks']
+          ? doc['tracks'].map((track) => backfillNleTrack(track))
           : createNleTracksFromComposition(composition ?? { tracks: [] }),
       };
     },
   },
 ];
+
+function backfillNleTrack(track: unknown): unknown {
+  if (typeof track !== 'object' || track === null) return track;
+  const record = track as Record<string, unknown>;
+  return {
+    ...record,
+    enabled: typeof record['enabled'] === 'boolean' ? record['enabled'] : true,
+  };
+}
 
 function migrateAssetPathMode(
   doc: Record<string, unknown>,

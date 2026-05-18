@@ -517,6 +517,7 @@ export const NleTrackSchema = z.object({
   kind: NleTrackKindSchema,
   index: z.number().int().nonnegative(),
   label: z.string().min(1),
+  enabled: z.boolean(),
   locked: z.boolean(),
   muted: z.boolean(),
   clips: z.array(NleTrackClipSchema),

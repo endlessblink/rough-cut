@@ -290,6 +290,7 @@ describe('AI architecture schemas', () => {
       kind: 'video' as const,
       index: 0,
       label: 'V1',
+      enabled: true,
       locked: false,
       muted: false,
       clips: [
@@ -312,6 +313,7 @@ describe('AI architecture schemas', () => {
       kind: 'audio' as const,
       index: 0,
       label: 'Generated VO',
+      enabled: true,
       locked: false,
       muted: false,
       clips: [
@@ -334,6 +336,7 @@ describe('AI architecture schemas', () => {
       kind: 'subtitles',
       index: 0,
       label: 'X',
+      enabled: true,
       locked: false,
       muted: false,
       clips: [],
@@ -353,6 +356,7 @@ describe('AI architecture schemas', () => {
           kind: 'audio' as const,
           index: 0,
           label: 'A1',
+          enabled: true,
           locked: false,
           muted: false,
           clips: [],
