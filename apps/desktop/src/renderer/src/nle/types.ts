@@ -15,6 +15,9 @@ export type NleProject = {
   document: {
     name: string;
     assets?: ReadonlyArray<NleAsset>;
+    composition?: { duration?: number } & Record<string, unknown>;
   } & Record<string, unknown>;
-  recording?: { fps?: number } & Record<string, unknown> | null;
+  recording?: ({ fps?: number; duration?: number } & Record<string, unknown>) | null;
+  mediaUrl?: string | null;
+  cameraMediaUrl?: string | null;
 } & Record<string, unknown>;

@@ -158,6 +158,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-170~~ | ✅ Template picker stub modal (3 entries, no execution yet) | P3 | ✅ DONE (2026-05-18) |
 | TASK-177 | Import audio passthrough (embedded video audio + audio-only imports) | P2 | ⚠️ DATA-LAYER DONE (2026-05-18) / RENDERER VERIFY |
 | ~~TASK-178~~ | ✅ NLE: read-only clip blocks on Video / Audio lanes | P2 | ✅ DONE (2026-05-18) |
+| TASK-179 | NLE MVP: program monitor + playhead + click-seek + select/delete/split | P1 | ⚠️ IN APP (2026-05-18) / NEEDS HANDS-ON ITERATION |
 | TASK-128 | WhisperX install flow + OpenAI Whisper API cloud fallback | P1 | PLANNED |
 | TASK-129 | Transcript IPC + persistence inside .roughcut | P1 | PLANNED |
 | ~~TASK-171~~ | ✅ NLE: register 'nle' AppViewId + APP_VIEWS entry + 4th tab in strip | P1 | ✅ DONE (2026-05-18) |
@@ -4646,6 +4647,50 @@ After TASK-167 picks a valid file, create a new `.roughcut` project that referen
 
 - Renderer test: open modal → 3 templates render → click one → new project created with correct AR.
 - Manual: pick `Short-form vlog` → confirm new project opens at 9:16.
+
+### TASK-179 NLE MVP: program monitor + playhead + click-seek + select/delete/split
+
+**Priority:** P1
+**Status:** ⚠️ IN APP (2026-05-18) — first interactive cut of the NLE Editor view, pulled forward from TASK-140's interactive timeline. Built against the architecture grounded by a Perplexity research sweep on Chromium frame accuracy, single-vs-pool video elements, OTIO timeline model, model-owned playhead, and split-clip semantics. Needs hands-on iteration before being marked DONE — Linux/Chromium media stack has enough variation that bench tests can't guarantee the feel is right.
+**Lane:** P-AI-E follow-up
+**Follows:** TASK-176, TASK-178
+**Pulled-forward-from:** TASK-140
+
+#### Context
+
+After TASK-178 made clip blocks visible, the next gap was that the lanes were inert — no playhead, no preview, no way to modify anything. This task ships the smallest end-to-end loop that lets a user open a project, scrub it, and remove or split a clip:
+
+- Program monitor (`<video>` element wired to `project.mediaUrl`) with a frame-accurate sync loop using `requestVideoFrameCallback` (and `requestAnimationFrame` fallback).
+- Playhead state owned by the model (NleShell) — the video element is a consumer, never the source of truth. Effects in `program-monitor.tsx` enforce the read/write split with a drift tolerance to avoid tug-of-war.
+- Transport bar with play/pause toggle, go-to-start, and a SMPTE-ish `mm:ss:ff` time display fed from `formatTimecode`.
+- Click-to-seek + pointer-drag scrub on the body region of the lanes (header column excluded from the click math).
+- Click-to-select on a clip block + Delete/Backspace to remove + `S` to split at playhead. All mutations go through `applyProjectChange` so the existing edit-history records each as one undoable step.
+
+#### Architectural rules (verified by tests)
+
+- **Half-open intervals everywhere.** `[timelineIn, timelineOut)` — `timelineOut` is the first frame NOT in the clip. Pinned by `timeline-frames.test.mjs`.
+- **Model owns the playhead.** Effects in `program-monitor.tsx` write to `video.currentTime` only when the drift exceeds `PLAYBACK_DRIFT_FRAMES / fps` (playing) or `SEEK_TOLERANCE_SECONDS` (paused). The RVFC loop reads `metadata.mediaTime` (PTS-aligned) back into the model. No oscillation.
+- **Split is atomic and frame-accurate.** `splitClipById` → `splitClipAtFrame` → `applySplitOnTrack`, all pure. Caller wraps in one `applyProjectChange` so undo restores the original clip.
+- **Mutations bail on retimed clips.** v13 doesn't model retime; `splitClipAtFrame` returns null when source span ≠ timeline span rather than producing wrong frames.
+
+#### Acceptance Criteria
+
+- Open the Editor tab on a project with a recording → see the recording in the program monitor, a wide video-lane block on the timeline, a red playhead at frame 0.
+- Press Play → video plays, playhead advances.
+- Click anywhere in the lane body → playhead snaps there, video seeks. Drag → playhead follows the cursor.
+- Click a clip block → outlined as selected; Delete removes it; `S` splits it at the playhead.
+- Undo/redo (Ctrl+Z / Ctrl+Y from the App-level shortcut) reverses any of those mutations.
+- Switching projects resets playhead + selection.
+
+#### Verification
+
+- `timeline-frames.test.mjs` (11 tests) — split invariants, no-ops at edges, retime bailout, immutable applySplitOnTrack.
+- `project-shape.test.mjs` (4 tests) — fps + duration resolution, timecode formatting.
+- `clip-mutations.test.mjs` (6 tests) — removeClipById + splitClipById produce new project references, preserve sibling tracks, and are cheap no-ops on miss.
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- `pnpm --filter @rough-cut/desktop test` 403/403 pass.
+- `pnpm smoke:ui` passes.
+- Hands-on iteration **required** — Chromium media quirks on Linux/X11 (autoplay, RVFC presence, seek latency on h264) need real testing.
 
 ### TASK-178 NLE: read-only clip blocks on Video / Audio lanes
 
