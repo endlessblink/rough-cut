@@ -157,6 +157,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-169~~ | ✅ Blank-project handler + Recording edit safe-empty-state | P2 | ✅ DONE (2026-05-18) |
 | ~~TASK-170~~ | ✅ Template picker stub modal (3 entries, no execution yet) | P3 | ✅ DONE (2026-05-18) |
 | TASK-177 | Import audio passthrough (embedded video audio + audio-only imports) | P2 | ⚠️ DATA-LAYER DONE (2026-05-18) / RENDERER VERIFY |
+| ~~TASK-178~~ | ✅ NLE: read-only clip blocks on Video / Audio lanes | P2 | ✅ DONE (2026-05-18) |
 | TASK-128 | WhisperX install flow + OpenAI Whisper API cloud fallback | P1 | PLANNED |
 | TASK-129 | Transcript IPC + persistence inside .roughcut | P1 | PLANNED |
 | ~~TASK-171~~ | ✅ NLE: register 'nle' AppViewId + APP_VIEWS entry + 4th tab in strip | P1 | ✅ DONE (2026-05-18) |
@@ -4645,6 +4646,35 @@ After TASK-167 picks a valid file, create a new `.roughcut` project that referen
 
 - Renderer test: open modal → 3 templates render → click one → new project created with correct AR.
 - Manual: pick `Short-form vlog` → confirm new project opens at 9:16.
+
+### TASK-178 NLE: read-only clip blocks on Video / Audio lanes
+
+**Priority:** P2
+**Status:** ✅ DONE (2026-05-18) — `nle/timeline-clips.mjs` builds per-lane clip blocks (`{ leftPct, widthPct, name, enabled }`) from `project.composition.tracks`, normalized against `composition.duration`. `NleTimeline` now reads the project and renders absolutely-positioned `.nleClipBlock` rectangles inside each lane body (`No clips yet` placeholder shown when a lane has no clips). Captions + motion-graphics lanes stay empty until the v13 schema gets those track types (TASK-134 + TASK-145). Read-only: no playhead, scrubber, drag, or trim — those land in TASK-140.
+**Lane:** P-AI-E follow-up
+**Follows:** TASK-173, TASK-176
+**Pulled-forward-from:** TASK-140 (only the clip-visualization slice; the full interactive timeline stays in P-AI-I/Phase 3)
+
+#### Context
+
+After P-AI-E shipped, the NLE Editor view shows asset cards on the right but four empty lanes in the center even for projects with a real video clip. The expected behavior was confusing — users naturally assume something is broken when a 7-minute video appears in the asset panel but the Video lane is blank. This task extracts the smallest valuable slice of TASK-140 (read-only clip rectangles, normalized by duration) so the lanes communicate that there IS a clip without committing to the full multi-track editor.
+
+#### Acceptance Criteria
+
+- New `nle/timeline-clips.mjs` exporting `buildLaneClips(project, kind)`. Pure, testable.
+- `NleTimeline` consumes the helper per lane and renders positioned `<div className="nleClipBlock">` blocks with width/left set as percentages.
+- Clips on `video` Track type → Video lane. Clips on `audio` Track type → Audio lane. Captions + motion-graphics lanes always empty (no schema support yet).
+- Overflowing clips are clamped to composition.duration; zero/negative-width clips are dropped.
+- `enabled: false` clips render with reduced opacity.
+- No interaction: `pointer-events: none` on the block so the rest of the lane stays inert.
+
+#### Verification
+
+- `nle/timeline-clips.test.mjs`: 7 cases (empty projects, captions/MG noop, video clips, audio routing, overflow clamping, zero-width drop, enabled flag).
+- `pnpm --filter @rough-cut/desktop typecheck` clean.
+- `pnpm --filter @rough-cut/desktop test` 382/382 pass.
+- `pnpm smoke:ui` passes.
+- Manual: open a recording in the Editor tab → see a wide Video-lane block spanning the timeline; if the project is an import done after TASK-177, see a matching Audio-lane block in green.
 
 ### TASK-177 Import audio passthrough (embedded video audio + audio-only imports)
 

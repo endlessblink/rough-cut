@@ -3626,10 +3626,39 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   border-radius: 0 6px 6px 0;
   display: flex;
   justify-content: center;
+  position: relative;
 }
 .nleTrackLaneEmpty {
   color: rgb(226 232 240 / 0.35);
   font-size: 0.75rem;
+}
+/* Read-only clip block — positioned absolutely within its lane body.
+ * leftPct + widthPct are normalized against composition.duration so the
+ * Video lane shows a single wide block for a typical recording. */
+.nleClipBlock {
+  align-items: center;
+  background: linear-gradient(180deg, rgb(96 165 250 / 0.32), rgb(96 165 250 / 0.18));
+  border: 1px solid rgb(96 165 250 / 0.45);
+  border-radius: 4px;
+  bottom: 6px;
+  color: rgb(226 232 240 / 0.92);
+  display: flex;
+  overflow: hidden;
+  padding: 0 0.5rem;
+  pointer-events: none;
+  position: absolute;
+  top: 6px;
+}
+.nleTrackLane[data-track-kind="audio"] .nleClipBlock {
+  background: linear-gradient(180deg, rgb(52 211 153 / 0.3), rgb(52 211 153 / 0.16));
+  border-color: rgb(52 211 153 / 0.45);
+}
+.nleClipBlock.disabled { opacity: 0.4; }
+.nleClipBlockLabel {
+  font-size: 0.72rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nleAssetPanel {

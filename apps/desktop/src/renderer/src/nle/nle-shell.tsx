@@ -23,7 +23,7 @@ export function NleShell({
         <h2 className="nleHeaderTitle">{project.document.name || 'Untitled project'}</h2>
       </header>
       <div className="nleBody">
-        <NleTimeline />
+        <NleTimeline project={project} />
         <AssetPanel project={project} />
       </div>
     </section>
