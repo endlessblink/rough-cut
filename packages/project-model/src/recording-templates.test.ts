@@ -38,7 +38,7 @@ describe('recording template presets', () => {
     }
   });
 
-  it('applies a template by setting aspect ratio and background, preserving frame controls', () => {
+  it('applies a template by setting aspect ratio and camera, preserving the user background', () => {
     const result = applyRecordingTemplatePreset(
       { bgPadding: 24, bgCornerRadius: 12, bgShadowBlur: 80, bgShadowOpacity: 0.5, bgShadowOffsetY: 40 },
       'tutorial-16-9',
@@ -46,12 +46,9 @@ describe('recording template presets', () => {
 
     expect(result).toBeDefined();
     expect(result?.aspectRatio).toBe('16:9');
-    expect(result?.background.bgImage).toBe('backgrounds/dark-waves.png');
-    expect(result?.background.bgPadding).toBe(24);
-    expect(result?.background.bgCornerRadius).toBe(12);
-    expect(result?.background.bgShadowBlur).toBe(80);
-    expect(result?.background.bgShadowOpacity).toBe(0.5);
-    expect(result?.background.bgShadowOffsetY).toBe(40);
+    expect(result?.camera).toBeDefined();
+    // Background is user-owned — apply must NOT return it.
+    expect('background' in (result ?? {})).toBe(false);
   });
 
   it('applies the templated camera patch (position, shape, size, visibility)', () => {
@@ -82,14 +79,18 @@ describe('recording template presets', () => {
     expect(getRecordingTemplatePreset('no-such-template')).toBeUndefined();
   });
 
-  it('detects an active template from current aspect ratio + background', () => {
+  it('detects an active template from aspect ratio alone (background is ignored)', () => {
     const applied = applyRecordingTemplatePreset(undefined, 'mobile-9-16');
     expect(applied).toBeDefined();
-    expect(findRecordingTemplatePresetId(applied!.aspectRatio, applied!.background)).toBe('mobile-9-16');
+    expect(findRecordingTemplatePresetId(applied!.aspectRatio)).toBe('mobile-9-16');
   });
 
-  it('returns undefined when aspect ratio matches but background does not', () => {
-    expect(findRecordingTemplatePresetId('16:9', { bgColor: '#abcdef' })).toBeUndefined();
+  it('still matches the template when the user has overridden the background', () => {
+    // Custom background that does not correspond to any template's preset.
+    // Per the new model, the template stays "active" because aspect matches.
+    expect(findRecordingTemplatePresetId('16:9', { bgColor: '#abcdef' })).toBe('tutorial-16-9');
+    expect(findRecordingTemplatePresetId('9:16', { bgColor: '#abcdef' })).toBe('mobile-9-16');
+    expect(findRecordingTemplatePresetId('4:5', { bgColor: '#abcdef' })).toBe('reel-4-5');
   });
 
   it('returns undefined when aspect ratio is missing', () => {

@@ -1743,7 +1743,10 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   position: absolute;
   right: 0;
   top: 0;
-  z-index: 4;
+  /* Sit above .zoomLane (z-index 20, raised so the selected-pill chip can
+   * escape upward) so the playhead line keeps crossing the zoom lane
+   * instead of dipping under it. */
+  z-index: 30;
 }
 
 .timelineScrubber {

@@ -1,4 +1,4 @@
-import { applyRecordingBackgroundPreset, getRecordingBackgroundPreset } from './background-presets.js';
+import { getRecordingBackgroundPreset } from './background-presets.js';
 import type {
   CameraAspectRatio,
   CameraPosition,
@@ -91,34 +91,42 @@ export function getRecordingTemplatePreset(presetId: string): RecordingTemplateP
 
 export interface AppliedRecordingTemplate {
   readonly aspectRatio: ProjectAspectRatio;
-  readonly background: RecordingBackgroundStyle;
   readonly camera: Partial<CameraPresentation>;
 }
 
+/**
+ * Built-in templates set aspect ratio + camera. Background is user-owned and
+ * intentionally NOT touched here — applying a built-in template preserves
+ * whatever background preset the user chose. The `current` arg is unused but
+ * retained for caller signature compatibility (older callers pass it).
+ * Saved user templates (see user-templates.ts) DO carry background and
+ * restore it on apply; that's the carve-out the product asked for.
+ */
 export function applyRecordingTemplatePreset(
-  current: Partial<RecordingBackgroundStyle> | undefined,
+  _current: Partial<RecordingBackgroundStyle> | undefined,
   presetId: string,
 ): AppliedRecordingTemplate | undefined {
   const template = getRecordingTemplatePreset(presetId);
   if (!template) return undefined;
+  // Validation only — the backgroundPresetId still has to resolve so the
+  // template authoring stays well-formed. We just don't apply it.
   if (!getRecordingBackgroundPreset(template.backgroundPresetId)) return undefined;
   return {
     aspectRatio: template.aspectRatio,
-    background: applyRecordingBackgroundPreset(current, template.backgroundPresetId),
     camera: { ...template.camera },
   };
 }
 
+/**
+ * Returns the built-in template id whose aspect ratio matches `aspectRatio`.
+ * Background is ignored (it's user-owned), so the tile stays highlighted
+ * even after the user picks a different background preset on top.
+ */
 export function findRecordingTemplatePresetId(
   aspectRatio: ProjectAspectRatio | undefined,
-  background: Partial<RecordingBackgroundStyle> | undefined,
+  _background?: Partial<RecordingBackgroundStyle>,
 ): string | undefined {
   if (!aspectRatio) return undefined;
-  return RECORDING_TEMPLATE_PRESETS.find((template) => {
-    if (template.aspectRatio !== aspectRatio) return false;
-    const expected = getRecordingBackgroundPreset(template.backgroundPresetId);
-    if (!expected) return false;
-    if (background?.bgImage) return background.bgImage === expected.style.bgImage;
-    return background?.bgColor === expected.style.bgColor && background?.bgGradient === expected.style.bgGradient;
-  })?.id;
+  return RECORDING_TEMPLATE_PRESETS.find((template) => template.aspectRatio === aspectRatio)?.id;
 }
+

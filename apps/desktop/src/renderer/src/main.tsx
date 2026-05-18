@@ -2474,11 +2474,8 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
     const applied = applyRecordingTemplatePreset(bg, templateId);
     if (!applied) return;
     onAspectRatioChange?.(applied.aspectRatio);
-    onBackgroundChange?.({
-      bgColor: applied.background.bgColor,
-      bgGradient: applied.background.bgGradient,
-      bgImage: applied.background.bgImage,
-    });
+    // Built-in templates leave the user's background alone (it's user-owned;
+    // only the explicit Save-as-preset flow captures background).
     onCameraPresentationChange?.(applied.camera);
     onCameraFrameChange?.(null);
   };
@@ -2888,13 +2885,14 @@ function ProjectPreview({
       assets: project.document.assets?.map((asset) => {
         if (asset.id !== recordingAsset?.id) return asset;
         const presentation = withDefaultPresentation(asset.presentation) as unknown as Record<string, unknown>;
-        // Built-in templates set aspect + background + camera defaults, but
-        // do NOT touch the user's manually-dragged camera/screen positions.
-        // To reset layout, the user applies a saved user-template (which
-        // captures and restores the full layout including cameraFrame/screenFrame).
+        // Built-in templates set aspect + camera defaults. Background is
+        // user-owned and intentionally preserved across template switches —
+        // only the user's explicit Save-as-preset flow captures it. The
+        // manually-dragged camera/screen positions also stay untouched; to
+        // reset layout, apply a saved user-template (which carries the
+        // full snapshot including cameraFrame/screenFrame/background).
         const nextPresentation: Record<string, unknown> = {
           ...presentation,
-          background: applied.background,
           camera: {
             ...DEFAULT_CAMERA_PRESENTATION,
             ...((presentation.camera as Partial<CameraPresentation> | undefined) ?? {}),
