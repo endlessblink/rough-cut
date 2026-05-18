@@ -4645,7 +4645,39 @@ After TASK-167 picks a valid file, create a new `.roughcut` project that referen
 - Renderer test: open modal → 3 templates render → click one → new project created with correct AR.
 - Manual: pick `Short-form vlog` → confirm new project opens at 9:16.
 
-### TASK-128 WhisperX install flow + OpenAI Whisper API cloud fallback
+### TASK-177 Import audio passthrough (embedded video audio + audio-only imports)
+
+**Priority:** P2
+**Status:** PLANNED
+**Lane:** P-AI-C follow-up
+**Follows:** TASK-168
+
+#### Context
+
+Imports created via TASK-168 currently play silently in Recording-edit preview and export with no sound. Two reasons:
+1. The Recording-edit pipeline treats audio as a *separate* asset/track (built around the mic recording being its own file). The source video element in the canvas draw loop is effectively muted to avoid doubling up with the mic track.
+2. The import factory in `apps/desktop/src/main/project-files.mjs:createProjectForImport` does not probe audio streams or create an audio asset, so the embedded audio in an imported mp4/mov is never exposed to the timeline.
+
+This also affects audio-only imports (mp3/wav): the project shape compiles fine but there's no playback wiring.
+
+#### Acceptance Criteria
+
+- `probeImportedMedia` (in `media-probe.mjs`) is extended to also report whether the video file contains an audio stream and the audio's `durationSeconds` / `sampleRate`.
+- `createProjectForImport` (in `project-files.mjs`) handles audio:
+  - Video import with embedded audio: emits a sibling audio asset pointing at the *same* `filePath` as the video asset (no demux/extraction — just a second logical asset over the same file), placed on a new audio track.
+  - Audio-only import: already creates an audio asset; ensure that asset is on an audio track wired through the same preview-audio path the mic recording uses.
+- Recording-edit preview plays embedded audio when the active project's primary asset is an import (detected via `asset.metadata.importKind`). Source video element unmute logic gates strictly on import-kind to avoid double-audio with mic-recorded projects.
+- Export pipeline carries the audio track through to the final mp4 (verify with `ffprobe` showing both v:0 and a:0 in the exported file).
+- Existing recording flow's audio behavior is unchanged (no regression on mic-recorded projects). Pin with the existing recording-stop-handler tests.
+
+#### Verification
+
+- Unit test: `createProjectForImport` for a video probe with `hasAudio: true` produces 2 assets and 2 tracks (video + audio); same file path referenced by both.
+- Unit test: existing recording flow is unaffected (snapshot the produced ProjectDocument before/after).
+- Manual: import a previously-recorded Rough Cut mp4 → preview plays with audio; export → opened mp4 contains audio.
+- Manual: import an mp3 → preview plays the audio; scrub the timeline; export → mp3 audio is preserved in the exported mp4.
+
+
 
 **Priority:** P1
 **Status:** PLANNED
