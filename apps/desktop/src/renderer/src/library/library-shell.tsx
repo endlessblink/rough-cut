@@ -398,9 +398,16 @@ export function LibraryShell({
             type="button"
             className="libraryOpenFile"
             data-testid="library-blank-project"
-            onClick={() => {
-              // eslint-disable-next-line no-console
-              console.info('[library] Blank project: not yet implemented (TASK-169)');
+            onClick={async () => {
+              setImportError(null);
+              try {
+                const created = await window.roughCut.createBlankProject(null);
+                onOpenProjectByPath(created.path);
+                setRefreshKey((n) => n + 1);
+              } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                setImportError(message);
+              }
             }}
           >
             Blank project

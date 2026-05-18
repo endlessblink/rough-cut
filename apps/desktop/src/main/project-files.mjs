@@ -596,6 +596,42 @@ export async function saveProjectForImport({
   return saveProjectFile(projectPath, project);
 }
 
+// P-AI-C/TASK-169 — blank project (no assets, no tracks). Used by the
+// "Blank project" Library entry point and by the template-picker stub
+// (TASK-170) which will pass an aspectRatio override.
+export function createBlankProject({ name = 'Untitled', aspectRatio, now = new Date() } = {}) {
+  // createProject() already produces near-blank shape; we strip default tracks
+  // (NLE editor will own track creation) and optionally override aspectRatio.
+  const base = createProject({
+    name,
+    createdAt: now.toISOString(),
+    modifiedAt: now.toISOString(),
+  });
+  const merged = {
+    ...base,
+    assets: [],
+    composition: { duration: 0, tracks: [], transitions: [] },
+    settings: aspectRatio ? { ...base.settings, aspectRatio } : base.settings,
+  };
+  return validateProject(merged);
+}
+
+export async function pickBlankProjectPath({ recordingsDir, baseName = 'Untitled' }) {
+  await mkdir(recordingsDir, { recursive: true });
+  return firstAvailableSuffixedPath(recordingsDir, baseName);
+}
+
+export async function saveBlankProject({
+  recordingsDir,
+  name = 'Untitled',
+  aspectRatio,
+  now = new Date(),
+}) {
+  const project = createBlankProject({ name, aspectRatio, now });
+  const projectPath = await pickBlankProjectPath({ recordingsDir, baseName: name });
+  return saveProjectFile(projectPath, project);
+}
+
 export function getPrimaryRecording(project) {
   const asset = project.assets.find((item) => item.type === 'recording' || item.type === 'video');
   if (!asset) return null;

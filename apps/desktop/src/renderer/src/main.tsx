@@ -100,6 +100,7 @@ declare global {
       saveProject: (project: { path: string; document: ProjectState['document'] }) => Promise<ProjectState>;
       pickImportFile: () => Promise<{ filePath: string; mimeType: string | null } | null>;
       createProjectFromImport: (payload: { importedFilePath: string; importedMimeType: string | null }) => Promise<ProjectState>;
+      createBlankProject: (payload?: { name?: string; aspectRatio?: ProjectAspectRatio } | null) => Promise<ProjectState>;
       getRecoveryState: () => Promise<{ available: boolean; marker: RecoveryMarker | null; rawAvailable: boolean; cameraRawAvailable?: boolean }>;
       recoverLastRecording: () => Promise<{ state: 'recovered'; project: ProjectState; remuxWarnings: Array<{ source: string; message: string }> }>;
       dismissRecovery: (options?: { deleteFiles?: boolean }) => Promise<{ dismissed: boolean; removed: string[] }>;
@@ -3130,7 +3131,14 @@ function ProjectPreview({
         {project.mediaUrl ? (
           <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} onCurrentTimeChange={setCurrentTimeSec} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} />
         ) : (
-          <p>No recording asset found in this project.</p>
+          // P-AI-C/TASK-169 — empty-state for blank projects (no assets). The
+          // NLE Editor view will be the proper home for blank projects once it
+          // lands; until then Recording edit is the only available landing.
+          <section className="projectPreviewEmpty" data-testid="project-preview-empty" aria-label="Blank project empty state">
+            <h3>This project has no recording yet.</h3>
+            <p>Record a new take to start editing, or import a file from the Projects view.</p>
+            <button type="button" className="libraryOpenFile" onClick={onRetake}>Record a take</button>
+          </section>
         )}
         <div className="timelineDock" aria-label="Timeline and review rail" data-ui-region="timeline-review-rail">
           <div className="timelineHeader">

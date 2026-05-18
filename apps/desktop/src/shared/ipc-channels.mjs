@@ -16,6 +16,9 @@ export const IPC_CHANNELS = {
   // P-AI-C/TASK-168 — probe the imported file and create a new .roughcut
   // referencing it in place. Returns the saved {path, document}.
   LIBRARY_CREATE_FROM_IMPORT: 'library:create-from-import',
+  // P-AI-C/TASK-169 — create a blank .roughcut (no assets, no tracks).
+  // Optional aspectRatio override (used by template picker, TASK-170).
+  LIBRARY_CREATE_BLANK_PROJECT: 'library:create-blank-project',
 
   // Recent Projects
   RECENT_PROJECTS_GET: 'recent-projects:get',

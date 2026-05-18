@@ -6,7 +6,7 @@ import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { isImportableMimeType, mimeForExtension } from '../shared/import-mime.mjs';
 import { exportProjectToMp4 } from './export-service.mjs';
 import { assertReadableMp4, computeSyncedRecordingTiming, probeImportedMedia, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
-import { duplicateProjectFile, getLinkedCameraAsset, getPrimaryRecording, openProjectFile, renameProjectFile, saveProjectFile, saveProjectForImport, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
+import { duplicateProjectFile, getLinkedCameraAsset, getPrimaryRecording, openProjectFile, renameProjectFile, saveBlankProject, saveProjectFile, saveProjectForImport, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
 import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
 import { dismissRecovery, getRecoveryState, recoverFromMarker } from './recording-recovery.mjs';
 import { deleteProjectFiles, listProjectSummaries } from './project-gallery.mjs';
@@ -484,6 +484,17 @@ ipcMain.handle(IPC_CHANNELS.LIBRARY_CREATE_FROM_IMPORT, async (_event, payload) 
     probe,
     recordingsDir,
   });
+  return formatProject(saved);
+});
+// P-AI-C/TASK-169 — create a blank .roughcut. Returns the new project state
+// so the renderer can immediately open it.
+ipcMain.handle(IPC_CHANNELS.LIBRARY_CREATE_BLANK_PROJECT, async (_event, payload) => {
+  const name = typeof payload?.name === 'string' && payload.name.trim().length > 0
+    ? payload.name.trim()
+    : 'Untitled';
+  const aspectRatio = typeof payload?.aspectRatio === 'string' ? payload.aspectRatio : undefined;
+  await mkdir(recordingsDir, { recursive: true });
+  const saved = await saveBlankProject({ recordingsDir, name, aspectRatio });
   return formatProject(saved);
 });
 ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, (_event, projectPath) => {

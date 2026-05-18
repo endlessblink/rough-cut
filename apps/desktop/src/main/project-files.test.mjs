@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+  createBlankProject,
   createProjectForImport,
   createProjectForRecording,
   discardInterruptedSave,
@@ -16,6 +17,7 @@ import {
   PROJECT_TEMP_SUFFIX,
   ProjectPathError,
   renameProjectFile,
+  saveBlankProject,
   saveProjectFile,
   saveProjectForImport,
   saveProjectForRecording,
@@ -901,6 +903,50 @@ test('saveProjectForImport writes the .roughcut and references the imported file
     const asset = reopened.document.assets[0];
     assert.equal(asset.filePath, importedFilePath);
     assert.equal(asset.pathMode, 'absolute');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// --- P-AI-C/TASK-169: Blank project ---
+
+test("createBlankProject produces a validated v13 document with empty assets/tracks", () => {
+  const project = createBlankProject({ name: "Fresh start" });
+  assert.equal(project.name, "Fresh start");
+  assert.equal(project.assets.length, 0);
+  assert.equal(project.composition.duration, 0);
+  assert.equal(project.composition.tracks.length, 0);
+  assert.equal(project.composition.transitions.length, 0);
+  // v13 fields stay unset on a fresh project.
+  assert.equal(project.transcript, undefined);
+  assert.equal(project.captionTracks, undefined);
+  assert.equal(project.tracks, undefined);
+});
+
+test("createBlankProject applies an aspectRatio override when provided (for TASK-170 templates)", () => {
+  const project = createBlankProject({ name: "Vlog", aspectRatio: "9:16" });
+  assert.equal(project.settings.aspectRatio, "9:16");
+});
+
+test("createBlankProject defaults aspectRatio to auto when not provided", () => {
+  const project = createBlankProject({ name: "Untitled" });
+  assert.equal(project.settings.aspectRatio, "auto");
+});
+
+test("saveBlankProject writes a unique .roughcut and round-trips through openProjectFile", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rough-cut-blank-"));
+  try {
+    const recordingsDir = join(root, "recordings");
+    const first = await saveBlankProject({ recordingsDir, name: "Untitled" });
+    assert.match(first.path, /Untitled\.roughcut$/);
+    assert.equal(existsSync(first.path), true);
+
+    const second = await saveBlankProject({ recordingsDir, name: "Untitled" });
+    assert.match(second.path, /Untitled \(2\)\.roughcut$/);
+
+    const reopened = await openProjectFile(first.path);
+    assert.equal(reopened.document.assets.length, 0);
+    assert.equal(reopened.document.composition.tracks.length, 0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -2745,6 +2745,25 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 .libraryImportError button:hover { opacity: 1; }
 
+/* P-AI-C/TASK-169 — blank-project empty state inside Recording edit. */
+.projectPreviewEmpty {
+  align-items: center;
+  background: rgb(255 255 255 / 0.03);
+  border: 1px dashed rgb(255 255 255 / 0.15);
+  border-radius: 16px;
+  color: rgb(226 232 240);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  justify-content: center;
+  min-height: 280px;
+  padding: 2rem;
+  text-align: center;
+}
+.projectPreviewEmpty h3 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+.projectPreviewEmpty p { color: rgb(148 163 184); font-size: 0.85rem; margin: 0; max-width: 38ch; }
+.projectPreviewEmpty button { margin-top: 0.5rem; }
+
 .libraryBody {
   display: flex;
   flex: 1 1 auto;
