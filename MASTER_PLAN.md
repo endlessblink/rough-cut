@@ -150,12 +150,12 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-162~~ | ✅ Add transcript / captionTracks / tracks types to project-model | P1 | ✅ DONE (2026-05-18) |
 | ~~TASK-163~~ | ✅ Extend Zod schemas for transcript / captionTracks / tracks | P1 | ✅ DONE (2026-05-18) |
 | ~~TASK-164~~ | ✅ Migration v12 → v13 (additive defaults for new fields) | P1 | ✅ DONE (2026-05-18) |
-| TASK-165 | Migration tests + round-trip + idempotent re-migration | P1 | PLANNED |
-| TASK-166 | LibraryShell topbar: Import / Blank / Template buttons | P2 | PLANNED |
-| TASK-167 | Import handler: file picker + whitelist (mp4/mov/mp3/wav/png/jpg) | P2 | PLANNED |
-| TASK-168 | Import creates a new .roughcut referencing the imported file | P2 | PLANNED |
-| TASK-169 | Blank-project handler + Recording edit safe-empty-state | P2 | PLANNED |
-| TASK-170 | Template picker stub modal (3 entries, no execution yet) | P3 | PLANNED |
+| ~~TASK-165~~ | ✅ Migration tests + round-trip + idempotent re-migration | P1 | ✅ DONE (2026-05-18) |
+| ~~TASK-166~~ | ✅ LibraryShell topbar: Import / Blank / Template buttons | P2 | ✅ DONE (2026-05-18) |
+| ~~TASK-167~~ | ✅ Import handler: file picker + whitelist (mp4/mov/mp3/wav/png/jpg) | P2 | ✅ DONE (2026-05-18) |
+| ~~TASK-168~~ | ✅ Import creates a new .roughcut referencing the imported file | P2 | ✅ DONE (2026-05-18) |
+| ~~TASK-169~~ | ✅ Blank-project handler + Recording edit safe-empty-state | P2 | ✅ DONE (2026-05-18) |
+| ~~TASK-170~~ | ✅ Template picker stub modal (3 entries, no execution yet) | P3 | ✅ DONE (2026-05-18) |
 | TASK-128 | WhisperX install flow + OpenAI Whisper API cloud fallback | P1 | PLANNED |
 | TASK-129 | Transcript IPC + persistence inside .roughcut | P1 | PLANNED |
 | TASK-171 | NLE: register 'nle' AppViewId + APP_VIEWS entry + 4th tab in strip | P1 | PLANNED |
@@ -4503,7 +4503,7 @@ Bump `CURRENT_SCHEMA_VERSION` from 12 → 13. Add the migration registry entry t
 ### TASK-165 Migration tests + round-trip + idempotent re-migration
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — commit `4e465c7`. Added 4 migration tests (v12→v13 stamping, v13 no-op, preserves pre-populated v13 fields, v1→v13 chain). 147/147 project-model tests pass.
 **Lane:** P-AI-C
 **Supersedes part of:** TASK-126
 
@@ -4527,7 +4527,7 @@ Tests for the migration: v12 → v13 applies defaults, already-v13 is a no-op, f
 ### TASK-166 LibraryShell topbar: Import / Blank / Template buttons
 
 **Priority:** P2
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — commit `eae52ce`. Three stub buttons added beside "Open file…" reusing `.libraryOpenFile` styling, each with a `data-testid` for future Library-view smoke. Smoke-ui passed with no regression; visual confirmation is via dev server because the existing smoke does not exercise the Library view.
 **Lane:** P-AI-C
 **Supersedes part of:** TASK-127
 
@@ -4550,7 +4550,7 @@ Add three new project-creation entry points alongside the existing "Open file…
 ### TASK-167 Import handler: file picker + whitelist + reject toast
 
 **Priority:** P2
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — commit `174765f`. New shared helper `apps/desktop/src/shared/import-mime.mjs` (isImportableMimeType + mimeForExtension + ALLOWED_IMPORT_EXTENSIONS + IMPORT_REJECTION_MESSAGE). IPC LIBRARY_PICK_IMPORT_FILE wired through preload (`window.roughCut.pickImportFile`). Renderer surfaces an in-shell rejection banner (no global toast system was added — kept the change minimal). 9 helper unit tests pass.
 **Lane:** P-AI-C
 **Supersedes part of:** TASK-127
 
@@ -4573,7 +4573,7 @@ Wire the `Import file` button to an OS file picker. Filter accepted formats: mp4
 ### TASK-168 Import creates a new .roughcut referencing the imported file
 
 **Priority:** P2
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — commits `5780ac6` (factory + probe + IPC) and `e7b9448` (post-test fps lockstep fix). `probeImportedMedia` ffprobe wrapper specialised per kind; `createProjectForImport` pure factory; `pickImportProjectPath` writes next to source with " (2)" collision suffix; `saveProjectForImport` glues them. The fps lockstep fix pinned `asset.metadata.fps` to the project's `settings.frameRate` (24/30/60) to eliminate the ~1Hz stutter we saw on imports of variable-fps mp4s; raw probe fps preserved as `metadata.sourceFps`. Audio passthrough is tracked separately as TASK-177.
 **Lane:** P-AI-C
 **Supersedes part of:** TASK-127
 
@@ -4597,7 +4597,7 @@ After TASK-167 picks a valid file, create a new `.roughcut` project that referen
 ### TASK-169 Blank-project handler + Recording edit safe-empty-state
 
 **Priority:** P2
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — commit `85df156`. `createBlankProject` returns a validated v13 doc with empty assets/tracks; `saveBlankProject` writes `Untitled.roughcut` (`(2)`, `(3)`, … on collision) inside the recordings dir. IPC LIBRARY_CREATE_BLANK_PROJECT + preload bridge. ProjectPreview renders a `projectPreviewEmpty` card with a "Record a take" CTA wired to onRetake. **Deviation:** spec asks for the project to open in an NLE Editor view; that view does not exist yet (per CLAUDE.md the editor window has exactly two views), so Recording edit is the landing until the NLE lane lands. 4 new unit tests pass.
 **Lane:** P-AI-C
 **Supersedes part of:** TASK-127
 
@@ -4621,7 +4621,7 @@ After TASK-167 picks a valid file, create a new `.roughcut` project that referen
 ### TASK-170 Template picker stub modal (3 entries, no execution yet)
 
 **Priority:** P3
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — commit `d34a63f`. `template-stubs.mjs` carries the three hard-coded entries (short-form-vlog 9:16, tutorial 16:9, podcast-clip 1:1); `template-picker-modal.tsx` renders a role=dialog modal closable via Esc, backdrop, and ✕ button. Selecting a template creates a blank project at the chosen aspect ratio via the TASK-169 IPC. 4 stub-data tests pass. No template-pipeline execution — that's TASK-146. Drive-by: registered the previously-unwired `import-mime.test.mjs` (TASK-167) and the new template tests in the desktop `test` script. Total 364/364 desktop tests pass.
 **Lane:** P-AI-C
 **Supersedes part of:** TASK-127
 
