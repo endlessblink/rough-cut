@@ -6,7 +6,7 @@
 // branch on view id; it consults the registry to render the strip and
 // dispatches to view-specific render blocks in main.tsx via the active id.
 
-export type AppViewId = 'projects' | 'editor' | 'ai';
+export type AppViewId = 'projects' | 'editor' | 'nle' | 'ai';
 
 export type AppView = {
   id: AppViewId;
@@ -24,6 +24,7 @@ export type AppView = {
 export const APP_VIEWS: ReadonlyArray<AppView> = [
   { id: 'projects', label: 'Projects', iconName: 'folder' },
   { id: 'editor', label: 'Recording edit', iconName: 'timeline' },
+  { id: 'nle', label: 'Editor', iconName: 'sliders' },
   { id: 'ai', label: 'AI', iconName: 'sparkle' },
 ];
 

@@ -3554,3 +3554,179 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   gap: 0.3rem;
   flex-shrink: 0;
 }
+
+/* NLE Editor view — multi-track timeline scaffold with asset sidebar.
+ * Sits inside the editor section flex container the same way LibraryShell
+ * and AiShell do. Empty-state when no project is loaded. */
+.nleShell {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+  padding: 1.25rem 1.5rem 1.5rem;
+}
+.nleHeader {
+  align-items: baseline;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.nleHeaderTitle {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0;
+}
+.nleBody {
+  display: grid;
+  flex: 1;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  min-height: 0;
+}
+.nleTimeline {
+  background: rgb(15 23 42 / 0.4);
+  border: 1px solid rgb(255 255 255 / 0.06);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.5rem;
+}
+.nleTrackLane {
+  align-items: stretch;
+  border-radius: 6px;
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  height: 60px;
+}
+.nleTrackLane + .nleTrackLane {
+  margin-top: 0.4rem;
+}
+.nleTrackLaneHeader {
+  align-items: center;
+  background: rgb(255 255 255 / 0.03);
+  border-radius: 6px 0 0 6px;
+  color: rgb(226 232 240 / 0.7);
+  display: flex;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  padding: 0 0.85rem;
+  text-transform: uppercase;
+}
+.nleTrackLaneBody {
+  align-items: center;
+  background: rgb(255 255 255 / 0.015);
+  border: 1px solid rgb(255 255 255 / 0.04);
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  display: flex;
+  justify-content: center;
+}
+.nleTrackLaneEmpty {
+  color: rgb(226 232 240 / 0.35);
+  font-size: 0.75rem;
+}
+
+.nleAssetPanel {
+  background: rgb(15 23 42 / 0.4);
+  border: 1px solid rgb(255 255 255 / 0.06);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.nleAssetPanelTabs {
+  border-bottom: 1px solid rgb(255 255 255 / 0.06);
+  display: flex;
+  gap: 0;
+}
+.nleAssetPanelTab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: rgb(226 232 240 / 0.6);
+  cursor: pointer;
+  flex: 1;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.65rem 0.5rem;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.nleAssetPanelTab:hover { color: rgb(226 232 240 / 0.85); }
+.nleAssetPanelTab.active {
+  border-bottom-color: rgb(96 165 250 / 0.7);
+  color: var(--text);
+}
+.nleAssetPanelBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.75rem;
+}
+.nleAssetEmpty {
+  color: rgb(226 232 240 / 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  padding: 1.25rem 0.25rem;
+  text-align: center;
+}
+.nleAssetEmpty p { margin: 0; }
+.nleAssetEmptyHint { color: rgb(226 232 240 / 0.35); font-size: 0.72rem; }
+.nleAssetList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.nleAssetItem {
+  align-items: center;
+  background: rgb(255 255 255 / 0.02);
+  border: 1px solid rgb(255 255 255 / 0.06);
+  border-radius: 6px;
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: 44px minmax(0, 1fr);
+  padding: 0.4rem 0.5rem;
+}
+.nleAssetThumb {
+  aspect-ratio: 16 / 9;
+  background: rgb(15 23 42 / 0.7);
+  border-radius: 4px;
+  width: 44px;
+}
+.nleAssetMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.nleAssetLabel {
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nleAssetDuration {
+  color: rgb(226 232 240 / 0.5);
+  font-size: 0.7rem;
+}
+
+.nleEmptyState {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  justify-content: center;
+  padding: 4rem 1.5rem;
+  text-align: center;
+}
+.nleEmptyState h2 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+.nleEmptyState p { color: rgb(226 232 240 / 0.6); margin: 0; max-width: 28rem; }
+.nleEmptyState .primaryAction { margin-top: 0.75rem; }

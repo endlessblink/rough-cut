@@ -158,12 +158,12 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-170~~ | ✅ Template picker stub modal (3 entries, no execution yet) | P3 | ✅ DONE (2026-05-18) |
 | TASK-128 | WhisperX install flow + OpenAI Whisper API cloud fallback | P1 | PLANNED |
 | TASK-129 | Transcript IPC + persistence inside .roughcut | P1 | PLANNED |
-| TASK-171 | NLE: register 'nle' AppViewId + APP_VIEWS entry + 4th tab in strip | P1 | PLANNED |
-| TASK-172 | NLE: shell scaffold + main.tsx render branch (empty container) | P1 | PLANNED |
-| TASK-173 | NLE: multi-track placeholder lanes (Video / Audio / Captions / MG headers) | P1 | PLANNED |
-| TASK-174 | NLE: asset panel sidebar with Project + Generated tabs (empty states) | P1 | PLANNED |
-| TASK-175 | NLE: empty-state when no project is open (CTA back to Projects) | P1 | PLANNED |
-| TASK-176 | NLE: shared state — consume project + applyProjectChange from App | P1 | PLANNED |
+| ~~TASK-171~~ | ✅ NLE: register 'nle' AppViewId + APP_VIEWS entry + 4th tab in strip | P1 | ✅ DONE (2026-05-18) |
+| ~~TASK-172~~ | ✅ NLE: shell scaffold + main.tsx render branch (empty container) | P1 | ✅ DONE (2026-05-18) |
+| ~~TASK-173~~ | ✅ NLE: multi-track placeholder lanes (Video / Audio / Captions / MG headers) | P1 | ✅ DONE (2026-05-18) |
+| ~~TASK-174~~ | ✅ NLE: asset panel sidebar with Project + Generated tabs (empty states) | P1 | ✅ DONE (2026-05-18) |
+| ~~TASK-175~~ | ✅ NLE: empty-state when no project is open (CTA back to Projects) | P1 | ✅ DONE (2026-05-18) |
+| ~~TASK-176~~ | ✅ NLE: shared state — consume project + applyProjectChange from App | P1 | ✅ DONE (2026-05-18) |
 | TASK-132 | Transcript editor pane (Descript-style: click-scrub, delete-cut) | P1 | PLANNED |
 | TASK-133 | Word-level cut with silence-snap + 20ms audio crossfade | P1 | PLANNED |
 | TASK-134 | Caption track data model + ASS subtitle render path | P1 | PLANNED |
@@ -4727,7 +4727,7 @@ Transcripts produced by TASK-128 land in the project document as first-class dat
 ### TASK-171 NLE: register 'nle' AppViewId + APP_VIEWS entry + 4th tab in strip
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — `AppViewId` extended with `'nle'`, `APP_VIEWS` adds `{ id: 'nle', label: 'Editor', iconName: 'sliders' }`, `?view=nle` URL override allowed; subsumed by the real shell shipped in TASK-172 so no stub branch landed.
 **Lane:** P-AI-E
 **Supersedes part of:** TASK-130
 
@@ -4752,7 +4752,7 @@ First atomic step: just register the new view in the type system + app-views reg
 ### TASK-172 NLE: shell scaffold + main.tsx render branch (empty container)
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — `apps/desktop/src/renderer/src/nle/nle-shell.tsx` ships `NleShell` (`<section className="nleShell" data-ui-region="nle-workspace">` with header + flex body), wired into `main.tsx` view switch; `.nleShell` CSS added.
 **Lane:** P-AI-E
 **Supersedes part of:** TASK-130
 
@@ -4776,7 +4776,7 @@ Real NLE shell component replaces the "coming soon" stub from TASK-171. Empty fl
 ### TASK-173 NLE: multi-track placeholder lanes (Video / Audio / Captions / MG headers)
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — `nle/nle-timeline.tsx` renders 4 fixed lanes (Video / Audio / Captions / Motion graphics) with `data-track-kind` attrs and "No clips yet" placeholders, driven by `NLE_TRACK_LANES` in `nle/asset-format.mjs` (regression-tested).
 **Lane:** P-AI-E
 **Supersedes part of:** TASK-130
 
@@ -4801,7 +4801,7 @@ Render 4 placeholder track lanes in the NLE body. Each lane is a horizontal stri
 ### TASK-174 NLE: asset panel sidebar with Project + Generated tabs (empty states)
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — `nle/asset-panel.tsx` ships `AssetPanel` with `Project assets` / `Generated` tabs (local state), assets enumerated from `project.document.assets`, empty states for each tab, 280px sidebar via `.nleBody` CSS grid.
 **Lane:** P-AI-E
 **Supersedes part of:** TASK-130
 
@@ -4825,7 +4825,7 @@ Right (or left) sidebar in the NLE shell with two tabs: `Project assets` (lists 
 ### TASK-175 NLE: empty-state when no project is open (CTA back to Projects)
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — `NleShell` short-circuits to `NleEmptyState` when `project === null`; renders "No project open" copy + "Go to Projects" primary button calling `onGoToProjects` (wired in `main.tsx` to `setActiveAppView('projects')`).
 **Lane:** P-AI-E
 **Supersedes part of:** TASK-130
 
@@ -4847,7 +4847,7 @@ When the user lands on NLE without a project loaded, show a friendly empty-state
 ### TASK-176 NLE: shared state — consume project + applyProjectChange from App
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-18) — `main.tsx` NLE branch passes `project` + `onProjectChange={(next) => applyProjectChange(next as ProjectState)}` into `NleShell`; no local NLE state; writes go through the shared `applyProjectChange` autosave + undo path. Renderer-side .tsx test harness not part of this repo; testable helpers (`assetLabel`, `formatDuration`, lane registry) covered by `nle/asset-format.test.mjs`. Manual cross-view state verification still required per spec.
 **Lane:** P-AI-E
 **Supersedes part of:** TASK-131
 

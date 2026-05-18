@@ -54,6 +54,7 @@ import { resolveFrame } from '@rough-cut/frame-resolver';
 import './styles.css';
 import { LibraryShell } from './library/library-shell';
 import { AiShell } from './ai/ai-shell';
+import { NleShell } from './nle/nle-shell';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
   addManualMarkerAtFrame,
@@ -305,7 +306,7 @@ function App() {
   // the registry default (Projects gallery) for a plain launch.
   const initialAppView: AppViewId = (() => {
     const requested = searchParams.get('view');
-    if (requested === 'projects' || requested === 'editor') return requested;
+    if (requested === 'projects' || requested === 'editor' || requested === 'nle' || requested === 'ai') return requested;
     return DEFAULT_APP_VIEW_ID;
   })();
   const initialPreRecordPreferences = React.useMemo(readPreRecordPreferences, []);
@@ -1131,6 +1132,12 @@ function App() {
               // triggers a re-fetch in LibraryShell).
               setProject((current) => (current && current.path === oldPath ? (updated as unknown as ProjectState) : current));
             }}
+          />
+        ) : activeAppView === 'nle' ? (
+          <NleShell
+            project={project as unknown as Parameters<typeof NleShell>[0]['project']}
+            onProjectChange={(next) => applyProjectChange(next as unknown as ProjectState)}
+            onGoToProjects={() => setActiveAppView('projects')}
           />
         ) : activeAppView === 'ai' ? (
           <AiShell
