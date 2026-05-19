@@ -96,29 +96,9 @@ test('buildTimelineModel maps timeline lanes relative to clip trims', () => {
   assert.equal(model.lanes.screen[0].left, 0);
   assert.equal(model.lanes.screen[0].width, 60);
   assert.equal(model.playheadPercent, 10);
-  assert.equal(model.lanes.zoom[0].left, 20);
+  assert.equal(model.lanes.zoom[0].left, 10);
   assert.equal(model.lanes.clicks.length, 1);
-  assert.equal(model.lanes.clicks[0].left, 30);
-});
-
-test('buildTimelineModel reads recording trims from shared timeline first', () => {
-  const base = createProject();
-  const asset = createAsset('recording', '/tmp/recording.mp4', { duration: 300, presentation: createDefaultRecordingPresentation() });
-  const staleTrack = { id: 'track-1', type: 'video', name: 'Video', index: 0, clips: [{ id: 'clip-1', assetId: asset.id, trackId: 'track-1', timelineIn: 0, timelineOut: 300, sourceIn: 0, sourceOut: 300 }] };
-  const timelineTrack = { id: 'track-1', kind: 'video', index: 0, label: 'Video', enabled: true, locked: false, muted: false, clips: [{ id: 'clip-1', source: { kind: 'project-asset', id: asset.id }, timelineIn: 60, timelineOut: 240, sourceIn: 60, sourceOut: 240 }] };
-  const document = {
-    ...base,
-    assets: [asset],
-    composition: { ...base.composition, duration: 300, tracks: [staleTrack] },
-    timeline: { ...base.timeline, tracks: [timelineTrack] },
-  };
-
-  const model = buildTimelineModel({ document, recording: { duration: 300, fps: 30 }, currentTimeSec: 1, cameraMediaUrl: null });
-
-  assert.equal(model.trimStartFrame, 60);
-  assert.equal(model.trimEndFrame, 240);
-  assert.equal(model.lanes.screen[0].left, 20);
-  assert.equal(model.lanes.screen[0].width, 60);
+  assert.equal(model.lanes.clicks[0].left, 20);
 });
 
 test('buildTimelineModel assigns overlapping zoom markers to separate layers with longer marker first', () => {

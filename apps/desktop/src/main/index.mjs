@@ -1606,20 +1606,6 @@ async function runRendererNleSmoke() {
     const clip = document.querySelector('.nleClipBlock');
     return clip && clip.style.left !== trimLeftBefore ? clip : null;
   }, 'NLE trim drag mutates clip bounds'));
-  const clipBeforeMove = document.querySelector('.nleClipBlock');
-  const moveRect = clipBeforeMove?.getBoundingClientRect();
-  const moveLeftBefore = clipBeforeMove?.style.left ?? '';
-  if (clipBeforeMove && moveRect) {
-    const moveLeftPct = Number.parseFloat(moveLeftBefore);
-    const targetRatio = Number.isFinite(moveLeftPct) && moveLeftPct > 5 ? 0.28 : 0.72;
-    clipBeforeMove.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 9, clientX: moveRect.left + moveRect.width / 2, clientY: moveRect.top + moveRect.height / 2 }));
-    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, button: 0, pointerId: 9, clientX: moveRect.left + moveRect.width * targetRatio, clientY: moveRect.top + moveRect.height / 2 }));
-    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerId: 9, clientX: moveRect.left + moveRect.width * targetRatio, clientY: moveRect.top + moveRect.height / 2 }));
-  }
-  const hasNleClipMoveMutation = Boolean(await waitFor(() => {
-    const clip = document.querySelector('.nleClipBlock');
-    return clip && clip.style.left !== moveLeftBefore ? clip : null;
-  }, 'NLE clip drag mutates clip placement'));
   const clipCountBeforeSplit = document.querySelectorAll('.nleClipBlock').length;
   splitButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
   await waitFor(() => document.querySelectorAll('.nleClipBlock').length > clipCountBeforeSplit, 'NLE split button creates a second clip');
@@ -1639,7 +1625,6 @@ async function runRendererNleSmoke() {
     hasNleSplitDisabledWithoutSelection: splitDisabledBeforeSelection,
     hasNleTrimHandles,
     hasNleTrimDragMutation,
-    hasNleClipMoveMutation,
     hasNleSplitButtonMutation: document.querySelectorAll('.nleClipBlock').length > clipCountBeforeSplit,
   };
 }

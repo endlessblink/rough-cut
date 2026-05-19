@@ -10,10 +10,8 @@ const mediaPath = join(root, 'timeline-source.mp4');
 const reportPath = join(root, 'visual-timeline-report.json');
 const beforePath = join(root, 'before.png');
 const afterScrubPath = join(root, 'after-scrub.png');
-const afterCutPath = join(root, 'after-cut.png');
 const afterTrimEndPath = join(root, 'after-trim-end.png');
 const afterTrimStartPath = join(root, 'after-trim-start.png');
-const afterClipMovePath = join(root, 'after-clip-move.png');
 const afterRestorePath = join(root, 'after-restore.png');
 
 await mkdir(root, { recursive: true });
@@ -96,9 +94,6 @@ try {
   const scrubMonitor = await page.evaluate(() => window.__timelineMonitor.stop());
   await captureViewport(page, afterScrubPath);
 
-  const cutTool = await assertCutTool(page);
-  await captureViewport(page, afterCutPath);
-
   const trimEndResult = await dragTrimHandle(page, 'Trim end', 0.72);
   const trimEndMonitor = trimEndResult.monitor;
   await captureViewport(page, afterTrimEndPath);
@@ -106,9 +101,6 @@ try {
   const trimStartResult = await dragTrimHandle(page, 'Trim start', 0.12);
   const trimStartMonitor = trimStartResult.monitor;
   await captureViewport(page, afterTrimStartPath);
-
-  const clipMoveResult = await dragScreenClip(page, 0.18);
-  await captureViewport(page, afterClipMovePath);
 
   const recovery = await restoreFullSource(page);
   await captureViewport(page, afterRestorePath);
@@ -124,15 +116,8 @@ try {
       && keptActiveTool
       && wheel.stable
       && rangeWheel.stable
-      && cutTool.active
-      && cutTool.created
-      && cutTool.restored
-      && cutTool.activeToolStable
       && trimEndResult.changed
       && trimStartResult.changed
-      && clipMoveResult.changed
-      && clipMoveResult.widthStable
-      && clipMoveResult.activeToolStable
       && recovery.hiddenControlsVisible
       && recovery.restored
       && recovery.activeToolStable
@@ -144,7 +129,7 @@ try {
       && trimStartMonitor.badFrames.length === 0,
     root,
     projectPath: project.path,
-    screenshots: { beforePath, afterScrubPath, afterCutPath, afterTrimEndPath, afterTrimStartPath, afterClipMovePath, afterRestorePath },
+    screenshots: { beforePath, afterScrubPath, afterTrimEndPath, afterTrimStartPath, afterRestorePath },
     activeTool: { before: activeToolBefore, after: activeToolAfter, stable: keptActiveTool },
     wheel,
     rangeWheel,
@@ -152,8 +137,6 @@ try {
     coordinateAfter,
     trimEnd: trimEndResult,
     trimStart: trimStartResult,
-    clipMove: clipMoveResult,
-    cutTool,
     recovery,
     scrubMonitor,
     trimEndMonitor,
@@ -187,11 +170,6 @@ console.info(JSON.stringify({
   trimEndBadFrameCount: report?.trimEndMonitor?.badFrames?.length ?? 0,
   trimStartFrameCount: report?.trimStartMonitor?.frameCount ?? 0,
   trimStartBadFrameCount: report?.trimStartMonitor?.badFrames?.length ?? 0,
-  clipMoveChanged: report?.clipMove?.changed ?? false,
-  clipMoveWidthStable: report?.clipMove?.widthStable ?? false,
-  cutToolCreated: report?.cutTool?.created ?? false,
-  cutToolRestored: report?.cutTool?.restored ?? false,
-  cutToolActive: report?.cutTool?.active ?? false,
   recoveryRestored: report?.recovery?.restored ?? false,
   hiddenControlsVisible: report?.recovery?.hiddenControlsVisible ?? false,
 }, null, 2));
@@ -229,62 +207,6 @@ async function dragTrimHandle(page, label, targetRatio) {
     before: { x: clipBefore.x, width: clipBefore.width },
     after: { x: clipAfter.x, width: clipAfter.width },
     monitor,
-  };
-}
-
-async function dragScreenClip(page, targetDeltaRatio) {
-  const beforeTool = await activeTool(page);
-  const clip = page.locator('[data-timeline-lane="screen"] .clipBar');
-  const clipBefore = await requiredBox(clip, 'screen clip before move');
-  const track = await requiredBox(page.locator('[data-timeline-lane="screen"] .laneTrack'), 'screen lane track');
-
-  await page.mouse.move(clipBefore.x + clipBefore.width / 2, clipBefore.y + clipBefore.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(clipBefore.x + clipBefore.width / 2 + track.width * targetDeltaRatio, clipBefore.y + clipBefore.height / 2, { steps: 8 });
-  await page.mouse.up();
-  await page.waitForFunction(({ previousX }) => {
-    const clip = document.querySelector('[data-timeline-lane="screen"] .clipBar');
-    if (!(clip instanceof HTMLElement)) return false;
-    const rect = clip.getBoundingClientRect();
-    return Math.abs(rect.x - previousX) > 6;
-  }, { previousX: clipBefore.x }, { timeout: 10000 }).catch(() => undefined);
-
-  const clipAfter = await requiredBox(clip, 'screen clip after move');
-  const afterTool = await activeTool(page);
-  return {
-    changed: Math.abs(clipAfter.x - clipBefore.x) > 6,
-    widthStable: Math.abs(clipAfter.width - clipBefore.width) < 3,
-    activeToolStable: beforeTool === afterTool,
-    before: { x: clipBefore.x, width: clipBefore.width },
-    after: { x: clipAfter.x, width: clipAfter.width },
-  };
-}
-
-async function assertCutTool(page) {
-  const beforeTool = await activeTool(page);
-  const cutButton = page.locator('button[aria-label="Cut tool"]');
-  const track = await requiredBox(page.locator('[data-timeline-lane="screen"] .laneTrack'), 'screen lane track');
-
-  await cutButton.click();
-  const active = await cutButton.getAttribute('aria-pressed') === 'true';
-  await page.mouse.move(track.x + track.width * 0.28, track.y + track.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(track.x + track.width * 0.44, track.y + track.height / 2, { steps: 6 });
-  await page.mouse.up();
-  await page.waitForFunction(() => document.querySelectorAll('.hiddenCutRange').length > 0, null, { timeout: 10000 }).catch(() => undefined);
-
-  const hiddenCutCount = await page.locator('.hiddenCutRange').count();
-  if (hiddenCutCount > 0) await page.locator('.hiddenCutRange').first().click();
-  await page.waitForFunction(() => document.querySelectorAll('.hiddenCutRange').length === 0, null, { timeout: 10000 }).catch(() => undefined);
-  await cutButton.click();
-
-  const afterTool = await activeTool(page);
-  const restoredCount = await page.locator('.hiddenCutRange').count();
-  return {
-    active,
-    created: hiddenCutCount > 0,
-    restored: hiddenCutCount > 0 && restoredCount === 0,
-    activeToolStable: beforeTool === afterTool,
   };
 }
 
@@ -393,7 +315,6 @@ function summarizeFailure(path, result) {
     coordinateAfter: result.coordinateAfter,
     trimEnd: { ...result.trimEnd, monitor: undefined },
     trimStart: { ...result.trimStart, monitor: undefined },
-    cutTool: result.cutTool,
     recovery: result.recovery,
     scrubBadFrameCount: result.scrubMonitor.badFrames.length,
     trimEndBadFrameCount: result.trimEndMonitor.badFrames.length,

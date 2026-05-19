@@ -8,7 +8,6 @@ const makeProject = (composition) => ({
 
 const makeNleProject = ({ duration = 300, tracks = [] } = {}) => ({
   document: {
-    assets: [{ id: 'recording-asset', type: 'recording' }],
     composition: { duration, tracks: [] },
     tracks,
   },
@@ -16,7 +15,6 @@ const makeNleProject = ({ duration = 300, tracks = [] } = {}) => ({
 
 const makeSharedTimelineProject = ({ duration = 300, timelineTracks = [], tracks = [] } = {}) => ({
   document: {
-    assets: [{ id: 'recording-asset', type: 'recording' }],
     composition: { duration, tracks: [] },
     tracks,
     timeline: { tracks: timelineTracks },
@@ -67,29 +65,6 @@ test('buildTimelineTracks maps single-recording NLE tracks into dynamic rows', (
   assert.equal(rows[0].label, 'Screen Recording');
   assert.equal(rows[0].blocks[0].assetId, 'recording-asset');
   assert.equal(rows[0].blocks[0].widthPct, 100);
-});
-
-test('buildTimelineTracks preserves NLE placement for a single trimmed recording clip', () => {
-  const project = makeNleProject({
-    duration: 300,
-    tracks: [{
-      id: 'screen-track',
-      kind: 'video',
-      index: 0,
-      label: 'Screen Recording',
-      enabled: true,
-      locked: false,
-      muted: false,
-      clips: [{ id: 'screen-clip', source: { kind: 'project-asset', id: 'recording-asset' }, timelineIn: 60, timelineOut: 240, sourceIn: 60, sourceOut: 240 }],
-    }],
-  });
-
-  const block = buildTimelineTracks(project)[0].blocks[0];
-
-  assert.equal(block.leftPct, 20);
-  assert.equal(block.timelineIn, 60);
-  assert.equal(block.timelineOut, 240);
-  assert.equal(block.widthPct, 60);
 });
 
 test('buildTimelineTracks reads shared timeline tracks before transitional top-level tracks', () => {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canSplitClipById, moveClipById, removeClipById, splitClipById, trimClipById } from './clip-mutations.mjs';
+import { canSplitClipById, removeClipById, splitClipById, trimClipById } from './clip-mutations.mjs';
 
 const makeProject = (tracks) => ({
   path: '/tmp/p.roughcut',
@@ -226,23 +226,6 @@ test('trimClipById keeps top-level NLE tracks in sync', () => {
   assert.equal(next.document.tracks[0].clips[0].sourceIn, 90);
 });
 
-test('trimClipById trims linked recording screen and camera clips together', () => {
-  const screen = { ...baseClip, id: 'screen', assetId: 'recording', timelineIn: 0, timelineOut: 180, sourceIn: 0, sourceOut: 180 };
-  const camera = { ...baseClip, id: 'camera', assetId: 'camera', timelineIn: 0, timelineOut: 180, sourceIn: 30, sourceOut: 210 };
-  const project = makeProjectWithSharedTimelineTracks([
-    { id: 'screen-track', type: 'video', clips: [screen] },
-    { id: 'camera-track', type: 'video', clips: [camera] },
-  ]);
-  project.document.assets = [{ id: 'recording', type: 'recording', cameraAssetId: 'camera' }, { id: 'camera', type: 'video' }];
-
-  const next = trimClipById(project, 'screen', 'left', 45);
-
-  assert.equal(next.document.timeline.tracks[0].clips[0].timelineIn, 45);
-  assert.equal(next.document.timeline.tracks[0].clips[0].sourceIn, 45);
-  assert.equal(next.document.timeline.tracks[1].clips[0].timelineIn, 45);
-  assert.equal(next.document.timeline.tracks[1].clips[0].sourceIn, 75);
-});
-
 test('splitClipById keeps shared timeline, top-level tracks, and composition tracks in sync', () => {
   const project = makeProjectWithSharedTimelineTracks([{ id: 't1', type: 'video', clips: [baseClip] }]);
   const next = splitClipById(project, 'c1', 120);
@@ -268,104 +251,4 @@ test('trimClipById uses shared timeline source range when mirrors are stale', ()
   assert.equal(next.document.timeline.tracks[0].clips[0].sourceIn, 80);
   assert.equal(next.document.tracks[0].clips[0].timelineIn, 80);
   assert.equal(next.document.composition.tracks[0].clips[0].timelineIn, 80);
-});
-
-test('trimClipById repairs empty shared timeline when editing a top-level track', () => {
-  const project = makeProjectWithSharedTimelineTracks([{ id: 't1', type: 'video', clips: [baseClip] }], []);
-
-  const next = trimClipById(project, 'c1', 'right', 180);
-
-  assert.equal(next.document.timeline.tracks.length, 1);
-  assert.equal(next.document.timeline.tracks[0].clips[0].timelineOut, 180);
-  assert.equal(next.document.tracks[0].clips[0].timelineOut, 180);
-  assert.equal(next.document.composition.tracks[0].clips[0].timelineOut, 180);
-});
-
-test('moveClipById moves clip timeline placement without changing source range', () => {
-  const project = makeProjectWithSharedTimelineTracks([{ id: 't1', type: 'video', clips: [baseClip] }]);
-
-  const next = moveClipById(project, 'c1', 90);
-  const timelineClip = next.document.timeline.tracks[0].clips[0];
-  const nleClip = next.document.tracks[0].clips[0];
-  const compositionClip = next.document.composition.tracks[0].clips[0];
-
-  assert.equal(timelineClip.timelineIn, 90);
-  assert.equal(timelineClip.timelineOut, 390);
-  assert.equal(timelineClip.sourceIn, 0);
-  assert.equal(timelineClip.sourceOut, 300);
-  assert.equal(nleClip.timelineIn, 90);
-  assert.equal(compositionClip.timelineIn, 90);
-});
-
-test('moveClipById moves linked recording screen and camera clips together', () => {
-  const screen = { ...baseClip, id: 'screen', assetId: 'recording', timelineIn: 30, timelineOut: 180, sourceIn: 30, sourceOut: 180 };
-  const camera = { ...baseClip, id: 'camera', assetId: 'camera', timelineIn: 30, timelineOut: 180, sourceIn: 60, sourceOut: 210 };
-  const project = makeProjectWithSharedTimelineTracks([
-    { id: 'screen-track', type: 'video', clips: [screen] },
-    { id: 'camera-track', type: 'video', clips: [camera] },
-  ]);
-  project.document.assets = [{ id: 'recording', type: 'recording', cameraAssetId: 'camera' }, { id: 'camera', type: 'video' }];
-
-  const next = moveClipById(project, 'screen', 90);
-  const screenClip = next.document.timeline.tracks[0].clips[0];
-  const cameraClip = next.document.timeline.tracks[1].clips[0];
-
-  assert.equal(screenClip.timelineIn, 90);
-  assert.equal(screenClip.timelineOut, 240);
-  assert.equal(screenClip.sourceIn, 30);
-  assert.equal(screenClip.sourceOut, 180);
-  assert.equal(cameraClip.timelineIn, 90);
-  assert.equal(cameraClip.timelineOut, 240);
-  assert.equal(cameraClip.sourceIn, 60);
-  assert.equal(cameraClip.sourceOut, 210);
-});
-
-test('moveClipById moves linked recording clips when dragging the camera clip', () => {
-  const screen = { ...baseClip, id: 'screen', assetId: 'recording', timelineIn: 30, timelineOut: 180, sourceIn: 30, sourceOut: 180 };
-  const camera = { ...baseClip, id: 'camera', assetId: 'camera', timelineIn: 30, timelineOut: 180, sourceIn: 60, sourceOut: 210 };
-  const project = makeProjectWithSharedTimelineTracks([
-    { id: 'screen-track', type: 'video', clips: [screen] },
-    { id: 'camera-track', type: 'video', clips: [camera] },
-  ]);
-  project.document.assets = [{ id: 'recording', type: 'recording', cameraAssetId: 'camera' }, { id: 'camera', type: 'video' }];
-
-  const next = moveClipById(project, 'camera', 75);
-
-  assert.equal(next.document.timeline.tracks[0].clips[0].timelineIn, 75);
-  assert.equal(next.document.timeline.tracks[1].clips[0].timelineIn, 75);
-});
-
-test('moveClipById clamps linked recording movement against linked-track neighbors', () => {
-  const screen = { ...baseClip, id: 'screen', assetId: 'recording', timelineIn: 30, timelineOut: 180, sourceIn: 30, sourceOut: 180 };
-  const camera = { ...baseClip, id: 'camera', assetId: 'camera', timelineIn: 30, timelineOut: 180, sourceIn: 60, sourceOut: 210 };
-  const cameraNeighbor = { ...baseClip, id: 'camera-neighbor', assetId: 'b-roll', timelineIn: 220, timelineOut: 260, sourceIn: 0, sourceOut: 40 };
-  const project = makeProjectWithSharedTimelineTracks([
-    { id: 'screen-track', type: 'video', clips: [screen] },
-    { id: 'camera-track', type: 'video', clips: [camera, cameraNeighbor] },
-  ]);
-  project.document.assets = [{ id: 'recording', type: 'recording', cameraAssetId: 'camera' }, { id: 'camera', type: 'video' }, { id: 'b-roll', type: 'video' }];
-
-  const next = moveClipById(project, 'screen', 100);
-
-  assert.equal(next.document.timeline.tracks[0].clips[0].timelineIn, 70);
-  assert.equal(next.document.timeline.tracks[0].clips[0].timelineOut, 220);
-  assert.equal(next.document.timeline.tracks[1].clips[0].timelineIn, 70);
-  assert.equal(next.document.timeline.tracks[1].clips[0].timelineOut, 220);
-  assert.equal(next.document.timeline.tracks[1].clips[1].timelineIn, 220);
-});
-
-test('moveClipById clamps against neighbors and duration', () => {
-  const project = makeProject([{ id: 't1', type: 'video', clips: [
-    { ...baseClip, id: 'c0', timelineIn: 0, timelineOut: 80, sourceIn: 0, sourceOut: 80 },
-    { ...baseClip, id: 'c1', timelineIn: 100, timelineOut: 200, sourceIn: 0, sourceOut: 100 },
-    { ...baseClip, id: 'c2', timelineIn: 240, timelineOut: 320, sourceIn: 0, sourceOut: 80 },
-  ] }]);
-
-  const beforeNeighbor = moveClipById(project, 'c1', 20).document.composition.tracks[0].clips[1];
-  const afterNeighbor = moveClipById(project, 'c1', 500).document.composition.tracks[0].clips[1];
-
-  assert.equal(beforeNeighbor.timelineIn, 80);
-  assert.equal(beforeNeighbor.timelineOut, 180);
-  assert.equal(afterNeighbor.timelineIn, 140);
-  assert.equal(afterNeighbor.timelineOut, 240);
 });

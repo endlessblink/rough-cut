@@ -73,7 +73,7 @@ import { cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFra
 import type { PreviewDragOrigin } from './styled-preview.mjs';
 import { generateSuggestionsForProject } from './auto-zoom-suggestions.mjs';
 import { addCutRange, clearCutRanges, listCutRanges, removeCutRange, visibleDurationFrames, visibleFrameToSourceFrame } from './cut-ranges.mjs';
-import { getRecordingTimelineClip, moveRecordingTimelineClip, syncRecordingTimelinePresentation, updateRecordingTimelineTrim } from './recording-timeline.mjs';
+import { getRecordingTimelineClip, syncRecordingTimelinePresentation, updateRecordingTimelineTrim } from './recording-timeline.mjs';
 import { appError, errorStateCopy, type AppError } from './app-error-copy.mjs';
 import { EMPTY_EDIT_HISTORY, recordEdit, redoEdit, undoEdit, type EditHistory } from './edit-history.mjs';
 
@@ -3018,17 +3018,6 @@ function ProjectPreview({
     setCurrentTimeSec(Math.min(currentTimeSec, durationFrames / (effectiveRecording.fps || 30)));
   }
 
-  async function moveTimelineClip(startFrame: number) {
-    if (!recordingAsset?.id) return;
-    const nextDocument = moveRecordingTimelineClip(project.document, {
-      assetId: recordingAsset.id,
-      cameraAssetId: recordingAsset.cameraAssetId as string | null | undefined,
-      startFrame,
-    }) as ProjectState['document'];
-    if (nextDocument === project.document) return;
-    await persist(nextDocument);
-  }
-
   function setTrimStartToPlayhead() {
     if (!effectiveRecording) return;
     updateTrim(Math.round(currentTimeSec * effectiveRecording.fps), trimInfo.endFrame);
@@ -3178,7 +3167,7 @@ function ProjectPreview({
           <p className="eyebrow"><Icon name="timeline" /> Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-          {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimStart={(sourceTimeSec) => updateTrim(Math.round(sourceTimeSec * effectiveRecording.fps), trimInfo.endFrame)} onTrimEnd={(sourceTimeSec) => updateTrim(trimInfo.startFrame, Math.round(sourceTimeSec * effectiveRecording.fps))} onClipMove={moveTimelineClip} onRestoreTrimStart={() => updateTrim(0, trimInfo.endFrame)} onRestoreTrimEnd={() => updateTrim(trimInfo.startFrame, effectiveRecording.duration)} onResetTrim={resetTrim} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} /> : null}
+          {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimStart={(sourceTimeSec) => updateTrim(Math.round(sourceTimeSec * effectiveRecording.fps), trimInfo.endFrame)} onTrimEnd={(sourceTimeSec) => updateTrim(trimInfo.startFrame, Math.round(sourceTimeSec * effectiveRecording.fps))} onRestoreTrimStart={() => updateTrim(0, trimInfo.endFrame)} onRestoreTrimEnd={() => updateTrim(trimInfo.startFrame, effectiveRecording.duration)} onResetTrim={resetTrim} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} /> : null}
         </div>
       </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
@@ -3324,7 +3313,7 @@ function preventRangeWheelChange(event: React.WheelEvent<HTMLInputElement>) {
   event.currentTarget.blur();
 }
 
-function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimStart, onTrimEnd, onClipMove, onRestoreTrimStart, onRestoreTrimEnd, onResetTrim, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext }: { project: ProjectState; currentTimeSec: number; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimStart: (sourceTimeSec: number) => void; onTrimEnd: (sourceTimeSec: number) => void; onClipMove: (startFrame: number) => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onResetTrim: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void }) {
+function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimStart, onTrimEnd, onRestoreTrimStart, onRestoreTrimEnd, onResetTrim, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext }: { project: ProjectState; currentTimeSec: number; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimStart: (sourceTimeSec: number) => void; onTrimEnd: (sourceTimeSec: number) => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onResetTrim: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void }) {
   const model = buildTimelineModel({
     document: project.document as unknown as ProjectDocument,
     recording: project.recording,
@@ -3337,12 +3326,10 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
   const sourceFrameDuration = Math.max(1, Math.round(model.durationSec * fps));
   const hasHiddenStart = model.trimStartFrame > 0;
   const hasHiddenEnd = model.trimEndFrame < sourceFrameDuration;
+  const hiddenTailLeft = model.lanes.screen[0]?.width ?? 100;
+  const hiddenTailWidth = Math.max(0, 100 - hiddenTailLeft);
   const [zoomDragPreview, setZoomDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number } | null>(null);
   const [cutDragPreview, setCutDragPreview] = React.useState<{ startFrame: number; endFrame: number } | null>(null);
-  const [clipMovePreview, setClipMovePreview] = React.useState<{ startFrame: number; endFrame: number } | null>(null);
-  const screenPlacement = (clipMovePreview ? frameRangeToPlacement(clipMovePreview.startFrame, clipMovePreview.endFrame, fps, model.durationSec) : model.lanes.screen[0]) ?? { left: 0, width: 100 };
-  const hiddenTailLeft = Math.min(100, (screenPlacement?.left ?? 0) + (screenPlacement?.width ?? 100));
-  const hiddenTailWidth = Math.max(0, 100 - hiddenTailLeft);
 
   // Exit cut mode on Escape.
   React.useEffect(() => {
@@ -3479,40 +3466,6 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     window.addEventListener('pointercancel', up, { once: true });
   }
 
-  function beginClipMoveDrag(event: React.PointerEvent<HTMLDivElement>) {
-    if (event.button !== 0 || cutModeActive) return;
-    if ((event.target as HTMLElement | null)?.closest('.trimHandle')) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const handle = event.currentTarget;
-    handle.setPointerCapture(event.pointerId);
-    const initialFrame = sourceFrameFromClient(handle, event.clientX) ?? 0;
-    const originalStart = Math.round(model.clipTimelineIn ?? 0);
-    const durationFrames = Math.max(1, Math.round((model.clipTimelineOut ?? sourceFrameDuration) - originalStart));
-    let latestStart = originalStart;
-    let moved = false;
-    const update = (clientX: number) => {
-      const frame = sourceFrameFromClient(handle, clientX);
-      if (frame === null) return;
-      const delta = frame - initialFrame;
-      latestStart = Math.max(0, Math.min(Math.max(0, sourceFrameDuration - durationFrames), originalStart + delta));
-      moved = moved || latestStart !== originalStart;
-      setClipMovePreview({ startFrame: latestStart, endFrame: latestStart + durationFrames });
-    };
-    const move = (moveEvent: PointerEvent) => update(moveEvent.clientX);
-    const up = (upEvent: PointerEvent) => {
-      update(upEvent.clientX);
-      setClipMovePreview(null);
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
-      if (moved) onClipMove(latestStart);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up, { once: true });
-    window.addEventListener('pointercancel', up, { once: true });
-  }
-
   function nudgeTrimHandle(kind: 'start' | 'end', direction: -1 | 1, largeStep: boolean) {
     const stepFrames = largeStep ? Math.max(1, Math.round(fps)) : 1;
     if (kind === 'start') {
@@ -3635,7 +3588,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
         {model.ticks.map((tick) => <span key={tick}>{formatClock(tick)}</span>)}
       </div>
       <div className="timelineTracks">
-        <div className={cutModeActive ? 'timelineTrackOverlay cutModeActive' : 'timelineTrackOverlay'}>
+        <div className="timelineTrackOverlay">
           <input
             aria-label="Scrub timeline"
             className="timelineScrubber"
@@ -3672,27 +3625,24 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
           </button>
         </div>
         <TimelineLane label="Screen" className={`screenLane ${cutModeActive ? 'cutModeActive' : ''}`} onTrackPointerDown={cutModeActive ? handleScreenLaneCutPointerDown : undefined} trackTitle={cutModeActive ? 'Drag to mark a cut range' : undefined}>
-          {model.lanes.screen.map((region) => {
-            const placement = region.id === 'screen' ? screenPlacement : region;
-            return (
-            <div key={region.id} className={clipMovePreview ? 'clipBar moving' : 'clipBar'} style={{ left: `${placement.left}%`, width: `${placement.width}%` }} onPointerDown={beginClipMoveDrag}>
+          {model.lanes.screen.map((region) => (
+            <div key={region.id} className="clipBar" style={{ left: `${region.left}%`, width: `${region.width}%` }}>
               <button type="button" role="slider" className="trimHandle trimHandleStart" aria-label="Trim start" aria-valuemin={0} aria-valuemax={Math.max(0, model.trimEndFrame - 1)} aria-valuenow={model.trimStartFrame} aria-valuetext={`Trim start ${model.trimStartFrame} frames`} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleTrimHandleKey('start', event)} onPointerDown={(event) => beginTrimDrag('start', event)} />
               <button type="button" className="clipBody" onClick={() => onSelectInspectorContext({ group: 'recording', label: 'Screen recording', detail: 'Source clip selected from the timeline.' })}><Icon name="frame" /> Clip</button>
               <button type="button" role="slider" className="trimHandle trimHandleEnd" aria-label="Trim end" aria-valuemin={model.trimStartFrame + 1} aria-valuemax={sourceFrameDuration} aria-valuenow={model.trimEndFrame} aria-valuetext={`Trim end ${model.trimEndFrame} frames`} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleTrimHandleKey('end', event)} onPointerDown={(event) => beginTrimDrag('end', event)} />
             </div>
-            );
-          })}
+          ))}
           {cutDragPreview ? (() => {
             const start = Math.min(cutDragPreview.startFrame, cutDragPreview.endFrame);
             const end = Math.max(cutDragPreview.startFrame, cutDragPreview.endFrame);
             const placement = frameRangeToPlacement(start - model.trimStartFrame, end - model.trimStartFrame, fps, model.durationSec);
             return <div className="cutDragPreview" style={{ left: `${placement.left}%`, width: `${placement.width}%` }} aria-hidden="true" />;
           })() : null}
-          {hasHiddenStart ? <button type="button" className="hiddenTrimRange hiddenTrimStart" aria-label="Restore hidden start" title={`Restore hidden start (${model.trimStartFrame} frames)`} style={{ left: 0, width: `${model.lanes.screen[0]?.left ?? 0}%` }} onClick={onRestoreTrimStart}>Hidden start</button> : null}
+          {hasHiddenStart ? <button type="button" className="hiddenTrimRange hiddenTrimStart" aria-label="Restore hidden start" title={`Restore hidden start (${model.trimStartFrame} frames)`} onClick={onRestoreTrimStart}>Hidden start</button> : null}
           {hasHiddenEnd ? <button type="button" className="hiddenTrimRange hiddenTrimEnd" aria-label="Restore hidden end" title={`Restore hidden end (${sourceFrameDuration - model.trimEndFrame} frames)`} style={{ left: `${hiddenTailLeft}%`, width: `${hiddenTailWidth}%` }} onClick={onRestoreTrimEnd}>Hidden end</button> : null}
           {cutRanges.map((range) => {
             const placement = frameRangeToPlacement(range.startFrame - model.trimStartFrame, range.endFrame - model.trimStartFrame, fps, model.durationSec);
-            return <button key={range.id} type="button" className="hiddenCutRange" aria-label={`Restore cut ${formatClock((range.startFrame - model.trimStartFrame) / fps)} to ${formatClock((range.endFrame - model.trimStartFrame) / fps)}`} title="Restore this hidden middle range" style={{ left: `${placement.left}%`, width: `${placement.width}%` }} onPointerDown={(event) => event.stopPropagation()} onClick={() => onRestoreCut(range.id)}>Restore cut</button>;
+            return <button key={range.id} type="button" className="hiddenCutRange" aria-label={`Restore cut ${formatClock((range.startFrame - model.trimStartFrame) / fps)} to ${formatClock((range.endFrame - model.trimStartFrame) / fps)}`} title="Restore this hidden middle range" style={{ left: `${placement.left}%`, width: `${placement.width}%` }} onClick={() => onRestoreCut(range.id)}>Restore cut</button>;
           })}
           {hasHiddenStart || hasHiddenEnd ? <button type="button" className="restoreFullSource" aria-label="Restore full source" onClick={onResetTrim}>Restore full source</button> : null}
         </TimelineLane>

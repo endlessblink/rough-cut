@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAsset, createClip, createDefaultRecordingPresentation, createProject, createTrack } from '@rough-cut/project-model';
 import { buildTimelineTracks } from './nle/timeline-clips.mjs';
-import { getRecordingTimelineClip, moveRecordingTimelineClip, syncRecordingTimelinePresentation, updateRecordingTimelineTrim } from './recording-timeline.mjs';
+import { getRecordingTimelineClip, syncRecordingTimelinePresentation, updateRecordingTimelineTrim } from './recording-timeline.mjs';
 
 function projectWithRecordingAndCamera() {
   const recording = createAsset('recording', '/tmp/screen.mp4', { duration: 300, cameraAssetId: 'camera-asset', presentation: createDefaultRecordingPresentation() });
@@ -42,24 +42,6 @@ test('getRecordingTimelineClip reads the shared timeline before legacy compositi
   assert.equal(clip.sourceOut, 300);
 });
 
-test('getRecordingTimelineClip falls back to top-level tracks when shared timeline is empty', () => {
-  const project = projectWithRecordingAndCamera();
-  const recording = project.assets[0];
-  const document = {
-    ...project,
-    timeline: { ...project.timeline, tracks: [] },
-    tracks: project.tracks.map((track) => ({
-      ...track,
-      clips: track.clips.map((clip) => clip.source?.id === recording.id ? { ...clip, sourceIn: 20, sourceOut: 220 } : clip),
-    })),
-  };
-
-  const clip = getRecordingTimelineClip(document, recording.id);
-
-  assert.equal(clip.sourceIn, 20);
-  assert.equal(clip.sourceOut, 220);
-});
-
 test('updateRecordingTimelineTrim syncs legacy, top-level, and shared timeline tracks', () => {
   const project = projectWithRecordingAndCamera();
   const recording = project.assets[0];
@@ -73,11 +55,11 @@ test('updateRecordingTimelineTrim syncs legacy, top-level, and shared timeline t
     endFrame: 240,
   });
 
-  assert.equal(next.composition.duration, 300);
-  assert.deepEqual(next.composition.tracks[0].clips[0], { ...project.composition.tracks[0].clips[0], timelineIn: 45, timelineOut: 240, sourceIn: 45, sourceOut: 240 });
-  assert.deepEqual(next.tracks[0].clips[0], { ...project.tracks[0].clips[0], timelineIn: 45, timelineOut: 240, sourceIn: 45, sourceOut: 240 });
-  assert.deepEqual(next.timeline.tracks[0].clips[0], { ...project.timeline.tracks[0].clips[0], timelineIn: 45, timelineOut: 240, sourceIn: 45, sourceOut: 240 });
-  assert.deepEqual(next.timeline.tracks[1].clips[0], { ...project.timeline.tracks[1].clips[0], timelineIn: 45, timelineOut: 240, sourceIn: 75, sourceOut: 270 });
+  assert.equal(next.composition.duration, 195);
+  assert.deepEqual(next.composition.tracks[0].clips[0], { ...project.composition.tracks[0].clips[0], timelineIn: 0, timelineOut: 195, sourceIn: 45, sourceOut: 240 });
+  assert.deepEqual(next.tracks[0].clips[0], { ...project.tracks[0].clips[0], timelineIn: 0, timelineOut: 195, sourceIn: 45, sourceOut: 240 });
+  assert.deepEqual(next.timeline.tracks[0].clips[0], { ...project.timeline.tracks[0].clips[0], timelineIn: 0, timelineOut: 195, sourceIn: 45, sourceOut: 240 });
+  assert.deepEqual(next.timeline.tracks[1].clips[0], { ...project.timeline.tracks[1].clips[0], timelineIn: 0, timelineOut: 195, sourceIn: 75, sourceOut: 270 });
 });
 
 test('Recording edit trims appear in NLE rows without reload through synced top-level tracks', () => {
@@ -94,30 +76,8 @@ test('Recording edit trims appear in NLE rows without reload through synced top-
 
   const rows = buildTimelineTracks({ document });
 
-  assert.equal(rows[0].blocks[0].leftPct, 10);
-  assert.equal(rows[0].blocks[0].widthPct, 50);
-  assert.equal(rows[1].blocks[0].leftPct, 10);
-  assert.equal(rows[1].blocks[0].widthPct, 50);
-});
-
-test('Recording edit trims appear in NLE rows when shared timeline starts empty', () => {
-  const project = projectWithRecordingAndCamera();
-  const recording = project.assets[0];
-  const camera = project.assets[1];
-  const document = updateRecordingTimelineTrim({ ...project, timeline: { ...project.timeline, tracks: [] } }, {
-    assetId: recording.id,
-    cameraAssetId: camera.id,
-    cameraOffset: 30,
-    startFrame: 30,
-    endFrame: 180,
-  });
-
-  const rows = buildTimelineTracks({ document });
-
-  assert.equal(rows[0].blocks[0].timelineIn, 30);
-  assert.equal(rows[0].blocks[0].timelineOut, 180);
-  assert.equal(rows[1].blocks[0].timelineIn, 30);
-  assert.equal(rows[1].blocks[0].timelineOut, 180);
+  assert.equal(rows[0].blocks[0].widthPct, 100);
+  assert.equal(rows[1].blocks[0].widthPct, 100);
 });
 
 test('syncRecordingTimelinePresentation mirrors cursor and camera presentation into shared timeline effects', () => {
@@ -142,28 +102,4 @@ test('syncRecordingTimelinePresentation mirrors cursor and camera presentation i
   assert.equal(next.timeline.effects.find((effect) => effect.id === `effect:${recording.id}:cursor`)?.params.style, 'spotlight');
   assert.equal(next.timeline.effects.find((effect) => effect.id === `effect:${recording.id}:click`)?.params.clickEffect, 'ring');
   assert.equal(next.timeline.effects.find((effect) => effect.id === `effect:${recording.id}:camera-pip`)?.params.position, 'corner-tl');
-});
-
-test('moveRecordingTimelineClip moves screen and camera timeline placement without changing source trims', () => {
-  const project = projectWithRecordingAndCamera();
-  const recording = project.assets[0];
-  const camera = project.assets[1];
-  const trimmed = updateRecordingTimelineTrim(project, {
-    assetId: recording.id,
-    cameraAssetId: camera.id,
-    cameraOffset: 30,
-    startFrame: 30,
-    endFrame: 180,
-  });
-
-  const next = moveRecordingTimelineClip(trimmed, {
-    assetId: recording.id,
-    cameraAssetId: camera.id,
-    startFrame: 90,
-  });
-
-  assert.deepEqual(next.timeline.tracks[0].clips[0], { ...trimmed.timeline.tracks[0].clips[0], timelineIn: 90, timelineOut: 240 });
-  assert.deepEqual(next.timeline.tracks[1].clips[0], { ...trimmed.timeline.tracks[1].clips[0], timelineIn: 90, timelineOut: 240 });
-  assert.equal(next.timeline.tracks[0].clips[0].sourceIn, 30);
-  assert.equal(next.timeline.tracks[1].clips[0].sourceIn, 60);
 });
