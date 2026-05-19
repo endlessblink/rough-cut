@@ -189,13 +189,23 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-205~~ | ✅ Recording edit/NLE share presentation state and controls | P1 | ✅ DONE (2026-05-18) |
 | TASK-187 | NLE trim handles for selected clip edges | P1 | REWORK REQUIRED → TASK-211 |
 | ~~TASK-206~~ | ✅ Shared timeline invariant: one timeline, two toolsets | P1 | ✅ DONE (2026-05-18) |
-| ~~TASK-207~~ | ✅ Shared timeline schema for sources, tracks, clips, markers | P1 | ✅ DONE (2026-05-19) |
-| ~~TASK-208~~ | ✅ Migrate Recording edit cuts/trims into shared timeline | P1 | ✅ DONE (2026-05-19) |
-| ~~TASK-209~~ | ✅ Recording edit selectors/actions over shared timeline | P1 | ✅ DONE (2026-05-19) |
-| ~~TASK-210~~ | ✅ NLE selectors/actions over shared timeline | P1 | ✅ DONE (2026-05-19) |
-| ~~TASK-211~~ | ✅ Replace trim UI with local preview sessions | P1 | ✅ DONE (2026-05-19) |
-| TASK-212 | Shared export composition/EDL from one timeline | P1 | PLANNED |
-| TASK-213 | Cross-tool sync and migration smoke coverage | P1 | PLANNED |
+| TASK-207 | Shared timeline schema for sources, tracks, clips, markers | P1 | REWORK REQUIRED → TASK-214 |
+| TASK-208 | Migrate Recording edit cuts/trims into shared timeline | P1 | REWORK REQUIRED → TASK-215 |
+| TASK-209 | Recording edit selectors/actions over shared timeline | P1 | REWORK REQUIRED → TASK-219 |
+| TASK-210 | NLE selectors/actions over shared timeline | P1 | REWORK REQUIRED → TASK-220 |
+| TASK-211 | Replace trim UI with local preview sessions | P1 | REWORK REQUIRED → TASK-217 |
+| TASK-212 | Shared export composition/EDL from one timeline | P1 | BLOCKED → TASK-222 |
+| TASK-213 | Cross-tool sync and migration smoke coverage | P1 | BLOCKED → TASK-221 |
+| ~~TASK-214~~ | ✅ NLE rebuild lane 1: canonical model contract | P0 | ✅ DONE (2026-05-19) |
+| TASK-215 | NLE rebuild lane 2: migration and canonicalization | P0 | PLANNED |
+| TASK-216 | NLE rebuild lane 3: timeline playback resolver | P0 | PLANNED |
+| TASK-217 | NLE rebuild lane 4: mutation command service | P0 | PLANNED |
+| TASK-218 | NLE rebuild lane 5: shared playback preview | P0 | PLANNED |
+| TASK-219 | NLE rebuild lane 6: Recording Edit adapter | P0 | PLANNED |
+| TASK-220 | NLE rebuild lane 7: NLE adapter | P0 | PLANNED |
+| TASK-221 | NLE rebuild lane 8: cross-view visual tests | P0 | PLANNED |
+| TASK-222 | NLE rebuild lane 9: export resolver parity | P0 | PLANNED |
+| TASK-223 | NLE rebuild lane 10: cleanup and guardrails | P0 | PLANNED |
 | TASK-188 | NLE drag clips within a track with collision rules | P1 | PLANNED |
 | TASK-189 | NLE drag clips across same-kind tracks | P2 | PLANNED |
 | TASK-190 | Track header controls: mute, lock, height | P2 | PLANNED |
@@ -504,7 +514,22 @@ Sequence: TASK-138, TASK-139
 
 21. **LANE P-AI-I — Multi-track NLE + generation v1** (Phase 3):
 Depends-on: LANE P-AI-E, LANE P-AI-G
-Sequence: TASK-184, TASK-185, TASK-186, TASK-205, TASK-206, TASK-207, TASK-208, TASK-209, TASK-210, TASK-211, TASK-212, TASK-213, TASK-188, TASK-189, TASK-190, TASK-191, TASK-192, TASK-193, TASK-194, TASK-195, TASK-196, TASK-197, TASK-198, TASK-199, TASK-200, TASK-201, TASK-202, TASK-203, TASK-204
+Sequence: TASK-184, TASK-185, TASK-186, TASK-205, TASK-206, TASK-214, TASK-215, TASK-216, TASK-217, TASK-218, TASK-219, TASK-220, TASK-221, TASK-222, TASK-223, TASK-188, TASK-189, TASK-190, TASK-191, TASK-192, TASK-193, TASK-194, TASK-195, TASK-196, TASK-197, TASK-198, TASK-199, TASK-200, TASK-201, TASK-202, TASK-203, TASK-204
+
+#### P-AI-I Rebuild Sub-Lanes (canonical execution order)
+
+The previous shared-timeline work (TASK-207 through TASK-213) proved useful concepts but did not establish a correct NLE core. It mixed source time, timeline time, Recording Edit view behavior, NLE view behavior, and preview/export semantics. The rebuild must follow these lanes in order:
+
+1. **Lane 1 — Model contract:** TASK-214 defines the canonical timeline schema and invariants.
+2. **Lane 2 — Migration:** TASK-215 canonicalizes legacy projects before views render.
+3. **Lane 3 — Resolver:** TASK-216 resolves timeline frame to source media or gap.
+4. **Lane 4 — Commands:** TASK-217 owns trim/move/split/delete/ripple mutations.
+5. **Lane 5 — Preview:** TASK-218 routes both previews through the resolver.
+6. **Lane 6 — Recording Edit:** TASK-219 adapts the canonical timeline for the simple editor.
+7. **Lane 7 — NLE:** TASK-220 adapts the canonical timeline for the full editor.
+8. **Lane 8 — Visual sync:** TASK-221 proves cross-view behavior with Playwright.
+9. **Lane 9 — Export:** TASK-222 makes export use the same resolver/EDL.
+10. **Lane 10 — Cleanup:** TASK-223 removes active legacy reads and adds guardrails.
 
 22. **LANE P-AI-J — Auto-assembly + motion graphics + templates** (Phase 4):
 Depends-on: LANE P-AI-I, LANE P-AI-D
@@ -514,9 +539,9 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-212, "Shared export composition/EDL from one timeline". Do not continue TASK-188 drag until the shared timeline foundation tasks are complete.
+Next task when continuing: start TASK-215, "NLE rebuild lane 2: migration and canonicalization". Do not continue TASK-188 drag, TASK-212 export, or TASK-213 smoke coverage until TASK-214 through TASK-221 are complete.
 
-Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–204). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
+Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–223, with TASK-214–223 as the active rebuild gate). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
 ## Tasks
 
@@ -2912,7 +2937,7 @@ TASK-018/019 are DONE. The user can apply or dismiss auto-zoom suggestions via `
 ### TASK-080 Add i18n infrastructure with t() context and RTL CSS
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE (2026-05-19)
 
 #### Context
 
@@ -2934,7 +2959,7 @@ TASK-018/019 are DONE. The user can apply or dismiss auto-zoom suggestions via `
 ### TASK-081 Add light theme and semantic color tokens
 
 **Priority:** P3  
-**Status:** PLANNED
+**Status:** DONE (2026-05-19)
 
 #### Context
 
@@ -5557,10 +5582,16 @@ The project model needs a clean JSON-friendly shape for the shared timeline: sou
 - Project-model schema tests cover valid recording sources, linked groups, marker/effect ownership, invalid clip intervals, and broken marker/group references.
 - Migration tests prove older projects backfill the shared timeline and still validate.
 
+#### Rework Notes
+
+- TASK-214 replaces this as the canonical model-contract task.
+- The rebuild must explicitly distinguish timeline time from source media time.
+- Active code paths must stop treating legacy mirrors as fallback truth after migration.
+
 ### TASK-208 Migrate Recording edit cuts/trims into shared timeline
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** REWORK REQUIRED → TASK-215
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -5583,10 +5614,16 @@ Current Recording edit uses concepts like single-recording trim and `cutRanges`.
 - Recording edit cut add/remove/clear mirrors legacy `presentation.cutRanges` into shared timeline cut markers while current preview/export continue reading compatible ranges.
 - Regression tests cover cut marker backfill, trim clip backfill, add/remove sync, and timeline-first cut range reads.
 
+#### Rework Notes
+
+- TASK-215 replaces this with canonicalization on project open.
+- Legacy trim/cut/camera fields become import-only after migration.
+- Recording Edit must not keep parallel cut/trim truth.
+
 ### TASK-209 Recording edit selectors/actions over shared timeline
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** REWORK REQUIRED → TASK-219
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -5610,10 +5647,16 @@ Recording edit remains a canonical editing surface, but its tools must operate o
 - Cursor and camera presentation changes mirror into shared timeline effects while preserving existing asset presentation compatibility.
 - Renderer tests cover Recording edit trims appearing in NLE rows, timeline-first reads, zoom/cut marker sync, and cursor/camera effect sync.
 
+#### Rework Notes
+
+- TASK-219 replaces this with a real Recording Edit adapter.
+- The adapter must read canonical timeline selectors only.
+- Its rail can visually collapse gaps, but playhead and mutations remain timeline-time based.
+
 ### TASK-210 NLE selectors/actions over shared timeline
 
 **Priority:** P1
-**Status:** DONE (2026-05-19)
+**Status:** REWORK REQUIRED → TASK-220
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -5640,10 +5683,16 @@ NLE is the advanced toolset for the same timeline. Its track/clip view must not 
 - Added regression coverage for stale top-level mirrors, shared-timeline-first trim reads, and split/remove synchronization across all transitional stores.
 - Verified with focused NLE renderer tests, desktop typecheck, and full desktop test suite.
 
+#### Rework Notes
+
+- TASK-220 replaces this with a true NLE adapter over canonical timeline data.
+- NLE must show explicit gaps and use computed timeline duration.
+- It must not mirror edits into transitional stores as active truth.
+
 ### TASK-211 Replace trim UI with local preview sessions
 
 **Priority:** P1
-**Status:** DONE (2026-05-19)
+**Status:** REWORK REQUIRED → TASK-217
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -5673,10 +5722,16 @@ The first trim-handle implementation is not shippable. Proper trim needs edge hi
 - Added unit coverage for source bounds, neighbor collision, min duration, no project mutation during preview, and compact edge-handle styling.
 - Extended NLE UI smoke to perform an actual left-edge trim drag and verify clip bounds mutate once, then split still works.
 
+#### Rework Notes
+
+- TASK-217 replaces the mutation layer.
+- Trim, move, split, delete, ripple-delete, restore edge, and restore full source must all go through one command service.
+- Pointermove may preview locally; pointerup commits one atomic command.
+
 ### TASK-212 Shared export composition/EDL from one timeline
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** BLOCKED → TASK-222
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -5696,10 +5751,15 @@ Preview and export must read one composition plan from the shared timeline. Reco
 - Unit tests cover resolver output for trim, cut, split, camera/audio/cursor sync, and markers.
 - Smoke/export tests prove Recording edit and NLE exports use the same composition plan.
 
+#### Rework Notes
+
+- TASK-222 replaces this after the resolver, commands, preview, and adapters are rebuilt.
+- Export must consume the same timeline resolver/EDL as preview.
+
 ### TASK-213 Cross-tool sync and migration smoke coverage
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** BLOCKED → TASK-221
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -5718,6 +5778,280 @@ The one-timeline rule needs end-to-end protection. Unit tests alone will not cat
 
 - `pnpm smoke:ui` or a focused smoke reports explicit cross-tool sync booleans.
 - Screenshots are inspected before marking shared timeline work done.
+
+#### Rework Notes
+
+- TASK-221 replaces this with failing-first Playwright cross-view visual tests.
+- Unit tests and local UI smoke are not sufficient for this work.
+
+### TASK-214 NLE rebuild lane 1: canonical model contract
+
+**Priority:** P0
+**Status:** PLANNED
+**Lane:** P-AI-I / Rebuild Lane 1
+**Parent EPIC:** TASK-140
+
+#### Context
+
+Rough Cut needs one real NLE timeline model before any view, preview, export, or mutation work continues. The current bug comes from mixing source media time, timeline time, Recording Edit view geometry, and NLE clip geometry.
+
+#### Acceptance Criteria
+
+- Define canonical `Timeline`, `Track`, `Clip`, `MediaReference`, `LinkedGroup`, `Marker`, and `Effect` interfaces.
+- Define clip fields: `sourceIn`, `sourceOut`, `timelineIn`, `timelineOut`, `mediaId`, `trackId`, `linkGroupId`.
+- Use half-open intervals everywhere: `[start, end)`.
+- Enforce no-retiming invariant for now: `timelineOut - timelineIn === sourceOut - sourceIn`.
+- Forbid same-track overlaps and sort clips by `timelineIn`.
+- Allow cross-track overlaps for compositing.
+- Compute timeline duration from max clip/effect/marker end.
+- Mark `composition.tracks`, top-level `document.tracks`, asset trim, and asset cut ranges as import-only legacy fields.
+
+#### Verification
+
+- Model invariant tests cover valid clips, invalid ranges, duration mismatch, overlaps, missing media, link-group references, and computed duration.
+- `docs/shared-timeline-architecture.md` is updated to match the actual schema.
+
+#### Completion Notes
+
+- Defined canonical `Timeline`, `TimelineTrack`, `TimelineClip`, `MediaReference`, linked-group, marker, and effect model types in `packages/project-model/src/shared-timeline.ts`.
+- Canonical clips now carry `mediaId`, `trackId`, optional `linkGroupId`, `sourceIn/sourceOut`, and `timelineIn/timelineOut`; the old NLE `source` object remains only as a transitional import adapter.
+- Added schema/runtime invariant checks for half-open ranges, no retiming, media references, linked-group references, source bounds, effect owners, and same-track sorted/non-overlapping clips while preserving cross-track overlap.
+- Added `computeTimelineDuration()` from max clip `timelineOut`, marker `endFrame`, and temporal effect `endFrame`.
+- Updated `docs/shared-timeline-architecture.md` to mark legacy `composition.tracks`, top-level `document.tracks`, and asset trim/cut fields as import-only after canonicalization.
+- Verified with `pnpm --filter @rough-cut/project-model test`, `pnpm --filter @rough-cut/project-model typecheck`, and `pnpm --filter @rough-cut/project-model build`.
+
+### TASK-215 NLE rebuild lane 2: migration and canonicalization
+
+**Priority:** P0
+**Status:** PLANNED
+**Lane:** P-AI-I / Rebuild Lane 2
+**Parent EPIC:** TASK-140
+**Depends on:** TASK-214
+
+#### Context
+
+Every project must become canonical before any view renders. Legacy fields may exist for import, but they cannot remain active sources of truth.
+
+#### Acceptance Criteria
+
+- Add pure `canonicalizeProjectDocument(document)` migration/import function.
+- Convert legacy `composition.tracks` and top-level `document.tracks` into `document.timeline.tracks` when needed.
+- Convert screen/camera/audio relationships into `linkGroupId` groups.
+- Convert legacy trims into clip `sourceIn/sourceOut` and `timelineIn/timelineOut` exactly once.
+- Convert cut ranges into canonical split/ripple timeline representation or canonical markers according to cut policy.
+- Convert zoom/cursor/click/camera presentation into canonical timeline/link-group/clip effects.
+- Ensure selectors can assume canonical timeline after this step.
+
+#### Verification
+
+- Fixture tests cover current real roughcut files, legacy trim/cut projects, camera projects, and idempotent re-canonicalization.
+
+### TASK-216 NLE rebuild lane 3: timeline playback resolver
+
+**Priority:** P0
+**Status:** PLANNED
+**Lane:** P-AI-I / Rebuild Lane 3
+**Parent EPIC:** TASK-140
+**Depends on:** TASK-214
+
+#### Context
+
+Playback must resolve from timeline time to source media time through the active clip. A shortened clip placed later must not play from source frame 0 when the timeline playhead is elsewhere.
+
+#### Acceptance Criteria
+
+- Implement `resolveTimelineFrame(project, timelineFrame)`.
+- Find active clip per track using `[timelineIn, timelineOut)`.
+- Map source frame as `sourceIn + (timelineFrame - timelineIn)`.
+- Return explicit gap state for timeline frames with no active video clip.
+- Resolve linked screen, camera, audio, cursor, click, and zoom state from timeline/link-group data.
+- Render gaps as black/empty preview instructions with no cursor and silent audio.
+
+#### Verification
+
+- Unit tests cover leading gap, trailing gap, internal gap, first active clip frame, half-open clip end, cross-track active clips, and linked camera offset.
+
+### TASK-217 NLE rebuild lane 4: mutation command service
+
+**Priority:** P0
+**Status:** PLANNED
+**Lane:** P-AI-I / Rebuild Lane 4
+**Parent EPIC:** TASK-140
+**Depends on:** TASK-214, TASK-215
+
+#### Context
+
+Recording Edit and NLE must call the same command service. Views may hold transient drag previews, but they must never directly write clip timing fields.
+
+#### Acceptance Criteria
+
+- Add commands: `trimClipEdge`, `moveClip`, `splitClip`, `deleteClip`, `rippleDeleteRange`, `restoreSourceEdge`, `restoreFullSource`.
+- Validate before and after every command.
+- Head trim changes `timelineIn` and `sourceIn`; tail trim changes `timelineOut` and `sourceOut`.
+- Move changes only `timelineIn/timelineOut`.
+- Split creates adjacent ranges on all linked tracks at the same timeline frame.
+- Recording Edit cut defaults to ripple-delete.
+- NLE delete defaults to leave-gap.
+- Linked screen/camera/audio groups trim, move, split, and ripple together.
+- Commands sort clips and reject same-track overlaps.
+
+#### Verification
+
+- Command tests cover every operation, linked operation, clamp, invalid/no-op input, undo snapshot shape, and invariant preservation.
+
+### TASK-218 NLE rebuild lane 5: shared playback preview
+
+**Priority:** P0
+**Status:** PLANNED
+**Lane:** P-AI-I / Rebuild Lane 5
+**Parent EPIC:** TASK-140
+**Depends on:** TASK-216
+
+#### Context
+
+Recording Edit preview and NLE monitor must use the exact same resolver and preview path. Preview accepts timeline time only; source seeking is hidden behind the resolver.
+
+#### Acceptance Criteria
+
+- Change preview API to accept timeline time, not source-relative trim time.
+- Render gap state when resolver returns no active video clip.
+- Resolve screen media, camera PIP, cursor, clicks, zoom, and audio through resolver output.
+- Make NLE monitor and Recording Edit preview share this code path.
+- Transport labels show timeline current / timeline duration.
+
+#### Verification
+
+- Synthetic burned-in-frame media tests prove preview at clip start renders `sourceIn`, not source 0.
+- Tests cover gap preview, active clip preview, camera offset, and cursor hidden during gaps.
+
+### TASK-219 NLE rebuild lane 6: Recording Edit adapter
+
+**Priority:** P0
+**Status:** PLANNED
+**Lane:** P-AI-I / Rebuild Lane 6
+**Parent EPIC:** TASK-140
+**Depends on:** TASK-217, TASK-218
+
+#### Context
+
+Recording Edit is a simplified adapter over the canonical timeline. It can visually collapse leading/trailing gaps, but its playhead, clips, and mutations remain timeline-time based.
+
+#### Acceptance Criteria
+
+- Build `selectRecordingEditModel(project)` from canonical timeline only.
+- Rail uses composition/timeline time, with a zoomed/collapsed view transform for gaps.
+- Preserve playhead in timeline time when switching views.
+- Render multiple clips after split/ripple operations.
+- Map trim, move, cut, restore edge, and restore full source UI gestures to command service commands.
+- Show warning for complex timelines while still rendering supported clips.
+- Remove active dependency on legacy trim/cut fields.
+
+#### Verification
+
+- Adapter tests cover leading gap, collapsed view transform, multiple clips, linked groups, trim restore, and ripple-delete cut.
+
+### TASK-220 NLE rebuild lane 7: NLE adapter
+
+**Priority:** P0
+**Status:** PLANNED
+**Lane:** P-AI-I / Rebuild Lane 7
+**Parent EPIC:** TASK-140
+**Depends on:** TASK-217, TASK-218
+
+#### Context
+
+NLE is the full editor adapter over the same canonical timeline. It shows explicit gaps, computed timeline duration, and professional timeline semantics.
+
+#### Acceptance Criteria
+
+- Build `selectNleTimelineModel(project)` from canonical timeline only.
+- Render track rows from `document.timeline.tracks` only.
+- Normalize clip positions against computed timeline duration.
+- Show explicit gaps as empty timeline space.
+- Use command service for trim, move, split, delete, ripple, and linked edits.
+- Keep drag/trim previews local until pointerup.
+- Use shared preview/resolver in the program monitor.
+
+#### Verification
+
+- Selector/UI tests cover clip bounds, gaps, multi-track order, linked edits, and playhead preservation.
+
+### TASK-221 NLE rebuild lane 8: cross-view visual tests
+
+**Priority:** P0
+**Status:** PLANNED
+**Lane:** P-AI-I / Rebuild Lane 8
+**Parent EPIC:** TASK-140
+**Depends on:** TASK-219, TASK-220
+
+#### Context
+
+The current failure was not caught because tests checked each view locally. Cross-view visual assertions must be first-class.
+
+#### Acceptance Criteria
+
+- Add Playwright test: trim in Recording Edit, switch to NLE, assert bounds and DOM state.
+- Add Playwright test: move in Recording Edit, switch to NLE, assert bounds and DOM state.
+- Add Playwright test: trim in NLE, switch to Recording Edit, assert bounds and DOM state.
+- Add Playwright test: move in NLE, switch to Recording Edit, assert bounds and DOM state.
+- Add Playwright test: timeline playhead before clip shows gap/black in both previews.
+- Add Playwright test: timeline playhead at clip start resolves to `sourceIn`, not source 0.
+- Capture screenshots for both views after each mutation.
+
+#### Verification
+
+- New focused command, likely `pnpm visual:timeline-sync`, fails on the current bug and passes only when both adapters and shared preview are correct.
+
+### TASK-222 NLE rebuild lane 9: export resolver parity
+
+**Priority:** P0
+**Status:** PLANNED
+**Lane:** P-AI-I / Rebuild Lane 9
+**Parent EPIC:** TASK-140
+**Depends on:** TASK-216, TASK-217, TASK-221
+
+#### Context
+
+Export must render exactly what preview and the canonical timeline describe. It includes gaps by default and later exposes explicit trim-to-used-content behavior for Recording Edit export.
+
+#### Acceptance Criteria
+
+- Build export EDL from canonical timeline and resolver.
+- Include leading, internal, and trailing gaps by default.
+- Add explicit Recording Edit export option: trim to used content.
+- Resolve cursor/camera/audio/zoom/effects through timeline/link-group data.
+- Ensure raw and styled exports do not read legacy trim/cut fields as truth.
+
+#### Verification
+
+- Export tests cover moved clips, leading gaps, trailing gaps, ripple deletes, linked camera, and preview/export frame parity.
+
+### TASK-223 NLE rebuild lane 10: cleanup and guardrails
+
+**Priority:** P0
+**Status:** PLANNED
+**Lane:** P-AI-I / Rebuild Lane 10
+**Parent EPIC:** TASK-140
+**Depends on:** TASK-222
+
+#### Context
+
+Once the canonical model, resolver, commands, adapters, visual tests, and export path are in place, transitional code must stop being active truth.
+
+#### Acceptance Criteria
+
+- Delete active selectors that fallback to legacy fields after canonicalization.
+- Keep legacy migration tests.
+- Add schema version and migration notes.
+- Add invariant checks around project mutations in development/test builds.
+- Update docs/agent rules: no timeline UI change without cross-view Playwright coverage.
+- Audit direct reads of `composition.tracks`, top-level `document.tracks`, and asset-level cut/trim fields.
+- Update smoke scripts so cross-view sync is mandatory for timeline verification.
+
+#### Verification
+
+- Grep/source guards prevent active legacy timing reads outside migration.
+- Full test, typecheck, visual timeline sync, smoke UI, and export parity checks pass.
 
 ### TASK-188 NLE drag clips within a track with collision rules
 

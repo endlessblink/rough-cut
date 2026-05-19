@@ -53,18 +53,32 @@ During migration, legacy fields may coexist with the shared timeline model, but 
 
 Every transitional field needs an explicit sync or migration rule before new trim/drag/export behavior depends on it.
 
-## Shared Timeline Schema
+## Canonical Timeline Contract
 
 `ProjectDocument.timeline` is the canonical shared timeline envelope. It owns:
 
-- `sources`: screen, camera, mic audio, system audio, cursor telemetry, project assets, and generated assets.
-- `linkedGroups`: frame-locked or manually-offset groups that keep related sources synchronized, especially screen recordings with camera/audio/cursor sidecars.
-- `tracks`: integer-frame NLE tracks and clips using half-open `sourceIn`/`sourceOut` and `timelineIn`/`timelineOut` ranges.
-- `markers`: timeline-owned zoom, click, cursor-style, camera-layout, and annotation markers.
+- `sources`: media references for screen, camera, mic audio, system audio, cursor telemetry, project assets, and generated assets.
+- `linkedGroups`: frame-locked or manually-offset groups that keep related media synchronized, especially screen recordings with camera/audio/cursor sidecars.
+- `tracks`: integer-frame timeline tracks sorted by `index` for display and compositing order.
+- `clips`: timeline placements with `mediaId`, `trackId`, optional `linkGroupId`, `sourceIn`, `sourceOut`, `timelineIn`, and `timelineOut`.
+- `markers`: timeline-owned zoom, cut, click, cursor-style, camera-layout, and annotation spans.
 - `effects`: cursor, click, camera PiP, zoom, and annotation presentation state attached to clips, tracks, sources, linked groups, or the whole timeline.
-- `exportSettings`: the export shape resolved from the same timeline that Recording edit and NLE mutate.
+- `exportSettings`: the export shape resolved from the same timeline that Recording Edit and NLE mutate.
 
-Legacy fields remain during migration, but new shared behaviors should target `ProjectDocument.timeline` first and explicitly sync transitional fields until they can be removed.
+All temporal values are integer frame numbers. `timelineIn`/`timelineOut` are composition time. `sourceIn`/`sourceOut` are media time. Ranges are half-open intervals: `[start, end)`.
+
+The current model forbids retiming: `timelineOut - timelineIn === sourceOut - sourceIn`. Same-track clips must be sorted by `timelineIn` and must not overlap. Cross-track overlaps are allowed for compositing and audio mixing.
+
+Timeline duration is computed from the maximum clip `timelineOut`, marker `endFrame`, and temporal effect `endFrame`. Gaps are real timeline time; Recording Edit may visually collapse or zoom gaps, but the model and playhead stay in timeline time.
+
+Legacy fields remain during migration, but after canonicalization they are import-only compatibility data:
+
+- `composition.tracks`
+- top-level `document.tracks`
+- asset-level trim fields
+- asset-level `presentation.cutRanges`
+
+New shared behaviors must target `ProjectDocument.timeline`. Active view, playback, mutation, and export code must stop reading legacy fields as truth in the later rebuild lanes.
 
 ## Interaction Rule
 

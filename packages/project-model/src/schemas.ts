@@ -549,6 +549,8 @@ export const TimelineSourceSchema = z.object({
   duration: nonNegativeInt,
 });
 
+export const MediaReferenceSchema = TimelineSourceSchema;
+
 export const TimelineLinkedGroupSchema = z.object({
   id: z.string().min(1),
   kind: z.enum(['recording', 'generated-set', 'manual-sync']),
@@ -587,20 +589,57 @@ export const TimelineEffectSchema = z.object({
   kind: z.enum(['cursor', 'click', 'camera-pip', 'zoom', 'annotation']),
   ownerId: z.string().min(1),
   ownerType: z.enum(['clip', 'track', 'source', 'linked-group', 'timeline']),
+  startFrame: nonNegativeInt.optional(),
+  endFrame: nonNegativeInt.optional(),
   enabled: z.boolean(),
   params: z.record(z.unknown()),
 });
 
+export const TimelineClipSchema = z.object({
+  id: z.string().min(1),
+  mediaId: z.string().min(1),
+  trackId: z.string().min(1),
+  linkGroupId: z.string().min(1).optional(),
+  timelineIn: nonNegativeInt,
+  timelineOut: nonNegativeInt,
+  sourceIn: nonNegativeInt,
+  sourceOut: nonNegativeInt,
+  // Transitional import adapter for existing NLE code. Canonical model code uses mediaId.
+  source: NleClipSourceSchema.optional(),
+}).refine((clip) => clip.timelineOut > clip.timelineIn, {
+  message: 'Clip timelineOut must be greater than timelineIn',
+  path: ['timelineOut'],
+}).refine((clip) => clip.sourceOut > clip.sourceIn, {
+  message: 'Clip sourceOut must be greater than sourceIn',
+  path: ['sourceOut'],
+}).refine((clip) => clip.timelineOut - clip.timelineIn === clip.sourceOut - clip.sourceIn, {
+  message: 'Clip duration must match source duration until retiming exists',
+  path: ['timelineOut'],
+});
+
+export const TimelineTrackSchema = z.object({
+  id: z.string().min(1),
+  kind: NleTrackKindSchema,
+  index: z.number().int().nonnegative(),
+  label: z.string().min(1),
+  enabled: z.boolean(),
+  locked: z.boolean(),
+  muted: z.boolean(),
+  clips: z.array(TimelineClipSchema),
+});
+
 export const SharedTimelineSchema = z.object({
-  sources: z.array(TimelineSourceSchema),
+  sources: z.array(MediaReferenceSchema),
   linkedGroups: z.array(TimelineLinkedGroupSchema),
-  tracks: z.array(NleTrackSchema),
+  tracks: z.array(TimelineTrackSchema),
   markers: z.array(TimelineMarkerSchema),
   effects: z.array(TimelineEffectSchema),
   exportSettings: ExportSettingsSchema,
 }).superRefine((timeline, context) => {
   const sourceIds = new Set(timeline.sources.map((source) => source.id));
   const linkedGroupIds = new Set(timeline.linkedGroups.map((group) => group.id));
+  const trackIds = new Set(timeline.tracks.map((track) => track.id));
+  const clipIds = new Set<string>();
   for (const group of timeline.linkedGroups) {
     if (!sourceIds.has(group.primarySourceId)) {
       context.addIssue({
@@ -619,6 +658,48 @@ export const SharedTimelineSchema = z.object({
       }
     }
   }
+  for (const [trackIndex, track] of timeline.tracks.entries()) {
+    let previousTimelineOut = -1;
+    for (const [clipIndex, clip] of track.clips.entries()) {
+      clipIds.add(clip.id);
+      if (clip.trackId !== track.id) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Clip trackId must match containing timeline track',
+          path: ['tracks', trackIndex, 'clips', clipIndex, 'trackId'],
+        });
+      }
+      const media = timeline.sources.find((source) => source.id === clip.mediaId);
+      if (!media) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Clip mediaId must reference a timeline media reference',
+          path: ['tracks', trackIndex, 'clips', clipIndex, 'mediaId'],
+        });
+      } else if (clip.sourceOut > media.duration) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Clip sourceOut must not exceed media duration',
+          path: ['tracks', trackIndex, 'clips', clipIndex, 'sourceOut'],
+        });
+      }
+      if (clip.linkGroupId && !linkedGroupIds.has(clip.linkGroupId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Clip linkGroupId must reference a linked group',
+          path: ['tracks', trackIndex, 'clips', clipIndex, 'linkGroupId'],
+        });
+      }
+      if (clip.timelineIn < previousTimelineOut) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Clips on the same track must be sorted and non-overlapping',
+          path: ['tracks', trackIndex, 'clips', clipIndex, 'timelineIn'],
+        });
+      }
+      previousTimelineOut = Math.max(previousTimelineOut, clip.timelineOut);
+    }
+  }
   for (const marker of timeline.markers) {
     if (marker.sourceId && !sourceIds.has(marker.sourceId)) {
       context.addIssue({
@@ -632,6 +713,34 @@ export const SharedTimelineSchema = z.object({
         code: z.ZodIssueCode.custom,
         message: 'Marker linkedGroupId must reference a linked group',
         path: ['markers'],
+      });
+    }
+  }
+  for (const [effectIndex, effect] of timeline.effects.entries()) {
+    const ownerExists = effect.ownerType === 'timeline'
+      || (effect.ownerType === 'clip' && clipIds.has(effect.ownerId))
+      || (effect.ownerType === 'track' && trackIds.has(effect.ownerId))
+      || (effect.ownerType === 'source' && sourceIds.has(effect.ownerId))
+      || (effect.ownerType === 'linked-group' && linkedGroupIds.has(effect.ownerId));
+    if (!ownerExists) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Effect ownerId must reference its declared owner type',
+        path: ['effects', effectIndex, 'ownerId'],
+      });
+    }
+    if ((effect.startFrame === undefined) !== (effect.endFrame === undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Timeline effects must define both startFrame and endFrame or neither',
+        path: ['effects', effectIndex, 'startFrame'],
+      });
+    }
+    if (effect.startFrame !== undefined && effect.endFrame !== undefined && effect.endFrame <= effect.startFrame) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Effect endFrame must be greater than startFrame',
+        path: ['effects', effectIndex, 'endFrame'],
       });
     }
   }
