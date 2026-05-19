@@ -375,6 +375,19 @@ function mediaIdForSourceId(
   trackKind: NleTrackKind,
   sources: readonly MediaReference[],
 ): string {
+  const matchingCameraSource = trackKind === 'video'
+    ? sources.find((source) => source.assetId === sourceId && source.kind === 'camera')
+    : undefined;
+  if (matchingCameraSource) return matchingCameraSource.id;
+
+  const matchingAssetSource = sources.find((source) => {
+    if (source.assetId !== sourceId) return false;
+    if (trackKind === 'audio') return source.mediaType === 'audio';
+    if (trackKind === 'video') return source.mediaType === 'video';
+    return true;
+  });
+  if (matchingAssetSource) return matchingAssetSource.id;
+
   const candidates = trackKind === 'audio'
     ? [`source:${sourceId}:system-audio`, `source:${sourceId}:mic-audio`, `source:${sourceId}`]
     : [`source:${sourceId}:screen`, `source:${sourceId}:camera`, `source:${sourceId}`];
@@ -550,30 +563,37 @@ function timelineEffectsForAsset(asset: Asset): TimelineEffect[] {
   if (!presentation) return [];
   const linkedGroupId = `linked:${asset.id}`;
 
-  return [
-    {
+  const effects: TimelineEffect[] = [];
+
+  if (presentation.cursor) {
+    effects.push({
       id: `effect:${asset.id}:cursor`,
       kind: 'cursor',
       ownerId: linkedGroupId,
       ownerType: 'linked-group',
       enabled: true,
       params: { ...presentation.cursor },
-    },
-    {
+    });
+    effects.push({
       id: `effect:${asset.id}:click`,
       kind: 'click',
       ownerId: linkedGroupId,
       ownerType: 'linked-group',
       enabled: presentation.cursor.clickEffect !== 'none',
       params: { clickEffect: presentation.cursor.clickEffect },
-    },
-    {
+    });
+  }
+
+  if (presentation.camera) {
+    effects.push({
       id: `effect:${asset.id}:camera-pip`,
       kind: 'camera-pip',
       ownerId: linkedGroupId,
       ownerType: 'linked-group',
       enabled: presentation.camera.visible,
       params: { ...presentation.camera },
-    },
-  ];
+    });
+  }
+
+  return effects;
 }

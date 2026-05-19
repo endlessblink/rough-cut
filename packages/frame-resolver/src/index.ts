@@ -1,4 +1,5 @@
 export { resolveFrame } from './resolve-frame.js';
+export { resolveTimelineFrame } from './timeline-frame.js';
 export type { ResolveFrameOptions } from './resolve-frame.js';
 export {
   getCameraAspectRatioCss,
@@ -15,4 +16,7 @@ export type {
   ActiveTransition,
   CameraTransform,
   ResolvedCursorPresentation,
+  ResolvedTimelineClip,
+  ResolvedTimelineLinkedGroup,
+  ResolvedTimelineFrame,
 } from './types.js';

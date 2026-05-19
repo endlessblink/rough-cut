@@ -198,7 +198,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-213 | Cross-tool sync and migration smoke coverage | P1 | BLOCKED → TASK-221 |
 | ~~TASK-214~~ | ✅ NLE rebuild lane 1: canonical model contract | P0 | ✅ DONE (2026-05-19) |
 | ~~TASK-215~~ | ✅ NLE rebuild lane 2: migration and canonicalization | P0 | ✅ DONE (2026-05-19) |
-| TASK-216 | NLE rebuild lane 3: timeline playback resolver | P0 | PLANNED |
+| ~~TASK-216~~ | ✅ NLE rebuild lane 3: timeline playback resolver | P0 | ✅ DONE (2026-05-19) |
 | TASK-217 | NLE rebuild lane 4: mutation command service | P0 | PLANNED |
 | TASK-218 | NLE rebuild lane 5: shared playback preview | P0 | PLANNED |
 | TASK-219 | NLE rebuild lane 6: Recording Edit adapter | P0 | PLANNED |
@@ -539,7 +539,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-216, "NLE rebuild lane 3: timeline playback resolver". Do not continue TASK-188 drag, TASK-212 export, or TASK-213 smoke coverage until TASK-214 through TASK-221 are complete.
+Next task when continuing: start TASK-217, "NLE rebuild lane 4: mutation command service". Do not continue TASK-188 drag, TASK-212 export, or TASK-213 smoke coverage until TASK-214 through TASK-221 are complete.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–223, with TASK-214–223 as the active rebuild gate). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -3085,7 +3085,7 @@ Timeline scrub at `main.tsx:2703` lacks `aria-live` for frame position. Zoom mar
 ### TASK-086 Add GIF and WebM export presets
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-19)
 
 #### Context
 
@@ -5879,6 +5879,16 @@ Playback must resolve from timeline time to source media time through the active
 #### Verification
 
 - Unit tests cover leading gap, trailing gap, internal gap, first active clip frame, half-open clip end, cross-track active clips, and linked camera offset.
+
+#### Completion Notes
+
+- Added `resolveTimelineFrame(project, timelineFrame)` in `@rough-cut/frame-resolver` over canonical `document.timeline` data.
+- Resolver accepts timeline time only, selects active clips with half-open `[timelineIn, timelineOut)` intervals, and maps source media frames as `sourceIn + (timelineFrame - timelineIn)`.
+- Resolver returns explicit gap state when no video clip is active, with no video layers, no audio, no markers, and no effects.
+- Active video layers, top video selection, audio clips, active linked groups, timeline markers, and timeline effects are returned from canonical timeline/link-group data.
+- Added regression coverage for leading/internal/trailing gaps, clip start source mapping, half-open clip end, cross-track active clips, audio activity, linked screen/camera source offsets, and marker/effect suppression during gaps.
+- Fixed canonical media matching so camera asset clips map to the recording-linked camera media reference, and made timeline effect backfill tolerate older recording presentations that omit cursor/camera sections.
+- Verified with `pnpm --filter @rough-cut/frame-resolver test`, `pnpm --filter @rough-cut/frame-resolver typecheck`, `pnpm --filter @rough-cut/frame-resolver build`, `pnpm --filter @rough-cut/project-model test`, `pnpm --filter @rough-cut/project-model typecheck`, `pnpm --filter @rough-cut/project-model build`, and `pnpm typecheck`.
 
 ### TASK-217 NLE rebuild lane 4: mutation command service
 

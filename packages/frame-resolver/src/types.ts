@@ -2,6 +2,12 @@ import type {
   ClipId,
   TrackId,
   AssetId,
+  MediaReference,
+  TimelineClip,
+  TimelineEffect,
+  TimelineLinkedGroup,
+  TimelineMarker,
+  TimelineTrack,
   CameraPresentation,
   NormalizedRect,
   RecordingBackgroundStyle,
@@ -131,4 +137,29 @@ export interface RenderFrame {
   screenFrame?: NormalizedRect;
   /** Exact camera frame resolved in Record tab (normalized 0-1 canvas rect) */
   cameraFrame?: NormalizedRect;
+}
+
+export interface ResolvedTimelineClip {
+  readonly track: TimelineTrack;
+  readonly clip: TimelineClip;
+  readonly media: MediaReference;
+  readonly sourceFrame: number;
+}
+
+export interface ResolvedTimelineLinkedGroup {
+  readonly group: TimelineLinkedGroup;
+  readonly clips: readonly ResolvedTimelineClip[];
+}
+
+export interface ResolvedTimelineFrame {
+  readonly frame: number;
+  readonly duration: number;
+  readonly isGap: boolean;
+  readonly video: ResolvedTimelineClip | null;
+  readonly videoLayers: readonly ResolvedTimelineClip[];
+  readonly audio: readonly ResolvedTimelineClip[];
+  readonly activeClips: readonly ResolvedTimelineClip[];
+  readonly activeLinkedGroups: readonly ResolvedTimelineLinkedGroup[];
+  readonly markers: readonly TimelineMarker[];
+  readonly effects: readonly TimelineEffect[];
 }
