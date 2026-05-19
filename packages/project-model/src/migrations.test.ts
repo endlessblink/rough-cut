@@ -494,6 +494,111 @@ describe('migrations', () => {
     expect(result2.version).toBe(CURRENT_SCHEMA_VERSION);
   });
 
+  it('canonicalizes current-version projects with pre-contract timeline clip shape before validation', () => {
+    const recording = createAsset('recording', '/tmp/recording.webm', { duration: 300 });
+    const legacyTimelineTrack = {
+      id: 'video-1',
+      kind: 'video',
+      index: 0,
+      label: 'Video 1',
+      enabled: true,
+      locked: false,
+      muted: false,
+      clips: [
+        {
+          id: 'timeline-fresh',
+          source: { kind: 'project-asset', id: recording.id },
+          timelineIn: 50,
+          timelineOut: 250,
+          sourceIn: 20,
+          sourceOut: 220,
+        },
+      ],
+    };
+    const staleTopLevelTrack = {
+      ...legacyTimelineTrack,
+      clips: [{ ...legacyTimelineTrack.clips[0], id: 'top-level-stale', timelineIn: 0, timelineOut: 200 }],
+    };
+    const project = createProject({
+      assets: [recording],
+      tracks: [staleTopLevelTrack as never],
+      timeline: {
+        sources: [],
+        linkedGroups: [],
+        tracks: [legacyTimelineTrack as never],
+        markers: [],
+        effects: [],
+        exportSettings: {
+          format: 'mp4',
+          codec: 'h264',
+          bitrate: 15_000_000,
+          resolution: { width: 1920, height: 1080 },
+          frameRate: 30,
+          keepClickSounds: true,
+        },
+      } as never,
+    });
+
+    const result = migrate(project as unknown);
+    const clip = result.timeline.tracks[0]?.clips[0];
+
+    expect(clip).toMatchObject({
+      id: 'timeline-fresh',
+      mediaId: `source:${recording.id}:screen`,
+      trackId: 'video-1',
+      linkGroupId: `linked:${recording.id}`,
+      timelineIn: 50,
+      timelineOut: 250,
+      sourceIn: 20,
+      sourceOut: 220,
+    });
+    expect(migrate(result)).toEqual(result);
+  });
+
+  it('canonicalizes current-version projects missing the timeline from import-only composition tracks', () => {
+    const recording = createAsset('recording', '/tmp/recording.webm', {
+      duration: 300,
+      presentation: {
+        ...createDefaultRecordingPresentation(),
+        cutRanges: [{ id: 'cut-1' as never, startFrame: 90, endFrame: 120 }],
+      },
+    });
+    const track = createTrack('video', { id: 'video-1' as never, name: 'Screen', index: 0 });
+    const clip = createClip(recording.id, track.id, {
+      id: 'clip-trimmed' as never,
+      timelineIn: 0,
+      timelineOut: 180,
+      sourceIn: 30,
+      sourceOut: 210,
+    });
+    const project = createProject({
+      assets: [recording],
+      composition: { duration: 180, tracks: [{ ...track, clips: [clip] }], transitions: [] },
+    });
+    const { tracks: _tracks, timeline: _timeline, ...withoutCanonicalTimeline } = project as ProjectDocument & Record<string, unknown>;
+
+    const result = migrate(withoutCanonicalTimeline);
+
+    expect(result.timeline.tracks[0]?.clips[0]).toMatchObject({
+      id: 'clip-trimmed',
+      mediaId: `source:${recording.id}:screen`,
+      trackId: 'video-1',
+      linkGroupId: `linked:${recording.id}`,
+      timelineIn: 0,
+      timelineOut: 180,
+      sourceIn: 30,
+      sourceOut: 210,
+    });
+    expect(result.timeline.markers).toContainEqual({
+      id: 'cut-1',
+      kind: 'cut',
+      startFrame: 90,
+      endFrame: 120,
+      linkedGroupId: `linked:${recording.id}`,
+      params: { range: { id: 'cut-1', startFrame: 90, endFrame: 120 } },
+    });
+  });
+
   it('preserves AI fields when they are already populated through migration', () => {
     const project = createProject();
     const legacy: Record<string, unknown> = {

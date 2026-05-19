@@ -1,5 +1,6 @@
 import type { NleClipSource, NleTrack, NleTrackClip, NleTrackKind } from './track.js';
-import type { Asset, AssetId, ExportSettings, Frame, RecordingPresentation } from './types.js';
+import { createNleTracksFromComposition } from './track.js';
+import type { Asset, AssetId, ExportSettings, Frame, ProjectDocument, RecordingPresentation } from './types.js';
 
 export type TimelineSourceKind =
   | 'screen'
@@ -116,6 +117,37 @@ export function createSharedTimeline(input: SharedTimelineInput): SharedTimeline
     markers: input.assets.flatMap((asset) => timelineMarkersForAsset(asset)),
     effects: input.assets.flatMap((asset) => timelineEffectsForAsset(asset)),
     exportSettings: input.exportSettings,
+  };
+}
+
+export function canonicalizeProjectDocument(document: ProjectDocument): ProjectDocument {
+  const baseTimeline = createSharedTimeline({
+    assets: document.assets ?? [],
+    tracks: [],
+    exportSettings: document.exportSettings,
+  });
+  const rawTimeline: Record<string, unknown> = isRecord(document.timeline) ? document.timeline : {};
+  const sources = mergeById(baseTimeline.sources, arrayFrom(rawTimeline['sources']) as MediaReference[]);
+  const linkedGroups = mergeById(
+    baseTimeline.linkedGroups,
+    arrayFrom(rawTimeline['linkedGroups']) as TimelineLinkedGroup[],
+  );
+  const rawTimelineTracks = arrayFrom(rawTimeline['tracks']);
+  const importTracks = rawTimelineTracks.length > 0
+    ? canonicalTimelineTracksFromUnknown(rawTimelineTracks, sources, linkedGroups)
+    : canonicalTimelineTracks(importNleTracksForDocument(document), sources, linkedGroups);
+  const timeline: Timeline = {
+    sources,
+    linkedGroups,
+    tracks: importTracks,
+    markers: mergeById(baseTimeline.markers, arrayFrom(rawTimeline['markers']) as TimelineMarker[]),
+    effects: mergeById(baseTimeline.effects, arrayFrom(rawTimeline['effects']) as TimelineEffect[]),
+    exportSettings: document.exportSettings,
+  };
+
+  return {
+    ...document,
+    timeline: assertTimelineInvariants(timeline),
   };
 }
 
@@ -252,6 +284,63 @@ function canonicalTimelineTracks(
   }));
 }
 
+function canonicalTimelineTracksFromUnknown(
+  tracks: readonly unknown[],
+  sources: readonly MediaReference[],
+  linkedGroups: readonly TimelineLinkedGroup[],
+): TimelineTrack[] {
+  return tracks.flatMap((track) => {
+    if (!isRecord(track)) return [];
+    const id = stringValue(track['id']);
+    const kind = nleTrackKindValue(track['kind']) ?? nleTrackKindValue(track['type']);
+    if (!id || !kind) return [];
+    const label = stringValue(track['label']) ?? stringValue(track['name']) ?? id;
+    const clips = arrayFrom(track['clips'])
+      .flatMap((clip) => canonicalTimelineClipFromUnknown(clip, id, kind, sources, linkedGroups))
+      .sort((a, b) => a.timelineIn - b.timelineIn || a.timelineOut - b.timelineOut || a.id.localeCompare(b.id));
+    return [{
+      id,
+      kind,
+      index: nonNegativeIntValue(track['index']) ?? 0,
+      label,
+      enabled: booleanValue(track['enabled']) ?? booleanValue(track['visible']) ?? true,
+      locked: booleanValue(track['locked']) ?? false,
+      muted: booleanValue(track['muted']) ?? false,
+      clips,
+    }];
+  });
+}
+
+function canonicalTimelineClipFromUnknown(
+  clip: unknown,
+  trackId: string,
+  trackKind: NleTrackKind,
+  sources: readonly MediaReference[],
+  linkedGroups: readonly TimelineLinkedGroup[],
+): TimelineClip[] {
+  if (!isRecord(clip)) return [];
+  const id = stringValue(clip['id']);
+  if (!id) return [];
+  const source = nleClipSourceFromUnknown(clip['source']);
+  const mediaId = stringValue(clip['mediaId']) ?? mediaIdForSourceId(source?.id ?? stringValue(clip['assetId']) ?? id, trackKind, sources);
+  const linkGroupId = stringValue(clip['linkGroupId']) ?? linkedGroups.find((group) => group.sourceIds.includes(mediaId))?.id;
+  const timelineIn = nonNegativeIntValue(clip['timelineIn']) ?? 0;
+  const timelineOut = nonNegativeIntValue(clip['timelineOut']) ?? timelineIn;
+  const sourceIn = nonNegativeIntValue(clip['sourceIn']) ?? 0;
+  const sourceOut = nonNegativeIntValue(clip['sourceOut']) ?? sourceIn + Math.max(0, timelineOut - timelineIn);
+  return [{
+    id,
+    mediaId,
+    trackId: stringValue(clip['trackId']) ?? trackId,
+    ...(linkGroupId ? { linkGroupId } : {}),
+    timelineIn,
+    timelineOut,
+    sourceIn,
+    sourceOut,
+    ...(source ? { source } : {}),
+  }];
+}
+
 function canonicalTimelineClip(
   clip: NleTrackClip,
   track: NleTrack,
@@ -278,11 +367,66 @@ function mediaIdForClip(
   track: NleTrack,
   sources: readonly MediaReference[],
 ): string {
-  const sourceId = clip.source.id;
-  const candidates = track.kind === 'audio'
+  return mediaIdForSourceId(clip.source.id, track.kind, sources);
+}
+
+function mediaIdForSourceId(
+  sourceId: string,
+  trackKind: NleTrackKind,
+  sources: readonly MediaReference[],
+): string {
+  const candidates = trackKind === 'audio'
     ? [`source:${sourceId}:system-audio`, `source:${sourceId}:mic-audio`, `source:${sourceId}`]
     : [`source:${sourceId}:screen`, `source:${sourceId}:camera`, `source:${sourceId}`];
   return candidates.find((candidate) => sources.some((source) => source.id === candidate)) ?? `source:${sourceId}`;
+}
+
+function importNleTracksForDocument(document: ProjectDocument): NleTrack[] {
+  if (Array.isArray(document.tracks)) return [...document.tracks];
+  return createNleTracksFromComposition(document.composition ?? { tracks: [] });
+}
+
+function mergeById<T extends { readonly id: string }>(base: readonly T[], override: readonly T[]): T[] {
+  const merged = new Map<string, T>();
+  for (const item of base) merged.set(item.id, item);
+  for (const item of override) {
+    if (isRecord(item) && typeof item.id === 'string') merged.set(item.id, item);
+  }
+  return Array.from(merged.values());
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function arrayFrom(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function nonNegativeIntValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+function nleTrackKindValue(value: unknown): NleTrackKind | undefined {
+  return value === 'video' || value === 'audio' || value === 'captions' || value === 'motion-graphics'
+    ? value
+    : undefined;
+}
+
+function nleClipSourceFromUnknown(value: unknown): NleClipSource | undefined {
+  if (!isRecord(value)) return undefined;
+  const kind = value['kind'];
+  const id = stringValue(value['id']);
+  if (!id || (kind !== 'project-asset' && kind !== 'ai-asset')) return undefined;
+  return { kind, id };
 }
 
 function timelineSourcesForAsset(asset: Asset): TimelineSource[] {

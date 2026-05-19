@@ -1,6 +1,6 @@
 import { CURRENT_SCHEMA_VERSION } from './constants.js';
 import { validateProject } from './schemas.js';
-import { createSharedTimeline } from './shared-timeline.js';
+import { canonicalizeProjectDocument, createSharedTimeline } from './shared-timeline.js';
 import { createNleTracksFromComposition } from './track.js';
 import type { ProjectDocument } from './types.js';
 
@@ -385,7 +385,7 @@ export function migrate(doc: unknown): ProjectDocument {
   }
 
   if (version === CURRENT_SCHEMA_VERSION) {
-    return validateProject(doc);
+    return validateProject(canonicalizeProjectDocument(doc as ProjectDocument));
   }
 
   const chain = getMigrationChain(version);
@@ -395,5 +395,5 @@ export function migrate(doc: unknown): ProjectDocument {
     current = migration.migrate(current);
   }
 
-  return validateProject(current);
+  return validateProject(canonicalizeProjectDocument(current as unknown as ProjectDocument));
 }

@@ -197,7 +197,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-212 | Shared export composition/EDL from one timeline | P1 | BLOCKED → TASK-222 |
 | TASK-213 | Cross-tool sync and migration smoke coverage | P1 | BLOCKED → TASK-221 |
 | ~~TASK-214~~ | ✅ NLE rebuild lane 1: canonical model contract | P0 | ✅ DONE (2026-05-19) |
-| TASK-215 | NLE rebuild lane 2: migration and canonicalization | P0 | PLANNED |
+| ~~TASK-215~~ | ✅ NLE rebuild lane 2: migration and canonicalization | P0 | ✅ DONE (2026-05-19) |
 | TASK-216 | NLE rebuild lane 3: timeline playback resolver | P0 | PLANNED |
 | TASK-217 | NLE rebuild lane 4: mutation command service | P0 | PLANNED |
 | TASK-218 | NLE rebuild lane 5: shared playback preview | P0 | PLANNED |
@@ -539,7 +539,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-215, "NLE rebuild lane 2: migration and canonicalization". Do not continue TASK-188 drag, TASK-212 export, or TASK-213 smoke coverage until TASK-214 through TASK-221 are complete.
+Next task when continuing: start TASK-216, "NLE rebuild lane 3: timeline playback resolver". Do not continue TASK-188 drag, TASK-212 export, or TASK-213 smoke coverage until TASK-214 through TASK-221 are complete.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–223, with TASK-214–223 as the active rebuild gate). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -3039,7 +3039,7 @@ Timeline scrub at `main.tsx:2703` lacks `aria-live` for frame position. Zoom mar
 ### ~~TASK-084~~ Support relative-to-.roughcut asset paths in projects
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-19)
 
 #### Context
 
@@ -5845,6 +5845,15 @@ Every project must become canonical before any view renders. Legacy fields may e
 #### Verification
 
 - Fixture tests cover current real roughcut files, legacy trim/cut projects, camera projects, and idempotent re-canonicalization.
+
+#### Completion Notes
+
+- Added pure `canonicalizeProjectDocument(document)` in `packages/project-model/src/shared-timeline.ts`.
+- `migrate()` now canonicalizes before validation, including current-version documents saved with the pre-contract timeline clip shape.
+- Canonicalization prefers existing `document.timeline.tracks` when present, converts old NLE clip `source` objects into canonical `mediaId`/`trackId`/`linkGroupId` fields, and falls back to import-only top-level `document.tracks` or `composition.tracks` when the canonical timeline is missing.
+- Recording media sources, linked groups, zoom/cut/camera markers, and cursor/click/camera effects are backfilled from recording assets during canonicalization.
+- Regression tests cover current-version old-shape timeline repair, stale top-level track avoidance, missing canonical timeline fallback from composition trims, cut marker backfill, and idempotent re-canonicalization.
+- Verified with `pnpm --filter @rough-cut/project-model test`, `pnpm --filter @rough-cut/project-model typecheck`, `pnpm --filter @rough-cut/project-model build`, and `pnpm typecheck`.
 
 ### TASK-216 NLE rebuild lane 3: timeline playback resolver
 
