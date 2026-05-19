@@ -19,11 +19,21 @@ export function buildTimelineTracks(project) {
 
   const timelineTracks = Array.isArray(document?.timeline?.tracks) ? document.timeline.tracks : null;
   const nleTracks = Array.isArray(document?.tracks) ? document.tracks : null;
-  const tracks = timelineTracks ?? nleTracks ?? buildLegacyTracks(composition);
+  const tracks = selectRenderableTracks(timelineTracks, nleTracks, buildLegacyTracks(composition));
   return tracks
     .filter((track) => track && SUPPORTED_KINDS.includes(track.kind))
     .sort((a, b) => Number(b.index ?? 0) - Number(a.index ?? 0))
     .map((track, fallbackIndex) => buildTimelineTrack(track, totalFrames, fallbackIndex));
+}
+
+function selectRenderableTracks(timelineTracks, nleTracks, legacyTracks) {
+  if (hasRenderableClips(timelineTracks) || (!hasRenderableClips(nleTracks) && !hasRenderableClips(legacyTracks) && timelineTracks)) return timelineTracks;
+  if (hasRenderableClips(nleTracks) || (!hasRenderableClips(legacyTracks) && nleTracks)) return nleTracks;
+  return legacyTracks;
+}
+
+function hasRenderableClips(tracks) {
+  return Array.isArray(tracks) && tracks.some((track) => Array.isArray(track?.clips) && track.clips.length > 0);
 }
 
 function buildLegacyTracks(composition) {

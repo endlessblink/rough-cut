@@ -40,9 +40,11 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
     : document?.composition?.duration ?? 0;
   const recordingAsset = getPrimaryAsset(document);
   const primaryClip = getPrimaryClip(document, recordingAsset);
+  const clipTimelineIn = primaryClip ? clampFrame(primaryClip.timelineIn, 0, frameDuration) : 0;
+  const clipTimelineOut = primaryClip ? clampFrame(primaryClip.timelineOut, clipTimelineIn + 1, frameDuration) : frameDuration;
   const trimStartFrame = primaryClip ? clampFrame(primaryClip.sourceIn, 0, frameDuration) : 0;
   const trimEndFrame = primaryClip ? clampFrame(primaryClip.sourceOut, trimStartFrame + 1, frameDuration) : frameDuration;
-  const trimmedFrameDuration = Math.max(1, trimEndFrame - trimStartFrame);
+  const trimmedFrameDuration = Math.max(1, clipTimelineOut - clipTimelineIn);
   const durationSec = Math.max(0.1, frameDuration / fps);
   const visibleDurationSec = Math.max(0.1, trimmedFrameDuration / fps);
   const cursorEvents = getCursorEvents(recordingAsset);
@@ -57,7 +59,7 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
       endFrame: marker.endFrame,
       strength: marker.strength,
       label: marker.kind === 'auto' ? 'Auto zoom' : 'Manual zoom',
-      ...frameRangeToPlacement(marker.startFrame - trimStartFrame, marker.endFrame - trimStartFrame, fps, durationSec),
+      ...frameRangeToPlacement(marker.startFrame, marker.endFrame, fps, durationSec),
     })));
 
   return {
@@ -67,14 +69,16 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
     playheadPercent: timeToPercent(currentTimeSec, durationSec),
     trimStartFrame,
     trimEndFrame,
+    clipTimelineIn,
+    clipTimelineOut,
     ticks: Array.from({ length: DEFAULT_TICK_COUNT }, (_, index) => (durationSec / (DEFAULT_TICK_COUNT - 1)) * index),
     zoomLayerCount: Math.max(1, ...zoomRegions.map((region) => region.layer + 1)),
     lanes: {
-      screen: [{ id: 'screen', left: 0, width: (visibleDurationSec / durationSec) * 100 }],
+      screen: [{ id: 'screen', left: frameToPercent(clipTimelineIn, fps, durationSec), width: frameToPercent(trimmedFrameDuration, fps, durationSec) }],
       zoom: zoomRegions,
       clicks: clickEvents.map((event, index) => ({
         id: `${event.frame}-${index}`,
-        left: frameToPercent(event.frame - trimStartFrame, fps, durationSec),
+        left: frameToPercent(event.frame, fps, durationSec),
       })),
       camera: recording?.camera || cameraMediaUrl ? [{ id: 'camera', left: 0, width: 100 }] : [],
       audio: recording?.audio ? [{ id: 'audio', left: 0, width: 100 }] : [],
@@ -108,8 +112,21 @@ function getPrimaryAsset(document) {
 
 function getPrimaryClip(document, asset) {
   if (!asset?.id) return null;
+  const timelineClip = findNleClipByAssetId(document?.timeline?.tracks, asset.id);
+  if (timelineClip) return timelineClip;
+  const nleClip = findNleClipByAssetId(document?.tracks, asset.id);
+  if (nleClip) return nleClip;
   for (const track of document?.composition?.tracks ?? []) {
     const clip = track.clips?.find((item) => item.assetId === asset.id);
+    if (clip) return clip;
+  }
+  return null;
+}
+
+function findNleClipByAssetId(tracks, assetId) {
+  if (!Array.isArray(tracks)) return null;
+  for (const track of tracks) {
+    const clip = track?.clips?.find((item) => item?.source?.kind === 'project-asset' && item.source.id === assetId);
     if (clip) return clip;
   }
   return null;

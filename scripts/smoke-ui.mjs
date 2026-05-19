@@ -100,7 +100,7 @@ if (!report.ok) {
   throw new Error(`Electron UI smoke failed: ${JSON.stringify(report)}. Artifacts: ${root}`);
 }
 if (process.env.ROUGH_CUT_UI_SMOKE_NLE_ONLY === '1') {
-  if (!report.hasNleWorkspace || !report.hasNleRuler || !report.hasNleTrimHandles || !report.hasNleTrimDragMutation || !report.hasNleSplitButtonMutation) {
+  if (!report.hasNleWorkspace || !report.hasNleRuler || !report.hasNleTrimHandles || !report.hasNleTrimDragMutation || !report.hasNleClipMoveMutation || !report.hasNleSplitButtonMutation) {
     throw new Error(`Electron NLE UI smoke assertions failed: ${JSON.stringify(report)}. Artifacts: ${root}`);
   }
   console.info(JSON.stringify({ ...report, root, projectPath: project.path }, null, 2));

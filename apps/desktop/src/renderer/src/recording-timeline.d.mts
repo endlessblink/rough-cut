@@ -18,6 +18,15 @@ export function updateRecordingTimelineTrim(
   },
 ): MutableProjectDocument;
 
+export function moveRecordingTimelineClip(
+  document: MutableProjectDocument,
+  options: {
+    readonly assetId: string;
+    readonly cameraAssetId?: string | null;
+    readonly startFrame: number;
+  },
+): MutableProjectDocument;
+
 export function syncRecordingTimelinePresentation(
   document: MutableProjectDocument,
   assetId?: string | null,

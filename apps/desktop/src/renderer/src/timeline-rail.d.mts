@@ -31,6 +31,8 @@ export type TimelineModel = {
   playheadPercent: number;
   trimStartFrame: number;
   trimEndFrame: number;
+  clipTimelineIn: number;
+  clipTimelineOut: number;
   zoomLayerCount: number;
   ticks: readonly number[];
   lanes: {

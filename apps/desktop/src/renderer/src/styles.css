@@ -1758,10 +1758,6 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   position: absolute;
   right: 0;
   top: 0;
-  /* Sit above .zoomLane (z-index 20, raised so the selected-pill chip can
-   * escape upward) so the playhead line keeps crossing the zoom lane
-   * instead of dipping under it. */
-  z-index: 30;
 }
 
 .timelineScrubber {
@@ -1773,6 +1769,11 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   position: absolute;
   top: 0;
   width: 100%;
+  z-index: 3;
+}
+
+.timelineTrackOverlay.cutModeActive .timelineScrubber {
+  pointer-events: none;
 }
 
 .timelineLane {
@@ -1826,6 +1827,11 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   position: absolute;
   top: 0.25rem;
   z-index: 8;
+}
+
+.clipBar.moving,
+.nleClipBlock.moving {
+  cursor: grabbing;
 }
 
 .hiddenTrimRange {
@@ -1885,7 +1891,6 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .hiddenTrimStart {
   left: 0.16rem;
   max-width: 8rem;
-  transform: translateX(0.8rem);
 }
 
 .hiddenTrimEnd {
@@ -1959,7 +1964,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   top: -0.2rem;
   transform: translateX(-50%);
   width: 2px;
-  z-index: 1;
+  z-index: 30;
 }
 
 /* Zoom-lane pill — flat, token-driven, depth-fill encodes strength.

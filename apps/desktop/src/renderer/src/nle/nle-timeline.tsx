@@ -1,6 +1,6 @@
 import React from 'react';
 import { buildTimelineTracks } from './timeline-clips.mjs';
-import { removeClipById, trimClipById } from './clip-mutations.mjs';
+import { moveClipById, removeClipById, trimClipById } from './clip-mutations.mjs';
 import { TimelineRuler } from './timeline-ruler';
 import { isTypingTarget } from './keyboard.mjs';
 import { snapFrameToClipEdges } from './snap.mjs';
@@ -34,6 +34,7 @@ export function NleTimeline({
   // bodies land on frame 0 without an off-by-header-width error.
   const bodiesRef = React.useRef<HTMLDivElement | null>(null);
   const [trimSession, setTrimSession] = React.useState<TrimSession | null>(null);
+  const [movePreview, setMovePreview] = React.useState<{ clipId: string; timelineIn: number; timelineOut: number } | null>(null);
 
   function frameFromClientX(clientX: number, snap: boolean): number {
     const el = bodiesRef.current;
@@ -90,6 +91,39 @@ export function NleTimeline({
       setTrimSession(null);
       const commitFrame = latestSession?.snapFrame ?? latestFrame;
       const next = trimClipById(project, blockId, edge, commitFrame);
+      if (next !== project) {
+        onProjectChange(next as unknown as NleProject);
+      }
+    };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+  }
+
+  function startMove(e: React.PointerEvent<HTMLDivElement>, block: { id: string | null; timelineIn: number; timelineOut: number }) {
+    if (e.button !== 0 || !project || !block.id || !onProjectChange) return;
+    if ((e.target as HTMLElement | null)?.closest('.nleClipTrimHandle')) return;
+    const blockId = block.id;
+    e.preventDefault();
+    e.stopPropagation();
+    onSelectedClipChange(block.id);
+    const startFrame = frameFromClientX(e.clientX, false);
+    const originalIn = Math.round(block.timelineIn);
+    const duration = Math.max(1, Math.round(block.timelineOut - block.timelineIn));
+    let latestIn = originalIn;
+    let moved = false;
+    const handleMove = (ev: PointerEvent) => {
+      const delta = frameFromClientX(ev.clientX, false) - startFrame;
+      latestIn = Math.max(0, Math.min(Math.max(0, durationFrames - duration), originalIn + delta));
+      moved = moved || latestIn !== originalIn;
+      setMovePreview({ clipId: blockId, timelineIn: latestIn, timelineOut: latestIn + duration });
+      onPlayheadFrameChange(latestIn);
+    };
+    const handleUp = () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      setMovePreview(null);
+      if (!moved) return;
+      const next = moveClipById(project, blockId, latestIn);
       if (next !== project) {
         onProjectChange(next as unknown as NleProject);
       }
@@ -166,18 +200,20 @@ export function NleTimeline({
                 track.blocks.map((block, index) => {
                   const selected = block.id !== null && block.id === selectedClipId;
                   const trimPreview = block.id !== null && block.id === trimSession?.clipId ? trimSession.preview : null;
-                  const leftPct = trimPreview && durationFrames > 0 ? Math.max(0, Math.min(100, (trimPreview.timelineIn / durationFrames) * 100)) : block.leftPct;
-                  const widthPct = trimPreview && durationFrames > 0 ? Math.max(0, Math.min(100 - leftPct, ((trimPreview.timelineOut - trimPreview.timelineIn) / durationFrames) * 100)) : block.widthPct;
+                  const dragPreview = block.id !== null && block.id === movePreview?.clipId ? movePreview : null;
+                  const preview = trimPreview ?? dragPreview;
+                  const leftPct = preview && durationFrames > 0 ? Math.max(0, Math.min(100, (preview.timelineIn / durationFrames) * 100)) : block.leftPct;
+                  const widthPct = preview && durationFrames > 0 ? Math.max(0, Math.min(100 - leftPct, ((preview.timelineOut - preview.timelineIn) / durationFrames) * 100)) : block.widthPct;
                   return (
                     <div
                       key={block.id ?? `${track.id}-${index}`}
-                      className={`nleClipBlock ${block.enabled && track.enabled ? '' : 'disabled'} ${selected ? 'selected' : ''} ${trimPreview ? 'trimming' : ''}`}
+                      className={`nleClipBlock ${block.enabled && track.enabled ? '' : 'disabled'} ${selected ? 'selected' : ''} ${trimPreview ? 'trimming' : ''} ${dragPreview ? 'moving' : ''}`}
                       data-clip-id={block.id ?? ''}
                       data-asset-id={block.assetId ?? ''}
                       data-trim-edge={trimPreview ? trimSession?.edge : undefined}
                       style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
                       title={block.name ?? undefined}
-                      onPointerDown={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => startMove(e, block)}
                       onClick={(e) => handleClipClick(e, block.id)}
                     >
                       {selected ? (
