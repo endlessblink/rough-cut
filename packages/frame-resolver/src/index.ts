@@ -1,4 +1,4 @@
-export { resolveFrame } from './resolve-frame.js';
+export { resolveFrame, resolveTimelinePreviewFrame } from './resolve-frame.js';
 export { resolveTimelineFrame } from './timeline-frame.js';
 export type { ResolveFrameOptions } from './resolve-frame.js';
 export {

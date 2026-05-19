@@ -200,7 +200,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-215~~ | ✅ NLE rebuild lane 2: migration and canonicalization | P0 | ✅ DONE (2026-05-19) |
 | ~~TASK-216~~ | ✅ NLE rebuild lane 3: timeline playback resolver | P0 | ✅ DONE (2026-05-19) |
 | ~~TASK-217~~ | ✅ NLE rebuild lane 4: mutation command service | P0 | ✅ DONE (2026-05-19) |
-| TASK-218 | NLE rebuild lane 5: shared playback preview | P0 | PLANNED |
+| ~~TASK-218~~ | ✅ NLE rebuild lane 5: shared playback preview | P0 | ✅ DONE (2026-05-20) |
 | TASK-219 | NLE rebuild lane 6: Recording Edit adapter | P0 | PLANNED |
 | TASK-220 | NLE rebuild lane 7: NLE adapter | P0 | PLANNED |
 | TASK-221 | NLE rebuild lane 8: cross-view visual tests | P0 | PLANNED |
@@ -3150,7 +3150,7 @@ The recording-recovery marker existed at `recording-session.mjs:45-69` but no UI
 ### TASK-089 Bundle ffmpeg-static and ffprobe-static binaries
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE (2026-05-20)
 
 #### Context
 
@@ -5952,6 +5952,13 @@ Recording Edit preview and NLE monitor must use the exact same resolver and prev
 
 - Synthetic burned-in-frame media tests prove preview at clip start renders `sourceIn`, not source 0.
 - Tests cover gap preview, active clip preview, camera offset, and cursor hidden during gaps.
+
+#### Completion Notes
+
+- Added `resolveTimelinePreviewFrame(project, timelineFrame)` so preview render instructions are produced from canonical timeline time via `resolveTimelineFrame`.
+- Gap frames now return empty layers with hidden cursor/click presentation; active frames resolve screen/camera layers to source frames.
+- NLE program monitor passes timeline time into the shared styled preview path, while source-mode Recording Edit behavior remains isolated until TASK-219.
+- Verified with `pnpm --filter @rough-cut/frame-resolver test`, focused renderer static tests, `pnpm typecheck`, and `pnpm smoke:ui`; inspected smoke screenshots at `/tmp/rough-cut-ui-smoke-dUEcpv/ui-smoke.png` and `/tmp/rough-cut-ui-smoke-dUEcpv/ui-smoke-timeline.png`.
 
 ### TASK-219 NLE rebuild lane 6: Recording Edit adapter
 

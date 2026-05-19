@@ -16,8 +16,18 @@ test('styled video preview reads cursor events through the recording asset acces
 test('styled video preview draws cursor from source media time without changing video resolver asset', () => {
   const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
 
-  assert.match(source, /cursorAtTimeMs\(cursorEvents, video\.currentTime \* 1000, fps\)/);
+  assert.match(source, /cursorAtTimeMs\(cursorEvents, \(cursorFrame \/ fps\) \* 1000, fps\)/);
   assert.doesNotMatch(source, /preferredPlaybackAssetId: recordingAssetId/);
+});
+
+test('styled video preview can resolve timeline-time playback through the shared resolver', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+
+  assert.match(source, /timeMode\?: PreviewTimeMode/);
+  assert.match(source, /resolveTimelinePreviewFrame\(document, currentFrame/);
+  assert.match(source, /resolveTimelineFrame\(project\.document as unknown as ProjectDocument, timelineFrame\)/);
+  assert.match(source, /if \(timeMode === 'timeline' && !screenLayer\)/);
+  assert.match(source, /if \(timeMode === 'timeline'\) return;/);
 });
 
 test('styled video preview surfaces offscreen cursor state without clamping cursor draw', () => {

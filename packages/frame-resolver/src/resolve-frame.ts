@@ -2,6 +2,8 @@ import type {
   ProjectDocument,
   Clip,
   Track,
+  TimelineClip,
+  TimelineTrack,
   Transition,
   ZoomPresentation,
   CursorPresentation,
@@ -11,6 +13,7 @@ import type {
   RecordingVisibilitySegment,
 } from '@rough-cut/project-model';
 import { normalizeRegionCrop } from '@rough-cut/project-model';
+import { resolveTimelineFrame } from './timeline-frame.js';
 import { selectActiveClipsAtFrame, getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
 import { evaluateKeyframeTracks, getDefaultParams } from '@rough-cut/effect-registry';
 import type {
@@ -336,6 +339,103 @@ export function resolveFrame(
   };
 }
 
+export function resolveTimelinePreviewFrame(
+  project: ProjectDocument,
+  timelineFrame: number,
+  options?: ResolveFrameOptions,
+): RenderFrame {
+  const { settings } = project;
+  const timeline = resolveTimelineFrame(project, timelineFrame);
+  const assetMap = new Map(project.assets.map((asset) => [asset.id, asset]));
+
+  if (timeline.isGap) {
+    return {
+      frame: timeline.frame,
+      width: settings.resolution.width,
+      height: settings.resolution.height,
+      backgroundColor: settings.backgroundColor,
+      layers: [],
+      transitions: [],
+      cameraTransform: DEFAULT_CAMERA_TRANSFORM,
+      cursor: { ...DEFAULT_CURSOR_PRESENTATION, visible: false, clickEffect: 'none', clickSoundEnabled: false, clicksVisible: false, overlaysVisible: false },
+    };
+  }
+
+  const layers = timeline.videoLayers.map((entry) => resolveTimelineClipLayer(entry, assetMap));
+  const activeRecordingLayer = timeline.videoLayers.find((entry) => {
+    const asset = entry.media.assetId ? assetMap.get(entry.media.assetId) : undefined;
+    return entry.media.kind === 'screen' || asset?.type === 'recording';
+  });
+  const activeRecording = activeRecordingLayer?.media.assetId
+    ? assetMap.get(activeRecordingLayer.media.assetId)
+    : undefined;
+  const presentation = activeRecording?.presentation;
+  const activeRecordingSourceFrame = activeRecordingLayer?.sourceFrame ?? timeline.frame;
+  const recordingVisibility = resolveRecordingVisibility(
+    presentation?.visibilitySegments,
+    activeRecordingSourceFrame,
+  );
+  const activeCameraLayout = getActiveCameraLayoutMarker(
+    presentation?.cameraLayouts,
+    activeRecordingSourceFrame,
+  );
+  const screenSourceSize = getAssetSourceSize(activeRecording);
+  const cameraAsset = activeRecording?.cameraAssetId
+    ? project.assets.find((asset) => asset.id === activeRecording.cameraAssetId)
+    : undefined;
+  const cameraSourceSize = getAssetSourceSize(cameraAsset);
+  const cameraTransform = resolveCameraTransformForFrame(
+    presentation?.zoom,
+    activeRecordingSourceFrame,
+    screenSourceSize.width,
+    screenSourceSize.height,
+    settings.frameRate,
+    {
+      assetId: activeRecording?.id,
+      getCursorPosition: options?.getCursorPosition,
+    },
+  );
+  const cursor = resolveCursorPresentation(presentation?.cursor, recordingVisibility);
+  const screenCrop = presentation?.screenCrop?.enabled
+    ? normalizeRegionCrop(
+        presentation.screenCrop,
+        screenSourceSize.width,
+        screenSourceSize.height,
+        settings.resolution.width,
+        settings.resolution.height,
+      )
+    : undefined;
+  const cameraCrop = presentation?.cameraCrop?.enabled
+    ? normalizeRegionCrop(
+        presentation.cameraCrop,
+        cameraSourceSize.width,
+        cameraSourceSize.height,
+      )
+    : undefined;
+  const baseCameraPresentation =
+    activeCameraLayout?.camera ?? presentation?.camera ?? findCameraPresentation(project);
+  const cameraPresentation = baseCameraPresentation
+    ? { ...baseCameraPresentation, visible: recordingVisibility.cameraVisible && baseCameraPresentation.visible }
+    : undefined;
+
+  return {
+    frame: timeline.frame,
+    width: settings.resolution.width,
+    height: settings.resolution.height,
+    backgroundColor: presentation?.background?.bgColor ?? settings.backgroundColor,
+    background: presentation?.background,
+    layers,
+    transitions: [],
+    cameraTransform,
+    cursor,
+    screenCrop,
+    cameraCrop,
+    cameraPresentation,
+    screenFrame: presentation?.screenFrame,
+    cameraFrame: activeCameraLayout?.cameraFrame ?? presentation?.cameraFrame,
+  };
+}
+
 function findTrackForClip(clip: Clip, tracks: readonly Track[]): Track | undefined {
   return tracks.find((t) => t.id === clip.trackId);
 }
@@ -371,6 +471,33 @@ function resolveClipLayer(
     transform,
     effects,
     isCamera: Boolean(asset?.metadata?.isCamera),
+  };
+}
+
+function resolveTimelineClipLayer(
+  entry: { readonly track: TimelineTrack; readonly clip: TimelineClip; readonly sourceFrame: number; readonly media: { readonly assetId?: string; readonly kind: string } },
+  assetMap: ReadonlyMap<string, ProjectDocument['assets'][number]>,
+): RenderLayer {
+  const assetId = entry.media.assetId ?? entry.clip.mediaId;
+  const asset = assetMap.get(assetId);
+  return {
+    clipId: entry.clip.id as RenderLayer['clipId'],
+    trackId: entry.clip.trackId as RenderLayer['trackId'],
+    trackIndex: entry.track.index,
+    assetId: assetId as RenderLayer['assetId'],
+    sourceFrame: entry.sourceFrame,
+    transform: {
+      x: 0,
+      y: 0,
+      scaleX: 1,
+      scaleY: 1,
+      rotation: 0,
+      anchorX: 0.5,
+      anchorY: 0.5,
+      opacity: 1,
+    },
+    effects: [],
+    isCamera: entry.media.kind === 'camera' || Boolean(asset?.metadata?.isCamera),
   };
 }
 

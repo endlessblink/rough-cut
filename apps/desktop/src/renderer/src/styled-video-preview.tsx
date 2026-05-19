@@ -9,7 +9,7 @@ import {
   type ProjectDocument,
   type RecordingBackgroundStyle,
 } from '@rough-cut/project-model';
-import { resolveFrame } from '@rough-cut/frame-resolver';
+import { resolveFrame, resolveTimelineFrame, resolveTimelinePreviewFrame } from '@rough-cut/frame-resolver';
 import { visibleDurationFrames, visibleFrameToSourceFrame } from './cut-ranges.mjs';
 import { getCursorEvents } from './cursor-data.mjs';
 import { getPrimaryRecordingAsset } from './zoom-markers.mjs';
@@ -49,6 +49,7 @@ export type StyledPreviewProject = {
 };
 
 type CutRange = { id: string; startFrame: number; endFrame: number };
+type PreviewTimeMode = 'source' | 'timeline';
 type CursorOffscreenSide = 'left' | 'right' | 'top' | 'bottom';
 type CursorOffscreenStatus = null | { side: CursorOffscreenSide; distance: number };
 
@@ -60,6 +61,7 @@ export function StyledVideoPreview({
   cutRanges = [],
   isPlaying: controlledPlaying,
   showControls = true,
+  timeMode = 'source',
   onCurrentTimeChange,
   onPlayingChange,
   onCameraFrameChange,
@@ -73,6 +75,7 @@ export function StyledVideoPreview({
   cutRanges?: CutRange[];
   isPlaying?: boolean;
   showControls?: boolean;
+  timeMode?: PreviewTimeMode;
   onCurrentTimeChange?: (sec: number) => void;
   onPlayingChange?: (playing: boolean) => void;
   onCameraFrameChange?: (frame: NormalizedRect | null) => void;
@@ -95,6 +98,7 @@ export function StyledVideoPreview({
   const [isDraggingCamera, setIsDraggingCamera] = React.useState(false);
   const [isDraggingScreen, setIsDraggingScreen] = React.useState(false);
   const [currentTime, setCurrentTime] = React.useState(0);
+  const currentTimeRef = React.useRef(0);
   const [internalPlaying, setInternalPlaying] = React.useState(false);
   const [sourceMediaDuration, setSourceMediaDuration] = React.useState<number | null>(null);
   const [cameraMediaDuration, setCameraMediaDuration] = React.useState<number | null>(null);
@@ -122,9 +126,20 @@ export function StyledVideoPreview({
   const trimDurationFrames = Math.max(1, Math.round((effectiveTrimEndSec - trimStartSec) * fps));
   const visibleDuration = Math.max(0.1, visibleDurationFrames(cutRanges, trimDurationFrames) / fps);
 
+  function updateCurrentTime(nextTime: number) {
+    currentTimeRef.current = nextTime;
+    setCurrentTime(nextTime);
+  }
+
   function visibleTimeToSourceTime(visibleTimeSec: number) {
     const visibleFrame = Math.round(Math.max(0, visibleTimeSec) * fps);
     return trimStartSec + visibleFrameToSourceFrame(cutRanges, visibleFrame, trimDurationFrames) / fps;
+  }
+
+  function timelineTimeToSourceTime(timelineTimeSec: number) {
+    const timelineFrame = Math.max(0, Math.round(timelineTimeSec * fps));
+    const resolved = resolveTimelineFrame(project.document as unknown as ProjectDocument, timelineFrame);
+    return resolved.video ? resolved.video.sourceFrame / fps : null;
   }
 
   function syncCameraTime(sourceTimeSec: number) {
@@ -152,7 +167,7 @@ export function StyledVideoPreview({
   React.useEffect(() => {
     setSourceMediaDuration(null);
     setCameraMediaDuration(null);
-    setCurrentTime(0);
+    updateCurrentTime(0);
     setInternalPlaying(false);
     setCursorOffscreen(null);
     cursorOffscreenRef.current = null;
@@ -211,8 +226,19 @@ export function StyledVideoPreview({
       return;
     }
     const maxTime = video.duration || requestedTime;
-    const nextTime = Math.max(trimStartSec, Math.min(visibleTimeToSourceTime(requestedTime), Math.min(effectiveTrimEndSec, maxTime)));
+    const timelineSourceTime = timeMode === 'timeline' ? timelineTimeToSourceTime(requestedTime) : null;
+    const requestedSourceTime = timeMode === 'timeline'
+      ? timelineSourceTime
+      : visibleTimeToSourceTime(requestedTime);
     pendingSeekRef.current = null;
+    if (requestedSourceTime === null) {
+      updateCurrentTime(Math.max(0, requestedTime));
+      onCurrentTimeChange?.(Math.max(0, requestedTime));
+      seekingRef.current = false;
+      previewInteractionDirtyRef.current = true;
+      return;
+    }
+    const nextTime = Math.max(trimStartSec, Math.min(requestedSourceTime, Math.min(effectiveTrimEndSec, maxTime)));
     if (Math.abs(video.currentTime - nextTime) < 0.05) {
       seekingRef.current = false;
       return;
@@ -220,9 +246,9 @@ export function StyledVideoPreview({
     seekingRef.current = true;
     video.currentTime = nextTime;
     syncCameraTime(nextTime);
-    const nextVisibleTime = sourceTimeToVisibleTime(nextTime);
-    setCurrentTime(nextVisibleTime);
-    onCurrentTimeChange?.(nextVisibleTime);
+    const nextDisplayTime = timeMode === 'timeline' ? Math.max(0, requestedTime) : sourceTimeToVisibleTime(nextTime);
+    updateCurrentTime(nextDisplayTime);
+    onCurrentTimeChange?.(nextDisplayTime);
   }
 
   function handleSeekSettled() {
@@ -289,7 +315,8 @@ export function StyledVideoPreview({
         rafId = window.requestAnimationFrame(tick);
         return;
       }
-      const currentFrame = Math.max(0, Math.round(video.currentTime * fps));
+      const sourceFrame = Math.max(0, Math.round(video.currentTime * fps));
+      const currentFrame = timeMode === 'timeline' ? Math.max(0, Math.round(currentTimeRef.current * fps)) : sourceFrame;
       if (currentFrame === lastDrawnFrame && !previewInteractionDirtyRef.current) {
         rafId = window.requestAnimationFrame(tick);
         return;
@@ -302,7 +329,7 @@ export function StyledVideoPreview({
         video.pause();
         video.currentTime = effectiveTrimEndSec;
         const clampedVisibleTime = Math.max(0, effectiveTrimEndSec - trimStartSec);
-        setCurrentTime(clampedVisibleTime);
+        updateCurrentTime(clampedVisibleTime);
         onCurrentTimeChange?.(clampedVisibleTime);
       }
       const cutEnd = cutEndForSourceTime(video.currentTime);
@@ -313,18 +340,27 @@ export function StyledVideoPreview({
         rafId = window.requestAnimationFrame(tick);
         return;
       }
-      if (!video.paused) {
+      if (!video.paused && timeMode !== 'timeline') {
         const visibleTime = sourceTimeToVisibleTime(video.currentTime);
-        setCurrentTime(Math.min(visibleTime, visibleDuration));
+        updateCurrentTime(Math.min(visibleTime, visibleDuration));
         onCurrentTimeChange?.(Math.min(visibleTime, visibleDuration));
       }
       let frame;
       try {
-        frame = resolveFrame(document, currentFrame, {
-          getCursorPosition: getCursorPositionForFrame,
-        });
+        frame = timeMode === 'timeline'
+          ? resolveTimelinePreviewFrame(document, currentFrame, { getCursorPosition: getCursorPositionForFrame })
+          : resolveFrame(document, currentFrame, {
+              getCursorPosition: getCursorPositionForFrame,
+            });
       } catch {
         frame = { cameraTransform: { scale: 1, offsetX: 0, offsetY: 0 } };
+      }
+      const screenLayer = frame.layers?.find((layer: { isCamera?: boolean }) => !layer.isCamera) ?? null;
+      if (!video.paused && timeMode === 'timeline' && screenLayer) {
+        const nextTimelineFrame = currentFrame + (sourceFrame - screenLayer.sourceFrame);
+        const nextTimelineTime = Math.max(0, nextTimelineFrame / fps);
+        updateCurrentTime(nextTimelineTime);
+        onCurrentTimeChange?.(nextTimelineTime);
       }
       const { scale, offsetX, offsetY } = frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 };
       const dragScreenRect = screenDragRef.current;
@@ -344,6 +380,11 @@ export function StyledVideoPreview({
         ctx.drawImage(backgroundImage, 0, 0, canvasWidth, canvasHeight);
       } else {
         fillBackground();
+      }
+      if (timeMode === 'timeline' && !screenLayer) {
+        publishCursorOffscreenStatus(null);
+        rafId = window.requestAnimationFrame(tick);
+        return;
       }
       if (background.bgShadowEnabled && background.bgShadowOpacity > 0 && background.bgShadowBlur > 0) {
         ctx.save();
@@ -379,8 +420,9 @@ export function StyledVideoPreview({
       ctx.translate(-sourceWidth / 2, -sourceHeight / 2);
       ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
       const resolvedCursor = frame.cursor;
-      drawClickEmphasis(ctx, cursorEvents, currentFrame, resolvedCursor?.clickEffect ?? 'ring');
-      const cursorPos = cursorAtTimeMs(cursorEvents, video.currentTime * 1000, fps);
+      const cursorFrame = timeMode === 'timeline' ? screenLayer?.sourceFrame ?? currentFrame : currentFrame;
+      drawClickEmphasis(ctx, cursorEvents, cursorFrame, resolvedCursor?.clickEffect ?? 'ring');
+      const cursorPos = cursorAtTimeMs(cursorEvents, (cursorFrame / fps) * 1000, fps);
       const cursorBounds = getCursorBoundsStatus(cursorPos, sourceWidth, sourceHeight);
       const nextOffscreen = cursorBounds && !cursorBounds.inside
         ? { side: cursorBounds.side as 'left' | 'right' | 'top' | 'bottom', distance: cursorBounds.distance }
@@ -412,10 +454,10 @@ export function StyledVideoPreview({
         cameraSrc &&
         cameraVideo.readyState >= 2 &&
         frame.cameraPresentation?.visible !== false &&
-        cameraCoversSourceTime(video.currentTime, cameraSourceOffsetSec, cameraVideo.duration, fps),
+        cameraCoversSourceTime((screenLayer?.sourceFrame ?? sourceFrame) / fps, cameraSourceOffsetSec, cameraVideo.duration, fps),
       );
       if (cameraHasFrame && cameraVideo) {
-        const expectedCameraTime = clampedCameraTime(video.currentTime, cameraSourceOffsetSec, cameraVideo.duration, fps);
+        const expectedCameraTime = clampedCameraTime((screenLayer?.sourceFrame ?? sourceFrame) / fps, cameraSourceOffsetSec, cameraVideo.duration, fps);
         if (Math.abs(cameraVideo.currentTime - expectedCameraTime) > Math.max(0.12, 2 / fps)) {
           cameraVideo.currentTime = expectedCameraTime;
           lastDrawnFrame = -1;
@@ -473,7 +515,7 @@ export function StyledVideoPreview({
       cursorOffscreenRef.current = next;
       setCursorOffscreen(next);
     }
-  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background, cameraSrc, cameraSourceOffsetSec, trimStartSec, effectiveTrimEndSec, cutRanges, visibleDuration, onCurrentTimeChange]);
+  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background, cameraSrc, cameraSourceOffsetSec, trimStartSec, effectiveTrimEndSec, cutRanges, visibleDuration, timeMode, onCurrentTimeChange]);
 
   React.useEffect(() => {
     const cameraVideo = cameraVideoRef.current;
@@ -498,7 +540,7 @@ export function StyledVideoPreview({
           const startTime = visibleTimeToSourceTime(0);
           video.currentTime = startTime;
           syncCameraTime(startTime);
-          setCurrentTime(0);
+          updateCurrentTime(0);
           onCurrentTimeChange?.(0);
         } else if (cameraVideo) {
           syncCameraTime(video.currentTime);
@@ -586,7 +628,8 @@ export function StyledVideoPreview({
             return;
           }
           const visibleTime = sourceTimeToVisibleTime(next);
-          setCurrentTime(Math.min(visibleTime, visibleDuration));
+          if (timeMode === 'timeline') return;
+          updateCurrentTime(Math.min(visibleTime, visibleDuration));
           onCurrentTimeChange?.(Math.min(visibleTime, visibleDuration));
         }}
       />

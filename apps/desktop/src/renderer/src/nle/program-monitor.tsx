@@ -36,6 +36,7 @@ export function NleProgramMonitor({
         seekTimeSec={frameToSeconds(playheadFrame, fps)}
         isPlaying={isPlaying}
         showControls={false}
+        timeMode="timeline"
         onPlayingChange={onPlayingChange}
         onCurrentTimeChange={(seconds) => {
           const frame = secondsToFrame(seconds, fps);

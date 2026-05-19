@@ -11,5 +11,6 @@ test('NLE program monitor uses the shared styled preview without editor controls
 
   assert.match(source, /StyledVideoPreview/);
   assert.match(source, /showControls=\{false\}/);
+  assert.match(source, /timeMode="timeline"/);
   assert.doesNotMatch(source, /className="nleProgramMonitorVideo"/);
 });
