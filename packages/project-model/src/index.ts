@@ -18,3 +18,4 @@ export * from './transcript.js';
 export * from './caption-track.js';
 export * from './track.js';
 export * from './shared-timeline.js';
+export * from './timeline-commands.js';

@@ -199,7 +199,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-214~~ | ✅ NLE rebuild lane 1: canonical model contract | P0 | ✅ DONE (2026-05-19) |
 | ~~TASK-215~~ | ✅ NLE rebuild lane 2: migration and canonicalization | P0 | ✅ DONE (2026-05-19) |
 | ~~TASK-216~~ | ✅ NLE rebuild lane 3: timeline playback resolver | P0 | ✅ DONE (2026-05-19) |
-| TASK-217 | NLE rebuild lane 4: mutation command service | P0 | PLANNED |
+| ~~TASK-217~~ | ✅ NLE rebuild lane 4: mutation command service | P0 | ✅ DONE (2026-05-19) |
 | TASK-218 | NLE rebuild lane 5: shared playback preview | P0 | PLANNED |
 | TASK-219 | NLE rebuild lane 6: Recording Edit adapter | P0 | PLANNED |
 | TASK-220 | NLE rebuild lane 7: NLE adapter | P0 | PLANNED |
@@ -539,7 +539,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-217, "NLE rebuild lane 4: mutation command service". Do not continue TASK-188 drag, TASK-212 export, or TASK-213 smoke coverage until TASK-214 through TASK-221 are complete.
+Next task when continuing: start TASK-218, "NLE rebuild lane 5: shared playback preview". Do not continue TASK-188 drag, TASK-212 export, or TASK-213 smoke coverage until TASK-214 through TASK-221 are complete.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–223, with TASK-214–223 as the active rebuild gate). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -3106,7 +3106,7 @@ Timeline scrub at `main.tsx:2703` lacks `aria-live` for frame position. Zoom mar
 ### TASK-087 Add 9:16 vertical and 1:1 square export presets
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** ✅ DONE (2026-05-19)
 
 #### Context
 
@@ -5917,6 +5917,16 @@ Recording Edit and NLE must call the same command service. Views may hold transi
 #### Verification
 
 - Command tests cover every operation, linked operation, clamp, invalid/no-op input, undo snapshot shape, and invariant preservation.
+
+#### Completion Notes
+
+- Added canonical timeline command service in `packages/project-model/src/timeline-commands.ts`.
+- Implemented `trimClipEdge`, `moveClip`, `splitClip`, `deleteClip`, `rippleDeleteRange`, `restoreSourceEdge`, and `restoreFullSource` over `document.timeline` only.
+- Commands canonicalize first, validate timeline invariants before and after mutation, and return `{ document, undoSnapshot }` so adapters can commit one undoable project mutation on pointerup.
+- Head trims update `timelineIn/sourceIn`, tail trims update `timelineOut/sourceOut`, and move changes only `timelineIn/timelineOut`.
+- Split, trim, move, and delete operate on linked clips through `linkGroupId`; NLE delete defaults to leave-gap while explicit ripple mode/range supports Recording Edit cut semantics.
+- Tests cover trim, move, linked split, leave-gap delete, ripple delete, restore edge/full source, overlap rejection, invalid edge rejection, partial-ripple rejection, undo snapshot shape, and invariant preservation.
+- Verified with `pnpm --filter @rough-cut/project-model test`, `pnpm --filter @rough-cut/project-model typecheck`, `pnpm --filter @rough-cut/project-model build`, and `pnpm typecheck`.
 
 ### TASK-218 NLE rebuild lane 5: shared playback preview
 
