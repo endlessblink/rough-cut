@@ -36,14 +36,14 @@ export function resolveTimelineFrame(
 
   const activeClips = timeline.tracks.flatMap((track) => activeClipsForTrack(track, frame, project));
   const videoLayers = activeClips
-    .filter((entry) => entry.track.kind === 'video' && entry.track.enabled && !entry.track.locked)
+    .filter((entry) => entry.track.kind === 'video' && entry.track.enabled)
     .sort((left, right) => left.track.index - right.track.index);
   const video = [...videoLayers].sort((left, right) => right.track.index - left.track.index)[0] ?? null;
 
   if (!video) return emptyFrame;
 
   const audio = activeClips
-    .filter((entry) => entry.track.kind === 'audio' && entry.track.enabled && !entry.track.locked && !entry.track.muted)
+    .filter((entry) => entry.track.kind === 'audio' && entry.track.enabled && !entry.track.muted)
     .sort((left, right) => right.track.index - left.track.index);
   const markers = timeline.markers.filter((marker) => isMarkerActive(marker, frame));
   const effects = timeline.effects.filter((effect) => isEffectActive(effect, activeClips, frame));
@@ -67,7 +67,7 @@ function activeClipsForTrack(
   frame: number,
   project: ProjectDocument,
 ): ResolvedTimelineClip[] {
-  if (!track.enabled || track.locked) return [];
+  if (!track.enabled) return [];
   return track.clips.flatMap((clip) => {
     if (!isClipActive(clip, frame)) return [];
     const media = project.timeline.sources.find((source) => source.id === clip.mediaId);

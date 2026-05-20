@@ -18,6 +18,8 @@ export interface NleTimelineTrackRow {
   readonly enabled: boolean;
   readonly locked: boolean;
   readonly muted: boolean;
+  readonly height: number;
+  readonly index: number;
   readonly blocks: readonly NleLaneClipBlock[];
 }
 

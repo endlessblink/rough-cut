@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAsset, createProject } from '@rough-cut/project-model';
-import { canSplitClipById, removeClipById, splitClipById, trimClipById } from './clip-mutations.mjs';
+import { canSplitClipById, moveClipById, removeClipById, reorderTrackById, splitClipById, trimClipById, updateTrackById } from './clip-mutations.mjs';
 
 const asset = createAsset('video', '/tmp/a1.mp4', { id: 'a1', duration: 600 });
 const cameraAsset = createAsset('video', '/tmp/cam.mp4', { id: 'cam1', duration: 600 });
@@ -130,4 +130,42 @@ test('trimClipById ignores stale mirrors and mutates the canonical timeline', ()
 
   assert.equal(next.document.timeline.tracks[0].clips[0].timelineIn, 80);
   assert.equal(next.document.tracks[0].clips[0].timelineIn, 50, 'legacy mirror remains stale and ignored');
+});
+
+test('moveClipById moves clips across same-kind canonical tracks', () => {
+  const project = makeProject([
+    track({ id: 'v1', clips: [baseClip] }),
+    track({ id: 'v2', index: 1, clips: [] }),
+  ]);
+  const next = moveClipById(project, 'c1', 120, 'v2');
+
+  assert.equal(next.document.timeline.tracks[0].clips.length, 0);
+  assert.deepEqual(next.document.timeline.tracks[1].clips.map((clip) => [clip.id, clip.trackId, clip.timelineIn, clip.timelineOut, clip.sourceIn, clip.sourceOut]), [
+    ['c1', 'v2', 120, 420, 0, 300],
+  ]);
+});
+
+test('moveClipById returns same project for collisions, cross-kind, and locked tracks', () => {
+  const project = makeProject([
+    track({ id: 'v1', clips: [baseClip, { ...baseClip, id: 'c2', timelineIn: 320, timelineOut: 500, sourceIn: 0, sourceOut: 180 }] }),
+    track({ id: 'locked', index: 1, locked: true, clips: [] }),
+    track({ id: 'a1', kind: 'audio', index: 2, clips: [] }),
+  ]);
+
+  assert.equal(moveClipById(project, 'c1', 250, 'v1'), project);
+  assert.equal(moveClipById(project, 'c1', 50, 'a1'), project);
+  assert.equal(moveClipById(project, 'c1', 50, 'locked'), project);
+});
+
+test('updateTrackById and reorderTrackById mutate track state through commands', () => {
+  const project = makeProject([
+    track({ id: 'v1', clips: [baseClip] }),
+    track({ id: 'v2', index: 1, clips: [] }),
+  ]);
+  const locked = updateTrackById(project, 'v1', { locked: true, height: 84 });
+  const reordered = reorderTrackById(locked, 'v1', 'up');
+
+  assert.equal(locked.document.timeline.tracks[0].locked, true);
+  assert.equal(locked.document.timeline.tracks[0].height, 84);
+  assert.equal(reordered.document.timeline.tracks.find((item) => item.id === 'v1').index, 1);
 });

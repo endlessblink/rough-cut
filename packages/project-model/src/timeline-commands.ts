@@ -14,7 +14,9 @@ export type TimelineCommandType =
   | 'deleteClip'
   | 'rippleDeleteRange'
   | 'restoreSourceEdge'
-  | 'restoreFullSource';
+  | 'restoreFullSource'
+  | 'updateTrackSettings'
+  | 'reorderTrack';
 
 export type TimelineTrimEdge = 'head' | 'tail' | 'left' | 'right';
 export type TimelineDeleteMode = 'leave-gap' | 'ripple';
@@ -46,9 +48,11 @@ export function trimClipEdge(
   const canonical = canonicalizeProjectDocument(document);
   const loc = findClipLocation(canonical.timeline, input.clipId);
   if (!loc) throw new TimelineCommandError(`Clip not found: ${input.clipId}`);
+  if (loc.track.locked) throw new TimelineCommandError('Cannot trim clips on locked tracks');
   const frame = finiteInteger(input.frame, 'frame');
   const edge = normalizeTrimEdge(input.edge);
   const linked = linkedLocations(canonical.timeline, loc.clip);
+  ensureEditableLocations(linked, 'trim');
   const delta = edge === 'head' ? frame - loc.clip.timelineIn : frame - loc.clip.timelineOut;
   if (delta === 0) throw new TimelineCommandError('Trim would not change the clip');
 
@@ -64,22 +68,73 @@ export function trimClipEdge(
 
 export function moveClip(
   document: ProjectDocument,
-  input: { readonly clipId: string; readonly timelineIn: number },
+  input: { readonly clipId: string; readonly timelineIn: number; readonly targetTrackId?: string },
 ): TimelineCommandResult {
   const canonical = canonicalizeProjectDocument(document);
   const loc = findClipLocation(canonical.timeline, input.clipId);
   if (!loc) throw new TimelineCommandError(`Clip not found: ${input.clipId}`);
+  const targetTrackId = input.targetTrackId ?? loc.track.id;
+  const targetTrack = findTrackLocation(canonical.timeline, targetTrackId);
+  if (!targetTrack) throw new TimelineCommandError(`Track not found: ${targetTrackId}`);
+  if (targetTrack.track.kind !== loc.track.kind) throw new TimelineCommandError('Clip can only move to a track of the same kind');
+  if (loc.track.locked || targetTrack.track.locked) throw new TimelineCommandError('Cannot move clips on locked tracks');
   const nextIn = finiteInteger(input.timelineIn, 'timelineIn');
   const delta = nextIn - loc.clip.timelineIn;
-  if (delta === 0) throw new TimelineCommandError('Move would not change the clip');
+  if (delta === 0 && targetTrack.track.id === loc.track.id) throw new TimelineCommandError('Move would not change the clip');
   const linked = linkedLocations(canonical.timeline, loc.clip);
-  const nextTimeline = updateClips(canonical.timeline, linked, (clip) => ({
-    ...clip,
-    timelineIn: clip.timelineIn + delta,
-    timelineOut: clip.timelineOut + delta,
-  }));
+  ensureEditableLocations(linked, 'move');
+  const nextTimeline = targetTrack.track.id === loc.track.id
+    ? updateClips(canonical.timeline, linked, (clip) => ({
+        ...clip,
+        timelineIn: clip.timelineIn + delta,
+        timelineOut: clip.timelineOut + delta,
+      }))
+    : moveClipAcrossTracks(canonical.timeline, loc, linked, targetTrack.track, delta);
 
   return commitCommand(canonical, 'moveClip', nextTimeline);
+}
+
+export function updateTrackSettings(
+  document: ProjectDocument,
+  input: { readonly trackId: string; readonly locked?: boolean; readonly muted?: boolean; readonly enabled?: boolean; readonly height?: number },
+): TimelineCommandResult {
+  const canonical = canonicalizeProjectDocument(document);
+  const loc = findTrackLocation(canonical.timeline, input.trackId);
+  if (!loc) throw new TimelineCommandError(`Track not found: ${input.trackId}`);
+  const nextHeight = input.height === undefined ? undefined : finiteInteger(input.height, 'height');
+  if (nextHeight !== undefined && (nextHeight < 36 || nextHeight > 140)) throw new TimelineCommandError('Track height must be between 36 and 140');
+  const nextTrack: TimelineTrack = {
+    ...loc.track,
+    ...(input.locked !== undefined ? { locked: Boolean(input.locked) } : {}),
+    ...(input.muted !== undefined ? { muted: loc.track.kind === 'audio' ? Boolean(input.muted) : false } : {}),
+    ...(input.enabled !== undefined ? { enabled: Boolean(input.enabled) } : {}),
+    ...(nextHeight !== undefined ? { height: nextHeight } : {}),
+  };
+  if (JSON.stringify(nextTrack) === JSON.stringify(loc.track)) throw new TimelineCommandError('Track settings would not change');
+  return commitCommand(canonical, 'updateTrackSettings', {
+    ...canonical.timeline,
+    tracks: canonical.timeline.tracks.map((track) => track.id === loc.track.id ? nextTrack : track),
+  });
+}
+
+export function reorderTrack(
+  document: ProjectDocument,
+  input: { readonly trackId: string; readonly direction: 'up' | 'down' },
+): TimelineCommandResult {
+  const canonical = canonicalizeProjectDocument(document);
+  const sorted = [...canonical.timeline.tracks].sort((a, b) => b.index - a.index || a.id.localeCompare(b.id));
+  const currentIndex = sorted.findIndex((track) => track.id === input.trackId);
+  if (currentIndex < 0) throw new TimelineCommandError(`Track not found: ${input.trackId}`);
+  const nextIndex = input.direction === 'up' ? currentIndex - 1 : input.direction === 'down' ? currentIndex + 1 : currentIndex;
+  if (nextIndex < 0 || nextIndex >= sorted.length || nextIndex === currentIndex) throw new TimelineCommandError('Track reorder would not change track order');
+  const reordered = [...sorted];
+  const [track] = reordered.splice(currentIndex, 1);
+  reordered.splice(nextIndex, 0, track!);
+  const indexById = new Map(reordered.map((item, order) => [item.id, reordered.length - order - 1]));
+  return commitCommand(canonical, 'reorderTrack', {
+    ...canonical.timeline,
+    tracks: canonical.timeline.tracks.map((item) => ({ ...item, index: indexById.get(item.id) ?? item.index })),
+  });
 }
 
 export function splitClip(
@@ -93,6 +148,7 @@ export function splitClip(
   const linked = linkedLocations(canonical.timeline, loc.clip)
     .filter((entry) => frame > entry.clip.timelineIn && frame < entry.clip.timelineOut);
   if (linked.length === 0) throw new TimelineCommandError('Split frame must be inside at least one linked clip');
+  ensureEditableLocations(linked, 'split');
   const idFactory = input.idFactory ?? defaultIdFactory;
 
   const nextTimeline = replaceClips(canonical.timeline, linked, (clip) => {
@@ -113,6 +169,7 @@ export function deleteClip(
   const canonical = canonicalizeProjectDocument(document);
   const loc = findClipLocation(canonical.timeline, input.clipId);
   if (!loc) throw new TimelineCommandError(`Clip not found: ${input.clipId}`);
+  if (loc.track.locked) throw new TimelineCommandError('Cannot delete clips on locked tracks');
   if (input.mode === 'ripple') {
     return rippleDeleteRange(canonical, {
       startFrame: loc.clip.timelineIn,
@@ -121,6 +178,7 @@ export function deleteClip(
     });
   }
   const linked = linkedLocations(canonical.timeline, loc.clip);
+  ensureEditableLocations(linked, 'delete');
   const nextTimeline = removeClips(canonical.timeline, linked);
   return commitCommand(canonical, 'deleteClip', nextTimeline);
 }
@@ -133,6 +191,9 @@ export function rippleDeleteRange(
   const startFrame = finiteInteger(input.startFrame, 'startFrame');
   const endFrame = finiteInteger(input.endFrame, 'endFrame');
   if (endFrame <= startFrame) throw new TimelineCommandError('Ripple delete range must be positive');
+  if (canonical.timeline.tracks.some((track) => track.locked && track.clips.some((clip) => clip.timelineOut > startFrame && clip.timelineIn < endFrame))) {
+    throw new TimelineCommandError('Cannot ripple delete clips on locked tracks');
+  }
   const duration = endFrame - startFrame;
   const nextTracks = canonical.timeline.tracks.map((track) => ({
     ...track,
@@ -157,8 +218,10 @@ export function restoreSourceEdge(
   const canonical = canonicalizeProjectDocument(document);
   const loc = findClipLocation(canonical.timeline, input.clipId);
   if (!loc) throw new TimelineCommandError(`Clip not found: ${input.clipId}`);
+  if (loc.track.locked) throw new TimelineCommandError('Cannot restore clips on locked tracks');
   const edge = normalizeTrimEdge(input.edge);
   const linked = linkedLocations(canonical.timeline, loc.clip);
+  ensureEditableLocations(linked, 'restore');
   const nextTimeline = updateClips(canonical.timeline, linked, (clip) => {
     const media = canonical.timeline.sources.find((source) => source.id === clip.mediaId);
     if (!media) return clip;
@@ -179,6 +242,7 @@ export function restoreFullSource(
   const loc = findClipLocation(canonical.timeline, input.clipId);
   if (!loc) throw new TimelineCommandError(`Clip not found: ${input.clipId}`);
   const linked = linkedLocations(canonical.timeline, loc.clip);
+  ensureEditableLocations(linked, 'restore');
   const nextTimeline = updateClips(canonical.timeline, linked, (clip) => {
     const media = canonical.timeline.sources.find((source) => source.id === clip.mediaId);
     if (!media) return clip;
@@ -199,6 +263,11 @@ interface ClipLocation {
   readonly clipIndex: number;
   readonly track: TimelineTrack;
   readonly clip: TimelineClip;
+}
+
+interface TrackLocation {
+  readonly trackIndex: number;
+  readonly track: TimelineTrack;
 }
 
 function commitCommand(
@@ -238,6 +307,55 @@ function findClipLocation(timeline: Timeline, clipId: string): ClipLocation | nu
     }
   }
   return null;
+}
+
+function findTrackLocation(timeline: Timeline, trackId: string): TrackLocation | null {
+  for (let trackIndex = 0; trackIndex < timeline.tracks.length; trackIndex += 1) {
+    const track = timeline.tracks[trackIndex]!;
+    if (track.id === trackId) return { trackIndex, track };
+  }
+  return null;
+}
+
+function ensureEditableLocations(locations: readonly ClipLocation[], operation: string) {
+  if (locations.some((loc) => loc.track.locked)) {
+    throw new TimelineCommandError(`Cannot ${operation} clips on locked tracks`);
+  }
+}
+
+function moveClipAcrossTracks(
+  timeline: Timeline,
+  loc: ClipLocation,
+  linked: readonly ClipLocation[],
+  targetTrack: TimelineTrack,
+  delta: number,
+): Timeline {
+  const linkedIds = new Set(linked.map((entry) => entry.clip.id));
+  return {
+    ...timeline,
+    tracks: timeline.tracks.map((track, trackIndex) => {
+      if (trackIndex === loc.trackIndex) {
+        return {
+          ...track,
+          clips: track.clips
+            .filter((_clip, clipIndex) => clipIndex !== loc.clipIndex)
+            .map((clip) => linkedIds.has(clip.id) ? shiftClip(clip, delta) : clip),
+        };
+      }
+      if (track.id === targetTrack.id) {
+        return { ...track, clips: [...track.clips.map((clip) => linkedIds.has(clip.id) ? shiftClip(clip, delta) : clip), { ...shiftClip(loc.clip, delta), trackId: targetTrack.id }] };
+      }
+      return { ...track, clips: track.clips.map((clip) => linkedIds.has(clip.id) ? shiftClip(clip, delta) : clip) };
+    }),
+  };
+}
+
+function shiftClip(clip: TimelineClip, delta: number): TimelineClip {
+  return {
+    ...clip,
+    timelineIn: clip.timelineIn + delta,
+    timelineOut: clip.timelineOut + delta,
+  };
 }
 
 function linkedLocations(timeline: Timeline, clip: TimelineClip): ClipLocation[] {

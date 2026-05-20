@@ -40,7 +40,7 @@ describe('resolveNleFrame', () => {
     expect(result.video?.clip.id).toBe('top');
   });
 
-  it('excludes disabled and locked video tracks', () => {
+  it('excludes disabled video tracks while locked tracks remain playable', () => {
     const result = resolveNleFrame(
       [
         track({ id: 'disabled' as never, index: 5, enabled: false, clips: [clip('disabled', 0, 100)] }),
@@ -50,7 +50,7 @@ describe('resolveNleFrame', () => {
       30,
     );
 
-    expect(result.video?.track.id).toBe('visible');
+    expect(result.video?.track.id).toBe('locked');
   });
 
   it('returns all enabled unmuted active audio clips for later mixing', () => {
@@ -64,7 +64,7 @@ describe('resolveNleFrame', () => {
       30,
     );
 
-    expect(result.audio.map((entry) => entry.clip.id)).toEqual(['music', 'voice']);
+    expect(result.audio.map((entry) => entry.clip.id)).toEqual(['locked-audio', 'music', 'voice']);
   });
 
   it('uses half-open intervals for clip boundaries', () => {

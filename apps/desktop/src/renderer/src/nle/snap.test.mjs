@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAsset, createProject } from '@rough-cut/project-model';
-import { snapFrameToClipEdges } from './snap.mjs';
+import { snapFrameToClipEdges, snapFrameToClipEdgesExcept } from './snap.mjs';
 
 const videoAsset = createAsset('video', '/tmp/video.mp4', { id: 'video-asset', duration: 600 });
 const audioAsset = createAsset('audio', '/tmp/audio.wav', { id: 'audio-asset', duration: 600 });
@@ -64,4 +64,9 @@ test('snapFrameToClipEdges ignores stale composition tracks', () => {
     },
   };
   assert.equal(snapFrameToClipEdges(181, staleProject, 3), 181);
+});
+
+test('snapFrameToClipEdgesExcept skips the dragged clip own edges', () => {
+  assert.equal(snapFrameToClipEdgesExcept(98, project, 3, 'v1'), 98);
+  assert.equal(snapFrameToClipEdgesExcept(242, project, 3, 'v1'), 240);
 });

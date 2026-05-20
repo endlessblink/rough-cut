@@ -104,6 +104,17 @@ test('buildTimelineTracks preserves multi-track order and generated track kinds'
   assert.equal(rows[2].enabled, false);
 });
 
+test('buildTimelineTracks passes through compact track state for controls', () => {
+  const project = makeProject({
+    tracks: [track({ id: 'v1', locked: true, height: 84, clips: [] })],
+  });
+  const rows = buildTimelineTracks(project);
+
+  assert.equal(rows[0].locked, true);
+  assert.equal(rows[0].height, 84);
+  assert.equal(rows[0].index, 0);
+});
+
 test('buildLaneClips returns [] for unsupported requested lanes', () => {
   const project = makeProject({ tracks: [track({ clips: [clip()] })] });
   assert.deepEqual(buildLaneClips(project, 'not-a-kind'), []);

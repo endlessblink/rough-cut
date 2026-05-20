@@ -1,9 +1,10 @@
 import React from 'react';
 import { buildTimelineTracks } from './timeline-clips.mjs';
-import { removeClipById, trimClipById } from './clip-mutations.mjs';
+import { moveClipById, removeClipById, reorderTrackById, trimClipById, updateTrackById } from './clip-mutations.mjs';
 import { TimelineRuler } from './timeline-ruler';
 import { isTypingTarget } from './keyboard.mjs';
-import { snapFrameToClipEdges } from './snap.mjs';
+import { snapFrameToClipEdges, snapFrameToClipEdgesExcept } from './snap.mjs';
+import { createDragSession, timelineInFromPointerFrame, trackIdFromClientY, updateDragSession } from './drag-session.mjs';
 import { createTrimSession, updateTrimSession } from './trim-session.mjs';
 import type { NleProject } from './types';
 import type { TrimEdge, TrimSession } from './trim-session.mjs';
@@ -34,15 +35,20 @@ export function NleTimeline({
   // bodies land on frame 0 without an off-by-header-width error.
   const bodiesRef = React.useRef<HTMLDivElement | null>(null);
   const [trimSession, setTrimSession] = React.useState<TrimSession | null>(null);
+  const [dragSession, setDragSession] = React.useState<any | null>(null);
 
-  function frameFromClientX(clientX: number, snap: boolean): number {
+  function frameFromClientX(clientX: number, snap: boolean, excludeClipId: string | null = null): number {
     const el = bodiesRef.current;
     if (!el || durationFrames <= 0) return 0;
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0) return 0;
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     const frame = Math.round(ratio * durationFrames);
-    return snap && project ? snapFrameToClipEdges(frame, project, 6 * (durationFrames / rect.width)) : frame;
+    if (!snap || !project) return frame;
+    const threshold = 6 * (durationFrames / rect.width);
+    return excludeClipId
+      ? snapFrameToClipEdgesExcept(frame, project, threshold, excludeClipId)
+      : snapFrameToClipEdges(frame, project, threshold);
   }
 
   // Pointer-drag scrub: install global pointermove/up listeners on
@@ -98,6 +104,64 @@ export function NleTimeline({
     window.addEventListener('pointerup', handleUp);
   }
 
+  function startClipDrag(e: React.PointerEvent<HTMLDivElement>, blockId: string | null) {
+    if (e.button !== 0 || !project || !blockId || !onProjectChange) return;
+    if ((e.target as HTMLElement | null)?.closest('.nleClipTrimHandle')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onSelectedClipChange(blockId);
+    const initialSession = createDragSession(project, blockId, frameFromClientX(e.clientX, false), durationFrames);
+    if (!initialSession) return;
+    let latestSession = initialSession;
+    setDragSession(latestSession);
+    const handleMove = (ev: PointerEvent) => {
+      const rawPointerFrame = frameFromClientX(ev.clientX, false);
+      const rawTimelineIn = timelineInFromPointerFrame(latestSession, rawPointerFrame);
+      const snappedTimelineIn = frameFromClientXForDragLeft(rawTimelineIn, blockId);
+      const targetTrackId = trackIdFromClientY(ev.clientY) ?? latestSession.targetTrackId;
+      latestSession = updateDragSession(latestSession, project, { timelineIn: snappedTimelineIn, targetTrackId });
+      setDragSession(latestSession);
+      onPlayheadFrameChange(Math.max(0, snappedTimelineIn));
+    };
+    const handleUp = () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      setDragSession(null);
+      if (!latestSession?.valid) return;
+      const next = moveClipById(project, blockId, latestSession.preview.timelineIn, latestSession.preview.trackId);
+      if (next !== project) onProjectChange(next as unknown as NleProject);
+      onSelectedClipChange(blockId);
+    };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+  }
+
+  function frameFromClientXForDragLeft(frame: number, clipId: string): number {
+    const el = bodiesRef.current;
+    if (!el || !project) return frame;
+    const threshold = 6 * (durationFrames / el.getBoundingClientRect().width);
+    return snapFrameToClipEdgesExcept(frame, project, threshold, clipId);
+  }
+
+  function commitTrackPatch(trackId: string, patch: Record<string, unknown>) {
+    if (!project || !onProjectChange) return;
+    const next = updateTrackById(project, trackId, patch);
+    if (next !== project) onProjectChange(next as unknown as NleProject);
+  }
+
+  function commitTrackReorder(trackId: string, direction: 'up' | 'down') {
+    if (!project || !onProjectChange) return;
+    const next = reorderTrackById(project, trackId, direction);
+    if (next !== project) onProjectChange(next as unknown as NleProject);
+  }
+
+  function nextTrackHeight(track: { height?: number }) {
+    const current = Number(track.height ?? 60);
+    if (current < 52) return 60;
+    if (current < 72) return 84;
+    return 44;
+  }
+
   // Keyboard: Delete removes selection, S splits selection at playhead.
   // Bail when the user is typing into a form field.
   React.useEffect(() => {
@@ -127,17 +191,24 @@ export function NleTimeline({
   return (
     <div className="nleTimeline" data-ui-region="nle-timeline">
       <div className="nleTimelineLanes">
-        <div className="nleLaneHeaders" aria-hidden="true">
+        <div className="nleLaneHeaders">
           <div className="nleTimelineRulerSpacer" />
           {trackRows.length === 0 ? (
             <div className="nleTrackLaneHeader empty" data-track-kind="empty">
               Empty
             </div>
           ) : trackRows.map((track) => (
-            <div key={track.id} className="nleTrackLaneHeader" data-track-kind={track.kind}>
-              <span>{track.label}</span>
+            <div key={track.id} className="nleTrackLaneHeader" data-track-kind={track.kind} style={{ '--nle-track-height': `${track.height}px` } as React.CSSProperties}>
+              <span className="nleTrackLaneLabel">{track.label}</span>
               <span className="nleTrackLaneMeta">
                 {track.locked ? 'LOCKED' : track.muted ? 'MUTED' : track.enabled ? track.kind : 'OFF'}
+              </span>
+              <span className="nleTrackControls">
+                <button type="button" aria-label={`Move ${track.label} up`} onClick={() => commitTrackReorder(track.id, 'up')}>↑</button>
+                <button type="button" aria-label={`Move ${track.label} down`} onClick={() => commitTrackReorder(track.id, 'down')}>↓</button>
+                <button type="button" aria-label={`${track.locked ? 'Unlock' : 'Lock'} ${track.label}`} aria-pressed={track.locked} onClick={() => commitTrackPatch(track.id, { locked: !track.locked })}>L</button>
+                {track.kind === 'audio' ? <button type="button" aria-label={`${track.muted ? 'Unmute' : 'Mute'} ${track.label}`} aria-pressed={track.muted} onClick={() => commitTrackPatch(track.id, { muted: !track.muted })}>M</button> : null}
+                <button type="button" aria-label={`Cycle ${track.label} height`} onClick={() => commitTrackPatch(track.id, { height: nextTrackHeight(track) })}>H</button>
               </span>
             </div>
           ))}
@@ -159,25 +230,28 @@ export function NleTimeline({
               <span className="nleTrackLaneEmpty">Import media or generate an asset to start building the timeline</span>
             </div>
           ) : trackRows.map((track) => (
-            <div key={track.id} className="nleTrackLaneBody" data-track-kind={track.kind}>
+            <div key={track.id} className="nleTrackLaneBody" data-track-kind={track.kind} data-track-id={track.id} style={{ '--nle-track-height': `${track.height}px` } as React.CSSProperties}>
               {track.blocks.length === 0 ? (
                 <span className="nleTrackLaneEmpty">No clips yet</span>
               ) : (
                 track.blocks.map((block, index) => {
                   const selected = block.id !== null && block.id === selectedClipId;
                   const trimPreview = block.id !== null && block.id === trimSession?.clipId ? trimSession.preview : null;
-                  const leftPct = trimPreview && durationFrames > 0 ? Math.max(0, Math.min(100, (trimPreview.timelineIn / durationFrames) * 100)) : block.leftPct;
-                  const widthPct = trimPreview && durationFrames > 0 ? Math.max(0, Math.min(100 - leftPct, ((trimPreview.timelineOut - trimPreview.timelineIn) / durationFrames) * 100)) : block.widthPct;
+                  const dragPreview = block.id !== null && block.id === dragSession?.clipId ? dragSession.preview : null;
+                  const activePreview = trimPreview ?? (dragPreview?.trackId === track.id ? dragPreview : null);
+                  const isDraggingSource = dragPreview && dragPreview.trackId !== track.id;
+                  const leftPct = activePreview && durationFrames > 0 ? Math.max(0, Math.min(100, (activePreview.timelineIn / durationFrames) * 100)) : block.leftPct;
+                  const widthPct = activePreview && durationFrames > 0 ? Math.max(0, Math.min(100 - leftPct, ((activePreview.timelineOut - activePreview.timelineIn) / durationFrames) * 100)) : block.widthPct;
                   return (
                     <div
                       key={block.id ?? `${track.id}-${index}`}
-                      className={`nleClipBlock ${block.enabled && track.enabled ? '' : 'disabled'} ${selected ? 'selected' : ''} ${trimPreview ? 'trimming' : ''}`}
+                      className={`nleClipBlock ${block.enabled && track.enabled ? '' : 'disabled'} ${selected ? 'selected' : ''} ${trimPreview ? 'trimming' : ''} ${dragPreview ? 'dragging' : ''} ${isDraggingSource ? 'draggingSource' : ''} ${dragSession?.invalidReason ? 'invalidDrop' : ''}`}
                       data-clip-id={block.id ?? ''}
                       data-asset-id={block.assetId ?? ''}
                       data-trim-edge={trimPreview ? trimSession?.edge : undefined}
                       style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
                       title={block.name ?? undefined}
-                      onPointerDown={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => startClipDrag(e, block.id)}
                       onClick={(e) => handleClipClick(e, block.id)}
                     >
                       {selected ? (
@@ -209,6 +283,18 @@ export function NleTimeline({
                   );
                 })
               )}
+              {dragSession?.preview.trackId === track.id && !track.blocks.some((block) => block.id === dragSession.clipId) ? (
+                <div
+                  className={`nleClipBlock selected dragging ${dragSession.valid ? '' : 'invalidDrop'}`}
+                  data-clip-id={dragSession.clipId}
+                  style={{
+                    left: `${Math.max(0, Math.min(100, (dragSession.preview.timelineIn / durationFrames) * 100))}%`,
+                    width: `${Math.max(0, Math.min(100, ((dragSession.preview.timelineOut - dragSession.preview.timelineIn) / durationFrames) * 100))}%`,
+                  }}
+                >
+                  <span className="nleClipBlockLabel">Clip</span>
+                </div>
+              ) : null}
             </div>
           ))}
           <div

@@ -140,6 +140,11 @@ describe('shared timeline canonical contract', () => {
     expect(SharedTimelineSchema.safeParse(overlappingOnSameTrack).success).toBe(false);
   });
 
+  it('allows persisted compact track height within editor bounds', () => {
+    expect(SharedTimelineSchema.safeParse(timeline({ tracks: [timelineTrack({ height: 84 })] }))).toMatchObject({ success: true });
+    expect(SharedTimelineSchema.safeParse(timeline({ tracks: [timelineTrack({ height: 12 })] }))).toMatchObject({ success: false });
+  });
+
   it('rejects retiming, missing media, missing link groups, and source bounds overflow', () => {
     const invalid = timeline({
       tracks: [

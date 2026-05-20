@@ -83,6 +83,22 @@ describe('resolveTimelineFrame', () => {
     expect(result.audio.map((entry) => entry.clip.id)).toEqual(['voice']);
   });
 
+  it('keeps locked tracks playable while muted audio is excluded', () => {
+    const screen = createAsset('recording', '/tmp/screen.webm', { duration: 300 });
+    const voice = createAsset('audio', '/tmp/voice.wav', { duration: 300 });
+    const project = createProject({
+      assets: [screen, voice],
+      tracks: [
+        track({ id: 'video-locked' as never, locked: true, clips: [clip('screen', screen.id, 0, 120)] }),
+        track({ id: 'audio-muted' as never, kind: 'audio', muted: true, clips: [clip('voice', voice.id, 0, 120)] }),
+      ],
+    });
+    const result = resolveTimelineFrame(project, 20);
+
+    expect(result.video?.clip.id).toBe('screen');
+    expect(result.audio).toEqual([]);
+  });
+
   it('resolves linked screen and camera clips with independent source offsets', () => {
     const camera = createAsset('video', '/tmp/camera.mp4', { id: 'camera-asset' as never, duration: 330 });
     const recording = createAsset('recording', '/tmp/screen.webm', {

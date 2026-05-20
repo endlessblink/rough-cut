@@ -1181,10 +1181,7 @@ function App() {
             recordingDurationFrames={project?.document?.composition?.duration ?? 0}
             existingCutRanges={(() => {
               const asset = project?.document?.assets?.find((a) => a.type === 'recording');
-              const presentation = asset?.presentation as
-                | { cutRanges?: ReadonlyArray<{ startFrame: number; endFrame: number }> }
-                | undefined;
-              return presentation?.cutRanges ?? [];
+              return asset?.id ? listCutRanges(project?.document as unknown as ProjectDocument, asset.id, project?.document?.composition?.duration ?? 0) : [];
             })()}
             onApplyZoomMarker={(suggestion) => {
               if (!project) return;
@@ -3247,10 +3244,6 @@ function getPrimaryRecordingClip(document: ProjectState['document'], assetId?: s
   if (!assetId) return null;
   const timelineClip = getRecordingTimelineClip(document, assetId) as PrimaryClip | null;
   if (timelineClip) return timelineClip;
-  for (const track of document.composition.tracks ?? []) {
-    const clip = track.clips?.find((item) => item.assetId === assetId);
-    if (clip) return clip;
-  }
   return null;
 }
 

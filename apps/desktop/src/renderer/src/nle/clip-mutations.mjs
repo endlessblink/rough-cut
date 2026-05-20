@@ -5,8 +5,11 @@
 import {
   canonicalizeProjectDocument,
   deleteClip,
+  moveClip,
+  reorderTrack,
   splitClip,
   trimClipEdge,
+  updateTrackSettings,
 } from '@rough-cut/project-model';
 
 // Local id generator. Stable enough across a single edit; the canonical
@@ -70,4 +73,21 @@ export function trimClipById(project, clipId, edge, frame) {
   if (!normalizedEdge || !Number.isFinite(nextFrame)) return project;
   if (!findClipLocation(project, clipId)) return project;
   return withCommandResult(project, (document) => trimClipEdge(document, { clipId, edge: normalizedEdge, frame: nextFrame }));
+}
+
+export function moveClipById(project, clipId, timelineIn, targetTrackId) {
+  const nextFrame = Math.round(Number(timelineIn));
+  if (!Number.isFinite(nextFrame)) return project;
+  if (!findClipLocation(project, clipId)) return project;
+  return withCommandResult(project, (document) => moveClip(document, { clipId, timelineIn: nextFrame, ...(targetTrackId ? { targetTrackId } : {}) }));
+}
+
+export function updateTrackById(project, trackId, patch) {
+  if (!trackId || !patch || typeof patch !== 'object') return project;
+  return withCommandResult(project, (document) => updateTrackSettings(document, { trackId, ...patch }));
+}
+
+export function reorderTrackById(project, trackId, direction) {
+  if (!trackId || (direction !== 'up' && direction !== 'down')) return project;
+  return withCommandResult(project, (document) => reorderTrack(document, { trackId, direction }));
 }

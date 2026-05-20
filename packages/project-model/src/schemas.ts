@@ -625,6 +625,7 @@ export const TimelineTrackSchema = z.object({
   enabled: z.boolean(),
   locked: z.boolean(),
   muted: z.boolean(),
+  height: z.number().int().min(36).max(140).optional(),
   clips: z.array(TimelineClipSchema),
 });
 

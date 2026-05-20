@@ -86,6 +86,7 @@ export interface TimelineTrack {
   readonly enabled: boolean;
   readonly locked: boolean;
   readonly muted: boolean;
+  readonly height?: number;
   readonly clips: readonly TimelineClip[];
 }
 
@@ -193,6 +194,9 @@ export function collectTimelineInvariantIssues(timeline: Timeline): TimelineInva
   });
 
   timeline.tracks.forEach((track, trackIndex) => {
+    if (track.height !== undefined && (!Number.isFinite(track.height) || track.height < 36 || track.height > 140)) {
+      issues.push({ path: ['tracks', trackIndex, 'height'], message: 'Track height must be between 36 and 140 when set' });
+    }
     let previousTimelineOut = -1;
     track.clips.forEach((clip, clipIndex) => {
       clipIds.add(clip.id);
@@ -278,6 +282,7 @@ function canonicalTimelineTracks(
     enabled: track.enabled,
     locked: track.locked,
     muted: track.muted,
+    ...(typeof track.height === 'number' ? { height: track.height } : {}),
     clips: track.clips
       .map((clip) => canonicalTimelineClip(clip, track, sources, linkedGroups))
       .sort((a, b) => a.timelineIn - b.timelineIn || a.timelineOut - b.timelineOut || a.id.localeCompare(b.id)),
@@ -306,6 +311,7 @@ function canonicalTimelineTracksFromUnknown(
       enabled: booleanValue(track['enabled']) ?? booleanValue(track['visible']) ?? true,
       locked: booleanValue(track['locked']) ?? false,
       muted: booleanValue(track['muted']) ?? false,
+      ...(nonNegativeIntValue(track['height']) !== undefined ? { height: nonNegativeIntValue(track['height']) } : {}),
       clips,
     }];
   });

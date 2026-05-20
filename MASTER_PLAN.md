@@ -205,11 +205,11 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-220~~ | ✅ NLE rebuild lane 7: NLE adapter | P0 | ✅ DONE (2026-05-20) |
 | ~~TASK-221~~ | ✅ NLE rebuild lane 8: cross-view visual tests | P0 | ✅ DONE (2026-05-20) |
 | ~~TASK-222~~ | ✅ NLE rebuild lane 9: export resolver parity | P0 | ✅ DONE (2026-05-20) |
-| TASK-223 | NLE rebuild lane 10: cleanup and guardrails | P0 | PLANNED |
-| TASK-188 | NLE drag clips within a track with collision rules | P1 | PLANNED |
-| TASK-189 | NLE drag clips across same-kind tracks | P2 | PLANNED |
-| TASK-190 | Track header controls: mute, lock, height | P2 | PLANNED |
-| TASK-191 | Track reorder controls with z-order preservation | P2 | PLANNED |
+| ~~TASK-223~~ | ✅ NLE rebuild lane 10: cleanup and guardrails | P0 | ✅ DONE (2026-05-21) |
+| ~~TASK-188~~ | ✅ NLE drag clips within a track with collision rules | P1 | ✅ DONE (2026-05-21) |
+| ~~TASK-189~~ | ✅ NLE drag clips across same-kind tracks | P2 | ✅ DONE (2026-05-21) |
+| ~~TASK-190~~ | ✅ Track header controls: mute, lock, height | P2 | ✅ DONE (2026-05-21) |
+| ~~TASK-191~~ | ✅ Track reorder controls with z-order preservation | P2 | ✅ DONE (2026-05-21) |
 | TASK-192 | AI asset schema: stable generated asset references | P1 | PLANNED |
 | TASK-193 | AI assets store: userData index + file layout | P1 | PLANNED |
 | TASK-194 | AI asset IPC: list, delete, tag, resolve | P1 | PLANNED |
@@ -539,7 +539,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-222, "NLE rebuild lane 9: export resolver parity". Do not continue TASK-188 drag, TASK-212 export, or TASK-213 smoke coverage until TASK-214 through TASK-221 are complete.
+Next task when continuing: start TASK-192, "AI asset schema: stable generated asset references". The canonical timeline rebuild gate is complete through TASK-223, and NLE drag/track controls are complete through TASK-191.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–223, with TASK-214–223 as the active rebuild gate). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -6122,7 +6122,7 @@ Export must render exactly what preview and the canonical timeline describe. It 
 ### TASK-223 NLE rebuild lane 10: cleanup and guardrails
 
 **Priority:** P0
-**Status:** PLANNED
+**Status:** DONE (2026-05-21)
 **Lane:** P-AI-I / Rebuild Lane 10
 **Parent EPIC:** TASK-140
 **Depends on:** TASK-222
@@ -6149,7 +6149,7 @@ Once the canonical model, resolver, commands, adapters, visual tests, and export
 ### TASK-188 NLE drag clips within a track with collision rules
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** DONE (2026-05-21)
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -6172,7 +6172,7 @@ Once clips can be trimmed, users need to reposition clips on the same track with
 ### TASK-189 NLE drag clips across same-kind tracks
 
 **Priority:** P2
-**Status:** PLANNED
+**Status:** DONE (2026-05-21)
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -6195,7 +6195,7 @@ Multi-track editing is only useful if clips can move between compatible lanes.
 ### TASK-190 Track header controls: mute, lock, height
 
 **Priority:** P2
-**Status:** PLANNED
+**Status:** DONE (2026-05-21)
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 
@@ -6218,7 +6218,7 @@ Track-level controls make larger timelines navigable and prevent accidental edit
 ### TASK-191 Track reorder controls with z-order preservation
 
 **Priority:** P2
-**Status:** PLANNED
+**Status:** DONE (2026-05-21)
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-140
 

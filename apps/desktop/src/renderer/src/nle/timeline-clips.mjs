@@ -37,6 +37,8 @@ function buildTimelineTrack(track, totalFrames, fallbackIndex) {
     enabled: track.enabled !== false,
     locked: track.locked === true,
     muted: track.muted === true,
+    height: Number.isFinite(Number(track.height)) ? Math.max(36, Math.min(140, Number(track.height))) : 60,
+    index: Number.isFinite(Number(track.index)) ? Number(track.index) : fallbackIndex,
     blocks,
   };
 }

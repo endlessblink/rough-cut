@@ -30,6 +30,7 @@ export interface NleTrack {
   readonly enabled: boolean;
   readonly locked: boolean;
   readonly muted: boolean;
+  readonly height?: number;
   readonly clips: readonly NleTrackClip[];
 }
 
@@ -77,12 +78,12 @@ export function resolveNleFrame(
   }
 
   const activeVideoMatches = tracks
-    .filter((track) => track.kind === 'video' && track.enabled && !track.locked)
+    .filter((track) => track.kind === 'video' && track.enabled)
     .sort((a, b) => b.index - a.index)
     .flatMap((track) => activeClipsForTrack(track, targetFrame));
 
   const activeAudio = tracks
-    .filter((track) => track.kind === 'audio' && track.enabled && !track.locked && !track.muted)
+    .filter((track) => track.kind === 'audio' && track.enabled && !track.muted)
     .sort((a, b) => b.index - a.index)
     .flatMap((track) => activeClipsForTrack(track, targetFrame));
 
