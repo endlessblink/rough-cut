@@ -5993,7 +5993,8 @@ Recording Edit is a simplified adapter over the canonical timeline. It can visua
 - Recording Edit preview now enters `timeMode="timeline"`; fixed uncontrolled timeline-mode playback so native video progress still advances the timeline playhead.
 - Timeline rail reads canonical screen clips and can render multiple screen clip regions after split/ripple operations.
 - Verified this slice with focused renderer tests, `pnpm typecheck`, and `pnpm smoke:ui`; inspected smoke screenshots at `/tmp/rough-cut-ui-smoke-ierG62/ui-smoke.png` and `/tmp/rough-cut-ui-smoke-ierG62/ui-smoke-timeline.png`.
-- Remaining before DONE: surface the adapter complex-timeline warning in the Recording Edit UI, tighten the rail's collapsed timeline/source transform semantics, and cover any actual Recording Edit move gesture if one is exposed.
+- Surfaced the adapter complex-timeline warning in the Recording Edit timeline board.
+- Remaining before DONE: tighten the rail's collapsed timeline/source transform semantics and cover any actual Recording Edit move gesture if one is exposed.
 
 ### TASK-220 NLE rebuild lane 7: NLE adapter
 
