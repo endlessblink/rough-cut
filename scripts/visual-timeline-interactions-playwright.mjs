@@ -77,17 +77,19 @@ try {
   const activeToolBefore = await activeTool(page);
   const scrubber = page.locator('input[aria-label="Scrub timeline"]');
   const scrubberBox = await requiredBox(scrubber, 'timeline scrubber');
+  const screenTrackBox = await requiredBox(page.locator('[data-timeline-lane="screen"] .laneTrack'), 'screen lane track');
   const coordinateBefore = await timelineCoordinates(page);
   const coordinateAlignedBefore = coordinateBefore.scrubberMatchesTrack && coordinateBefore.playheadWithinTrack && coordinateBefore.clipLeftAnchored;
 
   const wheel = await assertWheelStable(page, scrubber, scrubberBox);
   const rangeWheel = await assertRangeWheelStable(page);
+  const laneSeek = await assertLaneSeek(page);
 
   await page.evaluate(() => window.__timelineMonitor.start());
-  await page.mouse.move(scrubberBox.x + scrubberBox.width * 0.08, scrubberBox.y + scrubberBox.height / 2);
+  await page.mouse.move(screenTrackBox.x + screenTrackBox.width * 0.08, screenTrackBox.y + screenTrackBox.height / 2);
   await page.mouse.down();
   for (const position of [0.18, 0.36, 0.54, 0.72]) {
-    await page.mouse.move(scrubberBox.x + scrubberBox.width * position, scrubberBox.y + scrubberBox.height / 2, { steps: 8 });
+    await page.mouse.move(screenTrackBox.x + screenTrackBox.width * position, screenTrackBox.y + screenTrackBox.height / 2, { steps: 8 });
   }
   await page.mouse.up();
   await page.waitForTimeout(700);
@@ -116,9 +118,11 @@ try {
       && keptActiveTool
       && wheel.stable
       && rangeWheel.stable
+      && laneSeek.changed
       && trimEndResult.changed
       && trimStartResult.changed
       && recovery.hiddenControlsVisible
+      && recovery.hiddenControlsCompact
       && recovery.restored
       && recovery.activeToolStable
       && scrubMonitor.frameCount >= 50
@@ -133,6 +137,7 @@ try {
     activeTool: { before: activeToolBefore, after: activeToolAfter, stable: keptActiveTool },
     wheel,
     rangeWheel,
+    laneSeek,
     coordinateBefore,
     coordinateAfter,
     trimEnd: trimEndResult,
@@ -162,6 +167,7 @@ console.info(JSON.stringify({
   activeToolStable: report?.activeTool?.stable ?? false,
   wheelStable: report?.wheel?.stable ?? false,
   rangeWheelStable: report?.rangeWheel?.stable ?? false,
+  laneSeekChanged: report?.laneSeek?.changed ?? false,
   coordinateAlignedBefore: report ? report.coordinateBefore.scrubberMatchesTrack && report.coordinateBefore.playheadWithinTrack && report.coordinateBefore.clipLeftAnchored : false,
   coordinateAlignedAfter: report ? report.coordinateAfter.scrubberMatchesTrack && report.coordinateAfter.playheadWithinTrack && report.coordinateAfter.clipLeftAnchored : false,
   scrubFrameCount: report?.scrubMonitor?.frameCount ?? 0,
@@ -220,8 +226,15 @@ async function restoreFullSource(page) {
   const clipBefore = await requiredBox(page.locator('[data-timeline-lane="screen"] .clipBar'), 'trimmed screen clip');
   const hiddenStartVisible = await page.locator('button[aria-label="Restore hidden start"]').count() > 0;
   const hiddenEndVisible = await page.locator('button[aria-label="Restore hidden end"]').count() > 0;
+  const hiddenControlsCompact = await hiddenTrimControlsAreCompact(page, track);
   const restore = page.locator('button[aria-label="Restore full source"]');
   if (await restore.count() > 0) await restore.click();
+  else {
+    const hiddenStart = page.locator('button[aria-label="Restore hidden start"]');
+    const hiddenEnd = page.locator('button[aria-label="Restore hidden end"]');
+    if (await hiddenStart.count() > 0) await hiddenStart.click();
+    if (await hiddenEnd.count() > 0) await hiddenEnd.click();
+  }
   await page.waitForFunction((trackWidth) => {
     const clip = document.querySelector('[data-timeline-lane="screen"] .clipBar');
     if (!(clip instanceof HTMLElement)) return false;
@@ -231,12 +244,38 @@ async function restoreFullSource(page) {
   const afterTool = await activeTool(page);
   return {
     hiddenControlsVisible: hiddenStartVisible || hiddenEndVisible,
+    hiddenControlsCompact,
     restored: clipAfter.width > clipBefore.width + 6 && Math.abs(clipAfter.width - track.width) < 8,
     activeToolStable: beforeTool === afterTool,
     before: { x: clipBefore.x, width: clipBefore.width },
     after: { x: clipAfter.x, width: clipAfter.width },
     track: { x: track.x, width: track.width },
   };
+}
+
+async function assertLaneSeek(page) {
+  const scrubber = page.locator('input[aria-label="Scrub timeline"]');
+  const track = await requiredBox(page.locator('[data-timeline-lane="screen"] .laneTrack'), 'screen lane track');
+  const before = Number(await scrubber.inputValue());
+  await page.mouse.click(track.x + track.width * 0.62, track.y + track.height / 2);
+  await page.waitForFunction((previous) => {
+    const input = document.querySelector('input[aria-label="Scrub timeline"]');
+    return input instanceof HTMLInputElement && Number(input.value) > previous + 0.5;
+  }, before, { timeout: 5000 });
+  const after = Number(await scrubber.inputValue());
+  return { changed: Number.isFinite(after) && after > before + 0.5, before, after };
+}
+
+async function hiddenTrimControlsAreCompact(page, track) {
+  return page.evaluate((trackBox) => {
+    const buttons = [...document.querySelectorAll('.hiddenTrimRange')];
+    if (buttons.length === 0) return false;
+    return buttons.every((button) => {
+      if (!(button instanceof HTMLElement)) return false;
+      const rect = button.getBoundingClientRect();
+      return rect.width <= 140 && rect.left >= trackBox.x - 4 && rect.right <= trackBox.x + trackBox.width + 4;
+    });
+  }, track);
 }
 
 async function dismissPreRecordOverlay(page) {
@@ -311,6 +350,7 @@ function summarizeFailure(path, result) {
     activeTool: result.activeTool,
     wheel: result.wheel,
     rangeWheel: result.rangeWheel,
+    laneSeek: result.laneSeek,
     coordinateBefore: result.coordinateBefore,
     coordinateAfter: result.coordinateAfter,
     trimEnd: { ...result.trimEnd, monitor: undefined },

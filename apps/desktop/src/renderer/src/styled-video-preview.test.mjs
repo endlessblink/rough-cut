@@ -28,7 +28,10 @@ test('styled video preview can resolve timeline-time playback through the shared
   assert.match(source, /resolveTimelineFrame\(project\.document as unknown as ProjectDocument, timelineFrame\)/);
   assert.match(source, /if \(timeMode === 'timeline' && !screenLayer\)/);
   assert.match(source, /if \(timeMode === 'timeline'\) return;/);
-  assert.match(source, /timeMode !== 'timeline' \|\| video\.paused/);
+  assert.match(source, /controlledPlaying !== undefined \|\| !isPlaying/);
+  assert.match(source, /video\.pause\(\);\n\s+cameraVideo\?\.pause\(\);\n\s+return;/);
+  assert.match(source, /expectedSourceTime = Math\.max\(0, screenLayer\.sourceFrame \/ fps\)/);
+  assert.doesNotMatch(source, /nextTimelineFrame = currentFrame \+ \(sourceFrame - screenLayer\.sourceFrame\)/);
 });
 
 test('styled video preview surfaces offscreen cursor state without clamping cursor draw', () => {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pause as PhosphorPause, Play as PhosphorPlay } from '@phosphor-icons/react';
 import {
+  computeTimelineDuration,
   createDefaultRecordingBackgroundStyle,
   getRecordingBackgroundColors,
   getStyledCanvasResolution,
@@ -125,6 +126,13 @@ export function StyledVideoPreview({
   const effectiveTrimEndSec = Math.min(trimEndSec ?? sourceDurationSec, sourceDurationSec);
   const trimDurationFrames = Math.max(1, Math.round((effectiveTrimEndSec - trimStartSec) * fps));
   const visibleDuration = Math.max(0.1, visibleDurationFrames(cutRanges, trimDurationFrames) / fps);
+  const timelineDurationFrames = Math.max(
+    1,
+    computeTimelineDuration((project.document as unknown as ProjectDocument).timeline ?? { tracks: [], markers: [], effects: [] }),
+    Math.round(project.document.composition.duration ?? 0),
+  );
+  const timelineDuration = Math.max(0.1, timelineDurationFrames / fps);
+  const displayDuration = timeMode === 'timeline' ? timelineDuration : visibleDuration;
 
   function updateCurrentTime(nextTime: number) {
     currentTimeRef.current = nextTime;
@@ -208,6 +216,11 @@ export function StyledVideoPreview({
     const video = videoRef.current;
     const cameraVideo = cameraVideoRef.current;
     if (!video || controlledPlaying === undefined) return;
+    if (timeMode === 'timeline') {
+      video.pause();
+      cameraVideo?.pause();
+      return;
+    }
     if (controlledPlaying) {
       void video.play().catch(() => onPlayingChange?.(false));
       void cameraVideo?.play().catch(() => undefined);
@@ -215,7 +228,39 @@ export function StyledVideoPreview({
       video.pause();
       cameraVideo?.pause();
     }
-  }, [controlledPlaying, onPlayingChange]);
+  }, [controlledPlaying, onPlayingChange, timeMode]);
+
+  React.useEffect(() => {
+    if (timeMode !== 'timeline' || controlledPlaying !== undefined || !isPlaying) return undefined;
+    let rafId = 0;
+    let lastMs: number | null = null;
+
+    function tick(nowMs: number) {
+      if (lastMs === null) {
+        lastMs = nowMs;
+        rafId = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      const rate = Math.max(0.05, videoRef.current?.playbackRate ?? 1);
+      const nextTime = currentTimeRef.current + ((nowMs - lastMs) / 1000) * rate;
+      lastMs = nowMs;
+      if (nextTime >= timelineDuration) {
+        updateCurrentTime(timelineDuration);
+        onCurrentTimeChange?.(timelineDuration);
+        setInternalPlaying(false);
+        onPlayingChange?.(false);
+        return;
+      }
+
+      updateCurrentTime(nextTime);
+      onCurrentTimeChange?.(nextTime);
+      rafId = window.requestAnimationFrame(tick);
+    }
+
+    rafId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [timeMode, controlledPlaying, isPlaying, timelineDuration, onCurrentTimeChange, onPlayingChange]);
 
   function flushPendingExternalSeek() {
     const video = videoRef.current;
@@ -240,6 +285,9 @@ export function StyledVideoPreview({
     }
     const nextTime = Math.max(trimStartSec, Math.min(requestedSourceTime, Math.min(effectiveTrimEndSec, maxTime)));
     if (Math.abs(video.currentTime - nextTime) < 0.05) {
+      const nextDisplayTime = timeMode === 'timeline' ? Math.max(0, requestedTime) : sourceTimeToVisibleTime(nextTime);
+      updateCurrentTime(nextDisplayTime);
+      onCurrentTimeChange?.(nextDisplayTime);
       seekingRef.current = false;
       return;
     }
@@ -325,7 +373,7 @@ export function StyledVideoPreview({
       lastDrawnFrame = currentFrame;
       (window as unknown as Record<string, number>).__roughCutCanvasDrawCount =
         ((window as unknown as Record<string, number>).__roughCutCanvasDrawCount ?? 0) + 1;
-      if (Number.isFinite(effectiveTrimEndSec) && video.currentTime > effectiveTrimEndSec + 0.02) {
+      if (timeMode !== 'timeline' && Number.isFinite(effectiveTrimEndSec) && video.currentTime > effectiveTrimEndSec + 0.02) {
         video.pause();
         video.currentTime = effectiveTrimEndSec;
         const clampedVisibleTime = Math.max(0, effectiveTrimEndSec - trimStartSec);
@@ -333,7 +381,7 @@ export function StyledVideoPreview({
         onCurrentTimeChange?.(clampedVisibleTime);
       }
       const cutEnd = cutEndForSourceTime(video.currentTime);
-      if (cutEnd !== null) {
+      if (timeMode !== 'timeline' && cutEnd !== null) {
         video.currentTime = cutEnd;
         syncCameraTime(cutEnd);
         lastDrawnFrame = -1;
@@ -356,11 +404,15 @@ export function StyledVideoPreview({
         frame = { cameraTransform: { scale: 1, offsetX: 0, offsetY: 0 } };
       }
       const screenLayer = frame.layers?.find((layer: { isCamera?: boolean }) => !layer.isCamera) ?? null;
-      if (!video.paused && timeMode === 'timeline' && screenLayer) {
-        const nextTimelineFrame = currentFrame + (sourceFrame - screenLayer.sourceFrame);
-        const nextTimelineTime = Math.max(0, nextTimelineFrame / fps);
-        updateCurrentTime(nextTimelineTime);
-        onCurrentTimeChange?.(nextTimelineTime);
+      if (timeMode === 'timeline' && screenLayer) {
+        const expectedSourceTime = Math.max(0, screenLayer.sourceFrame / fps);
+        if (Math.abs(video.currentTime - expectedSourceTime) > Math.max(0.035, 1 / fps)) {
+          video.currentTime = expectedSourceTime;
+          syncCameraTime(expectedSourceTime);
+          lastDrawnFrame = -1;
+          rafId = window.requestAnimationFrame(tick);
+          return;
+        }
       }
       const { scale, offsetX, offsetY } = frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 };
       const dragScreenRect = screenDragRef.current;
@@ -533,6 +585,21 @@ export function StyledVideoPreview({
     const cameraVideo = cameraVideoRef.current;
     if (!video) return;
 
+    if (timeMode === 'timeline') {
+      if (isPlaying) {
+        setInternalPlaying(false);
+        onPlayingChange?.(false);
+        return;
+      }
+      if (currentTimeRef.current >= timelineDuration - 1 / fps) {
+        updateCurrentTime(0);
+        onCurrentTimeChange?.(0);
+      }
+      setInternalPlaying(true);
+      onPlayingChange?.(true);
+      return;
+    }
+
     if (video.paused) {
       try {
         const atEnd = video.ended || sourceTimeToVisibleTime(video.currentTime) >= visibleDuration - 1 / fps;
@@ -563,6 +630,13 @@ export function StyledVideoPreview({
     if (!video) return;
     video.playbackRate = rate;
     if (cameraVideo) cameraVideo.playbackRate = rate;
+    if (timeMode === 'timeline') {
+      if (!isPlaying) {
+        setInternalPlaying(true);
+        onPlayingChange?.(true);
+      }
+      return;
+    }
     if (video.paused) await togglePlayback();
   }
 
@@ -579,6 +653,11 @@ export function StyledVideoPreview({
       if (!video) return;
       if (event.key.toLowerCase() === 'k') {
         event.preventDefault();
+        if (timeMode === 'timeline') {
+          setInternalPlaying(false);
+          onPlayingChange?.(false);
+          return;
+        }
         video.pause();
         cameraVideoRef.current?.pause();
       } else if (event.key.toLowerCase() === 'l') {
@@ -592,7 +671,7 @@ export function StyledVideoPreview({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showControls, visibleDuration, fps, trimStartSec, cutRanges, onCurrentTimeChange]);
+  }, [showControls, visibleDuration, fps, trimStartSec, cutRanges, onCurrentTimeChange, onPlayingChange, timeMode, isPlaying, timelineDuration]);
 
   return (
     <div className="videoPreview styledPreview">
@@ -607,14 +686,17 @@ export function StyledVideoPreview({
           setError(null);
         }}
         onPlay={() => {
+          if (timeMode === 'timeline') return;
           setInternalPlaying(true);
           onPlayingChange?.(true);
         }}
         onPause={() => {
+          if (timeMode === 'timeline') return;
           setInternalPlaying(false);
           onPlayingChange?.(false);
         }}
         onEnded={() => {
+          if (timeMode === 'timeline') return;
           setInternalPlaying(false);
           onPlayingChange?.(false);
         }}
@@ -773,7 +855,7 @@ export function StyledVideoPreview({
             <span className="visuallyHidden">{isPlaying ? 'Pause' : 'Play'}</span>
           </button>
           <span className="timecode">
-            {formatClock(currentTime)} / {formatClock(visibleDuration)}
+            {formatClock(currentTime)} / {formatClock(displayDuration)}
           </span>
           {cursorOffscreen ? (
             <span className="cursorOffscreenHint" title={`Cursor is ${Math.round(cursorOffscreen.distance)}px outside the captured screen`}>

@@ -46,27 +46,37 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
   const lastClip = adapter.screenClips[adapter.screenClips.length - 1] ?? primaryClip;
   const trimEndFrame = lastClip ? clampFrame(lastClip.sourceOut, trimStartFrame + 1, frameDuration) : frameDuration;
   const trimmedFrameDuration = Math.max(1, trimEndFrame - trimStartFrame);
-  const durationSec = Math.max(0.1, frameDuration / fps);
+  const sourceDurationSec = Math.max(0.1, frameDuration / fps);
+  const durationSec = Math.max(0.1, adapter.timelineDurationFrames / fps);
   const visibleDurationSec = Math.max(0.1, trimmedFrameDuration / fps);
   const cursorEvents = getCursorEvents(recordingAsset);
-  const clickEvents = cursorEvents.filter((event) => event.type === 'down' && event.frame >= trimStartFrame && event.frame <= trimEndFrame);
+  const clickEvents = cursorEvents
+    .filter((event) => event.type === 'down' && event.frame >= trimStartFrame && event.frame <= trimEndFrame)
+    .flatMap((event, index) => {
+      const timelineFrame = sourceFrameToTimelineFrame(adapter.screenClips, event.frame);
+      if (timelineFrame === null) return [];
+      return [{ id: `${event.frame}-${index}`, left: frameToPercent(timelineFrame, fps, durationSec) }];
+    });
   const markers = listMarkers(document);
   const zoomRegions = assignZoomLayers(markers
     .filter((marker) => marker.endFrame >= trimStartFrame && marker.startFrame <= trimEndFrame)
-    .map((marker) => ({
+    .flatMap((marker) => sourceRangeToTimelinePlacements(adapter.screenClips, marker.startFrame, marker.endFrame, fps, durationSec)
+      .map((placement, index) => ({
       id: marker.id,
       kind: marker.kind,
       startFrame: marker.startFrame,
       endFrame: marker.endFrame,
       strength: marker.strength,
       label: marker.kind === 'auto' ? 'Auto zoom' : 'Manual zoom',
-      ...frameRangeToPlacement(marker.startFrame - trimStartFrame, marker.endFrame - trimStartFrame, fps, durationSec),
-    })));
+      segmentIndex: index,
+      ...placement,
+    }))));
 
   return {
     durationSec,
     visibleDurationSec,
-    currentTimeSec: clampTimelineTime(currentTimeSec, visibleDurationSec),
+    sourceDurationSec,
+    currentTimeSec: clampTimelineTime(currentTimeSec, durationSec),
     playheadPercent: timeToPercent(currentTimeSec, durationSec),
     trimStartFrame,
     trimEndFrame,
@@ -76,18 +86,43 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
       screen: adapter.screenClips.length > 0
         ? adapter.screenClips.map((clip, index) => ({
             id: clip.id ?? `screen-${index}`,
-            ...frameRangeToPlacement(clip.sourceIn - trimStartFrame, clip.sourceOut - trimStartFrame, fps, durationSec),
+            sourceIn: clip.sourceIn,
+            sourceOut: clip.sourceOut,
+            timelineIn: clip.timelineIn,
+            timelineOut: clip.timelineOut,
+            ...frameRangeToPlacement(clip.timelineIn, clip.timelineOut, fps, durationSec),
           }))
-        : [{ id: 'screen', left: 0, width: (visibleDurationSec / durationSec) * 100 }],
+        : [{ id: 'screen', left: 0, width: 100, sourceIn: 0, sourceOut: frameDuration, timelineIn: 0, timelineOut: adapter.timelineDurationFrames }],
       zoom: zoomRegions,
-      clicks: clickEvents.map((event, index) => ({
-        id: `${event.frame}-${index}`,
-        left: frameToPercent(event.frame - trimStartFrame, fps, durationSec),
-      })),
+      clicks: clickEvents,
       camera: recording?.camera || cameraMediaUrl ? [{ id: 'camera', left: 0, width: 100 }] : [],
       audio: recording?.audio ? [{ id: 'audio', left: 0, width: 100 }] : [],
     },
   };
+}
+
+function sourceFrameToTimelineFrame(clips, sourceFrame) {
+  if (!Array.isArray(clips) || clips.length === 0) return sourceFrame;
+  const clip = clips.find((item) => sourceFrame >= item.sourceIn && sourceFrame < item.sourceOut);
+  if (!clip) return null;
+  return clip.timelineIn + (sourceFrame - clip.sourceIn);
+}
+
+function sourceRangeToTimelinePlacements(clips, startFrame, endFrame, fps, durationSec) {
+  if (!Array.isArray(clips) || clips.length === 0) {
+    return [frameRangeToPlacement(startFrame, endFrame, fps, durationSec)];
+  }
+  return clips.flatMap((clip) => {
+    const start = Math.max(startFrame, clip.sourceIn);
+    const end = Math.min(endFrame, clip.sourceOut);
+    if (end <= start) return [];
+    return [frameRangeToPlacement(
+      clip.timelineIn + (start - clip.sourceIn),
+      clip.timelineIn + (end - clip.sourceIn),
+      fps,
+      durationSec,
+    )];
+  });
 }
 
 function assignZoomLayers(regions) {

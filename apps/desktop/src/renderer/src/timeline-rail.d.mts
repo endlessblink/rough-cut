@@ -11,6 +11,10 @@ export type TimelineRegion = {
   id: string;
   left: number;
   width: number;
+  sourceIn?: number;
+  sourceOut?: number;
+  timelineIn?: number;
+  timelineOut?: number;
   startFrame?: number;
   endFrame?: number;
   layer?: number;
@@ -27,6 +31,7 @@ export type TimelineEventMarker = {
 export type TimelineModel = {
   durationSec: number;
   visibleDurationSec: number;
+  sourceDurationSec: number;
   currentTimeSec: number;
   playheadPercent: number;
   trimStartFrame: number;

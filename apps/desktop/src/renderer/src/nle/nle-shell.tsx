@@ -39,6 +39,31 @@ export function NleShell({
   const clampedPlayhead = Math.max(0, Math.min(durationFrames, playheadFrame));
   const canSplit = selectedClipId !== null && canSplitClipById(project, selectedClipId, clampedPlayhead);
 
+  React.useEffect(() => {
+    if (!isPlaying) return undefined;
+    let rafId = 0;
+    let lastMs: number | null = null;
+
+    function tick(nowMs: number) {
+      if (lastMs === null) {
+        lastMs = nowMs;
+        rafId = window.requestAnimationFrame(tick);
+        return;
+      }
+      const deltaFrames = ((nowMs - lastMs) / 1000) * fps;
+      lastMs = nowMs;
+      setPlayheadFrame((frame) => {
+        const next = clampFrame(frame + deltaFrames, durationFrames);
+        if (next >= durationFrames) setIsPlaying(false);
+        return next;
+      });
+      rafId = window.requestAnimationFrame(tick);
+    }
+
+    rafId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [isPlaying, durationFrames, fps]);
+
   function splitSelectedClip() {
     if (!selectedClipId || !onProjectChange) return;
     const next = splitClipById(project, selectedClipId, clampedPlayhead);

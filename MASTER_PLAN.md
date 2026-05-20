@@ -201,7 +201,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-216~~ | ✅ NLE rebuild lane 3: timeline playback resolver | P0 | ✅ DONE (2026-05-19) |
 | ~~TASK-217~~ | ✅ NLE rebuild lane 4: mutation command service | P0 | ✅ DONE (2026-05-19) |
 | ~~TASK-218~~ | ✅ NLE rebuild lane 5: shared playback preview | P0 | ✅ DONE (2026-05-20) |
-| TASK-219 | NLE rebuild lane 6: Recording Edit adapter | P0 | IN PROGRESS |
+| ~~TASK-219~~ | ✅ NLE rebuild lane 6: Recording Edit adapter | P0 | ✅ DONE (2026-05-20) |
 | TASK-220 | NLE rebuild lane 7: NLE adapter | P0 | PLANNED |
 | TASK-221 | NLE rebuild lane 8: cross-view visual tests | P0 | PLANNED |
 | TASK-222 | NLE rebuild lane 9: export resolver parity | P0 | PLANNED |
@@ -539,7 +539,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-218, "NLE rebuild lane 5: shared playback preview". Do not continue TASK-188 drag, TASK-212 export, or TASK-213 smoke coverage until TASK-214 through TASK-221 are complete.
+Next task when continuing: start TASK-220, "NLE rebuild lane 7: NLE adapter". Do not continue TASK-188 drag, TASK-212 export, or TASK-213 smoke coverage until TASK-214 through TASK-221 are complete.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–223, with TASK-214–223 as the active rebuild gate). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -5963,7 +5963,7 @@ Recording Edit preview and NLE monitor must use the exact same resolver and prev
 ### TASK-219 NLE rebuild lane 6: Recording Edit adapter
 
 **Priority:** P0
-**Status:** PLANNED
+**Status:** DONE
 **Lane:** P-AI-I / Rebuild Lane 6
 **Parent EPIC:** TASK-140
 **Depends on:** TASK-217, TASK-218
@@ -5994,7 +5994,12 @@ Recording Edit is a simplified adapter over the canonical timeline. It can visua
 - Timeline rail reads canonical screen clips and can render multiple screen clip regions after split/ripple operations.
 - Verified this slice with focused renderer tests, `pnpm typecheck`, and `pnpm smoke:ui`; inspected smoke screenshots at `/tmp/rough-cut-ui-smoke-ierG62/ui-smoke.png` and `/tmp/rough-cut-ui-smoke-ierG62/ui-smoke-timeline.png`.
 - Surfaced the adapter complex-timeline warning in the Recording Edit timeline board.
-- Remaining before DONE: finish the collapsed Recording Edit timeline/source playback transform, then switch Recording Edit preview back to timeline mode and cover any actual Recording Edit move gesture if one is exposed.
+- Switched Recording Edit preview back to timeline mode and moved playback to the same virtual timeline clock used by NLE; hidden videos are decode surfaces only.
+- Recording Edit rail now seeks on lane click/drag in canonical timeline time, including screen, click, camera, and audio lanes.
+- Hidden trim start/end now render as compact edge restore badges instead of fake source-duration segments that can make the rail end look broken.
+- Trim dragging clamps the preview playhead inside the resulting clip range so trim interactions do not leave the preview on a black/blank frame.
+- Added canonical gap/source-offset rail coverage, playback e2e coverage for Recording Edit and NLE, and visual interaction coverage for lane-click seeking plus compact hidden trim badges.
+- Verified with focused renderer tests, `pnpm --filter @rough-cut/desktop typecheck`, `pnpm visual:timeline`, `pnpm smoke:ui`, and `pnpm playback:timeline`; inspected smoke screenshots at `/tmp/rough-cut-ui-smoke-BHyBjt/ui-smoke.png` and `/tmp/rough-cut-ui-smoke-BHyBjt/ui-smoke-timeline.png`.
 
 ### TASK-220 NLE rebuild lane 7: NLE adapter
 
