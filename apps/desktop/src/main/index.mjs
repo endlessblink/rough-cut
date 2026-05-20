@@ -668,7 +668,7 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, async (_event, projectName 
   if (result.canceled || !result.filePath) return null;
   return result.filePath;
 });
-ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, { document, outputPath, mode }) => {
+ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, { document, outputPath, mode, exportScope }) => {
   if (activeExportController) throw new Error('An export is already running. Cancel it before starting another export.');
   const controller = new AbortController();
   activeExportController = controller;
@@ -677,6 +677,7 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, { document, outputPath, 
       project: document,
       outputPath,
       mode,
+      exportScope,
       signal: controller.signal,
       onProgress: (progress) => event.sender.send(IPC_CHANNELS.EXPORT_PROGRESS_EMIT, progress),
     });
@@ -1090,8 +1091,8 @@ async function runRendererUiSmoke() {
   // Cut controls now live on Timeline tab.
   const hasCutControls = Boolean(
     document.querySelector('[data-cut-range-panel="true"]')
-      && Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Mark cut start'))
-      && Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes('Cut to playhead')),
+      && document.querySelector('button[aria-label="Cut tool"]')
+      && document.querySelector('[data-timeline-lane="screen"]'),
   );
   // Tool-switch stability: Cursor -> Background -> Cursor.
   document.querySelector('button[aria-label="Cursor"]')?.click();
@@ -1128,7 +1129,10 @@ async function runRendererUiSmoke() {
   await waitFor(() => document.querySelector('[data-export-action="styled"]'), 'styled review export action');
   const hasReviewExportActions = Boolean(document.querySelector('[data-export-action="styled"]') && document.querySelector('[data-export-action="raw"]'));
   const hasRawPresetDetails = document.body.textContent?.includes('Raw export keeps the original recording unchanged.') ?? false;
-  const hasStyledPresetDetails = document.body.textContent?.includes('Styled preset: selected aspect ratio') ?? false;
+  const hasStyledPresetDetails = Boolean(
+    document.body.textContent?.includes('Styled preset:')
+      && document.body.textContent?.includes('selected aspect ratio'),
+  );
 
   document.querySelector('button[aria-label="Background"]')?.click();
   const backgroundPreset = await waitFor(() => document.querySelector('button[aria-label="Soft blur"]'), 'background preset');

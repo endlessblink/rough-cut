@@ -2,6 +2,8 @@
 // ProjectState. main.tsx owns the canonical ProjectState type; this module
 // only relies on duck-typed access via the NleProject shape in types.ts.
 
+import { canonicalizeProjectDocument, computeTimelineDuration } from '@rough-cut/project-model';
+
 const DEFAULT_FPS = 30;
 const DEFAULT_DURATION_FRAMES = 1;
 
@@ -14,6 +16,18 @@ export function resolveProjectFps(project) {
 }
 
 export function resolveCompositionDurationFrames(project) {
+  const document = project?.document;
+  if (document) {
+    const canonical = canonicalizeProjectDocument(document);
+    const fromTimeline = computeTimelineDuration(canonical.timeline);
+    const fromComposition = Number(canonical.composition?.duration);
+    const duration = Math.max(
+      Number.isFinite(fromTimeline) ? fromTimeline : 0,
+      Number.isFinite(fromComposition) ? fromComposition : 0,
+    );
+    if (duration > 0) return Math.max(1, Math.round(duration));
+  }
+
   const fromComposition = Number(project?.document?.composition?.duration);
   if (Number.isFinite(fromComposition) && fromComposition > 0) {
     return Math.max(1, Math.round(fromComposition));

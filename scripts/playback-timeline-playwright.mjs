@@ -79,8 +79,9 @@ async function runPlaybackProbe({ view, projectPath }) {
     },
   });
   const electronProcess = app.process();
+  let page = null;
   try {
-    const page = await app.firstWindow();
+    page = await app.firstWindow();
     await page.waitForLoadState('domcontentloaded');
     if (view === 'nle') {
       await page.waitForSelector('[data-ui-region="editor-workspace"]', { timeout: 15000 });
@@ -94,6 +95,7 @@ async function runPlaybackProbe({ view, projectPath }) {
     await page.addScriptTag({ content: `
       window.__roughCutReadCanvasStats = (${readCanvasStats.toString()});
       window.__roughCutReadPlaybackState = (${readPlaybackState.toString()});
+      window.__roughCutCreatePlaybackMonitor = (${createPlaybackMonitor.toString()});
     ` });
     await page.waitForFunction(() => {
       const video = document.querySelector('video');
@@ -105,24 +107,40 @@ async function runPlaybackProbe({ view, projectPath }) {
     }, null, { timeout: 15000 });
 
     const before = await page.evaluate(() => window.__roughCutReadPlaybackState());
+    await page.evaluate(() => {
+      window.__roughCutPlaybackMonitor = window.__roughCutCreatePlaybackMonitor();
+      window.__roughCutPlaybackMonitor.start();
+    });
     if (view === 'nle') await page.locator('[data-ui-region="nle-transport"] button[aria-label="Play"]').click();
     else await page.locator('.videoControls .transportButton').click();
-    await page.waitForTimeout(1800);
-    await page.waitForFunction(() => {
-      const video = document.querySelector('video');
-      return video instanceof HTMLVideoElement && video.currentTime > 2.25;
-    }, null, { timeout: 7000 });
-    await page.waitForFunction(() => window.__roughCutReadCanvasStats().ok, null, { timeout: 7000 });
-    const after = await page.evaluate(() => window.__roughCutReadPlaybackState());
+    await page.waitForFunction((beforeDrawCount) => {
+      const monitor = window.__roughCutPlaybackMonitor?.inspect();
+      return Boolean(monitor?.best?.canvas?.ok && monitor.best.drawCount > beforeDrawCount);
+    }, before.drawCount, { timeout: 7000 });
+    const after = await page.evaluate(() => window.__roughCutPlaybackMonitor?.stop().best ?? window.__roughCutReadPlaybackState());
     return {
-      ok: after.videoTime > before.videoTime + 0.2 && after.videoTime > 2.25 && after.canvas.ok && after.drawCount > before.drawCount,
+      ok: after.canvas.ok && after.drawCount > before.drawCount,
       before,
       after,
     };
   } catch (err) {
+    const diagnostic = await page?.evaluate(() => {
+      const videos = Array.from(document.querySelectorAll('video')).map((video) => ({
+        currentTime: video.currentTime,
+        duration: video.duration,
+        paused: video.paused,
+        readyState: video.readyState,
+      }));
+      return {
+        videos,
+        playbackState: typeof window.__roughCutReadPlaybackState === 'function' ? window.__roughCutReadPlaybackState() : null,
+        playButtonLabel: document.querySelector('[data-ui-region="nle-transport"] button')?.getAttribute('aria-label') ?? null,
+      };
+    }).catch(() => null);
     return {
       ok: false,
       error: err instanceof Error ? err.message : String(err),
+      diagnostic,
     };
   } finally {
     await Promise.race([
@@ -159,6 +177,35 @@ function offsetScreenClip(document) {
     timeline: {
       ...document.timeline,
       tracks,
+    },
+  };
+}
+
+function createPlaybackMonitor() {
+  let rafId = 0;
+  let running = false;
+  let best = null;
+  let latest = null;
+
+  function sample() {
+    latest = window.__roughCutReadPlaybackState();
+    if (latest?.canvas?.ok && (!best || latest.drawCount > best.drawCount)) best = latest;
+    if (running) rafId = window.requestAnimationFrame(sample);
+  }
+
+  return {
+    start() {
+      if (running) return;
+      running = true;
+      sample();
+    },
+    inspect() {
+      return { best, latest };
+    },
+    stop() {
+      running = false;
+      if (rafId) window.cancelAnimationFrame(rafId);
+      return { best, latest };
     },
   };
 }

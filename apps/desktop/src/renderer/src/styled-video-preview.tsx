@@ -208,9 +208,14 @@ export function StyledVideoPreview({
 
   React.useEffect(() => {
     if (!Number.isFinite(seekTimeSec)) return;
+    if (timeMode === 'timeline' && controlledPlaying === true) {
+      updateCurrentTime(Math.max(0, seekTimeSec ?? 0));
+      previewInteractionDirtyRef.current = true;
+      return;
+    }
     pendingSeekRef.current = seekTimeSec ?? 0;
     if (!seekingRef.current) flushPendingExternalSeek();
-  }, [seekTimeSec, cameraSourceOffsetSec]);
+  }, [seekTimeSec, cameraSourceOffsetSec, controlledPlaying, timeMode]);
 
   React.useEffect(() => {
     const video = videoRef.current;
@@ -406,7 +411,8 @@ export function StyledVideoPreview({
       const screenLayer = frame.layers?.find((layer: { isCamera?: boolean }) => !layer.isCamera) ?? null;
       if (timeMode === 'timeline' && screenLayer) {
         const expectedSourceTime = Math.max(0, screenLayer.sourceFrame / fps);
-        if (Math.abs(video.currentTime - expectedSourceTime) > Math.max(0.035, 1 / fps)) {
+        const sourceSyncTolerance = isPlaying ? Math.max(0.12, 4 / fps) : Math.max(0.035, 1 / fps);
+        if (Math.abs(video.currentTime - expectedSourceTime) > sourceSyncTolerance) {
           video.currentTime = expectedSourceTime;
           syncCameraTime(expectedSourceTime);
           lastDrawnFrame = -1;

@@ -1,3 +1,5 @@
+import { canonicalizeProjectDocument } from '@rough-cut/project-model';
+
 export function createTrimSession(project, clipId, edge, startFrame, durationFrames) {
   const loc = findClipLocation(project, clipId);
   const clip = loc?.clip;
@@ -74,14 +76,13 @@ function nearestNextClip(clips, clipIndex, currentOut) {
 }
 
 function findClipLocation(project, clipId) {
-  const candidates = [project?.document?.timeline?.tracks, project?.document?.tracks, project?.document?.composition?.tracks];
-  for (const tracks of candidates) {
-    if (!Array.isArray(tracks)) continue;
-    for (const track of tracks) {
-      const clips = Array.isArray(track?.clips) ? track.clips : [];
-      for (let clipIndex = 0; clipIndex < clips.length; clipIndex += 1) {
-        if (clips[clipIndex]?.id === clipId) return { track, clipIndex, clip: clips[clipIndex] };
-      }
+  const document = project?.document ? canonicalizeProjectDocument(project.document) : null;
+  const tracks = document?.timeline?.tracks;
+  if (!Array.isArray(tracks)) return null;
+  for (const track of tracks) {
+    const clips = Array.isArray(track?.clips) ? track.clips : [];
+    for (let clipIndex = 0; clipIndex < clips.length; clipIndex += 1) {
+      if (clips[clipIndex]?.id === clipId) return { track, clipIndex, clip: clips[clipIndex] };
     }
   }
   return null;

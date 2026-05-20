@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createProjectForRecording } from './project-files.mjs';
-import { buildBackgroundExpression, buildCursorAss, buildRawTrimExportArgs, buildStyledExportArgs, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportProjectToMp4, isSingleTrimmedRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, normalizeExportMode, parseFfmpegProgress } from './export-service.mjs';
+import { createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
+import { buildBackgroundExpression, buildCursorAss, buildRawTrimExportArgs, buildStyledExportArgs, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveTimelineExportRecording } from './export-service.mjs';
 
 test('unedited export copies source mp4 byte-for-byte', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-'));
@@ -91,15 +91,7 @@ while true; do sleep 1; done
       fps: 30,
     },
   });
-  const clip = project.composition.tracks[0].clips[0];
-  const trimmed = {
-    ...project,
-    composition: {
-      ...project.composition,
-      duration: 90,
-      tracks: [{ ...project.composition.tracks[0], clips: [{ ...clip, timelineIn: 0, timelineOut: 90, sourceIn: 30, sourceOut: 120 }] }],
-    },
-  };
+  const trimmed = withPrimaryTimelineClip(project, { timelineIn: 0, timelineOut: 90, sourceIn: 30, sourceOut: 120 }, 90);
   const controller = new AbortController();
   const originalPath = process.env.PATH;
   process.env.PATH = `${binDir}:${originalPath ?? ''}`;
@@ -138,17 +130,18 @@ test('single head/tail trimmed recording remains exportable', () => {
     },
   });
   const clip = project.composition.tracks[0].clips[0];
-  const trimmed = {
+  const trimmed = withPrimaryTimelineClip({
     ...project,
     composition: {
       ...project.composition,
       duration: 90,
       tracks: [{ ...project.composition.tracks[0], clips: [{ ...clip, timelineIn: 0, timelineOut: 90, sourceIn: 30, sourceOut: 120 }] }],
     },
-  };
+  }, { timelineIn: 0, timelineOut: 90, sourceIn: 30, sourceOut: 120 }, 90);
 
   assert.equal(isSingleUneditedRecording(trimmed, project.assets[0].id), false);
   assert.equal(isSingleTrimmedRecording(trimmed, project.assets[0].id), true);
+  assert.equal(isSingleTrimmedTimelineRecording(trimmed, project.assets[0].id), true);
 });
 
 test('export rejects writing over the source recording', async () => {
@@ -180,6 +173,9 @@ test('export mode validation accepts planned modes and rejects unknown modes', (
   assert.equal(normalizeExportMode('raw'), 'raw');
   assert.equal(normalizeExportMode('styled'), 'styled');
   assert.throws(() => normalizeExportMode('other'), /Unsupported export mode/);
+  assert.equal(normalizeExportScope(), 'timeline');
+  assert.equal(normalizeExportScope('used-content'), 'used-content');
+  assert.throws(() => normalizeExportScope('selection'), /Unsupported export scope/);
 });
 
 test('styled export mode uses the ffmpeg styled canvas path', async () => {
@@ -224,6 +220,150 @@ test('styled export args apply source trim before the main input', () => {
   });
 
   assert.deepEqual(args.slice(args.indexOf('-ss'), args.indexOf('/tmp/source.mp4') + 1), ['-ss', '1.5', '-t', '3', '-i', '/tmp/source.mp4']);
+});
+
+test('canonical timeline export resolves moved clips, gaps, and cursor frames', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:03.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      cursorEvents: [
+        { frame: 0, x: 10, y: 10, type: 'move', button: 0 },
+        { frame: 15, x: 20, y: 20, type: 'move', button: 0 },
+        { frame: 74, x: 30, y: 30, type: 'down', button: 0 },
+      ],
+    },
+  });
+  const moved = withPrimaryTimelineClip(project, { timelineIn: 30, timelineOut: 90, sourceIn: 15, sourceOut: 75 });
+  const recording = resolveTimelineExportRecording(moved, getPrimaryRecording(moved));
+
+  assert.deepEqual(recording.timelineSegments, [{ timelineIn: 30, timelineOut: 90, sourceIn: 15, sourceOut: 75 }]);
+  assert.equal(recording.trimmedDuration, 90);
+  assert.deepEqual(recording.cursorEvents.map((event) => ({ frame: event.frame, type: event.type })), [
+    { frame: 30, type: 'move' },
+    { frame: 89, type: 'down' },
+  ]);
+});
+
+test('canonical timeline export preserves internal and trailing gaps', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:06.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      cursorEvents: [
+        { frame: 20, x: 10, y: 10, type: 'move', button: 0 },
+        { frame: 100, x: 20, y: 20, type: 'move', button: 0 },
+        { frame: 130, x: 30, y: 30, type: 'move', button: 0 },
+      ],
+    },
+  });
+  const split = withPrimaryTimelineClips(project, [
+    { id: 'screen-a', timelineIn: 0, timelineOut: 30, sourceIn: 0, sourceOut: 30 },
+    { id: 'screen-b', timelineIn: 60, timelineOut: 90, sourceIn: 120, sourceOut: 150 },
+  ], 150);
+  const recording = resolveTimelineExportRecording(split, getPrimaryRecording(split));
+
+  assert.deepEqual(recording.timelineSegments, [
+    { timelineIn: 0, timelineOut: 30, sourceIn: 0, sourceOut: 30 },
+    { timelineIn: 60, timelineOut: 90, sourceIn: 120, sourceOut: 150 },
+  ]);
+  assert.equal(recording.timelineDurationFrames, 150);
+  assert.deepEqual(recording.cursorEvents.map((event) => event.frame), [20, 70]);
+});
+
+test('used-content export scope trims timeline gaps without changing source ranges', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:05.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      cursorEvents: [{ frame: 45, x: 20, y: 20, type: 'move', button: 0 }],
+    },
+  });
+  const moved = withPrimaryTimelineClip(project, { timelineIn: 30, timelineOut: 90, sourceIn: 30, sourceOut: 90 }, 150);
+  const recording = resolveTimelineExportRecording(moved, getPrimaryRecording(moved), { exportScope: 'used-content' });
+
+  assert.deepEqual(recording.timelineSegments, []);
+  assert.equal(recording.timelineDurationFrames, 60);
+  assert.equal(recording.sourceIn, 30);
+  assert.equal(recording.sourceOut, 90);
+  assert.deepEqual(recording.cursorEvents.map((event) => event.frame), [15]);
+  assert.equal(isSingleTrimmedTimelineRecording(moved, project.assets[0].id, { exportScope: 'used-content' }), true);
+});
+
+test('styled export args compose canonical timeline segments over real gaps', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    sourceFps: 30,
+    sourceTrimStartFrame: 15,
+    sourceTrimEndFrame: 75,
+    timelineDurationFrames: 90,
+    timelineSegments: [{ timelineIn: 30, timelineOut: 90, sourceIn: 15, sourceOut: 75 }],
+  });
+  const joined = args.join(' ');
+
+  assert(!args.includes('-ss'));
+  assert(!args.includes('-t'));
+  assert(joined.includes('color=c=black:s=1280x720:r=30:d=3'));
+  assert(joined.includes('[0:v]trim=start_frame=15:end_frame=75,setpts=PTS-STARTPTS+1/TB'));
+  assert(joined.includes('[base_blank][base_seg_0]overlay=eof_action=pass:repeatlast=0[base]'));
+  assert(args.includes('-an'));
+});
+
+test('styled export args can render timeline audio segments through filter audio', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    sourceFps: 30,
+    timelineDurationFrames: 90,
+    timelineSegments: [{ timelineIn: 30, timelineOut: 90, sourceIn: 15, sourceOut: 75 }],
+    timelineAudioSegments: [{ timelineIn: 30, timelineOut: 90, sourceIn: 15, sourceOut: 75 }],
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes('anullsrc=channel_layout=stereo:sample_rate=48000:d=3[audio_blank]'));
+  assert(joined.includes('[0:a]atrim=start=0.5:end=2.5,asetpts=PTS-STARTPTS,adelay=1000:all=1[audio_seg_0]'));
+  assert(joined.includes('[audio_blank][audio_seg_0]amix=inputs=2:duration=first:dropout_transition=0[a]'));
+  assert.deepEqual(args.slice(args.indexOf('-map'), args.indexOf('-map') + 4), ['-map', '[v]', '-map', '[a]']);
+  assert(args.includes('aac'));
+});
+
+test('styled export args can render linked camera timeline segments', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    sourceFps: 30,
+    timelineDurationFrames: 90,
+    timelineSegments: [{ timelineIn: 30, timelineOut: 90, sourceIn: 15, sourceOut: 75 }],
+    cameraInputPath: '/tmp/camera.mp4',
+    cameraSourceWidth: 640,
+    cameraSourceHeight: 480,
+    cameraTimelineSegments: [{ timelineIn: 30, timelineOut: 90, sourceIn: 45, sourceOut: 105 }],
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes('color=c=black@0:s=640x480:r=30:d=3,format=rgba[camera_base_blank]'));
+  assert(joined.includes('[1:v]trim=start_frame=45:end_frame=105,setpts=PTS-STARTPTS+1/TB,format=rgba[camera_base_seg_0]'));
+  assert(joined.includes('[camera_base_blank][camera_base_seg_0]overlay=eof_action=pass:repeatlast=0[camera_base]'));
+  assert(joined.includes('[camera_base]scale='));
 });
 
 test('styled export args remove middle cut ranges from output video', () => {
@@ -663,20 +803,9 @@ test('unedited export rejects edited projects', async () => {
     },
   });
   const assetId = project.assets[0].id;
-  const editedProject = {
-    ...project,
-    composition: {
-      ...project.composition,
-      tracks: [
-        {
-          ...project.composition.tracks[0],
-          clips: [{ ...project.composition.tracks[0].clips[0], sourceIn: 3 }],
-        },
-      ],
-    },
-  };
+  const editedProject = withPrimaryTimelineClip(project, { timelineIn: 3, timelineOut: 93, sourceIn: 0, sourceOut: 90 });
 
-  assert.equal(isSingleUneditedRecording(editedProject, assetId), false);
+  assert.equal(isSingleUneditedTimelineRecording(editedProject, assetId), false);
   await assert.rejects(
     () => exportProjectToMp4({ project: editedProject, outputPath: '/tmp/export.mp4' }),
     /Only unedited or head\/tail-trimmed single-recording exports/,
@@ -733,3 +862,47 @@ test('styled export accepts unedited linked camera with preroll offset', () => {
 
   assert.equal(isSingleUneditedRecordingWithCamera(project, assetId), true);
 });
+
+function withPrimaryTimelineClip(project, patch, compositionDuration = project.composition.duration) {
+  const track = project.timeline.tracks.find((candidate) => candidate.clips.some((clip) => clip.mediaId === `source:${project.assets[0].id}:screen`));
+  const clip = track?.clips.find((candidate) => candidate.mediaId === `source:${project.assets[0].id}:screen`);
+  assert(track && clip, 'fixture must contain a primary timeline clip');
+  return {
+    ...project,
+    composition: {
+      ...project.composition,
+      duration: compositionDuration,
+    },
+    timeline: {
+      ...project.timeline,
+      tracks: project.timeline.tracks.map((candidate) => candidate.id === track.id
+        ? {
+            ...candidate,
+            clips: candidate.clips.map((item) => item.id === clip.id ? { ...item, ...patch } : item),
+          }
+        : candidate),
+    },
+  };
+}
+
+function withPrimaryTimelineClips(project, clipPatches, compositionDuration) {
+  const track = project.timeline.tracks.find((candidate) => candidate.clips.some((clip) => clip.mediaId === `source:${project.assets[0].id}:screen`));
+  const clip = track?.clips.find((candidate) => candidate.mediaId === `source:${project.assets[0].id}:screen`);
+  assert(track && clip, 'fixture must contain a primary timeline clip');
+  return {
+    ...project,
+    composition: {
+      ...project.composition,
+      duration: compositionDuration,
+    },
+    timeline: {
+      ...project.timeline,
+      tracks: project.timeline.tracks.map((candidate) => candidate.id === track.id
+        ? {
+            ...candidate,
+            clips: clipPatches.map((patch) => ({ ...clip, ...patch, trackId: track.id, mediaId: clip.mediaId })),
+          }
+        : candidate),
+    },
+  };
+}

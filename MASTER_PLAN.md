@@ -202,9 +202,9 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-217~~ | ✅ NLE rebuild lane 4: mutation command service | P0 | ✅ DONE (2026-05-19) |
 | ~~TASK-218~~ | ✅ NLE rebuild lane 5: shared playback preview | P0 | ✅ DONE (2026-05-20) |
 | ~~TASK-219~~ | ✅ NLE rebuild lane 6: Recording Edit adapter | P0 | ✅ DONE (2026-05-20) |
-| TASK-220 | NLE rebuild lane 7: NLE adapter | P0 | PLANNED |
-| TASK-221 | NLE rebuild lane 8: cross-view visual tests | P0 | PLANNED |
-| TASK-222 | NLE rebuild lane 9: export resolver parity | P0 | PLANNED |
+| ~~TASK-220~~ | ✅ NLE rebuild lane 7: NLE adapter | P0 | ✅ DONE (2026-05-20) |
+| ~~TASK-221~~ | ✅ NLE rebuild lane 8: cross-view visual tests | P0 | ✅ DONE (2026-05-20) |
+| ~~TASK-222~~ | ✅ NLE rebuild lane 9: export resolver parity | P0 | ✅ DONE (2026-05-20) |
 | TASK-223 | NLE rebuild lane 10: cleanup and guardrails | P0 | PLANNED |
 | TASK-188 | NLE drag clips within a track with collision rules | P1 | PLANNED |
 | TASK-189 | NLE drag clips across same-kind tracks | P2 | PLANNED |
@@ -539,7 +539,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-220, "NLE rebuild lane 7: NLE adapter". Do not continue TASK-188 drag, TASK-212 export, or TASK-213 smoke coverage until TASK-214 through TASK-221 are complete.
+Next task when continuing: start TASK-222, "NLE rebuild lane 9: export resolver parity". Do not continue TASK-188 drag, TASK-212 export, or TASK-213 smoke coverage until TASK-214 through TASK-221 are complete.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–223, with TASK-214–223 as the active rebuild gate). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -3190,7 +3190,7 @@ The Linux artifact today is a tar of Electron plus `run.sh`. There is no install
 ### TASK-091 Add opt-in crash reporting and error telemetry
 
 **Priority:** P3  
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 #### Context
 
@@ -3209,7 +3209,7 @@ Errors land in console plus a log file the user must find via Diagnostics. There
 ### TASK-092 Replace xdotool and xinput stack with uiohook-napi
 
 **Priority:** P2  
-**Status:** PLANNED
+**Status:** DONE (2026-05-20)
 
 #### Context
 
@@ -6004,7 +6004,7 @@ Recording Edit is a simplified adapter over the canonical timeline. It can visua
 ### TASK-220 NLE rebuild lane 7: NLE adapter
 
 **Priority:** P0
-**Status:** PLANNED
+**Status:** DONE (2026-05-20)
 **Lane:** P-AI-I / Rebuild Lane 7
 **Parent EPIC:** TASK-140
 **Depends on:** TASK-217, TASK-218
@@ -6027,10 +6027,19 @@ NLE is the full editor adapter over the same canonical timeline. It shows explic
 
 - Selector/UI tests cover clip bounds, gaps, multi-track order, linked edits, and playhead preservation.
 
+#### Progress Notes
+
+- Converted NLE read selectors to canonical `document.timeline` adapters: track rows, lane clips, snap candidates, duration normalization, and trim-session lookup now ignore stale `composition.tracks` / top-level `tracks` mirrors after canonicalization.
+- Routed NLE remove, split, and edge-trim mutations through the TASK-217 timeline command service, preserving linked clip behavior and half-open timeline continuity.
+- Updated focused NLE fixtures to use valid canonical media sources and to assert canonical-only behavior, including stale mirror avoidance.
+- Fixed NLE program-monitor playback over a gapped/source-offset canonical timeline: controlled timeline playback no longer treats every parent playhead tick as an external seek, so the hidden decoder does not stay in `seeking` and leave the canvas black.
+- Added failure diagnostics to `scripts/playback-timeline-playwright.mjs` for NLE playback timeouts so future canvas/decoder regressions report video state, playback state, and transport state.
+- Verified with `node --test apps/desktop/src/renderer/src/styled-video-preview.test.mjs apps/desktop/src/renderer/src/nle/project-shape.test.mjs apps/desktop/src/renderer/src/nle/timeline-clips.test.mjs apps/desktop/src/renderer/src/nle/clip-mutations.test.mjs apps/desktop/src/renderer/src/nle/trim-session.test.mjs apps/desktop/src/renderer/src/nle/snap.test.mjs apps/desktop/src/renderer/src/nle/nle-timeline.test.mjs`, `pnpm --filter @rough-cut/desktop typecheck`, `pnpm --filter @rough-cut/project-model test -- timeline-commands`, `pnpm playback:timeline`, `pnpm visual:timeline`, and `pnpm smoke:ui`; inspected smoke screenshots at `/tmp/rough-cut-ui-smoke-qQBKm4/ui-smoke.png` and `/tmp/rough-cut-ui-smoke-qQBKm4/ui-smoke-timeline.png`.
+
 ### TASK-221 NLE rebuild lane 8: cross-view visual tests
 
 **Priority:** P0
-**Status:** PLANNED
+**Status:** DONE (2026-05-20)
 **Lane:** P-AI-I / Rebuild Lane 8
 **Parent EPIC:** TASK-140
 **Depends on:** TASK-219, TASK-220
@@ -6052,6 +6061,17 @@ The current failure was not caught because tests checked each view locally. Cros
 #### Verification
 
 - New focused command, likely `pnpm visual:timeline-sync`, fails on the current bug and passes only when both adapters and shared preview are correct.
+
+#### Progress Notes
+
+- Added `scripts/visual-timeline-sync-playwright.mjs` and `pnpm visual:timeline-sync`.
+- The harness builds a canonical moved/source-offset screen clip with a leading gap, opens both Recording Edit and NLE, and asserts both views show matching clip bounds.
+- It asserts gap playheads render dark/empty in both previews, then performs an actual Recording Edit trim and verifies NLE DOM state matches the updated canonical clip.
+- It then performs an actual NLE trim and verifies Recording Edit DOM state matches the updated canonical clip.
+- Clip drag/move UI is intentionally not covered because TASK-188 remains planned after this rebuild gate; the moved-clip fixture covers cross-view rendering of canonical moved state until drag exists.
+- Verified with `pnpm visual:timeline-sync`, focused renderer tests, `pnpm --filter @rough-cut/desktop typecheck`, `pnpm --filter @rough-cut/project-model test -- timeline-commands`, `pnpm playback:timeline`, and `pnpm smoke:ui`.
+- Inspected visual sync screenshots at `/tmp/rough-cut-visual-timeline-sync-dbPb18/recording-moved.png`, `/tmp/rough-cut-visual-timeline-sync-dbPb18/nle-moved.png`, `/tmp/rough-cut-visual-timeline-sync-dbPb18/nle-after-recording-trim.png`, and `/tmp/rough-cut-visual-timeline-sync-dbPb18/recording-after-nle-trim.png`.
+- Inspected smoke screenshots at `/tmp/rough-cut-ui-smoke-pvKrC8/ui-smoke.png` and `/tmp/rough-cut-ui-smoke-pvKrC8/ui-smoke-timeline.png`.
 
 ### TASK-222 NLE rebuild lane 9: export resolver parity
 
@@ -6076,6 +6096,28 @@ Export must render exactly what preview and the canonical timeline describe. It 
 #### Verification
 
 - Export tests cover moved clips, leading gaps, trailing gaps, ripple deletes, linked camera, and preview/export frame parity.
+
+#### Progress 2026-05-20
+
+- Export now resolves the primary recording from canonical `document.timeline` instead of using legacy `composition.tracks` trim state as truth.
+- Styled export accepts canonical screen EDL segments and renders them over a black source-sized base, preserving leading, internal, and trailing gaps by default.
+- Cursor telemetry is remapped from source frames to timeline frames for segment-based exports, so cursor events do not appear during gaps or removed source ranges.
+- Zoom and cut markers are read from canonical timeline markers after project canonicalization, with legacy asset presentation only as import/fallback data.
+- Raw export eligibility now uses canonical timeline predicates: byte-copy only for full unedited timelines; stream-copy trim only for canonical head/tail trims with no gaps.
+- Recording Edit export now exposes an explicit range option for `Timeline` versus `Used` content, preserving full gaps by default while allowing trim-to-used-content exports.
+- Styled export resolves canonical audio segments through FFmpeg filter audio, including silence for gaps and mixed delayed source segments.
+- Styled export resolves linked camera timeline segments for aligned screen/camera canonical clips.
+- Fixed canonical camera source duration so camera preroll projects validate when camera source ranges extend beyond the screen overlap.
+- Hardened `playback:timeline` to assert active playback frames during the valid segment instead of sampling after the trailing gap, and fixed controlled NLE timeline playback so active frames render while the playhead advances.
+- Updated UI smoke probes for the current export-range copy and timeline cut-tool controls.
+- Verified with `node --test apps/desktop/src/main/export-service.test.mjs`, `node --test apps/desktop/src/main/project-files.test.mjs`, `pnpm --filter @rough-cut/desktop typecheck`, `pnpm --filter @rough-cut/project-model test -- timeline-commands`, `pnpm smoke:styled-export`, `pnpm visual:export`, `pnpm playback:timeline`, and `pnpm smoke:ui`.
+- Also manually ran a real styled export for a canonical moved/source-offset clip with a leading gap and confirmed FFmpeg produced a 1920x1080, 30 fps MP4 with timeline duration preserved.
+- Also manually ran real styled exports for canonical audio + linked camera segment projects with both `timeline` and `used-content` scopes.
+- Inspected smoke screenshots at `/tmp/rough-cut-ui-smoke-FOobA0/ui-smoke.png` and `/tmp/rough-cut-ui-smoke-FOobA0/ui-smoke-timeline.png`.
+
+#### Remaining
+
+- None.
 
 ### TASK-223 NLE rebuild lane 10: cleanup and guardrails
 

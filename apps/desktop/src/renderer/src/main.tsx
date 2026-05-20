@@ -108,7 +108,7 @@ declare global {
       recoverLastRecording: () => Promise<{ state: 'recovered'; project: ProjectState; remuxWarnings: Array<{ source: string; message: string }> }>;
       dismissRecovery: (options?: { deleteFiles?: boolean }) => Promise<{ dismissed: boolean; removed: string[] }>;
       pickExportOutputPath: (projectName: string) => Promise<string | null>;
-      exportProject: (payload: { document: ProjectState['document']; outputPath: string; mode: ExportMode }) => Promise<ExportResult>;
+      exportProject: (payload: { document: ProjectState['document']; outputPath: string; mode: ExportMode; exportScope?: ExportScope }) => Promise<ExportResult>;
       cancelExport: () => Promise<{ cancelled: boolean }>;
       onExportProgress: (callback: (progress: ExportProgress) => void) => () => void;
       listRecentProjects: () => Promise<Array<{
@@ -186,6 +186,7 @@ type ProjectChangeOptions = { history?: boolean; previous?: ProjectState };
 type ExportProgress = { phase: string; progress: number };
 type ExportResult = { outputPath: string; sourcePath: string; bytes: number; byteEqualCandidate: boolean; cancelled?: boolean };
 type ExportMode = 'raw' | 'styled';
+type ExportScope = 'timeline' | 'used-content';
 type MicSource = { id: string; name: string; label: string; state: string };
 type AudioSource = { id: string; name: string; label: string; state: string };
 type CameraSource = { id: string; name: string; label: string };
@@ -349,6 +350,7 @@ function App() {
   const [exportProgress, setExportProgress] = React.useState<ExportProgress | null>(null);
   const [exportResult, setExportResult] = React.useState<ExportResult | null>(null);
   const [exportMode, setExportMode] = React.useState<ExportMode>('raw');
+  const [exportScope, setExportScope] = React.useState<ExportScope>('timeline');
   const [micSources, setMicSources] = React.useState<MicSource[]>([]);
   const [systemAudioSources, setSystemAudioSources] = React.useState<AudioSource[]>([]);
   const [cameraSources, setCameraSources] = React.useState<CameraSource[]>([]);
@@ -766,7 +768,7 @@ function App() {
         return;
       }
       setExportMode(mode);
-      const result = await window.roughCut.exportProject({ document: project.document, outputPath, mode });
+      const result = await window.roughCut.exportProject({ document: project.document, outputPath, mode, exportScope });
       if (result.cancelled) {
         setExportProgress(null);
         return;
@@ -1231,6 +1233,8 @@ function App() {
             onShowItemInFolder={showItemInFolder}
             onRetake={startRetake}
             exportMode={exportMode}
+            exportScope={exportScope}
+            onExportScopeChange={setExportScope}
             exportProgress={exportProgress}
             exportResult={exportResult}
             setupBoardOpen={setupBoardOpen}
@@ -2646,7 +2650,7 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
 }
 
 
-function PostRecordingReview({ project, recording, exportProgress, onExportMode, onCancelExport, onOpenProject, onOpenRecordingFolder, onOpenDiagnostics, onRetake }: { project: ProjectState; recording: RecordingStatus; exportProgress: ExportProgress | null; onExportMode: (mode: ExportMode) => void; onCancelExport: () => void; onOpenProject: () => void; onOpenRecordingFolder: () => void; onOpenDiagnostics: () => void; onRetake: () => void }) {
+function PostRecordingReview({ project, recording, exportProgress, exportScope, onExportScopeChange, onExportMode, onCancelExport, onOpenProject, onOpenRecordingFolder, onOpenDiagnostics, onRetake }: { project: ProjectState; recording: RecordingStatus; exportProgress: ExportProgress | null; exportScope: ExportScope; onExportScopeChange: (scope: ExportScope) => void; onExportMode: (mode: ExportMode) => void; onCancelExport: () => void; onOpenProject: () => void; onOpenRecordingFolder: () => void; onOpenDiagnostics: () => void; onRetake: () => void }) {
   const isFreshRecording = recording.state === 'saved' && recording.project?.path === project.path;
   const diagnosticsAvailable = recording.state === 'saved' && Boolean(recording.diagnosticsPath);
   const cameraWarning = recording.state === 'saved' ? recording.cameraError : getProjectCameraWarning(project);
@@ -2677,6 +2681,13 @@ function PostRecordingReview({ project, recording, exportProgress, onExportMode,
         <button type="button" className="secondary" onClick={onOpenProject}><Icon name="folder" /> Project</button>
         <button type="button" className="secondary" onClick={onRetake}><Icon name="record" /> New</button>
       </div>
+      <div className="exportScopeControl" aria-label="Export range">
+        <span>Range</span>
+        <div className="exportScopeButtons" role="group" aria-label="Export range">
+          <button type="button" className={exportScope === 'timeline' ? 'active' : ''} onClick={() => onExportScopeChange('timeline')} disabled={Boolean(exportProgress)}>Timeline</button>
+          <button type="button" className={exportScope === 'used-content' ? 'active' : ''} onClick={() => onExportScopeChange('used-content')} disabled={Boolean(exportProgress)}>Used</button>
+        </div>
+      </div>
       <p className="reviewSafetyCopy">New keeps this take.</p>
     </section>
   );
@@ -2700,6 +2711,8 @@ function ProjectPreview({
   exportProgress,
   exportResult,
   exportMode,
+  exportScope,
+  onExportScopeChange,
   setupBoardOpen,
   inspectorOpen,
   activeTool,
@@ -2716,6 +2729,8 @@ function ProjectPreview({
   exportProgress: ExportProgress | null;
   exportResult: ExportResult | null;
   exportMode: ExportMode;
+  exportScope: ExportScope;
+  onExportScopeChange: (scope: ExportScope) => void;
   setupBoardOpen: boolean;
   inspectorOpen: boolean;
   activeTool: ActiveTool;
@@ -3185,6 +3200,8 @@ function ProjectPreview({
           project={project}
           recording={recording}
           exportProgress={exportProgress}
+          exportScope={exportScope}
+          onExportScopeChange={onExportScopeChange}
           onExportMode={onExportMode}
           onCancelExport={onCancelExport}
           onOpenProject={() => onOpenPath(project.path)}
@@ -3193,7 +3210,7 @@ function ProjectPreview({
           onRetake={onRetake}
         />
         <InspectorSection id="export" title="Export status">
-          <ExportPresetDetails mode={exportMode} aspectRatio={aspectRatio} />
+          <ExportPresetDetails mode={exportMode} exportScope={exportScope} aspectRatio={aspectRatio} />
           <InspectorActionRow region="export-status-area">
             {exportProgress ? <ExportProgressMeter progress={exportProgress} /> : null}
             {exportResult ? <p className="saved">Exported to: {exportResult.outputPath} ({exportResult.bytes} bytes)</p> : null}
@@ -3996,16 +4013,17 @@ function AutoZoomSuggestionsPanel({
   );
 }
 
-function ExportPresetDetails({ mode, aspectRatio }: { mode: ExportMode; aspectRatio?: ProjectAspectRatio }) {
+function ExportPresetDetails({ mode, exportScope, aspectRatio }: { mode: ExportMode; exportScope: ExportScope; aspectRatio?: ProjectAspectRatio }) {
+  const rangeLabel = exportScope === 'used-content' ? 'used content only' : 'full timeline';
   if (mode === 'raw') {
-    return <p className="exportPreset">Raw export keeps the original recording unchanged.</p>;
+    return <p className="exportPreset">Raw export keeps source pixels unchanged when the {rangeLabel} can be stream-copied.</p>;
   }
 
   const activeRatio = aspectRatio ?? 'auto';
   return (
     <div className="exportPresetDetails">
       <p className="exportPreset">
-        Styled preset: selected aspect ratio, full-screen fit, pastel background, rounded screen, soft shadow.
+        Styled preset: {rangeLabel}, selected aspect ratio, full-screen fit, pastel background, rounded screen, soft shadow.
       </p>
       <span className="exportPresetChip" data-active-aspect-ratio={activeRatio}>{PROJECT_ASPECT_RATIO_LABELS[activeRatio]}</span>
     </div>

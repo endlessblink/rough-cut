@@ -1,19 +1,42 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createAsset, createProject } from '@rough-cut/project-model';
 import { createTrimSession, updateTrimSession } from './trim-session.mjs';
 
-const project = {
-  document: {
-    composition: { duration: 300, tracks: [] },
-    timeline: {
+const asset = createAsset('video', '/tmp/video.mp4', { id: 'a1', duration: 600 });
+
+function makeProject(clips, duration = 500) {
+  return {
+    document: createProject({
+      assets: [asset],
+      composition: { duration, tracks: [], transitions: [] },
       tracks: [{
         id: 'v1',
         kind: 'video',
-        clips: [{ id: 'c1', source: { kind: 'project-asset', id: 'a1' }, timelineIn: 50, timelineOut: 250, sourceIn: 50, sourceOut: 250 }],
+        index: 0,
+        label: 'Video',
+        enabled: true,
+        locked: false,
+        muted: false,
+        clips,
       }],
-    },
-  },
-};
+    }),
+  };
+}
+
+function clip(overrides = {}) {
+  return {
+    id: 'c1',
+    source: { kind: 'project-asset', id: asset.id },
+    timelineIn: 50,
+    timelineOut: 250,
+    sourceIn: 50,
+    sourceOut: 250,
+    ...overrides,
+  };
+}
+
+const project = makeProject([clip()], 300);
 
 test('createTrimSession captures original range and preview without mutating the project', () => {
   const session = createTrimSession(project, 'c1', 'left', 80, 300);
@@ -25,23 +48,26 @@ test('createTrimSession captures original range and preview without mutating the
   assert.equal(project.document.timeline.tracks[0].clips[0].timelineIn, 50);
 });
 
-test('updateTrimSession clamps preview against neighboring clips', () => {
-  const projectWithNeighbors = {
+test('createTrimSession ignores stale top-level and composition mirrors', () => {
+  const staleProject = {
+    ...project,
     document: {
-      composition: { duration: 500, tracks: [] },
-      timeline: {
-        tracks: [{
-          id: 'v1',
-          kind: 'video',
-          clips: [
-            { id: 'c0', source: { kind: 'project-asset', id: 'a1' }, timelineIn: 0, timelineOut: 80, sourceIn: 0, sourceOut: 80 },
-            { id: 'c1', source: { kind: 'project-asset', id: 'a1' }, timelineIn: 100, timelineOut: 250, sourceIn: 100, sourceOut: 250 },
-            { id: 'c2', source: { kind: 'project-asset', id: 'a1' }, timelineIn: 300, timelineOut: 420, sourceIn: 0, sourceOut: 120 },
-          ],
-        }],
-      },
+      ...project.document,
+      tracks: [{ ...project.document.tracks[0], clips: [{ ...project.document.tracks[0].clips[0], timelineIn: 10, sourceIn: 10 }] }],
+      composition: { ...project.document.composition, tracks: [{ type: 'video', clips: [{ id: 'c1', timelineIn: 10, timelineOut: 250, sourceIn: 10, sourceOut: 250 }] }] },
     },
   };
+  const session = createTrimSession(staleProject, 'c1', 'left', 80, 300);
+  assert.equal(session.original.timelineIn, 50);
+  assert.equal(session.original.sourceIn, 50);
+});
+
+test('updateTrimSession clamps preview against neighboring clips', () => {
+  const projectWithNeighbors = makeProject([
+    clip({ id: 'c0', timelineIn: 0, timelineOut: 80, sourceIn: 0, sourceOut: 80 }),
+    clip({ id: 'c1', timelineIn: 100, timelineOut: 250, sourceIn: 100, sourceOut: 250 }),
+    clip({ id: 'c2', timelineIn: 300, timelineOut: 420, sourceIn: 0, sourceOut: 120 }),
+  ]);
 
   const left = createTrimSession(projectWithNeighbors, 'c1', 'left', 20, 500);
   assert.equal(left.preview.timelineIn, 80);

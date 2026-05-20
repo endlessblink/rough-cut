@@ -107,7 +107,7 @@ export interface SharedTimelineInput {
 }
 
 export function createSharedTimeline(input: SharedTimelineInput): SharedTimeline {
-  const sources = input.assets.flatMap((asset) => timelineSourcesForAsset(asset));
+  const sources = input.assets.flatMap((asset) => timelineSourcesForAsset(asset, input.assets));
   const linkedGroups = recordingLinkedGroups(sources);
 
   return {
@@ -442,7 +442,7 @@ function nleClipSourceFromUnknown(value: unknown): NleClipSource | undefined {
   return { kind, id };
 }
 
-function timelineSourcesForAsset(asset: Asset): TimelineSource[] {
+function timelineSourcesForAsset(asset: Asset, assets: readonly Asset[] = []): TimelineSource[] {
   if (asset.type !== 'recording') {
     return [
       {
@@ -492,13 +492,14 @@ function timelineSourcesForAsset(asset: Asset): TimelineSource[] {
   ];
 
   if (asset.cameraAssetId) {
+    const cameraAsset = assets.find((candidate) => candidate.id === asset.cameraAssetId);
     sources.push({
       id: `source:${asset.id}:camera`,
       kind: 'camera',
       mediaType: 'video',
       assetId: asset.cameraAssetId as AssetId,
       label: 'Camera',
-      duration: asset.duration,
+      duration: cameraAsset?.duration ?? asset.duration,
     });
   }
 
