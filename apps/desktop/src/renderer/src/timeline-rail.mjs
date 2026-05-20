@@ -1,4 +1,5 @@
 import { listMarkers } from './zoom-markers.mjs';
+import { selectRecordingEditModel } from './recording-timeline.mjs';
 
 const DEFAULT_TICK_COUNT = 7;
 
@@ -35,13 +36,15 @@ export function frameRangeToPlacement(startFrame, endFrame, fps, durationSec) {
 
 export function buildTimelineModel({ document, recording, currentTimeSec, cameraMediaUrl }) {
   const fps = Number.isFinite(recording?.fps) && recording.fps > 0 ? recording.fps : 30;
+  const adapter = selectRecordingEditModel({ document });
   const frameDuration = Number.isFinite(recording?.duration) && recording.duration > 0
     ? recording.duration
-    : document?.composition?.duration ?? 0;
-  const recordingAsset = getPrimaryAsset(document);
-  const primaryClip = getPrimaryClip(document, recordingAsset);
+    : adapter.sourceDurationFrames;
+  const recordingAsset = adapter.recordingAsset ?? getPrimaryAsset(document);
+  const primaryClip = adapter.primaryClip;
   const trimStartFrame = primaryClip ? clampFrame(primaryClip.sourceIn, 0, frameDuration) : 0;
-  const trimEndFrame = primaryClip ? clampFrame(primaryClip.sourceOut, trimStartFrame + 1, frameDuration) : frameDuration;
+  const lastClip = adapter.screenClips[adapter.screenClips.length - 1] ?? primaryClip;
+  const trimEndFrame = lastClip ? clampFrame(lastClip.sourceOut, trimStartFrame + 1, frameDuration) : frameDuration;
   const trimmedFrameDuration = Math.max(1, trimEndFrame - trimStartFrame);
   const durationSec = Math.max(0.1, frameDuration / fps);
   const visibleDurationSec = Math.max(0.1, trimmedFrameDuration / fps);
@@ -70,7 +73,12 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
     ticks: Array.from({ length: DEFAULT_TICK_COUNT }, (_, index) => (durationSec / (DEFAULT_TICK_COUNT - 1)) * index),
     zoomLayerCount: Math.max(1, ...zoomRegions.map((region) => region.layer + 1)),
     lanes: {
-      screen: [{ id: 'screen', left: 0, width: (visibleDurationSec / durationSec) * 100 }],
+      screen: adapter.screenClips.length > 0
+        ? adapter.screenClips.map((clip, index) => ({
+            id: clip.id ?? `screen-${index}`,
+            ...frameRangeToPlacement(clip.sourceIn - trimStartFrame, clip.sourceOut - trimStartFrame, fps, durationSec),
+          }))
+        : [{ id: 'screen', left: 0, width: (visibleDurationSec / durationSec) * 100 }],
       zoom: zoomRegions,
       clicks: clickEvents.map((event, index) => ({
         id: `${event.frame}-${index}`,
@@ -104,15 +112,6 @@ function assignZoomLayers(regions) {
 
 function getPrimaryAsset(document) {
   return document?.assets?.find((asset) => asset.type === 'recording') ?? null;
-}
-
-function getPrimaryClip(document, asset) {
-  if (!asset?.id) return null;
-  for (const track of document?.composition?.tracks ?? []) {
-    const clip = track.clips?.find((item) => item.assetId === asset.id);
-    if (clip) return clip;
-  }
-  return null;
 }
 
 function clampFrame(value, min, max) {

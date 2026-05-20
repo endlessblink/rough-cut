@@ -28,6 +28,7 @@ test('styled video preview can resolve timeline-time playback through the shared
   assert.match(source, /resolveTimelineFrame\(project\.document as unknown as ProjectDocument, timelineFrame\)/);
   assert.match(source, /if \(timeMode === 'timeline' && !screenLayer\)/);
   assert.match(source, /if \(timeMode === 'timeline'\) return;/);
+  assert.match(source, /timeMode !== 'timeline' \|\| video\.paused/);
 });
 
 test('styled video preview surfaces offscreen cursor state without clamping cursor draw', () => {

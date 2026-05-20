@@ -201,7 +201,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-216~~ | ✅ NLE rebuild lane 3: timeline playback resolver | P0 | ✅ DONE (2026-05-19) |
 | ~~TASK-217~~ | ✅ NLE rebuild lane 4: mutation command service | P0 | ✅ DONE (2026-05-19) |
 | ~~TASK-218~~ | ✅ NLE rebuild lane 5: shared playback preview | P0 | ✅ DONE (2026-05-20) |
-| TASK-219 | NLE rebuild lane 6: Recording Edit adapter | P0 | PLANNED |
+| TASK-219 | NLE rebuild lane 6: Recording Edit adapter | P0 | IN PROGRESS |
 | TASK-220 | NLE rebuild lane 7: NLE adapter | P0 | PLANNED |
 | TASK-221 | NLE rebuild lane 8: cross-view visual tests | P0 | PLANNED |
 | TASK-222 | NLE rebuild lane 9: export resolver parity | P0 | PLANNED |
@@ -3170,7 +3170,7 @@ The recording-recovery marker existed at `recording-session.mjs:45-69` but no UI
 ### TASK-090 Build AppImage and deb installer with electron-updater
 
 **Priority:** P3  
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 #### Context
 
@@ -5985,6 +5985,15 @@ Recording Edit is a simplified adapter over the canonical timeline. It can visua
 #### Verification
 
 - Adapter tests cover leading gap, collapsed view transform, multiple clips, linked groups, trim restore, and ripple-delete cut.
+
+#### Progress Notes
+
+- Added `selectRecordingEditModel(...)` over the canonical shared timeline and stopped `getRecordingTimelineClip` / trim updates from falling back to legacy `composition.tracks` or top-level `tracks`.
+- Routed Recording Edit trim, restore-edge, restore-full-source, and cut-range deletion helpers through the TASK-217 timeline command service.
+- Recording Edit preview now enters `timeMode="timeline"`; fixed uncontrolled timeline-mode playback so native video progress still advances the timeline playhead.
+- Timeline rail reads canonical screen clips and can render multiple screen clip regions after split/ripple operations.
+- Verified this slice with focused renderer tests, `pnpm typecheck`, and `pnpm smoke:ui`; inspected smoke screenshots at `/tmp/rough-cut-ui-smoke-ierG62/ui-smoke.png` and `/tmp/rough-cut-ui-smoke-ierG62/ui-smoke-timeline.png`.
+- Remaining before DONE: surface the adapter complex-timeline warning in the Recording Edit UI, tighten the rail's collapsed timeline/source transform semantics, and cover any actual Recording Edit move gesture if one is exposed.
 
 ### TASK-220 NLE rebuild lane 7: NLE adapter
 

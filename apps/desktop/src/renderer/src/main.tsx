@@ -73,7 +73,7 @@ import { cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFra
 import type { PreviewDragOrigin } from './styled-preview.mjs';
 import { generateSuggestionsForProject } from './auto-zoom-suggestions.mjs';
 import { addCutRange, clearCutRanges, listCutRanges, removeCutRange, visibleDurationFrames, visibleFrameToSourceFrame } from './cut-ranges.mjs';
-import { getRecordingTimelineClip, syncRecordingTimelinePresentation, updateRecordingTimelineTrim } from './recording-timeline.mjs';
+import { getRecordingTimelineClip, restoreRecordingFullSource, restoreRecordingSourceEdge, rippleDeleteRecordingRange, syncRecordingTimelinePresentation, updateRecordingTimelineTrim } from './recording-timeline.mjs';
 import { appError, errorStateCopy, type AppError } from './app-error-copy.mjs';
 import { EMPTY_EDIT_HISTORY, recordEdit, redoEdit, undoEdit, type EditHistory } from './edit-history.mjs';
 
@@ -3029,8 +3029,8 @@ function ProjectPreview({
   }
 
   function resetTrim() {
-    if (!effectiveRecording) return;
-    updateTrim(0, effectiveRecording.duration);
+    if (!recordingAsset?.id) return;
+    void persist(restoreRecordingFullSource(project.document, { assetId: recordingAsset.id }) as ProjectState['document']);
   }
 
   async function restoreCut(cutRangeId: string) {
@@ -3074,7 +3074,11 @@ function ProjectPreview({
 
   async function addCutBetween(startFrame: number, endFrame: number) {
     if (!recordingAsset?.id || !effectiveRecording) return;
-    const nextDocument = addCutRange(project.document as unknown as ProjectDocument, recordingAsset.id, startFrame, endFrame, effectiveRecording.duration) as unknown as ProjectState['document'];
+    const nextDocument = rippleDeleteRecordingRange(project.document as unknown as ProjectDocument, {
+      assetId: recordingAsset.id,
+      startFrame,
+      endFrame,
+    }) as unknown as ProjectState['document'];
     if (nextDocument === project.document) return;
     await persist(nextDocument);
   }
@@ -3151,7 +3155,7 @@ function ProjectPreview({
           ) : null}
         </div>
         {project.mediaUrl ? (
-          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} onCurrentTimeChange={setCurrentTimeSec} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} />
+          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} timeMode="timeline" onCurrentTimeChange={setCurrentTimeSec} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} />
         ) : (
           // P-AI-C/TASK-169 — empty-state for blank projects (no assets). The
           // NLE Editor view will be the proper home for blank projects once it
@@ -3167,7 +3171,7 @@ function ProjectPreview({
           <p className="eyebrow"><Icon name="timeline" /> Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-          {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimStart={(sourceTimeSec) => updateTrim(Math.round(sourceTimeSec * effectiveRecording.fps), trimInfo.endFrame)} onTrimEnd={(sourceTimeSec) => updateTrim(trimInfo.startFrame, Math.round(sourceTimeSec * effectiveRecording.fps))} onRestoreTrimStart={() => updateTrim(0, trimInfo.endFrame)} onRestoreTrimEnd={() => updateTrim(trimInfo.startFrame, effectiveRecording.duration)} onResetTrim={resetTrim} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} /> : null}
+          {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimStart={(sourceTimeSec) => updateTrim(Math.round(sourceTimeSec * effectiveRecording.fps), trimInfo.endFrame)} onTrimEnd={(sourceTimeSec) => updateTrim(trimInfo.startFrame, Math.round(sourceTimeSec * effectiveRecording.fps))} onRestoreTrimStart={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'head' }) as ProjectState['document']) : undefined} onRestoreTrimEnd={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'tail' }) as ProjectState['document']) : undefined} onResetTrim={resetTrim} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} /> : null}
         </div>
       </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
@@ -3254,14 +3258,6 @@ function clipCutRangesToTrim(cutRanges: CutRange[], trimInfo: TrimInfo): CutRang
       endFrame: Math.max(trimInfo.startFrame, Math.min(trimInfo.endFrame, range.endFrame)),
     }))
     .filter((range) => range.endFrame > range.startFrame);
-}
-
-function toTrimRelativeCutRanges(cutRanges: CutRange[], trimInfo: TrimInfo): CutRange[] {
-  return cutRanges.map((range) => ({
-    ...range,
-    startFrame: range.startFrame - trimInfo.startFrame,
-    endFrame: range.endFrame - trimInfo.startFrame,
-  }));
 }
 
 function RangeField({ label, value, min, max, step, disabled, onChange }: { label: string; value: number; min: number; max: number; step: number; disabled?: boolean; onChange: (value: number) => void }) {

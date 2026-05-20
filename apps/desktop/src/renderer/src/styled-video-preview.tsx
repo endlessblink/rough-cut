@@ -317,7 +317,7 @@ export function StyledVideoPreview({
       }
       const sourceFrame = Math.max(0, Math.round(video.currentTime * fps));
       const currentFrame = timeMode === 'timeline' ? Math.max(0, Math.round(currentTimeRef.current * fps)) : sourceFrame;
-      if (currentFrame === lastDrawnFrame && !previewInteractionDirtyRef.current) {
+      if (currentFrame === lastDrawnFrame && !previewInteractionDirtyRef.current && (timeMode !== 'timeline' || video.paused)) {
         rafId = window.requestAnimationFrame(tick);
         return;
       }

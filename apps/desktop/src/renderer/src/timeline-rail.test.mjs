@@ -88,7 +88,7 @@ test('buildTimelineModel maps timeline lanes relative to clip trims', () => {
     },
   });
   const track = { id: 'track-1', type: 'video', name: 'Video', index: 0, locked: false, visible: true, volume: 1, clips: [{ id: 'clip-1', assetId: asset.id, trackId: 'track-1', enabled: true, timelineIn: 0, timelineOut: 180, sourceIn: 30, sourceOut: 210, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0.5, anchorY: 0.5, opacity: 1 }, effects: [], keyframes: [] }] };
-  const document = { ...base, assets: [asset], composition: { ...base.composition, duration: 180, tracks: [track] } };
+  const document = createProject({ assets: [asset], composition: { ...base.composition, duration: 180, tracks: [track] } });
   const model = buildTimelineModel({ document, recording: { duration: 300, fps: 30 }, currentTimeSec: 1, cameraMediaUrl: null });
 
   assert.equal(model.durationSec, 10);
