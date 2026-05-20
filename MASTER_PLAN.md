@@ -5990,11 +5990,11 @@ Recording Edit is a simplified adapter over the canonical timeline. It can visua
 
 - Added `selectRecordingEditModel(...)` over the canonical shared timeline and stopped `getRecordingTimelineClip` / trim updates from falling back to legacy `composition.tracks` or top-level `tracks`.
 - Routed Recording Edit trim, restore-edge, restore-full-source, and cut-range deletion helpers through the TASK-217 timeline command service.
-- Recording Edit preview now enters `timeMode="timeline"`; fixed uncontrolled timeline-mode playback so native video progress still advances the timeline playhead.
+- Recording Edit preview temporarily stays on the proven source-mode playback path while the canonical adapter is in progress; NLE keeps the new timeline-mode shared preview path from TASK-218.
 - Timeline rail reads canonical screen clips and can render multiple screen clip regions after split/ripple operations.
 - Verified this slice with focused renderer tests, `pnpm typecheck`, and `pnpm smoke:ui`; inspected smoke screenshots at `/tmp/rough-cut-ui-smoke-ierG62/ui-smoke.png` and `/tmp/rough-cut-ui-smoke-ierG62/ui-smoke-timeline.png`.
 - Surfaced the adapter complex-timeline warning in the Recording Edit timeline board.
-- Remaining before DONE: tighten the rail's collapsed timeline/source transform semantics and cover any actual Recording Edit move gesture if one is exposed.
+- Remaining before DONE: finish the collapsed Recording Edit timeline/source playback transform, then switch Recording Edit preview back to timeline mode and cover any actual Recording Edit move gesture if one is exposed.
 
 ### TASK-220 NLE rebuild lane 7: NLE adapter
 

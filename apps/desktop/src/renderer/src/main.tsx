@@ -3157,7 +3157,7 @@ function ProjectPreview({
           ) : null}
         </div>
         {project.mediaUrl ? (
-          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} timeMode="timeline" onCurrentTimeChange={setCurrentTimeSec} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} />
+          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} onCurrentTimeChange={setCurrentTimeSec} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} />
         ) : (
           // P-AI-C/TASK-169 — empty-state for blank projects (no assets). The
           // NLE Editor view will be the proper home for blank projects once it
@@ -3260,6 +3260,14 @@ function clipCutRangesToTrim(cutRanges: CutRange[], trimInfo: TrimInfo): CutRang
       endFrame: Math.max(trimInfo.startFrame, Math.min(trimInfo.endFrame, range.endFrame)),
     }))
     .filter((range) => range.endFrame > range.startFrame);
+}
+
+function toTrimRelativeCutRanges(cutRanges: CutRange[], trimInfo: TrimInfo): CutRange[] {
+  return cutRanges.map((range) => ({
+    ...range,
+    startFrame: range.startFrame - trimInfo.startFrame,
+    endFrame: range.endFrame - trimInfo.startFrame,
+  }));
 }
 
 function RangeField({ label, value, min, max, step, disabled, onChange }: { label: string; value: number; min: number; max: number; step: number; disabled?: boolean; onChange: (value: number) => void }) {
