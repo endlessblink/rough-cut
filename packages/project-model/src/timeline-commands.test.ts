@@ -196,6 +196,37 @@ describe('timeline command service', () => {
     assertTimelineInvariants(result.document.timeline);
   });
 
+  it('edits only the selected linked segment after a split, not every sibling segment', () => {
+    const camera = createAsset('video', '/tmp/camera.mp4', { id: 'camera-asset' as never, duration: 330 });
+    const recording = createAsset('recording', '/tmp/screen.webm', {
+      id: 'recording-asset' as never,
+      duration: 300,
+      cameraAssetId: camera.id,
+      presentation: createDefaultRecordingPresentation(),
+    });
+    const project = createProject({
+      assets: [recording, camera],
+      tracks: [
+        track({ id: 'screen-track' as never, index: 0, clips: [clip('screen', recording.id, 0, 100, 10)] }),
+        track({ id: 'camera-track' as never, index: 1, clips: [clip('camera', camera.id, 0, 100, 40)] }),
+      ],
+    });
+    const ids = ['screen-l', 'screen-r', 'camera-l', 'camera-r'];
+    const split = splitClip(project, { clipId: 'screen', frame: 50, idFactory: () => ids.shift()! });
+    const moved = moveClip(split.document, { clipId: 'screen-r', timelineIn: 120 }).document;
+    const trimmed = trimClipEdge(moved, { clipId: 'screen-r', edge: 'tail', frame: 150 }).document;
+
+    expect(trimmed.timeline.tracks[0]?.clips).toMatchObject([
+      { id: 'screen-l', timelineIn: 0, timelineOut: 50, sourceIn: 10, sourceOut: 60 },
+      { id: 'screen-r', timelineIn: 120, timelineOut: 150, sourceIn: 60, sourceOut: 90 },
+    ]);
+    expect(trimmed.timeline.tracks[1]?.clips).toMatchObject([
+      { id: 'camera-l', timelineIn: 0, timelineOut: 50, sourceIn: 40, sourceOut: 90 },
+      { id: 'camera-r', timelineIn: 120, timelineOut: 150, sourceIn: 90, sourceOut: 120 },
+    ]);
+    assertTimelineInvariants(trimmed.timeline);
+  });
+
   it('defaults deleteClip to leave-gap and supports explicit ripple deletes', () => {
     const asset = createAsset('video', '/tmp/screen.mp4', { id: 'asset-1' as never, duration: 300 });
     const project = createProject({

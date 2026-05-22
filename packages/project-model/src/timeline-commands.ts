@@ -363,12 +363,16 @@ function linkedLocations(timeline: Timeline, clip: TimelineClip): ClipLocation[]
     const loc = findClipLocation(timeline, clip.id);
     return loc ? [loc] : [];
   }
+  const timelineIn = clip.timelineIn;
+  const timelineOut = clip.timelineOut;
   const linked: ClipLocation[] = [];
   for (let trackIndex = 0; trackIndex < timeline.tracks.length; trackIndex += 1) {
     const track = timeline.tracks[trackIndex]!;
     for (let clipIndex = 0; clipIndex < track.clips.length; clipIndex += 1) {
       const current = track.clips[clipIndex]!;
-      if (current.linkGroupId === clip.linkGroupId) linked.push({ trackIndex, clipIndex, track, clip: current });
+      if (current.linkGroupId === clip.linkGroupId && current.timelineIn === timelineIn && current.timelineOut === timelineOut) {
+        linked.push({ trackIndex, clipIndex, track, clip: current });
+      }
     }
   }
   return linked;

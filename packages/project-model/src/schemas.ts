@@ -25,6 +25,7 @@ export const EasingTypeSchema = z.enum([
 ]);
 
 export const AssetTypeSchema = z.enum(['video', 'audio', 'image', 'recording', 'motion']);
+export const AiAssetKindSchema = z.enum(['audio', 'image', 'video', 'motion-graphics']);
 export const AssetPathModeSchema = z.enum(['relative', 'absolute']);
 export const TrackTypeSchema = z.enum(['video', 'audio']);
 export const ExportFormatSchema = z.enum(['mp4', 'webm', 'gif']);
@@ -234,6 +235,22 @@ export const AssetSchema = z.object({
   thumbnailPath: z.string().optional(),
   presentation: RecordingPresentationSchema.optional(),
   cameraAssetId: z.string().min(1).optional(),
+});
+
+export const AiAssetSchema = z.object({
+  id: z.string().min(1),
+  kind: AiAssetKindSchema,
+  providerId: z.string().min(1),
+  sourcePrompt: z.string(),
+  createdAt: z.string().datetime(),
+  tags: z.array(z.string().min(1)),
+  sessionId: z.string().min(1),
+  filePath: z.string().min(1),
+});
+
+export const AiAssetClipReferenceSchema = z.object({
+  kind: z.literal('ai-asset'),
+  id: z.string().min(1),
 });
 
 // --- Tangent ---
@@ -498,10 +515,15 @@ export const CaptionTrackSchema = z.object({
 export const NleTrackKindSchema = z.enum(['video', 'audio', 'captions', 'motion-graphics']);
 export const NleClipSourceKindSchema = z.enum(['project-asset', 'ai-asset']);
 
-export const NleClipSourceSchema = z.object({
-  kind: NleClipSourceKindSchema,
+export const ProjectAssetClipReferenceSchema = z.object({
+  kind: z.literal('project-asset'),
   id: z.string().min(1),
 });
+
+export const NleClipSourceSchema = z.discriminatedUnion('kind', [
+  ProjectAssetClipReferenceSchema,
+  AiAssetClipReferenceSchema,
+]);
 
 export const NleTrackClipSchema = z.object({
   id: z.string().min(1),
@@ -545,8 +567,12 @@ export const TimelineSourceSchema = z.object({
   kind: TimelineSourceKindSchema,
   mediaType: TimelineSourceMediaTypeSchema,
   assetId: z.string().min(1).optional(),
+  aiAssetId: z.string().min(1).optional(),
   label: z.string().min(1),
   duration: nonNegativeInt,
+}).refine((source) => source.assetId === undefined || source.aiAssetId === undefined, {
+  message: 'Timeline source can reference either a project asset or an AI asset, not both',
+  path: ['aiAssetId'],
 });
 
 export const MediaReferenceSchema = TimelineSourceSchema;

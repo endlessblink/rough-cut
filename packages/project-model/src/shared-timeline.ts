@@ -1,6 +1,6 @@
 import type { NleClipSource, NleTrack, NleTrackClip, NleTrackKind } from './track.js';
 import { createNleTracksFromComposition } from './track.js';
-import type { Asset, AssetId, ExportSettings, Frame, ProjectDocument, RecordingPresentation } from './types.js';
+import type { AiAssetClipReference, AiAssetId, Asset, AssetId, ExportSettings, Frame, ProjectDocument, RecordingPresentation } from './types.js';
 
 export type TimelineSourceKind =
   | 'screen'
@@ -18,6 +18,7 @@ export interface MediaReference {
   readonly kind: TimelineSourceKind;
   readonly mediaType: TimelineSourceMediaType;
   readonly assetId?: AssetId;
+  readonly aiAssetId?: AiAssetId;
   readonly label: string;
   readonly duration: Frame;
 }
@@ -445,7 +446,8 @@ function nleClipSourceFromUnknown(value: unknown): NleClipSource | undefined {
   const kind = value['kind'];
   const id = stringValue(value['id']);
   if (!id || (kind !== 'project-asset' && kind !== 'ai-asset')) return undefined;
-  return { kind, id };
+  if (kind === 'project-asset') return { kind, id: id as AssetId };
+  return { kind, id: id as AiAssetClipReference['id'] };
 }
 
 function timelineSourcesForAsset(asset: Asset, assets: readonly Asset[] = []): TimelineSource[] {

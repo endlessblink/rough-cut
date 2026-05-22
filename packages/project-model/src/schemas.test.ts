@@ -7,9 +7,12 @@ import {
   ZoomMarkerSchema,
   TranscriptSchema,
   CaptionTrackSchema,
+  AiAssetSchema,
+  AiAssetClipReferenceSchema,
   NleTrackSchema,
   NleTrackClipSchema,
   SharedTimelineSchema,
+  TimelineSourceSchema,
 } from './schemas.js';
 import {
   createProject,
@@ -243,6 +246,67 @@ describe('ZoomMarker', () => {
 });
 
 describe('AI architecture schemas', () => {
+  it('accepts a valid AiAsset', () => {
+    const asset = {
+      id: 'ai-asset-1',
+      kind: 'audio' as const,
+      providerId: 'elevenlabs',
+      sourcePrompt: 'Narrate the intro',
+      createdAt: '2026-05-21T10:00:00.000Z',
+      tags: ['voiceover', 'intro'],
+      sessionId: 'session-1',
+      filePath: '/tmp/rough-cut/ai-assets/audio/session-1/ai-asset-1.wav',
+    };
+
+    expect(() => AiAssetSchema.parse(asset)).not.toThrow();
+  });
+
+  it('rejects an AiAsset with an unsupported kind', () => {
+    const asset = {
+      id: 'ai-asset-1',
+      kind: 'text',
+      providerId: 'codex-cli',
+      sourcePrompt: 'Make a title',
+      createdAt: '2026-05-21T10:00:00.000Z',
+      tags: [],
+      sessionId: 'session-1',
+      filePath: '/tmp/title.txt',
+    };
+
+    expect(AiAssetSchema.safeParse(asset).success).toBe(false);
+  });
+
+  it('accepts a stable AI asset clip reference', () => {
+    expect(() => AiAssetClipReferenceSchema.parse({ kind: 'ai-asset', id: 'ai-asset-1' })).not.toThrow();
+  });
+
+  it('accepts a generated timeline source that references an AI asset id', () => {
+    const source = {
+      id: 'source:ai-asset-1',
+      kind: 'generated-asset' as const,
+      mediaType: 'audio' as const,
+      aiAssetId: 'ai-asset-1',
+      label: 'Generated narration',
+      duration: 120,
+    };
+
+    expect(() => TimelineSourceSchema.parse(source)).not.toThrow();
+  });
+
+  it('rejects timeline sources that point to both project and AI assets', () => {
+    const source = {
+      id: 'source:mixed',
+      kind: 'generated-asset' as const,
+      mediaType: 'audio' as const,
+      assetId: 'project-asset-1',
+      aiAssetId: 'ai-asset-1',
+      label: 'Ambiguous generated asset',
+      duration: 120,
+    };
+
+    expect(TimelineSourceSchema.safeParse(source).success).toBe(false);
+  });
+
   it('accepts a valid Transcript', () => {
     const transcript = {
       words: [{ word: 'hello', startFrame: 0, endFrame: 12, confidence: 0.95 }],

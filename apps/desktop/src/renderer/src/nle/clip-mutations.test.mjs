@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAsset, createProject } from '@rough-cut/project-model';
-import { canSplitClipById, moveClipById, removeClipById, reorderTrackById, splitClipById, trimClipById, updateTrackById } from './clip-mutations.mjs';
+import { addGeneratedAssetToTrack, canSplitClipById, moveClipById, removeClipById, reorderTrackById, rightClipIdAfterSplit, splitClipById, trimClipById, updateTrackById } from './clip-mutations.mjs';
 
 const asset = createAsset('video', '/tmp/a1.mp4', { id: 'a1', duration: 600 });
 const cameraAsset = createAsset('video', '/tmp/cam.mp4', { id: 'cam1', duration: 600 });
@@ -64,6 +64,7 @@ test('splitClipById uses the command service and preserves half-open continuity'
   ]);
   assert.notEqual(clips[0].id, 'c1');
   assert.notEqual(clips[1].id, 'c1');
+  assert.equal(rightClipIdAfterSplit(next, 'c1', 100), clips[1].id);
 });
 
 test('splitClipById splits linked clips at the same timeline frame', () => {
@@ -168,4 +169,48 @@ test('updateTrackById and reorderTrackById mutate track state through commands',
   assert.equal(locked.document.timeline.tracks[0].locked, true);
   assert.equal(locked.document.timeline.tracks[0].height, 84);
   assert.equal(reordered.document.timeline.tracks.find((item) => item.id === 'v1').index, 1);
+});
+
+test('addGeneratedAssetToTrack creates an AI asset clip reference on a compatible video track', () => {
+  const project = makeProject([track({ id: 'v1', clips: [] })]);
+  const next = addGeneratedAssetToTrack(project, {
+    id: 'ai-image-1',
+    kind: 'image',
+    providerId: 'codex-cli',
+    sourcePrompt: 'Title card',
+    filePath: '/tmp/title.png',
+    durationFrames: 90,
+  }, 'v1', 120);
+
+  assert.notEqual(next, project);
+  assert.deepEqual(next.document.timeline.sources.find((source) => source.aiAssetId === 'ai-image-1'), {
+    id: 'source:ai-image-1',
+    kind: 'generated-asset',
+    mediaType: 'video',
+    aiAssetId: 'ai-image-1',
+    label: 'Title card',
+    duration: 90,
+  });
+  assert.deepEqual(next.document.timeline.tracks[0].clips[0], {
+    id: next.document.timeline.tracks[0].clips[0].id,
+    mediaId: 'source:ai-image-1',
+    trackId: 'v1',
+    timelineIn: 120,
+    timelineOut: 210,
+    sourceIn: 0,
+    sourceOut: 90,
+    source: { kind: 'ai-asset', id: 'ai-image-1' },
+  });
+});
+
+test('addGeneratedAssetToTrack rejects incompatible, locked, and overlapping drops', () => {
+  const project = makeProject([
+    track({ id: 'v1', clips: [baseClip] }),
+    track({ id: 'a1', kind: 'audio', index: 1, clips: [] }),
+    track({ id: 'locked', index: 2, locked: true, clips: [] }),
+  ]);
+
+  assert.equal(addGeneratedAssetToTrack(project, { id: 'ai-audio-1', kind: 'audio', providerId: 'openai', sourcePrompt: 'VO' }, 'v1', 320), project);
+  assert.equal(addGeneratedAssetToTrack(project, { id: 'ai-image-1', kind: 'image', providerId: 'openai', sourcePrompt: 'Card' }, 'locked', 320), project);
+  assert.equal(addGeneratedAssetToTrack(project, { id: 'ai-image-1', kind: 'image', providerId: 'openai', sourcePrompt: 'Card' }, 'v1', 100), project);
 });

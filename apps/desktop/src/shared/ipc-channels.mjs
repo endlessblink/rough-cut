@@ -129,6 +129,10 @@ export const IPC_CHANNELS = {
   AI_GET_API_KEY: 'ai:get-api-key',
   AI_GET_PROVIDER_CONFIG: 'ai:get-provider-config',
   AI_SET_PROVIDER_CONFIG: 'ai:set-provider-config',
+  AI_ASSET_LIST: 'ai-asset:list',
+  AI_ASSET_DELETE: 'ai-asset:delete',
+  AI_ASSET_TAG: 'ai-asset:tag',
+  AI_ASSET_RESOLVE: 'ai-asset:resolve',
   // AI editing-suggestions view (new)
   AI_ANALYZE_PROJECT: 'ai:analyze-project',
   AI_GET_KEY_STATUS: 'ai:get-key-status',

@@ -23,12 +23,12 @@ export function buildTimelineTracks(project) {
   return tracks
     .filter((track) => track && SUPPORTED_KINDS.includes(track.kind))
     .sort((a, b) => Number(b.index ?? 0) - Number(a.index ?? 0))
-    .map((track, fallbackIndex) => buildTimelineTrack(track, totalFrames, fallbackIndex));
+    .map((track, fallbackIndex) => buildTimelineTrack(track, totalFrames, fallbackIndex, document.timeline.sources));
 }
 
-function buildTimelineTrack(track, totalFrames, fallbackIndex) {
+function buildTimelineTrack(track, totalFrames, fallbackIndex, sources) {
   const clips = Array.isArray(track.clips) ? track.clips : [];
-  const blocks = clips.map((clip) => buildClipBlock(clip, totalFrames)).filter(Boolean);
+  const blocks = clips.map((clip) => buildClipBlock(clip, totalFrames, sources)).filter(Boolean);
 
   return {
     id: typeof track.id === 'string' ? track.id : `track-${fallbackIndex}`,
@@ -43,7 +43,7 @@ function buildTimelineTrack(track, totalFrames, fallbackIndex) {
   };
 }
 
-function buildClipBlock(clip, totalFrames) {
+function buildClipBlock(clip, totalFrames, sources) {
   if (!clip || typeof clip !== 'object') return null;
   const inFrame = Number(clip.timelineIn);
   const outFrame = Number(clip.timelineOut);
@@ -57,6 +57,9 @@ function buildClipBlock(clip, totalFrames) {
   const widthPct = (widthFrames / totalFrames) * 100;
   const source = clip.source && typeof clip.source === 'object' ? clip.source : null;
   const mediaId = typeof clip.mediaId === 'string' ? clip.mediaId : null;
+  const sourceIn = Number(clip.sourceIn);
+  const sourceOut = Number(clip.sourceOut);
+  const sourceDurationFrames = sources?.find((item) => item?.id === mediaId)?.duration;
   return {
     id: typeof clip.id === 'string' ? clip.id : null,
     assetId: typeof clip.assetId === 'string'
@@ -69,6 +72,9 @@ function buildClipBlock(clip, totalFrames) {
     name: typeof clip.name === 'string' && clip.name ? clip.name : null,
     timelineIn: safeIn,
     timelineOut: safeOut,
+    sourceIn: Number.isFinite(sourceIn) ? sourceIn : null,
+    sourceOut: Number.isFinite(sourceOut) ? sourceOut : null,
+    sourceDurationFrames: Number.isFinite(sourceDurationFrames) ? sourceDurationFrames : null,
     leftPct,
     widthPct,
     enabled: clip.enabled !== false,

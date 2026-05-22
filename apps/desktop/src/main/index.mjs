@@ -20,6 +20,8 @@ import { getRecordingPreflightStatus } from './recording/preflight.mjs';
 import { isXdotoolAvailable, readCursorViaXdotool } from './recording/xdotool-cursor.mjs';
 import { installRuntimeLog } from './runtime-log.mjs';
 import { createUserTemplatesStore, defaultUserTemplatesPath } from './user-templates-store.mjs';
+import { createAiAssetsStore, defaultAiAssetsRoot } from './ai-assets-store.mjs';
+import { registerAiAssetIpcHandlers } from './ai-assets-ipc.mjs';
 import {
   analyzeProject,
   getKeyStatus as getAiKeyStatus,
@@ -55,6 +57,10 @@ function buildAllowedProjectRoots() {
 const markerPath = join(app.getPath('userData'), 'recording-recovery.json');
 const userTemplatesStore = createUserTemplatesStore({
   filePath: defaultUserTemplatesPath(app.getPath('userData')),
+  onLog: (msg) => console.warn(msg),
+});
+const aiAssetsStore = createAiAssetsStore({
+  rootDir: defaultAiAssetsRoot(app.getPath('userData')),
   onLog: (msg) => console.warn(msg),
 });
 const recordingStopShortcut = 'CommandOrControl+Shift+R';
@@ -616,6 +622,7 @@ ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_LIST, () => userTemplatesStore.list())
 ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_SAVE, (_event, payload) => userTemplatesStore.save(payload ?? {}));
 ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_RENAME, (_event, payload) => userTemplatesStore.rename(payload ?? {}));
 ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_DELETE, (_event, payload) => userTemplatesStore.delete(payload ?? {}));
+registerAiAssetIpcHandlers(ipcMain, { store: aiAssetsStore });
 
 ipcMain.handle(IPC_CHANNELS.AI_GET_KEY_STATUS, () => getAiKeyStatus());
 ipcMain.handle(IPC_CHANNELS.AI_SET_API_KEY, async (_event, payload) => {
@@ -1175,7 +1182,7 @@ async function runRendererUiSmoke() {
   const aspectRatioChip = await waitFor(() => document.querySelector('.exportPresetChip[data-active-aspect-ratio]'), 'aspect ratio chip');
   const mobileTemplate = await waitFor(() => document.querySelector('[data-template-id="mobile-9-16"]'), 'mobile template preset');
   mobileTemplate.click();
-  await waitFor(() => aspectRatioChip.getAttribute('data-active-aspect-ratio') === '9:16', 'vertical aspect ratio value');
+  await waitFor(() => aspectRatioChip.getAttribute('data-active-aspect-ratio') === '9:16', 'vertical aspect ratio value', 15000);
   await waitFor(() => mobileTemplate.getAttribute('aria-pressed') === 'true', 'mobile template selected');
   const hasTemplatePresetSelection = true;
 
@@ -1590,6 +1597,7 @@ async function runRendererNleSmoke() {
   await waitFor(() => document.querySelector('.nleTransportTimeCurrent')?.textContent !== timeBeforeArrow, 'NLE arrow key step');
   const spaceEvent = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
   document.dispatchEvent(spaceEvent);
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', bubbles: true, cancelable: true }));
   const splitButton = await waitFor(() => document.querySelector('button[aria-label="Split at playhead"]'), 'NLE split button');
   const splitDisabledBeforeSelection = splitButton.disabled === true;
   document.querySelector('.nleClipBlock')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
@@ -1610,9 +1618,27 @@ async function runRendererNleSmoke() {
     const clip = document.querySelector('.nleClipBlock');
     return clip && clip.style.left !== trimLeftBefore ? clip : null;
   }, 'NLE trim drag mutates clip bounds'));
+  const selectedBeforeDrag = await waitFor(() => document.querySelector('.nleClipBlock.selected'), 'NLE selected clip after trim');
+  const selectedBeforeDragRect = selectedBeforeDrag.getBoundingClientRect();
+  const selectedBeforeDragLeft = selectedBeforeDrag.style.left ?? '';
+  selectedBeforeDrag.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 8, clientX: selectedBeforeDragRect.left + Math.min(34, selectedBeforeDragRect.width / 2), clientY: selectedBeforeDragRect.top + selectedBeforeDragRect.height / 2 }));
+  window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, button: 0, pointerId: 8, clientX: selectedBeforeDragRect.left + Math.min(34, selectedBeforeDragRect.width / 2) - 80, clientY: selectedBeforeDragRect.top + selectedBeforeDragRect.height / 2 }));
+  window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerId: 8, clientX: selectedBeforeDragRect.left + Math.min(34, selectedBeforeDragRect.width / 2) - 80, clientY: selectedBeforeDragRect.top + selectedBeforeDragRect.height / 2 }));
+  const hasNleClipDragMutation = Boolean(await waitFor(() => {
+    const clip = document.querySelector('.nleClipBlock.selected');
+    return clip && clip.style.left !== selectedBeforeDragLeft ? clip : null;
+  }, 'NLE selected clip drag mutates position'));
+  const rulerSeekRect = ruler.getBoundingClientRect();
+  ruler.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 9, clientX: rulerSeekRect.left + rulerSeekRect.width * 0.45, clientY: rulerSeekRect.top + rulerSeekRect.height / 2 }));
+  window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerId: 9, clientX: rulerSeekRect.left + rulerSeekRect.width * 0.45, clientY: rulerSeekRect.top + rulerSeekRect.height / 2 }));
   const clipCountBeforeSplit = document.querySelectorAll('.nleClipBlock').length;
   splitButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
   await waitFor(() => document.querySelectorAll('.nleClipBlock').length > clipCountBeforeSplit, 'NLE split button creates a second clip');
+  const selectedAfterSplit = await waitFor(() => document.querySelector('.nleClipBlock.selected'), 'NLE split keeps a clip selected');
+  const generatedTab = Array.from(document.querySelectorAll('.nleAssetPanelTab'))
+    .find((button) => button.textContent?.includes('Generated'));
+  generatedTab?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  await waitFor(() => document.querySelector('[data-ui-region="nle-generated-assets"]'), 'NLE generated assets tab');
 
   return {
     ok: true,
@@ -1630,5 +1656,10 @@ async function runRendererNleSmoke() {
     hasNleTrimHandles,
     hasNleTrimDragMutation,
     hasNleSplitButtonMutation: document.querySelectorAll('.nleClipBlock').length > clipCountBeforeSplit,
+    hasNleSplitKeepsSelection: Boolean(selectedAfterSplit),
+    hasNleClipDragMutation,
+    hasNleGeneratedAssetsTab: Boolean(document.querySelector('[data-ui-region="nle-generated-assets"]')),
+    hasNleGeneratedSearch: Boolean(document.querySelector('.nleGeneratedSearch input[type="search"]')),
+    hasNleGeneratedFilters: document.querySelectorAll('.nleGeneratedFilters button').length >= 5,
   };
 }

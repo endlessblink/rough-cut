@@ -3,15 +3,12 @@
 // inside `Composition.tracks`). Long-term it will subsume the composition-level
 // Track, but v14 keeps both side by side while renderer work migrates over.
 
-import type { AssetId, ClipId, Composition, Frame, Track, TrackId } from './types.js';
+import type { AiAssetClipReference, AssetId, ClipId, Composition, Frame, Track, TrackId } from './types.js';
 
 export type NleTrackKind = 'video' | 'audio' | 'captions' | 'motion-graphics';
 export type NleClipSourceKind = 'project-asset' | 'ai-asset';
 
-export interface NleClipSource {
-  readonly kind: NleClipSourceKind;
-  readonly id: string;
-}
+export type NleClipSource = { readonly kind: 'project-asset'; readonly id: AssetId } | AiAssetClipReference;
 
 export interface NleTrackClip {
   readonly id: ClipId;

@@ -21,6 +21,21 @@ function newClipId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${_splitCounter.toString(36)}`;
 }
 
+const DEFAULT_GENERATED_ASSET_DURATION_FRAMES = 150;
+
+function sourceKindForGeneratedAsset(asset) {
+  if (asset?.kind === 'audio') return 'audio';
+  if (asset?.kind === 'image' || asset?.kind === 'video') return 'video';
+  if (asset?.kind === 'motion-graphics') return 'motion-graphics';
+  return null;
+}
+
+function mediaTypeForGeneratedAsset(asset) {
+  if (asset?.kind === 'audio') return 'audio';
+  if (asset?.kind === 'image' || asset?.kind === 'video') return 'video';
+  return 'data';
+}
+
 function findClipLocation(project, clipId) {
   const document = project?.document ? canonicalizeProjectDocument(project.document) : null;
   const tracks = document?.timeline?.tracks;
@@ -67,6 +82,17 @@ export function canSplitClipById(project, clipId, splitFrame) {
   return Boolean(loc && Number.isFinite(frame) && frame > loc.clip.timelineIn && frame < loc.clip.timelineOut);
 }
 
+export function rightClipIdAfterSplit(project, originalClipId, splitFrame) {
+  const document = project?.document ? canonicalizeProjectDocument(project.document) : null;
+  const frame = Math.round(Number(splitFrame));
+  if (!document || !Number.isFinite(frame)) return null;
+  for (const track of document.timeline?.tracks ?? []) {
+    const clip = (track.clips ?? []).find((item) => item.id !== originalClipId && item.timelineIn === frame);
+    if (clip?.id) return clip.id;
+  }
+  return null;
+}
+
 export function trimClipById(project, clipId, edge, frame) {
   const normalizedEdge = edge === 'left' || edge === 'right' ? edge : null;
   const nextFrame = Math.round(Number(frame));
@@ -90,4 +116,60 @@ export function updateTrackById(project, trackId, patch) {
 export function reorderTrackById(project, trackId, direction) {
   if (!trackId || (direction !== 'up' && direction !== 'down')) return project;
   return withCommandResult(project, (document) => reorderTrack(document, { trackId, direction }));
+}
+
+export function addGeneratedAssetToTrack(project, asset, trackId, timelineIn) {
+  if (!project?.document || !asset?.id || !trackId) return project;
+  const document = canonicalizeProjectDocument(project.document);
+  const track = document.timeline?.tracks?.find((item) => item.id === trackId);
+  const targetKind = sourceKindForGeneratedAsset(asset);
+  if (!track || track.locked || !targetKind || track.kind !== targetKind) return project;
+
+  const requestedIn = Math.max(0, Math.round(Number(timelineIn)) || 0);
+  const duration = Math.max(1, Math.round(Number(asset.durationFrames ?? asset.duration ?? DEFAULT_GENERATED_ASSET_DURATION_FRAMES)));
+  const compositionDuration = Math.max(Number(document.composition?.duration ?? 0), requestedIn + duration);
+  const start = Math.min(requestedIn, Math.max(0, compositionDuration - duration));
+  const end = start + duration;
+  const overlaps = track.clips.some((clip) => start < clip.timelineOut && end > clip.timelineIn);
+  if (overlaps) return project;
+
+  const mediaId = `source:${asset.id}`;
+  const existingSource = document.timeline.sources.some((source) => source.id === mediaId);
+  const nextSource = existingSource ? [] : [{
+    id: mediaId,
+    kind: 'generated-asset',
+    mediaType: mediaTypeForGeneratedAsset(asset),
+    aiAssetId: asset.id,
+    label: asset.sourcePrompt || asset.filePath?.split(/[\\/]/).pop() || asset.id,
+    duration,
+  }];
+  const clip = {
+    id: newClipId('ai-clip'),
+    mediaId,
+    trackId: track.id,
+    timelineIn: start,
+    timelineOut: end,
+    sourceIn: 0,
+    sourceOut: duration,
+    source: { kind: 'ai-asset', id: asset.id },
+  };
+  const nextTimeline = {
+    ...document.timeline,
+    sources: [...document.timeline.sources, ...nextSource],
+    tracks: document.timeline.tracks.map((item) => item.id === track.id
+      ? { ...item, clips: [...item.clips, clip].sort((a, b) => a.timelineIn - b.timelineIn || a.timelineOut - b.timelineOut || a.id.localeCompare(b.id)) }
+      : item),
+  };
+
+  return {
+    ...project,
+    document: {
+      ...document,
+      composition: {
+        ...document.composition,
+        duration: Math.max(Number(document.composition?.duration ?? 0), end),
+      },
+      timeline: nextTimeline,
+    },
+  };
 }

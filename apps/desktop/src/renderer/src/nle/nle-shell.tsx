@@ -5,7 +5,7 @@ import { NleProgramMonitor } from './program-monitor';
 import { NleTransport } from './transport';
 import { resolveProjectFps, resolveCompositionDurationFrames } from './project-shape.mjs';
 import { clampFrame, isTypingTarget } from './keyboard.mjs';
-import { canSplitClipById, splitClipById } from './clip-mutations.mjs';
+import { canSplitClipById, rightClipIdAfterSplit, splitClipById } from './clip-mutations.mjs';
 import type { NleProject } from './types';
 
 export function NleShell({
@@ -38,6 +38,7 @@ export function NleShell({
   const durationFrames = resolveCompositionDurationFrames(project);
   const clampedPlayhead = Math.max(0, Math.min(durationFrames, playheadFrame));
   const canSplit = selectedClipId !== null && canSplitClipById(project, selectedClipId, clampedPlayhead);
+  const selectedState = selectedClipId ? 'Clip selected' : 'No clip selected';
 
   React.useEffect(() => {
     if (!isPlaying) return undefined;
@@ -69,7 +70,7 @@ export function NleShell({
     const next = splitClipById(project, selectedClipId, clampedPlayhead);
     if (next !== project) {
       onProjectChange(next as unknown as NleProject);
-      setSelectedClipId(null);
+      setSelectedClipId(rightClipIdAfterSplit(next, selectedClipId, clampedPlayhead));
     }
   }
 
@@ -109,8 +110,15 @@ export function NleShell({
   return (
     <section className="nleShell" data-ui-region="nle-workspace" aria-label="NLE editor">
       <header className="nleHeader">
-        <p className="eyebrow">Editor</p>
-        <h2 className="nleHeaderTitle">{project.document.name || 'Untitled project'}</h2>
+        <div>
+          <p className="eyebrow">Editor</p>
+          <h2 className="nleHeaderTitle">{project.document.name || 'Untitled project'}</h2>
+        </div>
+        <div className="nleHeaderMeta" aria-label="Editor status">
+          <span>{selectedState}</span>
+          <span>{Math.round(clampedPlayhead)} / {Math.round(durationFrames)} frames</span>
+          <span>{fps} fps</span>
+        </div>
       </header>
       <div className="nleBody">
         <div className="nleLeftColumn">

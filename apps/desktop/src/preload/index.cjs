@@ -44,6 +44,10 @@ const IPC_CHANNELS = {
   AI_GET_KEY_STATUS: 'ai:get-key-status',
   AI_SET_API_KEY: 'ai:set-api-key',
   AI_ANALYZE_PROJECT: 'ai:analyze-project',
+  AI_ASSET_LIST: 'ai-asset:list',
+  AI_ASSET_DELETE: 'ai-asset:delete',
+  AI_ASSET_TAG: 'ai-asset:tag',
+  AI_ASSET_RESOLVE: 'ai-asset:resolve',
 };
 
 contextBridge.exposeInMainWorld('roughCut', {
@@ -84,6 +88,10 @@ contextBridge.exposeInMainWorld('roughCut', {
   getAiKeyStatus: () => ipcRenderer.invoke(IPC_CHANNELS.AI_GET_KEY_STATUS),
   setAiApiKey: (apiKey) => ipcRenderer.invoke(IPC_CHANNELS.AI_SET_API_KEY, apiKey),
   analyzeProjectWithAi: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ANALYZE_PROJECT, payload),
+  listAiAssets: () => ipcRenderer.invoke(IPC_CHANNELS.AI_ASSET_LIST),
+  deleteAiAsset: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ASSET_DELETE, payload),
+  tagAiAsset: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ASSET_TAG, payload),
+  resolveAiAsset: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ASSET_RESOLVE, payload),
   openProject: () => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN),
   openProjectPath: (path) => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN_PATH, path),
   saveProject: (project) => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_SAVE, project),

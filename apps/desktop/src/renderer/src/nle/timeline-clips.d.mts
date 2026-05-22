@@ -4,6 +4,9 @@ export interface NleLaneClipBlock {
   readonly name: string | null;
   readonly timelineIn: number;
   readonly timelineOut: number;
+  readonly sourceIn: number | null;
+  readonly sourceOut: number | null;
+  readonly sourceDurationFrames: number | null;
   readonly leftPct: number;
   readonly widthPct: number;
   readonly enabled: boolean;

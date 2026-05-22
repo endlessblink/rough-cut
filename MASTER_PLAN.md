@@ -210,11 +210,11 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-189~~ | ✅ NLE drag clips across same-kind tracks | P2 | ✅ DONE (2026-05-21) |
 | ~~TASK-190~~ | ✅ Track header controls: mute, lock, height | P2 | ✅ DONE (2026-05-21) |
 | ~~TASK-191~~ | ✅ Track reorder controls with z-order preservation | P2 | ✅ DONE (2026-05-21) |
-| TASK-192 | AI asset schema: stable generated asset references | P1 | PLANNED |
-| TASK-193 | AI assets store: userData index + file layout | P1 | PLANNED |
-| TASK-194 | AI asset IPC: list, delete, tag, resolve | P1 | PLANNED |
-| TASK-195 | Generated tab: browse, filter, search, preview | P1 | PLANNED |
-| TASK-196 | Drag Generated assets onto compatible NLE tracks | P1 | PLANNED |
+| ~~TASK-192~~ | ✅ AI asset schema: stable generated asset references | P1 | ✅ DONE (2026-05-21) |
+| ~~TASK-193~~ | ✅ AI assets store: userData index + file layout | P1 | ✅ DONE (2026-05-21) |
+| ~~TASK-194~~ | ✅ AI asset IPC: list, delete, tag, resolve | P1 | ✅ DONE (2026-05-21) |
+| ~~TASK-195~~ | ✅ Generated tab: browse, filter, search, preview | P1 | ✅ DONE (2026-05-21) |
+| ~~TASK-196~~ | ✅ Drag Generated assets onto compatible NLE tracks | P1 | ✅ DONE (2026-05-21) |
 | TASK-197 | TTS capability router and request validation | P1 | PLANNED |
 | TASK-198 | Generate narration modal with voice selection | P2 | PLANNED |
 | TASK-199 | TTS generation job saves audio into AI asset pool | P1 | PLANNED |
@@ -539,7 +539,7 @@ Sequence: TASK-144, TASK-145, TASK-146
 Depends-on: LANE P-AI-J
 Sequence: TASK-147, TASK-148, TASK-149, TASK-150, TASK-151
 
-Next task when continuing: start TASK-192, "AI asset schema: stable generated asset references". The canonical timeline rebuild gate is complete through TASK-223, and NLE drag/track controls are complete through TASK-191.
+Next task when continuing: start TASK-197, "TTS capability router and request validation". The canonical timeline rebuild gate is complete through TASK-223, NLE drag/track controls are complete through TASK-191, generated asset references are modeled through TASK-192, durable AI asset storage is complete through TASK-193, AI asset IPC is complete through TASK-194, the Generated tab browser is complete through TASK-195, and Generated asset drag-to-NLE is complete through TASK-196.
 
 Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI-E** (TASK-171–176), **P-AI-A** (TASK-152–161), **P-AI-I** (TASK-184–223, with TASK-214–223 as the active rebuild gate). All other AI lanes are EPIC — apply the Lane Decomposition Protocol above before starting.
 
@@ -6238,10 +6238,10 @@ Video compositing depends on track order, so reorder must be explicit, testable,
 - Unit tests cover reorder mutations and resolver z-order changes.
 - Manual NLE check verifies undo/redo around reorder.
 
-### TASK-192 AI asset schema: stable generated asset references
+### ~~TASK-192~~ AI asset schema: stable generated asset references
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** DONE (2026-05-21)
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-141
 
@@ -6259,10 +6259,16 @@ Generated assets must be reusable across projects and referenced by stable IDs f
 
 - Project-model tests cover schema validation and invalid kind rejection.
 
-### TASK-193 AI assets store: userData index + file layout
+#### Implementation Notes
+
+- Added `AiAsset` / `AiAssetKind` / `AiAssetClipReference` types.
+- Added `AiAssetSchema`, `AiAssetClipReferenceSchema`, and explicit project-vs-AI clip source validation.
+- Timeline media references can now point at `aiAssetId` for generated assets without overloading project `assetId`.
+
+### ~~TASK-193~~ AI assets store: userData index + file layout
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** DONE (2026-05-21)
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-141
 
@@ -6281,10 +6287,18 @@ The desktop main process needs durable storage for generated files and their met
 
 - Main-process unit tests cover add/list/update/delete and corrupted-index recovery.
 
-### TASK-194 AI asset IPC: list, delete, tag, resolve
+#### Implementation Notes
+
+- Added `apps/desktop/src/main/ai-assets-store.mjs`.
+- Stores an atomic JSON index at `userData/ai-assets/index.json`.
+- Copies or writes generated files under `userData/ai-assets/<kind>/<sessionId>/<assetId>.<ext>`.
+- Serializes store writes so concurrent adds cannot lose assets.
+- Corrupted/malformed indexes recover as an empty list and are overwritten on the next successful write.
+
+### ~~TASK-194~~ AI asset IPC: list, delete, tag, resolve
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** DONE (2026-05-21)
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-141
 
@@ -6302,10 +6316,18 @@ Renderer UI and generation flows need a narrow IPC surface over the asset store.
 
 - IPC tests cover success, missing asset, bad payload, and referenced delete behavior.
 
-### TASK-195 Generated tab: browse, filter, search, preview
+#### Implementation Notes
+
+- Added AI asset IPC channels for list, delete, tag, and resolve.
+- Added `registerAiAssetIpcHandlers()` with payload validation and referenced-delete blocking.
+- Wired the handlers into the Electron main process using the durable AI asset store.
+- Exposed preload bridge methods: `listAiAssets`, `deleteAiAsset`, `tagAiAsset`, and `resolveAiAsset`.
+- Added IPC/preload regression coverage for success, missing asset, bad payload, and referenced delete behavior.
+
+### ~~TASK-195~~ Generated tab: browse, filter, search, preview
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** DONE (2026-05-21)
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-141
 
@@ -6325,10 +6347,19 @@ The existing Generated tab is an empty placeholder. It needs to become the brows
 - Renderer tests cover filtering, search, empty states, and preview selection.
 - `pnpm smoke:ui` confirms the tab still fits the NLE layout.
 
-### TASK-196 Drag Generated assets onto compatible NLE tracks
+#### Implementation Notes
+
+- Replaced the placeholder Generated tab with an IPC-backed asset browser.
+- Added compact search across prompt, provider, session, kind, and tags.
+- Added type filters for all/audio/image/video/motion graphics.
+- Added loading, error, empty, and no-results states.
+- Added kind-specific previews for image, video, audio, and motion graphics assets.
+- Extended NLE UI smoke to activate the Generated tab and assert search/filter presence.
+
+### ~~TASK-196~~ Drag Generated assets onto compatible NLE tracks
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** DONE (2026-05-21)
 **Lane:** P-AI-I
 **Parent EPIC:** TASK-141
 
@@ -6347,6 +6378,14 @@ The pool becomes useful when generated assets can become timeline clips by refer
 
 - Unit tests cover clip creation by asset reference and incompatible drops.
 - Manual NLE check confirms an asset appears on the timeline after drop.
+
+#### Implementation Notes
+
+- Made Generated tab items draggable with a stable `application/x-rough-cut-ai-asset` payload.
+- Added compatible timeline drop handling for audio, video/image, and motion-graphics tracks.
+- Added valid/invalid drop feedback on NLE lanes and rejected locked, incompatible, and overlapping drops.
+- Created clips with `source: { kind: 'ai-asset', id }` and timeline sources carrying `aiAssetId`, not copied file paths.
+- Added mutation and renderer coverage for generated asset drops.
 
 ### TASK-197 TTS capability router and request validation
 

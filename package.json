@@ -21,6 +21,7 @@
     "guard:timeline": "node scripts/guard-canonical-timeline.mjs",
     "visual:timeline": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/visual-timeline-interactions-playwright.mjs && node scripts/visual-timeline-sync-playwright.mjs",
     "visual:timeline-sync": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/visual-timeline-sync-playwright.mjs",
+    "test:editors": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/editor-regression-playwright.mjs",
     "playback:timeline": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/playback-timeline-playwright.mjs",
     "package:linux": "pnpm build && node scripts/package-linux.mjs",
     "smoke:package": "pnpm package:linux && node scripts/smoke-packaged-app.mjs",

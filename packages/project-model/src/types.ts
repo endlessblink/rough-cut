@@ -8,6 +8,7 @@ export type EffectId = string & { readonly __brand: 'EffectId' };
 export type TransitionId = string & { readonly __brand: 'TransitionId' };
 export type PresetId = string & { readonly __brand: 'PresetId' };
 export type LibrarySourceId = string & { readonly __brand: 'LibrarySourceId' };
+export type AiAssetId = string & { readonly __brand: 'AiAssetId' };
 export type LibraryTranscriptSegmentId = string & {
   readonly __brand: 'LibraryTranscriptSegmentId';
 };
@@ -26,6 +27,7 @@ export type MouseButton = 0 | 1 | 2; // left | middle | right
 // Union types
 export type EasingType = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'cubic-bezier';
 export type AssetType = 'video' | 'audio' | 'image' | 'recording' | 'motion';
+export type AiAssetKind = 'audio' | 'image' | 'video' | 'motion-graphics';
 export type AssetPathMode = 'relative' | 'absolute';
 export type TrackType = 'video' | 'audio';
 export type ExportFormat = 'mp4' | 'webm' | 'gif';
@@ -328,6 +330,22 @@ export interface Asset {
   readonly thumbnailPath?: string;
   readonly presentation?: RecordingPresentation;
   readonly cameraAssetId?: string;
+}
+
+export interface AiAsset {
+  readonly id: AiAssetId;
+  readonly kind: AiAssetKind;
+  readonly providerId: string;
+  readonly sourcePrompt: string;
+  readonly createdAt: string;
+  readonly tags: readonly string[];
+  readonly sessionId: string;
+  readonly filePath: string;
+}
+
+export interface AiAssetClipReference {
+  readonly kind: 'ai-asset';
+  readonly id: AiAssetId;
 }
 
 export interface ClipTransform {
