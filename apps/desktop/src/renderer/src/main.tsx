@@ -3500,14 +3500,13 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     return timeSec === null ? null : Math.round(timeSec * fps);
   }
 
-  function handleTimelineSeekPointerDown(event: React.PointerEvent<HTMLDivElement>) {
-    if (event.button !== 0 || cutModeActive) return;
-    const target = event.target as HTMLElement;
-    if (target.closest('.trimHandle, .clipBody, .hiddenTrimRange, .hiddenCutRange, .restoreFullSource, .timelineRegion, .zoomResizeHandle, .zoomRegionDelete')) return;
-    const track = event.currentTarget;
-    const downTime = timelineTimeFromClient(track, event.clientX);
+  // Shared scrub-drag loop. `track` supplies the pixel→time geometry (always a
+  // `.laneTrack`, so the 4.8rem label column is excluded); `captureEl` is the
+  // element that received the pointerdown and keeps pointer capture.
+  function beginSeekDrag(track: HTMLElement, captureEl: HTMLElement, clientX: number, pointerId: number) {
+    const downTime = timelineTimeFromClient(track, clientX);
     if (downTime === null) return;
-    track.setPointerCapture(event.pointerId);
+    captureEl.setPointerCapture(pointerId);
     onScrubStart();
     onScrub(downTime);
     const move = (moveEvent: PointerEvent) => {
@@ -3524,6 +3523,26 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up, { once: true });
     window.addEventListener('pointercancel', up, { once: true });
+  }
+
+  function handleTimelineSeekPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || cutModeActive) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('.trimHandle, .clipBody, .hiddenTrimRange, .hiddenCutRange, .restoreFullSource, .timelineRegion, .zoomResizeHandle, .zoomRegionDelete')) return;
+    beginSeekDrag(event.currentTarget, event.currentTarget, event.clientX, event.pointerId);
+  }
+
+  // Clicking anywhere in the timeline header (the ruler strip and the empty
+  // toolbar band beside the cut button) seeks too. These elements span the
+  // full timeline width including the 4.8rem label column, so we borrow a real
+  // `.laneTrack` for geometry — every surface shares that offset, keeping the
+  // playhead aligned. Presses on the cut button keep their own behaviour.
+  function handleHeaderSeekPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || cutModeActive) return;
+    if ((event.target as HTMLElement).closest('button')) return;
+    const track = event.currentTarget.closest('.visualTimeline')?.querySelector('.laneTrack');
+    if (!(track instanceof HTMLElement)) return;
+    beginSeekDrag(track, event.currentTarget, event.clientX, event.pointerId);
   }
 
   function handleScrubberKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -3786,7 +3805,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
   return (
     <div className="visualTimeline" aria-label="Timeline overview">
       <span className="visuallyHidden" data-ui-region="timeline-live-region" aria-live="polite">Timeline position {formatClock(model.currentTimeSec)}</span>
-      <div className="timelineRuler" aria-hidden="true">
+      <div className="timelineRuler" aria-hidden="true" onPointerDown={handleHeaderSeekPointerDown} title="Click or drag to seek">
         <span />
         {model.ticks.map((tick) => <span key={tick}>{formatClock(tick)}</span>)}
       </div>
@@ -3815,7 +3834,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
           />
           <span className="playhead" style={{ left: `${model.playheadPercent}%` }} />
         </div>
-        <div className="timelineToolbar" data-ui-region="timeline-toolbar">
+        <div className="timelineToolbar" data-ui-region="timeline-toolbar" onPointerDown={handleHeaderSeekPointerDown} title="Click or drag to seek">
           <button
             type="button"
             className={cutModeActive ? 'timelineToolButton active' : 'timelineToolButton'}

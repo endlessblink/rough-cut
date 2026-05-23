@@ -1765,9 +1765,12 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .timelineRuler {
   display: grid;
   grid-template-columns: 4.8rem repeat(7, 1fr);
+  align-content: center;
+  min-height: 1.4rem;
   color: var(--subtle);
   font-size: 0.7rem;
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
 }
 
 .timelineRuler span:nth-child(n+3) { text-align: center; }
@@ -2317,6 +2320,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   display: flex;
   gap: 0.25rem;
   margin: 0.1rem 0 0.3rem;
+  cursor: pointer;
 }
 .timelineToolButton {
   align-items: center;
