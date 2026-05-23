@@ -67,6 +67,7 @@ import {
   listMarkers,
   patchZoomPresentation,
   removeMarker,
+  updateMarkerFocalPoint,
   updateMarkerRange,
   updateMarkerStrength,
   withDefaultPresentation,
@@ -2769,7 +2770,13 @@ function ProjectPreview({
     const mediaFrames = Math.max(1, Math.round(sourceMediaDurationSec * fps));
     return { ...project.recording, duration: Math.min(project.recording.duration, mediaFrames) };
   }, [project.recording, sourceMediaDurationSec]);
-  const effectiveProject = effectiveRecording ? { ...project, recording: effectiveRecording } : project;
+  // Memoized so the preview's render-loop effect (which depends on `project`)
+  // doesn't restart every frame: a fresh wrapper object each render would
+  // cancel/rebuild requestAnimationFrame continuously and stutter zoom playback.
+  const effectiveProject = React.useMemo(
+    () => (effectiveRecording ? { ...project, recording: effectiveRecording } : project),
+    [project, effectiveRecording],
+  );
   const recordingAsset = getPrimaryRecordingAsset(project.document);
   const recordingEditModel = selectRecordingEditModel({ document: project.document as unknown as ProjectDocument, recordingAssetId: recordingAsset?.id ?? null });
   const primaryClip = getPrimaryRecordingClip(project.document, recordingAsset?.id);
@@ -3109,6 +3116,12 @@ function ProjectPreview({
     await persist(nextDocument);
   }
 
+  async function updateZoomMarkerFocalPoint(markerId: string, x: number, y: number) {
+    const nextDocument = updateMarkerFocalPoint(project.document as unknown as ProjectDocument, markerId, x, y) as unknown as ProjectState['document'];
+    if (nextDocument === project.document) return;
+    await persist(nextDocument);
+  }
+
   async function removeZoomMarker(markerId: string) {
     const nextDocument = removeMarker(project.document as unknown as ProjectDocument, markerId) as unknown as ProjectState['document'];
     if (nextDocument === project.document) return;
@@ -3207,7 +3220,7 @@ function ProjectPreview({
           ) : null}
         </div>
         {project.mediaUrl ? (
-          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" onCurrentTimeChange={setCurrentTimeSec} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} />
+          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" onCurrentTimeChange={setCurrentTimeSec} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} />
         ) : (
           // P-AI-C/TASK-169 — empty-state for blank projects (no assets). The
           // NLE Editor view will be the proper home for blank projects once it
@@ -3397,13 +3410,15 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
   // Deselect the active zoom marker on click-away or Escape so the floating
   // Depth chip can't get stuck over the Screen row. Markers, resize handles,
   // the delete button, and the chip itself manage their own selection, so a
-  // press inside any of those is ignored here.
+  // press inside any of those is ignored here. The preview canvas is also
+  // exempt: clicking it reframes the selected zoom's focus point, which must
+  // not deselect the marker.
   React.useEffect(() => {
     if (!selectedZoomMarkerId) return;
     const clear = () => onSelectInspectorContext(DEFAULT_INSPECTOR_SELECTION);
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.closest('.zoomEditorChip, .timelineRegion, .zoomResizeHandle, .zoomRegionDelete')) return;
+      if (target?.closest('.zoomEditorChip, .timelineRegion, .zoomResizeHandle, .zoomRegionDelete, .styledPreviewCanvas')) return;
       clear();
     };
     const onKey = (event: KeyboardEvent) => {

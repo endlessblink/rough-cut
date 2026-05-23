@@ -173,6 +173,29 @@ describe('getZoomTransformForMarker', () => {
     expect(t!.translateX).toBeLessThan(0);
   });
 
+  it('pins to static focalPoint when marker.followCursor is false, ignoring the cursor', () => {
+    const marker = createZoomMarker(0, 30, {
+      kind: 'auto',
+      strength: 1,
+      zoomInDuration: 0,
+      zoomOutDuration: 0,
+      focalPoint: { x: 0.2, y: 0.7 },
+      followCursor: false,
+    });
+    const t = getZoomTransformForMarker(15, marker, {
+      followCursor: true,
+      followAnimation: 'focused',
+      followPadding: 0,
+      getCursorPosition: () => ({ x: 0.8, y: 0.5 }),
+    });
+
+    expect(t).not.toBeNull();
+    const focal = focalFromTransform(t!);
+    // Reframed (pinned) marker stays on its static focal, not the cursor.
+    expect(focal.x).toBeCloseTo(0.2, 5);
+    expect(focal.y).toBeCloseTo(0.7, 5);
+  });
+
   it('Mode A: near-edge cursor stays at its source position (no edge-snap clamp)', () => {
     const marker = createZoomMarker(0, 30, {
       kind: 'auto',

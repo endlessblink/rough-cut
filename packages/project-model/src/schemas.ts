@@ -82,6 +82,7 @@ export const ZoomMarkerSchema = z.object({
   focalPoint: ZoomFocalPointSchema,
   zoomInDuration: nonNegativeInt,
   zoomOutDuration: nonNegativeInt,
+  followCursor: z.boolean().optional(),
 });
 
 // --- ZoomPresentation ---

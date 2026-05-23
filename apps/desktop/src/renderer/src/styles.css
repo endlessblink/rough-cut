@@ -1655,7 +1655,8 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 
 .styledPreviewCanvas.draggingCamera,
-.styledPreviewCanvas.draggingScreen {
+.styledPreviewCanvas.draggingScreen,
+.styledPreviewCanvas.draggingFocal {
   cursor: grabbing;
 }
 

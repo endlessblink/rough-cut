@@ -90,6 +90,13 @@ export interface ZoomMarker {
   readonly focalPoint: ZoomFocalPoint;
   readonly zoomInDuration: Frame;
   readonly zoomOutDuration: Frame;
+  /**
+   * Per-marker override of the global ZoomPresentation.followCursor setting.
+   * Omitted = inherit global. `false` = pinned: the zoom stays locked on the
+   * static focalPoint and ignores cursor tracking (set when the user reframes
+   * a zoom away from the cursor).
+   */
+  readonly followCursor?: boolean;
 }
 
 export type ZoomFollowAnimation = 'focused' | 'smooth';

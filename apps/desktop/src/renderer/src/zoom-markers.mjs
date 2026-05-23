@@ -207,6 +207,44 @@ export function updateMarkerStrength(document, markerId, strength) {
   }, asset.id, nextMarkers);
 }
 
+export function updateMarkerFocalPoint(document, markerId, x, y) {
+  const asset = getPrimaryRecordingAsset(document);
+  if (!asset || !asset.presentation) return document;
+
+  const presentation = withDefaultPresentation(asset.presentation);
+  const markers = listMarkers(document);
+  const marker = markers.find((item) => item.id === markerId);
+  if (!marker) return document;
+
+  const clamp = (value, fallback) =>
+    Math.max(0, Math.min(1, Number.isFinite(value) ? value : fallback));
+  const nextX = clamp(x, marker.focalPoint.x);
+  const nextY = clamp(y, marker.focalPoint.y);
+  // Reframing pins the marker: it stays on this focal point and ignores
+  // cursor-follow during playback/export, even when global follow-cursor is on.
+  if (nextX === marker.focalPoint.x && nextY === marker.focalPoint.y && marker.followCursor === false) {
+    return document;
+  }
+
+  const nextMarkers = markers.map((item) =>
+    item.id === markerId
+      ? { ...item, focalPoint: { x: nextX, y: nextY }, followCursor: false }
+      : item,
+  );
+  const nextAsset = {
+    ...asset,
+    presentation: {
+      ...presentation,
+      zoom: { ...presentation.zoom, markers: nextMarkers },
+    },
+  };
+
+  return syncTimelineZoomMarkers({
+    ...document,
+    assets: document.assets.map((item) => (item.id === asset.id ? nextAsset : item)),
+  }, asset.id, nextMarkers);
+}
+
 export function listMarkers(document) {
   const asset = getPrimaryRecordingAsset(document);
   if (!asset) return [];

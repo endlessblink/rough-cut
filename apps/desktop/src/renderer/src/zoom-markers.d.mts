@@ -40,6 +40,13 @@ export function updateMarkerRange(
 
 export function updateMarkerStrength(document: ProjectDocument, markerId: string, strength: number): ProjectDocument;
 
+export function updateMarkerFocalPoint(
+  document: ProjectDocument,
+  markerId: string,
+  x: number,
+  y: number,
+): ProjectDocument;
+
 export function listMarkers(document: ProjectDocument): readonly ZoomMarker[];
 
 export function applySuggestion(

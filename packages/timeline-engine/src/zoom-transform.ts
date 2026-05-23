@@ -261,11 +261,14 @@ function getMarkerFocalPoint(
   });
   void scale; // retained in signature for caller compatibility
 
+  // Per-marker pin overrides the global setting: when the marker was reframed
+  // away from the cursor (followCursor === false), it stays locked on its
+  // static focalPoint regardless of the global ZoomPresentation.followCursor.
+  // Omitted on the marker = inherit the global option.
+  const followCursor = marker.followCursor ?? options?.followCursor;
+
   // Cursor-follow disabled (or no cursor data wired): static focal.
-  if (
-    options?.followCursor !== true ||
-    options.getCursorPosition === undefined
-  ) {
+  if (followCursor !== true || options?.getCursorPosition === undefined) {
     return sourceClamp(marker.focalPoint.x, marker.focalPoint.y);
   }
 

@@ -15,6 +15,7 @@ import {
   getPrimaryRecordingAsset,
   listMarkers,
   removeMarker,
+  updateMarkerFocalPoint,
   updateMarkerRange,
   updateMarkerStrength,
   withDefaultPresentation,
@@ -264,6 +265,27 @@ test('updateMarkerStrength updates and clamps marker zoom strength', () => {
 
   project = updateMarkerStrength(project, target.id, 2);
   assert.equal(listMarkers(project)[0].strength, 1);
+});
+
+test('updateMarkerFocalPoint sets focal, pins the marker, and clamps to [0,1]', () => {
+  let project = addManualMarkerAt(projectWithRecording(), 2.0, 30);
+  const target = listMarkers(project)[0];
+
+  project = updateMarkerFocalPoint(project, target.id, 0.3, 0.7);
+  let marker = listMarkers(project)[0];
+  assert.deepEqual(marker.focalPoint, { x: 0.3, y: 0.7 });
+  assert.equal(marker.followCursor, false);
+  // Mirrored into the shared timeline too (full marker lives in params.marker).
+  assert.equal(project.timeline.markers.find((m) => m.id === target.id)?.params?.marker?.followCursor, false);
+
+  project = updateMarkerFocalPoint(project, target.id, 2, -1);
+  marker = listMarkers(project)[0];
+  assert.deepEqual(marker.focalPoint, { x: 1, y: 0 });
+});
+
+test('updateMarkerFocalPoint is a no-op when marker id does not match', () => {
+  const project = addManualMarkerAt(projectWithRecording(), 2.0, 30);
+  assert.equal(updateMarkerFocalPoint(project, 'missing', 0.5, 0.5), project);
 });
 
 test('updateMarkerRange and removeMarker keep shared timeline zoom markers synced', () => {
