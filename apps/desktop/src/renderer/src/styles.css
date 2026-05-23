@@ -1998,17 +1998,33 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   z-index: 1;
 }
 
-/* Zoom-lane pill — flat, token-driven, depth-fill encodes strength.
- * Anchor: Screen Studio's "purple block" lane treatment, restrained to the
- * Rough Cut dark theme. Depth is shown as an inner fill that climbs from the
- * pill's baseline, so a row of pills reads as a "zoom score" instead of a
- * stack of identical bars. */
-.timelineRegion,
-.presenceRegion {
-  background: color-mix(in oklch, var(--accent) 14%, var(--panel));
-  border: 1px solid var(--line);
-  border-radius: 8px;
+/* Zoom-lane clip — one marker is one clip, styled to match the Screen clip
+ * (.clipBar): same blue gradient, height, weight, and dark glyph/text. The
+ * "Zoom" label is what distinguishes it from the Screen lane. */
+.timelineRegion {
+  align-items: center;
+  background: linear-gradient(180deg, #8fc2ff, #3b82f6);
+  border: 1px solid rgb(255 255 255 / 0.22);
+  border-radius: 10px;
+  bottom: 0.25rem;
   box-shadow: none;
+  color: #061326;
+  cursor: grab;
+  display: flex;
+  font-size: 0.78rem;
+  font-weight: 760;
+  gap: 0.35rem;
+  justify-content: center;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  top: 0.25rem;
+  z-index: 5;
+}
+
+.presenceRegion {
+  border-radius: 8px;
   bottom: 0.28rem;
   cursor: grab;
   min-height: 0;
@@ -2019,14 +2035,34 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   z-index: 5;
 }
 
-/* Auto-generated suggestions read quieter than the user's own markers. */
-.autoRegion { background: color-mix(in oklch, var(--accent) 7%, var(--panel)); }
-.manualRegion { background: color-mix(in oklch, var(--accent) 14%, var(--panel)); }
+/* Centered clip label, mirrors the Screen clip's body. Non-interactive so a
+ * press still starts a move-drag on the region underneath. */
+.zoomClipLabel {
+  align-items: center;
+  color: #061326;
+  display: flex;
+  gap: 0.35rem;
+  line-height: 1;
+  overflow: hidden;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zoomClipLabel .icon { color: #061326; }
 
-/* Selected: a single crisp accent ring, no double-glow chrome. */
+/* Auto-generated suggestions read quieter than the user's own markers, but
+ * stay clearly visible — a dashed light edge over a slightly cooler blue. */
+.manualRegion { background: linear-gradient(180deg, #8fc2ff, #3b82f6); }
+.autoRegion {
+  background: linear-gradient(180deg, #a9cdf2, #5b8fd6);
+  border-style: dashed;
+  border-color: rgb(255 255 255 / 0.55);
+}
+
+/* Selected: a crisp light edge that reads on the blue clip. */
 .selectedRegion {
-  border-color: transparent;
-  box-shadow: 0 0 0 1.5px var(--accent);
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgb(6 19 38 / 0.85);
   z-index: 15;
 }
 
@@ -2039,25 +2075,12 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   z-index: 4;
 }
 
-/* Strength fill: climbs from the baseline by `strength %`. */
-.zoomDepthFill {
-  background: var(--accent);
-  border-radius: 6px;
-  bottom: 1px;
-  left: 1px;
-  opacity: 0.55;
-  pointer-events: none;
-  position: absolute;
-  right: 1px;
-  transition: height 80ms linear;
-}
-
 /* The selected-pill chip floats UP out of the lane row. The default
  * `.timelineLane { overflow: hidden }` would clip it, so the zoom lane
  * opts out and lifts its stacking context above neighboring lanes. */
 .zoomLane,
 .zoomLane .laneTrack { overflow: visible; }
-.zoomLane { z-index: 20; }
+.zoomLane { min-height: 1.85rem; z-index: 20; }
 
 /* Floating editor chip — anchored above the selected zoom pill, replacing
  * the old sidebar Zoom markers section. Single row: range readout + depth
@@ -2109,7 +2132,7 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   align-items: center;
   background: transparent;
   border: 0;
-  color: rgb(255 255 255 / 0.65);
+  color: rgb(6 19 38 / 0.7);
   cursor: pointer;
   display: flex;
   font-size: 0.95rem;
@@ -2148,11 +2171,6 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 .timelineRegion:hover,
 .timelineRegion:focus-within { z-index: 15; }
-
-/* Hover lift — restrained, no scale, no bounce. */
-.timelineRegion:hover {
-  background: color-mix(in oklch, var(--accent) 20%, var(--panel));
-}
 
 /* Click-to-add affordance on the zoom lane background. */
 .zoomLane .laneTrack { cursor: copy; }

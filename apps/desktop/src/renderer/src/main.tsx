@@ -11,6 +11,7 @@ import {
   FrameCorners as PhosphorFrameCorners,
   GearSix as PhosphorGearSix,
   Icon as PhosphorIconType,
+  MagnifyingGlassPlus as PhosphorMagnifyingGlassPlus,
   Microphone as PhosphorMicrophone,
   Monitor as PhosphorMonitor,
   Pause as PhosphorPause,
@@ -1934,7 +1935,7 @@ function captureStatusLabel(recording: RecordingStatus, elapsedMs: number) {
   return 'Screen';
 }
 
-type IconName = 'folder' | 'sparkle' | 'sliders' | 'undo' | 'redo' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause';
+type IconName = 'folder' | 'sparkle' | 'sliders' | 'undo' | 'redo' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause' | 'zoom';
 type ActiveTool = 'background' | 'timeline' | 'cursor' | 'camera';
 
 const ICON_COMPONENT_MAP: Record<IconName, PhosphorIconType> = {
@@ -1957,6 +1958,7 @@ const ICON_COMPONENT_MAP: Record<IconName, PhosphorIconType> = {
   volume: PhosphorSpeakerHigh,
   play: PhosphorPlay,
   pause: PhosphorPause,
+  zoom: PhosphorMagnifyingGlassPlus,
 };
 
 function Icon({ name }: { name: IconName }) {
@@ -3392,6 +3394,29 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     return () => window.removeEventListener('keydown', onKey);
   }, [cutModeActive, onCutModeToggle]);
 
+  // Deselect the active zoom marker on click-away or Escape so the floating
+  // Depth chip can't get stuck over the Screen row. Markers, resize handles,
+  // the delete button, and the chip itself manage their own selection, so a
+  // press inside any of those is ignored here.
+  React.useEffect(() => {
+    if (!selectedZoomMarkerId) return;
+    const clear = () => onSelectInspectorContext(DEFAULT_INSPECTOR_SELECTION);
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('.zoomEditorChip, .timelineRegion, .zoomResizeHandle, .zoomRegionDelete')) return;
+      clear();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') clear();
+    };
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [selectedZoomMarkerId, onSelectInspectorContext]);
+
   function handleScreenLaneCutPointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (!cutModeActive || !onAddCutBetween) return;
     if (event.button !== 0) return;
@@ -3833,7 +3858,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
                 const depthPct = Math.round(strength * 100);
                 return (
                   <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker. Delete to remove.`} className={`timelineRegion ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} data-layer={region.layer ?? 0} title={`${label} · ${depthPct}% · Click × to delete`} style={zoomRegionStyle(region)} onClick={() => onSelectInspectorContext({ group: 'zoom', label, detail: `${kind} zoom region selected.`, markerId: region.id })} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
-                    <div className="zoomDepthFill" style={{ height: `${depthPct}%` }} aria-hidden="true" />
+                    <span className="zoomClipLabel"><Icon name={kind === 'auto' ? 'sparkle' : 'zoom'} /> Zoom</span>
                     <span role="slider" tabIndex={0} aria-label={`${label} start boundary`} aria-valuemin={0} aria-valuemax={Math.max(0, Math.round((region.endFrame ?? 15) - 15))} aria-valuenow={Math.round(region.startFrame ?? 0)} className="zoomResizeHandle zoomResizeStart" onKeyDown={(event) => handleZoomKeyboard(region, 'start', event)} onPointerDown={(event) => beginZoomDrag(region, 'start', event)} />
                     <span role="slider" tabIndex={0} aria-label={`${label} end boundary`} aria-valuemin={Math.round((region.startFrame ?? 0) + 15)} aria-valuemax={sourceFrameDuration} aria-valuenow={Math.round(region.endFrame ?? 15)} className="zoomResizeHandle zoomResizeEnd" onKeyDown={(event) => handleZoomKeyboard(region, 'end', event)} onPointerDown={(event) => beginZoomDrag(region, 'end', event)} />
                     {onZoomMarkerRemove ? (

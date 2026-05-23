@@ -60,17 +60,27 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
   const markers = listMarkers(document);
   const zoomRegions = assignZoomLayers(markers
     .filter((marker) => marker.endFrame >= trimStartFrame && marker.startFrame <= trimEndFrame)
-    .flatMap((marker) => sourceRangeToTimelinePlacements(adapter.screenClips, marker.startFrame, marker.endFrame, fps, durationSec)
-      .map((placement, index) => ({
-      id: marker.id,
-      kind: marker.kind,
-      startFrame: marker.startFrame,
-      endFrame: marker.endFrame,
-      strength: marker.strength,
-      label: marker.kind === 'auto' ? 'Auto zoom' : 'Manual zoom',
-      segmentIndex: index,
-      ...placement,
-    }))));
+    .flatMap((marker) => {
+      // A zoom marker is one logical clip. If the screen recording is split
+      // (e.g. a cut leaves two clips with a gap), the marker's source range
+      // maps to several timeline pieces — merge them into one placement so the
+      // marker renders as a single, independently-draggable clip rather than
+      // multiple bars that share `marker.id`.
+      const pieces = sourceRangeToTimelinePlacements(adapter.screenClips, marker.startFrame, marker.endFrame, fps, durationSec);
+      if (pieces.length === 0) return [];
+      const left = Math.min(...pieces.map((piece) => piece.left));
+      const right = Math.max(...pieces.map((piece) => piece.left + piece.width));
+      return [{
+        id: marker.id,
+        kind: marker.kind,
+        startFrame: marker.startFrame,
+        endFrame: marker.endFrame,
+        strength: marker.strength,
+        label: marker.kind === 'auto' ? 'Auto zoom' : 'Manual zoom',
+        left,
+        width: Math.max(0, right - left),
+      }];
+    }));
 
   return {
     durationSec,
