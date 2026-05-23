@@ -4,6 +4,7 @@ import { SharedTimelineSchema } from './schemas.js';
 import {
   collectTimelineInvariantIssues,
   computeTimelineDuration,
+  resolveTimelineLengthFrames,
   type SharedTimeline,
   type TimelineClip,
   type TimelineTrack,
@@ -217,5 +218,32 @@ describe('shared timeline canonical contract', () => {
         },
       ],
     })).toBe(480);
+  });
+});
+
+describe('resolveTimelineLengthFrames', () => {
+  const emptyTimeline = { tracks: [], markers: [], effects: [] };
+
+  it('returns content extent when the timeline has content, ignoring composition padding', () => {
+    const timeline = {
+      tracks: [
+        {
+          clips: [{ timelineOut: 120 } as never],
+        } as never,
+      ],
+      markers: [],
+      effects: [],
+    };
+    // composition.duration of 300 is stale padding and must not extend the result.
+    expect(resolveTimelineLengthFrames(timeline, 300)).toBe(120);
+  });
+
+  it('falls back to rounded composition.duration only when there is no content', () => {
+    expect(resolveTimelineLengthFrames(emptyTimeline, 150.6)).toBe(151);
+  });
+
+  it('returns 0 when there is neither content nor a usable composition duration', () => {
+    expect(resolveTimelineLengthFrames(emptyTimeline)).toBe(0);
+    expect(resolveTimelineLengthFrames(emptyTimeline, 0)).toBe(0);
   });
 });

@@ -176,6 +176,21 @@ export function computeTimelineDuration(timeline: Pick<Timeline, 'tracks' | 'mar
   return duration;
 }
 
+// Content-derived timeline length. The timeline ends at the last real content
+// (clip/marker/effect across all tracks), never at stale `composition.duration`
+// padding — that field is written once at import and not updated on trim. We
+// only fall back to compositionDuration when the timeline has no content yet, so
+// an empty project's rail does not collapse to a single frame.
+export function resolveTimelineLengthFrames(
+  timeline: Pick<Timeline, 'tracks' | 'markers' | 'effects'>,
+  compositionDuration?: number,
+): Frame {
+  const content = computeTimelineDuration(timeline);
+  if (content > 0) return content;
+  const fallback = Number(compositionDuration);
+  return Number.isFinite(fallback) && fallback > 0 ? Math.round(fallback) : 0;
+}
+
 export function collectTimelineInvariantIssues(timeline: Timeline): TimelineInvariantIssue[] {
   const issues: TimelineInvariantIssue[] = [];
   const mediaIds = new Set(timeline.sources.map((source) => source.id));

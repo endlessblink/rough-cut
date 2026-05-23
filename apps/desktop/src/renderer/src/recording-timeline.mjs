@@ -1,6 +1,6 @@
 import {
   canonicalizeProjectDocument,
-  computeTimelineDuration,
+  resolveTimelineLengthFrames,
   restoreFullSource,
   restoreSourceEdge,
   rippleDeleteRange,
@@ -91,8 +91,10 @@ export function selectRecordingEditModel(input) {
   const primaryClip = screenClips[0] ?? null;
   const timelineDurationFrames = Math.max(
     1,
-    computeTimelineDuration(document?.timeline ?? { tracks: [], markers: [], effects: [] }),
-    Math.round(document?.composition?.duration ?? 0),
+    resolveTimelineLengthFrames(
+      document?.timeline ?? { tracks: [], markers: [], effects: [] },
+      document?.composition?.duration,
+    ),
   );
   const sourceDurationFrames = Math.max(1, Math.round(recordingAsset?.duration ?? timelineDurationFrames));
   const viewStartFrame = screenClips.length > 0 ? Math.min(...screenClips.map((clip) => clip.timelineIn)) : 0;

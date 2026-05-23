@@ -46,7 +46,10 @@ test('buildTimelineModel renders zoom markers and click events from project meta
       ],
     },
   });
-  const document = createProject({ assets: [asset], composition: { ...base.composition, duration: 300 } });
+  // A real recording always has a screen clip spanning the full duration; include
+  // it so the timeline length comes from actual content (300f / 10s), not padding.
+  const track = { id: 'track-1', type: 'video', name: 'Video', index: 0, locked: false, visible: true, volume: 1, clips: [{ id: 'clip-1', assetId: asset.id, trackId: 'track-1', enabled: true, timelineIn: 0, timelineOut: 300, sourceIn: 0, sourceOut: 300, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0.5, anchorY: 0.5, opacity: 1 }, effects: [], keyframes: [] }] };
+  const document = createProject({ assets: [asset], composition: { ...base.composition, duration: 300, tracks: [track] } });
   const model = buildTimelineModel({
     document,
     recording: { duration: 300, fps: 30, camera: { filePath: '/tmp/camera.mp4' }, audio: { source: 'mic' } },
@@ -112,13 +115,15 @@ test('buildTimelineModel preserves canonical gap and source offset placement', (
   const document = createProject({ assets: [asset], composition: { ...base.composition, duration: 150, tracks: [track] } });
   const model = buildTimelineModel({ document, recording: { duration: 180, fps: 30 }, currentTimeSec: 1, cameraMediaUrl: null });
 
-  assert.equal(model.durationSec, 5);
+  // Timeline ends at actual content (clip timelineOut 120 = 4s), not the stale
+  // composition.duration of 150 (5s) — no trailing empty space.
+  assert.equal(model.durationSec, 4);
   assert.equal(model.sourceDurationSec, 6);
   assert.equal(model.trimStartFrame, 60);
   assert.equal(model.trimEndFrame, 150);
-  assert.equal(model.lanes.screen[0].left, 20);
-  assert.equal(model.lanes.screen[0].width, 60);
-  assert.equal(model.playheadPercent, 20);
+  assert.equal(model.lanes.screen[0].left, 25);
+  assert.equal(model.lanes.screen[0].width, 75);
+  assert.equal(model.playheadPercent, 25);
 });
 
 test('buildTimelineModel assigns overlapping zoom markers to separate layers with longer marker first', () => {
