@@ -196,6 +196,38 @@ describe('getZoomTransformForMarker', () => {
     expect(focal.y).toBeCloseTo(0.7, 5);
   });
 
+  it('incremental (resumed) cursor-spring integration matches a from-scratch integration', () => {
+    const marker = createZoomMarker(0, 90, {
+      kind: 'auto',
+      strength: 1,
+      zoomInDuration: 0,
+      zoomOutDuration: 0,
+      focalPoint: { x: 0.5, y: 0.5 },
+    });
+    const cursorAt = (f: number) => ({ x: 0.5 + 0.3 * Math.sin(f / 5), y: 0.5 + 0.2 * Math.cos(f / 7) });
+    const opts = (getCursorPosition: (f: number) => { x: number; y: number }) => ({
+      followCursor: true as const,
+      followAnimation: 'smooth' as const,
+      followPadding: 0.2,
+      fps: 30,
+      getCursorPosition,
+    });
+
+    // Sequential playback shares one cursor fn identity → resumes the cache each frame.
+    const sharedCursor = (f: number) => cursorAt(f);
+    let resumed: ReturnType<typeof getZoomTransformForMarker> = null;
+    for (let f = 0; f <= 60; f += 1) resumed = getZoomTransformForMarker(f, marker, opts(sharedCursor));
+
+    // A fresh cursor fn identity forces a full re-integration from the start.
+    const fromScratch = getZoomTransformForMarker(60, marker, opts((f) => cursorAt(f)));
+
+    expect(resumed).not.toBeNull();
+    expect(fromScratch).not.toBeNull();
+    expect(resumed!.translateX).toBeCloseTo(fromScratch!.translateX, 9);
+    expect(resumed!.translateY).toBeCloseTo(fromScratch!.translateY, 9);
+    expect(resumed!.scale).toBeCloseTo(fromScratch!.scale, 9);
+  });
+
   it('Mode A: near-edge cursor stays at its source position (no edge-snap clamp)', () => {
     const marker = createZoomMarker(0, 30, {
       kind: 'auto',

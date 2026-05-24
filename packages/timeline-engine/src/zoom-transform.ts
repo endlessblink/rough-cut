@@ -137,8 +137,32 @@ const CURSOR_EMA_ALPHA: Record<'smooth' | 'focused', number> = {
 // visible span on each axis. 0 = camera moves with any cursor motion; 0.4 =
 // large dead zone in the middle, camera only moves on near-edge cursor.
 //
-// Integrates from `fromFrame` to `toFrame` so the function stays pure for
-// deterministic export.
+// Mutable integration state for the safe-zone camera + cursor spring. One pass
+// over the marker's frames advances this incrementally.
+interface SpringFocalState {
+  camTargetX: number;
+  camTargetY: number;
+  emaX: number | null;
+  emaY: number | null;
+  stateX: ReturnType<typeof createSpringState>;
+  stateY: ReturnType<typeof createSpringState>;
+  frame: Frame; // last frame this state has been integrated up to
+}
+
+// Single-entry resume cache. Sequential playback (and export, which iterates
+// frames in order) advances the spring one frame at a time instead of
+// re-integrating from the marker start on every frame — turning an O(n²)
+// per-marker cost into O(n). The cached value is bit-identical to a
+// from-scratch integration (deterministic), so preview/export parity holds.
+// A different signature, a different cursor source, or a backward seek falls
+// back to a full re-integration.
+interface SpringFocalCache {
+  signature: string;
+  getCursorPosition: (frame: Frame) => ZoomCursorPosition | null;
+  state: SpringFocalState;
+}
+let springFocalCache: SpringFocalCache | null = null;
+
 function resolveSpringSmoothedFocal(
   fromFrame: Frame,
   toFrame: Frame,
@@ -158,84 +182,97 @@ function resolveSpringSmoothedFocal(
   const dtMs = 1000 / Math.max(1, fps);
   const targetScale = strengthToScale(marker.strength);
   const safeZoneRatio = clamp(followPadding, 0, 0.45);
-
-  // Camera target — seed DIRECTLY at the cursor on the marker's first frame
-  // so zoom-in is pure scale change (no pan to the cursor while scale ramps).
-  // Falls back to marker.focalPoint if no cursor sample is available yet.
-  let camTargetX = marker.focalPoint.x;
-  let camTargetY = marker.focalPoint.y;
-  let emaX: number | null = null;
-  let emaY: number | null = null;
-
-  const seedRaw = getCursorPosition(fromFrame);
-  if (seedRaw !== null) {
-    emaX = seedRaw.x;
-    emaY = seedRaw.y;
-    // Source-bound clamp at TARGET scale so the seed is valid for the hold
-    // phase (the largest scale). The transform's own clamp will rein this in
-    // during ramps where the visible window is narrower than the source.
-    // Mode A: no source-bound clamp needed; focal in [0, 1] always valid.
-    camTargetX = clamp(seedRaw.x, 0, 1);
-    camTargetY = clamp(seedRaw.y, 0, 1);
-  }
-
-  // Pre-compute the start of ramp-out so we can FREEZE the camera target once
-  // the marker starts zooming out. Cursor motion during the ramp-out tail
-  // shouldn't add jitter on top of the geometric scale-driven slide.
   const rampOutStart = marker.endFrame - marker.zoomOutDuration;
 
-  const stateX = createSpringState(camTargetX);
-  const stateY = createSpringState(camTargetY);
-
-  for (let f = fromFrame + 1; f <= toFrame; f += 1) {
+  // Advance `st` by a single frame `f`, mutating it in place. Identical math to
+  // the original per-frame loop body.
+  const step = (st: SpringFocalState, f: Frame): void => {
     const raw = getCursorPosition(f);
-
     if (raw !== null) {
-      if (emaX === null || emaY === null) {
-        emaX = raw.x;
-        emaY = raw.y;
+      if (st.emaX === null || st.emaY === null) {
+        st.emaX = raw.x;
+        st.emaY = raw.y;
       } else {
-        emaX = emaX + (raw.x - emaX) * emaAlpha;
-        emaY = emaY + (raw.y - emaY) * emaAlpha;
+        st.emaX = st.emaX + (raw.x - st.emaX) * emaAlpha;
+        st.emaY = st.emaY + (raw.y - st.emaY) * emaAlpha;
       }
     }
 
     // Freeze the camera target during ramp-out: cursor motion in this window
     // shouldn't add panning jitter on top of the geometric scale-driven slide.
-    // The scale ramp alone produces the visible zoom-out motion.
     const inRampOut = f >= rampOutStart && marker.zoomOutDuration > 0;
 
-    if (emaX !== null && emaY !== null && !inRampOut) {
+    if (st.emaX !== null && st.emaY !== null && !inRampOut) {
       // Use the TARGET scale for safe-zone math, not the current frame's
-      // ramp-time scale. Recomputing the safe zone at the ramp-time scale
-      // (smaller during ramp-in) shrinks the safe zone and pulls camTarget
-      // toward center during the ramp, then releases it as scale grows —
-      // visible as the "over the cursor, then correct" vertical jitter.
+      // ramp-time scale (recomputing at ramp-time scale produces vertical jitter).
       const halfSpan = 1 / (2 * targetScale);
-      const visibleSpan = halfSpan * 2;
-      const inset = visibleSpan * safeZoneRatio;
+      const inset = halfSpan * 2 * safeZoneRatio;
 
-      const safeLeft = camTargetX - halfSpan + inset;
-      const safeRight = camTargetX + halfSpan - inset;
-      const safeTop = camTargetY - halfSpan + inset;
-      const safeBottom = camTargetY + halfSpan - inset;
+      const safeLeft = st.camTargetX - halfSpan + inset;
+      const safeRight = st.camTargetX + halfSpan - inset;
+      const safeTop = st.camTargetY - halfSpan + inset;
+      const safeBottom = st.camTargetY + halfSpan - inset;
 
-      if (emaX < safeLeft) camTargetX -= safeLeft - emaX;
-      else if (emaX > safeRight) camTargetX += emaX - safeRight;
-      if (emaY < safeTop) camTargetY -= safeTop - emaY;
-      else if (emaY > safeBottom) camTargetY += emaY - safeBottom;
+      if (st.emaX < safeLeft) st.camTargetX -= safeLeft - st.emaX;
+      else if (st.emaX > safeRight) st.camTargetX += st.emaX - safeRight;
+      if (st.emaY < safeTop) st.camTargetY -= safeTop - st.emaY;
+      else if (st.emaY > safeBottom) st.camTargetY += st.emaY - safeBottom;
 
-      // Mode A: clamp only to source [0, 1]; the new computeTranslate keeps
-      // the visible window valid for any focal in this range.
-      camTargetX = clamp(camTargetX, 0, 1);
-      camTargetY = clamp(camTargetY, 0, 1);
+      st.camTargetX = clamp(st.camTargetX, 0, 1);
+      st.camTargetY = clamp(st.camTargetY, 0, 1);
     }
 
-    stepSpring(stateX, camTargetX, dtMs, cfg);
-    stepSpring(stateY, camTargetY, dtMs, cfg);
-  }
+    stepSpring(st.stateX, st.camTargetX, dtMs, cfg);
+    stepSpring(st.stateY, st.camTargetY, dtMs, cfg);
+    st.frame = f;
+  };
 
-  return { x: stateX.value, y: stateY.value };
+  // Seed the camera target DIRECTLY at the cursor on the marker's first frame
+  // so zoom-in is pure scale change (no pan to the cursor while scale ramps).
+  const seed = (): SpringFocalState => {
+    let camTargetX = marker.focalPoint.x;
+    let camTargetY = marker.focalPoint.y;
+    let emaX: number | null = null;
+    let emaY: number | null = null;
+    const seedRaw = getCursorPosition(fromFrame);
+    if (seedRaw !== null) {
+      emaX = seedRaw.x;
+      emaY = seedRaw.y;
+      camTargetX = clamp(seedRaw.x, 0, 1);
+      camTargetY = clamp(seedRaw.y, 0, 1);
+    }
+    return {
+      camTargetX,
+      camTargetY,
+      emaX,
+      emaY,
+      stateX: createSpringState(camTargetX),
+      stateY: createSpringState(camTargetY),
+      frame: fromFrame,
+    };
+  };
+
+  const signature = `${String(marker.id)}|${fromFrame}|${marker.endFrame}|${marker.strength}|${marker.zoomOutDuration}|${marker.focalPoint.x}|${marker.focalPoint.y}|${followAnimation}|${followPadding}|${fps}|${cursorSmoothing ?? ''}`;
+
+  // Resume from the cache when the inputs match and we're moving forward
+  // (including a re-request of the same frame, e.g. a paused redraw).
+  let st: SpringFocalState;
+  if (
+    springFocalCache !== null &&
+    springFocalCache.signature === signature &&
+    springFocalCache.getCursorPosition === getCursorPosition &&
+    toFrame >= springFocalCache.state.frame
+  ) {
+    st = springFocalCache.state;
+    for (let f = st.frame + 1; f <= toFrame; f += 1) step(st, f);
+  } else {
+    st = seed();
+    for (let f = fromFrame + 1; f <= toFrame; f += 1) step(st, f);
+    springFocalCache = { signature, getCursorPosition, state: st };
+  }
+  springFocalCache = { signature, getCursorPosition, state: st };
+
+  return { x: st.stateX.value, y: st.stateY.value };
 }
 
 // Phase-aware focal point resolution. The marker's life splits into three

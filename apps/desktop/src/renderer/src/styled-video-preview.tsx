@@ -161,6 +161,14 @@ export function StyledVideoPreview({
   const pendingSeekRef = React.useRef<number | null>(null);
   const seekingRef = React.useRef(false);
   const previewInteractionDirtyRef = React.useRef(false);
+  // Canonical timeline speed (1×, or a jog/shuttle rate). The virtual clock
+  // advances at this rate; the screen video's playbackRate is nudged AROUND it
+  // to track the clock without hard-seeking. Kept separate so nudging the video
+  // never feeds back into the canonical clock.
+  const timelineRateRef = React.useRef(1);
+  // Last screen source frame the timeline asked for, to detect non-contiguous
+  // jumps (cut ranges, clip transitions, gaps, scrubs) that must hard-seek.
+  const lastExpectedSourceFrameRef = React.useRef<number | null>(null);
   const cameraDragRef = React.useRef<NormalizedRect | null>(null);
   const cameraRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const cameraDragOriginRef = React.useRef<PreviewDragOrigin | null>(null);
@@ -311,11 +319,9 @@ export function StyledVideoPreview({
     const video = videoRef.current;
     const cameraVideo = cameraVideoRef.current;
     if (!video || controlledPlaying === undefined) return;
-    if (timeMode === 'timeline') {
-      video.pause();
-      cameraVideo?.pause();
-      return;
-    }
+    // Timeline-mode play/pause is owned by the dedicated effect below (it must
+    // also handle the uncontrolled/internal-playing case).
+    if (timeMode === 'timeline') return;
     if (controlledPlaying) {
       void video.play().catch(() => onPlayingChange?.(false));
       void cameraVideo?.play().catch(() => undefined);
@@ -324,6 +330,26 @@ export function StyledVideoPreview({
       cameraVideo?.pause();
     }
   }, [controlledPlaying, onPlayingChange, timeMode]);
+
+  // Timeline mode: run the screen <video> as a smooth decode surface while the
+  // canonical virtual clock plays. Previously the video was paused and the draw
+  // tick seek-stepped it ~every 130ms, which froze frames then jumped — visible
+  // as stutter once magnified by zoom. Now the video plays and the tick nudges
+  // its playbackRate to track the clock (see the source-sync block). On stop or
+  // scrub it pauses so the held frame is exact. Camera PiP keeps its existing
+  // seek-step behavior (not the zoomed surface).
+  React.useEffect(() => {
+    if (timeMode !== 'timeline') return;
+    const video = videoRef.current;
+    if (!video) return;
+    if (isPlaying) {
+      void video.play().catch(() => undefined);
+    } else {
+      video.pause();
+      video.playbackRate = timelineRateRef.current;
+      lastExpectedSourceFrameRef.current = null;
+    }
+  }, [timeMode, isPlaying]);
 
   React.useEffect(() => {
     if (timeMode !== 'timeline' || controlledPlaying !== undefined || !isPlaying) return undefined;
@@ -337,7 +363,7 @@ export function StyledVideoPreview({
         return;
       }
 
-      const rate = Math.max(0.05, videoRef.current?.playbackRate ?? 1);
+      const rate = Math.max(0.05, timelineRateRef.current);
       const nextTime = currentTimeRef.current + ((nowMs - lastMs) / 1000) * rate;
       lastMs = nowMs;
       if (nextTime >= timelineDuration) {
@@ -508,10 +534,33 @@ export function StyledVideoPreview({
       const screenLayer = frame.layers?.find((layer: { isCamera?: boolean }) => !layer.isCamera) ?? null;
       if (timeMode === 'timeline' && screenLayer) {
         const expectedSourceTime = Math.max(0, screenLayer.sourceFrame / fps);
-        const sourceSyncTolerance = isPlaying ? Math.max(0.12, 4 / fps) : Math.max(0.035, 1 / fps);
-        if (Math.abs(video.currentTime - expectedSourceTime) > sourceSyncTolerance) {
+        const expectedFrame = screenLayer.sourceFrame;
+        const prevExpected = lastExpectedSourceFrameRef.current;
+        lastExpectedSourceFrameRef.current = expectedFrame;
+        // Contiguous = playing forward through the same clip (≤2 source frames
+        // of advance). A backward or large jump means a cut/transition/gap/scrub
+        // and must hard-seek; a contiguous advance can be tracked by nudging.
+        const contiguous = prevExpected !== null && expectedFrame >= prevExpected && expectedFrame - prevExpected <= 2;
+        const drift = video.currentTime - expectedSourceTime; // +: video ahead of the clock
+        const playingNow = isPlaying && !video.paused;
+        const hardSeekTolerance = Math.max(0.035, 1 / fps);
+
+        if (playingNow && contiguous && Math.abs(drift) <= 0.35) {
+          // Smooth drift correction: nudge playbackRate around the canonical
+          // rate instead of seeking (deadband ~20ms, clamp ±10%). drift>0 (video
+          // ahead) → slow down; drift<0 (behind) → speed up.
+          const base = timelineRateRef.current;
+          if (Math.abs(drift) < 0.02) {
+            if (video.playbackRate !== base) video.playbackRate = base;
+          } else {
+            const adjust = Math.max(-0.1, Math.min(0.1, drift));
+            video.playbackRate = base * (1 - adjust);
+          }
+        } else if (Math.abs(drift) > hardSeekTolerance) {
+          // Paused/scrub, clip transition / cut / gap, or large drift → hard seek.
           video.currentTime = expectedSourceTime;
           syncCameraTime(expectedSourceTime);
+          if (playingNow) video.playbackRate = timelineRateRef.current; // reset nudge post-seek
           lastDrawnFrame = -1;
           rafId = window.requestAnimationFrame(tick);
           return;
@@ -748,6 +797,9 @@ export function StyledVideoPreview({
     const video = videoRef.current;
     const cameraVideo = cameraVideoRef.current;
     if (!video) return;
+    // Canonical timeline speed; in timeline mode the draw tick nudges the
+    // video's playbackRate around this to track the clock.
+    timelineRateRef.current = rate;
     video.playbackRate = rate;
     if (cameraVideo) cameraVideo.playbackRate = rate;
     if (timeMode === 'timeline') {
@@ -782,10 +834,12 @@ export function StyledVideoPreview({
         cameraVideoRef.current?.pause();
       } else if (event.key.toLowerCase() === 'l') {
         event.preventDefault();
-        void playAtRate(Math.min(4, video.playbackRate >= 1 ? video.playbackRate + 0.5 : 1));
+        // Step off the canonical rate, not the drift-nudged video.playbackRate.
+        const baseRate = timelineRateRef.current;
+        void playAtRate(Math.min(4, baseRate >= 1 ? baseRate + 0.5 : 1));
       } else if (event.key.toLowerCase() === 'j') {
         event.preventDefault();
-        void playAtRate(Math.max(0.25, video.playbackRate - 0.5));
+        void playAtRate(Math.max(0.25, timelineRateRef.current - 0.5));
       }
     };
 
