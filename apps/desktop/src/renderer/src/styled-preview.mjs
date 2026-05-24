@@ -328,3 +328,36 @@ function clampUnit(value, min = 0) {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(1, value));
 }
+
+// Decide how the timeline-mode preview keeps the screen <video> (a decode
+// surface) aligned with the canonical virtual clock for one draw tick. Pure so
+// it can be unit-tested independently of the DOM/rAF loop.
+//
+// - `drift`      = video.currentTime - expectedSourceTime (seconds); + = video ahead.
+// - `playing`    = playback active and the video element not paused.
+// - `contiguous` = expected source frame advanced forward by <=2 frames (same
+//   clip, no cut/transition/gap/scrub jump).
+// - `baseRate`   = canonical timeline speed (1x, or a jog/shuttle rate).
+//
+// Returns: { action: 'rate', playbackRate } | { action: 'seek' } | { action: 'hold' }.
+//
+// Playing forward through one clip with small drift nudges playbackRate
+// (deadband 20ms, clamp +/-10% of base) instead of hard-seeking, keeping frames
+// smooth (the seek-stepping it replaces froze frames then jumped, which zoom
+// magnified into stutter). Scrub/paused, cut/transition/gap, or large drift
+// hard-seek.
+export function decideTimelineVideoSync({ drift, playing, contiguous, baseRate = 1, fps = 30 }) {
+  const hardSeekTolerance = Math.max(0.035, 1 / Math.max(1, fps));
+  const safeDrift = Number.isFinite(drift) ? drift : 0;
+  const base = Number.isFinite(baseRate) && baseRate > 0 ? baseRate : 1;
+
+  if (playing && contiguous && Math.abs(safeDrift) <= 0.35) {
+    if (Math.abs(safeDrift) < 0.02) return { action: 'rate', playbackRate: base };
+    const adjust = Math.max(-0.1, Math.min(0.1, safeDrift)); // +drift (ahead) -> slow down
+    return { action: 'rate', playbackRate: base * (1 - adjust) };
+  }
+  if (Math.abs(safeDrift) > hardSeekTolerance) {
+    return { action: 'seek' };
+  }
+  return { action: 'hold' };
+}

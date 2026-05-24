@@ -98,3 +98,16 @@ export function resizeRectFromPointer(
   canvasWidth: number,
   canvasHeight: number,
 ): { x: number; y: number; w: number; h: number };
+
+export type TimelineVideoSyncDecision =
+  | { action: 'rate'; playbackRate: number }
+  | { action: 'seek' }
+  | { action: 'hold' };
+
+export function decideTimelineVideoSync(input: {
+  drift: number;
+  playing: boolean;
+  contiguous: boolean;
+  baseRate?: number;
+  fps?: number;
+}): TimelineVideoSyncDecision;

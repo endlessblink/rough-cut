@@ -228,6 +228,39 @@ describe('getZoomTransformForMarker', () => {
     expect(resumed!.scale).toBeCloseTo(fromScratch!.scale, 9);
   });
 
+  it('resumed integration stays bit-identical through the zoom-OUT (ramp-out) phase', () => {
+    // Ramp-out freezes the camera target; verify the resume cache reproduces a
+    // from-scratch integration during that phase too (so zoom-out is smooth).
+    const marker = createZoomMarker(0, 90, {
+      kind: 'auto',
+      strength: 1,
+      zoomInDuration: 10,
+      zoomOutDuration: 20, // ramp-out starts at frame 70
+      focalPoint: { x: 0.5, y: 0.5 },
+    });
+    const cursorAt = (f: number) => ({ x: 0.5 + 0.3 * Math.sin(f / 5), y: 0.5 + 0.2 * Math.cos(f / 7) });
+    const opts = (getCursorPosition: (f: number) => { x: number; y: number }) => ({
+      followCursor: true as const,
+      followAnimation: 'smooth' as const,
+      followPadding: 0.2,
+      fps: 30,
+      getCursorPosition,
+    });
+
+    const sharedCursor = (f: number) => cursorAt(f);
+    let resumed: ReturnType<typeof getZoomTransformForMarker> = null;
+    for (let f = 0; f <= 80; f += 1) resumed = getZoomTransformForMarker(f, marker, opts(sharedCursor)); // 80 is in ramp-out
+
+    const fromScratch = getZoomTransformForMarker(80, marker, opts((f) => cursorAt(f)));
+
+    expect(resumed).not.toBeNull();
+    expect(fromScratch).not.toBeNull();
+    expect(resumed!.scale).toBeLessThan(strengthToScale(1)); // confirm we're mid ramp-out (scale below target)
+    expect(resumed!.translateX).toBeCloseTo(fromScratch!.translateX, 9);
+    expect(resumed!.translateY).toBeCloseTo(fromScratch!.translateY, 9);
+    expect(resumed!.scale).toBeCloseTo(fromScratch!.scale, 9);
+  });
+
   it('Mode A: near-edge cursor stays at its source position (no edge-snap clamp)', () => {
     const marker = createZoomMarker(0, 30, {
       kind: 'auto',

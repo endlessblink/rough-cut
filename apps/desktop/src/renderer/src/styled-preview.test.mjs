@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activeClickEmphasisAtFrame, cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFrame, cursorAtTimeMs, cursorForResizeHandle, drawClickEmphasis, drawCursorPath, frameResizeHandles, getCursorBoundsStatus, moveRectFromPointer, resizeHandleAtPoint, resizeRectFromPointer } from './styled-preview.mjs';
+import { activeClickEmphasisAtFrame, cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFrame, cursorAtTimeMs, cursorForResizeHandle, decideTimelineVideoSync, drawClickEmphasis, drawCursorPath, frameResizeHandles, getCursorBoundsStatus, moveRectFromPointer, resizeHandleAtPoint, resizeRectFromPointer } from './styled-preview.mjs';
 
 test('cursorAtFrame returns null for empty events', () => {
   assert.equal(cursorAtFrame([], 0), null);
@@ -373,4 +373,61 @@ test('resizeRectFromPointer clamps oversized and undersized resizes', () => {
 
   assert.deepEqual(resizeRectFromPointer({ ...base, handle: 'se' }, 9999, 9999, 1000, 500), { x: 0.2, y: 0.2, w: 0.8, h: 0.8 });
   assert.deepEqual(resizeRectFromPointer({ ...base, handle: 'se' }, 201, 101, 1000, 500), { x: 0.2, y: 0.2, w: 0.05, h: 0.05 });
+});
+
+// --- decideTimelineVideoSync: timeline playback drift correction ---
+// Regression guard for the smooth-playback fix: playing forward through one
+// clip nudges playbackRate instead of hard-seeking (the seek-stepping froze
+// frames then jumped, which zoom magnified into stutter).
+
+test('decideTimelineVideoSync: small drift within deadband holds the canonical rate', () => {
+  const d = decideTimelineVideoSync({ drift: 0.01, playing: true, contiguous: true, baseRate: 1, fps: 30 });
+  assert.deepEqual(d, { action: 'rate', playbackRate: 1 });
+});
+
+test('decideTimelineVideoSync: video ahead nudges playbackRate down (slow to let clock catch up)', () => {
+  const d = decideTimelineVideoSync({ drift: 0.05, playing: true, contiguous: true, baseRate: 1, fps: 30 });
+  assert.equal(d.action, 'rate');
+  assert.ok(d.playbackRate < 1 && d.playbackRate >= 0.9, `expected slowdown, got ${d.playbackRate}`);
+  assert.ok(Math.abs(d.playbackRate - 0.95) < 1e-9);
+});
+
+test('decideTimelineVideoSync: video behind nudges playbackRate up (speed up to catch the clock)', () => {
+  const d = decideTimelineVideoSync({ drift: -0.05, playing: true, contiguous: true, baseRate: 1, fps: 30 });
+  assert.equal(d.action, 'rate');
+  assert.ok(Math.abs(d.playbackRate - 1.05) < 1e-9);
+});
+
+test('decideTimelineVideoSync: nudge is clamped to +/-10% of the base rate', () => {
+  const ahead = decideTimelineVideoSync({ drift: 0.3, playing: true, contiguous: true, baseRate: 1, fps: 30 });
+  assert.ok(Math.abs(ahead.playbackRate - 0.9) < 1e-9, `expected 0.9 clamp, got ${ahead.playbackRate}`);
+  const behind = decideTimelineVideoSync({ drift: -0.3, playing: true, contiguous: true, baseRate: 1, fps: 30 });
+  assert.ok(Math.abs(behind.playbackRate - 1.1) < 1e-9, `expected 1.1 clamp, got ${behind.playbackRate}`);
+});
+
+test('decideTimelineVideoSync: nudge clamps relative to a jog/shuttle base rate', () => {
+  const d = decideTimelineVideoSync({ drift: 0.05, playing: true, contiguous: true, baseRate: 2, fps: 30 });
+  assert.ok(Math.abs(d.playbackRate - 1.9) < 1e-9, `expected 1.9 (2*0.95), got ${d.playbackRate}`);
+});
+
+test('decideTimelineVideoSync: large drift hard-seeks even while playing contiguously', () => {
+  const d = decideTimelineVideoSync({ drift: 0.5, playing: true, contiguous: true, baseRate: 1, fps: 30 });
+  assert.deepEqual(d, { action: 'seek' });
+});
+
+test('decideTimelineVideoSync: a cut/transition (non-contiguous) hard-seeks', () => {
+  const d = decideTimelineVideoSync({ drift: 0.1, playing: true, contiguous: false, baseRate: 1, fps: 30 });
+  assert.deepEqual(d, { action: 'seek' });
+});
+
+test('decideTimelineVideoSync: paused/scrub seeks to the frame when off, holds when aligned', () => {
+  assert.deepEqual(decideTimelineVideoSync({ drift: 0.1, playing: false, contiguous: true, baseRate: 1, fps: 30 }), { action: 'seek' });
+  // Within the paused hard-seek tolerance (~33ms at 30fps) → leave the exact frame.
+  assert.deepEqual(decideTimelineVideoSync({ drift: 0.01, playing: false, contiguous: true, baseRate: 1, fps: 30 }), { action: 'hold' });
+});
+
+test('decideTimelineVideoSync: tolerates non-finite drift/baseRate without throwing', () => {
+  assert.deepEqual(decideTimelineVideoSync({ drift: Number.NaN, playing: true, contiguous: true, baseRate: 1, fps: 30 }), { action: 'rate', playbackRate: 1 });
+  const d = decideTimelineVideoSync({ drift: 0.05, playing: true, contiguous: true, baseRate: 0, fps: 30 });
+  assert.ok(Math.abs(d.playbackRate - 0.95) < 1e-9);
 });

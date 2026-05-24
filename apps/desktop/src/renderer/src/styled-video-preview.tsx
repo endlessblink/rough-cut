@@ -19,6 +19,7 @@ import {
   clampedCameraTime,
   coverSourceRect,
   cursorAtTimeMs,
+  decideTimelineVideoSync,
   cursorForResizeHandle,
   drawClickEmphasis,
   drawCursorPath,
@@ -541,22 +542,18 @@ export function StyledVideoPreview({
         // of advance). A backward or large jump means a cut/transition/gap/scrub
         // and must hard-seek; a contiguous advance can be tracked by nudging.
         const contiguous = prevExpected !== null && expectedFrame >= prevExpected && expectedFrame - prevExpected <= 2;
-        const drift = video.currentTime - expectedSourceTime; // +: video ahead of the clock
         const playingNow = isPlaying && !video.paused;
-        const hardSeekTolerance = Math.max(0.035, 1 / fps);
-
-        if (playingNow && contiguous && Math.abs(drift) <= 0.35) {
-          // Smooth drift correction: nudge playbackRate around the canonical
-          // rate instead of seeking (deadband ~20ms, clamp ±10%). drift>0 (video
-          // ahead) → slow down; drift<0 (behind) → speed up.
-          const base = timelineRateRef.current;
-          if (Math.abs(drift) < 0.02) {
-            if (video.playbackRate !== base) video.playbackRate = base;
-          } else {
-            const adjust = Math.max(-0.1, Math.min(0.1, drift));
-            video.playbackRate = base * (1 - adjust);
-          }
-        } else if (Math.abs(drift) > hardSeekTolerance) {
+        const decision = decideTimelineVideoSync({
+          drift: video.currentTime - expectedSourceTime, // +: video ahead of the clock
+          playing: playingNow,
+          contiguous,
+          baseRate: timelineRateRef.current,
+          fps,
+        });
+        if (decision.action === 'rate') {
+          // Smooth drift correction: nudge playbackRate around the canonical rate.
+          if (video.playbackRate !== decision.playbackRate) video.playbackRate = decision.playbackRate;
+        } else if (decision.action === 'seek') {
           // Paused/scrub, clip transition / cut / gap, or large drift → hard seek.
           video.currentTime = expectedSourceTime;
           syncCameraTime(expectedSourceTime);
