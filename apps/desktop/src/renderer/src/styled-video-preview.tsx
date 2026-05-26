@@ -788,6 +788,7 @@ export function StyledVideoPreview({
 
     video.pause();
     cameraVideo?.pause();
+    return;
   }
 
   async function playAtRate(rate: number) {

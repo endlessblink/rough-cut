@@ -142,10 +142,22 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
   const includeTimelineAudio = Array.isArray(recording.timelineSegments)
     && recording.timelineSegments.length > 0
     && await sourceHasAudioStream(recording.filePath, signal);
+  const useSimpleFastPath = shouldUseSimpleStyledFastPath({
+    recording,
+    durationFrames: recording.trimmedDuration ?? recording.timelineDurationFrames ?? recording.duration,
+  });
   try {
     const fps = Number.isFinite(recording.fps) && recording.fps > 0 ? recording.fps : 30;
     const durationSeconds = (recording.trimmedDuration ?? recording.timelineDurationFrames ?? recording.duration) / fps;
-    const result = await run('ffmpeg', buildStyledExportArgs({
+    if (useSimpleFastPath) {
+      onProgress({
+        phase: 'rendering-styled',
+        progress: 0.01,
+        notice: 'Using fast styled export for a long recording.',
+        fastPath: true,
+      });
+    }
+    const result = await run('ffmpeg', (useSimpleFastPath ? buildSimpleStyledFastExportArgs : buildStyledExportArgs)({
       inputPath: recording.filePath,
       outputPath,
       width: canvas.width,
@@ -209,6 +221,12 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
     bytes: exported.size,
     byteEqualCandidate: false,
   };
+}
+
+function shouldUseSimpleStyledFastPath({ recording, durationFrames }) {
+  const fps = Number.isFinite(recording?.fps) && recording.fps > 0 ? recording.fps : 30;
+  const minFastPathFrames = fps * 5 * 60;
+  return Number(durationFrames) >= minFastPathFrames;
 }
 
 function createCancelledExportResult({ outputPath, sourcePath }) {
@@ -501,7 +519,7 @@ export function buildStyledExportArgs({
             ? `[camera_base]scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba[camera_scaled]`
             : `[1:v]setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba[camera_scaled]`,
           `[camera_scaled]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${cameraAlpha}'[camera_rounded]`,
-          `[with_screen][camera_rounded]overlay=${cameraFrame.x}:${cameraFrame.y}:shortest=1,format=yuv420p[v]`,
+          `[with_screen][camera_rounded]overlay=${cameraFrame.x}:${cameraFrame.y}:eof_action=pass:repeatlast=0,format=yuv420p[v]`,
         ]
       : ['[with_screen]format=yuv420p[v]']),
   ].join(';');
@@ -538,6 +556,167 @@ export function buildStyledExportArgs({
   ];
 }
 
+export function buildSimpleStyledFastExportArgs({
+  inputPath,
+  outputPath,
+  width = 1920,
+  height = 1080,
+  cursorAssPath = null,
+  sourceWidth = null,
+  sourceHeight = null,
+  sourceFps = null,
+  sourceTrimStartFrame = 0,
+  sourceTrimEndFrame = null,
+  timelineSegments = [],
+  timelineDurationFrames = null,
+  timelineAudioSegments = [],
+  zoomCropFilter = null,
+  zoomSendcmdPath = null,
+  backgroundImagePath = null,
+  cameraInputPath = null,
+  cameraSourceWidth = null,
+  cameraSourceHeight = null,
+  cameraSourceInFrames = 0,
+  cameraTimelineSegments = [],
+  cameraPresentation = null,
+  cameraFrame: cameraFrameOverride = null,
+  screenFrame: screenFrameOverride = null,
+  cutRanges = [],
+  screenPadding = 96,
+  backgroundStart = '#e8ebf0',
+}) {
+  const fps = Number.isFinite(sourceFps) && sourceFps > 0 ? sourceFps : 30;
+  const safePadding = clampNumber(screenPadding, 0, Math.min(width, height) / 2 - 2);
+  const maxVideoWidth = Math.round(width - safePadding * 2);
+  const maxVideoHeight = Math.round(height - safePadding * 2);
+  const fallbackSourceWidth = Number.isFinite(sourceWidth) && sourceWidth > 0 ? sourceWidth : 16;
+  const fallbackSourceHeight = Number.isFinite(sourceHeight) && sourceHeight > 0 ? sourceHeight : 9;
+  const sourceAspect = fallbackSourceWidth / fallbackSourceHeight;
+  const frameAspect = maxVideoWidth / maxVideoHeight;
+  const defaultScreenW = sourceAspect >= frameAspect ? maxVideoWidth : Math.round(maxVideoHeight * sourceAspect);
+  const defaultScreenH = sourceAspect >= frameAspect ? Math.round(maxVideoWidth / sourceAspect) : maxVideoHeight;
+  const defaultScreenX = Math.round((width - defaultScreenW) / 2);
+  const defaultScreenY = Math.round((height - defaultScreenH) / 2);
+  const screenFrame = resolveNumericOverlayFrame(screenFrameOverride, width, height, {
+    x: defaultScreenX,
+    y: defaultScreenY,
+    w: defaultScreenW,
+    h: defaultScreenH,
+  });
+  const trimStartFrame = Math.max(0, Math.round(sourceTrimStartFrame || 0));
+  const trimEndFrame = Number.isFinite(sourceTrimEndFrame) ? Math.max(trimStartFrame + 1, Math.round(sourceTrimEndFrame)) : null;
+  const trimDurationFrames = trimEndFrame === null ? null : trimEndFrame - trimStartFrame;
+  const normalizedTimelineSegments = normalizeTimelineSegments(timelineSegments);
+  const useTimelineSegments = normalizedTimelineSegments.length > 0;
+  const normalizedTimelineAudioSegments = normalizeTimelineSegments(timelineAudioSegments);
+  const useTimelineAudio = useTimelineSegments && normalizedTimelineAudioSegments.length > 0;
+  const normalizedCameraTimelineSegments = normalizeTimelineSegments(cameraTimelineSegments);
+  const useCameraTimelineSegments = Boolean(cameraInputPath) && useTimelineSegments && normalizedCameraTimelineSegments.length > 0;
+  const timelineDuration = useTimelineSegments
+    ? Math.max(
+        1,
+        Number.isFinite(timelineDurationFrames) ? Math.round(timelineDurationFrames) : 0,
+        ...normalizedTimelineSegments.map((segment) => segment.timelineOut),
+      )
+    : null;
+  const normalizedCutRanges = normalizeCutRanges(cutRanges, trimStartFrame, trimEndFrame);
+  const cutFilter = buildCutSelectFilter(normalizedCutRanges, trimStartFrame);
+  const zoomActive = Boolean(zoomCropFilter && zoomSendcmdPath);
+  const cameraFrame = cameraInputPath ? resolveNumericOverlayFrame(cameraFrameOverride, width, height, resolveFastCameraFrame(cameraPresentation, width, height)) : null;
+  const cameraTrim = Math.max(0, Math.round(cameraSourceInFrames));
+  const bg = parseHexColor(backgroundStart) ?? parseHexColor('#e8ebf0');
+  const bgHex = `0x${toHexByte(bg.r)}${toHexByte(bg.g)}${toHexByte(bg.b)}`;
+  const screenInput = cursorAssPath ? '[with_cursor]' : '[base]';
+  const backgroundFilter = backgroundImagePath
+    ? [
+        `color=c=${bgHex}:s=${width}x${height}:r=${fps},format=rgba[bg_base]`,
+        `movie=${escapeFilterPath(backgroundImagePath)},scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},format=rgba[bg_image]`,
+        '[bg_base][bg_image]overlay=0:0[bg]',
+      ]
+    : [`color=c=${bgHex}:s=${width}x${height}:r=${fps},format=rgba[bg]`];
+  const sourceBaseFilters = useTimelineSegments
+    ? buildTimelineVideoBaseFilters({
+        segments: normalizedTimelineSegments,
+        sourceWidth,
+        sourceHeight,
+        fps,
+        durationFrames: timelineDuration,
+        inputIndex: 0,
+        outputLabel: 'base',
+      })
+    : [`[0:v]setpts=PTS-STARTPTS${cutFilter}[base]`];
+  const cameraBaseFilters = useCameraTimelineSegments
+    ? buildTimelineVideoBaseFilters({
+        segments: normalizedCameraTimelineSegments,
+        sourceWidth: cameraSourceWidth,
+        sourceHeight: cameraSourceHeight,
+        fps,
+        durationFrames: timelineDuration,
+        inputIndex: 1,
+        outputLabel: 'camera_base',
+        transparent: true,
+      })
+    : [];
+  const audioFilters = useTimelineAudio
+    ? buildTimelineAudioFilters({
+        segments: normalizedTimelineAudioSegments,
+        fps,
+        durationFrames: timelineDuration,
+      })
+    : [];
+  const screenStep = zoomActive
+    ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},scale=${screenFrame.w}:${screenFrame.h}:force_original_aspect_ratio=increase,crop=${screenFrame.w}:${screenFrame.h},format=rgba`
+    : `scale=${screenFrame.w}:${screenFrame.h}:force_original_aspect_ratio=decrease,format=rgba`;
+  const filter = [
+    ...backgroundFilter,
+    ...sourceBaseFilters,
+    ...cameraBaseFilters,
+    ...audioFilters,
+    ...(cursorAssPath ? [`[base]subtitles=${escapeFilterPath(cursorAssPath)}[with_cursor]`] : []),
+    `${screenInput}${screenStep}[screen]`,
+    `[bg][screen]overlay=${screenFrame.x}:${screenFrame.y}:shortest=1[with_screen]`,
+    ...(cameraFrame
+      ? [
+          useCameraTimelineSegments
+            ? `[camera_base]scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba[camera_scaled]`
+            : `[1:v]setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba[camera_scaled]`,
+          `[with_screen][camera_scaled]overlay=${cameraFrame.x}:${cameraFrame.y}:eof_action=pass:repeatlast=0,format=yuv420p[v]`,
+        ]
+      : ['[with_screen]format=yuv420p[v]']),
+  ].join(';');
+
+  return [
+    '-y',
+    '-progress',
+    'pipe:1',
+    '-nostats',
+    ...(!useTimelineSegments && trimStartFrame > 0 ? ['-ss', formatFilterNumber(trimStartFrame / fps)] : []),
+    ...(!useTimelineSegments && trimDurationFrames !== null ? ['-t', formatFilterNumber(trimDurationFrames / fps)] : []),
+    '-i',
+    inputPath,
+    ...(cameraInputPath ? ['-i', cameraInputPath] : []),
+    '-filter_complex',
+    filter,
+    '-map',
+    '[v]',
+    ...(useTimelineAudio ? ['-map', '[a]'] : normalizedCutRanges.length === 0 && !useTimelineSegments ? ['-map', '0:a?'] : ['-an']),
+    '-c:v',
+    'libx264',
+    '-preset',
+    'ultrafast',
+    '-crf',
+    '18',
+    '-pix_fmt',
+    'yuv420p',
+    ...(useTimelineAudio ? ['-c:a', 'aac', '-b:a', '192k'] : ['-c:a', 'copy']),
+    '-movflags',
+    '+faststart',
+    '-metadata',
+    `rough_cut_style=canvas:${width}x${height}:studio-demo:fast`,
+    outputPath,
+  ];
+}
+
 function resolveScreenOverlayFrame(canvasWidth, canvasHeight, defaultWidth, defaultHeight, normalizedFrame = null) {
   if (normalizedFrame && Number.isFinite(normalizedFrame.x) && Number.isFinite(normalizedFrame.y) && Number.isFinite(normalizedFrame.w) && Number.isFinite(normalizedFrame.h)) {
     const w = Math.max(2, Math.min(canvasWidth, Math.round(normalizedFrame.w * canvasWidth)));
@@ -556,6 +735,37 @@ function resolveScreenOverlayFrame(canvasWidth, canvasHeight, defaultWidth, defa
     w: defaultWidth,
     h: defaultHeight,
     custom: false,
+  };
+}
+
+function resolveNumericOverlayFrame(normalizedFrame, canvasWidth, canvasHeight, fallback) {
+  if (normalizedFrame && Number.isFinite(normalizedFrame.x) && Number.isFinite(normalizedFrame.y) && Number.isFinite(normalizedFrame.w) && Number.isFinite(normalizedFrame.h)) {
+    const w = Math.max(2, Math.min(canvasWidth, Math.round(normalizedFrame.w * canvasWidth)));
+    const h = Math.max(2, Math.min(canvasHeight, Math.round(normalizedFrame.h * canvasHeight)));
+    return {
+      x: Math.max(0, Math.min(canvasWidth - w, Math.round(normalizedFrame.x * canvasWidth))),
+      y: Math.max(0, Math.min(canvasHeight - h, Math.round(normalizedFrame.y * canvasHeight))),
+      w,
+      h,
+    };
+  }
+  return fallback;
+}
+
+function resolveFastCameraFrame(cameraPresentation, canvasWidth, canvasHeight) {
+  const sizeScale = Math.max(0.5, Math.min(2, Number(cameraPresentation?.size ?? 100) / 100));
+  const width = Math.round(Math.min(canvasWidth, canvasHeight) * 0.22 * sizeScale);
+  const height = width;
+  const margin = Math.round(Math.min(canvasWidth, canvasHeight) * 0.06);
+  const position = cameraPresentation?.position ?? 'corner-br';
+  if (position === 'center') return { x: Math.round((canvasWidth - width) / 2), y: Math.round((canvasHeight - height) / 2), w: width, h: height };
+  const left = position.endsWith('bl') || position.endsWith('tl');
+  const top = position.endsWith('tl') || position.endsWith('tr');
+  return {
+    x: left ? margin : canvasWidth - width - margin,
+    y: top ? margin : canvasHeight - height - margin,
+    w: width,
+    h: height,
   };
 }
 
@@ -600,17 +810,30 @@ function normalizeTimelineSegments(segments) {
 function buildTimelineVideoBaseFilters({ segments, sourceWidth, sourceHeight, fps, durationFrames, inputIndex = 0, outputLabel = 'base', transparent = false }) {
   const safeWidth = Math.max(2, Math.round(Number.isFinite(sourceWidth) ? sourceWidth : 1280));
   const safeHeight = Math.max(2, Math.round(Number.isFinite(sourceHeight) ? sourceHeight : 720));
-  const durationSeconds = formatFilterNumber(Math.max(1, Math.round(durationFrames || 1)) / fps);
-  const baseLabel = `${outputLabel}_blank`;
-  const filters = [`color=c=${transparent ? 'black@0' : 'black'}:s=${safeWidth}x${safeHeight}:r=${fps}:d=${durationSeconds},format=rgba[${baseLabel}]`];
-  let baseInput = baseLabel;
+  const totalFrames = Math.max(1, Math.round(durationFrames || 1));
+  const filters = [];
+  const labels = [];
+  let cursor = 0;
+  let partIndex = 0;
+  const pushGap = (frames) => {
+    if (frames <= 0) return;
+    const label = `${outputLabel}_gap_${partIndex++}`;
+    filters.push(`color=c=${transparent ? 'black@0' : 'black'}:s=${safeWidth}x${safeHeight}:r=${fps}:d=${formatFilterNumber(frames / fps)},format=rgba[${label}]`);
+    labels.push(`[${label}]`);
+  };
   segments.forEach((segment, index) => {
+    pushGap(segment.timelineIn - cursor);
     const segmentLabel = `${outputLabel}_seg_${index}`;
-    const outLabel = index === segments.length - 1 ? outputLabel : `${outputLabel}_mix_${index}`;
-    filters.push(`[${inputIndex}:v]trim=start_frame=${segment.sourceIn}:end_frame=${segment.sourceOut},setpts=PTS-STARTPTS+${formatFilterNumber(segment.timelineIn / fps)}/TB,format=rgba[${segmentLabel}]`);
-    filters.push(`[${baseInput}][${segmentLabel}]overlay=eof_action=pass:repeatlast=0[${outLabel}]`);
-    baseInput = outLabel;
+    filters.push(`[${inputIndex}:v]trim=start_frame=${segment.sourceIn}:end_frame=${segment.sourceOut},setpts=PTS-STARTPTS,format=rgba[${segmentLabel}]`);
+    labels.push(`[${segmentLabel}]`);
+    cursor = segment.timelineOut;
   });
+  pushGap(totalFrames - cursor);
+  if (labels.length === 1) {
+    filters.push(`${labels[0]}copy[${outputLabel}]`);
+  } else {
+    filters.push(`${labels.join('')}concat=n=${labels.length}:v=1:a=0[${outputLabel}]`);
+  }
   return filters;
 }
 
@@ -738,6 +961,10 @@ function parseHexColor(color) {
     g: (value >> 8) & 255,
     b: value & 255,
   };
+}
+
+function toHexByte(value) {
+  return Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0');
 }
 
 function clampNumber(value, min, max) {

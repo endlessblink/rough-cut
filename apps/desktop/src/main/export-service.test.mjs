@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
-import { buildBackgroundExpression, buildCursorAss, buildRawTrimExportArgs, buildStyledExportArgs, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveTimelineExportRecording } from './export-service.mjs';
+import { buildBackgroundExpression, buildCursorAss, buildRawTrimExportArgs, buildSimpleStyledFastExportArgs, buildStyledExportArgs, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveTimelineExportRecording } from './export-service.mjs';
 
 test('unedited export copies source mp4 byte-for-byte', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-'));
@@ -193,6 +193,26 @@ test('styled export mode uses the ffmpeg styled canvas path', async () => {
   await assert.rejects(() => exportProjectToMp4({ project, outputPath: '/tmp/export.mp4', mode: 'styled' }), /source.mp4/);
 });
 
+test('long styled export chooses the fast path before invoking ffmpeg', async () => {
+  const progress = [];
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:06:00.000Z',
+      outputPath: '/tmp/missing-long-source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+    },
+  });
+
+  await assert.rejects(
+    () => exportProjectToMp4({ project, outputPath: '/tmp/export.mp4', mode: 'styled', onProgress: (event) => progress.push(event) }),
+    /Styled export failed/,
+  );
+  assert(progress.some((event) => event.fastPath === true && event.notice === 'Using fast styled export for a long recording.'));
+});
+
 test('styled export args build a 16:9 canvas render command', () => {
   const args = buildStyledExportArgs({ inputPath: '/tmp/source.mp4', outputPath: '/tmp/export.mp4' });
   const joined = args.join(' ');
@@ -208,6 +228,66 @@ test('styled export args build a 16:9 canvas render command', () => {
   assert(joined.includes('studio-demo'));
   assert(args.includes('/tmp/source.mp4'));
   assert.equal(args.at(-1), '/tmp/export.mp4');
+});
+
+test('simple styled fast export args avoid expensive rounded shadow graph', () => {
+  const args = buildSimpleStyledFastExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    cursorAssPath: '/tmp/cursor.ass',
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    sourceFps: 30,
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes('-progress pipe:1 -nostats'));
+  assert(joined.includes('color=c=0xe8ebf0:s=1920x1080:r=30'));
+  assert(joined.includes('subtitles=/tmp/cursor.ass'));
+  assert(joined.includes('scale=1579:888:force_original_aspect_ratio=decrease'));
+  assert(joined.includes('overlay=171:96:shortest=1'));
+  assert(joined.includes('-preset ultrafast'));
+  assert(!joined.includes('boxblur'));
+  assert(!joined.includes('geq=r='));
+  assert.equal(args.at(-1), '/tmp/export.mp4');
+});
+
+test('simple styled fast export args preserve long-export feature inputs', () => {
+  const args = buildSimpleStyledFastExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    sourceFps: 30,
+    timelineSegments: [{ timelineIn: 30, timelineOut: 90, sourceIn: 15, sourceOut: 75 }],
+    timelineDurationFrames: 120,
+    timelineAudioSegments: [{ timelineIn: 30, timelineOut: 90, sourceIn: 15, sourceOut: 75 }],
+    zoomCropFilter: 'crop=640:360:0:0',
+    zoomSendcmdPath: '/tmp/zoom.cmd',
+    backgroundImagePath: '/tmp/bg.png',
+    cameraInputPath: '/tmp/camera.mp4',
+    cameraSourceWidth: 640,
+    cameraSourceHeight: 480,
+    cameraTimelineSegments: [{ timelineIn: 30, timelineOut: 90, sourceIn: 15, sourceOut: 75 }],
+    cameraPresentation: { position: 'corner-tl', size: 120 },
+    screenFrame: { x: 0.1, y: 0.1, w: 0.8, h: 0.75 },
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes('movie=/tmp/bg.png'));
+  assert(joined.includes('trim=start_frame=15:end_frame=75'));
+  assert(joined.includes('[base_gap_0][base_seg_0][base_gap_1]concat=n=3:v=1:a=0[base]'));
+  assert(joined.includes('[camera_base_gap_0][camera_base_seg_0][camera_base_gap_1]concat=n=3:v=1:a=0[camera_base]'));
+  assert(joined.includes('sendcmd=f=/tmp/zoom.cmd'));
+  assert(joined.includes('-i /tmp/camera.mp4'));
+  assert(joined.includes('[camera_base]scale='));
+  assert(joined.includes('[with_screen][camera_scaled]overlay='));
+  assert(joined.includes('eof_action=pass:repeatlast=0,format=yuv420p[v]'));
+  assert(joined.includes('-map [a]'));
+  assert(joined.includes('-c:a aac'));
+  assert(!joined.includes('boxblur'));
+  assert(!joined.includes('geq=r='));
+  assert(!joined.includes('PTS-STARTPTS+'));
 });
 
 test('styled export args apply source trim before the main input', () => {
@@ -318,9 +398,9 @@ test('styled export args compose canonical timeline segments over real gaps', ()
 
   assert(!args.includes('-ss'));
   assert(!args.includes('-t'));
-  assert(joined.includes('color=c=black:s=1280x720:r=30:d=3'));
-  assert(joined.includes('[0:v]trim=start_frame=15:end_frame=75,setpts=PTS-STARTPTS+1/TB'));
-  assert(joined.includes('[base_blank][base_seg_0]overlay=eof_action=pass:repeatlast=0[base]'));
+  assert(joined.includes('color=c=black:s=1280x720:r=30:d=1,format=rgba[base_gap_0]'));
+  assert(joined.includes('[0:v]trim=start_frame=15:end_frame=75,setpts=PTS-STARTPTS,format=rgba[base_seg_0]'));
+  assert(joined.includes('[base_gap_0][base_seg_0]concat=n=2:v=1:a=0[base]'));
   assert(args.includes('-an'));
 });
 
@@ -360,9 +440,9 @@ test('styled export args can render linked camera timeline segments', () => {
   });
   const joined = args.join(' ');
 
-  assert(joined.includes('color=c=black@0:s=640x480:r=30:d=3,format=rgba[camera_base_blank]'));
-  assert(joined.includes('[1:v]trim=start_frame=45:end_frame=105,setpts=PTS-STARTPTS+1/TB,format=rgba[camera_base_seg_0]'));
-  assert(joined.includes('[camera_base_blank][camera_base_seg_0]overlay=eof_action=pass:repeatlast=0[camera_base]'));
+  assert(joined.includes('color=c=black@0:s=640x480:r=30:d=1,format=rgba[camera_base_gap_0]'));
+  assert(joined.includes('[1:v]trim=start_frame=45:end_frame=105,setpts=PTS-STARTPTS,format=rgba[camera_base_seg_0]'));
+  assert(joined.includes('[camera_base_gap_0][camera_base_seg_0]concat=n=2:v=1:a=0[camera_base]'));
   assert(joined.includes('[camera_base]scale='));
 });
 
@@ -553,7 +633,7 @@ test('styled export args use a normalized cameraFrame override when provided', (
   // Override at 1920x1080 → x=192, y=216, w=480, h=432
   assert(joined.includes('scale=480:432:force_original_aspect_ratio=increase'));
   assert(joined.includes('crop=480:432'));
-  assert(joined.includes('overlay=192:216:shortest=1'));
+  assert(joined.includes('overlay=192:216:eof_action=pass:repeatlast=0'));
 });
 
 test('styled export args fall back to camera presentation when no normalized frame is set', () => {

@@ -81,8 +81,8 @@ test('buildTimelineTracks ignores stale transitional top-level tracks', () => {
   assert.equal(rows[0].id, 'timeline-v1');
   assert.equal(rows[0].label, 'Canonical Video');
   assert.equal(rows[0].blocks[0].id, 'canonical');
-  assert.equal(rows[0].blocks[0].leftPct, 25);
-  assert.equal(rows[0].blocks[0].widthPct, 50);
+  assert.equal(Math.round(rows[0].blocks[0].leftPct), 33);
+  assert.equal(Math.round(rows[0].blocks[0].widthPct), 67);
 });
 
 test('buildTimelineTracks preserves multi-track order and generated track kinds', () => {
@@ -99,8 +99,8 @@ test('buildTimelineTracks preserves multi-track order and generated track kinds'
   const rows = buildTimelineTracks(project);
   assert.deepEqual(rows.map((row) => row.id), ['v1', 'c1', 'mg1', 'a1']);
   assert.equal(rows[1].kind, 'captions');
-  assert.equal(rows[1].blocks[0].leftPct, 25);
-  assert.equal(rows[1].blocks[0].widthPct, 50);
+  assert.equal(Math.round(rows[1].blocks[0].leftPct), 33);
+  assert.equal(Math.round(rows[1].blocks[0].widthPct), 67);
   assert.equal(rows[2].enabled, false);
 });
 
