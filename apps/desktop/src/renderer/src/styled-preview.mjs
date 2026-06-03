@@ -341,19 +341,18 @@ function clampUnit(value, min = 0) {
 //
 // Returns: { action: 'rate', playbackRate } | { action: 'seek' } | { action: 'hold' }.
 //
-// Playing forward through one clip with small drift nudges playbackRate
-// (deadband 20ms, clamp +/-10% of base) instead of hard-seeking, keeping frames
-// smooth (the seek-stepping it replaces froze frames then jumped, which zoom
-// magnified into stutter). Scrub/paused, cut/transition/gap, or large drift
-// hard-seek.
+// Playing forward through one clip nudges playbackRate instead of hard-seeking,
+// keeping frames smooth (the seek-stepping it replaces froze frames then jumped,
+// which zoom magnified into stutter). Scrub/paused, cut/transition/gap, or huge
+// drift hard-seek.
 export function decideTimelineVideoSync({ drift, playing, contiguous, baseRate = 1, fps = 30 }) {
   const hardSeekTolerance = Math.max(0.035, 1 / Math.max(1, fps));
   const safeDrift = Number.isFinite(drift) ? drift : 0;
   const base = Number.isFinite(baseRate) && baseRate > 0 ? baseRate : 1;
 
-  if (playing && contiguous && Math.abs(safeDrift) <= 0.35) {
+  if (playing && contiguous && Math.abs(safeDrift) <= 2) {
     if (Math.abs(safeDrift) < 0.02) return { action: 'rate', playbackRate: base };
-    const adjust = Math.max(-0.1, Math.min(0.1, safeDrift)); // +drift (ahead) -> slow down
+    const adjust = Math.max(-0.25, Math.min(0.25, safeDrift)); // +drift (ahead) -> slow down
     return { action: 'rate', playbackRate: base * (1 - adjust) };
   }
   if (Math.abs(safeDrift) > hardSeekTolerance) {

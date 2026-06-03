@@ -398,11 +398,11 @@ test('decideTimelineVideoSync: video behind nudges playbackRate up (speed up to 
   assert.ok(Math.abs(d.playbackRate - 1.05) < 1e-9);
 });
 
-test('decideTimelineVideoSync: nudge is clamped to +/-10% of the base rate', () => {
+test('decideTimelineVideoSync: nudge is clamped to +/-25% of the base rate', () => {
   const ahead = decideTimelineVideoSync({ drift: 0.3, playing: true, contiguous: true, baseRate: 1, fps: 30 });
-  assert.ok(Math.abs(ahead.playbackRate - 0.9) < 1e-9, `expected 0.9 clamp, got ${ahead.playbackRate}`);
+  assert.ok(Math.abs(ahead.playbackRate - 0.75) < 1e-9, `expected 0.75 clamp, got ${ahead.playbackRate}`);
   const behind = decideTimelineVideoSync({ drift: -0.3, playing: true, contiguous: true, baseRate: 1, fps: 30 });
-  assert.ok(Math.abs(behind.playbackRate - 1.1) < 1e-9, `expected 1.1 clamp, got ${behind.playbackRate}`);
+  assert.ok(Math.abs(behind.playbackRate - 1.25) < 1e-9, `expected 1.25 clamp, got ${behind.playbackRate}`);
 });
 
 test('decideTimelineVideoSync: nudge clamps relative to a jog/shuttle base rate', () => {
@@ -410,8 +410,13 @@ test('decideTimelineVideoSync: nudge clamps relative to a jog/shuttle base rate'
   assert.ok(Math.abs(d.playbackRate - 1.9) < 1e-9, `expected 1.9 (2*0.95), got ${d.playbackRate}`);
 });
 
-test('decideTimelineVideoSync: large drift hard-seeks even while playing contiguously', () => {
+test('decideTimelineVideoSync: large contiguous drift still rate-corrects instead of seek-stepping', () => {
   const d = decideTimelineVideoSync({ drift: 0.5, playing: true, contiguous: true, baseRate: 1, fps: 30 });
+  assert.deepEqual(d, { action: 'rate', playbackRate: 0.75 });
+});
+
+test('decideTimelineVideoSync: huge drift hard-seeks even while playing contiguously', () => {
+  const d = decideTimelineVideoSync({ drift: 2.5, playing: true, contiguous: true, baseRate: 1, fps: 30 });
   assert.deepEqual(d, { action: 'seek' });
 });
 

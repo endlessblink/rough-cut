@@ -58,7 +58,7 @@ import './styles.css';
 import { LibraryShell } from './library/library-shell';
 import { AiShell } from './ai/ai-shell';
 import { NleShell } from './nle/nle-shell';
-import { StyledVideoPreview as VideoPreview } from './styled-video-preview';
+import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout } from './styled-video-preview';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
   addManualMarkerAtFrame,
@@ -774,7 +774,7 @@ function App() {
     }
   }
 
-  async function exportProjectWithMode(mode: ExportMode = exportMode) {
+  async function exportProjectWithMode(mode: ExportMode = exportMode, documentOverride: ProjectState['document'] | null = null) {
     if (!project) return;
     setError(null);
     setExportResult(null);
@@ -786,7 +786,7 @@ function App() {
         return;
       }
       setExportMode(mode);
-      const result = await window.roughCut.exportProject({ document: project.document, outputPath, mode, exportScope });
+      const result = await window.roughCut.exportProject({ document: documentOverride ?? project.document, outputPath, mode, exportScope });
       if (result.cancelled) {
         setExportProgress(null);
         return;
@@ -2737,7 +2737,7 @@ function ProjectPreview({
   project: ProjectState;
   recording: RecordingStatus;
   onProjectChange: (next: ProjectState, options?: ProjectChangeOptions) => void;
-  onExportMode: (mode: ExportMode) => void;
+  onExportMode: (mode: ExportMode, documentOverride?: ProjectState['document'] | null) => void;
   onCancelExport: () => void;
   onOpenPath: (path?: string | null) => void;
   onShowItemInFolder: (path?: string | null) => void;
@@ -2762,6 +2762,7 @@ function ProjectPreview({
   const [isSaving, setIsSaving] = React.useState(false);
   const [userTemplates, setUserTemplates] = React.useState<UserRecordingTemplate[]>([]);
   const [appliedUserTemplateId, setAppliedUserTemplateId] = React.useState<string | null>(null);
+  const resolvedPreviewLayoutRef = React.useRef<ResolvedPreviewLayout | null>(null);
   const aspectRatio = project.document.settings?.aspectRatio ?? 'auto';
   const effectiveRecording = React.useMemo(() => {
     if (!project.recording) return null;
@@ -3104,6 +3105,13 @@ function ProjectPreview({
     await persist(nextDocument);
   }
 
+  function exportWithResolvedPreviewLayout(mode: ExportMode) {
+    const documentForExport = recordingAsset?.id
+      ? mergeResolvedPreviewLayout(project.document, recordingAsset.id, resolvedPreviewLayoutRef.current)
+      : project.document;
+    onExportMode(mode, documentForExport);
+  }
+
   async function updateZoomMarkerRange(markerId: string, startFrame: number, endFrame: number) {
     const nextDocument = updateMarkerRange(project.document as unknown as ProjectDocument, markerId, startFrame, endFrame) as unknown as ProjectState['document'];
     if (nextDocument === project.document) return;
@@ -3170,7 +3178,7 @@ function ProjectPreview({
       const maxTimeSec = effectiveRecording ? effectiveRecording.duration / (effectiveRecording.fps || 30) : 0;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'e') {
         event.preventDefault();
-        onExportMode(exportMode);
+        exportWithResolvedPreviewLayout(exportMode);
         return;
       }
       if (!effectiveRecording) return;
@@ -3190,7 +3198,7 @@ function ProjectPreview({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentTimeSec, effectiveRecording, exportMode, onExportMode, trimInfo]);
+  }, [currentTimeSec, effectiveRecording, exportMode, onExportMode, trimInfo, recordingAsset?.id, project.document]);
 
   function focusInspectorContext(selection: InspectorSelection) {
     setInspectorSelection(selection);
@@ -3220,7 +3228,7 @@ function ProjectPreview({
           ) : null}
         </div>
         {project.mediaUrl ? (
-          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" onCurrentTimeChange={setCurrentTimeSec} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} />
+          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" onCurrentTimeChange={setCurrentTimeSec} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} />
         ) : (
           // P-AI-C/TASK-169 — empty-state for blank projects (no assets). The
           // NLE Editor view will be the proper home for blank projects once it
@@ -3250,7 +3258,7 @@ function ProjectPreview({
           exportProgress={exportProgress}
           exportScope={exportScope}
           onExportScopeChange={onExportScopeChange}
-          onExportMode={onExportMode}
+          onExportMode={exportWithResolvedPreviewLayout}
           onCancelExport={onCancelExport}
           onOpenProject={() => onOpenPath(project.path)}
           onOpenRecordingFolder={() => onShowItemInFolder(project.recording?.filePath)}
@@ -3289,6 +3297,40 @@ function ExportProgressMeter({ progress }: { progress: ExportProgress }) {
 
 function getPrimaryRecordingAsset(document: ProjectState['document']) {
   return document.assets?.find((asset) => asset.type === 'recording') ?? null;
+}
+
+function mergeResolvedPreviewLayout(
+  document: ProjectState['document'],
+  recordingAssetId: string,
+  layout: ResolvedPreviewLayout | null,
+): ProjectState['document'] {
+  if (!layout) return document;
+  return {
+    ...document,
+    assets: document.assets?.map((asset) => {
+      if (asset.id !== recordingAssetId) return asset;
+      const presentation = withDefaultPresentation(asset.presentation) as unknown as Record<string, unknown>;
+      const nextPresentation: Record<string, unknown> = {
+        ...presentation,
+        screenFrame: normalizePreviewLayoutRect(layout.screenFrame),
+      };
+      if (layout.cameraFrame) nextPresentation.cameraFrame = normalizePreviewLayoutRect(layout.cameraFrame);
+      else delete nextPresentation.cameraFrame;
+      return {
+        ...asset,
+        presentation: nextPresentation,
+      };
+    }),
+  };
+}
+
+function normalizePreviewLayoutRect(rect: NormalizedRect): NormalizedRect {
+  return {
+    x: clampUnit(rect.x),
+    y: clampUnit(rect.y),
+    w: clampUnit(rect.w, 0.05),
+    h: clampUnit(rect.h, 0.05),
+  };
 }
 
 function getPrimaryRecordingClip(document: ProjectState['document'], assetId?: string | null): PrimaryClip | null {

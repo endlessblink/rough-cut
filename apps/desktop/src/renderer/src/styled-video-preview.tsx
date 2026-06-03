@@ -100,6 +100,33 @@ function drawFocalTarget(
   ctx.restore();
 }
 
+function waitForVideoFrameReady(video: HTMLVideoElement | null, timeoutMs = 3000): Promise<void> {
+  if (!video || video.readyState >= 2) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('Timed out waiting for video frame data.'));
+    }, timeoutMs);
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      video.removeEventListener('loadeddata', onReady);
+      video.removeEventListener('canplay', onReady);
+      video.removeEventListener('error', onError);
+    };
+    const onReady = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error(videoErrorMessage(video)));
+    };
+    video.addEventListener('loadeddata', onReady, { once: true });
+    video.addEventListener('canplay', onReady, { once: true });
+    video.addEventListener('error', onError, { once: true });
+  });
+}
+
 export type StyledPreviewProject = {
   document: {
     name?: string;
@@ -121,6 +148,7 @@ type CutRange = { id: string; startFrame: number; endFrame: number };
 type PreviewTimeMode = 'source' | 'timeline';
 type CursorOffscreenSide = 'left' | 'right' | 'top' | 'bottom';
 type CursorOffscreenStatus = null | { side: CursorOffscreenSide; distance: number };
+export type ResolvedPreviewLayout = { screenFrame: NormalizedRect; cameraFrame: NormalizedRect | null };
 
 export function StyledVideoPreview({
   project,
@@ -136,6 +164,7 @@ export function StyledVideoPreview({
   onCameraFrameChange,
   onScreenFrameChange,
   onSourceMediaDurationChange,
+  onResolvedLayoutChange,
   selectedZoomFocal = null,
   onZoomFocalChange,
 }: {
@@ -152,6 +181,7 @@ export function StyledVideoPreview({
   onCameraFrameChange?: (frame: NormalizedRect | null) => void;
   onScreenFrameChange?: (frame: NormalizedRect | null) => void;
   onSourceMediaDurationChange?: (sec: number | null) => void;
+  onResolvedLayoutChange?: (layout: ResolvedPreviewLayout) => void;
   selectedZoomFocal?: { id: string; x: number; y: number } | null;
   onZoomFocalChange?: (markerId: string, x: number, y: number) => void;
 }) {
@@ -172,10 +202,13 @@ export function StyledVideoPreview({
   const lastExpectedSourceFrameRef = React.useRef<number | null>(null);
   const cameraDragRef = React.useRef<NormalizedRect | null>(null);
   const cameraRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const cameraRadiusRef = React.useRef(16);
   const cameraDragOriginRef = React.useRef<PreviewDragOrigin | null>(null);
   const screenDragRef = React.useRef<NormalizedRect | null>(null);
   const screenRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const screenRadiusRef = React.useRef(22);
   const screenDragOriginRef = React.useRef<PreviewDragOrigin | null>(null);
+  const lastResolvedLayoutKeyRef = React.useRef('');
   const [isDraggingCamera, setIsDraggingCamera] = React.useState(false);
   const [isDraggingScreen, setIsDraggingScreen] = React.useState(false);
   const [isDraggingFocal, setIsDraggingFocal] = React.useState(false);
@@ -191,6 +224,7 @@ export function StyledVideoPreview({
   isDraggingFocalRef.current = isDraggingFocal;
   const [currentTime, setCurrentTime] = React.useState(0);
   const currentTimeRef = React.useRef(0);
+  const lastPublishedTimeRef = React.useRef({ atMs: 0, timeSec: 0 });
   const [internalPlaying, setInternalPlaying] = React.useState(false);
   const [sourceMediaDuration, setSourceMediaDuration] = React.useState<number | null>(null);
   const [cameraMediaDuration, setCameraMediaDuration] = React.useState<number | null>(null);
@@ -233,9 +267,32 @@ export function StyledVideoPreview({
   const timelineDuration = Math.max(0.1, timelineDurationFrames / fps);
   const displayDuration = timeMode === 'timeline' ? timelineDuration : visibleDuration;
 
-  function updateCurrentTime(nextTime: number) {
-    currentTimeRef.current = nextTime;
+  function publishCurrentTime(nextTime: number) {
+    lastPublishedTimeRef.current = {
+      atMs: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+      timeSec: nextTime,
+    };
     setCurrentTime(nextTime);
+    onCurrentTimeChange?.(nextTime);
+  }
+
+  function updateCurrentTime(nextTime: number, options: { immediate?: boolean; notify?: boolean } = {}) {
+    currentTimeRef.current = nextTime;
+    if (options.notify === false) return;
+
+    const last = lastPublishedTimeRef.current;
+    const nearStart = nextTime <= 0;
+    const nearEnd = nextTime >= displayDuration - 1 / fps;
+    const wholeSecondChanged = Math.floor(nextTime) !== Math.floor(last.timeSec);
+    const shouldThrottle = timeMode === 'timeline' && isPlaying && !options.immediate;
+    if (
+      !shouldThrottle ||
+      nearStart ||
+      nearEnd ||
+      wholeSecondChanged
+    ) {
+      publishCurrentTime(nextTime);
+    }
   }
 
   function visibleTimeToSourceTime(visibleTimeSec: number) {
@@ -271,10 +328,27 @@ export function StyledVideoPreview({
     return active ? trimStartSec + active.endFrame / fps : null;
   }
 
+  function publishResolvedLayout(
+    screenFrame: { x: number; y: number; w: number; h: number },
+    cameraFrame: { x: number; y: number; w: number; h: number } | null,
+    canvasWidth: number,
+    canvasHeight: number,
+  ) {
+    if (!onResolvedLayoutChange || canvasWidth <= 0 || canvasHeight <= 0) return;
+    const layout: ResolvedPreviewLayout = {
+      screenFrame: rectToNormalizedFrame(screenFrame, canvasWidth, canvasHeight),
+      cameraFrame: cameraFrame ? rectToNormalizedFrame(cameraFrame, canvasWidth, canvasHeight) : null,
+    };
+    const key = JSON.stringify(layout);
+    if (key === lastResolvedLayoutKeyRef.current) return;
+    lastResolvedLayoutKeyRef.current = key;
+    onResolvedLayoutChange(layout);
+  }
+
   React.useEffect(() => {
     setSourceMediaDuration(null);
     setCameraMediaDuration(null);
-    updateCurrentTime(0);
+    updateCurrentTime(0, { immediate: true });
     setInternalPlaying(false);
     setCursorOffscreen(null);
     cursorOffscreenRef.current = null;
@@ -337,18 +411,27 @@ export function StyledVideoPreview({
   // tick seek-stepped it ~every 130ms, which froze frames then jumped — visible
   // as stutter once magnified by zoom. Now the video plays and the tick nudges
   // its playbackRate to track the clock (see the source-sync block). On stop or
-  // scrub it pauses so the held frame is exact. Camera PiP keeps its existing
-  // seek-step behavior (not the zoomed surface).
+  // scrub it pauses so the held frame is exact. Camera PiP uses the same decode
+  // surface approach; seek-stepping the camera every few frames stalls the
+  // screen draw while the camera seek settles on longer camera-enabled takes.
   React.useEffect(() => {
     if (timeMode !== 'timeline') return;
     const video = videoRef.current;
+    const cameraVideo = cameraVideoRef.current;
     if (!video) return;
     if (isPlaying) {
+      const sourceTime = timelineTimeToSourceTime(currentTimeRef.current);
+      if (sourceTime !== null) syncCameraTime(sourceTime);
+      if (cameraVideo) cameraVideo.playbackRate = timelineRateRef.current;
       void video.play().catch(() => undefined);
+      void cameraVideo?.play().catch(() => undefined);
     } else {
       video.pause();
+      cameraVideo?.pause();
       video.playbackRate = timelineRateRef.current;
+      if (cameraVideo) cameraVideo.playbackRate = timelineRateRef.current;
       lastExpectedSourceFrameRef.current = null;
+      previewInteractionDirtyRef.current = true;
     }
   }, [timeMode, isPlaying]);
 
@@ -368,15 +451,13 @@ export function StyledVideoPreview({
       const nextTime = currentTimeRef.current + ((nowMs - lastMs) / 1000) * rate;
       lastMs = nowMs;
       if (nextTime >= timelineDuration) {
-        updateCurrentTime(timelineDuration);
-        onCurrentTimeChange?.(timelineDuration);
+        updateCurrentTime(timelineDuration, { immediate: true });
         setInternalPlaying(false);
         onPlayingChange?.(false);
         return;
       }
 
       updateCurrentTime(nextTime);
-      onCurrentTimeChange?.(nextTime);
       rafId = window.requestAnimationFrame(tick);
     }
 
@@ -399,8 +480,7 @@ export function StyledVideoPreview({
       : visibleTimeToSourceTime(requestedTime);
     pendingSeekRef.current = null;
     if (requestedSourceTime === null) {
-      updateCurrentTime(Math.max(0, requestedTime));
-      onCurrentTimeChange?.(Math.max(0, requestedTime));
+      updateCurrentTime(Math.max(0, requestedTime), { immediate: true });
       seekingRef.current = false;
       previewInteractionDirtyRef.current = true;
       return;
@@ -408,8 +488,7 @@ export function StyledVideoPreview({
     const nextTime = Math.max(trimStartSec, Math.min(requestedSourceTime, Math.min(effectiveTrimEndSec, maxTime)));
     if (Math.abs(video.currentTime - nextTime) < 0.05) {
       const nextDisplayTime = timeMode === 'timeline' ? Math.max(0, requestedTime) : sourceTimeToVisibleTime(nextTime);
-      updateCurrentTime(nextDisplayTime);
-      onCurrentTimeChange?.(nextDisplayTime);
+      updateCurrentTime(nextDisplayTime, { immediate: true });
       seekingRef.current = false;
       return;
     }
@@ -417,8 +496,7 @@ export function StyledVideoPreview({
     video.currentTime = nextTime;
     syncCameraTime(nextTime);
     const nextDisplayTime = timeMode === 'timeline' ? Math.max(0, requestedTime) : sourceTimeToVisibleTime(nextTime);
-    updateCurrentTime(nextDisplayTime);
-    onCurrentTimeChange?.(nextDisplayTime);
+    updateCurrentTime(nextDisplayTime, { immediate: true });
   }
 
   function handleSeekSettled() {
@@ -441,6 +519,7 @@ export function StyledVideoPreview({
     const cameraVideo = cameraVideoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return undefined;
+    const screenVideo = video;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return undefined;
@@ -482,13 +561,66 @@ export function StyledVideoPreview({
       ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     };
 
+    function resolveCurrentFrame(currentFrame: number): any {
+      try {
+        return timeMode === 'timeline'
+          ? resolveTimelinePreviewFrame(document, currentFrame, { getCursorPosition: getCursorPositionForFrame })
+          : resolveFrame(document, currentFrame, {
+              getCursorPosition: getCursorPositionForFrame,
+            });
+      } catch {
+        return { cameraTransform: { scale: 1, offsetX: 0, offsetY: 0 } };
+      }
+    }
+
+    function syncTimelineScreenVideo(screenLayer: { sourceFrame: number } | null) {
+      if (timeMode !== 'timeline' || !screenLayer) return false;
+      const expectedSourceTime = Math.max(0, screenLayer.sourceFrame / fps);
+      const expectedFrame = screenLayer.sourceFrame;
+      const prevExpected = lastExpectedSourceFrameRef.current;
+      lastExpectedSourceFrameRef.current = expectedFrame;
+      // Contiguous = playing forward through the same clip (≤2 source frames
+      // of advance). A backward or large jump means a cut/transition/gap/scrub
+      // and must hard-seek; a contiguous advance can be tracked by nudging.
+      const contiguous = prevExpected !== null && expectedFrame >= prevExpected && expectedFrame - prevExpected <= 2;
+      const playingNow = isPlaying && !screenVideo.paused;
+      if (screenVideo.seeking) return false;
+      const decision = decideTimelineVideoSync({
+        drift: screenVideo.currentTime - expectedSourceTime, // +: video ahead of the clock
+        playing: playingNow,
+        contiguous,
+        baseRate: timelineRateRef.current,
+        fps,
+      });
+      if (decision.action === 'rate') {
+        // Smooth drift correction: nudge playbackRate around the canonical rate.
+        if (screenVideo.playbackRate !== decision.playbackRate) screenVideo.playbackRate = decision.playbackRate;
+        return false;
+      }
+      // Paused/scrub, clip transition / cut / gap, or huge drift → hard seek.
+      screenVideo.currentTime = expectedSourceTime;
+      syncCameraTime(expectedSourceTime);
+      if (playingNow) screenVideo.playbackRate = timelineRateRef.current; // reset nudge post-seek
+      lastDrawnFrame = -1;
+      return true;
+    }
+
     function tick() {
       if (!video || !canvas || !ctx) return;
-      if (video.seeking || seekingRef.current || video.readyState < 2) {
+      if (video.seeking || video.readyState < 2) {
         rafId = window.requestAnimationFrame(tick);
         return;
       }
-      if (cameraVideo && cameraSrc && cameraVideo.seeking && cameraCoversSourceTime(video.currentTime, cameraSourceOffsetSec, cameraVideo.duration, fps)) {
+      if (seekingRef.current) {
+        rafId = window.requestAnimationFrame(tick);
+        return;
+      }
+      if (
+        cameraVideo &&
+        cameraSrc &&
+        cameraVideo.seeking &&
+        cameraCoversSourceTime(video.currentTime, cameraSourceOffsetSec, cameraVideo.duration, fps)
+      ) {
         rafId = window.requestAnimationFrame(tick);
         return;
       }
@@ -506,8 +638,7 @@ export function StyledVideoPreview({
         video.pause();
         video.currentTime = effectiveTrimEndSec;
         const clampedVisibleTime = Math.max(0, effectiveTrimEndSec - trimStartSec);
-        updateCurrentTime(clampedVisibleTime);
-        onCurrentTimeChange?.(clampedVisibleTime);
+        updateCurrentTime(clampedVisibleTime, { immediate: true });
       }
       const cutEnd = cutEndForSourceTime(video.currentTime);
       if (timeMode !== 'timeline' && cutEnd !== null) {
@@ -520,48 +651,12 @@ export function StyledVideoPreview({
       if (!video.paused && timeMode !== 'timeline') {
         const visibleTime = sourceTimeToVisibleTime(video.currentTime);
         updateCurrentTime(Math.min(visibleTime, visibleDuration));
-        onCurrentTimeChange?.(Math.min(visibleTime, visibleDuration));
       }
-      let frame;
-      try {
-        frame = timeMode === 'timeline'
-          ? resolveTimelinePreviewFrame(document, currentFrame, { getCursorPosition: getCursorPositionForFrame })
-          : resolveFrame(document, currentFrame, {
-              getCursorPosition: getCursorPositionForFrame,
-            });
-      } catch {
-        frame = { cameraTransform: { scale: 1, offsetX: 0, offsetY: 0 } };
-      }
+      const frame = resolveCurrentFrame(currentFrame);
       const screenLayer = frame.layers?.find((layer: { isCamera?: boolean }) => !layer.isCamera) ?? null;
-      if (timeMode === 'timeline' && screenLayer) {
-        const expectedSourceTime = Math.max(0, screenLayer.sourceFrame / fps);
-        const expectedFrame = screenLayer.sourceFrame;
-        const prevExpected = lastExpectedSourceFrameRef.current;
-        lastExpectedSourceFrameRef.current = expectedFrame;
-        // Contiguous = playing forward through the same clip (≤2 source frames
-        // of advance). A backward or large jump means a cut/transition/gap/scrub
-        // and must hard-seek; a contiguous advance can be tracked by nudging.
-        const contiguous = prevExpected !== null && expectedFrame >= prevExpected && expectedFrame - prevExpected <= 2;
-        const playingNow = isPlaying && !video.paused;
-        const decision = decideTimelineVideoSync({
-          drift: video.currentTime - expectedSourceTime, // +: video ahead of the clock
-          playing: playingNow,
-          contiguous,
-          baseRate: timelineRateRef.current,
-          fps,
-        });
-        if (decision.action === 'rate') {
-          // Smooth drift correction: nudge playbackRate around the canonical rate.
-          if (video.playbackRate !== decision.playbackRate) video.playbackRate = decision.playbackRate;
-        } else if (decision.action === 'seek') {
-          // Paused/scrub, clip transition / cut / gap, or large drift → hard seek.
-          video.currentTime = expectedSourceTime;
-          syncCameraTime(expectedSourceTime);
-          if (playingNow) video.playbackRate = timelineRateRef.current; // reset nudge post-seek
-          lastDrawnFrame = -1;
-          rafId = window.requestAnimationFrame(tick);
-          return;
-        }
+      if (syncTimelineScreenVideo(screenLayer)) {
+        rafId = window.requestAnimationFrame(tick);
+        return;
       }
       const { scale, offsetX, offsetY } = frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 };
       const dragScreenRect = screenDragRef.current;
@@ -575,6 +670,7 @@ export function StyledVideoPreview({
       const screenY = resolvedScreenFrame.y + (resolvedScreenFrame.h - screenHeight) / 2;
       const screenRadius = Math.max(0, Math.min(background.bgCornerRadius, Math.min(screenWidth, screenHeight) / 2));
       screenRectRef.current = { x: screenX, y: screenY, w: screenWidth, h: screenHeight };
+      screenRadiusRef.current = screenRadius;
       const backgroundImage = backgroundImageRef.current;
       if (backgroundImage?.complete && backgroundImage.naturalWidth > 0 && backgroundImage.naturalHeight > 0) {
         fillBackground();
@@ -627,7 +723,13 @@ export function StyledVideoPreview({
       ctx.translate(sourceWidth / 2 + offsetX, sourceHeight / 2 + offsetY);
       ctx.scale(scale, scale);
       ctx.translate(-sourceWidth / 2, -sourceHeight / 2);
-      ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+      try {
+        ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+      } catch {
+        ctx.restore();
+        rafId = window.requestAnimationFrame(tick);
+        return;
+      }
       const resolvedCursor = frame.cursor;
       const cursorFrame = timeMode === 'timeline' ? screenLayer?.sourceFrame ?? currentFrame : currentFrame;
       drawClickEmphasis(ctx, cursorEvents, cursorFrame, resolvedCursor?.clickEffect ?? 'ring');
@@ -667,7 +769,21 @@ export function StyledVideoPreview({
       );
       if (cameraHasFrame && cameraVideo) {
         const expectedCameraTime = clampedCameraTime((screenLayer?.sourceFrame ?? sourceFrame) / fps, cameraSourceOffsetSec, cameraVideo.duration, fps);
-        if (Math.abs(cameraVideo.currentTime - expectedCameraTime) > Math.max(0.12, 2 / fps)) {
+        if (timeMode === 'timeline' && isPlaying && !cameraVideo.paused) {
+          const decision = decideTimelineVideoSync({
+            drift: cameraVideo.currentTime - expectedCameraTime,
+            playing: true,
+            contiguous: true,
+            baseRate: timelineRateRef.current,
+            fps,
+          });
+          if (decision.action === 'rate') {
+            if (cameraVideo.playbackRate !== decision.playbackRate) cameraVideo.playbackRate = decision.playbackRate;
+          } else if (decision.action === 'seek') {
+            cameraVideo.currentTime = expectedCameraTime;
+            cameraVideo.playbackRate = timelineRateRef.current;
+          }
+        } else if (Math.abs(cameraVideo.currentTime - expectedCameraTime) > Math.max(0.12, 2 / fps)) {
           cameraVideo.currentTime = expectedCameraTime;
           lastDrawnFrame = -1;
           rafId = window.requestAnimationFrame(tick);
@@ -678,8 +794,15 @@ export function StyledVideoPreview({
           ? { x: dragRect.x * canvasWidth, y: dragRect.y * canvasHeight, w: dragRect.w * canvasWidth, h: dragRect.h * canvasHeight }
           : resolveCameraFrame(frame.cameraFrame, frame.cameraPresentation, canvasWidth, canvasHeight);
         cameraRectRef.current = cameraFrame;
+        (window as unknown as Record<string, unknown>).__roughCutCanvasCameraRect = {
+          x: cameraFrame.x / canvasWidth,
+          y: cameraFrame.y / canvasHeight,
+          w: cameraFrame.w / canvasWidth,
+          h: cameraFrame.h / canvasHeight,
+        };
         (window as unknown as Record<string, boolean>).__roughCutCameraFramePresent = true;
         const cameraRadius = resolveCameraRadius(frame.cameraPresentation, cameraFrame);
+        cameraRadiusRef.current = cameraRadius;
         ctx.save();
         if (frame.cameraPresentation?.shadowEnabled !== false) {
           ctx.shadowColor = `rgba(0, 0, 0, ${frame.cameraPresentation?.shadowOpacity ?? 0.45})`;
@@ -695,24 +818,32 @@ export function StyledVideoPreview({
           cameraFrame.h,
         );
         if (cameraSource) {
-          ctx.drawImage(
-            cameraVideo,
-            cameraSource.sx,
-            cameraSource.sy,
-            cameraSource.sw,
-            cameraSource.sh,
-            cameraFrame.x,
-            cameraFrame.y,
-            cameraFrame.w,
-            cameraFrame.h,
-          );
+          try {
+            ctx.drawImage(
+              cameraVideo,
+              cameraSource.sx,
+              cameraSource.sy,
+              cameraSource.sw,
+              cameraSource.sh,
+              cameraFrame.x,
+              cameraFrame.y,
+              cameraFrame.w,
+              cameraFrame.h,
+            );
+          } catch {
+            // The camera element can report seeking while playback is still
+            // advancing. Keep the screen frame alive and draw PiP on the next
+            // decoded camera frame instead of killing the whole preview loop.
+          }
         }
         ctx.restore();
         if (onCameraFrameChange) drawEditorFrameControls(ctx, cameraFrame, '#f59e0b');
       } else {
         cameraRectRef.current = null;
+        (window as unknown as Record<string, unknown>).__roughCutCanvasCameraRect = null;
         (window as unknown as Record<string, boolean>).__roughCutCameraFramePresent = false;
       }
+      publishResolvedLayout(resolvedScreenFrame, cameraRectRef.current, canvasWidth, canvasHeight);
       const focalSelection = selectedZoomFocalRef.current;
       const focalScreenRect = screenRectRef.current;
       if (focalSelection && focalScreenRect) {
@@ -757,9 +888,17 @@ export function StyledVideoPreview({
         onPlayingChange?.(false);
         return;
       }
+      try {
+        await Promise.all([
+          waitForVideoFrameReady(video),
+          waitForVideoFrameReady(cameraVideo),
+        ]);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Video playback failed.');
+        return;
+      }
       if (currentTimeRef.current >= timelineDuration - 1 / fps) {
-        updateCurrentTime(0);
-        onCurrentTimeChange?.(0);
+        updateCurrentTime(0, { immediate: true });
       }
       setInternalPlaying(true);
       onPlayingChange?.(true);
@@ -773,8 +912,7 @@ export function StyledVideoPreview({
           const startTime = visibleTimeToSourceTime(0);
           video.currentTime = startTime;
           syncCameraTime(startTime);
-          updateCurrentTime(0);
-          onCurrentTimeChange?.(0);
+          updateCurrentTime(0, { immediate: true });
         } else if (cameraVideo) {
           syncCameraTime(video.currentTime);
         }
@@ -884,10 +1022,18 @@ export function StyledVideoPreview({
           const visibleTime = sourceTimeToVisibleTime(next);
           if (timeMode === 'timeline') return;
           updateCurrentTime(Math.min(visibleTime, visibleDuration));
-          onCurrentTimeChange?.(Math.min(visibleTime, visibleDuration));
         }}
       />
-      {cameraSrc ? <video ref={cameraVideoRef} src={cameraSrc} preload="auto" className="hiddenSource" muted onLoadedMetadata={(event) => setCameraMediaDuration(event.currentTarget.duration)} /> : null}
+      {cameraSrc ? (
+        <video
+          ref={cameraVideoRef}
+          src={cameraSrc}
+          preload="auto"
+          className="hiddenSource"
+          muted
+          onLoadedMetadata={(event) => setCameraMediaDuration(event.currentTarget.duration)}
+        />
+      ) : null}
       <canvas
         ref={canvasRef}
         className={`styledPreviewCanvas${isDraggingCamera ? ' draggingCamera' : ''}${isDraggingScreen ? ' draggingScreen' : ''}${isDraggingFocal ? ' draggingFocal' : ''}`}
@@ -1302,6 +1448,20 @@ function resolveScreenFrame(
     w,
     h,
   };
+}
+
+function rectToNormalizedFrame(rect: { x: number; y: number; w: number; h: number }, canvasWidth: number, canvasHeight: number): NormalizedRect {
+  return {
+    x: clampUnit(rect.x / Math.max(1, canvasWidth)),
+    y: clampUnit(rect.y / Math.max(1, canvasHeight)),
+    w: clampUnit(rect.w / Math.max(1, canvasWidth), 0.05),
+    h: clampUnit(rect.h / Math.max(1, canvasHeight), 0.05),
+  };
+}
+
+function clampUnit(value: number, min = 0): number {
+  const safeValue = Number.isFinite(value) ? value : min;
+  return Math.max(min, Math.min(1, safeValue));
 }
 
 function drawEditorFrameControls(ctx: CanvasRenderingContext2D, rect: { x: number; y: number; w: number; h: number } | null, color: string) {
