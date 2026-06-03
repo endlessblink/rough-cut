@@ -531,9 +531,10 @@ export function buildStyledExportArgs({
   const screenFrame = resolveScreenOverlayFrame(width, height, maxVideoWidth, maxVideoHeight, screenFrameOverride);
   const screenRenderSize = resolveContainedSize(sourceWidth, sourceHeight, screenFrame.w, screenFrame.h);
   const screenRadius = Math.round(clampNumber(screenCornerRadius, 0, Math.min(screenFrame.w, screenFrame.h) / 2));
+  const screenScaleStep = `scale=${screenRenderSize.w}:${screenRenderSize.h}:force_original_aspect_ratio=decrease,pad=${screenRenderSize.w}:${screenRenderSize.h}:(ow-iw)/2:(oh-ih)/2:color=black@0,format=rgba`;
   const screenStep = zoomActive
-    ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},scale=${screenFrame.w}:${screenFrame.h}:force_original_aspect_ratio=decrease,format=rgba`
-    : `crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2,scale=${screenFrame.w}:${screenFrame.h}:force_original_aspect_ratio=decrease,format=rgba`;
+    ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},${screenScaleStep}`
+    : `crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2,${screenScaleStep}`;
   const cameraFrame = cameraInputPath ? resolveCameraOverlayFrame(cameraPresentation, width, height, cameraFrameOverride) : null;
   const cameraTrim = Math.max(0, Math.round(cameraSourceInFrames));
   const cameraRadius = cameraFrame ? resolveCameraOverlayRadius(cameraPresentation, cameraFrame) : 0;
@@ -569,23 +570,14 @@ export function buildStyledExportArgs({
         durationFrames: timelineDuration,
       })
     : [];
-  const screenCompositeFilters = zoomActive
-    ? [
-        `${screenInput}${screenStep}[screen]`,
-        `[screen]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${screenAlpha}'[rounded]`,
-        '[rounded]split[shadow_src][fg]',
-        `[shadow_src]colorchannelmixer=rr=0:gg=0:bb=0:aa=${formatFilterNumber(shadowOpacity)},boxblur=${shadowBlur}:5[shadow]`,
-        `[bg][shadow]overlay=${screenFrame.x}${shadowOffsetX === 0 ? '' : shadowOffsetX > 0 ? `+${shadowOffsetX}` : shadowOffsetX}:${screenFrame.y}+${shadowOffsetY}:shortest=1[with_shadow]`,
-        `[with_shadow][fg]overlay=${screenFrame.x}:${screenFrame.y}:shortest=1[with_screen]`,
-      ]
-    : [
-        `${screenInput}${screenStep}[screen]`,
-        `nullsrc=s=${screenRenderSize.w}x${screenRenderSize.h}:r=1:d=1,format=gray,geq=lum='${screenAlpha}',${staticLoop}[screen_mask]`,
-        '[screen][screen_mask]alphamerge[rounded]',
-        `nullsrc=s=${screenRenderSize.w}x${screenRenderSize.h}:r=1:d=1,format=rgba,geq=r='0':g='0':b='0':a='(${screenAlpha})*${formatFilterNumber(shadowOpacity)}',boxblur=${shadowBlur}:5,${staticLoop}[shadow]`,
-        `[bg][shadow]overlay=${screenFrame.x}${shadowOffsetX === 0 ? '' : shadowOffsetX > 0 ? `+${shadowOffsetX}` : shadowOffsetX}:${screenFrame.y}+${shadowOffsetY}:shortest=1[with_shadow]`,
-        `[with_shadow][rounded]overlay=${screenFrame.x}:${screenFrame.y}:shortest=1[with_screen]`,
-      ];
+  const screenCompositeFilters = [
+    `${screenInput}${screenStep}[screen]`,
+    `nullsrc=s=${screenRenderSize.w}x${screenRenderSize.h}:r=1:d=1,format=gray,geq=lum='${screenAlpha}',${staticLoop}[screen_mask]`,
+    '[screen][screen_mask]alphamerge[rounded]',
+    `nullsrc=s=${screenRenderSize.w}x${screenRenderSize.h}:r=1:d=1,format=rgba,geq=r='0':g='0':b='0':a='(${screenAlpha})*${formatFilterNumber(shadowOpacity)}',boxblur=${shadowBlur}:5,${staticLoop}[shadow]`,
+    `[bg][shadow]overlay=${screenFrame.x}${shadowOffsetX === 0 ? '' : shadowOffsetX > 0 ? `+${shadowOffsetX}` : shadowOffsetX}:${screenFrame.y}+${shadowOffsetY}:shortest=1[with_shadow]`,
+    `[with_shadow][rounded]overlay=${screenFrame.x}:${screenFrame.y}:shortest=1[with_screen]`,
+  ];
   const filter = [
     ...backgroundFilter,
     ...sourceBaseFilters,

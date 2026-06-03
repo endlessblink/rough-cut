@@ -563,7 +563,7 @@ test('styled export args use a normalized screenFrame override when provided', (
   const joined = args.join(' ');
 
   // Override at 1920x1080 -> x=192, y=216, w=960, h=432.
-  assert(joined.includes('scale=960:432:force_original_aspect_ratio=decrease,format=rgba'));
+  assert(joined.includes('scale=960:432:force_original_aspect_ratio=decrease,pad=960:432:(ow-iw)/2:(oh-ih)/2:color=black@0,format=rgba'));
   assert(joined.includes('overlay=192:216+34:shortest=1[with_shadow]'));
   assert(joined.includes('overlay=192:216:shortest=1[with_screen]'));
   assert(joined.includes('hypot(36-X,36-Y)'));
@@ -579,7 +579,7 @@ test('styled export args preserve a custom screen frame without crop-to-fill', (
   });
   const joined = args.join(' ');
 
-  assert(joined.includes('scale=1651:886:force_original_aspect_ratio=decrease,format=rgba'));
+  assert(joined.includes('scale=1651:886:force_original_aspect_ratio=decrease,pad=1651:886:(ow-iw)/2:(oh-ih)/2:color=black@0,format=rgba'));
   assert(!joined.includes('scale=1651:886:force_original_aspect_ratio=increase,crop=1651:886'));
 });
 
@@ -707,8 +707,9 @@ test('styled export args use crop+sendcmd when a zoom layer is present', () => {
   assert(joined.includes('crop=w=512:h=288:x=384:y=216'));
   assert(joined.includes('sendcmd=f=/tmp/zoom.cmd'));
   assert(joined.includes('force_original_aspect_ratio=decrease'));
-  assert(joined.includes("[screen]geq=r='r(X,Y)'"));
-  assert(!joined.includes('[screen][screen_mask]alphamerge[rounded]'));
+  assert(joined.includes('pad='));
+  assert(joined.includes('[screen][screen_mask]alphamerge[rounded]'));
+  assert(!joined.includes("[screen]geq=r='r(X,Y)'"));
   assert(!joined.includes('zoompan='));
   assert(!joined.includes('crop=iw*1:ih*1'));
 });
