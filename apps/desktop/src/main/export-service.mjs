@@ -19,6 +19,11 @@ export const EXPORT_SCOPES = Object.freeze({
 });
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const STYLED_VIDEO_ENCODERS = Object.freeze({
+  CPU: 'libx264',
+  NVENC: 'h264_nvenc',
+});
+let styledVideoEncoderPromise = null;
 
 export function normalizeExportMode(mode = EXPORT_MODES.RAW) {
   if (mode === EXPORT_MODES.RAW || mode === EXPORT_MODES.STYLED) return mode;
@@ -142,22 +147,11 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
   const includeTimelineAudio = Array.isArray(recording.timelineSegments)
     && recording.timelineSegments.length > 0
     && await sourceHasAudioStream(recording.filePath, signal);
-  const useSimpleFastPath = shouldUseSimpleStyledFastPath({
-    recording,
-    durationFrames: recording.trimmedDuration ?? recording.timelineDurationFrames ?? recording.duration,
-  });
   try {
     const fps = Number.isFinite(recording.fps) && recording.fps > 0 ? recording.fps : 30;
     const durationSeconds = (recording.trimmedDuration ?? recording.timelineDurationFrames ?? recording.duration) / fps;
-    if (useSimpleFastPath) {
-      onProgress({
-        phase: 'rendering-styled',
-        progress: 0.01,
-        notice: 'Using fast styled export for a long recording.',
-        fastPath: true,
-      });
-    }
-    const result = await run('ffmpeg', (useSimpleFastPath ? buildSimpleStyledFastExportArgs : buildStyledExportArgs)({
+    const videoEncoder = await resolveStyledVideoEncoder(signal);
+    const styledArgs = (encoder) => buildStyledExportArgs({
       inputPath: recording.filePath,
       outputPath,
       width: canvas.width,
@@ -192,7 +186,18 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       cameraFrame: recording.presentation?.cameraFrame ?? null,
       screenFrame: recording.presentation?.screenFrame ?? null,
       cutRanges: recording.cutRanges ?? [],
-    }), {
+      videoEncoder: encoder,
+      outputDurationSeconds: durationSeconds,
+    });
+    if (videoEncoder === STYLED_VIDEO_ENCODERS.NVENC) {
+      onProgress({
+        phase: 'rendering-styled',
+        progress: 0.01,
+        notice: 'Using NVIDIA NVENC for styled export encoding.',
+        videoEncoder,
+      });
+    }
+    let result = await run('ffmpeg', styledArgs(videoEncoder), {
       signal,
       onStdout: (chunk) => {
         const progress = parseFfmpegProgress(chunk, durationSeconds);
@@ -201,6 +206,25 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
         }
       },
     });
+    if (!result.cancelled && result.code !== 0 && videoEncoder === STYLED_VIDEO_ENCODERS.NVENC) {
+      await rm(outputPath, { force: true });
+      onProgress({
+        phase: 'rendering-styled',
+        progress: 0.01,
+        notice: 'NVIDIA NVENC styled export failed; retrying with CPU encoder.',
+        videoEncoder: STYLED_VIDEO_ENCODERS.CPU,
+        fallbackFrom: STYLED_VIDEO_ENCODERS.NVENC,
+      });
+      result = await run('ffmpeg', styledArgs(STYLED_VIDEO_ENCODERS.CPU), {
+        signal,
+        onStdout: (chunk) => {
+          const progress = parseFfmpegProgress(chunk, durationSeconds);
+          if (progress !== null) {
+            onProgress({ phase: 'rendering-styled', progress: 0.01 + progress * 0.98 });
+          }
+        },
+      });
+    }
     if (result.cancelled) {
       await rm(outputPath, { force: true });
       return createCancelledExportResult({ outputPath, sourcePath: recording.filePath });
@@ -223,10 +247,49 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
   };
 }
 
-function shouldUseSimpleStyledFastPath({ recording, durationFrames }) {
-  const fps = Number.isFinite(recording?.fps) && recording.fps > 0 ? recording.fps : 30;
-  const minFastPathFrames = fps * 5 * 60;
-  return Number(durationFrames) >= minFastPathFrames;
+async function resolveStyledVideoEncoder(signal = null) {
+  const requested = process.env.ROUGH_CUT_STYLED_VIDEO_ENCODER ?? process.env.ROUGH_CUT_STYLED_ENCODER ?? 'auto';
+  if (requested === STYLED_VIDEO_ENCODERS.CPU) return STYLED_VIDEO_ENCODERS.CPU;
+  if (requested === STYLED_VIDEO_ENCODERS.NVENC) return STYLED_VIDEO_ENCODERS.NVENC;
+  if (requested !== 'auto') return STYLED_VIDEO_ENCODERS.CPU;
+  if (!styledVideoEncoderPromise) {
+    styledVideoEncoderPromise = ffmpegEncoderAvailable(STYLED_VIDEO_ENCODERS.NVENC, signal)
+      .then((available) => (available ? STYLED_VIDEO_ENCODERS.NVENC : STYLED_VIDEO_ENCODERS.CPU))
+      .catch(() => STYLED_VIDEO_ENCODERS.CPU);
+  }
+  return styledVideoEncoderPromise;
+}
+
+async function ffmpegEncoderAvailable(encoder, signal = null) {
+  if (encoder !== STYLED_VIDEO_ENCODERS.NVENC) return false;
+  const result = await run('ffmpeg', [
+    '-hide_banner',
+    '-f',
+    'lavfi',
+    '-i',
+    'color=c=black:s=16x16:r=1:d=0.1',
+    '-frames:v',
+    '1',
+    '-c:v',
+    STYLED_VIDEO_ENCODERS.NVENC,
+    '-preset',
+    'p4',
+    '-tune',
+    'hq',
+    '-rc',
+    'vbr',
+    '-cq',
+    '19',
+    '-b:v',
+    '0',
+    '-pix_fmt',
+    'yuv420p',
+    '-f',
+    'null',
+    '-',
+  ], { signal });
+  if (result.cancelled || result.code !== 0) return false;
+  return true;
 }
 
 function createCancelledExportResult({ outputPath, sourcePath }) {
@@ -424,6 +487,8 @@ export function buildStyledExportArgs({
   cameraFrame: cameraFrameOverride = null,
   screenFrame: screenFrameOverride = null,
   cutRanges = [],
+  videoEncoder = STYLED_VIDEO_ENCODERS.CPU,
+  outputDurationSeconds = null,
 }) {
   const safePadding = clampNumber(screenPadding, 0, Math.min(width, height) / 2 - 2);
   const maxVideoWidth = Math.round(width - safePadding * 2);
@@ -435,13 +500,14 @@ export function buildStyledExportArgs({
   const shadowOffsetX = Math.round(clampNumber(screenShadowOffsetX, -120, 120));
   const backgroundExpression = buildBackgroundExpression(backgroundStart, backgroundEnd);
   const fps = Number.isFinite(sourceFps) && sourceFps > 0 ? sourceFps : 30;
+  const staticLoop = buildStaticLoopFilter(fps, outputDurationSeconds);
   const backgroundFilter = backgroundImagePath
       ? [
-        `nullsrc=s=${width}x${height}:r=${fps},format=rgb24,geq=${backgroundExpression},format=rgba[bg_base]`,
+        `nullsrc=s=${width}x${height}:r=1:d=1,format=rgb24,geq=${backgroundExpression},format=rgba[bg_base]`,
         `movie=${escapeFilterPath(backgroundImagePath)},scale=${width}:${height},format=rgba[bg_image]`,
-        '[bg_base][bg_image]overlay=(W-w)/2:(H-h)/2[bg]',
+        `[bg_base][bg_image]overlay=(W-w)/2:(H-h)/2,${staticLoop}[bg]`,
       ]
-    : [`nullsrc=s=${width}x${height}:r=${fps},format=rgb24,geq=${backgroundExpression},format=rgba[bg]`];
+    : [`nullsrc=s=${width}x${height}:r=1:d=1,format=rgb24,geq=${backgroundExpression},format=rgba,${staticLoop}[bg]`];
   const trimStartFrame = Math.max(0, Math.round(sourceTrimStartFrame || 0));
   const trimEndFrame = Number.isFinite(sourceTrimEndFrame) ? Math.max(trimStartFrame + 1, Math.round(sourceTrimEndFrame)) : null;
   const trimDurationFrames = trimEndFrame === null ? null : trimEndFrame - trimStartFrame;
@@ -463,14 +529,16 @@ export function buildStyledExportArgs({
   const screenInput = cursorAssPath ? '[with_cursor]' : '[base]';
   const zoomActive = Boolean(zoomCropFilter && zoomSendcmdPath);
   const screenFrame = resolveScreenOverlayFrame(width, height, maxVideoWidth, maxVideoHeight, screenFrameOverride);
+  const screenRenderSize = resolveContainedSize(sourceWidth, sourceHeight, screenFrame.w, screenFrame.h);
   const screenRadius = Math.round(clampNumber(screenCornerRadius, 0, Math.min(screenFrame.w, screenFrame.h) / 2));
   const screenStep = zoomActive
-    ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},scale=${screenFrame.w}:${screenFrame.h}:force_original_aspect_ratio=${screenFrame.custom ? 'increase' : 'decrease'}${screenFrame.custom ? `,crop=${screenFrame.w}:${screenFrame.h}` : ''},format=rgba`
-    : `crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2,scale=${screenFrame.w}:${screenFrame.h}:force_original_aspect_ratio=${screenFrame.custom ? 'increase' : 'decrease'}${screenFrame.custom ? `,crop=${screenFrame.w}:${screenFrame.h}` : ''},format=rgba`;
+    ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},scale=${screenFrame.w}:${screenFrame.h}:force_original_aspect_ratio=decrease,format=rgba`
+    : `crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2,scale=${screenFrame.w}:${screenFrame.h}:force_original_aspect_ratio=decrease,format=rgba`;
   const cameraFrame = cameraInputPath ? resolveCameraOverlayFrame(cameraPresentation, width, height, cameraFrameOverride) : null;
   const cameraTrim = Math.max(0, Math.round(cameraSourceInFrames));
   const cameraRadius = cameraFrame ? resolveCameraOverlayRadius(cameraPresentation, cameraFrame) : 0;
   const cameraAlpha = buildRoundedAlphaExpression(cameraRadius);
+  const screenAlpha = buildRoundedAlphaExpression(screenRadius);
   const sourceBaseFilters = useTimelineSegments
     ? buildTimelineVideoBaseFilters({
         segments: normalizedTimelineSegments,
@@ -501,24 +569,37 @@ export function buildStyledExportArgs({
         durationFrames: timelineDuration,
       })
     : [];
+  const screenCompositeFilters = zoomActive
+    ? [
+        `${screenInput}${screenStep}[screen]`,
+        `[screen]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${screenAlpha}'[rounded]`,
+        '[rounded]split[shadow_src][fg]',
+        `[shadow_src]colorchannelmixer=rr=0:gg=0:bb=0:aa=${formatFilterNumber(shadowOpacity)},boxblur=${shadowBlur}:5[shadow]`,
+        `[bg][shadow]overlay=${screenFrame.x}${shadowOffsetX === 0 ? '' : shadowOffsetX > 0 ? `+${shadowOffsetX}` : shadowOffsetX}:${screenFrame.y}+${shadowOffsetY}:shortest=1[with_shadow]`,
+        `[with_shadow][fg]overlay=${screenFrame.x}:${screenFrame.y}:shortest=1[with_screen]`,
+      ]
+    : [
+        `${screenInput}${screenStep}[screen]`,
+        `nullsrc=s=${screenRenderSize.w}x${screenRenderSize.h}:r=1:d=1,format=gray,geq=lum='${screenAlpha}',${staticLoop}[screen_mask]`,
+        '[screen][screen_mask]alphamerge[rounded]',
+        `nullsrc=s=${screenRenderSize.w}x${screenRenderSize.h}:r=1:d=1,format=rgba,geq=r='0':g='0':b='0':a='(${screenAlpha})*${formatFilterNumber(shadowOpacity)}',boxblur=${shadowBlur}:5,${staticLoop}[shadow]`,
+        `[bg][shadow]overlay=${screenFrame.x}${shadowOffsetX === 0 ? '' : shadowOffsetX > 0 ? `+${shadowOffsetX}` : shadowOffsetX}:${screenFrame.y}+${shadowOffsetY}:shortest=1[with_shadow]`,
+        `[with_shadow][rounded]overlay=${screenFrame.x}:${screenFrame.y}:shortest=1[with_screen]`,
+      ];
   const filter = [
     ...backgroundFilter,
     ...sourceBaseFilters,
     ...cameraBaseFilters,
     ...audioFilters,
     ...(cursorAssPath ? [`[base]subtitles=${escapeFilterPath(cursorAssPath)}[with_cursor]`] : []),
-    `${screenInput}${screenStep}[screen]`,
-    `[screen]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${buildRoundedAlphaExpression(screenRadius)}'[rounded]`,
-    `[rounded]split[shadow_src][fg]`,
-    `[shadow_src]colorchannelmixer=rr=0:gg=0:bb=0:aa=${formatFilterNumber(shadowOpacity)},boxblur=${shadowBlur}:5[shadow]`,
-    `[bg][shadow]overlay=${screenFrame.x}${shadowOffsetX === 0 ? '' : shadowOffsetX > 0 ? `+${shadowOffsetX}` : shadowOffsetX}:${screenFrame.y}+${shadowOffsetY}:shortest=1[with_shadow]`,
-    `[with_shadow][fg]overlay=${screenFrame.x}:${screenFrame.y}:shortest=1[with_screen]`,
+    ...screenCompositeFilters,
     ...(cameraFrame
       ? [
           useCameraTimelineSegments
             ? `[camera_base]scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba[camera_scaled]`
             : `[1:v]setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba[camera_scaled]`,
-          `[camera_scaled]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${cameraAlpha}'[camera_rounded]`,
+          `nullsrc=s=${cameraFrame.w}x${cameraFrame.h}:r=1:d=1,format=gray,geq=lum='${cameraAlpha}',${staticLoop}[camera_mask]`,
+          '[camera_scaled][camera_mask]alphamerge[camera_rounded]',
           `[with_screen][camera_rounded]overlay=${cameraFrame.x}:${cameraFrame.y}:eof_action=pass:repeatlast=0,format=yuv420p[v]`,
         ]
       : ['[with_screen]format=yuv420p[v]']),
@@ -539,14 +620,7 @@ export function buildStyledExportArgs({
     '-map',
     '[v]',
     ...(useTimelineAudio ? ['-map', '[a]'] : normalizedCutRanges.length === 0 && !useTimelineSegments ? ['-map', '0:a?'] : ['-an']),
-    '-c:v',
-    'libx264',
-    '-preset',
-    'veryfast',
-    '-crf',
-    '18',
-    '-pix_fmt',
-    'yuv420p',
+    ...buildStyledVideoOutputArgs(videoEncoder),
     ...(useTimelineAudio ? ['-c:a', 'aac', '-b:a', '192k'] : ['-c:a', 'copy']),
     '-movflags',
     '+faststart',
@@ -556,164 +630,41 @@ export function buildStyledExportArgs({
   ];
 }
 
-export function buildSimpleStyledFastExportArgs({
-  inputPath,
-  outputPath,
-  width = 1920,
-  height = 1080,
-  cursorAssPath = null,
-  sourceWidth = null,
-  sourceHeight = null,
-  sourceFps = null,
-  sourceTrimStartFrame = 0,
-  sourceTrimEndFrame = null,
-  timelineSegments = [],
-  timelineDurationFrames = null,
-  timelineAudioSegments = [],
-  zoomCropFilter = null,
-  zoomSendcmdPath = null,
-  backgroundImagePath = null,
-  cameraInputPath = null,
-  cameraSourceWidth = null,
-  cameraSourceHeight = null,
-  cameraSourceInFrames = 0,
-  cameraTimelineSegments = [],
-  cameraPresentation = null,
-  cameraFrame: cameraFrameOverride = null,
-  screenFrame: screenFrameOverride = null,
-  cutRanges = [],
-  screenPadding = 96,
-  backgroundStart = '#e8ebf0',
-}) {
-  const fps = Number.isFinite(sourceFps) && sourceFps > 0 ? sourceFps : 30;
-  const safePadding = clampNumber(screenPadding, 0, Math.min(width, height) / 2 - 2);
-  const maxVideoWidth = Math.round(width - safePadding * 2);
-  const maxVideoHeight = Math.round(height - safePadding * 2);
-  const fallbackSourceWidth = Number.isFinite(sourceWidth) && sourceWidth > 0 ? sourceWidth : 16;
-  const fallbackSourceHeight = Number.isFinite(sourceHeight) && sourceHeight > 0 ? sourceHeight : 9;
-  const sourceAspect = fallbackSourceWidth / fallbackSourceHeight;
-  const frameAspect = maxVideoWidth / maxVideoHeight;
-  const defaultScreenW = sourceAspect >= frameAspect ? maxVideoWidth : Math.round(maxVideoHeight * sourceAspect);
-  const defaultScreenH = sourceAspect >= frameAspect ? Math.round(maxVideoWidth / sourceAspect) : maxVideoHeight;
-  const defaultScreenX = Math.round((width - defaultScreenW) / 2);
-  const defaultScreenY = Math.round((height - defaultScreenH) / 2);
-  const screenFrame = resolveNumericOverlayFrame(screenFrameOverride, width, height, {
-    x: defaultScreenX,
-    y: defaultScreenY,
-    w: defaultScreenW,
-    h: defaultScreenH,
-  });
-  const trimStartFrame = Math.max(0, Math.round(sourceTrimStartFrame || 0));
-  const trimEndFrame = Number.isFinite(sourceTrimEndFrame) ? Math.max(trimStartFrame + 1, Math.round(sourceTrimEndFrame)) : null;
-  const trimDurationFrames = trimEndFrame === null ? null : trimEndFrame - trimStartFrame;
-  const normalizedTimelineSegments = normalizeTimelineSegments(timelineSegments);
-  const useTimelineSegments = normalizedTimelineSegments.length > 0;
-  const normalizedTimelineAudioSegments = normalizeTimelineSegments(timelineAudioSegments);
-  const useTimelineAudio = useTimelineSegments && normalizedTimelineAudioSegments.length > 0;
-  const normalizedCameraTimelineSegments = normalizeTimelineSegments(cameraTimelineSegments);
-  const useCameraTimelineSegments = Boolean(cameraInputPath) && useTimelineSegments && normalizedCameraTimelineSegments.length > 0;
-  const timelineDuration = useTimelineSegments
-    ? Math.max(
-        1,
-        Number.isFinite(timelineDurationFrames) ? Math.round(timelineDurationFrames) : 0,
-        ...normalizedTimelineSegments.map((segment) => segment.timelineOut),
-      )
-    : null;
-  const normalizedCutRanges = normalizeCutRanges(cutRanges, trimStartFrame, trimEndFrame);
-  const cutFilter = buildCutSelectFilter(normalizedCutRanges, trimStartFrame);
-  const zoomActive = Boolean(zoomCropFilter && zoomSendcmdPath);
-  const cameraFrame = cameraInputPath ? resolveNumericOverlayFrame(cameraFrameOverride, width, height, resolveFastCameraFrame(cameraPresentation, width, height)) : null;
-  const cameraTrim = Math.max(0, Math.round(cameraSourceInFrames));
-  const bg = parseHexColor(backgroundStart) ?? parseHexColor('#e8ebf0');
-  const bgHex = `0x${toHexByte(bg.r)}${toHexByte(bg.g)}${toHexByte(bg.b)}`;
-  const screenInput = cursorAssPath ? '[with_cursor]' : '[base]';
-  const backgroundFilter = backgroundImagePath
-    ? [
-        `color=c=${bgHex}:s=${width}x${height}:r=${fps},format=rgba[bg_base]`,
-        `movie=${escapeFilterPath(backgroundImagePath)},scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},format=rgba[bg_image]`,
-        '[bg_base][bg_image]overlay=0:0[bg]',
-      ]
-    : [`color=c=${bgHex}:s=${width}x${height}:r=${fps},format=rgba[bg]`];
-  const sourceBaseFilters = useTimelineSegments
-    ? buildTimelineVideoBaseFilters({
-        segments: normalizedTimelineSegments,
-        sourceWidth,
-        sourceHeight,
-        fps,
-        durationFrames: timelineDuration,
-        inputIndex: 0,
-        outputLabel: 'base',
-      })
-    : [`[0:v]setpts=PTS-STARTPTS${cutFilter}[base]`];
-  const cameraBaseFilters = useCameraTimelineSegments
-    ? buildTimelineVideoBaseFilters({
-        segments: normalizedCameraTimelineSegments,
-        sourceWidth: cameraSourceWidth,
-        sourceHeight: cameraSourceHeight,
-        fps,
-        durationFrames: timelineDuration,
-        inputIndex: 1,
-        outputLabel: 'camera_base',
-        transparent: true,
-      })
-    : [];
-  const audioFilters = useTimelineAudio
-    ? buildTimelineAudioFilters({
-        segments: normalizedTimelineAudioSegments,
-        fps,
-        durationFrames: timelineDuration,
-      })
-    : [];
-  const screenStep = zoomActive
-    ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},scale=${screenFrame.w}:${screenFrame.h}:force_original_aspect_ratio=increase,crop=${screenFrame.w}:${screenFrame.h},format=rgba`
-    : `scale=${screenFrame.w}:${screenFrame.h}:force_original_aspect_ratio=decrease,format=rgba`;
-  const filter = [
-    ...backgroundFilter,
-    ...sourceBaseFilters,
-    ...cameraBaseFilters,
-    ...audioFilters,
-    ...(cursorAssPath ? [`[base]subtitles=${escapeFilterPath(cursorAssPath)}[with_cursor]`] : []),
-    `${screenInput}${screenStep}[screen]`,
-    `[bg][screen]overlay=${screenFrame.x}:${screenFrame.y}:shortest=1[with_screen]`,
-    ...(cameraFrame
-      ? [
-          useCameraTimelineSegments
-            ? `[camera_base]scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba[camera_scaled]`
-            : `[1:v]setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba[camera_scaled]`,
-          `[with_screen][camera_scaled]overlay=${cameraFrame.x}:${cameraFrame.y}:eof_action=pass:repeatlast=0,format=yuv420p[v]`,
-        ]
-      : ['[with_screen]format=yuv420p[v]']),
-  ].join(';');
+function buildStaticLoopFilter(fps = 30, durationSeconds = null) {
+  const fpsValue = Number.isFinite(fps) && fps > 0 ? fps : 30;
+  const duration = Number.isFinite(durationSeconds) && durationSeconds > 0 ? `,trim=duration=${formatFilterNumber(durationSeconds)}` : '';
+  return `loop=loop=-1:size=1:start=0${duration},fps=${formatFilterNumber(fpsValue)},setpts=N/${formatFilterNumber(fpsValue)}/TB`;
+}
+
+function buildStyledVideoOutputArgs(videoEncoder = STYLED_VIDEO_ENCODERS.CPU) {
+  if (videoEncoder === STYLED_VIDEO_ENCODERS.NVENC) {
+    return [
+      '-c:v',
+      STYLED_VIDEO_ENCODERS.NVENC,
+      '-preset',
+      'p4',
+      '-tune',
+      'hq',
+      '-rc',
+      'vbr',
+      '-cq',
+      '19',
+      '-b:v',
+      '0',
+      '-pix_fmt',
+      'yuv420p',
+    ];
+  }
 
   return [
-    '-y',
-    '-progress',
-    'pipe:1',
-    '-nostats',
-    ...(!useTimelineSegments && trimStartFrame > 0 ? ['-ss', formatFilterNumber(trimStartFrame / fps)] : []),
-    ...(!useTimelineSegments && trimDurationFrames !== null ? ['-t', formatFilterNumber(trimDurationFrames / fps)] : []),
-    '-i',
-    inputPath,
-    ...(cameraInputPath ? ['-i', cameraInputPath] : []),
-    '-filter_complex',
-    filter,
-    '-map',
-    '[v]',
-    ...(useTimelineAudio ? ['-map', '[a]'] : normalizedCutRanges.length === 0 && !useTimelineSegments ? ['-map', '0:a?'] : ['-an']),
     '-c:v',
-    'libx264',
+    STYLED_VIDEO_ENCODERS.CPU,
     '-preset',
-    'ultrafast',
+    'veryfast',
     '-crf',
     '18',
     '-pix_fmt',
     'yuv420p',
-    ...(useTimelineAudio ? ['-c:a', 'aac', '-b:a', '192k'] : ['-c:a', 'copy']),
-    '-movflags',
-    '+faststart',
-    '-metadata',
-    `rough_cut_style=canvas:${width}x${height}:studio-demo:fast`,
-    outputPath,
   ];
 }
 
@@ -738,34 +689,20 @@ function resolveScreenOverlayFrame(canvasWidth, canvasHeight, defaultWidth, defa
   };
 }
 
-function resolveNumericOverlayFrame(normalizedFrame, canvasWidth, canvasHeight, fallback) {
-  if (normalizedFrame && Number.isFinite(normalizedFrame.x) && Number.isFinite(normalizedFrame.y) && Number.isFinite(normalizedFrame.w) && Number.isFinite(normalizedFrame.h)) {
-    const w = Math.max(2, Math.min(canvasWidth, Math.round(normalizedFrame.w * canvasWidth)));
-    const h = Math.max(2, Math.min(canvasHeight, Math.round(normalizedFrame.h * canvasHeight)));
+function resolveContainedSize(sourceWidth, sourceHeight, maxWidth, maxHeight) {
+  const safeSourceWidth = Number.isFinite(sourceWidth) && sourceWidth > 0 ? sourceWidth : maxWidth;
+  const safeSourceHeight = Number.isFinite(sourceHeight) && sourceHeight > 0 ? sourceHeight : maxHeight;
+  const sourceAspect = safeSourceWidth / safeSourceHeight;
+  const frameAspect = maxWidth / maxHeight;
+  if (sourceAspect >= frameAspect) {
     return {
-      x: Math.max(0, Math.min(canvasWidth - w, Math.round(normalizedFrame.x * canvasWidth))),
-      y: Math.max(0, Math.min(canvasHeight - h, Math.round(normalizedFrame.y * canvasHeight))),
-      w,
-      h,
+      w: maxWidth,
+      h: Math.max(2, Math.round(maxWidth / sourceAspect)),
     };
   }
-  return fallback;
-}
-
-function resolveFastCameraFrame(cameraPresentation, canvasWidth, canvasHeight) {
-  const sizeScale = Math.max(0.5, Math.min(2, Number(cameraPresentation?.size ?? 100) / 100));
-  const width = Math.round(Math.min(canvasWidth, canvasHeight) * 0.22 * sizeScale);
-  const height = width;
-  const margin = Math.round(Math.min(canvasWidth, canvasHeight) * 0.06);
-  const position = cameraPresentation?.position ?? 'corner-br';
-  if (position === 'center') return { x: Math.round((canvasWidth - width) / 2), y: Math.round((canvasHeight - height) / 2), w: width, h: height };
-  const left = position.endsWith('bl') || position.endsWith('tl');
-  const top = position.endsWith('tl') || position.endsWith('tr');
   return {
-    x: left ? margin : canvasWidth - width - margin,
-    y: top ? margin : canvasHeight - height - margin,
-    w: width,
-    h: height,
+    w: Math.max(2, Math.round(maxHeight * sourceAspect)),
+    h: maxHeight,
   };
 }
 
