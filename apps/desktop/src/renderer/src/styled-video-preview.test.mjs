@@ -28,10 +28,41 @@ test('styled video preview can resolve timeline-time playback through the shared
   assert.match(source, /resolveTimelineFrame\(project\.document as unknown as ProjectDocument, timelineFrame\)/);
   assert.match(source, /if \(timeMode === 'timeline' && !screenLayer\)/);
   assert.match(source, /if \(timeMode === 'timeline'\) return;/);
-  assert.match(source, /controlledPlaying !== undefined \|\| !isPlaying/);
   assert.match(source, /video\.pause\(\);\n\s+cameraVideo\?\.pause\(\);\n\s+return;/);
-  assert.match(source, /expectedSourceTime = Math\.max\(0, screenLayer\.sourceFrame \/ fps\)/);
   assert.doesNotMatch(source, /nextTimelineFrame = currentFrame \+ \(sourceFrame - screenLayer\.sourceFrame\)/);
+});
+
+test('styled video preview drives edited timeline playback from decoded rVFC frames without per-frame seek sync', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+
+  assert.match(source, /requestVideoFrameCallback drives canvas draws from/);
+  assert.match(source, /screenVideo\.requestVideoFrameCallback\(\(now, metadata\) => tick\(now, metadata\)\)/);
+  assert.match(source, /handleTimelineDecodedFrame\(sourceFrame\)/);
+  assert.match(source, /timelineFrameForDecodedSourceFrame\(segment, decodedSourceFrame\)/);
+  assert.match(source, /seekTimelineBoundary\(nextSegment\)/);
+  assert.match(source, /if \(timeMode !== 'timeline' && Math\.abs\(cameraVideo\.currentTime - expectedCameraTime\)/);
+  assert.match(source, /const activeTimelinePlayback = timeMode === 'timeline' && isPlaying/);
+  assert.match(source, /ctx\.imageSmoothingQuality = activeTimelinePlayback \? 'low' : 'high'/);
+  assert.match(source, /if \(!activeTimelinePlayback && background\.bgShadowEnabled/);
+  assert.match(source, /if \(!activeTimelinePlayback && onScreenFrameChange\)/);
+  assert.match(source, /const onCurrentTimeChangeRef = React\.useRef\(onCurrentTimeChange\)/);
+  assert.match(source, /onCurrentTimeChangeRef\.current\?\.\(nextTime\)/);
+  assert.match(source, /const onPlayingChangeRef = React\.useRef\(onPlayingChange\)/);
+  assert.match(source, /onPlayingChangeRef\.current\?\.\(false\)/);
+  assert.match(source, /if \(timeMode === 'timeline' && isPlaying\) return;\n\s+previewInteractionDirtyRef\.current = true;/);
+  assert.match(source, /if \(!activeTimelinePlayback && focalSelection && focalScreenRect\)/);
+  assert.match(source, /if \(!activeTimelinePlayback && gapFocal && gapRect\)/);
+  assert.match(source, /className=\{`styledPreviewCanvas\$\{!isPlaying && isDraggingCamera \? ' draggingCamera' : ''\}/);
+  assert.match(source, /onPointerMove=\{\(event\) => \{\n\s+if \(timeMode === 'timeline' && isPlaying\) return;\n\s+const canvas = canvasRef\.current;/);
+  assert.match(source, /onPointerDown=\{\(event\) => \{\n\s+if \(timeMode === 'timeline' && isPlaying\) \{/);
+  assert.match(source, /recordPlaybackDebug\('preview-pointerdown-ignored-playing'/);
+  assert.match(source, /onPointerUp=\{\(event\) => \{\n\s+if \(timeMode === 'timeline' && isPlaying\) \{/);
+  assert.match(source, /recordPlaybackDebug\('preview-pointerup-ignored-playing'/);
+  assert.doesNotMatch(source, /syncTimelineScreenVideo/);
+  assert.doesNotMatch(source, /decideTimelineVideoSync/);
+  assert.doesNotMatch(source, /lastExpectedSourceFrameRef/);
+  assert.doesNotMatch(source, /, onCurrentTimeChange, onPlayingChange\]/);
+  assert.doesNotMatch(source, /if \(timeMode !== 'timeline' \|\| controlledPlaying !== undefined \|\| !isPlaying\) return undefined;\n\s+let rafId = 0;\n\s+let lastMs: number \| null = null;/);
 });
 
 test('styled video preview uses the canvas as the only visible edited playback compositor', () => {
@@ -58,7 +89,8 @@ test('styled video preview uses the canvas as the only visible edited playback c
 test('styled video preview keeps resolving and drawing zoom frames while timeline playback is active', () => {
   const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
 
-  assert.match(source, /if \(video\.seeking \|\| video\.readyState < 2\) \{\n\s+rafId = window\.requestAnimationFrame\(tick\);/);
+  assert.match(source, /if \(video\.seeking \|\| video\.readyState < 2\) \{/);
+  assert.match(source, /recordPlaybackDebug\('render-skip-video-not-ready'/);
   assert.match(source, /const frame = resolveCurrentFrame\(currentFrame\)/);
   assert.match(source, /resolveTimelinePreviewFrame\(document, currentFrame/);
   assert.match(source, /ctx\.translate\(sourceWidth \/ 2 \+ offsetX, sourceHeight \/ 2 \+ offsetY\)/);
@@ -94,4 +126,38 @@ test('recording editor export merges the live preview layout into the export doc
   assert.match(source, /mergeResolvedPreviewLayout\(project\.document, recordingAsset\.id, resolvedPreviewLayoutRef\.current\)/);
   assert.match(source, /onResolvedLayoutChange=\{\(layout\) => \{ resolvedPreviewLayoutRef\.current = layout; \}\}/);
   assert.match(source, /onExportMode\(mode, documentForExport\)/);
+});
+
+test('recording timeline selecting a zoom region does not commit a drag update without movement', () => {
+  const source = readFileSync(join(here, 'main.tsx'), 'utf8');
+
+  assert.match(source, /const startClientX = event\.clientX/);
+  assert.match(source, /if \(Math\.abs\(clientX - startClientX\) < 4\) return;/);
+  assert.match(source, /if \(dragged\) onZoomMarkerRangeChange\(latest\.id, latest\.startFrame, latest\.endFrame\)/);
+  assert.doesNotMatch(source, /setZoomDragPreview\(latest\);\n\s+const update = \(clientX: number\)/);
+});
+
+test('playback diagnostics log render-loop gaps and preview clicks for stutter analysis', () => {
+  const previewSource = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  const playbackProbe = readFileSync(join(here, '../../../../../scripts/playback-timeline-playwright.mjs'), 'utf8');
+
+  assert.match(previewSource, /function recordPlaybackDebug\(event: string/);
+  assert.match(previewSource, /recordPlaybackDebug\('render-loop-start'/);
+  assert.match(previewSource, /recordPlaybackDebug\('render-frame-gap'/);
+  assert.match(previewSource, /recordPlaybackDebug\('render-expected-display-gap'/);
+  assert.match(previewSource, /recordPlaybackDebug\('render-draw-cost'/);
+  assert.match(previewSource, /recordPlaybackDebug\('main-thread-long-task'/);
+  assert.match(previewSource, /readPlaybackQuality\(video\)/);
+  assert.match(previewSource, /PLAYBACK_DRAW_COST_LOG_THRESHOLD_MS/);
+  assert.match(previewSource, /recordPlaybackDebug\('preview-pointerdown-ignored-playing'/);
+  assert.match(previewSource, /recordPlaybackDebug\('preview-pointerup-ignored-playing'/);
+  assert.match(previewSource, /recordPlaybackDebug\('render-loop-cleanup'/);
+  assert.match(playbackProbe, /function readPlaybackDebug\(\)/);
+  assert.match(playbackProbe, /playbackQuality: quality/);
+  assert.match(playbackProbe, /expectedDisplayGapCount/);
+  assert.match(playbackProbe, /drawCostCount/);
+  assert.match(playbackProbe, /longTaskCount/);
+  assert.match(playbackProbe, /window\.__roughCutReadPlaybackDebug = \(\$\{readPlaybackDebug\.toString\(\)\}\)/);
+  assert.match(playbackProbe, /window\.__roughCutReadPlaybackDebug\(\)/);
+  assert.match(playbackProbe, /playbackDebug: result\.after\?\.playbackDebug/);
 });

@@ -87,6 +87,7 @@ declare global {
       getVersion: () => Promise<string>;
       getRuntimeLogPath: () => Promise<string>;
       openEditor: (projectPath?: string | null) => Promise<void>;
+      writePlaybackDebugReport: (report: Record<string, unknown>) => Promise<{ ok?: boolean; skipped?: boolean; path?: string; reason?: string }>;
       showItemInFolder: (path: string) => Promise<void>;
       openPath: (path: string) => Promise<string>;
       getMicSources: () => Promise<MicSource[]>;
@@ -3752,6 +3753,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     event.stopPropagation();
     const handle = event.currentTarget;
     handle.setPointerCapture(event.pointerId);
+    const startClientX = event.clientX;
     const initialFrame = sourceFrameFromClient(handle, event.clientX) ?? 0;
     const initialStart = Math.round(region.startFrame ?? 0);
     const initialEnd = Math.round(region.endFrame ?? initialStart + 15);
@@ -3762,9 +3764,13 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     const minFrame = Math.max(0, model.trimStartFrame);
     const maxFrame = Math.max(minFrame + 1, Math.min(sourceFrameDuration, model.trimEndFrame));
     let latest = { id: region.id, startFrame: initialStart, endFrame: initialEnd };
-    setZoomDragPreview(latest);
+    let dragged = false;
 
     const update = (clientX: number) => {
+      if (!dragged) {
+        if (Math.abs(clientX - startClientX) < 4) return;
+        dragged = true;
+      }
       const frame = sourceFrameFromClient(handle, clientX);
       if (frame === null) return;
       if (mode === 'move') {
@@ -3785,7 +3791,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     const up = (upEvent: PointerEvent) => {
       update(upEvent.clientX);
       setZoomDragPreview(null);
-      onZoomMarkerRangeChange(latest.id, latest.startFrame, latest.endFrame);
+      if (dragged) onZoomMarkerRangeChange(latest.id, latest.startFrame, latest.endFrame);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);

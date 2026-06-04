@@ -92,6 +92,40 @@ describe('resolveTimelinePreviewFrame', () => {
     expect(result.cursor).toMatchObject({ visible: true, style: 'spotlight', clickEffect: 'ripple', sizePercent: 120 });
   });
 
+  it('preserves zoom ramp-in and ramp-out animation when timeline clips start at a source offset', () => {
+    const presentation = createDefaultRecordingPresentation();
+    const recording = createAsset('recording', '/tmp/screen.webm', {
+      duration: 300,
+      metadata: { width: 1280, height: 720 },
+      presentation: {
+        ...presentation,
+        zoom: {
+          ...presentation.zoom,
+          followCursor: false,
+          markers: [createZoomMarker(30, 90, { strength: 0.5, zoomInDuration: 20, zoomOutDuration: 20 })],
+        },
+      },
+    });
+    const project = createProject({
+      assets: [recording],
+      tracks: [track({ clips: [clip('screen', recording.id, 100, 180, 20)] })],
+    });
+
+    const before = resolveTimelinePreviewFrame(project, 109).cameraTransform.scale; // source frame 29
+    const rampIn = resolveTimelinePreviewFrame(project, 120).cameraTransform.scale; // source frame 40
+    const hold = resolveTimelinePreviewFrame(project, 150).cameraTransform.scale; // source frame 70
+    const rampOut = resolveTimelinePreviewFrame(project, 165).cameraTransform.scale; // source frame 85
+    const after = resolveTimelinePreviewFrame(project, 170).cameraTransform.scale; // source frame 90
+
+    expect(before).toBe(1);
+    expect(rampIn).toBeGreaterThan(1);
+    expect(rampIn).toBeLessThan(hold);
+    expect(hold).toBeCloseTo(1.75, 2);
+    expect(rampOut).toBeGreaterThan(1);
+    expect(rampOut).toBeLessThan(hold);
+    expect(after).toBe(1);
+  });
+
   it('resolves linked camera PiP layer with independent source offset', () => {
     const camera = createAsset('video', '/tmp/camera.mp4', { id: 'camera-asset' as never, duration: 330 });
     const recording = createAsset('recording', '/tmp/screen.webm', {

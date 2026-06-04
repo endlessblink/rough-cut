@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activeClickEmphasisAtFrame, cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFrame, cursorAtTimeMs, cursorForResizeHandle, decideTimelineVideoSync, drawClickEmphasis, drawCursorPath, frameResizeHandles, getCursorBoundsStatus, moveRectFromPointer, resizeHandleAtPoint, resizeRectFromPointer } from './styled-preview.mjs';
+import { activeClickEmphasisAtFrame, cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFrame, cursorAtTimeMs, cursorForResizeHandle, drawClickEmphasis, drawCursorPath, frameResizeHandles, getCursorBoundsStatus, moveRectFromPointer, resizeHandleAtPoint, resizeRectFromPointer } from './styled-preview.mjs';
 
 test('cursorAtFrame returns null for empty events', () => {
   assert.equal(cursorAtFrame([], 0), null);
@@ -97,6 +97,92 @@ test('cursorAtTimeMs falls back to frame timing when timeMs is missing', () => {
   ];
 
   assert.deepEqual(cursorAtTimeMs(events, 500, 30), { x: 300, y: 400 });
+});
+
+test('cursorAtTimeMs reuses prepared event ordering across playback frames', () => {
+  const events = Array.from({ length: 500 }, (_, index) => ({
+    frame: 500 - index,
+    x: index,
+    y: index * 2,
+    type: 'move',
+  }));
+  const originalSort = Array.prototype.sort;
+  let sortCount = 0;
+
+  Array.prototype.sort = function patchedSort(...args) {
+    sortCount += 1;
+    return originalSort.apply(this, args);
+  };
+
+  try {
+    assert.ok(cursorAtTimeMs(events, 250, 30));
+    assert.ok(cursorAtTimeMs(events, 500, 30));
+    assert.ok(cursorAtTimeMs(events, 750, 30));
+  } finally {
+    Array.prototype.sort = originalSort;
+  }
+
+  assert.equal(sortCount, 1);
+});
+
+test('cursorAtTimeMs prepares a new ordering when frame-derived telemetry uses a new fps', () => {
+  const events = [
+    { frame: 0, x: 0, y: 0, type: 'move' },
+    { frame: 60, x: 600, y: 300, type: 'move' },
+  ];
+  const originalSort = Array.prototype.sort;
+  let sortCount = 0;
+
+  Array.prototype.sort = function patchedSort(...args) {
+    sortCount += 1;
+    return originalSort.apply(this, args);
+  };
+
+  try {
+    assert.deepEqual(cursorAtTimeMs(events, 1000, 30), { x: 300, y: 150 });
+    assert.deepEqual(cursorAtTimeMs(events, 1000, 60), { x: 600, y: 300 });
+  } finally {
+    Array.prototype.sort = originalSort;
+  }
+
+  assert.equal(sortCount, 2);
+});
+
+test('cursorAtFrame reuses prepared event ordering across preview frames', () => {
+  const events = Array.from({ length: 500 }, (_, index) => ({
+    frame: 500 - index,
+    x: index,
+    y: index * 2,
+    type: 'move',
+  }));
+  const originalSort = Array.prototype.sort;
+  let sortCount = 0;
+
+  Array.prototype.sort = function patchedSort(...args) {
+    sortCount += 1;
+    return originalSort.apply(this, args);
+  };
+
+  try {
+    assert.ok(cursorAtFrame(events, 100));
+    assert.ok(cursorAtFrame(events, 200));
+    assert.ok(cursorAtFrame(events, 300));
+  } finally {
+    Array.prototype.sort = originalSort;
+  }
+
+  assert.equal(sortCount, 1);
+});
+
+test('cursorAtFrame refreshes prepared ordering when telemetry length changes', () => {
+  const events = [
+    { frame: 0, x: 0, y: 0, type: 'move' },
+    { frame: 100, x: 1000, y: 500, type: 'move' },
+  ];
+
+  assert.deepEqual(cursorAtFrame(events, 50), { x: 500, y: 250 });
+  events.push({ frame: 50, x: 100, y: 75, type: 'move' });
+  assert.deepEqual(cursorAtFrame(events, 50), { x: 100, y: 75 });
 });
 
 test('getCursorBoundsStatus reports offscreen side without clamping', () => {
@@ -373,66 +459,4 @@ test('resizeRectFromPointer clamps oversized and undersized resizes', () => {
 
   assert.deepEqual(resizeRectFromPointer({ ...base, handle: 'se' }, 9999, 9999, 1000, 500), { x: 0.2, y: 0.2, w: 0.8, h: 0.8 });
   assert.deepEqual(resizeRectFromPointer({ ...base, handle: 'se' }, 201, 101, 1000, 500), { x: 0.2, y: 0.2, w: 0.05, h: 0.05 });
-});
-
-// --- decideTimelineVideoSync: timeline playback drift correction ---
-// Regression guard for the smooth-playback fix: playing forward through one
-// clip nudges playbackRate instead of hard-seeking (the seek-stepping froze
-// frames then jumped, which zoom magnified into stutter).
-
-test('decideTimelineVideoSync: small drift within deadband holds the canonical rate', () => {
-  const d = decideTimelineVideoSync({ drift: 0.01, playing: true, contiguous: true, baseRate: 1, fps: 30 });
-  assert.deepEqual(d, { action: 'rate', playbackRate: 1 });
-});
-
-test('decideTimelineVideoSync: video ahead nudges playbackRate down (slow to let clock catch up)', () => {
-  const d = decideTimelineVideoSync({ drift: 0.05, playing: true, contiguous: true, baseRate: 1, fps: 30 });
-  assert.equal(d.action, 'rate');
-  assert.ok(d.playbackRate < 1 && d.playbackRate >= 0.9, `expected slowdown, got ${d.playbackRate}`);
-  assert.ok(Math.abs(d.playbackRate - 0.95) < 1e-9);
-});
-
-test('decideTimelineVideoSync: video behind nudges playbackRate up (speed up to catch the clock)', () => {
-  const d = decideTimelineVideoSync({ drift: -0.05, playing: true, contiguous: true, baseRate: 1, fps: 30 });
-  assert.equal(d.action, 'rate');
-  assert.ok(Math.abs(d.playbackRate - 1.05) < 1e-9);
-});
-
-test('decideTimelineVideoSync: nudge is clamped to +/-25% of the base rate', () => {
-  const ahead = decideTimelineVideoSync({ drift: 0.3, playing: true, contiguous: true, baseRate: 1, fps: 30 });
-  assert.ok(Math.abs(ahead.playbackRate - 0.75) < 1e-9, `expected 0.75 clamp, got ${ahead.playbackRate}`);
-  const behind = decideTimelineVideoSync({ drift: -0.3, playing: true, contiguous: true, baseRate: 1, fps: 30 });
-  assert.ok(Math.abs(behind.playbackRate - 1.25) < 1e-9, `expected 1.25 clamp, got ${behind.playbackRate}`);
-});
-
-test('decideTimelineVideoSync: nudge clamps relative to a jog/shuttle base rate', () => {
-  const d = decideTimelineVideoSync({ drift: 0.05, playing: true, contiguous: true, baseRate: 2, fps: 30 });
-  assert.ok(Math.abs(d.playbackRate - 1.9) < 1e-9, `expected 1.9 (2*0.95), got ${d.playbackRate}`);
-});
-
-test('decideTimelineVideoSync: large contiguous drift still rate-corrects instead of seek-stepping', () => {
-  const d = decideTimelineVideoSync({ drift: 0.5, playing: true, contiguous: true, baseRate: 1, fps: 30 });
-  assert.deepEqual(d, { action: 'rate', playbackRate: 0.75 });
-});
-
-test('decideTimelineVideoSync: huge drift hard-seeks even while playing contiguously', () => {
-  const d = decideTimelineVideoSync({ drift: 2.5, playing: true, contiguous: true, baseRate: 1, fps: 30 });
-  assert.deepEqual(d, { action: 'seek' });
-});
-
-test('decideTimelineVideoSync: a cut/transition (non-contiguous) hard-seeks', () => {
-  const d = decideTimelineVideoSync({ drift: 0.1, playing: true, contiguous: false, baseRate: 1, fps: 30 });
-  assert.deepEqual(d, { action: 'seek' });
-});
-
-test('decideTimelineVideoSync: paused/scrub seeks to the frame when off, holds when aligned', () => {
-  assert.deepEqual(decideTimelineVideoSync({ drift: 0.1, playing: false, contiguous: true, baseRate: 1, fps: 30 }), { action: 'seek' });
-  // Within the paused hard-seek tolerance (~33ms at 30fps) → leave the exact frame.
-  assert.deepEqual(decideTimelineVideoSync({ drift: 0.01, playing: false, contiguous: true, baseRate: 1, fps: 30 }), { action: 'hold' });
-});
-
-test('decideTimelineVideoSync: tolerates non-finite drift/baseRate without throwing', () => {
-  assert.deepEqual(decideTimelineVideoSync({ drift: Number.NaN, playing: true, contiguous: true, baseRate: 1, fps: 30 }), { action: 'rate', playbackRate: 1 });
-  const d = decideTimelineVideoSync({ drift: 0.05, playing: true, contiguous: true, baseRate: 0, fps: 30 });
-  assert.ok(Math.abs(d.playbackRate - 0.95) < 1e-9);
 });

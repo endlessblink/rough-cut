@@ -24,6 +24,7 @@
     "visual:timeline-sync": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/visual-timeline-sync-playwright.mjs",
     "test:editors": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/editor-regression-playwright.mjs",
     "playback:timeline": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/playback-timeline-playwright.mjs",
+    "dev:playback-debug": "ROUGH_CUT_PLAYBACK_DEBUG_REPORT_PATH=/tmp/rough-cut-playback-debug.json pnpm dev",
     "package:linux": "pnpm build && node scripts/package-linux.mjs",
     "smoke:package": "pnpm package:linux && node scripts/smoke-packaged-app.mjs",
     "smoke:package-recording-flow": "pnpm package:linux && node scripts/smoke-packaged-recording-flow.mjs",

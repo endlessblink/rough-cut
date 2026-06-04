@@ -14,13 +14,14 @@ const CURSOR_FILL = '#ffffff';
 const CURSOR_OUTLINE = '#333A46';
 const CURSOR_OUTLINE_WIDTH = 2.2;
 const CLICK_RING_DURATION_FRAMES = 12;
+const cursorFrameSampleCache = new WeakMap();
+const cursorTimeSampleCache = new WeakMap();
 
-export function cursorAtFrame(cursorEvents, currentFrame) {
-  if (!Array.isArray(cursorEvents) || cursorEvents.length === 0) return null;
-  if (!Number.isFinite(currentFrame)) return null;
+function getCursorFrameSamples(cursorEvents) {
+  const cached = cursorFrameSampleCache.get(cursorEvents);
+  if (cached && cached.length === cursorEvents.length) return cached.samples;
 
-  // Filter to move events with finite numeric coords; tolerate other event types.
-  const sorted = cursorEvents
+  const samples = cursorEvents
     .filter(
       (event) =>
         event &&
@@ -31,6 +32,40 @@ export function cursorAtFrame(cursorEvents, currentFrame) {
     )
     .slice()
     .sort((a, b) => a.frame - b.frame);
+
+  cursorFrameSampleCache.set(cursorEvents, { length: cursorEvents.length, samples });
+  return samples;
+}
+
+function getCursorTimeSamples(cursorEvents, fpsValue) {
+  const cached = cursorTimeSampleCache.get(cursorEvents);
+  if (cached && cached.length === cursorEvents.length && cached.fpsValue === fpsValue) return cached.samples;
+
+  const samples = cursorEvents
+    .map((event) => {
+      if (!event || (event.type !== undefined && event.type !== 'move')) return null;
+      if (!Number.isFinite(event.x) || !Number.isFinite(event.y)) return null;
+      const timeMs = Number.isFinite(event.timeMs)
+        ? event.timeMs
+        : Number.isFinite(event.frame)
+          ? (event.frame / fpsValue) * 1000
+          : Number.NaN;
+      return Number.isFinite(timeMs) ? { timeMs, x: event.x, y: event.y } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.timeMs - b.timeMs);
+
+  cursorTimeSampleCache.set(cursorEvents, { fpsValue, length: cursorEvents.length, samples });
+  return samples;
+}
+
+export function cursorAtFrame(cursorEvents, currentFrame) {
+  if (!Array.isArray(cursorEvents) || cursorEvents.length === 0) return null;
+  if (!Number.isFinite(currentFrame)) return null;
+
+  // Cache prepared telemetry because preview playback asks for cursor position
+  // every decoded frame and long recordings can contain thousands of events.
+  const sorted = getCursorFrameSamples(cursorEvents);
 
   if (sorted.length === 0) return null;
   if (currentFrame <= sorted[0].frame) return { x: sorted[0].x, y: sorted[0].y };
@@ -63,19 +98,7 @@ export function cursorAtTimeMs(cursorEvents, currentTimeMs, fps = 30) {
   if (!Number.isFinite(currentTimeMs)) return null;
 
   const fpsValue = Number.isFinite(fps) && fps > 0 ? fps : 30;
-  const sorted = cursorEvents
-    .map((event) => {
-      if (!event || (event.type !== undefined && event.type !== 'move')) return null;
-      if (!Number.isFinite(event.x) || !Number.isFinite(event.y)) return null;
-      const timeMs = Number.isFinite(event.timeMs)
-        ? event.timeMs
-        : Number.isFinite(event.frame)
-          ? (event.frame / fpsValue) * 1000
-          : Number.NaN;
-      return Number.isFinite(timeMs) ? { timeMs, x: event.x, y: event.y } : null;
-    })
-    .filter(Boolean)
-    .sort((a, b) => a.timeMs - b.timeMs);
+  const sorted = getCursorTimeSamples(cursorEvents, fpsValue);
 
   if (sorted.length === 0) return null;
   if (currentTimeMs <= sorted[0].timeMs) return { x: sorted[0].x, y: sorted[0].y };
@@ -327,36 +350,4 @@ export function resizeRectFromPointer(origin, xCanvas, yCanvas, canvasWidth, can
 function clampUnit(value, min = 0) {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(1, value));
-}
-
-// Decide how the timeline-mode preview keeps the screen <video> (a decode
-// surface) aligned with the canonical virtual clock for one draw tick. Pure so
-// it can be unit-tested independently of the DOM/rAF loop.
-//
-// - `drift`      = video.currentTime - expectedSourceTime (seconds); + = video ahead.
-// - `playing`    = playback active and the video element not paused.
-// - `contiguous` = expected source frame advanced forward by <=2 frames (same
-//   clip, no cut/transition/gap/scrub jump).
-// - `baseRate`   = canonical timeline speed (1x, or a jog/shuttle rate).
-//
-// Returns: { action: 'rate', playbackRate } | { action: 'seek' } | { action: 'hold' }.
-//
-// Playing forward through one clip nudges playbackRate instead of hard-seeking,
-// keeping frames smooth (the seek-stepping it replaces froze frames then jumped,
-// which zoom magnified into stutter). Scrub/paused, cut/transition/gap, or huge
-// drift hard-seek.
-export function decideTimelineVideoSync({ drift, playing, contiguous, baseRate = 1, fps = 30 }) {
-  const hardSeekTolerance = Math.max(0.035, 1 / Math.max(1, fps));
-  const safeDrift = Number.isFinite(drift) ? drift : 0;
-  const base = Number.isFinite(baseRate) && baseRate > 0 ? baseRate : 1;
-
-  if (playing && contiguous && Math.abs(safeDrift) <= 2) {
-    if (Math.abs(safeDrift) < 0.02) return { action: 'rate', playbackRate: base };
-    const adjust = Math.max(-0.25, Math.min(0.25, safeDrift)); // +drift (ahead) -> slow down
-    return { action: 'rate', playbackRate: base * (1 - adjust) };
-  }
-  if (Math.abs(safeDrift) > hardSeekTolerance) {
-    return { action: 'seek' };
-  }
-  return { action: 'hold' };
 }

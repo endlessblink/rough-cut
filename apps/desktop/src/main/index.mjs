@@ -52,6 +52,8 @@ function buildAllowedProjectRoots() {
   // Without including its parent dir, validateProjectPath rejects the fixture as outside-root.
   const smokeProject = process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH;
   if (smokeProject) roots.push(dirname(smokeProject));
+  const playbackProject = process.env.ROUGH_CUT_PLAYBACK_PROJECT_PATH;
+  if (playbackProject) roots.push(dirname(playbackProject));
   return roots;
 }
 const markerPath = join(app.getPath('userData'), 'recording-recovery.json');
@@ -212,7 +214,10 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
     });
   }
 
-  loadRenderer(window, { mode, projectPath: projectPath || process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null });
+  loadRenderer(window, {
+    mode,
+    projectPath: projectPath || process.env.ROUGH_CUT_PLAYBACK_PROJECT_PATH || process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null,
+  });
 
   return window;
 }
@@ -322,6 +327,18 @@ async function stopActiveCameraPreview(token = null) {
 
 ipcMain.handle(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion());
 ipcMain.handle(IPC_CHANNELS.APP_GET_RUNTIME_LOG_PATH, () => runtimeLogPath);
+ipcMain.handle(IPC_CHANNELS.APP_WRITE_PLAYBACK_DEBUG_REPORT, async (_event, report = {}) => {
+  const reportPath = process.env.ROUGH_CUT_PLAYBACK_DEBUG_REPORT_PATH;
+  if (!reportPath) return { ok: false, skipped: true, reason: 'ROUGH_CUT_PLAYBACK_DEBUG_REPORT_PATH not set' };
+  const payload = {
+    writtenAt: new Date().toISOString(),
+    reportPath,
+    ...report,
+  };
+  await mkdir(dirname(reportPath), { recursive: true });
+  await writeFile(reportPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  return { ok: true, path: reportPath };
+});
 ipcMain.handle(IPC_CHANNELS.SHELL_SHOW_ITEM_IN_FOLDER, (_event, itemPath) => {
   if (typeof itemPath === 'string' && itemPath.length > 0) shell.showItemInFolder(itemPath);
 });
@@ -703,7 +720,7 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === 'media');
   });
-  const startupProjectPath = process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;
+  const startupProjectPath = process.env.ROUGH_CUT_PLAYBACK_PROJECT_PATH || process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;
   const startupMode = process.env.ROUGH_CUT_UI_SMOKE_FORCE_EDITOR === '1' ? 'editor' : startupProjectPath ? 'editor' : 'recorder';
   createMainWindow({ mode: startupMode, projectPath: startupProjectPath });
 
