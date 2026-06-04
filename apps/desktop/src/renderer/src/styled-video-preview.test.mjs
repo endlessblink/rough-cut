@@ -107,6 +107,16 @@ test('styled video preview surfaces offscreen cursor state without clamping curs
   assert.doesNotMatch(source, /drawCursorPath\(ctx, Math\.max/);
 });
 
+test('styled video preview shows zoom authoring crop safety only while editing a selected zoom', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+
+  assert.match(source, /export function resolveZoomAuthoringSafety/);
+  assert.match(source, /const zoomSafety = !activeTimelinePlayback && selectedZoomFocalRef\.current/);
+  assert.match(source, /drawZoomAuthoringSafetyOverlay\(ctx, zoomSafety, cursorPos/);
+  assert.match(source, /const label = inside \? 'Zoom crop' : 'Cursor outside crop'/);
+  assert.match(source, /ctx\.setLineDash\(\[10, 7\]\)/);
+});
+
 test('styled video preview publishes resolved layout for export parity', () => {
   const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
 

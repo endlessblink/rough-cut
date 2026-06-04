@@ -251,6 +251,10 @@ type PreviewTimeMode = 'source' | 'timeline';
 type CursorOffscreenSide = 'left' | 'right' | 'top' | 'bottom';
 type CursorOffscreenStatus = null | { side: CursorOffscreenSide; distance: number };
 export type ResolvedPreviewLayout = { screenFrame: NormalizedRect; cameraFrame: NormalizedRect | null };
+export type ZoomAuthoringSafety = {
+  crop: { x: number; y: number; w: number; h: number };
+  cursorInside: boolean | null;
+};
 type TimelinePlaybackSegment = {
   timelineIn: number;
   timelineOut: number;
@@ -258,6 +262,35 @@ type TimelinePlaybackSegment = {
   sourceOut: number;
   trackIndex: number;
 };
+
+export function resolveZoomAuthoringSafety({
+  sourceWidth,
+  sourceHeight,
+  scale,
+  offsetX,
+  offsetY,
+  cursor,
+}: {
+  sourceWidth: number;
+  sourceHeight: number;
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+  cursor: { x: number; y: number } | null;
+}): ZoomAuthoringSafety | null {
+  if (![sourceWidth, sourceHeight, scale, offsetX, offsetY].every(Number.isFinite)) return null;
+  if (sourceWidth <= 0 || sourceHeight <= 0 || scale <= 1.001) return null;
+  const crop = {
+    x: sourceWidth / 2 - sourceWidth / (2 * scale) - offsetX / scale,
+    y: sourceHeight / 2 - sourceHeight / (2 * scale) - offsetY / scale,
+    w: sourceWidth / scale,
+    h: sourceHeight / scale,
+  };
+  const cursorInside = cursor
+    ? cursor.x >= crop.x && cursor.x <= crop.x + crop.w && cursor.y >= crop.y && cursor.y <= crop.y + crop.h
+    : null;
+  return { crop, cursorInside };
+}
 
 export function StyledVideoPreview({
   project,
@@ -1137,6 +1170,9 @@ export function StyledVideoPreview({
         ? { side: cursorBounds.side as 'left' | 'right' | 'top' | 'bottom', distance: cursorBounds.distance }
         : null;
       publishCursorOffscreenStatus(nextOffscreen);
+      const zoomSafety = !activeTimelinePlayback && selectedZoomFocalRef.current
+        ? resolveZoomAuthoringSafety({ sourceWidth, sourceHeight, scale, offsetX, offsetY, cursor: cursorPos })
+        : null;
       if (cursorPos && resolvedCursor?.visible !== false && cursorBounds?.inside !== false) {
         drawCursorPath(ctx, cursorPos.x, cursorPos.y, {
           style: resolvedCursor?.style ?? 'default',
@@ -1144,6 +1180,20 @@ export function StyledVideoPreview({
         });
       }
       ctx.restore();
+      if (zoomSafety) {
+        drawZoomAuthoringSafetyOverlay(ctx, zoomSafety, cursorPos, {
+          screenX,
+          screenY,
+          screenWidth,
+          screenHeight,
+          screenDrawScale: effectiveScreenDrawScale,
+          sourceWidth,
+          sourceHeight,
+          scale,
+          offsetX,
+          offsetY,
+        });
+      }
       markDrawPhase('cursor');
       if (nextOffscreen) {
         drawCursorOffscreenMarker(ctx, nextOffscreen, cursorPos, {
@@ -1824,6 +1874,79 @@ function drawCursorOffscreenMarker(
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+  ctx.restore();
+}
+
+function drawZoomAuthoringSafetyOverlay(
+  ctx: CanvasRenderingContext2D,
+  safety: ZoomAuthoringSafety,
+  cursor: { x: number; y: number } | null,
+  geometry: {
+    screenX: number;
+    screenY: number;
+    screenWidth: number;
+    screenHeight: number;
+    screenDrawScale: number;
+    sourceWidth: number;
+    sourceHeight: number;
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+  },
+) {
+  const topLeft = projectSourcePoint({ x: safety.crop.x, y: safety.crop.y, ...geometry });
+  const topRight = projectSourcePoint({ x: safety.crop.x + safety.crop.w, y: safety.crop.y, ...geometry });
+  const bottomRight = projectSourcePoint({ x: safety.crop.x + safety.crop.w, y: safety.crop.y + safety.crop.h, ...geometry });
+  const bottomLeft = projectSourcePoint({ x: safety.crop.x, y: safety.crop.y + safety.crop.h, ...geometry });
+  const corners = [topLeft, topRight, bottomRight, bottomLeft];
+  const inside = safety.cursorInside !== false;
+  const accent = inside ? 'rgba(56, 189, 248, 0.92)' : 'rgba(245, 158, 11, 0.96)';
+  const label = inside ? 'Zoom crop' : 'Cursor outside crop';
+
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(7, 12, 20, 0.72)';
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(topLeft.x, topLeft.y);
+  for (const corner of corners.slice(1)) ctx.lineTo(corner.x, corner.y);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([10, 7]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  if (cursor) {
+    const projectedCursor = projectSourcePoint({ x: cursor.x, y: cursor.y, ...geometry });
+    ctx.beginPath();
+    ctx.arc(projectedCursor.x, projectedCursor.y, inside ? 5 : 7, 0, Math.PI * 2);
+    ctx.fillStyle = accent;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(7, 12, 20, 0.8)';
+    ctx.stroke();
+  }
+
+  const fontSize = Math.max(18, Math.min(26, geometry.screenWidth * 0.045));
+  ctx.font = `700 ${fontSize}px Inter, system-ui, sans-serif`;
+  const metrics = ctx.measureText(label);
+  const padX = Math.round(fontSize * 0.72);
+  const padY = Math.round(fontSize * 0.45);
+  const labelW = Math.ceil(metrics.width + padX * 2);
+  const labelH = Math.ceil(fontSize + padY * 2);
+  const labelX = Math.max(geometry.screenX + 8, Math.min(geometry.screenX + geometry.screenWidth - labelW - 8, topLeft.x + 8));
+  const labelY = Math.max(geometry.screenY + 8, Math.min(geometry.screenY + geometry.screenHeight - labelH - 8, topLeft.y + 8));
+  ctx.fillStyle = 'rgba(7, 12, 20, 0.82)';
+  addRoundedRect(ctx, labelX, labelY, labelW, labelH, Math.max(7, fontSize * 0.45));
+  ctx.fill();
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(245, 248, 255, 0.96)';
+  ctx.fillText(label, labelX + padX, labelY + padY + fontSize * 0.76);
   ctx.restore();
 }
 
