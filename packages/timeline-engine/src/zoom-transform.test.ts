@@ -316,6 +316,36 @@ describe('getZoomTransformForMarker', () => {
     expect(last!.scale).toBeLessThan(1.1);
   });
 
+  it('continues following a moving cursor through ramp-out until the marker ends', () => {
+    const marker = createZoomMarker(0, 90, {
+      kind: 'auto',
+      strength: 1,
+      zoomInDuration: 0,
+      zoomOutDuration: 24,
+      focalPoint: { x: 0.5, y: 0.5 },
+    });
+    const cursorAtFrame = (frame: number) => {
+      if (frame < 66) return { x: 0.5, y: 0.5 };
+      const t = (frame - 66) / 23;
+      return { x: 0.5 + t * 0.4, y: 0.5 };
+    };
+    const options = {
+      followCursor: true,
+      followAnimation: 'focused' as const,
+      followPadding: 0.3,
+      fps: 30,
+      cursorSmoothing: 0,
+      getCursorPosition: cursorAtFrame,
+    };
+
+    for (const frame of [72, 78, 84, 88]) {
+      const t = getZoomTransformForMarker(frame, marker, options);
+      expect(t, `frame ${frame}`).not.toBeNull();
+      expect(cursorInsideVisibleWindow(t!, cursorAtFrame(frame)), `frame ${frame}`).toBe(true);
+      expect(focalFromTransform(t!).x, `frame ${frame}`).toBeGreaterThan(0.5);
+    }
+  });
+
   it('follows the cursor during zoom-in (unified system, all phases track cursor)', () => {
     // Replaces the old "uses marker focal during zoom-in" assertion. The unified
     // safe-zone camera now runs through every phase — manual + auto markers

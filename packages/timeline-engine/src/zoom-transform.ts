@@ -182,7 +182,6 @@ function resolveSpringSmoothedFocal(
   const dtMs = 1000 / Math.max(1, fps);
   const targetScale = strengthToScale(marker.strength);
   const safeZoneRatio = clamp(followPadding, 0, 0.45);
-  const rampOutStart = marker.endFrame - marker.zoomOutDuration;
 
   // Advance `st` by a single frame `f`, mutating it in place. Identical math to
   // the original per-frame loop body.
@@ -198,11 +197,7 @@ function resolveSpringSmoothedFocal(
       }
     }
 
-    // Freeze the camera target during ramp-out: cursor motion in this window
-    // shouldn't add panning jitter on top of the geometric scale-driven slide.
-    const inRampOut = f >= rampOutStart && marker.zoomOutDuration > 0;
-
-    if (st.emaX !== null && st.emaY !== null && !inRampOut) {
+    if (st.emaX !== null && st.emaY !== null) {
       // Use the TARGET scale for safe-zone math, not the current frame's
       // ramp-time scale (recomputing at ramp-time scale produces vertical jitter).
       const halfSpan = 1 / (2 * targetScale);
@@ -280,7 +275,7 @@ function resolveSpringSmoothedFocal(
 // scale change (the dominant wobble cause):
 //   1. Ramp-in:  stable marker/action focal while scale eases in
 //   2. Hold:     spring tracks EMA-filtered cursor through edge-snap mapping
-//   3. Ramp-out: ease hold-end focus back toward center while scale returns to 1
+//   3. Ramp-out: keep following until the marker ends while scale returns to 1
 // In every phase the result is then source-bound clamped at the current scale.
 function getMarkerFocalPoint(
   frame: Frame,
