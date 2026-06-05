@@ -20,6 +20,7 @@ import { getRecordingPreflightStatus } from './recording/preflight.mjs';
 import { isXdotoolAvailable, readCursorViaXdotool } from './recording/xdotool-cursor.mjs';
 import { installRuntimeLog } from './runtime-log.mjs';
 import { createUserTemplatesStore, defaultUserTemplatesPath } from './user-templates-store.mjs';
+import { createRecordingTemplateOverridesStore, defaultRecordingTemplateOverridesPath } from './recording-template-overrides-store.mjs';
 import { createAiAssetsStore, defaultAiAssetsRoot } from './ai-assets-store.mjs';
 import { registerAiAssetIpcHandlers } from './ai-assets-ipc.mjs';
 import {
@@ -61,6 +62,10 @@ const userTemplatesStore = createUserTemplatesStore({
   filePath: defaultUserTemplatesPath(app.getPath('userData')),
   onLog: (msg) => console.warn(msg),
 });
+const recordingTemplateOverridesStore = createRecordingTemplateOverridesStore({
+  filePath: defaultRecordingTemplateOverridesPath(app.getPath('userData')),
+  onLog: (msg) => console.warn(msg),
+});
 const aiAssetsStore = createAiAssetsStore({
   rootDir: defaultAiAssetsRoot(app.getPath('userData')),
   onLog: (msg) => console.warn(msg),
@@ -97,6 +102,26 @@ async function listCameraSources() {
       label: `Smoke camera (${smokeCameraPath})`,
     },
     ...sources.filter((source) => source.name !== smokeCameraPath),
+  ];
+}
+
+async function listMicSources() {
+  const sources = await listPulseAudioMicSources().catch(() => []);
+  const smokeMicSource = process.env.ROUGH_CUT_SMOKE_MIC_SOURCE;
+  if (!smokeMicSource) return sources;
+  return [
+    { id: smokeMicSource, name: smokeMicSource, label: 'Smoke microphone', state: 'RUNNING' },
+    ...sources.filter((source) => source.name !== smokeMicSource),
+  ];
+}
+
+async function listSystemAudioSources() {
+  const sources = await listPulseAudioSystemAudioSources().catch(() => []);
+  const smokeSystemAudioSource = process.env.ROUGH_CUT_SMOKE_SYSTEM_AUDIO_SOURCE;
+  if (!smokeSystemAudioSource) return sources;
+  return [
+    { id: smokeSystemAudioSource, name: smokeSystemAudioSource, label: 'Smoke system audio', state: 'RUNNING', monitor: true },
+    ...sources.filter((source) => source.name !== smokeSystemAudioSource),
   ];
 }
 
@@ -175,6 +200,7 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
             cameraWarning: process.env.ROUGH_CUT_UI_SMOKE_CAMERA_WARNING === '1',
             cancelFlow: process.env.ROUGH_CUT_UI_SMOKE_CANCEL_FLOW === '1',
             invalidRegion: process.env.ROUGH_CUT_UI_SMOKE_INVALID_REGION === '1',
+            audioGainOnly: process.env.ROUGH_CUT_UI_SMOKE_AUDIO_GAIN_ONLY === '1',
           })})`,
           true,
         );
@@ -357,8 +383,8 @@ ipcMain.handle(IPC_CHANNELS.APP_OPEN_EDITOR, (event, projectPath = null) => {
   senderWindow.show();
   loadRenderer(senderWindow, { mode: 'editor', projectPath });
 });
-ipcMain.handle(IPC_CHANNELS.RECORDING_GET_MIC_SOURCES, async () => listPulseAudioMicSources());
-ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => listPulseAudioSystemAudioSources());
+ipcMain.handle(IPC_CHANNELS.RECORDING_GET_MIC_SOURCES, async () => listMicSources());
+ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => listSystemAudioSources());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_CAMERA_SOURCES, async () => listCameraSources());
 ipcMain.handle(IPC_CHANNELS.RECORDING_CAMERA_PREVIEW_START, async (event, options = {}) => {
   const devicePath = typeof options.devicePath === 'string' ? options.devicePath.trim() : '';
@@ -389,8 +415,8 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_CAMERA_PREVIEW_STOP, async (_event, token 
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_DISPLAYS, () => listCaptureDisplays());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, async (_event, options = {}) => {
   const [micSources, systemAudioSources, cameraSources] = await Promise.all([
-    listPulseAudioMicSources().catch(() => []),
-    listPulseAudioSystemAudioSources().catch(() => []),
+    listMicSources().catch(() => []),
+    listSystemAudioSources().catch(() => []),
     listCameraSources().catch(() => []),
   ]);
   return getRecordingPreflightStatus({
@@ -523,9 +549,17 @@ ipcMain.handle(IPC_CHANNELS.LIBRARY_CREATE_BLANK_PROJECT, async (_event, payload
   const saved = await saveBlankProject({ recordingsDir, name, aspectRatio });
   return formatProject(saved);
 });
-ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, (_event, projectPath) => {
+ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN_PATH, async (_event, projectPath) => {
   const safePath = validateProjectPath(projectPath, { allowedRoots: buildAllowedProjectRoots() });
-  return openProjectFile(safePath).then(formatProject);
+  try {
+    return formatProject(await openProjectFile(safePath));
+  } catch (err) {
+    if (err?.code === 'ENOENT') {
+      console.warn('[project:open-path] missing project file', safePath);
+      return null;
+    }
+    throw err;
+  }
 });
 // Serialize concurrent saves per project path. The renderer can fire two
 // project:save calls in quick succession (e.g. autosave + manual save). The
@@ -639,6 +673,8 @@ ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_LIST, () => userTemplatesStore.list())
 ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_SAVE, (_event, payload) => userTemplatesStore.save(payload ?? {}));
 ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_RENAME, (_event, payload) => userTemplatesStore.rename(payload ?? {}));
 ipcMain.handle(IPC_CHANNELS.USER_TEMPLATE_DELETE, (_event, payload) => userTemplatesStore.delete(payload ?? {}));
+ipcMain.handle(IPC_CHANNELS.RECORDING_TEMPLATE_OVERRIDE_LIST, () => recordingTemplateOverridesStore.list());
+ipcMain.handle(IPC_CHANNELS.RECORDING_TEMPLATE_OVERRIDE_SAVE, (_event, payload) => recordingTemplateOverridesStore.save(payload ?? {}));
 registerAiAssetIpcHandlers(ipcMain, { store: aiAssetsStore });
 
 ipcMain.handle(IPC_CHANNELS.AI_GET_KEY_STATUS, () => getAiKeyStatus());
@@ -1197,10 +1233,54 @@ async function runRendererUiSmoke() {
   document.querySelector('button[aria-label="Background"]')?.click();
   await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board re-active');
   const aspectRatioChip = await waitFor(() => document.querySelector('.exportPresetChip[data-active-aspect-ratio]'), 'aspect ratio chip');
+  const readCameraRect = (label) => waitFor(() => {
+    const rect = window.__roughCutCanvasCameraRect;
+    return rect && Number.isFinite(rect.x) && Number.isFinite(rect.y) && Number.isFinite(rect.w) && Number.isFinite(rect.h)
+      ? { x: rect.x, y: rect.y, w: rect.w, h: rect.h }
+      : null;
+  }, label);
+  const split16Template = await waitFor(() => document.querySelector('[data-template-id="tutorial-16-9"]'), 'FocuSee split 16:9 template preset');
+  split16Template.click();
+  await waitFor(() => aspectRatioChip.getAttribute('data-active-aspect-ratio') === '16:9', 'FocuSee split aspect ratio value', 15000);
+  await waitFor(() => split16Template.getAttribute('aria-pressed') === 'true', 'FocuSee split template selected');
+  const split16TemplateCameraRect = await readCameraRect('FocuSee split template camera rect');
+  const hasFocuSeeSplitCameraLayoutBounds =
+    split16TemplateCameraRect.x >= 0.1
+      && split16TemplateCameraRect.x <= 0.11
+      && split16TemplateCameraRect.y >= 0.16
+      && split16TemplateCameraRect.y <= 0.18
+      && split16TemplateCameraRect.w >= 0.24
+      && split16TemplateCameraRect.w <= 0.25
+      && split16TemplateCameraRect.h >= 0.65
+      && split16TemplateCameraRect.h <= 0.67;
+  const youtube16Template = await waitFor(() => document.querySelector('[data-template-id="youtube-16-9"]'), 'FocuSee YouTube 16:9 template preset');
+  youtube16Template.click();
+  await waitFor(() => aspectRatioChip.getAttribute('data-active-aspect-ratio') === '16:9', 'FocuSee YouTube aspect ratio value', 15000);
+  await waitFor(() => youtube16Template.getAttribute('aria-pressed') === 'true', 'FocuSee YouTube template selected');
+  const youtube16TemplateCameraRect = await readCameraRect('FocuSee YouTube template camera rect');
+  const hasFocuSeeYouTubeCameraLayoutBounds =
+    youtube16TemplateCameraRect.x >= 0.1
+      && youtube16TemplateCameraRect.x <= 0.11
+      && youtube16TemplateCameraRect.y >= 0.52
+      && youtube16TemplateCameraRect.y <= 0.54
+      && youtube16TemplateCameraRect.w >= 0.2
+      && youtube16TemplateCameraRect.w <= 0.21
+      && youtube16TemplateCameraRect.h >= 0.36
+      && youtube16TemplateCameraRect.h <= 0.37;
   const mobileTemplate = await waitFor(() => document.querySelector('[data-template-id="mobile-9-16"]'), 'mobile template preset');
   mobileTemplate.click();
   await waitFor(() => aspectRatioChip.getAttribute('data-active-aspect-ratio') === '9:16', 'vertical aspect ratio value', 15000);
   await waitFor(() => mobileTemplate.getAttribute('aria-pressed') === 'true', 'mobile template selected');
+  const mobileTemplateCameraRect = await readCameraRect('mobile template camera rect');
+  const hasTemplateCameraLayoutBounds =
+    mobileTemplateCameraRect.x >= 0.07
+      && mobileTemplateCameraRect.y >= 0.68
+      && mobileTemplateCameraRect.w >= 0.82
+      && mobileTemplateCameraRect.w <= 0.86
+      && mobileTemplateCameraRect.h >= 0.25
+      && mobileTemplateCameraRect.h <= 0.28
+      && mobileTemplateCameraRect.x + mobileTemplateCameraRect.w <= 0.94
+      && mobileTemplateCameraRect.y + mobileTemplateCameraRect.h <= 0.98;
   const hasTemplatePresetSelection = true;
 
   const paddingInput = await waitFor(() => inputByLabel('Padding'), 'padding control');
@@ -1256,10 +1336,21 @@ async function runRendererUiSmoke() {
   let cameraPosition = null;
   let cameraShape = null;
   let cameraSize = null;
+  let circleCameraRect = null;
+  let hasCircleCameraPixelSquare = false;
+  let hasCameraCropControls = false;
+  let hasRectangleAfterCircleShape = false;
   if (hasCameraPipControls) {
     // Camera controls live on the Camera tab now.
     document.querySelector('button[aria-label="Camera"]')?.click();
     await waitFor(() => document.querySelector('[aria-label="Camera board"]'), 'camera board active for control exercise');
+    hasCameraCropControls = Boolean(
+      inputByLabel('Manual crop', 'checkbox') &&
+      selectByLabel('Crop aspect') &&
+      inputByLabel('Crop zoom') &&
+      inputByLabel('Crop X') &&
+      inputByLabel('Crop Y')
+    );
     const cameraPositionSelect = await waitFor(() => selectByLabel('Position'), 'camera position control');
     await waitForEnabled(cameraPositionSelect, 'camera position control');
     setControlValue(cameraPositionSelect, 'corner-tl');
@@ -1268,8 +1359,20 @@ async function runRendererUiSmoke() {
 
     const cameraShapeSelect = await waitFor(() => selectByLabel('Shape'), 'camera shape control');
     await waitForEnabled(cameraShapeSelect, 'camera shape control');
+    const originalCameraRect = await readCameraRect('camera rect before circle shape change');
     setControlValue(cameraShapeSelect, 'circle');
     await waitFor(() => cameraShapeSelect.value === 'circle', 'camera shape value');
+    const firstCircleCameraRect = await readCameraRect('circle camera rect after shape change');
+    setControlValue(cameraShapeSelect, 'square');
+    await waitFor(() => cameraShapeSelect.value === 'square', 'camera square shape value');
+    const squareCameraRect = await readCameraRect('camera rect after returning to square shape');
+    hasRectangleAfterCircleShape = Boolean(
+      originalCameraRect &&
+      squareCameraRect &&
+      Math.abs((squareCameraRect.w * 9) - (squareCameraRect.h * 16)) > 0.05
+    );
+    setControlValue(cameraShapeSelect, 'circle');
+    await waitFor(() => cameraShapeSelect.value === 'circle', 'camera final circle shape value');
     cameraShape = cameraShapeSelect.value;
 
     const cameraSizeInput = await waitFor(() => inputByLabel('Camera size'), 'camera size control');
@@ -1277,6 +1380,8 @@ async function runRendererUiSmoke() {
     setControlValue(cameraSizeInput, 130);
     await waitFor(() => cameraSizeInput.closest('label')?.querySelector('output')?.textContent === '130', 'camera size output');
     cameraSize = Number(cameraSizeInput.value);
+    circleCameraRect = await readCameraRect('circle camera rect after size change');
+    hasCircleCameraPixelSquare = Math.abs((circleCameraRect.w * 9) - (circleCameraRect.h * 16)) <= 0.02;
   }
 
   // Measure canvas render fps during 1s of playback. The draw counter is
@@ -1313,6 +1418,12 @@ async function runRendererUiSmoke() {
     hasRawPresetDetails,
     hasStyledPresetDetails,
     hasTemplatePresetSelection,
+    hasFocuSeeSplitCameraLayoutBounds,
+    split16TemplateCameraRect,
+    hasFocuSeeYouTubeCameraLayoutBounds,
+    youtube16TemplateCameraRect,
+    hasTemplateCameraLayoutBounds,
+    mobileTemplateCameraRect,
     hasBackgroundPresetSelection,
     hasNoInactiveBackgroundTabs,
     hasBackgroundShadowControls,
@@ -1333,6 +1444,7 @@ async function runRendererUiSmoke() {
     hasCameraTab,
     hasExportAspectChip,
     hasCameraPipControls,
+    hasCameraCropControls,
     hasCutControls,
     hasStyledPreviewCanvas,
     hasFrameDragHandles,
@@ -1366,6 +1478,9 @@ async function runRendererUiSmoke() {
     cameraPosition,
     cameraShape,
     cameraSize,
+    circleCameraRect,
+    hasCircleCameraPixelSquare,
+    hasRectangleAfterCircleShape,
   };
 
   function rectToRoundedObject(rect) {
@@ -1428,7 +1543,67 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   await waitFor(() => captureTargetSelect.value === 'display', 'display target reselected');
   const hasCaptureSourcePicker = Boolean(sourcePicker);
   const hasDisabledWindowSource = Boolean(windowSourceCard?.disabled);
+  if (options.audioGainOnly) {
+    await waitFor(() => {
+      const mic = document.querySelector('select[aria-label="Mic source"]');
+      const system = document.querySelector('select[aria-label="System source"]');
+      const micCount = mic ? Array.from(mic.options).filter((option) => option.value && option.value !== '__off' && !option.disabled).length : 0;
+      const systemCount = system ? Array.from(system.options).filter((option) => option.value && option.value !== '__off' && !option.disabled).length : 0;
+      return micCount > 0 && systemCount > 0;
+    }, 'smoke audio source options');
+  }
+  const micSelect = document.querySelector('select[aria-label="Mic source"]');
+  const systemSelect = document.querySelector('select[aria-label="System source"]');
+  let hasSystemAudioGainControl = false;
+  let systemAudioGainValue = null;
+  let exercisedSystemAudioGainControl = false;
+  const selectableMicOption = micSelect
+    ? Array.from(micSelect.options).find((option) => option.value && option.value !== '__off' && !option.disabled)
+    : null;
+  const selectableSystemOption = systemSelect
+    ? Array.from(systemSelect.options).find((option) => option.value && option.value !== '__off' && !option.disabled)
+    : null;
+  const micOptionCount = micSelect ? Array.from(micSelect.options).filter((option) => option.value && option.value !== '__off' && !option.disabled).length : 0;
+  const systemOptionCount = systemSelect ? Array.from(systemSelect.options).filter((option) => option.value && option.value !== '__off' && !option.disabled).length : 0;
+  if (micSelect && systemSelect && selectableMicOption && selectableSystemOption) {
+    micSelect.value = selectableMicOption.value;
+    micSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    systemSelect.value = selectableSystemOption.value;
+    systemSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    const gainControl = await waitFor(() => document.querySelector('[data-ui-region="system-audio-gain"]'), 'system audio gain control');
+    const gainInput = gainControl?.querySelector('input[type="range"]');
+    if (gainInput) {
+      gainInput.value = '50';
+      gainInput.dispatchEvent(new Event('input', { bubbles: true }));
+      gainInput.dispatchEvent(new Event('change', { bubbles: true }));
+      hasSystemAudioGainControl = true;
+      systemAudioGainValue = Number(gainInput.value);
+      exercisedSystemAudioGainControl = systemAudioGainValue === 50;
+    }
+  } else {
+    hasSystemAudioGainControl = Boolean(document.querySelector('[data-ui-region="system-audio-gain"]'));
+  }
   let hasInvalidRegionRejected = !options.invalidRegion;
+  if (options.audioGainOnly) {
+    return {
+      ok: true,
+      audioGainOnly: true,
+      hasPreRecordPanel: true,
+      hasPreflightPanel: Boolean(preflightPanel),
+      hasCaptureTargetSelect: Boolean(captureTargetSelect),
+      hasCaptureSourcePicker,
+      hasDisabledWindowSource,
+      hasSystemAudioGainControl,
+      systemAudioGainValue,
+      exercisedSystemAudioGainControl,
+      micOptionCount,
+      systemOptionCount,
+      hasNoRegionNumberInputs,
+      hasInvalidRegionRejected,
+      selectedCaptureTarget: captureTargetSelect.value,
+      initialState,
+    };
+  }
   if (options.invalidRegion) {
     try {
       await window.roughCut.startRecording({ captureRegion: { mode: 'region', x: 1900, y: 100, width: 400, height: 300 } });
@@ -1479,6 +1654,11 @@ async function runRendererRecordingFlowSmoke(options = {}) {
       hasCaptureTargetSelect: Boolean(captureTargetSelect),
       hasCaptureSourcePicker,
       hasDisabledWindowSource,
+      hasSystemAudioGainControl,
+      systemAudioGainValue,
+      exercisedSystemAudioGainControl,
+      micOptionCount,
+      systemOptionCount,
       hasNoRegionNumberInputs,
       hasInvalidRegionRejected,
       selectedCaptureTarget: captureTargetSelect.value,
@@ -1525,6 +1705,11 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     hasCaptureTargetSelect: Boolean(captureTargetSelect),
     hasCaptureSourcePicker,
     hasDisabledWindowSource,
+    hasSystemAudioGainControl,
+    systemAudioGainValue,
+    exercisedSystemAudioGainControl,
+    micOptionCount,
+    systemOptionCount,
     hasNoRegionNumberInputs,
     hasInvalidRegionRejected,
     selectedCaptureTarget: captureTargetSelect.value,

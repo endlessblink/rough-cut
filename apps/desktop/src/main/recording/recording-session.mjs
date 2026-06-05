@@ -59,6 +59,7 @@ export function createRecordingSession({
           fps: session.fps,
           cursorTelemetryPath: session.cursorTelemetryPath,
           systemAudioSource: session.systemAudioSource,
+          systemAudioGainPercent: session.systemAudioGainPercent,
           cameraRawPath: session.cameraRawPath,
           cameraOutputPath: session.cameraOutputPath,
           cameraDevicePath: session.cameraDevicePath,
@@ -82,6 +83,7 @@ export function createRecordingSession({
       outputPath: active.outputPath,
       micSource: active.micSource,
       systemAudioSource: active.systemAudioSource,
+      systemAudioGainPercent: active.systemAudioGainPercent,
       cameraDevicePath: active.cameraDevicePath,
       cameraError: active.cameraError ?? null,
     };
@@ -92,6 +94,7 @@ export function createRecordingSession({
     if (!isCaptureAvailable()) throw new Error('FFmpeg x11grab capture is not available on this session.');
     const micSource = normalizeAudioSource(options.micSource);
     const systemAudioSource = normalizeAudioSource(options.systemAudioSource);
+    const systemAudioGainPercent = normalizeSystemAudioGainPercent(options.systemAudioGainPercent);
     const cameraDevicePath = normalizeCameraDevicePath(options.cameraDevicePath);
 
     await mkdir(recordingsDir, { recursive: true });
@@ -163,6 +166,7 @@ export function createRecordingSession({
       fps: DEFAULT_FPS,
       micSource,
       systemAudioSource,
+      systemAudioGainPercent,
       cameraDevicePath,
       cameraError,
       cameraPrerollMs,
@@ -189,6 +193,7 @@ export function createRecordingSession({
       sampleIntervalMs,
       micSource,
       systemAudioSource,
+      systemAudioGainPercent,
       cameraDevicePath,
       cameraError,
     });
@@ -211,6 +216,7 @@ export function createRecordingSession({
           cameraDevicePath,
           micSource: session.micSource,
           systemAudioSource: session.systemAudioSource,
+          systemAudioGainPercent: session.systemAudioGainPercent,
           onFirstFrame: (firstFrameMs) => {
             eventLogger.event('first-frame-anchor', { firstFrameMs });
           },
@@ -237,6 +243,7 @@ export function createRecordingSession({
         height: session.height,
         micSource: session.micSource,
         systemAudioSource: session.systemAudioSource,
+        systemAudioGainPercent: session.systemAudioGainPercent,
         onFirstFrame: (firstFrameMs) => {
           eventLogger.event('first-frame-anchor', { firstFrameMs });
         },
@@ -466,6 +473,7 @@ async function spawnUnifiedCaptureWithRetry({
   cameraDevicePath,
   micSource,
   systemAudioSource,
+  systemAudioGainPercent,
   onFirstFrame,
   maxAttempts = 6,
   earlyExitWindowMs = 1500,
@@ -484,6 +492,7 @@ async function spawnUnifiedCaptureWithRetry({
       cameraHeight: 720,
       micSource,
       systemAudioSource,
+      systemAudioGainPercent,
       onFirstFrame,
     });
     if (typeof capture.whenExited !== 'function') {
@@ -579,12 +588,21 @@ function startTelemetryAfterIpcReturn(session, { getCursorPoint, now, sampleInte
 function buildAudioMetadata(session) {
   const audio = {};
   if (session.micSource) audio.micSource = session.micSource;
-  if (session.systemAudioSource) audio.systemAudioSource = session.systemAudioSource;
+  if (session.systemAudioSource) {
+    audio.systemAudioSource = session.systemAudioSource;
+    audio.systemAudioGainPercent = session.systemAudioGainPercent;
+  }
   return Object.keys(audio).length > 0 ? audio : null;
 }
 
 function normalizeAudioSource(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeSystemAudioGainPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 100;
+  return Math.max(0, Math.min(100, Math.round(number)));
 }
 
 function normalizeCameraDevicePath(value) {

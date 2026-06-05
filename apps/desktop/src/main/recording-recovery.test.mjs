@@ -95,6 +95,36 @@ test('recoverFromMarker remuxes, saves a project, and clears the marker', async 
   await rm(root, { recursive: true, force: true });
 });
 
+test('recoverFromMarker preserves system audio gain metadata', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-recovery-audio-gain-'));
+  const markerPath = join(root, 'recovery.json');
+  await writeFile(markerPath, JSON.stringify({
+    ...baseMarker,
+    systemAudioSource: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor',
+    systemAudioGainPercent: 50,
+  }), 'utf8');
+
+  let savedRecording = null;
+  await recoverFromMarker({
+    markerPath,
+    fileExists: async () => true,
+    remuxMkvToMp4: async ({ outputPath }) => ({ outputPath, integrity: { advertisedFrames: 30, decodedFrames: 30 }, warning: null }),
+    assertReadableMp4: async () => undefined,
+    saveProjectForRecording: async (recording) => {
+      savedRecording = recording;
+      return { path: '/tmp/recovered.roughcut', document: { name: 'recovered' } };
+    },
+    formatProject: (project) => project,
+  });
+
+  assert.deepEqual(savedRecording.audio, {
+    systemAudioSource: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor',
+    systemAudioGainPercent: 50,
+  });
+
+  await rm(root, { recursive: true, force: true });
+});
+
 test('recoverFromMarker propagates partial-recovery warnings to the result', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-recovery-warn-'));
   const markerPath = join(root, 'recovery.json');

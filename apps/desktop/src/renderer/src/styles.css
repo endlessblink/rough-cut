@@ -353,6 +353,23 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .targetSelect { flex: 0 0 auto; padding-left: 0.55rem; }
 .targetSelect .icon { color: #7aa7ff; }
 
+.sourceGainControl {
+  align-items: center;
+  color: var(--muted);
+  display: grid;
+  flex: 0 0 9.5rem;
+  font-size: 0.66rem;
+  font-weight: 720;
+  gap: 0.1rem;
+  line-height: 1;
+  padding: 0 0.28rem 0 0.1rem;
+}
+
+.sourceGainControl .rangeControl {
+  height: 0.95rem;
+  margin: 0;
+}
+
 .audioToggle {
   color: #eeeef2;
   gap: 0.36rem;
@@ -447,6 +464,19 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .controlRowLabel { align-items: center; color: var(--muted); display: inline-flex; font-size: 0.72rem; font-weight: 760; gap: 0.32rem; }
 .controlRowLabel .icon { color: #7aa7ff; margin-right: 0; }
 .preRecordInputRow select { background: #181820; width: 100%; }
+.systemGainControl {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.systemGainControl output {
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 760;
+}
+
+.systemGainControl .rangeControl {
+  margin-top: 0;
+}
 .sourcePickerGrid {
   display: grid;
   gap: 0.36rem;
@@ -853,6 +883,12 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .inspectorField span { color: var(--muted); }
 .inspectorPresetGroup { display: grid; gap: 0.5rem; }
 .inspectorActionRow { margin-top: 0.15rem; }
+.cameraCropHeader {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
 .editRecoveryNotice {
   background: rgb(122 167 255 / 0.08);
   border: 1px solid rgb(122 167 255 / 0.18);

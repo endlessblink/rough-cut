@@ -58,6 +58,44 @@ test('recording session starts capture, writes marker, stops capture, and clears
   await rm(root, { recursive: true, force: true });
 });
 
+test('recording session forwards system audio gain and persists it in metadata', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-recording-audio-gain-'));
+  const captureCalls = [];
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => {
+      captureCalls.push(options);
+      return { outputPath: options.outputPath, stop: async () => options.outputPath };
+    },
+  });
+
+  const started = await session.start({
+    micSource: 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo',
+    systemAudioSource: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor',
+    systemAudioGainPercent: 50,
+  });
+  assert.equal(started.state, 'recording');
+  assert.equal(started.systemAudioGainPercent, 50);
+  assert.equal(captureCalls[0].systemAudioGainPercent, 50);
+
+  const marker = JSON.parse(await readFile(join(root, 'recovery.json'), 'utf8'));
+  assert.equal(marker.systemAudioGainPercent, 50);
+
+  const stopped = await session.stop();
+  assert.deepEqual(stopped.audio, {
+    micSource: 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo',
+    systemAudioSource: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor',
+    systemAudioGainPercent: 50,
+  });
+
+  await rm(root, { recursive: true, force: true });
+});
+
 test('recording session serializes duplicate stop calls to the saved result', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-duplicate-stop-'));
   let stopCalls = 0;
@@ -249,12 +287,18 @@ test('camera-enabled recording uses one unified capture process by default', asy
     },
   });
 
-  const started = await session.start({ cameraDevicePath: '/dev/video2' });
+  const started = await session.start({
+    cameraDevicePath: '/dev/video2',
+    micSource: 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo',
+    systemAudioSource: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor',
+    systemAudioGainPercent: 45,
+  });
   assert.equal(started.state, 'recording');
   assert.equal(captureCalls.length, 0);
   assert.equal(cameraCaptureCalls.length, 0);
   assert.equal(unifiedCalls.length, 1);
   assert.equal(unifiedCalls[0].cameraDevicePath, '/dev/video2');
+  assert.equal(unifiedCalls[0].systemAudioGainPercent, 45);
 
   const marker = JSON.parse(await readFile(join(root, 'recovery.json'), 'utf8'));
   assert.equal(marker.cameraRawPath, marker.rawPath);
@@ -497,7 +541,7 @@ test('recording session passes selected system audio source to capture and saved
 
   const stopped = await session.stop();
   assert.equal(stopped.state, 'saved');
-  assert.deepEqual(stopped.audio, { systemAudioSource });
+  assert.deepEqual(stopped.audio, { systemAudioSource, systemAudioGainPercent: 100 });
 
   await rm(root, { recursive: true, force: true });
 });
@@ -525,7 +569,7 @@ test('recording session persists mixed mic and system audio metadata', async () 
   assert.equal(captureCalls[0].systemAudioSource, systemAudioSource);
 
   const stopped = await session.stop();
-  assert.deepEqual(stopped.audio, { micSource, systemAudioSource });
+  assert.deepEqual(stopped.audio, { micSource, systemAudioSource, systemAudioGainPercent: 100 });
 
   await rm(root, { recursive: true, force: true });
 });
