@@ -93,7 +93,8 @@ test('styled video preview keeps resolving and drawing zoom frames while timelin
   assert.match(source, /recordPlaybackDebug\('render-skip-video-not-ready'/);
   assert.match(source, /const frame = resolveCurrentFrame\(currentFrame\)/);
   assert.match(source, /resolveTimelinePreviewFrame\(document, currentFrame/);
-  assert.match(source, /ctx\.translate\(sourceWidth \/ 2 \+ offsetX, sourceHeight \/ 2 \+ offsetY\)/);
+  assert.match(source, /const screenSource = resolveScreenSourceViewport\(sourceWidth, sourceHeight, frame\.screenCrop\)/);
+  assert.match(source, /ctx\.translate\(screenSource\.w \/ 2 \+ offsetX, screenSource\.h \/ 2 \+ offsetY\)/);
   assert.match(source, /ctx\.scale\(scale, scale\)/);
   assert.match(source, /ctx\.drawImage\(video, 0, 0, sourceWidth, sourceHeight\)/);
 });
@@ -176,6 +177,18 @@ test('camera editor exposes manual crop controls backed by cameraCrop presentati
   assert.match(source, /resolveCameraSourceRect/);
   assert.match(previewSource, /resolveCameraSourceRect/);
   assert.match(previewSource, /frame\.cameraCrop/);
+});
+
+test('background editor exposes manual screen crop controls backed by screenCrop presentation', () => {
+  const source = readFileSync(join(here, 'main.tsx'), 'utf8');
+  const previewSource = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+
+  assert.match(source, /label="Manual screen crop"/);
+  assert.match(source, /async function updateScreenCrop/);
+  assert.match(source, /next\.screenCrop = crop/);
+  assert.match(source, /resolveScreenSourceViewport/);
+  assert.match(previewSource, /resolveScreenSourceViewport/);
+  assert.match(previewSource, /frame\.screenCrop/);
 });
 
 test('recording timeline selecting a zoom region does not commit a drag update without movement', () => {

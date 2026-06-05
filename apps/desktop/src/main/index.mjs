@@ -1168,9 +1168,9 @@ async function runRendererUiSmoke() {
   const hasInspectorGroups = Boolean(
     document.querySelector('[data-inspector-group="templates"]')
       && document.querySelector('[data-inspector-group="canvas-background"]')
+      && document.querySelector('[data-inspector-group="screen-crop"]')
       && document.querySelector('[data-inspector-group="screen-frame"]')
       && document.querySelector('[data-inspector-group="screen-shadow"]')
-      && document.querySelector('[data-inspector-group="export"]'),
   );
   const hasExportAspectChip = Boolean(document.querySelector('.exportPresetChip[data-active-aspect-ratio]'));
   // Cursor controls now live on a dedicated Cursor tab in the tool rail.
@@ -1201,6 +1201,7 @@ async function runRendererUiSmoke() {
   const hasBackgroundPresetSelection = true;
   const hasNoInactiveBackgroundTabs = !Array.from(document.querySelectorAll('button')).some((button) => button.textContent === 'Image' || button.textContent === 'Video');
   const hasBackgroundShadowControls = ['Enable shadow', 'Strength', 'Softness', 'Distance'].every((text) => document.body.textContent?.includes(text));
+  const hasScreenCropControls = ['Manual screen crop', 'Crop aspect', 'Crop zoom', 'Crop X', 'Crop Y'].every((text) => document.body.textContent?.includes(text));
 
   const selectByLabel = (text) => {
     const label = Array.from(document.querySelectorAll('label')).find((label) => label.textContent?.includes(text));
@@ -1427,6 +1428,7 @@ async function runRendererUiSmoke() {
     hasBackgroundPresetSelection,
     hasNoInactiveBackgroundTabs,
     hasBackgroundShadowControls,
+    hasScreenCropControls,
     hasCustomRangeSkin,
     hasZoomMarkerPanel,
     hasTimelineZoomControlPanel,

@@ -1093,12 +1093,13 @@ export function StyledVideoPreview({
       const resolvedScreenFrame = dragScreenRect
         ? { x: dragScreenRect.x * canvasWidth, y: dragScreenRect.y * canvasHeight, w: dragScreenRect.w * canvasWidth, h: dragScreenRect.h * canvasHeight }
         : resolveScreenFrame(frame.screenFrame, defaultScreenX, defaultScreenY, defaultScreenWidth, defaultScreenHeight, canvasWidth, canvasHeight);
-      const screenDrawScale = Math.min(resolvedScreenFrame.w / sourceWidth, resolvedScreenFrame.h / sourceHeight);
-      const screenWidth = snapPlaybackCoord(sourceWidth * screenDrawScale);
-      const screenHeight = snapPlaybackCoord(sourceHeight * screenDrawScale);
+      const screenSource = resolveScreenSourceViewport(sourceWidth, sourceHeight, frame.screenCrop);
+      const screenDrawScale = Math.min(resolvedScreenFrame.w / screenSource.w, resolvedScreenFrame.h / screenSource.h);
+      const screenWidth = snapPlaybackCoord(screenSource.w * screenDrawScale);
+      const screenHeight = snapPlaybackCoord(screenSource.h * screenDrawScale);
       const screenX = snapPlaybackCoord(resolvedScreenFrame.x + (resolvedScreenFrame.w - screenWidth) / 2);
       const screenY = snapPlaybackCoord(resolvedScreenFrame.y + (resolvedScreenFrame.h - screenHeight) / 2);
-      const effectiveScreenDrawScale = screenWidth / sourceWidth;
+      const effectiveScreenDrawScale = screenWidth / screenSource.w;
       const screenRadius = Math.max(0, Math.min(background.bgCornerRadius, Math.min(screenWidth, screenHeight) / 2));
       screenRectRef.current = { x: screenX, y: screenY, w: screenWidth, h: screenHeight };
       screenRadiusRef.current = screenRadius;
@@ -1154,9 +1155,9 @@ export function StyledVideoPreview({
       ctx.clip();
       ctx.translate(screenX, screenY);
       ctx.scale(effectiveScreenDrawScale, effectiveScreenDrawScale);
-      ctx.translate(sourceWidth / 2 + offsetX, sourceHeight / 2 + offsetY);
+      ctx.translate(screenSource.w / 2 + offsetX, screenSource.h / 2 + offsetY);
       ctx.scale(scale, scale);
-      ctx.translate(-sourceWidth / 2, -sourceHeight / 2);
+      ctx.translate(-(screenSource.x + screenSource.w / 2), -(screenSource.y + screenSource.h / 2));
       try {
         ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
       } catch {
@@ -2150,6 +2151,18 @@ function resolveCameraSourceRect(
     sw: covered.sw,
     sh: covered.sh,
   };
+}
+
+function resolveScreenSourceViewport(sourceWidth: number, sourceHeight: number, crop?: RegionCrop) {
+  if (![sourceWidth, sourceHeight].every((value) => Number.isFinite(value) && value > 0)) {
+    return { x: 0, y: 0, w: Math.max(1, sourceWidth || 1), h: Math.max(1, sourceHeight || 1) };
+  }
+  if (crop?.enabled !== true) return { x: 0, y: 0, w: sourceWidth, h: sourceHeight };
+  const x = Math.max(0, Math.min(sourceWidth - 1, Math.round(crop.x)));
+  const y = Math.max(0, Math.min(sourceHeight - 1, Math.round(crop.y)));
+  const w = Math.max(1, Math.min(sourceWidth - x, Math.round(crop.width)));
+  const h = Math.max(1, Math.min(sourceHeight - y, Math.round(crop.height)));
+  return { x, y, w, h };
 }
 
 function resolveCameraRadius(

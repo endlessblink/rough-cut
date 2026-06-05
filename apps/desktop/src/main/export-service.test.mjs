@@ -682,6 +682,23 @@ test('styled export args apply manual camera crop before fitting the camera fram
   assert(joined.includes('crop=640:360:120:40,scale=576:324:force_original_aspect_ratio=increase,crop=576:324,format=rgba[camera_scaled]'));
 });
 
+test('styled export args apply manual screen crop before fitting the screen frame', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    width: 1920,
+    height: 1080,
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    screenFrame: { x: 0.1, y: 0.1, w: 0.8, h: 0.8 },
+    screenCrop: { enabled: true, x: 120, y: 40, width: 640, height: 360, aspectRatio: '16:9' },
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes('[base]crop=640:360:120:40,scale=1536:864:force_original_aspect_ratio=decrease'));
+  assert(!joined.includes('crop=iw*1:ih*1'));
+});
+
 test('styled export args fall back to camera presentation when no normalized frame is set', () => {
   const args = buildStyledExportArgs({
     inputPath: '/tmp/source.mp4',

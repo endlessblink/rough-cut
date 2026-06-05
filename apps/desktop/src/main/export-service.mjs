@@ -187,6 +187,7 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       cameraFrame: recording.presentation?.cameraFrame ?? null,
       cameraCrop: recording.presentation?.cameraCrop ?? null,
       screenFrame: recording.presentation?.screenFrame ?? null,
+      screenCrop: recording.presentation?.screenCrop ?? null,
       cutRanges: recording.cutRanges ?? [],
       videoEncoder: encoder,
       outputDurationSeconds: durationSeconds,
@@ -489,6 +490,7 @@ export function buildStyledExportArgs({
   cameraFrame: cameraFrameOverride = null,
   cameraCrop = null,
   screenFrame: screenFrameOverride = null,
+  screenCrop = null,
   cutRanges = [],
   videoEncoder = STYLED_VIDEO_ENCODERS.CPU,
   outputDurationSeconds = null,
@@ -532,12 +534,15 @@ export function buildStyledExportArgs({
   const screenInput = cursorAssPath ? '[with_cursor]' : '[base]';
   const zoomActive = Boolean(zoomCropFilter && zoomSendcmdPath);
   const screenFrame = resolveScreenOverlayFrame(width, height, maxVideoWidth, maxVideoHeight, screenFrameOverride);
-  const screenRenderSize = resolveContainedSize(sourceWidth, sourceHeight, screenFrame.w, screenFrame.h);
+  const screenManualCropStep = buildCameraManualCropStep(screenCrop, sourceWidth, sourceHeight);
+  const screenLayoutSourceWidth = screenManualCropStep && Number.isFinite(screenCrop?.width) && screenCrop.width > 0 ? screenCrop.width : sourceWidth;
+  const screenLayoutSourceHeight = screenManualCropStep && Number.isFinite(screenCrop?.height) && screenCrop.height > 0 ? screenCrop.height : sourceHeight;
+  const screenRenderSize = resolveContainedSize(screenLayoutSourceWidth, screenLayoutSourceHeight, screenFrame.w, screenFrame.h);
   const screenRadius = Math.round(clampNumber(screenCornerRadius, 0, Math.min(screenFrame.w, screenFrame.h) / 2));
   const screenScaleStep = `scale=${screenRenderSize.w}:${screenRenderSize.h}:force_original_aspect_ratio=decrease,pad=${screenRenderSize.w}:${screenRenderSize.h}:(ow-iw)/2:(oh-ih)/2:color=black@0,format=rgba`;
   const screenStep = zoomActive
-    ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},${screenScaleStep}`
-    : `crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2,${screenScaleStep}`;
+    ? `${zoomCropFilter},sendcmd=f=${escapeFilterPath(zoomSendcmdPath)},${screenManualCropStep ? `${screenManualCropStep},` : ''}${screenScaleStep}`
+    : `${screenManualCropStep ?? `crop=iw*${cropPercent}:ih*${cropPercent}:(iw-ow)/2:(ih-oh)/2`},${screenScaleStep}`;
   const cameraFrame = cameraInputPath ? resolveCameraOverlayFrame(cameraPresentation, width, height, cameraFrameOverride) : null;
   const cameraTrim = Math.max(0, Math.round(cameraSourceInFrames));
   const cameraRadius = cameraFrame ? resolveCameraOverlayRadius(cameraPresentation, cameraFrame) : 0;

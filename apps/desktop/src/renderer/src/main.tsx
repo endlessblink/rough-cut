@@ -2154,6 +2154,17 @@ function safeCameraSourceSize(sourceSize: { width: number; height: number }): { 
   };
 }
 
+function clampNormalizedFrame(frame: NormalizedRect): NormalizedRect {
+  const w = Math.max(0.05, Math.min(1, Number.isFinite(frame.w) ? frame.w : 0.2));
+  const h = Math.max(0.05, Math.min(1, Number.isFinite(frame.h) ? frame.h : 0.2));
+  return {
+    x: Math.max(0, Math.min(1 - w, Number.isFinite(frame.x) ? frame.x : 0)),
+    y: Math.max(0, Math.min(1 - h, Number.isFinite(frame.y) ? frame.y : 0)),
+    w,
+    h,
+  };
+}
+
 function aspectValue(aspect: CropAspectRatio): number | null {
   if (aspect === '16:9') return 16 / 9;
   if (aspect === '9:16') return 9 / 16;
@@ -2238,6 +2249,11 @@ function setCameraCropPan(crop: RegionCrop, axis: 'x' | 'y', percent: number, so
   return normalizeCameraCrop({ ...crop, y: Math.round((source.height - crop.height) * value) }, source);
 }
 
+function hasCropPanRange(crop: RegionCrop, axis: 'x' | 'y', sourceSize: { width: number; height: number }): boolean {
+  const source = safeCameraSourceSize(sourceSize);
+  return axis === 'x' ? source.width > crop.width : source.height > crop.height;
+}
+
 function inferFrameAspect(frame: NormalizedRect | null, canvasAspectRatio: ProjectAspectRatio, fallback: CameraAspectRatio): CameraFrameAspectRatio {
   if (!frame) return fallback;
   const [canvasW, canvasH] = aspectRatioDims(canvasAspectRatio);
@@ -2284,6 +2300,43 @@ function defaultNormalizedCameraFrame(camera: CameraPresentation, canvasAspectRa
     w: rect.width / canvasW,
     h: rect.height / canvasH,
   };
+}
+
+function moveFrameToCameraPosition(frame: NormalizedRect, position: CameraPosition, canvasAspectRatio: ProjectAspectRatio): NormalizedRect {
+  const current = clampNormalizedFrame(frame);
+  if (position === 'center') {
+    return clampNormalizedFrame({
+      ...current,
+      x: (1 - current.w) / 2,
+      y: (1 - current.h) / 2,
+    });
+  }
+  const [canvasW, canvasH] = aspectRatioDims(canvasAspectRatio);
+  const marginPx = Math.min(canvasW, canvasH) * 0.06;
+  const marginX = marginPx / canvasW;
+  const marginY = marginPx / canvasH;
+  const left = position === 'corner-tl' || position === 'corner-bl';
+  const top = position === 'corner-tl' || position === 'corner-tr';
+  return clampNormalizedFrame({
+    ...current,
+    x: left ? marginX : 1 - current.w - marginX,
+    y: top ? marginY : 1 - current.h - marginY,
+  });
+}
+
+function resizeFrameToCameraSize(frame: NormalizedRect, previousSize: number, nextSize: number): NormalizedRect {
+  const current = clampNormalizedFrame(frame);
+  const scale = Math.max(0.25, Math.min(4, nextSize / Math.max(1, previousSize || 100)));
+  const centerX = current.x + current.w / 2;
+  const centerY = current.y + current.h / 2;
+  const nextW = Math.max(0.05, Math.min(1, current.w * scale));
+  const nextH = Math.max(0.05, Math.min(1, current.h * scale));
+  return clampNormalizedFrame({
+    x: centerX - nextW / 2,
+    y: centerY - nextH / 2,
+    w: nextW,
+    h: nextH,
+  });
 }
 
 function InspectorPresetGrid({ label, disabled = false, value, onSelect }: { label: string; disabled?: boolean; value?: string; onSelect?: (id: string) => void }) {
@@ -2734,7 +2787,7 @@ function InspectorActionRow({ children, region }: { children: React.ReactNode; r
   return <div className="actionsArea inspectorActionRow" data-ui-region={region}>{children}</div>;
 }
 
-function EditorToolBoard({ activeTool, project, fps, background, cameraPresentation, cameraFrame = null, cameraCrop = null, cameraSourceSize = { width: 1280, height: 720 }, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, trimInfo, timelineWarning = null, cutRanges = [], userTemplates = [], recordingTemplateOverrides = {}, appliedTemplatePresetId = null, appliedUserTemplateId = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraCropChange, onCursorPresentationChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onApplyUserTemplate, onSaveUserTemplate, onRenameUserTemplate, onDeleteUserTemplate, onResetTrim, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; cameraFrame?: NormalizedRect | null; cameraCrop?: RegionCrop | null; cameraSourceSize?: { width: number; height: number }; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; timelineWarning?: string | null; cutRanges?: CutRange[]; userTemplates?: UserRecordingTemplate[]; recordingTemplateOverrides?: Record<string, RecordingTemplateOverride>; appliedTemplatePresetId?: string | null; appliedUserTemplateId?: string | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraCropChange?: (crop: RegionCrop | null) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onApplyUserTemplate?: (template: UserRecordingTemplate) => void; onSaveUserTemplate?: (label: string) => Promise<void> | void; onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void; onDeleteUserTemplate?: (id: string) => Promise<void> | void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
+function EditorToolBoard({ activeTool, project, fps, background, cameraPresentation, cameraFrame = null, cameraCrop = null, cameraSourceSize = { width: 1280, height: 720 }, screenCrop = null, screenSourceSize = { width: 1280, height: 720 }, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, trimInfo, timelineWarning = null, cutRanges = [], userTemplates = [], recordingTemplateOverrides = {}, appliedTemplatePresetId = null, appliedUserTemplateId = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraPresentationAndFrameChange, onCameraCropChange, onScreenCropChange, onCursorPresentationChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onApplyUserTemplate, onSaveUserTemplate, onRenameUserTemplate, onDeleteUserTemplate, onResetTrim, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; cameraFrame?: NormalizedRect | null; cameraCrop?: RegionCrop | null; cameraSourceSize?: { width: number; height: number }; screenCrop?: RegionCrop | null; screenSourceSize?: { width: number; height: number }; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; timelineWarning?: string | null; cutRanges?: CutRange[]; userTemplates?: UserRecordingTemplate[]; recordingTemplateOverrides?: Record<string, RecordingTemplateOverride>; appliedTemplatePresetId?: string | null; appliedUserTemplateId?: string | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraPresentationAndFrameChange?: (patch: Partial<CameraPresentation>, frame: { x: number; y: number; w: number; h: number }) => void; onCameraCropChange?: (crop: RegionCrop | null) => void; onScreenCropChange?: (crop: RegionCrop | null) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onApplyUserTemplate?: (template: UserRecordingTemplate) => void; onSaveUserTemplate?: (label: string) => Promise<void> | void; onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void; onDeleteUserTemplate?: (id: string) => Promise<void> | void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const cursor = cursorPresentation ?? DEFAULT_CURSOR_PRESENTATION;
@@ -2798,13 +2851,15 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
       ? '1:1'
       : inferFrameAspect(cameraFrame, aspectRatio, camera.aspectRatio);
     const cropControlsDisabled = disabled || !camera.visible || !activeCrop.enabled;
+    const cropXDisabled = cropControlsDisabled || !hasCropPanRange(activeCrop, 'x', sourceSize);
+    const cropYDisabled = cropControlsDisabled || !hasCropPanRange(activeCrop, 'y', sourceSize);
     const updateCrop = (crop: RegionCrop) => onCameraCropChange?.(normalizeCameraCrop(crop, sourceSize));
     const enableCrop = (enabled: boolean) => {
       const center = cropCenter(activeCrop);
       updateCrop(makeCameraCrop(sourceSize, {
         enabled,
         aspectRatio: activeCrop.aspectRatio,
-        zoom: cropZoom / 100,
+        zoom: enabled && cropZoom <= 100 ? 1.5 : cropZoom / 100,
         centerX: center.x,
         centerY: center.y,
       }));
@@ -2832,9 +2887,31 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
     const resetCrop = () => onCameraCropChange?.(defaultCameraCrop(sourceSize));
     const setFrameAspect = (nextAspect: CameraFrameAspectRatio) => {
       if (nextAspect === 'free') return;
-      onCameraPresentationChange?.({ aspectRatio: nextAspect });
       const frame = cameraFrame ?? defaultNormalizedCameraFrame({ ...camera, aspectRatio: nextAspect }, aspectRatio);
-      onCameraFrameChange?.(resizeFrameToAspect(frame, nextAspect, aspectRatio));
+      const nextFrame = resizeFrameToAspect(frame, nextAspect, aspectRatio);
+      if (onCameraPresentationAndFrameChange) onCameraPresentationAndFrameChange({ aspectRatio: nextAspect }, nextFrame);
+      else {
+        onCameraPresentationChange?.({ aspectRatio: nextAspect });
+        onCameraFrameChange?.(nextFrame);
+      }
+    };
+    const setCameraPosition = (position: CameraPosition) => {
+      const frame = cameraFrame ?? defaultNormalizedCameraFrame({ ...camera, position }, aspectRatio);
+      const nextFrame = moveFrameToCameraPosition(frame, position, aspectRatio);
+      if (onCameraPresentationAndFrameChange) onCameraPresentationAndFrameChange({ position }, nextFrame);
+      else {
+        onCameraPresentationChange?.({ position });
+        onCameraFrameChange?.(nextFrame);
+      }
+    };
+    const setCameraSize = (size: number) => {
+      const frame = cameraFrame ?? defaultNormalizedCameraFrame(camera, aspectRatio);
+      const nextFrame = resizeFrameToCameraSize(frame, camera.size, size);
+      if (onCameraPresentationAndFrameChange) onCameraPresentationAndFrameChange({ size }, nextFrame);
+      else {
+        onCameraPresentationChange?.({ size });
+        onCameraFrameChange?.(nextFrame);
+      }
     };
     return (
       <aside className="setupBoard" aria-label="Camera board">
@@ -2843,10 +2920,10 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
           <InspectorSection id="camera" title="Webcam PiP" description="Saved with the project; styled export uses these values.">
             <div data-camera-pip-controls="true">
               <InspectorToggle label="Show camera" checked={camera.visible} disabled={disabled} onChange={(visible) => onCameraPresentationChange?.({ visible })} />
-              <InspectorSelect label="Position" value={camera.position} options={CAMERA_POSITION_OPTIONS} disabled={disabled || !camera.visible} onChange={(position) => onCameraPresentationChange?.({ position })} />
+              <InspectorSelect label="Position" value={camera.position} options={CAMERA_POSITION_OPTIONS} disabled={disabled || !camera.visible} onChange={setCameraPosition} />
               <InspectorSelect label="Shape" value={camera.shape} options={CAMERA_SHAPE_OPTIONS} disabled={disabled || !camera.visible} onChange={(shape) => onCameraPresentationChange?.({ shape })} />
               <InspectorSelect label="Frame aspect" value={frameAspect} options={CAMERA_FRAME_ASPECT_OPTIONS} disabled={disabled || !camera.visible || camera.shape === 'circle'} onChange={setFrameAspect} />
-              <InspectorSlider label="Camera size" value={camera.size} min={50} max={200} step={5} disabled={disabled || !camera.visible} onChange={(size) => onCameraPresentationChange?.({ size })} />
+              <InspectorSlider label="Camera size" value={camera.size} min={50} max={200} step={5} disabled={disabled || !camera.visible} onChange={setCameraSize} />
               <InspectorSlider label="Camera roundness" value={camera.roundness} min={0} max={100} step={5} disabled={disabled || !camera.visible || camera.shape !== 'rounded'} onChange={(roundness) => onCameraPresentationChange?.({ roundness })} />
               <div className="flatGroupDivider" aria-hidden="true" />
               <div className="cameraCropHeader">
@@ -2855,8 +2932,8 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
               </div>
               <InspectorSelect label="Crop aspect" value={activeCrop.aspectRatio} options={CAMERA_CROP_ASPECT_OPTIONS} disabled={cropControlsDisabled} onChange={setCropAspect} />
               <InspectorSlider label="Crop zoom" value={cropZoom} min={100} max={400} step={5} disabled={cropControlsDisabled} onChange={setCropZoom} />
-              <InspectorSlider label="Crop X" value={cropPanX} min={0} max={100} step={1} disabled={cropControlsDisabled} onChange={(value) => updateCrop(setCameraCropPan(activeCrop, 'x', value, sourceSize))} />
-              <InspectorSlider label="Crop Y" value={cropPanY} min={0} max={100} step={1} disabled={cropControlsDisabled} onChange={(value) => updateCrop(setCameraCropPan(activeCrop, 'y', value, sourceSize))} />
+              <InspectorSlider label="Crop X" value={cropPanX} min={0} max={100} step={1} disabled={cropXDisabled} onChange={(value) => updateCrop(setCameraCropPan(activeCrop, 'x', value, sourceSize))} />
+              <InspectorSlider label="Crop Y" value={cropPanY} min={0} max={100} step={1} disabled={cropYDisabled} onChange={(value) => updateCrop(setCameraCropPan(activeCrop, 'y', value, sourceSize))} />
             </div>
           </InspectorSection>
         ) : (
@@ -2888,6 +2965,47 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
     );
   }
 
+  const screenSource = safeCameraSourceSize(screenSourceSize);
+  const activeScreenCrop = normalizeCameraCrop(screenCrop, screenSource);
+  const screenCropZoom = cameraCropZoomPercent(activeScreenCrop, screenSource);
+  const screenCropPanX = cameraCropPanPercent(activeScreenCrop, 'x', screenSource);
+  const screenCropPanY = cameraCropPanPercent(activeScreenCrop, 'y', screenSource);
+  const screenCropControlsDisabled = disabled || !projectLoaded || !activeScreenCrop.enabled;
+  const screenCropXDisabled = screenCropControlsDisabled || !hasCropPanRange(activeScreenCrop, 'x', screenSource);
+  const screenCropYDisabled = screenCropControlsDisabled || !hasCropPanRange(activeScreenCrop, 'y', screenSource);
+  const updateScreenCrop = (crop: RegionCrop) => onScreenCropChange?.(normalizeCameraCrop(crop, screenSource));
+  const enableScreenCrop = (enabled: boolean) => {
+    const center = cropCenter(activeScreenCrop);
+    updateScreenCrop(makeCameraCrop(screenSource, {
+      enabled,
+      aspectRatio: activeScreenCrop.aspectRatio,
+      zoom: enabled && screenCropZoom <= 100 ? 1.5 : screenCropZoom / 100,
+      centerX: center.x,
+      centerY: center.y,
+    }));
+  };
+  const setScreenCropAspect = (nextAspect: CropAspectRatio) => {
+    const center = cropCenter(activeScreenCrop);
+    updateScreenCrop(makeCameraCrop(screenSource, {
+      enabled: activeScreenCrop.enabled,
+      aspectRatio: nextAspect,
+      zoom: screenCropZoom / 100,
+      centerX: center.x,
+      centerY: center.y,
+    }));
+  };
+  const setScreenCropZoom = (nextZoomPercent: number) => {
+    const center = cropCenter(activeScreenCrop);
+    updateScreenCrop(makeCameraCrop(screenSource, {
+      enabled: activeScreenCrop.enabled,
+      aspectRatio: activeScreenCrop.aspectRatio,
+      zoom: nextZoomPercent / 100,
+      centerX: center.x,
+      centerY: center.y,
+    }));
+  };
+  const resetScreenCrop = () => onScreenCropChange?.(defaultCameraCrop(screenSource));
+
   return (
     <aside className="setupBoard" aria-label="Background board">
       <BoardHeader icon="sparkle" title="Background" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.(DEFAULT_RECORDING_BACKGROUND)} />
@@ -2908,6 +3026,16 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
       </InspectorSection>
       <InspectorSection id="canvas-background" title="Canvas background">
         <InspectorPresetGrid label="Background presets" disabled={disabled} value={activeBackgroundPreset} onSelect={(presetId) => onBackgroundChange?.(applyRecordingBackgroundPreset(bg, presetId))} />
+      </InspectorSection>
+      <InspectorSection id="screen-crop" title="Screen crop">
+        <div className="cameraCropHeader">
+          <InspectorToggle label="Manual screen crop" checked={activeScreenCrop.enabled} disabled={disabled || !projectLoaded} onChange={enableScreenCrop} />
+          <button type="button" className="secondary compact" disabled={disabled || !projectLoaded || !activeScreenCrop.enabled} onClick={resetScreenCrop}>Reset crop</button>
+        </div>
+        <InspectorSelect label="Crop aspect" value={activeScreenCrop.aspectRatio} options={CAMERA_CROP_ASPECT_OPTIONS} disabled={screenCropControlsDisabled} onChange={setScreenCropAspect} />
+        <InspectorSlider label="Crop zoom" value={screenCropZoom} min={100} max={400} step={5} disabled={screenCropControlsDisabled} onChange={setScreenCropZoom} />
+        <InspectorSlider label="Crop X" value={screenCropPanX} min={0} max={100} step={1} disabled={screenCropXDisabled} onChange={(value) => updateScreenCrop(setCameraCropPan(activeScreenCrop, 'x', value, screenSource))} />
+        <InspectorSlider label="Crop Y" value={screenCropPanY} min={0} max={100} step={1} disabled={screenCropYDisabled} onChange={(value) => updateScreenCrop(setCameraCropPan(activeScreenCrop, 'y', value, screenSource))} />
       </InspectorSection>
       <BoardHeader icon="frame" title="Frame" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.({ bgPadding: DEFAULT_RECORDING_BACKGROUND.bgPadding, bgCornerRadius: DEFAULT_RECORDING_BACKGROUND.bgCornerRadius, bgInset: DEFAULT_RECORDING_BACKGROUND.bgInset, bgInsetColor: DEFAULT_RECORDING_BACKGROUND.bgInsetColor })} />
       <InspectorSection id="screen-frame" title="Frame">
@@ -3080,9 +3208,14 @@ function ProjectPreview({
   const templateScreenFrame = (recordingPresentation?.screenFrame as NormalizedRect | undefined) ?? null;
   const templateCameraFrame = (recordingPresentation?.cameraFrame as NormalizedRect | undefined) ?? null;
   const cameraCrop = (recordingPresentation?.cameraCrop as RegionCrop | undefined) ?? null;
+  const screenCrop = (recordingPresentation?.screenCrop as RegionCrop | undefined) ?? null;
   const cameraSourceSize = {
     width: effectiveRecording?.camera?.width ?? 1280,
     height: effectiveRecording?.camera?.height ?? 720,
+  };
+  const screenSourceSize = {
+    width: effectiveRecording?.width ?? 1280,
+    height: effectiveRecording?.height ?? 720,
   };
   const templateOverrideSnapshot = JSON.stringify({
     aspectRatio,
@@ -3199,6 +3332,36 @@ function ProjectPreview({
     await persist(syncRecordingTimelinePresentation(nextDocument, recordingAsset.id) as ProjectState['document']);
   }
 
+  async function updateCameraPresentationAndFrame(patch: Partial<CameraPresentation>, frame: { x: number; y: number; w: number; h: number }) {
+    if (!recordingAsset?.id || !hasCamera) return;
+    const nextDocument = {
+      ...project.document,
+      assets: project.document.assets?.map((asset) => {
+        if (asset.id !== recordingAsset.id) return asset;
+        const presentation = withDefaultPresentation(asset.presentation);
+        const nextCamera: CameraPresentation = {
+          ...DEFAULT_CAMERA_PRESENTATION,
+          ...(presentation.camera ?? {}),
+          ...patch,
+        };
+        return {
+          ...asset,
+          presentation: {
+            ...presentation,
+            camera: nextCamera,
+            cameraFrame: {
+              x: clampUnit(frame.x),
+              y: clampUnit(frame.y),
+              w: clampUnit(frame.w, 0.05),
+              h: clampUnit(frame.h, 0.05),
+            },
+          },
+        };
+      }),
+    };
+    await persist(syncRecordingTimelinePresentation(nextDocument, recordingAsset.id) as ProjectState['document']);
+  }
+
   async function updateCameraFrame(frame: { x: number; y: number; w: number; h: number } | null) {
     if (!recordingAsset?.id) return;
     await persist({
@@ -3233,6 +3396,21 @@ function ProjectPreview({
         const next: Record<string, unknown> = { ...presentation };
         if (crop) next.cameraCrop = crop;
         else delete next.cameraCrop;
+        return { ...asset, presentation: next };
+      }),
+    });
+  }
+
+  async function updateScreenCrop(crop: RegionCrop | null) {
+    if (!recordingAsset?.id) return;
+    await persist({
+      ...project.document,
+      assets: project.document.assets?.map((asset) => {
+        if (asset.id !== recordingAsset.id) return asset;
+        const presentation = withDefaultPresentation(asset.presentation) as unknown as Record<string, unknown>;
+        const next: Record<string, unknown> = { ...presentation };
+        if (crop) next.screenCrop = crop;
+        else delete next.screenCrop;
         return { ...asset, presentation: next };
       }),
     });
@@ -3567,7 +3745,7 @@ function ProjectPreview({
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
       <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} background={background} cameraPresentation={cameraPresentation} cameraFrame={templateCameraFrame} cameraCrop={cameraCrop} cameraSourceSize={cameraSourceSize} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} trimInfo={trimInfo} timelineWarning={recordingEditModel.warning} cutRanges={activeCutRanges} userTemplates={userTemplates} recordingTemplateOverrides={recordingTemplateOverrides} appliedTemplatePresetId={appliedTemplatePresetId} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraCropChange={updateCameraCrop} onCursorPresentationChange={updateCursorPresentation} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onResetTrim={resetTrim} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
+      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} background={background} cameraPresentation={cameraPresentation} cameraFrame={templateCameraFrame} cameraCrop={cameraCrop} cameraSourceSize={cameraSourceSize} screenCrop={screenCrop} screenSourceSize={screenSourceSize} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} trimInfo={trimInfo} timelineWarning={recordingEditModel.warning} cutRanges={activeCutRanges} userTemplates={userTemplates} recordingTemplateOverrides={recordingTemplateOverrides} appliedTemplatePresetId={appliedTemplatePresetId} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraPresentationAndFrameChange={updateCameraPresentationAndFrame} onCameraCropChange={updateCameraCrop} onScreenCropChange={updateScreenCrop} onCursorPresentationChange={updateCursorPresentation} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onResetTrim={resetTrim} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>
@@ -4876,9 +5054,10 @@ export function LegacyVideoPreview({
       const resolvedScreenFrame = dragScreenRect
         ? { x: dragScreenRect.x * canvasWidth, y: dragScreenRect.y * canvasHeight, w: dragScreenRect.w * canvasWidth, h: dragScreenRect.h * canvasHeight }
         : resolveScreenFrame(frame.screenFrame, defaultScreenX, defaultScreenY, defaultScreenWidth, defaultScreenHeight, canvasWidth, canvasHeight);
-      const screenDrawScale = Math.min(resolvedScreenFrame.w / sourceWidth, resolvedScreenFrame.h / sourceHeight);
-      const screenWidth = sourceWidth * screenDrawScale;
-      const screenHeight = sourceHeight * screenDrawScale;
+      const screenSource = resolveScreenSourceViewport(sourceWidth, sourceHeight, frame.screenCrop);
+      const screenDrawScale = Math.min(resolvedScreenFrame.w / screenSource.w, resolvedScreenFrame.h / screenSource.h);
+      const screenWidth = screenSource.w * screenDrawScale;
+      const screenHeight = screenSource.h * screenDrawScale;
       const screenX = resolvedScreenFrame.x + (resolvedScreenFrame.w - screenWidth) / 2;
       const screenY = resolvedScreenFrame.y + (resolvedScreenFrame.h - screenHeight) / 2;
       const screenRadius = Math.max(0, Math.min(background.bgCornerRadius, Math.min(screenWidth, screenHeight) / 2));
@@ -4919,9 +5098,9 @@ export function LegacyVideoPreview({
       ctx.clip();
       ctx.translate(screenX, screenY);
       ctx.scale(screenDrawScale, screenDrawScale);
-      ctx.translate(sourceWidth / 2 + offsetX, sourceHeight / 2 + offsetY);
+      ctx.translate(screenSource.w / 2 + offsetX, screenSource.h / 2 + offsetY);
       ctx.scale(scale, scale);
-      ctx.translate(-sourceWidth / 2, -sourceHeight / 2);
+      ctx.translate(-(screenSource.x + screenSource.w / 2), -(screenSource.y + screenSource.h / 2));
       ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
       const resolvedCursor = frame.cursor;
       drawClickEmphasis(ctx, cursorEvents, currentFrame, resolvedCursor?.clickEffect ?? 'ring');
@@ -5409,6 +5588,18 @@ function resolveCameraSourceRect(
     sw: covered.sw,
     sh: covered.sh,
   };
+}
+
+function resolveScreenSourceViewport(sourceWidth: number, sourceHeight: number, crop?: RegionCrop) {
+  if (![sourceWidth, sourceHeight].every((value) => Number.isFinite(value) && value > 0)) {
+    return { x: 0, y: 0, w: Math.max(1, sourceWidth || 1), h: Math.max(1, sourceHeight || 1) };
+  }
+  if (crop?.enabled !== true) return { x: 0, y: 0, w: sourceWidth, h: sourceHeight };
+  const x = Math.max(0, Math.min(sourceWidth - 1, Math.round(crop.x)));
+  const y = Math.max(0, Math.min(sourceHeight - 1, Math.round(crop.y)));
+  const w = Math.max(1, Math.min(sourceWidth - x, Math.round(crop.width)));
+  const h = Math.max(1, Math.min(sourceHeight - y, Math.round(crop.height)));
+  return { x, y, w, h };
 }
 
 function resolveCameraRadius(
