@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createUserTemplatesStore, defaultUserTemplatesPath } from './user-templates-store.mjs';
+import { createRecordingTemplateOverridesStore, defaultRecordingTemplateOverridesPath } from './recording-template-overrides-store.mjs';
 import {
   createDefaultCameraPresentation,
   createDefaultRecordingBackgroundStyle,
@@ -143,6 +144,47 @@ test('rejects empty label on save', async () => {
   try {
     const store = createUserTemplatesStore({ filePath: defaultUserTemplatesPath(dir) });
     await assert.rejects(() => store.save(makeSaveInput({ label: '   ' })), /label/i);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('recording template overrides round-trip and replace by template id', async () => {
+  const dir = await makeTmp();
+  try {
+    let now = 1000;
+    const filePath = defaultRecordingTemplateOverridesPath(dir);
+    const store = createRecordingTemplateOverridesStore({ filePath, now: () => now });
+    const first = await store.save({
+      templateId: 'tutorial-16-9',
+      aspectRatio: '16:9',
+      background: createDefaultRecordingBackgroundStyle(),
+      camera: createDefaultCameraPresentation(),
+      presentation: {
+        screenFrame: { x: 0.1, y: 0.2, w: 0.5, h: 0.4 },
+        cameraFrame: { x: 0.2, y: 0.25, w: 0.2, h: 0.5 },
+      },
+    });
+    assert.equal(first.updatedAt, 1000);
+
+    now = 2000;
+    await store.save({
+      templateId: 'tutorial-16-9',
+      aspectRatio: '16:9',
+      background: createDefaultRecordingBackgroundStyle(),
+      camera: createDefaultCameraPresentation(),
+      presentation: {
+        screenFrame: { x: 0.3, y: 0.2, w: 0.55, h: 0.45 },
+        cameraFrame: { x: 0.1, y: 0.15, w: 0.25, h: 0.66 },
+      },
+    });
+
+    const reloaded = createRecordingTemplateOverridesStore({ filePath });
+    const list = await reloaded.list();
+    assert.equal(list.length, 1);
+    assert.equal(list[0].templateId, 'tutorial-16-9');
+    assert.equal(list[0].updatedAt, 2000);
+    assert.deepEqual(list[0].cameraFrame, { x: 0.1, y: 0.15, w: 0.25, h: 0.66 });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

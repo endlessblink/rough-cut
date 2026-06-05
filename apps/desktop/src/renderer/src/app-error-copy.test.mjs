@@ -2,6 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { appError, errorStateCopy } from './app-error-copy.mjs';
 
+test('missing project files use a clear project-missing message', () => {
+  const copy = errorStateCopy(appError('project', new Error("ENOENT: no such file or directory, open '/tmp/missing.roughcut'")));
+
+  assert.equal(copy.label, 'Project missing');
+  assert.equal(copy.title, 'Project file is no longer there');
+  assert.match(copy.detail, /Open Projects/);
+  assert.doesNotMatch(copy.detail, /remote method/i);
+});
+
 test('maps disk failures to actionable copy', () => {
   const copy = errorStateCopy(appError('recording', new Error('ENOSPC: no space left on device')));
   assert.equal(copy.title, 'Not enough space to finish');

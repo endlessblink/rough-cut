@@ -11,6 +11,9 @@ export function errorStateCopy(error) {
   if (normalized.includes('permission') || normalized.includes('eacces') || normalized.includes('denied')) {
     return { label: 'Permission blocked', title: 'Rough Cut cannot access that location', detail: `${message} Pick a writable folder or update permissions, then retry.` };
   }
+  if (normalized.includes('enoent') || normalized.includes('no such file or directory')) {
+    return { label: 'Project missing', title: 'Project file is no longer there', detail: 'That project file was moved or deleted. Open Projects to choose an existing recording, or record a new take.' };
+  }
   if (normalized.includes('ffmpeg') || normalized.includes('exited') || normalized.includes('spawn')) {
     return { label: 'Media pipeline failed', title: 'FFmpeg stopped unexpectedly', detail: `${message} Open diagnostics for the command log before retrying.` };
   }

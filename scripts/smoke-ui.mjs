@@ -11,6 +11,7 @@ const exportPath = join(root, 'export.mp4');
 const resultPath = join(root, 'ui-smoke-result.json');
 const screenshotPath = join(root, 'ui-smoke.png');
 const timelineScreenshotPath = join(root, 'ui-smoke-timeline.png');
+const userDataPath = join(root, 'electron-user-data');
 
 await mkdir(root, { recursive: true });
 run('ffmpeg', [
@@ -72,7 +73,7 @@ project = await saveProjectFile(project.path, {
 });
 
 const electron = join(process.cwd(), 'apps/desktop/node_modules/.bin/electron');
-const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb', '.'], {
+const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb', `--user-data-dir=${userDataPath}`, '.'], {
   cwd: join(process.cwd(), 'apps/desktop'),
   env: {
     ...process.env,
@@ -107,7 +108,7 @@ if (process.env.ROUGH_CUT_UI_SMOKE_NLE_ONLY === '1') {
   process.exit(0);
 }
 const screenshotBytes = (await readFile(screenshotPath)).length;
-if (!report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'styled' || !report.hasStyledMode || !report.hasStyledPresetDetails || !report.hasReviewExportActions || !report.hasExportProgressMeter || !report.hasBackgroundPresetSelection || !report.hasTemplatePresetSelection || !report.hasNoInactiveBackgroundTabs || !report.hasBackgroundShadowControls || !report.hasCustomRangeSkin || !report.hasTimelineZoomControlPanel || !report.hasStableToolSwitchLayout || !report.hasZoomResizeHandles || !report.hasKeyboardZoomControls || !report.hasTimelineLiveRegion || !report.hasKeyboardTimelineScrubber || !report.hasTimelineScrubberFineStep || !report.hasTimelineArrowKeyAdvance || !report.hasCursorPresentationControls || !report.hasCursorTab || !report.hasCameraTab || !report.hasExportAspectChip || !report.hasKeyboardTrimHandles || !report.hasFrameDragHandles || !report.hasUndoRedoControls || !report.hasNoSetupBoardHorizontalOverflow || !report.hasStudioShell || !report.hasCaptureBar || !report.hasNoInertTopBarIcons || !report.hasShortcutsDialog || !report.hasCaptureCommandArea || !report.hasStateBanner || !report.hasCentralStage || !report.hasTimelineRail || !report.hasTimelineScrubber || !report.hasTrimHandles  || !report.hasZoomLane || !report.hasClickLane || !report.hasCameraLane || !report.hasAudioLane || !report.hasInspectorContext || !report.hasInspectorGroups || !report.hasCameraPipControls || !report.hasRightInspector || !report.hasExportStatusArea || !report.hasVisualScreenshot || report.aspectRatio !== '9:16' || report.padding !== 96 || report.cornerRadius !== 44 || report.shadowSize !== 72 || report.cameraPosition !== 'corner-tl' || report.cameraShape !== 'circle' || report.cameraSize !== 130 || !(report.duration > 0) || !(screenshotBytes > 1000)) {
+if (!report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'styled' || !report.hasStyledMode || !report.hasStyledPresetDetails || !report.hasReviewExportActions || !report.hasExportProgressMeter || !report.hasBackgroundPresetSelection || !report.hasTemplatePresetSelection || !report.hasFocuSeeSplitCameraLayoutBounds || !report.hasFocuSeeYouTubeCameraLayoutBounds || !report.hasTemplateCameraLayoutBounds || !report.hasCircleCameraPixelSquare || !report.hasRectangleAfterCircleShape || !report.hasNoInactiveBackgroundTabs || !report.hasBackgroundShadowControls || !report.hasCustomRangeSkin || !report.hasTimelineZoomControlPanel || !report.hasStableToolSwitchLayout || !report.hasZoomResizeHandles || !report.hasKeyboardZoomControls || !report.hasTimelineLiveRegion || !report.hasKeyboardTimelineScrubber || !report.hasTimelineScrubberFineStep || !report.hasTimelineArrowKeyAdvance || !report.hasCursorPresentationControls || !report.hasCursorTab || !report.hasCameraTab || !report.hasExportAspectChip || !report.hasKeyboardTrimHandles || !report.hasFrameDragHandles || !report.hasUndoRedoControls || !report.hasNoSetupBoardHorizontalOverflow || !report.hasStudioShell || !report.hasCaptureBar || !report.hasNoInertTopBarIcons || !report.hasShortcutsDialog || !report.hasCaptureCommandArea || !report.hasStateBanner || !report.hasCentralStage || !report.hasTimelineRail || !report.hasTimelineScrubber || !report.hasTrimHandles  || !report.hasZoomLane || !report.hasClickLane || !report.hasCameraLane || !report.hasAudioLane || !report.hasInspectorContext || !report.hasInspectorGroups || !report.hasCameraPipControls || !report.hasCameraCropControls || !report.hasRightInspector || !report.hasExportStatusArea || !report.hasVisualScreenshot || report.aspectRatio !== '9:16' || report.padding !== 96 || report.cornerRadius !== 44 || report.shadowSize !== 72 || report.cameraPosition !== 'corner-tl' || report.cameraShape !== 'circle' || report.cameraSize !== 130 || !(report.duration > 0) || !(screenshotBytes > 1000)) {
   throw new Error(`Electron UI smoke assertions failed: ${JSON.stringify(report)}`);
 }
 

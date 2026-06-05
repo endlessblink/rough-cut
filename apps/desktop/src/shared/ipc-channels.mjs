@@ -32,6 +32,8 @@ export const IPC_CHANNELS = {
   USER_TEMPLATE_SAVE: 'user-template:save',
   USER_TEMPLATE_RENAME: 'user-template:rename',
   USER_TEMPLATE_DELETE: 'user-template:delete',
+  RECORDING_TEMPLATE_OVERRIDE_LIST: 'recording-template-override:list',
+  RECORDING_TEMPLATE_OVERRIDE_SAVE: 'recording-template-override:save',
 
   // Export
   EXPORT_START: 'export:start',

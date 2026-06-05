@@ -2,16 +2,19 @@ import React from 'react';
 import { Pause as PhosphorPause, Play as PhosphorPlay } from '@phosphor-icons/react';
 import {
   resolveTimelineLengthFrames,
+  createDefaultCameraPresentation,
   createDefaultRecordingBackgroundStyle,
   getRecordingBackgroundColors,
   getStyledCanvasResolution,
+  type CameraPresentation,
   type NormalizedRect,
   type ProjectAspectRatio,
   type ProjectDocument,
   type RecordingBackgroundStyle,
+  type RegionCrop,
   type TimelineClip,
 } from '@rough-cut/project-model';
-import { resolveFrame, resolveTimelineFrame, resolveTimelinePreviewFrame } from '@rough-cut/frame-resolver';
+import { getCameraLayoutRect, resolveFrame, resolveTimelineFrame, resolveTimelinePreviewFrame } from '@rough-cut/frame-resolver';
 import { visibleDurationFrames, visibleFrameToSourceFrame } from './cut-ranges.mjs';
 import { getCursorEvents } from './cursor-data.mjs';
 import { getPrimaryRecordingAsset } from './zoom-markers.mjs';
@@ -32,6 +35,7 @@ import {
 } from './styled-preview.mjs';
 
 const DEFAULT_RECORDING_BACKGROUND = createDefaultRecordingBackgroundStyle();
+const DEFAULT_CAMERA_PRESENTATION = createDefaultCameraPresentation();
 const PREVIEW_CANVAS_LONG_EDGE = 1280;
 const PLAYBACK_DEBUG_LOG_LIMIT = 500;
 const PLAYBACK_DRAW_COST_LOG_THRESHOLD_MS = 12;
@@ -1225,9 +1229,9 @@ export function StyledVideoPreview({
           return;
         }
         const dragRect = cameraDragRef.current;
-        const rawCameraFrame = dragRect
+        const rawCameraFrame = constrainCameraShapeFrame(dragRect
           ? { x: dragRect.x * canvasWidth, y: dragRect.y * canvasHeight, w: dragRect.w * canvasWidth, h: dragRect.h * canvasHeight }
-          : resolveCameraFrame(frame.cameraFrame, frame.cameraPresentation, canvasWidth, canvasHeight);
+          : resolveCameraFrame(frame.cameraFrame, frame.cameraPresentation, canvasWidth, canvasHeight), frame.cameraPresentation, canvasWidth, canvasHeight);
         const cameraFrame = activeTimelinePlayback
           ? {
               x: Math.round(rawCameraFrame.x),
@@ -1252,13 +1256,14 @@ export function StyledVideoPreview({
           ctx.shadowBlur = frame.cameraPresentation?.shadowBlur ?? 24;
           ctx.shadowOffsetY = 8;
         }
-        addRoundedRect(ctx, cameraFrame.x, cameraFrame.y, cameraFrame.w, cameraFrame.h, cameraRadius);
+        addCameraShapePath(ctx, cameraFrame, frame.cameraPresentation, cameraRadius);
         ctx.clip();
-        const cameraSource = coverSourceRect(
+        const cameraSource = resolveCameraSourceRect(
           cameraVideo.videoWidth,
           cameraVideo.videoHeight,
           cameraFrame.w,
           cameraFrame.h,
+          frame.cameraCrop,
         );
         if (cameraSource) {
           try {
@@ -1280,7 +1285,7 @@ export function StyledVideoPreview({
           }
         }
         ctx.restore();
-        if (!activeTimelinePlayback && onCameraFrameChange) drawEditorFrameControls(ctx, cameraFrame, '#f59e0b');
+        if (!activeTimelinePlayback && onCameraFrameChange) drawEditorFrameControls(ctx, cameraFrame, '#f59e0b', frame.cameraPresentation);
       } else {
         cameraRectRef.current = null;
         (window as unknown as Record<string, unknown>).__roughCutCanvasCameraRect = null;
@@ -1981,31 +1986,44 @@ function projectSourcePoint({
 
 function resolveCameraFrame(
   normalizedFrame: NormalizedRect | undefined,
-  presentation: { position?: string; size?: number } | undefined,
+  presentation: Partial<CameraPresentation> | undefined,
   canvasWidth: number,
   canvasHeight: number,
 ) {
   if (normalizedFrame) {
-    return {
+    return constrainCameraShapeFrame({
       x: normalizedFrame.x * canvasWidth,
       y: normalizedFrame.y * canvasHeight,
       w: normalizedFrame.w * canvasWidth,
       h: normalizedFrame.h * canvasHeight,
-    };
+    }, presentation, canvasWidth, canvasHeight);
   }
-  const sizeScale = Math.max(0.5, Math.min(2, (presentation?.size ?? 100) / 100));
-  const width = Math.round(Math.min(canvasWidth, canvasHeight) * 0.22 * sizeScale);
-  const height = width;
-  const margin = Math.round(Math.min(canvasWidth, canvasHeight) * 0.06);
-  const position = presentation?.position ?? 'corner-br';
-  const left = position.endsWith('bl') || position.endsWith('tl');
-  const top = position.endsWith('tl') || position.endsWith('tr');
-  if (position === 'center') return { x: (canvasWidth - width) / 2, y: (canvasHeight - height) / 2, w: width, h: height };
+  const rect = getCameraLayoutRect(
+    { ...DEFAULT_CAMERA_PRESENTATION, ...(presentation ?? {}) },
+    canvasWidth,
+    canvasHeight,
+  );
+  return constrainCameraShapeFrame({
+    x: rect.x,
+    y: rect.y,
+    w: rect.width,
+    h: rect.height,
+  }, presentation, canvasWidth, canvasHeight);
+}
+
+function constrainCameraShapeFrame(
+  frame: { x: number; y: number; w: number; h: number },
+  presentation: Partial<CameraPresentation> | undefined,
+  canvasWidth: number,
+  canvasHeight: number,
+) {
+  if (presentation?.shape !== 'circle') return frame;
+  const size = Math.max(2, Math.min(frame.w, frame.h, canvasWidth, canvasHeight));
   return {
-    x: left ? margin : canvasWidth - width - margin,
-    y: top ? margin : canvasHeight - height - margin,
-    w: width,
-    h: height,
+    x: Math.max(0, Math.min(canvasWidth - size, frame.x + (frame.w - size) / 2)),
+    y: Math.max(0, Math.min(canvasHeight - size, frame.y + (frame.h - size) / 2)),
+    w: size,
+    h: size,
   };
 }
 
@@ -2043,25 +2061,95 @@ function clampUnit(value: number, min = 0): number {
   return Math.max(min, Math.min(1, safeValue));
 }
 
-function drawEditorFrameControls(ctx: CanvasRenderingContext2D, rect: { x: number; y: number; w: number; h: number } | null, color: string) {
+function drawEditorFrameControls(
+  ctx: CanvasRenderingContext2D,
+  rect: { x: number; y: number; w: number; h: number } | null,
+  color: string,
+  presentation?: Partial<CameraPresentation>,
+) {
   if (!rect) return;
   const handleSize = Math.max(14, Math.min(26, Math.min(rect.w, rect.h) * 0.12));
   ctx.save();
   ctx.lineWidth = 3;
   ctx.strokeStyle = color;
   ctx.setLineDash([12, 8]);
-  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+  if (presentation?.shape === 'circle') {
+    ctx.beginPath();
+    ctx.arc(rect.x + rect.w / 2, rect.y + rect.h / 2, Math.min(rect.w, rect.h) / 2, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+  }
   ctx.setLineDash([]);
   ctx.fillStyle = color;
   ctx.strokeStyle = 'rgba(15, 23, 42, 0.78)';
   ctx.lineWidth = 4;
-  for (const handle of frameResizeHandles(rect)) {
+  const handles = presentation?.shape === 'circle' ? circleFrameHandles(rect) : frameResizeHandles(rect);
+  for (const handle of handles) {
     ctx.beginPath();
     ctx.roundRect(handle.x - handleSize / 2, handle.y - handleSize / 2, handleSize, handleSize, 5);
     ctx.fill();
     ctx.stroke();
   }
   ctx.restore();
+}
+
+function circleFrameHandles(rect: { x: number; y: number; w: number; h: number }) {
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  const r = Math.min(rect.w, rect.h) / 2;
+  const d = r / Math.SQRT2;
+  return [
+    { x: cx - d, y: cy - d },
+    { x: cx + d, y: cy - d },
+    { x: cx + d, y: cy + d },
+    { x: cx - d, y: cy + d },
+  ];
+}
+
+function addCameraShapePath(
+  ctx: CanvasRenderingContext2D,
+  frame: { x: number; y: number; w: number; h: number },
+  presentation: Partial<CameraPresentation> | undefined,
+  radius: number,
+) {
+  if (presentation?.shape === 'circle') {
+    ctx.beginPath();
+    ctx.arc(frame.x + frame.w / 2, frame.y + frame.h / 2, Math.min(frame.w, frame.h) / 2, 0, Math.PI * 2);
+    return;
+  }
+  addRoundedRect(ctx, frame.x, frame.y, frame.w, frame.h, radius);
+}
+
+function resolveCameraSourceRect(
+  sourceWidth: number,
+  sourceHeight: number,
+  destWidth: number,
+  destHeight: number,
+  crop?: RegionCrop,
+) {
+  if (![sourceWidth, sourceHeight, destWidth, destHeight].every((value) => Number.isFinite(value) && value > 0)) {
+    return null;
+  }
+  const cropEnabled = crop?.enabled === true;
+  const base = cropEnabled
+    ? {
+        x: Math.max(0, Math.min(sourceWidth - 1, Math.round(crop.x))),
+        y: Math.max(0, Math.min(sourceHeight - 1, Math.round(crop.y))),
+        w: Math.max(1, Math.min(sourceWidth, Math.round(crop.width))),
+        h: Math.max(1, Math.min(sourceHeight, Math.round(crop.height))),
+      }
+    : { x: 0, y: 0, w: sourceWidth, h: sourceHeight };
+  base.w = Math.max(1, Math.min(base.w, sourceWidth - base.x));
+  base.h = Math.max(1, Math.min(base.h, sourceHeight - base.y));
+  const covered = coverSourceRect(base.w, base.h, destWidth, destHeight);
+  if (!covered) return null;
+  return {
+    sx: base.x + covered.sx,
+    sy: base.y + covered.sy,
+    sw: covered.sw,
+    sh: covered.sh,
+  };
 }
 
 function resolveCameraRadius(

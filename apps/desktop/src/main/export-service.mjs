@@ -6,7 +6,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getPrimaryRecording } from './project-files.mjs';
 import { createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
-import { canonicalizeProjectDocument, computeTimelineDuration, getRecordingBackgroundColors, getStyledCanvasResolution } from '@rough-cut/project-model';
+import { canonicalizeProjectDocument, computeTimelineDuration, createDefaultCameraPresentation, getRecordingBackgroundColors, getStyledCanvasResolution } from '@rough-cut/project-model';
+import { getCameraLayoutRect } from '@rough-cut/frame-resolver';
 
 export const EXPORT_MODES = Object.freeze({
   RAW: 'raw',
@@ -184,6 +185,7 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       cameraTimelineSegments: recording.camera?.timelineSegments ?? [],
       cameraPresentation: recording.presentation?.camera ?? null,
       cameraFrame: recording.presentation?.cameraFrame ?? null,
+      cameraCrop: recording.presentation?.cameraCrop ?? null,
       screenFrame: recording.presentation?.screenFrame ?? null,
       cutRanges: recording.cutRanges ?? [],
       videoEncoder: encoder,
@@ -485,6 +487,7 @@ export function buildStyledExportArgs({
   cameraTimelineSegments = [],
   cameraPresentation = null,
   cameraFrame: cameraFrameOverride = null,
+  cameraCrop = null,
   screenFrame: screenFrameOverride = null,
   cutRanges = [],
   videoEncoder = STYLED_VIDEO_ENCODERS.CPU,
@@ -540,6 +543,10 @@ export function buildStyledExportArgs({
   const cameraRadius = cameraFrame ? resolveCameraOverlayRadius(cameraPresentation, cameraFrame) : 0;
   const cameraAlpha = buildRoundedAlphaExpression(cameraRadius);
   const screenAlpha = buildRoundedAlphaExpression(screenRadius);
+  const cameraManualCropStep = buildCameraManualCropStep(cameraCrop, cameraSourceWidth, cameraSourceHeight);
+  const cameraScaleStep = cameraFrame
+    ? `${cameraManualCropStep ? `${cameraManualCropStep},` : ''}scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba`
+    : null;
   const sourceBaseFilters = useTimelineSegments
     ? buildTimelineVideoBaseFilters({
         segments: normalizedTimelineSegments,
@@ -588,8 +595,8 @@ export function buildStyledExportArgs({
     ...(cameraFrame
       ? [
           useCameraTimelineSegments
-            ? `[camera_base]scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba[camera_scaled]`
-            : `[1:v]setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},scale=${cameraFrame.w}:${cameraFrame.h}:force_original_aspect_ratio=increase,crop=${cameraFrame.w}:${cameraFrame.h},format=rgba[camera_scaled]`,
+            ? `[camera_base]${cameraScaleStep}[camera_scaled]`
+            : `[1:v]setpts=PTS-STARTPTS${cameraTrim > 0 ? `,trim=start_frame=${cameraTrim},setpts=PTS-STARTPTS` : ''}${cutFilter},${cameraScaleStep}[camera_scaled]`,
           `nullsrc=s=${cameraFrame.w}x${cameraFrame.h}:r=1:d=1,format=gray,geq=lum='${cameraAlpha}',${staticLoop}[camera_mask]`,
           '[camera_scaled][camera_mask]alphamerge[camera_rounded]',
           `[with_screen][camera_rounded]overlay=${cameraFrame.x}:${cameraFrame.y}:eof_action=pass:repeatlast=0,format=yuv420p[v]`,
@@ -816,26 +823,53 @@ function resolveCameraOverlayFrame(camera = null, canvasWidth, canvasHeight, nor
   if (normalizedFrame && Number.isFinite(normalizedFrame.x) && Number.isFinite(normalizedFrame.y) && Number.isFinite(normalizedFrame.w) && Number.isFinite(normalizedFrame.h)) {
     const w = Math.max(2, Math.round(normalizedFrame.w * canvasWidth));
     const h = Math.max(2, Math.round(normalizedFrame.h * canvasHeight));
-    return {
+    return constrainCameraShapeFrame({
       x: Math.max(0, Math.round(normalizedFrame.x * canvasWidth)),
       y: Math.max(0, Math.round(normalizedFrame.y * canvasHeight)),
       w,
       h,
-    };
+    }, camera, canvasWidth, canvasHeight);
   }
-  const sizeScale = clampNumber((camera?.size ?? 100) / 100, 0.5, 2);
-  const w = Math.round(Math.min(canvasWidth, canvasHeight) * 0.22 * sizeScale);
-  const h = w;
-  const margin = Math.round(Math.min(canvasWidth, canvasHeight) * 0.06);
-  const position = camera?.position ?? 'corner-br';
-  if (position === 'center') return { x: Math.round((canvasWidth - w) / 2), y: Math.round((canvasHeight - h) / 2), w, h };
-  const left = position.endsWith('bl') || position.endsWith('tl');
-  const top = position.endsWith('tl') || position.endsWith('tr');
+  const rect = getCameraLayoutRect(
+    { ...createDefaultCameraPresentation(), ...(camera ?? {}) },
+    canvasWidth,
+    canvasHeight,
+  );
+  return constrainCameraShapeFrame({
+    x: Math.round(rect.x),
+    y: Math.round(rect.y),
+    w: Math.round(rect.width),
+    h: Math.round(rect.height),
+  }, camera, canvasWidth, canvasHeight);
+}
+
+function buildCameraManualCropStep(crop = null, sourceWidth = null, sourceHeight = null) {
+  if (!crop?.enabled) return null;
+  const sourceW = Number.isFinite(sourceWidth) && sourceWidth > 0 ? Math.round(sourceWidth) : null;
+  const sourceH = Number.isFinite(sourceHeight) && sourceHeight > 0 ? Math.round(sourceHeight) : null;
+  let w = Math.max(1, Math.round(Number(crop.width) || 1));
+  let h = Math.max(1, Math.round(Number(crop.height) || 1));
+  let x = Math.max(0, Math.round(Number(crop.x) || 0));
+  let y = Math.max(0, Math.round(Number(crop.y) || 0));
+  if (sourceW !== null) {
+    w = Math.max(1, Math.min(w, sourceW));
+    x = Math.max(0, Math.min(x, sourceW - w));
+  }
+  if (sourceH !== null) {
+    h = Math.max(1, Math.min(h, sourceH));
+    y = Math.max(0, Math.min(y, sourceH - h));
+  }
+  return `crop=${w}:${h}:${x}:${y}`;
+}
+
+function constrainCameraShapeFrame(frame, camera = null, canvasWidth, canvasHeight) {
+  if (camera?.shape !== 'circle') return frame;
+  const size = Math.max(2, Math.min(frame.w, frame.h, canvasWidth, canvasHeight));
   return {
-    x: left ? margin : canvasWidth - w - margin,
-    y: top ? margin : canvasHeight - h - margin,
-    w,
-    h,
+    x: Math.max(0, Math.min(canvasWidth - size, Math.round(frame.x + (frame.w - size) / 2))),
+    y: Math.max(0, Math.min(canvasHeight - size, Math.round(frame.y + (frame.h - size) / 2))),
+    w: size,
+    h: size,
   };
 }
 

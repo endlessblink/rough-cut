@@ -657,10 +657,29 @@ test('styled export args use a normalized cameraFrame override when provided', (
   });
   const joined = args.join(' ');
 
-  // Override at 1920x1080 → x=192, y=216, w=480, h=432
-  assert(joined.includes('scale=480:432:force_original_aspect_ratio=increase'));
-  assert(joined.includes('crop=480:432'));
-  assert(joined.includes('overlay=192:216:eof_action=pass:repeatlast=0'));
+  // Circle shape is authoritative: the wide 480x432 override is centered
+  // into a true 432x432 circle box before masking/export.
+  assert(joined.includes('scale=432:432:force_original_aspect_ratio=increase'));
+  assert(joined.includes('crop=432:432'));
+  assert(joined.includes('overlay=216:216:eof_action=pass:repeatlast=0'));
+});
+
+test('styled export args apply manual camera crop before fitting the camera frame', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    width: 1920,
+    height: 1080,
+    cameraInputPath: '/tmp/camera.mp4',
+    cameraSourceWidth: 1280,
+    cameraSourceHeight: 720,
+    cameraPresentation: { shape: 'rounded', aspectRatio: '16:9', position: 'corner-br', roundness: 50, size: 100, visible: true },
+    cameraFrame: { x: 0.1, y: 0.2, w: 0.3, h: 0.3 },
+    cameraCrop: { enabled: true, x: 120, y: 40, width: 640, height: 360, aspectRatio: '16:9' },
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes('crop=640:360:120:40,scale=576:324:force_original_aspect_ratio=increase,crop=576:324,format=rgba[camera_scaled]'));
 });
 
 test('styled export args fall back to camera presentation when no normalized frame is set', () => {
@@ -670,14 +689,16 @@ test('styled export args fall back to camera presentation when no normalized fra
     width: 1920,
     height: 1080,
     cameraInputPath: '/tmp/camera.mp4',
-    cameraPresentation: { shape: 'circle', position: 'corner-br', roundness: 50, size: 100, visible: true },
+    cameraPresentation: { shape: 'rounded', aspectRatio: '16:9', position: 'corner-br', roundness: 38, size: 100, visible: true },
     cameraFrame: null,
   });
   const joined = args.join(' ');
 
-  // Enum-derived corner-br placement at default size — should use the legacy formula
-  assert(!joined.includes('overlay=192:216:'));
-  assert(joined.includes('[with_screen][camera_rounded]overlay='));
+  // Shared camera layout fallback at 1920x1080:
+  // width=1920*0.24=461, height=461/(16/9)=259, margin=(77,43).
+  assert(joined.includes('scale=461:259:force_original_aspect_ratio=increase'));
+  assert(joined.includes('crop=461:259'));
+  assert(joined.includes('overlay=1382:778:eof_action=pass:repeatlast=0'));
 });
 
 test('styled export args trim camera pre-roll before overlay', () => {

@@ -4,6 +4,7 @@ import type {
   CameraPosition,
   CameraPresentation,
   CameraShape,
+  NormalizedRect,
   ProjectAspectRatio,
   RecordingBackgroundStyle,
 } from './types.js';
@@ -21,67 +22,102 @@ export interface RecordingTemplatePreset {
   readonly id: string;
   readonly label: string;
   readonly description: string;
+  readonly layoutLabel: string;
   readonly aspectRatio: ProjectAspectRatio;
   readonly backgroundPresetId: string;
   readonly camera: RecordingTemplateCameraPatch;
+  readonly screenFrame: NormalizedRect;
+  readonly cameraFrame: NormalizedRect;
 }
 
 export const RECORDING_TEMPLATE_PRESETS: readonly RecordingTemplatePreset[] = [
   {
     id: 'tutorial-16-9',
-    label: 'Tutorial 16:9',
-    description: 'Wide canvas, graphite background, small circular PiP in the bottom right.',
+    label: 'FocuSee Split',
+    description: 'FocuSee-style 16:9 canvas with a vertical camera panel beside a wider screen recording.',
+    layoutLabel: 'Camera + screen',
     aspectRatio: '16:9',
     backgroundPresetId: 'graphite-contours',
-    camera: { position: 'corner-br', shape: 'circle', aspectRatio: '1:1', size: 110, roundness: 50, visible: true },
+    camera: { position: 'center', shape: 'rounded', aspectRatio: '9:16', size: 100, roundness: 32, visible: true },
+    cameraFrame: { x: 0.105, y: 0.17, w: 0.245, h: 0.66 },
+    screenFrame: { x: 0.385, y: 0.17, w: 0.53, h: 0.66 },
+  },
+  {
+    id: 'youtube-16-9',
+    label: 'FocuSee YouTube',
+    description: 'FocuSee-style YouTube layout with wide screen recording and circular camera bubble over the lower-left.',
+    layoutLabel: 'Screen + bubble',
+    aspectRatio: '16:9',
+    backgroundPresetId: 'aqua-haze',
+    camera: { position: 'corner-bl', shape: 'circle', aspectRatio: '1:1', size: 112, roundness: 100, visible: true },
+    screenFrame: { x: 0.09, y: 0.09, w: 0.82, h: 0.82 },
+    cameraFrame: { x: 0.105, y: 0.53, w: 0.205, h: 0.365 },
   },
   {
     id: 'mobile-9-16',
-    label: 'Mobile 9:16',
-    description: 'Vertical canvas, violet dusk background, larger rounded PiP for short-form clips.',
+    label: 'FocuSee 9:16',
+    description: 'FocuSee-style portrait stack with screen and camera arranged as separate layout panels.',
+    layoutLabel: 'Portrait stack',
     aspectRatio: '9:16',
     backgroundPresetId: 'violet-dusk',
-    camera: { position: 'corner-bl', shape: 'rounded', aspectRatio: '1:1', size: 150, roundness: 40, visible: true },
+    camera: { position: 'center', shape: 'rounded', aspectRatio: '16:9', size: 96, roundness: 42, visible: true },
+    screenFrame: { x: 0.08, y: 0.075, w: 0.84, h: 0.53 },
+    cameraFrame: { x: 0.08, y: 0.68, w: 0.84, h: 0.266 },
   },
   {
     id: 'square-1-1',
-    label: 'Square 1:1',
-    description: 'Square canvas, soft blur background, compact circular PiP in the top right.',
+    label: 'Recordly',
+    description: 'Recordly-style dynamic webcam bubble over a square demo canvas.',
+    layoutLabel: 'Smart bubble',
     aspectRatio: '1:1',
     backgroundPresetId: 'soft-blur',
-    camera: { position: 'corner-tr', shape: 'circle', aspectRatio: '1:1', size: 100, roundness: 50, visible: true },
+    camera: { position: 'corner-br', shape: 'rounded', aspectRatio: '1:1', size: 78, roundness: 100, visible: true },
+    screenFrame: { x: 0.075, y: 0.075, w: 0.85, h: 0.85 },
+    cameraFrame: { x: 0.675, y: 0.675, w: 0.2, h: 0.2 },
   },
   {
     id: 'reel-4-5',
-    label: 'Reel 4:5',
-    description: 'Instagram feed canvas, pink-folds background, rounded PiP in the bottom right.',
+    label: 'Tella 4:5',
+    description: 'Tella-style screen-dominant feed layout with the camera kept below the content.',
+    layoutLabel: 'Screen dominant',
     aspectRatio: '4:5',
     backgroundPresetId: 'pink-folds',
-    camera: { position: 'corner-br', shape: 'rounded', aspectRatio: '1:1', size: 130, roundness: 40, visible: true },
+    camera: { position: 'center', shape: 'rounded', aspectRatio: '16:9', size: 92, roundness: 42, visible: true },
+    screenFrame: { x: 0.07, y: 0.07, w: 0.86, h: 0.58 },
+    cameraFrame: { x: 0.14, y: 0.705, w: 0.72, h: 0.288 },
   },
   {
     id: 'portrait-3-4',
-    label: 'Portrait 3:4',
-    description: 'Tall canvas, mint-depth background, rounded PiP in the bottom left.',
+    label: 'FocuSee 3:4',
+    description: 'FocuSee-style vertical layout with separated screen and camera regions.',
+    layoutLabel: 'Vertical split',
     aspectRatio: '3:4',
     backgroundPresetId: 'mint-depth',
-    camera: { position: 'corner-bl', shape: 'rounded', aspectRatio: '1:1', size: 120, roundness: 40, visible: true },
+    camera: { position: 'center', shape: 'rounded', aspectRatio: '16:9', size: 94, roundness: 42, visible: true },
+    screenFrame: { x: 0.075, y: 0.075, w: 0.85, h: 0.565 },
+    cameraFrame: { x: 0.12, y: 0.695, w: 0.76, h: 0.321 },
   },
   {
     id: 'classic-4-3',
-    label: 'Classic 4:3',
-    description: 'Traditional canvas, aqua-haze background, compact circular PiP in the bottom right.',
+    label: 'Tella 4:3',
+    description: 'Tella-style 50/50 split for demos where the presenter should not cover screen content.',
+    layoutLabel: '50/50 split',
     aspectRatio: '4:3',
     backgroundPresetId: 'aqua-haze',
-    camera: { position: 'corner-br', shape: 'circle', aspectRatio: '1:1', size: 110, roundness: 50, visible: true },
+    camera: { position: 'center', shape: 'rounded', aspectRatio: '16:9', size: 100, roundness: 32, visible: true },
+    screenFrame: { x: 0.055, y: 0.11, w: 0.43, h: 0.78 },
+    cameraFrame: { x: 0.515, y: 0.11, w: 0.43, h: 0.322 },
   },
   {
     id: 'native-auto',
-    label: 'Native',
-    description: 'Match the recording source aspect ratio, black-sand background, compact circular PiP.',
+    label: 'Screen Studio Native',
+    description: 'Screen Studio-style native canvas with screen focus and a compact camera bubble.',
+    layoutLabel: 'Native bubble',
     aspectRatio: 'auto',
     backgroundPresetId: 'black-sand',
-    camera: { position: 'corner-br', shape: 'circle', aspectRatio: '1:1', size: 110, roundness: 50, visible: true },
+    camera: { position: 'corner-br', shape: 'rounded', aspectRatio: '1:1', size: 76, roundness: 100, visible: true },
+    screenFrame: { x: 0.065, y: 0.085, w: 0.87, h: 0.83 },
+    cameraFrame: { x: 0.75, y: 0.645, w: 0.145, h: 0.258 },
   },
 ];
 
@@ -91,29 +127,26 @@ export function getRecordingTemplatePreset(presetId: string): RecordingTemplateP
 
 export interface AppliedRecordingTemplate {
   readonly aspectRatio: ProjectAspectRatio;
+  readonly background: RecordingBackgroundStyle;
   readonly camera: Partial<CameraPresentation>;
+  readonly screenFrame: NormalizedRect;
+  readonly cameraFrame: NormalizedRect;
 }
 
-/**
- * Built-in templates set aspect ratio + camera. Background is user-owned and
- * intentionally NOT touched here — applying a built-in template preserves
- * whatever background preset the user chose. The `current` arg is unused but
- * retained for caller signature compatibility (older callers pass it).
- * Saved user templates (see user-templates.ts) DO carry background and
- * restore it on apply; that's the carve-out the product asked for.
- */
 export function applyRecordingTemplatePreset(
   _current: Partial<RecordingBackgroundStyle> | undefined,
   presetId: string,
 ): AppliedRecordingTemplate | undefined {
   const template = getRecordingTemplatePreset(presetId);
   if (!template) return undefined;
-  // Validation only — the backgroundPresetId still has to resolve so the
-  // template authoring stays well-formed. We just don't apply it.
-  if (!getRecordingBackgroundPreset(template.backgroundPresetId)) return undefined;
+  const backgroundPreset = getRecordingBackgroundPreset(template.backgroundPresetId);
+  if (!backgroundPreset) return undefined;
   return {
     aspectRatio: template.aspectRatio,
+    background: { ...backgroundPreset.style },
     camera: { ...template.camera },
+    screenFrame: { ...template.screenFrame },
+    cameraFrame: { ...template.cameraFrame },
   };
 }
 
@@ -129,4 +162,3 @@ export function findRecordingTemplatePresetId(
   if (!aspectRatio) return undefined;
   return RECORDING_TEMPLATE_PRESETS.find((template) => template.aspectRatio === aspectRatio)?.id;
 }
-

@@ -138,6 +138,46 @@ test('recording editor export merges the live preview layout into the export doc
   assert.match(source, /onExportMode\(mode, documentForExport\)/);
 });
 
+test('built-in recording templates apply presentation layout frames', () => {
+  const source = readFileSync(join(here, 'main.tsx'), 'utf8');
+  const templates = readFileSync(join(here, '../../../../../packages/project-model/src/recording-templates.ts'), 'utf8');
+
+  assert.match(templates, /readonly screenFrame: NormalizedRect/);
+  assert.match(templates, /readonly cameraFrame: NormalizedRect/);
+  assert.match(source, /\.\.\.\(applied\.screenFrame \? \{ screenFrame: applied\.screenFrame \}/);
+  assert.match(source, /\.\.\.\(applied\.cameraFrame \? \{ cameraFrame: applied\.cameraFrame \}/);
+  assert.doesNotMatch(source, /manually-dragged camera\/screen positions also stay untouched/);
+});
+
+test('circle camera shape constrains custom camera frames to square preview boxes', () => {
+  const previewSource = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  const editorSource = readFileSync(join(here, 'main.tsx'), 'utf8');
+
+  assert.match(previewSource, /function constrainCameraShapeFrame/);
+  assert.match(previewSource, /presentation\?\.shape !== 'circle'/);
+  assert.match(previewSource, /function addCameraShapePath/);
+  assert.match(previewSource, /ctx\.arc\(frame\.x \+ frame\.w \/ 2/);
+  assert.match(editorSource, /function constrainCameraShapeFrame/);
+  assert.match(editorSource, /presentation\?\.shape !== 'circle'/);
+  assert.match(editorSource, /function addCameraShapePath/);
+  assert.match(editorSource, /ctx\.arc\(frame\.x \+ frame\.w \/ 2/);
+  assert.doesNotMatch(editorSource, /patch\.shape === 'circle' && presentation\.cameraFrame/);
+  assert.doesNotMatch(editorSource, /next\.cameraFrame = cameraPresentation\.shape === 'circle'/);
+});
+
+test('camera editor exposes manual crop controls backed by cameraCrop presentation', () => {
+  const source = readFileSync(join(here, 'main.tsx'), 'utf8');
+  const previewSource = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+
+  assert.match(source, /label="Manual crop"/);
+  assert.match(source, /label="Frame aspect"/);
+  assert.match(source, /async function updateCameraCrop/);
+  assert.match(source, /next\.cameraCrop = crop/);
+  assert.match(source, /resolveCameraSourceRect/);
+  assert.match(previewSource, /resolveCameraSourceRect/);
+  assert.match(previewSource, /frame\.cameraCrop/);
+});
+
 test('recording timeline selecting a zoom region does not commit a drag update without movement', () => {
   const source = readFileSync(join(here, 'main.tsx'), 'utf8');
 
