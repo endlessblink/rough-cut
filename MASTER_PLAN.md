@@ -3974,8 +3974,9 @@ Sidebar polish will regress unless it is covered. The app already has preview/ex
 - Visual sidebar artifacts are captured for Background, Timeline, Cursor, and Camera under the smoke root's `loaded-sidebar-tabs/` directory, with non-empty PNG byte checks.
 - Latest focused visual artifacts inspected: `/tmp/rough-cut-sidebar-layout-smoke-T612iU/loaded-sidebar-tabs/background-board.png`, `timeline-board.png`, `cursor-board.png`, `camera-board.png`, plus `/tmp/rough-cut-sidebar-layout-smoke-T612iU/empty-layout.png`.
 - Latest passing `smoke:ui` run wrote sidebar artifacts under `/tmp/rough-cut-sidebar-layout-smoke-okEgNE/loaded-sidebar-tabs/`.
+- Added `apps/desktop/src/main/sidebar-smoke.test.mjs` to guard the sidebar smoke contract in the normal desktop test suite: live tab list, screenshot capture, stale-copy guard, representative controls, small viewport guard, and `smoke:ui` wiring.
 - Existing `visual:scrub` was attempted and remains red on its trim-drag wait (`page.waitForFunction` around `scripts/visual-scrub-playwright.mjs:118`). The sidebar-specific visual coverage is passing; the trim-drag harness should be handled as a separate timeline regression task.
-- Verification: `pnpm smoke:sidebar-layout` and `pnpm smoke:ui`.
+- Verification: `pnpm smoke:sidebar-layout`, `pnpm smoke:ui`, `node --test apps/desktop/src/main/sidebar-smoke.test.mjs`, and `pnpm --filter @rough-cut/desktop test`.
 
 ### TASK-112 Add export benchmark harness and performance budget
 
