@@ -148,11 +148,12 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
   const includeTimelineAudio = Array.isArray(recording.timelineSegments)
     && recording.timelineSegments.length > 0
     && await sourceHasAudioStream(recording.filePath, signal);
+  let useSimpleFastPath = false;
   try {
     const fps = Number.isFinite(recording.fps) && recording.fps > 0 ? recording.fps : 30;
     const durationSeconds = (recording.trimmedDuration ?? recording.timelineDurationFrames ?? recording.duration) / fps;
     const videoEncoder = await resolveStyledVideoEncoder(signal);
-    const styledArgs = (encoder) => buildStyledExportArgs({
+    const styledArgsInput = {
       inputPath: recording.filePath,
       outputPath,
       width: canvas.width,
@@ -189,9 +190,29 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       screenFrame: recording.presentation?.screenFrame ?? null,
       screenCrop: recording.presentation?.screenCrop ?? null,
       cutRanges: recording.cutRanges ?? [],
-      videoEncoder: encoder,
       outputDurationSeconds: durationSeconds,
+    };
+    useSimpleFastPath = canUseSimpleStyledExportFastPath({
+      ...styledArgsInput,
+      zoomCropFilter: zoomLayer?.filterFragment ?? null,
+      zoomSendcmdPath: zoomLayer?.path ?? null,
     });
+    if (useSimpleFastPath) {
+      onProgress({
+        phase: 'rendering-styled',
+        progress: 0.01,
+        fastPath: 'simple-styled',
+      });
+    }
+    const styledArgs = (encoder) => {
+      const args = {
+        ...styledArgsInput,
+        zoomCropFilter: zoomLayer?.filterFragment ?? null,
+        zoomSendcmdPath: zoomLayer?.path ?? null,
+        videoEncoder: encoder,
+      };
+      return useSimpleFastPath ? buildSimpleStyledExportArgs(args) : buildStyledExportArgs(args);
+    };
     if (videoEncoder === STYLED_VIDEO_ENCODERS.NVENC) {
       onProgress({
         phase: 'rendering-styled',
@@ -247,6 +268,7 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
     sourcePath: recording.filePath,
     bytes: exported.size,
     byteEqualCandidate: false,
+    fastPath: useSimpleFastPath ? 'simple-styled' : null,
   };
 }
 
@@ -630,6 +652,110 @@ export function buildStyledExportArgs({
     '+faststart',
     '-metadata',
     `rough_cut_style=canvas:${width}x${height}:studio-demo`,
+    outputPath,
+  ];
+}
+
+export function canUseSimpleStyledExportFastPath({
+  backgroundImagePath = null,
+  zoomCropFilter = null,
+  zoomSendcmdPath = null,
+  cameraInputPath = null,
+  timelineSegments = [],
+  timelineAudioSegments = [],
+  cameraTimelineSegments = [],
+  screenFrame = null,
+  screenCrop = null,
+  cameraFrame = null,
+  cameraCrop = null,
+  cutRanges = [],
+} = {}) {
+  if (backgroundImagePath) return false;
+  if (zoomCropFilter || zoomSendcmdPath) return false;
+  if (cameraInputPath || cameraFrame || cameraCrop) return false;
+  if (screenFrame || screenCrop) return false;
+  if (Array.isArray(timelineSegments) && timelineSegments.length > 0) return false;
+  if (Array.isArray(timelineAudioSegments) && timelineAudioSegments.length > 0) return false;
+  if (Array.isArray(cameraTimelineSegments) && cameraTimelineSegments.length > 0) return false;
+  if (Array.isArray(cutRanges) && cutRanges.length > 0) return false;
+  return true;
+}
+
+export function buildSimpleStyledExportArgs({
+  inputPath,
+  outputPath,
+  width = 1920,
+  height = 1080,
+  cursorAssPath = null,
+  sourceWidth = null,
+  sourceHeight = null,
+  sourceFps = null,
+  sourceTrimStartFrame = 0,
+  sourceTrimEndFrame = null,
+  screenPadding = 96,
+  screenCornerRadius = 32,
+  screenShadowEnabled = true,
+  screenShadowBlur = 58,
+  screenShadowOpacity = 0.2,
+  screenShadowOffsetY = 34,
+  screenShadowOffsetX = 0,
+  backgroundStart = '#e8ebf0',
+  backgroundEnd = '#f0e8e8',
+  videoEncoder = STYLED_VIDEO_ENCODERS.CPU,
+  outputDurationSeconds = null,
+}) {
+  const safePadding = clampNumber(screenPadding, 0, Math.min(width, height) / 2 - 2);
+  const maxVideoWidth = Math.round(width - safePadding * 2);
+  const maxVideoHeight = Math.round(height - safePadding * 2);
+  const shadowBlur = Math.round(clampNumber(screenShadowBlur, 0, 120));
+  const shadowOpacity = screenShadowEnabled ? clampNumber(screenShadowOpacity, 0, 0.8) : 0;
+  const shadowOffsetY = Math.round(clampNumber(screenShadowOffsetY, 0, 120));
+  const shadowOffsetX = Math.round(clampNumber(screenShadowOffsetX, -120, 120));
+  const backgroundExpression = buildBackgroundExpression(backgroundStart, backgroundEnd);
+  const fps = Number.isFinite(sourceFps) && sourceFps > 0 ? sourceFps : 30;
+  const staticLoop = buildStaticLoopFilter(fps, outputDurationSeconds);
+  const trimStartFrame = Math.max(0, Math.round(sourceTrimStartFrame || 0));
+  const trimEndFrame = Number.isFinite(sourceTrimEndFrame) ? Math.max(trimStartFrame + 1, Math.round(sourceTrimEndFrame)) : null;
+  const trimDurationFrames = trimEndFrame === null ? null : trimEndFrame - trimStartFrame;
+  const screenFrame = resolveScreenOverlayFrame(width, height, maxVideoWidth, maxVideoHeight, null);
+  const screenRenderSize = resolveContainedSize(sourceWidth, sourceHeight, screenFrame.w, screenFrame.h);
+  const screenRadius = Math.round(clampNumber(screenCornerRadius, 0, Math.min(screenFrame.w, screenFrame.h) / 2));
+  const screenAlpha = buildRoundedAlphaExpression(screenRadius);
+  const screenInput = cursorAssPath ? '[with_cursor]' : '[base]';
+  const filters = [
+    `nullsrc=s=${width}x${height}:r=1:d=1,format=rgb24,geq=${backgroundExpression},format=rgba,${staticLoop}[bg]`,
+    `[0:v]setpts=PTS-STARTPTS[base]`,
+    ...(cursorAssPath ? [`[base]subtitles=${escapeFilterPath(cursorAssPath)}[with_cursor]`] : []),
+    `${screenInput}scale=${screenRenderSize.w}:${screenRenderSize.h}:force_original_aspect_ratio=decrease,pad=${screenRenderSize.w}:${screenRenderSize.h}:(ow-iw)/2:(oh-ih)/2:color=black@0,format=rgba[screen]`,
+    `nullsrc=s=${screenRenderSize.w}x${screenRenderSize.h}:r=1:d=1,format=gray,geq=lum='${screenAlpha}',${staticLoop}[screen_mask]`,
+    '[screen][screen_mask]alphamerge[rounded]',
+    `nullsrc=s=${screenRenderSize.w}x${screenRenderSize.h}:r=1:d=1,format=rgba,geq=r='0':g='0':b='0':a='(${screenAlpha})*${formatFilterNumber(shadowOpacity)}',boxblur=${shadowBlur}:5,${staticLoop}[shadow]`,
+    `[bg][shadow]overlay=${screenFrame.x}${shadowOffsetX === 0 ? '' : shadowOffsetX > 0 ? `+${shadowOffsetX}` : shadowOffsetX}:${screenFrame.y}+${shadowOffsetY}:shortest=1[with_shadow]`,
+    `[with_shadow][rounded]overlay=${screenFrame.x}:${screenFrame.y}:shortest=1,format=yuv420p[v]`,
+  ];
+
+  return [
+    '-y',
+    '-progress',
+    'pipe:1',
+    '-nostats',
+    ...(trimStartFrame > 0 ? ['-ss', formatFilterNumber(trimStartFrame / fps)] : []),
+    ...(trimDurationFrames !== null ? ['-t', formatFilterNumber(trimDurationFrames / fps)] : []),
+    '-i',
+    inputPath,
+    '-filter_complex',
+    filters.join(';'),
+    '-map',
+    '[v]',
+    '-map',
+    '0:a?',
+    ...buildStyledVideoOutputArgs(videoEncoder),
+    '-c:a',
+    'copy',
+    '-movflags',
+    '+faststart',
+    '-metadata',
+    `rough_cut_style=canvas:${width}x${height}:studio-demo-fast`,
     outputPath,
   ];
 }

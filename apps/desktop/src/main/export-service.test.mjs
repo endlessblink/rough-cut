@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
-import { buildBackgroundExpression, buildCursorAss, buildRawTrimExportArgs, buildStyledExportArgs, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveTimelineExportRecording } from './export-service.mjs';
+import { buildBackgroundExpression, buildCursorAss, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveTimelineExportRecording } from './export-service.mjs';
 
 test('unedited export copies source mp4 byte-for-byte', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-'));
@@ -193,7 +193,7 @@ test('styled export mode uses the ffmpeg styled canvas path', async () => {
   await assert.rejects(() => exportProjectToMp4({ project, outputPath: '/tmp/export.mp4', mode: 'styled' }), /source.mp4/);
 });
 
-test('long styled export uses the full preview-parity path before invoking ffmpeg', async () => {
+test('simple styled export announces the simple fast path before invoking ffmpeg', async () => {
   const progress = [];
   const project = createProjectForRecording({
     recording: {
@@ -210,7 +210,7 @@ test('long styled export uses the full preview-parity path before invoking ffmpe
     () => exportProjectToMp4({ project, outputPath: '/tmp/export.mp4', mode: 'styled', onProgress: (event) => progress.push(event) }),
     /Styled export failed/,
   );
-  assert(!progress.some((event) => event.fastPath === true), 'styled exports must not use a simplified fast path');
+  assert(progress.some((event) => event.fastPath === 'simple-styled'), 'simple styled exports should use the simple fast path');
 });
 
 test('long styled export with custom presentation also uses the full preview-parity path', async () => {
@@ -245,7 +245,19 @@ test('long styled export with custom presentation also uses the full preview-par
     () => exportProjectToMp4({ project, outputPath: '/tmp/export.mp4', mode: 'styled', onProgress: (event) => progress.push(event) }),
     /Styled export failed/,
   );
-  assert(!progress.some((event) => event.fastPath === true), 'custom styled exports must use the full preview-parity path');
+  assert(!progress.some((event) => event.fastPath), 'custom styled exports must use the full preview-parity path');
+});
+
+test('simple styled fast path eligibility stays shape-gated', () => {
+  assert.equal(canUseSimpleStyledExportFastPath(), true);
+  assert.equal(canUseSimpleStyledExportFastPath({ cursorAssPath: '/tmp/cursor.ass' }), true);
+  assert.equal(canUseSimpleStyledExportFastPath({ backgroundImagePath: '/tmp/background.png' }), false);
+  assert.equal(canUseSimpleStyledExportFastPath({ zoomCropFilter: 'crop=iw:ih', zoomSendcmdPath: '/tmp/zoom.cmd' }), false);
+  assert.equal(canUseSimpleStyledExportFastPath({ cameraInputPath: '/tmp/camera.mp4' }), false);
+  assert.equal(canUseSimpleStyledExportFastPath({ cutRanges: [{ id: 'cut-1', startFrame: 1, endFrame: 2 }] }), false);
+  assert.equal(canUseSimpleStyledExportFastPath({ timelineSegments: [{ timelineIn: 0, timelineOut: 1, sourceIn: 0, sourceOut: 1 }] }), false);
+  assert.equal(canUseSimpleStyledExportFastPath({ screenFrame: { x: 0, y: 0, w: 1, h: 1 } }), false);
+  assert.equal(canUseSimpleStyledExportFastPath({ screenCrop: { enabled: true, x: 0, y: 0, width: 100, height: 100 } }), false);
 });
 
 test('styled export args build a 16:9 canvas render command', () => {
@@ -267,6 +279,31 @@ test('styled export args build a 16:9 canvas render command', () => {
   assert(joined.includes('studio-demo'));
   assert(args.includes('/tmp/source.mp4'));
   assert.equal(args.at(-1), '/tmp/export.mp4');
+});
+
+test('simple styled fast path args keep screen styling while omitting unsupported graph branches', () => {
+  const args = buildSimpleStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    sourceFps: 30,
+    cursorAssPath: '/tmp/cursor.ass',
+  });
+  const joined = args.join(' ');
+
+  assert(args.includes('-filter_complex'));
+  assert(joined.includes('[base]subtitles=/tmp/cursor.ass[with_cursor]'));
+  assert(joined.includes('[with_cursor]scale='));
+  assert(joined.includes('[screen][screen_mask]alphamerge[rounded]'));
+  assert(joined.includes('boxblur=58:5'));
+  assert(joined.includes('[with_shadow][rounded]overlay=(W-w)/2:(H-h)/2:shortest=1,format=yuv420p[v]'));
+  assert(joined.includes('studio-demo-fast'));
+  assert(!joined.includes('sendcmd='));
+  assert(!joined.includes('[camera_scaled]'));
+  assert(!joined.includes('movie='));
+  assert(!joined.includes('crop=iw*1:ih*1'));
+  assert.deepEqual(args.slice(args.indexOf('-map'), args.indexOf('-map') + 4), ['-map', '[v]', '-map', '0:a?']);
 });
 
 test('styled export args can use NVIDIA NVENC without changing the preview-parity graph', () => {

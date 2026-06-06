@@ -127,7 +127,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-111 | Add sidebar interaction and visual regression coverage | P2 | PLANNED |
 | TASK-112 | Add export benchmark harness and performance budget | P1 | DONE |
 | TASK-113 | Profile styled export filter graph bottlenecks | P1 | DONE |
-| TASK-114 | Add fast-path exports for no-zoom/no-camera cases | P1 | PLANNED |
+| TASK-114 | Add fast-path exports for no-zoom/no-camera cases | P1 | DONE |
 | TASK-115 | Optimize cursor and zoom layer generation overhead | P2 | PLANNED |
 | TASK-116 | Add export speed preset controls with quality guardrails | P2 | PLANNED |
 | TASK-117 | Add screen and camera crop region UI | P3 | PLANNED |
@@ -4032,7 +4032,7 @@ Styled export uses a complex ffmpeg graph for background, cursor subtitles, zoom
 ### TASK-114 Add fast-path exports for no-zoom/no-camera cases
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -4052,6 +4052,17 @@ Many user exports are simple: screen recording, styled canvas, cursor/clicks, no
 - `pnpm smoke:styled-export`
 - `pnpm benchmark:export` shows the simple styled case improved versus baseline.
 - Visual regression confirms fast-path output matches the full-graph output within accepted tolerance.
+
+#### Completion Notes
+
+- Added a shape-gated `simple-styled` export graph for no-zoom/no-camera/no-cut/no-background-image/no-custom-frame/no-manual-crop styled exports.
+- The simple graph preserves cursor/click subtitles, background colors, padding, rounded screen masks, shadows, audio copy, source trim, and existing encoder quality settings. It removes unsupported branches and the no-op identity crop from the simple path.
+- Full-graph fallback remains mandatory for zoom/sendcmd, camera overlays, background images, cut ranges, timeline segment composition, custom screen/camera frames, and manual screen/camera crops.
+- `pnpm benchmark:export` now records each case's `fastPath` marker in JSON. Latest report: `/tmp/rough-cut-export-fastpath-task114.json`.
+- Latest benchmark markers: `styled-basic`, `styled-cursor-clicks`, `profile-cursor-move-only`, `profile-shadow-off`, and `profile-square-no-shadow` used `simple-styled`; zoom, camera, background image, and cut-range cases stayed full graph.
+- Latest short 1080p result: `styled-basic` was 1390ms versus TASK-113's recorded 1401ms baseline, and `styled-cursor-clicks` was 1415ms. Timing remains noisy at this duration, but the simple path is validated and keeps the complex feature cases on the full graph.
+- Visual parity check: `pnpm visual:export-layout` passed and wrote `/tmp/rough-cut-export-layout-parity-QmNG84/layout-export-frame.png`.
+- Verification: `node --test apps/desktop/src/main/export-service.test.mjs`, `pnpm typecheck`, `pnpm smoke:styled-export`, `pnpm benchmark:export --output=/tmp/rough-cut-export-fastpath-task114.json`, and `pnpm visual:export-layout`.
 
 ### TASK-115 Optimize cursor and zoom layer generation overhead
 

@@ -262,7 +262,7 @@ async function runBenchmarkCase(benchmarkCase) {
   const outputPath = join(root, `${benchmarkCase.id}.mp4`);
   await saveProjectFile(join(root, `${benchmarkCase.id}.roughcut`), benchmarkCase.project);
   const started = performance.now();
-  await exportProjectToMp4({
+  const exportResult = await exportProjectToMp4({
     project: benchmarkCase.project,
     outputPath,
     mode: benchmarkCase.mode,
@@ -286,6 +286,7 @@ async function runBenchmarkCase(benchmarkCase) {
     featureMix: benchmarkCase.featureMix,
     profileRole: benchmarkCase.profileRole ?? null,
     compareTo: benchmarkCase.compareTo ?? null,
+    fastPath: exportResult.fastPath ?? null,
     budgetStatus: classifyBudgetStatus({
       mode: benchmarkCase.budgetMode,
       speedMultiplier,
