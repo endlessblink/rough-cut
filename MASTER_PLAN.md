@@ -125,7 +125,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-109 | Redesign sidebar information architecture and section density | P2 | DONE |
 | TASK-110 | Replace recording preview card with compact horizontal controls | P2 | PLANNED |
 | TASK-111 | Add sidebar interaction and visual regression coverage | P2 | PLANNED |
-| TASK-112 | Add export benchmark harness and performance budget | P1 | PLANNED |
+| TASK-112 | Add export benchmark harness and performance budget | P1 | DONE |
 | TASK-113 | Profile styled export filter graph bottlenecks | P1 | PLANNED |
 | TASK-114 | Add fast-path exports for no-zoom/no-camera cases | P1 | PLANNED |
 | TASK-115 | Optimize cursor and zoom layer generation overhead | P2 | PLANNED |
@@ -3967,7 +3967,7 @@ Sidebar polish will regress unless it is covered. The app already has preview/ex
 ### TASK-112 Add export benchmark harness and performance budget
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -3986,6 +3986,16 @@ Export speed is now part of perceived parity with Screen Studio/Focusee/Recordly
 - `pnpm benchmark:export` or equivalent command runs locally and prints a concise summary.
 - Unit or smoke coverage validates the benchmark harness fails on missing fixture output or invalid media.
 - Manual run on one real recording captures baseline numbers in task completion notes.
+
+#### Completion Notes
+
+- Added `pnpm benchmark:export`, which builds the project model and desktop app, generates 1080p synthetic fixtures, exports representative raw/styled projects, validates outputs with `ffprobe`, writes JSON, and prints a concise timing summary.
+- The JSON report records wall-clock time, source duration, output duration, export mode, resolution, fps, feature mix, speed multiplier, budget status, output path, and bytes for each case.
+- Initial budgets are recorded in `scripts/export-benchmark-utils.mjs` for short 1080p demo exports and longer 10-minute 1080p exports. The benchmark reports budget status only; it does not change ffmpeg quality settings.
+- Latest local baseline report: `/tmp/rough-cut-export-benchmark-task112.json`.
+- Latest synthetic 1080p baseline: raw copy 4.0s output in 1ms (2951.478x), raw trim 2.1s in 38ms (55.381x), styled basic 4.0s in 1257ms (3.181x), styled cursor/clicks 4.0s in 1383ms (2.892x), styled zooms 4.0s in 2346ms (1.705x), styled camera PiP 4.0s in 1518ms (2.635x), styled background image 4.0s in 1382ms (2.895x). All synthetic cases were within the initial short-demo budget.
+- Real recording baseline used `/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-06T07-42-11-243Z.roughcut` with `pnpm benchmark:export --project=/home/endlessblink/Documents/Rough\ Cut\ MVP/recordings/rough-cut-2026-06-06T07-42-11-243Z.roughcut --output=/tmp/rough-cut-export-benchmark-task112.json`; styled output was 2.0s in 900ms (2.223x), marked `unbudgeted` because real recordings are reference baselines rather than fixed synthetic budgets.
+- Verification: `node --test scripts/export-benchmark-utils.test.mjs`, `pnpm typecheck`, and `pnpm benchmark:export --project=/home/endlessblink/Documents/Rough\ Cut\ MVP/recordings/rough-cut-2026-06-06T07-42-11-243Z.roughcut --output=/tmp/rough-cut-export-benchmark-task112.json`.
 
 ### TASK-113 Profile styled export filter graph bottlenecks
 
