@@ -126,7 +126,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-110 | Replace recording preview card with compact horizontal controls | P2 | PLANNED |
 | TASK-111 | Add sidebar interaction and visual regression coverage | P2 | PLANNED |
 | TASK-112 | Add export benchmark harness and performance budget | P1 | DONE |
-| TASK-113 | Profile styled export filter graph bottlenecks | P1 | PLANNED |
+| TASK-113 | Profile styled export filter graph bottlenecks | P1 | DONE |
 | TASK-114 | Add fast-path exports for no-zoom/no-camera cases | P1 | PLANNED |
 | TASK-115 | Optimize cursor and zoom layer generation overhead | P2 | PLANNED |
 | TASK-116 | Add export speed preset controls with quality guardrails | P2 | PLANNED |
@@ -4000,7 +4000,7 @@ Export speed is now part of perceived parity with Screen Studio/Focusee/Recordly
 ### TASK-113 Profile styled export filter graph bottlenecks
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -4017,6 +4017,17 @@ Styled export uses a complex ffmpeg graph for background, cursor subtitles, zoom
 
 - Profiling notes include before/after timing for each isolated graph variant.
 - `pnpm smoke:styled-export` still passes after any profiling-only instrumentation is removed or gated.
+
+#### Completion Notes
+
+- Extended `pnpm benchmark:export` with profiling variants and JSON `profiling` summaries. The report now records `profileRole`, `compareTo`, per-case deltas, ranked optimization candidates, and explicit optimizations to avoid.
+- Latest profiling report: `/tmp/rough-cut-export-profile-task113.json`.
+- Baseline used CPU `libx264`; `styled-basic` took 1401ms for a 4.0s 1080p fixture. Treat this as the input-decode plus encoder plus base composition floor for this fixture.
+- Filter-stage deltas versus `styled-basic`: zoom crop/sendcmd +1044ms (+74.518%), camera overlay +178ms (+12.705%), background image +118ms (+8.423%), cursor subtitles +19ms (+1.356%), cut select +16ms (+1.142%), shadow blur +4ms (+0.286%). Square/no-shadow was +11ms (+0.783%) versus no-shadow, so rounded-alpha cost is not a meaningful standalone target in this short fixture.
+- Bottleneck call: zoom crop/sendcmd dominates this fixture and should be the first safe fast-path/profiling target. Camera overlay and background image are secondary. Cursor subtitles, simple cuts, shadow, and rounded alpha do not justify broad changes yet.
+- Safe TASK-114 direction: add shape-gated slimmer graphs for no-zoom/no-camera/no-cuts/simple-background cases, preserving cursor/click rendering and screen styling where enabled. Fall back to the current full graph for zoom, camera, cuts, custom frames/crops, and unsupported combinations.
+- Avoided optimization: do not remove rounded masks, shadows, cursor subtitles, zoom sendcmd, or camera overlay globally. Do not lower CRF, change encoder presets, or force hardware encoding in this lane; those belong to speed presets after visual parity is protected.
+- Verification: `node --test scripts/export-benchmark-utils.test.mjs`, `pnpm typecheck`, `pnpm smoke:styled-export`, and `pnpm benchmark:export --output=/tmp/rough-cut-export-profile-task113.json`.
 
 ### TASK-114 Add fast-path exports for no-zoom/no-camera cases
 

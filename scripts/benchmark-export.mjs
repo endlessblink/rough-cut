@@ -90,10 +90,30 @@ const cases = [
     sourceDurationSeconds: sourceProbe.durationSeconds,
   },
   {
+    id: 'profile-cursor-move-only',
+    label: 'Profile cursor subtitles without clicks',
+    mode: 'styled',
+    budgetMode: 'profile',
+    profileRole: 'cursor-subtitles',
+    compareTo: 'styled-basic',
+    featureMix: ['profile', 'styled', 'cursor', 'no-clicks'],
+    project: withPrimaryPresentation((await createRecordingProject({
+      mediaPath: sourcePath,
+      cameraPath: null,
+      durationSeconds: 4,
+      cursorEvents: buildCursorEvents({ fps: SOURCE_FPS, durationFrames: 120, width: SOURCE_WIDTH, height: SOURCE_HEIGHT, includeClicks: false }),
+    })).document, {
+      cursor: { style: 'default', clickEffect: 'none', sizePercent: 110, clickSoundEnabled: false },
+    }),
+    sourceDurationSeconds: sourceProbe.durationSeconds,
+  },
+  {
     id: 'styled-zooms',
     label: 'Styled with zooms',
     mode: 'styled',
     budgetMode: 'styled',
+    profileRole: 'zoom-crop-sendcmd',
+    compareTo: 'styled-basic',
     featureMix: ['styled', 'zoom-markers'],
     project: withPrimaryPresentation(baseProject.document, {
       zoom: {
@@ -106,10 +126,53 @@ const cases = [
     sourceDurationSeconds: sourceProbe.durationSeconds,
   },
   {
+    id: 'profile-shadow-off',
+    label: 'Profile without screen shadow',
+    mode: 'styled',
+    budgetMode: 'profile',
+    profileRole: 'shadow-blur',
+    compareTo: 'styled-basic',
+    featureMix: ['profile', 'styled', 'shadow-disabled', 'rounded-screen'],
+    project: withPrimaryPresentation(baseProject.document, {
+      background: {
+        ...createDefaultRecordingPresentation().background,
+        bgShadowEnabled: false,
+        bgShadowOpacity: 0,
+        bgShadowBlur: 0,
+        bgShadowOffsetY: 0,
+        bgShadowOffsetX: 0,
+      },
+    }),
+    sourceDurationSeconds: sourceProbe.durationSeconds,
+  },
+  {
+    id: 'profile-square-no-shadow',
+    label: 'Profile square screen without shadow',
+    mode: 'styled',
+    budgetMode: 'profile',
+    profileRole: 'rounded-alpha',
+    compareTo: 'profile-shadow-off',
+    featureMix: ['profile', 'styled', 'square-screen', 'shadow-disabled'],
+    project: withPrimaryPresentation(baseProject.document, {
+      background: {
+        ...createDefaultRecordingPresentation().background,
+        bgCornerRadius: 0,
+        bgShadowEnabled: false,
+        bgShadowOpacity: 0,
+        bgShadowBlur: 0,
+        bgShadowOffsetY: 0,
+        bgShadowOffsetX: 0,
+      },
+    }),
+    sourceDurationSeconds: sourceProbe.durationSeconds,
+  },
+  {
     id: 'styled-camera-pip',
     label: 'Styled with camera PiP',
     mode: 'styled',
     budgetMode: 'styled',
+    profileRole: 'camera-overlay',
+    compareTo: 'styled-basic',
     featureMix: ['styled', 'camera-pip'],
     project: withPrimaryPresentation((await createRecordingProject({
       mediaPath: sourcePath,
@@ -126,9 +189,27 @@ const cases = [
     label: 'Styled with background image',
     mode: 'styled',
     budgetMode: 'styled',
+    profileRole: 'background-image',
+    compareTo: 'styled-basic',
     featureMix: ['styled', 'background-image'],
     project: withPrimaryPresentation(baseProject.document, {
       background: applyRecordingBackgroundPreset(createDefaultRecordingPresentation().background, 'soft-blur'),
+    }),
+    sourceDurationSeconds: sourceProbe.durationSeconds,
+  },
+  {
+    id: 'profile-cut-ranges',
+    label: 'Profile cut ranges',
+    mode: 'styled',
+    budgetMode: 'profile',
+    profileRole: 'cut-select',
+    compareTo: 'styled-basic',
+    featureMix: ['profile', 'styled', 'cut-ranges'],
+    project: withPrimaryPresentation(baseProject.document, {
+      cutRanges: [
+        { id: 'profile-cut-1', startFrame: 24, endFrame: 42 },
+        { id: 'profile-cut-2', startFrame: 84, endFrame: 96 },
+      ],
     }),
     sourceDurationSeconds: sourceProbe.durationSeconds,
   },
@@ -170,6 +251,7 @@ const report = {
   },
   budgets: EXPORT_BENCHMARK_BUDGETS,
   cases: results,
+  profiling: buildProfilingSummary(results),
 };
 
 await mkdir(dirname(reportPath), { recursive: true });
@@ -202,6 +284,8 @@ async function runBenchmarkCase(benchmarkCase) {
     wallClockMs: Math.max(1, Math.round(wallClockMs)),
     speedMultiplier: speedMultiplier === null ? null : round(speedMultiplier),
     featureMix: benchmarkCase.featureMix,
+    profileRole: benchmarkCase.profileRole ?? null,
+    compareTo: benchmarkCase.compareTo ?? null,
     budgetStatus: classifyBudgetStatus({
       mode: benchmarkCase.budgetMode,
       speedMultiplier,
@@ -213,6 +297,61 @@ async function runBenchmarkCase(benchmarkCase) {
     projectPath: benchmarkCase.projectPath ?? null,
     bytes: outputProbe.bytes,
   };
+}
+
+function buildProfilingSummary(items) {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const comparisons = items
+    .filter((item) => item.profileRole && item.compareTo)
+    .map((item) => {
+      const baseline = byId.get(item.compareTo);
+      if (!baseline) {
+        return {
+          caseId: item.id,
+          profileRole: item.profileRole,
+          compareTo: item.compareTo,
+          deltaWallClockMs: null,
+          deltaPercent: null,
+          note: 'Missing comparison baseline.',
+        };
+      }
+      const deltaWallClockMs = item.wallClockMs - baseline.wallClockMs;
+      const deltaPercent = baseline.wallClockMs > 0 ? (deltaWallClockMs / baseline.wallClockMs) * 100 : null;
+      return {
+        caseId: item.id,
+        profileRole: item.profileRole,
+        compareTo: item.compareTo,
+        baselineWallClockMs: baseline.wallClockMs,
+        caseWallClockMs: item.wallClockMs,
+        deltaWallClockMs,
+        deltaPercent: round(deltaPercent),
+        note: deltaWallClockMs >= 0
+          ? `${item.profileRole} added ${deltaWallClockMs}ms versus ${item.compareTo}.`
+          : `${item.profileRole} saved ${Math.abs(deltaWallClockMs)}ms versus ${item.compareTo}.`,
+      };
+    });
+  return {
+    encoder: process.env.ROUGH_CUT_STYLED_VIDEO_ENCODER ?? process.env.ROUGH_CUT_STYLED_ENCODER ?? 'auto',
+    referenceCaseId: 'styled-basic',
+    comparisons,
+    optimizationCandidates: rankOptimizationCandidates(comparisons),
+    avoidOptimizations: [
+      'Do not remove rounded masks, shadows, cursor subtitles, zoom sendcmd, or camera overlay globally; TASK-114 should gate any slimmer graph by project shape and preserve preview/export parity.',
+      'Do not lower CRF, switch presets, or force hardware encoding as part of profiling; encoder-quality changes belong to a separate speed preset task.',
+    ],
+  };
+}
+
+function rankOptimizationCandidates(comparisons) {
+  return comparisons
+    .filter((item) => Number.isFinite(item.deltaWallClockMs) && item.deltaWallClockMs > 0)
+    .sort((left, right) => right.deltaWallClockMs - left.deltaWallClockMs)
+    .map((item) => ({
+      profileRole: item.profileRole,
+      caseId: item.caseId,
+      deltaWallClockMs: item.deltaWallClockMs,
+      deltaPercent: item.deltaPercent,
+    }));
 }
 
 async function createRecordingProject({ mediaPath, cameraPath, durationSeconds, cursorEvents }) {
@@ -435,6 +574,15 @@ function printSummary(report, path) {
       `${item.speedMultiplier ?? 'n/a'}x`.padStart(7),
       item.budgetStatus,
     ].join('  '));
+  }
+  if (report.profiling?.comparisons?.length) {
+    console.info('\nProfiling deltas');
+    for (const item of report.profiling.comparisons) {
+      const delta = item.deltaWallClockMs === null
+        ? 'n/a'
+        : `${item.deltaWallClockMs >= 0 ? '+' : ''}${item.deltaWallClockMs}ms`;
+      console.info(`${item.profileRole.padEnd(20)} ${delta.padStart(8)} vs ${item.compareTo}`);
+    }
   }
   console.info(`\nArtifacts root: ${report.root}`);
 }
