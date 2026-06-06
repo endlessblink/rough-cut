@@ -3944,7 +3944,7 @@ The recording preview panel should not be a large square/card competing with the
 ### TASK-111 Add sidebar interaction and visual regression coverage
 
 **Priority:** P2
-**Status:** PLANNED
+**Status:** DONE
 
 #### Context
 
@@ -3963,6 +3963,19 @@ Sidebar polish will regress unless it is covered. The app already has preview/ex
 - `pnpm smoke:ui`
 - `pnpm visual:scrub` or the project’s current visual regression command for editor/sidebar states.
 - Manual packaged-app sidebar click-through after redesign tasks land.
+
+#### Completion Notes
+
+- `smoke:ui` now runs `scripts/smoke-sidebar-layout.mjs` after the main UI smoke, so the documented command covers sidebar regressions.
+- Sidebar smoke now switches the live tool rail tabs: Background, Timeline, Cursor, and Camera. It verifies the central stage, timeline, export inspector, and preview rects remain stable across tabs.
+- Representative controls are exercised per tab: Background selects the Soft blur preset, Timeline verifies the real cuts panel/context, Cursor selects Spotlight style, and Camera changes the Shape select when a camera track exists.
+- The smoke fails if known stale/dead sidebar copy returns: TASK-044 placeholder copy, Diagnostics placeholder copy, bottom-rail placeholder copy, and loaded-project placeholder copy.
+- Small viewport coverage runs at 900x740 and asserts no horizontal overflow in the setup board, export inspector, or central stage.
+- Visual sidebar artifacts are captured for Background, Timeline, Cursor, and Camera under the smoke root's `loaded-sidebar-tabs/` directory, with non-empty PNG byte checks.
+- Latest focused visual artifacts inspected: `/tmp/rough-cut-sidebar-layout-smoke-T612iU/loaded-sidebar-tabs/background-board.png`, `timeline-board.png`, `cursor-board.png`, `camera-board.png`, plus `/tmp/rough-cut-sidebar-layout-smoke-T612iU/empty-layout.png`.
+- Latest passing `smoke:ui` run wrote sidebar artifacts under `/tmp/rough-cut-sidebar-layout-smoke-okEgNE/loaded-sidebar-tabs/`.
+- Existing `visual:scrub` was attempted and remains red on its trim-drag wait (`page.waitForFunction` around `scripts/visual-scrub-playwright.mjs:118`). The sidebar-specific visual coverage is passing; the trim-drag harness should be handled as a separate timeline regression task.
+- Verification: `pnpm smoke:sidebar-layout` and `pnpm smoke:ui`.
 
 ### TASK-112 Add export benchmark harness and performance budget
 

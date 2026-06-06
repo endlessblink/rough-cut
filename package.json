@@ -13,7 +13,7 @@
     "smoke:recording-audio-gain-ui": "ROUGH_CUT_UI_SMOKE_AUDIO_GAIN_ONLY=1 ROUGH_CUT_SMOKE_MIC_SOURCE=alsa_input.rough_cut_smoke_mic ROUGH_CUT_SMOKE_SYSTEM_AUDIO_SOURCE=alsa_output.rough_cut_smoke.monitor pnpm smoke:recording-flow-ui",
     "smoke:recording-flow-double-stop": "ROUGH_CUT_UI_SMOKE_DOUBLE_STOP=1 pnpm smoke:recording-flow-ui",
     "smoke:recording-flow-cancel": "ROUGH_CUT_UI_SMOKE_CANCEL_FLOW=1 pnpm smoke:recording-flow-ui",
-    "smoke:ui": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-ui.mjs",
+    "smoke:ui": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-ui.mjs && node scripts/smoke-sidebar-layout.mjs",
     "smoke:sidebar-layout": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-sidebar-layout.mjs",
     "smoke:styled-export": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-styled-export.mjs",
     "benchmark:export": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/benchmark-export.mjs",

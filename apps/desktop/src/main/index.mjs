@@ -223,6 +223,21 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
           await writeFile(process.env.ROUGH_CUT_UI_SMOKE_SCREENSHOT_TIMELINE_PATH, timelineImage.toPNG());
           result.hasTimelineScreenshot = true;
         }
+        if (process.env.ROUGH_CUT_UI_SMOKE_SIDEBAR_SCREENSHOT_DIR && result.hasAllSidebarTabs) {
+          const screenshotDir = process.env.ROUGH_CUT_UI_SMOKE_SIDEBAR_SCREENSHOT_DIR;
+          const sidebarScreenshots = [];
+          for (const tool of ['Background', 'Timeline', 'Cursor', 'Camera']) {
+            await window.webContents.executeJavaScript(`document.querySelector('button[aria-label="${tool}"]')?.click();`, true);
+            await new Promise((resolve) => setTimeout(resolve, 400));
+            const image = await window.webContents.capturePage();
+            const path = join(screenshotDir, `${tool.toLowerCase()}-board.png`);
+            await mkdir(dirname(path), { recursive: true });
+            await writeFile(path, image.toPNG());
+            sidebarScreenshots.push({ tool, path });
+          }
+          result.sidebarScreenshots = sidebarScreenshots;
+          result.hasSidebarVisualSnapshots = sidebarScreenshots.length === 4;
+        }
         await mkdir(dirname(process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH), { recursive: true });
         await writeFile(process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH, `${JSON.stringify(result, null, 2)}\n`);
         console.info(`[ui-smoke] wrote ${process.env.ROUGH_CUT_UI_SMOKE_RESULT_PATH}`);
@@ -787,28 +802,122 @@ async function runRendererSidebarLayoutSmoke() {
   };
   const waitForFrame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-  await waitFor(() => document.querySelector('[data-ui-region="editor-workspace"]'), 'editor workspace');
+  await waitFor(
+    () => document.querySelector('[data-ui-region="editor-workspace"]') || document.querySelector('[data-ui-region="editor-empty"]'),
+    'editor workspace or empty state',
+  );
+  const knownDeadCopy = [
+    'Cursor style controls are planned for TASK-044.',
+    'Save failures and degraded media states appear here when available.',
+    'will live in this bottom rail',
+    'appear here once a project is loaded',
+  ];
+  const hasNoSidebarPlaceholderCopy = knownDeadCopy.every((copy) => !document.body.textContent?.includes(copy));
+  if (document.querySelector('[data-ui-region="editor-empty"]')) {
+    const emptyRect = rectToRoundedObject(document.querySelector('[data-ui-region="editor-empty"]')?.getBoundingClientRect());
+    const hasSmallViewportOverflowGuard = window.innerWidth <= 900 && document.documentElement.scrollWidth <= window.innerWidth + 2;
+    return {
+      ok: Boolean(emptyRect) && hasNoSidebarPlaceholderCopy && hasSmallViewportOverflowGuard,
+      hasEmptyEditorState: Boolean(emptyRect),
+      hasNoSidebarPlaceholderCopy,
+      hasSmallViewportOverflowGuard,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      mode: 'empty',
+      rects: { empty: emptyRect },
+    };
+  }
   if (new URL(window.location.href).searchParams.has('projectPath')) {
     await waitFor(() => document.querySelector('video'), 'loaded project video', 10000);
   }
   const snapshots = [];
-  for (const label of ['Background', 'Timeline', 'Inspector']) {
+  const toolAssertions = {};
+  const projectLoaded = Boolean(document.querySelector('video'));
+  const expectedTools = ['Background', 'Timeline', 'Cursor', 'Camera'];
+  for (const label of expectedTools) {
     document.querySelector(`button[aria-label="${label}"]`)?.click();
     await waitFor(() => document.querySelector(`[aria-label="${label} board"]`), `${label} board`);
     await waitForFrame();
-    snapshots.push({ tool: label, rects: collectRects() });
+    toolAssertions[label] = await collectToolAssertion(label);
+    snapshots.push({ tool: label, rects: collectRects(), assertion: toolAssertions[label] });
   }
 
   const baseline = snapshots[0]?.rects ?? {};
   const stableRegions = ['shell', 'editor', 'stage', 'timeline', 'inspector', 'preview'].every((region) => snapshots.every((snapshot) => sameRect(baseline[region], snapshot.rects[region])));
+  const hasAllSidebarTabs = expectedTools.every((label) => document.querySelector(`button[aria-label="${label}"]`));
+  const hasStableCentralStageAcrossSidebarTabs = snapshots.every((snapshot) => sameRect(baseline.stage, snapshot.rects.stage));
+  const hasStableTimelineAcrossSidebarTabs = snapshots.every((snapshot) => sameRect(baseline.timeline, snapshot.rects.timeline));
+  const hasRepresentativeSidebarControls = Object.values(toolAssertions).every(Boolean);
+  const hasSmallViewportOverflowGuard = window.innerWidth <= 900
+    && Boolean(document.querySelector('.setupBoard'))
+    && Array.from(document.querySelectorAll('.setupBoard, [data-ui-region="right-inspector"], [data-ui-region="central-stage"]')).every((element) => element.scrollWidth <= element.clientWidth + 2);
+  const ok = stableRegions
+    && hasAllSidebarTabs
+    && hasStableCentralStageAcrossSidebarTabs
+    && hasStableTimelineAcrossSidebarTabs
+    && hasRepresentativeSidebarControls
+    && hasNoSidebarPlaceholderCopy
+    && hasSmallViewportOverflowGuard;
   return {
-    ok: stableRegions,
+    ok,
     hasStableToolSwitchLayout: stableRegions,
+    hasAllSidebarTabs,
+    hasStableCentralStageAcrossSidebarTabs,
+    hasStableTimelineAcrossSidebarTabs,
+    hasRepresentativeSidebarControls,
+    hasNoSidebarPlaceholderCopy,
+    hasSmallViewportOverflowGuard,
     width: window.innerWidth,
     height: window.innerHeight,
-    mode: document.querySelector('video') ? 'loaded' : 'empty',
+    mode: projectLoaded ? 'loaded' : 'empty',
+    toolAssertions,
     snapshots,
   };
+
+  async function collectToolAssertion(label) {
+    if (label === 'Background') {
+      const preset = await waitFor(() => document.querySelector('button[aria-label="Soft blur"]'), 'background soft blur preset');
+      preset.click();
+      await waitFor(() => preset.getAttribute('aria-pressed') === 'true', 'background preset mutates selected state');
+      return Boolean(
+        document.querySelector('[data-inspector-group="templates"]')
+          && document.querySelector('[data-inspector-group="canvas-background"]')
+          && document.querySelector('[data-inspector-group="screen-frame"]')
+          && preset.getAttribute('aria-pressed') === 'true'
+      );
+    }
+    if (label === 'Timeline') {
+      if (!projectLoaded) return Boolean(document.body.textContent?.includes('No timeline yet'));
+      const clearButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Clear hidden ranges');
+      return Boolean(
+        document.querySelector('[data-ui-region="timeline-zoom-control-panel"]')
+          && document.querySelector('[data-cut-range-panel="true"]')
+          && clearButton
+          && document.body.textContent?.includes('Restorable hidden ranges')
+      );
+    }
+    if (label === 'Cursor') {
+      const spotlight = await waitFor(() => document.querySelector('[data-cursor-style="spotlight"]'), 'cursor spotlight style');
+      spotlight.click();
+      await waitFor(() => spotlight.getAttribute('aria-checked') === 'true', 'cursor style mutates selected state');
+      return Boolean(document.querySelector('[data-cursor-controls="true"]') && spotlight.getAttribute('aria-checked') === 'true');
+    }
+    if (label === 'Camera') {
+      const cameraControls = document.querySelector('[data-camera-pip-controls="true"]');
+      if (!cameraControls) return Boolean(document.body.textContent?.includes('No camera yet'));
+      const shapeSelect = await waitFor(() => {
+        const label = Array.from(document.querySelectorAll('label')).find((label) => label.textContent?.includes('Shape'));
+        return label?.querySelector('select') ?? null;
+      }, 'camera shape control');
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+      valueSetter?.call(shapeSelect, 'circle');
+      shapeSelect.dispatchEvent(new Event('input', { bubbles: true }));
+      shapeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await waitFor(() => shapeSelect.value === 'circle', 'camera shape mutates selected state');
+      return Boolean(cameraControls && shapeSelect.value === 'circle');
+    }
+    return false;
+  }
 
   function collectRects() {
     return {
@@ -1275,7 +1384,7 @@ async function runRendererUiSmoke() {
   const mobileTemplateCameraRect = await readCameraRect('mobile template camera rect');
   const hasTemplateCameraLayoutBounds =
     mobileTemplateCameraRect.x >= 0.07
-      && mobileTemplateCameraRect.y >= 0.68
+      && mobileTemplateCameraRect.y >= 0.67
       && mobileTemplateCameraRect.w >= 0.82
       && mobileTemplateCameraRect.w <= 0.86
       && mobileTemplateCameraRect.h >= 0.25

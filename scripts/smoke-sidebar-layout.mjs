@@ -83,6 +83,7 @@ async function createLoadedProject() {
 function runLayoutSmoke({ name, projectPath }) {
   const resultPath = join(root, `${name}-layout-result.json`);
   const screenshotPath = join(root, `${name}-layout.png`);
+  const sidebarScreenshotDir = join(root, `${name}-sidebar-tabs`);
   const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb', '.'], {
     cwd: join(process.cwd(), 'apps/desktop'),
     env: {
@@ -94,6 +95,7 @@ function runLayoutSmoke({ name, projectPath }) {
       ROUGH_CUT_UI_SMOKE_WINDOW_HEIGHT: '740',
       ROUGH_CUT_UI_SMOKE_RESULT_PATH: resultPath,
       ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH: screenshotPath,
+      ROUGH_CUT_UI_SMOKE_SIDEBAR_SCREENSHOT_DIR: sidebarScreenshotDir,
       ...(projectPath ? { ROUGH_CUT_UI_SMOKE_PROJECT_PATH: projectPath } : {}),
     },
     encoding: 'utf8',
@@ -103,8 +105,22 @@ function runLayoutSmoke({ name, projectPath }) {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${name} sidebar layout smoke failed with exit code ${result.status}. Artifacts: ${root}`);
   const report = JSON.parse(readFileSync(resultPath, 'utf8'));
+  const requiresSidebarAssertions = report.mode === 'loaded';
+  if (!report.ok
+    || !report.hasNoSidebarPlaceholderCopy
+    || !report.hasSmallViewportOverflowGuard
+    || (requiresSidebarAssertions && (!report.hasAllSidebarTabs || !report.hasRepresentativeSidebarControls || !report.hasSidebarVisualSnapshots))
+    || (!requiresSidebarAssertions && !report.hasEmptyEditorState)) {
+    throw new Error(`${name} sidebar layout assertions failed: ${JSON.stringify(report, null, 2)}. Artifacts: ${root}`);
+  }
   const screenshotBytes = statSync(screenshotPath).size;
-  return { ...report, screenshotPath, screenshotBytes };
+  const sidebarScreenshotBytes = Object.fromEntries(
+    (report.sidebarScreenshots ?? []).map((screenshot) => [screenshot.tool, statSync(screenshot.path).size]),
+  );
+  if (requiresSidebarAssertions && (Object.keys(sidebarScreenshotBytes).length !== 4 || Object.values(sidebarScreenshotBytes).some((bytes) => bytes <= 1000))) {
+    throw new Error(`${name} sidebar visual snapshots were missing or empty: ${JSON.stringify({ sidebarScreenshotBytes, report }, null, 2)}. Artifacts: ${root}`);
+  }
+  return { ...report, screenshotPath, screenshotBytes, sidebarScreenshotDir, sidebarScreenshotBytes };
 }
 
 function run(command, args) {
