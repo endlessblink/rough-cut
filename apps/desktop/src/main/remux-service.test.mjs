@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -7,8 +8,16 @@ import { startFfmpegCapture } from './recording/ffmpeg-capture.mjs';
 import { assertReadableMp4 } from './media-probe.mjs';
 import { remuxMkvToMp4, RemuxIncompleteError, validateRemuxedMp4 } from './remux-service.mjs';
 
-test('remuxes a short mkv recording to readable mp4', { timeout: 30_000 }, async () => {
-  if (!process.env.DISPLAY) return;
+test('remuxes a short mkv recording to readable mp4', { timeout: 30_000 }, async (t) => {
+  const display = ':0+0,0';
+  if (!process.env.DISPLAY) {
+    t.skip('DISPLAY is not set');
+    return;
+  }
+  if (!(await canReadX11Grab(display))) {
+    t.skip(`ffmpeg x11grab cannot open ${display}`);
+    return;
+  }
 
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-remux-'));
   const rawPath = join(root, 'capture.mkv');
@@ -16,7 +25,7 @@ test('remuxes a short mkv recording to readable mp4', { timeout: 30_000 }, async
   const capture = startFfmpegCapture({
     outputPath: rawPath,
     fps: 30,
-    display: ':0+0,0',
+    display,
     width: 320,
     height: 240,
   });
@@ -30,6 +39,24 @@ test('remuxes a short mkv recording to readable mp4', { timeout: 30_000 }, async
 
   await rm(root, { recursive: true, force: true });
 });
+
+function canReadX11Grab(display) {
+  return new Promise((resolve) => {
+    const proc = spawn('ffmpeg', [
+      '-v', 'error',
+      '-f', 'x11grab',
+      '-draw_mouse', '0',
+      '-framerate', '1',
+      '-video_size', '16x16',
+      '-i', display,
+      '-frames:v', '1',
+      '-f', 'null',
+      '-',
+    ], { stdio: ['ignore', 'ignore', 'ignore'] });
+    proc.on('error', () => resolve(false));
+    proc.on('close', (code) => resolve(code === 0));
+  });
+}
 
 test('validateRemuxedMp4 reports coherent when decoded frames match advertised', async () => {
   const result = await validateRemuxedMp4('/tmp/fake.mp4', {
