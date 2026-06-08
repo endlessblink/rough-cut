@@ -888,7 +888,8 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 
 .inspectorField span { color: var(--muted); }
-.inspectorField select {
+.inspectorField select,
+.recordingStrip > select {
   appearance: none;
   background:
     linear-gradient(45deg, transparent 50%, #d8e4ff 50%) calc(100% - 0.92rem) 50% / 0.34rem 0.34rem no-repeat,
@@ -903,7 +904,8 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
 
-.inspectorField select:hover:not(:disabled) {
+.inspectorField select:hover:not(:disabled),
+.recordingStrip > select:hover:not(:disabled) {
   background:
     linear-gradient(45deg, transparent 50%, #ffffff 50%) calc(100% - 0.92rem) 50% / 0.34rem 0.34rem no-repeat,
     linear-gradient(135deg, #ffffff 50%, transparent 50%) calc(100% - 0.68rem) 50% / 0.34rem 0.34rem no-repeat,
@@ -911,19 +913,26 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   border-color: #4a5268;
 }
 
-.inspectorField select:focus-visible {
+.inspectorField select:focus-visible,
+.recordingStrip > select:focus-visible {
   background:
     linear-gradient(45deg, transparent 50%, #ffffff 50%) calc(100% - 0.92rem) 50% / 0.34rem 0.34rem no-repeat,
     linear-gradient(135deg, #ffffff 50%, transparent 50%) calc(100% - 0.68rem) 50% / 0.34rem 0.34rem no-repeat,
     linear-gradient(180deg, #202740, #171b2c);
 }
 
-.inspectorField select:disabled {
+.inspectorField select:disabled,
+.recordingStrip > select:disabled {
   background:
     linear-gradient(45deg, transparent 50%, #8a8f9d 50%) calc(100% - 0.92rem) 50% / 0.34rem 0.34rem no-repeat,
     linear-gradient(135deg, #8a8f9d 50%, transparent 50%) calc(100% - 0.68rem) 50% / 0.34rem 0.34rem no-repeat,
     linear-gradient(180deg, #181923, #12131a);
   color: #aab0c0;
+}
+
+.recordingStrip > select {
+  min-height: 2.18rem;
+  padding-right: 1.95rem;
 }
 
 .inspectorPresetGroup { display: grid; gap: 0.5rem; }
