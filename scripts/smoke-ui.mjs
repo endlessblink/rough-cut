@@ -11,6 +11,9 @@ const exportPath = join(root, 'export.mp4');
 const resultPath = join(root, 'ui-smoke-result.json');
 const screenshotPath = join(root, 'ui-smoke.png');
 const timelineScreenshotPath = join(root, 'ui-smoke-timeline.png');
+const openSelectScreenshotPath = join(root, 'ui-smoke-open-select.png');
+const openShapeScreenshotPath = join(root, 'ui-smoke-open-shape.png');
+const openAspectScreenshotPath = join(root, 'ui-smoke-open-aspect.png');
 const userDataPath = join(root, 'electron-user-data');
 
 await mkdir(root, { recursive: true });
@@ -83,6 +86,9 @@ const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb'
     ROUGH_CUT_UI_SMOKE_RESULT_PATH: resultPath,
     ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH: screenshotPath,
     ROUGH_CUT_UI_SMOKE_SCREENSHOT_TIMELINE_PATH: timelineScreenshotPath,
+    ROUGH_CUT_UI_SMOKE_OPEN_SELECT_SCREENSHOT_PATH: openSelectScreenshotPath,
+    ROUGH_CUT_UI_SMOKE_OPEN_SHAPE_SCREENSHOT_PATH: openShapeScreenshotPath,
+    ROUGH_CUT_UI_SMOKE_OPEN_ASPECT_SCREENSHOT_PATH: openAspectScreenshotPath,
     ROUGH_CUT_UI_SMOKE_WINDOW_WIDTH: '1280',
     ROUGH_CUT_UI_SMOKE_WINDOW_HEIGHT: '1300',
   },
@@ -108,11 +114,14 @@ if (process.env.ROUGH_CUT_UI_SMOKE_NLE_ONLY === '1') {
   process.exit(0);
 }
 const screenshotBytes = (await readFile(screenshotPath)).length;
-if (!report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'styled' || !report.hasStyledMode || !report.hasStyledPresetDetails || !report.hasReviewExportActions || !report.hasExportProgressMeter || !report.hasBackgroundPresetSelection || !report.hasTemplatePresetSelection || !report.hasFocuSeeSplitCameraLayoutBounds || !report.hasFocuSeeYouTubeCameraLayoutBounds || !report.hasTemplateCameraLayoutBounds || !report.hasCircleCameraPixelSquare || !report.hasRectangleAfterCircleShape || !report.hasNoInactiveBackgroundTabs || !report.hasBackgroundShadowControls || !report.hasScreenCropControls || !report.hasCustomRangeSkin || !report.hasTimelineZoomControlPanel || !report.hasStableToolSwitchLayout || !report.hasZoomResizeHandles || !report.hasKeyboardZoomControls || !report.hasTimelineLiveRegion || !report.hasKeyboardTimelineScrubber || !report.hasTimelineScrubberFineStep || !report.hasTimelineArrowKeyAdvance || !report.hasCursorPresentationControls || !report.hasCursorTab || !report.hasCameraTab || !report.hasExportAspectChip || !report.hasKeyboardTrimHandles || !report.hasFrameDragHandles || !report.hasUndoRedoControls || !report.hasNoSetupBoardHorizontalOverflow || !report.hasStudioShell || !report.hasCaptureBar || !report.hasNoInertTopBarIcons || !report.hasShortcutsDialog || !report.hasCaptureCommandArea || !report.hasStateBanner || !report.hasCentralStage || !report.hasTimelineRail || !report.hasTimelineScrubber || !report.hasTrimHandles  || !report.hasZoomLane || !report.hasClickLane || !report.hasCameraLane || !report.hasAudioLane || !report.hasInspectorContext || !report.hasInspectorGroups || !report.hasCameraPipControls || !report.hasCameraCropControls || !report.hasRightInspector || !report.hasExportStatusArea || !report.hasVisualScreenshot || report.aspectRatio !== '9:16' || report.padding !== 96 || report.cornerRadius !== 44 || report.shadowSize !== 72 || report.cameraPosition !== 'corner-tl' || report.cameraShape !== 'circle' || report.cameraSize !== 130 || !(report.duration > 0) || !(screenshotBytes > 1000)) {
+const openSelectScreenshotBytes = (await readFile(openSelectScreenshotPath)).length;
+const openShapeScreenshotBytes = (await readFile(openShapeScreenshotPath)).length;
+const openAspectScreenshotBytes = (await readFile(openAspectScreenshotPath)).length;
+if (!report.hasPlaybackButton || !report.hasExportResult || report.exportMode !== 'styled' || !report.hasStyledMode || !report.hasStyledPresetDetails || !report.hasReviewExportActions || !report.hasExportProgressMeter || !report.hasBackgroundPresetSelection || !report.hasTemplatePresetSelection || !report.hasFocuSeeSplitCameraLayoutBounds || !report.hasFocuSeeYouTubeCameraLayoutBounds || !report.hasTemplateCameraLayoutBounds || !report.hasCircleCameraPixelSquare || !report.hasRectangleAfterCircleShape || !report.hasNoInactiveBackgroundTabs || !report.hasBackgroundShadowControls || !report.hasScreenCropControls || !report.hasCustomRangeSkin || !report.hasTimelineZoomControlPanel || !report.hasStableToolSwitchLayout || !report.hasZoomResizeHandles || !report.hasKeyboardZoomControls || !report.hasTimelineLiveRegion || !report.hasKeyboardTimelineScrubber || !report.hasTimelineScrubberFineStep || !report.hasTimelineArrowKeyAdvance || !report.hasCursorPresentationControls || !report.hasCursorTab || !report.hasCameraTab || !report.hasExportAspectChip || !report.hasKeyboardTrimHandles || !report.hasFrameDragHandles || !report.hasUndoRedoControls || !report.hasNoSetupBoardHorizontalOverflow || !report.hasStudioShell || !report.hasCaptureBar || !report.hasNoInertTopBarIcons || !report.hasShortcutsDialog || !report.hasCaptureCommandArea || !report.hasStateBanner || !report.hasCentralStage || !report.hasTimelineRail || !report.hasTimelineScrubber || !report.hasTrimHandles  || !report.hasZoomLane || !report.hasClickLane || !report.hasCameraLane || !report.hasAudioLane || !report.hasInspectorContext || !report.hasInspectorGroups || !report.hasCameraPipControls || !report.hasCameraCropControls || !report.hasRightInspector || !report.hasExportStatusArea || !report.hasVisualScreenshot || !report.hasOpenSelectScreenshot || !report.hasOpenShapeScreenshot || !report.hasOpenAspectScreenshot || report.aspectRatio !== '9:16' || report.padding !== 96 || report.cornerRadius !== 44 || report.shadowSize !== 72 || report.cameraPosition !== 'corner-tl' || report.cameraShape !== 'circle' || report.cameraSize !== 130 || !(report.duration > 0) || !(screenshotBytes > 1000) || !(openSelectScreenshotBytes > 1000) || !(openShapeScreenshotBytes > 1000) || !(openAspectScreenshotBytes > 1000)) {
   throw new Error(`Electron UI smoke assertions failed: ${JSON.stringify(report)}`);
 }
 
-console.info(JSON.stringify({ ...report, root, projectPath: project.path, exportPath, screenshotPath, screenshotBytes }, null, 2));
+console.info(JSON.stringify({ ...report, root, projectPath: project.path, exportPath, screenshotPath, openSelectScreenshotPath, openShapeScreenshotPath, openAspectScreenshotPath, screenshotBytes, openSelectScreenshotBytes, openShapeScreenshotBytes, openAspectScreenshotBytes }, null, 2));
 
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: 'inherit' });

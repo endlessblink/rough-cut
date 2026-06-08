@@ -215,6 +215,41 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
           await writeFile(process.env.ROUGH_CUT_UI_SMOKE_SCREENSHOT_PATH, image.toPNG());
           result.hasVisualScreenshot = true;
         }
+        const captureOpenSelectScreenshot = async (selector, path) => {
+          await window.webContents.executeJavaScript(`
+            (async () => {
+              const selector = ${JSON.stringify(selector)};
+              document.querySelector('button[aria-label="Camera"]')?.click();
+              await new Promise((resolve) => setTimeout(resolve, 120));
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+              await new Promise((resolve) => setTimeout(resolve, 40));
+              if (selector.includes('Camera source crop')) {
+                const cropToggle = document.querySelector('[aria-label="Camera source crop"] input[type="checkbox"]');
+                if (cropToggle && !cropToggle.checked) {
+                  cropToggle.click();
+                  await new Promise((resolve) => setTimeout(resolve, 160));
+                }
+              }
+              document.querySelector(selector)?.click();
+              await new Promise((resolve) => setTimeout(resolve, 120));
+            })();
+          `, true);
+          const image = await window.webContents.capturePage();
+          await mkdir(dirname(path), { recursive: true });
+          await writeFile(path, image.toPNG());
+        };
+        if (process.env.ROUGH_CUT_UI_SMOKE_OPEN_SELECT_SCREENSHOT_PATH) {
+          await captureOpenSelectScreenshot('[aria-label="Camera layout"] .inspectorSelectField:nth-of-type(1) .inspectorSelectButton', process.env.ROUGH_CUT_UI_SMOKE_OPEN_SELECT_SCREENSHOT_PATH);
+          result.hasOpenSelectScreenshot = true;
+        }
+        if (process.env.ROUGH_CUT_UI_SMOKE_OPEN_SHAPE_SCREENSHOT_PATH) {
+          await captureOpenSelectScreenshot('[aria-label="Camera layout"] .inspectorSelectField:nth-of-type(2) .inspectorSelectButton', process.env.ROUGH_CUT_UI_SMOKE_OPEN_SHAPE_SCREENSHOT_PATH);
+          result.hasOpenShapeScreenshot = true;
+        }
+        if (process.env.ROUGH_CUT_UI_SMOKE_OPEN_ASPECT_SCREENSHOT_PATH) {
+          await captureOpenSelectScreenshot('[aria-label="Camera source crop"] .inspectorSelectButton', process.env.ROUGH_CUT_UI_SMOKE_OPEN_ASPECT_SCREENSHOT_PATH);
+          result.hasOpenAspectScreenshot = true;
+        }
         if (process.env.ROUGH_CUT_UI_SMOKE_SCREENSHOT_TIMELINE_PATH) {
           await window.webContents.executeJavaScript(`document.querySelector('button[aria-label="Timeline"]')?.click();`, true);
           await new Promise((resolve) => setTimeout(resolve, 400));

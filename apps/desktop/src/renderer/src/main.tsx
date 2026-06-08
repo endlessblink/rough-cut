@@ -2124,13 +2124,87 @@ function InspectorSection({ id, title, children, description, muted = false, act
   );
 }
 
+function InspectorSelectPreview({ value }: { value: string }) {
+  if (value === 'corner-tl' || value === 'corner-tr' || value === 'corner-bl' || value === 'corner-br' || value === 'center') {
+    return <span className={`selectPreview selectPreviewPosition ${value}`} aria-hidden="true"><span /></span>;
+  }
+  if (value === 'circle' || value === 'square' || value === 'rounded') {
+    return <span className={`selectPreview selectPreviewShape ${value}`} aria-hidden="true" />;
+  }
+  if (value === 'free') {
+    return <span className="selectPreview selectPreviewAspect free" aria-hidden="true" />;
+  }
+  if (/^\d+:\d+$/.test(value)) {
+    const [width = 1, height = 1] = value.split(':').map((part) => Number(part));
+    const aspect = Number.isFinite(width) && Number.isFinite(height) && height > 0 ? width / height : 1;
+    return <span className="selectPreview selectPreviewAspect" style={{ '--preview-aspect': aspect } as React.CSSProperties} aria-hidden="true" />;
+  }
+  return <span className="selectPreview selectPreviewGeneric" aria-hidden="true" />;
+}
+
 function InspectorSelect<T extends string>({ label, value, options, disabled = false, onChange }: { label: string; value: T; options: ReadonlyArray<{ value: T; label: string }>; disabled?: boolean; onChange: (value: T) => void }) {
+  const [open, setOpen] = React.useState(false);
+  const rootRef = React.useRef<HTMLLabelElement | null>(null);
+  const selected = options.find((option) => option.value === value) ?? options[0];
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnPointerDown);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnPointerDown);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open]);
+  const commit = (next: T) => {
+    onChange(next);
+    setOpen(false);
+  };
   return (
-    <label className="field inspectorField">
+    <label ref={rootRef} className={`field inspectorField inspectorSelectField ${open ? 'open' : ''}`}>
       <span>{label}</span>
-      <select value={value} disabled={disabled} onChange={(event) => onChange(event.currentTarget.value as T)}>
+      <select className="nativeInspectorSelect" value={value} disabled={disabled} onChange={(event) => onChange(event.currentTarget.value as T)}>
         {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
+      <button
+        type="button"
+        className="inspectorSelectButton"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
+      >
+        <span className="inspectorSelectValue">{selected?.label ?? value}</span>
+        <span className="inspectorSelectChevron" aria-hidden="true" />
+      </button>
+      {open ? (
+        <div className="inspectorSelectMenu" role="listbox" aria-label={label}>
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              aria-selected={option.value === value}
+              className={option.value === value ? 'inspectorSelectOption selected' : 'inspectorSelectOption'}
+              onClick={() => commit(option.value)}
+            >
+              <InspectorSelectPreview value={option.value} />
+              <span>{option.label}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
     </label>
   );
 }
