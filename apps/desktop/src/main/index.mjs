@@ -1320,6 +1320,10 @@ async function runRendererUiSmoke() {
     const label = Array.from(document.querySelectorAll('label')).find((label) => label.textContent?.includes(text));
     return label?.querySelector(`input[type="${type}"]`) ?? null;
   };
+  const controlByLabel = (root, text, selector) => {
+    const label = Array.from(root?.querySelectorAll('label') ?? []).find((label) => label.textContent?.includes(text));
+    return label?.querySelector(selector) ?? null;
+  };
   const outputTextByLabel = (text) => {
     const label = Array.from(document.querySelectorAll('label')).find((label) => label.textContent?.includes(text));
     return label?.querySelector('output')?.textContent ?? null;
@@ -1454,12 +1458,14 @@ async function runRendererUiSmoke() {
     // Camera controls live on the Camera tab now.
     document.querySelector('button[aria-label="Camera"]')?.click();
     await waitFor(() => document.querySelector('[aria-label="Camera board"]'), 'camera board active for control exercise');
+    const cameraLayoutGroup = await waitFor(() => document.querySelector('[aria-label="Camera layout"]'), 'camera layout group');
+    const cameraSourceCropGroup = await waitFor(() => document.querySelector('[aria-label="Camera source crop"]'), 'camera source crop group');
     hasCameraCropControls = Boolean(
-      inputByLabel('Manual crop', 'checkbox') &&
-      selectByLabel('Crop aspect') &&
-      inputByLabel('Crop zoom') &&
-      inputByLabel('Crop X') &&
-      inputByLabel('Crop Y')
+      controlByLabel(cameraSourceCropGroup, 'Manual crop', 'input[type="checkbox"]') &&
+      controlByLabel(cameraSourceCropGroup, 'Aspect', 'select') &&
+      controlByLabel(cameraSourceCropGroup, 'Zoom', 'input[type="range"]') &&
+      controlByLabel(cameraSourceCropGroup, 'X position', 'input[type="range"]') &&
+      controlByLabel(cameraSourceCropGroup, 'Y position', 'input[type="range"]')
     );
     const cameraPositionSelect = await waitFor(() => selectByLabel('Position'), 'camera position control');
     await waitForEnabled(cameraPositionSelect, 'camera position control');
@@ -1485,7 +1491,7 @@ async function runRendererUiSmoke() {
     await waitFor(() => cameraShapeSelect.value === 'circle', 'camera final circle shape value');
     cameraShape = cameraShapeSelect.value;
 
-    const cameraSizeInput = await waitFor(() => inputByLabel('Camera size'), 'camera size control');
+    const cameraSizeInput = await waitFor(() => document.querySelector('[aria-label="Camera layout"] input[type="range"]'), 'camera size control');
     await waitForEnabled(cameraSizeInput, 'camera size control');
     setControlValue(cameraSizeInput, 130);
     await waitFor(() => cameraSizeInput.closest('label')?.querySelector('output')?.textContent === '130', 'camera size output');

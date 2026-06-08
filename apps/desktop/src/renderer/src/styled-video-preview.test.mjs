@@ -171,12 +171,35 @@ test('camera editor exposes manual crop controls backed by cameraCrop presentati
   const previewSource = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
 
   assert.match(source, /label="Manual crop"/);
-  assert.match(source, /label="Frame aspect"/);
+  assert.match(source, /aria-label="Camera layout"[\s\S]*label="Aspect"/);
+  assert.match(source, /aria-label="Camera source crop"[\s\S]*label="Aspect"/);
   assert.match(source, /async function updateCameraCrop/);
   assert.match(source, /next\.cameraCrop = crop/);
   assert.match(source, /resolveCameraSourceRect/);
   assert.match(previewSource, /resolveCameraSourceRect/);
   assert.match(previewSource, /frame\.cameraCrop/);
+});
+
+test('camera crop aspect changes also reshape the PiP frame so the crop remains visible', () => {
+  const source = readFileSync(join(here, 'main.tsx'), 'utf8');
+
+  assert.match(source, /onCameraCropAndFrameChange\?: \(crop: RegionCrop, frame: \{ x: number; y: number; w: number; h: number \}, patch: Partial<CameraPresentation>\) => void/);
+  assert.match(source, /shouldCropAspectResizeFrame\(\{ nextAspect, cameraShape: camera\.shape, frameAspect \}\)/);
+  assert.match(source, /const nextCameraAspect = nextAspect as CameraAspectRatio/);
+  assert.match(source, /const nextFrame = resizeFrameToAspect\(frame, nextCameraAspect, aspectRatio\)/);
+  assert.match(source, /onCameraCropAndFrameChange\(nextCrop, nextFrame, \{ aspectRatio: nextCameraAspect \}\)/);
+  assert.match(source, /async function updateCameraCropAndFrame/);
+  assert.match(source, /cameraCrop: crop/);
+  assert.match(source, /syncRecordingTimelinePresentation\(nextDocument, recordingAsset\.id\)/);
+});
+
+test('camera frame aspect changes use the shared tested geometry helper', () => {
+  const source = readFileSync(join(here, 'main.tsx'), 'utf8');
+
+  assert.match(source, /import \{ aspectRatioDims, moveFrameToCameraPosition, resizeFrameToAspect, resizeFrameToCameraSize, shouldCropAspectResizeFrame \} from '\.\/camera-frame\.mjs'/);
+  assert.match(source, /const nextFrame = resizeFrameToAspect\(frame, nextAspect, aspectRatio\)/);
+  assert.doesNotMatch(source, /pixelH \* 1\.35/);
+  assert.doesNotMatch(source, /let nextPixelW = pixelW;\n\s+let nextPixelH = pixelW \/ target/);
 });
 
 test('background editor exposes manual screen crop controls backed by screenCrop presentation', () => {
