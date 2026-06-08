@@ -11,7 +11,7 @@ import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
 import { dismissRecovery, getRecoveryState, recoverFromMarker } from './recording-recovery.mjs';
 import { deleteProjectFiles, listProjectSummaries } from './project-gallery.mjs';
 import { registerMediaProtocol, toMediaUrl } from './media-protocol.mjs';
-import { remuxMkvToMp4 } from './remux-service.mjs';
+import { remuxMkvSegmentsToMp4, remuxMkvToMp4 } from './remux-service.mjs';
 import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording/recording-session.mjs';
 import { startFfmpegCameraPreview } from './recording/ffmpeg-capture.mjs';
 import { listPulseAudioMicSources, listPulseAudioSystemAudioSources } from './recording/audio-sources.mjs';
@@ -197,6 +197,8 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
         const result = await window.webContents.executeJavaScript(
           `(${smokeFunction.toString()})(${JSON.stringify({
             doubleStop: process.env.ROUGH_CUT_UI_SMOKE_DOUBLE_STOP === '1',
+            pauseResume: process.env.ROUGH_CUT_UI_SMOKE_PAUSE_RESUME === '1',
+            restart: process.env.ROUGH_CUT_UI_SMOKE_RESTART === '1',
             cameraWarning: process.env.ROUGH_CUT_UI_SMOKE_CAMERA_WARNING === '1',
             cancelFlow: process.env.ROUGH_CUT_UI_SMOKE_CANCEL_FLOW === '1',
             invalidRegion: process.env.ROUGH_CUT_UI_SMOKE_INVALID_REGION === '1',
@@ -506,6 +508,22 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_STOP, async () => {
     console.error('[recording:stop] failed', err);
     throw err;
   }
+});
+ipcMain.handle(IPC_CHANNELS.RECORDING_PAUSE, async () => {
+  const status = await recordingSession.pause();
+  updateRecordingTray(null, status.state === 'recording' && status.paused ? 'paused' : 'recording');
+  return status;
+});
+ipcMain.handle(IPC_CHANNELS.RECORDING_RESUME, async () => {
+  const status = await recordingSession.resume();
+  updateRecordingTray(null, 'recording');
+  return status;
+});
+ipcMain.handle(IPC_CHANNELS.RECORDING_RESTART, async (_event, options = null) => {
+  updateRecordingTray(null, 'restarting');
+  const status = await recordingSession.restart(options);
+  updateRecordingTray(null, 'recording');
+  return status;
 });
 ipcMain.handle(IPC_CHANNELS.RECORDING_CANCEL, async (event) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
@@ -829,7 +847,7 @@ async function runRendererSidebarLayoutSmoke() {
   const waitFor = async (predicate, label, timeoutMs = 5000) => {
     const started = Date.now();
     while (Date.now() - started < timeoutMs) {
-      const value = predicate();
+      const value = await predicate();
       if (value) return value;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
@@ -1026,6 +1044,7 @@ async function finalizeActiveRecording() {
     recordingSession,
     assertReadableMp4,
     remuxMkvToMp4,
+    remuxMkvSegmentsToMp4,
     saveProjectForRecording,
     formatProject,
     probeVideoTiming,
@@ -1067,8 +1086,8 @@ async function restartHiddenRecording(window) {
   hiddenRecordingStopping = true;
   try {
     const nextOptions = hiddenRecordingOptions ?? {};
-    updateRecordingTray(window, 'finalizing');
-    await finalizeActiveRecording();
+    updateRecordingTray(window, 'restarting');
+    await recordingSession.cancel();
     await new Promise((resolve) => setTimeout(resolve, 350));
     await recordingSession.start(nextOptions);
     hiddenRecordingStopping = false;
@@ -1127,6 +1146,8 @@ function updateRecordingTray(window, state) {
 function recordingTrayTooltip(state) {
   if (state === 'saved') return 'Rough Cut saved your recording.';
   if (state === 'discarded') return 'Rough Cut discarded the recording.';
+  if (state === 'paused') return 'Rough Cut recording is paused.';
+  if (state === 'restarting') return 'Rough Cut is restarting your recording.';
   if (state === 'finalizing') return 'Rough Cut is finalizing your recording.';
   if (state === 'canceling') return 'Rough Cut is canceling and discarding the take.';
   return `Rough Cut is recording. Stop: ${recordingStopShortcut}. Restart: ${recordingRestartShortcut}.`;
@@ -1161,12 +1182,29 @@ function recordingTrayMenuTemplate(window, state) {
       { label: 'Discarding current take', enabled: false },
     ];
   }
+  if (state === 'restarting') {
+    return [
+      { label: 'Restarting recording...', enabled: false },
+      { label: 'Discarding current take', enabled: false },
+    ];
+  }
+  if (state === 'paused') {
+    return [
+      { label: 'Recording paused', enabled: false },
+      { type: 'separator' },
+      { label: 'Resume recording', click: async () => { await recordingSession.resume(); updateRecordingTray(window, 'recording'); } },
+      { label: `Stop recording (${recordingStopShortcut})`, click: () => { if (window) void stopHiddenRecordingAndOpenEditor(window); } },
+      { label: `Restart recording (${recordingRestartShortcut})`, click: () => { if (window) void restartHiddenRecording(window); } },
+      { type: 'separator' },
+      { label: 'Cancel and discard take', click: () => { if (window) void cancelHiddenRecording(window); } },
+    ];
+  }
   return [
     { label: 'Recording...', enabled: false },
     { type: 'separator' },
     { label: `Stop recording (${recordingStopShortcut})`, click: () => { if (window) void stopHiddenRecordingAndOpenEditor(window); } },
     { label: `Restart recording (${recordingRestartShortcut})`, click: () => { if (window) void restartHiddenRecording(window); } },
-    { label: 'Pause recording (segment pause pending)', enabled: false },
+    { label: 'Pause recording', click: async () => { await recordingSession.pause(); updateRecordingTray(window, 'paused'); } },
     { type: 'separator' },
     { label: 'Cancel and discard take', click: () => { if (window) void cancelHiddenRecording(window); } },
   ];
@@ -1270,8 +1308,8 @@ async function runRendererUiSmoke() {
   await waitFor(() => document.querySelector('[data-timeline-lane="zoom"][aria-label="Zoom markers"]'), 'zoom marker lane');
   const hasZoomMarkerPanel = true;
   const hasTimelineZoomControlPanel = Boolean(document.querySelector('[data-ui-region="timeline-zoom-control-panel"]'));
-  await waitFor(() => document.querySelector('[aria-label="Auto-zoom suggestions"]') && document.body.textContent?.includes('Suggestions'), 'auto-zoom suggestions panel header');
-  const hasAutoZoomSuggestionsPanel = true;
+  const hasNoAutoZoomDecisionPanel = !document.querySelector('[aria-label="Auto-zoom suggestions"]');
+  const hasGenerateAutoZoomsControl = Boolean(document.querySelector('[data-ui-region="auto-zoom-generation-row"]')?.closest('[aria-label="Auto zoom"]')?.querySelector('button'));
   const hasZoomResizeHandles = Boolean(document.querySelector('[data-timeline-lane="zoom"] .zoomResizeStart') && document.querySelector('[data-timeline-lane="zoom"] .zoomResizeEnd'));
   const hasKeyboardZoomControls = Boolean(
     document.querySelector('[data-timeline-lane="zoom"] .timelineRegion[role="button"][tabindex="0"]')
@@ -1588,7 +1626,8 @@ async function runRendererUiSmoke() {
     hasTimelineLiveRegion,
     hasKeyboardTrimHandles,
     hasNoSetupBoardHorizontalOverflow,
-    hasAutoZoomSuggestionsPanel,
+    hasNoAutoZoomDecisionPanel,
+    hasGenerateAutoZoomsControl,
     hasInspectorContext,
     hasInspectorGroups,
     hasCursorPresentationControls,
@@ -1793,6 +1832,36 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   const hasLiveCameraFailureActions = Boolean(liveCameraFailureBanner)
     && ['Stop and retry with camera off', 'Continue screen-only'].every((label) => liveCameraFailureBanner.textContent?.includes(label));
   await new Promise((resolve) => setTimeout(resolve, 1800));
+  let hasRestartedState = false;
+  if (options.restart) {
+    const beforeRestartStatus = await window.roughCut.getRecordingStatus();
+    const beforeRestartPath = beforeRestartStatus?.state === 'recording' ? beforeRestartStatus.outputPath : null;
+    const restartButton = await waitFor(() => document.querySelector('[data-recording-action="restart"]:not(:disabled)'), 'restart button');
+    restartButton.click();
+    await waitFor(async () => {
+      const status = await window.roughCut.getRecordingStatus();
+      return status?.state === 'recording'
+        && status.outputPath
+        && status.outputPath !== beforeRestartPath
+        && document.querySelector('[data-recording-state="recording"]')
+        && document.querySelector('[data-recording-action="pause-resume"]:not(:disabled)');
+    }, 'restarted recording state', 30000);
+    hasRestartedState = true;
+    await new Promise((resolve) => setTimeout(resolve, 800));
+  }
+  let hasPausedState = false;
+  let hasResumedState = false;
+  if (options.pauseResume) {
+    const pauseButton = await waitFor(() => document.querySelector('[data-recording-action="pause-resume"]:not(:disabled)'), 'pause button');
+    pauseButton.click();
+    await waitFor(() => document.querySelector('[data-recording-state="paused"]'), 'paused recording state', 30000);
+    hasPausedState = true;
+    const resumeButton = await waitFor(() => document.querySelector('[data-recording-action="pause-resume"]:not(:disabled)'), 'resume button');
+    resumeButton.click();
+    await waitFor(() => document.querySelector('[data-recording-state="recording"]'), 'resumed recording state', 30000);
+    hasResumedState = true;
+    await new Promise((resolve) => setTimeout(resolve, 800));
+  }
   if (options.cancelFlow) {
     const cancelButton = await waitFor(() => findButton('Cancel and discard'), 'cancel button');
     cancelButton.click();
@@ -1820,10 +1889,13 @@ async function runRendererRecordingFlowSmoke(options = {}) {
       hasReviewWorkspace: Boolean(document.querySelector('[data-ui-region="post-recording-review"]')),
       hasVideo: Boolean(document.querySelector('video')),
       cancelFlow: true,
-      hasLiveCameraFailureBanner,
-      hasLiveCameraFailureActions,
-    };
-  }
+    hasLiveCameraFailureBanner,
+    hasLiveCameraFailureActions,
+    pauseResumeFlow: Boolean(options.pauseResume),
+    hasPausedState,
+    hasResumedState,
+  };
+}
   const stopButton = await waitFor(() => findButton('Stop recording'), 'stop button');
   stopButton.click();
   await waitFor(() => stopButton.textContent.includes('Stopping...') && stopButton.disabled, 'stopping lock');
@@ -1887,6 +1959,11 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     hasVideo: Boolean(video),
     duration: video?.duration ?? null,
     doubleStop: Boolean(options.doubleStop),
+    restartFlow: Boolean(options.restart),
+    hasRestartedState,
+    pauseResumeFlow: Boolean(options.pauseResume),
+    hasPausedState,
+    hasResumedState,
     hasStoppingLock: true,
   };
 }

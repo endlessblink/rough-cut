@@ -1,5 +1,15 @@
 import React from 'react';
-import { Pause as PhosphorPause, Play as PhosphorPlay } from '@phosphor-icons/react';
+import {
+  AlignBottom as PhosphorAlignBottom,
+  AlignCenterHorizontal as PhosphorAlignCenterHorizontal,
+  AlignCenterVertical as PhosphorAlignCenterVertical,
+  AlignLeft as PhosphorAlignLeft,
+  AlignRight as PhosphorAlignRight,
+  AlignTop as PhosphorAlignTop,
+  GridFour as PhosphorGridFour,
+  Pause as PhosphorPause,
+  Play as PhosphorPlay,
+} from '@phosphor-icons/react';
 import {
   resolveTimelineLengthFrames,
   createDefaultCameraPresentation,
@@ -254,6 +264,8 @@ type CutRange = { id: string; startFrame: number; endFrame: number };
 type PreviewTimeMode = 'source' | 'timeline';
 type CursorOffscreenSide = 'left' | 'right' | 'top' | 'bottom';
 type CursorOffscreenStatus = null | { side: CursorOffscreenSide; distance: number };
+type PreviewAlignmentTarget = 'screen' | 'camera';
+type PreviewAlignmentMode = 'left' | 'horizontal-center' | 'right' | 'top' | 'vertical-center' | 'bottom';
 export type ResolvedPreviewLayout = { screenFrame: NormalizedRect; cameraFrame: NormalizedRect | null };
 export type ZoomAuthoringSafety = {
   crop: { x: number; y: number; w: number; h: number };
@@ -356,6 +368,10 @@ export function StyledVideoPreview({
   const [isDraggingCamera, setIsDraggingCamera] = React.useState(false);
   const [isDraggingScreen, setIsDraggingScreen] = React.useState(false);
   const [isDraggingFocal, setIsDraggingFocal] = React.useState(false);
+  const [alignmentGridVisible, setAlignmentGridVisible] = React.useState(true);
+  const [alignmentTarget, setAlignmentTarget] = React.useState<PreviewAlignmentTarget>('screen');
+  const alignmentGridVisibleRef = React.useRef(alignmentGridVisible);
+  alignmentGridVisibleRef.current = alignmentGridVisible;
   // Live focal position during a drag (normalized 0–1), committed on pointerup.
   const focalDragRef = React.useRef<{ x: number; y: number } | null>(null);
   const focalDragOriginRef = React.useRef<{ pointerId: number } | null>(null);
@@ -378,6 +394,23 @@ export function StyledVideoPreview({
   const [cameraMediaDuration, setCameraMediaDuration] = React.useState<number | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [cursorOffscreen, setCursorOffscreen] = React.useState<CursorOffscreenStatus>(null);
+  const editablePreview = Boolean(onScreenFrameChange || onCameraFrameChange);
+  const canAlignScreen = Boolean(onScreenFrameChange);
+  const canAlignCamera = Boolean(onCameraFrameChange);
+  const effectiveAlignmentTarget = alignmentTarget === 'camera' && canAlignCamera ? 'camera' : 'screen';
+  const selectedAlignmentLabel = effectiveAlignmentTarget === 'camera' ? 'Camera' : 'Screen';
+  const alignSelectedFrame = React.useCallback((mode: PreviewAlignmentMode) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const target = alignmentTarget === 'camera' && cameraRectRef.current && onCameraFrameChange ? 'camera' : 'screen';
+    const rect = target === 'camera' ? cameraRectRef.current : screenRectRef.current;
+    if (!rect) return;
+    const aligned = alignRectInCanvas(rect, mode, canvas.width, canvas.height);
+    if (target === 'camera') onCameraFrameChange?.(rectToNormalizedFrame(aligned, canvas.width, canvas.height));
+    else onScreenFrameChange?.(rectToNormalizedFrame(aligned, canvas.width, canvas.height));
+    previewInteractionDirtyRef.current = true;
+    setAlignmentTarget(target);
+  }, [alignmentTarget, onCameraFrameChange, onScreenFrameChange]);
   const cursorOffscreenRef = React.useRef<CursorOffscreenStatus>(null);
   const isPlaying = controlledPlaying ?? internalPlaying;
 
@@ -386,7 +419,7 @@ export function StyledVideoPreview({
   React.useEffect(() => {
     if (timeMode === 'timeline' && isPlaying) return;
     previewInteractionDirtyRef.current = true;
-  }, [isPlaying, selectedZoomFocal?.id, selectedZoomFocal?.x, selectedZoomFocal?.y, timeMode]);
+  }, [alignmentGridVisible, isPlaying, selectedZoomFocal?.id, selectedZoomFocal?.x, selectedZoomFocal?.y, timeMode]);
 
   React.useEffect(() => {
     if (typeof PerformanceObserver === 'undefined') return undefined;
@@ -1111,6 +1144,9 @@ export function StyledVideoPreview({
       } else {
         fillBackground();
       }
+      if (!activeTimelinePlayback && editablePreview && alignmentGridVisibleRef.current) {
+        drawAlignmentGrid(ctx, canvasWidth, canvasHeight);
+      }
       markDrawPhase('background');
       if (timeMode === 'timeline' && !screenLayer) {
         publishCursorOffscreenStatus(null);
@@ -1606,6 +1642,7 @@ export function StyledVideoPreview({
           if ((insideCamera || cameraHandle) && cameraRect) {
             const mode = cameraHandle ? 'resize' : 'move';
             event.preventDefault();
+            setAlignmentTarget('camera');
             event.currentTarget.setPointerCapture(event.pointerId);
             cameraDragOriginRef.current = {
               pointerId: event.pointerId,
@@ -1636,6 +1673,7 @@ export function StyledVideoPreview({
           // even while a zoom is selected.
           if (screenHandle && onScreenFrameChange && screenRect) {
             event.preventDefault();
+            setAlignmentTarget('screen');
             event.currentTarget.setPointerCapture(event.pointerId);
             screenDragOriginRef.current = {
               pointerId: event.pointerId,
@@ -1678,6 +1716,7 @@ export function StyledVideoPreview({
           // Otherwise drag the screen body (only when no zoom focus is active).
           if (!insideScreen || !onScreenFrameChange || !screenRect) return;
           event.preventDefault();
+          setAlignmentTarget('screen');
           event.currentTarget.setPointerCapture(event.pointerId);
           screenDragOriginRef.current = {
             pointerId: event.pointerId,
@@ -1768,6 +1807,68 @@ export function StyledVideoPreview({
           event.currentTarget.style.cursor = '';
         }}
       />
+      {editablePreview && !(timeMode === 'timeline' && isPlaying) ? (
+        <div className="previewAlignmentToolbar" aria-label="Alignment tools">
+          <div className="previewAlignmentTarget" role="group" aria-label="Selected frame">
+            <button
+              type="button"
+              className={effectiveAlignmentTarget === 'screen' ? 'isActive' : ''}
+              disabled={!canAlignScreen}
+              aria-pressed={effectiveAlignmentTarget === 'screen'}
+              onClick={() => setAlignmentTarget('screen')}
+            >
+              Screen
+            </button>
+            <button
+              type="button"
+              className={effectiveAlignmentTarget === 'camera' ? 'isActive' : ''}
+              disabled={!canAlignCamera}
+              aria-pressed={effectiveAlignmentTarget === 'camera'}
+              onClick={() => setAlignmentTarget('camera')}
+            >
+              Camera
+            </button>
+          </div>
+          <div className="previewAlignmentDivider" aria-hidden="true" />
+          <button
+            type="button"
+            className={alignmentGridVisible ? 'isActive' : ''}
+            title={alignmentGridVisible ? 'Hide alignment grid' : 'Show alignment grid'}
+            aria-pressed={alignmentGridVisible}
+            onClick={() => setAlignmentGridVisible((visible) => !visible)}
+          >
+            <PhosphorGridFour size={15} weight="duotone" />
+            <span className="visuallyHidden">{alignmentGridVisible ? 'Hide alignment grid' : 'Show alignment grid'}</span>
+          </button>
+          <div className="previewAlignmentDivider" aria-hidden="true" />
+          <div className="previewAlignmentActions" role="group" aria-label={`Align ${selectedAlignmentLabel.toLowerCase()}`}>
+            <button type="button" title={`Align ${selectedAlignmentLabel.toLowerCase()} left`} onClick={() => alignSelectedFrame('left')}>
+              <PhosphorAlignLeft size={15} weight="duotone" />
+              <span className="visuallyHidden">Align left</span>
+            </button>
+            <button type="button" title={`Align ${selectedAlignmentLabel.toLowerCase()} horizontal center`} onClick={() => alignSelectedFrame('horizontal-center')}>
+              <PhosphorAlignCenterHorizontal size={15} weight="duotone" />
+              <span className="visuallyHidden">Align horizontal center</span>
+            </button>
+            <button type="button" title={`Align ${selectedAlignmentLabel.toLowerCase()} right`} onClick={() => alignSelectedFrame('right')}>
+              <PhosphorAlignRight size={15} weight="duotone" />
+              <span className="visuallyHidden">Align right</span>
+            </button>
+            <button type="button" title={`Align ${selectedAlignmentLabel.toLowerCase()} top`} onClick={() => alignSelectedFrame('top')}>
+              <PhosphorAlignTop size={15} weight="duotone" />
+              <span className="visuallyHidden">Align top</span>
+            </button>
+            <button type="button" title={`Align ${selectedAlignmentLabel.toLowerCase()} vertical center`} onClick={() => alignSelectedFrame('vertical-center')}>
+              <PhosphorAlignCenterVertical size={15} weight="duotone" />
+              <span className="visuallyHidden">Align vertical center</span>
+            </button>
+            <button type="button" title={`Align ${selectedAlignmentLabel.toLowerCase()} bottom`} onClick={() => alignSelectedFrame('bottom')}>
+              <PhosphorAlignBottom size={15} weight="duotone" />
+              <span className="visuallyHidden">Align bottom</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
       {showControls ? (
         <div className="videoControls" aria-label="Video playback controls">
           <button type="button" className="transportButton" onClick={togglePlayback} title="Play or pause (Space)">
@@ -2060,6 +2161,62 @@ function rectToNormalizedFrame(rect: { x: number; y: number; w: number; h: numbe
 function clampUnit(value: number, min = 0): number {
   const safeValue = Number.isFinite(value) ? value : min;
   return Math.max(min, Math.min(1, safeValue));
+}
+
+function alignRectInCanvas(
+  rect: { x: number; y: number; w: number; h: number },
+  mode: PreviewAlignmentMode,
+  canvasWidth: number,
+  canvasHeight: number,
+) {
+  const next = { ...rect };
+  if (mode === 'left') next.x = 0;
+  if (mode === 'horizontal-center') next.x = (canvasWidth - rect.w) / 2;
+  if (mode === 'right') next.x = canvasWidth - rect.w;
+  if (mode === 'top') next.y = 0;
+  if (mode === 'vertical-center') next.y = (canvasHeight - rect.h) / 2;
+  if (mode === 'bottom') next.y = canvasHeight - rect.h;
+  return {
+    ...next,
+    x: Math.max(0, Math.min(canvasWidth - rect.w, next.x)),
+    y: Math.max(0, Math.min(canvasHeight - rect.h, next.y)),
+  };
+}
+
+function drawAlignmentGrid(ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number) {
+  ctx.save();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.18)';
+  const columns = 12;
+  const rows = 12;
+  ctx.beginPath();
+  for (let i = 1; i < columns; i += 1) {
+    const x = (canvasWidth / columns) * i;
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, canvasHeight);
+  }
+  for (let i = 1; i < rows; i += 1) {
+    const y = (canvasHeight / rows) * i;
+    ctx.moveTo(0, y);
+    ctx.lineTo(canvasWidth, y);
+  }
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.32)';
+  ctx.beginPath();
+  ctx.moveTo(canvasWidth / 2, 0);
+  ctx.lineTo(canvasWidth / 2, canvasHeight);
+  ctx.moveTo(0, canvasHeight / 2);
+  ctx.lineTo(canvasWidth, canvasHeight / 2);
+  ctx.moveTo(canvasWidth / 3, 0);
+  ctx.lineTo(canvasWidth / 3, canvasHeight);
+  ctx.moveTo((canvasWidth / 3) * 2, 0);
+  ctx.lineTo((canvasWidth / 3) * 2, canvasHeight);
+  ctx.moveTo(0, canvasHeight / 3);
+  ctx.lineTo(canvasWidth, canvasHeight / 3);
+  ctx.moveTo(0, (canvasHeight / 3) * 2);
+  ctx.lineTo(canvasWidth, (canvasHeight / 3) * 2);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawEditorFrameControls(

@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createRecordingSession, getPrimaryX11DisplayInfo, normalizeCaptureRegion, normalizeCursorPoint, resolveCaptureDisplayInfo } from './recording-session.mjs';
 
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 test('recording session starts capture, writes marker, stops capture, and clears marker', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-recording-'));
   const recordingsDir = join(root, 'recordings');
@@ -131,6 +133,135 @@ test('recording session serializes duplicate stop calls to the saved result', as
   assert.equal(second.state, 'saved');
   assert.equal(second.outputPath, first.outputPath);
   assert.equal(existsSync(join(root, 'recovery.json')), false);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('recording session pauses and resumes as separate raw segments', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-pause-resume-'));
+  let nowMs = Date.parse('2026-04-28T12:00:00.000Z');
+  const captureCalls = [];
+  const stoppedPaths = [];
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date(nowMs),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => {
+      captureCalls.push(options);
+      return {
+        outputPath: options.outputPath,
+        stop: async () => {
+          stoppedPaths.push(options.outputPath);
+          return options.outputPath;
+        },
+      };
+    },
+  });
+
+  const started = await session.start();
+  nowMs += 1000;
+  const paused = await session.pause();
+  assert.equal(paused.state, 'recording');
+  assert.equal(paused.paused, true);
+  assert.equal(paused.recordedDurationMs, 1000);
+  assert.equal(captureCalls.length, 1);
+  assert.equal(stoppedPaths.length, 1);
+
+  nowMs += 5000;
+  const resumed = await session.resume();
+  assert.equal(resumed.state, 'recording');
+  assert.equal(resumed.paused, false);
+  assert.equal(resumed.recordedDurationMs, 1000);
+  assert.equal(resumed.segmentCount, 2);
+  assert.equal(captureCalls.length, 2);
+  assert.match(captureCalls[1].outputPath, /segment-2\.mkv$/);
+
+  nowMs += 1000;
+  const stopped = await session.stop();
+  assert.equal(stopped.state, 'saved');
+  assert.equal(stopped.rawPath, started.rawPath);
+  assert.deepEqual(stopped.rawSegments, [captureCalls[0].outputPath, captureCalls[1].outputPath]);
+  assert.equal(stopped.cursorEvents.length >= 0, true);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('cursor telemetry uses recorded duration across pause gaps', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-pause-cursor-'));
+  let nowMs = Date.parse('2026-04-28T12:00:00.000Z');
+  let cursorX = 10;
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date(nowMs),
+    sampleIntervalMs: 1000,
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    getCursorPoint: () => ({ x: cursorX, y: 20 }),
+    buttonListenerFactory: null,
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+  });
+
+  await session.start();
+  await wait(0);
+  nowMs += 1000;
+  cursorX = 20;
+  await session.pause();
+  nowMs += 5000;
+  await session.resume();
+  await wait(0);
+  const stopped = await session.stop();
+
+  assert.equal(stopped.state, 'saved');
+  assert.equal(stopped.cursorEvents.at(-1)?.timeMs, 1000);
+  assert.equal(stopped.cursorEvents.at(-1)?.frame, 30);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('recording session restart discards the active take and starts a fresh capture', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-restart-'));
+  const recordingsDir = join(root, 'recordings');
+  const markerPath = join(root, 'recovery.json');
+  const captureCalls = [];
+  let cancelCalls = 0;
+
+  const session = createRecordingSession({
+    recordingsDir,
+    markerPath,
+    now: () => new Date('2026-04-28T12:00:00.000Z'),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', width: 1920, height: 1080 }),
+    captureFactory: (options) => {
+      captureCalls.push(options);
+      return {
+        outputPath: options.outputPath,
+        cancel: async () => {
+          cancelCalls += 1;
+          return options.outputPath;
+        },
+        stop: async () => options.outputPath,
+      };
+    },
+  });
+
+  await session.start({ micSource: 'alsa_input.first' });
+  const restarted = await session.restart({ systemAudioSource: 'alsa_output.second.monitor' });
+
+  assert.equal(restarted.state, 'recording');
+  assert.equal(cancelCalls, 1);
+  assert.equal(captureCalls.length, 2);
+  assert.equal(captureCalls[0].micSource, 'alsa_input.first');
+  assert.equal(captureCalls[1].micSource, null);
+  assert.equal(captureCalls[1].systemAudioSource, 'alsa_output.second.monitor');
+
+  const stopped = await session.stop();
+  assert.equal(stopped.state, 'saved');
+  assert.equal(stopped.audio?.systemAudioSource, 'alsa_output.second.monitor');
 
   await rm(root, { recursive: true, force: true });
 });

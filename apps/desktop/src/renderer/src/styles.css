@@ -434,8 +434,10 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .recordingActivePanel { max-width: 26rem; }
 .recordingActivePanel .primaryAction,
 .recordingActivePanel .secondary { width: 100%; }
+.recordingActiveActions { display: grid; gap: 0.5rem; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
 .recordingActiveHint { color: var(--subtle); font-size: 0.72rem; line-height: 1.35; margin: 0; }
 .liveDot { background: var(--record); border-radius: 999px; box-shadow: 0 0 0 6px rgb(244 63 94 / 0.12); height: 0.7rem; width: 0.7rem; }
+.liveDot.paused { background: var(--muted); box-shadow: 0 0 0 6px rgb(148 163 184 / 0.12); }
 
 .preRecordBody {
   display: grid;
@@ -624,6 +626,11 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 .stateBanner.idle { display: none; }
 .stateBanner.recording { background: #2a1118; border-bottom-color: #5a1d2c; color: #fecdd3; }
+.stateBanner.paused { background: #171f2d; border-bottom-color: #334155; color: #dbeafe; }
+.stateBanner.pausing,
+.stateBanner.resuming,
+.stateBanner.restarting,
+.stateBanner.canceling { background: #171f2d; border-bottom-color: #334155; color: #dbeafe; }
 .stateBanner.error { background: #2a1118; border-bottom-color: #5a1d2c; color: #fecdd3; }
 .stateBanner p { line-height: 1.35; margin: 0; }
 .stateBanner .warning { margin-top: 0.35rem; }
@@ -1170,6 +1177,63 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   font-weight: 680;
   letter-spacing: 0;
   text-transform: capitalize;
+}
+
+.alignmentInspector {
+  display: grid;
+  gap: 0.52rem;
+}
+
+.alignmentInspectorGroup {
+  align-items: center;
+  display: grid;
+  gap: 0.48rem;
+  grid-template-columns: 4rem minmax(0, 1fr);
+}
+
+.alignmentInspectorGroup > span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 680;
+}
+
+.alignmentButtonRow {
+  display: grid;
+  gap: 0.24rem;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.alignmentButtonRow button {
+  align-items: center;
+  background: #12141b;
+  border: 1px solid #2b2f3b;
+  border-radius: 6px;
+  color: var(--muted);
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 760;
+  height: 1.62rem;
+  justify-content: center;
+  min-width: 0;
+  padding: 0;
+}
+
+.alignmentButtonRow button:hover:not(:disabled),
+.alignmentButtonRow button:focus-visible {
+  background: #1c2230;
+  border-color: rgb(96 165 250 / 0.38);
+  color: var(--text);
+  outline: none;
+}
+
+.alignmentButtonRow button:focus-visible {
+  box-shadow: 0 0 0 2px rgb(56 189 248 / 0.34);
+}
+
+.alignmentButtonRow button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
 }
 
 .cameraInspector .field,
@@ -2018,6 +2082,74 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .styledPreviewCanvas.draggingScreen,
 .styledPreviewCanvas.draggingFocal {
   cursor: grabbing;
+}
+
+.previewAlignmentToolbar {
+  align-items: center;
+  background: rgb(12 13 18 / 0.82);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 8px;
+  box-shadow: 0 16px 36px rgb(0 0 0 / 0.26), inset 0 1px 0 rgb(255 255 255 / 0.08);
+  display: inline-flex;
+  gap: 0.28rem;
+  left: 50%;
+  padding: 0.28rem;
+  pointer-events: auto;
+  position: absolute;
+  top: 0.8rem;
+  transform: translateX(-50%);
+  z-index: 7;
+}
+
+.previewAlignmentTarget,
+.previewAlignmentActions {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.2rem;
+}
+
+.previewAlignmentToolbar button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+  height: 1.72rem;
+  justify-content: center;
+  min-width: 1.72rem;
+  padding: 0 0.45rem;
+}
+
+.previewAlignmentToolbar button:hover:not(:disabled),
+.previewAlignmentToolbar button:focus-visible {
+  background: rgb(255 255 255 / 0.07);
+  color: var(--text);
+  outline: none;
+}
+
+.previewAlignmentToolbar button:focus-visible {
+  box-shadow: 0 0 0 2px rgb(56 189 248 / 0.42);
+}
+
+.previewAlignmentToolbar button.isActive {
+  background: rgb(37 99 235 / 0.22);
+  border-color: rgb(96 165 250 / 0.32);
+  color: #dbeafe;
+}
+
+.previewAlignmentToolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.previewAlignmentDivider {
+  background: rgb(255 255 255 / 0.11);
+  height: 1.2rem;
+  width: 1px;
 }
 
 .videoControls {

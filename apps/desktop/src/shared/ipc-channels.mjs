@@ -68,6 +68,9 @@ export const IPC_CHANNELS = {
   RECORDING_RECOVERY_SET_CONTEXT: 'recording:recovery-set-context',
   RECORDING_START: 'recording:start',
   RECORDING_STOP: 'recording:stop',
+  RECORDING_PAUSE: 'recording:pause',
+  RECORDING_RESUME: 'recording:resume',
+  RECORDING_RESTART: 'recording:restart',
   RECORDING_CANCEL: 'recording:cancel',
   RECORDING_STATUS: 'recording:status',
 

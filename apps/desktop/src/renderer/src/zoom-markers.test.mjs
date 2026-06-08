@@ -9,6 +9,7 @@ import {
 import {
   addManualMarkerAt,
   addManualMarkerAtFrame,
+  addAutoZoomMarkersFromTelemetry,
   applySuggestion,
   canAddMarkerAt,
   findAvailableSpan,
@@ -21,10 +22,11 @@ import {
   withDefaultPresentation,
 } from './zoom-markers.mjs';
 
-function projectWithRecording({ duration = 600 } = {}) {
+function projectWithRecording({ duration = 600, cursorEvents = [], fps = 30, width = 1920, height = 1080 } = {}) {
   const base = createProject();
   const asset = createAsset('recording', '/tmp/recording.webm', {
     duration,
+    metadata: { cursorEvents, fps, width, height },
     presentation: createDefaultRecordingPresentation(),
   });
   return { ...base, assets: [asset] };
@@ -326,6 +328,85 @@ test('applySuggestion appends an auto marker preserving suggestion fields with a
   assert.deepEqual(applied.focalPoint, { x: 0.25, y: 0.75 });
   assert.equal(applied.zoomInDuration, 12);
   assert.equal(applied.zoomOutDuration, 18);
+});
+
+test('addAutoZoomMarkersFromTelemetry creates auto markers from recorded click telemetry', () => {
+  const project = projectWithRecording({
+    duration: 300,
+    cursorEvents: [
+      { type: 'move', frame: 22, x: 960, y: 540 },
+      { type: 'down', frame: 30, x: 960, y: 540, button: 'left' },
+    ],
+  });
+
+  const next = addAutoZoomMarkersFromTelemetry(project);
+  const markers = listMarkers(next);
+
+  assert.notEqual(next, project);
+  assert.equal(markers.length, 1);
+  assert.equal(markers[0].kind, 'auto');
+  assert.ok(markers[0].startFrame <= 30);
+  assert.ok(markers[0].endFrame > 30);
+  assert.equal(markers[0].focalPoint.x, 0.5);
+  assert.equal(markers[0].focalPoint.y, 0.5);
+  assert.doesNotThrow(() => validateProject(next));
+});
+
+test('addAutoZoomMarkersFromTelemetry mirrors generated markers into the shared timeline', () => {
+  const project = projectWithRecording({
+    cursorEvents: [{ type: 'down', frame: 90, x: 480, y: 270, button: 0 }],
+  });
+  const asset = project.assets[0];
+
+  const next = addAutoZoomMarkersFromTelemetry(project);
+  const marker = listMarkers(next)[0];
+
+  assert.deepEqual(next.timeline.markers.filter((item) => item.kind === 'zoom'), [{
+    id: marker.id,
+    kind: 'zoom',
+    startFrame: marker.startFrame,
+    endFrame: marker.endFrame,
+    linkedGroupId: `linked:${asset.id}`,
+    params: { marker },
+  }]);
+});
+
+test('addAutoZoomMarkersFromTelemetry preserves manual markers and skips overlapping auto candidates', () => {
+  let project = projectWithRecording({
+    cursorEvents: [
+      { type: 'down', frame: 90, x: 960, y: 540, button: 0 },
+      { type: 'down', frame: 240, x: 1200, y: 640, button: 0 },
+    ],
+  });
+  project = addManualMarkerAt(project, 2.5, 30);
+
+  const next = addAutoZoomMarkersFromTelemetry(project);
+  const markers = listMarkers(next);
+
+  assert.equal(markers.length, 2);
+  assert.equal(markers[0].kind, 'manual');
+  assert.equal(markers[1].kind, 'auto');
+  assert.ok(markers[1].startFrame >= markers[0].endFrame);
+});
+
+test('addAutoZoomMarkersFromTelemetry is repeat-safe for existing recordings', () => {
+  const project = projectWithRecording({
+    cursorEvents: [{ type: 'down', frame: 90, x: 960, y: 540, button: 1 }],
+  });
+
+  const once = addAutoZoomMarkersFromTelemetry(project);
+  const twice = addAutoZoomMarkersFromTelemetry(once);
+
+  assert.equal(listMarkers(once).length, 1);
+  assert.equal(listMarkers(twice).length, 1);
+  assert.deepEqual(listMarkers(twice), listMarkers(once));
+});
+
+test('addAutoZoomMarkersFromTelemetry is a no-op when there is no cursor telemetry', () => {
+  const project = projectWithRecording({ cursorEvents: [] });
+  const next = addAutoZoomMarkersFromTelemetry(project);
+  assert.equal(next, project);
+  assert.deepEqual(listMarkers(next), []);
 });
 
 test('applySuggestion preserves existing markers and keeps the array sorted by startFrame', () => {

@@ -128,6 +128,42 @@ test('styled video preview publishes resolved layout for export parity', () => {
   assert.match(source, /rectToNormalizedFrame\(cameraFrame, canvasWidth, canvasHeight\)/);
 });
 
+test('styled video preview exposes edit-only alignment grid and frame align controls', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  const css = readFileSync(join(here, 'styles.css'), 'utf8');
+
+  assert.match(source, /type PreviewAlignmentTarget = 'screen' \| 'camera'/);
+  assert.match(source, /type PreviewAlignmentMode = 'left' \| 'horizontal-center' \| 'right' \| 'top' \| 'vertical-center' \| 'bottom'/);
+  assert.match(source, /const \[alignmentGridVisible, setAlignmentGridVisible\] = React\.useState\(true\)/);
+  assert.match(source, /drawAlignmentGrid\(ctx, canvasWidth, canvasHeight\)/);
+  assert.match(source, /function alignRectInCanvas/);
+  assert.match(source, /onCameraFrameChange\?\.\(rectToNormalizedFrame\(aligned, canvas\.width, canvas\.height\)\)/);
+  assert.match(source, /onScreenFrameChange\?\.\(rectToNormalizedFrame\(aligned, canvas\.width, canvas\.height\)\)/);
+  assert.match(source, /setAlignmentTarget\('camera'\)/);
+  assert.match(source, /setAlignmentTarget\('screen'\)/);
+  assert.match(source, /className="previewAlignmentToolbar"/);
+  assert.match(css, /\.previewAlignmentToolbar/);
+  assert.match(css, /\.previewAlignmentToolbar[\s\S]*pointer-events:\s*auto/);
+  assert.match(css, /\.previewAlignmentToolbar button\.isActive/);
+});
+
+test('recording editor exposes persistent sidebar alignment controls', () => {
+  const source = readFileSync(join(here, 'main.tsx'), 'utf8');
+  const css = readFileSync(join(here, 'styles.css'), 'utf8');
+
+  assert.match(source, /type FrameAlignmentMode = 'left' \| 'horizontal-center' \| 'right' \| 'top' \| 'vertical-center' \| 'bottom'/);
+  assert.match(source, /function defaultNormalizedScreenFrame/);
+  assert.match(source, /function alignNormalizedFrame/);
+  assert.match(source, /onScreenFrameChange\?: \(frame: \{ x: number; y: number; w: number; h: number \} \| null\) => void/);
+  assert.match(source, /data-alignment-tools="true"/);
+  assert.match(source, /<AlignmentButtonRow disabled=\{disabled \|\| !projectLoaded\} onAlign=\{alignScreenFrame\} \/>/);
+  assert.match(source, /<AlignmentButtonRow disabled=\{disabled \|\| !projectLoaded \|\| !hasCamera \|\| !camera\.visible\} onAlign=\{alignCameraFrame\} \/>/);
+  assert.match(source, /screenFrame=\{templateScreenFrame\}/);
+  assert.match(source, /onScreenFrameChange=\{updateScreenFrame\}/);
+  assert.match(css, /\.alignmentInspector/);
+  assert.match(css, /\.alignmentButtonRow/);
+});
+
 test('recording editor export merges the live preview layout into the export document', () => {
   const source = readFileSync(join(here, 'main.tsx'), 'utf8');
 

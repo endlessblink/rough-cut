@@ -9,21 +9,21 @@ Canonical flow:
 1. Start a recording.
 2. Capture screen video with cursor telemetry and click events.
 3. Optionally capture microphone audio.
-4. Stop recording cleanly.
-5. Remux MKV to MP4.
-6. Save a `.roughcut` project.
-7. Reopen the project.
-8. Preview the styled canvas.
-9. Export raw MP4.
-10. Export styled MP4.
-11. Reopen outputs from disk and verify they play.
+4. Pause and resume a take without losing elapsed-time state or saved media.
+5. Restart a bad take without preserving the discarded segment.
+6. Stop recording cleanly.
+7. Remux MKV segment(s) to MP4.
+8. Save a `.roughcut` project.
+9. Reopen the project.
+10. Preview the styled canvas.
+11. Export raw MP4.
+12. Export styled MP4.
+13. Reopen outputs from disk and verify they play.
 
 Out of scope for this solidity gate:
 
 - Wayland capture.
-- System audio capture.
 - Region/window capture.
-- Pause/resume/cancel.
 - Trim/cut editing.
 - Webcam PiP acceptance beyond not breaking existing camera plumbing.
 
@@ -53,6 +53,10 @@ pnpm smoke:ui
 pnpm smoke:styled-export
 pnpm smoke:package
 pnpm smoke:package-recording-flow
+ROUGH_CUT_UI_SMOKE_PAUSE_RESUME=1 pnpm smoke:recording-flow-ui
+ROUGH_CUT_UI_SMOKE_RESTART=1 pnpm smoke:recording-flow-ui
+ROUGH_CUT_UI_SMOKE_PAUSE_RESUME=1 pnpm smoke:package-recording-flow
+ROUGH_CUT_UI_SMOKE_RESTART=1 pnpm smoke:package-recording-flow
 ```
 
 Passing criteria:
@@ -65,6 +69,8 @@ Passing criteria:
 - Styled export smoke verifies dimensions, frame rate, cursor visibility, and zoom scenarios.
 - Package smoke launches the packaged app and verifies preview/export UI from the installed artifact.
 - Package recording-flow smoke records through the packaged pre-record flow, simulates a camera warning, stops, saves, opens review, and verifies post-recording actions plus persisted warning copy.
+- Pause/resume smoke reaches a paused state, resumes to recording, stops, and saves a playable project.
+- Restart smoke discards the active take, starts a fresh output path, stops, and saves only the restarted take.
 
 ## Recording Artifact Gate
 
@@ -75,6 +81,8 @@ For a fresh recording, verify the saved project and media artifacts:
 - MP4 duration is within an acceptable tolerance of the requested recording duration.
 - MP4 average frame rate is close to the configured capture fps.
 - No FFmpeg stderr warning indicates persistent dropped frames or input queue backpressure after startup.
+- Paused recordings remux only the captured segments and report coherent MP4 timing.
+- Restarted recordings do not leave the discarded take attached to the saved project.
 - `.roughcut` project exists and passes schema migration/validation on reopen.
 - Project recording asset metadata includes width, height, fps, startedAt, stoppedAt, rawPath, cursorTelemetryPath, cursorEvents, and audio metadata when enabled.
 - Cursor sidecar exists and contains events aligned to recording-start frame numbers.

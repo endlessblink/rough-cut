@@ -12,6 +12,7 @@ import { remuxMkvToMp4 } from '../apps/desktop/src/main/remux-service.mjs';
 import { assertReadableMp4, computeSyncedRecordingTiming, probeVideoStreamsTiming, probeVideoTiming } from '../apps/desktop/src/main/media-probe.mjs';
 import { openProjectFile, saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
 import { EXPORT_MODES, exportProjectToMp4 } from '../apps/desktop/src/main/export-service.mjs';
+import { diagnosticsPathForRecording } from '../apps/desktop/src/main/recording-diagnostics.mjs';
 
 const width = numberFromEnv('ROUGH_CUT_REAL_SMOKE_WIDTH', 640);
 const height = numberFromEnv('ROUGH_CUT_REAL_SMOKE_HEIGHT', 360);
@@ -91,11 +92,14 @@ setPhase('assert-saved-recording');
 if (stopped.state !== 'saved' || !stopped.project) {
   throw new Error('Real recording did not produce a saved project.');
 }
-if (!stopped.diagnosticsPath) {
+setPhase('wait-finalization');
+const diagnosticsPath = await waitForDeferredDiagnostics(stopped);
+artifacts.diagnosticsPath = diagnosticsPath;
+if (!diagnosticsPath) {
   throw new Error('Real recording did not produce a diagnostics report.');
 }
 setPhase('assert-diagnostics');
-const diagnostics = JSON.parse(readFileSync(stopped.diagnosticsPath, 'utf8'));
+const diagnostics = JSON.parse(readFileSync(diagnosticsPath, 'utf8'));
 assertDiagnostics(diagnostics);
 
 setPhase('reopen-project');
@@ -155,7 +159,7 @@ console.info(
       display,
       projectPath: stopped.project.path,
       recordingPath: stopped.outputPath,
-      diagnosticsPath: stopped.diagnosticsPath,
+      diagnosticsPath,
       cursorEvents: cursorEvents.length,
       moveEvents: moveEvents.length,
       buttonEvents: buttonEvents.length,
@@ -335,4 +339,27 @@ function formatX11Offset(value) {
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForDeferredDiagnostics(stopped, timeoutMs = 15_000) {
+  if (stopped?.finalizationPromise) {
+    const finalization = await stopped.finalizationPromise;
+    if (finalization?.state === 'failed') {
+      throw new Error(`Deferred recording finalization failed: ${finalization.error ?? 'unknown error'}`);
+    }
+  }
+  const candidate = stopped?.finalization?.diagnosticsPath
+    ?? stopped?.diagnosticsPath
+    ?? (stopped?.outputPath ? diagnosticsPathForRecording(stopped.outputPath) : null);
+  if (!candidate) return null;
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    try {
+      if (statSync(candidate).isFile()) return candidate;
+    } catch (err) {
+      if (err?.code !== 'ENOENT') throw err;
+    }
+    await wait(100);
+  }
+  throw new Error(`Timed out waiting for deferred diagnostics: ${candidate}`);
 }

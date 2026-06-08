@@ -5,6 +5,7 @@ const root = process.cwd();
 const artifactRoot = join(root, 'dist', 'rough-cut-mvp-linux-x64');
 const appRoot = join(artifactRoot, 'resources', 'app');
 const scopedPackageRoot = join(appRoot, 'node_modules', '@rough-cut');
+const workspacePackages = ['project-model', 'timeline-engine', 'effect-registry', 'frame-resolver'];
 
 await rm(artifactRoot, { recursive: true, force: true });
 await mkdir(appRoot, { recursive: true });
@@ -14,11 +15,11 @@ await cp(join(root, 'apps/desktop/src/main'), join(appRoot, 'apps/desktop/src/ma
 await cp(join(root, 'apps/desktop/src/preload'), join(appRoot, 'apps/desktop/src/preload'), { recursive: true });
 await cp(join(root, 'apps/desktop/src/shared'), join(appRoot, 'apps/desktop/src/shared'), { recursive: true });
 await cp(join(root, 'apps/desktop/dist/renderer'), join(appRoot, 'apps/desktop/dist/renderer'), { recursive: true });
-await cp(join(root, 'packages/project-model/dist'), join(appRoot, 'packages/project-model/dist'), { recursive: true });
-await cp(join(root, 'packages/timeline-engine/dist'), join(appRoot, 'packages/timeline-engine/dist'), { recursive: true });
 await mkdir(scopedPackageRoot, { recursive: true });
-await cpWorkspacePackage('project-model');
-await cpWorkspacePackage('timeline-engine');
+for (const packageName of workspacePackages) {
+  await cpWorkspacePackage(packageName);
+  await cp(join(root, 'packages', packageName, 'dist'), join(appRoot, 'packages', packageName, 'dist'), { recursive: true });
+}
 await cp(join(root, 'packages/project-model/node_modules/zod'), join(appRoot, 'node_modules/zod'), {
   recursive: true,
   dereference: true,

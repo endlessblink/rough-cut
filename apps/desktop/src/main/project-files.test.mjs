@@ -61,6 +61,78 @@ test('creates a valid project document for a screen recording', () => {
   assert.equal(project.composition.tracks[0].clips.length, 1);
 });
 
+test('creates auto zoom markers from recording click telemetry', () => {
+  const project = createProjectForRecording({
+    recording: {
+      ...recording,
+      cursorEvents: [
+        { frame: 24, timeMs: 800, x: 960, y: 540, type: 'down', button: 'left' },
+        { frame: 26, timeMs: 866, x: 960, y: 540, type: 'up', button: 'left' },
+      ],
+    },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+
+  const markers = project.assets[0].presentation?.zoom?.markers ?? [];
+  assert.ok(markers.length > 0, 'expected click telemetry to create auto zoom markers');
+  assert.equal(markers[0].kind, 'auto');
+  assert.equal(markers[0].focalPoint.x, 0.5);
+  assert.equal(markers[0].focalPoint.y, 0.5);
+});
+
+test('mirrors recording-created auto zoom markers into the shared timeline', () => {
+  const project = createProjectForRecording({
+    recording: {
+      ...recording,
+      cursorEvents: [
+        { frame: 24, timeMs: 800, x: 960, y: 540, type: 'down', button: 0 },
+        { frame: 26, timeMs: 866, x: 960, y: 540, type: 'up', button: 0 },
+      ],
+    },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+
+  const asset = project.assets[0];
+  const markers = asset.presentation?.zoom?.markers ?? [];
+  const timelineZooms = project.timeline.markers.filter((marker) => marker.kind === 'zoom');
+  assert.equal(timelineZooms.length, markers.length);
+  assert.deepEqual(timelineZooms.map((marker) => marker.linkedGroupId), markers.map(() => `linked:${asset.id}`));
+  assert.deepEqual(timelineZooms.map((marker) => marker.params.marker.id), markers.map((marker) => marker.id));
+});
+
+test('clamps recording-created auto zoom markers to the recording duration', () => {
+  const project = createProjectForRecording({
+    recording: {
+      ...recording,
+      stoppedAt: '2026-04-28T12:00:02.000Z',
+      cursorEvents: [
+        { frame: 54, timeMs: 1800, x: 960, y: 540, type: 'down', button: 0 },
+        { frame: 56, timeMs: 1866, x: 960, y: 540, type: 'up', button: 0 },
+      ],
+    },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+
+  const duration = project.assets[0].duration;
+  const markers = project.assets[0].presentation?.zoom?.markers ?? [];
+  assert.ok(markers.length > 0, 'expected click telemetry to create a clamped marker');
+  assert.ok(markers.every((marker) => marker.endFrame <= duration));
+  assert.equal(project.timeline.markers.every((marker) => marker.endFrame <= duration), true);
+});
+
+test('keeps recordings without usable cursor telemetry zoom-free', () => {
+  const project = createProjectForRecording({
+    recording: {
+      ...recording,
+      cursorEvents: [],
+    },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+
+  assert.deepEqual(project.assets[0].presentation?.zoom?.markers, []);
+  assert.equal(project.timeline.markers.some((marker) => marker.kind === 'zoom'), false);
+});
+
 test('persists capture region metadata for bounded recordings', () => {
   const capture = { mode: 'region', x: 10, y: 20, width: 640, height: 360, absoluteX: 110, absoluteY: 220 };
   const project = createProjectForRecording({

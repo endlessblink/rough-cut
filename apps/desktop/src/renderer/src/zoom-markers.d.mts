@@ -54,6 +54,11 @@ export function applySuggestion(
   suggestion: ZoomMarker,
 ): ProjectDocument;
 
+export function addAutoZoomMarkersFromTelemetry(
+  document: ProjectDocument,
+  options?: { intensity?: number },
+): ProjectDocument;
+
 export function withDefaultPresentation(
   presentation?: Partial<RecordingPresentation>,
 ): RecordingPresentation;

@@ -1,5 +1,5 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { isFfmpegCaptureAvailable, startFfmpegCameraCapture, startFfmpegCapture, startFfmpegUnifiedCapture } from './ffmpeg-capture.mjs';
 import { createXinputButtonListener } from './xinput-button-listener.mjs';
 import { createEventLogger, NULL_EVENT_LOGGER } from './event-logger.mjs';
@@ -42,6 +42,9 @@ export function createRecordingSession({
   let active = null;
   let stopping = null;
   let canceling = null;
+  let pausing = null;
+  let resuming = null;
+  let restarting = null;
 
   async function writeRecoveryMarker(session) {
     await writeFile(
@@ -76,11 +79,16 @@ export function createRecordingSession({
 
   function status() {
     if (!active) return { state: 'idle' };
+    const recordedDurationMs = getRecordedDurationMs(active, now);
     return {
       state: 'recording',
       startedAt: active.startedAt,
       rawPath: active.rawPath,
       outputPath: active.outputPath,
+      paused: Boolean(active.paused),
+      recordedDurationMs,
+      segmentCount: Math.max(1, active.segmentIndex ?? 1),
+      pauseStartedAt: active.pauseStartedAt ?? null,
       micSource: active.micSource,
       systemAudioSource: active.systemAudioSource,
       systemAudioGainPercent: active.systemAudioGainPercent,
@@ -113,47 +121,9 @@ export function createRecordingSession({
         ? eventLoggerFactory({ path: eventsLogPath })
         : NULL_EVENT_LOGGER;
     eventLogger.start();
-    let cameraCapture = null;
-    let unifiedCapture = null;
-    let cameraStartedAtDate = null;
-    let cameraError = null;
     const canUseUnifiedCapture = cameraDevicePath && typeof unifiedCaptureFactory === 'function';
 
-    if (cameraDevicePath && !canUseUnifiedCapture) {
-      try {
-        if (process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR) {
-          throw new Error(process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR);
-        }
-        // Camera ffmpeg races the renderer's getUserMedia release on /dev/video*.
-        // V4L2 character devices allow multiple file opens; exclusivity is at
-        // the streaming-ioctl level, so a plain fs.open() probe (what a previous
-        // attempt used) lies — it succeeds even when ffmpeg's VIDIOC_REQBUFS
-        // would still get EBUSY. The only reliable busy detector is ffmpeg
-        // itself, so retry the spawn until ffmpeg either streams or we give up.
-        cameraStartedAtDate = now();
-        cameraCapture = await spawnCameraCaptureWithRetry({
-          factory: cameraCaptureFactory,
-          outputPath: cameraRawPath,
-          devicePath: cameraDevicePath,
-          maxAttempts: 6,
-          earlyExitWindowMs: 1500,
-          backoffMs: 500,
-        });
-        if (cameraCapture && cameraWarmupMs > 0) {
-          await new Promise((resolve) => setTimeout(resolve, cameraWarmupMs));
-        }
-      } catch (err) {
-        cameraCapture = null;
-        cameraStartedAtDate = null;
-        cameraError = err instanceof Error ? err.message : String(err);
-        console.warn(`[recording-session] camera capture disabled: ${cameraError}`);
-        eventLogger.event('camera-capture-disabled', { error: cameraError, cameraDevicePath });
-      }
-    }
-
     const startedAtDate = now();
-    const cameraPrerollMs = cameraStartedAtDate ? Math.max(0, startedAtDate.getTime() - cameraStartedAtDate.getTime()) : 0;
-    const cameraPrerollFrames = cameraCapture ? Math.max(0, Math.round((cameraPrerollMs / 1000) * DEFAULT_FPS)) : 0;
     const session = {
       startedAt: startedAtDate.toISOString(),
       rawPath,
@@ -163,14 +133,23 @@ export function createRecordingSession({
       cursorTelemetryPath,
       eventsLogPath,
       eventLogger,
+      options: { micSource, systemAudioSource, systemAudioGainPercent, cameraDevicePath, captureRegion: options.captureRegion ?? null },
+      stamp,
       fps: DEFAULT_FPS,
       micSource,
       systemAudioSource,
       systemAudioGainPercent,
       cameraDevicePath,
-      cameraError,
-      cameraPrerollMs,
-      cameraPrerollFrames,
+      cameraError: null,
+      cameraPrerollMs: 0,
+      cameraPrerollFrames: 0,
+      segmentIndex: 1,
+      segments: [],
+      cameraSegments: [],
+      recordedDurationMs: 0,
+      currentSegmentStartedAtMs: null,
+      pauseStartedAt: null,
+      paused: false,
       cursorEvents: [],
       cursorTimer: null,
       // Track every spawned child so an external SIGTERM can reap them
@@ -180,8 +159,6 @@ export function createRecordingSession({
       children: [],
       ...displayInfo,
     };
-
-    if (cameraCapture) registerChild(session, 'ffmpeg-camera', cameraCapture);
 
     eventLogger.event('recording-start', {
       startedAt: session.startedAt,
@@ -195,66 +172,22 @@ export function createRecordingSession({
       systemAudioSource,
       systemAudioGainPercent,
       cameraDevicePath,
-      cameraError,
+      cameraError: session.cameraError,
     });
 
     await writeRecoveryMarker(session);
 
-    let capture = null;
-    if (canUseUnifiedCapture) {
-      try {
-        if (process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR) {
-          throw new Error(process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR);
-        }
-        unifiedCapture = await spawnUnifiedCaptureWithRetry({
-          factory: unifiedCaptureFactory,
-          outputPath: rawPath,
-          fps: session.fps,
-          display: session.display,
-          width: session.width,
-          height: session.height,
-          cameraDevicePath,
-          micSource: session.micSource,
-          systemAudioSource: session.systemAudioSource,
-          systemAudioGainPercent: session.systemAudioGainPercent,
-          onFirstFrame: (firstFrameMs) => {
-            eventLogger.event('first-frame-anchor', { firstFrameMs });
-          },
-          maxAttempts: 6,
-          earlyExitWindowMs: 1500,
-          backoffMs: 500,
-        });
-        capture = unifiedCapture;
-      } catch (err) {
-        unifiedCapture = null;
-        cameraError = err instanceof Error ? err.message : String(err);
-        session.cameraError = cameraError;
-        console.warn(`[recording-session] unified camera capture disabled: ${cameraError}`);
-        eventLogger.event('camera-capture-disabled', { error: cameraError, cameraDevicePath });
-      }
-    }
-
-    if (!capture) {
-      capture = captureFactory({
-        outputPath: rawPath,
-        fps: session.fps,
-        display: session.display,
-        width: session.width,
-        height: session.height,
-        micSource: session.micSource,
-        systemAudioSource: session.systemAudioSource,
-        systemAudioGainPercent: session.systemAudioGainPercent,
-        onFirstFrame: (firstFrameMs) => {
-          eventLogger.event('first-frame-anchor', { firstFrameMs });
-        },
-      });
-    }
-
-    registerChild(session, 'ffmpeg-screen', capture);
-    active = { ...session, capture, cameraCapture, unifiedCapture };
-    monitorCameraCaptureExit(active);
-
-    startTelemetryAfterIpcReturn(active, { getCursorPoint, now, sampleIntervalMs, buttonListenerFactory });
+    active = session;
+    await startActiveSegment(active, {
+      captureFactory,
+      cameraCaptureFactory,
+      unifiedCaptureFactory,
+      cameraWarmupMs,
+      now,
+      getCursorPoint,
+      sampleIntervalMs,
+      buttonListenerFactory,
+    });
     return status();
   }
 
@@ -277,6 +210,9 @@ export function createRecordingSession({
   async function stop() {
     if (canceling) return canceling;
     if (stopping) return stopping;
+    if (pausing) await pausing;
+    if (resuming) await resuming;
+    if (restarting) return restarting;
     if (!active) return { state: 'idle' };
 
     const session = active;
@@ -290,6 +226,9 @@ export function createRecordingSession({
   async function cancel() {
     if (stopping) return stopping;
     if (canceling) return canceling;
+    if (pausing) await pausing;
+    if (resuming) await resuming;
+    if (restarting) return restarting;
     if (!active) return { state: 'idle', canceled: false };
 
     const session = active;
@@ -300,29 +239,69 @@ export function createRecordingSession({
     return canceling;
   }
 
+  async function pause() {
+    if (stopping) return stopping;
+    if (canceling) return canceling;
+    if (resuming) await resuming;
+    if (pausing) return pausing;
+    if (!active) return { state: 'idle' };
+    if (active.paused) return status();
+
+    const session = active;
+    pausing = pauseActiveSession(session, now).finally(() => {
+      pausing = null;
+    });
+    await pausing;
+    return status();
+  }
+
+  async function resume() {
+    if (stopping) return stopping;
+    if (canceling) return canceling;
+    if (pausing) await pausing;
+    if (resuming) return resuming;
+    if (!active) return { state: 'idle' };
+    if (!active.paused) return status();
+
+    const session = active;
+    resuming = resumeActiveSession(session).finally(() => {
+      resuming = null;
+    });
+    await resuming;
+    return status();
+  }
+
+  async function restart(options = null) {
+    if (stopping) return stopping;
+    if (canceling) return canceling;
+    if (restarting) return restarting;
+    const nextOptions = options ?? active?.options ?? {};
+    restarting = (async () => {
+      if (active) {
+        const session = active;
+        active = null;
+        await cancelActiveSession(session);
+      }
+      return start(nextOptions);
+    })().finally(() => {
+      restarting = null;
+    });
+    return restarting;
+  }
+
   async function stopActiveSession(session, now) {
     session.stopped = true;
-    if (session.cursorTimer) clearInterval(session.cursorTimer);
-    if (session.buttonListener) session.buttonListener.stop();
+    stopTelemetry(session);
     if (session.eventLogger) session.eventLogger.event('recording-stop');
-    console.info('[recording-session] phase=screen-capture-stop-begin');
-    const rawPath = await session.capture.stop();
-    console.info('[recording-session] phase=screen-capture-stop-done');
-    let cameraRawPath = session.unifiedCapture ? rawPath : null;
-    let cameraError = session.cameraError ?? null;
-    if (session.cameraCapture) {
-      try {
-        console.info('[recording-session] phase=camera-capture-stop-begin');
-        cameraRawPath = await session.cameraCapture.stop();
-        console.info('[recording-session] phase=camera-capture-stop-done', { cameraRawPath });
-      } catch (err) {
-        cameraError = err instanceof Error ? err.message : String(err);
-        console.warn(`[recording-session] phase=camera-capture-stop-failed; continuing screen-only: ${cameraError}`);
-        session.eventLogger?.event('camera-capture-stop-failed', { error: cameraError, cameraDevicePath: session.cameraDevicePath });
-      }
-    } else if (!session.unifiedCapture) {
-      console.info('[recording-session] phase=camera-capture-stop-skipped (no camera in session)');
+    if (!session.paused) {
+      await stopCurrentSegment(session, 'stop', now);
     }
+    const rawPath = session.segments.length > 1 ? session.rawPath : session.segments[0]?.rawPath ?? session.rawPath;
+    let cameraRawPath = session.unifiedCapture ? rawPath : session.cameraSegments[0]?.rawPath ?? null;
+    let cameraError = session.cameraError ?? null;
+    const cameraRawSegments = session.cameraSegments.map((segment) => segment.rawPath).filter(Boolean);
+    if (cameraRawSegments.length > 1) cameraRawPath = session.cameraRawPath;
+    const isUnifiedCapture = Boolean(cameraRawPath && cameraRawPath === rawPath);
 
     // The firstFrameMs anchor is captured but no longer used to re-anchor
     // cursor events. Earlier today we tried shifting cursor frames backward
@@ -343,7 +322,9 @@ export function createRecordingSession({
       stoppedAt: now().toISOString(),
       rawPath,
       outputPath: session.outputPath,
+      rawSegments: session.segments.length > 1 ? session.segments.map((segment) => segment.rawPath) : null,
       cameraRawPath,
+      cameraRawSegments: cameraRawSegments.length > 1 ? cameraRawSegments : null,
       cameraOutputPath: cameraRawPath && !cameraError ? session.cameraOutputPath : null,
       cameraDevicePath: session.cameraDevicePath,
       cameraError,
@@ -357,9 +338,9 @@ export function createRecordingSession({
             width: 1280,
             height: 720,
             fps: session.fps,
-            sourceInFrames: session.unifiedCapture ? 0 : session.cameraPrerollFrames,
-            prerollMs: session.unifiedCapture ? 0 : session.cameraPrerollMs,
-            sourceStreamIndex: session.unifiedCapture ? 1 : 0,
+            sourceInFrames: isUnifiedCapture ? 0 : session.cameraPrerollFrames,
+            prerollMs: isUnifiedCapture ? 0 : session.cameraPrerollMs,
+            sourceStreamIndex: isUnifiedCapture ? 1 : 0,
           }
         : null,
       width: session.width,
@@ -377,8 +358,7 @@ export function createRecordingSession({
 
   async function cancelActiveSession(session) {
     session.stopped = true;
-    if (session.cursorTimer) clearInterval(session.cursorTimer);
-    if (session.buttonListener) session.buttonListener.stop();
+    stopTelemetry(session);
     if (session.eventLogger) session.eventLogger.event('recording-cancel');
     await Promise.allSettled([
       cancelCapture(session.capture),
@@ -390,7 +370,208 @@ export function createRecordingSession({
     return { state: 'idle', canceled: true };
   }
 
-  return { start, stop, cancel, status, terminateChildren };
+  async function pauseActiveSession(session, now) {
+    if (session.paused) return;
+    session.eventLogger?.event('recording-pause');
+    await stopCurrentSegment(session, 'pause', now);
+    session.paused = true;
+    session.pauseStartedAt = now().toISOString();
+  }
+
+  async function resumeActiveSession(session) {
+    if (!session.paused) return;
+    session.segmentIndex += 1;
+    session.paused = false;
+    session.pauseStartedAt = null;
+    session.eventLogger?.event('recording-resume', { segmentIndex: session.segmentIndex });
+    await startActiveSegment(session, {
+      captureFactory,
+      cameraCaptureFactory,
+      unifiedCaptureFactory,
+      cameraWarmupMs,
+      now,
+      getCursorPoint,
+      sampleIntervalMs,
+      buttonListenerFactory,
+    });
+  }
+
+  return { start, stop, cancel, pause, resume, restart, status, terminateChildren };
+}
+
+async function startActiveSegment(session, {
+  captureFactory,
+  cameraCaptureFactory,
+  unifiedCaptureFactory,
+  cameraWarmupMs,
+  now,
+  getCursorPoint,
+  sampleIntervalMs,
+  buttonListenerFactory,
+}) {
+  const paths = segmentPaths(session, session.segmentIndex);
+  const canUseUnifiedCapture = session.cameraDevicePath && typeof unifiedCaptureFactory === 'function';
+  let cameraCapture = null;
+  let unifiedCapture = null;
+  let capture = null;
+  let cameraStartedAtDate = null;
+
+  if (session.cameraDevicePath && !canUseUnifiedCapture) {
+    try {
+      if (process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR) {
+        throw new Error(process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR);
+      }
+      cameraStartedAtDate = now();
+      cameraCapture = await spawnCameraCaptureWithRetry({
+        factory: cameraCaptureFactory,
+        outputPath: paths.cameraRawPath,
+        devicePath: session.cameraDevicePath,
+        maxAttempts: 6,
+        earlyExitWindowMs: 1500,
+        backoffMs: 500,
+      });
+      if (cameraCapture && cameraWarmupMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, cameraWarmupMs));
+      }
+    } catch (err) {
+      cameraCapture = null;
+      cameraStartedAtDate = null;
+      session.cameraError = err instanceof Error ? err.message : String(err);
+      console.warn(`[recording-session] camera capture disabled: ${session.cameraError}`);
+      session.eventLogger?.event('camera-capture-disabled', { error: session.cameraError, cameraDevicePath: session.cameraDevicePath });
+    }
+  }
+
+  if (canUseUnifiedCapture) {
+    try {
+      if (process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR) {
+        throw new Error(process.env.ROUGH_CUT_SMOKE_CAMERA_START_ERROR);
+      }
+      unifiedCapture = await spawnUnifiedCaptureWithRetry({
+        factory: unifiedCaptureFactory,
+        outputPath: paths.rawPath,
+        fps: session.fps,
+        display: session.display,
+        width: session.width,
+        height: session.height,
+        cameraDevicePath: session.cameraDevicePath,
+        micSource: session.micSource,
+        systemAudioSource: session.systemAudioSource,
+        systemAudioGainPercent: session.systemAudioGainPercent,
+        onFirstFrame: (firstFrameMs) => {
+          session.eventLogger?.event('first-frame-anchor', { firstFrameMs, segmentIndex: session.segmentIndex });
+        },
+        maxAttempts: 6,
+        earlyExitWindowMs: 1500,
+        backoffMs: 500,
+      });
+      capture = unifiedCapture;
+    } catch (err) {
+      unifiedCapture = null;
+      session.cameraError = err instanceof Error ? err.message : String(err);
+      console.warn(`[recording-session] unified camera capture disabled: ${session.cameraError}`);
+      session.eventLogger?.event('camera-capture-disabled', { error: session.cameraError, cameraDevicePath: session.cameraDevicePath });
+    }
+  }
+
+  if (!capture) {
+    capture = captureFactory({
+      outputPath: paths.rawPath,
+      fps: session.fps,
+      display: session.display,
+      width: session.width,
+      height: session.height,
+      micSource: session.micSource,
+      systemAudioSource: session.systemAudioSource,
+      systemAudioGainPercent: session.systemAudioGainPercent,
+      onFirstFrame: (firstFrameMs) => {
+        session.eventLogger?.event('first-frame-anchor', { firstFrameMs, segmentIndex: session.segmentIndex });
+      },
+    });
+  }
+
+  const segmentStartedAtDate = now();
+  const cameraPrerollMs = cameraStartedAtDate ? Math.max(0, segmentStartedAtDate.getTime() - cameraStartedAtDate.getTime()) : 0;
+  if (session.segmentIndex === 1) {
+    session.cameraPrerollMs = cameraCapture ? cameraPrerollMs : 0;
+    session.cameraPrerollFrames = cameraCapture ? Math.max(0, Math.round((cameraPrerollMs / 1000) * DEFAULT_FPS)) : 0;
+  }
+
+  session.capture = capture;
+  session.cameraCapture = cameraCapture;
+  session.unifiedCapture = unifiedCapture;
+  session.currentSegment = {
+    index: session.segmentIndex,
+    rawPath: paths.rawPath,
+    cameraRawPath: unifiedCapture ? paths.rawPath : cameraCapture ? paths.cameraRawPath : null,
+    startedAtMs: segmentStartedAtDate.getTime(),
+    startedRecordedDurationMs: session.recordedDurationMs,
+  };
+  session.currentSegmentStartedAtMs = segmentStartedAtDate.getTime();
+  registerChild(session, 'ffmpeg-screen', capture);
+  if (cameraCapture) registerChild(session, 'ffmpeg-camera', cameraCapture);
+  monitorCameraCaptureExit(session);
+  startTelemetryAfterIpcReturn(session, { getCursorPoint, now, sampleIntervalMs, buttonListenerFactory });
+}
+
+async function stopCurrentSegment(session, reason, now) {
+  if (!session.currentSegment || !session.capture) return;
+  stopTelemetry(session);
+  const segment = session.currentSegment;
+  console.info(`[recording-session] phase=screen-capture-${reason}-begin`);
+  const rawPath = await session.capture.stop();
+  console.info(`[recording-session] phase=screen-capture-${reason}-done`);
+  let cameraRawPath = session.unifiedCapture ? rawPath : null;
+  if (session.cameraCapture) {
+    try {
+      console.info(`[recording-session] phase=camera-capture-${reason}-begin`);
+      cameraRawPath = await session.cameraCapture.stop();
+      console.info(`[recording-session] phase=camera-capture-${reason}-done`, { cameraRawPath });
+    } catch (err) {
+      session.cameraError = err instanceof Error ? err.message : String(err);
+      console.warn(`[recording-session] phase=camera-capture-${reason}-failed; continuing screen-only: ${session.cameraError}`);
+      session.eventLogger?.event('camera-capture-stop-failed', { error: session.cameraError, cameraDevicePath: session.cameraDevicePath, reason });
+      cameraRawPath = null;
+    }
+  } else if (!session.unifiedCapture) {
+    console.info(`[recording-session] phase=camera-capture-${reason}-skipped (no camera in session)`);
+  }
+
+  const stoppedAtMs = now().getTime();
+  const durationMs = Math.max(0, stoppedAtMs - segment.startedAtMs);
+  session.recordedDurationMs += durationMs;
+  session.segments.push({ ...segment, rawPath, durationMs });
+  if (cameraRawPath && !session.cameraError) session.cameraSegments.push({ index: segment.index, rawPath: cameraRawPath, durationMs });
+  session.capture = null;
+  session.cameraCapture = null;
+  session.unifiedCapture = null;
+  session.currentSegment = null;
+  session.currentSegmentStartedAtMs = null;
+}
+
+function segmentPaths(session, index) {
+  if (index === 1) {
+    return {
+      rawPath: session.rawPath,
+      cameraRawPath: session.cameraRawPath && session.cameraRawPath !== session.rawPath ? session.cameraRawPath : null,
+    };
+  }
+  return {
+    rawPath: join(dirname(session.rawPath), `rough-cut-${session.stamp}-segment-${index}.mkv`),
+    cameraRawPath: session.cameraOutputPath ? join(dirname(session.rawPath), `rough-cut-${session.stamp}-segment-${index}-camera.mkv`) : null,
+  };
+}
+
+function stopTelemetry(session) {
+  if (session.cursorTimer) clearInterval(session.cursorTimer);
+  session.cursorTimer = null;
+  if (session.buttonListener) session.buttonListener.stop();
+  session.buttonListener = null;
+}
+
+function getRecordedDurationMs(session, now) {
+  if (!session || session.paused || !session.currentSegmentStartedAtMs) return Math.max(0, session.recordedDurationMs ?? 0);
+  return Math.max(0, (session.recordedDurationMs ?? 0) + now().getTime() - session.currentSegmentStartedAtMs);
 }
 
 // Spawn ffmpeg-camera with retry-on-early-exit. The renderer's getUserMedia
@@ -554,13 +735,17 @@ async function deleteSessionArtifacts(session) {
     session.eventsLogPath,
     session.cameraRawPath,
     session.cameraOutputPath,
+    ...(session.segments ?? []).map((segment) => segment.rawPath),
+    ...(session.cameraSegments ?? []).map((segment) => segment.rawPath),
+    session.currentSegment?.rawPath,
+    session.currentSegment?.cameraRawPath,
   ].filter(Boolean);
   await Promise.allSettled(paths.map((path) => rm(path, { force: true })));
 }
 
 function startTelemetryAfterIpcReturn(session, { getCursorPoint, now, sampleIntervalMs, buttonListenerFactory }) {
   setTimeout(() => {
-    if (session.stopped || !session.capture) return;
+    if (session.stopped || session.paused || !session.capture) return;
 
     // xdotool synchronous polling drives cursor sampling. Start it after the
     // IPC response path so a slow X11 query cannot leave the renderer stuck on
@@ -734,7 +919,7 @@ export function getPrimaryX11DisplayInfo(screen, displayName = process.env.DISPL
 function recordButtonEvent(session, event, now) {
   if (!session || !event) return;
   try {
-    const elapsedMs = Math.max(0, now().getTime() - Date.parse(session.startedAt));
+    const elapsedMs = getRecordedDurationMs(session, now);
     const cursor = normalizeCursorPoint({
       point: { x: event.x, y: event.y },
       originX: session.originX || 0,
@@ -785,7 +970,7 @@ function sampleCursor(session, getCursorPoint, now) {
       }
       return;
     }
-    const elapsedMs = Math.max(0, now().getTime() - Date.parse(session.startedAt));
+    const elapsedMs = getRecordedDurationMs(session, now);
     const cursor = normalizeCursorPoint({
       point,
       originX: session.originX || 0,

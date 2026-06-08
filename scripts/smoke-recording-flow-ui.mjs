@@ -19,6 +19,8 @@ const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb'
     ROUGH_CUT_UI_SMOKE_CAMERA_WARNING: process.env.ROUGH_CUT_UI_SMOKE_CAMERA_WARNING ?? '',
     ROUGH_CUT_UI_SMOKE_CANCEL_FLOW: process.env.ROUGH_CUT_UI_SMOKE_CANCEL_FLOW ?? '',
     ROUGH_CUT_UI_SMOKE_DOUBLE_STOP: process.env.ROUGH_CUT_UI_SMOKE_DOUBLE_STOP ?? '',
+    ROUGH_CUT_UI_SMOKE_PAUSE_RESUME: process.env.ROUGH_CUT_UI_SMOKE_PAUSE_RESUME ?? '',
+    ROUGH_CUT_UI_SMOKE_RESTART: process.env.ROUGH_CUT_UI_SMOKE_RESTART ?? '',
     ROUGH_CUT_UI_SMOKE_INVALID_REGION: process.env.ROUGH_CUT_UI_SMOKE_INVALID_REGION ?? '',
     ROUGH_CUT_UI_SMOKE_AUDIO_GAIN_ONLY: process.env.ROUGH_CUT_UI_SMOKE_AUDIO_GAIN_ONLY ?? '',
     ROUGH_CUT_SMOKE_MIC_SOURCE: process.env.ROUGH_CUT_SMOKE_MIC_SOURCE || (audioGainOnly ? 'alsa_input.rough_cut_smoke_mic' : ''),
@@ -43,6 +45,13 @@ if (audioGainOnly) {
 } else if (process.env.ROUGH_CUT_UI_SMOKE_CANCEL_FLOW === '1') {
   if (!report.ok || !report.cancelFlow || !report.hasPreRecordPanel || !report.hasPreflightPanel || !report.hasCaptureTargetSelect || !report.hasCaptureSourcePicker || !report.hasDisabledWindowSource || (report.hasSystemAudioGainControl && !report.exercisedSystemAudioGainControl) || !report.hasNoRegionNumberInputs || !report.hasInvalidRegionRejected || report.selectedCaptureTarget !== 'display' || report.initialState !== 'idle' || report.canceledState !== 'idle' || report.hasSavedMessage || report.hasReviewWorkspace || report.hasVideo) {
     throw new Error(`Recording-flow cancel smoke assertions failed: ${JSON.stringify(report)}`);
+  }
+} else if (process.env.ROUGH_CUT_UI_SMOKE_PAUSE_RESUME === '1') {
+  if (!report.ok || !report.pauseResumeFlow || !report.hasPausedState || !report.hasResumedState || report.savedState !== 'saved' || !report.hasSavedMessage || !report.hasReviewWorkspace || !report.hasVideo) {
+    throw new Error(`Recording-flow pause/resume smoke assertions failed: ${JSON.stringify(report)}`);
+  }
+  if (process.env.ROUGH_CUT_UI_SMOKE_RESTART === '1' && (!report.restartFlow || !report.hasRestartedState)) {
+    throw new Error(`Recording-flow restart smoke assertions failed: ${JSON.stringify(report)}`);
   }
 } else if (!report.ok || !report.hasPreRecordPanel || !report.hasPreflightPanel || !report.hasCaptureTargetSelect || !report.hasCaptureSourcePicker || !report.hasDisabledWindowSource || (report.hasSystemAudioGainControl && !report.exercisedSystemAudioGainControl) || !report.hasNoRegionNumberInputs || !report.hasInvalidRegionRejected || report.selectedCaptureTarget !== 'display' || report.initialState !== 'idle' || report.savedState !== 'saved' || !report.hasSavedMessage || !report.hasStudioShell || !report.hasCentralStage || !report.hasReviewWorkspace || !report.hasPostRecordingActions || !report.hasReviewExportActions || !report.hasReviewNextActions || !report.hasStyledPreviewCanvas || !report.hasVideo || !report.hasStoppingLock || (process.env.ROUGH_CUT_UI_SMOKE_CAMERA_WARNING === '1' && (!report.hasLiveCameraFailureBanner || !report.hasLiveCameraFailureActions))) {
   throw new Error(`Recording-flow UI smoke assertions failed: ${JSON.stringify(report)}`);

@@ -45,7 +45,7 @@ let project = await saveProjectForRecording({
   fps: 30,
   cursorEvents: [
     { frame: 18, x: 80, y: 90, type: 'move', button: 'none' },
-    { frame: 42, x: 120, y: 110, type: 'down', button: 'left' },
+    { frame: 42, x: 120, y: 110, type: 'move', button: 'none' },
   ],
   audio: { micSource: 'package-smoke-mic' },
   camera: {

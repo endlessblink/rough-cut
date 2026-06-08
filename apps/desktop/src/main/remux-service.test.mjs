@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startFfmpegCapture } from './recording/ffmpeg-capture.mjs';
 import { assertReadableMp4 } from './media-probe.mjs';
-import { remuxMkvToMp4, RemuxIncompleteError, validateRemuxedMp4 } from './remux-service.mjs';
+import { remuxMkvSegmentsToMp4, remuxMkvToMp4, RemuxIncompleteError, validateRemuxedMp4 } from './remux-service.mjs';
 
 test('remuxes a short mkv recording to readable mp4', { timeout: 30_000 }, async (t) => {
   const display = ':0+0,0';
@@ -113,6 +113,32 @@ test('remuxMkvToMp4 returns a clean result when ffmpeg succeeds and the validato
   assert.equal(result.warning, null);
   assert.equal(logs.some((line) => line.startsWith('[remux] Starting:')), true);
   assert.equal(logs.some((line) => line.includes('WARN')), false);
+});
+
+test('remuxMkvSegmentsToMp4 uses concat demuxer for multiple raw segments', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-remux-segments-'));
+  const calls = [];
+  const result = await remuxMkvSegmentsToMp4({
+    rawPaths: [join(root, 'one.mkv'), join(root, 'two.mkv')],
+    outputPath: join(root, 'out.mp4'),
+    maps: ['0:v:0', '0:a?'],
+    runner: async (command, args) => {
+      calls.push({ command, args });
+      return { code: 0, stdout: '', stderr: '' };
+    },
+    validate: async () => ({ coherent: true, integrity: { advertisedFrames: 60, decodedFrames: 60 }, warning: null }),
+  });
+
+  assert.equal(result.outputPath, join(root, 'out.mp4'));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command, 'ffmpeg');
+  assert.deepEqual(calls[0].args.slice(0, 6), ['-y', '-f', 'concat', '-safe', '0', '-i']);
+  assert.equal(calls[0].args[7], '-map');
+  assert.equal(calls[0].args[8], '0:v:0');
+  assert.equal(calls[0].args[9], '-map');
+  assert.equal(calls[0].args[10], '0:a?');
+  assert.equal(calls[0].args.includes('0:a?'), true);
+  await rm(root, { recursive: true, force: true });
 });
 
 test('remuxMkvToMp4 surfaces the validator warning to onLog and the return value', async () => {

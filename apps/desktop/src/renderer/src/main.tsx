@@ -65,7 +65,7 @@ import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout } from '
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
   addManualMarkerAtFrame,
-  applySuggestion,
+  addAutoZoomMarkersFromTelemetry,
   getZoomPresentation,
   listMarkers,
   patchZoomPresentation,
@@ -79,7 +79,6 @@ import { buildTimelineModel, frameRangeToPlacement } from './timeline-rail.mjs';
 import { cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFrame, cursorForResizeHandle, drawClickEmphasis, drawCursorPath, frameResizeHandles, moveRectFromPointer, resizeHandleAtPoint, resizeRectFromPointer } from './styled-preview.mjs';
 import type { PreviewDragOrigin } from './styled-preview.mjs';
 import { aspectRatioDims, moveFrameToCameraPosition, resizeFrameToAspect, resizeFrameToCameraSize, shouldCropAspectResizeFrame } from './camera-frame.mjs';
-import { generateSuggestionsForProject } from './auto-zoom-suggestions.mjs';
 import { addCutRange, clearCutRanges, listCutRanges, removeCutRange, visibleDurationFrames, visibleFrameToSourceFrame } from './cut-ranges.mjs';
 import { getRecordingTimelineClip, restoreRecordingFullSource, restoreRecordingSourceEdge, rippleDeleteRecordingRange, selectRecordingEditModel, syncRecordingTimelinePresentation, updateRecordingTimelineTrim } from './recording-timeline.mjs';
 import { appError, errorStateCopy, type AppError } from './app-error-copy.mjs';
@@ -105,6 +104,9 @@ declare global {
       selectCaptureRegion: (options?: { displayId?: string | null; initialRegion?: CaptureRegion | null }) => Promise<CaptureRegion | null>;
       startRecording: (options?: { micSource?: string | null; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean }) => Promise<RecordingStatus>;
       stopRecording: () => Promise<RecordingStatus>;
+      pauseRecording: () => Promise<RecordingStatus>;
+      resumeRecording: () => Promise<RecordingStatus>;
+      restartRecording: (options?: { micSource?: string | null; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean } | null) => Promise<RecordingStatus>;
       cancelRecording: () => Promise<RecordingStatus>;
       getRecordingStatus: () => Promise<RecordingStatus>;
       openProject: () => Promise<ProjectState | null>;
@@ -245,7 +247,7 @@ type CutRange = { id: string; startFrame: number; endFrame: number };
 
 type RecordingStatus =
   | { state: 'idle'; canceled?: boolean }
-  | { state: 'recording'; startedAt: string; rawPath: string; outputPath: string; micSource?: string | null; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; cameraError?: string | null }
+  | { state: 'recording'; startedAt: string; rawPath: string; outputPath: string; paused?: boolean; recordedDurationMs?: number; segmentCount?: number; pauseStartedAt?: string | null; micSource?: string | null; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; cameraError?: string | null }
   | {
       state: 'saved';
       startedAt: string;
@@ -256,6 +258,7 @@ type RecordingStatus =
       diagnosticsPath?: string | null;
       project?: ProjectState;
     };
+type RecordingActionPhase = 'starting' | 'stopping' | 'pausing' | 'resuming' | 'restarting' | 'canceling' | null;
 
 const DEFAULT_RECORDING_BACKGROUND = createDefaultRecordingBackgroundStyle();
 const DEFAULT_CAMERA_PRESENTATION = createDefaultCameraPresentation();
@@ -406,6 +409,7 @@ function App() {
     renameInFlight.current = flag;
   }, []);
   const [recording, setRecording] = React.useState<RecordingStatus>({ state: 'idle' });
+  const [recordingActionPhase, setRecordingActionPhase] = React.useState<RecordingActionPhase>(null);
   const [project, setProject] = React.useState<ProjectState | null>(null);
   const [exportProgress, setExportProgress] = React.useState<ExportProgress | null>(null);
   const [exportResult, setExportResult] = React.useState<ExportResult | null>(null);
@@ -442,11 +446,20 @@ function App() {
   const [recoveryState, setRecoveryState] = React.useState<{ available: boolean; marker: RecoveryMarker | null } | null>(null);
   const [recoveryActionPending, setRecoveryActionPending] = React.useState(false);
   const [dismissedCameraFailureForStartedAt, setDismissedCameraFailureForStartedAt] = React.useState<string | null>(null);
+  const adoptRecordingStatus = React.useCallback((status: RecordingStatus) => {
+    setRecording(status);
+    if (status.state === 'saved' && status.project) {
+      setProject(status.project);
+      setEditHistory(EMPTY_EDIT_HISTORY);
+      setExportResult(null);
+      setActiveAppView('editor');
+    }
+  }, []);
 
   React.useEffect(() => {
     window.roughCut.getVersion().then(setVersion).catch(() => setVersion('unknown'));
     window.roughCut.getRuntimeLogPath().then(setRuntimeLogPath).catch(() => setRuntimeLogPath(null));
-    window.roughCut.getRecordingStatus().then(setRecording).catch(() => undefined);
+    window.roughCut.getRecordingStatus().then(adoptRecordingStatus).catch(() => undefined);
     window.roughCut.getMicSources()
       .then((sources) => {
         setMicSources(sources);
@@ -491,7 +504,7 @@ function App() {
       .then((state) => setRecoveryState({ available: Boolean(state?.available), marker: state?.marker ?? null }))
       .catch(() => setRecoveryState(null));
     return window.roughCut.onExportProgress(setExportProgress);
-  }, []);
+  }, [adoptRecordingStatus]);
 
   const handleRecover = React.useCallback(async () => {
     if (recoveryActionPending) return;
@@ -593,12 +606,13 @@ function App() {
       return;
     }
 
-    const started = Date.parse(recording.startedAt);
-    const update = () => setElapsedMs(Math.max(0, Date.now() - started));
+    const baseElapsed = Math.max(0, recording.recordedDurationMs ?? 0);
+    const started = recording.paused ? null : Date.now();
+    const update = () => setElapsedMs(recording.paused || !started ? baseElapsed : Math.max(0, baseElapsed + Date.now() - started));
     update();
     const id = window.setInterval(update, 250);
     return () => window.clearInterval(id);
-  }, [recording]);
+  }, [recording.state, recording.state === 'recording' ? recording.paused : null, recording.state === 'recording' ? recording.recordedDurationMs : null]);
 
   React.useEffect(() => {
     if (recording.state !== 'recording') return;
@@ -606,7 +620,12 @@ function App() {
     const pollStatus = () => {
       window.roughCut.getRecordingStatus()
         .then((status) => {
-          if (!cancelled && status.state === 'recording' && status.cameraError && status.cameraError !== recording.cameraError) setRecording(status);
+          if (cancelled) return;
+          if (status.state !== 'recording') {
+            adoptRecordingStatus(status);
+            return;
+          }
+          if (status.cameraError !== recording.cameraError || status.paused !== recording.paused || status.recordedDurationMs !== recording.recordedDurationMs) adoptRecordingStatus(status);
         })
         .catch(() => undefined);
     };
@@ -616,7 +635,7 @@ function App() {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [recording]);
+  }, [recording, adoptRecordingStatus]);
 
   React.useEffect(() => {
     const blurFocusedRangeBeforeWheel = () => {
@@ -672,17 +691,15 @@ function App() {
     }
     recordingActionPendingRef.current = true;
     setRecordingActionPending(true);
+    setRecordingActionPhase(recording.state === 'recording' ? 'stopping' : 'starting');
     setError(null);
     try {
       if (recording.state === 'recording') {
         console.info('[renderer:recording] stop requested');
         const stopped = await window.roughCut.stopRecording();
         console.info(`[renderer:recording] stop completed ${JSON.stringify(summarizeRecordingStatus(stopped))}`);
-        setRecording(stopped);
+        adoptRecordingStatus(stopped);
         if (stopped.state === 'saved' && stopped.project) {
-          setProject(stopped.project);
-          setEditHistory(EMPTY_EDIT_HISTORY);
-          setExportResult(null);
           if (isRecorderMode) {
             window.setTimeout(() => {
               void window.roughCut.openEditor(stopped.project?.path ?? null);
@@ -716,7 +733,7 @@ function App() {
           captureMode,
           region,
         })}`);
-        setRecording(await window.roughCut.startRecording({ micSource, systemAudioSource, systemAudioGainPercent: systemAudioGainPercentForCapture, cameraDevicePath, captureRegion: region, hideWindowDuringRecording: isRecorderMode }));
+        adoptRecordingStatus(await window.roughCut.startRecording({ micSource, systemAudioSource, systemAudioGainPercent: systemAudioGainPercentForCapture, cameraDevicePath, captureRegion: region, hideWindowDuringRecording: isRecorderMode }));
       }
     } catch (err) {
       console.error('[renderer:recording] recording action failed', err);
@@ -725,7 +742,63 @@ function App() {
     } finally {
       recordingActionPendingRef.current = false;
       setRecordingActionPending(false);
+      setRecordingActionPhase(null);
     }
+  }
+
+  async function togglePauseRecording() {
+    if (recordingActionPendingRef.current || recording.state !== 'recording') return;
+    recordingActionPendingRef.current = true;
+    setRecordingActionPending(true);
+    setRecordingActionPhase(recording.paused ? 'resuming' : 'pausing');
+    setError(null);
+    try {
+      const next = recording.paused
+        ? await window.roughCut.resumeRecording()
+        : await window.roughCut.pauseRecording();
+      adoptRecordingStatus(next);
+    } catch (err) {
+      console.error('[renderer:recording] pause/resume failed', err);
+      setError(appError('recording', err, recording.paused ? 'Resume recording failed.' : 'Pause recording failed.'));
+    } finally {
+      recordingActionPendingRef.current = false;
+      setRecordingActionPending(false);
+      setRecordingActionPhase(null);
+    }
+  }
+
+  async function restartRecording() {
+    if (recordingActionPendingRef.current || recording.state !== 'recording') return;
+    recordingActionPendingRef.current = true;
+    setRecordingActionPending(true);
+    setRecordingActionPhase('restarting');
+    setError(null);
+    try {
+      console.info('[renderer:recording] restart requested');
+      const restarted = await window.roughCut.restartRecording(buildCurrentRecordingOptions({ hideWindowDuringRecording: isRecorderMode }));
+      console.info(`[renderer:recording] restart completed ${JSON.stringify(summarizeRecordingStatus(restarted))}`);
+      adoptRecordingStatus(restarted);
+      setProject(null);
+      setEditHistory(EMPTY_EDIT_HISTORY);
+      setExportResult(null);
+      setDismissedCameraFailureForStartedAt(null);
+    } catch (err) {
+      console.error('[renderer:recording] restart failed', err);
+      setError(appError('recording', err, 'Restart recording failed.'));
+    } finally {
+      recordingActionPendingRef.current = false;
+      setRecordingActionPending(false);
+      setRecordingActionPhase(null);
+    }
+  }
+
+  function buildCurrentRecordingOptions({ hideWindowDuringRecording = false } = {}): { micSource: string | null; systemAudioSource: string | null; systemAudioGainPercent: number; cameraDevicePath: string | null; captureRegion: CaptureRegion | null; hideWindowDuringRecording: boolean } {
+    const micSource = recordMic ? selectedMicSource || null : null;
+    const systemAudioSource = recordSystemAudio ? selectedSystemAudioSource || null : null;
+    const systemAudioGainPercentForCapture = micSource && systemAudioSource ? systemAudioGainPercent : 100;
+    const cameraDevicePath = recordCamera ? selectedCameraSource || null : null;
+    const region = captureMode === 'region' ? captureRegion : null;
+    return { micSource, systemAudioSource, systemAudioGainPercent: systemAudioGainPercentForCapture, cameraDevicePath, captureRegion: region, hideWindowDuringRecording };
   }
 
   async function selectScreenRegion(displayId = selectedCaptureDisplayId) {
@@ -755,12 +828,13 @@ function App() {
     if (recordingActionPendingRef.current || recording.state !== 'recording') return;
     recordingActionPendingRef.current = true;
     setRecordingActionPending(true);
+    setRecordingActionPhase('canceling');
     setError(null);
     try {
       console.info('[renderer:recording] cancel requested');
       const canceled = await window.roughCut.cancelRecording();
       console.info(`[renderer:recording] cancel completed ${JSON.stringify(summarizeRecordingStatus(canceled))}`);
-      setRecording(canceled);
+      adoptRecordingStatus(canceled);
       setProject(null);
       setEditHistory(EMPTY_EDIT_HISTORY);
       setExportResult(null);
@@ -771,6 +845,7 @@ function App() {
     } finally {
       recordingActionPendingRef.current = false;
       setRecordingActionPending(false);
+      setRecordingActionPhase(null);
     }
   }
 
@@ -983,9 +1058,12 @@ function App() {
         {recording.state === 'recording' ? (
           <RecordingLauncherActive
             elapsedMs={elapsedMs}
+            paused={Boolean(recording.paused)}
             actionPending={recordingActionPending}
             cameraFailure={activeCameraFailure}
             onStop={toggleRecording}
+            onPauseResume={togglePauseRecording}
+            onRestart={restartRecording}
             onCancel={cancelRecording}
             onRetryWithoutCamera={stopAndRetryWithCameraOff}
             onContinueScreenOnly={() => setDismissedCameraFailureForStartedAt(recording.state === 'recording' ? recording.startedAt : null)}
@@ -1024,7 +1102,7 @@ function App() {
             onSelectCaptureRegion={selectScreenRegion}
           />
         )}
-        <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} error={error} diagnosticsPath={failureDiagnosticsPath} onRetry={retryLastFailedAction} onOpenDiagnostics={() => void openPath(failureDiagnosticsPath)} onCopyDiagnosticsPath={copyFailureDiagnosticsPath} />
+        <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} actionPhase={recordingActionPhase} error={error} diagnosticsPath={failureDiagnosticsPath} onRetry={retryLastFailedAction} onOpenDiagnostics={() => void openPath(failureDiagnosticsPath)} onCopyDiagnosticsPath={copyFailureDiagnosticsPath} />
       </main>
     );
   }
@@ -1062,6 +1140,18 @@ function App() {
               <Icon name={recording.state === 'recording' ? 'stop' : 'record'} />
               {recordingActionPending ? (recording.state === 'recording' ? 'Stopping...' : 'Starting...') : recording.state === 'recording' ? 'Stop recording' : 'Record'}
             </button>
+            {recording.state === 'recording' ? (
+              <button type="button" onClick={togglePauseRecording} className="secondary" disabled={recordingActionPending} data-recording-action="pause-resume">
+                <Icon name={recording.paused ? 'play' : 'pause'} />
+                {recording.paused ? 'Resume' : 'Pause'}
+              </button>
+            ) : null}
+            {recording.state === 'recording' ? (
+              <button type="button" onClick={restartRecording} className="secondary" disabled={recordingActionPending} data-recording-action="restart">
+                <Icon name="redo" />
+                Restart
+              </button>
+            ) : null}
             {recording.state === 'recording' ? (
               <button type="button" onClick={cancelRecording} className="secondary" disabled={recordingActionPending}>
                 Cancel take
@@ -1223,7 +1313,7 @@ function App() {
             </div>
           ) : null}
         </div>
-        <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} error={error} diagnosticsPath={failureDiagnosticsPath} onRetry={retryLastFailedAction} onOpenDiagnostics={() => void openPath(failureDiagnosticsPath)} onCopyDiagnosticsPath={copyFailureDiagnosticsPath} />
+        <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} actionPhase={recordingActionPhase} error={error} diagnosticsPath={failureDiagnosticsPath} onRetry={retryLastFailedAction} onOpenDiagnostics={() => void openPath(failureDiagnosticsPath)} onCopyDiagnosticsPath={copyFailureDiagnosticsPath} />
         {activeCameraFailure ? (
           <CameraFailureBanner
             error={activeCameraFailure.error}
@@ -1381,6 +1471,8 @@ function summarizeRecordingStatus(status: RecordingStatus) {
     return {
       state: status.state,
       outputPath: status.outputPath,
+      paused: Boolean(status.paused),
+      segmentCount: status.segmentCount ?? 1,
       cameraDevicePath: status.cameraDevicePath ?? null,
       cameraError: status.cameraError ?? null,
     };
@@ -1649,21 +1741,31 @@ function PreRecordCameraSetup({ source }: { source?: CameraSource }) {
   );
 }
 
-function RecordingLauncherActive({ elapsedMs, actionPending, cameraFailure, onStop, onCancel, onRetryWithoutCamera, onContinueScreenOnly }: { elapsedMs: number; actionPending: boolean; cameraFailure: { error: string } | null; onStop: () => void; onCancel: () => void; onRetryWithoutCamera: () => void; onContinueScreenOnly: () => void }) {
+function RecordingLauncherActive({ elapsedMs, paused, actionPending, cameraFailure, onStop, onPauseResume, onRestart, onCancel, onRetryWithoutCamera, onContinueScreenOnly }: { elapsedMs: number; paused: boolean; actionPending: boolean; cameraFailure: { error: string } | null; onStop: () => void; onPauseResume: () => void; onRestart: () => void; onCancel: () => void; onRetryWithoutCamera: () => void; onContinueScreenOnly: () => void }) {
   return (
     <div className="preRecordOverlay" data-ui-region="recording-launcher-active">
       <section className="preRecordPanel recordingActivePanel">
         <div className="preRecordHeader">
           <div>
-            <p className="eyebrow">Recording</p>
+            <p className="eyebrow">{paused ? 'Paused' : 'Recording'}</p>
             <h2>{formatElapsed(elapsedMs)}</h2>
           </div>
-          <span className="liveDot" aria-hidden="true" />
+          <span className={`liveDot ${paused ? 'paused' : ''}`} aria-hidden="true" />
         </div>
         <button type="button" onClick={onStop} className="stop primaryAction" disabled={actionPending}>
           <Icon name="stop" />
           {actionPending ? 'Stopping...' : 'Stop recording'}
         </button>
+        <div className="recordingActiveActions">
+          <button type="button" onClick={onPauseResume} className="secondary" disabled={actionPending} data-recording-action="pause-resume">
+            <Icon name={paused ? 'play' : 'pause'} />
+            {paused ? 'Resume' : 'Pause'}
+          </button>
+          <button type="button" onClick={onRestart} className="secondary" disabled={actionPending} data-recording-action="restart">
+            <Icon name="redo" />
+            Restart
+          </button>
+        </div>
         <button type="button" onClick={onCancel} className="secondary" disabled={actionPending}>
           Cancel and discard
         </button>
@@ -1675,7 +1777,7 @@ function RecordingLauncherActive({ elapsedMs, actionPending, cameraFailure, onSt
             onContinueScreenOnly={onContinueScreenOnly}
           />
         ) : null}
-        <p className="recordingActiveHint">Pause is intentionally pending segment recording, so cancel removes the current take instead of saving a corrupt pause.</p>
+        <p className="recordingActiveHint">{paused ? 'Resume continues the take without adding paused time.' : 'Pause removes the break from the saved take.'}</p>
       </section>
     </div>
   );
@@ -1901,6 +2003,7 @@ function StateBanner({
   recording,
   elapsedMs,
   actionPending,
+  actionPhase,
   error,
   diagnosticsPath,
   onRetry,
@@ -1910,13 +2013,14 @@ function StateBanner({
   recording: RecordingStatus;
   elapsedMs: number;
   actionPending: boolean;
+  actionPhase: RecordingActionPhase;
   error: AppError | null;
   diagnosticsPath?: string | null;
   onRetry?: () => void;
   onOpenDiagnostics?: () => void;
   onCopyDiagnosticsPath?: () => void;
 }) {
-  const state = error ? 'error' : actionPending ? (recording.state === 'recording' ? 'stopping' : 'starting') : recording.state;
+  const state = error ? 'error' : actionPending ? (actionPhase ?? (recording.state === 'recording' ? 'stopping' : 'starting')) : recording.state === 'recording' && recording.paused ? 'paused' : recording.state;
   const copy = stateCopy(recording, elapsedMs, state, error);
 
   return (
@@ -1950,7 +2054,22 @@ function stateCopy(recording: RecordingStatus, elapsedMs: number, state: string,
   if (state === 'stopping') {
     return { label: 'Finalizing capture', title: 'Stopping...', detail: 'Saving media, remuxing the recording, and building the project file.' };
   }
+  if (state === 'pausing') {
+    return { label: 'Pausing capture', title: 'Pausing...', detail: 'Closing the current segment without saving paused time.' };
+  }
+  if (state === 'resuming') {
+    return { label: 'Resuming capture', title: 'Resuming...', detail: 'Starting the next segment in the same take.' };
+  }
+  if (state === 'restarting') {
+    return { label: 'Restarting capture', title: 'Restarting...', detail: 'Discarding this take and starting again with the same setup.' };
+  }
+  if (state === 'canceling') {
+    return { label: 'Discarding capture', title: 'Canceling...', detail: 'Removing the current take and its temporary media.' };
+  }
   if (recording.state === 'recording') {
+    if (recording.paused) {
+      return { label: 'Paused capture', title: `Paused ${formatElapsed(elapsedMs)}`, detail: 'Resume continues the same take without recording the pause.' };
+    }
     return { label: 'Live capture', title: `Recording ${formatElapsed(elapsedMs)}`, detail: 'Stop when the take is complete. Source controls are locked while recording.' };
   }
   if (recording.state === 'saved') {
@@ -2054,6 +2173,7 @@ function captureStatusLabel(recording: RecordingStatus, elapsedMs: number) {
 }
 
 type IconName = 'folder' | 'sparkle' | 'sliders' | 'undo' | 'redo' | 'record' | 'stop' | 'frame' | 'timeline' | 'cursor' | 'camera' | 'caption' | 'settings' | 'export' | 'display' | 'mic' | 'volume' | 'play' | 'pause' | 'zoom';
+type FrameAlignmentMode = 'left' | 'horizontal-center' | 'right' | 'top' | 'vertical-center' | 'bottom';
 type ActiveTool = 'background' | 'timeline' | 'cursor' | 'camera';
 
 const ICON_COMPONENT_MAP: Record<IconName, PhosphorIconType> = {
@@ -2121,6 +2241,26 @@ function InspectorSection({ id, title, children, description, muted = false, act
       {description ? <p className="inspectorHelp">{description}</p> : null}
       {children}
     </section>
+  );
+}
+
+function AlignmentButtonRow({ disabled = false, onAlign }: { disabled?: boolean; onAlign: (mode: FrameAlignmentMode) => void }) {
+  const actions: Array<{ mode: FrameAlignmentMode; label: string; short: string }> = [
+    { mode: 'left', label: 'Align left', short: 'L' },
+    { mode: 'horizontal-center', label: 'Align horizontal center', short: 'HC' },
+    { mode: 'right', label: 'Align right', short: 'R' },
+    { mode: 'top', label: 'Align top', short: 'T' },
+    { mode: 'vertical-center', label: 'Align vertical center', short: 'VC' },
+    { mode: 'bottom', label: 'Align bottom', short: 'B' },
+  ];
+  return (
+    <div className="alignmentButtonRow" role="group" aria-label="Align frame">
+      {actions.map((action) => (
+        <button key={action.mode} type="button" disabled={disabled} title={action.label} aria-label={action.label} onClick={() => onAlign(action.mode)}>
+          {action.short}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -2340,6 +2480,48 @@ function defaultNormalizedCameraFrame(camera: CameraPresentation, canvasAspectRa
     y: rect.y / canvasH,
     w: rect.width / canvasW,
     h: rect.height / canvasH,
+  };
+}
+
+function defaultNormalizedScreenFrame(
+  background: RecordingBackgroundStyle,
+  canvasAspectRatio: ProjectAspectRatio,
+  sourceSize: { width: number; height: number },
+): NormalizedRect {
+  const canvas = getStyledCanvasResolution({
+    aspectRatio: canvasAspectRatio,
+    sourceWidth: sourceSize.width,
+    sourceHeight: sourceSize.height,
+    longEdge: 1280,
+  });
+  const padding = Math.max(0, Math.min(background.bgPadding, Math.min(canvas.width, canvas.height) / 2 - 2));
+  const maxWidth = canvas.width - padding * 2;
+  const maxHeight = canvas.height - padding * 2;
+  const scale = Math.min(maxWidth / sourceSize.width, maxHeight / sourceSize.height);
+  const width = sourceSize.width * scale;
+  const height = sourceSize.height * scale;
+  return {
+    x: (canvas.width - width) / 2 / canvas.width,
+    y: (canvas.height - height) / 2 / canvas.height,
+    w: width / canvas.width,
+    h: height / canvas.height,
+  };
+}
+
+function alignNormalizedFrame(frame: NormalizedRect, mode: FrameAlignmentMode): NormalizedRect {
+  const next = { ...frame };
+  if (mode === 'left') next.x = 0;
+  if (mode === 'horizontal-center') next.x = (1 - frame.w) / 2;
+  if (mode === 'right') next.x = 1 - frame.w;
+  if (mode === 'top') next.y = 0;
+  if (mode === 'vertical-center') next.y = (1 - frame.h) / 2;
+  if (mode === 'bottom') next.y = 1 - frame.h;
+  return {
+    ...next,
+    x: clampUnit(next.x),
+    y: clampUnit(next.y),
+    w: clampUnit(next.w, 0.05),
+    h: clampUnit(next.h, 0.05),
   };
 }
 
@@ -2782,7 +2964,7 @@ function InspectorActionRow({ children, region }: { children: React.ReactNode; r
   return <div className="actionsArea inspectorActionRow" data-ui-region={region}>{children}</div>;
 }
 
-function EditorToolBoard({ activeTool, project, fps, background, cameraPresentation, cameraFrame = null, cameraCrop = null, cameraSourceSize = { width: 1280, height: 720 }, screenCrop = null, screenSourceSize = { width: 1280, height: 720 }, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, trimInfo, timelineWarning = null, cutRanges = [], userTemplates = [], recordingTemplateOverrides = {}, appliedTemplatePresetId = null, appliedUserTemplateId = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraPresentationAndFrameChange, onCameraCropAndFrameChange, onCameraCropChange, onScreenCropChange, onCursorPresentationChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onApplyUserTemplate, onSaveUserTemplate, onRenameUserTemplate, onDeleteUserTemplate, onResetTrim, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; cameraFrame?: NormalizedRect | null; cameraCrop?: RegionCrop | null; cameraSourceSize?: { width: number; height: number }; screenCrop?: RegionCrop | null; screenSourceSize?: { width: number; height: number }; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; timelineWarning?: string | null; cutRanges?: CutRange[]; userTemplates?: UserRecordingTemplate[]; recordingTemplateOverrides?: Record<string, RecordingTemplateOverride>; appliedTemplatePresetId?: string | null; appliedUserTemplateId?: string | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraPresentationAndFrameChange?: (patch: Partial<CameraPresentation>, frame: { x: number; y: number; w: number; h: number }) => void; onCameraCropAndFrameChange?: (crop: RegionCrop, frame: { x: number; y: number; w: number; h: number }, patch: Partial<CameraPresentation>) => void; onCameraCropChange?: (crop: RegionCrop | null) => void; onScreenCropChange?: (crop: RegionCrop | null) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onApplyUserTemplate?: (template: UserRecordingTemplate) => void; onSaveUserTemplate?: (label: string) => Promise<void> | void; onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void; onDeleteUserTemplate?: (id: string) => Promise<void> | void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
+function EditorToolBoard({ activeTool, project, fps, background, cameraPresentation, screenFrame = null, cameraFrame = null, cameraCrop = null, cameraSourceSize = { width: 1280, height: 720 }, screenCrop = null, screenSourceSize = { width: 1280, height: 720 }, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, trimInfo, timelineWarning = null, cutRanges = [], userTemplates = [], recordingTemplateOverrides = {}, appliedTemplatePresetId = null, appliedUserTemplateId = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraPresentationAndFrameChange, onCameraCropAndFrameChange, onCameraCropChange, onScreenCropChange, onCursorPresentationChange, onScreenFrameChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onApplyUserTemplate, onSaveUserTemplate, onRenameUserTemplate, onDeleteUserTemplate, onResetTrim, onRemoveCutRange, onClearCutRanges }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; screenFrame?: NormalizedRect | null; cameraFrame?: NormalizedRect | null; cameraCrop?: RegionCrop | null; cameraSourceSize?: { width: number; height: number }; screenCrop?: RegionCrop | null; screenSourceSize?: { width: number; height: number }; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; timelineWarning?: string | null; cutRanges?: CutRange[]; userTemplates?: UserRecordingTemplate[]; recordingTemplateOverrides?: Record<string, RecordingTemplateOverride>; appliedTemplatePresetId?: string | null; appliedUserTemplateId?: string | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraPresentationAndFrameChange?: (patch: Partial<CameraPresentation>, frame: { x: number; y: number; w: number; h: number }) => void; onCameraCropAndFrameChange?: (crop: RegionCrop, frame: { x: number; y: number; w: number; h: number }, patch: Partial<CameraPresentation>) => void; onCameraCropChange?: (crop: RegionCrop | null) => void; onScreenCropChange?: (crop: RegionCrop | null) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onScreenFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onApplyUserTemplate?: (template: UserRecordingTemplate) => void; onSaveUserTemplate?: (label: string) => Promise<void> | void; onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void; onDeleteUserTemplate?: (id: string) => Promise<void> | void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void }) {
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const cursor = cursorPresentation ?? DEFAULT_CURSOR_PRESENTATION;
@@ -2808,7 +2990,7 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
         {project?.recording && fps && onProjectChange ? (
           <div className="timelineBoardStack" data-ui-region="timeline-zoom-control-panel">
             {timelineWarning ? <p className="warning">{timelineWarning}</p> : null}
-            <AutoZoomSuggestionsPanel project={project} onProjectChange={onProjectChange} />
+            <AutoZoomGenerationPanel project={project} onProjectChange={onProjectChange} />
             <CameraFollowPanel project={project} onProjectChange={onProjectChange} />
             <InspectorSection id="cuts" title="Cuts" description="Drag a range on the screen lane to remove it from the shared timeline. Use Undo to restore the last cut.">
               <div className="cutRangePanel" data-cut-range-panel="true">
@@ -3023,6 +3205,14 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
     }));
   };
   const resetScreenCrop = () => onScreenCropChange?.(defaultCameraCrop(screenSource));
+  const alignScreenFrame = (mode: FrameAlignmentMode) => {
+    const frame = screenFrame ?? defaultNormalizedScreenFrame(bg, aspectRatio, screenSource);
+    onScreenFrameChange?.(alignNormalizedFrame(frame, mode));
+  };
+  const alignCameraFrame = (mode: FrameAlignmentMode) => {
+    const frame = cameraFrame ?? defaultNormalizedCameraFrame(camera, aspectRatio);
+    onCameraFrameChange?.(alignNormalizedFrame(frame, mode));
+  };
 
   return (
     <aside className="setupBoard" aria-label="Background board">
@@ -3060,6 +3250,18 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
         <InspectorSlider label="Outline" value={bg.bgInset} min={0} max={16} step={1} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgInset: value })} />
         <InspectorSlider label="Radius" value={bg.bgCornerRadius} min={0} max={120} step={2} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgCornerRadius: value })} />
         <InspectorSlider label="Padding" value={bg.bgPadding} min={0} max={260} step={4} disabled={disabled} onChange={(value) => onBackgroundChange?.({ bgPadding: value })} />
+      </InspectorSection>
+      <InspectorSection id="alignment" title="Alignment">
+        <div className="alignmentInspector" data-alignment-tools="true">
+          <div className="alignmentInspectorGroup">
+            <span>Screen</span>
+            <AlignmentButtonRow disabled={disabled || !projectLoaded} onAlign={alignScreenFrame} />
+          </div>
+          <div className="alignmentInspectorGroup">
+            <span>Camera</span>
+            <AlignmentButtonRow disabled={disabled || !projectLoaded || !hasCamera || !camera.visible} onAlign={alignCameraFrame} />
+          </div>
+        </div>
       </InspectorSection>
       <BoardHeader icon="frame" title="Shadow" action="Reset" actionDisabled={disabled} onAction={() => onBackgroundChange?.({ bgShadowEnabled: DEFAULT_RECORDING_BACKGROUND.bgShadowEnabled, bgShadowBlur: DEFAULT_RECORDING_BACKGROUND.bgShadowBlur, bgShadowOpacity: DEFAULT_RECORDING_BACKGROUND.bgShadowOpacity, bgShadowOffsetY: DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetY, bgShadowOffsetX: DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetX })} />
       <InspectorSection id="screen-shadow" title="Shadow">
@@ -3794,7 +3996,7 @@ function ProjectPreview({
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
       <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} background={background} cameraPresentation={cameraPresentation} cameraFrame={templateCameraFrame} cameraCrop={cameraCrop} cameraSourceSize={cameraSourceSize} screenCrop={screenCrop} screenSourceSize={screenSourceSize} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} trimInfo={trimInfo} timelineWarning={recordingEditModel.warning} cutRanges={activeCutRanges} userTemplates={userTemplates} recordingTemplateOverrides={recordingTemplateOverrides} appliedTemplatePresetId={appliedTemplatePresetId} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraPresentationAndFrameChange={updateCameraPresentationAndFrame} onCameraCropAndFrameChange={updateCameraCropAndFrame} onCameraCropChange={updateCameraCrop} onScreenCropChange={updateScreenCrop} onCursorPresentationChange={updateCursorPresentation} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onResetTrim={resetTrim} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
+      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} background={background} cameraPresentation={cameraPresentation} screenFrame={templateScreenFrame} cameraFrame={templateCameraFrame} cameraCrop={cameraCrop} cameraSourceSize={cameraSourceSize} screenCrop={screenCrop} screenSourceSize={screenSourceSize} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} trimInfo={trimInfo} timelineWarning={recordingEditModel.warning} cutRanges={activeCutRanges} userTemplates={userTemplates} recordingTemplateOverrides={recordingTemplateOverrides} appliedTemplatePresetId={appliedTemplatePresetId} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraPresentationAndFrameChange={updateCameraPresentationAndFrame} onCameraCropAndFrameChange={updateCameraCropAndFrame} onCameraCropChange={updateCameraCrop} onScreenCropChange={updateScreenCrop} onCursorPresentationChange={updateCursorPresentation} onScreenFrameChange={updateScreenFrame} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onResetTrim={resetTrim} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>
@@ -4598,6 +4800,65 @@ function TimelineLane({ label, className, children, onTrackDoubleClick, onTrackP
 }
 
 
+function AutoZoomGenerationPanel({
+  project,
+  onProjectChange,
+}: {
+  project: ProjectState;
+  onProjectChange: (next: ProjectState, options?: ProjectChangeOptions) => void;
+}) {
+  const document = project.document as unknown as ProjectDocument;
+  const markerCount = listMarkers(document).filter((marker) => marker.kind === 'auto').length;
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [message, setMessage] = React.useState<string | null>(null);
+
+  async function generateAutoZooms() {
+    const previous = project;
+    const beforeCount = listMarkers(document).length;
+    const nextDocument = addAutoZoomMarkersFromTelemetry(document);
+    if (nextDocument === document) {
+      setMessage('No new zooms found');
+      return;
+    }
+    const addedCount = Math.max(0, listMarkers(nextDocument).length - beforeCount);
+    const optimistic = { ...project, document: nextDocument as unknown as ProjectState['document'] };
+    setMessage(null);
+    setIsSaving(true);
+    onProjectChange(optimistic, { history: true, previous });
+    try {
+      const saved = await saveProjectGuarded({ path: project.path, document: optimistic.document });
+      onProjectChange(saved);
+      setMessage(addedCount === 1 ? 'Added 1 zoom' : `Added ${addedCount} zooms`);
+    } catch (err) {
+      onProjectChange(previous);
+      setMessage(err instanceof Error ? err.message : 'Save failed.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <div className="cameraFollowPanel" aria-label="Auto zoom">
+      <p className="eyebrow">Auto zoom</p>
+      <div className="timelineCompactRow" data-ui-region="auto-zoom-generation-row">
+        <span>Auto zooms</span>
+        <strong>{markerCount}</strong>
+      </div>
+      <InspectorActionRow>
+        <button
+          type="button"
+          className="secondary compact"
+          disabled={isSaving}
+          onClick={() => { void generateAutoZooms(); }}
+        >
+          {isSaving ? 'Generating...' : 'Generate auto zooms'}
+        </button>
+      </InspectorActionRow>
+      {message ? <p className={message.includes('failed') || message.includes('Failed') ? 'error' : 'saved'}>{message}</p> : null}
+    </div>
+  );
+}
+
 function CameraFollowPanel({
   project,
   onProjectChange,
@@ -4689,123 +4950,6 @@ function CameraFollowPanel({
           ) : null}
         </div>
       ) : null}
-      {saveError ? <p className="error">{saveError}</p> : null}
-    </div>
-  );
-}
-
-function AutoZoomSuggestionsPanel({
-  project,
-  onProjectChange,
-}: {
-  project: ProjectState;
-  onProjectChange: (next: ProjectState, options?: ProjectChangeOptions) => void;
-}) {
-  const [suggestions, setSuggestions] = React.useState<ReadonlyArray<ZoomMarker>>([]);
-  const [hasGenerated, setHasGenerated] = React.useState(false);
-  const [conflictCount, setConflictCount] = React.useState(0);
-  const [saveError, setSaveError] = React.useState<string | null>(null);
-  const [isSaving, setIsSaving] = React.useState(false);
-
-  const document = project.document as unknown as ProjectDocument;
-
-  function handleGenerate() {
-    setSaveError(null);
-    const result = generateSuggestionsForProject(document);
-    setSuggestions(result.filtered);
-    setConflictCount(result.candidates.length - result.filtered.length);
-    setHasGenerated(true);
-  }
-
-  async function persist(nextDocument: ProjectDocument) {
-    const previous = project;
-    const optimistic = { ...project, document: nextDocument as unknown as ProjectState['document'] };
-    setSaveError(null);
-    setIsSaving(true);
-    onProjectChange(optimistic, { history: true, previous });
-    try {
-      const saved = await saveProjectGuarded({ path: project.path, document: optimistic.document });
-      onProjectChange(saved);
-    } catch (err) {
-      onProjectChange(previous);
-      setSaveError(err instanceof Error ? err.message : 'Save failed.');
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  async function handleApply(suggestion: ZoomMarker) {
-    const nextDocument = applySuggestion(document, suggestion);
-    if (nextDocument === document) return;
-    setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
-    await persist(nextDocument);
-  }
-
-  function handleDiscard(suggestionId: ZoomMarker['id']) {
-    setSuggestions((prev) => prev.filter((s) => s.id !== suggestionId));
-  }
-
-  return (
-    <div className="autoZoomSuggestionsPanel" aria-label="Auto-zoom suggestions">
-      <p className="eyebrow">Auto zoom</p>
-      <div className="timelineCompactRow">
-        <span>Suggestions</span>
-        <strong>{hasGenerated ? suggestions.length : '—'}</strong>
-        <button
-          type="button"
-          className="secondary compact"
-          onClick={handleGenerate}
-          disabled={isSaving}
-        >
-          {hasGenerated ? 'Regenerate' : 'Generate'}
-        </button>
-      </div>
-      {!hasGenerated ? (
-        <p className="autoZoomEmpty">
-          Not generated
-        </p>
-      ) : suggestions.length === 0 ? (
-        <p className="autoZoomEmpty">
-          {conflictCount > 0
-            ? `All cursor activity in this recording is already covered by ${conflictCount} existing zoom marker(s).`
-            : 'No suggestions for this recording.'}
-        </p>
-      ) : (
-        <>
-          {conflictCount > 0 ? (
-            <p className="autoZoomConflicts">
-              {conflictCount} candidate(s) hidden — already covered by existing zoom markers.
-            </p>
-          ) : null}
-          <ul className="autoZoomList">
-            {suggestions.map((suggestion) => (
-              <li key={suggestion.id} className="autoZoomRow">
-                <span className="autoZoomRange">
-                  {suggestion.startFrame}–{suggestion.endFrame} f · {Math.round(suggestion.strength * 100)}%
-                </span>
-                <span className="autoZoomActions">
-                  <button
-                    type="button"
-                    className="secondary compact"
-                    onClick={() => handleApply(suggestion)}
-                    disabled={isSaving}
-                  >
-                    Apply
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary compact"
-                    onClick={() => handleDiscard(suggestion.id)}
-                    disabled={isSaving}
-                  >
-                    Discard
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
       {saveError ? <p className="error">{saveError}</p> : null}
     </div>
   );

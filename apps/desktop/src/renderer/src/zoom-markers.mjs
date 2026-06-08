@@ -2,9 +2,19 @@ import {
   createDefaultRecordingPresentation,
   createZoomMarker,
 } from '@rough-cut/project-model';
+import {
+  filterAutoMarkersAgainstExisting,
+  generateAutoZoomMarkers,
+} from '@rough-cut/timeline-engine';
+import {
+  getCursorEvents,
+  getRecordingFps,
+  getRecordingSourceSize,
+} from './cursor-data.mjs';
 
 const DEFAULT_MARKER_SPAN_FRAMES = 60;
 const DEFAULT_MIN_SPAN_FRAMES = 15;
+const DEFAULT_AUTO_ZOOM_INTENSITY = 0.5;
 
 export function getPrimaryRecordingAsset(document) {
   for (const asset of document.assets) {
@@ -309,6 +319,39 @@ export function applySuggestion(document, suggestion) {
   }, asset.id, nextMarkers);
 }
 
+export function addAutoZoomMarkersFromTelemetry(document, options = {}) {
+  const asset = getPrimaryRecordingAsset(document);
+  if (!asset) return document;
+
+  const presentation = withDefaultPresentation(asset.presentation);
+  const intensity = getAutoZoomIntensity(presentation, options);
+  const cursorEvents = normalizeCursorEventsForAutoZoom(getCursorEvents(document));
+  const fps = getRecordingFps(document);
+  const { width, height } = getRecordingSourceSize(document);
+  const candidates = generateAutoZoomMarkers(cursorEvents, intensity, fps, width, height)
+    .map((marker) => clampMarkerToAssetDuration(marker, asset.duration))
+    .filter(Boolean);
+  const existingMarkers = listMarkers(document);
+  const newMarkers = filterAutoMarkersAgainstExisting(candidates, existingMarkers);
+  if (newMarkers.length === 0) return document;
+
+  const nextMarkers = [...existingMarkers, ...newMarkers].sort(
+    (a, b) => a.startFrame - b.startFrame,
+  );
+  const nextAsset = {
+    ...asset,
+    presentation: {
+      ...presentation,
+      zoom: { ...presentation.zoom, markers: nextMarkers },
+    },
+  };
+
+  return syncTimelineZoomMarkers({
+    ...document,
+    assets: document.assets.map((item) => (item.id === asset.id ? nextAsset : item)),
+  }, asset.id, nextMarkers);
+}
+
 function listTimelineZoomMarkers(document, assetId) {
   if (!assetId || !Array.isArray(document?.timeline?.markers)) return [];
   const linkedGroupId = `linked:${assetId}`;
@@ -356,6 +399,32 @@ function ensureTimelineLinkedGroup(groups, linkedGroupId, sourceId) {
   const existing = Array.isArray(groups) ? groups : [];
   if (existing.some((group) => group.id === linkedGroupId)) return existing;
   return [...existing, { id: linkedGroupId, kind: 'recording', sourceIds: [sourceId], primarySourceId: sourceId, syncPolicy: 'frame-locked' }];
+}
+
+function getAutoZoomIntensity(presentation, options) {
+  if (Number.isFinite(options.intensity)) return Math.max(0, Math.min(1, options.intensity));
+  const saved = Number(presentation?.zoom?.autoIntensity);
+  if (Number.isFinite(saved)) return Math.max(0, Math.min(1, saved));
+  return DEFAULT_AUTO_ZOOM_INTENSITY;
+}
+
+function normalizeCursorEventsForAutoZoom(events) {
+  if (!Array.isArray(events)) return [];
+  return events.map((event) => {
+    if (!event || event.type !== 'down') return event;
+    const button = event.button;
+    if (button === 0 || button === 1 || button === 'left') return { ...event, button: 0 };
+    return event;
+  });
+}
+
+function clampMarkerToAssetDuration(marker, durationFrames) {
+  const duration = Math.max(0, Math.round(durationFrames || 0));
+  if (!marker || duration <= 0) return null;
+  const startFrame = Math.max(0, Math.min(duration, Math.round(marker.startFrame)));
+  const endFrame = Math.max(startFrame, Math.min(duration, Math.round(marker.endFrame)));
+  if (endFrame <= startFrame) return null;
+  return { ...marker, startFrame, endFrame };
 }
 
 export function withDefaultPresentation(presentation) {
