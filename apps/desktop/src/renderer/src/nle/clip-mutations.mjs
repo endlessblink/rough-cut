@@ -132,6 +132,45 @@ export function reorderTrackById(project, trackId, direction) {
   return withCommandResult(project, (document) => reorderTrack(document, { trackId, direction }));
 }
 
+// Drop on a ghost channel: create the track, then place the asset on it.
+// Audio tracks go BELOW everything (index 0, existing tracks shift up by 1 —
+// relative z-order preserved); video tracks go on top (max index + 1).
+export function addGeneratedAssetToNewTrack(project, asset, kind, timelineIn) {
+  if (!project?.document || !asset?.id) return project;
+  if (kind !== 'video' && kind !== 'audio') return project;
+  const targetKind = sourceKindForGeneratedAsset(asset);
+  if (targetKind !== kind) return project;
+
+  const document = canonicalizeProjectDocument(project.document);
+  const tracks = Array.isArray(document.timeline?.tracks) ? document.timeline.tracks : [];
+  const kindCount = tracks.filter((track) => track.kind === kind).length;
+  const maxIndex = tracks.reduce((max, track) => Math.max(max, Number(track.index) || 0), -1);
+  const shiftForAudio = kind === 'audio';
+  const newTrack = {
+    id: newClipId(`track-${kind}`),
+    kind,
+    index: shiftForAudio ? 0 : maxIndex + 1,
+    label: `${kind === 'audio' ? 'Audio' : 'Video'} ${kindCount + 1}`,
+    enabled: true,
+    locked: false,
+    muted: false,
+    clips: [],
+  };
+  const nextTracks = shiftForAudio
+    ? [...tracks.map((track) => ({ ...track, index: Number(track.index) + 1 })), newTrack]
+    : [...tracks, newTrack];
+  const withTrack = {
+    ...project,
+    document: {
+      ...document,
+      timeline: { ...document.timeline, tracks: nextTracks },
+    },
+  };
+  const next = addGeneratedAssetToTrack(withTrack, asset, newTrack.id, timelineIn);
+  // Don't leave an empty track behind if the clip placement failed.
+  return next === withTrack ? project : next;
+}
+
 export function addGeneratedAssetToTrack(project, asset, trackId, timelineIn) {
   if (!project?.document || !asset?.id || !trackId) return project;
   const document = canonicalizeProjectDocument(project.document);

@@ -1,9 +1,9 @@
 import React from 'react';
 import { buildTimelineTracks } from './timeline-clips.mjs';
-import { addGeneratedAssetToTrack, canSplitClipById, consumeLastCommandError, moveClipById, removeClipById, reorderTrackById, rightClipIdAfterSplit, splitClipById, trimClipById, updateTrackById } from './clip-mutations.mjs';
+import { addGeneratedAssetToNewTrack, addGeneratedAssetToTrack, canSplitClipById, consumeLastCommandError, moveClipById, removeClipById, reorderTrackById, rightClipIdAfterSplit, splitClipById, trimClipById, updateTrackById } from './clip-mutations.mjs';
 import { TimelineRuler } from './timeline-ruler';
 import { NleModeToolbar } from './mode-toolbar';
-import { CornersIn, Minus, Plus } from '@phosphor-icons/react';
+import { ArrowsVertical, CaretDown, CaretUp, CornersIn, Eye, EyeSlash, LockSimple, Minus, Plus, SpeakerSimpleSlash } from '@phosphor-icons/react';
 import type { NleEditMode } from './mode-toolbar';
 import { isTypingTarget } from './keyboard.mjs';
 import { snapFrameToClipEdges, snapFrameToClipEdgesExcept } from './snap.mjs';
@@ -32,6 +32,7 @@ export function NleTimeline({
   onSelectedClipChange,
   onProjectChange,
   onSplit,
+  topbarExtras,
 }: {
   project: NleProject | null;
   playheadFrame: number;
@@ -44,6 +45,7 @@ export function NleTimeline({
   onSelectedClipChange: (clipId: string | null) => void;
   onProjectChange?: (next: NleProject) => void;
   onSplit: () => void;
+  topbarExtras?: React.ReactNode;
 }) {
   // The "bodies column" is the body-only strip (no headers) and the
   // horizontal-scroll container. Inside it, the content strip is sized to
@@ -373,6 +375,28 @@ export function NleTimeline({
     commitOrSurface(addGeneratedAssetToTrack(project, asset, track.id, frameFromClientX(event.clientX, true)));
   }
 
+  // Ghost channels: empty V/A lanes below the real tracks (the deck reads as
+  // a multi-track editor, not dead space). Dropping media onto one creates
+  // the track and places the clip in a single commit.
+  function handleGhostDragOver(event: React.DragEvent<HTMLDivElement>, kind: 'video' | 'audio') {
+    if (activeGestureRef.current) return;
+    const asset = generatedAssetFromDrag(event);
+    if (!asset) return;
+    const valid = isGeneratedAssetCompatible(asset, { kind, locked: false });
+    event.preventDefault();
+    event.dataTransfer.dropEffect = valid ? 'copy' : 'none';
+    setGeneratedDropTarget({ trackId: `ghost-${kind}`, valid });
+  }
+
+  function handleGhostDrop(event: React.DragEvent<HTMLDivElement>, kind: 'video' | 'audio') {
+    if (activeGestureRef.current) return;
+    const asset = generatedAssetFromDrag(event);
+    setGeneratedDropTarget(null);
+    if (!project || !onProjectChange || !asset || !isGeneratedAssetCompatible(asset, { kind, locked: false })) return;
+    event.preventDefault();
+    commitOrSurface(addGeneratedAssetToNewTrack(project, asset, kind, frameFromClientX(event.clientX, true)));
+  }
+
   // Keyboard: Delete removes selection, S splits selection at playhead.
   // Bail when the user is typing into a form field.
   React.useEffect(() => {
@@ -398,6 +422,30 @@ export function NleTimeline({
   const playheadPct =
     durationFrames > 0 ? Math.max(0, Math.min(100, (playheadFrame / durationFrames) * 100)) : 0;
   const trackRows = project ? buildTimelineTracks(project) : [];
+  // Resolve-style track tags: video numbered bottom-up (V1 is the bottom
+  // video lane), other kinds top-down. Rows arrive top-track-first.
+  const trackTags = React.useMemo(() => {
+    const tags = new Map<string, string>();
+    const byKind: Record<string, string[]> = {};
+    for (const track of trackRows) {
+      (byKind[track.kind] ??= []).push(track.id);
+    }
+    for (const [kind, ids] of Object.entries(byKind)) {
+      const prefix = kind === 'video' ? 'V' : kind === 'audio' ? 'A' : kind === 'captions' ? 'C' : 'M';
+      ids.forEach((id, index) => {
+        tags.set(id, `${prefix}${kind === 'video' ? ids.length - index : index + 1}`);
+      });
+    }
+    return tags;
+  }, [trackRows.map((track) => `${track.kind}:${track.id}`).join('|')]);
+  // One empty channel per kind keeps the deck reading as a multi-track
+  // editor and gives drops a target that creates the track on demand.
+  const ghostChannels: ReadonlyArray<{ kind: 'video' | 'audio'; tag: string; label: string }> = trackRows.length === 0
+    ? []
+    : [
+        { kind: 'video', tag: `V${trackRows.filter((track) => track.kind === 'video').length + 1}`, label: 'Video' },
+        { kind: 'audio', tag: `A${trackRows.filter((track) => track.kind === 'audio').length + 1}`, label: 'Audio' },
+      ];
   const selectedBlock = trackRows.flatMap((track) => track.blocks.map((block) => ({ ...block, trackLabel: track.label, trackKind: track.kind }))).find((block) => block.id === selectedClipId) ?? null;
   const selectedDuration = selectedBlock ? Math.max(1, Math.round(selectedBlock.timelineOut - selectedBlock.timelineIn)) : 0;
 
@@ -427,7 +475,7 @@ export function NleTimeline({
               <span>{selectedDuration}f</span>
             </>
           ) : (
-            <span>Select a clip to trim, move, or split</span>
+            <span className="nleTimelineHint">Select a clip to trim, move, or split</span>
           )}
         </div>
         <div className="nleTimelineZoom" role="group" aria-label="Timeline zoom">
@@ -458,6 +506,7 @@ export function NleTimeline({
             <CornersIn aria-hidden="true" />
           </button>
         </div>
+        {topbarExtras}
       </div>
       <div className="nleTimelineLanes">
         <div className="nleLaneHeaders">
@@ -467,18 +516,27 @@ export function NleTimeline({
               Empty
             </div>
           ) : trackRows.map((track) => (
-            <div key={track.id} className="nleTrackLaneHeader" data-track-kind={track.kind} style={{ '--nle-track-height': `${track.height}px` } as React.CSSProperties}>
-              <span className="nleTrackLaneLabel">{track.label}</span>
-              <span className="nleTrackLaneMeta">
-                {track.locked ? 'LOCKED' : track.muted ? 'MUTED' : track.enabled ? track.kind : 'OFF'}
-              </span>
+            <div key={track.id} className="nleTrackLaneHeader" data-track-kind={track.kind} data-track-disabled={track.enabled ? undefined : 'true'} style={{ '--nle-track-height': `${track.height}px` } as React.CSSProperties}>
+              <span className="nleTrackTag">{trackTags.get(track.id) ?? track.kind.charAt(0).toUpperCase()}</span>
+              <span className="nleTrackLaneLabel" title={track.label}>{track.label}</span>
               <span className="nleTrackControls">
-                <button type="button" aria-label={`Move ${track.label} up`} onClick={() => commitTrackReorder(track.id, 'up')}>↑</button>
-                <button type="button" aria-label={`Move ${track.label} down`} onClick={() => commitTrackReorder(track.id, 'down')}>↓</button>
-                <button type="button" aria-label={`${track.locked ? 'Unlock' : 'Lock'} ${track.label}`} aria-pressed={track.locked} onClick={() => commitTrackPatch(track.id, { locked: !track.locked })}>L</button>
-                {track.kind === 'audio' ? <button type="button" aria-label={`${track.muted ? 'Unmute' : 'Mute'} ${track.label}`} aria-pressed={track.muted} onClick={() => commitTrackPatch(track.id, { muted: !track.muted })}>M</button> : null}
-                <button type="button" aria-label={`Cycle ${track.label} height`} onClick={() => commitTrackPatch(track.id, { height: nextTrackHeight(track) })}>H</button>
+                {/* Reorder + height are secondary: revealed on hover/focus so
+                    the track name keeps its room (mockup grammar). */}
+                <span className="nleTrackControlsSecondary">
+                  <button type="button" aria-label={`Move ${track.label} up`} title="Move track up" onClick={() => commitTrackReorder(track.id, 'up')}><CaretUp aria-hidden="true" /></button>
+                  <button type="button" aria-label={`Move ${track.label} down`} title="Move track down" onClick={() => commitTrackReorder(track.id, 'down')}><CaretDown aria-hidden="true" /></button>
+                  <button type="button" aria-label={`Cycle ${track.label} height`} title="Cycle track height" onClick={() => commitTrackPatch(track.id, { height: nextTrackHeight(track) })}><ArrowsVertical aria-hidden="true" /></button>
+                </span>
+                <button type="button" aria-label={`${track.enabled ? 'Hide' : 'Show'} ${track.label}`} aria-pressed={!track.enabled} title={track.enabled ? 'Hide track' : 'Show track'} onClick={() => commitTrackPatch(track.id, { enabled: !track.enabled })}>{track.enabled ? <Eye aria-hidden="true" /> : <EyeSlash aria-hidden="true" />}</button>
+                <button type="button" aria-label={`${track.locked ? 'Unlock' : 'Lock'} ${track.label}`} aria-pressed={track.locked} title={track.locked ? 'Unlock track' : 'Lock track'} onClick={() => commitTrackPatch(track.id, { locked: !track.locked })}><LockSimple aria-hidden="true" /></button>
+                {track.kind === 'audio' ? <button type="button" aria-label={`${track.muted ? 'Unmute' : 'Mute'} ${track.label}`} aria-pressed={track.muted} title={track.muted ? 'Unmute track' : 'Mute track'} onClick={() => commitTrackPatch(track.id, { muted: !track.muted })}><SpeakerSimpleSlash aria-hidden="true" /></button> : null}
               </span>
+            </div>
+          ))}
+          {ghostChannels.map((ghost) => (
+            <div key={`ghost-head-${ghost.kind}`} className="nleTrackLaneHeader ghost" data-track-kind={ghost.kind}>
+              <span className="nleTrackTag">{ghost.tag}</span>
+              <span className="nleTrackLaneLabel">{ghost.label}</span>
             </div>
           ))}
         </div>
@@ -487,6 +545,7 @@ export function NleTimeline({
           className="nleLaneBodies"
           data-ui-region="nle-lane-bodies"
           data-edit-mode={editMode}
+          data-zoomed={zoomedIn ? 'true' : undefined}
           onPointerDown={startScrub}
         >
           <div
@@ -586,6 +645,19 @@ export function NleTimeline({
                   <span className="nleClipBlockLabel">Clip</span>
                 </div>
               ) : null}
+            </div>
+          ))}
+          {ghostChannels.map((ghost) => (
+            <div
+              key={`ghost-body-${ghost.kind}`}
+              className={`nleTrackLaneBody ghost ${generatedDropTarget?.trackId === `ghost-${ghost.kind}` ? generatedDropTarget.valid ? 'generatedDropValid' : 'generatedDropInvalid' : ''}`}
+              data-track-kind={ghost.kind}
+              data-track-id={`ghost-${ghost.kind}`}
+              onDragOver={(event) => handleGhostDragOver(event, ghost.kind)}
+              onDragLeave={() => setGeneratedDropTarget((target) => target?.trackId === `ghost-${ghost.kind}` ? null : target)}
+              onDrop={(event) => handleGhostDrop(event, ghost.kind)}
+            >
+              <span className="nleTrackLaneEmpty">Drop to create {ghost.label.toLowerCase()} track</span>
             </div>
           ))}
           <div

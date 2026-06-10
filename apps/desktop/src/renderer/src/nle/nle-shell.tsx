@@ -139,8 +139,23 @@ export function NleShell({
     return () => document.removeEventListener('keydown', handleKey);
   }, [durationFrames, fps]);
 
+  const layoutToggle = (
+    <button
+      type="button"
+      className="nleLayoutToggle"
+      aria-pressed={!layoutV2}
+      title={layoutV2 ? 'Switch to the legacy editor layout' : 'Switch to the Editor v2 layout'}
+      onClick={() => setLayoutV2((value) => !value)}
+    >
+      {layoutV2 ? 'Legacy' : 'v2'}
+    </button>
+  );
+
   return (
     <section className="nleShell" data-ui-region="nle-workspace" aria-label="NLE editor">
+      {/* v2 has no header row — the view starts at the panes (approved mockup);
+          status + the layout escape hatch live in the timeline toolbar. */}
+      {layoutV2 ? null : (
       <header className="nleHeader">
         <div>
           <p className="eyebrow">Editor</p>
@@ -150,19 +165,19 @@ export function NleShell({
           <span>{selectedState}</span>
           <span>{Math.round(clampedPlayhead)} / {Math.round(durationFrames)} frames</span>
           <span>{fps} fps</span>
-          <button
-            type="button"
-            className="nleLayoutToggle"
-            aria-pressed={!layoutV2}
-            title={layoutV2 ? 'Switch to the legacy editor layout' : 'Switch to the Editor v2 layout'}
-            onClick={() => setLayoutV2((value) => !value)}
-          >
-            {layoutV2 ? 'Legacy' : 'v2'}
-          </button>
+          {layoutToggle}
         </div>
       </header>
+      )}
       {layoutV2 ? (
         <EditorV2Layout
+          topbarExtras={(
+            <div className="nleTimelineStatus" aria-label="Editor status">
+              <span>{Math.round(clampedPlayhead)} / {Math.round(durationFrames)}f</span>
+              <span>{fps} fps</span>
+              {layoutToggle}
+            </div>
+          )}
           project={project}
           playheadFrame={clampedPlayhead}
           durationFrames={durationFrames}

@@ -230,8 +230,8 @@ try {
   const gapBounds = await page.evaluate(() => {
     const lane = document.querySelector('.nleTrackLaneBody[data-track-kind="video"]');
     const content = document.querySelector('.nleLaneContent');
-    const meta = document.querySelector('.nleHeaderMeta')?.textContent ?? '';
-    const durationMatch = meta.match(/\/\s*(\d+)\s*frames/);
+    const meta = (document.querySelector('.nleTimelineStatus')?.textContent ?? '') + ' frames ' + (document.querySelector('.nleHeaderMeta')?.textContent ?? '');
+    const durationMatch = meta.match(/\/\s*(\d+)\s*f(?:rames)?/);
     if (!lane || !content || !durationMatch) return null;
     const total = Number(durationMatch[1]);
     const contentRect = content.getBoundingClientRect();
@@ -263,8 +263,8 @@ try {
     const samples = await page.evaluate(async () => {
       const out = [];
       const read = () => {
-        const meta = document.querySelector('.nleHeaderMeta')?.textContent ?? '';
-        const match = meta.match(/(\d+)\s*\/\s*\d+\s*frames/);
+        const meta = (document.querySelector('.nleTimelineStatus')?.textContent ?? '') + ' frames ' + (document.querySelector('.nleHeaderMeta')?.textContent ?? '');
+        const match = meta.match(/(\d+)\s*\/\s*\d+\s*f(?:rames)?/);
         return match ? Number(match[1]) : null;
       };
       for (let i = 0; i < 60; i += 1) {
@@ -299,8 +299,8 @@ try {
     // Earlier steps may have shortened the composition (tail drag); read the
     // LIVE duration from the editor header instead of assuming the seeded one.
     const liveDurationFrames = await page.evaluate(() => {
-      const meta = document.querySelector('.nleHeaderMeta')?.textContent ?? '';
-      const match = meta.match(/\/\s*(\d+)\s*frames/);
+      const meta = (document.querySelector('.nleTimelineStatus')?.textContent ?? '') + ' frames ' + (document.querySelector('.nleHeaderMeta')?.textContent ?? '');
+      const match = meta.match(/\/\s*(\d+)\s*f(?:rames)?/);
       return match ? Number(match[1]) : null;
     }) ?? durationFrames;
     const fitGeometry = await zoomGeometry(page);
@@ -389,8 +389,8 @@ try {
     // Expected cut frame from the content strip geometry.
     const expectedCutFrame = await page.evaluate((clientX) => {
       const content = document.querySelector('.nleLaneContent');
-      const meta = document.querySelector('.nleHeaderMeta')?.textContent ?? '';
-      const match = meta.match(/\/\s*(\d+)\s*frames/);
+      const meta = (document.querySelector('.nleTimelineStatus')?.textContent ?? '') + ' frames ' + (document.querySelector('.nleHeaderMeta')?.textContent ?? '');
+      const match = meta.match(/\/\s*(\d+)\s*f(?:rames)?/);
       if (!content || !match) return null;
       const rect = content.getBoundingClientRect();
       return Math.round(((clientX - rect.left) / rect.width) * Number(match[1]));

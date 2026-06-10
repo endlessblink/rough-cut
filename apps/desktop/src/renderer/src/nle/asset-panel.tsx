@@ -79,7 +79,7 @@ export function AssetPanel({ project }: { project: NleProject | null }) {
   );
 }
 
-function GeneratedAssetsPanel() {
+export function GeneratedAssetsPanel() {
   const [assets, setAssets] = React.useState<GeneratedAsset[]>([]);
   const [query, setQuery] = React.useState('');
   const [filter, setFilter] = React.useState<GeneratedFilter>('all');

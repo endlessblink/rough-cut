@@ -229,7 +229,9 @@ input[type="number"]:focus-visible {
     "prerecord"
     "status"
     "content";
-  grid-template-rows: 3.45rem 3.15rem auto auto minmax(0, 1fr);
+  /* The recording row is auto so views that don't render the strip (NLE, AI)
+   * reclaim its height instead of keeping an empty band. */
+  grid-template-rows: 3.45rem auto auto auto minmax(0, 1fr);
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
@@ -237,8 +239,8 @@ input[type="number"]:focus-visible {
 }
 
 .topBar { grid-area: topbar; }
-.recordingStrip { grid-area: recording; }
-.preRecordOverlay { grid-area: prerecord; min-height: 0; }
+.recordingStrip { grid-area: recording; min-height: 3.15rem; }
+.preRecordOverlay { grid-area: 1 / 1 / -1 / -1; min-height: 0; }
 .stateBanner { grid-area: status; }
 .editorContentSlot {
   display: flex;
@@ -4292,9 +4294,14 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .nleLaneBodies {
   cursor: crosshair;
   min-width: 0;
-  overflow-x: auto;
+  /* Horizontal scroll exists only when zoomed in — at fit the content equals
+   * the view width and a scrollbar would just be measurement noise. */
+  overflow-x: hidden;
   overflow-y: hidden;
   position: relative;
+}
+.nleLaneBodies[data-zoomed='true'] {
+  overflow-x: auto;
 }
 .nleLaneContent {
   display: flex;
@@ -4353,12 +4360,213 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ev2Media .nleAssetPanel {
-  border: none;
-  border-radius: 0;
+/* Editor v2 media pool — bins rail + search + thumb grid (mockup grammar). */
+.ev2MediaPool {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-height: 0;
-  width: auto;
+}
+.ev2MediaHead {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex: 0 0 36px;
+  gap: 0.3rem;
+  padding: 0 0.5rem;
+}
+.ev2MediaSearch {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--subtle);
+  display: flex;
+  flex: 1;
+  gap: 0.35rem;
+  height: 24px;
+  min-width: 0;
+  padding: 0 0.45rem;
+}
+.ev2MediaSearch svg {
+  flex: 0 0 auto;
+  height: 11px;
+  width: 11px;
+}
+.ev2MediaSearch input {
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.68rem;
+  min-width: 0;
+  outline: none;
+  width: 100%;
+}
+.ev2MediaSearch input::placeholder {
+  color: var(--subtle);
+}
+.ev2MediaViewBtn {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--subtle);
+  cursor: pointer;
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  width: 26px;
+}
+.ev2MediaViewBtn svg {
+  height: 12px;
+  width: 12px;
+}
+.ev2MediaViewBtn[aria-pressed='true'] {
+  background: var(--panel-alt);
+  border-color: var(--strong-line);
+  color: var(--text);
+}
+.ev2MediaBody {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 88px minmax(0, 1fr);
+  min-height: 0;
+}
+.ev2MediaBins {
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  padding: 0.4rem 0.3rem;
+}
+.ev2MediaBin {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.66rem;
+  padding: 0.3rem 0.42rem;
+  text-align: left;
+  white-space: nowrap;
+}
+.ev2MediaBin[aria-pressed='true'] {
+  background: var(--panel-alt);
+  border-color: var(--strong-line);
+  color: var(--text);
+}
+.ev2MediaContent {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+.ev2MediaItems {
+  align-content: flex-start;
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem;
+}
+.ev2MediaItems.list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0.4rem;
+}
+.ev2MediaItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  min-width: 0;
+}
+.ev2MediaItems.list .ev2MediaItem {
+  align-items: center;
+  border-radius: 7px;
+  flex-direction: row;
+  gap: 0.5rem;
+  padding: 0.3rem 0.4rem;
+}
+.ev2MediaItems.list .ev2MediaItem:hover {
+  background: var(--panel);
+}
+.ev2MediaThumb {
+  align-items: center;
+  aspect-ratio: 16 / 10;
+  background: var(--panel);
+  border: 1px solid var(--strong-line);
+  border-radius: 6px;
+  color: var(--subtle);
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+}
+.ev2MediaItems.list .ev2MediaThumb {
+  flex: 0 0 52px;
+  width: 52px;
+}
+.ev2MediaThumb svg {
+  height: 16px;
+  width: 16px;
+}
+.ev2MediaThumb.audio {
+  background:
+    linear-gradient(180deg, rgb(96 165 250 / 0.12), rgb(96 165 250 / 0.04)),
+    var(--panel);
+}
+.ev2MediaThumbVideo {
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+  width: 100%;
+}
+.ev2MediaLen {
+  background: rgb(0 0 0 / 0.6);
+  border-radius: 4px;
+  bottom: 3px;
+  color: var(--muted);
+  font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+  font-size: 0.54rem;
+  padding: 0.05rem 0.26rem;
+  position: absolute;
+  right: 3px;
+  z-index: 1;
+}
+.ev2MediaMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  min-width: 0;
+}
+.ev2MediaName {
+  color: var(--muted);
+  font-size: 0.64rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ev2MediaSub {
+  color: var(--subtle);
+  font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+  font-size: 0.58rem;
+}
+.ev2MediaEmpty {
+  color: var(--subtle);
+  font-size: 0.7rem;
+  padding: 1rem 0.8rem;
+}
+.ev2MediaEmpty p {
+  margin: 0 0 0.3rem;
+}
+.ev2MediaContent .nleGeneratedStack {
+  min-height: 0;
+  padding: 0.4rem;
 }
 .ev2SourceBody,
 .ev2ProgramBody {
@@ -4493,9 +4701,52 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   flex-direction: column;
   min-height: 0;
 }
+/* Full-bleed deck: the timeline is a region of the editor, not a card. */
 .ev2TimelineDeck .nleTimeline {
+  --nle-lane-header-width: 150px;
+  background: var(--surface);
+  border: none;
+  border-radius: 0;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
+  padding: 0.35rem 0.65rem 0.5rem;
+}
+.ev2TimelineDeck .nleTimelineLanes {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.ev2TimelineDeck .nleTimelineTopbar {
+  align-items: center;
+  min-height: 38px;
+}
+.nleTimelineStatus {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+  font-size: 0.64rem;
+  gap: 0.34rem;
+}
+.nleTimelineStatus span {
+  background: rgb(15 23 42 / 0.8);
+  border: 1px solid rgb(148 163 184 / 0.12);
+  border-radius: 5px;
+  padding: 0.24rem 0.38rem;
+  white-space: nowrap;
+}
+.nleTimelineHint {
+  background: none !important;
+  border: none !important;
+  color: var(--subtle);
+  padding: 0 !important;
+}
+/* Clip blocks: name bar pinned top-left like the approved mockup. */
+.nleClipBlockLabel {
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.7);
 }
 .nleLayoutToggle {
   background: rgb(255 255 255 / 0.045);
@@ -4654,27 +4905,58 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   top: -2px;
   width: 8px;
 }
+/* One-row track header: [tag chip][name] … [icon controls] — the approved
+ * Editor v2 grammar (docs/mockups/editor-v2-resolve.html). */
 .nleTrackLaneHeader {
-  align-items: flex-start;
+  align-items: center;
   background: rgb(15 23 42 / 0.58);
   border: 1px solid rgb(148 163 184 / 0.08);
   border-radius: 6px;
   color: rgb(226 232 240 / 0.7);
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   font-size: 0.66rem;
   font-weight: 600;
+  gap: 0.4rem;
   height: var(--nle-track-height, 60px);
-  justify-content: center;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
   line-height: 1.15;
   overflow: hidden;
-  padding: 0 0.6rem;
-  row-gap: 0.12rem;
-  text-transform: uppercase;
+  padding: 0 0.5rem;
+}
+.nleTrackTag {
+  align-items: center;
+  background: var(--panel-alt);
+  border: 1px solid var(--strong-line);
+  border-radius: 5px;
+  color: var(--muted);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+  font-size: 0.6rem;
+  font-weight: 600;
+  height: 19px;
+  justify-content: center;
+  letter-spacing: 0.02em;
+  min-width: 24px;
+  padding: 0 0.2rem;
+}
+.nleTrackLaneHeader[data-track-disabled] .nleTrackLaneLabel,
+.nleTrackLaneHeader[data-track-disabled] .nleTrackTag {
+  opacity: 0.45;
+}
+.nleTrackLaneHeader.ghost {
+  background: transparent;
+  border-style: dashed;
+  border-color: rgb(148 163 184 / 0.14);
+}
+.nleTrackLaneHeader.ghost .nleTrackTag,
+.nleTrackLaneHeader.ghost .nleTrackLaneLabel {
+  opacity: 0.5;
 }
 .nleTrackLaneLabel {
-  max-width: 100%;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4690,7 +4972,8 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 .nleTrackControls {
   display: flex;
-  gap: 0.2rem;
+  flex: 0 0 auto;
+  gap: 0.18rem;
 }
 .nleTrackControls button {
   align-items: center;
@@ -4702,10 +4985,15 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   display: inline-flex;
   font: inherit;
   font-size: 0.58rem;
-  height: 18px;
+  height: 19px;
   justify-content: center;
-  min-width: 18px;
-  padding: 0 0.2rem;
+  min-width: 19px;
+  padding: 0;
+}
+.nleTrackControls button svg {
+  display: block;
+  height: 11px;
+  width: 11px;
 }
 .nleTrackControls button[aria-pressed="true"] {
   background: color-mix(in oklch, var(--accent) 24%, var(--panel));
@@ -4732,6 +5020,19 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .nleTrackLaneBody.empty {
   justify-content: flex-start;
   padding: 0 0.9rem;
+}
+.nleTrackLaneBody.ghost {
+  background: transparent;
+  border-style: dashed;
+  border-color: rgb(148 163 184 / 0.12);
+  justify-content: flex-start;
+  padding: 0 0.9rem;
+}
+.nleTrackLaneBody.ghost .nleTrackLaneEmpty {
+  color: rgb(226 232 240 / 0.24);
+  font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
 }
 .nleTrackLaneBody.generatedDropValid {
   background: color-mix(in oklch, var(--accent) 14%, rgb(255 255 255 / 0.018));

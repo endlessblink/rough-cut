@@ -5,7 +5,7 @@
 // mutation logic stays in NleShell / the existing harness-passing modules.
 import React from 'react';
 import { FilmStrip, Pause, Play } from '@phosphor-icons/react';
-import { AssetPanel } from '../nle/asset-panel';
+import { MediaPool } from './media-pool';
 import { NleProgramMonitor } from '../nle/program-monitor';
 import { NleTransport } from '../nle/transport';
 import { NleTimeline } from '../nle/nle-timeline';
@@ -30,6 +30,7 @@ export function EditorV2Layout({
   onPlayingChange,
   onSelectedClipChange,
   onProjectChange,
+  topbarExtras,
 }: {
   project: NleProject;
   playheadFrame: number;
@@ -45,6 +46,7 @@ export function EditorV2Layout({
   onPlayingChange: (playing: boolean) => void;
   onSelectedClipChange: (clipId: string | null) => void;
   onProjectChange?: (next: NleProject) => void;
+  topbarExtras?: React.ReactNode;
 }) {
   const selected = React.useMemo(() => {
     if (!selectedClipId) return null;
@@ -66,7 +68,7 @@ export function EditorV2Layout({
       <div className="ev2Upper">
         <section className="ev2Pane ev2Media" aria-label="Media pool">
           <header className="ev2PaneHead">MEDIA POOL</header>
-          <AssetPanel project={project} />
+          <MediaPool project={project} />
         </section>
 
         <SourceViewer project={project} fps={fps} />
@@ -163,6 +165,7 @@ export function EditorV2Layout({
           onSelectedClipChange={onSelectedClipChange}
           onProjectChange={onProjectChange}
           onSplit={onSplit}
+          topbarExtras={topbarExtras}
         />
       </div>
     </div>
