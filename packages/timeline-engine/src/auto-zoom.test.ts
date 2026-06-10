@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { generateAutoZoomMarkers, filterAutoMarkersAgainstExisting } from './auto-zoom.js';
+import { getZoomTransformAtFrame } from './zoom-transform.js';
 import type { CursorEvent, ZoomMarker } from '@rough-cut/project-model';
 import { createZoomMarker } from '@rough-cut/project-model';
 
@@ -17,6 +18,15 @@ function move(frame: number, x: number, y: number): CursorEvent {
 
 function key(frame: number, x: number, y: number, keyCode = 38): CursorEvent {
   return { frame, x, y, type: 'key', button: 0, keyCode };
+}
+
+function visibleRange(
+  transform: { scale: number; translateX: number; translateY: number },
+  axis: 'x' | 'y',
+): { min: number; max: number } {
+  const translate = axis === 'x' ? transform.translateX : transform.translateY;
+  const min = 0.5 - 0.5 / transform.scale - translate / transform.scale;
+  return { min, max: min + 1 / transform.scale };
 }
 
 describe('generateAutoZoomMarkers', () => {
@@ -201,6 +211,28 @@ describe('generateAutoZoomMarkers', () => {
     expect(markers[0].followCursor).toBe(false);
     expect(markers[0].focalPoint.x).toBeCloseTo(0.25, 2);
     expect(markers[0].focalPoint.y).toBeCloseTo(0.25, 2);
+  });
+
+  it('reframes typing near the lower edge so typed text is not cut off', () => {
+    const textY = 1000;
+    const events: CursorEvent[] = [
+      click(50, 960, textY),
+      key(58, 960, textY),
+      key(64, 960, textY),
+      move(90, 960, 200),
+    ];
+    const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
+    expect(markers).toHaveLength(1);
+    expect(markers[0].followCursor).toBe(false);
+    expect(markers[0].focalPoint.y).toBeGreaterThan(textY / 1080);
+
+    const holdFrame = Math.max(
+      markers[0].startFrame + markers[0].zoomInDuration + 1,
+      58,
+    );
+    const transform = getZoomTransformAtFrame(holdFrame, markers, { followCursor: true });
+    const visibleY = visibleRange(transform, 'y');
+    expect(visibleY.max).toBeGreaterThanOrEqual(textY / 1080 + 0.04);
   });
 });
 

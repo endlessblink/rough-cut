@@ -209,6 +209,37 @@ interface RawMarker {
   followCursor?: boolean;
 }
 
+const TYPING_VISIBLE_PADDING = 0.08;
+
+function reframeTypingFocal(
+  targetX: number,
+  targetY: number,
+  zoomScale: number,
+): { focalX: number; focalY: number } {
+  return {
+    focalX: reframeTypingAxis(targetX, zoomScale),
+    focalY: reframeTypingAxis(targetY, zoomScale),
+  };
+}
+
+function reframeTypingAxis(target: number, zoomScale: number): number {
+  if (!Number.isFinite(target)) return 0.5;
+  if (!Number.isFinite(zoomScale) || zoomScale <= 1) return Math.min(1, Math.max(0, target));
+
+  const clampedTarget = Math.min(1, Math.max(0, target));
+  const visibleSpan = 1 / zoomScale;
+  const maxPadding = Math.max(0, (visibleSpan - 0.02) / 2);
+  const padding = Math.min(TYPING_VISIBLE_PADDING, maxPadding);
+  const denominator = (zoomScale - 1) / zoomScale;
+
+  const minFocalForTrailingPadding =
+    0.5 + (clampedTarget + padding - 0.5 - 0.5 / zoomScale) / denominator;
+  const maxFocalForLeadingPadding =
+    0.5 + (clampedTarget - padding - 0.5 + 0.5 / zoomScale) / denominator;
+
+  return Math.min(1, Math.max(0, Math.max(minFocalForTrailingPadding, Math.min(maxFocalForLeadingPadding, clampedTarget))));
+}
+
 function sessionToRawMarker(
   session: ActivitySession,
   config: ZoomConfig,
@@ -240,13 +271,19 @@ function mergeOverlappingMarkers(markers: RawMarker[]): RawMarker[] {
       const spanA = last.endFrame - last.startFrame;
       const spanB = curr.endFrame - curr.startFrame;
       const total = spanA + spanB;
+      const followCursor = last.followCursor === false || curr.followCursor === false ? false : undefined;
+      const pinned = last.followCursor === false
+        ? last
+        : curr.followCursor === false
+          ? curr
+          : null;
       merged[merged.length - 1] = {
         startFrame: last.startFrame,
         endFrame: Math.max(last.endFrame, curr.endFrame),
-        focalX: (last.focalX * spanA + curr.focalX * spanB) / total,
-        focalY: (last.focalY * spanA + curr.focalY * spanB) / total,
+        focalX: pinned ? pinned.focalX : (last.focalX * spanA + curr.focalX * spanB) / total,
+        focalY: pinned ? pinned.focalY : (last.focalY * spanA + curr.focalY * spanB) / total,
         zoomScale: Math.max(last.zoomScale, curr.zoomScale),
-        followCursor: last.followCursor === false || curr.followCursor === false ? false : undefined,
+        followCursor,
       };
     } else {
       merged.push(curr);
@@ -347,9 +384,10 @@ export function generateAutoZoomMarkers(
   });
   const typingMarkers = typingSessions.map((s) => {
     const focal = computeFocalPoint(s, sourceWidth, sourceHeight);
+    const reframed = reframeTypingFocal(focal.focalX, focal.focalY, config.zoomScale);
     const raw = sessionToRawMarker(s, config);
-    raw.focalX = focal.focalX;
-    raw.focalY = focal.focalY;
+    raw.focalX = reframed.focalX;
+    raw.focalY = reframed.focalY;
     raw.followCursor = false;
     return raw;
   });
