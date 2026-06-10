@@ -6,6 +6,8 @@
 import React from 'react';
 import { FilmStrip, Pause, Play } from '@phosphor-icons/react';
 import { MediaPool } from './media-pool';
+import { shortProjectName } from './media-pool-model.mjs';
+import { assetLabel } from '../nle/asset-format.mjs';
 import { NleProgramMonitor } from '../nle/program-monitor';
 import { NleTransport } from '../nle/transport';
 import { NleTimeline } from '../nle/nle-timeline';
@@ -67,18 +69,14 @@ export function EditorV2Layout({
     <div className="ev2Root" data-ui-region="editor-v2">
       <div className="ev2Upper">
         <section className="ev2Pane ev2Media" aria-label="Media pool">
-          <header className="ev2PaneHead">MEDIA POOL</header>
           <MediaPool project={project} />
         </section>
 
         <SourceViewer project={project} fps={fps} />
 
         <section className="ev2Pane ev2Program" aria-label="Timeline viewer">
-          <header className="ev2PaneHead">
-            TIMELINE
-            <span className="ev2PaneHeadMeta">{project.document.name || 'Untitled'}</span>
-          </header>
           <div className="ev2ProgramBody">
+            <span className="ev2ViewerTag">{shortProjectName(project.document.name) || 'Timeline'}</span>
             <NleProgramMonitor
               project={project}
               playheadFrame={playheadFrame}
@@ -102,10 +100,6 @@ export function EditorV2Layout({
         </section>
 
         <section className="ev2Pane ev2Inspector" aria-label="Inspector">
-          <header className="ev2PaneHead">
-            INSPECTOR
-            {selected ? <span className="ev2PaneHeadMeta">{selected.block.name ?? 'Clip'}</span> : null}
-          </header>
           {selected ? (
             <div className="ev2InspectorBody">
               <div className="ev2InspGroup">
@@ -180,6 +174,10 @@ function SourceViewer({ project, fps }: { project: NleProject; fps: number }) {
   const [playing, setPlaying] = React.useState(false);
   const [timeSec, setTimeSec] = React.useState(0);
   const src = project.mediaUrl ?? '';
+  // The source pane previews the primary recording — name it like the media
+  // pool does ("recording #1"), not by the project's machine-generated id.
+  const primaryAsset = (project.document.assets ?? [])[0];
+  const sourceLabel = primaryAsset ? assetLabel(primaryAsset, 0) : 'No media';
 
   function togglePlay() {
     const video = videoRef.current;
@@ -193,11 +191,8 @@ function SourceViewer({ project, fps }: { project: NleProject; fps: number }) {
 
   return (
     <section className="ev2Pane ev2Source" aria-label="Source viewer">
-      <header className="ev2PaneHead">
-        SOURCE
-        <span className="ev2PaneHeadMeta">{project.document.name || 'recording'}</span>
-      </header>
       <div className="ev2SourceBody">
+        <span className="ev2ViewerTag">{sourceLabel}</span>
         {src ? (
           <video
             ref={videoRef}

@@ -6,16 +6,11 @@ import React from 'react';
 import { FilmStrip, Image as ImageIcon, ListBullets, MagnifyingGlass, SpeakerSimpleHigh, SquaresFour, VideoCamera } from '@phosphor-icons/react';
 import { GeneratedAssetsPanel } from '../nle/asset-panel';
 import { assetLabel, formatDuration } from '../nle/asset-format.mjs';
+import { assetBin, binsForAssets, filterAssets } from './media-pool-model.mjs';
+import type { MediaBinId } from './media-pool-model.mjs';
 import type { NleAsset, NleProject } from '../nle/types';
 
-type BinId = 'all' | 'video' | 'audio' | 'stills' | 'generated';
-
-function assetBin(asset: NleAsset): Exclude<BinId, 'all' | 'generated'> | null {
-  const type = String(asset.type ?? '').toLowerCase();
-  if (type.includes('audio')) return 'audio';
-  if (type.includes('image') || type.includes('still')) return 'stills';
-  return 'video';
-}
+type BinId = MediaBinId;
 
 function assetThumbIcon(bin: ReturnType<typeof assetBin>, isCamera: boolean) {
   if (bin === 'audio') return <SpeakerSimpleHigh aria-hidden="true" />;
@@ -30,23 +25,8 @@ export function MediaPool({ project }: { project: NleProject }) {
   const [view, setView] = React.useState<'grid' | 'list'>('grid');
   const assets = (project.document.assets ?? []) as ReadonlyArray<NleAsset>;
 
-  const bins = React.useMemo(() => {
-    const present = new Set(assets.map((asset) => assetBin(asset)));
-    const list: Array<{ id: BinId; label: string }> = [{ id: 'all', label: 'All media' }];
-    if (present.has('video')) list.push({ id: 'video', label: 'Video' });
-    if (present.has('audio')) list.push({ id: 'audio', label: 'Audio' });
-    if (present.has('stills')) list.push({ id: 'stills', label: 'Stills' });
-    list.push({ id: 'generated', label: 'Generated' });
-    return list;
-  }, [assets]);
-
-  const filtered = React.useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return assets
-      .map((asset, index) => ({ asset, index }))
-      .filter(({ asset }) => (bin === 'all' || bin === 'generated' ? true : assetBin(asset) === bin))
-      .filter(({ asset, index }) => !needle || assetLabel(asset, index).toLowerCase().includes(needle));
-  }, [assets, bin, query]);
+  const bins = React.useMemo(() => binsForAssets(assets), [assets]);
+  const filtered = React.useMemo(() => filterAssets(assets, bin, query), [assets, bin, query]);
 
   return (
     <div className="ev2MediaPool" data-ui-region="ev2-media-pool">
