@@ -22,23 +22,27 @@ function readEditorV2Preference(): boolean {
 
 export function NleShell({
   project,
+  playheadFrame: controlledPlayheadFrame,
+  onPlayheadFrameChange,
   onProjectChange,
   onGoToProjects,
 }: {
   project: NleProject | null;
+  playheadFrame?: number;
+  onPlayheadFrameChange?: (nextFrame: number) => void;
   onProjectChange?: (next: NleProject) => void;
   onGoToProjects: () => void;
 }) {
-  // playheadFrame lives here, in App-adjacent state — model is source of
-  // truth. The video element follows; effects below own the read/write loop.
-  // Reset to 0 whenever the project changes (path key).
-  const [playheadFrame, setPlayheadFrame] = React.useState(0);
+  // The app owns playheadFrame when both Recording edit and NLE are mounted as
+  // sibling tools. Keep a local fallback for standalone tests/embeds.
+  const [localPlayheadFrame, setLocalPlayheadFrame] = React.useState(0);
   const [isPlaying, setIsPlaying] = React.useState(false);
   const [selectedClipId, setSelectedClipId] = React.useState<string | null>(null);
   const [editMode, setEditMode] = React.useState<NleEditMode>('select');
   // Editor v2 layout (TASK-237). Default ON; "Legacy" escape hatch persists.
   const [layoutV2, setLayoutV2] = React.useState<boolean>(readEditorV2Preference);
   const projectPath = project?.path ?? null;
+  const isPlayheadControlled = controlledPlayheadFrame !== undefined;
   React.useEffect(() => {
     try {
       window.localStorage.setItem(EDITOR_V2_STORAGE_KEY, layoutV2 ? '1' : '0');
@@ -47,11 +51,11 @@ export function NleShell({
     }
   }, [layoutV2]);
   React.useEffect(() => {
-    setPlayheadFrame(0);
+    if (!isPlayheadControlled) setLocalPlayheadFrame(0);
     setIsPlaying(false);
     setSelectedClipId(null);
     setEditMode('select');
-  }, [projectPath]);
+  }, [isPlayheadControlled, projectPath]);
 
   if (project === null) {
     return <NleEmptyState onGoToProjects={onGoToProjects} />;
@@ -59,6 +63,12 @@ export function NleShell({
 
   const fps = resolveProjectFps(project);
   const durationFrames = resolveCompositionDurationFrames(project);
+  const playheadFrame = controlledPlayheadFrame ?? localPlayheadFrame;
+  const setPlayheadFrame = React.useCallback((next: React.SetStateAction<number>) => {
+    const resolved = typeof next === 'function' ? next(playheadFrame) : next;
+    if (onPlayheadFrameChange) onPlayheadFrameChange(resolved);
+    else setLocalPlayheadFrame(resolved);
+  }, [onPlayheadFrameChange, playheadFrame]);
   const clampedPlayhead = Math.max(0, Math.min(durationFrames, playheadFrame));
   const canSplit = selectedClipId !== null && canSplitClipById(project, selectedClipId, clampedPlayhead);
   const selectedState = selectedClipId ? 'Clip selected' : 'No clip selected';
@@ -86,7 +96,7 @@ export function NleShell({
 
     rafId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(rafId);
-  }, [isPlaying, durationFrames, fps]);
+  }, [isPlaying, durationFrames, fps, setPlayheadFrame]);
 
   function splitSelectedClip() {
     if (!selectedClipId || !onProjectChange) return;
@@ -137,7 +147,7 @@ export function NleShell({
     }
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
-  }, [durationFrames, fps]);
+  }, [durationFrames, fps, setPlayheadFrame]);
 
   const layoutToggle = (
     <button
@@ -172,9 +182,12 @@ export function NleShell({
       {layoutV2 ? (
         <EditorV2Layout
           topbarExtras={(
-            <div className="nleTimelineStatus" aria-label="Editor status">
-              <span>{Math.round(clampedPlayhead)} / {Math.round(durationFrames)}f</span>
-              <span>{fps} fps</span>
+            <div
+              className="nleTimelineStatus"
+              aria-label="Editor status"
+              data-playhead-frame={Math.round(clampedPlayhead)}
+              data-duration-frames={Math.round(durationFrames)}
+            >
               {layoutToggle}
             </div>
           )}

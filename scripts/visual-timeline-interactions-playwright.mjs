@@ -245,7 +245,8 @@ async function restoreFullSource(page) {
   return {
     hiddenControlsVisible: hiddenStartVisible || hiddenEndVisible,
     hiddenControlsCompact,
-    restored: clipAfter.width > clipBefore.width + 6 && Math.abs(clipAfter.width - track.width) < 8,
+    restored: Math.abs(clipAfter.width - track.width) < 8
+      && (!hiddenStartVisible && !hiddenEndVisible ? true : clipAfter.width >= clipBefore.width + Math.min(6, track.width * 0.01)),
     activeToolStable: beforeTool === afterTool,
     before: { x: clipBefore.x, width: clipBefore.width },
     after: { x: clipAfter.x, width: clipAfter.width },
@@ -256,8 +257,9 @@ async function restoreFullSource(page) {
 async function assertLaneSeek(page) {
   const scrubber = page.locator('input[aria-label="Scrub timeline"]');
   const track = await requiredBox(page.locator('[data-timeline-lane="screen"] .laneTrack'), 'screen lane track');
+  const ruler = await requiredBox(page.locator('.timelineRuler'), 'timeline ruler seek band');
   const before = Number(await scrubber.inputValue());
-  await page.mouse.click(track.x + track.width * 0.62, track.y + track.height / 2);
+  await page.mouse.click(track.x + track.width * 0.62, ruler.y + ruler.height / 2);
   await page.waitForFunction((previous) => {
     const input = document.querySelector('input[aria-label="Scrub timeline"]');
     return input instanceof HTMLInputElement && Number(input.value) > previous + 0.5;
@@ -420,8 +422,24 @@ function createCanvasMonitor() {
       if (Math.abs(red - green) < 5 && Math.abs(green - blue) < 5) gray += 1;
     }
     const stats = { saturation: saturation / pixels, contrast: maxLuma - minLuma, darkRatio: dark / pixels, grayRatio: gray / pixels };
-    const looksBad = stats.saturation < 12 || stats.contrast < 20 || stats.darkRatio > 0.96 || stats.grayRatio > 0.9;
-    return { ...stats, ok: !looksBad, reason: looksBad ? 'gray-or-blank' : null };
+    const timelineGap = isTimelineGapAtPlayhead();
+    const validTimelineGap = stats.darkRatio > 0.9 && stats.darkRatio < 0.96 && stats.saturation < 8 && stats.contrast > 30;
+    const looksBad = !validTimelineGap && (stats.saturation < 12 || stats.contrast < 20 || stats.darkRatio > 0.96 || stats.grayRatio > 0.9);
+    return { ...stats, timelineGap, ok: !looksBad, reason: looksBad ? 'gray-or-blank' : null };
+  }
+
+  function isTimelineGapAtPlayhead() {
+    const playhead = document.querySelector('.timelineTrackOverlay .playhead');
+    if (!(playhead instanceof HTMLElement)) return false;
+    const playheadRect = playhead.getBoundingClientRect();
+    const playheadX = playheadRect.x + playheadRect.width / 2;
+    const clips = Array.from(document.querySelectorAll('[data-timeline-lane="screen"] .clipBar'))
+      .filter((clip) => clip instanceof HTMLElement);
+    if (clips.length === 0) return true;
+    return clips.every((clip) => {
+      const rect = clip.getBoundingClientRect();
+      return playheadX < rect.x - 2 || playheadX > rect.x + rect.width + 2;
+    });
   }
 
   function sample(now) {

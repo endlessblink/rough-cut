@@ -99,8 +99,9 @@ declare global {
       getCameraSources: () => Promise<CameraSource[]>;
       startCameraPreview: (options: { devicePath: string }) => Promise<{ token: string; pid: number | null }>;
       stopCameraPreview: (token?: string | null) => Promise<{ stopped: boolean }>;
-      startAudioPreview: (options: { micSource?: string | null; micGainPercent?: number; systemAudioSource?: string | null; systemAudioGainPercent?: number }) => Promise<{ token: string; pid: number | null }>;
+      startAudioPreview: (options: { micSource?: string | null; micGainPercent?: number }) => Promise<{ token: string; pid: number | null }>;
       stopAudioPreview: (token?: string | null) => Promise<{ stopped: boolean }>;
+      onAudioPreviewLevel: (callback: (level: AudioPreviewLevel) => void) => () => void;
       onCameraPreviewFrame: (callback: (frame: { token: string; dataUrl: string }) => void) => () => void;
       getDisplays: () => Promise<CaptureDisplay[]>;
       getRecordingPreflightStatus: (options?: RecordingPreflightOptions) => Promise<RecordingPreflightStatus>;
@@ -235,6 +236,8 @@ type AiAsset = {
 };
 type MicSource = { id: string; name: string; label: string; state: string };
 type AudioSource = { id: string; name: string; label: string; state: string };
+type AudioPreviewLevel = { token: string; level: number; rmsDb: number | null; at: number };
+type AudioPreviewState = { token: string | null; state: 'idle' | 'starting' | 'monitoring' | 'error'; error: string | null; level: number; rmsDb: number | null };
 type CameraSource = { id: string; name: string; label: string };
 type CaptureMode = 'display' | 'region';
 type CaptureDisplay = { id: string; label: string; primary: boolean; scaleFactor: number; bounds: { x: number; y: number; width: number; height: number } };
@@ -443,6 +446,7 @@ function App() {
   const [inspectorOpen, setInspectorOpen] = React.useState(true);
   const [activeAppView, setActiveAppView] = React.useState<AppViewId>(initialAppView);
   const [activeTool, setActiveTool] = React.useState<ActiveTool>('background');
+  const [sharedTimelineTimeSec, setSharedTimelineTimeSec] = React.useState(0);
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
   const [editHistory, setEditHistory] = React.useState<EditHistory<ProjectState>>(EMPTY_EDIT_HISTORY);
   const recordingActionPendingRef = React.useRef(false);
@@ -450,7 +454,7 @@ function App() {
   const [error, setError] = React.useState<AppError | null>(null);
   const [runtimeLogPath, setRuntimeLogPath] = React.useState<string | null>(null);
   const [preflightStatus, setPreflightStatus] = React.useState<RecordingPreflightStatus | null>(null);
-  const [audioPreview, setAudioPreview] = React.useState<{ token: string | null; state: 'idle' | 'starting' | 'monitoring' | 'error'; error: string | null }>({ token: null, state: 'idle', error: null });
+  const [audioPreview, setAudioPreview] = React.useState<AudioPreviewState>({ token: null, state: 'idle', error: null, level: 0, rmsDb: null });
   const audioPreviewTokenRef = React.useRef<string | null>(null);
   const [recordingWarning, setRecordingWarning] = React.useState<string | null>(null);
   const [recoveryState, setRecoveryState] = React.useState<{ available: boolean; marker: RecoveryMarker | null } | null>(null);
@@ -585,52 +589,64 @@ function App() {
   async function stopAudioPreview() {
     const token = audioPreviewTokenRef.current;
     audioPreviewTokenRef.current = null;
-    setAudioPreview({ token: null, state: 'idle', error: null });
+    setAudioPreview({ token: null, state: 'idle', error: null, level: 0, rmsDb: null });
     if (token) {
       try {
         await window.roughCut.stopAudioPreview(token);
       } catch (err) {
-        console.warn('[renderer:audio-preview] stop failed', err);
+      console.warn('[renderer:audio-level] stop failed', err);
       }
     }
   }
 
-  async function toggleAudioPreview() {
+  async function startMicLevelPreview(micSource: string) {
     if (audioPreview.state === 'starting') return;
-    if (audioPreviewTokenRef.current) {
-      await stopAudioPreview();
-      return;
-    }
-    const micSource = recordMic ? selectedMicSource || null : null;
-    const systemAudioSource = recordSystemAudio ? selectedSystemAudioSource || null : null;
-    if (!micSource && !systemAudioSource) return;
-    setAudioPreview({ token: null, state: 'starting', error: null });
+    setAudioPreview({ token: null, state: 'starting', error: null, level: 0, rmsDb: null });
     try {
       const started = await window.roughCut.startAudioPreview({
         micSource,
-        micGainPercent: micSource ? micGainPercent : 100,
-        systemAudioSource,
-        systemAudioGainPercent: systemAudioSource ? systemAudioGainPercent : 100,
+        micGainPercent,
       });
       audioPreviewTokenRef.current = started.token;
-      setAudioPreview({ token: started.token, state: 'monitoring', error: null });
+      setAudioPreview({ token: started.token, state: 'monitoring', error: null, level: 0, rmsDb: null });
     } catch (err) {
       audioPreviewTokenRef.current = null;
-      setAudioPreview({ token: null, state: 'error', error: err instanceof Error ? err.message : 'Audio monitor failed.' });
+      setAudioPreview({ token: null, state: 'error', error: err instanceof Error ? err.message : 'Mic activity unavailable.', level: 0, rmsDb: null });
     }
   }
 
-  React.useEffect(() => {
-    if (preRecordPanelOpen && recording.state !== 'recording') return undefined;
-    void stopAudioPreview();
-    return undefined;
-  }, [preRecordPanelOpen, recording.state]);
+  React.useEffect(() => window.roughCut.onAudioPreviewLevel((level) => {
+    if (level.token !== audioPreviewTokenRef.current) return;
+    setAudioPreview((current) => {
+      if (current.token !== level.token || current.state !== 'monitoring') return current;
+      return {
+        ...current,
+        level: Math.max(0, Math.min(1, Number(level.level) || 0)),
+        rmsDb: typeof level.rmsDb === 'number' ? level.rmsDb : null,
+      };
+    });
+  }), []);
 
   React.useEffect(() => {
-    if (!audioPreviewTokenRef.current) return undefined;
+    if (!preRecordPanelOpen || recording.state === 'recording' || !recordMic || !selectedMicSource) {
+      void stopAudioPreview();
+      return undefined;
+    }
+    let cancelled = false;
+    void stopAudioPreview().then(() => {
+      if (!cancelled) void startMicLevelPreview(selectedMicSource);
+    });
+    return () => {
+      cancelled = true;
+      void stopAudioPreview();
+    };
+  }, [preRecordPanelOpen, recording.state, recordMic, selectedMicSource, micGainPercent]);
+
+  React.useEffect(() => {
+    if (recording.state !== 'recording') return undefined;
     void stopAudioPreview();
     return undefined;
-  }, [recordMic, recordSystemAudio, selectedMicSource, selectedSystemAudioSource, micGainPercent, systemAudioGainPercent]);
+  }, [recording.state]);
 
   React.useEffect(() => () => {
     const token = audioPreviewTokenRef.current;
@@ -725,6 +741,10 @@ function App() {
   }, [project?.recording?.camera]);
 
   React.useEffect(() => {
+    setSharedTimelineTimeSec(0);
+  }, [project?.path]);
+
+  React.useEffect(() => {
     if (recording.state === 'recording') setPreRecordPanelOpen(false);
   }, [recording.state]);
 
@@ -757,6 +777,21 @@ function App() {
       cancelled = true;
     };
   }, [preRecordPanelOpen, recording.state, recordMic, recordSystemAudio, recordCamera, selectedMicSource, selectedSystemAudioSource, selectedCameraSource, captureMode, captureRegion]);
+
+  const sharedTimelineFps = project?.recording?.fps && project.recording.fps > 0 ? project.recording.fps : 30;
+  const sharedTimelineDurationSec = project
+    ? Math.max(0, (project.document.composition?.duration ?? 0) / sharedTimelineFps)
+    : 0;
+  const clampedSharedTimelineTimeSec = Math.max(0, Math.min(sharedTimelineDurationSec, sharedTimelineTimeSec));
+  const sharedTimelineFrame = Math.round(clampedSharedTimelineTimeSec * sharedTimelineFps);
+  const updateSharedTimelineTimeSec = React.useCallback((nextTimeSec: number) => {
+    setSharedTimelineTimeSec(Math.max(0, Math.min(sharedTimelineDurationSec, nextTimeSec)));
+  }, [sharedTimelineDurationSec]);
+  const updateSharedTimelineFrame = React.useCallback((nextFrame: number) => {
+    const durationFrames = project?.document.composition?.duration ?? 0;
+    const clampedFrame = Math.max(0, Math.min(durationFrames, nextFrame));
+    setSharedTimelineTimeSec(clampedFrame / sharedTimelineFps);
+  }, [project?.document.composition?.duration, sharedTimelineFps]);
 
   async function toggleRecording() {
     if (recordingActionPendingRef.current) {
@@ -1197,7 +1232,6 @@ function App() {
             onMicGainPercentChange={setMicGainPercent}
             onSystemAudioGainPercentChange={setSystemAudioGainPercent}
             onSelectedCameraSourceChange={setSelectedCameraSource}
-            onToggleAudioPreview={toggleAudioPreview}
             onCaptureModeChange={setCaptureMode}
             onScreenPickerOpenChange={setScreenPickerOpen}
             onSelectedCaptureDisplayChange={setSelectedCaptureDisplayId}
@@ -1297,7 +1331,6 @@ function App() {
             onMicGainPercentChange={setMicGainPercent}
             onSystemAudioGainPercentChange={setSystemAudioGainPercent}
             onSelectedCameraSourceChange={setSelectedCameraSource}
-            onToggleAudioPreview={toggleAudioPreview}
             onCaptureModeChange={setCaptureMode}
             onScreenPickerOpenChange={setScreenPickerOpen}
             onSelectedCaptureDisplayChange={setSelectedCaptureDisplayId}
@@ -1469,6 +1502,8 @@ function App() {
           ) : activeAppView === 'nle' ? (
             <NleShell
               project={project as unknown as Parameters<typeof NleShell>[0]['project']}
+              playheadFrame={sharedTimelineFrame}
+              onPlayheadFrameChange={updateSharedTimelineFrame}
               onProjectChange={(next) => applyProjectChange(next as unknown as ProjectState)}
               onGoToProjects={() => setActiveAppView('projects')}
             />
@@ -1535,6 +1570,8 @@ function App() {
               setupBoardOpen={setupBoardOpen}
               inspectorOpen={inspectorOpen}
               activeTool={activeTool}
+              currentTimeSec={clampedSharedTimelineTimeSec}
+              onCurrentTimeSecChange={updateSharedTimelineTimeSec}
               onActiveToolChange={(tool) => {
                 setActiveTool(tool);
                 setSetupBoardOpen(true);
@@ -1665,7 +1702,6 @@ function PreRecordPanel({
   onMicGainPercentChange,
   onSystemAudioGainPercentChange,
   onSelectedCameraSourceChange,
-  onToggleAudioPreview,
   onCaptureModeChange,
   onScreenPickerOpenChange,
   onSelectedCaptureDisplayChange,
@@ -1682,7 +1718,7 @@ function PreRecordPanel({
   micGainPercent: number;
   systemAudioGainPercent: number;
   selectedCameraSource: string;
-  audioPreview: { token: string | null; state: 'idle' | 'starting' | 'monitoring' | 'error'; error: string | null };
+  audioPreview: AudioPreviewState;
   captureMode: CaptureMode;
   captureRegion: CaptureRegion;
   captureDisplays: CaptureDisplay[];
@@ -1700,7 +1736,6 @@ function PreRecordPanel({
   onMicGainPercentChange: (value: number) => void;
   onSystemAudioGainPercentChange: (value: number) => void;
   onSelectedCameraSourceChange: (source: string) => void;
-  onToggleAudioPreview: () => void;
   onCaptureModeChange: (mode: CaptureMode) => void;
   onScreenPickerOpenChange: (open: boolean) => void;
   onSelectedCaptureDisplayChange: (displayId: string | null) => void;
@@ -1814,12 +1849,12 @@ function PreRecordPanel({
                 onChange={onSystemAudioGainPercentChange}
               />
             ) : null}
-            <AudioMonitorControl
-              enabled={recordMic || recordSystemAudio}
+            <MicWaveformControl
+              enabled={recordMic && Boolean(selectedMicSource)}
               state={audioPreview.state}
               error={audioPreview.error}
+              level={audioPreview.level}
               disabled={actionPending}
-              onToggle={onToggleAudioPreview}
             />
             <PreRecordSourceSelect icon="camera" label="Camera" enabled={recordCamera} disabled={actionPending || cameraSources.length === 0} emptyLabel="No camera" offLabel="No camera" sources={cameraSources} value={selectedCameraSource} onEnabledChange={onRecordCameraChange} onValueChange={onSelectedCameraSourceChange} />
           </div>
@@ -2062,24 +2097,30 @@ function RecordedGainControl({ label, value, disabled = false, compact = false, 
   );
 }
 
-function AudioMonitorControl({ enabled, state, error, disabled, onToggle }: { enabled: boolean; state: 'idle' | 'starting' | 'monitoring' | 'error'; error: string | null; disabled: boolean; onToggle: () => void }) {
+function MicWaveformControl({ enabled, state, error, level, disabled }: { enabled: boolean; state: 'idle' | 'starting' | 'monitoring' | 'error'; error: string | null; level: number; disabled: boolean }) {
   const active = state === 'monitoring';
-  const label = state === 'starting' ? 'Starting monitor' : active ? 'Stop monitor' : 'Monitor audio';
-  const status = state === 'error' ? error ?? 'Monitor unavailable' : active ? 'Monitoring' : 'Off';
+  const status = state === 'error' ? error ?? 'Mic activity unavailable' : enabled ? (state === 'starting' ? 'Listening' : active ? 'Live' : 'Waiting') : 'Select a mic';
+  const meterLevel = active && !disabled ? Math.max(0, Math.min(1, level)) : 0;
+  const bars = [0.32, 0.58, 0.84, 1, 0.74, 0.46, 0.64, 0.38];
   return (
-    <div className="preRecordInputRow audioMonitorControl" data-ui-region="audio-preview-monitor">
-      <span className="controlRowLabel"><Icon name="volume" /> Audio monitor</span>
-      <button
-        type="button"
-        className={active ? 'secondary active' : 'secondary'}
-        disabled={disabled || !enabled || state === 'starting'}
-        aria-pressed={active}
-        onClick={onToggle}
+    <div className="preRecordInputRow micWaveformControl" data-ui-region="mic-audio-waveform">
+      <span className="controlRowLabel"><Icon name="mic" /> Mic activity</span>
+      <div
+        className={active ? 'audioLevelMeter active' : 'audioLevelMeter'}
+        aria-label={active ? `Audio input level ${Math.round(meterLevel * 100)} percent` : 'Audio input level idle'}
+        style={{ '--audio-level': meterLevel } as React.CSSProperties}
       >
-        <Icon name={active ? 'stop' : 'play'} />
-        {label}
-      </button>
-      <small>{enabled ? status : 'Select mic or system audio'}</small>
+        {bars.map((weight, index) => (
+          <span
+            key={index}
+            style={{
+              height: `${0.25 + (0.95 * Math.max(0.08, meterLevel * weight))}rem`,
+              opacity: 0.24 + (0.76 * meterLevel),
+            }}
+          />
+        ))}
+      </div>
+      <small>{status}</small>
     </div>
   );
 }
@@ -3538,6 +3579,8 @@ function ProjectPreview({
   setupBoardOpen,
   inspectorOpen,
   activeTool,
+  currentTimeSec,
+  onCurrentTimeSecChange,
   onActiveToolChange,
 }: {
   project: ProjectState;
@@ -3556,10 +3599,14 @@ function ProjectPreview({
   setupBoardOpen: boolean;
   inspectorOpen: boolean;
   activeTool: ActiveTool;
+  currentTimeSec: number;
+  onCurrentTimeSecChange: (nextTimeSec: number) => void;
   onActiveToolChange: (tool: ActiveTool) => void;
 }) {
-  const [currentTimeSec, setCurrentTimeSec] = React.useState(0);
-  const [timelineSeekSec, setTimelineSeekSec] = React.useState(0);
+  const setCurrentTimeSec = React.useCallback((next: React.SetStateAction<number>) => {
+    onCurrentTimeSecChange(typeof next === 'function' ? next(currentTimeSec) : next);
+  }, [currentTimeSec, onCurrentTimeSecChange]);
+  const [timelineSeekSec, setTimelineSeekSec] = React.useState(currentTimeSec);
   const [inspectorSelection, setInspectorSelection] = React.useState<InspectorSelection>(DEFAULT_INSPECTOR_SELECTION);
   const [cutModeActive, setCutModeActive] = React.useState(false);
   const [sourceMediaDurationSec, setSourceMediaDurationSec] = React.useState<number | null>(null);

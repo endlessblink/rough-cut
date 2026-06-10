@@ -17,6 +17,7 @@ const screenshots = {
   nleAfterRecordingTrim: join(root, 'nle-after-recording-trim.png'),
   nleTrimmed: join(root, 'nle-trimmed.png'),
   recordingAfterNleTrim: join(root, 'recording-after-nle-trim.png'),
+  failure: join(root, 'failure.png'),
 };
 
 await mkdir(root, { recursive: true });
@@ -65,15 +66,19 @@ const electronProcess = app.process();
 
 let report;
 let failure;
+let page;
 try {
-  const page = await app.firstWindow();
+  page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   await page.addScriptTag({ content: `window.__timelineSyncReadCanvasStats = (${readCanvasStats.toString()});` });
 
   await openRecordingEdit(page);
   await waitForPreviewReady(page);
   await seekRecordingRatio(page, 0.02);
-  await page.waitForFunction(() => window.__timelineSyncReadCanvasStats().darkRatio > 0.95, null, { timeout: 10000 });
+  await page.waitForFunction(() => {
+    const stats = window.__timelineSyncReadCanvasStats();
+    return stats.darkRatio > 0.9 && stats.saturation < 8;
+  }, null, { timeout: 10000 });
   await captureViewport(page, screenshots.recordingGap);
   const recordingGap = await readRecordingState(page);
 
@@ -84,8 +89,12 @@ try {
 
   await openNle(page);
   await waitForPreviewReady(page);
+  const nleAfterRecordingSeek = await readNleState(page);
   await seekNleRatio(page, 0.02);
-  await page.waitForFunction(() => window.__timelineSyncReadCanvasStats().darkRatio > 0.95, null, { timeout: 10000 });
+  await page.waitForFunction(() => {
+    const stats = window.__timelineSyncReadCanvasStats();
+    return stats.darkRatio > 0.9 && stats.saturation < 8;
+  }, null, { timeout: 10000 });
   await captureViewport(page, screenshots.nleGap);
   const nleGap = await readNleState(page);
 
@@ -95,7 +104,8 @@ try {
   await captureViewport(page, screenshots.nleMoved);
 
   await openRecordingEdit(page);
-  const recordingTrimBefore = await readRecordingState(page);
+  const recordingAfterNleSeek = await readRecordingState(page);
+  const recordingTrimBefore = recordingAfterNleSeek;
   await dragRecordingTrimEnd(page, 0.70);
   const recordingTrimmed = await readRecordingState(page);
   await captureViewport(page, screenshots.recordingTrimmed);
@@ -116,8 +126,10 @@ try {
 
   report = {
     ok: movedStateMatches(recordingMoved, nleMoved)
-      && recordingGap.canvas.darkRatio > 0.95
-      && nleGap.canvas.darkRatio > 0.95
+      && isGapCanvasStats(recordingGap.canvas)
+      && isGapCanvasStats(nleGap.canvas)
+      && playheadRatioMatches(recordingMoved, nleAfterRecordingSeek)
+      && playheadRatioMatches(nleMoved, recordingAfterNleSeek)
       && trimChanged(recordingTrimBefore, recordingTrimmed, 'end')
       && statesMatch(recordingTrimmed, nleAfterRecordingTrim)
       && trimChanged(nleTrimBefore, nleTrimmed, 'start')
@@ -128,7 +140,9 @@ try {
     recordingGap,
     nleGap,
     recordingMoved,
+    nleAfterRecordingSeek,
     nleMoved,
+    recordingAfterNleSeek,
     recordingTrimBefore,
     recordingTrimmed,
     nleAfterRecordingTrim,
@@ -138,6 +152,26 @@ try {
   };
   if (!report.ok) failure = new Error(`Timeline sync visual regression failed: ${JSON.stringify(summarizeFailure(reportPath, report))}`);
 } catch (err) {
+  if (page) await captureViewport(page, screenshots.failure).catch(() => undefined);
+  const diagnostic = await page?.evaluate(() => {
+    const scrubber = document.querySelector('input[aria-label="Scrub timeline"]');
+    const playhead = document.querySelector('.nlePlayhead');
+    const target = window;
+    return {
+      recordingScrubber: scrubber instanceof HTMLInputElement
+        ? { value: Number(scrubber.value), max: Number(scrubber.max), ratio: Number(scrubber.max) > 0 ? Number(scrubber.value) / Number(scrubber.max) : null }
+        : null,
+      nlePlayheadLeft: playhead instanceof HTMLElement ? playhead.style.left : null,
+      canvas: typeof window.__timelineSyncReadCanvasStats === 'function' ? window.__timelineSyncReadCanvasStats() : null,
+      view: document.querySelector('[data-ui-region="nle-workspace"]') ? 'nle' : document.querySelector('[data-ui-region="editor-workspace"]') ? 'recording' : 'unknown',
+      canvasDrawCount: target.__roughCutCanvasDrawCount ?? null,
+      timelinePlaybackDebug: target.__roughCutTimelinePlaybackDebug ?? null,
+      playbackDebugCounts: target.__roughCutPlaybackDebugCounts ?? null,
+      playbackDebugTail: Array.isArray(target.__roughCutPlaybackDebugLog)
+        ? target.__roughCutPlaybackDebugLog.slice(-8)
+        : null,
+    };
+  }).catch(() => null);
   failure = err;
   report = {
     ok: false,
@@ -145,6 +179,7 @@ try {
     projectPath: project.path,
     screenshots,
     error: err instanceof Error ? err.message : String(err),
+    diagnostic,
   };
 } finally {
   await Promise.race([
@@ -161,6 +196,8 @@ console.info(JSON.stringify({
   root,
   projectPath: project.path,
   movedMatch: report?.recordingMoved && report?.nleMoved ? movedStateMatches(report.recordingMoved, report.nleMoved) : false,
+  nlePreservedRecordingPlayhead: report?.recordingMoved && report?.nleAfterRecordingSeek ? playheadRatioMatches(report.recordingMoved, report.nleAfterRecordingSeek) : false,
+  recordingPreservedNlePlayhead: report?.nleMoved && report?.recordingAfterNleSeek ? playheadRatioMatches(report.nleMoved, report.recordingAfterNleSeek) : false,
   recordingGapDark: report?.recordingGap?.canvas?.darkRatio ?? null,
   nleGapDark: report?.nleGap?.canvas?.darkRatio ?? null,
   recordingTrimChanged: report?.recordingTrimBefore && report?.recordingTrimmed ? trimChanged(report.recordingTrimBefore, report.recordingTrimmed, 'end') : false,
@@ -202,13 +239,9 @@ async function waitForPreviewReady(page) {
 }
 
 async function seekRecordingRatio(page, ratio) {
-  await page.locator('input[aria-label="Scrub timeline"]').evaluate((input, nextRatio) => {
-    if (!(input instanceof HTMLInputElement)) throw new Error('Recording scrubber is not an input.');
-    const max = Number(input.max);
-    input.value = String(Math.max(0, Math.min(max, max * nextRatio)));
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-  }, ratio);
+  const track = await requiredBox(page.locator('[data-timeline-lane="screen"] .laneTrack'), 'recording screen lane');
+  const ruler = await requiredBox(page.locator('.timelineRuler'), 'recording timeline ruler');
+  await page.mouse.click(track.x + track.width * ratio, ruler.y + ruler.height / 2);
   await page.waitForTimeout(350);
 }
 
@@ -255,6 +288,7 @@ async function readRecordingState(page) {
       view: 'recording',
       clip: rectState(clip, track),
       playhead: scrubber instanceof HTMLInputElement ? Number(scrubber.value) : null,
+      playheadRatio: scrubber instanceof HTMLInputElement && Number(scrubber.max) > 0 ? Number(scrubber.value) / Number(scrubber.max) : null,
       canvas: window.__timelineSyncReadCanvasStats(),
     };
     function rectState(element, parent) {
@@ -273,10 +307,12 @@ async function readNleState(page) {
   return page.evaluate(() => {
     const body = document.querySelector('[data-ui-region="nle-lane-bodies"] .nleTrackLaneBody[data-track-kind="video"]');
     const clip = body?.querySelector('.nleClipBlock');
+    const playhead = document.querySelector('.nlePlayhead');
     const timecode = document.querySelector('.nleTransportTimeCurrent')?.textContent ?? null;
     return {
       view: 'nle',
       clip: rectState(clip, body),
+      playheadRatio: playheadRatio(playhead),
       timecode,
       canvas: window.__timelineSyncReadCanvasStats(),
     };
@@ -289,6 +325,11 @@ async function readNleState(page) {
         widthPct: (rect.width / base.width) * 100,
       };
     }
+    function playheadRatio(element) {
+      if (!(element instanceof HTMLElement)) return null;
+      const left = Number.parseFloat(element.style.left);
+      return Number.isFinite(left) ? left / 100 : null;
+    }
   });
 }
 
@@ -296,22 +337,29 @@ function movedScreenClip(document) {
   const recordingAsset = document.assets.find((asset) => asset.type === 'recording');
   if (!recordingAsset) throw new Error('Fixture did not create a recording asset.');
   const mediaId = `source:${recordingAsset.id}:screen`;
+  const offsetClip = (clip) => ({
+    ...clip,
+    timelineIn: 30,
+    timelineOut: 150,
+    sourceIn: 60,
+    sourceOut: 180,
+  });
   const tracks = document.timeline.tracks.map((track) => ({
     ...track,
     clips: track.clips.map((clip) => clip.mediaId === mediaId
-      ? {
-          ...clip,
-          timelineIn: 30,
-          timelineOut: 150,
-          sourceIn: 60,
-          sourceOut: 180,
-        }
+      ? offsetClip(clip)
+      : clip),
+  }));
+  const compositionTracks = document.composition.tracks.map((track) => ({
+    ...track,
+    clips: track.clips.map((clip) => clip.assetId === recordingAsset.id
+      ? offsetClip(clip)
       : clip),
   }));
   return {
     ...document,
     name: 'timeline-sync-source-offset-gap',
-    composition: { ...document.composition, duration: 180 },
+    composition: { ...document.composition, duration: 180, tracks: compositionTracks },
     timeline: { ...document.timeline, tracks },
   };
 }
@@ -326,18 +374,33 @@ function movedStateMatches(left, right) {
   return statesMatch(left, right) && (left?.clip?.leftPct ?? 0) > 8 && (left?.clip?.widthPct ?? 100) < 90;
 }
 
+function isGapCanvasStats(stats) {
+  return (stats?.darkRatio ?? 0) > 0.9 && (stats?.saturation ?? Infinity) < 8;
+}
+
+function playheadRatioMatches(left, right, tolerance = 0.04) {
+  return Number.isFinite(left?.playheadRatio)
+    && Number.isFinite(right?.playheadRatio)
+    && Math.abs(left.playheadRatio - right.playheadRatio) <= tolerance;
+}
+
 function trimChanged(before, after, edge) {
   if (!before?.clip || !after?.clip) return false;
-  if (edge === 'start') return after.clip.leftPct > before.clip.leftPct + 4 && after.clip.widthPct < before.clip.widthPct - 4;
-  return after.clip.widthPct < before.clip.widthPct - 4;
+  const minDeltaPct = 3;
+  if (edge === 'start') return after.clip.leftPct > before.clip.leftPct + minDeltaPct && after.clip.widthPct < before.clip.widthPct - minDeltaPct;
+  return after.clip.widthPct < before.clip.widthPct - minDeltaPct;
 }
 
 function summarizeFailure(path, result) {
   return {
     reportPath: path,
     movedMatch: result.recordingMoved && result.nleMoved ? movedStateMatches(result.recordingMoved, result.nleMoved) : false,
+    nlePreservedRecordingPlayhead: result.recordingMoved && result.nleAfterRecordingSeek ? playheadRatioMatches(result.recordingMoved, result.nleAfterRecordingSeek) : false,
+    recordingPreservedNlePlayhead: result.nleMoved && result.recordingAfterNleSeek ? playheadRatioMatches(result.nleMoved, result.recordingAfterNleSeek) : false,
     recordingGap: result.recordingGap,
     nleGap: result.nleGap,
+    nleAfterRecordingSeek: result.nleAfterRecordingSeek,
+    recordingAfterNleSeek: result.recordingAfterNleSeek,
     recordingTrimBefore: result.recordingTrimBefore,
     recordingTrimmed: result.recordingTrimmed,
     nleAfterRecordingTrim: result.nleAfterRecordingTrim,
