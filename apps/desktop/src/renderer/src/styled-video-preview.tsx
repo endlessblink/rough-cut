@@ -1214,7 +1214,7 @@ export function StyledVideoPreview({
           sourceHeight,
           transform: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
           blurPx: zoomMotionBlurPx,
-          sharpZoom: !activeTimelinePlayback,
+          sharpZoom: timeMode !== 'timeline' && !activeTimelinePlayback,
         });
       } catch {
         ctx.restore();

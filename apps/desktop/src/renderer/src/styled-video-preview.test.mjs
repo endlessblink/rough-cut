@@ -117,7 +117,7 @@ test('zoom motion renderer gates blur and keeps cursor overlays out of the blurr
   assert.doesNotMatch(previewSource, /ctx\.filter\s*=/);
   assert.doesNotMatch(mainSource, /ctx\.filter\s*=/);
   assert.match(previewSource, /drawZoomMotionSource\(ctx, video, \{/);
-  assert.match(previewSource, /sharpZoom: !activeTimelinePlayback/);
+  assert.match(previewSource, /sharpZoom: timeMode !== 'timeline' && !activeTimelinePlayback/);
   assert.match(previewSource, /markDrawPhase\('screen-video'\);\n\s+ctx\.save\(\);\n\s+applyScreenSourceTransform/);
   assert.match(mainSource, /drawZoomMotionSource\(ctx, video, \{/);
   assert.match(mainSource, /sharpZoom: video\.paused/);
