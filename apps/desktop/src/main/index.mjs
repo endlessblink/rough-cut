@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, session, shell, Tray } from 'electron';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { isImportableMimeType, mimeForExtension } from '../shared/import-mime.mjs';
@@ -11,9 +11,10 @@ import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
 import { dismissRecovery, getRecoveryState, recoverFromMarker } from './recording-recovery.mjs';
 import { deleteProjectFiles, listProjectSummaries } from './project-gallery.mjs';
 import { registerMediaProtocol, toMediaUrl } from './media-protocol.mjs';
+import { ensureClipVisual } from './clip-visuals.mjs';
 import { remuxMkvSegmentsToMp4, remuxMkvToMp4 } from './remux-service.mjs';
 import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording/recording-session.mjs';
-import { startFfmpegAudioMonitor, startFfmpegCameraPreview } from './recording/ffmpeg-capture.mjs';
+import { startFfmpegAudioLevelProbe, startFfmpegCameraPreview } from './recording/ffmpeg-capture.mjs';
 import { listPulseAudioMicSources, listPulseAudioSystemAudioSources } from './recording/audio-sources.mjs';
 import { listV4l2CameraSources } from './recording/camera-sources.mjs';
 import { getRecordingPreflightStatus } from './recording/preflight.mjs';
@@ -367,6 +368,9 @@ function rendererSearch({ mode = 'editor', projectPath = null } = {}) {
   if (mode === 'recorder') params.set('mode', 'recorder');
   const initialView = rendererInitialView({ mode, projectPath });
   if (initialView) params.set('view', initialView);
+  if (process.env.ROUGH_CUT_WEBGL_SCREEN_LAYER === '1' || process.env.VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER === '1') {
+    params.set('screenLayerRenderer', 'webgl');
+  }
   const value = params.toString();
   return value ? `?${value}` : undefined;
 }
@@ -381,6 +385,9 @@ function loadRenderer(window, { mode = 'editor', projectPath = null } = {}) {
     if (projectPath) url.searchParams.set('projectPath', projectPath);
     if (mode === 'recorder') url.searchParams.set('mode', 'recorder');
     if (initialView) url.searchParams.set('view', initialView);
+    if (process.env.ROUGH_CUT_WEBGL_SCREEN_LAYER === '1' || process.env.VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER === '1') {
+      url.searchParams.set('screenLayerRenderer', 'webgl');
+    }
     window.loadURL(url.toString());
   } else if (!app.isPackaged) {
     if (shouldLoadBuiltRenderer) {
@@ -390,6 +397,9 @@ function loadRenderer(window, { mode = 'editor', projectPath = null } = {}) {
       if (projectPath) url.searchParams.set('projectPath', projectPath);
       if (mode === 'recorder') url.searchParams.set('mode', 'recorder');
       if (initialView) url.searchParams.set('view', initialView);
+      if (process.env.ROUGH_CUT_WEBGL_SCREEN_LAYER === '1' || process.env.VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER === '1') {
+        url.searchParams.set('screenLayerRenderer', 'webgl');
+      }
       window.loadURL(url.toString());
     }
   } else {
@@ -488,17 +498,21 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_CAMERA_PREVIEW_STOP, async (_event, token 
 });
 ipcMain.handle(IPC_CHANNELS.RECORDING_AUDIO_PREVIEW_START, async (event, options = {}) => {
   const micSource = typeof options.micSource === 'string' ? options.micSource.trim() : '';
-  const systemAudioSource = typeof options.systemAudioSource === 'string' ? options.systemAudioSource.trim() : '';
-  if (!micSource && !systemAudioSource) throw new Error('Select a microphone or system audio source before monitoring.');
+  if (!micSource) throw new Error('Select a microphone before showing input activity.');
   await stopActiveAudioPreview();
   const token = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const handle = startFfmpegAudioMonitor({
-    micSource: micSource || null,
+  const handle = startFfmpegAudioLevelProbe({
+    micSource,
     micGainPercent: options.micGainPercent,
-    systemAudioSource: systemAudioSource || null,
-    systemAudioGainPercent: options.systemAudioGainPercent,
+    onLevel: (level) => {
+      if (activeAudioPreview?.token !== token || event.sender.isDestroyed()) return;
+      event.sender.send(IPC_CHANNELS.RECORDING_AUDIO_PREVIEW_LEVEL, {
+        token,
+        ...level,
+      });
+    },
   });
-  if (!handle) throw new Error('No audio source is available to monitor.');
+  if (!handle) throw new Error('No microphone source is available for input activity.');
   activeAudioPreview = { token, sender: event.sender, handle };
   event.sender.once('destroyed', () => {
     if (activeAudioPreview?.token === token) void stopActiveAudioPreview(token);
@@ -860,6 +874,21 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, { document, outputPath, 
     if (activeExportController === controller) activeExportController = null;
   }
 });
+ipcMain.handle(IPC_CHANNELS.CLIP_VISUALS_GET, async (_event, payload = {}) => {
+  const { projectPath, sourcePath, kind, durationSec } = payload;
+  if (typeof projectPath !== 'string' || !projectPath) throw new Error('clip-visuals: projectPath required');
+  if (typeof sourcePath !== 'string' || !sourcePath) throw new Error('clip-visuals: sourcePath required');
+  const resolvedSource = isAbsolute(sourcePath) ? sourcePath : join(dirname(projectPath), sourcePath);
+  const visual = await ensureClipVisual({
+    projectPath,
+    sourcePath: resolvedSource,
+    kind,
+    durationSec: Number(durationSec) || 1,
+  });
+  const { path: visualPath, ...meta } = visual;
+  return { ...meta, url: toMediaUrl(visualPath) };
+});
+
 ipcMain.handle(IPC_CHANNELS.EXPORT_CANCEL, () => {
   if (!activeExportController) return { cancelled: false };
   activeExportController.abort();
@@ -1872,7 +1901,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   let hasSystemAudioGainControl = false;
   let systemAudioGainValue = null;
   let exercisedSystemAudioGainControl = false;
-  let hasAudioPreviewMonitor = false;
+  let hasMicAudioWaveform = false;
   let hasCustomAudioGainRangeSkin = false;
   const selectableMicOption = micSelect
     ? Array.from(micSelect.options).find((option) => option.value && option.value !== '__off' && !option.disabled)
@@ -1889,7 +1918,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     systemSelect.dispatchEvent(new Event('change', { bubbles: true }));
     const micGainControl = await waitFor(() => document.querySelector('[data-ui-region="mic-audio-gain"]'), 'mic audio gain control');
     const systemGainControl = await waitFor(() => document.querySelector('[data-ui-region="system-audio-gain"]'), 'system audio gain control');
-    const monitorControl = await waitFor(() => document.querySelector('[data-ui-region="audio-preview-monitor"]'), 'audio preview monitor control');
+    const waveformControl = await waitFor(() => document.querySelector('[data-ui-region="mic-audio-waveform"]'), 'mic audio waveform');
     const micGainInput = micGainControl?.querySelector('input[type="range"]');
     const systemGainInput = systemGainControl?.querySelector('input[type="range"]');
     if (micGainInput) {
@@ -1908,7 +1937,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
       systemAudioGainValue = Number(systemGainInput.value);
       exercisedSystemAudioGainControl = systemAudioGainValue === 50;
     }
-    hasAudioPreviewMonitor = Boolean(monitorControl?.querySelector('button:not(:disabled)'));
+    hasMicAudioWaveform = Boolean(waveformControl?.querySelector('.audioLevelMeter span'));
     hasCustomAudioGainRangeSkin = Boolean(
       micGainControl?.querySelector('.rangeVisual .rangeFill')
         && micGainControl?.querySelector('.rangeVisual .rangeThumb')
@@ -1918,7 +1947,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   } else {
     hasMicAudioGainControl = Boolean(document.querySelector('[data-ui-region="mic-audio-gain"]'));
     hasSystemAudioGainControl = Boolean(document.querySelector('[data-ui-region="system-audio-gain"]'));
-    hasAudioPreviewMonitor = Boolean(document.querySelector('[data-ui-region="audio-preview-monitor"]'));
+    hasMicAudioWaveform = Boolean(document.querySelector('[data-ui-region="mic-audio-waveform"] .audioLevelMeter span'));
   }
   let hasInvalidRegionRejected = !options.invalidRegion;
   if (options.audioGainOnly) {
@@ -1936,7 +1965,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
       hasSystemAudioGainControl,
       systemAudioGainValue,
       exercisedSystemAudioGainControl,
-      hasAudioPreviewMonitor,
+      hasMicAudioWaveform,
       hasCustomAudioGainRangeSkin,
       micOptionCount,
       systemOptionCount,
@@ -2032,7 +2061,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
       hasSystemAudioGainControl,
       systemAudioGainValue,
       exercisedSystemAudioGainControl,
-      hasAudioPreviewMonitor,
+      hasMicAudioWaveform,
       hasCustomAudioGainRangeSkin,
       micOptionCount,
       systemOptionCount,
@@ -2115,7 +2144,7 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     hasSystemAudioGainControl,
     systemAudioGainValue,
     exercisedSystemAudioGainControl,
-    hasAudioPreviewMonitor,
+    hasMicAudioWaveform,
     hasCustomAudioGainRangeSkin,
     micOptionCount,
     systemOptionCount,

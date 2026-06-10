@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildFfmpegCaptureArgs,
-  buildFfmpegAudioMonitorArgs,
+  audioRmsDbToLevel,
+  buildFfmpegAudioLevelProbeArgs,
   buildFfmpegCameraCaptureArgs,
   buildFfmpegCameraPreviewArgs,
   buildFfmpegUnifiedCaptureArgs,
+  createAudioLevelParser,
   createMjpegFrameParser,
   FFMPEG_SIGINT_TIMEOUT_MS,
   FFMPEG_SIGTERM_TIMEOUT_MS,
@@ -245,8 +247,8 @@ test('screen capture applies mic-only gain and clamps gain to 200 percent', () =
   assert.deepEqual(args.slice(args.indexOf('-map'), args.indexOf('-map') + 4), ['-map', '0:v', '-map', '[mica]']);
 });
 
-test('audio monitor plays the selected gained mix to PulseAudio output', () => {
-  const args = buildFfmpegAudioMonitorArgs({
+test('audio level probe reads the selected gained mix without playing it', () => {
+  const args = buildFfmpegAudioLevelProbeArgs({
     micSource: 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo',
     micGainPercent: 125,
     systemAudioSource: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor',
@@ -254,9 +256,27 @@ test('audio monitor plays the selected gained mix to PulseAudio output', () => {
   });
 
   assert.ok(args);
-  assert.equal(args.includes('[0:a]volume=0.55[sysa];[1:a]volume=1.25[mica];[sysa][mica]amix=inputs=2[a]'), true);
-  assert.equal(args.includes('-f'), true);
-  assert.deepEqual(args.slice(-9), ['-c:a', 'pcm_s16le', '-f', 'pulse', '-name', 'Rough Cut', '-stream_name', 'Audio monitor', 'default']);
+  assert.equal(args.includes('[0:a]volume=0.55[levelsysa];[1:a]volume=1.25[levelmica];[levelsysa][levelmica]amix=inputs=2[audiolevelmix];[audiolevelmix]astats=metadata=1:reset=0.15,ametadata=print:key=lavfi.astats.Overall.RMS_level[audiolevel]'), true);
+  assert.deepEqual(args.slice(-7), ['-filter_complex', '[0:a]volume=0.55[levelsysa];[1:a]volume=1.25[levelmica];[levelsysa][levelmica]amix=inputs=2[audiolevelmix];[audiolevelmix]astats=metadata=1:reset=0.15,ametadata=print:key=lavfi.astats.Overall.RMS_level[audiolevel]', '-map', '[audiolevel]', '-f', 'null', '-']);
+  assert.equal(args.includes('pcm_s16le'), false);
+  assert.equal(args.includes('-stream_name'), false);
+  assert.equal(args.includes('Audio monitor'), false);
+  assert.equal(args.at(-1), '-');
+});
+
+test('audio level parser emits normalized RMS level updates', () => {
+  const levels = [];
+  const parser = createAudioLevelParser((level) => levels.push(level));
+  parser.observe('frame:0    pts:0\nlavfi.astats.Overall.RMS_level=-42.0\n');
+  parser.observe('frame:1    pts:1\nlavfi.astats.Overall.RMS_level=-inf\n');
+
+  assert.equal(levels.length, 1);
+  assert.equal(levels[0].rmsDb, -42);
+  assert.equal(levels[0].level, audioRmsDbToLevel(-42));
+  assert.ok(levels[0].level > 0);
+  assert.ok(levels[0].level < 1);
+  assert.equal(audioRmsDbToLevel(-Infinity), 0);
+  assert.equal(audioRmsDbToLevel(0), 1);
 });
 
 test('screen capture allows enough time for mp4 finalization on stop', () => {

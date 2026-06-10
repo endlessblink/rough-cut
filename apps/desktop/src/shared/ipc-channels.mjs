@@ -56,6 +56,7 @@ export const IPC_CHANNELS = {
   RECORDING_CAMERA_PREVIEW_FRAME: 'recording:camera-preview-frame',
   RECORDING_AUDIO_PREVIEW_START: 'recording:audio-preview-start',
   RECORDING_AUDIO_PREVIEW_STOP: 'recording:audio-preview-stop',
+  RECORDING_AUDIO_PREVIEW_LEVEL: 'recording:audio-preview-level',
   RECORDING_GET_DISPLAYS: 'recording:get-displays',
   RECORDING_GET_DISPLAY_BOUNDS: 'recording:get-display-bounds',
   RECORDING_SELECT_CAPTURE_REGION: 'recording:select-capture-region',
@@ -138,6 +139,9 @@ export const IPC_CHANNELS = {
   AI_GET_PROVIDER_CONFIG: 'ai:get-provider-config',
   AI_SET_PROVIDER_CONFIG: 'ai:set-provider-config',
   AI_ASSET_LIST: 'ai-asset:list',
+  // TASK-237 slice 3 — per-source filmstrip/waveform PNG for timeline clips.
+  // Returns { url, kind, durationSec, tiles?, intervalSec?, stripSeconds?, widthPx? }.
+  CLIP_VISUALS_GET: 'clip-visuals:get',
   AI_ASSET_DELETE: 'ai-asset:delete',
   AI_ASSET_TAG: 'ai-asset:tag',
   AI_ASSET_RESOLVE: 'ai-asset:resolve',

@@ -1158,92 +1158,157 @@ export function buildFfmpegAudioCaptureArgs({
   return args;
 }
 
-export function buildFfmpegAudioMonitorArgs({
+export function buildFfmpegAudioLevelProbeArgs({
   micSource = null,
   micGainPercent = 100,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
-  outputDevice = 'default',
 }) {
-  const captureArgs = buildFfmpegAudioCaptureArgs({
-    outputPath: '__ROUGH_CUT_AUDIO_CAPTURE_OUTPUT__',
-    micSource,
-    micGainPercent,
-    systemAudioSource,
-    systemAudioGainPercent,
-  });
-  if (!captureArgs) return null;
-  const outputIndex = captureArgs.indexOf('__ROUGH_CUT_AUDIO_CAPTURE_OUTPUT__');
-  const args = captureArgs.slice(0, outputIndex);
-  const codecIndex = args.indexOf('-c:a');
-  if (codecIndex >= 0) args.splice(codecIndex, 4);
+  const hasMic = typeof micSource === 'string' && micSource.length > 0;
+  const hasSysAudio = typeof systemAudioSource === 'string' && systemAudioSource.length > 0;
+  if (!hasMic && !hasSysAudio) return null;
+
+  const args = ['-y'];
+
+  if (hasSysAudio) {
+    args.push(
+      '-thread_queue_size',
+      '512',
+      '-f',
+      'pulse',
+      '-ac',
+      '2',
+      '-ar',
+      '48000',
+      '-i',
+      systemAudioSource,
+    );
+  }
+  if (hasMic) {
+    args.push(
+      '-thread_queue_size',
+      '512',
+      '-f',
+      'pulse',
+      '-ac',
+      '2',
+      '-ar',
+      '48000',
+      '-i',
+      micSource,
+    );
+  }
+
+  const filters = [];
+  const sysRef = hasSysAudio
+    ? audioRef({ inputIndex: 0, name: 'levelsysa', gainPercent: systemAudioGainPercent, filters })
+    : null;
+  const micRef = hasMic
+    ? audioRef({ inputIndex: hasSysAudio ? 1 : 0, name: 'levelmica', gainPercent: micGainPercent, filters })
+    : null;
+  let levelInput;
+  if (hasSysAudio && hasMic) {
+    filters.push(`${sysRef.filterPad}${micRef.filterPad}amix=inputs=2[audiolevelmix]`);
+    levelInput = '[audiolevelmix]';
+  } else {
+    levelInput = hasSysAudio ? sysRef.filterPad : micRef.filterPad;
+  }
+  filters.push(`${levelInput}astats=metadata=1:reset=0.15,ametadata=print:key=lavfi.astats.Overall.RMS_level[audiolevel]`);
   args.push(
-    '-c:a',
-    'pcm_s16le',
+    '-filter_complex',
+    filters.join(';'),
+    '-map',
+    '[audiolevel]',
     '-f',
-    'pulse',
-    '-name',
-    'Rough Cut',
-    '-stream_name',
-    'Audio monitor',
-    outputDevice || 'default',
+    'null',
+    '-',
   );
   return args;
 }
 
-export function startFfmpegAudioMonitor({
+export function audioRmsDbToLevel(rmsDb) {
+  const value = Number(rmsDb);
+  if (!Number.isFinite(value)) return 0;
+  if (value <= -60) return 0;
+  if (value >= 0) return 1;
+  return Math.max(0, Math.min(1, (value + 60) / 60));
+}
+
+export function createAudioLevelParser(onLevel) {
+  let buffer = '';
+  let lastEmitMs = 0;
+  return {
+    observe(chunk) {
+      buffer += String(chunk);
+      const lines = buffer.split(/\r?\n/u);
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        const match = line.match(/lavfi\.astats\.Overall\.RMS_level=(-?inf|-?\d+(?:\.\d+)?)/iu);
+        if (!match) continue;
+        const rmsDb = match[1].toLowerCase() === '-inf' ? -Infinity : Number(match[1]);
+        const now = Date.now();
+        if (now - lastEmitMs < 33) continue;
+        lastEmitMs = now;
+        onLevel({
+          rmsDb: Number.isFinite(rmsDb) ? rmsDb : null,
+          level: audioRmsDbToLevel(rmsDb),
+          at: now,
+        });
+      }
+    },
+  };
+}
+
+export function startFfmpegAudioLevelProbe({
   micSource = null,
   micGainPercent = 100,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
-  outputDevice = 'default',
+  onLevel,
 }) {
-  const args = buildFfmpegAudioMonitorArgs({
+  const args = buildFfmpegAudioLevelProbeArgs({
     micSource,
     micGainPercent,
     systemAudioSource,
     systemAudioGainPercent,
-    outputDevice,
   });
   if (!args) return null;
 
-  console.info('[ffmpeg-audio-monitor] Starting:', 'ffmpeg', args.join(' '));
-  const proc = spawn('ffmpeg', args, { stdio: ['pipe', 'ignore', 'pipe'] });
+  console.info('[ffmpeg-audio-level] Starting:', 'ffmpeg', args.join(' '));
+  const proc = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
   let stderr = '';
-  const stderrState = createStderrDropWatcher('[ffmpeg-audio-monitor]');
+  const parser = createAudioLevelParser(onLevel);
+  const stderrState = createStderrDropWatcher('[ffmpeg-audio-level]');
+  proc.stdout?.on('data', (chunk) => parser.observe(chunk.toString()));
   proc.stderr?.on('data', (chunk) => {
     const text = chunk.toString();
     stderr += text;
     stderrState.observe(text);
+    parser.observe(text);
   });
 
   proc.on('error', (err) => {
-    console.error('[ffmpeg-audio-monitor] Process error:', err.message);
+    console.error('[ffmpeg-audio-level] Process error:', err.message);
   });
 
   proc.on('exit', (code, signal) => {
-    if (code !== 0 && signal !== 'SIGINT') {
-      console.warn('[ffmpeg-audio-monitor] Exited with code', code, 'signal', signal);
-      if (stderr) console.warn('[ffmpeg-audio-monitor] stderr tail:', stderr.slice(-500));
+    if (code !== 0 && signal !== 'SIGINT' && signal !== 'SIGTERM') {
+      console.warn('[ffmpeg-audio-level] Exited with code', code, 'signal', signal);
+      if (stderr) console.warn('[ffmpeg-audio-level] stderr tail:', stderr.slice(-500));
     } else {
-      console.info('[ffmpeg-audio-monitor] Stopped cleanly.');
+      console.info('[ffmpeg-audio-level] Stopped cleanly.');
     }
   });
 
   return {
     getPid() { return proc.pid ?? null; },
-    kill(signal = 'SIGTERM') {
-      if (proc.exitCode === null && proc.signalCode === null) {
-        try { proc.kill(signal); } catch { /* already gone */ }
-      }
-    },
     stop() {
       return new Promise((resolve) => {
         const timeout = setTimeout(() => {
-          console.warn('[ffmpeg-audio-monitor] Timeout waiting for exit — killing.');
+          console.warn('[ffmpeg-audio-level] Timeout waiting for exit — killing.');
           proc.kill('SIGKILL');
           resolve();
-        }, 2500);
+        }, 1500);
 
         proc.on('exit', () => {
           clearTimeout(timeout);

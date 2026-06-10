@@ -25,6 +25,7 @@ const IPC_CHANNELS = {
   RECORDING_CAMERA_PREVIEW_FRAME: 'recording:camera-preview-frame',
   RECORDING_AUDIO_PREVIEW_START: 'recording:audio-preview-start',
   RECORDING_AUDIO_PREVIEW_STOP: 'recording:audio-preview-stop',
+  RECORDING_AUDIO_PREVIEW_LEVEL: 'recording:audio-preview-level',
   RECORDING_GET_DISPLAYS: 'recording:get-displays',
   RECORDING_GET_PREFLIGHT_STATUS: 'recording:get-preflight-status',
   RECORDING_SELECT_CAPTURE_REGION: 'recording:select-capture-region',
@@ -53,6 +54,7 @@ const IPC_CHANNELS = {
   AI_SET_API_KEY: 'ai:set-api-key',
   AI_ANALYZE_PROJECT: 'ai:analyze-project',
   AI_ASSET_LIST: 'ai-asset:list',
+  CLIP_VISUALS_GET: 'clip-visuals:get',
   AI_ASSET_DELETE: 'ai-asset:delete',
   AI_ASSET_TAG: 'ai-asset:tag',
   AI_ASSET_RESOLVE: 'ai-asset:resolve',
@@ -72,6 +74,11 @@ contextBridge.exposeInMainWorld('roughCut', {
   stopCameraPreview: (token) => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_CAMERA_PREVIEW_STOP, token),
   startAudioPreview: (options) => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_AUDIO_PREVIEW_START, options),
   stopAudioPreview: (token) => ipcRenderer.invoke(IPC_CHANNELS.RECORDING_AUDIO_PREVIEW_STOP, token),
+  onAudioPreviewLevel: (callback) => {
+    const listener = (_event, level) => callback(level);
+    ipcRenderer.on(IPC_CHANNELS.RECORDING_AUDIO_PREVIEW_LEVEL, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.RECORDING_AUDIO_PREVIEW_LEVEL, listener);
+  },
   onCameraPreviewFrame: (callback) => {
     const listener = (_event, frame) => callback(frame);
     ipcRenderer.on(IPC_CHANNELS.RECORDING_CAMERA_PREVIEW_FRAME, listener);
@@ -105,6 +112,7 @@ contextBridge.exposeInMainWorld('roughCut', {
   setAiApiKey: (apiKey) => ipcRenderer.invoke(IPC_CHANNELS.AI_SET_API_KEY, apiKey),
   analyzeProjectWithAi: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ANALYZE_PROJECT, payload),
   listAiAssets: () => ipcRenderer.invoke(IPC_CHANNELS.AI_ASSET_LIST),
+  getClipVisual: (payload) => ipcRenderer.invoke(IPC_CHANNELS.CLIP_VISUALS_GET, payload),
   deleteAiAsset: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ASSET_DELETE, payload),
   tagAiAsset: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ASSET_TAG, payload),
   resolveAiAsset: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_ASSET_RESOLVE, payload),
