@@ -438,7 +438,7 @@ function App() {
   const [captureMode, setCaptureMode] = React.useState<CaptureMode>(initialPreRecordPreferences.captureMode ?? 'display');
   const [captureRegion, setCaptureRegion] = React.useState<CaptureRegion>(initialPreRecordPreferences.captureRegion ?? { mode: 'region', x: 0, y: 0, width: 1280, height: 720 });
   const [recordingActionPending, setRecordingActionPending] = React.useState(false);
-  const [preRecordPanelOpen, setPreRecordPanelOpen] = React.useState(isRecorderMode);
+  const [preRecordPanelOpen, setPreRecordPanelOpen] = React.useState(() => isRecorderMode || initialAppView === 'projects');
   const [setupBoardOpen, setSetupBoardOpen] = React.useState(true);
   const [inspectorOpen, setInspectorOpen] = React.useState(true);
   const [activeAppView, setActiveAppView] = React.useState<AppViewId>(initialAppView);
@@ -650,6 +650,7 @@ function App() {
           setEditHistory(EMPTY_EDIT_HISTORY);
           setExportResult(null);
           setActiveAppView('projects');
+          setPreRecordPanelOpen(true);
           return;
         }
         setProject(opened);
@@ -658,7 +659,14 @@ function App() {
         setActiveAppView('editor');
       })
       .catch((err) => {
-        if (!cancelled) setError(appError('project', err, 'Project open failed.'));
+        if (!cancelled) {
+          setProject(null);
+          setEditHistory(EMPTY_EDIT_HISTORY);
+          setExportResult(null);
+          setActiveAppView('projects');
+          setPreRecordPanelOpen(true);
+          setError(appError('project', err, 'Project open failed.'));
+        }
       });
 
     return () => {
@@ -820,6 +828,14 @@ function App() {
     }
   }
 
+  function handlePrimaryRecordAction() {
+    if (recording.state === 'recording' || preRecordPanelOpen) {
+      void toggleRecording();
+      return;
+    }
+    setPreRecordPanelOpen(true);
+  }
+
   async function togglePauseRecording() {
     if (recordingActionPendingRef.current || recording.state !== 'recording') return;
     recordingActionPendingRef.current = true;
@@ -943,6 +959,7 @@ function App() {
       void window.roughCut.openEditor(null);
       return;
     }
+    setActiveAppView('editor');
     setPreRecordPanelOpen(false);
   }
 
@@ -1218,9 +1235,10 @@ function App() {
             </button>
             <button
               type="button"
-              onClick={recording.state === 'recording' ? toggleRecording : () => setPreRecordPanelOpen(true)}
+              onClick={handlePrimaryRecordAction}
               className={recording.state === 'recording' ? 'stop primaryAction' : 'primaryAction'}
               disabled={recordingActionPending}
+              data-recording-action="primary"
             >
               <Icon name={recording.state === 'recording' ? 'stop' : 'record'} />
               {recordingActionPending ? (recording.state === 'recording' ? 'Stopping...' : 'Starting...') : recording.state === 'recording' ? 'Stop recording' : 'Record'}
@@ -1287,6 +1305,10 @@ function App() {
           />
         ) : null}
         {shortcutsOpen ? <ShortcutsDialog onClose={() => setShortcutsOpen(false)} /> : null}
+        {/* Recording setup belongs to capture views. Inside the NLE and AI
+            views it is dead vertical space — those views start right under
+            the top bar (Editor v2 / LANE NLE-R). */}
+        {activeAppView !== 'nle' && activeAppView !== 'ai' ? (
         <div className={setupBoardOpen ? 'recordingStrip' : 'recordingStrip collapsed'} aria-label="Recording setup" data-ui-region="capture-command-area">
           <span className="captureSummary"><Icon name="display" /> {captureStatusLabel(recording, elapsedMs)}</span>
           <div className="sourceGroup">
@@ -1414,6 +1436,7 @@ function App() {
             </div>
           ) : null}
         </div>
+        ) : null}
         <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} actionPhase={recordingActionPhase} error={error} warning={recordingWarning} diagnosticsPath={failureDiagnosticsPath} onRetry={retryLastFailedAction} onOpenDiagnostics={() => void openPath(failureDiagnosticsPath)} onCopyDiagnosticsPath={copyFailureDiagnosticsPath} />
         {activeCameraFailure ? (
           <CameraFailureBanner

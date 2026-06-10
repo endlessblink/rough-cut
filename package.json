@@ -10,6 +10,7 @@
     "smoke:real-recording": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-real-recording.mjs",
     "smoke:long-recording": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-long-recording.mjs",
     "smoke:recording-flow-ui": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-recording-flow-ui.mjs",
+    "smoke:recording-startup-ui": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-recording-startup-ui.mjs",
     "smoke:recording-audio-gain-ui": "ROUGH_CUT_UI_SMOKE_AUDIO_GAIN_ONLY=1 ROUGH_CUT_SMOKE_MIC_SOURCE=alsa_input.rough_cut_smoke_mic ROUGH_CUT_SMOKE_SYSTEM_AUDIO_SOURCE=alsa_output.rough_cut_smoke.monitor pnpm smoke:recording-flow-ui",
     "smoke:recording-flow-double-stop": "ROUGH_CUT_UI_SMOKE_DOUBLE_STOP=1 pnpm smoke:recording-flow-ui",
     "smoke:recording-flow-cancel": "ROUGH_CUT_UI_SMOKE_CANCEL_FLOW=1 pnpm smoke:recording-flow-ui",

@@ -180,6 +180,7 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
         console.error('[visual-smoke] failed', err);
       } finally {
         app.quit();
+        setTimeout(() => app.exit(process.exitCode ?? 0), 1000).unref?.();
       }
     });
   }
@@ -190,6 +191,8 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         const smokeFunction = process.env.ROUGH_CUT_UI_SMOKE_LAYOUT_ONLY === '1'
           ? runRendererSidebarLayoutSmoke
+          : process.env.ROUGH_CUT_UI_SMOKE_STARTUP_RECORD_BUTTON === '1'
+          ? runRendererStartupRecordButtonSmoke
           : process.env.ROUGH_CUT_UI_SMOKE_RECORD_FLOW === '1'
           ? runRendererRecordingFlowSmoke
           : process.env.ROUGH_CUT_UI_SMOKE_NLE_ONLY === '1'
@@ -204,6 +207,9 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
             cancelFlow: process.env.ROUGH_CUT_UI_SMOKE_CANCEL_FLOW === '1',
             invalidRegion: process.env.ROUGH_CUT_UI_SMOKE_INVALID_REGION === '1',
             audioGainOnly: process.env.ROUGH_CUT_UI_SMOKE_AUDIO_GAIN_ONLY === '1',
+            startupPanelOnly: process.env.ROUGH_CUT_UI_SMOKE_STARTUP_PANEL_ONLY === '1',
+            startupOpenEditor: process.env.ROUGH_CUT_UI_SMOKE_STARTUP_OPEN_EDITOR === '1',
+            startupOpenProjects: process.env.ROUGH_CUT_UI_SMOKE_STARTUP_OPEN_PROJECTS === '1',
           })})`,
           true,
         );
@@ -289,6 +295,7 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
         process.exitCode = 1;
       } finally {
         app.quit();
+        setTimeout(() => app.exit(process.exitCode ?? 0), 1000).unref?.();
       }
     });
   }
@@ -1294,6 +1301,71 @@ function formatProject(project) {
   };
 }
 
+async function runRendererStartupRecordButtonSmoke(options = {}) {
+  const waitFor = async (predicate, label, timeoutMs = 25000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const value = await predicate();
+      if (value) return value;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`Timed out waiting for ${label}; body=${document.body.innerText.slice(0, 800)}`);
+  };
+
+  try {
+    await waitFor(() => document.querySelector('[data-ui-shell="recording-studio"]'), 'studio shell');
+    const hasInitialPreRecordPanel = Boolean(await waitFor(() => document.querySelector('[data-ui-region="pre-record-panel"]'), 'startup pre-record panel'));
+    if (options.startupOpenEditor) {
+      const openEditorButton = await waitFor(() => document.querySelector('[data-open-editor="pre-record"]:not(:disabled)'), 'pre-record open editor button');
+      openEditorButton.click();
+      await waitFor(() => !document.querySelector('[data-ui-region="pre-record-panel"]'), 'pre-record panel closed after opening editor');
+      const hasEditorEmptyState = Boolean(await waitFor(() => document.querySelector('[data-ui-region="editor-empty"]'), 'empty editor state'));
+      if (options.startupOpenProjects) {
+        const openProjectsButton = await waitFor(() => document.querySelector('[data-ui-region="editor-empty"] button'), 'open projects button');
+        openProjectsButton.click();
+        await waitFor(() => !document.querySelector('[data-ui-region="pre-record-panel"]'), 'pre-record panel stays closed after opening projects');
+        const hasProjectsView = Boolean(await waitFor(() => document.querySelector('[data-ui-region="project-library"]'), 'project library'));
+        return {
+          ok: hasInitialPreRecordPanel && hasEditorEmptyState && hasProjectsView,
+          hasInitialPreRecordPanel,
+          hasEditorEmptyState,
+          hasProjectsView,
+          openedEditorFromPanel: true,
+          openedProjectsFromEditor: true,
+        };
+      }
+      return {
+        ok: hasInitialPreRecordPanel && hasEditorEmptyState,
+        hasInitialPreRecordPanel,
+        hasEditorEmptyState,
+        openedEditorFromPanel: true,
+      };
+    }
+    if (options.startupPanelOnly) {
+      return {
+        ok: hasInitialPreRecordPanel,
+        hasInitialPreRecordPanel,
+        panelOnly: true,
+      };
+    }
+    const topRecordButton = await waitFor(() => document.querySelector('[data-recording-action="primary"]:not(:disabled)'), 'top record button');
+    topRecordButton.click();
+    await waitFor(() => document.querySelector('[data-recording-state="recording"]'), 'recording state after top button click');
+    const activeStatus = await window.roughCut.getRecordingStatus();
+    const startedFromTopButton = activeStatus?.state === 'recording';
+    await window.roughCut.cancelRecording();
+    await waitFor(async () => (await window.roughCut.getRecordingStatus())?.state === 'idle', 'idle state after startup smoke cancel');
+    return {
+      ok: hasInitialPreRecordPanel && startedFromTopButton,
+      hasInitialPreRecordPanel,
+      startedFromTopButton,
+      canceledState: 'idle',
+    };
+  } catch (err) {
+    return { ok: false, error: err?.message ?? String(err) };
+  }
+}
+
 async function runRendererUiSmoke() {
   const waitFor = async (predicate, label, timeoutMs = 5000) => {
     const started = Date.now();
@@ -1901,8 +1973,8 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   const preRecordCameraPreviewState = options.cameraWarning
     ? await waitFor(() => document.querySelector('[data-camera-preview-state]')?.getAttribute('data-camera-preview-state'), 'camera preview state', 15000)
     : document.querySelector('[data-camera-preview-state]')?.getAttribute('data-camera-preview-state') ?? null;
-  const preRecordStartButton = await waitFor(() => document.querySelector('[data-recording-start="pre-record"]'), 'pre-record start button');
-  preRecordStartButton.click();
+  const startButton = await waitFor(() => document.querySelector('[data-recording-start="pre-record"]'), 'pre-record start button');
+  startButton.click();
   await waitFor(() => document.querySelector('[data-recording-state="recording"]'), 'recording state banner');
   const liveCameraFailureBanner = options.cameraWarning
     ? await waitFor(() => document.querySelector('[data-ui-region="recording-camera-failure"]'), 'live camera failure banner', 15000)
@@ -1973,13 +2045,14 @@ async function runRendererRecordingFlowSmoke(options = {}) {
       hasReviewWorkspace: Boolean(document.querySelector('[data-ui-region="post-recording-review"]')),
       hasVideo: Boolean(document.querySelector('video')),
       cancelFlow: true,
-    hasLiveCameraFailureBanner,
-    hasLiveCameraFailureActions,
-    pauseResumeFlow: Boolean(options.pauseResume),
-    hasPausedState,
-    hasResumedState,
-  };
-}
+      hasLiveCameraFailureBanner,
+      hasLiveCameraFailureActions,
+      pauseResumeFlow: Boolean(options.pauseResume),
+      hasPausedState,
+      hasResumedState,
+    };
+  }
+
   const stopButton = await waitFor(() => findButton('Stop recording'), 'stop button');
   stopButton.click();
   await waitFor(() => stopButton.textContent.includes('Stopping...') && stopButton.disabled, 'stopping lock');
