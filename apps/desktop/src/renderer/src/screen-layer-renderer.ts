@@ -1,4 +1,4 @@
-import { drawZoomMotionSource } from './zoom-motion-renderer';
+import { drawZoomMotionSource, resolveWebGLMotionBlurSampleCount } from './zoom-motion-renderer';
 
 export type ScreenLayerRendererKind = 'canvas2d' | 'webgl';
 export type ScreenLayerContextStatus = 'available' | 'missing-context' | 'context-lost' | 'draw-failed' | 'disposed' | 'fallback';
@@ -28,6 +28,8 @@ export type ScreenLayerDrawInput = {
   sourceWidth: number;
   sourceHeight: number;
   transform: ScreenLayerCameraTransform;
+  previousTransform?: ScreenLayerCameraTransform | null;
+  nextTransform?: ScreenLayerCameraTransform | null;
   blurPx: number;
   sharpZoom: boolean;
 };
@@ -132,8 +134,11 @@ type WebGLProgramParts = {
   program: WebGLProgram;
   positionAttribute: number;
   texCoordAttribute: number;
+  previousTexCoordAttribute: number;
+  nextTexCoordAttribute: number;
   resolutionUniform: WebGLUniformLocation | null;
   textureUniform: WebGLUniformLocation | null;
+  motionBlurSamplesUniform: WebGLUniformLocation | null;
 };
 
 export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
@@ -143,6 +148,8 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
   private texture: WebGLTexture | null = null;
   private positionBuffer: WebGLBuffer | null = null;
   private texCoordBuffer: WebGLBuffer | null = null;
+  private previousTexCoordBuffer: WebGLBuffer | null = null;
+  private nextTexCoordBuffer: WebGLBuffer | null = null;
   private parts: WebGLProgramParts | null = null;
   private fallback: Canvas2DScreenLayerRenderer | null = null;
   private disposed = false;
@@ -179,7 +186,7 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
       this.stats = { ...this.stats, contextStatus: 'disposed', drawCostMs: null };
       return this.getDebugStats();
     }
-    if (!this.ensureContext() || !this.gl || !this.canvas || !this.parts || !this.texture || !this.positionBuffer || !this.texCoordBuffer) {
+    if (!this.ensureContext() || !this.gl || !this.canvas || !this.parts || !this.texture || !this.positionBuffer || !this.texCoordBuffer || !this.previousTexCoordBuffer || !this.nextTexCoordBuffer) {
       return this.drawFallback(input, 'webgl-context-unavailable');
     }
     if (this.gl.isContextLost()) return this.drawFallback(input, 'webgl-context-lost', 'context-lost');
@@ -215,6 +222,8 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     this.texture = null;
     this.positionBuffer = null;
     this.texCoordBuffer = null;
+    this.previousTexCoordBuffer = null;
+    this.nextTexCoordBuffer = null;
     this.parts = null;
     this.gl = null;
     this.canvas = null;
@@ -241,7 +250,7 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
 
   private ensureContext(): boolean {
     if (this.disposed) return false;
-    if (this.gl && this.parts && this.texture && this.positionBuffer && this.texCoordBuffer) return !this.gl.isContextLost();
+    if (this.gl && this.parts && this.texture && this.positionBuffer && this.texCoordBuffer && this.previousTexCoordBuffer && this.nextTexCoordBuffer) return !this.gl.isContextLost();
     const canvas = createRendererCanvas();
     const gl = canvas.getContext('webgl', {
       alpha: true,
@@ -259,7 +268,9 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     const texture = gl.createTexture();
     const positionBuffer = gl.createBuffer();
     const texCoordBuffer = gl.createBuffer();
-    if (!parts || !texture || !positionBuffer || !texCoordBuffer) {
+    const previousTexCoordBuffer = gl.createBuffer();
+    const nextTexCoordBuffer = gl.createBuffer();
+    if (!parts || !texture || !positionBuffer || !texCoordBuffer || !previousTexCoordBuffer || !nextTexCoordBuffer) {
       this.stats = { ...this.stats, contextStatus: 'missing-context', fallbackReason: 'webgl-init-failed' };
       return false;
     }
@@ -274,6 +285,8 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     this.texture = texture;
     this.positionBuffer = positionBuffer;
     this.texCoordBuffer = texCoordBuffer;
+    this.previousTexCoordBuffer = previousTexCoordBuffer;
+    this.nextTexCoordBuffer = nextTexCoordBuffer;
     this.stats = { ...this.stats, contextStatus: 'available', fallbackReason: null };
     return true;
   }
@@ -281,7 +294,7 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
   private drawWebGL(input: ScreenLayerDrawInput): void {
     const gl = this.gl;
     const parts = this.parts;
-    if (!gl || !parts || !this.texture || !this.positionBuffer || !this.texCoordBuffer) throw new Error('Missing WebGL state.');
+    if (!gl || !parts || !this.texture || !this.positionBuffer || !this.texCoordBuffer || !this.previousTexCoordBuffer || !this.nextTexCoordBuffer) throw new Error('Missing WebGL state.');
 
     const screenWidth = input.screenSource.w * input.screenDrawScale;
     const screenHeight = input.screenSource.h * input.screenDrawScale;
@@ -305,6 +318,28 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
       ...sourceTexCoordForCanvasPoint(input, x1, y0),
       ...sourceTexCoordForCanvasPoint(input, x1, y1),
     ]);
+    const previousTransform = input.previousTransform ?? input.transform;
+    const nextTransform = input.nextTransform ?? input.transform;
+    const previousTexCoords = new Float32Array([
+      ...sourceTexCoordForCanvasPoint(input, x0, y0, previousTransform),
+      ...sourceTexCoordForCanvasPoint(input, x1, y0, previousTransform),
+      ...sourceTexCoordForCanvasPoint(input, x0, y1, previousTransform),
+      ...sourceTexCoordForCanvasPoint(input, x0, y1, previousTransform),
+      ...sourceTexCoordForCanvasPoint(input, x1, y0, previousTransform),
+      ...sourceTexCoordForCanvasPoint(input, x1, y1, previousTransform),
+    ]);
+    const nextTexCoords = new Float32Array([
+      ...sourceTexCoordForCanvasPoint(input, x0, y0, nextTransform),
+      ...sourceTexCoordForCanvasPoint(input, x1, y0, nextTransform),
+      ...sourceTexCoordForCanvasPoint(input, x0, y1, nextTransform),
+      ...sourceTexCoordForCanvasPoint(input, x0, y1, nextTransform),
+      ...sourceTexCoordForCanvasPoint(input, x1, y0, nextTransform),
+      ...sourceTexCoordForCanvasPoint(input, x1, y1, nextTransform),
+    ]);
+    const motionBlurSamples = resolveWebGLMotionBlurSampleCount({
+      enabled: resolveWebGLMotionBlurEnabled(),
+      blurPx: input.blurPx,
+    });
 
     gl.viewport(0, 0, input.canvasWidth, input.canvasHeight);
     gl.clearColor(0, 0, 0, 0);
@@ -312,6 +347,7 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     gl.useProgram(parts.program);
     gl.uniform2f(parts.resolutionUniform, input.canvasWidth, input.canvasHeight);
     gl.uniform1i(parts.textureUniform, 0);
+    gl.uniform1f(parts.motionBlurSamplesUniform, motionBlurSamples);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
@@ -327,7 +363,30 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     gl.enableVertexAttribArray(parts.texCoordAttribute);
     gl.vertexAttribPointer(parts.texCoordAttribute, 2, gl.FLOAT, false, 0, 0);
 
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.previousTexCoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, previousTexCoords, gl.STREAM_DRAW);
+    gl.enableVertexAttribArray(parts.previousTexCoordAttribute);
+    gl.vertexAttribPointer(parts.previousTexCoordAttribute, 2, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.nextTexCoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, nextTexCoords, gl.STREAM_DRAW);
+    gl.enableVertexAttribArray(parts.nextTexCoordAttribute);
+    gl.vertexAttribPointer(parts.nextTexCoordAttribute, 2, gl.FLOAT, false, 0, 0);
+
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+}
+
+function resolveWebGLMotionBlurEnabled(): boolean {
+  if (typeof window === 'undefined') return false;
+  const target = window as unknown as { __roughCutWebglMotionBlur?: unknown };
+  if (target.__roughCutWebglMotionBlur === true) return true;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('webglMotionBlur') === '1' || params.get('webglMotionBlur') === 'true') return true;
+  try {
+    return window.localStorage?.getItem('roughCutWebglMotionBlur') === '1';
+  } catch {
+    return false;
   }
 }
 
@@ -342,22 +401,47 @@ function createProgram(gl: WebGLRenderingContext): WebGLProgramParts | null {
   const vertex = compileShader(gl, gl.VERTEX_SHADER, `
     attribute vec2 a_position;
     attribute vec2 a_texCoord;
+    attribute vec2 a_previousTexCoord;
+    attribute vec2 a_nextTexCoord;
     uniform vec2 u_resolution;
     varying vec2 v_texCoord;
+    varying vec2 v_previousTexCoord;
+    varying vec2 v_nextTexCoord;
     void main() {
       vec2 zeroToOne = a_position / u_resolution;
       vec2 clipSpace = zeroToOne * 2.0 - 1.0;
       gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
       v_texCoord = a_texCoord;
+      v_previousTexCoord = a_previousTexCoord;
+      v_nextTexCoord = a_nextTexCoord;
     }
   `);
   const fragment = compileShader(gl, gl.FRAGMENT_SHADER, `
     precision mediump float;
     uniform sampler2D u_texture;
+    uniform float u_motionBlurSamples;
     varying vec2 v_texCoord;
+    varying vec2 v_previousTexCoord;
+    varying vec2 v_nextTexCoord;
+    vec4 sampleIfVisible(vec2 coord) {
+      if (coord.x < 0.0 || coord.x > 1.0 || coord.y < 0.0 || coord.y > 1.0) return vec4(0.0);
+      return texture2D(u_texture, coord);
+    }
     void main() {
       if (v_texCoord.x < 0.0 || v_texCoord.x > 1.0 || v_texCoord.y < 0.0 || v_texCoord.y > 1.0) discard;
-      gl_FragColor = texture2D(u_texture, v_texCoord);
+      vec4 color = texture2D(u_texture, v_texCoord) * 0.44;
+      float weight = 0.44;
+      if (u_motionBlurSamples >= 3.0) {
+        color += sampleIfVisible(v_previousTexCoord) * 0.18;
+        color += sampleIfVisible(v_nextTexCoord) * 0.18;
+        weight += 0.36;
+      }
+      if (u_motionBlurSamples >= 5.0) {
+        color += sampleIfVisible(mix(v_previousTexCoord, v_texCoord, 0.5)) * 0.10;
+        color += sampleIfVisible(mix(v_texCoord, v_nextTexCoord, 0.5)) * 0.10;
+        weight += 0.20;
+      }
+      gl_FragColor = color / weight;
     }
   `);
   if (!vertex || !fragment) return null;
@@ -371,8 +455,11 @@ function createProgram(gl: WebGLRenderingContext): WebGLProgramParts | null {
     program,
     positionAttribute: gl.getAttribLocation(program, 'a_position'),
     texCoordAttribute: gl.getAttribLocation(program, 'a_texCoord'),
+    previousTexCoordAttribute: gl.getAttribLocation(program, 'a_previousTexCoord'),
+    nextTexCoordAttribute: gl.getAttribLocation(program, 'a_nextTexCoord'),
     resolutionUniform: gl.getUniformLocation(program, 'u_resolution'),
     textureUniform: gl.getUniformLocation(program, 'u_texture'),
+    motionBlurSamplesUniform: gl.getUniformLocation(program, 'u_motionBlurSamples'),
   };
 }
 
@@ -384,14 +471,19 @@ function compileShader(gl: WebGLRenderingContext, type: number, source: string):
   return gl.getShaderParameter(shader, gl.COMPILE_STATUS) ? shader : null;
 }
 
-function sourceTexCoordForCanvasPoint(input: ScreenLayerDrawInput, canvasX: number, canvasY: number): [number, number] {
-  const scale = Number.isFinite(input.transform.scale) && input.transform.scale > 0 ? input.transform.scale : 1;
+function sourceTexCoordForCanvasPoint(
+  input: ScreenLayerDrawInput,
+  canvasX: number,
+  canvasY: number,
+  transform: ScreenLayerCameraTransform = input.transform,
+): [number, number] {
+  const scale = Number.isFinite(transform.scale) && transform.scale > 0 ? transform.scale : 1;
   const localX = (canvasX - input.screenX) / input.screenDrawScale;
   const localY = (canvasY - input.screenY) / input.screenDrawScale;
-  const sourceX = (localX - (input.screenSource.w / 2 + input.transform.offsetX)) / scale
+  const sourceX = (localX - (input.screenSource.w / 2 + transform.offsetX)) / scale
     + input.screenSource.x
     + input.screenSource.w / 2;
-  const sourceY = (localY - (input.screenSource.h / 2 + input.transform.offsetY)) / scale
+  const sourceY = (localY - (input.screenSource.h / 2 + transform.offsetY)) / scale
     + input.screenSource.y
     + input.screenSource.h / 2;
   return [sourceX / input.sourceWidth, sourceY / input.sourceHeight];

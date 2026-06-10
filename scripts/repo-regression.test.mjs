@@ -83,9 +83,14 @@ test('GPU-C compositor migration note and task sequence stay in place', () => {
 });
 
 test('GPU-C WebGL preview flag is forwarded to the renderer as a runtime query param', () => {
+  assert.match(desktopMainSource, /function webglScreenLayerEnabled\(\)/);
   assert.match(desktopMainSource, /ROUGH_CUT_WEBGL_SCREEN_LAYER === '1' \|\| process\.env\.VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER === '1'/);
+  assert.match(desktopMainSource, /function webglMotionBlurEnabled\(\)/);
+  assert.match(desktopMainSource, /ROUGH_CUT_WEBGL_MOTION_BLUR === '1' \|\| process\.env\.VITE_ROUGH_CUT_WEBGL_MOTION_BLUR === '1'/);
+  assert.match(desktopMainSource, /function applyRendererFeatureFlags\(params\)/);
   assert.match(desktopMainSource, /params\.set\('screenLayerRenderer', 'webgl'\)/);
-  assert.match(desktopMainSource, /url\.searchParams\.set\('screenLayerRenderer', 'webgl'\)/);
+  assert.match(desktopMainSource, /params\.set\('webglMotionBlur', '1'\)/);
+  assert.match(desktopMainSource, /applyRendererFeatureFlags\(url\.searchParams\)/);
 });
 
 test('GPU-C compositor parity probe stays wired as a visual evidence command', () => {

@@ -362,15 +362,26 @@ function rendererInitialView({ mode, projectPath }) {
   return null;
 }
 
+function webglScreenLayerEnabled() {
+  return process.env.ROUGH_CUT_WEBGL_SCREEN_LAYER === '1' || process.env.VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER === '1';
+}
+
+function webglMotionBlurEnabled() {
+  return process.env.ROUGH_CUT_WEBGL_MOTION_BLUR === '1' || process.env.VITE_ROUGH_CUT_WEBGL_MOTION_BLUR === '1';
+}
+
+function applyRendererFeatureFlags(params) {
+  if (webglScreenLayerEnabled()) params.set('screenLayerRenderer', 'webgl');
+  if (webglMotionBlurEnabled()) params.set('webglMotionBlur', '1');
+}
+
 function rendererSearch({ mode = 'editor', projectPath = null } = {}) {
   const params = new URLSearchParams();
   if (projectPath) params.set('projectPath', projectPath);
   if (mode === 'recorder') params.set('mode', 'recorder');
   const initialView = rendererInitialView({ mode, projectPath });
   if (initialView) params.set('view', initialView);
-  if (process.env.ROUGH_CUT_WEBGL_SCREEN_LAYER === '1' || process.env.VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER === '1') {
-    params.set('screenLayerRenderer', 'webgl');
-  }
+  applyRendererFeatureFlags(params);
   const value = params.toString();
   return value ? `?${value}` : undefined;
 }
@@ -385,9 +396,7 @@ function loadRenderer(window, { mode = 'editor', projectPath = null } = {}) {
     if (projectPath) url.searchParams.set('projectPath', projectPath);
     if (mode === 'recorder') url.searchParams.set('mode', 'recorder');
     if (initialView) url.searchParams.set('view', initialView);
-    if (process.env.ROUGH_CUT_WEBGL_SCREEN_LAYER === '1' || process.env.VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER === '1') {
-      url.searchParams.set('screenLayerRenderer', 'webgl');
-    }
+    applyRendererFeatureFlags(url.searchParams);
     window.loadURL(url.toString());
   } else if (!app.isPackaged) {
     if (shouldLoadBuiltRenderer) {
@@ -397,9 +406,7 @@ function loadRenderer(window, { mode = 'editor', projectPath = null } = {}) {
       if (projectPath) url.searchParams.set('projectPath', projectPath);
       if (mode === 'recorder') url.searchParams.set('mode', 'recorder');
       if (initialView) url.searchParams.set('view', initialView);
-      if (process.env.ROUGH_CUT_WEBGL_SCREEN_LAYER === '1' || process.env.VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER === '1') {
-        url.searchParams.set('screenLayerRenderer', 'webgl');
-      }
+      applyRendererFeatureFlags(url.searchParams);
       window.loadURL(url.toString());
     }
   } else {

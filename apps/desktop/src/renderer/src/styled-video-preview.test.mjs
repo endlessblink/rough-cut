@@ -120,6 +120,8 @@ test('styled video preview routes screen video drawing through the feature-flagg
   assert.match(source, /createScreenLayerRenderer\(requestedScreenLayerRendererKind\)/);
   assert.match(source, /screenLayerRenderer\.resize\(canvasWidth, canvasHeight\)/);
   assert.match(source, /screenLayerRenderer\.draw\(\{/);
+  assert.match(source, /previousTransform: previousMotionFrame\.cameraTransform/);
+  assert.match(source, /nextTransform: nextMotionFrame\.cameraTransform/);
   assert.match(source, /canvasWidth,/);
   assert.match(source, /canvasHeight,/);
   assert.match(source, /publishScreenLayerRendererStats\(screenLayerStats\)/);
@@ -143,6 +145,16 @@ test('styled video preview routes screen video drawing through the feature-flagg
   assert.match(rendererSource, /webgl-context-unavailable/);
   assert.match(rendererSource, /webgl-context-lost/);
   assert.match(rendererSource, /input\.ctx\.drawImage\(this\.canvas as CanvasImageSource, 0, 0, input\.canvasWidth, input\.canvasHeight\)/);
+  assert.match(rendererSource, /previousTransform\?: ScreenLayerCameraTransform \| null/);
+  assert.match(rendererSource, /nextTransform\?: ScreenLayerCameraTransform \| null/);
+  assert.match(rendererSource, /resolveWebGLMotionBlurEnabled\(\)/);
+  assert.match(rendererSource, /__roughCutWebglMotionBlur/);
+  assert.match(rendererSource, /webglMotionBlur/);
+  assert.match(rendererSource, /roughCutWebglMotionBlur/);
+  assert.match(rendererSource, /a_previousTexCoord/);
+  assert.match(rendererSource, /a_nextTexCoord/);
+  assert.match(rendererSource, /u_motionBlurSamples/);
+  assert.match(rendererSource, /sampleIfVisible/);
   assert.match(rendererSource, /requestedRendererKind/);
   assert.match(rendererSource, /rendererKind: 'canvas2d'/);
   assert.match(rendererSource, /contextStatus/);
@@ -156,9 +168,12 @@ test('zoom motion renderer gates blur and keeps cursor overlays out of the blurr
   const mainSource = readFileSync(join(here, 'main.tsx'), 'utf8');
 
   assert.match(rendererSource, /export function resolveZoomMotionBlurPx/);
+  assert.match(rendererSource, /export function resolveWebGLMotionBlurSampleCount/);
   assert.match(rendererSource, /if \(reducedMotion\) return 0/);
   assert.match(rendererSource, /if \(!Number\.isFinite\(current\.scale\) \|\| current\.scale <= 1\.001\) return 0/);
   assert.match(rendererSource, /if \(velocity <= 1\) return 0/);
+  assert.match(rendererSource, /if \(!enabled \|\| reducedMotion \|\| !Number\.isFinite\(blurPx\) \|\| blurPx <= 0\.01\) return 1/);
+  assert.match(rendererSource, /return blurPx >= 0\.95 \? 5 : 3/);
   assert.match(rendererSource, /ctx\.filter = `blur\(\$\{blurPx\.toFixed\(2\)\}px\)`/);
   assert.match(previewSource, /reducedMotion: activeTimelinePlayback \|\|/);
   assert.match(mainSource, /reducedMotion: !video\.paused \|\|/);

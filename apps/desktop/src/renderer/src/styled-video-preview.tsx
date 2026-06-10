@@ -1272,6 +1272,8 @@ export function StyledVideoPreview({
           sourceWidth,
           sourceHeight,
           transform: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
+          previousTransform: previousMotionFrame.cameraTransform,
+          nextTransform: nextMotionFrame.cameraTransform,
           blurPx: zoomMotionBlurPx,
           sharpZoom: timeMode !== 'timeline' && !activeTimelinePlayback,
         });

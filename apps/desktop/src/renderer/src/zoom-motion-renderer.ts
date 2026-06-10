@@ -20,6 +20,12 @@ export interface ZoomMotionBlurOptions {
   readonly reducedMotion?: boolean;
 }
 
+export interface WebGLMotionBlurSampleOptions {
+  readonly enabled?: boolean;
+  readonly blurPx: number;
+  readonly reducedMotion?: boolean;
+}
+
 const SCALE_MOTION_THRESHOLD = 0.006;
 const TRANSLATE_MOTION_THRESHOLD = 0.0025;
 const MAX_MOTION_BLUR_PX = 1.15;
@@ -59,6 +65,15 @@ export function resolveZoomMotionBlurPx({
   );
   if (velocity <= 1) return 0;
   return Math.min(MAX_MOTION_BLUR_PX, 0.34 + velocity * 0.16);
+}
+
+export function resolveWebGLMotionBlurSampleCount({
+  enabled = false,
+  blurPx,
+  reducedMotion = false,
+}: WebGLMotionBlurSampleOptions): number {
+  if (!enabled || reducedMotion || !Number.isFinite(blurPx) || blurPx <= 0.01) return 1;
+  return blurPx >= 0.95 ? 5 : 3;
 }
 
 export function applyScreenSourceTransform(
