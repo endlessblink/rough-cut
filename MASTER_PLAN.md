@@ -257,6 +257,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-245 | Promote WebGL to full preview compositor behind fallback | P1 | PLANNED |
 | TASK-246 | Prototype GPU/headless export path from the shared composition plan | P1 | PLANNED |
 | TASK-247 | Make GPU compositor default and retire legacy visual composition logic | P1 | PLANNED |
+| ~~TASK-248~~ | ✅ Add startup recording panel regression suite | P1 | ✅ DONE (2026-06-10) |
 
 ## Recently Verified
 
@@ -7470,3 +7471,31 @@ GPU preview and experimental export paths have proven parity and reliability.
 - Manual live-app check: record -> zoom -> scrub -> play -> export with WebGL default.
 - Fallback check: force Canvas2D and verify the app remains usable.
 - No known P0/P1 preview/export bugs remain before marking DONE.
+
+### ~~TASK-248~~ Add startup recording panel regression suite
+
+**Priority:** P1
+**Status:** ✅ DONE (2026-06-10)
+
+#### Context
+
+The startup path regressed in three connected ways: the recording panel could fail to appear,
+the top Record button could fail to start capture from the startup surface, and closing the
+panel to reach Editor or Projects could trap the user away from previous recordings.
+
+#### Scope
+
+- Open the full pre-record panel on startup and missing-startup-project fallback.
+- Keep the pre-record panel above Projects instead of clipped behind it.
+- Make the top Record action start capture when the panel is already open.
+- Make Open editor from the panel switch to the Editor view.
+- Ensure Open Projects returns to the previous recordings library without re-opening the panel.
+- Add `scripts/smoke-recording-startup-ui.mjs` and `pnpm smoke:recording-startup-ui`.
+
+#### Verification
+
+- `pnpm smoke:recording-startup-ui` covers:
+  - startup panel visibility,
+  - top Record starts real Electron/FFmpeg capture and cancels to idle,
+  - Open editor loads the editor empty state,
+  - Open Projects loads the project library without the recording panel overlay.
