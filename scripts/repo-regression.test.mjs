@@ -7,6 +7,8 @@ const root = new URL('..', import.meta.url).pathname;
 const rootPackage = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const benchmarkSource = readFileSync(join(root, 'scripts/benchmark-export.mjs'), 'utf8');
 const packageLinuxSource = readFileSync(join(root, 'scripts/package-linux.mjs'), 'utf8');
+const masterPlanSource = readFileSync(join(root, 'MASTER_PLAN.md'), 'utf8');
+const compositorMigrationPath = join(root, 'docs/architecture/compositor-migration.md');
 
 test('root test command runs repo-level script regression tests', () => {
   assert.match(rootPackage.scripts.test, /node --test scripts\/repo-regression\.test\.mjs scripts\/export-benchmark-utils\.test\.mjs/);
@@ -43,4 +45,36 @@ test('linux package copies main-process workspace dependencies', () => {
   }
   assert.match(packageLinuxSource, /cpWorkspacePackage\(packageName\)/);
   assert.match(packageLinuxSource, /join\(appRoot, 'packages', packageName, 'dist'\)/);
+});
+
+test('GPU-C compositor migration note and task sequence stay in place', () => {
+  assert.equal(existsSync(compositorMigrationPath), true);
+  const note = readFileSync(compositorMigrationPath, 'utf8');
+  for (const sourcePath of [
+    'apps/desktop/src/renderer/src/styled-video-preview.tsx',
+    'apps/desktop/src/main/export-service.mjs',
+    'apps/desktop/src/main/zoom-sendcmd.mjs',
+  ]) {
+    assert.match(note, new RegExp(sourcePath.replaceAll('/', '\\/')));
+  }
+  for (const phrase of [
+    'Canvas2D preview',
+    'FFmpeg styled export',
+    'Runtime Fallback Policy',
+    'rendererKind',
+    'contextStatus',
+    'drawCostMs',
+    'reportPath',
+    'fallback',
+  ]) {
+    assert.match(note, new RegExp(phrase));
+  }
+  for (let taskId = 239; taskId <= 247; taskId += 1) {
+    assert.match(masterPlanSource, new RegExp(`TASK-${taskId}`));
+    assert.match(note, new RegExp(`TASK-${taskId}`));
+  }
+  assert.match(
+    masterPlanSource,
+    /Sequence: TASK-239, TASK-240, TASK-241, TASK-242, TASK-243, TASK-244, TASK-245, TASK-246, TASK-247/,
+  );
 });

@@ -246,8 +246,17 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-225~~ | Audit + break down current NLE editor: works/broken/ugly ledger | P1 | SUPERSEDED → TASK-236 |
 | ~~TASK-226~~ | NLE layout + visual redesign: stage/timeline proportions, topbar | P1 | SUPERSEDED → TASK-236/237 |
 | TASK-236 | Editor v2 design spec + mockup, user-approved before any code | P1 | IN PROGRESS — mockup direction APPROVED 2026-06-10 |
-| TASK-237 | Build Editor v2 view to approved design on existing plumbing | P1 | IN PROGRESS — slice 1 (shell) DONE 2026-06-10 |
+| TASK-237 | Build Editor v2 view to approved design on existing plumbing | P1 | IN PROGRESS — slices 1+2 DONE 2026-06-10 |
 | TASK-238 | Program monitor shows stale frame when playhead is in a gap | P1 | PLANNED |
+| TASK-239 | Compositor migration research note + renderer contract | P0 | DONE (2026-06-10) |
+| TASK-240 | Extract shared composition-frame plan from preview/export inputs | P0 | DONE (2026-06-10) |
+| TASK-241 | Add screen-layer renderer boundary with Canvas2D parity adapter | P0 | PLANNED |
+| TASK-242 | Add feature-flagged WebGL screen-layer renderer | P0 | PLANNED |
+| TASK-243 | Add WebGL-vs-Canvas parity and playback performance probes | P0 | PLANNED |
+| TASK-244 | Add velocity-based WebGL transform motion blur | P1 | PLANNED |
+| TASK-245 | Promote WebGL to full preview compositor behind fallback | P1 | PLANNED |
+| TASK-246 | Prototype GPU/headless export path from the shared composition plan | P1 | PLANNED |
+| TASK-247 | Make GPU compositor default and retire legacy visual composition logic | P1 | PLANNED |
 
 ## Recently Verified
 
@@ -490,6 +499,30 @@ LANE NLE-R RULE — a task in this lane is DONE only when ALL of:
 (2) the harness screenshots were OPENED and visually reviewed;
 (3) the user confirmed the feel in the live app (`pnpm dev`).
 "Tests pass" alone is NOT done — that gap is exactly what made the editor feel broken while suites were green.
+
+14. **LANE GPU-C — Full compositor migration: WebGL/OffscreenCanvas preview + export parity**:
+Depends-on: LANE NLE-R
+Sequence: TASK-239, TASK-240, TASK-241, TASK-242, TASK-243, TASK-244, TASK-245, TASK-246, TASK-247
+
+Lane goal: the end state is a full GPU-backed compositor for preview and export parity. The safe
+path is staged: first define a shared composition plan, then replace only the screen video layer,
+then prove WebGL against Canvas2D with pixel/perf probes, then add transform motion blur, then
+promote the GPU path to the full preview compositor, and only then move export to the same plan.
+Canvas2D and the current FFmpeg graph remain fallback paths until the GPU path passes all parity,
+performance, and live-user gates.
+
+Research basis (2026-06-10): WebGL can consume playing `<video>` frames as textures; OffscreenCanvas
+can move heavy canvas/WebGL work off the DOM/main thread; WebCodecs `VideoFrame` can be created from
+video/canvas/OffscreenCanvas sources for a later frame-rendered export path; FFmpeg `tmix`,
+`tblend`, `blend`, and `minterpolate` are useful export references but are too global/blunt for
+cursor-after-blur parity unless the screen layer is separated before cursor/click overlays.
+
+LANE GPU-C RULE — no task may remove or weaken the existing Canvas2D preview or FFmpeg styled export
+path until TASK-247. Every intermediate task must keep a runtime fallback. A task is DONE only when:
+(1) focused unit/source tests pass;
+(2) `pnpm playback:timeline` passes or the failure is proven unrelated and recorded;
+(3) a visual artifact/screenshot or pixel-delta report was opened and reviewed;
+(4) preview/export parity risk is explicitly updated in the task notes.
 
 ---
 
@@ -5877,7 +5910,7 @@ The one-timeline rule needs end-to-end protection. Unit tests alone will not cat
 ### TASK-214 NLE rebuild lane 1: canonical model contract
 
 **Priority:** P0
-**Status:** PLANNED
+**Status:** DONE (2026-06-10)
 **Lane:** P-AI-I / Rebuild Lane 1
 **Parent EPIC:** TASK-140
 
@@ -5913,7 +5946,7 @@ Rough Cut needs one real NLE timeline model before any view, preview, export, or
 ### TASK-215 NLE rebuild lane 2: migration and canonicalization
 
 **Priority:** P0
-**Status:** PLANNED
+**Status:** DONE (2026-06-10)
 **Lane:** P-AI-I / Rebuild Lane 2
 **Parent EPIC:** TASK-140
 **Depends on:** TASK-214
@@ -7131,6 +7164,17 @@ interaction primitives (viewport math, captured gestures, mode dispatch), and ha
 - All LANE NLE-R rule gates apply, on the camera+mic linked fixture.
 - Land in slices (shell → timeline visuals → gesture parity → playback parity), each slice
   harness-verified and user-confirmed before the next.
+- Slice 1 (DONE 2026-06-10): v2 shell — media pool | source viewer | program+transport | inspector
+  over the timeline deck; Phosphor icons; Legacy toggle; lane-header-width var moved onto
+  `.nleTimeline` so the grid works in both layouts.
+- Slice 2 (DONE 2026-06-10): recording strip gated out of nle/ai views + `.editorShell` recording
+  grid row made `auto` (no empty band); v2 drops the `nleHeader` row (status chips + Legacy moved
+  into the timeline toolbar via `topbarExtras`); flush full-bleed deck; one-row `V1`-tag track
+  headers with Phosphor icon controls (+ new Eye enabled toggle); **ghost channels** — empty V/A
+  lanes that create the track on generated-asset drop (`addGeneratedAssetToNewTrack`, audio lands
+  at index 0 with existing tracks shifted up); horizontal scrollbar only when zoomed
+  (`data-zoomed`); vertical scroll owned by `.nleTimelineLanes`. Harness updated to read the
+  frames readout from `.nleTimelineStatus` (the nleHeader it used is gone in v2).
 
 #### Verification
 
@@ -7162,3 +7206,267 @@ this as "the editor disregards my cuts" when scrubbing across an edit.
 
 - `xvfb-run -a node scripts/visual-nle-linked-clips-playwright.mjs` → problems: []
 - Live: blade + delete a middle segment, scrub through the gap — monitor goes to background.
+
+### TASK-239 Compositor migration research note + renderer contract
+
+**Priority:** P0
+**Status:** DONE (2026-06-10)
+
+#### Context
+
+The end-state direction is a full GPU-backed compositor: WebGL/OffscreenCanvas for preview and a
+matching export path built from the same composition model. The current implementation is split:
+`styled-video-preview.tsx` composes preview in Canvas2D while `export-service.mjs` builds an FFmpeg
+filter graph with cursor ASS subtitles and zoom `sendcmd` crop changes. Directly replacing both would
+be high-risk. This task writes the migration contract before any implementation.
+
+#### Scope
+
+- Document the compositor architecture decision in `docs/architecture/compositor-migration.md`.
+- Define what must remain true across renderers: layer order, frame timing, zoom transform math,
+  screen/camera crops, cursor/click placement, rounded masks, shadow/inset handling, gaps, reduced
+  motion, and export parity.
+- Record platform constraints with links: WebGL video textures, OffscreenCanvas worker rendering,
+  WebCodecs `VideoFrame`, FFmpeg `tmix`/`tblend`/`blend`/`minterpolate` limitations.
+- Define fallback policy: Canvas2D preview and current FFmpeg styled export remain available until
+  the GPU path is default and proven.
+- Define the required debug surface: renderer kind, WebGL context status, frame draw cost,
+  pixel-delta/parity report path, fallback reason.
+
+#### Verification
+
+- Architecture note reviewed against `styled-video-preview.tsx`, `export-service.mjs`, and
+  `zoom-sendcmd.mjs`.
+- Source test asserts the note exists and LANE GPU-C task IDs are listed in `MASTER_PLAN.md`.
+
+**Completed 2026-06-10:** Added `docs/architecture/compositor-migration.md` with the GPU-C compositor migration decision, renderer contract, platform notes, runtime fallback policy, debug surface, and TASK-239 through TASK-247 guardrail. No WebGL implementation was added.
+
+Verification: `node --test scripts/repo-regression.test.mjs`.
+
+### TASK-240 Extract shared composition-frame plan from preview/export inputs
+
+**Priority:** P0
+**Status:** DONE (2026-06-10)
+
+#### Context
+
+The migration needs one source of truth before renderer replacement. Today preview computes a live
+frame plan inline, while export derives a different FFmpeg graph. A shared composition frame plan
+lets Canvas2D, WebGL, and export consume the same resolved visual intent.
+
+#### Scope
+
+- Add a renderer-agnostic `ResolvedCompositionFrame` model in a shared package or renderer-safe
+  module.
+- Include screen layer, camera layer, cursor layer, click layer, background layer, editor overlays,
+  timeline-gap state, and per-layer timing/source-frame data.
+- Move reusable math out of the Canvas2D draw loop without changing rendered output.
+- Ensure Recording edit and NLE timeline mode can both ask for the same frame plan at a frame/time.
+- Include motion metadata: previous/current/next screen transform and derived zoom velocity, but no
+  blur rendering yet.
+
+#### Verification
+
+- Unit tests compare old preview-resolved values and new composition-frame values for no-zoom,
+  zoom-in, zoom-hold, zoom-out, cursor visible/offscreen, screen crop, camera PiP, and timeline gap.
+- Existing `styled-video-preview.test.mjs` source guards still pass.
+- No visual code path switched yet.
+
+**Completed 2026-06-10:** Added `resolveCompositionFrame` in `@rough-cut/frame-resolver` as an additive renderer-agnostic frame plan. The plan wraps existing `resolveFrame` / `resolveTimelinePreviewFrame` output and exposes explicit background, screen, camera, cursor, click, editor-overlay, timeline-gap, source-frame, and motion metadata without switching Canvas2D preview or FFmpeg styled export callers. Tests cover no-zoom parity, zoom ramp-in/hold/ramp-out, cursor inside/offscreen, screen crop, camera PiP, NLE timeline source-frame mapping, and timeline gaps.
+
+Verification: `pnpm --filter @rough-cut/frame-resolver test`; `pnpm --filter @rough-cut/frame-resolver typecheck`; `pnpm --filter @rough-cut/frame-resolver build`; `node --test apps/desktop/src/renderer/src/styled-video-preview.test.mjs`; `node --test scripts/repo-regression.test.mjs`. Lane playback gate: `pnpm playback:timeline` and `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm playback:timeline` both completed project-model/desktop builds and FFmpeg fixture generation, then failed before app interaction at Playwright Electron launch (`Process failed to launch!`). No visual code path was switched in TASK-240, so no screenshot/pixel artifact was produced by this task.
+
+### TASK-241 Add screen-layer renderer boundary with Canvas2D parity adapter
+
+**Priority:** P0
+**Status:** PLANNED
+
+#### Context
+
+The safest first code migration is a no-op architecture boundary. The existing Canvas2D screen draw
+becomes an adapter behind a `ScreenLayerRenderer` interface, preserving current pixels before WebGL
+exists.
+
+#### Scope
+
+- Introduce `ScreenLayerRenderer` with methods for capability detection, draw, resize, dispose, and
+  debug stats.
+- Implement `Canvas2DScreenLayerRenderer` using the current draw path.
+- Keep cursor/click overlays, camera PiP, background, editor handles, and resolved layout publishing
+  in the existing Canvas2D compositor.
+- Add renderer selection plumbing with default `canvas2d`.
+- Add fallback telemetry even though the only renderer is still Canvas2D.
+
+#### Verification
+
+- Pixel/parity smoke: old inline path vs adapter path on representative frames within tolerance.
+- `node --test apps/desktop/src/renderer/src/styled-video-preview.test.mjs`
+- `pnpm --filter @rough-cut/desktop typecheck`
+- `pnpm playback:timeline` must not regress versus baseline.
+
+### TASK-242 Add feature-flagged WebGL screen-layer renderer
+
+**Priority:** P0
+**Status:** PLANNED
+
+#### Context
+
+This is the first GPU step, but it only replaces the screen video layer. Canvas2D remains the parent
+compositor and still draws cursor/clicks after the screen layer, plus camera PiP and editor UI.
+
+#### Scope
+
+- Implement `WebGLScreenLayerRenderer` behind `ROUGH_CUT_WEBGL_SCREEN_LAYER=1` and/or a hidden
+  runtime setting.
+- Upload the screen `<video>` frame as a texture and draw it into the existing clipped screen area.
+- Support the current source viewport, screen frame, scale/translate zoom transform, and smoothing
+  mode. No motion blur yet.
+- Handle WebGL context creation failure/loss by falling back to `Canvas2DScreenLayerRenderer`.
+- Keep WebGL draw contained so cursor/click overlays remain sharp and drawn after the screen layer.
+
+#### Verification
+
+- Automated feature-flag test proves fallback when WebGL is unavailable or context is lost.
+- Pixel-delta comparison against Canvas2D for no-zoom and static zoom frames.
+- `pnpm playback:timeline` with flag off and on.
+- Open and review screenshots for Canvas2D and WebGL outputs at the same frames.
+
+### TASK-243 Add WebGL-vs-Canvas parity and playback performance probes
+
+**Priority:** P0
+**Status:** PLANNED
+
+#### Context
+
+The migration cannot rely on “looks smoother” claims. The repo already learned that sparse checks
+miss visual playback bugs. This task creates the evidence harness that all later GPU work must pass.
+
+#### Scope
+
+- Add a Playwright probe that renders Canvas2D and WebGL screen-layer outputs for the same frame and
+  records pixel-delta metrics.
+- Add an in-page `requestAnimationFrame` monitor for gray/blank frames, long draw phases, expected
+  display gaps, dropped decoded frames, and context-loss/fallback events.
+- Save artifacts under `/tmp/rough-cut-gpu-compositor-*`: screenshots, pixel-delta JSON, playback
+  debug JSON, and renderer stats.
+- Include frames for zoom-in, zoom-hold, zoom-out, timeline cut boundary, gap, cursor visible,
+  cursor offscreen, and camera PiP present.
+
+#### Verification
+
+- New probe fails against an intentionally forced blank WebGL frame.
+- Probe passes for Canvas2D baseline.
+- Probe is wired into a package script or documented exact command.
+
+### TASK-244 Add velocity-based WebGL transform motion blur
+
+**Priority:** P1
+**Status:** PLANNED
+
+#### Context
+
+Canvas2D `ctx.filter = blur(...)` was too expensive and visually wrong for live playback. WebGL
+motion blur should be transform-aware: sample the screen texture along previous/current/next zoom
+transforms only while zoom velocity is non-zero. Zoom hold should remain crisp.
+
+#### Scope
+
+- Add shader or multi-pass logic that samples the screen video texture at multiple sub-frame
+  transform positions.
+- Blur only the screen layer; cursor/clicks and editor handles must stay sharp because they are
+  drawn after the blurred layer.
+- Use reduced-motion and performance fallback gates.
+- Tune sample count by mode: low-cost preview samples, higher-quality export-capable samples later.
+- Keep blur disabled by default until parity/performance probe proves it improves quality without
+  dropping frames.
+
+#### Verification
+
+- Unit tests for blur gate: no blur at scale 1, no blur during zoom hold, blur during zoom-in/out,
+  reduced-motion disables blur.
+- Pixel/probe artifacts demonstrate cursor/click overlays remain unblurred.
+- `pnpm playback:timeline` with WebGL blur flag on; no expected display gaps or gray/blank frames.
+- Manual screenshot review of zoom-in, hold, zoom-out.
+
+### TASK-245 Promote WebGL to full preview compositor behind fallback
+
+**Priority:** P1
+**Status:** PLANNED
+
+#### Context
+
+After the screen layer is proven, the next step is full preview composition. The goal is to move
+background, screen, cursor/clicks, camera PiP, masks, shadows, and editor-independent visual layers
+into the GPU compositor while keeping edit handles/debug overlays in Canvas2D/DOM as needed.
+
+#### Scope
+
+- Extend the GPU compositor beyond the screen layer using the shared composition-frame plan.
+- Add camera PiP as a texture layer with crop, shape mask, shadow, and z-order.
+- Add cursor/click rendering as a post-screen layer so cursor remains sharp over screen blur.
+- Preserve editor-only overlays and hit testing.
+- Keep Canvas2D full-compositor fallback selectable at runtime.
+
+#### Verification
+
+- Pixel/parity probe covers full frame, not only screen layer.
+- Recording edit and NLE preview both pass the same visual/performance probes.
+- `pnpm smoke:ui`, `pnpm playback:timeline`, and NLE linked-fixture harness pass.
+- User live-app sign-off before making WebGL the default preview path.
+
+### TASK-246 Prototype GPU/headless export path from the shared composition plan
+
+**Priority:** P1
+**Status:** PLANNED
+
+#### Context
+
+Export parity is the high-risk part. The current FFmpeg graph should not be removed until a new
+rendered-frame export path proves it can match preview and preserve speed/quality. This task is a
+prototype, not a default.
+
+#### Scope
+
+- Add an experimental export mode that renders frames from the shared composition-frame plan using
+  the GPU compositor or a headless equivalent, then encodes/muxes via FFmpeg.
+- Keep current FFmpeg styled export as default and fallback.
+- Preserve audio handling through existing FFmpeg paths.
+- Support the first target set: single recording, zooms, cursor/clicks, background, screen frame,
+  camera PiP, basic timeline cuts/gaps.
+- Measure export speed and output quality against existing `smoke:styled-export` and benchmark
+  budgets.
+
+#### Verification
+
+- Experimental export produces the same resolution/fps/duration as styled export.
+- Preview-vs-export frame comparison at representative frames.
+- Cursor remains visible and unblurred in zoomed exports.
+- `pnpm smoke:styled-export` still passes on the legacy export path.
+- Export benchmark records speed regression/benefit; no default switch yet.
+
+### TASK-247 Make GPU compositor default and retire legacy visual composition logic
+
+**Priority:** P1
+**Status:** PLANNED
+
+#### Context
+
+This is the only task allowed to change the default renderer/export direction. It happens after the
+GPU preview and experimental export paths have proven parity and reliability.
+
+#### Scope
+
+- Make GPU compositor the default preview path on supported systems.
+- Keep Canvas2D fallback behind diagnostics for unsupported GPUs/context loss.
+- Decide whether the new export path becomes default or remains opt-in based on TASK-246 evidence.
+- Remove duplicated composition math only after the shared composition plan owns it.
+- Update runbooks and debugging notes for renderer fallback, context loss, pixel-delta probes, and
+  export parity checks.
+
+#### Verification
+
+- Full visual suite: `pnpm smoke:ui`, `pnpm playback:timeline`, NLE linked-fixture harness,
+  `pnpm smoke:styled-export`, and packaged-app visual smoke.
+- Manual live-app check: record -> zoom -> scrub -> play -> export with WebGL default.
+- Fallback check: force Canvas2D and verify the app remains usable.
+- No known P0/P1 preview/export bugs remain before marking DONE.

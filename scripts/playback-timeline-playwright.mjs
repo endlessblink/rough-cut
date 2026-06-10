@@ -384,10 +384,28 @@ function createPlaybackMonitor() {
 }
 
 function playbackProof(before, after, requiredAdvanceSec = 0.2) {
-  const screen = after?.videos?.[0] ?? null;
-  const initialScreen = before?.videos?.find((video) => video.index === screen?.index) ?? before?.videos?.[0] ?? null;
-  const camera = after?.videos?.[1] ?? null;
-  const initialCamera = before?.videos?.find((video) => video.index === camera?.index) ?? before?.videos?.[1] ?? null;
+  function isProgramPlaybackVideo(video) {
+    const classNames = String(video?.className ?? '').split(/\s+/);
+    return !classNames.includes('ev2MediaThumbVideo') && !classNames.includes('ev2SourceVideo');
+  }
+
+  function selectPlaybackVideos(videos) {
+    const hiddenPreviewSources = videos.filter((video) => String(video.className ?? '').split(/\s+/).includes('hiddenSource'));
+    if (hiddenPreviewSources.length > 0) return hiddenPreviewSources;
+    return videos.filter(isProgramPlaybackVideo);
+  }
+
+  const playbackVideos = selectPlaybackVideos(after?.videos ?? []);
+  const initialPlaybackVideos = selectPlaybackVideos(before?.videos ?? []);
+  const screen = playbackVideos[0] ?? after?.videos?.[0] ?? null;
+  const initialScreen = before?.videos?.find((video) => video.index === screen?.index)
+    ?? initialPlaybackVideos[0]
+    ?? before?.videos?.[0]
+    ?? null;
+  const camera = playbackVideos[1] ?? null;
+  const initialCamera = before?.videos?.find((video) => video.index === camera?.index)
+    ?? initialPlaybackVideos[1]
+    ?? null;
   const screenAdvanced = screen && initialScreen ? screen.currentTime - initialScreen.currentTime : 0;
   const cameraAdvanced = camera && initialCamera ? camera.currentTime - initialCamera.currentTime : 0;
   const requestedAdvance = Number.isFinite(requiredAdvanceSec) && requiredAdvanceSec > 0 ? requiredAdvanceSec : 0.2;
@@ -397,7 +415,7 @@ function playbackProof(before, after, requiredAdvanceSec = 0.2) {
   const minAdvance = Math.min(requestedAdvance, remainingDuration);
   const nativeActive = Boolean(after?.nativeActive);
   const canvasOk = Boolean(after?.canvas?.ok && after.canvas.visible);
-  const visibleNativeVideos = (after?.videos ?? []).filter((video) => video.visible);
+  const visibleNativeVideos = (after?.videos ?? []).filter((video) => video.visible && isProgramPlaybackVideo(video));
   const compositorOk = !nativeActive && visibleNativeVideos.length === 0 && canvasOk && after.drawCount > before.drawCount;
   const screenOk = Boolean(screen?.readyState >= 2 && screenAdvanced > minAdvance);
   const cameraOk = !after.hasCamera || Boolean(camera?.readyState >= 2 && cameraAdvanced > minAdvance);
