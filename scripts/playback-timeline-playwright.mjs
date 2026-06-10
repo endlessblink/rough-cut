@@ -502,6 +502,7 @@ function readPlaybackState() {
     playbackDebug: typeof window.__roughCutReadPlaybackDebug === 'function'
       ? window.__roughCutReadPlaybackDebug()
       : { counts: {}, frameGapCount: 0, maxFrameGap: 0, lastFrameGap: null, tail: [] },
+    screenLayerRenderer: window.__roughCutScreenLayerRenderer ?? null,
     canvasCameraRect,
     drawCount: window.__roughCutCanvasDrawCount ?? 0,
     timecode: document.querySelector('.nleTransportTimeCurrent')?.textContent
@@ -598,6 +599,7 @@ function summarizeResult(result) {
     beforeDrawCount: result.before?.drawCount,
     afterDrawCount: result.after?.drawCount,
     afterCanvas: result.after?.canvas,
+    screenLayerRenderer: result.after?.screenLayerRenderer,
     proof: result.proof,
     playbackDebug: result.after?.playbackDebug,
     cameraGeometry: result.cameraGeometry,

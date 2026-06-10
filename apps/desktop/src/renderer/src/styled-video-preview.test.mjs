@@ -27,6 +27,8 @@ test('styled video preview can resolve timeline-time playback through the shared
   assert.match(source, /resolveTimelinePreviewFrame\(document, currentFrame/);
   assert.match(source, /resolveTimelineFrame\(project\.document as unknown as ProjectDocument, timelineFrame\)/);
   assert.match(source, /if \(timeMode === 'timeline' && !screenLayer\)/);
+  assert.match(source, /const parkedTimelineGap = Boolean/);
+  assert.match(source, /if \(!parkedTimelineGap && \(video\.seeking \|\| video\.readyState < 2\)\) \{/);
   assert.match(source, /if \(timeMode === 'timeline'\) return;/);
   assert.match(source, /video\.pause\(\);\n\s+cameraVideo\?\.pause\(\);\n\s+return;/);
   assert.doesNotMatch(source, /nextTimelineFrame = currentFrame \+ \(sourceFrame - screenLayer\.sourceFrame\)/);
@@ -89,17 +91,63 @@ test('styled video preview uses the canvas as the only visible edited playback c
 test('styled video preview keeps resolving and drawing zoom frames while timeline playback is active', () => {
   const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
 
-  assert.match(source, /if \(video\.seeking \|\| video\.readyState < 2\) \{/);
+  assert.match(source, /if \(!parkedTimelineGap && \(video\.seeking \|\| video\.readyState < 2\)\) \{/);
   assert.match(source, /recordPlaybackDebug\('render-skip-video-not-ready'/);
   assert.match(source, /const sourceFrameFloat = Math\.max\(0, sourceTime \* fps\)/);
   assert.match(source, /const renderFrame = timeMode === 'timeline' && timelineDecoded/);
-  assert.match(source, /const frame = resolveCurrentFrame\(renderFrame\)/);
+  assert.match(source, /const frame = parkedTimelineFrame !== null && parkedTimelinePreviewFrame/);
+  assert.match(source, /: resolveCurrentFrame\(renderFrame\)/);
   assert.match(source, /resolveTimelinePreviewFrame\(document, currentFrame/);
   assert.match(source, /const screenSource = resolveScreenSourceViewport\(sourceWidth, sourceHeight, frame\.screenCrop\)/);
   assert.match(source, /resolveZoomMotionBlurPx\(\{/);
-  assert.match(source, /drawZoomMotionSource\(ctx, video, \{/);
+  assert.match(source, /screenLayerRenderer\.draw\(\{/);
   assert.match(source, /applyScreenSourceTransform\(ctx, \{/);
   assert.match(source, /const cursorFrame = timeMode === 'timeline' \? screenLayer\?\.sourceFrame \?\? renderFrame : renderFrame/);
+});
+
+test('styled video preview routes screen video drawing through the feature-flagged screen-layer renderer', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  const rendererSource = readFileSync(join(here, 'screen-layer-renderer.ts'), 'utf8');
+
+  assert.match(source, /createScreenLayerRenderer, type ScreenLayerRenderer, type ScreenLayerRendererKind, type ScreenLayerRendererStats/);
+  assert.match(source, /function resolveRequestedScreenLayerRendererKind\(\): ScreenLayerRendererKind/);
+  assert.match(source, /ROUGH_CUT_WEBGL_SCREEN_LAYER/);
+  assert.match(source, /VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER/);
+  assert.match(source, /__roughCutWebglScreenLayer/);
+  assert.match(source, /screenLayerRenderer'\) === 'webgl'/);
+  assert.match(source, /roughCutWebglScreenLayer/);
+  assert.match(source, /const screenLayerRendererRef = React\.useRef<ScreenLayerRenderer \| null>\(null\)/);
+  assert.match(source, /createScreenLayerRenderer\(requestedScreenLayerRendererKind\)/);
+  assert.match(source, /screenLayerRenderer\.resize\(canvasWidth, canvasHeight\)/);
+  assert.match(source, /screenLayerRenderer\.draw\(\{/);
+  assert.match(source, /canvasWidth,/);
+  assert.match(source, /canvasHeight,/);
+  assert.match(source, /publishScreenLayerRendererStats\(screenLayerStats\)/);
+  assert.match(source, /__roughCutScreenLayerRenderer/);
+  assert.match(source, /requestedRendererKind: requestedScreenLayerRendererKind/);
+  assert.doesNotMatch(source, /drawZoomMotionSource\(ctx, video, \{/);
+
+  assert.match(rendererSource, /export interface ScreenLayerRenderer/);
+  assert.match(rendererSource, /export type ScreenLayerRendererKind = 'canvas2d' \| 'webgl'/);
+  assert.match(rendererSource, /readonly kind: ScreenLayerRendererKind/);
+  assert.match(rendererSource, /isSupported\(\): boolean/);
+  assert.match(rendererSource, /resize\(width: number, height: number\): void/);
+  assert.match(rendererSource, /draw\(input: ScreenLayerDrawInput\): ScreenLayerRendererStats/);
+  assert.match(rendererSource, /getDebugStats\(\): ScreenLayerRendererStats/);
+  assert.match(rendererSource, /dispose\(\): void/);
+  assert.match(rendererSource, /export class Canvas2DScreenLayerRenderer implements ScreenLayerRenderer/);
+  assert.match(rendererSource, /export class WebGLScreenLayerRenderer implements ScreenLayerRenderer/);
+  assert.match(rendererSource, /if \(kind === 'webgl'\) return new WebGLScreenLayerRenderer\(\)/);
+  assert.match(rendererSource, /drawZoomMotionSource\(input\.ctx, input\.video, \{/);
+  assert.match(rendererSource, /private ensureFallback\(reason: string\): Canvas2DScreenLayerRenderer/);
+  assert.match(rendererSource, /webgl-context-unavailable/);
+  assert.match(rendererSource, /webgl-context-lost/);
+  assert.match(rendererSource, /input\.ctx\.drawImage\(this\.canvas as CanvasImageSource, 0, 0, input\.canvasWidth, input\.canvasHeight\)/);
+  assert.match(rendererSource, /requestedRendererKind/);
+  assert.match(rendererSource, /rendererKind: 'canvas2d'/);
+  assert.match(rendererSource, /contextStatus/);
+  assert.match(rendererSource, /drawCostMs/);
+  assert.match(rendererSource, /fallbackReason/);
 });
 
 test('zoom motion renderer gates blur and keeps cursor overlays out of the blurred source pass', () => {
@@ -116,7 +164,7 @@ test('zoom motion renderer gates blur and keeps cursor overlays out of the blurr
   assert.match(mainSource, /reducedMotion: !video\.paused \|\|/);
   assert.doesNotMatch(previewSource, /ctx\.filter\s*=/);
   assert.doesNotMatch(mainSource, /ctx\.filter\s*=/);
-  assert.match(previewSource, /drawZoomMotionSource\(ctx, video, \{/);
+  assert.match(previewSource, /screenLayerRenderer\.draw\(\{/);
   assert.match(previewSource, /sharpZoom: timeMode !== 'timeline' && !activeTimelinePlayback/);
   assert.match(previewSource, /markDrawPhase\('screen-video'\);\n\s+ctx\.save\(\);\n\s+applyScreenSourceTransform/);
   assert.match(mainSource, /drawZoomMotionSource\(ctx, video, \{/);

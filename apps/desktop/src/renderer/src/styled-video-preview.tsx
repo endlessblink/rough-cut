@@ -28,7 +28,8 @@ import { getCameraLayoutRect, resolveFrame, resolveTimelineFrame, resolveTimelin
 import { visibleDurationFrames, visibleFrameToSourceFrame } from './cut-ranges.mjs';
 import { getCursorEvents } from './cursor-data.mjs';
 import { getPrimaryRecordingAsset } from './zoom-markers.mjs';
-import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
+import { createScreenLayerRenderer, type ScreenLayerRenderer, type ScreenLayerRendererKind, type ScreenLayerRendererStats } from './screen-layer-renderer';
+import { applyScreenSourceTransform, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import {
   cameraCoversSourceTime,
   clampedCameraTime,
@@ -104,6 +105,26 @@ function readPlaybackQuality(video: HTMLVideoElement | null | undefined): Playba
     droppedVideoFrames: quality.droppedVideoFrames,
     corruptedVideoFrames: quality.corruptedVideoFrames,
   };
+}
+
+function publishScreenLayerRendererStats(stats: ScreenLayerRendererStats) {
+  if (typeof window === 'undefined') return;
+  (window as unknown as Record<string, unknown>).__roughCutScreenLayerRenderer = stats;
+}
+
+function resolveRequestedScreenLayerRendererKind(): ScreenLayerRendererKind {
+  const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
+  if (env.ROUGH_CUT_WEBGL_SCREEN_LAYER === '1' || env.VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER === '1') return 'webgl';
+  if (typeof window === 'undefined') return 'canvas2d';
+  const target = window as unknown as { __roughCutWebglScreenLayer?: unknown };
+  if (target.__roughCutWebglScreenLayer === true || target.__roughCutWebglScreenLayer === '1') return 'webgl';
+  if (new URLSearchParams(window.location.search).get('screenLayerRenderer') === 'webgl') return 'webgl';
+  try {
+    if (window.localStorage?.getItem('roughCutWebglScreenLayer') === '1') return 'webgl';
+  } catch {
+    // localStorage can be unavailable in restricted contexts; default stays canvas2d.
+  }
+  return 'canvas2d';
 }
 
 function readPlaybackDebugSummary() {
@@ -347,6 +368,7 @@ export function StyledVideoPreview({
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = React.useRef<HTMLVideoElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const screenLayerRendererRef = React.useRef<ScreenLayerRenderer | null>(null);
   const backgroundImageRef = React.useRef<HTMLImageElement | null>(null);
   const pendingSeekRef = React.useRef<number | null>(null);
   const seekingRef = React.useRef(false);
@@ -414,6 +436,12 @@ export function StyledVideoPreview({
   }, [alignmentTarget, onCameraFrameChange, onScreenFrameChange]);
   const cursorOffscreenRef = React.useRef<CursorOffscreenStatus>(null);
   const isPlaying = controlledPlaying ?? internalPlaying;
+  const requestedScreenLayerRendererKind = resolveRequestedScreenLayerRendererKind();
+
+  React.useEffect(() => () => {
+    screenLayerRendererRef.current?.dispose();
+    screenLayerRendererRef.current = null;
+  }, []);
 
   // Force one repaint when the selected zoom focus changes so the target
   // appears/moves/disappears even while the playhead is parked on one frame.
@@ -832,12 +860,30 @@ export function StyledVideoPreview({
     const screenVideo = video;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return undefined;
+    if (!ctx) {
+      publishScreenLayerRendererStats({
+        requestedRendererKind: requestedScreenLayerRendererKind,
+        rendererKind: 'canvas2d',
+        contextStatus: 'missing-context',
+        drawCostMs: null,
+        drawCount: 0,
+        fallbackReason: '2d-context-unavailable',
+      });
+      return undefined;
+    }
+    if (screenLayerRendererRef.current && screenLayerRendererRef.current.kind !== requestedScreenLayerRendererKind) {
+      screenLayerRendererRef.current.dispose();
+      screenLayerRendererRef.current = null;
+    }
+    const screenLayerRenderer = screenLayerRendererRef.current ?? createScreenLayerRenderer(requestedScreenLayerRendererKind);
+    screenLayerRendererRef.current = screenLayerRenderer;
 
     const canvasWidth = canvasResolution.width;
     const canvasHeight = canvasResolution.height;
     if (canvas.width !== canvasWidth) canvas.width = canvasWidth;
     if (canvas.height !== canvasHeight) canvas.height = canvasHeight;
+    screenLayerRenderer.resize(canvasWidth, canvasHeight);
+    publishScreenLayerRendererStats(screenLayerRenderer.getDebugStats());
     const screenPadding = Math.max(0, Math.min(background.bgPadding, Math.min(canvasWidth, canvasHeight) / 2 - 2));
     const maxVideoWidth = canvasWidth - screenPadding * 2;
     const maxVideoHeight = canvasHeight - screenPadding * 2;
@@ -1016,7 +1062,14 @@ export function StyledVideoPreview({
         }
         lastExpectedDisplayTimeMs = metadata.expectedDisplayTime;
       }
-      if (video.seeking || video.readyState < 2) {
+      const parkedTimelineFrame = timeMode === 'timeline' && !isPlaying
+        ? Math.max(0, Math.round(currentTimeRef.current * fps))
+        : null;
+      const parkedTimelinePreviewFrame = parkedTimelineFrame !== null ? resolveCurrentFrame(parkedTimelineFrame) : null;
+      const parkedTimelineGap = Boolean(
+        parkedTimelinePreviewFrame && !(parkedTimelinePreviewFrame.layers?.find((layer: { isCamera?: boolean }) => !layer.isCamera) ?? null),
+      );
+      if (!parkedTimelineGap && (video.seeking || video.readyState < 2)) {
         recordPlaybackDebug('render-skip-video-not-ready', {
           renderLoopId,
           videoSeeking: video.seeking,
@@ -1067,11 +1120,11 @@ export function StyledVideoPreview({
         return;
       }
       const currentFrame = timeMode === 'timeline'
-        ? timelineDecoded?.timelineFrame ?? Math.max(0, Math.round(currentTimeRef.current * fps))
+        ? timelineDecoded?.timelineFrame ?? parkedTimelineFrame ?? Math.max(0, Math.round(currentTimeRef.current * fps))
         : sourceFrame;
       const renderFrame = timeMode === 'timeline' && timelineDecoded
         ? timelineDecoded.timelineFrame + (sourceFrameFloat - sourceFrame)
-        : sourceFrameFloat;
+        : parkedTimelineFrame ?? sourceFrameFloat;
       if (timeMode === 'timeline' && isPlaying) {
         timelineFrameFallbackRef.current = currentFrame;
         updateCurrentTime(Math.min(timelineDuration, currentFrame / fps));
@@ -1121,7 +1174,9 @@ export function StyledVideoPreview({
         drawTimings[name] = Math.round((nextAtMs - drawPhaseStartedAtMs) * 10) / 10;
         drawPhaseStartedAtMs = nextAtMs;
       };
-      const frame = resolveCurrentFrame(renderFrame);
+      const frame = parkedTimelineFrame !== null && parkedTimelinePreviewFrame
+        ? parkedTimelinePreviewFrame
+        : resolveCurrentFrame(renderFrame);
       const activeTimelinePlayback = timeMode === 'timeline' && isPlaying;
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = activeTimelinePlayback ? 'low' : 'high';
@@ -1205,7 +1260,11 @@ export function StyledVideoPreview({
       addRoundedRect(ctx, screenX, screenY, screenWidth, screenHeight, screenRadius);
       ctx.clip();
       try {
-        drawZoomMotionSource(ctx, video, {
+        const screenLayerStats = screenLayerRenderer.draw({
+          ctx,
+          video,
+          canvasWidth,
+          canvasHeight,
           screenX,
           screenY,
           screenDrawScale: effectiveScreenDrawScale,
@@ -1216,7 +1275,9 @@ export function StyledVideoPreview({
           blurPx: zoomMotionBlurPx,
           sharpZoom: timeMode !== 'timeline' && !activeTimelinePlayback,
         });
+        publishScreenLayerRendererStats(screenLayerStats);
       } catch {
+        publishScreenLayerRendererStats(screenLayerRenderer.getDebugStats());
         ctx.restore();
         scheduleNextDraw();
         return;
@@ -1408,7 +1469,7 @@ export function StyledVideoPreview({
       setCursorOffscreen(next);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- cutRanges read via stable content key (cutRangesKey) to avoid per-frame loop restarts
-  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background, cameraSrc, cameraSourceOffsetSec, trimStartSec, effectiveTrimEndSec, cutRangesKey, visibleDuration, timelineDuration, timeMode, isPlaying]);
+  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background, cameraSrc, cameraSourceOffsetSec, trimStartSec, effectiveTrimEndSec, cutRangesKey, visibleDuration, timelineDuration, timeMode, isPlaying, requestedScreenLayerRendererKind]);
 
   React.useEffect(() => {
     const cameraVideo = cameraVideoRef.current;
