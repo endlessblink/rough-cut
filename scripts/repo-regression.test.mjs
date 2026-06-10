@@ -15,6 +15,7 @@ test('root test command runs repo-level script regression tests', () => {
 });
 
 test('stale root handoff files stay removed', () => {
+  assert.equal(existsSync(join(root, 'DROPOFF.md')), false);
   assert.equal(existsSync(join(root, 'HANDOFF.md')), false);
   assert.equal(existsSync(join(root, 'NEXT_SESSION_PROMPT.md')), false);
 });
