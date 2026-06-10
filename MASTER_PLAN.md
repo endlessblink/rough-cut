@@ -253,7 +253,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-241 | Add screen-layer renderer boundary with Canvas2D parity adapter | P0 | DONE (2026-06-10) |
 | TASK-242 | Add feature-flagged WebGL screen-layer renderer | P0 | DONE (2026-06-10) |
 | TASK-243 | Add WebGL-vs-Canvas parity and playback performance probes | P0 | DONE (2026-06-10) |
-| TASK-244 | Add velocity-based WebGL transform motion blur | P1 | PLANNED |
+| TASK-244 | Add velocity-based WebGL transform motion blur | P1 | DONE (2026-06-10) |
 | TASK-245 | Promote WebGL to full preview compositor behind fallback | P1 | PLANNED |
 | TASK-246 | Prototype GPU/headless export path from the shared composition plan | P1 | PLANNED |
 | TASK-247 | Make GPU compositor default and retire legacy visual composition logic | P1 | PLANNED |
@@ -7403,7 +7403,7 @@ Verification: `pnpm visual:gpu-compositor` passed with artifacts at `/tmp/rough-
 ### TASK-244 Add velocity-based WebGL transform motion blur
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** DONE (2026-06-10)
 
 #### Context
 
@@ -7429,6 +7429,10 @@ transforms only while zoom velocity is non-zero. Zoom hold should remain crisp.
 - Pixel/probe artifacts demonstrate cursor/click overlays remain unblurred.
 - `pnpm playback:timeline` with WebGL blur flag on; no expected display gaps or gray/blank frames.
 - Manual screenshot review of zoom-in, hold, zoom-out.
+
+**Completed 2026-06-10:** Added hidden WebGL-only transform motion blur behind `ROUGH_CUT_WEBGL_MOTION_BLUR=1`, `VITE_ROUGH_CUT_WEBGL_MOTION_BLUR=1`, `?webglMotionBlur=1`, `window.__roughCutWebglMotionBlur`, or `localStorage.roughCutWebglMotionBlur`. The default path remains unchanged. When enabled, the WebGL screen-layer shader samples the video texture at previous/current/next zoom transforms using a low sample count selected from the existing velocity blur gate; cursor/click overlays, camera PiP, editor handles, and DOM UI still render after the screen layer and remain sharp. Canvas2D fallback and FFmpeg styled export were not changed.
+
+Verification: `node --check scripts/visual-gpu-compositor-parity-playwright.mjs`; `node --test scripts/repo-regression.test.mjs apps/desktop/src/renderer/src/styled-video-preview.test.mjs`; `pnpm --filter @rough-cut/desktop typecheck`; `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGL_MOTION_BLUR=1 pnpm visual:gpu-compositor` passed with artifacts at `/tmp/rough-cut-gpu-compositor-6z6NoZ`, report `/tmp/rough-cut-gpu-compositor-6z6NoZ/gpu-compositor-report.json`, latest log `/tmp/rough-cut-gpu-compositor-latest.log`, and `problems: []`; `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGL_SCREEN_LAYER=1 VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER=1 ROUGH_CUT_WEBGL_MOTION_BLUR=1 VITE_ROUGH_CUT_WEBGL_MOTION_BLUR=1 pnpm playback:timeline` exited 0. Playback debug still recorded expected-display-gap events dominated by camera PiP draw cost (`screen-video` around 0.2-0.4ms while `camera-pip` reached ~28ms), so this task does not claim the whole playback pipeline is gap-free. Manual review covered `/tmp/rough-cut-gpu-compositor-6z6NoZ/webgl-zoom-hold-cursor-visible.png` and the matching Canvas2D screenshot.
 
 ### TASK-245 Promote WebGL to full preview compositor behind fallback
 
