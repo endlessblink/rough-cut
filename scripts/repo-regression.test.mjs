@@ -91,6 +91,8 @@ test('GPU-C WebGL preview flag is forwarded to the renderer as a runtime query p
 test('GPU-C compositor parity probe stays wired as a visual evidence command', () => {
   assert.match(rootPackage.scripts['visual:gpu-compositor'], /visual-gpu-compositor-parity-playwright\.mjs/);
   assert.match(gpuCompositorProbeSource, /rough-cut-gpu-compositor-/);
+  assert.match(gpuCompositorProbeSource, /rough-cut-gpu-compositor-latest\.log/);
+  assert.match(gpuCompositorProbeSource, /gpu-compositor\.log/);
   assert.match(gpuCompositorProbeSource, /ROUGH_CUT_GPU_COMPOSITOR_FORCE_BLANK/);
   assert.match(gpuCompositorProbeSource, /requestedRendererKind/);
   assert.match(gpuCompositorProbeSource, /meanAbsDiff/);

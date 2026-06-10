@@ -14,6 +14,8 @@ const root = await mkdtemp(join(tmpdir(), 'rough-cut-gpu-compositor-'));
 const mediaPath = join(root, 'gpu-compositor-source.mp4');
 const cameraPath = join(root, 'gpu-compositor-camera.mp4');
 const reportPath = join(root, 'gpu-compositor-report.json');
+const logPath = join(root, 'gpu-compositor.log');
+const latestLogPath = join(tmpdir(), 'rough-cut-gpu-compositor-latest.log');
 
 const cases = [
   { id: 'gap-start', timeSec: 0.2, contentExpected: false },
@@ -109,10 +111,15 @@ const report = {
 };
 
 await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+const textLog = renderTextLog(report);
+await writeFile(logPath, textLog, 'utf8');
+await writeFile(latestLogPath, textLog, 'utf8');
 console.info(JSON.stringify({
   ok: report.ok,
   root,
   reportPath,
+  logPath,
+  latestLogPath,
   forcedBlankWebgl: forceBlankWebgl,
   canvas2d: report.canvas2d,
   webgl: report.webgl,
@@ -265,6 +272,47 @@ function summarizeRun(run) {
       playbackDebug: capture.playbackDebug,
     }])),
   };
+}
+
+function renderTextLog(report) {
+  const lines = [
+    `GPU compositor parity probe`,
+    `ok=${report.ok}`,
+    `forcedBlankWebgl=${report.forcedBlankWebgl}`,
+    `root=${report.root}`,
+    `projectPath=${report.projectPath}`,
+    `reportPath=${report.reportPath}`,
+    `logPath=${logPath}`,
+    `latestLogPath=${latestLogPath}`,
+    '',
+    'comparisons:',
+  ];
+  for (const item of report.comparisons) {
+    lines.push([
+      `- ${item.id}`,
+      `ok=${item.ok}`,
+      `meanAbsDiff=${item.meanAbsDiff}`,
+      `changedPixelRatio=${item.changedPixelRatio}`,
+      `maxChannelDiff=${item.maxChannelDiff}`,
+      `canvas=${item.canvasScreenshotPath}`,
+      `webgl=${item.webglScreenshotPath}`,
+    ].join(' '));
+    for (const problem of item.problems) lines.push(`  problem=${problem}`);
+  }
+  lines.push('', 'renderer:');
+  for (const [kind, run] of Object.entries({ canvas2d: report.canvas2d, webgl: report.webgl })) {
+    lines.push(`- ${kind} problems=${JSON.stringify(run.problems)}`);
+    for (const [id, capture] of Object.entries(run.captures)) {
+      lines.push(`  ${id} screenshot=${capture.screenshotPath} stats=${JSON.stringify(capture.canvasStats)} renderer=${JSON.stringify(capture.renderer)}`);
+    }
+  }
+  lines.push('', 'problems:');
+  if (report.problems.length === 0) {
+    lines.push('- none');
+  } else {
+    for (const problem of report.problems) lines.push(`- ${problem}`);
+  }
+  return `${lines.join('\n')}\n`;
 }
 
 function withProbePresentation(document) {
