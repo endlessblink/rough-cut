@@ -6,7 +6,19 @@ import { NleTransport } from './transport';
 import { resolveProjectFps, resolveCompositionDurationFrames } from './project-shape.mjs';
 import { clampFrame, isTypingTarget } from './keyboard.mjs';
 import { canSplitClipById, rightClipIdAfterSplit, splitClipById } from './clip-mutations.mjs';
+import { EditorV2Layout } from '../editor-v2/editor-v2-layout';
+import type { NleEditMode } from './mode-toolbar';
 import type { NleProject } from './types';
+
+const EDITOR_V2_STORAGE_KEY = 'roughCutEditorV2';
+
+function readEditorV2Preference(): boolean {
+  try {
+    return window.localStorage.getItem(EDITOR_V2_STORAGE_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
 
 export function NleShell({
   project,
@@ -23,11 +35,22 @@ export function NleShell({
   const [playheadFrame, setPlayheadFrame] = React.useState(0);
   const [isPlaying, setIsPlaying] = React.useState(false);
   const [selectedClipId, setSelectedClipId] = React.useState<string | null>(null);
+  const [editMode, setEditMode] = React.useState<NleEditMode>('select');
+  // Editor v2 layout (TASK-237). Default ON; "Legacy" escape hatch persists.
+  const [layoutV2, setLayoutV2] = React.useState<boolean>(readEditorV2Preference);
   const projectPath = project?.path ?? null;
+  React.useEffect(() => {
+    try {
+      window.localStorage.setItem(EDITOR_V2_STORAGE_KEY, layoutV2 ? '1' : '0');
+    } catch {
+      // persistence is best-effort
+    }
+  }, [layoutV2]);
   React.useEffect(() => {
     setPlayheadFrame(0);
     setIsPlaying(false);
     setSelectedClipId(null);
+    setEditMode('select');
   }, [projectPath]);
 
   if (project === null) {
@@ -101,6 +124,15 @@ export function NleShell({
         e.preventDefault();
         setIsPlaying(false);
         setPlayheadFrame((frame) => clampFrame(frame - Math.round(fps), durationFrames));
+      } else if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        setEditMode('select');
+      } else if (e.key === 't' || e.key === 'T') {
+        e.preventDefault();
+        setEditMode('trim');
+      } else if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+        setEditMode('blade');
       }
     }
     document.addEventListener('keydown', handleKey);
@@ -118,43 +150,73 @@ export function NleShell({
           <span>{selectedState}</span>
           <span>{Math.round(clampedPlayhead)} / {Math.round(durationFrames)} frames</span>
           <span>{fps} fps</span>
+          <button
+            type="button"
+            className="nleLayoutToggle"
+            aria-pressed={!layoutV2}
+            title={layoutV2 ? 'Switch to the legacy editor layout' : 'Switch to the Editor v2 layout'}
+            onClick={() => setLayoutV2((value) => !value)}
+          >
+            {layoutV2 ? 'Legacy' : 'v2'}
+          </button>
         </div>
       </header>
-      <div className="nleBody">
-        <div className="nleLeftColumn">
-          <NleProgramMonitor
-            project={project}
-            playheadFrame={clampedPlayhead}
-            isPlaying={isPlaying}
-            fps={fps}
-            durationFrames={durationFrames}
-            onPlayheadFrameChange={setPlayheadFrame}
-            onPlayingChange={setIsPlaying}
-          />
-          <NleTransport
-            playheadFrame={clampedPlayhead}
-            durationFrames={durationFrames}
-            fps={fps}
-            isPlaying={isPlaying}
-            onTogglePlay={() => setIsPlaying((v) => !v)}
-            onPlayheadFrameChange={setPlayheadFrame}
-            canSplit={canSplit}
-            onSplit={splitSelectedClip}
-          />
-          <NleTimeline
-            project={project}
-            playheadFrame={clampedPlayhead}
-            durationFrames={durationFrames}
-            fps={fps}
-            selectedClipId={selectedClipId}
-            onPlayheadFrameChange={setPlayheadFrame}
-            onSelectedClipChange={setSelectedClipId}
-            onProjectChange={onProjectChange}
-            onSplit={splitSelectedClip}
-          />
+      {layoutV2 ? (
+        <EditorV2Layout
+          project={project}
+          playheadFrame={clampedPlayhead}
+          durationFrames={durationFrames}
+          fps={fps}
+          isPlaying={isPlaying}
+          selectedClipId={selectedClipId}
+          editMode={editMode}
+          canSplit={canSplit}
+          onSplit={splitSelectedClip}
+          onEditModeChange={setEditMode}
+          onPlayheadFrameChange={setPlayheadFrame}
+          onPlayingChange={setIsPlaying}
+          onSelectedClipChange={setSelectedClipId}
+          onProjectChange={onProjectChange}
+        />
+      ) : (
+        <div className="nleBody">
+          <div className="nleLeftColumn">
+            <NleProgramMonitor
+              project={project}
+              playheadFrame={clampedPlayhead}
+              isPlaying={isPlaying}
+              fps={fps}
+              durationFrames={durationFrames}
+              onPlayheadFrameChange={setPlayheadFrame}
+              onPlayingChange={setIsPlaying}
+            />
+            <NleTransport
+              playheadFrame={clampedPlayhead}
+              durationFrames={durationFrames}
+              fps={fps}
+              isPlaying={isPlaying}
+              onTogglePlay={() => setIsPlaying((v) => !v)}
+              onPlayheadFrameChange={setPlayheadFrame}
+              canSplit={canSplit}
+              onSplit={splitSelectedClip}
+            />
+            <NleTimeline
+              project={project}
+              playheadFrame={clampedPlayhead}
+              durationFrames={durationFrames}
+              fps={fps}
+              selectedClipId={selectedClipId}
+              editMode={editMode}
+              onEditModeChange={setEditMode}
+              onPlayheadFrameChange={setPlayheadFrame}
+              onSelectedClipChange={setSelectedClipId}
+              onProjectChange={onProjectChange}
+              onSplit={splitSelectedClip}
+            />
+          </div>
+          <AssetPanel project={project} />
         </div>
-        <AssetPanel project={project} />
-      </div>
+      )}
     </section>
   );
 }

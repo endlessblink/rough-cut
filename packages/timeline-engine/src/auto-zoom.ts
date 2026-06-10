@@ -206,6 +206,7 @@ interface RawMarker {
   focalX: number;
   focalY: number;
   zoomScale: number;
+  followCursor?: boolean;
 }
 
 function sessionToRawMarker(
@@ -245,6 +246,7 @@ function mergeOverlappingMarkers(markers: RawMarker[]): RawMarker[] {
         focalX: (last.focalX * spanA + curr.focalX * spanB) / total,
         focalY: (last.focalY * spanA + curr.focalY * spanB) / total,
         zoomScale: Math.max(last.zoomScale, curr.zoomScale),
+        followCursor: last.followCursor === false || curr.followCursor === false ? false : undefined,
       };
     } else {
       merged.push(curr);
@@ -328,9 +330,13 @@ export function generateAutoZoomMarkers(
     sourceWidth,
     sourceHeight,
   );
-  if (triggers.length === 0) return [];
+  const typingTriggers = cursorEvents.filter(
+    (e) => e.type === 'key' && Number.isFinite(e.frame) && Number.isFinite(e.x) && Number.isFinite(e.y),
+  );
+  if (triggers.length === 0 && typingTriggers.length === 0) return [];
 
   const sessions = clusterIntoSessions(triggers, config);
+  const typingSessions = clusterIntoSessions(typingTriggers, config);
 
   const rawMarkers = sessions.map((s) => {
     const focal = computeFocalPoint(s, sourceWidth, sourceHeight);
@@ -339,8 +345,16 @@ export function generateAutoZoomMarkers(
     raw.focalY = focal.focalY;
     return raw;
   });
+  const typingMarkers = typingSessions.map((s) => {
+    const focal = computeFocalPoint(s, sourceWidth, sourceHeight);
+    const raw = sessionToRawMarker(s, config);
+    raw.focalX = focal.focalX;
+    raw.focalY = focal.focalY;
+    raw.followCursor = false;
+    return raw;
+  });
 
-  const merged = mergeOverlappingMarkers(rawMarkers);
+  const merged = mergeOverlappingMarkers([...rawMarkers, ...typingMarkers]);
 
   return merged.map((raw) =>
     createZoomMarker(raw.startFrame, raw.endFrame, {
@@ -349,6 +363,7 @@ export function generateAutoZoomMarkers(
       focalPoint: { x: raw.focalX, y: raw.focalY },
       zoomInDuration: config.zoomInFrames,
       zoomOutDuration: config.zoomOutFrames,
+      followCursor: raw.followCursor,
     }),
   );
 }

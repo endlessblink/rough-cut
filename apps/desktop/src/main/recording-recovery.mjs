@@ -79,10 +79,7 @@ export async function recoverFromMarker({
     captureRegion: marker.captureRegion ?? null,
     cursorTelemetryPath: marker.cursorTelemetryPath ?? null,
     cursorEvents: [],
-    audio: marker.systemAudioSource ? {
-      systemAudioSource: marker.systemAudioSource,
-      systemAudioGainPercent: normalizeSystemAudioGainPercent(marker.systemAudioGainPercent),
-    } : null,
+    audio: buildAudioMetadataFromMarker(marker),
     cameraRawPath: cameraRemux ? marker.cameraRawPath : null,
     cameraOutputPath: cameraRemux ? marker.cameraOutputPath : null,
     cameraDevicePath: cameraRemux ? marker.cameraDevicePath ?? null : null,
@@ -108,10 +105,23 @@ export async function recoverFromMarker({
   };
 }
 
-function normalizeSystemAudioGainPercent(value) {
+function buildAudioMetadataFromMarker(marker) {
+  const audio = {};
+  if (marker.micSource) {
+    audio.micSource = marker.micSource;
+    audio.micGainPercent = normalizeAudioGainPercent(marker.micGainPercent);
+  }
+  if (marker.systemAudioSource) {
+    audio.systemAudioSource = marker.systemAudioSource;
+    audio.systemAudioGainPercent = normalizeAudioGainPercent(marker.systemAudioGainPercent);
+  }
+  return Object.keys(audio).length > 0 ? audio : null;
+}
+
+function normalizeAudioGainPercent(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 100;
-  return Math.max(0, Math.min(100, Math.round(number)));
+  return Math.max(0, Math.min(200, Math.round(number)));
 }
 
 export async function dismissRecovery({ markerPath, deleteFiles = false, fileExists = defaultFileExists }) {

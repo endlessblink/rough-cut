@@ -1,11 +1,10 @@
 import { spawn, spawnSync } from 'node:child_process';
 
-// Streams pointer events from `xinput test-xi2 --root` and reports them via
-// `onButton` and `onMotion` callbacks. Replaces both the per-poll xdotool
-// spawn (which races with x11grab's framebuffer reads) and serves as the
-// single source for click/drag detection. X11-only; gracefully no-ops when
-// xinput is missing. TASK-026 (Wayland pivot) will replace this with a
-// portal/libinput-based listener; the call site stays the same.
+// Streams input events from `xinput test-xi2 --root` and reports pointer
+// events via `onButton`/`onMotion`, plus privacy-safe key press events via
+// `onKey`. X11-only; gracefully no-ops when xinput is missing. TASK-026
+// (Wayland pivot) will replace this with a portal/libinput-based listener;
+// the call site stays the same.
 
 export function isXinputAvailable() {
   try {
@@ -25,27 +24,22 @@ export function isXinputAvailable() {
 //       root: 805.00/652.00
 //       event: 805.00/652.00
 //       ...
-// We care about cooked types 4 (ButtonPress), 5 (ButtonRelease), and 6
-// (Motion) because they carry root-window coords. Raw types 15/16/17 lack
-// root coords. `detail` is the X11 button number for buttons — 1=left,
-// 2=middle, 3=right, 4/5=scroll (filtered out). For motion `detail` is 0.
+// We care about cooked types 2 (KeyPress), 4 (ButtonPress), 5
+// (ButtonRelease), and 6 (Motion) because they carry root-window coords. Raw
+// types 13/14/15/16/17 lack root coords. `detail` is the X11 keycode for key
+// presses and the X11 button number for buttons — 1=left, 2=middle, 3=right,
+// 4/5=scroll (filtered out). For motion `detail` is 0.
+const COOKED_KEY_PRESS = 2;
 const COOKED_BUTTON_PRESS = 4;
 const COOKED_BUTTON_RELEASE = 5;
 const COOKED_MOTION = 6;
-const COOKED_TYPES = new Set([COOKED_BUTTON_PRESS, COOKED_BUTTON_RELEASE, COOKED_MOTION]);
+const COOKED_TYPES = new Set([COOKED_KEY_PRESS, COOKED_BUTTON_PRESS, COOKED_BUTTON_RELEASE, COOKED_MOTION]);
 const X11_BUTTON_TO_SCHEMA = { 1: 0, 2: 1, 3: 2 };
 
-export function createXinputButtonListener({ onButton, onMotion = null }) {
-  if (typeof onButton !== 'function') {
-    throw new TypeError('onButton callback is required');
-  }
-
-  let child = null;
-  let buffer = '';
+export function createXinputEventParser({ onButton, onMotion = null, onKey = null }) {
   let currentEvent = null;
 
   function reset() {
-    buffer = '';
     currentEvent = null;
   }
 
@@ -53,6 +47,15 @@ export function createXinputButtonListener({ onButton, onMotion = null }) {
     if (!currentEvent) return;
     const ev = currentEvent;
     currentEvent = null;
+
+    if (ev.type === COOKED_KEY_PRESS) {
+      if (ev.detail === null) return;
+      if (typeof onKey === 'function') {
+        onKey({ keyCode: ev.detail, x: ev.x, y: ev.y });
+      }
+      return;
+    }
+
     if (ev.x === null || ev.y === null) return;
 
     if (ev.type === COOKED_MOTION) {
@@ -103,6 +106,23 @@ export function createXinputButtonListener({ onButton, onMotion = null }) {
     }
   }
 
+  return { processLines, flushEvent, reset };
+}
+
+export function createXinputButtonListener({ onButton, onMotion = null, onKey = null }) {
+  if (typeof onButton !== 'function') {
+    throw new TypeError('onButton callback is required');
+  }
+
+  let child = null;
+  let buffer = '';
+  const parser = createXinputEventParser({ onButton, onMotion, onKey });
+
+  function reset() {
+    buffer = '';
+    parser.reset();
+  }
+
   function start() {
     if (child) return true;
     if (!isXinputAvailable()) {
@@ -125,13 +145,13 @@ export function createXinputButtonListener({ onButton, onMotion = null }) {
       buffer += chunk;
       const split = buffer.split('\n');
       buffer = split.pop() ?? '';
-      processLines(split);
+      parser.processLines(split);
     });
     child.on('error', (err) => {
       console.warn('[xinput-button-listener] stream error:', err?.message ?? err);
     });
     child.on('exit', () => {
-      flushEvent();
+      parser.flushEvent();
       child = null;
     });
     return true;

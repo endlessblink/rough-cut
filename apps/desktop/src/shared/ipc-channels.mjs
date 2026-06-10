@@ -54,6 +54,8 @@ export const IPC_CHANNELS = {
   RECORDING_CAMERA_PREVIEW_START: 'recording:camera-preview-start',
   RECORDING_CAMERA_PREVIEW_STOP: 'recording:camera-preview-stop',
   RECORDING_CAMERA_PREVIEW_FRAME: 'recording:camera-preview-frame',
+  RECORDING_AUDIO_PREVIEW_START: 'recording:audio-preview-start',
+  RECORDING_AUDIO_PREVIEW_STOP: 'recording:audio-preview-stop',
   RECORDING_GET_DISPLAYS: 'recording:get-displays',
   RECORDING_GET_DISPLAY_BOUNDS: 'recording:get-display-bounds',
   RECORDING_SELECT_CAPTURE_REGION: 'recording:select-capture-region',

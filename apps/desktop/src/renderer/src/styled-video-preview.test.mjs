@@ -91,12 +91,50 @@ test('styled video preview keeps resolving and drawing zoom frames while timelin
 
   assert.match(source, /if \(video\.seeking \|\| video\.readyState < 2\) \{/);
   assert.match(source, /recordPlaybackDebug\('render-skip-video-not-ready'/);
-  assert.match(source, /const frame = resolveCurrentFrame\(currentFrame\)/);
+  assert.match(source, /const sourceFrameFloat = Math\.max\(0, sourceTime \* fps\)/);
+  assert.match(source, /const renderFrame = timeMode === 'timeline' && timelineDecoded/);
+  assert.match(source, /const frame = resolveCurrentFrame\(renderFrame\)/);
   assert.match(source, /resolveTimelinePreviewFrame\(document, currentFrame/);
   assert.match(source, /const screenSource = resolveScreenSourceViewport\(sourceWidth, sourceHeight, frame\.screenCrop\)/);
-  assert.match(source, /ctx\.translate\(screenSource\.w \/ 2 \+ offsetX, screenSource\.h \/ 2 \+ offsetY\)/);
-  assert.match(source, /ctx\.scale\(scale, scale\)/);
-  assert.match(source, /ctx\.drawImage\(video, 0, 0, sourceWidth, sourceHeight\)/);
+  assert.match(source, /resolveZoomMotionBlurPx\(\{/);
+  assert.match(source, /drawZoomMotionSource\(ctx, video, \{/);
+  assert.match(source, /applyScreenSourceTransform\(ctx, \{/);
+  assert.match(source, /const cursorFrame = timeMode === 'timeline' \? screenLayer\?\.sourceFrame \?\? renderFrame : renderFrame/);
+});
+
+test('zoom motion renderer gates blur and keeps cursor overlays out of the blurred source pass', () => {
+  const previewSource = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  const rendererSource = readFileSync(join(here, 'zoom-motion-renderer.ts'), 'utf8');
+  const mainSource = readFileSync(join(here, 'main.tsx'), 'utf8');
+
+  assert.match(rendererSource, /export function resolveZoomMotionBlurPx/);
+  assert.match(rendererSource, /if \(reducedMotion\) return 0/);
+  assert.match(rendererSource, /if \(!Number\.isFinite\(current\.scale\) \|\| current\.scale <= 1\.001\) return 0/);
+  assert.match(rendererSource, /if \(velocity <= 1\) return 0/);
+  assert.match(rendererSource, /ctx\.filter = `blur\(\$\{blurPx\.toFixed\(2\)\}px\)`/);
+  assert.match(previewSource, /reducedMotion: activeTimelinePlayback \|\|/);
+  assert.match(mainSource, /reducedMotion: !video\.paused \|\|/);
+  assert.doesNotMatch(previewSource, /ctx\.filter\s*=/);
+  assert.doesNotMatch(mainSource, /ctx\.filter\s*=/);
+  assert.match(previewSource, /drawZoomMotionSource\(ctx, video, \{/);
+  assert.match(previewSource, /sharpZoom: !activeTimelinePlayback/);
+  assert.match(previewSource, /markDrawPhase\('screen-video'\);\n\s+ctx\.save\(\);\n\s+applyScreenSourceTransform/);
+  assert.match(mainSource, /drawZoomMotionSource\(ctx, video, \{/);
+  assert.match(mainSource, /sharpZoom: video\.paused/);
+  assert.match(mainSource, /applyScreenSourceTransform\(ctx, \{/);
+});
+
+test('zoom motion renderer keeps zoomed screen text crisp when no blur pass is active', () => {
+  const rendererSource = readFileSync(join(here, 'zoom-motion-renderer.ts'), 'utf8');
+
+  assert.match(rendererSource, /const previousImageSmoothingEnabled = ctx\.imageSmoothingEnabled/);
+  assert.match(rendererSource, /const previousImageSmoothingQuality = ctx\.imageSmoothingQuality/);
+  assert.match(rendererSource, /readonly sharpZoom\?: boolean/);
+  assert.match(rendererSource, /if \(blurPx > 0\) \{\n\s+ctx\.filter = `blur/);
+  assert.match(rendererSource, /else if \(sharpZoom !== false && transform\.scale > 1\.001\) \{\n\s+ctx\.imageSmoothingEnabled = false;/);
+  assert.match(rendererSource, /ctx\.imageSmoothingEnabled = previousImageSmoothingEnabled/);
+  assert.match(rendererSource, /ctx\.imageSmoothingQuality = previousImageSmoothingQuality/);
+  assert.doesNotMatch(rendererSource, /else \{\n\s+ctx\.imageSmoothingEnabled = true;\n\s+ctx\.imageSmoothingQuality = 'high';/);
 });
 
 test('styled video preview surfaces offscreen cursor state without clamping cursor draw', () => {

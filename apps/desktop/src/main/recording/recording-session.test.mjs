@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createRecordingSession, getPrimaryX11DisplayInfo, normalizeCaptureRegion, normalizeCursorPoint, resolveCaptureDisplayInfo } from './recording-session.mjs';
+import { createXinputEventParser } from './xinput-button-listener.mjs';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -78,19 +79,25 @@ test('recording session forwards system audio gain and persists it in metadata',
 
   const started = await session.start({
     micSource: 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo',
+    micGainPercent: 150,
     systemAudioSource: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor',
     systemAudioGainPercent: 50,
   });
   assert.equal(started.state, 'recording');
+  assert.equal(started.micGainPercent, 150);
   assert.equal(started.systemAudioGainPercent, 50);
+  assert.equal(captureCalls[0].micGainPercent, 150);
   assert.equal(captureCalls[0].systemAudioGainPercent, 50);
 
   const marker = JSON.parse(await readFile(join(root, 'recovery.json'), 'utf8'));
+  assert.equal(marker.micSource, 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo');
+  assert.equal(marker.micGainPercent, 150);
   assert.equal(marker.systemAudioGainPercent, 50);
 
   const stopped = await session.stop();
   assert.deepEqual(stopped.audio, {
     micSource: 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo',
+    micGainPercent: 150,
     systemAudioSource: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor',
     systemAudioGainPercent: 50,
   });
@@ -421,6 +428,7 @@ test('camera-enabled recording uses one unified capture process by default', asy
   const started = await session.start({
     cameraDevicePath: '/dev/video2',
     micSource: 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo',
+    micGainPercent: 135,
     systemAudioSource: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor',
     systemAudioGainPercent: 45,
   });
@@ -429,6 +437,7 @@ test('camera-enabled recording uses one unified capture process by default', asy
   assert.equal(cameraCaptureCalls.length, 0);
   assert.equal(unifiedCalls.length, 1);
   assert.equal(unifiedCalls[0].cameraDevicePath, '/dev/video2');
+  assert.equal(unifiedCalls[0].micGainPercent, 135);
   assert.equal(unifiedCalls[0].systemAudioGainPercent, 45);
 
   const marker = JSON.parse(await readFile(join(root, 'recovery.json'), 'utf8'));
@@ -619,6 +628,78 @@ test('recording session captures cursor move samples and writes sidecar', async 
   await rm(root, { recursive: true, force: true });
 });
 
+test('xinput parser emits key press telemetry without text content', () => {
+  const keys = [];
+  const buttons = [];
+  const parser = createXinputEventParser({
+    onButton: (event) => buttons.push(event),
+    onKey: (event) => keys.push(event),
+  });
+
+  parser.processLines([
+    'EVENT type 2 (KeyPress)',
+    '    device: 12 (12)',
+    '    detail: 38',
+    '    root: 805.00/652.00',
+    '',
+    'EVENT type 4 (ButtonPress)',
+    '    device: 12 (12)',
+    '    detail: 1',
+    '    root: 900.00/700.00',
+    '',
+  ]);
+
+  assert.deepEqual(keys, [{ keyCode: 38, x: 805, y: 652 }]);
+  assert.equal(Object.hasOwn(keys[0], 'text'), false);
+  assert.deepEqual(buttons, [{ type: 'down', button: 0, x: 900, y: 700 }]);
+});
+
+test('recording session writes key telemetry at the focused typing anchor', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-key-telemetry-'));
+  let nowMs = Date.parse('2026-04-28T12:00:00.000Z');
+  let handlers = null;
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date(nowMs),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+10,20', originX: 10, originY: 20, scaleFactor: 1, width: 1000, height: 800 }),
+    getCursorPoint: () => ({ x: 40, y: 50 }),
+    sampleIntervalMs: 1000,
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+    buttonListenerFactory: (callbacks) => {
+      handlers = callbacks;
+      return { start: () => true, stop: () => {}, getPid: () => null, kill: () => {} };
+    },
+  });
+
+  await session.start();
+  await wait(0);
+  nowMs += 100;
+  handlers.onButton({ type: 'down', button: 0, x: 210, y: 120 });
+  nowMs += 100;
+  handlers.onKey({ keyCode: 38, x: 900, y: 700 });
+  const stopped = await session.stop();
+
+  const keyEvents = stopped.cursorEvents.filter((event) => event.type === 'key');
+  assert.equal(keyEvents.length, 1);
+  assert.deepEqual(keyEvents[0], {
+    frame: 6,
+    timeMs: 200,
+    x: 200,
+    y: 100,
+    type: 'key',
+    button: 0,
+    keyCode: 38,
+  });
+
+  const sidecar = JSON.parse(await readFile(stopped.cursorTelemetryPath, 'utf8'));
+  assert.deepEqual(sidecar.events.filter((event) => event.type === 'key'), keyEvents);
+
+  await rm(root, { recursive: true, force: true });
+});
+
 test('recording session passes selected mic source to capture and saved result', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-mic-'));
   const micSource = 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo';
@@ -643,7 +724,7 @@ test('recording session passes selected mic source to capture and saved result',
 
   const stopped = await session.stop();
   assert.equal(stopped.state, 'saved');
-  assert.deepEqual(stopped.audio, { micSource });
+  assert.deepEqual(stopped.audio, { micSource, micGainPercent: 100 });
 
   await rm(root, { recursive: true, force: true });
 });
@@ -700,7 +781,7 @@ test('recording session persists mixed mic and system audio metadata', async () 
   assert.equal(captureCalls[0].systemAudioSource, systemAudioSource);
 
   const stopped = await session.stop();
-  assert.deepEqual(stopped.audio, { micSource, systemAudioSource, systemAudioGainPercent: 100 });
+  assert.deepEqual(stopped.audio, { micSource, micGainPercent: 100, systemAudioSource, systemAudioGainPercent: 100 });
 
   await rm(root, { recursive: true, force: true });
 });

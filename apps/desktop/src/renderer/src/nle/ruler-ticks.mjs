@@ -1,4 +1,9 @@
-const MIN_LABEL_PX = 40;
+// A "00:00:00" label in the ruler's monospace 0.62rem font is ~48px wide;
+// labels closer than that collide into an unreadable wall (reproduced on a
+// 29-minute recording at fit zoom). Keep at least a label-width of air.
+const MIN_LABEL_PX = 56;
+// Minor ticks closer than this merge into a solid stripe — drop them.
+const MIN_MINOR_TICK_PX = 7;
 const SHORT_TIMELINE_SECONDS = 60;
 const LONG_TIMELINE_SECONDS = 300;
 const CANDIDATE_INTERVALS = Object.freeze([1, 5, 10, 15, 30, 60, 120, 300]);
@@ -19,6 +24,18 @@ export function formatRulerLabel(seconds) {
   return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}:00`;
 }
 
+// Densest sub-interval of the major that still leaves MIN_MINOR_TICK_PX
+// between minor ticks. Returns null when even the coarsest divisor is too
+// dense (previously minors were emitted every second unconditionally —
+// ~1,700 overlapping ticks on a 29-minute timeline).
+export function pickMinorInterval(majorInterval, pixelsPerSecond) {
+  const major = Number(majorInterval);
+  const pxPerSecond = Number(pixelsPerSecond);
+  if (!Number.isFinite(major) || major <= 1 || !Number.isFinite(pxPerSecond) || pxPerSecond <= 0) return null;
+  return CANDIDATE_INTERVALS.find((interval) =>
+    interval < major && major % interval === 0 && interval * pxPerSecond >= MIN_MINOR_TICK_PX) ?? null;
+}
+
 export function buildRulerTicks(durationFrames, fps, widthPx) {
   const totalFrames = Math.max(0, Math.round(Number(durationFrames) || 0));
   const frameRate = Number(fps);
@@ -26,7 +43,7 @@ export function buildRulerTicks(durationFrames, fps, widthPx) {
   const durationSeconds = totalFrames / frameRate;
   const pxPerSecond = Number(widthPx) / durationSeconds;
   const majorInterval = pickTickInterval(durationSeconds, pxPerSecond);
-  const minorInterval = majorInterval > 1 ? 1 : null;
+  const minorInterval = pickMinorInterval(majorInterval, pxPerSecond);
   const ticks = [];
 
   if (minorInterval) {

@@ -28,6 +28,7 @@ import { getCameraLayoutRect, resolveFrame, resolveTimelineFrame, resolveTimelin
 import { visibleDurationFrames, visibleFrameToSourceFrame } from './cut-ranges.mjs';
 import { getCursorEvents } from './cursor-data.mjs';
 import { getPrimaryRecordingAsset } from './zoom-markers.mjs';
+import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import {
   cameraCoversSourceTime,
   clampedCameraTime,
@@ -1050,7 +1051,8 @@ export function StyledVideoPreview({
       const sourceTime = timeMode === 'timeline' && Number.isFinite(metadata?.mediaTime)
         ? Number(metadata?.mediaTime)
         : video.currentTime;
-      const sourceFrame = Math.max(0, Math.round(sourceTime * fps));
+      const sourceFrameFloat = Math.max(0, sourceTime * fps);
+      const sourceFrame = Math.max(0, Math.round(sourceFrameFloat));
       const timelineDecoded = timeMode === 'timeline' && isPlaying
         ? handleTimelineDecodedFrame(sourceFrame)
         : null;
@@ -1067,6 +1069,9 @@ export function StyledVideoPreview({
       const currentFrame = timeMode === 'timeline'
         ? timelineDecoded?.timelineFrame ?? Math.max(0, Math.round(currentTimeRef.current * fps))
         : sourceFrame;
+      const renderFrame = timeMode === 'timeline' && timelineDecoded
+        ? timelineDecoded.timelineFrame + (sourceFrameFloat - sourceFrame)
+        : sourceFrameFloat;
       if (timeMode === 'timeline' && isPlaying) {
         timelineFrameFallbackRef.current = currentFrame;
         updateCurrentTime(Math.min(timelineDuration, currentFrame / fps));
@@ -1116,12 +1121,22 @@ export function StyledVideoPreview({
         drawTimings[name] = Math.round((nextAtMs - drawPhaseStartedAtMs) * 10) / 10;
         drawPhaseStartedAtMs = nextAtMs;
       };
-      const frame = resolveCurrentFrame(currentFrame);
+      const frame = resolveCurrentFrame(renderFrame);
       const activeTimelinePlayback = timeMode === 'timeline' && isPlaying;
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = activeTimelinePlayback ? 'low' : 'high';
       const screenLayer = frame.layers?.find((layer: { isCamera?: boolean }) => !layer.isCamera) ?? null;
       const { scale, offsetX, offsetY } = frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 };
+      const previousMotionFrame = resolveCurrentFrame(Math.max(0, renderFrame - 1));
+      const nextMotionFrame = resolveCurrentFrame(renderFrame + 1);
+      const zoomMotionBlurPx = resolveZoomMotionBlurPx({
+        previous: previousMotionFrame.cameraTransform,
+        current: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
+        next: nextMotionFrame.cameraTransform,
+        sourceWidth,
+        sourceHeight,
+        reducedMotion: activeTimelinePlayback || (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches),
+      });
       const dragScreenRect = screenDragRef.current;
       const resolvedScreenFrame = dragScreenRect
         ? { x: dragScreenRect.x * canvasWidth, y: dragScreenRect.y * canvasHeight, w: dragScreenRect.w * canvasWidth, h: dragScreenRect.h * canvasHeight }
@@ -1189,21 +1204,34 @@ export function StyledVideoPreview({
       ctx.save();
       addRoundedRect(ctx, screenX, screenY, screenWidth, screenHeight, screenRadius);
       ctx.clip();
-      ctx.translate(screenX, screenY);
-      ctx.scale(effectiveScreenDrawScale, effectiveScreenDrawScale);
-      ctx.translate(screenSource.w / 2 + offsetX, screenSource.h / 2 + offsetY);
-      ctx.scale(scale, scale);
-      ctx.translate(-(screenSource.x + screenSource.w / 2), -(screenSource.y + screenSource.h / 2));
       try {
-        ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+        drawZoomMotionSource(ctx, video, {
+          screenX,
+          screenY,
+          screenDrawScale: effectiveScreenDrawScale,
+          screenSource,
+          sourceWidth,
+          sourceHeight,
+          transform: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
+          blurPx: zoomMotionBlurPx,
+          sharpZoom: !activeTimelinePlayback,
+        });
       } catch {
         ctx.restore();
         scheduleNextDraw();
         return;
       }
       markDrawPhase('screen-video');
+      ctx.save();
+      applyScreenSourceTransform(ctx, {
+        screenX,
+        screenY,
+        screenDrawScale: effectiveScreenDrawScale,
+        screenSource,
+        transform: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
+      });
       const resolvedCursor = frame.cursor;
-      const cursorFrame = timeMode === 'timeline' ? screenLayer?.sourceFrame ?? currentFrame : currentFrame;
+      const cursorFrame = timeMode === 'timeline' ? screenLayer?.sourceFrame ?? renderFrame : renderFrame;
       drawClickEmphasis(ctx, cursorEvents, cursorFrame, resolvedCursor?.clickEffect ?? 'ring');
       const cursorPos = cursorAtTimeMs(cursorEvents, (cursorFrame / fps) * 1000, fps);
       const cursorBounds = getCursorBoundsStatus(cursorPos, sourceWidth, sourceHeight);
@@ -1220,6 +1248,7 @@ export function StyledVideoPreview({
           sizePercent: resolvedCursor?.sizePercent ?? 100,
         });
       }
+      ctx.restore();
       ctx.restore();
       if (zoomSafety) {
         drawZoomAuthoringSafetyOverlay(ctx, zoomSafety, cursorPos, {

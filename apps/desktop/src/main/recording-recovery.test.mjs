@@ -95,13 +95,15 @@ test('recoverFromMarker remuxes, saves a project, and clears the marker', async 
   await rm(root, { recursive: true, force: true });
 });
 
-test('recoverFromMarker preserves system audio gain metadata', async () => {
+test('recoverFromMarker preserves recorded audio gain metadata', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-recovery-audio-gain-'));
   const markerPath = join(root, 'recovery.json');
   await writeFile(markerPath, JSON.stringify({
     ...baseMarker,
+    micSource: 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo',
+    micGainPercent: 175,
     systemAudioSource: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor',
-    systemAudioGainPercent: 50,
+    systemAudioGainPercent: 250,
   }), 'utf8');
 
   let savedRecording = null;
@@ -118,8 +120,10 @@ test('recoverFromMarker preserves system audio gain metadata', async () => {
   });
 
   assert.deepEqual(savedRecording.audio, {
+    micSource: 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo',
+    micGainPercent: 175,
     systemAudioSource: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor',
-    systemAudioGainPercent: 50,
+    systemAudioGainPercent: 200,
   });
 
   await rm(root, { recursive: true, force: true });

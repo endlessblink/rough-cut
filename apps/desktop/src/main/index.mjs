@@ -13,7 +13,7 @@ import { deleteProjectFiles, listProjectSummaries } from './project-gallery.mjs'
 import { registerMediaProtocol, toMediaUrl } from './media-protocol.mjs';
 import { remuxMkvSegmentsToMp4, remuxMkvToMp4 } from './remux-service.mjs';
 import { createRecordingSession, getPrimaryX11DisplayInfo } from './recording/recording-session.mjs';
-import { startFfmpegCameraPreview } from './recording/ffmpeg-capture.mjs';
+import { startFfmpegAudioMonitor, startFfmpegCameraPreview } from './recording/ffmpeg-capture.mjs';
 import { listPulseAudioMicSources, listPulseAudioSystemAudioSources } from './recording/audio-sources.mjs';
 import { listV4l2CameraSources } from './recording/camera-sources.mjs';
 import { getRecordingPreflightStatus } from './recording/preflight.mjs';
@@ -79,6 +79,7 @@ let hiddenRecordingOptions = null;
 let hiddenRecordingStopping = false;
 let activeRecordingFinalizePromise = null;
 let activeCameraPreview = null;
+let activeAudioPreview = null;
 let activeExportController = null;
 const recordingSession = createRecordingSession({
   recordingsDir,
@@ -403,6 +404,20 @@ async function stopActiveCameraPreview(token = null) {
   }
 }
 
+async function stopActiveAudioPreview(token = null) {
+  const preview = activeAudioPreview;
+  if (!preview || (token && preview.token !== token)) return;
+  activeAudioPreview = null;
+  try {
+    await Promise.race([
+      preview.handle.stop(),
+      new Promise((resolve) => setTimeout(resolve, 2500)),
+    ]);
+  } catch (err) {
+    console.warn('[audio-preview] stop failed:', err?.message ?? err);
+  }
+}
+
 ipcMain.handle(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion());
 ipcMain.handle(IPC_CHANNELS.APP_GET_RUNTIME_LOG_PATH, () => runtimeLogPath);
 ipcMain.handle(IPC_CHANNELS.APP_WRITE_PLAYBACK_DEBUG_REPORT, async (_event, report = {}) => {
@@ -464,6 +479,29 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_CAMERA_PREVIEW_STOP, async (_event, token 
   await stopActiveCameraPreview(token);
   return { stopped: true };
 });
+ipcMain.handle(IPC_CHANNELS.RECORDING_AUDIO_PREVIEW_START, async (event, options = {}) => {
+  const micSource = typeof options.micSource === 'string' ? options.micSource.trim() : '';
+  const systemAudioSource = typeof options.systemAudioSource === 'string' ? options.systemAudioSource.trim() : '';
+  if (!micSource && !systemAudioSource) throw new Error('Select a microphone or system audio source before monitoring.');
+  await stopActiveAudioPreview();
+  const token = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const handle = startFfmpegAudioMonitor({
+    micSource: micSource || null,
+    micGainPercent: options.micGainPercent,
+    systemAudioSource: systemAudioSource || null,
+    systemAudioGainPercent: options.systemAudioGainPercent,
+  });
+  if (!handle) throw new Error('No audio source is available to monitor.');
+  activeAudioPreview = { token, sender: event.sender, handle };
+  event.sender.once('destroyed', () => {
+    if (activeAudioPreview?.token === token) void stopActiveAudioPreview(token);
+  });
+  return { token, pid: handle.getPid?.() ?? null };
+});
+ipcMain.handle(IPC_CHANNELS.RECORDING_AUDIO_PREVIEW_STOP, async (_event, token = null) => {
+  await stopActiveAudioPreview(token);
+  return { stopped: true };
+});
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_DISPLAYS, () => listCaptureDisplays());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, async (_event, options = {}) => {
   const [micSources, systemAudioSources, cameraSources] = await Promise.all([
@@ -483,6 +521,7 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_GET_PREFLIGHT_STATUS, async (_event, optio
 ipcMain.handle(IPC_CHANNELS.RECORDING_START, async (event, options = {}) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   const { hideWindowDuringRecording, ...recordingOptions } = options ?? {};
+  await stopActiveAudioPreview();
   await stopActiveCameraPreview();
   if (hideWindowDuringRecording && senderWindow) {
     hiddenRecorderWindow = senderWindow;
@@ -521,6 +560,7 @@ ipcMain.handle(IPC_CHANNELS.RECORDING_RESUME, async () => {
 });
 ipcMain.handle(IPC_CHANNELS.RECORDING_RESTART, async (_event, options = null) => {
   updateRecordingTray(null, 'restarting');
+  await stopActiveAudioPreview();
   const status = await recordingSession.restart(options);
   updateRecordingTray(null, 'recording');
   return status;
@@ -838,6 +878,8 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  void stopActiveAudioPreview();
+  void stopActiveCameraPreview();
   globalShortcut.unregister(recordingStopShortcut);
   globalShortcut.unregister(recordingRestartShortcut);
   destroyRecordingTray();
@@ -1004,6 +1046,13 @@ async function runRendererSidebarLayoutSmoke() {
 // Marker is intentionally left in place — TASK-088 surfaces it for recovery on
 // next launch. Don't await stop() here — Node exits as the event loop drains.
 function reapAndExit(signal) {
+  try {
+    const preview = activeAudioPreview;
+    activeAudioPreview = null;
+    preview?.handle?.kill?.('SIGTERM');
+  } catch (err) {
+    console.error(`[audio-preview] ${signal}: reap failed`, err);
+  }
   try {
     const reaped = recordingSession.terminateChildren('SIGTERM');
     if (reaped.length > 0) {
@@ -1745,9 +1794,14 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   }
   const micSelect = document.querySelector('select[aria-label="Mic source"]');
   const systemSelect = document.querySelector('select[aria-label="System source"]');
+  let hasMicAudioGainControl = false;
+  let micAudioGainValue = null;
+  let exercisedMicAudioGainControl = false;
   let hasSystemAudioGainControl = false;
   let systemAudioGainValue = null;
   let exercisedSystemAudioGainControl = false;
+  let hasAudioPreviewMonitor = false;
+  let hasCustomAudioGainRangeSkin = false;
   const selectableMicOption = micSelect
     ? Array.from(micSelect.options).find((option) => option.value && option.value !== '__off' && !option.disabled)
     : null;
@@ -1761,18 +1815,38 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     micSelect.dispatchEvent(new Event('change', { bubbles: true }));
     systemSelect.value = selectableSystemOption.value;
     systemSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    const gainControl = await waitFor(() => document.querySelector('[data-ui-region="system-audio-gain"]'), 'system audio gain control');
-    const gainInput = gainControl?.querySelector('input[type="range"]');
-    if (gainInput) {
-      gainInput.value = '50';
-      gainInput.dispatchEvent(new Event('input', { bubbles: true }));
-      gainInput.dispatchEvent(new Event('change', { bubbles: true }));
+    const micGainControl = await waitFor(() => document.querySelector('[data-ui-region="mic-audio-gain"]'), 'mic audio gain control');
+    const systemGainControl = await waitFor(() => document.querySelector('[data-ui-region="system-audio-gain"]'), 'system audio gain control');
+    const monitorControl = await waitFor(() => document.querySelector('[data-ui-region="audio-preview-monitor"]'), 'audio preview monitor control');
+    const micGainInput = micGainControl?.querySelector('input[type="range"]');
+    const systemGainInput = systemGainControl?.querySelector('input[type="range"]');
+    if (micGainInput) {
+      micGainInput.value = '150';
+      micGainInput.dispatchEvent(new Event('input', { bubbles: true }));
+      micGainInput.dispatchEvent(new Event('change', { bubbles: true }));
+      hasMicAudioGainControl = true;
+      micAudioGainValue = Number(micGainInput.value);
+      exercisedMicAudioGainControl = micAudioGainValue === 150;
+    }
+    if (systemGainInput) {
+      systemGainInput.value = '50';
+      systemGainInput.dispatchEvent(new Event('input', { bubbles: true }));
+      systemGainInput.dispatchEvent(new Event('change', { bubbles: true }));
       hasSystemAudioGainControl = true;
-      systemAudioGainValue = Number(gainInput.value);
+      systemAudioGainValue = Number(systemGainInput.value);
       exercisedSystemAudioGainControl = systemAudioGainValue === 50;
     }
+    hasAudioPreviewMonitor = Boolean(monitorControl?.querySelector('button:not(:disabled)'));
+    hasCustomAudioGainRangeSkin = Boolean(
+      micGainControl?.querySelector('.rangeVisual .rangeFill')
+        && micGainControl?.querySelector('.rangeVisual .rangeThumb')
+        && systemGainControl?.querySelector('.rangeVisual .rangeFill')
+        && systemGainControl?.querySelector('.rangeVisual .rangeThumb'),
+    );
   } else {
+    hasMicAudioGainControl = Boolean(document.querySelector('[data-ui-region="mic-audio-gain"]'));
     hasSystemAudioGainControl = Boolean(document.querySelector('[data-ui-region="system-audio-gain"]'));
+    hasAudioPreviewMonitor = Boolean(document.querySelector('[data-ui-region="audio-preview-monitor"]'));
   }
   let hasInvalidRegionRejected = !options.invalidRegion;
   if (options.audioGainOnly) {
@@ -1784,9 +1858,14 @@ async function runRendererRecordingFlowSmoke(options = {}) {
       hasCaptureTargetSelect: Boolean(captureTargetSelect),
       hasCaptureSourcePicker,
       hasDisabledWindowSource,
+      hasMicAudioGainControl,
+      micAudioGainValue,
+      exercisedMicAudioGainControl,
       hasSystemAudioGainControl,
       systemAudioGainValue,
       exercisedSystemAudioGainControl,
+      hasAudioPreviewMonitor,
+      hasCustomAudioGainRangeSkin,
       micOptionCount,
       systemOptionCount,
       hasNoRegionNumberInputs,
@@ -1875,9 +1954,14 @@ async function runRendererRecordingFlowSmoke(options = {}) {
       hasCaptureTargetSelect: Boolean(captureTargetSelect),
       hasCaptureSourcePicker,
       hasDisabledWindowSource,
+      hasMicAudioGainControl,
+      micAudioGainValue,
+      exercisedMicAudioGainControl,
       hasSystemAudioGainControl,
       systemAudioGainValue,
       exercisedSystemAudioGainControl,
+      hasAudioPreviewMonitor,
+      hasCustomAudioGainRangeSkin,
       micOptionCount,
       systemOptionCount,
       hasNoRegionNumberInputs,
@@ -1910,7 +1994,30 @@ async function runRendererRecordingFlowSmoke(options = {}) {
   const hasCentralStage = Boolean(document.querySelector('[data-ui-region="central-stage"]'));
   const hasTimelineRail = Boolean(document.querySelector('[data-ui-region="timeline-review-rail"]'));
   const hasRightInspector = Boolean(document.querySelector('[data-ui-region="right-inspector"]'));
-  const hasReviewWorkspace = Boolean(document.querySelector('[data-ui-region="post-recording-review"]'));
+  const reviewWorkspace = document.querySelector('[data-ui-region="post-recording-review"]');
+  const hasReviewWorkspace = Boolean(reviewWorkspace);
+  const rectJson = (rect) => rect ? {
+    x: Math.round(rect.x),
+    y: Math.round(rect.y),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+  } : null;
+  const editorWorkspaceRect = document.querySelector('[data-ui-region="editor-workspace"]')?.getBoundingClientRect();
+  const centralStageRect = document.querySelector('[data-ui-region="central-stage"]')?.getBoundingClientRect();
+  const timelineRailRect = document.querySelector('[data-ui-region="timeline-review-rail"]')?.getBoundingClientRect();
+  const hasVisibleReviewWorkspace = Boolean(
+    editorWorkspaceRect
+      && centralStageRect
+      && timelineRailRect
+      && editorWorkspaceRect.width > 0
+      && editorWorkspaceRect.height > 0
+      && centralStageRect.width > 0
+      && centralStageRect.height > 0
+      && timelineRailRect.width > 0
+      && timelineRailRect.height > 0,
+  );
+  const savedBannerRect = document.querySelector('[data-recording-state="saved"]')?.getBoundingClientRect();
+  const savedBannerHidden = !savedBannerRect || savedBannerRect.width === 0 || savedBannerRect.height === 0;
   const hasPostRecordingActions = Boolean(document.querySelector('[data-ui-region="post-recording-actions"]'));
   const reviewActionText = document.querySelector('[data-ui-region="post-recording-actions"]')?.textContent ?? '';
   const hasReviewExportActions = Boolean(document.querySelector('[data-export-action="styled"]') && document.querySelector('[data-export-action="raw"]'));
@@ -1929,9 +2036,14 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     hasCaptureTargetSelect: Boolean(captureTargetSelect),
     hasCaptureSourcePicker,
     hasDisabledWindowSource,
+    hasMicAudioGainControl,
+    micAudioGainValue,
+    exercisedMicAudioGainControl,
     hasSystemAudioGainControl,
     systemAudioGainValue,
     exercisedSystemAudioGainControl,
+    hasAudioPreviewMonitor,
+    hasCustomAudioGainRangeSkin,
     micOptionCount,
     systemOptionCount,
     hasNoRegionNumberInputs,
@@ -1945,6 +2057,13 @@ async function runRendererRecordingFlowSmoke(options = {}) {
     hasTimelineRail,
     hasRightInspector,
     hasReviewWorkspace,
+    hasVisibleReviewWorkspace,
+    reviewWorkspaceGeometry: {
+      editorWorkspace: rectJson(editorWorkspaceRect),
+      centralStage: rectJson(centralStageRect),
+      timelineRail: rectJson(timelineRailRect),
+    },
+    savedBannerHidden,
     hasPostRecordingActions,
     hasReviewExportActions,
     hasReviewNextActions,
@@ -1985,6 +2104,28 @@ async function runRendererEditorLoadedSmoke() {
   await waitFor(() => document.querySelector('[data-ui-region="post-recording-review"]'), 'post-recording review workspace');
   const reviewActionText = document.querySelector('[data-ui-region="post-recording-actions"]')?.textContent ?? '';
   const reviewCameraWarningText = document.querySelector('[data-review-warning="camera"]')?.textContent ?? '';
+  const rectJson = (rect) => rect ? {
+    x: Math.round(rect.x),
+    y: Math.round(rect.y),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+  } : null;
+  const editorWorkspaceRect = document.querySelector('[data-ui-region="editor-workspace"]')?.getBoundingClientRect();
+  const centralStageRect = document.querySelector('[data-ui-region="central-stage"]')?.getBoundingClientRect();
+  const timelineRailRect = document.querySelector('[data-ui-region="timeline-review-rail"]')?.getBoundingClientRect();
+  const hasVisibleReviewWorkspace = Boolean(
+    editorWorkspaceRect
+      && centralStageRect
+      && timelineRailRect
+      && editorWorkspaceRect.width > 0
+      && editorWorkspaceRect.height > 0
+      && centralStageRect.width > 0
+      && centralStageRect.height > 0
+      && timelineRailRect.width > 0
+      && timelineRailRect.height > 0,
+  );
+  const savedBannerRect = document.querySelector('[data-recording-state="saved"]')?.getBoundingClientRect();
+  const savedBannerHidden = !savedBannerRect || savedBannerRect.width === 0 || savedBannerRect.height === 0;
 
   return {
     hasStudioShell: Boolean(document.querySelector('[data-ui-shell="recording-studio"]')),
@@ -1996,6 +2137,13 @@ async function runRendererEditorLoadedSmoke() {
     hasReviewExportActions: Boolean(document.querySelector('[data-export-action="styled"]') && document.querySelector('[data-export-action="raw"]')),
     hasReviewNextActions: ['Folder', 'Diagnostics', 'Project', 'New'].every((label) => reviewActionText.includes(label)),
     hasReviewCameraWarning: reviewCameraWarningText.includes('Screen recording preserved') && reviewCameraWarningText.includes('without webcam PiP'),
+    hasVisibleReviewWorkspace,
+    reviewWorkspaceGeometry: {
+      editorWorkspace: rectJson(editorWorkspaceRect),
+      centralStage: rectJson(centralStageRect),
+      timelineRail: rectJson(timelineRailRect),
+    },
+    savedBannerHidden,
     hasStyledPreviewCanvas: Boolean(document.querySelector('canvas.styledPreviewCanvas')),
     hasVideo: Boolean(document.querySelector('video')),
     duration: document.querySelector('video')?.duration ?? null,

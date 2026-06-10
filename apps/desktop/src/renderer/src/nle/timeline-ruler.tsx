@@ -25,18 +25,37 @@ export function TimelineRuler({
     return () => observer.disconnect();
   }, [bodiesRef]);
 
+  // Captured pointer scrub: events stay on the ruler element (no window
+  // listeners to leak) and pointercancel ends the gesture cleanly.
   function startScrub(e: React.PointerEvent<HTMLDivElement>) {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
     onSeekFrame(e.clientX);
-    const handleMove = (ev: PointerEvent) => onSeekFrame(ev.clientX);
-    const handleUp = () => {
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('pointerup', handleUp);
+    const el = e.currentTarget;
+    const pointerId = e.pointerId;
+    const handleMove = (ev: PointerEvent) => {
+      if (ev.pointerId === pointerId) onSeekFrame(ev.clientX);
     };
-    window.addEventListener('pointermove', handleMove);
-    window.addEventListener('pointerup', handleUp);
+    const handleEnd = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      el.removeEventListener('pointermove', handleMove);
+      el.removeEventListener('pointerup', handleEnd);
+      el.removeEventListener('pointercancel', handleEnd);
+      try {
+        el.releasePointerCapture(pointerId);
+      } catch {
+        // already released
+      }
+    };
+    el.addEventListener('pointermove', handleMove);
+    el.addEventListener('pointerup', handleEnd);
+    el.addEventListener('pointercancel', handleEnd);
+    try {
+      el.setPointerCapture(pointerId);
+    } catch {
+      // capture unsupported — bubbled events still reach the element
+    }
   }
 
   const ticks = buildRulerTicks(durationFrames, fps, widthPx);

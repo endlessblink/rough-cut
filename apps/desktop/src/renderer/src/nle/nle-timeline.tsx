@@ -1,11 +1,22 @@
 import React from 'react';
 import { buildTimelineTracks } from './timeline-clips.mjs';
-import { addGeneratedAssetToTrack, moveClipById, removeClipById, reorderTrackById, trimClipById, updateTrackById } from './clip-mutations.mjs';
+import { addGeneratedAssetToTrack, canSplitClipById, consumeLastCommandError, moveClipById, removeClipById, reorderTrackById, rightClipIdAfterSplit, splitClipById, trimClipById, updateTrackById } from './clip-mutations.mjs';
 import { TimelineRuler } from './timeline-ruler';
+import { NleModeToolbar } from './mode-toolbar';
+import { CornersIn, Minus, Plus } from '@phosphor-icons/react';
+import type { NleEditMode } from './mode-toolbar';
 import { isTypingTarget } from './keyboard.mjs';
 import { snapFrameToClipEdges, snapFrameToClipEdgesExcept } from './snap.mjs';
 import { createDragSession, timelineInFromPointerFrame, trackIdFromClientY, updateDragSession } from './drag-session.mjs';
 import { createTrimSession, updateTrimSession } from './trim-session.mjs';
+import {
+  contentWidthPx,
+  frameAtClientX,
+  resolvePixelsPerFrame,
+  scrollLeftForAnchor,
+  snapThresholdFrames,
+  zoomStep,
+} from './timeline-viewport.mjs';
 import type { NleProject } from './types';
 import type { TrimEdge, TrimSession } from './trim-session.mjs';
 
@@ -15,6 +26,8 @@ export function NleTimeline({
   durationFrames,
   fps,
   selectedClipId,
+  editMode,
+  onEditModeChange,
   onPlayheadFrameChange,
   onSelectedClipChange,
   onProjectChange,
@@ -25,35 +38,177 @@ export function NleTimeline({
   durationFrames: number;
   fps: number;
   selectedClipId: string | null;
+  editMode: NleEditMode;
+  onEditModeChange: (mode: NleEditMode) => void;
   onPlayheadFrameChange: (frame: number) => void;
   onSelectedClipChange: (clipId: string | null) => void;
   onProjectChange?: (next: NleProject) => void;
   onSplit: () => void;
 }) {
-  // The "bodies column" is the body-only strip (no headers). Click→frame
-  // math measures it directly, so clicks at the visual start of the
-  // bodies land on frame 0 without an off-by-header-width error.
+  // The "bodies column" is the body-only strip (no headers) and the
+  // horizontal-scroll container. Inside it, the content strip is sized to
+  // durationFrames * pixelsPerFrame; clip/tick/playhead percentages resolve
+  // against that zoomed width, so percent positioning stays frame-exact.
+  // Click→frame math measures the CONTENT rect (its left edge already
+  // accounts for scroll), so clicks land on the right frame at any zoom.
   const bodiesRef = React.useRef<HTMLDivElement | null>(null);
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
+  const pendingScrollLeftRef = React.useRef<number | null>(null);
   const [trimSession, setTrimSession] = React.useState<TrimSession | null>(null);
   const [dragSession, setDragSession] = React.useState<any | null>(null);
   const [generatedDropTarget, setGeneratedDropTarget] = React.useState<{ trackId: string; valid: boolean } | null>(null);
+  // null = fit-to-width (default; first paint matches the pre-zoom layout).
+  const [zoomPpf, setZoomPpf] = React.useState<number | null>(null);
+  const [viewWidthPx, setViewWidthPx] = React.useState(0);
+  // Surfaced command failure (a rejected trim/move used to be silent).
+  const [commandError, setCommandError] = React.useState<string | null>(null);
+  const commandErrorTimerRef = React.useRef<number | null>(null);
+
+  function flashCommandError(message: string) {
+    if (commandErrorTimerRef.current !== null) window.clearTimeout(commandErrorTimerRef.current);
+    setCommandError(message);
+    commandErrorTimerRef.current = window.setTimeout(() => {
+      setCommandError(null);
+      commandErrorTimerRef.current = null;
+    }, 3200);
+  }
+  React.useEffect(() => () => {
+    if (commandErrorTimerRef.current !== null) window.clearTimeout(commandErrorTimerRef.current);
+  }, []);
+
+  // Commit helper: a same-reference result is either a benign no-op or a
+  // rejected command — consume the error mailbox to tell them apart.
+  function commitOrSurface(next: unknown) {
+    if (!project || !onProjectChange) return false;
+    if (next !== project) {
+      onProjectChange(next as unknown as NleProject);
+      return true;
+    }
+    const error = consumeLastCommandError();
+    if (error) flashCommandError(error.message);
+    return false;
+  }
+
+  // --- Captured pointer gestures -------------------------------------------
+  // One gesture at a time. setPointerCapture keeps every pointermove/up/
+  // cancel on the pressed element (no window-listener leaks), pointercancel
+  // aborts without committing, and unmount/project-switch tears the active
+  // gesture down so a clip can never get stuck in dragging/trimming state.
+  const activeGestureRef = React.useRef<(() => void) | null>(null);
+
+  function beginGesture(
+    e: React.PointerEvent<Element>,
+    handlers: { onMove?: (ev: PointerEvent) => void; onEnd?: (ev: PointerEvent) => void; onAbort?: () => void },
+  ) {
+    activeGestureRef.current?.();
+    const el = e.currentTarget as HTMLElement;
+    const pointerId = e.pointerId;
+    const handleMove = (ev: PointerEvent) => {
+      if (ev.pointerId === pointerId) handlers.onMove?.(ev);
+    };
+    const cleanup = () => {
+      el.removeEventListener('pointermove', handleMove);
+      el.removeEventListener('pointerup', handleUp);
+      el.removeEventListener('pointercancel', handleCancel);
+      try {
+        el.releasePointerCapture(pointerId);
+      } catch {
+        // capture already released (or never granted) — nothing to undo
+      }
+      activeGestureRef.current = null;
+    };
+    const handleUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      cleanup();
+      handlers.onEnd?.(ev);
+    };
+    const handleCancel = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      cleanup();
+      handlers.onAbort?.();
+    };
+    activeGestureRef.current = () => {
+      cleanup();
+      handlers.onAbort?.();
+    };
+    el.addEventListener('pointermove', handleMove);
+    el.addEventListener('pointerup', handleUp);
+    el.addEventListener('pointercancel', handleCancel);
+    try {
+      el.setPointerCapture(pointerId);
+    } catch {
+      // capture unsupported — element listeners still receive bubbled events
+    }
+  }
+
+  const projectRefForTeardown = project;
+  React.useEffect(() => () => {
+    activeGestureRef.current?.();
+  }, [projectRefForTeardown]);
+
+  React.useEffect(() => {
+    const el = bodiesRef.current;
+    if (!el) return;
+    const update = () => setViewWidthPx(el.clientWidth);
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const pixelsPerFrame = resolvePixelsPerFrame(zoomPpf, viewWidthPx, durationFrames);
+  const timelineContentWidth = contentWidthPx(durationFrames, pixelsPerFrame);
+  const zoomedIn = zoomPpf !== null && timelineContentWidth > viewWidthPx + 1;
+
+  // Apply anchor-preserving scroll after a zoom re-render, once the content
+  // width has actually changed.
+  React.useLayoutEffect(() => {
+    const el = bodiesRef.current;
+    if (!el || pendingScrollLeftRef.current === null) return;
+    el.scrollLeft = pendingScrollLeftRef.current;
+    pendingScrollLeftRef.current = null;
+  }, [pixelsPerFrame]);
+
+  function applyZoom(direction: 1 | -1, anchorFrame: number, pointerOffsetPx: number | null) {
+    const next = zoomStep(pixelsPerFrame, direction, viewWidthPx, durationFrames);
+    const nextPpf = resolvePixelsPerFrame(next, viewWidthPx, durationFrames);
+    const offset = pointerOffsetPx ?? viewWidthPx / 2;
+    pendingScrollLeftRef.current = next === null ? 0 : scrollLeftForAnchor(anchorFrame, nextPpf, offset);
+    setZoomPpf(next);
+  }
+
+  // Ctrl/Cmd+wheel zooms toward the cursor. Native listener because React
+  // attaches wheel passively and preventDefault would be ignored.
+  React.useEffect(() => {
+    const el = bodiesRef.current;
+    if (!el) return;
+    function handleWheel(e: WheelEvent) {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const content = contentRef.current;
+      const container = bodiesRef.current;
+      if (!content || !container) return;
+      const anchorFrame = frameAtClientX(e.clientX, content.getBoundingClientRect().left, pixelsPerFrame, durationFrames);
+      applyZoom(e.deltaY < 0 ? 1 : -1, anchorFrame, e.clientX - container.getBoundingClientRect().left);
+    }
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  });
 
   function frameFromClientX(clientX: number, snap: boolean, excludeClipId: string | null = null): number {
-    const el = bodiesRef.current;
-    if (!el || durationFrames <= 0) return 0;
-    const rect = el.getBoundingClientRect();
-    if (rect.width <= 0) return 0;
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    const frame = Math.round(ratio * durationFrames);
+    const el = contentRef.current;
+    if (!el || durationFrames <= 0 || pixelsPerFrame <= 0) return 0;
+    const frame = frameAtClientX(clientX, el.getBoundingClientRect().left, pixelsPerFrame, durationFrames);
     if (!snap || !project) return frame;
-    const threshold = 6 * (durationFrames / rect.width);
+    const threshold = snapThresholdFrames(pixelsPerFrame);
     return excludeClipId
       ? snapFrameToClipEdgesExcept(frame, project, threshold, excludeClipId)
       : snapFrameToClipEdges(frame, project, threshold);
   }
 
-  // Pointer-drag scrub: install global pointermove/up listeners on
-  // pointerdown so drags continue when the cursor leaves the bodies area.
+  // Pointer-drag scrub. Pointer capture keeps the drag alive when the
+  // cursor leaves the bodies area; pointercancel simply ends it.
   function startScrub(e: React.PointerEvent<HTMLDivElement>) {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement | null;
@@ -62,18 +217,9 @@ export function NleTimeline({
     e.preventDefault();
     onSelectedClipChange(null);
     onPlayheadFrameChange(frameFromClientX(e.clientX, true));
-    const handleMove = (ev: PointerEvent) => onPlayheadFrameChange(frameFromClientX(ev.clientX, true));
-    const handleUp = () => {
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('pointerup', handleUp);
-    };
-    window.addEventListener('pointermove', handleMove);
-    window.addEventListener('pointerup', handleUp);
-  }
-
-  function handleClipClick(e: React.MouseEvent, blockId: string | null) {
-    e.stopPropagation();
-    if (blockId) onSelectedClipChange(blockId);
+    beginGesture(e, {
+      onMove: (ev) => onPlayheadFrameChange(frameFromClientX(ev.clientX, true)),
+    });
   }
 
   function startTrim(e: React.PointerEvent<HTMLButtonElement>, blockId: string | null, edge: TrimEdge) {
@@ -85,24 +231,42 @@ export function NleTimeline({
     let latestSession = createTrimSession(project, blockId, edge, latestFrame, durationFrames);
     if (!latestSession) return;
     setTrimSession(latestSession);
-    const handleMove = (ev: PointerEvent) => {
-      latestFrame = frameFromClientX(ev.clientX, true);
-      latestSession = updateTrimSession(latestSession, latestFrame);
-      setTrimSession(latestSession);
-      onPlayheadFrameChange(latestFrame);
-    };
-    const handleUp = () => {
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('pointerup', handleUp);
-      setTrimSession(null);
-      const commitFrame = latestSession?.snapFrame ?? latestFrame;
-      const next = trimClipById(project, blockId, edge, commitFrame);
-      if (next !== project) {
-        onProjectChange(next as unknown as NleProject);
-      }
-    };
-    window.addEventListener('pointermove', handleMove);
-    window.addEventListener('pointerup', handleUp);
+    beginGesture(e, {
+      onMove: (ev) => {
+        latestFrame = frameFromClientX(ev.clientX, true);
+        latestSession = updateTrimSession(latestSession, latestFrame);
+        setTrimSession(latestSession);
+        onPlayheadFrameChange(latestFrame);
+      },
+      onEnd: () => {
+        setTrimSession(null);
+        const commitFrame = latestSession?.snapFrame ?? latestFrame;
+        commitOrSurface(trimClipById(project, blockId, edge, commitFrame));
+      },
+      onAbort: () => setTrimSession(null),
+    });
+  }
+
+  // A press on a clip selects immediately; a MOVE beyond the threshold
+  // starts the drag session. A plain click (jitter included) never commits
+  // a move — at fit zoom on a long timeline, 2px of jitter used to move the
+  // clip a full second (reproduced by scripts/visual-nle-clips-playwright.mjs).
+  const DRAG_THRESHOLD_PX = 4;
+
+  // Blade mode: a press on a clip cuts it at the cursor frame — no prior
+  // selection needed, no drag. Exact position (unsnapped) so the cut lands
+  // where the user pointed.
+  function bladeClipAt(e: React.PointerEvent<HTMLDivElement>, blockId: string) {
+    if (!project) return;
+    const frame = frameFromClientX(e.clientX, false);
+    if (!canSplitClipById(project, blockId, frame)) {
+      flashCommandError('Place the blade inside a clip to cut.');
+      return;
+    }
+    const next = splitClipById(project, blockId, frame);
+    if (commitOrSurface(next)) {
+      onSelectedClipChange(rightClipIdAfterSplit(next, blockId, frame));
+    }
   }
 
   function startClipDrag(e: React.PointerEvent<HTMLDivElement>, blockId: string | null) {
@@ -110,38 +274,46 @@ export function NleTimeline({
     if ((e.target as HTMLElement | null)?.closest('.nleClipTrimHandle')) return;
     e.preventDefault();
     e.stopPropagation();
+    if (editMode === 'blade') {
+      bladeClipAt(e, blockId);
+      return;
+    }
     onSelectedClipChange(blockId);
-    const initialSession = createDragSession(project, blockId, frameFromClientX(e.clientX, false), durationFrames);
-    if (!initialSession) return;
-    let latestSession = initialSession;
-    setDragSession(latestSession);
-    const handleMove = (ev: PointerEvent) => {
-      const rawPointerFrame = frameFromClientX(ev.clientX, false);
-      const rawTimelineIn = timelineInFromPointerFrame(latestSession, rawPointerFrame);
-      const snappedTimelineIn = frameFromClientXForDragLeft(rawTimelineIn, blockId);
-      const targetTrackId = trackIdFromClientY(ev.clientY) ?? latestSession.targetTrackId;
-      latestSession = updateDragSession(latestSession, project, { timelineIn: snappedTimelineIn, targetTrackId });
-      setDragSession(latestSession);
-      onPlayheadFrameChange(Math.max(0, snappedTimelineIn));
-    };
-    const handleUp = () => {
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('pointerup', handleUp);
-      setDragSession(null);
-      if (!latestSession?.valid) return;
-      const next = moveClipById(project, blockId, latestSession.preview.timelineIn, latestSession.preview.trackId);
-      if (next !== project) onProjectChange(next as unknown as NleProject);
-      onSelectedClipChange(blockId);
-    };
-    window.addEventListener('pointermove', handleMove);
-    window.addEventListener('pointerup', handleUp);
+    const downX = e.clientX;
+    const downY = e.clientY;
+    let latestSession: any = null;
+    beginGesture(e, {
+      onMove: (ev) => {
+        if (!latestSession) {
+          if (Math.hypot(ev.clientX - downX, ev.clientY - downY) < DRAG_THRESHOLD_PX) return;
+          latestSession = createDragSession(project, blockId, frameFromClientX(downX, false), durationFrames);
+          if (!latestSession) return;
+        }
+        const rawPointerFrame = frameFromClientX(ev.clientX, false);
+        const rawTimelineIn = timelineInFromPointerFrame(latestSession, rawPointerFrame);
+        const snappedTimelineIn = frameFromClientXForDragLeft(rawTimelineIn, blockId);
+        const targetTrackId = trackIdFromClientY(ev.clientY) ?? latestSession.targetTrackId;
+        latestSession = updateDragSession(latestSession, project, { timelineIn: snappedTimelineIn, targetTrackId });
+        setDragSession(latestSession);
+        onPlayheadFrameChange(Math.max(0, snappedTimelineIn));
+      },
+      onEnd: () => {
+        setDragSession(null);
+        if (!latestSession) return; // pure click — selection already happened
+        if (!latestSession.valid) {
+          if (latestSession.invalidReason) flashCommandError(`Cannot drop clip here (${latestSession.invalidReason}).`);
+          return;
+        }
+        commitOrSurface(moveClipById(project, blockId, latestSession.preview.timelineIn, latestSession.preview.trackId));
+        onSelectedClipChange(blockId);
+      },
+      onAbort: () => setDragSession(null),
+    });
   }
 
   function frameFromClientXForDragLeft(frame: number, clipId: string): number {
-    const el = bodiesRef.current;
-    if (!el || !project) return frame;
-    const threshold = 6 * (durationFrames / el.getBoundingClientRect().width);
-    return snapFrameToClipEdgesExcept(frame, project, threshold, clipId);
+    if (!project || pixelsPerFrame <= 0) return frame;
+    return snapFrameToClipEdgesExcept(frame, project, snapThresholdFrames(pixelsPerFrame), clipId);
   }
 
   function commitTrackPatch(trackId: string, patch: Record<string, unknown>) {
@@ -182,6 +354,8 @@ export function NleTimeline({
   }
 
   function handleGeneratedDragOver(event: React.DragEvent<HTMLDivElement>, track: { id: string; kind: string; locked?: boolean }) {
+    // HTML5 DnD must not interleave with an active pointer gesture.
+    if (activeGestureRef.current) return;
     const asset = generatedAssetFromDrag(event);
     if (!asset) return;
     const valid = isGeneratedAssetCompatible(asset, track);
@@ -191,12 +365,12 @@ export function NleTimeline({
   }
 
   function handleGeneratedDrop(event: React.DragEvent<HTMLDivElement>, track: { id: string; kind: string; locked?: boolean }) {
+    if (activeGestureRef.current) return;
     const asset = generatedAssetFromDrag(event);
     setGeneratedDropTarget(null);
     if (!project || !onProjectChange || !asset || !isGeneratedAssetCompatible(asset, track)) return;
     event.preventDefault();
-    const next = addGeneratedAssetToTrack(project, asset, track.id, frameFromClientX(event.clientX, true));
-    if (next !== project) onProjectChange(next as unknown as NleProject);
+    commitOrSurface(addGeneratedAssetToTrack(project, asset, track.id, frameFromClientX(event.clientX, true)));
   }
 
   // Keyboard: Delete removes selection, S splits selection at playhead.
@@ -241,7 +415,11 @@ export function NleTimeline({
           <p className="eyebrow">Sequence</p>
           <strong>{selectedBlock ? `${selectedBlock.trackLabel} clip` : 'Timeline'}</strong>
         </div>
+        <NleModeToolbar mode={editMode} onModeChange={onEditModeChange} />
         <div className="nleTimelineReadout" aria-label="Timeline edit state">
+          {commandError ? (
+            <span className="nleCommandError" role="alert">{commandError}</span>
+          ) : null}
           {selectedBlock ? (
             <>
               <span>In {Math.round(selectedBlock.timelineIn)}</span>
@@ -251,6 +429,34 @@ export function NleTimeline({
           ) : (
             <span>Select a clip to trim, move, or split</span>
           )}
+        </div>
+        <div className="nleTimelineZoom" role="group" aria-label="Timeline zoom">
+          <button
+            type="button"
+            aria-label="Zoom timeline out"
+            disabled={!zoomedIn}
+            onClick={() => applyZoom(-1, playheadFrame, null)}
+          >
+            <Minus aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label="Zoom timeline in"
+            onClick={() => applyZoom(1, playheadFrame, null)}
+          >
+            <Plus aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label="Fit timeline"
+            disabled={!zoomedIn}
+            onClick={() => {
+              pendingScrollLeftRef.current = 0;
+              setZoomPpf(null);
+            }}
+          >
+            <CornersIn aria-hidden="true" />
+          </button>
         </div>
       </div>
       <div className="nleTimelineLanes">
@@ -280,10 +486,16 @@ export function NleTimeline({
           ref={bodiesRef}
           className="nleLaneBodies"
           data-ui-region="nle-lane-bodies"
+          data-edit-mode={editMode}
           onPointerDown={startScrub}
         >
+          <div
+            ref={contentRef}
+            className="nleLaneContent"
+            style={timelineContentWidth > 0 ? { width: `${timelineContentWidth}px` } : undefined}
+          >
           <TimelineRuler
-            bodiesRef={bodiesRef}
+            bodiesRef={contentRef}
             durationFrames={durationFrames}
             fps={fps}
             onSeekFrame={(clientX) => onPlayheadFrameChange(frameFromClientX(clientX, true))}
@@ -327,9 +539,8 @@ export function NleTimeline({
                       style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
                       title={block.name ?? undefined}
                       onPointerDown={(e) => startClipDrag(e, block.id)}
-                      onClick={(e) => handleClipClick(e, block.id)}
                     >
-                      {selected ? (
+                      {selected && editMode !== 'blade' ? (
                         <button
                           type="button"
                           role="slider"
@@ -345,7 +556,7 @@ export function NleTimeline({
                       ) : null}
                       <span className="nleClipBlockBody" aria-hidden="true" />
                       <span className="nleClipBlockLabel">{block.name ?? 'Clip'}</span>
-                      {selected ? (
+                      {selected && editMode !== 'blade' ? (
                         <button
                           type="button"
                           role="slider"
@@ -382,6 +593,7 @@ export function NleTimeline({
             style={{ left: `${playheadPct}%` }}
             aria-hidden="true"
           />
+          </div>
         </div>
       </div>
     </div>

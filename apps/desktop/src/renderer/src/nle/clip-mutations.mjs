@@ -50,14 +50,28 @@ function findClipLocation(project, clipId) {
   return null;
 }
 
+// Command failures must not be silent (a rejected trim/move looked identical
+// to a no-op, so the UI showed "nothing happened"). The same-reference no-op
+// convention stays — callers compare `next !== project` — but real command
+// errors land in this mailbox for the UI to consume and surface.
+let _lastCommandError = null;
+
+export function consumeLastCommandError() {
+  const error = _lastCommandError;
+  _lastCommandError = null;
+  return error;
+}
+
 function withCommandResult(project, command) {
   if (!project?.document) return project;
+  _lastCommandError = null;
   try {
     const result = command(project.document);
     return result?.document && result.document !== project.document
       ? { ...project, document: result.document }
       : project;
-  } catch {
+  } catch (error) {
+    _lastCommandError = error instanceof Error ? error : new Error(String(error));
     return project;
   }
 }

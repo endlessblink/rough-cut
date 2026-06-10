@@ -15,6 +15,10 @@ function move(frame: number, x: number, y: number): CursorEvent {
   return { frame, x, y, type: 'move', button: 0 };
 }
 
+function key(frame: number, x: number, y: number, keyCode = 38): CursorEvent {
+  return { frame, x, y, type: 'key', button: 0, keyCode };
+}
+
 describe('generateAutoZoomMarkers', () => {
   it('returns [] when intensity is 0', () => {
     const events: CursorEvent[] = [click(10, 100, 100)];
@@ -166,6 +170,37 @@ describe('generateAutoZoomMarkers', () => {
     ];
     const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
     expect(markers).toHaveLength(1);
+  });
+
+  it('creates a pinned auto marker for a typing run', () => {
+    const events: CursorEvent[] = [
+      key(60, 480, 270),
+      key(70, 480, 270),
+      key(80, 480, 270),
+      move(90, 1600, 900),
+    ];
+    const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
+    expect(markers).toHaveLength(1);
+    expect(markers[0].kind).toBe('auto');
+    expect(markers[0].followCursor).toBe(false);
+    expect(markers[0].focalPoint.x).toBeCloseTo(0.25, 2);
+    expect(markers[0].focalPoint.y).toBeCloseTo(0.25, 2);
+    expect(markers[0].startFrame).toBeLessThan(60);
+    expect(markers[0].endFrame).toBeGreaterThan(80);
+  });
+
+  it('keeps nearby click and typing activity pinned when merged', () => {
+    const events: CursorEvent[] = [
+      click(50, 480, 270),
+      key(58, 480, 270),
+      key(64, 480, 270),
+      move(80, 1700, 900),
+    ];
+    const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
+    expect(markers).toHaveLength(1);
+    expect(markers[0].followCursor).toBe(false);
+    expect(markers[0].focalPoint.x).toBeCloseTo(0.25, 2);
+    expect(markers[0].focalPoint.y).toBeCloseTo(0.25, 2);
   });
 });
 

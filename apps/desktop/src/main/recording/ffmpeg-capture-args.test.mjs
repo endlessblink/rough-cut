@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildFfmpegCaptureArgs,
+  buildFfmpegAudioMonitorArgs,
   buildFfmpegCameraCaptureArgs,
   buildFfmpegCameraPreviewArgs,
   buildFfmpegUnifiedCaptureArgs,
@@ -210,6 +211,52 @@ test('screen capture mixes system audio and microphone when both are selected', 
   assert.equal(args.includes('[1:a][2:a]amix=inputs=2[a]'), true);
   assert.deepEqual(args.slice(args.indexOf('-map'), args.indexOf('-map') + 4), ['-map', '0:v', '-map', '[a]']);
   assert.equal(args[args.indexOf('-c:a') + 1], 'aac');
+});
+
+test('screen capture applies recorded mic and system gain before mixing', () => {
+  const args = buildFfmpegCaptureArgs({
+    outputPath: '/tmp/capture.mkv',
+    fps: 30,
+    display: ':0+0,0',
+    width: 1920,
+    height: 1080,
+    micSource: 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo',
+    micGainPercent: 175,
+    systemAudioSource: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor',
+    systemAudioGainPercent: 45,
+  });
+
+  assert.equal(args.includes('[1:a]volume=0.45[sysa];[2:a]volume=1.75[mica];[sysa][mica]amix=inputs=2[a]'), true);
+  assert.deepEqual(args.slice(args.indexOf('-map'), args.indexOf('-map') + 4), ['-map', '0:v', '-map', '[a]']);
+});
+
+test('screen capture applies mic-only gain and clamps gain to 200 percent', () => {
+  const args = buildFfmpegCaptureArgs({
+    outputPath: '/tmp/capture.mkv',
+    fps: 30,
+    display: ':0+0,0',
+    width: 1920,
+    height: 1080,
+    micSource: 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo',
+    micGainPercent: 250,
+  });
+
+  assert.equal(args.includes('[1:a]volume=2.00[mica]'), true);
+  assert.deepEqual(args.slice(args.indexOf('-map'), args.indexOf('-map') + 4), ['-map', '0:v', '-map', '[mica]']);
+});
+
+test('audio monitor plays the selected gained mix to PulseAudio output', () => {
+  const args = buildFfmpegAudioMonitorArgs({
+    micSource: 'alsa_input.usb-Samson_Technologies_Samson_Q2U_Microphone-00.analog-stereo',
+    micGainPercent: 125,
+    systemAudioSource: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor',
+    systemAudioGainPercent: 55,
+  });
+
+  assert.ok(args);
+  assert.equal(args.includes('[0:a]volume=0.55[sysa];[1:a]volume=1.25[mica];[sysa][mica]amix=inputs=2[a]'), true);
+  assert.equal(args.includes('-f'), true);
+  assert.deepEqual(args.slice(-9), ['-c:a', 'pcm_s16le', '-f', 'pulse', '-name', 'Rough Cut', '-stream_name', 'Audio monitor', 'default']);
 });
 
 test('screen capture allows enough time for mp4 finalization on stop', () => {

@@ -21,7 +21,7 @@ export type VisualAnalysisEntryId = string & { readonly __brand: 'VisualAnalysis
 export type Frame = number;
 
 // Cursor event types for recording sidecar data
-export type CursorEventType = 'move' | 'down' | 'up' | 'scroll';
+export type CursorEventType = 'move' | 'down' | 'up' | 'scroll' | 'key';
 export type MouseButton = 0 | 1 | 2; // left | middle | right
 
 // Union types
@@ -159,6 +159,7 @@ export interface CursorEvent {
   readonly y: number;
   readonly type: CursorEventType;
   readonly button: MouseButton;
+  readonly keyCode?: number;
 }
 
 export type CameraShape = 'circle' | 'rounded' | 'square';

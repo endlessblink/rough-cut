@@ -10,7 +10,8 @@ import { spawn } from 'node:child_process';
  * @property {number} height              — Capture height in pixels
  * @property {string | null} [micSource]          PulseAudio mic source name, or null to skip
  * @property {string | null} [systemAudioSource]  PulseAudio monitor source name, or null to skip
- * @property {number} [systemAudioGainPercent]    System-audio gain percent, 0–100
+ * @property {number} [micGainPercent]            Mic gain percent, 0–200
+ * @property {number} [systemAudioGainPercent]    System-audio gain percent, 0–200
  */
 
 /**
@@ -74,6 +75,7 @@ export function startFfmpegCapture({
   width,
   height,
   micSource = null,
+  micGainPercent = 100,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
   onFirstFrame = null,
@@ -85,6 +87,7 @@ export function startFfmpegCapture({
     width,
     height,
     micSource,
+    micGainPercent,
     systemAudioSource,
     systemAudioGainPercent,
   });
@@ -276,6 +279,7 @@ export function startFfmpegUnifiedCapture({
   cameraWidth = 1280,
   cameraHeight = 720,
   micSource = null,
+  micGainPercent = 100,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
   onFirstFrame = null,
@@ -290,6 +294,7 @@ export function startFfmpegUnifiedCapture({
     cameraWidth,
     cameraHeight,
     micSource,
+    micGainPercent,
     systemAudioSource,
     systemAudioGainPercent,
   });
@@ -629,6 +634,7 @@ export function buildFfmpegCaptureArgs({
   width,
   height,
   micSource = null,
+  micGainPercent = 100,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
 }) {
@@ -698,25 +704,15 @@ export function buildFfmpegCaptureArgs({
     );
   }
 
-  // --- Filter + mapping ---
-  const systemAudioGain = Math.max(0, Math.min(1, Number(systemAudioGainPercent) / 100 || 0));
-  const needsSystemAudioGain = hasSysAudio && Math.abs(systemAudioGain - 1) > 0.001;
-  if (hasSysAudio && hasMic) {
-    const sysChain = needsSystemAudioGain
-      ? `[1:a]volume=${systemAudioGain.toFixed(2)}[sysa];[sysa][2:a]amix=inputs=2[a]`
-      : '[1:a][2:a]amix=inputs=2[a]';
-    args.push('-filter_complex', sysChain);
-    args.push('-map', '0:v', '-map', '[a]');
-  } else if (hasSysAudio) {
-    if (needsSystemAudioGain) {
-      args.push('-filter_complex', `[1:a]volume=${systemAudioGain.toFixed(2)}[a]`);
-      args.push('-map', '0:v', '-map', '[a]');
-    } else {
-      args.push('-map', '0:v', '-map', '1:a');
-    }
-  } else if (hasMic) {
-    args.push('-map', '0:v', '-map', '1:a');
-  }
+  appendAudioFilterAndMaps(args, {
+    hasSysAudio,
+    hasMic,
+    systemAudioIndex: hasSysAudio ? 1 : null,
+    micIndex: hasMic ? (hasSysAudio ? 2 : 1) : null,
+    systemAudioGainPercent,
+    micGainPercent,
+    videoMaps: ['0:v'],
+  });
   // No audio → no -map needed (single input, auto-mapped)
 
   // --- Codecs ---
@@ -766,6 +762,7 @@ export function buildFfmpegUnifiedCaptureArgs({
   cameraWidth = 1280,
   cameraHeight = 720,
   micSource = null,
+  micGainPercent = 100,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
 }) {
@@ -849,26 +846,15 @@ export function buildFfmpegUnifiedCaptureArgs({
     );
   }
 
-  const systemAudioGain = Math.max(0, Math.min(1, Number(systemAudioGainPercent) / 100 || 0));
-  const needsSystemAudioGain = hasSysAudio && Math.abs(systemAudioGain - 1) > 0.001;
-  if (hasSysAudio && hasMic) {
-    const sysChain = needsSystemAudioGain
-      ? `[${systemAudioIndex}:a]volume=${systemAudioGain.toFixed(2)}[sysa];[sysa][${micIndex}:a]amix=inputs=2[a]`
-      : `[${systemAudioIndex}:a][${micIndex}:a]amix=inputs=2[a]`;
-    args.push('-filter_complex', sysChain);
-    args.push('-map', '0:v', '-map', '1:v', '-map', '[a]');
-  } else if (hasSysAudio) {
-    if (needsSystemAudioGain) {
-      args.push('-filter_complex', `[${systemAudioIndex}:a]volume=${systemAudioGain.toFixed(2)}[a]`);
-      args.push('-map', '0:v', '-map', '1:v', '-map', '[a]');
-    } else {
-      args.push('-map', '0:v', '-map', '1:v', '-map', `${systemAudioIndex}:a`);
-    }
-  } else if (hasMic) {
-    args.push('-map', '0:v', '-map', '1:v', '-map', `${micIndex}:a`);
-  } else {
-    args.push('-map', '0:v', '-map', '1:v');
-  }
+  appendAudioFilterAndMaps(args, {
+    hasSysAudio,
+    hasMic,
+    systemAudioIndex,
+    micIndex,
+    systemAudioGainPercent,
+    micGainPercent,
+    videoMaps: ['0:v', '1:v'],
+  });
 
   args.push(
     '-c:v:0',
@@ -1043,69 +1029,26 @@ export function createFirstFrameDetector({
 /**
  * Start an FFmpeg audio-only capture process using PulseAudio/PipeWire sources.
  *
- * @param {{ outputPath: string, micSource?: string | null, systemAudioSource?: string | null, systemAudioGainPercent?: number }} options
+ * @param {{ outputPath: string, micSource?: string | null, micGainPercent?: number, systemAudioSource?: string | null, systemAudioGainPercent?: number }} options
  * @returns {FfmpegCaptureHandle | null}
  */
 export function startFfmpegAudioCapture({
   outputPath,
   micSource = null,
+  micGainPercent = 100,
   systemAudioSource = null,
   systemAudioGainPercent = 100,
 }) {
-  const hasMic = typeof micSource === 'string' && micSource.length > 0;
-  const hasSysAudio = typeof systemAudioSource === 'string' && systemAudioSource.length > 0;
-  const audioInputCount = (hasMic ? 1 : 0) + (hasSysAudio ? 1 : 0);
-
-  if (audioInputCount === 0) return null;
-
-  const args = ['-y'];
-
-  if (hasSysAudio) {
-    args.push(
-      '-thread_queue_size',
-      '512',
-      '-f',
-      'pulse',
-      '-ac',
-      '2',
-      '-ar',
-      '48000',
-      '-i',
-      systemAudioSource,
-    );
-  }
-  if (hasMic) {
-    args.push(
-      '-thread_queue_size',
-      '512',
-      '-f',
-      'pulse',
-      '-ac',
-      '2',
-      '-ar',
-      '48000',
-      '-i',
-      micSource,
-    );
-  }
-
-  const systemAudioGain = Math.max(0, Math.min(1, Number(systemAudioGainPercent) / 100 || 0));
-  const needsSystemAudioGain = hasSysAudio && Math.abs(systemAudioGain - 1) > 0.001;
-  if (hasSysAudio && hasMic) {
-    const sysChain = needsSystemAudioGain
-      ? `[0:a]volume=${systemAudioGain.toFixed(2)}[sysa];[sysa][1:a]amix=inputs=2[a]`
-      : '[0:a][1:a]amix=inputs=2[a]';
-    args.push('-filter_complex', sysChain, '-map', '[a]');
-  } else if (hasSysAudio && needsSystemAudioGain) {
-    args.push('-filter_complex', `[0:a]volume=${systemAudioGain.toFixed(2)}[a]`, '-map', '[a]');
-  } else {
-    args.push('-map', '0:a');
-  }
-
-  args.push('-c:a', 'libopus', '-b:a', '128k', outputPath);
+  const args = buildFfmpegAudioCaptureArgs({
+    outputPath,
+    micSource,
+    micGainPercent,
+    systemAudioSource,
+    systemAudioGainPercent,
+  });
+  if (!args) return null;
 
   console.info('[ffmpeg-audio-capture] Starting:', 'ffmpeg', args.join(' '));
-
   const proc = spawn('ffmpeg', args, {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -1155,4 +1098,217 @@ export function startFfmpegAudioCapture({
       });
     },
   };
+}
+
+export function buildFfmpegAudioCaptureArgs({
+  outputPath,
+  micSource = null,
+  micGainPercent = 100,
+  systemAudioSource = null,
+  systemAudioGainPercent = 100,
+}) {
+  const hasMic = typeof micSource === 'string' && micSource.length > 0;
+  const hasSysAudio = typeof systemAudioSource === 'string' && systemAudioSource.length > 0;
+  const audioInputCount = (hasMic ? 1 : 0) + (hasSysAudio ? 1 : 0);
+
+  if (audioInputCount === 0) return null;
+
+  const args = ['-y'];
+
+  if (hasSysAudio) {
+    args.push(
+      '-thread_queue_size',
+      '512',
+      '-f',
+      'pulse',
+      '-ac',
+      '2',
+      '-ar',
+      '48000',
+      '-i',
+      systemAudioSource,
+    );
+  }
+  if (hasMic) {
+    args.push(
+      '-thread_queue_size',
+      '512',
+      '-f',
+      'pulse',
+      '-ac',
+      '2',
+      '-ar',
+      '48000',
+      '-i',
+      micSource,
+    );
+  }
+
+  appendAudioFilterAndMaps(args, {
+    hasSysAudio,
+    hasMic,
+    systemAudioIndex: hasSysAudio ? 0 : null,
+    micIndex: hasMic ? (hasSysAudio ? 1 : 0) : null,
+    systemAudioGainPercent,
+    micGainPercent,
+    videoMaps: [],
+  });
+
+  args.push('-c:a', 'libopus', '-b:a', '128k', outputPath);
+  return args;
+}
+
+export function buildFfmpegAudioMonitorArgs({
+  micSource = null,
+  micGainPercent = 100,
+  systemAudioSource = null,
+  systemAudioGainPercent = 100,
+  outputDevice = 'default',
+}) {
+  const captureArgs = buildFfmpegAudioCaptureArgs({
+    outputPath: '__ROUGH_CUT_AUDIO_CAPTURE_OUTPUT__',
+    micSource,
+    micGainPercent,
+    systemAudioSource,
+    systemAudioGainPercent,
+  });
+  if (!captureArgs) return null;
+  const outputIndex = captureArgs.indexOf('__ROUGH_CUT_AUDIO_CAPTURE_OUTPUT__');
+  const args = captureArgs.slice(0, outputIndex);
+  const codecIndex = args.indexOf('-c:a');
+  if (codecIndex >= 0) args.splice(codecIndex, 4);
+  args.push(
+    '-c:a',
+    'pcm_s16le',
+    '-f',
+    'pulse',
+    '-name',
+    'Rough Cut',
+    '-stream_name',
+    'Audio monitor',
+    outputDevice || 'default',
+  );
+  return args;
+}
+
+export function startFfmpegAudioMonitor({
+  micSource = null,
+  micGainPercent = 100,
+  systemAudioSource = null,
+  systemAudioGainPercent = 100,
+  outputDevice = 'default',
+}) {
+  const args = buildFfmpegAudioMonitorArgs({
+    micSource,
+    micGainPercent,
+    systemAudioSource,
+    systemAudioGainPercent,
+    outputDevice,
+  });
+  if (!args) return null;
+
+  console.info('[ffmpeg-audio-monitor] Starting:', 'ffmpeg', args.join(' '));
+  const proc = spawn('ffmpeg', args, { stdio: ['pipe', 'ignore', 'pipe'] });
+  let stderr = '';
+  const stderrState = createStderrDropWatcher('[ffmpeg-audio-monitor]');
+  proc.stderr?.on('data', (chunk) => {
+    const text = chunk.toString();
+    stderr += text;
+    stderrState.observe(text);
+  });
+
+  proc.on('error', (err) => {
+    console.error('[ffmpeg-audio-monitor] Process error:', err.message);
+  });
+
+  proc.on('exit', (code, signal) => {
+    if (code !== 0 && signal !== 'SIGINT') {
+      console.warn('[ffmpeg-audio-monitor] Exited with code', code, 'signal', signal);
+      if (stderr) console.warn('[ffmpeg-audio-monitor] stderr tail:', stderr.slice(-500));
+    } else {
+      console.info('[ffmpeg-audio-monitor] Stopped cleanly.');
+    }
+  });
+
+  return {
+    getPid() { return proc.pid ?? null; },
+    kill(signal = 'SIGTERM') {
+      if (proc.exitCode === null && proc.signalCode === null) {
+        try { proc.kill(signal); } catch { /* already gone */ }
+      }
+    },
+    stop() {
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          console.warn('[ffmpeg-audio-monitor] Timeout waiting for exit — killing.');
+          proc.kill('SIGKILL');
+          resolve();
+        }, 2500);
+
+        proc.on('exit', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+
+        try {
+          proc.stdin?.write('q');
+          proc.stdin?.end();
+        } catch {
+          proc.kill('SIGINT');
+        }
+      });
+    },
+  };
+}
+
+function appendAudioFilterAndMaps(args, {
+  hasSysAudio,
+  hasMic,
+  systemAudioIndex,
+  micIndex,
+  systemAudioGainPercent = 100,
+  micGainPercent = 100,
+  videoMaps = [],
+}) {
+  const maps = [...videoMaps];
+  if (!hasSysAudio && !hasMic) {
+    for (const map of maps) args.push('-map', map);
+    return;
+  }
+
+  const filters = [];
+  const sysRef = hasSysAudio
+    ? audioRef({ inputIndex: systemAudioIndex, name: 'sysa', gainPercent: systemAudioGainPercent, filters })
+    : null;
+  const micRef = hasMic
+    ? audioRef({ inputIndex: micIndex, name: 'mica', gainPercent: micGainPercent, filters })
+    : null;
+
+  if (hasSysAudio && hasMic) {
+    filters.push(`${sysRef.filterPad}${micRef.filterPad}amix=inputs=2[a]`);
+    maps.push('[a]');
+  } else if (hasSysAudio) {
+    maps.push(sysRef.mapPad);
+  } else {
+    maps.push(micRef.mapPad);
+  }
+
+  if (filters.length > 0) args.push('-filter_complex', filters.join(';'));
+  for (const map of maps) args.push('-map', map);
+}
+
+function audioRef({ inputIndex, name, gainPercent, filters }) {
+  const gain = normalizeAudioGain(gainPercent);
+  const filterInput = `[${inputIndex}:a]`;
+  const directMap = `${inputIndex}:a`;
+  if (Math.abs(gain - 1) <= 0.001) return { filterPad: filterInput, mapPad: directMap };
+  const output = `[${name}]`;
+  filters.push(`${filterInput}volume=${gain.toFixed(2)}${output}`);
+  return { filterPad: output, mapPad: output };
+}
+
+function normalizeAudioGain(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 1;
+  return Math.max(0, Math.min(2, number / 100));
 }

@@ -231,6 +231,23 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-149 | Multi-recording on one timeline | P3 | PLANNED |
 | TASK-150 | Video generation (Replicate / fal.ai with LTX-Video / Veo3) | P4 | PLANNED |
 | TASK-151 | User-wide AI memory + active learning | P4 | PLANNED |
+| TASK-224 | NLE interaction foundation: zoom, pointer capture, modes, blade | P1 | DONE (2026-06-10) |
+| TASK-225 | Audit + break down current NLE editor: works/broken/ugly ledger | P1 | PLANNED |
+| TASK-226 | NLE layout + visual redesign: stage/timeline proportions, topbar | P1 | PLANNED |
+| ~~TASK-227~~ | Harness fixture: long recording with camera + mic linked clips | P1 | DONE (2026-06-10) |
+| TASK-228 | One-click NLE debug state dump for live bug capture | P1 | PLANNED |
+| TASK-229 | Wire undo/redo into the NLE view | P1 | PLANNED |
+| TASK-230 | Export parity for NLE-edited timelines (cuts, gaps, moves) | P1 | PLANNED |
+| TASK-231 | Ripple trim engine + Trim mode edge behavior | P2 | PLANNED |
+| TASK-232 | Drag clips past same-track neighbors | P2 | PLANNED |
+| TASK-233 | Multi-select: shift-click, marquee, group move/delete | P2 | PLANNED |
+| TASK-234 | Playhead auto-follow and auto-scroll during zoomed playback | P2 | PLANNED |
+| TASK-235 | Audio waveforms on NLE audio clips | P3 | PLANNED |
+| ~~TASK-225~~ | Audit + break down current NLE editor: works/broken/ugly ledger | P1 | SUPERSEDED → TASK-236 |
+| ~~TASK-226~~ | NLE layout + visual redesign: stage/timeline proportions, topbar | P1 | SUPERSEDED → TASK-236/237 |
+| TASK-236 | Editor v2 design spec + mockup, user-approved before any code | P1 | IN PROGRESS — mockup direction APPROVED 2026-06-10 |
+| TASK-237 | Build Editor v2 view to approved design on existing plumbing | P1 | IN PROGRESS — slice 1 (shell) DONE 2026-06-10 |
+| TASK-238 | Program monitor shows stale frame when playhead is in a gap | P1 | PLANNED |
 
 ## Recently Verified
 
@@ -448,6 +465,32 @@ Sequence: TASK-104, TASK-105
 Depends-on: LANE P3-A
 Sequence: TASK-106
 
+13. **LANE NLE-R — NLE Editor v2: ground-up view rebuild (harness-gated)**:
+Sequence: TASK-227, TASK-228, TASK-230, TASK-236, TASK-237, TASK-229, TASK-231, TASK-232, TASK-233, TASK-234, TASK-235
+Supports: TASK-224, TASK-225, TASK-226
+
+User verdict (2026-06-10): the current Editor (NLE) view is "truly and deeply broken and looking
+horrible" — playback ignores cuts live, gestures misbehave live, no end-to-end edit is possible, and
+the view is unusably cramped. **The Recording edit view, by contrast, is reliable e2e (record → trim →
+zoom → export works).** Decision: do NOT keep patching the NLE view. Rebuild the Editor tab
+design-first (TASK-236 mockup approved by the user BEFORE code; TASK-237 new components), standing on
+what makes Recording edit reliable: its proven preview/export parity pipeline, the canonical timeline
+model, the command service, the interaction primitives from TASK-224, and the Playwright harnesses.
+The NLE's parallel `timeMode="timeline"` playback path is the prime suspect for live breakage and must
+be either fixed against real fixtures or replaced by driving the proven preview path from the
+canonical timeline. TASK-225/226 (audit/polish of the old view) are folded into TASK-236/237.
+Diagnostics run FIRST (TASK-227 linked fixture, TASK-228 debug dump, TASK-230 export/playback parity)
+because the live-vs-harness gap — green suites while the real app misbehaves with camera+mic linked
+recordings — is the most dangerous unknown and must shape the rebuild. Leading hypothesis for
+TASK-227: preview resolves the topmost enabled video clip, so a camera clip spanning above the screen
+track can mask screen-track cuts during playback.
+
+LANE NLE-R RULE — a task in this lane is DONE only when ALL of:
+(1) a behavioral entry in the Playwright NLE harness (`scripts/visual-nle-clips-playwright.mjs` or a sibling script) exercises it with real pointer/playback events — on the camera+mic linked fixture — and passes;
+(2) the harness screenshots were OPENED and visually reviewed;
+(3) the user confirmed the feel in the live app (`pnpm dev`).
+"Tests pass" alone is NOT done — that gap is exactly what made the editor feel broken while suites were green.
+
 ---
 
 **AI ARCHITECTURE LANES** — see `/home/endlessblink/.claude/plans/gentle-dancing-patterson.md` for the full architecture plan. These supersede TASK-104 and TASK-105 (folded into TASK-144 + TASK-145). Lane order revised 2026-05-18: NLE foundation lanes (C, E) execute before the launchpad (A), since the launchpad is a directory of capabilities that don't exist until later lanes ship.
@@ -547,7 +590,7 @@ Decomposed lanes (atomic, ready to execute): **P-AI-C** (TASK-162–170), **P-AI
 
 ### ~~TASK-001~~ Add repeatable MVP smoke verification script
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -567,7 +610,7 @@ The MVP flow worked through a one-off Node script, but it was not available as a
 
 ### ~~TASK-002~~ Add Electron UI smoke coverage for preview and export
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -587,7 +630,7 @@ Automated coverage needed to exercise renderer buttons, preview controls, and ex
 
 ### ~~TASK-003~~ Improve Watchpost compatibility for project task tracking
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -607,7 +650,7 @@ Watchpost was running, but `/api/master-plan` and `/api/status` returned `500` f
 
 ### ~~TASK-004~~ Package the desktop MVP for local install testing
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -628,7 +671,7 @@ The app built and ran from source, but packaged local behavior had not been veri
 
 ### TASK-005 Document release-ready Linux/X11 verification steps
 
-**Priority:** P3  
+**Priority:** P3
 **Status:** DONE
 
 #### Context
@@ -650,7 +693,7 @@ The README states the MVP scope but does not describe how to verify release read
 
 ### ~~TASK-006~~ Define client-demo roadmap before editing work
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -670,7 +713,7 @@ The broader goal is not just raw recording. The app should become a Screen Studi
 
 ### ~~TASK-007~~ Add export mode selection: raw vs styled
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -704,7 +747,7 @@ Before styled exports exist, the export path needs an explicit mode so raw expor
 
 ### ~~TASK-008~~ Add styled 16:9 canvas export preset
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -746,7 +789,7 @@ Raw screen exports are functional but not client-ready. The first Screen Studio-
 
 ### ~~TASK-009~~ Add styled export UI preview metadata
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -780,7 +823,7 @@ Users need to know whether they are exporting raw or styled output before clicki
 
 ### ~~TASK-010~~ Add cursor telemetry recording foundation
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -817,7 +860,7 @@ For client demos, cursor presentation should be rendered as an overlay instead o
 
 ### ~~TASK-011~~ Add cursor overlay export rendering
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -857,7 +900,7 @@ Cursor telemetry becomes useful when styled export can render a clean cursor ove
 
 ### ~~TASK-012~~ Add cursor overlay preview rendering
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** SUPERSEDED → TASK-025
 
 #### Supersede Notes
@@ -887,7 +930,7 @@ Users need preview confidence before exporting cursor overlays.
 
 ### TASK-013 Add click emphasis telemetry and export rendering
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -924,7 +967,7 @@ Client demos benefit from visible clicks, but this should build on cursor teleme
 
 ### ~~TASK-014~~ Add manual zoom marker data model
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -956,7 +999,7 @@ Manual zooms should be stored as simple project markers before any complex editi
 
 ### ~~TASK-015~~ Add manual zoom marker UI controls
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -992,7 +1035,7 @@ The first manual zoom UI should be simple and useful, not a full timeline editor
 
 ### ~~TASK-016~~ Add smooth manual zoom export rendering
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1029,7 +1072,7 @@ Manual zoom markers need to affect final exported output with smooth transitions
 
 ### ~~TASK-017~~ Add zoom preview playback approximation
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** SUPERSEDED → TASK-025
 
 #### Supersede Notes
@@ -1059,7 +1102,7 @@ Before exporting, users should be able to approximate how manual zooms will feel
 
 ### ~~TASK-018~~ Add automatic zoom suggestion engine
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -1095,7 +1138,7 @@ Automatic zooms should be suggestions based on cursor activity, not irreversible
 
 ### ~~TASK-019~~ Add automatic zoom review/apply flow
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -1133,7 +1176,7 @@ Automatic zoom suggestions need a user-facing review step before they become pro
 
 ### TASK-020 Add countdown before recording
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -1158,7 +1201,7 @@ Client demo recording needs a short preparation window so recordings start clean
 
 ### TASK-021 Add clear recording indicator and elapsed time
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -1182,7 +1225,7 @@ During client-project recording, the user needs confidence that capture is activ
 
 ### TASK-022 Add open recording/project folder action
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -1206,7 +1249,7 @@ After recording or export, users need fast access to client-demo files.
 
 ### TASK-023 Add recent projects or recordings list
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -1232,7 +1275,7 @@ Client project work often involves reopening the last few recordings quickly.
 
 ### TASK-024 Add microphone recording foundation
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -1274,8 +1317,8 @@ Client demos often need narration. Microphone support should come after the core
 
 ### ~~TASK-025~~ Unified preview that mirrors styled export
 
-**Priority:** P1  
-**Status:** DONE  
+**Priority:** P1
+**Status:** DONE
 **Supersedes:** TASK-012, TASK-017
 
 #### Context
@@ -1327,8 +1370,8 @@ Until preview matches export, every presentation feature ships blind: users add 
 ### TASK-026 Switch capture pipeline to xdg-desktop-portal + PipeWire (Wayland)
 
 **Priority**: P3-LOW
-**Priority:** P1  
-**Status:** PLANNED  
+**Priority:** P1
+**Status:** PLANNED
 **Supersedes-on-completion:** TASK-010 (cursor telemetry recording), TASK-011 (cursor overlay export), and the entire reliable-cursor-overlay architecture
 
 #### Context
@@ -1377,7 +1420,7 @@ The Wayland-native answer is fundamentally simpler: use **xdg-desktop-portal's S
 
 ### TASK-027 Cursor-follow zoom (preview + export, parity-preserving)
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1424,7 +1467,7 @@ Schema's `ZoomPresentation.followCursor: true` and the engine's cursor-follow pa
 
 ### ~~TASK-028~~ Add aspect ratio presets for styled exports
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1461,7 +1504,7 @@ Screen Studio, FocuSee, and Recordly all treat social aspect ratios as first-cla
 
 ### ~~TASK-029~~ Build editor shell and screen presentation controls
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1499,7 +1542,7 @@ The one-page MVP UI stopped scaling once mic capture, aspect ratios, zoom contro
 
 ### ~~TASK-030~~ Add cursor-follow zoom regression fixtures
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1528,7 +1571,7 @@ Cursor-follow zoom is sensitive to fast cursor movement, edge positions, zoom-ou
 
 ### TASK-031 Add preview/export parity regression snapshots
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1551,7 +1594,7 @@ The renderer preview and styled export both consume shared zoom math, but they s
 
 ### ~~TASK-032~~ Add packaged-app visual regression smoke
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -1578,7 +1621,7 @@ Editor shell, aspect ratio controls, screen padding/radius/shadow controls, and 
 
 ### ~~TASK-033~~ Define recording-flow solidity checklist
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1605,7 +1648,7 @@ Before adding more Screen Studio-style features, define what "solid recording fl
 
 ### ~~TASK-034~~ Add real-recording regression harness
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1634,7 +1677,7 @@ Current smoke coverage records short synthetic captures, but confidence in the r
 
 ### ~~TASK-035~~ Add recording health diagnostics report
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1663,7 +1706,7 @@ When recording issues happen, the app currently logs details but does not summar
 
 ### TASK-036 Add long-recording stability smoke
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1690,7 +1733,7 @@ Short smokes catch wiring failures, but a client demo recorder must stay stable 
 
 ### TASK-037 Add packaged recording acceptance runbook
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1717,7 +1760,7 @@ Automated checks are necessary but not enough for user-visible capture quality. 
 
 ### TASK-038 Add system audio capture controls
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1754,7 +1797,7 @@ Screen Studio-style demos often need browser/app audio in addition to microphone
 
 ### TASK-039 Add capture target picker
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1790,7 +1833,7 @@ The current flow records the primary X11 display. Screen Studio users expect to 
 
 ### TASK-040 Add pause, resume, and cancel recording
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1822,7 +1865,7 @@ The current recording flow supports start and stop. A Screen Studio-like flow ne
 
 ### TASK-041 Add post-recording next-action flow
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1843,8 +1886,8 @@ After stop, users should not wonder what happened or where the file is. The app 
 
 ### TASK-042 Render click emphasis in preview and export
 
-**Priority:** P1  
-**Status:** DONE  
+**Priority:** P1
+**Status:** DONE
 **Related:** TASK-013
 
 #### Context
@@ -1871,7 +1914,7 @@ Click telemetry is already captured. The missing user-visible piece is a tastefu
 
 ### TASK-043 Add webcam PiP presentation controls
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1906,7 +1949,7 @@ Camera capture and export paths have started, but the UI still treats webcam PiP
 
 ### TASK-044 Add cursor style controls
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -1927,7 +1970,7 @@ The cursor overlay works, but Screen Studio users expect presentation controls s
 
 ### TASK-045 Add background style presets
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -1949,7 +1992,7 @@ Current background controls are numeric. Presets make polished outputs faster an
 
 ### TASK-046 Add trim start and end controls
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -1975,7 +2018,7 @@ Most demo recordings need at least head/tail cleanup. This should land before a 
 
 ### TASK-047 Add simple cut removal flow
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -2002,7 +2045,7 @@ After head/tail trim, the next editing primitive is removing a dead section from
 
 ### TASK-048 Add optional webcam PiP recording and export
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2036,7 +2079,7 @@ The project model and frame resolver already support linked camera assets and ca
 
 ### TASK-049 Build Screen Studio-style editor UI foundation
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2074,7 +2117,7 @@ The current UI grew from MVP controls: one top strip, one preview panel, and a d
 
 ### TASK-050 Add Screen Studio-style pre-record panel
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 **Ownership:** Reassigned to this session for final verification and closure.
@@ -2123,7 +2166,7 @@ Recording options are currently inline and crowded. Screen Studio and Recordly b
 
 ### TASK-054 Add thumbnail source picker for recording targets
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** EXTERNAL
 
 **Ownership:** Pre-record/source-picker work is being developed in another instance. Do not pick up or modify this task from the main-app session unless explicitly reassigned.
@@ -2152,7 +2195,7 @@ Screen Studio exposes entire display, window, and area choices from the pre-reco
 
 ### TASK-055 Add audio and camera preflight controls
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** EXTERNAL
 
 **Ownership:** Pre-record audio/camera preflight work is being developed in another instance. Do not pick up or modify this task from the main-app session unless explicitly reassigned.
@@ -2180,7 +2223,7 @@ Screen Studio's pre-record flow lets users choose webcam, microphone, and system
 
 ### TASK-056 Add pre-record smoke and packaged checks
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** EXTERNAL
 
 **Ownership:** Pre-record smoke/packaged checks are being developed in another instance. Do not pick up or modify this task from the main-app session unless explicitly reassigned.
@@ -2209,7 +2252,7 @@ The pre-record panel becomes the front door for every capture. It needs direct r
 
 ### TASK-057 Add timeline interaction visual regression suite
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2233,7 +2276,7 @@ Timeline trim/scrub bugs showed up as UI movement, tool switching, wheel-driven 
 
 ### TASK-058 Add non-destructive edit recovery affordances
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -2316,7 +2359,7 @@ Re-verified with `ROUGH_CUT_LONG_SMOKE_DURATION_MS=600000 pnpm smoke:long-record
 
 ### ~~TASK-051~~ Add post-recording review workspace
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2359,7 +2402,7 @@ After stop, the user should land in a clear review state rather than hunting for
 
 ### TASK-052 Add timeline-first playback and edit rail
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2397,7 +2440,7 @@ Zoom markers, trims, cuts, clicks, and camera/audio tracks need a timeline surfa
 
 ### TASK-053 Add extensible properties inspector system
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2433,7 +2476,7 @@ The right inspector is already mixing canvas, export, zoom, background, camera, 
 
 ### TASK-061 Fix choppy camera playback via canvas frame dedup
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2455,7 +2498,7 @@ Also added `window.__roughCutCanvasDrawCount` instrumentation to the smoke test 
 
 ### TASK-062 Add real window and region selection UI
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -2483,7 +2526,7 @@ The current capture target control is still a basic full-display/region dropdown
 
 ### TASK-063 Enable real window capture selection
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -2506,7 +2549,7 @@ The pre-record source picker currently shows Window as disabled. Users expect th
 
 ### ~~TASK-064~~ Stabilize sidebar tool switching layout
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -2533,7 +2576,7 @@ Switching left sidebar tools currently changes the left panel content height and
 
 ### ~~TASK-065~~ Validate paths in PROJECT_OPEN and PROJECT_SAVE IPC handlers
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2554,7 +2597,7 @@ The renderer can pass any string to the project-open and project-save IPC handle
 
 ### ~~TASK-066~~ Clean up recording child processes on app crash or signal
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2577,7 +2620,7 @@ Recording spawns ffmpeg (screen, camera, audio), xinput, and xdotool. None of th
 
 ### ~~TASK-067~~ Validate remuxed MP4 coherence before declaring success
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2600,7 +2643,7 @@ Recording spawns ffmpeg (screen, camera, audio), xinput, and xdotool. None of th
 
 ### TASK-068 Compensate cursor and audio drift vs ffmpeg first frame
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2621,7 +2664,7 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 
 ### TASK-069 Add EXPORT_CANCEL IPC and kill ffmpeg on cancel
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2660,7 +2703,7 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 
 ### TASK-070 Per-display scale factor for cursor and click telemetry
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2680,7 +2723,7 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 
 ### TASK-071 Surface camera failure during recording, not after
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2715,7 +2758,7 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 
 ### ~~TASK-072~~ Lift or warn on ASS cursor 600-event downsample cap
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2737,7 +2780,7 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 
 ### TASK-073 Validate capture region against display bounds
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2772,7 +2815,7 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 
 ### ~~TASK-074~~ Wire or remove inert top-bar folder, comments, undo icons
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2803,7 +2846,7 @@ Cursor events are anchored to wall-clock recording-start (`recording-session.mjs
 
 ### ~~TASK-075~~ Implement undo and redo with edit history stack
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2832,7 +2875,7 @@ The `undo` icon at `main.tsx:507` implies undo exists; nothing in state tracks h
 
 ### ~~TASK-076~~ Add keyboard shortcuts and a shortcuts cheat sheet dialog
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -2865,7 +2908,7 @@ There are no global keyboard shortcuts in the renderer (no keydown listeners in 
 
 ### ~~TASK-077~~ Reconcile or remove duplicate region X Y W H inputs
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -2896,7 +2939,7 @@ There are no global keyboard shortcuts in the renderer (no keydown listeners in 
 
 ### TASK-078 Add feedback signal for incorrect auto-zoom suggestions
 
-**Priority:** P3  
+**Priority:** P3
 **Status:** ✅ DONE (2026-05-19)
 
 #### Context
@@ -2916,7 +2959,7 @@ TASK-018/019 are DONE. The user can apply or dismiss auto-zoom suggestions via `
 
 ### TASK-079 Profile renderer scrub and memoize where DevTools flags
 
-**Priority:** P3  
+**Priority:** P3
 **Status:** ✅ DONE (2026-05-19)
 
 #### Context
@@ -2936,7 +2979,7 @@ TASK-018/019 are DONE. The user can apply or dismiss auto-zoom suggestions via `
 
 ### TASK-080 Add i18n infrastructure with t() context and RTL CSS
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE (2026-05-19)
 
 #### Context
@@ -2958,7 +3001,7 @@ TASK-018/019 are DONE. The user can apply or dismiss auto-zoom suggestions via `
 
 ### TASK-081 Add light theme and semantic color tokens
 
-**Priority:** P3  
+**Priority:** P3
 **Status:** DONE (2026-05-19)
 
 #### Context
@@ -2978,7 +3021,7 @@ TASK-018/019 are DONE. The user can apply or dismiss auto-zoom suggestions via `
 
 ### ~~TASK-082~~ Improve error UX with actionable copy and diagnostics link
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -3010,7 +3053,7 @@ TASK-018/019 are DONE. The user can apply or dismiss auto-zoom suggestions via `
 
 ### ~~TASK-083~~ Keyboard accessibility for timeline, markers, trim handles
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE
 
 #### Context
@@ -3038,7 +3081,7 @@ Timeline scrub at `main.tsx:2703` lacks `aria-live` for frame position. Zoom mar
 
 ### ~~TASK-084~~ Support relative-to-.roughcut asset paths in projects
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** ✅ DONE (2026-05-19)
 
 #### Context
@@ -3062,7 +3105,7 @@ Timeline scrub at `main.tsx:2703` lacks `aria-live` for frame position. Zoom mar
 
 ### ~~TASK-085~~ Atomic project file writes with temp-and-rename pattern
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -3084,7 +3127,7 @@ Timeline scrub at `main.tsx:2703` lacks `aria-live` for frame position. Zoom mar
 
 ### TASK-086 Add GIF and WebM export presets
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** ✅ DONE (2026-05-19)
 
 #### Context
@@ -3105,7 +3148,7 @@ Timeline scrub at `main.tsx:2703` lacks `aria-live` for frame position. Zoom mar
 
 ### TASK-087 Add 9:16 vertical and 1:1 square export presets
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** ✅ DONE (2026-05-19)
 
 #### Context
@@ -3125,7 +3168,7 @@ TASK-028 added aspect-ratio support, but the export surface has no one-click pre
 
 ### ~~TASK-088~~ Add autosave and crash recovery for orphaned recordings
 
-**Priority:** P1  
+**Priority:** P1
 **Status:** DONE
 
 #### Context
@@ -3149,7 +3192,7 @@ The recording-recovery marker existed at `recording-session.mjs:45-69` but no UI
 
 ### TASK-089 Bundle ffmpeg-static and ffprobe-static binaries
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE (2026-05-20)
 
 #### Context
@@ -3169,7 +3212,7 @@ The recording-recovery marker existed at `recording-session.mjs:45-69` but no UI
 
 ### TASK-090 Build AppImage and deb installer with electron-updater
 
-**Priority:** P3  
+**Priority:** P3
 **Status:** IN PROGRESS
 
 #### Context
@@ -3189,7 +3232,7 @@ The Linux artifact today is a tar of Electron plus `run.sh`. There is no install
 
 ### TASK-091 Add opt-in crash reporting and error telemetry
 
-**Priority:** P3  
+**Priority:** P3
 **Status:** IN PROGRESS
 
 #### Context
@@ -3208,7 +3251,7 @@ Errors land in console plus a log file the user must find via Diagnostics. There
 
 ### TASK-092 Replace xdotool and xinput stack with uiohook-napi
 
-**Priority:** P2  
+**Priority:** P2
 **Status:** DONE (2026-05-20)
 
 #### Context
@@ -3229,7 +3272,7 @@ Errors land in console plus a log file the user must find via Diagnostics. There
 
 ### TASK-093 Split countdown and HUD indicator into BrowserWindows
 
-**Priority:** P3  
+**Priority:** P3
 **Status:** PLANNED
 
 #### Context
@@ -6786,3 +6829,336 @@ Promotes per-project memory (v1) into a user-wide preference store. Active learn
 #### Verification
 
 - Manual: undo 3 AI-applied cuts → next AI run prefers shorter cuts → confirm preference saved.
+
+### ~~TASK-224~~ NLE interaction foundation: zoom, pointer capture, modes, blade
+
+**Priority:** P1
+**Status:** DONE (2026-06-10, uncommitted in working tree)
+
+#### Context
+
+Reproduction harness (`scripts/visual-nle-clips-playwright.mjs`) proved the NLE timeline was percent/fit-to-width (1px ≈ 15 frames on a 5-min recording, snap reach ±92 frames), a 2px click-jitter moved clips a full second, and pointercancel stranded drags.
+
+#### Completion Notes
+
+- `nle/timeline-viewport.mjs`: single frame↔pixel authority; zoom (buttons + Ctrl+wheel toward cursor + Fit), constant 8px snap.
+- Pointer capture + pointercancel + teardown via shared `beginGesture`; 4px click-vs-drag threshold; command errors surfaced in the readout instead of swallowed.
+- Mode toolbar (Selection A / Trim T / Blade B, Dynamic trim disabled); blade cuts the clip under the cursor.
+- Ruler tick density fixed for long recordings (`ruler-ticks.mjs`).
+- New permanent harnesses: `visual-nle-clips-playwright.mjs` (problems: []), `visual-nle-gap-playback-playwright.mjs` (gap playback skips correctly headless).
+
+#### Verification
+
+- `xvfb-run -a node scripts/visual-nle-clips-playwright.mjs` → `problems: []`
+- `cd apps/desktop && pnpm test` → 552 pass; typecheck clean.
+
+### ~~TASK-225~~ Audit + break down current NLE editor: works/broken/ugly ledger
+
+**Priority:** P1
+**Status:** SUPERSEDED → TASK-236 (audit folded into the v2 design spec)
+
+#### Context
+
+The user's verdict on the current NLE view: "it looks awful and doesn't work." Before building more features, break down what exists into an honest ledger so every following task targets a named defect instead of a vibe.
+
+#### Scope
+
+- Walk every NLE surface in the live app with a real multi-minute camera+mic recording: monitor, transport, mode toolbar, timeline (tracks, clips, handles, ruler, playhead, zoom), asset panel, readout.
+- For each: WORKS (harness-proven) / BROKEN (with repro steps) / UGLY (with screenshot) / MISSING (vs. the Direction section's editor shell).
+- Load a design skill (`impeccable` / `emil-design-eng`) and run a critique pass against `DESIGN.md` + `PRODUCT.md`.
+- Output: `docs/nle-ledger.md` checked in, feeding TASK-226 (redesign) and re-prioritizing the rest of LANE NLE-R with the user.
+
+#### Verification
+
+- Ledger reviewed WITH the user; they confirm it captures what feels broken/awful before any fix work starts.
+
+### ~~TASK-226~~ NLE layout + visual redesign: stage/timeline proportions, topbar
+
+**Priority:** P1
+**Status:** SUPERSEDED → TASK-236/237 (patching the old view abandoned in favor of the v2 rebuild)
+
+#### Context
+
+Live screenshots show: timeline crushed into a thin bottom strip, topbar items colliding (Sequence label / readout / zoom controls), track headers cramped, clip blocks visually flat. The Direction section already defines the target shell: central stage, bottom timeline with real height, right inspector.
+
+#### Scope
+
+- Rebalance NLE vertical layout: monitor vs timeline proportions (timeline gets enough height for 3+ tracks without scroll).
+- Topbar: separate mode toolbar / readout / zoom into stable zones that cannot collide.
+- Clip block visual pass (design skill loaded): selected/trim/drag states, labels, handles on short clips.
+- MUST follow CLAUDE.md design HARD RULE (design skill + open smoke screenshots before claiming done).
+
+#### Verification
+
+- Harness screenshots at fit and zoomed, opened and reviewed; user sign-off in live app.
+
+### ~~TASK-227~~ Harness fixture: long recording with camera + mic linked clips
+
+**Priority:** P1
+**Status:** DONE (2026-06-10)
+
+#### Completion Notes
+
+- `scripts/visual-nle-linked-clips-playwright.mjs`: seeds a screen+camera+mic recording via
+  `saveProjectForRecording` (camera track above screen, linked groups), splits/deletes the middle,
+  plays across the gap, samples playhead + <video> + canvas 60x.
+- **Camera-masking hypothesis REFUTED** for current-shape recordings: linked split/delete keeps
+  lanes in lockstep (camera never spans a screen-track gap), playback skips the gap (0/60 samples
+  inside, 0 deleted-material samples), no camera content in-gap during playback.
+- **Real bug found → TASK-238:** paused/scrubbed INTO a gap, the program monitor keeps drawing the
+  last decoded frame (with camera PiP) instead of an empty/background frame — reads as "my cut did
+  nothing". Evidence: /tmp/rough-cut-nle-linked-P8exHs/03-paused-in-gap.png.
+- Residual unknown: projects predating linked groups may still exhibit unlinked camera clips.
+
+#### Context
+
+Harness fixtures are 6-second silent screen-only clips; the user's real projects are multi-minute with camera + mic linked groups. Bugs that only manifest with linked clips or long durations ship invisibly.
+
+#### Scope
+
+- Extend the harness seeder to generate a 5+ minute fixture WITH camera video + mic audio so `recordingLinkedGroups` exist.
+- Run the full `visual-nle-clips-playwright.mjs` + gap-playback suites against it; encode any newly exposed failures as named problems.
+
+#### Verification
+
+- Both harnesses pass (or expose real, named bugs) on the linked-clips fixture.
+
+### TASK-228 One-click NLE debug state dump for live bug capture
+
+**Priority:** P1
+**Status:** PLANNED
+
+#### Context
+
+Live-reported bugs ("it disregards my cuts") could not be reproduced headlessly because exact project state + steps were unknown. Close the capture gap.
+
+#### Scope
+
+- Keyboard shortcut / menu action in the NLE view that writes: canonical timeline JSON, playhead, selection, edit mode, zoom, last ~20 gesture events, and the playback debug ring buffer (`__roughCutTimelinePlaybackDebug`) to a timestamped file under the project folder.
+- Surface the file path in a toast so the user can hand it over.
+
+#### Verification
+
+- Trigger dump in live app; file contains enough state to reconstruct the session in the harness.
+
+### TASK-229 Wire undo/redo into the NLE view
+
+**Priority:** P1
+**Status:** PLANNED
+
+#### Context
+
+Every timeline command already returns `{document, undoSnapshot}` (`timeline-commands.ts`), but the NLE view has no undo/redo. An editor where mistakes are permanent can never feel safe or fun.
+
+#### Scope
+
+- Undo/redo stack over command snapshots in the NLE shell; Ctrl+Z / Ctrl+Shift+Z; toolbar buttons; integrate with `edit-history` if shared with Recording edit.
+- Harness entry: drag → undo → position restored; blade → undo → clip rejoined.
+
+#### Verification
+
+- Harness undo/redo entry passes; user sign-off.
+
+### TASK-230 Export parity for NLE-edited timelines (cuts, gaps, moves)
+
+**Priority:** P1
+**Status:** PLANNED
+
+#### Context
+
+`export-service.mjs` states only unedited or head/tail-trimmed single-recording exports are fully supported. If NLE edits (splits, deleted middles, moved clips) do not flow into the exported MP4 exactly as previewed, the editor is decorative.
+
+#### Scope
+
+- Audit export against an NLE-edited timeline (split + gap + move); compare exported frames to preview at the same timeline frames (existing visual-export parity script pattern).
+- Fix the segment assembly path or explicitly gate unsupported edits in the UI with a visible warning — silent divergence is the failure mode.
+
+#### Verification
+
+- Visual export parity run on an NLE-edited project; gaps/cuts land at identical frames in preview and MP4.
+
+### TASK-231 Ripple trim engine + Trim mode edge behavior
+
+**Priority:** P2
+**Status:** PLANNED
+
+#### Context
+
+Trim mode (T) currently behaves like Selection on edges. The missing primitive is `rippleTrimClipEdge`: resize an edge AND shift downstream same-track clips by the delta.
+
+#### Scope
+
+- New `rippleTrimClipEdge` command in `packages/project-model/src/timeline-commands.ts` (compose `trimClipEdge` edge math with `rippleDeleteRange`'s downstream shift; runs through `commitCommand`, single undo snapshot, locked-track guard).
+- `nle/ripple-trim-session.mjs` live preview (edge + sliding downstream clips); commit once on pointerup.
+- Harness entry: ripple-trim closes/opens downstream space with no gaps or overlaps.
+
+#### Verification
+
+- Command unit tests (invariants, locked tracks, undo) + harness entry + user sign-off.
+
+### TASK-232 Drag clips past same-track neighbors
+
+**Priority:** P2
+**Status:** PLANNED
+
+#### Context
+
+`computeMoveBounds` anchors to the clip's current gap, so a clip boxed between neighbors cannot be dragged past them — a basic NLE expectation.
+
+#### Scope
+
+- Rework drag bounds to allow crossing neighbors (target-position collision resolution instead of current-gap clamp), preserving same-track no-overlap on commit.
+- Harness entry: drag clip A past clip B; order swaps; no overlap.
+
+#### Verification
+
+- drag-session unit tests + harness entry + user sign-off.
+
+### TASK-233 Multi-select: shift-click, marquee, group move/delete
+
+**Priority:** P2
+**Status:** PLANNED
+
+#### Scope
+
+- `selectedClipIds` set replaces single id; shift/ctrl-click toggles; drag-marquee on empty lane space selects; Delete removes all; group drag moves selection together (linked-group aware).
+- Harness entries for each gesture.
+
+#### Verification
+
+- Harness entries pass + user sign-off.
+
+### TASK-234 Playhead auto-follow and auto-scroll during zoomed playback
+
+**Priority:** P2
+**Status:** PLANNED
+
+#### Scope
+
+- When zoomed in and playing, keep the playhead in view (page-scroll like Resolve when it hits the viewport edge); never auto-scroll while the user is mid-gesture or has manually scrolled away within the last few seconds.
+- Edge auto-scroll while dragging a clip near the viewport edge.
+
+#### Verification
+
+- Harness: play across more than one viewport-width at zoom; playhead never leaves view. User sign-off.
+
+### TASK-235 Audio waveforms on NLE audio clips
+
+**Priority:** P3
+**Status:** PLANNED
+
+#### Scope
+
+- Generate peak data per audio source (main process, cached next to the project); render waveform into audio clip blocks at any zoom.
+- Respect sourceIn/sourceOut so the waveform slides correctly when trimmed/slipped.
+
+#### Verification
+
+- Harness screenshot review at fit + zoom; user sign-off.
+
+### TASK-236 Editor v2 design spec + mockup, user-approved before any code
+
+**Priority:** P1
+**Status:** IN PROGRESS — visual mockup direction APPROVED by user (2026-06-10)
+
+#### Approved artifact
+
+- `docs/mockups/editor-v2-resolve.html`, generated by `docs/mockups/build-editor-v2.mjs`
+  (edit the SCRIPT, not the html). Real Phosphor icons extracted from the app's own
+  package into `docs/mockups/assets/phosphor-paths.json`; real screen imagery in
+  `docs/mockups/assets/screen-sample.png`.
+- Approved structure: media pool w/ bins + search → SOURCE viewer (I/O insert editing) →
+  TIMELINE program viewer → inspector (Clip/Transform/Audio/Presentation); edit toolbar strip
+  (Selection/Trim/Blade/Dynamic · Insert/Overwrite/Replace · snap/link/marker · timecode · zoom/fit);
+  deep timeline (V3 Titles / V2 Camera / V1 Screen / A1 Mic + meter / A2 Music) with track
+  targeting, filmstrip thumbnails, waveforms, gap rendering, crossfade chip, ruler markers.
+- Working agreement: features/visuals are added INCREMENTALLY to this mockup first (cheap),
+  approved, then implemented as a harness-gated slice. v2 is a NEW component tree; the old
+  Editor view stays untouched until parity.
+
+#### Remaining for TASK-236
+
+- Interaction + keyboard spec (per tool mode, drag/trim/blade semantics, insert/overwrite flow).
+- Playback wiring decision (fix timeline-mode vs drive the proven Recording-edit preview path) —
+  blocked on the TASK-227 linked-fixture diagnostic (first run died on session limit; re-run).
+
+#### Context
+
+The current NLE view is being replaced, not patched (see LANE NLE-R preamble). The Recording edit
+view is the in-app quality bar: it is reliable e2e. Editor v2 must be designed as a whole before any
+component is written.
+
+#### Scope
+
+- Load design skills (`impeccable` + `emil-design-eng`), read `PRODUCT.md`, `DESIGN.md`, and the
+  Direction section (Recordly / Screen Studio / Resolve references).
+- Audit the old NLE view and the working Recording edit view first; carry over what works
+  (folds in former TASK-225).
+- Produce a full design spec + visual mockup for the Editor tab: panel layout (media pool, monitor,
+  inspector, full-height timeline), timeline visual language (tracks, clips, waveform placeholders,
+  handles, playhead, ruler), mode toolbar, transport, zoom, selection states, error surfacing,
+  keyboard map.
+- **HARD REQUIREMENT — design cohesion (user, 2026-06-10):** Editor v2 must share a continuous design
+  language with the Recording edit view: the same `:root` tokens (surface ladder, accent, lines, text
+  hierarchy), the same panel density and control idioms (`.rangeControl` sliders, inspector patterns),
+  the same topBar/chrome grammar. The app must read as ONE tool across views. Capture Recording edit
+  reference screenshots first and design v2 against them; no new one-off colors/dimensions without a
+  token (per DESIGN.md).
+- Define how playback works in v2: either fix `timeMode="timeline"` against the linked fixture or
+  drive the proven Recording-edit preview path from the canonical timeline. Decision recorded with
+  evidence from TASK-227/230.
+- **Gate: the user approves the mockup BEFORE TASK-237 starts.**
+
+#### Verification
+
+- User approves the spec/mockup explicitly.
+
+### TASK-237 Build Editor v2 view to approved design on existing plumbing
+
+**Priority:** P1
+**Status:** PLANNED
+
+#### Context
+
+Implementation of the TASK-236 approved design as new components, replacing the current `nle/`
+view surface while reusing the canonical timeline model, command service (`timeline-commands.ts`),
+interaction primitives (viewport math, captured gestures, mode dispatch), and harnesses.
+
+#### Scope
+
+- New Editor v2 component tree (shell, panels, timeline) per the approved mockup; old view retired
+  when v2 reaches parity on the harness suite.
+- All LANE NLE-R rule gates apply, on the camera+mic linked fixture.
+- Land in slices (shell → timeline visuals → gesture parity → playback parity), each slice
+  harness-verified and user-confirmed before the next.
+
+#### Verification
+
+- Full `visual-nle-clips-playwright.mjs` + gap-playback suites pass on the linked fixture against v2.
+- User performs a real cut-and-rearrange edit e2e in the live app and signs off.
+
+### TASK-238 Program monitor shows stale frame when playhead is in a gap
+
+**Priority:** P1
+**Status:** PLANNED
+
+#### Context
+
+Found by the TASK-227 linked fixture: with the playhead paused inside a timeline gap (no video clip
+at that frame on any track), `styled-video-preview.tsx` keeps drawing the last decoded frame —
+including the camera PiP — because the paused/scrub path keeps `video.currentTime` at the previous
+seek and the canvas redraw has no "no clip here" branch for timeline mode. The user experiences
+this as "the editor disregards my cuts" when scrubbing across an edit.
+
+#### Scope
+
+- In timeline mode, when `resolveTimelineFrame`/segment lookup yields no video at the playhead,
+  draw the background-only frame (no screen, no camera PiP) instead of the stale decode.
+- Cover both pause-in-gap and scrub-through-gap; keep playback skip behavior unchanged.
+- Harness: extend `visual-nle-linked-clips-playwright.mjs` problems[] check (canvas in-gap must show
+  background only while paused) — it already detects this today, so the fix flips it green.
+
+#### Verification
+
+- `xvfb-run -a node scripts/visual-nle-linked-clips-playwright.mjs` → problems: []
+- Live: blade + delete a middle segment, scrub through the gap — monitor goes to background.

@@ -111,7 +111,7 @@ export const CursorPresentationSchema = z.object({
   clickSoundEnabled: z.boolean(),
 });
 
-export const CursorEventTypeSchema = z.enum(['move', 'down', 'up', 'scroll']);
+export const CursorEventTypeSchema = z.enum(['move', 'down', 'up', 'scroll', 'key']);
 
 export const CursorEventSchema = z.object({
   frame: nonNegativeInt,
@@ -119,6 +119,7 @@ export const CursorEventSchema = z.object({
   y: z.number(),
   type: CursorEventTypeSchema,
   button: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+  keyCode: nonNegativeInt.optional(),
 });
 
 // --- CameraPresentation ---

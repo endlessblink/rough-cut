@@ -31,3 +31,23 @@ test('buildRulerTicks emits major labels and one-second minor ticks', () => {
 test('formatRulerLabel renders mm:ss:00', () => {
   assert.equal(formatRulerLabel(65), '01:05:00');
 });
+
+// Regression: a 29-minute recording at fit zoom (~0.8 px/sec) used to emit
+// ~1,700 one-second minor ticks and 60s labels narrower than the label text,
+// rendering the ruler as an unreadable wall.
+test('buildRulerTicks keeps long fit-zoom timelines readable', () => {
+  const fps = 30;
+  const ticks = buildRulerTicks(29 * 60 * fps, fps, 1380);
+  const pxPerSecond = 1380 / (29 * 60);
+  const majors = ticks.filter((tick) => tick.major);
+  const minors = ticks.filter((tick) => !tick.major);
+  for (let i = 1; i < majors.length - 1; i += 1) {
+    const spacingPx = ((majors[i].frame - majors[i - 1].frame) / fps) * pxPerSecond;
+    assert.ok(spacingPx >= 56, `major labels ${spacingPx.toFixed(1)}px apart`);
+  }
+  if (minors.length > 1) {
+    const spacingPx = ((minors[1].frame - minors[0].frame) / fps) * pxPerSecond;
+    assert.ok(spacingPx >= 7, `minor ticks ${spacingPx.toFixed(1)}px apart`);
+  }
+  assert.ok(ticks.length < 400, `tick count bounded (${ticks.length})`);
+});

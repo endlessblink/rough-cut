@@ -62,6 +62,7 @@ import { LibraryShell } from './library/library-shell';
 import { AiShell } from './ai/ai-shell';
 import { NleShell } from './nle/nle-shell';
 import { StyledVideoPreview as VideoPreview, type ResolvedPreviewLayout } from './styled-video-preview';
+import { applyScreenSourceTransform, drawZoomMotionSource, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import { APP_VIEWS, DEFAULT_APP_VIEW_ID, type AppViewId } from './app-views';
 import {
   addManualMarkerAtFrame,
@@ -98,15 +99,17 @@ declare global {
       getCameraSources: () => Promise<CameraSource[]>;
       startCameraPreview: (options: { devicePath: string }) => Promise<{ token: string; pid: number | null }>;
       stopCameraPreview: (token?: string | null) => Promise<{ stopped: boolean }>;
+      startAudioPreview: (options: { micSource?: string | null; micGainPercent?: number; systemAudioSource?: string | null; systemAudioGainPercent?: number }) => Promise<{ token: string; pid: number | null }>;
+      stopAudioPreview: (token?: string | null) => Promise<{ stopped: boolean }>;
       onCameraPreviewFrame: (callback: (frame: { token: string; dataUrl: string }) => void) => () => void;
       getDisplays: () => Promise<CaptureDisplay[]>;
       getRecordingPreflightStatus: (options?: RecordingPreflightOptions) => Promise<RecordingPreflightStatus>;
       selectCaptureRegion: (options?: { displayId?: string | null; initialRegion?: CaptureRegion | null }) => Promise<CaptureRegion | null>;
-      startRecording: (options?: { micSource?: string | null; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean }) => Promise<RecordingStatus>;
+      startRecording: (options?: { micSource?: string | null; micGainPercent?: number; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean }) => Promise<RecordingStatus>;
       stopRecording: () => Promise<RecordingStatus>;
       pauseRecording: () => Promise<RecordingStatus>;
       resumeRecording: () => Promise<RecordingStatus>;
-      restartRecording: (options?: { micSource?: string | null; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean } | null) => Promise<RecordingStatus>;
+      restartRecording: (options?: { micSource?: string | null; micGainPercent?: number; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; captureRegion?: CaptureRegion | null; hideWindowDuringRecording?: boolean } | null) => Promise<RecordingStatus>;
       cancelRecording: () => Promise<RecordingStatus>;
       getRecordingStatus: () => Promise<RecordingStatus>;
       openProject: () => Promise<ProjectState | null>;
@@ -247,7 +250,7 @@ type CutRange = { id: string; startFrame: number; endFrame: number };
 
 type RecordingStatus =
   | { state: 'idle'; canceled?: boolean }
-  | { state: 'recording'; startedAt: string; rawPath: string; outputPath: string; paused?: boolean; recordedDurationMs?: number; segmentCount?: number; pauseStartedAt?: string | null; micSource?: string | null; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; cameraError?: string | null }
+  | { state: 'recording'; startedAt: string; rawPath: string; outputPath: string; paused?: boolean; recordedDurationMs?: number; segmentCount?: number; pauseStartedAt?: string | null; micSource?: string | null; micGainPercent?: number; systemAudioSource?: string | null; systemAudioGainPercent?: number; cameraDevicePath?: string | null; cameraError?: string | null }
   | {
       state: 'saved';
       startedAt: string;
@@ -306,13 +309,14 @@ const DEFAULT_INSPECTOR_SELECTION: InspectorSelection = {
   label: 'Project canvas',
   detail: 'Project-level presentation controls are active.',
 };
-const DEFAULT_SYSTEM_AUDIO_DUCK_PERCENT = 50;
+const DEFAULT_RECORDED_GAIN_PERCENT = 100;
 
 type PreRecordPreferences = {
   recordMic: boolean;
   recordSystemAudio: boolean;
   recordCamera: boolean;
   micSource: string | null;
+  micGainPercent: number;
   systemAudioSource: string | null;
   systemAudioGainPercent: number;
   cameraSource: string | null;
@@ -325,7 +329,8 @@ function readPreRecordPreferences(): PreRecordPreferences {
   const fallback: PreRecordPreferences = {
     recordMic: false, recordSystemAudio: false, recordCamera: false,
     micSource: null, systemAudioSource: null, cameraSource: null,
-    systemAudioGainPercent: DEFAULT_SYSTEM_AUDIO_DUCK_PERCENT,
+    micGainPercent: DEFAULT_RECORDED_GAIN_PERCENT,
+    systemAudioGainPercent: DEFAULT_RECORDED_GAIN_PERCENT,
     captureMode: null, captureDisplayId: null, captureRegion: null,
   };
   try {
@@ -348,8 +353,9 @@ function readPreRecordPreferences(): PreRecordPreferences {
       recordSystemAudio: parsed.recordSystemAudio === true,
       recordCamera: parsed.recordCamera === true,
       micSource: typeof parsed.micSource === 'string' ? parsed.micSource : null,
+      micGainPercent: normalizeAudioGainPercent(parsed.micGainPercent),
       systemAudioSource: typeof parsed.systemAudioSource === 'string' ? parsed.systemAudioSource : null,
-      systemAudioGainPercent: normalizeSystemAudioGainPercent(parsed.systemAudioGainPercent),
+      systemAudioGainPercent: normalizeAudioGainPercent(parsed.systemAudioGainPercent),
       cameraSource: typeof parsed.cameraSource === 'string' ? parsed.cameraSource : null,
       captureMode,
       captureDisplayId: typeof parsed.captureDisplayId === 'string' ? parsed.captureDisplayId : null,
@@ -426,6 +432,7 @@ function App() {
   const [recordCamera, setRecordCamera] = React.useState(initialPreRecordPreferences.recordCamera);
   const [selectedMicSource, setSelectedMicSource] = React.useState<string>(initialPreRecordPreferences.micSource ?? '');
   const [selectedSystemAudioSource, setSelectedSystemAudioSource] = React.useState<string>(initialPreRecordPreferences.systemAudioSource ?? '');
+  const [micGainPercent, setMicGainPercent] = React.useState<number>(initialPreRecordPreferences.micGainPercent);
   const [systemAudioGainPercent, setSystemAudioGainPercent] = React.useState<number>(initialPreRecordPreferences.systemAudioGainPercent);
   const [selectedCameraSource, setSelectedCameraSource] = React.useState<string>(initialPreRecordPreferences.cameraSource ?? '');
   const [captureMode, setCaptureMode] = React.useState<CaptureMode>(initialPreRecordPreferences.captureMode ?? 'display');
@@ -443,6 +450,9 @@ function App() {
   const [error, setError] = React.useState<AppError | null>(null);
   const [runtimeLogPath, setRuntimeLogPath] = React.useState<string | null>(null);
   const [preflightStatus, setPreflightStatus] = React.useState<RecordingPreflightStatus | null>(null);
+  const [audioPreview, setAudioPreview] = React.useState<{ token: string | null; state: 'idle' | 'starting' | 'monitoring' | 'error'; error: string | null }>({ token: null, state: 'idle', error: null });
+  const audioPreviewTokenRef = React.useRef<string | null>(null);
+  const [recordingWarning, setRecordingWarning] = React.useState<string | null>(null);
   const [recoveryState, setRecoveryState] = React.useState<{ available: boolean; marker: RecoveryMarker | null } | null>(null);
   const [recoveryActionPending, setRecoveryActionPending] = React.useState(false);
   const [dismissedCameraFailureForStartedAt, setDismissedCameraFailureForStartedAt] = React.useState<string | null>(null);
@@ -562,6 +572,7 @@ function App() {
       recordSystemAudio,
       recordCamera,
       micSource: selectedMicSource || null,
+      micGainPercent,
       systemAudioSource: selectedSystemAudioSource || null,
       systemAudioGainPercent,
       cameraSource: selectedCameraSource || null,
@@ -569,7 +580,62 @@ function App() {
       captureDisplayId: selectedCaptureDisplayId,
       captureRegion: captureMode === 'region' ? captureRegion : null,
     });
-  }, [recordMic, recordSystemAudio, recordCamera, selectedMicSource, selectedSystemAudioSource, systemAudioGainPercent, selectedCameraSource, captureMode, selectedCaptureDisplayId, captureRegion]);
+  }, [recordMic, recordSystemAudio, recordCamera, selectedMicSource, micGainPercent, selectedSystemAudioSource, systemAudioGainPercent, selectedCameraSource, captureMode, selectedCaptureDisplayId, captureRegion]);
+
+  async function stopAudioPreview() {
+    const token = audioPreviewTokenRef.current;
+    audioPreviewTokenRef.current = null;
+    setAudioPreview({ token: null, state: 'idle', error: null });
+    if (token) {
+      try {
+        await window.roughCut.stopAudioPreview(token);
+      } catch (err) {
+        console.warn('[renderer:audio-preview] stop failed', err);
+      }
+    }
+  }
+
+  async function toggleAudioPreview() {
+    if (audioPreview.state === 'starting') return;
+    if (audioPreviewTokenRef.current) {
+      await stopAudioPreview();
+      return;
+    }
+    const micSource = recordMic ? selectedMicSource || null : null;
+    const systemAudioSource = recordSystemAudio ? selectedSystemAudioSource || null : null;
+    if (!micSource && !systemAudioSource) return;
+    setAudioPreview({ token: null, state: 'starting', error: null });
+    try {
+      const started = await window.roughCut.startAudioPreview({
+        micSource,
+        micGainPercent: micSource ? micGainPercent : 100,
+        systemAudioSource,
+        systemAudioGainPercent: systemAudioSource ? systemAudioGainPercent : 100,
+      });
+      audioPreviewTokenRef.current = started.token;
+      setAudioPreview({ token: started.token, state: 'monitoring', error: null });
+    } catch (err) {
+      audioPreviewTokenRef.current = null;
+      setAudioPreview({ token: null, state: 'error', error: err instanceof Error ? err.message : 'Audio monitor failed.' });
+    }
+  }
+
+  React.useEffect(() => {
+    if (preRecordPanelOpen && recording.state !== 'recording') return undefined;
+    void stopAudioPreview();
+    return undefined;
+  }, [preRecordPanelOpen, recording.state]);
+
+  React.useEffect(() => {
+    if (!audioPreviewTokenRef.current) return undefined;
+    void stopAudioPreview();
+    return undefined;
+  }, [recordMic, recordSystemAudio, selectedMicSource, selectedSystemAudioSource, micGainPercent, systemAudioGainPercent]);
+
+  React.useEffect(() => () => {
+    const token = audioPreviewTokenRef.current;
+    if (token) void window.roughCut.stopAudioPreview(token);
+  }, []);
 
   React.useEffect(() => {
     const projectPath = new URLSearchParams(window.location.search).get('projectPath');
@@ -693,6 +759,7 @@ function App() {
     setRecordingActionPending(true);
     setRecordingActionPhase(recording.state === 'recording' ? 'stopping' : 'starting');
     setError(null);
+    setRecordingWarning(null);
     try {
       if (recording.state === 'recording') {
         console.info('[renderer:recording] stop requested');
@@ -711,29 +778,36 @@ function App() {
       } else {
         const micSource = recordMic ? selectedMicSource || null : null;
         const systemAudioSource = recordSystemAudio ? selectedSystemAudioSource || null : null;
-        const systemAudioGainPercentForCapture = micSource && systemAudioSource ? systemAudioGainPercent : 100;
-        const cameraDevicePath = recordCamera ? selectedCameraSource || null : null;
-        // Refuse to start when the user wanted camera but no device resolved.
-        // Without this guard the recording proceeds silently screen-only and
-        // the user discovers their face cam wasn't captured only after the take
-        // (TASK-095 / camera-not-recorded report, 2026-05-09).
+        let cameraDevicePath = recordCamera ? selectedCameraSource || null : null;
         if (recordCamera && !cameraDevicePath) {
-          throw new Error('Camera is enabled but no camera device is selected. Pick a camera in the source dropdown or turn the camera toggle off, then start again.');
+          setRecordCamera(false);
+          setRecordingWarning('Camera was enabled but no camera source was selected, so this take is recording screen-only.');
+          cameraDevicePath = null;
         }
         const region = captureMode === 'region' ? captureRegion : null;
+        await stopAudioPreview();
         setPreRecordPanelOpen(false);
         // The preview is main-process ffmpeg, not getUserMedia; unmount stops it
         // predictably before the recording ffmpeg opens the same V4L2 device.
         await new Promise((resolve) => window.setTimeout(resolve, recordCamera ? 250 : 100));
         console.info(`[renderer:recording] start requested ${JSON.stringify({
           hasMic: Boolean(micSource),
+          micGainPercent: micSource ? micGainPercent : 100,
           hasSystemAudio: Boolean(systemAudioSource),
-          systemAudioGainPercent: systemAudioGainPercentForCapture,
+          systemAudioGainPercent: systemAudioSource ? systemAudioGainPercent : 100,
           cameraDevicePath,
           captureMode,
           region,
         })}`);
-        adoptRecordingStatus(await window.roughCut.startRecording({ micSource, systemAudioSource, systemAudioGainPercent: systemAudioGainPercentForCapture, cameraDevicePath, captureRegion: region, hideWindowDuringRecording: isRecorderMode }));
+        adoptRecordingStatus(await window.roughCut.startRecording({
+          micSource,
+          micGainPercent: micSource ? micGainPercent : 100,
+          systemAudioSource,
+          systemAudioGainPercent: systemAudioSource ? systemAudioGainPercent : 100,
+          cameraDevicePath,
+          captureRegion: region,
+          hideWindowDuringRecording: isRecorderMode,
+        }));
       }
     } catch (err) {
       console.error('[renderer:recording] recording action failed', err);
@@ -792,13 +866,20 @@ function App() {
     }
   }
 
-  function buildCurrentRecordingOptions({ hideWindowDuringRecording = false } = {}): { micSource: string | null; systemAudioSource: string | null; systemAudioGainPercent: number; cameraDevicePath: string | null; captureRegion: CaptureRegion | null; hideWindowDuringRecording: boolean } {
+  function buildCurrentRecordingOptions({ hideWindowDuringRecording = false } = {}): { micSource: string | null; micGainPercent: number; systemAudioSource: string | null; systemAudioGainPercent: number; cameraDevicePath: string | null; captureRegion: CaptureRegion | null; hideWindowDuringRecording: boolean } {
     const micSource = recordMic ? selectedMicSource || null : null;
     const systemAudioSource = recordSystemAudio ? selectedSystemAudioSource || null : null;
-    const systemAudioGainPercentForCapture = micSource && systemAudioSource ? systemAudioGainPercent : 100;
     const cameraDevicePath = recordCamera ? selectedCameraSource || null : null;
     const region = captureMode === 'region' ? captureRegion : null;
-    return { micSource, systemAudioSource, systemAudioGainPercent: systemAudioGainPercentForCapture, cameraDevicePath, captureRegion: region, hideWindowDuringRecording };
+    return {
+      micSource,
+      micGainPercent: micSource ? micGainPercent : 100,
+      systemAudioSource,
+      systemAudioGainPercent: systemAudioSource ? systemAudioGainPercent : 100,
+      cameraDevicePath,
+      captureRegion: region,
+      hideWindowDuringRecording,
+    };
   }
 
   async function selectScreenRegion(displayId = selectedCaptureDisplayId) {
@@ -1078,8 +1159,10 @@ function App() {
             recordCamera={recordCamera}
             selectedMicSource={selectedMicSource}
             selectedSystemAudioSource={selectedSystemAudioSource}
+            micGainPercent={micGainPercent}
             systemAudioGainPercent={systemAudioGainPercent}
             selectedCameraSource={selectedCameraSource}
+            audioPreview={audioPreview}
             captureMode={captureMode}
             captureRegion={captureRegion}
             captureDisplays={captureDisplays}
@@ -1094,15 +1177,17 @@ function App() {
             onRecordCameraChange={setRecordCamera}
             onSelectedMicSourceChange={setSelectedMicSource}
             onSelectedSystemAudioSourceChange={setSelectedSystemAudioSource}
+            onMicGainPercentChange={setMicGainPercent}
             onSystemAudioGainPercentChange={setSystemAudioGainPercent}
             onSelectedCameraSourceChange={setSelectedCameraSource}
+            onToggleAudioPreview={toggleAudioPreview}
             onCaptureModeChange={setCaptureMode}
             onScreenPickerOpenChange={setScreenPickerOpen}
             onSelectedCaptureDisplayChange={setSelectedCaptureDisplayId}
             onSelectCaptureRegion={selectScreenRegion}
           />
         )}
-        <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} actionPhase={recordingActionPhase} error={error} diagnosticsPath={failureDiagnosticsPath} onRetry={retryLastFailedAction} onOpenDiagnostics={() => void openPath(failureDiagnosticsPath)} onCopyDiagnosticsPath={copyFailureDiagnosticsPath} />
+        <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} actionPhase={recordingActionPhase} error={error} warning={recordingWarning} diagnosticsPath={failureDiagnosticsPath} onRetry={retryLastFailedAction} onOpenDiagnostics={() => void openPath(failureDiagnosticsPath)} onCopyDiagnosticsPath={copyFailureDiagnosticsPath} />
       </main>
     );
   }
@@ -1173,8 +1258,10 @@ function App() {
             recordCamera={recordCamera}
             selectedMicSource={selectedMicSource}
             selectedSystemAudioSource={selectedSystemAudioSource}
+            micGainPercent={micGainPercent}
             systemAudioGainPercent={systemAudioGainPercent}
             selectedCameraSource={selectedCameraSource}
+            audioPreview={audioPreview}
             captureMode={captureMode}
             captureRegion={captureRegion}
             captureDisplays={captureDisplays}
@@ -1189,8 +1276,10 @@ function App() {
             onRecordCameraChange={setRecordCamera}
             onSelectedMicSourceChange={setSelectedMicSource}
             onSelectedSystemAudioSourceChange={setSelectedSystemAudioSource}
+            onMicGainPercentChange={setMicGainPercent}
             onSystemAudioGainPercentChange={setSystemAudioGainPercent}
             onSelectedCameraSourceChange={setSelectedCameraSource}
+            onToggleAudioPreview={toggleAudioPreview}
             onCaptureModeChange={setCaptureMode}
             onScreenPickerOpenChange={setScreenPickerOpen}
             onSelectedCaptureDisplayChange={setSelectedCaptureDisplayId}
@@ -1227,6 +1316,16 @@ function App() {
               ))
             )}
           </select>
+          {recordMic ? (
+            <RecordedGainControl
+              label="Mic gain"
+              value={micGainPercent}
+              disabled={recording.state === 'recording'}
+              compact
+              dataRegion="mic-audio-gain"
+              onChange={setMicGainPercent}
+            />
+          ) : null}
           </div>
           <div className="sourceGroup">
           <label className="sourceToggle" aria-label="Record system audio" title="System audio">
@@ -1255,11 +1354,13 @@ function App() {
               ))
             )}
           </select>
-          {recordMic && recordSystemAudio ? (
-            <SystemAudioGainControl
+          {recordSystemAudio ? (
+            <RecordedGainControl
+              label="System gain"
               value={systemAudioGainPercent}
               disabled={recording.state === 'recording'}
               compact
+              dataRegion="system-audio-gain"
               onChange={setSystemAudioGainPercent}
             />
           ) : null}
@@ -1313,7 +1414,7 @@ function App() {
             </div>
           ) : null}
         </div>
-        <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} actionPhase={recordingActionPhase} error={error} diagnosticsPath={failureDiagnosticsPath} onRetry={retryLastFailedAction} onOpenDiagnostics={() => void openPath(failureDiagnosticsPath)} onCopyDiagnosticsPath={copyFailureDiagnosticsPath} />
+        <StateBanner recording={recording} elapsedMs={elapsedMs} actionPending={recordingActionPending} actionPhase={recordingActionPhase} error={error} warning={recordingWarning} diagnosticsPath={failureDiagnosticsPath} onRetry={retryLastFailedAction} onOpenDiagnostics={() => void openPath(failureDiagnosticsPath)} onCopyDiagnosticsPath={copyFailureDiagnosticsPath} />
         {activeCameraFailure ? (
           <CameraFailureBanner
             error={activeCameraFailure.error}
@@ -1322,102 +1423,104 @@ function App() {
             onContinueScreenOnly={() => setDismissedCameraFailureForStartedAt(activeCameraFailure.startedAt)}
           />
         ) : null}
-        {activeAppView === 'projects' ? (
-          <LibraryShell
-            onOpenProjectByPath={openProjectByPath}
-            onOpenProjectDialog={openProject}
-            openProjectPath={project?.path ?? null}
-            onRenameInFlight={setRenameInFlight}
-            onCloseOpenProject={() => {
-              setProject(null);
-              setActiveAppView('projects');
-              setEditHistory(EMPTY_EDIT_HISTORY);
-              setExportResult(null);
-            }}
-            onProjectRenamed={(oldPath, updated) => {
-              // Only the open project's state needs to swap. Other renames
-              // are just visible in the gallery list (refreshKey already
-              // triggers a re-fetch in LibraryShell).
-              setProject((current) => (current && current.path === oldPath ? (updated as unknown as ProjectState) : current));
-            }}
-          />
-        ) : activeAppView === 'nle' ? (
-          <NleShell
-            project={project as unknown as Parameters<typeof NleShell>[0]['project']}
-            onProjectChange={(next) => applyProjectChange(next as unknown as ProjectState)}
-            onGoToProjects={() => setActiveAppView('projects')}
-          />
-        ) : activeAppView === 'ai' ? (
-          <AiShell
-            project={project ? { path: project.path, document: project.document } : null}
-            fps={project?.recording?.fps ?? 30}
-            recordingDurationFrames={project?.document?.composition?.duration ?? 0}
-            existingCutRanges={(() => {
-              const asset = project?.document?.assets?.find((a) => a.type === 'recording');
-              return asset?.id ? listCutRanges(project?.document as unknown as ProjectDocument, asset.id, project?.document?.composition?.duration ?? 0) : [];
-            })()}
-            onApplyZoomMarker={(suggestion) => {
-              if (!project) return;
-              const next = addManualMarkerAtFrame(
-                project.document as unknown as ProjectDocument,
-                suggestion.startFrame as unknown as number,
-                project.recording?.fps ?? 30,
-                {
-                  defaultSpan:
-                    (suggestion.endFrame as unknown as number) -
-                    (suggestion.startFrame as unknown as number),
-                },
-              );
-              applyProjectChange({ ...project, document: next as unknown as ProjectState['document'] });
-            }}
-            onApplyCutRange={(suggestion) => {
-              if (!project) return;
-              const recordingAsset = project.document.assets?.find((a) => a.type === 'recording');
-              if (!recordingAsset?.id) return;
-              const next = addCutRange(
-                project.document as unknown as ProjectDocument,
-                recordingAsset.id,
-                suggestion.startFrame as unknown as number,
-                suggestion.endFrame as unknown as number,
-                project.document.composition.duration,
-              );
-              applyProjectChange({ ...project, document: next as unknown as ProjectState['document'] });
-            }}
-            onApplyTitle={(suggestion) => {
-              if (!project) return;
-              applyProjectChange({
-                ...project,
-                document: { ...project.document, name: suggestion.title },
-              });
-            }}
-            onGoToProjects={() => setActiveAppView('projects')}
-          />
-        ) : project ? (
-          <ProjectPreview
-            project={project}
-            recording={recording}
-            onProjectChange={applyProjectChange}
-            onExportMode={exportProjectWithMode}
-            onCancelExport={cancelExport}
-            onOpenPath={openPath}
-            onShowItemInFolder={showItemInFolder}
-            onRetake={startRetake}
-            exportMode={exportMode}
-            exportScope={exportScope}
-            onExportScopeChange={setExportScope}
-            exportProgress={exportProgress}
-            exportResult={exportResult}
-            setupBoardOpen={setupBoardOpen}
-            inspectorOpen={inspectorOpen}
-            activeTool={activeTool}
-            onActiveToolChange={(tool) => {
-              setActiveTool(tool);
-              setSetupBoardOpen(true);
-            }}
-          />
-        ) : (
-          <EditorEmptyState onGoToProjects={() => setActiveAppView('projects')} />
-        )}
+        <div className="editorContentSlot" data-ui-region="editor-content-slot">
+          {activeAppView === 'projects' ? (
+            <LibraryShell
+              onOpenProjectByPath={openProjectByPath}
+              onOpenProjectDialog={openProject}
+              openProjectPath={project?.path ?? null}
+              onRenameInFlight={setRenameInFlight}
+              onCloseOpenProject={() => {
+                setProject(null);
+                setActiveAppView('projects');
+                setEditHistory(EMPTY_EDIT_HISTORY);
+                setExportResult(null);
+              }}
+              onProjectRenamed={(oldPath, updated) => {
+                // Only the open project's state needs to swap. Other renames
+                // are just visible in the gallery list (refreshKey already
+                // triggers a re-fetch in LibraryShell).
+                setProject((current) => (current && current.path === oldPath ? (updated as unknown as ProjectState) : current));
+              }}
+            />
+          ) : activeAppView === 'nle' ? (
+            <NleShell
+              project={project as unknown as Parameters<typeof NleShell>[0]['project']}
+              onProjectChange={(next) => applyProjectChange(next as unknown as ProjectState)}
+              onGoToProjects={() => setActiveAppView('projects')}
+            />
+          ) : activeAppView === 'ai' ? (
+            <AiShell
+              project={project ? { path: project.path, document: project.document } : null}
+              fps={project?.recording?.fps ?? 30}
+              recordingDurationFrames={project?.document?.composition?.duration ?? 0}
+              existingCutRanges={(() => {
+                const asset = project?.document?.assets?.find((a) => a.type === 'recording');
+                return asset?.id ? listCutRanges(project?.document as unknown as ProjectDocument, asset.id, project?.document?.composition?.duration ?? 0) : [];
+              })()}
+              onApplyZoomMarker={(suggestion) => {
+                if (!project) return;
+                const next = addManualMarkerAtFrame(
+                  project.document as unknown as ProjectDocument,
+                  suggestion.startFrame as unknown as number,
+                  project.recording?.fps ?? 30,
+                  {
+                    defaultSpan:
+                      (suggestion.endFrame as unknown as number) -
+                      (suggestion.startFrame as unknown as number),
+                  },
+                );
+                applyProjectChange({ ...project, document: next as unknown as ProjectState['document'] });
+              }}
+              onApplyCutRange={(suggestion) => {
+                if (!project) return;
+                const recordingAsset = project.document.assets?.find((a) => a.type === 'recording');
+                if (!recordingAsset?.id) return;
+                const next = addCutRange(
+                  project.document as unknown as ProjectDocument,
+                  recordingAsset.id,
+                  suggestion.startFrame as unknown as number,
+                  suggestion.endFrame as unknown as number,
+                  project.document.composition.duration,
+                );
+                applyProjectChange({ ...project, document: next as unknown as ProjectState['document'] });
+              }}
+              onApplyTitle={(suggestion) => {
+                if (!project) return;
+                applyProjectChange({
+                  ...project,
+                  document: { ...project.document, name: suggestion.title },
+                });
+              }}
+              onGoToProjects={() => setActiveAppView('projects')}
+            />
+          ) : project ? (
+            <ProjectPreview
+              project={project}
+              recording={recording}
+              onProjectChange={applyProjectChange}
+              onExportMode={exportProjectWithMode}
+              onCancelExport={cancelExport}
+              onOpenPath={openPath}
+              onShowItemInFolder={showItemInFolder}
+              onRetake={startRetake}
+              exportMode={exportMode}
+              exportScope={exportScope}
+              onExportScopeChange={setExportScope}
+              exportProgress={exportProgress}
+              exportResult={exportResult}
+              setupBoardOpen={setupBoardOpen}
+              inspectorOpen={inspectorOpen}
+              activeTool={activeTool}
+              onActiveToolChange={(tool) => {
+                setActiveTool(tool);
+                setSetupBoardOpen(true);
+              }}
+            />
+          ) : (
+            <EditorEmptyState onGoToProjects={() => setActiveAppView('projects')} />
+          )}
+        </div>
       </section>
       <AppViewTabStrip
         activeId={activeAppView}
@@ -1518,8 +1621,10 @@ function PreRecordPanel({
   recordCamera,
   selectedMicSource,
   selectedSystemAudioSource,
+  micGainPercent,
   systemAudioGainPercent,
   selectedCameraSource,
+  audioPreview,
   captureMode,
   captureRegion,
   captureDisplays,
@@ -1534,8 +1639,10 @@ function PreRecordPanel({
   onRecordCameraChange,
   onSelectedMicSourceChange,
   onSelectedSystemAudioSourceChange,
+  onMicGainPercentChange,
   onSystemAudioGainPercentChange,
   onSelectedCameraSourceChange,
+  onToggleAudioPreview,
   onCaptureModeChange,
   onScreenPickerOpenChange,
   onSelectedCaptureDisplayChange,
@@ -1549,8 +1656,10 @@ function PreRecordPanel({
   recordCamera: boolean;
   selectedMicSource: string;
   selectedSystemAudioSource: string;
+  micGainPercent: number;
   systemAudioGainPercent: number;
   selectedCameraSource: string;
+  audioPreview: { token: string | null; state: 'idle' | 'starting' | 'monitoring' | 'error'; error: string | null };
   captureMode: CaptureMode;
   captureRegion: CaptureRegion;
   captureDisplays: CaptureDisplay[];
@@ -1565,8 +1674,10 @@ function PreRecordPanel({
   onRecordCameraChange: (checked: boolean) => void;
   onSelectedMicSourceChange: (source: string) => void;
   onSelectedSystemAudioSourceChange: (source: string) => void;
+  onMicGainPercentChange: (value: number) => void;
   onSystemAudioGainPercentChange: (value: number) => void;
   onSelectedCameraSourceChange: (source: string) => void;
+  onToggleAudioPreview: () => void;
   onCaptureModeChange: (mode: CaptureMode) => void;
   onScreenPickerOpenChange: (open: boolean) => void;
   onSelectedCaptureDisplayChange: (displayId: string | null) => void;
@@ -1661,14 +1772,32 @@ function PreRecordPanel({
             </section>
 
             <PreRecordSourceSelect icon="mic" label="Mic" enabled={recordMic} disabled={actionPending || micSources.length === 0} emptyLabel="No microphone" offLabel="No microphone" sources={micSources} value={selectedMicSource} onEnabledChange={onRecordMicChange} onValueChange={onSelectedMicSourceChange} />
+            {recordMic ? (
+              <RecordedGainControl
+                label="Mic gain"
+                value={micGainPercent}
+                disabled={actionPending}
+                dataRegion="mic-audio-gain"
+                onChange={onMicGainPercentChange}
+              />
+            ) : null}
             <PreRecordSourceSelect icon="volume" label="System" enabled={recordSystemAudio} disabled={actionPending || systemAudioSources.length === 0} emptyLabel="No system audio" offLabel="No system audio" sources={systemAudioSources} value={selectedSystemAudioSource} onEnabledChange={onRecordSystemAudioChange} onValueChange={onSelectedSystemAudioSourceChange} />
-            {recordMic && recordSystemAudio ? (
-              <SystemAudioGainControl
+            {recordSystemAudio ? (
+              <RecordedGainControl
+                label="System gain"
                 value={systemAudioGainPercent}
                 disabled={actionPending}
+                dataRegion="system-audio-gain"
                 onChange={onSystemAudioGainPercentChange}
               />
             ) : null}
+            <AudioMonitorControl
+              enabled={recordMic || recordSystemAudio}
+              state={audioPreview.state}
+              error={audioPreview.error}
+              disabled={actionPending}
+              onToggle={onToggleAudioPreview}
+            />
             <PreRecordSourceSelect icon="camera" label="Camera" enabled={recordCamera} disabled={actionPending || cameraSources.length === 0} emptyLabel="No camera" offLabel="No camera" sources={cameraSources} value={selectedCameraSource} onEnabledChange={onRecordCameraChange} onValueChange={onSelectedCameraSourceChange} />
           </div>
 
@@ -1869,10 +1998,10 @@ function PreRecordSourceSelect<T extends { name: string; label: string; state?: 
   );
 }
 
-function SystemAudioGainControl({ value, disabled = false, compact = false, onChange }: { value: number; disabled?: boolean; compact?: boolean; onChange: (value: number) => void }) {
-  const normalized = normalizeSystemAudioGainPercent(value);
-  const rangeProgress = Math.round(normalized);
-  const label = `System mix ${normalized}%`;
+function RecordedGainControl({ label, value, disabled = false, compact = false, dataRegion, onChange }: { label: string; value: number; disabled?: boolean; compact?: boolean; dataRegion: string; onChange: (value: number) => void }) {
+  const normalized = normalizeAudioGainPercent(value);
+  const rangeProgress = Math.round(normalized / 2);
+  const output = `${normalized}%`;
   const control = (
     <span className="rangeControl" style={{ '--range-progress': `${rangeProgress}%` } as React.CSSProperties}>
       <span className="rangeVisual" aria-hidden="true">
@@ -1882,31 +2011,53 @@ function SystemAudioGainControl({ value, disabled = false, compact = false, onCh
       <input
         type="range"
         min="0"
-        max="100"
+        max="200"
         step="5"
         value={normalized}
         disabled={disabled}
-        aria-label="System audio mix"
-        title="Lower this when your mic is also present in system audio."
+        aria-label={label}
+        title="Recorded gain. 100% keeps the source unchanged."
         onWheel={preventRangeWheelChange}
-        onChange={(event) => onChange(normalizeSystemAudioGainPercent(event.currentTarget.value))}
+        onChange={(event) => onChange(normalizeAudioGainPercent(event.currentTarget.value))}
       />
     </span>
   );
   if (compact) {
     return (
-      <label className="sourceGainControl compact" data-ui-region="system-audio-gain">
-        <span>{label}</span>
+      <label className="sourceGainControl compact" data-ui-region={dataRegion}>
+        <span>{label} {output}</span>
         {control}
       </label>
     );
   }
   return (
-    <label className="preRecordInputRow systemGainControl" data-ui-region="system-audio-gain">
-      <span className="controlRowLabel"><Icon name="volume" /> System mix</span>
-      <output>{normalized}%</output>
+    <label className="preRecordInputRow systemGainControl" data-ui-region={dataRegion}>
+      <span className="controlRowLabel"><Icon name="volume" /> {label}</span>
+      <output>{output}</output>
       {control}
     </label>
+  );
+}
+
+function AudioMonitorControl({ enabled, state, error, disabled, onToggle }: { enabled: boolean; state: 'idle' | 'starting' | 'monitoring' | 'error'; error: string | null; disabled: boolean; onToggle: () => void }) {
+  const active = state === 'monitoring';
+  const label = state === 'starting' ? 'Starting monitor' : active ? 'Stop monitor' : 'Monitor audio';
+  const status = state === 'error' ? error ?? 'Monitor unavailable' : active ? 'Monitoring' : 'Off';
+  return (
+    <div className="preRecordInputRow audioMonitorControl" data-ui-region="audio-preview-monitor">
+      <span className="controlRowLabel"><Icon name="volume" /> Audio monitor</span>
+      <button
+        type="button"
+        className={active ? 'secondary active' : 'secondary'}
+        disabled={disabled || !enabled || state === 'starting'}
+        aria-pressed={active}
+        onClick={onToggle}
+      >
+        <Icon name={active ? 'stop' : 'play'} />
+        {label}
+      </button>
+      <small>{enabled ? status : 'Select mic or system audio'}</small>
+    </div>
   );
 }
 
@@ -2005,6 +2156,7 @@ function StateBanner({
   actionPending,
   actionPhase,
   error,
+  warning,
   diagnosticsPath,
   onRetry,
   onOpenDiagnostics,
@@ -2015,6 +2167,7 @@ function StateBanner({
   actionPending: boolean;
   actionPhase: RecordingActionPhase;
   error: AppError | null;
+  warning?: string | null;
   diagnosticsPath?: string | null;
   onRetry?: () => void;
   onOpenDiagnostics?: () => void;
@@ -2039,6 +2192,9 @@ function StateBanner({
       ) : null}
       {recording.state === 'saved' && recording.cameraError ? (
         <p className="warning">Camera was unavailable, so the screen recording was saved without webcam PiP: {recording.cameraError}</p>
+      ) : null}
+      {!error && warning ? (
+        <p className="warning">{warning}</p>
       ) : null}
     </section>
   );
@@ -5232,17 +5388,35 @@ export function LegacyVideoPreview({
         rafId = window.requestAnimationFrame(tick);
         return;
       }
+      const renderFrame = Math.max(0, video.currentTime * fps);
+      const resolvePreviewFrame = (frameNumber: number) => resolveFrame(document, frameNumber, {
+        getCursorPosition: getCursorPositionForFrame,
+      });
       let frame;
       try {
-        frame = resolveFrame(document, currentFrame, {
-          getCursorPosition: getCursorPositionForFrame,
-        });
+        frame = resolvePreviewFrame(renderFrame);
       } catch {
         // Fall back to identity when resolveFrame can't process the document
         // (e.g. partial state during initial load).
         frame = { cameraTransform: { scale: 1, offsetX: 0, offsetY: 0 } };
       }
-      const { scale, offsetX, offsetY } = frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 };
+      let previousMotionFrame = null;
+      let nextMotionFrame = null;
+      try {
+        previousMotionFrame = resolvePreviewFrame(Math.max(0, renderFrame - 1));
+        nextMotionFrame = resolvePreviewFrame(renderFrame + 1);
+      } catch {
+        previousMotionFrame = null;
+        nextMotionFrame = null;
+      }
+      const zoomMotionBlurPx = resolveZoomMotionBlurPx({
+        previous: previousMotionFrame?.cameraTransform,
+        current: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
+        next: nextMotionFrame?.cameraTransform,
+        sourceWidth,
+        sourceHeight,
+        reducedMotion: !video.paused || (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches),
+      });
       const dragScreenRect = screenDragRef.current;
       const resolvedScreenFrame = dragScreenRect
         ? { x: dragScreenRect.x * canvasWidth, y: dragScreenRect.y * canvasHeight, w: dragScreenRect.w * canvasWidth, h: dragScreenRect.h * canvasHeight }
@@ -5289,21 +5463,35 @@ export function LegacyVideoPreview({
       ctx.save();
       addRoundedRect(ctx, screenX, screenY, screenWidth, screenHeight, screenRadius);
       ctx.clip();
-      ctx.translate(screenX, screenY);
-      ctx.scale(screenDrawScale, screenDrawScale);
-      ctx.translate(screenSource.w / 2 + offsetX, screenSource.h / 2 + offsetY);
-      ctx.scale(scale, scale);
-      ctx.translate(-(screenSource.x + screenSource.w / 2), -(screenSource.y + screenSource.h / 2));
-      ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+      drawZoomMotionSource(ctx, video, {
+        screenX,
+        screenY,
+        screenDrawScale,
+        screenSource,
+        sourceWidth,
+        sourceHeight,
+        transform: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
+        blurPx: zoomMotionBlurPx,
+        sharpZoom: video.paused,
+      });
+      ctx.save();
+      applyScreenSourceTransform(ctx, {
+        screenX,
+        screenY,
+        screenDrawScale,
+        screenSource,
+        transform: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
+      });
       const resolvedCursor = frame.cursor;
-      drawClickEmphasis(ctx, cursorEvents, currentFrame, resolvedCursor?.clickEffect ?? 'ring');
-      const cursorPos = cursorAtFrame(cursorEvents, currentFrame);
+      drawClickEmphasis(ctx, cursorEvents, renderFrame, resolvedCursor?.clickEffect ?? 'ring');
+      const cursorPos = cursorAtFrame(cursorEvents, renderFrame);
       if (cursorPos && resolvedCursor?.visible !== false) {
         drawCursorPath(ctx, cursorPos.x, cursorPos.y, {
           style: resolvedCursor?.style ?? 'default',
           sizePercent: resolvedCursor?.sizePercent ?? 100,
         });
       }
+      ctx.restore();
       ctx.restore();
       const cameraHasFrame = Boolean(
         cameraVideo &&
@@ -5835,10 +6023,10 @@ function clampUnit(value: number, min = 0): number {
   return Math.max(min, Math.min(1, value));
 }
 
-function normalizeSystemAudioGainPercent(value: unknown): number {
+function normalizeAudioGainPercent(value: unknown): number {
   const number = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(number)) return DEFAULT_SYSTEM_AUDIO_DUCK_PERCENT;
-  return Math.max(0, Math.min(100, Math.round(number)));
+  if (!Number.isFinite(number)) return DEFAULT_RECORDED_GAIN_PERCENT;
+  return Math.max(0, Math.min(200, Math.round(number)));
 }
 
 function formatClock(seconds: number) {

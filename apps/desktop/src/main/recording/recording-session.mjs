@@ -61,6 +61,8 @@ export function createRecordingSession({
           captureRegion: session.captureRegion,
           fps: session.fps,
           cursorTelemetryPath: session.cursorTelemetryPath,
+          micSource: session.micSource,
+          micGainPercent: session.micGainPercent,
           systemAudioSource: session.systemAudioSource,
           systemAudioGainPercent: session.systemAudioGainPercent,
           cameraRawPath: session.cameraRawPath,
@@ -90,6 +92,7 @@ export function createRecordingSession({
       segmentCount: Math.max(1, active.segmentIndex ?? 1),
       pauseStartedAt: active.pauseStartedAt ?? null,
       micSource: active.micSource,
+      micGainPercent: active.micGainPercent,
       systemAudioSource: active.systemAudioSource,
       systemAudioGainPercent: active.systemAudioGainPercent,
       cameraDevicePath: active.cameraDevicePath,
@@ -101,8 +104,9 @@ export function createRecordingSession({
     if (active) throw new Error('A recording is already active.');
     if (!isCaptureAvailable()) throw new Error('FFmpeg x11grab capture is not available on this session.');
     const micSource = normalizeAudioSource(options.micSource);
+    const micGainPercent = normalizeAudioGainPercent(options.micGainPercent);
     const systemAudioSource = normalizeAudioSource(options.systemAudioSource);
-    const systemAudioGainPercent = normalizeSystemAudioGainPercent(options.systemAudioGainPercent);
+    const systemAudioGainPercent = normalizeAudioGainPercent(options.systemAudioGainPercent);
     const cameraDevicePath = normalizeCameraDevicePath(options.cameraDevicePath);
 
     await mkdir(recordingsDir, { recursive: true });
@@ -133,10 +137,11 @@ export function createRecordingSession({
       cursorTelemetryPath,
       eventsLogPath,
       eventLogger,
-      options: { micSource, systemAudioSource, systemAudioGainPercent, cameraDevicePath, captureRegion: options.captureRegion ?? null },
+      options: { micSource, micGainPercent, systemAudioSource, systemAudioGainPercent, cameraDevicePath, captureRegion: options.captureRegion ?? null },
       stamp,
       fps: DEFAULT_FPS,
       micSource,
+      micGainPercent,
       systemAudioSource,
       systemAudioGainPercent,
       cameraDevicePath,
@@ -152,6 +157,9 @@ export function createRecordingSession({
       paused: false,
       cursorEvents: [],
       cursorTimer: null,
+      buttonListener: null,
+      latestCursorPoint: null,
+      typingAnchor: null,
       // Track every spawned child so an external SIGTERM can reap them
       // synchronously from the process-level signal handler. Order: ffmpeg
       // (screen, then camera) and xinput button listener once telemetry
@@ -169,6 +177,7 @@ export function createRecordingSession({
       captureRegion: session.captureRegion,
       sampleIntervalMs,
       micSource,
+      micGainPercent,
       systemAudioSource,
       systemAudioGainPercent,
       cameraDevicePath,
@@ -456,6 +465,7 @@ async function startActiveSegment(session, {
         height: session.height,
         cameraDevicePath: session.cameraDevicePath,
         micSource: session.micSource,
+        micGainPercent: session.micGainPercent,
         systemAudioSource: session.systemAudioSource,
         systemAudioGainPercent: session.systemAudioGainPercent,
         onFirstFrame: (firstFrameMs) => {
@@ -482,6 +492,7 @@ async function startActiveSegment(session, {
       width: session.width,
       height: session.height,
       micSource: session.micSource,
+      micGainPercent: session.micGainPercent,
       systemAudioSource: session.systemAudioSource,
       systemAudioGainPercent: session.systemAudioGainPercent,
       onFirstFrame: (firstFrameMs) => {
@@ -653,6 +664,7 @@ async function spawnUnifiedCaptureWithRetry({
   height,
   cameraDevicePath,
   micSource,
+  micGainPercent,
   systemAudioSource,
   systemAudioGainPercent,
   onFirstFrame,
@@ -672,6 +684,7 @@ async function spawnUnifiedCaptureWithRetry({
       cameraWidth: 1280,
       cameraHeight: 720,
       micSource,
+      micGainPercent,
       systemAudioSource,
       systemAudioGainPercent,
       onFirstFrame,
@@ -763,6 +776,7 @@ function startTelemetryAfterIpcReturn(session, { getCursorPoint, now, sampleInte
     if (typeof buttonListenerFactory === 'function') {
       session.buttonListener = buttonListenerFactory({
         onButton: (event) => recordButtonEvent(session, event, now),
+        onKey: (event) => recordKeyEvent(session, event, now),
       });
       session.buttonListener.start();
       registerChild(session, 'xinput-button-listener', session.buttonListener);
@@ -772,7 +786,10 @@ function startTelemetryAfterIpcReturn(session, { getCursorPoint, now, sampleInte
 
 function buildAudioMetadata(session) {
   const audio = {};
-  if (session.micSource) audio.micSource = session.micSource;
+  if (session.micSource) {
+    audio.micSource = session.micSource;
+    audio.micGainPercent = session.micGainPercent;
+  }
   if (session.systemAudioSource) {
     audio.systemAudioSource = session.systemAudioSource;
     audio.systemAudioGainPercent = session.systemAudioGainPercent;
@@ -784,10 +801,10 @@ function normalizeAudioSource(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
-function normalizeSystemAudioGainPercent(value) {
+function normalizeAudioGainPercent(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 100;
-  return Math.max(0, Math.min(100, Math.round(number)));
+  return Math.max(0, Math.min(200, Math.round(number)));
 }
 
 function normalizeCameraDevicePath(value) {
@@ -927,6 +944,10 @@ function recordButtonEvent(session, event, now) {
       scaleFactor: session.scaleFactor || 1,
     });
     const frame = Math.max(0, Math.round((elapsedMs / 1000) * session.fps));
+    session.latestCursorPoint = cursor;
+    if (event.type === 'down' && event.button === 0) {
+      session.typingAnchor = cursor;
+    }
     session.cursorEvents.push({
       frame,
       timeMs: elapsedMs,
@@ -947,6 +968,57 @@ function recordButtonEvent(session, event, now) {
     }
   } catch (err) {
     console.warn('[recording-session] button event record failed:', err?.message ?? err);
+  }
+}
+
+function recordKeyEvent(session, event, now) {
+  if (!session || !event) return;
+  try {
+    const elapsedMs = getRecordedDurationMs(session, now);
+    const eventPoint = Number.isFinite(event.x) && Number.isFinite(event.y)
+      ? normalizeCursorPoint({
+          point: { x: event.x, y: event.y },
+          originX: session.originX || 0,
+          originY: session.originY || 0,
+          scaleFactor: session.scaleFactor || 1,
+        })
+      : null;
+    const anchor = session.typingAnchor ?? session.latestCursorPoint ?? eventPoint;
+    if (!anchor) return;
+    const frame = Math.max(0, Math.round((elapsedMs / 1000) * session.fps));
+    const keyEvent = {
+      frame,
+      timeMs: elapsedMs,
+      x: anchor.x,
+      y: anchor.y,
+      type: 'key',
+      button: 0,
+      ...(Number.isInteger(event.keyCode) && event.keyCode >= 0 ? { keyCode: event.keyCode } : {}),
+    };
+    const last = session.cursorEvents.at(-1);
+    if (
+      last &&
+      last.type === 'key' &&
+      last.frame === keyEvent.frame &&
+      last.x === keyEvent.x &&
+      last.y === keyEvent.y &&
+      last.keyCode === keyEvent.keyCode
+    ) {
+      return;
+    }
+    session.cursorEvents.push(keyEvent);
+    if (session.eventLogger) {
+      session.eventLogger.event('xinput-event', {
+        eventType: 'key',
+        keyCode: keyEvent.keyCode ?? null,
+        x: keyEvent.x,
+        y: keyEvent.y,
+        frame,
+        elapsedMs,
+      });
+    }
+  } catch (err) {
+    console.warn('[recording-session] key event record failed:', err?.message ?? err);
   }
 }
 
@@ -978,6 +1050,7 @@ function sampleCursor(session, getCursorPoint, now) {
       scaleFactor: session.scaleFactor || 1,
     });
     const frame = Math.max(0, Math.round((elapsedMs / 1000) * session.fps));
+    session.latestCursorPoint = cursor;
     if (session.eventLogger) {
       session.eventLogger.event('cursor-sample-end', {
         ok: true,

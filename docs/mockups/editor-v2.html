@@ -1,0 +1,355 @@
+<!doctype html>
+<!-- TASK-236 — Editor v2 design mockup (static, no behavior).
+     Built from the app's actual :root tokens (styles.css) so the design
+     language is continuous with the Recording edit view. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Rough Cut — Editor v2 mockup</title>
+<style>
+  :root {
+    --accent: #2563eb;
+    --accent-hover: #3d8bff;
+    --record: #f43f5e;
+    --text: #eeeef2;
+    --muted: #a1a1aa;
+    --subtle: #6b6b78;
+    --bg: #0d0d12;
+    --chrome: #121218;
+    --panel: #181820;
+    --panel-alt: #20202a;
+    --surface: #101015;
+    --line: #282832;
+    --strong-line: #33333f;
+    --shadow: 0 24px 82px rgb(0 0 0 / 0.45);
+    --mono: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+    color: var(--text);
+    background: var(--bg);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; font-size: 13px; overflow: hidden; }
+
+  /* ── App chrome (identical grammar to Recording edit) ─────────────── */
+  .topBar {
+    align-items: center; background: var(--chrome); border-bottom: 1px solid var(--line);
+    display: flex; gap: 0.9rem; height: 46px; padding: 0 0.9rem; flex: 0 0 auto;
+  }
+  .brand { display: flex; flex-direction: column; line-height: 1.05; }
+  .brand b { font-size: 0.72rem; letter-spacing: 0.14em; }
+  .brand span { color: var(--subtle); font-size: 0.62rem; letter-spacing: 0.08em; }
+  .topSpacer { flex: 1; }
+  .chip {
+    align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 7px;
+    color: var(--muted); display: inline-flex; font-size: 0.7rem; gap: 0.4rem; height: 28px; padding: 0 0.6rem;
+  }
+  .recordBtn {
+    align-items: center; background: var(--accent); border: none; border-radius: 8px; color: #fff;
+    display: inline-flex; font-size: 0.74rem; font-weight: 600; gap: 0.4rem; height: 30px; padding: 0 0.85rem;
+  }
+  .ghostBtn {
+    align-items: center; background: transparent; border: 1px solid var(--line); border-radius: 8px;
+    color: var(--text); display: inline-flex; font-size: 0.74rem; gap: 0.4rem; height: 30px; padding: 0 0.8rem;
+  }
+
+  /* ── Workspace: media | stage | inspector ─────────────────────────── */
+  .workspace { display: grid; flex: 1; gap: 0; grid-template-columns: 232px minmax(0,1fr) 264px; min-height: 0; }
+  .sidePanel { background: var(--surface); display: flex; flex-direction: column; min-height: 0; }
+  .sidePanel.left { border-right: 1px solid var(--line); }
+  .sidePanel.right { border-left: 1px solid var(--line); }
+  .panelHead {
+    align-items: center; border-bottom: 1px solid var(--line); color: var(--subtle); display: flex;
+    font-size: 0.62rem; font-weight: 700; gap: 0.5rem; height: 34px; letter-spacing: 0.14em; padding: 0 0.75rem;
+  }
+  .panelTabs { display: flex; gap: 0.25rem; margin-left: auto; }
+  .panelTab {
+    background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--subtle);
+    font-size: 0.64rem; letter-spacing: 0.05em; padding: 0.22rem 0.5rem;
+  }
+  .panelTab.active { background: var(--panel-alt); border-color: var(--strong-line); color: var(--text); }
+
+  /* Media pool */
+  .mediaList { display: flex; flex-direction: column; gap: 1px; overflow: auto; padding: 0.45rem; }
+  .mediaRow {
+    align-items: center; border: 1px solid transparent; border-radius: 7px; display: flex; gap: 0.55rem; padding: 0.4rem 0.45rem;
+  }
+  .mediaRow:hover { background: var(--panel); border-color: var(--line); }
+  .mediaRow.selected { background: var(--panel); border-color: color-mix(in oklch, var(--accent) 55%, var(--line)); }
+  .mediaThumb {
+    background: linear-gradient(135deg, #1e3a5f 0%, #14342e 100%);
+    border: 1px solid var(--strong-line); border-radius: 5px; flex: 0 0 auto; height: 30px; width: 48px;
+  }
+  .mediaThumb.cam { background: linear-gradient(135deg, #3b2d52 0%, #4a2438 100%); }
+  .mediaThumb.audio { background: repeating-linear-gradient(90deg, #1e293b 0 3px, #334155 3px 4px); }
+  .mediaMeta { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+  .mediaName { font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mediaDur { color: var(--subtle); font-family: var(--mono); font-size: 0.6rem; }
+
+  /* Stage */
+  .stage { background: var(--bg); display: flex; flex-direction: column; min-width: 0; }
+  .monitorWrap { align-items: center; display: flex; flex: 1; justify-content: center; min-height: 0; padding: 1rem 1.25rem 0.5rem; }
+  .monitor {
+    aspect-ratio: 16/9; background:
+      radial-gradient(120% 130% at 18% 12%, #232a4d 0%, #11131f 52%, #0b0c14 100%);
+    border: 1px solid var(--strong-line); border-radius: 12px; box-shadow: var(--shadow);
+    max-height: 100%; max-width: 100%; position: relative; width: min(100%, 92vh * 16 / 9);
+  }
+  .screenFrame {
+    background: linear-gradient(160deg, #16263f 0%, #0f1727 100%), repeating-linear-gradient(0deg, rgb(255 255 255 / 0.015) 0 2px, transparent 2px 14px);
+    border: 1px solid #2c3a55; border-radius: 8px; inset: 9% 14%; position: absolute;
+  }
+  .screenFrame::after { color: #44506b; content: "SCREEN"; font-size: 0.7rem; left: 50%; letter-spacing: 0.3em; position: absolute; top: 50%; transform: translate(-50%, -50%); }
+  .pip {
+    background: linear-gradient(160deg, #2a2336 0%, #181320 100%);
+    border: 1px solid rgb(255 255 255 / 0.16); border-radius: 999px; bottom: 7%; height: 13%; aspect-ratio: 1; position: absolute; right: 5%;
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+  }
+  .transport {
+    align-items: center; background: color-mix(in srgb, var(--chrome) 88%, transparent);
+    backdrop-filter: blur(6px); border: 1px solid var(--line); border-radius: 999px; bottom: 4.5%;
+    display: flex; gap: 0.45rem; left: 50%; padding: 0.3rem 0.7rem; position: absolute; transform: translateX(-50%);
+  }
+  .tBtn {
+    align-items: center; background: transparent; border: none; border-radius: 6px; color: var(--text);
+    display: inline-flex; font-size: 0.78rem; height: 24px; justify-content: center; min-width: 26px;
+  }
+  .tBtn.primary { background: var(--panel-alt); border: 1px solid var(--strong-line); }
+  .tTime { color: var(--muted); font-family: var(--mono); font-size: 0.68rem; padding: 0 0.3rem; }
+
+  /* Inspector */
+  .inspGroup { border-bottom: 1px solid var(--line); padding: 0.65rem 0.75rem 0.75rem; }
+  .inspTitle { color: var(--subtle); font-size: 0.6rem; font-weight: 700; letter-spacing: 0.14em; margin-bottom: 0.55rem; }
+  .inspRow { align-items: center; display: flex; gap: 0.5rem; justify-content: space-between; margin-bottom: 0.45rem; }
+  .inspLabel { color: var(--muted); font-size: 0.7rem; }
+  .inspValue { color: var(--text); font-family: var(--mono); font-size: 0.68rem; }
+  .inspField {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; color: var(--text);
+    font-size: 0.7rem; padding: 0.3rem 0.45rem; width: 132px;
+  }
+  .toggle { background: var(--panel-alt); border: 1px solid var(--strong-line); border-radius: 999px; height: 16px; position: relative; width: 30px; }
+  .toggle.on { background: color-mix(in srgb, var(--accent) 55%, var(--panel-alt)); }
+  .toggle.on::after { background: #fff; border-radius: 999px; content: ""; height: 12px; position: absolute; right: 2px; top: 1px; width: 12px; }
+  .linkedNote { align-items: center; color: var(--subtle); display: flex; font-size: 0.64rem; gap: 0.4rem; }
+  .linkedNote b { color: var(--muted); font-weight: 600; }
+  .exportBtn {
+    align-items: center; background: var(--accent); border: none; border-radius: 8px; color: #fff; display: flex;
+    font-size: 0.74rem; font-weight: 600; gap: 0.45rem; height: 32px; justify-content: center; margin: 0.7rem 0.75rem; padding: 0 0.9rem;
+  }
+
+  /* ── Timeline region (the centerpiece) ─────────────────────────────── */
+  .timeline { background: var(--surface); border-top: 1px solid var(--strong-line); display: flex; flex: 0 0 38%; flex-direction: column; min-height: 0; }
+  .tlToolbar {
+    align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 0.6rem; height: 38px; padding: 0 0.7rem; flex: 0 0 auto;
+  }
+  .toolGroup { display: flex; gap: 0.2rem; }
+  .toolBtn {
+    align-items: center; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--muted);
+    display: inline-flex; font-size: 0.78rem; height: 26px; justify-content: center; min-width: 28px;
+  }
+  .toolBtn:hover { background: var(--panel); border-color: var(--line); color: var(--text); }
+  .toolBtn.active { background: color-mix(in srgb, var(--accent) 24%, var(--panel)); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); color: var(--text); }
+  .toolBtn.disabled { color: var(--subtle); opacity: 0.45; }
+  .tlSep { background: var(--line); height: 18px; width: 1px; }
+  .tlTime { color: var(--text); font-family: var(--mono); font-size: 0.74rem; }
+  .tlTime span { color: var(--subtle); }
+  .tlRight { align-items: center; display: flex; gap: 0.45rem; margin-left: auto; }
+  .snapBtn { font-size: 0.66rem; letter-spacing: 0.06em; min-width: auto; padding: 0 0.5rem; }
+  .zoomSlider { align-items: center; display: flex; gap: 0.35rem; }
+  .zoomTrack { background: var(--panel-alt); border: 1px solid var(--line); border-radius: 999px; height: 5px; position: relative; width: 90px; }
+  .zoomTrack::before { background: linear-gradient(90deg, #93c5fd, #3b82f6); border-radius: 999px; content: ""; height: 100%; left: 0; position: absolute; width: 55%; }
+  .zoomTrack::after { background: #fff; border-radius: 999px; content: ""; height: 11px; left: 55%; position: absolute; top: -4px; width: 11px; }
+
+  .tlBody { display: grid; flex: 1; grid-template-columns: 168px minmax(0,1fr); min-height: 0; }
+  .tlHeaders { border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+  .tlRulerSpacer { border-bottom: 1px solid var(--line); flex: 0 0 26px; }
+  .trackHead {
+    align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 0.45rem; padding: 0 0.6rem;
+  }
+  .trackHead.v { flex: 0 0 56px; }
+  .trackHead.a { flex: 0 0 44px; }
+  .trackTag {
+    background: var(--panel-alt); border: 1px solid var(--strong-line); border-radius: 5px; color: var(--muted);
+    font-family: var(--mono); font-size: 0.62rem; padding: 0.14rem 0.35rem;
+  }
+  .trackName { color: var(--muted); font-size: 0.68rem; font-weight: 600; letter-spacing: 0.04em; }
+  .trackCtl { display: flex; gap: 0.2rem; margin-left: auto; }
+  .trackCtl button {
+    background: transparent; border: 1px solid var(--line); border-radius: 4px; color: var(--subtle);
+    font-size: 0.58rem; height: 17px; min-width: 17px;
+  }
+  .trackCtl button.on { background: var(--panel-alt); color: var(--text); }
+
+  .tlLanes { display: flex; flex-direction: column; overflow: hidden; position: relative; }
+  .ruler {
+    align-items: flex-end; border-bottom: 1px solid var(--line); color: var(--subtle); display: flex;
+    flex: 0 0 26px; font-family: var(--mono); font-size: 0.58rem; position: relative;
+  }
+  .ruler .tick { border-left: 1px solid rgb(226 232 240 / 0.18); bottom: 0; height: 7px; position: absolute; }
+  .ruler .tick.major { border-left-color: rgb(226 232 240 / 0.4); height: 12px; }
+  .ruler .tick.major i { color: var(--subtle); font-style: normal; left: 4px; position: absolute; top: -13px; white-space: nowrap; }
+  .lane { border-bottom: 1px solid var(--line); position: relative; }
+  .lane.v { flex: 0 0 56px; }
+  .lane.a { flex: 0 0 44px; }
+  .lane { background: linear-gradient(90deg, rgb(148 163 184 / 0.03) 1px, transparent 1px) 0 0 / 8.33% 100%, var(--bg); }
+
+  .clip {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 26%, #141d2e) 0%, color-mix(in srgb, var(--accent) 12%, #0b121f) 100%);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--strong-line)); border-radius: 6px;
+    bottom: 5px; overflow: hidden; position: absolute; top: 5px;
+  }
+  .clip .name { color: rgb(238 238 242 / 0.92); font-size: 0.64rem; font-weight: 600; left: 8px; position: absolute; top: 5px; }
+  .clip .dur { color: rgb(238 238 242 / 0.5); font-family: var(--mono); font-size: 0.56rem; left: 8px; position: absolute; top: 19px; }
+  .clip .film { background: repeating-linear-gradient(90deg, rgb(255 255 255 / 0.05) 0 1px, transparent 1px 28px); inset: 0; position: absolute; }
+  .clip.cam { background: linear-gradient(180deg, color-mix(in srgb, #7c3aed 20%, #141d2e) 0%, color-mix(in srgb, #7c3aed 9%, #0b121f) 100%); border-color: color-mix(in srgb, #7c3aed 32%, var(--strong-line)); }
+  .clip.selected { border-color: var(--accent-hover); box-shadow: 0 0 0 1px var(--accent-hover); }
+  .clip .handle { background: var(--accent-hover); bottom: 0; position: absolute; top: 0; width: 5px; }
+  .clip .handle.l { border-radius: 5px 0 0 5px; left: 0; }
+  .clip .handle.r { border-radius: 0 5px 5px 0; right: 0; }
+  .clip.audio { background: linear-gradient(180deg, #173524 0%, #0c2016 100%); border-color: #2c5c3f; }
+  .wave { bottom: 4px; left: 4px; position: absolute; right: 4px; top: 16px; }
+  .wave svg { display: block; height: 100%; width: 100%; }
+  .playhead { background: var(--record); bottom: 0; position: absolute; top: 0; width: 2px; z-index: 5; }
+  .playhead::before { background: var(--record); border-radius: 2px; content: ""; height: 9px; left: -3px; position: absolute; top: 0; width: 8px; }
+  .gapHint { color: var(--subtle); font-size: 0.58rem; letter-spacing: 0.08em; position: absolute; }
+
+  /* Bottom view tabs (unchanged from today) */
+  .viewTabs { align-items: center; background: var(--chrome); border-top: 1px solid var(--line); display: flex; flex: 0 0 40px; gap: 0.4rem; justify-content: center; }
+  .viewTab { background: transparent; border: 1px solid transparent; border-radius: 7px; color: var(--muted); font-size: 0.72rem; padding: 0.32rem 0.8rem; }
+  .viewTab.active { background: var(--panel); border-color: var(--strong-line); color: var(--text); }
+</style>
+</head>
+<body>
+  <header class="topBar">
+    <div class="brand"><b>ROUGH CUT</b><span>Studio</span></div>
+    <div class="topSpacer"></div>
+    <span class="chip">⌗ Screen</span>
+    <span class="chip">🎙 usb-Samson · 100%</span>
+    <span class="chip">📷 FHD Webcam</span>
+    <button class="recordBtn">● Record</button>
+    <button class="ghostBtn">Open project</button>
+  </header>
+
+  <div class="workspace">
+    <!-- MEDIA POOL -->
+    <aside class="sidePanel left">
+      <div class="panelHead">MEDIA
+        <div class="panelTabs"><button class="panelTab active">Assets</button><button class="panelTab">Generated</button></div>
+      </div>
+      <div class="mediaList">
+        <div class="mediaRow selected"><span class="mediaThumb"></span><span class="mediaMeta"><span class="mediaName">recording #1 · screen</span><span class="mediaDur">29:01 · 1440p</span></span></div>
+        <div class="mediaRow"><span class="mediaThumb cam"></span><span class="mediaMeta"><span class="mediaName">recording #1 · camera</span><span class="mediaDur">29:01 · 1080p</span></span></div>
+        <div class="mediaRow"><span class="mediaThumb audio"></span><span class="mediaMeta"><span class="mediaName">recording #1 · mic</span><span class="mediaDur">29:01 · 48 kHz</span></span></div>
+        <div class="mediaRow"><span class="mediaThumb" style="background:linear-gradient(135deg,#4a3a20,#3a2616)"></span><span class="mediaMeta"><span class="mediaName">intro-card.png</span><span class="mediaDur">still</span></span></div>
+      </div>
+    </aside>
+
+    <!-- STAGE -->
+    <main class="stage">
+      <div class="monitorWrap">
+        <div class="monitor">
+          <div class="screenFrame"></div>
+          <div class="pip"></div>
+          <div class="transport">
+            <button class="tBtn">⏮</button>
+            <button class="tBtn primary">▶</button>
+            <button class="tBtn">⏭</button>
+            <span class="tTime">00:10:02 <span style="color:var(--subtle)">/ 00:27:14</span></span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- INSPECTOR -->
+    <aside class="sidePanel right">
+      <div class="panelHead">INSPECTOR</div>
+      <div class="inspGroup">
+        <div class="inspTitle">CLIP</div>
+        <div class="inspRow"><span class="inspLabel">Name</span><input class="inspField" value="Screen · take 1.2" /></div>
+        <div class="inspRow"><span class="inspLabel">In / Out</span><span class="inspValue">09:42:11 → 13:06:02</span></div>
+        <div class="inspRow"><span class="inspLabel">Duration</span><span class="inspValue">03:23:21</span></div>
+        <div class="inspRow"><span class="inspLabel">Track</span><span class="inspValue">V1 · Screen</span></div>
+        <div class="inspRow"><span class="inspLabel">Enabled</span><span class="toggle on"></span></div>
+        <div class="linkedNote">⛓ <b>Linked group</b>&nbsp;· camera + mic move together</div>
+      </div>
+      <div class="inspGroup">
+        <div class="inspTitle">TRACK</div>
+        <div class="inspRow"><span class="inspLabel">Lock</span><span class="toggle"></span></div>
+        <div class="inspRow"><span class="inspLabel">Visible</span><span class="toggle on"></span></div>
+        <div class="inspRow"><span class="inspLabel">Height</span><span class="inspValue">Comfort</span></div>
+      </div>
+      <div style="flex:1"></div>
+      <button class="exportBtn">⬆ Export styled</button>
+    </aside>
+  </div>
+
+  <!-- TIMELINE -->
+  <section class="timeline">
+    <div class="tlToolbar">
+      <div class="toolGroup">
+        <button class="toolBtn active" title="Selection (A)">⬉</button>
+        <button class="toolBtn" title="Trim edit (T)">⟷</button>
+        <button class="toolBtn" title="Blade (B)">✂</button>
+        <button class="toolBtn disabled" title="Dynamic trim (W) — soon">◷</button>
+      </div>
+      <div class="tlSep"></div>
+      <button class="toolBtn snapBtn active" title="Snapping (N)">SNAP</button>
+      <div class="tlSep"></div>
+      <span class="tlTime">00:10:02:14 <span>/ 00:27:14:02</span></span>
+      <div class="tlRight">
+        <span style="color:var(--subtle); font-size:0.64rem;">⌃ scroll to zoom</span>
+        <div class="zoomSlider"><button class="toolBtn">−</button><span class="zoomTrack"></span><button class="toolBtn">+</button><button class="toolBtn snapBtn">FIT</button></div>
+      </div>
+    </div>
+    <div class="tlBody">
+      <div class="tlHeaders">
+        <div class="tlRulerSpacer"></div>
+        <div class="trackHead v"><span class="trackTag">V2</span><span class="trackName">Camera</span><div class="trackCtl"><button class="on">👁</button><button>🔒</button></div></div>
+        <div class="trackHead v"><span class="trackTag">V1</span><span class="trackName">Screen</span><div class="trackCtl"><button class="on">👁</button><button>🔒</button></div></div>
+        <div class="trackHead a"><span class="trackTag">A1</span><span class="trackName">Mic</span><div class="trackCtl"><button class="on">M</button><button>🔒</button></div></div>
+      </div>
+      <div class="tlLanes">
+        <div class="ruler">
+          <span class="tick major" style="left:2%"><i>08:00</i></span><span class="tick" style="left:7%"></span><span class="tick" style="left:12%"></span>
+          <span class="tick major" style="left:17%"><i>10:00</i></span><span class="tick" style="left:22%"></span><span class="tick" style="left:27%"></span>
+          <span class="tick major" style="left:32%"><i>12:00</i></span><span class="tick" style="left:37%"></span><span class="tick" style="left:42%"></span>
+          <span class="tick major" style="left:47%"><i>14:00</i></span><span class="tick" style="left:52%"></span><span class="tick" style="left:57%"></span>
+          <span class="tick major" style="left:62%"><i>16:00</i></span><span class="tick" style="left:67%"></span><span class="tick" style="left:72%"></span>
+          <span class="tick major" style="left:77%"><i>18:00</i></span><span class="tick" style="left:82%"></span><span class="tick" style="left:87%"></span>
+          <span class="tick major" style="left:92%"><i>20:00</i></span><span class="tick" style="left:97%"></span>
+        </div>
+        <div class="lane v">
+          <div class="clip cam" style="left:2%; width:43%"><span class="film"></span><span class="name">Camera</span><span class="dur">12:54</span></div>
+          <div class="clip cam" style="left:53%; width:44%"><span class="film"></span><span class="name">Camera</span><span class="dur">13:10</span></div>
+        </div>
+        <div class="lane v">
+          <div class="clip selected" style="left:2%; width:43%"><span class="film"></span><span class="name">Screen · take 1.1</span><span class="dur">12:54</span><span class="handle l"></span><span class="handle r"></span></div>
+          <span class="gapHint" style="left:46.5%; top:40%;">GAP · 1:12</span>
+          <div class="clip" style="left:53%; width:44%"><span class="film"></span><span class="name">Screen · take 1.2</span><span class="dur">13:10</span></div>
+        </div>
+        <div class="lane a">
+          <div class="clip audio" style="left:2%; width:43%"><span class="name">Mic</span>
+            <span class="wave"><svg preserveAspectRatio="none" viewBox="0 0 100 20">
+              <path d="M0 10 L2 6 L4 14 L6 8 L8 12 L10 4 L12 16 L14 9 L16 11 L18 5 L20 15 L22 10 L24 7 L26 13 L28 6 L30 14 L32 10 L34 4 L36 16 L38 8 L40 12 L42 9 L44 11 L46 5 L48 15 L50 10 L52 6 L54 14 L56 8 L58 12 L60 4 L62 16 L64 10 L66 7 L68 13 L70 5 L72 15 L74 9 L76 11 L78 6 L80 14 L82 10 L84 8 L86 12 L88 4 L90 16 L92 9 L94 11 L96 7 L98 13 L100 10" stroke="#4ade80" stroke-opacity="0.55" stroke-width="0.8" fill="none"/>
+            </svg></span>
+          </div>
+          <div class="clip audio" style="left:53%; width:44%"><span class="name">Mic</span>
+            <span class="wave"><svg preserveAspectRatio="none" viewBox="0 0 100 20">
+              <path d="M0 10 L3 5 L6 15 L9 8 L12 12 L15 6 L18 14 L21 10 L24 4 L27 16 L30 9 L33 11 L36 7 L39 13 L42 5 L45 15 L48 10 L51 8 L54 12 L57 6 L60 14 L63 9 L66 11 L69 4 L72 16 L75 10 L78 7 L81 13 L84 6 L87 14 L90 9 L93 11 L96 8 L100 10" stroke="#4ade80" stroke-opacity="0.55" stroke-width="0.8" fill="none"/>
+            </svg></span>
+          </div>
+        </div>
+        <div style="flex:1"></div>
+        <div class="playhead" style="left:17.8%"></div>
+      </div>
+    </div>
+  </section>
+
+  <nav class="viewTabs">
+    <button class="viewTab">Projects</button>
+    <button class="viewTab">Recording edit</button>
+    <button class="viewTab active">Editor</button>
+    <button class="viewTab">AI</button>
+  </nav>
+</body>
+</html>
