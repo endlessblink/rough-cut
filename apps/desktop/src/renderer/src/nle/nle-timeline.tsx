@@ -8,6 +8,9 @@ import type { NleEditMode } from './mode-toolbar';
 import { isTypingTarget } from './keyboard.mjs';
 import { snapFrameToClipEdges, snapFrameToClipEdgesExcept } from './snap.mjs';
 import { createDragSession, timelineInFromPointerFrame, trackIdFromClientY, updateDragSession } from './drag-session.mjs';
+import { formatTimecode } from './project-shape.mjs';
+import { clipSourceFilePath, filmstripBackground, waveformBackground } from './clip-visuals-style.mjs';
+import type { ClipVisualMeta } from './clip-visuals-style.mjs';
 import { createTrimSession, updateTrimSession } from './trim-session.mjs';
 import {
   contentWidthPx,
@@ -162,6 +165,43 @@ export function NleTimeline({
   const pixelsPerFrame = resolvePixelsPerFrame(zoomPpf, viewWidthPx, durationFrames);
   const timelineContentWidth = contentWidthPx(durationFrames, pixelsPerFrame);
   const zoomedIn = zoomPpf !== null && timelineContentWidth > viewWidthPx + 1;
+
+  // Clip media visuals (filmstrips / waveforms) — one cached strip per
+  // source, fetched once and sliced per clip in CSS. Requests are deduped
+  // across renders; failures degrade to the flat block (no retry storm).
+  const [clipVisuals, setClipVisuals] = React.useState<Record<string, ClipVisualMeta>>({});
+  const requestedVisualsRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    requestedVisualsRef.current = new Set();
+    setClipVisuals({});
+  }, [project?.path]);
+  React.useEffect(() => {
+    const projectPath = project?.path;
+    if (!projectPath) return;
+    const bridge = (window as Window & { roughCut?: { getClipVisual?: (payload: Record<string, unknown>) => Promise<ClipVisualMeta> } }).roughCut;
+    if (!bridge?.getClipVisual) return;
+    let cancelled = false;
+    for (const track of buildTimelineTracks(project)) {
+      const kind = track.kind === 'audio' ? 'waveform' : track.kind === 'video' ? 'filmstrip' : null;
+      if (!kind) continue;
+      for (const block of track.blocks) {
+        const sourcePath = clipSourceFilePath(project, block.mediaId);
+        if (!sourcePath) continue;
+        const key = `${kind}:${sourcePath}`;
+        if (requestedVisualsRef.current.has(key)) continue;
+        requestedVisualsRef.current.add(key);
+        const durationSec = Math.max(1, Number(block.sourceDurationFrames ?? durationFrames) / fps);
+        bridge.getClipVisual({ projectPath, sourcePath, kind, durationSec })
+          .then((meta) => {
+            if (!cancelled && meta?.url) setClipVisuals((prev) => ({ ...prev, [key]: meta }));
+          })
+          .catch(() => {
+            // keep the flat block; the key stays "requested" so we don't loop
+          });
+      }
+    }
+    return () => { cancelled = true; };
+  }, [project, durationFrames, fps]);
 
   // Apply anchor-preserving scroll after a zoom re-render, once the content
   // width has actually changed.
@@ -447,7 +487,6 @@ export function NleTimeline({
         { kind: 'audio', tag: `A${trackRows.filter((track) => track.kind === 'audio').length + 1}`, label: 'Audio' },
       ];
   const selectedBlock = trackRows.flatMap((track) => track.blocks.map((block) => ({ ...block, trackLabel: track.label, trackKind: track.kind }))).find((block) => block.id === selectedClipId) ?? null;
-  const selectedDuration = selectedBlock ? Math.max(1, Math.round(selectedBlock.timelineOut - selectedBlock.timelineIn)) : 0;
 
   function edgeLimitState(block: { sourceIn?: number | null; sourceOut?: number | null; sourceDurationFrames?: number | null }, edge: 'left' | 'right') {
     if (edge === 'left') return Number(block.sourceIn) <= 0 ? 'source-start' : 'free';
@@ -459,25 +498,19 @@ export function NleTimeline({
   return (
     <div className="nleTimeline" data-ui-region="nle-timeline">
       <div className="nleTimelineTopbar">
-        <div>
+        <div className="nleTimelineTitle">
           <p className="eyebrow">Sequence</p>
           <strong>{selectedBlock ? `${selectedBlock.trackLabel} clip` : 'Timeline'}</strong>
         </div>
         <NleModeToolbar mode={editMode} onModeChange={onEditModeChange} />
-        <div className="nleTimelineReadout" aria-label="Timeline edit state">
-          {commandError ? (
-            <span className="nleCommandError" role="alert">{commandError}</span>
-          ) : null}
-          {selectedBlock ? (
-            <>
-              <span>In {Math.round(selectedBlock.timelineIn)}</span>
-              <span>Out {Math.round(selectedBlock.timelineOut)}</span>
-              <span>{selectedDuration}f</span>
-            </>
-          ) : (
-            <span className="nleTimelineHint">Select a clip to trim, move, or split</span>
-          )}
-        </div>
+        <span className="nleToolbarSep" aria-hidden="true" />
+        <span className="nleTimecode" aria-label="Playhead timecode">
+          {formatTimecode(playheadFrame, fps)}
+          <i> / {formatTimecode(durationFrames, fps)}</i>
+        </span>
+        {commandError ? (
+          <span className="nleCommandError" role="alert">{commandError}</span>
+        ) : null}
         <div className="nleTimelineZoom" role="group" aria-label="Timeline zoom">
           <button
             type="button"
@@ -593,6 +626,8 @@ export function NleTimeline({
                       className={`nleClipBlock ${block.enabled && track.enabled ? '' : 'disabled'} ${selected ? 'selected' : ''} ${trimPreview ? 'trimming' : ''} ${dragPreview ? 'dragging' : ''} ${isDraggingSource ? 'draggingSource' : ''} ${dragSession?.invalidReason ? 'invalidDrop' : ''}`}
                       data-clip-id={block.id ?? ''}
                       data-asset-id={block.assetId ?? ''}
+                      data-timeline-in={Math.round(block.timelineIn)}
+                      data-timeline-out={Math.round(block.timelineOut)}
                       data-selected={selected ? 'true' : undefined}
                       data-trim-edge={trimPreview ? trimSession?.edge : undefined}
                       style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
@@ -613,7 +648,20 @@ export function NleTimeline({
                           onPointerDown={(e) => startTrim(e, block.id, 'left')}
                         />
                       ) : null}
+                      {(() => {
+                        const visualKind = track.kind === 'audio' ? 'waveform' : track.kind === 'video' ? 'filmstrip' : null;
+                        if (!visualKind) return null;
+                        const sourcePath = clipSourceFilePath(project, block.mediaId);
+                        const meta = sourcePath ? clipVisuals[`${visualKind}:${sourcePath}`] : undefined;
+                        if (!meta) return null;
+                        // Live-slide the strip while trimming the left edge.
+                        const liveSourceIn = (trimPreview as { sourceIn?: number } | null)?.sourceIn ?? block.sourceIn ?? 0;
+                        const view = { sourceInFrames: liveSourceIn, fps, pixelsPerFrame };
+                        const style = visualKind === 'filmstrip' ? filmstripBackground(meta, view) : waveformBackground(meta, view);
+                        return style ? <span className={`nleClipMedia ${visualKind}`} style={style as React.CSSProperties} aria-hidden="true" /> : null;
+                      })()}
                       <span className="nleClipBlockBody" aria-hidden="true" />
+                      <span className="nleClipNameBar" aria-hidden="true" />
                       <span className="nleClipBlockLabel">{block.name ?? 'Clip'}</span>
                       {selected && editMode !== 'blade' ? (
                         <button

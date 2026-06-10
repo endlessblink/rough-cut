@@ -87,7 +87,7 @@ try {
         durationFrames: match ? Number(match[2]) : null,
         clipCount: document.querySelectorAll('.nleTrackLaneBody[data-track-kind="video"] .nleClipBlock').length,
         selected: document.querySelector('.nleClipBlock.selected') !== null,
-        readout: document.querySelector('.nleTimelineReadout')?.textContent ?? '',
+        selectedIn: document.querySelector('.nleClipBlock.selected')?.getAttribute('data-timeline-in') ?? null,
       };
     });
     steps.push({ label, ...state });

@@ -250,9 +250,9 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-238 | Program monitor shows stale frame when playhead is in a gap | P1 | PLANNED |
 | TASK-239 | Compositor migration research note + renderer contract | P0 | DONE (2026-06-10) |
 | TASK-240 | Extract shared composition-frame plan from preview/export inputs | P0 | DONE (2026-06-10) |
-| TASK-241 | Add screen-layer renderer boundary with Canvas2D parity adapter | P0 | PLANNED |
-| TASK-242 | Add feature-flagged WebGL screen-layer renderer | P0 | PLANNED |
-| TASK-243 | Add WebGL-vs-Canvas parity and playback performance probes | P0 | PLANNED |
+| TASK-241 | Add screen-layer renderer boundary with Canvas2D parity adapter | P0 | DONE (2026-06-10) |
+| TASK-242 | Add feature-flagged WebGL screen-layer renderer | P0 | DONE (2026-06-10) |
+| TASK-243 | Add WebGL-vs-Canvas parity and playback performance probes | P0 | DONE (2026-06-10) |
 | TASK-244 | Add velocity-based WebGL transform motion blur | P1 | PLANNED |
 | TASK-245 | Promote WebGL to full preview compositor behind fallback | P1 | PLANNED |
 | TASK-246 | Prototype GPU/headless export path from the shared composition plan | P1 | PLANNED |
@@ -7176,6 +7176,35 @@ interaction primitives (viewport math, captured gestures, mode dispatch), and ha
   at index 0 with existing tracks shifted up); horizontal scrollbar only when zoomed
   (`data-zoomed`); vertical scroll owned by `.nleTimelineLanes`. Harness updated to read the
   frames readout from `.nleTimelineStatus` (the nleHeader it used is gone in v2).
+- Slice 2.5 (DONE 2026-06-10): mockup-fidelity sync — new v2 media pool
+  (`editor-v2/media-pool.tsx`: bins by real asset type, working search, grid/list toggle, video
+  thumbnails with duration badges; Generated bin reuses `GeneratedAssetsPanel`); channel polish
+  (track name always visible — reorder/height controls hover/focus-revealed; ghost lanes restyled
+  as quiet solid channels). NOTE: one flaky harness run observed (trim drag landed short under
+  load, cascading failures) — re-runs green 2x; if it recurs, add a settle wait to the trim step.
+- Slice 2.6 (DONE 2026-06-10): regression tests + toolbar/ruler/pane-head polish — media-pool logic
+  extracted to `editor-v2/media-pool-model.mjs` (+ unit tests incl. `shortProjectName`);
+  `addGeneratedAssetToNewTrack` tests (top video index / audio-at-bottom shift / kind rejection);
+  v2 deck source assertions in `nle-timeline.test.mjs`; `timeline-viewport.test.mjs` +
+  `media-pool-model.test.mjs` registered in the package.json suite (was missing). Visual: ruler
+  labels MM:SS (test updated), v2 toolbar drops the title block (tools lead, mockup grammar),
+  status chips render timecode with `data-playhead-frame`/`data-duration-frames` for the harness,
+  SOURCE pane meta = primary asset label, TIMELINE meta = humanized project name. Suite 572 pass.
+- Slice 2.7 (DONE 2026-06-10): toolbar/ruler redesign to mockup grammar — ghost control vocabulary
+  (mode + zoom buttons borderless, active-only tint), toolbar separator, master timecode as
+  prominent mono TEXT (`.nleTimecode`, rendered by NleTimeline from its own props; status cluster
+  reduced to fps + Legacy with `data-playhead-frame`/`data-duration-frames` for the harness),
+  quiet readout pills, flush ruler band (no box; bottom hairline; bottom-aligned ticks), and
+  zero-gap hairline channel rows in the v2 deck. Suite 574 pass; harness problems: [].
+- Slice 2.8 (DONE 2026-06-10): premium pass after user verdict ("too close together, ugly font,
+  elements that don't need to be there") — REMOVED the pane-head eyebrow row entirely (viewers get
+  a small in-picture tag; inspector starts at content; media pool leads with search), toolbar cut
+  to tools · centered master timecode · zoom · Legacy (hint sentence, In/Out chips, and fps text
+  deleted — inspector owns that data), timecode + ruler labels switched from terminal mono to the
+  UI font with tabular-nums, 44px toolbar rhythm. Clip blocks expose
+  `data-timeline-in`/`data-timeline-out`; harnesses read clip dataset instead of the removed
+  readout. Validated at 1900px width (the earlier misses came from validating only at the narrow
+  harness window).
 
 #### Verification
 
@@ -7280,7 +7309,7 @@ Verification: `pnpm --filter @rough-cut/frame-resolver test`; `pnpm --filter @ro
 ### TASK-241 Add screen-layer renderer boundary with Canvas2D parity adapter
 
 **Priority:** P0
-**Status:** PLANNED
+**Status:** DONE (2026-06-10)
 
 #### Context
 
@@ -7305,10 +7334,14 @@ exists.
 - `pnpm --filter @rough-cut/desktop typecheck`
 - `pnpm playback:timeline` must not regress versus baseline.
 
+**Completed 2026-06-10:** Added `ScreenLayerRenderer` / `Canvas2DScreenLayerRenderer` as a no-op Canvas2D adapter around the existing screen-video draw path. `StyledVideoPreview` now selects the default `canvas2d` screen-layer renderer, publishes `window.__roughCutScreenLayerRenderer` telemetry (`requestedRendererKind`, `rendererKind`, `contextStatus`, `drawCostMs`, `drawCount`, `fallbackReason`), and keeps background, screen decoration, cursor/click overlays, camera PiP, editor handles, and resolved layout publishing in the existing Canvas2D compositor. No FFmpeg styled export path was changed.
+
+Verification: `node --test apps/desktop/src/renderer/src/styled-video-preview.test.mjs apps/desktop/src/renderer/src/shared-timeline-invariant.test.mjs scripts/repo-regression.test.mjs`; `pnpm --filter @rough-cut/desktop typecheck`; `pnpm --filter @rough-cut/frame-resolver test`; `pnpm visual:playhead-sync`; `pnpm playback:timeline`.
+
 ### TASK-242 Add feature-flagged WebGL screen-layer renderer
 
 **Priority:** P0
-**Status:** PLANNED
+**Status:** DONE (2026-06-10)
 
 #### Context
 
@@ -7325,6 +7358,10 @@ compositor and still draws cursor/clicks after the screen layer, plus camera PiP
 - Handle WebGL context creation failure/loss by falling back to `Canvas2DScreenLayerRenderer`.
 - Keep WebGL draw contained so cursor/click overlays remain sharp and drawn after the screen layer.
 
+**Completed 2026-06-10:** Added `WebGLScreenLayerRenderer` behind `ROUGH_CUT_WEBGL_SCREEN_LAYER=1`, `VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER=1`, `?screenLayerRenderer=webgl`, `window.__roughCutWebglScreenLayer`, and `localStorage.roughCutWebglScreenLayer`. The default renderer remains Canvas2D. WebGL draws only the screen video texture into the existing Canvas2D compositor, then the compositor continues to draw overlays, cursor/click emphasis, camera PiP, editor handles, and layout telemetry. WebGL context creation, context loss, or draw failure falls back to `Canvas2DScreenLayerRenderer` with telemetry recording the requested renderer and fallback reason. The FFmpeg styled export path remains unchanged.
+
+Verification: `node --test apps/desktop/src/renderer/src/styled-video-preview.test.mjs apps/desktop/src/renderer/src/shared-timeline-invariant.test.mjs scripts/repo-regression.test.mjs`; `pnpm --filter @rough-cut/desktop typecheck`; `pnpm playback:timeline`; `VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER=1 ROUGH_CUT_PLAYBACK_SCREENSHOT_PATH=/tmp/rough-cut-webgl-playback-{view}-{state}.png pnpm playback:timeline` with renderer telemetry reporting `requestedRendererKind: webgl`, `rendererKind: webgl`, `contextStatus: available`; active Recording edit and Editor screenshots reviewed at `/tmp/rough-cut-webgl-playback-recording-{state}.png` and `/tmp/rough-cut-webgl-playback-nle-{state}.png`; `pnpm visual:playhead-sync`.
+
 #### Verification
 
 - Automated feature-flag test proves fallback when WebGL is unavailable or context is lost.
@@ -7335,7 +7372,7 @@ compositor and still draws cursor/clicks after the screen layer, plus camera PiP
 ### TASK-243 Add WebGL-vs-Canvas parity and playback performance probes
 
 **Priority:** P0
-**Status:** PLANNED
+**Status:** DONE (2026-06-10)
 
 #### Context
 
@@ -7358,6 +7395,10 @@ miss visual playback bugs. This task creates the evidence harness that all later
 - New probe fails against an intentionally forced blank WebGL frame.
 - Probe passes for Canvas2D baseline.
 - Probe is wired into a package script or documented exact command.
+
+**Completed 2026-06-10:** Added `pnpm visual:gpu-compositor`, which builds the project model and desktop app, generates deterministic FFmpeg screen/camera fixtures, opens the same project twice in Electron, captures Canvas2D and WebGL screenshots at gap, cut-boundary, zoom-in, zoom-hold/cursor-visible, zoom-out/cursor-offscreen, and camera-PiP frames, and writes parity metrics plus renderer telemetry under `/tmp/rough-cut-gpu-compositor-*`. The probe keeps the default Canvas2D renderer as the baseline and only enables WebGL via the existing runtime flag.
+
+Verification: `pnpm visual:gpu-compositor` passed with artifacts at `/tmp/rough-cut-gpu-compositor-OARp6C` and report `/tmp/rough-cut-gpu-compositor-OARp6C/gpu-compositor-report.json`; all Canvas2D/WebGL comparisons passed (`meanAbsDiff` max 22.947, `changedPixelRatio` max 0.216). `ROUGH_CUT_GPU_COMPOSITOR_FORCE_BLANK=1 node scripts/visual-gpu-compositor-parity-playwright.mjs` failed as expected, reporting blank WebGL content frames and threshold breaches in `/tmp/rough-cut-gpu-compositor-gOYjYA/gpu-compositor-report.json`.
 
 ### TASK-244 Add velocity-based WebGL transform motion blur
 

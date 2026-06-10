@@ -214,3 +214,57 @@ test('addGeneratedAssetToTrack rejects incompatible, locked, and overlapping dro
   assert.equal(addGeneratedAssetToTrack(project, { id: 'ai-image-1', kind: 'image', providerId: 'openai', sourcePrompt: 'Card' }, 'locked', 320), project);
   assert.equal(addGeneratedAssetToTrack(project, { id: 'ai-image-1', kind: 'image', providerId: 'openai', sourcePrompt: 'Card' }, 'v1', 100), project);
 });
+
+// --- Ghost-channel track creation (Editor v2 slice 2) ----------------------
+
+const generatedVideoAsset = {
+  id: 'gen-video-1',
+  kind: 'video',
+  providerId: 'test',
+  sourcePrompt: 'b-roll',
+  createdAt: '2026-06-10T00:00:00.000Z',
+  tags: [],
+  sessionId: 's1',
+  filePath: '/tmp/gen.mp4',
+  durationFrames: 90,
+};
+const generatedAudioAsset = { ...generatedVideoAsset, id: 'gen-audio-1', kind: 'audio', filePath: '/tmp/gen.wav' };
+
+test('addGeneratedAssetToNewTrack creates a video track above existing tracks', async () => {
+  const { addGeneratedAssetToNewTrack } = await import('./clip-mutations.mjs');
+  const project = makeProject();
+  const next = addGeneratedAssetToNewTrack(project, generatedVideoAsset, 'video', 30);
+
+  assert.notEqual(next, project);
+  const tracks = next.document.timeline.tracks;
+  const created = tracks.find((item) => item.label === 'Video 2');
+  assert.ok(created, 'new video track exists');
+  assert.equal(created.kind, 'video');
+  assert.ok(created.index > Math.max(...tracks.filter((item) => item.id !== created.id).map((item) => item.index)), 'new video track sits on top');
+  assert.equal(created.clips.length, 1);
+  assert.equal(created.clips[0].timelineIn, 30);
+});
+
+test('addGeneratedAssetToNewTrack puts audio at the bottom and shifts others up', async () => {
+  const { addGeneratedAssetToNewTrack } = await import('./clip-mutations.mjs');
+  const project = makeProject();
+  const originalIndex = project.document.timeline?.tracks?.[0]?.index ?? 0;
+  const next = addGeneratedAssetToNewTrack(project, generatedAudioAsset, 'audio', 0);
+
+  assert.notEqual(next, project);
+  const tracks = next.document.timeline.tracks;
+  const created = tracks.find((item) => item.kind === 'audio');
+  assert.ok(created, 'new audio track exists');
+  assert.equal(created.index, 0, 'audio track lands at the bottom');
+  const survivor = tracks.find((item) => item.id !== created.id);
+  assert.equal(survivor.index, originalIndex + 1, 'existing tracks shift up, order preserved');
+  assert.equal(created.clips.length, 1);
+});
+
+test('addGeneratedAssetToNewTrack rejects kind mismatches without creating a track', async () => {
+  const { addGeneratedAssetToNewTrack } = await import('./clip-mutations.mjs');
+  const project = makeProject();
+  assert.equal(addGeneratedAssetToNewTrack(project, generatedAudioAsset, 'video', 0), project);
+  assert.equal(addGeneratedAssetToNewTrack(project, generatedVideoAsset, 'audio', 0), project);
+  assert.equal(addGeneratedAssetToNewTrack(project, generatedVideoAsset, 'captions', 0), project);
+});

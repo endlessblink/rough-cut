@@ -23,13 +23,13 @@ test('buildRulerTicks emits major labels and one-second minor ticks', () => {
   const ticks = buildRulerTicks(1800, 30, 1200);
   const majors = ticks.filter((tick) => tick.major);
   const minors = ticks.filter((tick) => !tick.major);
-  assert.equal(majors[0].label, '00:00:00');
-  assert.equal(majors[1].label, '00:05:00');
+  assert.equal(majors[0].label, '00:00');
+  assert.equal(majors[1].label, '00:05');
   assert.ok(minors.some((tick) => tick.frame === 30));
 });
 
-test('formatRulerLabel renders mm:ss:00', () => {
-  assert.equal(formatRulerLabel(65), '01:05:00');
+test('formatRulerLabel renders mm:ss', () => {
+  assert.equal(formatRulerLabel(65), '01:05');
 });
 
 // Regression: a 29-minute recording at fit zoom (~0.8 px/sec) used to emit

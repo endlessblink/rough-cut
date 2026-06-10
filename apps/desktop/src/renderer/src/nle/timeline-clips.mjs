@@ -62,6 +62,7 @@ function buildClipBlock(clip, totalFrames, sources) {
   const sourceDurationFrames = sources?.find((item) => item?.id === mediaId)?.duration;
   return {
     id: typeof clip.id === 'string' ? clip.id : null,
+    mediaId,
     assetId: typeof clip.assetId === 'string'
       ? clip.assetId
       : mediaId?.startsWith('source:')

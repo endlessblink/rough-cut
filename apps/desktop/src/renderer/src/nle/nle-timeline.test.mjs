@@ -83,3 +83,44 @@ test('NLE shell keeps the right split segment selected after splitting', () => {
   assert.match(source, /rightClipIdAfterSplit/);
   assert.match(source, /setSelectedClipId\(rightClipIdAfterSplit\(next, selectedClipId, clampedPlayhead\)\)/);
 });
+
+test('NLE timeline ships Editor v2 deck affordances (ghost channels, tags, zoom gating)', () => {
+  const source = readFileSync(join(here, 'nle-timeline.tsx'), 'utf8');
+  const css = readFileSync(join(here, '..', 'styles.css'), 'utf8');
+
+  // Ghost channels create tracks on drop.
+  assert.match(source, /addGeneratedAssetToNewTrack/);
+  assert.match(source, /handleGhostDragOver/);
+  assert.match(source, /handleGhostDrop/);
+  assert.match(source, /nleTrackLaneBody ghost/);
+  // Track tag chips (V1/A1…) and the one-row header grammar.
+  assert.match(source, /nleTrackTag/);
+  assert.match(source, /nleTrackControlsSecondary/);
+  assert.match(css, /\.nleTrackLaneHeader:hover \.nleTrackControlsSecondary/);
+  // Horizontal scroll only exists when zoomed in.
+  assert.match(source, /data-zoomed=\{zoomedIn \? 'true' : undefined\}/);
+  assert.match(css, /\.nleLaneBodies\[data-zoomed='true'\]\s*{\s*overflow-x: auto;/);
+  // Status chips / Legacy toggle relocate into the toolbar via topbarExtras.
+  assert.match(source, /topbarExtras/);
+});
+
+test('NLE toolbar stays premium: centered timecode, no noise, dataset clips', () => {
+  const source = readFileSync(join(here, 'nle-timeline.tsx'), 'utf8');
+  const css = readFileSync(join(here, '..', 'styles.css'), 'utf8');
+
+  // Master timecode is rendered by the timeline and centered as text.
+  assert.match(source, /className="nleTimecode"/);
+  assert.match(css, /\.nleTimecode\s*{[^}]*position: absolute;/s);
+  assert.match(css, /\.nleTimecode\s*{[^}]*left: 50%;/s);
+  // Tabular numerals in the UI font — no terminal mono for timecode/ruler.
+  assert.match(css, /\.nleTimecode\s*{[^}]*font-variant-numeric: tabular-nums;/s);
+  assert.match(css, /\.nleTimelineRulerLabel\s*{[^}]*font-variant-numeric: tabular-nums;/s);
+  assert.doesNotMatch(css, /\.nleTimecode\s*{[^}]*monospace/s);
+  assert.doesNotMatch(css, /\.nleTimelineRulerLabel\s*{[^}]*monospace/s);
+  // Toolbar noise stays deleted: no hint sentence, no In/Out chips.
+  assert.doesNotMatch(source, /Select a clip to trim, move, or split/);
+  assert.doesNotMatch(source, /nleTimelineHint/);
+  // Committed clip range is machine-readable for harnesses/tooling.
+  assert.match(source, /data-timeline-in=\{Math\.round\(block\.timelineIn\)\}/);
+  assert.match(source, /data-timeline-out=\{Math\.round\(block\.timelineOut\)\}/);
+});

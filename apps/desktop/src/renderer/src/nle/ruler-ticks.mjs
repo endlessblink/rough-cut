@@ -1,7 +1,7 @@
-// A "00:00:00" label in the ruler's monospace 0.62rem font is ~48px wide;
+// A "00:00" label in the ruler's monospace 0.62rem font is ~32px wide;
 // labels closer than that collide into an unreadable wall (reproduced on a
 // 29-minute recording at fit zoom). Keep at least a label-width of air.
-const MIN_LABEL_PX = 56;
+const MIN_LABEL_PX = 48;
 // Minor ticks closer than this merge into a solid stripe — drop them.
 const MIN_MINOR_TICK_PX = 7;
 const SHORT_TIMELINE_SECONDS = 60;
@@ -17,11 +17,14 @@ export function pickTickInterval(durationSeconds, pixelsPerSecond) {
   return CANDIDATE_INTERVALS.find((interval) => interval >= floor && interval * pxPerSecond >= MIN_LABEL_PX) ?? 300;
 }
 
+// MM:SS — ruler labels are orientation, not frame-accurate timecode (the
+// transport owns frames). The old MM:SS:00 form tripled the label width and
+// crowded the strip at fit zoom (approved mockup uses MM:SS).
 export function formatRulerLabel(seconds) {
   const safeSeconds = Math.max(0, Math.round(Number(seconds) || 0));
   const mm = Math.floor(safeSeconds / 60);
   const ss = safeSeconds % 60;
-  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}:00`;
+  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
 }
 
 // Densest sub-interval of the major that still leaves MIN_MINOR_TICK_PX

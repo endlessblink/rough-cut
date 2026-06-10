@@ -230,7 +230,11 @@ try {
   const gapBounds = await page.evaluate(() => {
     const lane = document.querySelector('.nleTrackLaneBody[data-track-kind="video"]');
     const content = document.querySelector('.nleLaneContent');
-    const meta = (document.querySelector('.nleTimelineStatus')?.textContent ?? '') + ' frames ' + (document.querySelector('.nleHeaderMeta')?.textContent ?? '');
+    const statusEl = document.querySelector('.nleTimelineStatus');
+    const ds = statusEl instanceof HTMLElement ? statusEl.dataset : null;
+    const meta = ds?.playheadFrame !== undefined
+      ? `${ds.playheadFrame} / ${ds.durationFrames}f`
+      : (document.querySelector('.nleHeaderMeta')?.textContent ?? '');
     const durationMatch = meta.match(/\/\s*(\d+)\s*f(?:rames)?/);
     if (!lane || !content || !durationMatch) return null;
     const total = Number(durationMatch[1]);
@@ -263,7 +267,11 @@ try {
     const samples = await page.evaluate(async () => {
       const out = [];
       const read = () => {
-        const meta = (document.querySelector('.nleTimelineStatus')?.textContent ?? '') + ' frames ' + (document.querySelector('.nleHeaderMeta')?.textContent ?? '');
+        const statusEl = document.querySelector('.nleTimelineStatus');
+        const ds = statusEl instanceof HTMLElement ? statusEl.dataset : null;
+        const meta = ds?.playheadFrame !== undefined
+          ? `${ds.playheadFrame} / ${ds.durationFrames}f`
+          : (document.querySelector('.nleHeaderMeta')?.textContent ?? '');
         const match = meta.match(/(\d+)\s*\/\s*\d+\s*f(?:rames)?/);
         return match ? Number(match[1]) : null;
       };
@@ -299,7 +307,11 @@ try {
     // Earlier steps may have shortened the composition (tail drag); read the
     // LIVE duration from the editor header instead of assuming the seeded one.
     const liveDurationFrames = await page.evaluate(() => {
-      const meta = (document.querySelector('.nleTimelineStatus')?.textContent ?? '') + ' frames ' + (document.querySelector('.nleHeaderMeta')?.textContent ?? '');
+      const statusEl = document.querySelector('.nleTimelineStatus');
+      const ds = statusEl instanceof HTMLElement ? statusEl.dataset : null;
+      const meta = ds?.playheadFrame !== undefined
+        ? `${ds.playheadFrame} / ${ds.durationFrames}f`
+        : (document.querySelector('.nleHeaderMeta')?.textContent ?? '');
       const match = meta.match(/\/\s*(\d+)\s*f(?:rames)?/);
       return match ? Number(match[1]) : null;
     }) ?? durationFrames;
@@ -313,12 +325,10 @@ try {
     const alignment = await page.evaluate(() => {
       const content = document.querySelector('.nleLaneContent');
       const selected = document.querySelector('.nleClipBlock.selected');
-      const readout = document.querySelector('.nleTimelineReadout')?.textContent ?? '';
-      const match = readout.match(/In\s+(-?\d+)/);
-      if (!content || !selected || !match) return null;
+      if (!content || !(selected instanceof HTMLElement) || selected.dataset.timelineIn === undefined) return null;
       const contentRect = content.getBoundingClientRect();
       const clipRect = selected.getBoundingClientRect();
-      return { inFrame: Number(match[1]), clipOffsetPx: clipRect.x - contentRect.x, contentWidthPx: contentRect.width };
+      return { inFrame: Number(selected.dataset.timelineIn), clipOffsetPx: clipRect.x - contentRect.x, contentWidthPx: contentRect.width };
     });
     const zoomedPpf = zoomedGeometry.contentWidthPx / liveDurationFrames;
     const alignmentErrorPx = alignment
@@ -389,7 +399,11 @@ try {
     // Expected cut frame from the content strip geometry.
     const expectedCutFrame = await page.evaluate((clientX) => {
       const content = document.querySelector('.nleLaneContent');
-      const meta = (document.querySelector('.nleTimelineStatus')?.textContent ?? '') + ' frames ' + (document.querySelector('.nleHeaderMeta')?.textContent ?? '');
+      const statusEl = document.querySelector('.nleTimelineStatus');
+      const ds = statusEl instanceof HTMLElement ? statusEl.dataset : null;
+      const meta = ds?.playheadFrame !== undefined
+        ? `${ds.playheadFrame} / ${ds.durationFrames}f`
+        : (document.querySelector('.nleHeaderMeta')?.textContent ?? '');
       const match = meta.match(/\/\s*(\d+)\s*f(?:rames)?/);
       if (!content || !match) return null;
       const rect = content.getBoundingClientRect();
@@ -505,19 +519,11 @@ if (failure) throw failure;
 // to geometry if nothing is selected.
 async function selectedClipState(page, clipLocator) {
   return page.evaluate(() => {
-    const readout = document.querySelector('.nleTimelineReadout');
     const selected = document.querySelector('.nleClipBlock.selected');
-    let inFrame = null;
-    const text = readout?.textContent ?? '';
-    const match = text.match(/In\s+(-?\d+)/);
-    if (match) inFrame = Number(match[1]);
-    if (inFrame === null && selected instanceof HTMLElement) {
-      const lane = selected.closest('.nleTrackLaneBody');
-      const laneRect = lane?.getBoundingClientRect();
-      const rect = selected.getBoundingClientRect();
-      if (laneRect && laneRect.width > 0) inFrame = Math.round(((rect.x - laneRect.x) / laneRect.width) * 1e6); // proportional fallback
-    }
-    return { inFrame, selected: selected !== null, readout: text };
+    const inFrame = selected instanceof HTMLElement && selected.dataset.timelineIn !== undefined
+      ? Number(selected.dataset.timelineIn)
+      : null;
+    return { inFrame, selected: selected !== null };
   });
 }
 

@@ -7,6 +7,8 @@ const root = new URL('..', import.meta.url).pathname;
 const rootPackage = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const benchmarkSource = readFileSync(join(root, 'scripts/benchmark-export.mjs'), 'utf8');
 const packageLinuxSource = readFileSync(join(root, 'scripts/package-linux.mjs'), 'utf8');
+const desktopMainSource = readFileSync(join(root, 'apps/desktop/src/main/index.mjs'), 'utf8');
+const gpuCompositorProbeSource = readFileSync(join(root, 'scripts/visual-gpu-compositor-parity-playwright.mjs'), 'utf8');
 const masterPlanSource = readFileSync(join(root, 'MASTER_PLAN.md'), 'utf8');
 const compositorMigrationPath = join(root, 'docs/architecture/compositor-migration.md');
 
@@ -78,4 +80,22 @@ test('GPU-C compositor migration note and task sequence stay in place', () => {
     masterPlanSource,
     /Sequence: TASK-239, TASK-240, TASK-241, TASK-242, TASK-243, TASK-244, TASK-245, TASK-246, TASK-247/,
   );
+});
+
+test('GPU-C WebGL preview flag is forwarded to the renderer as a runtime query param', () => {
+  assert.match(desktopMainSource, /ROUGH_CUT_WEBGL_SCREEN_LAYER === '1' \|\| process\.env\.VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER === '1'/);
+  assert.match(desktopMainSource, /params\.set\('screenLayerRenderer', 'webgl'\)/);
+  assert.match(desktopMainSource, /url\.searchParams\.set\('screenLayerRenderer', 'webgl'\)/);
+});
+
+test('GPU-C compositor parity probe stays wired as a visual evidence command', () => {
+  assert.match(rootPackage.scripts['visual:gpu-compositor'], /visual-gpu-compositor-parity-playwright\.mjs/);
+  assert.match(gpuCompositorProbeSource, /rough-cut-gpu-compositor-/);
+  assert.match(gpuCompositorProbeSource, /ROUGH_CUT_GPU_COMPOSITOR_FORCE_BLANK/);
+  assert.match(gpuCompositorProbeSource, /requestedRendererKind/);
+  assert.match(gpuCompositorProbeSource, /meanAbsDiff/);
+  assert.match(gpuCompositorProbeSource, /changedPixelRatio/);
+  for (const caseId of ['gap-start', 'cut-boundary', 'zoom-in', 'zoom-hold-cursor-visible', 'zoom-out-cursor-offscreen', 'camera-pip-present']) {
+    assert.match(gpuCompositorProbeSource, new RegExp(`id: '${caseId}'`));
+  }
 });

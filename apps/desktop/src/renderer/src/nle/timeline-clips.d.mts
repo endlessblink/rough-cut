@@ -1,5 +1,6 @@
 export interface NleLaneClipBlock {
   readonly id: string | null;
+  readonly mediaId: string | null;
   readonly assetId: string | null;
   readonly name: string | null;
   readonly timelineIn: number;
