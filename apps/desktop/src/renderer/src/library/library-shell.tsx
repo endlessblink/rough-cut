@@ -70,6 +70,8 @@ export function LibraryShell({
   const [importError, setImportError] = React.useState<string | null>(null);
   // P-AI-C/TASK-170 — template picker stub modal open state.
   const [templatePickerOpen, setTemplatePickerOpen] = React.useState(false);
+  const [newProjectDialogOpen, setNewProjectDialogOpen] = React.useState(false);
+  const [renamingProject, setRenamingProject] = React.useState<ProjectSummary | null>(null);
   const activeView = findView(viewId);
 
   const handleImportClick = React.useCallback(async () => {
@@ -104,6 +106,7 @@ export function LibraryShell({
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setImportError(message);
+      throw err;
     }
   }, [onCreateBlankProject]);
 
@@ -206,6 +209,12 @@ export function LibraryShell({
     });
   }, [getContextTargets]);
 
+  const handleContextRename = React.useCallback((targetPath: string) => {
+    const targets = getContextTargets(targetPath);
+    if (targets.length !== 1) return;
+    setRenamingProject(targets[0] ?? null);
+  }, [getContextTargets]);
+
   const handleContextDuplicate = React.useCallback(async (targetPath: string) => {
     const targets = getContextTargets(targetPath);
     if (targets.length !== 1) return;
@@ -262,10 +271,7 @@ export function LibraryShell({
 
   const containsOpenProject = openProjectPath !== null && selection.has(openProjectPath);
 
-  const handleRename = React.useCallback(async (newName: string) => {
-    if (selection.size !== 1) return;
-    const path = Array.from(selection)[0];
-    if (!path) return;
+  const renameProjectAtPath = React.useCallback(async (path: string, newName: string) => {
     setBulkBusy(true);
     setBulkError(null);
     // Flip the rename-in-flight gate BEFORE the IPC so any pending autosave
@@ -288,7 +294,14 @@ export function LibraryShell({
       onRenameInFlight(false);
       setBulkBusy(false);
     }
-  }, [selection, openProjectPath, triggerRefresh, onRenameInFlight, onProjectRenamed]);
+  }, [openProjectPath, triggerRefresh, onRenameInFlight, onProjectRenamed]);
+
+  const handleRename = React.useCallback(async (newName: string) => {
+    if (selection.size !== 1) return;
+    const path = Array.from(selection)[0];
+    if (!path) return;
+    await renameProjectAtPath(path, newName);
+  }, [selection, renameProjectAtPath]);
 
   const handleDelete = React.useCallback(async () => {
     if (selectedSummaries.length === 0) return;
@@ -417,7 +430,10 @@ export function LibraryShell({
             type="button"
             className="libraryOpenFile"
             data-testid="library-blank-project"
-            onClick={() => { void handleCreateBlankProject(null); }}
+            onClick={() => {
+              setImportError(null);
+              setNewProjectDialogOpen(true);
+            }}
           >
             New empty project
           </button>
@@ -504,10 +520,9 @@ export function LibraryShell({
             const singleOnly = count !== 1;
             const copyLabel = count > 1 ? `Copy ${count} paths` : 'Copy path';
             const deleteLabel = count > 1 ? `Delete ${count}` : 'Delete';
-            // Note: Rename is intentionally not in the context menu — it
-            // requires the bulk bar's controlled input. Use the bar.
             return [
               { id: 'open', label: 'Open', disabled: singleOnly || !target, onSelect: () => target && onOpenProjectByPath(target.path) },
+              { id: 'rename', label: 'Rename', disabled: singleOnly, onSelect: () => handleContextRename(targetPath) },
               { id: 'duplicate', label: 'Duplicate', disabled: singleOnly, onSelect: () => handleContextDuplicate(targetPath) },
               { id: 'reveal', label: 'Reveal in folder', disabled: singleOnly, onSelect: () => handleContextReveal(targetPath) },
               { id: 'copy', label: copyLabel, disabled: count === 0, onSelect: () => handleContextCopyPaths(targetPath) },
@@ -533,7 +548,127 @@ export function LibraryShell({
           }
         }}
       />
+      <ProjectNameDialog
+        open={newProjectDialogOpen}
+        title="New empty project"
+        actionLabel="Create"
+        initialName="Untitled"
+        busy={bulkBusy}
+        onCancel={() => setNewProjectDialogOpen(false)}
+        onSubmit={async (name) => {
+          await handleCreateBlankProject({ name });
+          setNewProjectDialogOpen(false);
+        }}
+      />
+      <ProjectNameDialog
+        open={renamingProject !== null}
+        title="Rename project"
+        actionLabel="Rename"
+        initialName={renamingProject?.name ?? ''}
+        busy={bulkBusy}
+        onCancel={() => setRenamingProject(null)}
+        onSubmit={async (name) => {
+          if (!renamingProject) return;
+          await renameProjectAtPath(renamingProject.path, name);
+          setRenamingProject(null);
+        }}
+      />
     </section>
+  );
+}
+
+function ProjectNameDialog({
+  open,
+  title,
+  actionLabel,
+  initialName,
+  busy,
+  onCancel,
+  onSubmit,
+}: {
+  open: boolean;
+  title: string;
+  actionLabel: string;
+  initialName: string;
+  busy: boolean;
+  onCancel: () => void;
+  onSubmit: (name: string) => Promise<void> | void;
+}) {
+  const [name, setName] = React.useState(initialName);
+  const [submitting, setSubmitting] = React.useState(false);
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const locked = busy || submitting;
+
+  React.useEffect(() => {
+    if (!open) return undefined;
+    setName(initialName);
+    setSubmitting(false);
+    const focusId = window.setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 0);
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !locked) {
+        event.preventDefault();
+        onCancel();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.clearTimeout(focusId);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [initialName, locked, onCancel, open]);
+
+  if (!open) return null;
+
+  const trimmed = name.trim();
+  return (
+    <div
+      className="projectNameDialogBackdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (!locked && event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <section className="projectNameDialog" role="dialog" aria-modal="true" aria-labelledby="project-name-dialog-title">
+        <header className="projectNameDialogHeader">
+          <h2 id="project-name-dialog-title">{title}</h2>
+          <button type="button" aria-label="Close" className="projectNameDialogClose" onClick={onCancel} disabled={locked}>×</button>
+        </header>
+        <form
+          className="projectNameForm"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!trimmed || locked) return;
+            setSubmitting(true);
+            try {
+              await onSubmit(trimmed);
+            } catch {
+              // The parent surfaces the error in the library shell.
+            } finally {
+              setSubmitting(false);
+            }
+          }}
+        >
+          <label className="projectNameLabel" htmlFor="project-name-input">Project name</label>
+          <input
+            id="project-name-input"
+            ref={inputRef}
+            className="projectNameInput"
+            value={name}
+            maxLength={120}
+            onChange={(event) => setName(event.target.value)}
+            spellCheck={false}
+            autoComplete="off"
+          />
+          <div className="projectNameActions">
+            <button type="button" className="bulkActionSecondary" onClick={onCancel} disabled={locked}>Cancel</button>
+            <button type="submit" className="bulkActionPrimary" disabled={locked || !trimmed}>{actionLabel}</button>
+          </div>
+        </form>
+      </section>
+    </div>
   );
 }
 

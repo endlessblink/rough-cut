@@ -41,19 +41,27 @@ test('studio window profile restores normal editor bounds', async () => {
     'handler must have an explicit studio profile branch',
   );
   assert.ok(
-    source.includes('senderWindow.setMinimumSize(860, 560)'),
-    'studio profile must restore the normal minimum editor size',
-  );
-  assert.ok(
-    source.includes('senderWindow.setBounds(previousBounds)'),
-    'studio profile must restore the pre-recording bounds when available',
-  );
-  assert.ok(
-    source.includes('senderWindow.setSize(1120, 740)'),
-    'studio profile must fall back to the normal editor size when no previous bounds exist',
-  );
-  assert.ok(
     source.includes('studioWindowBoundsById.delete(senderWindow.id)'),
-    'studio profile must clear stored bounds after restoration',
+    'studio profile must clear stored bounds before expanding the editor',
+  );
+  assert.ok(
+    source.includes('const smokeBounds = requestedSmokeWindowBounds()'),
+    'studio profile must preserve deterministic smoke-test bounds when requested',
+  );
+  assert.ok(
+    source.includes('senderWindow.setSize(smokeBounds.width, smokeBounds.height)'),
+    'studio profile must use explicit smoke-test dimensions when provided',
+  );
+  assert.ok(
+    source.includes('maximizeStudioWindow(senderWindow)'),
+    'studio profile must maximize the editor outside smoke tests',
+  );
+  assert.ok(
+    source.includes('function maximizeStudioWindow(window)'),
+    'studio maximization must stay centralized so create/open/profile paths agree',
+  );
+  assert.ok(
+    source.includes('window.maximize()'),
+    'studio maximization must call the native BrowserWindow maximize API',
   );
 });

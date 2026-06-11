@@ -3588,6 +3588,70 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 .templatePickerCardDesc { color: rgb(148 163 184); font-size: 0.78rem; grid-column: 1; }
 
+.projectNameDialogBackdrop {
+  align-items: center;
+  background: rgb(0 0 0 / 0.55);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 100;
+}
+.projectNameDialog {
+  background: rgb(15 23 42);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 12px;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.5);
+  color: rgb(226 232 240);
+  padding: 1.15rem;
+  width: min(92vw, 24rem);
+}
+.projectNameDialogHeader {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.85rem;
+}
+.projectNameDialogHeader h2 { font-size: 1rem; font-weight: 600; margin: 0; }
+.projectNameDialogClose {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1.25rem;
+  line-height: 1;
+  opacity: 0.7;
+}
+.projectNameDialogClose:hover:not(:disabled) { opacity: 1; }
+.projectNameForm { display: flex; flex-direction: column; gap: 0.55rem; }
+.projectNameLabel {
+  color: rgb(226 232 240 / 0.62);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.projectNameInput {
+  background: rgb(2 6 23 / 0.42);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 8px;
+  color: rgb(226 232 240);
+  font-size: 0.9rem;
+  height: 2.25rem;
+  padding: 0 0.7rem;
+}
+.projectNameInput:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.projectNameActions {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.35rem;
+}
+
 .libraryBody {
   display: flex;
   flex: 1 1 auto;

@@ -130,11 +130,10 @@ async function listSystemAudioSources() {
 
 function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
   const isRecorder = mode === 'recorder';
-  const smokeWindowWidth = Number(process.env.ROUGH_CUT_UI_SMOKE_WINDOW_WIDTH);
-  const smokeWindowHeight = Number(process.env.ROUGH_CUT_UI_SMOKE_WINDOW_HEIGHT);
+  const smokeBounds = requestedSmokeWindowBounds();
   const window = new BrowserWindow({
-    width: Number.isFinite(smokeWindowWidth) && smokeWindowWidth > 0 ? smokeWindowWidth : isRecorder ? 760 : 1120,
-    height: Number.isFinite(smokeWindowHeight) && smokeWindowHeight > 0 ? smokeWindowHeight : isRecorder ? 620 : 740,
+    width: smokeBounds?.width ?? (isRecorder ? 760 : 1120),
+    height: smokeBounds?.height ?? (isRecorder ? 620 : 740),
     minWidth: isRecorder ? 720 : 860,
     minHeight: isRecorder ? 560 : 560,
     resizable: !isRecorder,
@@ -148,6 +147,7 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
       nodeIntegration: false,
     },
   });
+  if (!isRecorder && !smokeBounds) maximizeStudioWindow(window);
 
   window.webContents.on('console-message', (event, level, message, line, sourceId) => {
     const details = event && typeof event === 'object' && 'level' in event ? event : null;
@@ -309,6 +309,24 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
   });
 
   return window;
+}
+
+function requestedSmokeWindowBounds() {
+  const width = Number(process.env.ROUGH_CUT_UI_SMOKE_WINDOW_WIDTH);
+  const height = Number(process.env.ROUGH_CUT_UI_SMOKE_WINDOW_HEIGHT);
+  if (!Number.isFinite(width) || width <= 0) return null;
+  return {
+    width,
+    height: Number.isFinite(height) && height > 0 ? height : 740,
+  };
+}
+
+function maximizeStudioWindow(window) {
+  if (!window || window.isDestroyed()) return;
+  window.setResizable(true);
+  window.setMaximizable(true);
+  window.setMinimumSize(860, 560);
+  window.maximize();
 }
 
 function listCaptureDisplays() {
@@ -474,11 +492,16 @@ ipcMain.handle(IPC_CHANNELS.APP_OPEN_EDITOR, (event, projectPath = null) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (!senderWindow) return;
   studioWindowBoundsById.delete(senderWindow.id);
-  senderWindow.setResizable(true);
-  senderWindow.setMaximizable(true);
-  senderWindow.setMinimumSize(860, 560);
-  senderWindow.setSize(1120, 740);
-  senderWindow.center();
+  const smokeBounds = requestedSmokeWindowBounds();
+  if (smokeBounds) {
+    senderWindow.setResizable(true);
+    senderWindow.setMaximizable(true);
+    senderWindow.setMinimumSize(860, 560);
+    senderWindow.setSize(smokeBounds.width, smokeBounds.height);
+    senderWindow.center();
+  } else {
+    maximizeStudioWindow(senderWindow);
+  }
   senderWindow.show();
   loadRenderer(senderWindow, { mode: 'editor', projectPath });
 });
@@ -487,12 +510,12 @@ ipcMain.handle(IPC_CHANNELS.APP_SET_WINDOW_PROFILE, (event, profile = 'studio') 
   if (!senderWindow) return { ok: false, reason: 'missing-window' };
   if (senderWindow.isDestroyed()) return { ok: false, reason: 'destroyed-window' };
   if (senderWindow.isFullScreen()) return { ok: false, reason: 'fullscreen' };
-  if (senderWindow.isMaximized()) senderWindow.unmaximize();
 
   if (profile === 'recording') {
     if (!studioWindowBoundsById.has(senderWindow.id)) {
       studioWindowBoundsById.set(senderWindow.id, senderWindow.getBounds());
     }
+    if (senderWindow.isMaximized()) senderWindow.unmaximize();
     senderWindow.setResizable(true);
     senderWindow.setMaximizable(true);
     senderWindow.setMinimumSize(720, 560);
@@ -502,16 +525,17 @@ ipcMain.handle(IPC_CHANNELS.APP_SET_WINDOW_PROFILE, (event, profile = 'studio') 
   }
 
   if (profile === 'studio') {
-    senderWindow.setResizable(true);
-    senderWindow.setMaximizable(true);
-    senderWindow.setMinimumSize(860, 560);
-    const previousBounds = studioWindowBoundsById.get(senderWindow.id);
+    const smokeBounds = requestedSmokeWindowBounds();
     studioWindowBoundsById.delete(senderWindow.id);
-    if (previousBounds && previousBounds.width >= 860 && previousBounds.height >= 560) {
-      senderWindow.setBounds(previousBounds);
-    } else {
-      senderWindow.setSize(1120, 740);
+    if (smokeBounds) {
+      if (senderWindow.isMaximized()) senderWindow.unmaximize();
+      senderWindow.setResizable(true);
+      senderWindow.setMaximizable(true);
+      senderWindow.setMinimumSize(860, 560);
+      senderWindow.setSize(smokeBounds.width, smokeBounds.height);
       senderWindow.center();
+    } else {
+      maximizeStudioWindow(senderWindow);
     }
     return { ok: true, profile, bounds: senderWindow.getBounds() };
   }
@@ -1418,15 +1442,26 @@ async function runRendererStartupRecordButtonSmoke(options = {}) {
         ? { width: window.outerWidth, height: window.outerHeight }
         : null
     ), 'compact recording window');
+    const readWindowProfile = () => {
+      const availWidth = window.screen?.availWidth || window.outerWidth;
+      const availHeight = window.screen?.availHeight || window.outerHeight;
+      return {
+        width: window.outerWidth,
+        height: window.outerHeight,
+        availWidth,
+        availHeight,
+        fillsAvailableScreen: window.outerWidth >= Math.floor(availWidth * 0.9)
+          && window.outerHeight >= Math.floor(availHeight * 0.9),
+      };
+    };
     if (options.startupOpenEditor) {
       const openEditorButton = await waitFor(() => document.querySelector('[data-open-editor="pre-record"]:not(:disabled)'), 'pre-record open editor button');
       openEditorButton.click();
       await waitFor(() => !document.querySelector('[data-ui-region="recording-workspace"]'), 'recording workspace closed after opening editor');
-      const studioWindow = await waitFor(() => (
-        window.outerWidth >= 860 && window.outerHeight >= 700
-          ? { width: window.outerWidth, height: window.outerHeight }
-          : null
-      ), 'restored studio window after leaving recording');
+      const studioWindow = await waitFor(() => {
+        const profile = readWindowProfile();
+        return profile.fillsAvailableScreen ? profile : null;
+      }, 'maximized studio window after leaving recording');
       const hasEditorEmptyState = Boolean(await waitFor(() => document.querySelector('[data-ui-region="editor-empty"]'), 'empty editor state'));
       if (options.startupOpenProjects) {
         const openProjectsButton = await waitFor(() => document.querySelector('[data-ui-region="editor-empty"] button'), 'open projects button');
@@ -1436,13 +1471,21 @@ async function runRendererStartupRecordButtonSmoke(options = {}) {
         if (options.startupCreateBlankProject) {
           const createBlankButton = await waitFor(() => document.querySelector('[data-testid="library-blank-project"]:not(:disabled)'), 'new empty project button');
           createBlankButton.click();
+          const projectName = 'Smoke empty project';
+          const nameInput = await waitFor(() => document.querySelector('#project-name-input'), 'project name input');
+          const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+          valueSetter?.call(nameInput, projectName);
+          nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+          const submitButton = await waitFor(() => Array.from(document.querySelectorAll('.projectNameActions button[type="submit"]')).find((button) => !button.disabled), 'project name submit button');
+          submitButton.click();
           const hasNleWorkspace = Boolean(await waitFor(() => document.querySelector('[data-ui-region="nle-workspace"]'), 'NLE workspace after blank project'));
+          const hasNamedProject = Boolean(await waitFor(() => document.body.innerText.includes(projectName), 'named blank project in editor'));
           const hasNleTab = Boolean(
             Array.from(document.querySelectorAll('[data-ui-region="app-view-tabstrip"] button[aria-pressed="true"]'))
               .some((button) => button.textContent?.includes('Editor')),
           );
           return {
-            ok: hasInitialPreRecordPanel && hasRecordingWorkspace && hasRecordingTab && hasEditorEmptyState && hasProjectsView && hasNleWorkspace && hasNleTab,
+            ok: hasInitialPreRecordPanel && hasRecordingWorkspace && hasRecordingTab && hasEditorEmptyState && hasProjectsView && hasNleWorkspace && hasNamedProject && hasNleTab,
             hasInitialPreRecordPanel,
             hasRecordingWorkspace,
             hasRecordingTab,
@@ -1451,6 +1494,7 @@ async function runRendererStartupRecordButtonSmoke(options = {}) {
             hasEditorEmptyState,
             hasProjectsView,
             hasNleWorkspace,
+            hasNamedProject,
             hasNleTab,
             openedEditorFromPanel: true,
             openedProjectsFromEditor: true,

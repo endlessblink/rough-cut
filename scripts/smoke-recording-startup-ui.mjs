@@ -26,14 +26,14 @@ const scenarios = [
     name: 'open-editor',
     env: { ROUGH_CUT_UI_SMOKE_STARTUP_OPEN_EDITOR: '1' },
     assert(report) {
-      return report.ok && report.hasInitialPreRecordPanel && report.hasRecordingWorkspace && report.hasRecordingTab && report.compactWindow && report.studioWindow && report.openedEditorFromPanel && report.hasEditorEmptyState;
+      return report.ok && report.hasInitialPreRecordPanel && report.hasRecordingWorkspace && report.hasRecordingTab && report.compactWindow && report.studioWindow?.fillsAvailableScreen && report.openedEditorFromPanel && report.hasEditorEmptyState;
     },
   },
   {
     name: 'open-projects',
     env: { ROUGH_CUT_UI_SMOKE_STARTUP_OPEN_EDITOR: '1', ROUGH_CUT_UI_SMOKE_STARTUP_OPEN_PROJECTS: '1' },
     assert(report) {
-      return report.ok && report.hasInitialPreRecordPanel && report.hasRecordingWorkspace && report.hasRecordingTab && report.compactWindow && report.studioWindow && report.openedEditorFromPanel && report.openedProjectsFromEditor && report.hasProjectsView;
+      return report.ok && report.hasInitialPreRecordPanel && report.hasRecordingWorkspace && report.hasRecordingTab && report.compactWindow && report.studioWindow?.fillsAvailableScreen && report.openedEditorFromPanel && report.openedProjectsFromEditor && report.hasProjectsView;
     },
   },
   {
@@ -44,7 +44,7 @@ const scenarios = [
       ROUGH_CUT_UI_SMOKE_STARTUP_CREATE_BLANK_PROJECT: '1',
     },
     assert(report) {
-      return report.ok && report.hasInitialPreRecordPanel && report.hasRecordingWorkspace && report.hasRecordingTab && report.compactWindow && report.studioWindow && report.openedEditorFromPanel && report.openedProjectsFromEditor && report.hasProjectsView && report.createdBlankProjectFromProjects && report.hasNleWorkspace && report.hasNleTab;
+      return report.ok && report.hasInitialPreRecordPanel && report.hasRecordingWorkspace && report.hasRecordingTab && report.compactWindow && report.studioWindow?.fillsAvailableScreen && report.openedEditorFromPanel && report.openedProjectsFromEditor && report.hasProjectsView && report.createdBlankProjectFromProjects && report.hasNleWorkspace && report.hasNamedProject && report.hasNleTab;
     },
   },
 ];
