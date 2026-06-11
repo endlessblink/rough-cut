@@ -4524,6 +4524,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
   const [cutDragPreview, setCutDragPreview] = React.useState<{ startFrame: number; endFrame: number } | null>(null);
   const [trimDragPreview, setTrimDragPreview] = React.useState<{ clipId: string; edge: 'head' | 'tail'; frame: number } | null>(null);
   const [clipDragPreview, setClipDragPreview] = React.useState<{ clipId: string; timelineIn: number; timelineOut: number } | null>(null);
+  const [timelinePanning, setTimelinePanning] = React.useState(false);
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
   const contentRef = React.useRef<HTMLDivElement | null>(null);
   const pendingScrollLeftRef = React.useRef<number | null>(null);
@@ -4582,6 +4583,42 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
   function fitTimelineViewport() {
     pendingScrollLeftRef.current = 0;
     setTimelineZoomPpf(null);
+  }
+
+  function beginTimelinePan(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 1) return;
+    const viewport = event.currentTarget;
+    event.preventDefault();
+    event.stopPropagation();
+    viewport.setPointerCapture(event.pointerId);
+    const startClientX = event.clientX;
+    const startScrollLeft = viewport.scrollLeft;
+    setTimelinePanning(true);
+    const move = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
+      viewport.scrollLeft = startScrollLeft - (moveEvent.clientX - startClientX);
+    };
+    const up = (upEvent: PointerEvent) => {
+      upEvent.preventDefault();
+      try {
+        viewport.releasePointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture may already be released after a cancel.
+      }
+      setTimelinePanning(false);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up, { once: true });
+    window.addEventListener('pointercancel', up, { once: true });
+  }
+
+  function preventMiddleTimelineAuxClick(event: React.MouseEvent<HTMLDivElement>) {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    event.stopPropagation();
   }
 
   // Exit cut mode on Escape.
@@ -5033,7 +5070,12 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
   return (
     <div className="visualTimeline" aria-label="Timeline overview">
       <span className="visuallyHidden" data-ui-region="timeline-live-region" aria-live="polite">Timeline position {formatClock(model.currentTimeSec)}</span>
-      <div className="timelineViewport" ref={viewportRef}>
+      <div
+        className={`timelineViewport${timelinePanning ? ' panning' : ''}`}
+        ref={viewportRef}
+        onPointerDownCapture={beginTimelinePan}
+        onAuxClick={preventMiddleTimelineAuxClick}
+      >
         <div className="timelineContent" ref={contentRef} style={{ width: `${timelineContentWidthPx}px` }}>
           <div className="timelineRuler" aria-hidden="true" onPointerDown={handleHeaderSeekPointerDown} title="Click or drag to seek">
             <span />

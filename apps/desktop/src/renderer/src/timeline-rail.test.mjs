@@ -174,6 +174,21 @@ test('Recording edit timeline exposes zoom controls and +/- shortcuts', async ()
   assert.match(styles, /\.timelineContent\s*\{/);
 });
 
+test('Recording edit timeline supports middle-button drag panning', async () => {
+  const source = await readFile(join(here, 'main.tsx'), 'utf8');
+  const styles = await readFile(join(here, 'styles.css'), 'utf8');
+
+  assert.match(source, /function beginTimelinePan\(event: React\.PointerEvent<HTMLDivElement>\)/);
+  assert.match(source, /if \(event\.button !== 1\) return;/);
+  assert.match(source, /viewport\.scrollLeft = startScrollLeft - \(moveEvent\.clientX - startClientX\);/);
+  assert.match(source, /onPointerDownCapture=\{beginTimelinePan\}/);
+  assert.match(source, /function preventMiddleTimelineAuxClick\(event: React\.MouseEvent<HTMLDivElement>\)/);
+  assert.match(source, /onAuxClick=\{preventMiddleTimelineAuxClick\}/);
+  assert.match(styles, /\.timelineViewport\.panning,/);
+  assert.match(styles, /cursor: grabbing;/);
+  assert.match(styles, /user-select: none;/);
+});
+
 test('Recording edit timeline deletes the selected zoom marker from the timeline key handler', async () => {
   const source = await readFile(join(here, 'main.tsx'), 'utf8');
 

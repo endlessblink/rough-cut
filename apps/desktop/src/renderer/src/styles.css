@@ -2392,6 +2392,12 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   scrollbar-width: thin;
 }
 
+.timelineViewport.panning,
+.timelineViewport.panning * {
+  cursor: grabbing;
+  user-select: none;
+}
+
 .timelineContent {
   min-width: 100%;
 }
