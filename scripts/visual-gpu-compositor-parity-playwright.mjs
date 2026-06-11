@@ -485,6 +485,10 @@ function buildScreenFilter() {
   const font = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
   return [
     'testsrc2=size=960x540:rate=30',
+    'drawbox=x=0:y=0:w=960:h=70:color=0xff3355:t=fill',
+    'drawbox=x=0:y=470:w=960:h=70:color=0x2563eb:t=fill',
+    `drawtext=fontfile=${font}:text='TOP EDGE':fontcolor=white:fontsize=34:x=400:y=18:box=1:boxcolor=0x00000099`,
+    `drawtext=fontfile=${font}:text='BOTTOM EDGE':fontcolor=white:fontsize=34:x=360:y=488:box=1:boxcolor=0x00000099`,
     `drawtext=fontfile=${font}:text='GPU PARITY':fontcolor=white:fontsize=44:x=40:y=40:box=1:boxcolor=0x00000099`,
     'drawbox=x=40:y=410:w=140:h=90:color=0xff0000:t=fill',
     'drawbox=x=410:y=410:w=140:h=90:color=0x00ff00:t=fill',
@@ -496,6 +500,10 @@ function buildCameraFilter() {
   const font = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
   return [
     'testsrc=size=320x240:rate=30',
+    'drawbox=x=0:y=0:w=320:h=40:color=0xff3355:t=fill',
+    'drawbox=x=0:y=200:w=320:h=40:color=0x2563eb:t=fill',
+    `drawtext=fontfile=${font}:text='CAM TOP':fontcolor=white:fontsize=20:x=96:y=8:box=1:boxcolor=0x00000099`,
+    `drawtext=fontfile=${font}:text='CAM BOTTOM':fontcolor=white:fontsize=20:x=76:y=208:box=1:boxcolor=0x00000099`,
     `drawtext=fontfile=${font}:text='CAMERA':fontcolor=white:fontsize=34:x=28:y=28:box=1:boxcolor=0x00000099`,
     'drawbox=x=110:y=86:w=100:h=82:color=0x2563eb:t=fill',
     'drawbox=x=142:y=114:w=36:h=36:color=0xffffff:t=fill',

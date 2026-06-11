@@ -158,7 +158,12 @@ test('styled video preview routes screen video drawing through the feature-flagg
   assert.match(rendererSource, /a_nextTexCoord/);
   assert.match(rendererSource, /u_motionBlurSamples/);
   assert.match(rendererSource, /sampleIfVisible/);
+  assert.match(rendererSource, /function uploadVideoTexture\(gl: WebGLRenderingContext, texture: WebGLTexture, video: HTMLVideoElement\): void/);
+  assert.match(rendererSource, /gl\.pixelStorei\(gl\.UNPACK_FLIP_Y_WEBGL, false\);\n\s+gl\.texImage2D\(gl\.TEXTURE_2D, 0, gl\.RGBA, gl\.RGBA, gl\.UNSIGNED_BYTE, video\)/);
+  assert.match(rendererSource, /drawWebGL\(input: ScreenLayerDrawInput\)[\s\S]*uploadVideoTexture\(gl, this\.texture, input\.video\)/);
   assert.match(rendererSource, /drawCameraWebGL\(input: CameraLayerDrawInput\)/);
+  assert.match(rendererSource, /drawCameraWebGL\(input: CameraLayerDrawInput\)[\s\S]*uploadVideoTexture\(gl, this\.texture, input\.video\)/);
+  assert.match(rendererSource, /const texCoords = new Float32Array\(\[\n\s+u0, v0,\n\s+u1, v0,\n\s+u0, v1,\n\s+u0, v1,\n\s+u1, v0,\n\s+u1, v1,\n\s+\]\)/);
   assert.match(rendererSource, /u_maskMode/);
   assert.match(rendererSource, /u_maskFrame/);
   assert.match(rendererSource, /u_maskRadius/);

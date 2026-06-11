@@ -738,9 +738,7 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     gl.uniform1f(parts.maskRadiusUniform, 0);
     gl.uniform1f(parts.ringWidthUniform, 0);
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, input.video);
+    uploadVideoTexture(gl, this.texture, input.video);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STREAM_DRAW);
@@ -792,12 +790,12 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     const v0 = source.sy / input.sourceHeight;
     const v1 = (source.sy + source.sh) / input.sourceHeight;
     const texCoords = new Float32Array([
-      u0, v1,
-      u1, v1,
       u0, v0,
-      u0, v0,
-      u1, v1,
       u1, v0,
+      u0, v1,
+      u0, v1,
+      u1, v0,
+      u1, v1,
     ]);
     gl.viewport(0, 0, input.canvasWidth, input.canvasHeight);
     gl.clearColor(0, 0, 0, 0);
@@ -813,9 +811,7 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     gl.uniform1f(parts.maskRadiusUniform, input.radius);
     gl.uniform1f(parts.ringWidthUniform, 0);
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, input.video);
+    uploadVideoTexture(gl, this.texture, input.video);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STREAM_DRAW);
     gl.enableVertexAttribArray(parts.positionAttribute);
@@ -1177,6 +1173,12 @@ function bindGeometry(
   gl.bufferData(gl.ARRAY_BUFFER, input.positions, gl.STREAM_DRAW);
   gl.enableVertexAttribArray(parts.canvasPositionAttribute);
   gl.vertexAttribPointer(parts.canvasPositionAttribute, 2, gl.FLOAT, false, 0, 0);
+}
+
+function uploadVideoTexture(gl: WebGLRenderingContext, texture: WebGLTexture, video: HTMLVideoElement): void {
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
 }
 
 function cssColorToRgba(color: string): [number, number, number, number] {
