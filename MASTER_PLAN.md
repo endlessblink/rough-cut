@@ -7616,6 +7616,25 @@ headless/GPU frame renderer, prove cursor sharpness in zoomed experimental
 exports, and record benchmark speed/quality evidence. Do not make this mode
 default.
 
+**Slice 3 (2026-06-11):** Added zoomed cursor sharpness coverage to the
+experimental export smoke. The fixture now uses a low-noise source, a real zoom
+marker, and cursor telemetry through the zoomed frame. The smoke samples the
+transformed cursor region in the experimental output and fails if the vector
+cursor fill/outline disappears or blurs below the visibility budget.
+
+Evidence:
+- `node --check scripts/smoke-experimental-headless-export.mjs` passes.
+- `node --test scripts/repo-regression.test.mjs` passes.
+- `pnpm smoke:experimental-headless-export` passes outside the sandbox; latest
+  root `/tmp/rough-cut-headless-export-rqmzpf`.
+- The passing smoke reports sampled frames `[0, 15, 29]`, zero decoded pixel
+  delta against the styled baseline for all sampled frames, and
+  `zoomedCursorSharpness: { bright: 3039, dark: 2679 }`.
+
+Remaining before DONE: replace the fallback-backed prototype with a real
+headless/GPU frame renderer and record benchmark speed/quality evidence. Do
+not make this mode default.
+
 ### TASK-247 Make GPU compositor default and retire legacy visual composition logic
 
 **Priority:** P1

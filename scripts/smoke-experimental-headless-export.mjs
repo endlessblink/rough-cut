@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { exportProjectToMp4 } from '../apps/desktop/src/main/export-service.mjs';
 import { saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
+import { createDefaultRecordingPresentation, createZoomMarker } from '../packages/project-model/dist/index.js';
 
 const root = await mkdtemp(join(tmpdir(), 'rough-cut-headless-export-'));
 const mediaPath = join(root, 'source.mp4');
@@ -16,7 +17,7 @@ run('ffmpeg', [
   '-f',
   'lavfi',
   '-i',
-  'testsrc2=size=1280x720:rate=30',
+  buildCursorFixtureFilter(),
   '-t',
   '1',
   '-c:v',
@@ -42,6 +43,24 @@ const project = await saveProjectForRecording({
     { frame: 15, timeMs: 500, x: 720, y: 390, type: 'move', button: 0 },
   ],
 });
+const recordingAsset = project.document.assets.find((asset) => asset.type === 'recording');
+const presentation = createDefaultRecordingPresentation();
+recordingAsset.presentation = {
+  ...presentation,
+  ...recordingAsset.presentation,
+  zoom: {
+    ...presentation.zoom,
+    ...recordingAsset.presentation?.zoom,
+    markers: [
+      createZoomMarker(0, 29, {
+        strength: 1.1,
+        focalPoint: { x: 0.5, y: 0.5 },
+        zoomInDuration: 1,
+        zoomOutDuration: 1,
+      }),
+    ],
+  },
+};
 
 const progress = [];
 const styledResult = await exportProjectToMp4({
@@ -72,6 +91,16 @@ const frameComparisons = compareRepresentativeFrames({
 const failedComparison = frameComparisons.find((comparison) => !comparison.ok);
 if (failedComparison) {
   throw new Error(`Experimental headless export diverged from styled export at a representative frame: ${JSON.stringify({ failedComparison, frameComparisons })}`);
+}
+const zoomedCursorSharpness = sampleBrightDark(outputPath, {
+  timeSeconds: 0.5,
+  x: 1160,
+  y: 600,
+  width: 180,
+  height: 180,
+});
+if (zoomedCursorSharpness.bright < 120 || zoomedCursorSharpness.dark < 70) {
+  throw new Error(`Zoomed experimental export cursor was not visible/sharp enough: ${JSON.stringify(zoomedCursorSharpness)}`);
 }
 
 const stream = { width: probe.width, height: probe.height, r_frame_rate: probe.r_frame_rate };
@@ -113,7 +142,18 @@ console.info(JSON.stringify({
   fallback: result.fallback,
   sampledFrames: result.compositionPlan.frames.map((frame) => frame.frameIndex),
   frameComparisons,
+  zoomedCursorSharpness,
 }, null, 2));
+
+function buildCursorFixtureFilter() {
+  const font = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
+  return [
+    'color=c=0x406080:s=1280x720:r=30',
+    'drawbox=x=64:y=64:w=260:h=140:color=0x5b7896:t=fill',
+    'drawbox=x=956:y=516:w=260:h=140:color=0x6d8aa5:t=fill',
+    `drawtext=fontfile=${font}:text='ZOOM CURSOR':fontcolor=0xc9d5df:fontsize=42:x=470:y=312`,
+  ].join(',');
+}
 
 function probeVideo(videoPath) {
   const probe = JSON.parse(runCapture('ffprobe', [
@@ -167,6 +207,36 @@ function sampleFrame(videoPath, { timeSeconds, width, height }) {
     'rgb24',
     '-',
   ], width * height * 3 + 1024);
+}
+
+function sampleBrightDark(videoPath, crop) {
+  const pixels = runBuffer('ffmpeg', [
+    '-v',
+    'error',
+    '-ss',
+    String(Math.max(0, crop.timeSeconds)),
+    '-i',
+    videoPath,
+    '-frames:v',
+    '1',
+    '-vf',
+    `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y}`,
+    '-f',
+    'rawvideo',
+    '-pix_fmt',
+    'rgb24',
+    '-',
+  ], crop.width * crop.height * 3 + 1024);
+  let bright = 0;
+  let dark = 0;
+  for (let index = 0; index < pixels.length; index += 3) {
+    const red = pixels[index];
+    const green = pixels[index + 1];
+    const blue = pixels[index + 2];
+    if (red > 238 && green > 238 && blue > 238) bright += 1;
+    if (red < 85 && green < 85 && blue < 85) dark += 1;
+  }
+  return { bright, dark };
 }
 
 function comparePixels(expected, actual) {
