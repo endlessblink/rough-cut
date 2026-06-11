@@ -50,6 +50,7 @@ const PREVIEW_CANVAS_LONG_EDGE = 1280;
 const PLAYBACK_DEBUG_LOG_LIMIT = 500;
 const PLAYBACK_DRAW_COST_LOG_THRESHOLD_MS = 12;
 const PLAYBACK_EXPECTED_DISPLAY_GAP_THRESHOLD_MS = 50;
+const PLAYBACK_EXPECTED_DISPLAY_WARMUP_SAMPLES = 3;
 
 type PlaybackQualitySnapshot = {
   creationTime: number;
@@ -895,6 +896,7 @@ export function StyledVideoPreview({
     let videoFrameCallbackId: number | null = null;
     let lastTickAtMs: number | null = null;
     let lastExpectedDisplayTimeMs: number | null = null;
+    let expectedDisplaySampleCount = 0;
     let lastDrawnFrame = -1;
     const renderLoopId = Math.random().toString(36).slice(2, 8);
     recordPlaybackDebug('render-loop-start', {
@@ -971,6 +973,8 @@ export function StyledVideoPreview({
       screenVideo.currentTime = sourceTime;
       syncCameraTime(sourceTime);
       updateCurrentTime(nextSegment.timelineIn / fps, { immediate: true });
+      lastExpectedDisplayTimeMs = null;
+      expectedDisplaySampleCount = 0;
       lastDrawnFrame = -1;
       return true;
     }
@@ -1043,7 +1047,8 @@ export function StyledVideoPreview({
       }
       lastTickAtMs = tickAtMs;
       if (typeof metadata?.expectedDisplayTime === 'number') {
-        if (lastExpectedDisplayTimeMs !== null) {
+        const expectedDisplayWarmedUp = expectedDisplaySampleCount >= PLAYBACK_EXPECTED_DISPLAY_WARMUP_SAMPLES;
+        if (lastExpectedDisplayTimeMs !== null && expectedDisplayWarmedUp) {
           const expectedGapMs = metadata.expectedDisplayTime - lastExpectedDisplayTimeMs;
           if (expectedGapMs > PLAYBACK_EXPECTED_DISPLAY_GAP_THRESHOLD_MS) {
             recordPlaybackDebug('render-expected-display-gap', {
@@ -1059,6 +1064,7 @@ export function StyledVideoPreview({
           }
         }
         lastExpectedDisplayTimeMs = metadata.expectedDisplayTime;
+        expectedDisplaySampleCount += 1;
       }
       const parkedTimelineFrame = timeMode === 'timeline' && !isPlaying
         ? Math.max(0, Math.round(currentTimeRef.current * fps))
@@ -1304,6 +1310,15 @@ export function StyledVideoPreview({
         : null;
       const cursorLayerStats = screenLayerRenderer.drawCursorOverlay({
         ctx,
+        canvasWidth,
+        canvasHeight,
+        sourceWidth,
+        sourceHeight,
+        screenX,
+        screenY,
+        screenDrawScale: effectiveScreenDrawScale,
+        screenSource,
+        transform: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
         cursorEvents,
         cursorFrame,
         cursorPosition: cursorPos,

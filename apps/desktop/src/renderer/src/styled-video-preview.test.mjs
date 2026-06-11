@@ -162,7 +162,10 @@ test('styled video preview routes screen video drawing through the feature-flagg
   assert.match(rendererSource, /u_maskFrame/);
   assert.match(rendererSource, /u_maskRadius/);
   assert.match(rendererSource, /webgl-camera-draw-failed/);
-  assert.match(rendererSource, /webgl-cursor-overlay-canvas2d/);
+  assert.match(rendererSource, /drawCursorOverlayWebGL\(input: CursorLayerDrawInput\)/);
+  assert.match(rendererSource, /u_renderMode/);
+  assert.match(rendererSource, /u_solidColor/);
+  assert.match(rendererSource, /u_ringWidth/);
   assert.match(rendererSource, /requestedRendererKind/);
   assert.match(rendererSource, /rendererKind: 'canvas2d'/);
   assert.match(rendererSource, /contextStatus/);
@@ -175,6 +178,13 @@ test('styled video preview routes cursor and click overlays through the preview 
   const rendererSource = readFileSync(join(here, 'screen-layer-renderer.ts'), 'utf8');
 
   assert.match(source, /screenLayerRenderer\.drawCursorOverlay\(\{/);
+  assert.match(source, /canvasWidth,/);
+  assert.match(source, /canvasHeight,/);
+  assert.match(source, /sourceWidth,/);
+  assert.match(source, /sourceHeight,/);
+  assert.match(source, /screenDrawScale: effectiveScreenDrawScale/);
+  assert.match(source, /screenSource,/);
+  assert.match(source, /transform: frame\.cameraTransform \?\? \{ scale: 1, offsetX: 0, offsetY: 0 \}/);
   assert.match(source, /cursorEvents,/);
   assert.match(source, /cursorFrame,/);
   assert.match(source, /cursorPosition: cursorPos/);
@@ -185,13 +195,20 @@ test('styled video preview routes cursor and click overlays through the preview 
   assert.doesNotMatch(source, /drawClickEmphasis\(ctx, cursorEvents/);
   assert.doesNotMatch(source, /drawCursorPath\(ctx, cursorPos\.x/);
 
-  assert.match(rendererSource, /import \{ drawClickEmphasis, drawCursorPath \} from '\.\/styled-preview\.mjs'/);
+  assert.match(rendererSource, /import \{ activeClickEmphasisAtFrame, drawClickEmphasis, drawCursorPath \} from '\.\/styled-preview\.mjs'/);
   assert.match(rendererSource, /export type CursorLayerDrawInput/);
   assert.match(rendererSource, /Canvas2DScreenLayerRenderer[\s\S]*drawCursorOverlay\(input: CursorLayerDrawInput\)/);
   assert.match(rendererSource, /drawClickEmphasis\(input\.ctx, input\.cursorEvents, input\.cursorFrame, input\.clickEffect \?\? 'ring'\)/);
   assert.match(rendererSource, /drawCursorPath\(input\.ctx, input\.cursorPosition\.x, input\.cursorPosition\.y/);
   assert.match(rendererSource, /WebGLScreenLayerRenderer[\s\S]*drawCursorOverlay\(input: CursorLayerDrawInput\)/);
-  assert.match(rendererSource, /ensureFallback\('webgl-cursor-overlay-canvas2d'\)\.drawCursorOverlay\(input\)/);
+  assert.match(rendererSource, /this\.drawCursorOverlayWebGL\(input\)/);
+  assert.match(rendererSource, /projectCursorSourcePoint\(input, ring\.x, ring\.y\)/);
+  assert.match(rendererSource, /projectCursorSourcePoint\(input, input\.cursorPosition\.x, input\.cursorPosition\.y\)/);
+  assert.match(rendererSource, /input\.ctx\.setTransform\(1, 0, 0, 1, 0, 0\)/);
+  assert.match(rendererSource, /activeClickEmphasisAtFrame\(input\.cursorEvents, input\.cursorFrame\)/);
+  assert.match(rendererSource, /CURSOR_POLYGON_TRIANGLES/);
+  assert.match(rendererSource, /gl\.drawArrays\(mode, 0, vertexCount\)/);
+  assert.doesNotMatch(rendererSource, /webgl-cursor-overlay-canvas2d/);
 });
 
 test('styled video preview routes camera PiP through the preview compositor boundary', () => {
@@ -421,6 +438,10 @@ test('playback diagnostics log render-loop gaps and preview clicks for stutter a
   assert.match(previewSource, /recordPlaybackDebug\('render-loop-start'/);
   assert.match(previewSource, /recordPlaybackDebug\('render-frame-gap'/);
   assert.match(previewSource, /recordPlaybackDebug\('render-expected-display-gap'/);
+  assert.match(previewSource, /const PLAYBACK_EXPECTED_DISPLAY_WARMUP_SAMPLES = 3/);
+  assert.match(previewSource, /let expectedDisplaySampleCount = 0/);
+  assert.match(previewSource, /expectedDisplaySampleCount >= PLAYBACK_EXPECTED_DISPLAY_WARMUP_SAMPLES/);
+  assert.match(previewSource, /lastExpectedDisplayTimeMs = null;\n\s+expectedDisplaySampleCount = 0;\n\s+lastDrawnFrame = -1/);
   assert.match(previewSource, /recordPlaybackDebug\('render-draw-cost'/);
   assert.match(previewSource, /recordPlaybackDebug\('main-thread-long-task'/);
   assert.match(previewSource, /readPlaybackQuality\(video\)/);

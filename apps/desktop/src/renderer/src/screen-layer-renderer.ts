@@ -1,7 +1,31 @@
 import { drawZoomMotionSource, resolveWebGLMotionBlurSampleCount } from './zoom-motion-renderer';
 
-import { drawClickEmphasis, drawCursorPath } from './styled-preview.mjs';
+import { activeClickEmphasisAtFrame, drawClickEmphasis, drawCursorPath } from './styled-preview.mjs';
 import type { CursorEvent } from '@rough-cut/project-model';
+
+const CURSOR_POLYGON_POINTS = [
+  [0, 0],
+  [0, 26],
+  [7, 20],
+  [12, 33],
+  [18, 31],
+  [13, 19],
+  [24, 19],
+] as const;
+const CURSOR_POLYGON_TRIANGLES = [
+  0, 1, 2,
+  0, 2, 6,
+  2, 3, 5,
+  2, 5, 6,
+  3, 4, 5,
+] as const;
+const CURSOR_OUTLINE_WIDTH = 2.2;
+const CURSOR_SPOTLIGHT = [122 / 255, 167 / 255, 255 / 255, 0.22] as const;
+const CURSOR_FILL = [1, 1, 1, 1] as const;
+const CURSOR_OUTLINE = [51 / 255, 58 / 255, 70 / 255, 1] as const;
+const CURSOR_SPOTLIGHT_OUTLINE = [122 / 255, 167 / 255, 255 / 255, 1] as const;
+const CLICK_RING = [122 / 255, 167 / 255, 255 / 255, 1] as const;
+const CLICK_RIPPLE = [122 / 255, 167 / 255, 255 / 255, 0.32] as const;
 
 export type ScreenLayerRendererKind = 'canvas2d' | 'webgl';
 export type ScreenLayerContextStatus = 'available' | 'missing-context' | 'context-lost' | 'draw-failed' | 'disposed' | 'fallback';
@@ -74,6 +98,15 @@ export type CameraLayerDrawInput = {
 
 export type CursorLayerDrawInput = {
   ctx: CanvasRenderingContext2D;
+  canvasWidth: number;
+  canvasHeight: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  screenX: number;
+  screenY: number;
+  screenDrawScale: number;
+  screenSource: ScreenLayerSourceViewport;
+  transform: ScreenLayerCameraTransform;
   cursorEvents: readonly CursorEvent[];
   cursorFrame: number;
   cursorPosition: { x: number; y: number } | null;
@@ -259,6 +292,9 @@ type WebGLProgramParts = {
   maskModeUniform: WebGLUniformLocation | null;
   maskFrameUniform: WebGLUniformLocation | null;
   maskRadiusUniform: WebGLUniformLocation | null;
+  renderModeUniform: WebGLUniformLocation | null;
+  solidColorUniform: WebGLUniformLocation | null;
+  ringWidthUniform: WebGLUniformLocation | null;
 };
 
 export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
@@ -375,14 +411,43 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
   }
 
   drawCursorOverlay(input: CursorLayerDrawInput): ScreenLayerRendererStats {
-    const stats = this.ensureFallback('webgl-cursor-overlay-canvas2d').drawCursorOverlay(input);
-    this.stats = {
-      ...stats,
-      requestedRendererKind: 'webgl',
-      rendererKind: 'canvas2d',
-      fallbackReason: 'webgl-cursor-overlay-canvas2d',
-    };
-    return this.getDebugStats();
+    if (this.disposed) {
+      this.stats = { ...this.stats, contextStatus: 'disposed', drawCostMs: null };
+      return this.getDebugStats();
+    }
+    if (!this.ensureContext() || !this.gl || !this.canvas || !this.parts || !this.positionBuffer || !this.texCoordBuffer || !this.previousTexCoordBuffer || !this.nextTexCoordBuffer || !this.canvasPositionBuffer) {
+      const stats = this.ensureFallback('webgl-context-unavailable').drawCursorOverlay(input);
+      this.stats = { ...stats, requestedRendererKind: 'webgl', rendererKind: 'canvas2d', fallbackReason: 'webgl-context-unavailable' };
+      return this.getDebugStats();
+    }
+    if (this.gl.isContextLost()) {
+      const stats = this.ensureFallback('webgl-context-lost').drawCursorOverlay(input);
+      this.stats = { ...stats, requestedRendererKind: 'webgl', rendererKind: 'canvas2d', contextStatus: 'context-lost', fallbackReason: 'webgl-context-lost' };
+      return this.getDebugStats();
+    }
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    try {
+      this.resize(input.canvasWidth, input.canvasHeight);
+      this.drawCursorOverlayWebGL(input);
+      input.ctx.save();
+      input.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      input.ctx.drawImage(this.canvas as CanvasImageSource, 0, 0, input.canvasWidth, input.canvasHeight);
+      input.ctx.restore();
+      const endedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      this.stats = {
+        requestedRendererKind: 'webgl',
+        rendererKind: 'webgl',
+        contextStatus: 'available',
+        drawCostMs: Math.round((endedAt - startedAt) * 10) / 10,
+        drawCount: this.stats.drawCount + 1,
+        fallbackReason: null,
+      };
+      return this.getDebugStats();
+    } catch {
+      const stats = this.ensureFallback('webgl-cursor-overlay-draw-failed').drawCursorOverlay(input);
+      this.stats = { ...stats, requestedRendererKind: 'webgl', rendererKind: 'canvas2d', contextStatus: 'draw-failed', fallbackReason: 'webgl-cursor-overlay-draw-failed' };
+      return this.getDebugStats();
+    }
   }
 
   getDebugStats(): ScreenLayerRendererStats {
@@ -526,9 +591,12 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     gl.uniform2f(parts.resolutionUniform, input.canvasWidth, input.canvasHeight);
     gl.uniform1i(parts.textureUniform, 0);
     gl.uniform1f(parts.motionBlurSamplesUniform, motionBlurSamples);
+    gl.uniform1f(parts.renderModeUniform, 0);
+    gl.uniform4f(parts.solidColorUniform, 0, 0, 0, 0);
     gl.uniform1f(parts.maskModeUniform, 0);
     gl.uniform4f(parts.maskFrameUniform, 0, 0, input.canvasWidth, input.canvasHeight);
     gl.uniform1f(parts.maskRadiusUniform, 0);
+    gl.uniform1f(parts.ringWidthUniform, 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
@@ -598,9 +666,12 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     gl.uniform2f(parts.resolutionUniform, input.canvasWidth, input.canvasHeight);
     gl.uniform1i(parts.textureUniform, 0);
     gl.uniform1f(parts.motionBlurSamplesUniform, 1);
+    gl.uniform1f(parts.renderModeUniform, 0);
+    gl.uniform4f(parts.solidColorUniform, 0, 0, 0, 0);
     gl.uniform1f(parts.maskModeUniform, input.presentation?.shape === 'circle' ? 2 : 1);
     gl.uniform4f(parts.maskFrameUniform, frame.x, frame.y, frame.w, frame.h);
     gl.uniform1f(parts.maskRadiusUniform, input.radius);
+    gl.uniform1f(parts.ringWidthUniform, 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
@@ -624,6 +695,163 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     gl.enableVertexAttribArray(parts.canvasPositionAttribute);
     gl.vertexAttribPointer(parts.canvasPositionAttribute, 2, gl.FLOAT, false, 0, 0);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  private drawCursorOverlayWebGL(input: CursorLayerDrawInput): void {
+    const gl = this.gl;
+    const parts = this.parts;
+    if (!gl || !parts || !this.positionBuffer || !this.texCoordBuffer || !this.previousTexCoordBuffer || !this.nextTexCoordBuffer || !this.canvasPositionBuffer) throw new Error('Missing WebGL state.');
+    const canvasWidth = Math.max(1, Math.round(input.canvasWidth));
+    const canvasHeight = Math.max(1, Math.round(input.canvasHeight));
+    gl.viewport(0, 0, canvasWidth, canvasHeight);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(parts.program);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniform2f(parts.resolutionUniform, canvasWidth, canvasHeight);
+    gl.uniform1i(parts.textureUniform, 0);
+    gl.uniform1f(parts.motionBlurSamplesUniform, 1);
+
+    const clickEffect = input.clickEffect ?? 'ring';
+    if (clickEffect !== 'none') {
+      for (const ring of activeClickEmphasisAtFrame(input.cursorEvents, input.cursorFrame)) {
+        const projected = projectCursorSourcePoint(input, ring.x, ring.y);
+        const radius = ring.radius * projected.scale;
+        const width = 4 * projected.scale;
+        if (clickEffect === 'ripple') {
+          this.drawSolidCircle({ x: projected.x, y: projected.y, radius, color: [CLICK_RIPPLE[0], CLICK_RIPPLE[1], CLICK_RIPPLE[2], CLICK_RIPPLE[3] * ring.alpha] });
+        } else {
+          this.drawRing({ x: projected.x, y: projected.y, radius, width, color: [CLICK_RING[0], CLICK_RING[1], CLICK_RING[2], ring.alpha] });
+        }
+      }
+    }
+
+    if (input.cursorPosition && input.visible !== false && input.cursorInside) {
+      const style = input.style === 'subtle' || input.style === 'spotlight' ? input.style : 'default';
+      const rawSize = Number.isFinite(input.sizePercent) ? Number(input.sizePercent) : 100;
+      const scale = Math.max(0.5, Math.min(1.5, rawSize / 100));
+      const alpha = style === 'subtle' ? 0.6 : 1;
+      const projected = projectCursorSourcePoint(input, input.cursorPosition.x, input.cursorPosition.y);
+      const x = projected.x;
+      const y = projected.y;
+      const drawScale = scale * projected.scale;
+      if (style === 'spotlight') {
+        this.drawSolidCircle({
+          x: x + 12 * drawScale,
+          y: y + 16 * drawScale,
+          radius: 36 * drawScale,
+          color: [...CURSOR_SPOTLIGHT],
+        });
+      }
+      this.drawCursorPolygon({ x, y, scale: drawScale, alpha, style });
+    }
+    gl.disable(gl.BLEND);
+  }
+
+  private drawSolidCircle(input: { x: number; y: number; radius: number; color: readonly number[] }): void {
+    const radius = Math.max(0, input.radius);
+    if (radius <= 0) return;
+    this.drawSolidQuad({
+      x: input.x - radius,
+      y: input.y - radius,
+      w: radius * 2,
+      h: radius * 2,
+      color: input.color,
+      maskMode: 2,
+      maskFrame: [input.x - radius, input.y - radius, radius * 2, radius * 2],
+      maskRadius: radius,
+    });
+  }
+
+  private drawRing(input: { x: number; y: number; radius: number; width: number; color: readonly number[] }): void {
+    const radius = Math.max(0, input.radius);
+    if (radius <= 0) return;
+    this.drawSolidQuad({
+      x: input.x - radius - input.width,
+      y: input.y - radius - input.width,
+      w: radius * 2 + input.width * 2,
+      h: radius * 2 + input.width * 2,
+      color: input.color,
+      maskMode: 3,
+      maskFrame: [input.x - radius, input.y - radius, radius * 2, radius * 2],
+      maskRadius: radius,
+      ringWidth: input.width,
+    });
+  }
+
+  private drawCursorPolygon(input: { x: number; y: number; scale: number; alpha: number; style: 'default' | 'subtle' | 'spotlight' }): void {
+    const fillPositions: number[] = [];
+    for (const index of CURSOR_POLYGON_TRIANGLES) {
+      const point = CURSOR_POLYGON_POINTS[index];
+      fillPositions.push(input.x + point[0] * input.scale, input.y + point[1] * input.scale);
+    }
+    const gl = this.gl;
+    if (!gl) throw new Error('Missing WebGL state.');
+    this.drawSolidPositions(fillPositions, [CURSOR_FILL[0], CURSOR_FILL[1], CURSOR_FILL[2], input.alpha], gl.TRIANGLES);
+    const outlineColor = input.style === 'spotlight' ? CURSOR_SPOTLIGHT_OUTLINE : CURSOR_OUTLINE;
+    const outlinePositions = CURSOR_POLYGON_POINTS.flatMap((point) => [input.x + point[0] * input.scale, input.y + point[1] * input.scale]);
+    this.drawSolidPositions(outlinePositions, [outlineColor[0], outlineColor[1], outlineColor[2], outlineColor[3] * input.alpha], gl.LINE_LOOP, (input.style === 'spotlight' ? CURSOR_OUTLINE_WIDTH * 1.6 : CURSOR_OUTLINE_WIDTH) * input.scale);
+  }
+
+  private drawSolidQuad(input: { x: number; y: number; w: number; h: number; color: readonly number[]; maskMode?: number; maskFrame?: readonly number[]; maskRadius?: number; ringWidth?: number }): void {
+    const x0 = input.x;
+    const y0 = input.y;
+    const x1 = input.x + input.w;
+    const y1 = input.y + input.h;
+    this.drawSolidPositions([
+      x0, y0,
+      x1, y0,
+      x0, y1,
+      x0, y1,
+      x1, y0,
+      x1, y1,
+    ], input.color, this.gl?.TRIANGLES ?? 4, 1, input.maskMode, input.maskFrame, input.maskRadius, input.ringWidth);
+  }
+
+  private drawSolidPositions(
+    positions: readonly number[],
+    color: readonly number[],
+    mode: number,
+    lineWidth = 1,
+    maskMode = 0,
+    maskFrame: readonly number[] = [0, 0, 0, 0],
+    maskRadius = 0,
+    ringWidth = 0,
+  ): void {
+    const gl = this.gl;
+    const parts = this.parts;
+    if (!gl || !parts || !this.positionBuffer || !this.texCoordBuffer || !this.previousTexCoordBuffer || !this.nextTexCoordBuffer || !this.canvasPositionBuffer) throw new Error('Missing WebGL state.');
+    const positionArray = new Float32Array(positions);
+    const vertexCount = positions.length / 2;
+    const dummyTexCoords = new Float32Array(vertexCount * 2).fill(0.5);
+    gl.uniform1f(parts.renderModeUniform, 1);
+    gl.uniform4f(parts.solidColorUniform, color[0] ?? 1, color[1] ?? 1, color[2] ?? 1, color[3] ?? 1);
+    gl.uniform1f(parts.maskModeUniform, maskMode);
+    gl.uniform4f(parts.maskFrameUniform, maskFrame[0] ?? 0, maskFrame[1] ?? 0, maskFrame[2] ?? 0, maskFrame[3] ?? 0);
+    gl.uniform1f(parts.maskRadiusUniform, maskRadius);
+    gl.uniform1f(parts.ringWidthUniform, ringWidth);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, positionArray, gl.STREAM_DRAW);
+    gl.enableVertexAttribArray(parts.positionAttribute);
+    gl.vertexAttribPointer(parts.positionAttribute, 2, gl.FLOAT, false, 0, 0);
+    for (const [buffer, attribute] of [
+      [this.texCoordBuffer, parts.texCoordAttribute],
+      [this.previousTexCoordBuffer, parts.previousTexCoordAttribute],
+      [this.nextTexCoordBuffer, parts.nextTexCoordAttribute],
+    ] as const) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, dummyTexCoords, gl.STREAM_DRAW);
+      gl.enableVertexAttribArray(attribute);
+      gl.vertexAttribPointer(attribute, 2, gl.FLOAT, false, 0, 0);
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.canvasPositionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, positionArray, gl.STREAM_DRAW);
+    gl.enableVertexAttribArray(parts.canvasPositionAttribute);
+    gl.vertexAttribPointer(parts.canvasPositionAttribute, 2, gl.FLOAT, false, 0, 0);
+    if (mode === gl.LINE_LOOP) gl.lineWidth(lineWidth);
+    gl.drawArrays(mode, 0, vertexCount);
   }
 }
 
@@ -676,6 +904,9 @@ function createProgram(gl: WebGLRenderingContext): WebGLProgramParts | null {
     uniform float u_maskMode;
     uniform vec4 u_maskFrame;
     uniform float u_maskRadius;
+    uniform float u_renderMode;
+    uniform vec4 u_solidColor;
+    uniform float u_ringWidth;
     varying vec2 v_texCoord;
     varying vec2 v_previousTexCoord;
     varying vec2 v_nextTexCoord;
@@ -686,7 +917,12 @@ function createProgram(gl: WebGLRenderingContext): WebGLProgramParts | null {
     }
     void main() {
       if (v_texCoord.x < 0.0 || v_texCoord.x > 1.0 || v_texCoord.y < 0.0 || v_texCoord.y > 1.0) discard;
-      if (u_maskMode > 1.5) {
+      if (u_maskMode > 2.5) {
+        vec2 center = u_maskFrame.xy + u_maskFrame.zw * 0.5;
+        float radius = min(u_maskFrame.z, u_maskFrame.w) * 0.5;
+        float distanceFromCenter = distance(v_canvasPosition, center);
+        if (distanceFromCenter > radius + u_ringWidth * 0.5 || distanceFromCenter < radius - u_ringWidth * 0.5) discard;
+      } else if (u_maskMode > 1.5) {
         vec2 center = u_maskFrame.xy + u_maskFrame.zw * 0.5;
         if (distance(v_canvasPosition, center) > min(u_maskFrame.z, u_maskFrame.w) * 0.5) discard;
       } else if (u_maskMode > 0.5) {
@@ -695,6 +931,10 @@ function createProgram(gl: WebGLRenderingContext): WebGLProgramParts | null {
         vec2 q = abs(v_canvasPosition - center) - halfSize + vec2(u_maskRadius);
         float outside = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - u_maskRadius;
         if (outside > 0.0) discard;
+      }
+      if (u_renderMode > 0.5) {
+        gl_FragColor = u_solidColor;
+        return;
       }
       vec4 color = texture2D(u_texture, v_texCoord) * 0.44;
       float weight = 0.44;
@@ -731,6 +971,9 @@ function createProgram(gl: WebGLRenderingContext): WebGLProgramParts | null {
     maskModeUniform: gl.getUniformLocation(program, 'u_maskMode'),
     maskFrameUniform: gl.getUniformLocation(program, 'u_maskFrame'),
     maskRadiusUniform: gl.getUniformLocation(program, 'u_maskRadius'),
+    renderModeUniform: gl.getUniformLocation(program, 'u_renderMode'),
+    solidColorUniform: gl.getUniformLocation(program, 'u_solidColor'),
+    ringWidthUniform: gl.getUniformLocation(program, 'u_ringWidth'),
   };
 }
 
@@ -769,6 +1012,21 @@ function addRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, wid
   ctx.lineTo(x, y + r);
   ctx.quadraticCurveTo(x, y, x + r, y);
   ctx.closePath();
+}
+
+function projectCursorSourcePoint(input: CursorLayerDrawInput, sourceX: number, sourceY: number): { x: number; y: number; scale: number } {
+  const scale = Number.isFinite(input.transform.scale) && input.transform.scale > 0 ? input.transform.scale : 1;
+  const offsetX = Number.isFinite(input.transform.offsetX) ? input.transform.offsetX : 0;
+  const offsetY = Number.isFinite(input.transform.offsetY) ? input.transform.offsetY : 0;
+  const sourceCenterX = input.screenSource.x + input.screenSource.w / 2;
+  const sourceCenterY = input.screenSource.y + input.screenSource.h / 2;
+  const localX = input.screenSource.w / 2 + offsetX + (sourceX - sourceCenterX) * scale;
+  const localY = input.screenSource.h / 2 + offsetY + (sourceY - sourceCenterY) * scale;
+  return {
+    x: input.screenX + localX * input.screenDrawScale,
+    y: input.screenY + localY * input.screenDrawScale,
+    scale: input.screenDrawScale * scale,
+  };
 }
 
 function sourceTexCoordForCanvasPoint(

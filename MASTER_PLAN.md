@@ -254,7 +254,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-242 | Add feature-flagged WebGL screen-layer renderer | P0 | DONE (2026-06-10) |
 | TASK-243 | Add WebGL-vs-Canvas parity and playback performance probes | P0 | DONE (2026-06-10) |
 | TASK-244 | Add velocity-based WebGL transform motion blur | P1 | DONE (2026-06-10) |
-| TASK-245 | Promote WebGL to full preview compositor behind fallback | P1 | IN PROGRESS |
+| TASK-245 | Promote WebGL to full preview compositor behind fallback | P1 | IN PROGRESS — slices 1–3 DONE 2026-06-11 |
 | TASK-246 | Prototype GPU/headless export path from the shared composition plan | P1 | PLANNED |
 | TASK-247 | Make GPU compositor default and retire legacy visual composition logic | P1 | PLANNED |
 | ~~TASK-248~~ | ✅ Add startup recording panel regression suite | P1 | ✅ DONE (2026-06-10) |
@@ -7496,6 +7496,30 @@ Evidence:
 Remaining before DONE: cursor/click overlays still need a true GPU draw path or
 an explicit decision to keep the vector overlay as a compositor fallback; the NLE
 run still logs one expected-display-gap event.
+
+**Slice 3 (2026-06-11):** Replaced the temporary WebGL cursor/click Canvas2D
+vector fallback with WebGL primitive rendering for click rings/ripples,
+spotlight fill, cursor polygon fill, and cursor outline. The WebGL path projects
+source-space cursor/click coordinates through the same screen source, zoom, and
+canvas transform used by the screen layer, then blits a preview-canvas-sized
+transparent layer without resizing between screen/cursor/camera phases. Canvas2D
+cursor rendering remains the runtime fallback for missing/lost/failed WebGL
+context paths, and FFmpeg styled export remains unchanged.
+
+The NLE playback expected-display-gap caveat is cleared by warming up
+`requestVideoFrameCallback` expected-display diagnostics for the first three
+samples after loop start/boundary seek; mid-playback expected-display gaps still
+log once cadence is stable.
+
+Evidence:
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test scripts/repo-regression.test.mjs apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm visual:gpu-compositor` passes with artifacts at `/tmp/rough-cut-gpu-compositor-6G1nFM`, report `/tmp/rough-cut-gpu-compositor-6G1nFM/gpu-compositor-report.json`, latest log `/tmp/rough-cut-gpu-compositor-latest.log`, and `problems: []`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGL_SCREEN_LAYER=1 VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER=1 pnpm playback:timeline` passes with report `/tmp/rough-cut-playback-timeline-dt85Pa/playback-report.json`; recording and NLE both report `expectedDisplayGapCount: 0`, `drawCostCount: 0`, `rendererKind: "webgl"`, and `fallbackReason: null`.
+
+Remaining before DONE: background/full-frame non-video composition still needs
+promotion through the compositor boundary, and `pnpm smoke:ui` plus the NLE
+linked-fixture harness still need to pass for the final full-compositor claim.
 
 ### TASK-246 Prototype GPU/headless export path from the shared composition plan
 
