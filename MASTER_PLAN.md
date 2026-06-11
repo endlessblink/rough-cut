@@ -255,7 +255,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-243 | Add WebGL-vs-Canvas parity and playback performance probes | P0 | DONE (2026-06-10) |
 | TASK-244 | Add velocity-based WebGL transform motion blur | P1 | DONE (2026-06-10) |
 | TASK-245 | Promote WebGL to full preview compositor behind fallback | P1 | DONE (2026-06-11) |
-| TASK-246 | Prototype GPU/headless export path from the shared composition plan | P1 | PLANNED |
+| TASK-246 | Prototype GPU/headless export path from the shared composition plan | P1 | IN PROGRESS — slice 1 DONE 2026-06-11 |
 | TASK-247 | Make GPU compositor default and retire legacy visual composition logic | P1 | PLANNED |
 | ~~TASK-248~~ | ✅ Add startup recording panel regression suite | P1 | ✅ DONE (2026-06-10) |
 
@@ -7570,6 +7570,26 @@ prototype, not a default.
 - Cursor remains visible and unblurred in zoomed exports.
 - `pnpm smoke:styled-export` still passes on the legacy export path.
 - Export benchmark records speed regression/benefit; no default switch yet.
+
+#### Progress
+
+**Slice 1 (2026-06-11):** Added the explicit `experimental-headless`
+export mode as a fallback-backed prototype contract. The mode samples shared
+`resolveCompositionFrame(...)` output for representative frames and returns the
+composition-plan snapshot in progress/result metadata, then falls back at
+runtime to the existing FFmpeg styled export backend. Normal `styled` export
+remains unchanged and remains the default UI export path.
+
+Evidence:
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test scripts/repo-regression.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `pnpm smoke:styled-export` passes outside the sandbox after the initial sandboxed `ffprobe` EPERM boundary; latest root `/tmp/rough-cut-styled-export-LIsVzm`.
+- `pnpm smoke:experimental-headless-export` passes with output `/tmp/rough-cut-headless-export-5fVNxg/experimental-headless-export.mp4`, `1920x1080`, `30/1`, explicit fallback `{ from: "headless-export", to: "ffmpeg-styled" }`, and sampled frames `[0, 15, 29]`.
+
+Remaining before DONE: replace the fallback-backed prototype with a real
+headless/GPU frame renderer, add preview-vs-export representative frame
+comparison, prove cursor sharpness in zoomed experimental exports, and record
+benchmark speed/quality evidence. Do not make this mode default.
 
 ### TASK-247 Make GPU compositor default and retire legacy visual composition logic
 

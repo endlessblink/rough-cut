@@ -17,6 +17,7 @@
     "smoke:ui": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-ui.mjs && node scripts/smoke-sidebar-layout.mjs",
     "smoke:sidebar-layout": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-sidebar-layout.mjs",
     "smoke:styled-export": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-styled-export.mjs",
+    "smoke:experimental-headless-export": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/smoke-experimental-headless-export.mjs",
     "benchmark:export": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/benchmark-export.mjs",
     "visual:export": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/visual-export-playwright.mjs",
     "visual:export-layout": "pnpm --filter @rough-cut/project-model build && pnpm --filter @rough-cut/desktop build && node scripts/visual-export-layout-parity.mjs",

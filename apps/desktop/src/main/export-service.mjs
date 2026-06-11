@@ -7,11 +7,12 @@ import { fileURLToPath } from 'node:url';
 import { getPrimaryRecording } from './project-files.mjs';
 import { createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
 import { canonicalizeProjectDocument, computeTimelineDuration, createDefaultCameraPresentation, getRecordingBackgroundColors, getStyledCanvasResolution } from '@rough-cut/project-model';
-import { getCameraLayoutRect } from '@rough-cut/frame-resolver';
+import { getCameraLayoutRect, resolveCompositionFrame } from '@rough-cut/frame-resolver';
 
 export const EXPORT_MODES = Object.freeze({
   RAW: 'raw',
   STYLED: 'styled',
+  EXPERIMENTAL_HEADLESS: 'experimental-headless',
 });
 
 export const EXPORT_SCOPES = Object.freeze({
@@ -27,7 +28,7 @@ const STYLED_VIDEO_ENCODERS = Object.freeze({
 let styledVideoEncoderPromise = null;
 
 export function normalizeExportMode(mode = EXPORT_MODES.RAW) {
-  if (mode === EXPORT_MODES.RAW || mode === EXPORT_MODES.STYLED) return mode;
+  if (mode === EXPORT_MODES.RAW || mode === EXPORT_MODES.STYLED || mode === EXPORT_MODES.EXPERIMENTAL_HEADLESS) return mode;
   throw new Error(`Unsupported export mode: ${mode}`);
 }
 
@@ -48,10 +49,15 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
   const canExportRaw = !hasCutRanges && isSingleUneditedTimelineRecording(project, recording.assetId, { exportScope: scope });
   const canExportTrimmedRaw = !hasCutRanges && isSingleTrimmedTimelineRecording(project, recording.assetId, { exportScope: scope });
   const canExportStyled = canExportRaw || canExportTrimmedRaw || hasCutRanges || canExportStyledTimeline(project, recording.assetId, { exportScope: scope });
-  if ((exportMode === EXPORT_MODES.RAW && !canExportRaw) || (exportMode === EXPORT_MODES.STYLED && !canExportStyled)) {
+  const needsStyledCapability = exportMode === EXPORT_MODES.STYLED || exportMode === EXPORT_MODES.EXPERIMENTAL_HEADLESS;
+  if ((exportMode === EXPORT_MODES.RAW && !canExportRaw) || (needsStyledCapability && !canExportStyled)) {
     if (!(exportMode === EXPORT_MODES.RAW && canExportTrimmedRaw)) {
       throw new Error('Only unedited or head/tail-trimmed single-recording exports are supported in the MVP.');
     }
+  }
+
+  if (exportMode === EXPORT_MODES.EXPERIMENTAL_HEADLESS) {
+    return exportExperimentalHeadlessProjectToMp4({ project, recording: exportRecording, outputPath, onProgress, signal });
   }
 
   if (exportMode === EXPORT_MODES.STYLED) {
@@ -73,6 +79,81 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
     sourcePath: recording.filePath,
     bytes: exported.size,
     byteEqualCandidate: source.size === exported.size,
+  };
+}
+
+export async function exportExperimentalHeadlessProjectToMp4({ project, recording, outputPath, onProgress = () => undefined, signal = null } = {}) {
+  const compositionPlan = buildExperimentalHeadlessExportPlan({ project, recording });
+  const fallback = {
+    active: true,
+    from: 'headless-export',
+    to: 'ffmpeg-styled',
+    reason: experimentalHeadlessExportEnabled()
+      ? 'headless-renderer-not-implemented'
+      : 'experimental-headless-export-disabled',
+  };
+  onProgress({
+    phase: 'rendering-headless-prototype',
+    progress: 0.01,
+    experimentalBackend: 'headless-export',
+    fallback,
+    compositionPlan,
+  });
+  const result = await exportStyledProjectToMp4({
+    project,
+    recording,
+    outputPath,
+    signal,
+    onProgress: (event) => onProgress({
+      ...event,
+      experimentalBackend: 'headless-export',
+      fallback,
+    }),
+  });
+  return {
+    ...result,
+    experimentalBackend: 'headless-export',
+    fallback,
+    compositionPlan,
+  };
+}
+
+export function experimentalHeadlessExportEnabled(env = process.env) {
+  return env.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT === '1';
+}
+
+export function buildExperimentalHeadlessExportPlan({ project, recording } = {}) {
+  const document = canonicalizeProjectDocument(project);
+  const fps = Number.isFinite(recording?.fps) && recording.fps > 0 ? recording.fps : 30;
+  const durationFrames = Math.max(1, Math.round(recording?.timelineDurationFrames ?? recording?.trimmedDuration ?? recording?.duration ?? fps));
+  const canvas = getStyledCanvasResolution({
+    aspectRatio: document?.settings?.aspectRatio ?? 'auto',
+    sourceWidth: recording?.width ?? 1920,
+    sourceHeight: recording?.height ?? 1080,
+  });
+  const sampleFrames = uniqueSortedFrames([
+    0,
+    Math.floor(durationFrames / 2),
+    durationFrames - 1,
+  ]);
+  const cursorEvents = Array.isArray(recording?.cursorEvents) ? recording.cursorEvents : [];
+  return {
+    kind: 'experimental-headless-export-plan',
+    version: 1,
+    backend: 'headless-export',
+    fallbackBackend: 'ffmpeg-styled',
+    output: canvas,
+    fps,
+    durationFrames,
+    frames: sampleFrames.map((frameIndex) => summarizeCompositionFrame(resolveCompositionFrame(document, frameIndex, {
+      mode: 'timeline',
+      includeEditorOverlays: false,
+      getCursorPosition: (_assetId, sourceFrame) => cursorPositionAtFrame(cursorEvents, sourceFrame, recording?.width, recording?.height),
+    }))),
+    audio: {
+      sourcePath: recording?.filePath ?? null,
+      preservedBy: 'ffmpeg-styled-fallback',
+    },
   };
 }
 
@@ -475,6 +556,79 @@ function shiftMarkersForExport(markers, timelineOffset, timelineDurationFrames) 
     }))
     .filter((marker) => marker.endFrame > marker.startFrame)
     .sort((left, right) => left.startFrame - right.startFrame || left.endFrame - right.endFrame || String(left.id).localeCompare(String(right.id)));
+}
+
+function uniqueSortedFrames(frames) {
+  return [...new Set(frames.map((frame) => Math.max(0, Math.round(frame))).filter(Number.isFinite))]
+    .sort((left, right) => left - right);
+}
+
+function cursorPositionAtFrame(cursorEvents, sourceFrame, sourceWidth, sourceHeight) {
+  if (!Array.isArray(cursorEvents) || !Number.isFinite(sourceFrame)) return null;
+  const event = [...cursorEvents]
+    .filter((candidate) => candidate && Number.isFinite(candidate.frame) && candidate.frame <= sourceFrame)
+    .sort((left, right) => right.frame - left.frame)[0];
+  if (!event || !Number.isFinite(event.x) || !Number.isFinite(event.y)) return null;
+  const width = Number.isFinite(sourceWidth) && sourceWidth > 0 ? sourceWidth : 1920;
+  const height = Number.isFinite(sourceHeight) && sourceHeight > 0 ? sourceHeight : 1080;
+  return {
+    x: clampNumber(event.x / width, 0, 1),
+    y: clampNumber(event.y / height, 0, 1),
+  };
+}
+
+function summarizeCompositionFrame(frame) {
+  return {
+    frameIndex: frame.frameIndex,
+    timeSec: frame.timeSec,
+    fps: frame.fps,
+    mode: frame.mode,
+    output: frame.output,
+    timelineGap: frame.timelineGap,
+    sourceFrame: frame.sourceFrame,
+    background: {
+      color: frame.backgroundLayer.color,
+      styleKind: frame.backgroundLayer.style?.bgGradient ? 'gradient' : 'color',
+    },
+    screen: frame.screenLayer
+      ? {
+          assetId: frame.screenLayer.assetId,
+          sourceFrame: frame.screenLayer.sourceFrame,
+          sourceSize: frame.screenLayer.sourceSize,
+          hasSourceViewport: Boolean(frame.screenLayer.sourceViewport),
+          hasCrop: Boolean(frame.screenLayer.crop),
+          frame: frame.screenLayer.frame ?? null,
+          zoomTransform: frame.screenLayer.zoomTransform,
+          reducedMotion: frame.screenLayer.reducedMotion,
+        }
+      : null,
+    camera: frame.cameraLayer
+      ? {
+          assetId: frame.cameraLayer.assetId,
+          sourceFrame: frame.cameraLayer.sourceFrame,
+          sourceSize: frame.cameraLayer.sourceSize,
+          visible: frame.cameraLayer.visible,
+          frame: frame.cameraLayer.frame ?? null,
+          hasCrop: Boolean(frame.cameraLayer.crop),
+        }
+      : null,
+    cursor: {
+      sourceFrame: frame.cursorLayer.sourceFrame,
+      sourcePosition: frame.cursorLayer.sourcePosition,
+      visible: frame.cursorLayer.visible,
+      style: frame.cursorLayer.style,
+      sizePercent: frame.cursorLayer.sizePercent,
+      offscreen: frame.cursorLayer.offscreen,
+    },
+    click: {
+      sourceFrame: frame.clickLayer.sourceFrame,
+      sourcePosition: frame.clickLayer.sourcePosition,
+      visible: frame.clickLayer.visible,
+      effect: frame.clickLayer.effect,
+      soundEnabled: frame.clickLayer.soundEnabled,
+    },
+    motion: frame.motion,
+  };
 }
 
 export function buildStyledExportArgs({

@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
-import { buildBackgroundExpression, buildCursorAss, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveTimelineExportRecording } from './export-service.mjs';
+import { buildBackgroundExpression, buildCursorAss, buildExperimentalHeadlessExportPlan, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveTimelineExportRecording } from './export-service.mjs';
 
 test('unedited export copies source mp4 byte-for-byte', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-'));
@@ -172,10 +172,73 @@ test('export mode validation accepts planned modes and rejects unknown modes', (
   assert.equal(normalizeExportMode(), 'raw');
   assert.equal(normalizeExportMode('raw'), 'raw');
   assert.equal(normalizeExportMode('styled'), 'styled');
+  assert.equal(normalizeExportMode('experimental-headless'), 'experimental-headless');
   assert.throws(() => normalizeExportMode('other'), /Unsupported export mode/);
   assert.equal(normalizeExportScope(), 'timeline');
   assert.equal(normalizeExportScope('used-content'), 'used-content');
   assert.throws(() => normalizeExportScope('selection'), /Unsupported export scope/);
+});
+
+test('experimental headless export mode reports a composition plan and falls back to ffmpeg styled', async () => {
+  const progress = [];
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:03.000Z',
+      outputPath: '/tmp/missing-headless-source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      cursorEvents: [{ frame: 30, x: 640, y: 360, type: 'move' }],
+    },
+  });
+
+  await assert.rejects(
+    () => exportProjectToMp4({
+      project,
+      outputPath: '/tmp/headless-export.mp4',
+      mode: 'experimental-headless',
+      onProgress: (event) => progress.push(event),
+    }),
+    /Styled export failed/,
+  );
+
+  const prototypeEvent = progress.find((event) => event.phase === 'rendering-headless-prototype');
+  assert.equal(prototypeEvent?.experimentalBackend, 'headless-export');
+  assert.equal(prototypeEvent?.fallback?.active, true);
+  assert.equal(prototypeEvent?.fallback?.to, 'ffmpeg-styled');
+  assert.equal(prototypeEvent?.compositionPlan?.kind, 'experimental-headless-export-plan');
+  assert.equal(prototypeEvent?.compositionPlan?.fallbackBackend, 'ffmpeg-styled');
+  assert.equal(prototypeEvent?.compositionPlan?.frames?.length, 3);
+  assert(prototypeEvent?.compositionPlan?.frames?.some((frame) => frame.cursor.sourcePosition), 'prototype plan should carry cursor placement from the shared frame resolver');
+  assert(progress.some((event) => event.phase === 'rendering-styled' && event.fallback?.to === 'ffmpeg-styled'), 'fallback styled progress should stay visible');
+});
+
+test('experimental headless export plan samples shared composition frames', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:03.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      cursorEvents: [{ frame: 0, x: 320, y: 180, type: 'move' }],
+    },
+  });
+
+  const plan = buildExperimentalHeadlessExportPlan({ project, recording: getPrimaryRecording(project) });
+
+  assert.equal(plan.kind, 'experimental-headless-export-plan');
+  assert.equal(plan.backend, 'headless-export');
+  assert.equal(plan.fallbackBackend, 'ffmpeg-styled');
+  assert.equal(plan.fps, 30);
+  assert.equal(plan.durationFrames, 90);
+  assert.deepEqual(plan.frames.map((frame) => frame.frameIndex), [0, 45, 89]);
+  assert(plan.frames.every((frame) => frame.output.width > 0 && frame.output.height > 0));
+  assert(plan.frames.every((frame) => frame.background.color));
+  assert(plan.frames.some((frame) => frame.screen?.zoomTransform));
+  assert.equal(plan.audio.preservedBy, 'ffmpeg-styled-fallback');
 });
 
 test('styled export mode uses the ffmpeg styled canvas path', async () => {

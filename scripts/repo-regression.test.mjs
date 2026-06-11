@@ -9,6 +9,7 @@ const benchmarkSource = readFileSync(join(root, 'scripts/benchmark-export.mjs'),
 const packageLinuxSource = readFileSync(join(root, 'scripts/package-linux.mjs'), 'utf8');
 const desktopMainSource = readFileSync(join(root, 'apps/desktop/src/main/index.mjs'), 'utf8');
 const gpuCompositorProbeSource = readFileSync(join(root, 'scripts/visual-gpu-compositor-parity-playwright.mjs'), 'utf8');
+const experimentalHeadlessExportSmokeSource = readFileSync(join(root, 'scripts/smoke-experimental-headless-export.mjs'), 'utf8');
 const masterPlanSource = readFileSync(join(root, 'MASTER_PLAN.md'), 'utf8');
 const compositorMigrationPath = join(root, 'docs/architecture/compositor-migration.md');
 
@@ -105,4 +106,12 @@ test('GPU-C compositor parity probe stays wired as a visual evidence command', (
   for (const caseId of ['gap-start', 'cut-boundary', 'zoom-in', 'zoom-hold-cursor-visible', 'zoom-out-cursor-offscreen', 'camera-pip-present']) {
     assert.match(gpuCompositorProbeSource, new RegExp(`id: '${caseId}'`));
   }
+});
+
+test('GPU-C experimental headless export smoke stays explicit and fallback-backed', () => {
+  assert.match(rootPackage.scripts['smoke:experimental-headless-export'], /smoke-experimental-headless-export\.mjs/);
+  assert.match(experimentalHeadlessExportSmokeSource, /mode: 'experimental-headless'/);
+  assert.match(experimentalHeadlessExportSmokeSource, /fallback\?\.to !== 'ffmpeg-styled'/);
+  assert.match(experimentalHeadlessExportSmokeSource, /experimental-headless-export-plan/);
+  assert.match(experimentalHeadlessExportSmokeSource, /sampledFrames/);
 });
