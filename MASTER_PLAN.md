@@ -7481,6 +7481,22 @@ harness plus `pnpm smoke:ui` still need to pass after those later slices. The
 latest WebGL playback run still logs one NLE expected-display-gap event, so do
 not treat this slice as full-compositor completion.
 
+**Slice 2 (2026-06-11):** Routed cursor and click overlay drawing through
+`ScreenLayerRenderer.drawCursorOverlay(...)` so the preview component no longer
+owns direct `drawClickEmphasis(...)` / `drawCursorPath(...)` calls. The WebGL
+renderer currently reports an explicit Canvas2D vector-overlay fallback for this
+layer; no shader cursor implementation is included in this slice.
+
+Evidence:
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test scripts/repo-regression.test.mjs apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `pnpm visual:gpu-compositor` passes; latest inspected run root: `/tmp/rough-cut-gpu-compositor-TE6n6i`.
+- `ROUGH_CUT_WEBGL_SCREEN_LAYER=1 VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER=1 pnpm playback:timeline` passes; latest run root: `/tmp/rough-cut-playback-timeline-4jFGoY`.
+
+Remaining before DONE: cursor/click overlays still need a true GPU draw path or
+an explicit decision to keep the vector overlay as a compositor fallback; the NLE
+run still logs one expected-display-gap event.
+
 ### TASK-246 Prototype GPU/headless export path from the shared composition plan
 
 **Priority:** P1

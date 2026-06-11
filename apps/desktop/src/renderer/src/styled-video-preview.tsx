@@ -36,8 +36,6 @@ import {
   coverSourceRect,
   cursorAtTimeMs,
   cursorForResizeHandle,
-  drawClickEmphasis,
-  drawCursorPath,
   frameResizeHandles,
   getCursorBoundsStatus,
   moveRectFromPointer,
@@ -1295,7 +1293,6 @@ export function StyledVideoPreview({
       });
       const resolvedCursor = frame.cursor;
       const cursorFrame = timeMode === 'timeline' ? screenLayer?.sourceFrame ?? renderFrame : renderFrame;
-      drawClickEmphasis(ctx, cursorEvents, cursorFrame, resolvedCursor?.clickEffect ?? 'ring');
       const cursorPos = cursorAtTimeMs(cursorEvents, (cursorFrame / fps) * 1000, fps);
       const cursorBounds = getCursorBoundsStatus(cursorPos, sourceWidth, sourceHeight);
       const nextOffscreen = cursorBounds && !cursorBounds.inside
@@ -1305,12 +1302,18 @@ export function StyledVideoPreview({
       const zoomSafety = !activeTimelinePlayback && selectedZoomFocalRef.current
         ? resolveZoomAuthoringSafety({ sourceWidth, sourceHeight, scale, offsetX, offsetY, cursor: cursorPos })
         : null;
-      if (cursorPos && resolvedCursor?.visible !== false && cursorBounds?.inside !== false) {
-        drawCursorPath(ctx, cursorPos.x, cursorPos.y, {
-          style: resolvedCursor?.style ?? 'default',
-          sizePercent: resolvedCursor?.sizePercent ?? 100,
-        });
-      }
+      const cursorLayerStats = screenLayerRenderer.drawCursorOverlay({
+        ctx,
+        cursorEvents,
+        cursorFrame,
+        cursorPosition: cursorPos,
+        cursorInside: cursorBounds?.inside !== false,
+        clickEffect: resolvedCursor?.clickEffect ?? 'ring',
+        visible: resolvedCursor?.visible !== false,
+        style: resolvedCursor?.style ?? 'default',
+        sizePercent: resolvedCursor?.sizePercent ?? 100,
+      });
+      publishScreenLayerRendererStats(cursorLayerStats);
       ctx.restore();
       ctx.restore();
       if (zoomSafety) {

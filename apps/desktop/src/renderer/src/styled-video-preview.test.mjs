@@ -136,6 +136,7 @@ test('styled video preview routes screen video drawing through the feature-flagg
   assert.match(rendererSource, /resize\(width: number, height: number\): void/);
   assert.match(rendererSource, /draw\(input: ScreenLayerDrawInput\): ScreenLayerRendererStats/);
   assert.match(rendererSource, /drawCamera\(input: CameraLayerDrawInput\): ScreenLayerRendererStats/);
+  assert.match(rendererSource, /drawCursorOverlay\(input: CursorLayerDrawInput\): ScreenLayerRendererStats/);
   assert.match(rendererSource, /getDebugStats\(\): ScreenLayerRendererStats/);
   assert.match(rendererSource, /dispose\(\): void/);
   assert.match(rendererSource, /export class Canvas2DScreenLayerRenderer implements ScreenLayerRenderer/);
@@ -161,11 +162,36 @@ test('styled video preview routes screen video drawing through the feature-flagg
   assert.match(rendererSource, /u_maskFrame/);
   assert.match(rendererSource, /u_maskRadius/);
   assert.match(rendererSource, /webgl-camera-draw-failed/);
+  assert.match(rendererSource, /webgl-cursor-overlay-canvas2d/);
   assert.match(rendererSource, /requestedRendererKind/);
   assert.match(rendererSource, /rendererKind: 'canvas2d'/);
   assert.match(rendererSource, /contextStatus/);
   assert.match(rendererSource, /drawCostMs/);
   assert.match(rendererSource, /fallbackReason/);
+});
+
+test('styled video preview routes cursor and click overlays through the preview compositor boundary', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  const rendererSource = readFileSync(join(here, 'screen-layer-renderer.ts'), 'utf8');
+
+  assert.match(source, /screenLayerRenderer\.drawCursorOverlay\(\{/);
+  assert.match(source, /cursorEvents,/);
+  assert.match(source, /cursorFrame,/);
+  assert.match(source, /cursorPosition: cursorPos/);
+  assert.match(source, /cursorInside: cursorBounds\?\.inside !== false/);
+  assert.match(source, /clickEffect: resolvedCursor\?\.clickEffect \?\? 'ring'/);
+  assert.match(source, /visible: resolvedCursor\?\.visible !== false/);
+  assert.match(source, /publishScreenLayerRendererStats\(cursorLayerStats\)/);
+  assert.doesNotMatch(source, /drawClickEmphasis\(ctx, cursorEvents/);
+  assert.doesNotMatch(source, /drawCursorPath\(ctx, cursorPos\.x/);
+
+  assert.match(rendererSource, /import \{ drawClickEmphasis, drawCursorPath \} from '\.\/styled-preview\.mjs'/);
+  assert.match(rendererSource, /export type CursorLayerDrawInput/);
+  assert.match(rendererSource, /Canvas2DScreenLayerRenderer[\s\S]*drawCursorOverlay\(input: CursorLayerDrawInput\)/);
+  assert.match(rendererSource, /drawClickEmphasis\(input\.ctx, input\.cursorEvents, input\.cursorFrame, input\.clickEffect \?\? 'ring'\)/);
+  assert.match(rendererSource, /drawCursorPath\(input\.ctx, input\.cursorPosition\.x, input\.cursorPosition\.y/);
+  assert.match(rendererSource, /WebGLScreenLayerRenderer[\s\S]*drawCursorOverlay\(input: CursorLayerDrawInput\)/);
+  assert.match(rendererSource, /ensureFallback\('webgl-cursor-overlay-canvas2d'\)\.drawCursorOverlay\(input\)/);
 });
 
 test('styled video preview routes camera PiP through the preview compositor boundary', () => {

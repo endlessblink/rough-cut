@@ -1,5 +1,8 @@
 import { drawZoomMotionSource, resolveWebGLMotionBlurSampleCount } from './zoom-motion-renderer';
 
+import { drawClickEmphasis, drawCursorPath } from './styled-preview.mjs';
+import type { CursorEvent } from '@rough-cut/project-model';
+
 export type ScreenLayerRendererKind = 'canvas2d' | 'webgl';
 export type ScreenLayerContextStatus = 'available' | 'missing-context' | 'context-lost' | 'draw-failed' | 'disposed' | 'fallback';
 
@@ -69,6 +72,18 @@ export type CameraLayerDrawInput = {
   shadow: boolean;
 };
 
+export type CursorLayerDrawInput = {
+  ctx: CanvasRenderingContext2D;
+  cursorEvents: readonly CursorEvent[];
+  cursorFrame: number;
+  cursorPosition: { x: number; y: number } | null;
+  cursorInside: boolean;
+  clickEffect?: 'none' | 'ring' | 'ripple' | null;
+  visible?: boolean;
+  style?: 'default' | 'subtle' | 'spotlight' | null;
+  sizePercent?: number | null;
+};
+
 export type ScreenLayerRendererStats = {
   requestedRendererKind: ScreenLayerRendererKind;
   rendererKind: ScreenLayerRendererKind;
@@ -84,6 +99,7 @@ export interface ScreenLayerRenderer {
   resize(width: number, height: number): void;
   draw(input: ScreenLayerDrawInput): ScreenLayerRendererStats;
   drawCamera(input: CameraLayerDrawInput): ScreenLayerRendererStats;
+  drawCursorOverlay(input: CursorLayerDrawInput): ScreenLayerRendererStats;
   getDebugStats(): ScreenLayerRendererStats;
   dispose(): void;
 }
@@ -186,6 +202,36 @@ export class Canvas2DScreenLayerRenderer implements ScreenLayerRenderer {
     } catch {
       this.stats = { ...this.stats, contextStatus: 'draw-failed', drawCostMs: null };
       throw new Error('Canvas2D camera layer draw failed.');
+    }
+    return this.getDebugStats();
+  }
+
+  drawCursorOverlay(input: CursorLayerDrawInput): ScreenLayerRendererStats {
+    if (this.disposed) {
+      this.stats = { ...this.stats, contextStatus: 'disposed', drawCostMs: null };
+      return this.getDebugStats();
+    }
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    try {
+      drawClickEmphasis(input.ctx, input.cursorEvents, input.cursorFrame, input.clickEffect ?? 'ring');
+      if (input.cursorPosition && input.visible !== false && input.cursorInside) {
+        drawCursorPath(input.ctx, input.cursorPosition.x, input.cursorPosition.y, {
+          style: input.style ?? 'default',
+          sizePercent: input.sizePercent ?? 100,
+        });
+      }
+      const endedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      this.stats = {
+        rendererKind: 'canvas2d',
+        requestedRendererKind: this.stats.requestedRendererKind,
+        contextStatus: 'available',
+        drawCostMs: Math.round((endedAt - startedAt) * 10) / 10,
+        drawCount: this.stats.drawCount + 1,
+        fallbackReason: this.stats.fallbackReason,
+      };
+    } catch {
+      this.stats = { ...this.stats, contextStatus: 'draw-failed', drawCostMs: null };
+      throw new Error('Canvas2D cursor overlay draw failed.');
     }
     return this.getDebugStats();
   }
@@ -326,6 +372,17 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
       this.stats = { ...stats, requestedRendererKind: 'webgl', rendererKind: 'canvas2d', contextStatus: 'draw-failed', fallbackReason: 'webgl-camera-draw-failed' };
       return this.getDebugStats();
     }
+  }
+
+  drawCursorOverlay(input: CursorLayerDrawInput): ScreenLayerRendererStats {
+    const stats = this.ensureFallback('webgl-cursor-overlay-canvas2d').drawCursorOverlay(input);
+    this.stats = {
+      ...stats,
+      requestedRendererKind: 'webgl',
+      rendererKind: 'canvas2d',
+      fallbackReason: 'webgl-cursor-overlay-canvas2d',
+    };
+    return this.getDebugStats();
   }
 
   getDebugStats(): ScreenLayerRendererStats {
