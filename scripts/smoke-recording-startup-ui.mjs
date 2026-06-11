@@ -36,6 +36,17 @@ const scenarios = [
       return report.ok && report.hasInitialPreRecordPanel && report.hasRecordingWorkspace && report.hasRecordingTab && report.compactWindow && report.studioWindow && report.openedEditorFromPanel && report.openedProjectsFromEditor && report.hasProjectsView;
     },
   },
+  {
+    name: 'new-empty-project',
+    env: {
+      ROUGH_CUT_UI_SMOKE_STARTUP_OPEN_EDITOR: '1',
+      ROUGH_CUT_UI_SMOKE_STARTUP_OPEN_PROJECTS: '1',
+      ROUGH_CUT_UI_SMOKE_STARTUP_CREATE_BLANK_PROJECT: '1',
+    },
+    assert(report) {
+      return report.ok && report.hasInitialPreRecordPanel && report.hasRecordingWorkspace && report.hasRecordingTab && report.compactWindow && report.studioWindow && report.openedEditorFromPanel && report.openedProjectsFromEditor && report.hasProjectsView && report.createdBlankProjectFromProjects && report.hasNleWorkspace && report.hasNleTab;
+    },
+  },
 ];
 
 for (const scenario of scenarios) {

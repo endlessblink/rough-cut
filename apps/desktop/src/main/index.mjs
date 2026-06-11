@@ -212,6 +212,7 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
             startupPanelOnly: process.env.ROUGH_CUT_UI_SMOKE_STARTUP_PANEL_ONLY === '1',
             startupOpenEditor: process.env.ROUGH_CUT_UI_SMOKE_STARTUP_OPEN_EDITOR === '1',
             startupOpenProjects: process.env.ROUGH_CUT_UI_SMOKE_STARTUP_OPEN_PROJECTS === '1',
+            startupCreateBlankProject: process.env.ROUGH_CUT_UI_SMOKE_STARTUP_CREATE_BLANK_PROJECT === '1',
           })})`,
           true,
         );
@@ -1432,6 +1433,30 @@ async function runRendererStartupRecordButtonSmoke(options = {}) {
         openProjectsButton.click();
         await waitFor(() => !document.querySelector('[data-ui-region="recording-workspace"]'), 'recording workspace stays closed after opening projects');
         const hasProjectsView = Boolean(await waitFor(() => document.querySelector('[data-ui-region="project-library"]'), 'project library'));
+        if (options.startupCreateBlankProject) {
+          const createBlankButton = await waitFor(() => document.querySelector('[data-testid="library-blank-project"]:not(:disabled)'), 'new empty project button');
+          createBlankButton.click();
+          const hasNleWorkspace = Boolean(await waitFor(() => document.querySelector('[data-ui-region="nle-workspace"]'), 'NLE workspace after blank project'));
+          const hasNleTab = Boolean(
+            Array.from(document.querySelectorAll('[data-ui-region="app-view-tabstrip"] button[aria-pressed="true"]'))
+              .some((button) => button.textContent?.includes('Editor')),
+          );
+          return {
+            ok: hasInitialPreRecordPanel && hasRecordingWorkspace && hasRecordingTab && hasEditorEmptyState && hasProjectsView && hasNleWorkspace && hasNleTab,
+            hasInitialPreRecordPanel,
+            hasRecordingWorkspace,
+            hasRecordingTab,
+            compactWindow,
+            studioWindow,
+            hasEditorEmptyState,
+            hasProjectsView,
+            hasNleWorkspace,
+            hasNleTab,
+            openedEditorFromPanel: true,
+            openedProjectsFromEditor: true,
+            createdBlankProjectFromProjects: true,
+          };
+        }
         return {
           ok: hasInitialPreRecordPanel && hasRecordingWorkspace && hasRecordingTab && hasEditorEmptyState && hasProjectsView,
           hasInitialPreRecordPanel,
