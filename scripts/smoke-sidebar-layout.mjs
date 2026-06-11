@@ -105,8 +105,9 @@ function runLayoutSmoke({ name, projectPath }) {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${name} sidebar layout smoke failed with exit code ${result.status}. Artifacts: ${root}`);
   const report = JSON.parse(readFileSync(resultPath, 'utf8'));
-  const requiresSidebarAssertions = report.mode === 'loaded';
+  const requiresSidebarAssertions = Boolean(projectPath) || report.mode === 'loaded';
   if (!report.ok
+    || (projectPath && report.mode !== 'loaded')
     || !report.hasNoSidebarPlaceholderCopy
     || !report.hasSmallViewportOverflowGuard
     || (requiresSidebarAssertions && (!report.hasAllSidebarTabs || !report.hasRepresentativeSidebarControls || !report.hasSidebarVisualSnapshots))

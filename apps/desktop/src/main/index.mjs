@@ -213,6 +213,7 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
             startupOpenEditor: process.env.ROUGH_CUT_UI_SMOKE_STARTUP_OPEN_EDITOR === '1',
             startupOpenProjects: process.env.ROUGH_CUT_UI_SMOKE_STARTUP_OPEN_PROJECTS === '1',
             startupCreateBlankProject: process.env.ROUGH_CUT_UI_SMOKE_STARTUP_CREATE_BLANK_PROJECT === '1',
+            sidebarExpectLoaded: Boolean(process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH),
           })})`,
           true,
         );
@@ -1009,7 +1010,7 @@ app.on('will-quit', () => {
   destroyRecordingTray();
 });
 
-async function runRendererSidebarLayoutSmoke() {
+async function runRendererSidebarLayoutSmoke(options = {}) {
   const waitFor = async (predicate, label, timeoutMs = 5000) => {
     const started = Date.now();
     while (Date.now() - started < timeoutMs) {
@@ -1021,9 +1022,13 @@ async function runRendererSidebarLayoutSmoke() {
   };
   const waitForFrame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
+  const expectLoaded = Boolean(options.sidebarExpectLoaded);
   await waitFor(
-    () => document.querySelector('[data-ui-region="editor-workspace"]') || document.querySelector('[data-ui-region="editor-empty"]'),
-    'editor workspace or empty state',
+    () => expectLoaded
+      ? document.querySelector('[data-ui-region="editor-workspace"]')
+      : document.querySelector('[data-ui-region="editor-workspace"]') || document.querySelector('[data-ui-region="editor-empty"]'),
+    expectLoaded ? 'loaded editor workspace' : 'editor workspace or empty state',
+    expectLoaded ? 10000 : 5000,
   );
   const knownDeadCopy = [
     'Cursor style controls are planned for TASK-044.',
@@ -1032,7 +1037,7 @@ async function runRendererSidebarLayoutSmoke() {
     'appear here once a project is loaded',
   ];
   const hasNoSidebarPlaceholderCopy = knownDeadCopy.every((copy) => !document.body.textContent?.includes(copy));
-  if (document.querySelector('[data-ui-region="editor-empty"]')) {
+  if (!expectLoaded && document.querySelector('[data-ui-region="editor-empty"]')) {
     const emptyRect = rectToRoundedObject(document.querySelector('[data-ui-region="editor-empty"]')?.getBoundingClientRect());
     const hasSmallViewportOverflowGuard = window.innerWidth <= 900 && document.documentElement.scrollWidth <= window.innerWidth + 2;
     return {
