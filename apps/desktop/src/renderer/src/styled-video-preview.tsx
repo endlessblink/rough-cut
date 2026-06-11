@@ -71,6 +71,30 @@ type PlaybackDebugReportBridge = {
   writePlaybackDebugReport?: (report: Record<string, unknown>) => Promise<{ ok?: boolean; skipped?: boolean; path?: string; reason?: string }>;
 };
 
+type PreviewAudioOwnerWindow = Window & {
+  __roughCutAudiblePreviewVideo?: HTMLVideoElement | null;
+};
+
+function claimAudiblePreviewVideo(video: HTMLVideoElement) {
+  if (typeof window === 'undefined') return;
+  const target = window as PreviewAudioOwnerWindow;
+  const previous = target.__roughCutAudiblePreviewVideo;
+  if (previous && previous !== video) previous.pause();
+  target.__roughCutAudiblePreviewVideo = video;
+}
+
+function releaseAudiblePreviewVideo(video: HTMLVideoElement | null | undefined) {
+  if (!video || typeof window === 'undefined') return;
+  const target = window as PreviewAudioOwnerWindow;
+  if (target.__roughCutAudiblePreviewVideo === video) target.__roughCutAudiblePreviewVideo = null;
+}
+
+function pausePreviewVideo(video: HTMLVideoElement | null | undefined) {
+  if (!video) return;
+  video.pause();
+  releaseAudiblePreviewVideo(video);
+}
+
 function recordPlaybackDebug(event: string, detail: Record<string, unknown> = {}) {
   if (typeof window === 'undefined') return;
   const target = window as unknown as {
@@ -399,6 +423,7 @@ export function StyledVideoPreview({
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = React.useRef<HTMLVideoElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const webglCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const screenLayerRendererRef = React.useRef<ScreenLayerRenderer | null>(null);
   const backgroundImageRef = React.useRef<HTMLImageElement | null>(null);
   const pendingSeekRef = React.useRef<number | null>(null);
@@ -546,6 +571,19 @@ export function StyledVideoPreview({
   const displayDuration = timeMode === 'timeline' ? timelineDuration : visibleDuration;
 
   React.useEffect(() => {
+    const video = videoRef.current;
+    const cameraVideo = cameraVideoRef.current;
+    if (cameraVideo) {
+      cameraVideo.muted = true;
+      cameraVideo.volume = 0;
+    }
+    return () => {
+      pausePreviewVideo(video);
+      cameraVideo?.pause();
+    };
+  }, [src, cameraSrc]);
+
+  React.useEffect(() => {
     const bridge = (window as unknown as { roughCut?: PlaybackDebugReportBridge }).roughCut;
     if (typeof bridge?.writePlaybackDebugReport !== 'function') return undefined;
     let stopped = false;
@@ -686,6 +724,18 @@ export function StyledVideoPreview({
     return segments.find((segment) => segment.timelineIn >= frame) ?? null;
   }
 
+  function sameTimelinePlaybackSegment(left: TimelinePlaybackSegment | null, right: TimelinePlaybackSegment | null) {
+    return Boolean(
+      left &&
+      right &&
+      left.timelineIn === right.timelineIn &&
+      left.timelineOut === right.timelineOut &&
+      left.sourceIn === right.sourceIn &&
+      left.sourceOut === right.sourceOut &&
+      left.trackIndex === right.trackIndex,
+    );
+  }
+
   function timelineFrameForDecodedSourceFrame(segment: TimelinePlaybackSegment | null, sourceFrame: number) {
     if (!segment) return timelineFrameFallbackRef.current;
     const offset = Math.max(0, Math.round(sourceFrame) - segment.sourceIn);
@@ -768,7 +818,7 @@ export function StyledVideoPreview({
   React.useEffect(() => {
     if (!Number.isFinite(seekTimeSec)) return;
     if (timeMode === 'timeline' && controlledPlaying === true) {
-      updateCurrentTime(Math.max(0, seekTimeSec ?? 0));
+      updateCurrentTime(Math.max(0, seekTimeSec ?? 0), { notify: false });
       previewInteractionDirtyRef.current = true;
       return;
     }
@@ -784,10 +834,11 @@ export function StyledVideoPreview({
     // also handle the uncontrolled/internal-playing case).
     if (timeMode === 'timeline') return;
     if (controlledPlaying) {
+      claimAudiblePreviewVideo(video);
       void video.play().catch(() => onPlayingChangeRef.current?.(false));
       void cameraVideo?.play().catch(() => undefined);
     } else {
-      video.pause();
+      pausePreviewVideo(video);
       cameraVideo?.pause();
     }
   }, [controlledPlaying, timeMode]);
@@ -806,37 +857,26 @@ export function StyledVideoPreview({
       let timelineFrame = Math.max(0, Math.round(currentTimeRef.current * fps));
       let segment = timelineSegmentAtFrame(segments, timelineFrame);
       if (!segment) {
-        segment = nextTimelineSegmentAfterFrame(segments, timelineFrame);
-        if (!segment) {
+        if (!nextTimelineSegmentAfterFrame(segments, timelineFrame)) {
           setInternalPlaying(false);
           onPlayingChangeRef.current?.(false);
           return;
         }
-        timelineFrame = segment.timelineIn;
-        updateCurrentTime(timelineFrame / fps, { immediate: true });
+        activeTimelineSegmentRef.current = null;
+        timelineFrameFallbackRef.current = timelineFrame;
+        pausePreviewVideo(video);
+        cameraVideo?.pause();
+        previewInteractionDirtyRef.current = true;
+        (window as unknown as Record<string, unknown>).__roughCutTimelinePlaybackDebug = {
+          phase: 'play-start-gap',
+          timelineFrame,
+          nextSegment: nextTimelineSegmentAfterFrame(segments, timelineFrame),
+        };
+        return;
       }
-      activeTimelineSegmentRef.current = segment;
-      timelineFrameFallbackRef.current = timelineFrame;
-      const sourceFrame = segment.sourceIn + (timelineFrame - segment.timelineIn);
-      const sourceTime = Math.max(0, sourceFrame / fps);
-      (window as unknown as Record<string, unknown>).__roughCutTimelinePlaybackDebug = {
-        phase: 'play-start',
-        timelineFrame,
-        sourceFrame,
-        sourceTime,
-        segment,
-      };
-      if (Math.abs(video.currentTime - sourceTime) > Math.max(0.04, 1 / fps)) {
-        seekingRef.current = true;
-        video.currentTime = sourceTime;
-      }
-      syncCameraTime(sourceTime);
-      video.playbackRate = timelineRateRef.current;
-      if (cameraVideo) cameraVideo.playbackRate = timelineRateRef.current;
-      void video.play().catch(() => undefined);
-      void cameraVideo?.play().catch(() => undefined);
+      startTimelineSegmentPlayback(segment, timelineFrame);
     } else {
-      video.pause();
+      pausePreviewVideo(video);
       cameraVideo?.pause();
       video.playbackRate = timelineRateRef.current;
       if (cameraVideo) cameraVideo.playbackRate = timelineRateRef.current;
@@ -844,6 +884,33 @@ export function StyledVideoPreview({
       previewInteractionDirtyRef.current = true;
     }
   }, [timeMode, isPlaying, project, fps]);
+
+  function startTimelineSegmentPlayback(segment: TimelinePlaybackSegment, timelineFrame: number) {
+    const video = videoRef.current;
+    const cameraVideo = cameraVideoRef.current;
+    if (!video) return;
+    activeTimelineSegmentRef.current = segment;
+    timelineFrameFallbackRef.current = timelineFrame;
+    const sourceFrame = segment.sourceIn + (timelineFrame - segment.timelineIn);
+    const sourceTime = Math.max(0, sourceFrame / fps);
+    (window as unknown as Record<string, unknown>).__roughCutTimelinePlaybackDebug = {
+      phase: 'play-start',
+      timelineFrame,
+      sourceFrame,
+      sourceTime,
+      segment,
+    };
+    if (Math.abs(video.currentTime - sourceTime) > Math.max(0.04, 1 / fps)) {
+      seekingRef.current = true;
+      video.currentTime = sourceTime;
+    }
+    syncCameraTime(sourceTime);
+    video.playbackRate = timelineRateRef.current;
+    if (cameraVideo) cameraVideo.playbackRate = timelineRateRef.current;
+    claimAudiblePreviewVideo(video);
+    void video.play().catch(() => undefined);
+    void cameraVideo?.play().catch(() => undefined);
+  }
 
   function flushPendingExternalSeek() {
     const video = videoRef.current;
@@ -898,6 +965,7 @@ export function StyledVideoPreview({
     const video = videoRef.current;
     const cameraVideo = cameraVideoRef.current;
     const canvas = canvasRef.current;
+    const webglCanvas = webglCanvasRef.current;
     if (!video || !canvas) return undefined;
     const screenVideo = video;
 
@@ -924,7 +992,15 @@ export function StyledVideoPreview({
     const canvasHeight = canvasResolution.height;
     if (canvas.width !== canvasWidth) canvas.width = canvasWidth;
     if (canvas.height !== canvasHeight) canvas.height = canvasHeight;
-    screenLayerRenderer.resize(canvasWidth, canvasHeight);
+    if (webglCanvas) {
+      if (webglCanvas.width !== canvasWidth) webglCanvas.width = canvasWidth;
+      if (webglCanvas.height !== canvasHeight) webglCanvas.height = canvasHeight;
+    }
+    if (screenLayerRenderer.kind !== 'webgl') {
+      screenLayerRenderer.resize(canvasWidth, canvasHeight);
+    } else if (timeMode === 'timeline' && webglCanvas) {
+      screenLayerRenderer.preparePresentationCanvas?.(webglCanvas, canvasWidth, canvasHeight);
+    }
     publishScreenLayerRendererStats(screenLayerRenderer.getDebugStats());
     const screenPadding = Math.max(0, Math.min(background.bgPadding, Math.min(canvasWidth, canvasHeight) / 2 - 2));
     const maxVideoWidth = canvasWidth - screenPadding * 2;
@@ -978,8 +1054,10 @@ export function StyledVideoPreview({
       }
     }
 
+    const webglTimelinePlaybackClock = timeMode === 'timeline' && isPlaying && screenLayerRenderer.kind === 'webgl';
+
     function scheduleNextDraw() {
-      if (timeMode === 'timeline' && isPlaying && typeof screenVideo.requestVideoFrameCallback === 'function') {
+      if (!webglTimelinePlaybackClock && timeMode === 'timeline' && isPlaying && activeTimelineSegmentRef.current && typeof screenVideo.requestVideoFrameCallback === 'function') {
         videoFrameCallbackId = screenVideo.requestVideoFrameCallback((now, metadata) => tick(now, metadata));
         return;
       }
@@ -1015,6 +1093,28 @@ export function StyledVideoPreview({
       return true;
     }
 
+    function enterTimelineGapAfterSegment(segment: TimelinePlaybackSegment) {
+      const gapFrame = segment.timelineOut;
+      recordPlaybackDebug('timeline-gap-enter', {
+        renderLoopId,
+        timelineOut: segment.timelineOut,
+        nextSegment: nextTimelineSegmentAfterFrame(buildTimelinePlaybackSegments(), gapFrame),
+      });
+      activeTimelineSegmentRef.current = null;
+      timelineFrameFallbackRef.current = gapFrame;
+      pausePreviewVideo(screenVideo);
+      cameraVideo?.pause();
+      updateCurrentTime(gapFrame / fps, { immediate: true });
+      lastExpectedDisplayTimeMs = null;
+      expectedDisplaySampleCount = 0;
+      lastDrawnFrame = -1;
+      return {
+        segment: null,
+        timelineFrame: gapFrame,
+        timelineGap: true,
+      };
+    }
+
     function holdTimelineSegmentEnd(segment: TimelinePlaybackSegment) {
       const holdFrame = Math.max(segment.timelineIn, segment.timelineOut - 1);
       recordPlaybackDebug('timeline-segment-end', {
@@ -1025,7 +1125,7 @@ export function StyledVideoPreview({
       });
       activeTimelineSegmentRef.current = null;
       timelineFrameFallbackRef.current = holdFrame;
-      screenVideo.pause();
+      pausePreviewVideo(screenVideo);
       cameraVideo?.pause();
       updateCurrentTime(segment.timelineOut / fps, { immediate: true });
       setInternalPlaying(false);
@@ -1043,9 +1143,16 @@ export function StyledVideoPreview({
         const currentTimelineFrame = segment
           ? segment.timelineOut
           : Math.max(0, Math.round(currentTimeRef.current * fps));
-        const nextSegment = segment && decodedSourceFrame >= segment.sourceOut
-          ? nextTimelineSegmentAfterFrame(segments, currentTimelineFrame)
-          : timelineSegmentAtFrame(segments, currentTimelineFrame) ?? nextTimelineSegmentAfterFrame(segments, currentTimelineFrame);
+        if (segment && decodedSourceFrame >= segment.sourceOut) {
+          const nextSegment = nextTimelineSegmentAfterFrame(segments, currentTimelineFrame);
+          if (nextSegment && nextSegment.timelineIn > segment.timelineOut) return enterTimelineGapAfterSegment(segment);
+          if (!nextSegment) return holdTimelineSegmentEnd(segment);
+          if (seekTimelineBoundary(nextSegment)) return null;
+          segment = nextSegment;
+        }
+        const nextSegment = !segment
+          ? timelineSegmentAtFrame(segments, currentTimelineFrame)
+          : null;
         if (!nextSegment && segment) return holdTimelineSegmentEnd(segment);
         if (!nextSegment) return null;
         if (seekTimelineBoundary(nextSegment)) return null;
@@ -1060,8 +1167,10 @@ export function StyledVideoPreview({
     function tick(_now?: number, metadata?: RoughCutVideoFrameMetadata) {
       if (!video || !canvas || !ctx) return;
       const tickAtMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const tickDeltaMs = lastTickAtMs !== null ? tickAtMs - lastTickAtMs : 0;
+      const tickDeltaSec = Math.max(0, Math.min(0.25, tickDeltaMs / 1000));
       if (lastTickAtMs !== null) {
-        const deltaMs = tickAtMs - lastTickAtMs;
+        const deltaMs = tickDeltaMs;
         if (deltaMs > 50) {
           recordPlaybackDebug('render-frame-gap', {
             renderLoopId,
@@ -1082,6 +1191,13 @@ export function StyledVideoPreview({
         }
       }
       lastTickAtMs = tickAtMs;
+      if (webglTimelinePlaybackClock && timeMode === 'timeline' && isPlaying && lastTickAtMs !== null && tickDeltaSec > 0) {
+        const nextClockTime = Math.min(timelineDuration, currentTimeRef.current + tickDeltaSec * timelineRateRef.current);
+        if (nextClockTime > currentTimeRef.current) {
+          updateCurrentTime(nextClockTime);
+          timelineFrameFallbackRef.current = Math.max(0, Math.round(nextClockTime * fps));
+        }
+      }
       if (typeof metadata?.expectedDisplayTime === 'number') {
         const expectedDisplayWarmedUp = expectedDisplaySampleCount >= PLAYBACK_EXPECTED_DISPLAY_WARMUP_SAMPLES;
         if (lastExpectedDisplayTimeMs !== null && expectedDisplayWarmedUp) {
@@ -1146,36 +1262,104 @@ export function StyledVideoPreview({
         scheduleNextDraw();
         return;
       }
-      const sourceTime = timeMode === 'timeline' && Number.isFinite(metadata?.mediaTime)
+      const timelineClockFrame = timeMode === 'timeline' && isPlaying
+        ? Math.max(0, Math.round(currentTimeRef.current * fps))
+        : null;
+      const timelineClockSegments = timelineClockFrame !== null ? buildTimelinePlaybackSegments() : [];
+      const activeClockSegment = timelineClockFrame !== null
+        ? timelineSegmentAtFrame(timelineClockSegments, timelineClockFrame)
+        : null;
+      const nextClockSegment = timelineClockFrame !== null
+        ? nextTimelineSegmentAfterFrame(timelineClockSegments, timelineClockFrame)
+        : null;
+      const timelineClockGapFrame = timelineClockFrame !== null && !activeClockSegment && nextClockSegment && timelineClockFrame < nextClockSegment.timelineIn
+        ? timelineClockFrame
+        : null;
+      if (timelineClockGapFrame !== null) {
+        activeTimelineSegmentRef.current = null;
+        timelineFrameFallbackRef.current = timelineClockGapFrame;
+        pausePreviewVideo(screenVideo);
+        cameraVideo?.pause();
+      }
+      const sourceTime = timeMode === 'timeline' && webglTimelinePlaybackClock && activeClockSegment && timelineClockFrame !== null
+        ? Math.max(0, (activeClockSegment.sourceIn + (timelineClockFrame - activeClockSegment.timelineIn)) / fps)
+        : timeMode === 'timeline' && Number.isFinite(metadata?.mediaTime)
         ? Number(metadata?.mediaTime)
         : video.currentTime;
       const sourceFrameFloat = Math.max(0, sourceTime * fps);
       const sourceFrame = Math.max(0, Math.round(sourceFrameFloat));
-      const timelineDecoded = timeMode === 'timeline' && isPlaying
-        ? handleTimelineDecodedFrame(sourceFrame)
-        : null;
-      if (timeMode === 'timeline' && isPlaying && !timelineDecoded) {
-        recordPlaybackDebug('render-skip-no-timeline-frame', {
-          renderLoopId,
-          sourceFrame,
-          sourceTime,
-          activeSegment: activeTimelineSegmentRef.current,
-        });
+      if (webglTimelinePlaybackClock && activeClockSegment && !sameTimelinePlaybackSegment(activeTimelineSegmentRef.current, activeClockSegment)) {
+        startTimelineSegmentPlayback(activeClockSegment, timelineClockFrame ?? activeClockSegment.timelineIn);
         scheduleNextDraw();
         return;
       }
+      if (timeMode === 'timeline' && isPlaying && !activeTimelineSegmentRef.current && timelineClockGapFrame === null) {
+        const segments = timelineClockSegments.length > 0 ? timelineClockSegments : buildTimelinePlaybackSegments();
+        let timelineFrame = Math.max(0, Math.round(currentTimeRef.current * fps));
+        let segmentAtClock = timelineSegmentAtFrame(segments, timelineFrame);
+        if (!segmentAtClock) {
+          const nextSegment = nextTimelineSegmentAfterFrame(segments, timelineFrame);
+          if (nextSegment) {
+            const gapTime = Math.min(nextSegment.timelineIn / fps, currentTimeRef.current + tickDeltaSec * timelineRateRef.current);
+            if (gapTime > currentTimeRef.current) {
+              updateCurrentTime(gapTime);
+              timelineFrameFallbackRef.current = Math.max(0, Math.round(gapTime * fps));
+            }
+            timelineFrame = Math.max(0, Math.round(currentTimeRef.current * fps));
+            segmentAtClock = timelineSegmentAtFrame(segments, timelineFrame);
+          }
+        }
+        if (segmentAtClock) {
+          startTimelineSegmentPlayback(segmentAtClock, timelineFrame);
+          scheduleNextDraw();
+          return;
+        }
+      }
+      const timelineDecoded = webglTimelinePlaybackClock && activeClockSegment
+        ? {
+            segment: activeClockSegment,
+            timelineFrame: timelineClockFrame ?? activeClockSegment.timelineIn,
+          }
+        : timelineClockGapFrame !== null
+        ? null
+        : timeMode === 'timeline' && isPlaying
+        ? handleTimelineDecodedFrame(sourceFrame)
+        : null;
+      if (timeMode === 'timeline' && isPlaying && !timelineDecoded) {
+        const timelineFrame = Math.max(0, Math.round(currentTimeRef.current * fps));
+        const waitingForSegment = !activeTimelineSegmentRef.current && nextTimelineSegmentAfterFrame(buildTimelinePlaybackSegments(), timelineFrame);
+        if (waitingForSegment) {
+          timelineFrameFallbackRef.current = timelineFrame;
+        } else {
+          recordPlaybackDebug('render-skip-no-timeline-frame', {
+            renderLoopId,
+            sourceFrame,
+            sourceTime,
+            activeSegment: activeTimelineSegmentRef.current,
+          });
+          scheduleNextDraw();
+          return;
+        }
+      }
+      const playingGapFrame = timeMode === 'timeline' && isPlaying && !timelineDecoded && !activeTimelineSegmentRef.current
+        ? timelineClockGapFrame ?? Math.max(0, Math.round(currentTimeRef.current * fps))
+        : null;
       const currentFrame = timeMode === 'timeline'
-        ? timelineDecoded?.timelineFrame ?? parkedTimelineFrame ?? Math.max(0, Math.round(currentTimeRef.current * fps))
+        ? timelineDecoded?.timelineFrame ?? playingGapFrame ?? parkedTimelineFrame ?? Math.max(0, Math.round(currentTimeRef.current * fps))
         : sourceFrame;
       const renderFrame = timeMode === 'timeline' && timelineDecoded
         ? timelineDecoded.timelineFrame + (sourceFrameFloat - sourceFrame)
-        : parkedTimelineFrame ?? sourceFrameFloat;
+        : playingGapFrame ?? parkedTimelineFrame ?? sourceFrameFloat;
       if (timeMode === 'timeline' && isPlaying) {
         timelineFrameFallbackRef.current = currentFrame;
-        updateCurrentTime(Math.min(timelineDuration, currentFrame / fps));
+        updateCurrentTime(Math.min(timelineDuration, currentFrame / fps), {
+          immediate: playingGapFrame !== null,
+          notify: controlledPlaying === true ? false : undefined,
+        });
         (window as unknown as Record<string, unknown>).__roughCutTimelinePlaybackDebug = {
-          phase: 'decoded-frame',
+          phase: playingGapFrame !== null ? 'gap-frame' : 'decoded-frame',
           driver: metadata ? 'rvfc' : 'raf',
+          renderLoopId,
           sourceFrame,
           sourceTime,
           currentFrame,
@@ -1192,7 +1376,7 @@ export function StyledVideoPreview({
       (window as unknown as Record<string, number>).__roughCutCanvasDrawCount =
         ((window as unknown as Record<string, number>).__roughCutCanvasDrawCount ?? 0) + 1;
       if (timeMode !== 'timeline' && Number.isFinite(effectiveTrimEndSec) && video.currentTime > effectiveTrimEndSec + 0.02) {
-        video.pause();
+        pausePreviewVideo(video);
         video.currentTime = effectiveTrimEndSec;
         const clampedVisibleTime = Math.max(0, effectiveTrimEndSec - trimStartSec);
         updateCurrentTime(clampedVisibleTime, { immediate: true });
@@ -1229,13 +1413,14 @@ export function StyledVideoPreview({
       const { scale, offsetX, offsetY } = frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 };
       const previousMotionFrame = resolveCurrentFrame(Math.max(0, renderFrame - 1));
       const nextMotionFrame = resolveCurrentFrame(renderFrame + 1);
+      const webglTimelineFrameCompositor = activeTimelinePlayback && screenLayerRenderer.kind === 'webgl';
       const zoomMotionBlurPx = resolveZoomMotionBlurPx({
         previous: previousMotionFrame.cameraTransform,
         current: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
         next: nextMotionFrame.cameraTransform,
         sourceWidth,
         sourceHeight,
-        reducedMotion: activeTimelinePlayback || (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches),
+        reducedMotion: (activeTimelinePlayback && !webglTimelineFrameCompositor) || (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches),
       });
       const dragScreenRect = screenDragRef.current;
       const resolvedScreenFrame = dragScreenRect
@@ -1252,15 +1437,19 @@ export function StyledVideoPreview({
       screenRectRef.current = { x: screenX, y: screenY, w: screenWidth, h: screenHeight };
       screenRadiusRef.current = screenRadius;
       markDrawPhase('resolve-layout');
-      const backgroundLayerStats = screenLayerRenderer.drawBackground({
-        ctx,
-        canvasWidth,
-        canvasHeight,
-        startColor: backgroundStart,
-        endColor: backgroundEnd,
-        image: backgroundImageRef.current,
-      });
-      publishScreenLayerRendererStats(backgroundLayerStats);
+      if (webglTimelineFrameCompositor) {
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+      } else {
+        const backgroundLayerStats = screenLayerRenderer.drawBackground({
+          ctx,
+          canvasWidth,
+          canvasHeight,
+          startColor: backgroundStart,
+          endColor: backgroundEnd,
+          image: backgroundImageRef.current,
+        });
+        publishScreenLayerRendererStats(backgroundLayerStats);
+      }
       if (!activeTimelinePlayback && editablePreview && alignmentGridVisibleRef.current) {
         drawAlignmentGrid(ctx, canvasWidth, canvasHeight);
       }
@@ -1274,6 +1463,177 @@ export function StyledVideoPreview({
         if (!activeTimelinePlayback && gapFocal && gapRect) {
           const live = focalDragRef.current ?? { x: gapFocal.x, y: gapFocal.y };
           drawFocalTarget(ctx, gapRect.x + live.x * gapRect.w, gapRect.y + live.y * gapRect.h, focalTargetRadius(canvasWidth, canvasHeight), isDraggingFocalRef.current);
+        }
+        scheduleNextDraw();
+        return;
+      }
+      const resolvedCursor = frame.cursor;
+      const cursorFrame = timeMode === 'timeline' ? screenLayer?.sourceFrame ?? renderFrame : renderFrame;
+      const cursorPos = cursorAtTimeMs(cursorEvents, (cursorFrame / fps) * 1000, fps);
+      const cursorBounds = getCursorBoundsStatus(cursorPos, sourceWidth, sourceHeight);
+      const nextOffscreen = cursorBounds && !cursorBounds.inside
+        ? { side: cursorBounds.side as 'left' | 'right' | 'top' | 'bottom', distance: cursorBounds.distance }
+        : null;
+      publishCursorOffscreenStatus(nextOffscreen);
+      const zoomSafety = !activeTimelinePlayback && selectedZoomFocalRef.current
+        ? resolveZoomAuthoringSafety({ sourceWidth, sourceHeight, scale, offsetX, offsetY, cursor: cursorPos })
+        : null;
+      const cameraHasFrame = Boolean(
+        cameraVideo &&
+        cameraSrc &&
+        cameraVideo.readyState >= 2 &&
+        frame.cameraPresentation?.visible !== false &&
+        cameraCoversSourceTime((screenLayer?.sourceFrame ?? sourceFrame) / fps, cameraSourceOffsetSec, cameraVideo.duration, fps),
+      );
+      let cameraFrameForDraw: { x: number; y: number; w: number; h: number } | null = null;
+      let cameraSourceForDraw: { sx: number; sy: number; sw: number; sh: number } | null = null;
+      let cameraRadiusForDraw = 0;
+      if (cameraHasFrame && cameraVideo) {
+        const expectedCameraTime = clampedCameraTime((screenLayer?.sourceFrame ?? sourceFrame) / fps, cameraSourceOffsetSec, cameraVideo.duration, fps);
+        if (timeMode !== 'timeline' && Math.abs(cameraVideo.currentTime - expectedCameraTime) > Math.max(0.12, 2 / fps)) {
+          cameraVideo.currentTime = expectedCameraTime;
+          lastDrawnFrame = -1;
+          scheduleNextDraw();
+          return;
+        }
+        const dragRect = cameraDragRef.current;
+        const rawCameraFrame = constrainCameraShapeFrame(dragRect
+          ? { x: dragRect.x * canvasWidth, y: dragRect.y * canvasHeight, w: dragRect.w * canvasWidth, h: dragRect.h * canvasHeight }
+          : resolveCameraFrame(frame.cameraFrame, frame.cameraPresentation, canvasWidth, canvasHeight), frame.cameraPresentation, canvasWidth, canvasHeight);
+        cameraFrameForDraw = activeTimelinePlayback
+          ? {
+              x: Math.round(rawCameraFrame.x),
+              y: Math.round(rawCameraFrame.y),
+              w: Math.round(rawCameraFrame.w),
+              h: Math.round(rawCameraFrame.h),
+            }
+          : rawCameraFrame;
+        cameraRectRef.current = cameraFrameForDraw;
+        (window as unknown as Record<string, unknown>).__roughCutCanvasCameraRect = {
+          x: cameraFrameForDraw.x / canvasWidth,
+          y: cameraFrameForDraw.y / canvasHeight,
+          w: cameraFrameForDraw.w / canvasWidth,
+          h: cameraFrameForDraw.h / canvasHeight,
+        };
+        (window as unknown as Record<string, boolean>).__roughCutCameraFramePresent = true;
+        cameraRadiusForDraw = resolveCameraRadius(frame.cameraPresentation, cameraFrameForDraw);
+        cameraRadiusRef.current = cameraRadiusForDraw;
+        cameraSourceForDraw = resolveCameraSourceRect(
+          cameraVideo.videoWidth,
+          cameraVideo.videoHeight,
+          cameraFrameForDraw.w,
+          cameraFrameForDraw.h,
+          frame.cameraCrop,
+        );
+      } else {
+        cameraRectRef.current = null;
+        (window as unknown as Record<string, unknown>).__roughCutCanvasCameraRect = null;
+        (window as unknown as Record<string, boolean>).__roughCutCameraFramePresent = false;
+      }
+      if (webglTimelineFrameCompositor) {
+        try {
+          const frameStats = screenLayerRenderer.drawFrame({
+            background: {
+              ctx,
+              canvasWidth,
+              canvasHeight,
+              startColor: backgroundStart,
+              endColor: backgroundEnd,
+              image: backgroundImageRef.current,
+            },
+            screen: {
+              ctx,
+              video,
+              canvasWidth,
+              canvasHeight,
+              screenX,
+              screenY,
+              screenDrawScale: effectiveScreenDrawScale,
+              screenSource,
+              sourceWidth,
+              sourceHeight,
+              transform: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
+              previousTransform: previousMotionFrame.cameraTransform,
+              nextTransform: nextMotionFrame.cameraTransform,
+              blurPx: zoomMotionBlurPx,
+              sharpZoom: false,
+            },
+            cursor: {
+              ctx,
+              canvasWidth,
+              canvasHeight,
+              sourceWidth,
+              sourceHeight,
+              screenX,
+              screenY,
+              screenDrawScale: effectiveScreenDrawScale,
+              screenSource,
+              transform: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
+              cursorEvents,
+              cursorFrame,
+              cursorPosition: cursorPos,
+              cursorInside: cursorBounds?.inside !== false,
+              clickEffect: resolvedCursor?.clickEffect ?? 'ring',
+              visible: resolvedCursor?.visible !== false,
+              style: resolvedCursor?.style ?? 'default',
+              sizePercent: resolvedCursor?.sizePercent ?? 100,
+            },
+            camera: cameraVideo && cameraFrameForDraw && cameraSourceForDraw
+              ? {
+                  video: cameraVideo,
+                  frame: cameraFrameForDraw,
+                  source: cameraSourceForDraw,
+                  sourceWidth: cameraVideo.videoWidth,
+                  sourceHeight: cameraVideo.videoHeight,
+                  radius: cameraRadiusForDraw,
+                  presentation: frame.cameraPresentation,
+                  shadow: false,
+                }
+              : null,
+            presentationCanvas: webglCanvas,
+          });
+          publishScreenLayerRendererStats(frameStats);
+        } catch {
+          publishScreenLayerRendererStats(screenLayerRenderer.getDebugStats());
+          scheduleNextDraw();
+          return;
+        }
+        if (nextOffscreen) {
+          drawCursorOffscreenMarker(ctx, nextOffscreen, cursorPos, {
+            screenX,
+            screenY,
+            screenWidth,
+            screenHeight,
+            screenDrawScale: effectiveScreenDrawScale,
+            sourceWidth,
+            sourceHeight,
+            scale,
+            offsetX,
+            offsetY,
+          });
+        }
+        markDrawPhase('webgl-frame');
+        publishResolvedLayout(resolvedScreenFrame, cameraRectRef.current, canvasWidth, canvasHeight);
+        markDrawPhase('layout-publish-overlays');
+        if (drawTimingEnabled && typeof performance !== 'undefined') {
+          const totalDrawMs = Math.round((performance.now() - drawStartedAtMs) * 10) / 10;
+          if (totalDrawMs > PLAYBACK_DRAW_COST_LOG_THRESHOLD_MS) {
+            recordPlaybackDebug('render-draw-cost', {
+              renderLoopId,
+              totalDrawMs,
+              phases: drawTimings,
+              frame: currentFrame,
+              sourceFrame,
+              mediaTime: metadata?.mediaTime ?? null,
+              expectedDisplayTime: metadata?.expectedDisplayTime ?? null,
+              screenQuality: readPlaybackQuality(video),
+              cameraQuality: readPlaybackQuality(cameraVideo),
+              hasCameraFrame: Boolean(cameraFrameForDraw),
+              screenScale: Math.round(scale * 1000) / 1000,
+              canvasWidth,
+              canvasHeight,
+            });
+          }
         }
         scheduleNextDraw();
         return;
@@ -1340,17 +1700,6 @@ export function StyledVideoPreview({
         screenSource,
         transform: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
       });
-      const resolvedCursor = frame.cursor;
-      const cursorFrame = timeMode === 'timeline' ? screenLayer?.sourceFrame ?? renderFrame : renderFrame;
-      const cursorPos = cursorAtTimeMs(cursorEvents, (cursorFrame / fps) * 1000, fps);
-      const cursorBounds = getCursorBoundsStatus(cursorPos, sourceWidth, sourceHeight);
-      const nextOffscreen = cursorBounds && !cursorBounds.inside
-        ? { side: cursorBounds.side as 'left' | 'right' | 'top' | 'bottom', distance: cursorBounds.distance }
-        : null;
-      publishCursorOffscreenStatus(nextOffscreen);
-      const zoomSafety = !activeTimelinePlayback && selectedZoomFocalRef.current
-        ? resolveZoomAuthoringSafety({ sourceWidth, sourceHeight, scale, offsetX, offsetY, cursor: cursorPos })
-        : null;
       const cursorLayerStats = screenLayerRenderer.drawCursorOverlay({
         ctx,
         canvasWidth,
@@ -1403,77 +1752,28 @@ export function StyledVideoPreview({
           offsetY,
         });
       }
-      const cameraHasFrame = Boolean(
-        cameraVideo &&
-        cameraSrc &&
-        cameraVideo.readyState >= 2 &&
-        frame.cameraPresentation?.visible !== false &&
-        cameraCoversSourceTime((screenLayer?.sourceFrame ?? sourceFrame) / fps, cameraSourceOffsetSec, cameraVideo.duration, fps),
-      );
-      if (cameraHasFrame && cameraVideo) {
-        const expectedCameraTime = clampedCameraTime((screenLayer?.sourceFrame ?? sourceFrame) / fps, cameraSourceOffsetSec, cameraVideo.duration, fps);
-        if (timeMode !== 'timeline' && Math.abs(cameraVideo.currentTime - expectedCameraTime) > Math.max(0.12, 2 / fps)) {
-          cameraVideo.currentTime = expectedCameraTime;
-          lastDrawnFrame = -1;
-          scheduleNextDraw();
-          return;
+      if (cameraVideo && cameraFrameForDraw && cameraSourceForDraw) {
+        try {
+          const cameraLayerStats = screenLayerRenderer.drawCamera({
+            ctx,
+            video: cameraVideo,
+            canvasWidth,
+            canvasHeight,
+            frame: cameraFrameForDraw,
+            source: cameraSourceForDraw,
+            sourceWidth: cameraVideo.videoWidth,
+            sourceHeight: cameraVideo.videoHeight,
+            radius: cameraRadiusForDraw,
+            presentation: frame.cameraPresentation,
+            shadow: !activeTimelinePlayback,
+          });
+          publishScreenLayerRendererStats(cameraLayerStats);
+        } catch {
+          // The camera element can report seeking while playback is still
+          // advancing. Keep the screen frame alive and draw PiP on the next
+          // decoded camera frame instead of killing the whole preview loop.
         }
-        const dragRect = cameraDragRef.current;
-        const rawCameraFrame = constrainCameraShapeFrame(dragRect
-          ? { x: dragRect.x * canvasWidth, y: dragRect.y * canvasHeight, w: dragRect.w * canvasWidth, h: dragRect.h * canvasHeight }
-          : resolveCameraFrame(frame.cameraFrame, frame.cameraPresentation, canvasWidth, canvasHeight), frame.cameraPresentation, canvasWidth, canvasHeight);
-        const cameraFrame = activeTimelinePlayback
-          ? {
-              x: Math.round(rawCameraFrame.x),
-              y: Math.round(rawCameraFrame.y),
-              w: Math.round(rawCameraFrame.w),
-              h: Math.round(rawCameraFrame.h),
-            }
-          : rawCameraFrame;
-        cameraRectRef.current = cameraFrame;
-        (window as unknown as Record<string, unknown>).__roughCutCanvasCameraRect = {
-          x: cameraFrame.x / canvasWidth,
-          y: cameraFrame.y / canvasHeight,
-          w: cameraFrame.w / canvasWidth,
-          h: cameraFrame.h / canvasHeight,
-        };
-        (window as unknown as Record<string, boolean>).__roughCutCameraFramePresent = true;
-        const cameraRadius = resolveCameraRadius(frame.cameraPresentation, cameraFrame);
-        cameraRadiusRef.current = cameraRadius;
-        const cameraSource = resolveCameraSourceRect(
-          cameraVideo.videoWidth,
-          cameraVideo.videoHeight,
-          cameraFrame.w,
-          cameraFrame.h,
-          frame.cameraCrop,
-        );
-        if (cameraSource) {
-          try {
-            const cameraLayerStats = screenLayerRenderer.drawCamera({
-              ctx,
-              video: cameraVideo,
-              canvasWidth,
-              canvasHeight,
-              frame: cameraFrame,
-              source: cameraSource,
-              sourceWidth: cameraVideo.videoWidth,
-              sourceHeight: cameraVideo.videoHeight,
-              radius: cameraRadius,
-              presentation: frame.cameraPresentation,
-              shadow: !activeTimelinePlayback,
-            });
-            publishScreenLayerRendererStats(cameraLayerStats);
-          } catch {
-            // The camera element can report seeking while playback is still
-            // advancing. Keep the screen frame alive and draw PiP on the next
-            // decoded camera frame instead of killing the whole preview loop.
-          }
-        }
-        if (!activeTimelinePlayback && onCameraFrameChange) drawEditorFrameControls(ctx, cameraFrame, '#f59e0b', frame.cameraPresentation);
-      } else {
-        cameraRectRef.current = null;
-        (window as unknown as Record<string, unknown>).__roughCutCanvasCameraRect = null;
-        (window as unknown as Record<string, boolean>).__roughCutCameraFramePresent = false;
+        if (!activeTimelinePlayback && onCameraFrameChange) drawEditorFrameControls(ctx, cameraFrameForDraw, '#f59e0b', frame.cameraPresentation);
       }
       markDrawPhase('camera-pip');
       publishResolvedLayout(resolvedScreenFrame, cameraRectRef.current, canvasWidth, canvasHeight);
@@ -1508,6 +1808,13 @@ export function StyledVideoPreview({
       }
       scheduleNextDraw();
     }
+    function publishCursorOffscreenStatus(next: CursorOffscreenStatus) {
+      const previous = cursorOffscreenRef.current;
+      const same = previous?.side === next?.side && Math.round((previous?.distance ?? 0) / 25) === Math.round((next?.distance ?? 0) / 25);
+      if (same) return;
+      cursorOffscreenRef.current = next;
+      setCursorOffscreen(next);
+    }
     scheduleNextDraw();
     return () => {
       recordPlaybackDebug('render-loop-cleanup', {
@@ -1518,13 +1825,6 @@ export function StyledVideoPreview({
       });
       cancelScheduledDraw();
     };
-    function publishCursorOffscreenStatus(next: CursorOffscreenStatus) {
-      const previous = cursorOffscreenRef.current;
-      const same = previous?.side === next?.side && Math.round((previous?.distance ?? 0) / 25) === Math.round((next?.distance ?? 0) / 25);
-      if (same) return;
-      cursorOffscreenRef.current = next;
-      setCursorOffscreen(next);
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- cutRanges read via stable content key (cutRangesKey) to avoid per-frame loop restarts
   }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background, cameraSrc, cameraSourceOffsetSec, trimStartSec, effectiveTrimEndSec, cutRangesKey, visibleDuration, timelineDuration, timeMode, isPlaying, requestedScreenLayerRendererKind]);
 
@@ -1578,6 +1878,7 @@ export function StyledVideoPreview({
         } else if (cameraVideo) {
           syncCameraTime(video.currentTime);
         }
+        claimAudiblePreviewVideo(video);
         await video.play();
         await cameraVideo?.play().catch(() => undefined);
       } catch (err) {
@@ -1586,7 +1887,7 @@ export function StyledVideoPreview({
       return;
     }
 
-    video.pause();
+    pausePreviewVideo(video);
     cameraVideo?.pause();
     return;
   }
@@ -1628,7 +1929,7 @@ export function StyledVideoPreview({
           onPlayingChangeRef.current?.(false);
           return;
         }
-        video.pause();
+        pausePreviewVideo(video);
         cameraVideoRef.current?.pause();
       } else if (event.key.toLowerCase() === 'l') {
         event.preventDefault();
@@ -1645,6 +1946,8 @@ export function StyledVideoPreview({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showControls, visibleDuration, fps, trimStartSec, cutRanges, timeMode, isPlaying, timelineDuration]);
 
+  const experimentalWebglPresentationActive = requestedScreenLayerRendererKind === 'webgl' && timeMode === 'timeline' && isPlaying;
+
   return (
     <div className="videoPreview styledPreview">
       <video
@@ -1658,17 +1961,20 @@ export function StyledVideoPreview({
           if (trimStartSec > 0) event.currentTarget.currentTime = trimStartSec;
           setError(null);
         }}
-        onPlay={() => {
+        onPlay={(event) => {
+          claimAudiblePreviewVideo(event.currentTarget);
           if (timeMode === 'timeline') return;
           setInternalPlaying(true);
           onPlayingChangeRef.current?.(true);
         }}
-        onPause={() => {
+        onPause={(event) => {
+          releaseAudiblePreviewVideo(event.currentTarget);
           if (timeMode === 'timeline') return;
           setInternalPlaying(false);
           onPlayingChangeRef.current?.(false);
         }}
-        onEnded={() => {
+        onEnded={(event) => {
+          releaseAudiblePreviewVideo(event.currentTarget);
           if (timeMode === 'timeline') return;
           setInternalPlaying(false);
           onPlayingChangeRef.current?.(false);
@@ -1699,8 +2005,14 @@ export function StyledVideoPreview({
         />
       ) : null}
       <canvas
+        ref={webglCanvasRef}
+        className={`styledPreviewWebglCanvas${experimentalWebglPresentationActive ? ' isActive' : ''}`}
+        aria-hidden="true"
+        style={{ aspectRatio: `${canvasResolution.width} / ${canvasResolution.height}` }}
+      />
+      <canvas
         ref={canvasRef}
-        className={`styledPreviewCanvas${!isPlaying && isDraggingCamera ? ' draggingCamera' : ''}${!isPlaying && isDraggingScreen ? ' draggingScreen' : ''}${!isPlaying && isDraggingFocal ? ' draggingFocal' : ''}`}
+        className={`styledPreviewCanvas styledPreviewOverlayCanvas${experimentalWebglPresentationActive ? ' isWebglPresentationOverlay' : ''}${!isPlaying && isDraggingCamera ? ' draggingCamera' : ''}${!isPlaying && isDraggingScreen ? ' draggingScreen' : ''}${!isPlaying && isDraggingFocal ? ' draggingFocal' : ''}`}
         aria-label="Styled preview"
         data-camera-draggable={onCameraFrameChange ? 'true' : 'false'}
         data-screen-draggable={onScreenFrameChange ? 'true' : 'false'}

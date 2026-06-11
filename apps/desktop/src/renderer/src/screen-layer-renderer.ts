@@ -1,4 +1,4 @@
-import { drawZoomMotionSource, resolveWebGLMotionBlurSampleCount } from './zoom-motion-renderer';
+import { drawZoomMotionSource, resolveWebGLMotionBlurRenderScale, resolveWebGLMotionBlurSampleCount } from './zoom-motion-renderer';
 
 import { activeClickEmphasisAtFrame, drawClickEmphasis, drawCursorPath } from './styled-preview.mjs';
 import type { CursorEvent } from '@rough-cut/project-model';
@@ -26,6 +26,25 @@ const CURSOR_OUTLINE = [51 / 255, 58 / 255, 70 / 255, 1] as const;
 const CURSOR_SPOTLIGHT_OUTLINE = [122 / 255, 167 / 255, 255 / 255, 1] as const;
 const CLICK_RING = [122 / 255, 167 / 255, 255 / 255, 1] as const;
 const CLICK_RIPPLE = [122 / 255, 167 / 255, 255 / 255, 0.32] as const;
+const WEBGL_RENDERER_LOG_PREFIX = '[rough-cut:webgl-renderer]';
+let nextWebGLRendererId = 1;
+
+type WebGLRendererDebugWindow = Window & {
+  __roughCutWebglRendererInstances?: Record<number, {
+    id: number;
+    createdAtMs: number;
+    disposed: boolean;
+    contextCreates: number;
+    contextResets: number;
+    fallbackReason: string | null;
+    canvasKind: 'html-canvas' | 'offscreen-canvas' | 'none';
+  }>;
+  __roughCutWebglRendererLog?: Array<{
+    atMs: number;
+    event: string;
+    payload: Record<string, unknown>;
+  }>;
+};
 
 export type ScreenLayerRendererKind = 'canvas2d' | 'webgl';
 export type ScreenLayerContextStatus = 'available' | 'missing-context' | 'context-lost' | 'draw-failed' | 'disposed' | 'fallback';
@@ -126,6 +145,14 @@ export type CursorLayerDrawInput = {
   sizePercent?: number | null;
 };
 
+export type CompositorFrameDrawInput = {
+  background: BackgroundLayerDrawInput;
+  screen: ScreenLayerDrawInput;
+  cursor: CursorLayerDrawInput;
+  camera?: Omit<CameraLayerDrawInput, 'ctx' | 'canvasWidth' | 'canvasHeight'> | null;
+  presentationCanvas?: HTMLCanvasElement | null;
+};
+
 export type ScreenLayerRendererStats = {
   requestedRendererKind: ScreenLayerRendererKind;
   rendererKind: ScreenLayerRendererKind;
@@ -143,6 +170,8 @@ export interface ScreenLayerRenderer {
   draw(input: ScreenLayerDrawInput): ScreenLayerRendererStats;
   drawCamera(input: CameraLayerDrawInput): ScreenLayerRendererStats;
   drawCursorOverlay(input: CursorLayerDrawInput): ScreenLayerRendererStats;
+  drawFrame(input: CompositorFrameDrawInput): ScreenLayerRendererStats;
+  preparePresentationCanvas?(canvas: HTMLCanvasElement, width: number, height: number): ScreenLayerRendererStats;
   getDebugStats(): ScreenLayerRendererStats;
   dispose(): void;
 }
@@ -310,6 +339,25 @@ export class Canvas2DScreenLayerRenderer implements ScreenLayerRenderer {
     return this.getDebugStats();
   }
 
+  drawFrame(input: CompositorFrameDrawInput): ScreenLayerRendererStats {
+    this.drawBackground(input.background);
+    this.draw(input.screen);
+    this.drawCursorOverlay(input.cursor);
+    if (input.camera) {
+      this.drawCamera({
+        ...input.camera,
+        ctx: input.background.ctx,
+        canvasWidth: input.background.canvasWidth,
+        canvasHeight: input.background.canvasHeight,
+      });
+    }
+    return this.getDebugStats();
+  }
+
+  preparePresentationCanvas(): ScreenLayerRendererStats {
+    return this.getDebugStats();
+  }
+
   getDebugStats(): ScreenLayerRendererStats {
     return { ...this.stats };
   }
@@ -342,6 +390,7 @@ type WebGLProgramParts = {
 
 export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
   readonly kind = 'webgl' as const;
+  private readonly id = nextWebGLRendererId++;
   private canvas: HTMLCanvasElement | OffscreenCanvas | null = null;
   private gl: WebGLRenderingContext | null = null;
   private texture: WebGLTexture | null = null;
@@ -361,6 +410,11 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     drawCount: 0,
     fallbackReason: null,
   };
+
+  constructor() {
+    this.log('created');
+    this.updateRegistry({ disposed: false });
+  }
 
   isSupported(): boolean {
     return this.ensureContext();
@@ -393,9 +447,24 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
 
     const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     try {
-      this.resize(input.canvasWidth, input.canvasHeight);
-      this.drawWebGL(input);
-      input.ctx.drawImage(this.canvas as CanvasImageSource, 0, 0, input.canvasWidth, input.canvasHeight);
+      const screenWidth = Math.max(1, Math.ceil(input.screenSource.w * input.screenDrawScale));
+      const screenHeight = Math.max(1, Math.ceil(input.screenSource.h * input.screenDrawScale));
+      const motionBlurRenderScale = resolveWebGLMotionBlurRenderScale({
+        enabled: resolveWebGLMotionBlurEnabled(),
+        blurPx: input.blurPx,
+      });
+      const targetWidth = Math.max(1, Math.ceil(screenWidth * motionBlurRenderScale));
+      const targetHeight = Math.max(1, Math.ceil(screenHeight * motionBlurRenderScale));
+      this.resize(targetWidth, targetHeight);
+      this.drawWebGL({
+        ...input,
+        canvasWidth: targetWidth,
+        canvasHeight: targetHeight,
+        screenX: 0,
+        screenY: 0,
+        screenDrawScale: input.screenDrawScale * motionBlurRenderScale,
+      });
+      input.ctx.drawImage(this.canvas as CanvasImageSource, input.screenX, input.screenY, screenWidth, screenHeight);
       const endedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
       this.stats = {
         requestedRendererKind: 'webgl',
@@ -567,11 +636,30 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     }
     const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     try {
-      this.resize(input.canvasWidth, input.canvasHeight);
-      this.drawCursorOverlayWebGL(input);
+      const bounds = resolveCursorOverlayBounds(input);
+      if (!bounds) {
+        const endedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        this.stats = {
+          requestedRendererKind: 'webgl',
+          rendererKind: 'webgl',
+          contextStatus: 'available',
+          drawCostMs: Math.round((endedAt - startedAt) * 10) / 10,
+          drawCount: this.stats.drawCount + 1,
+          fallbackReason: null,
+        };
+        return this.getDebugStats();
+      }
+      this.resize(bounds.w, bounds.h);
+      this.drawCursorOverlayWebGL({
+        ...input,
+        canvasWidth: bounds.w,
+        canvasHeight: bounds.h,
+        screenX: input.screenX - bounds.x,
+        screenY: input.screenY - bounds.y,
+      });
       input.ctx.save();
       input.ctx.setTransform(1, 0, 0, 1, 0, 0);
-      input.ctx.drawImage(this.canvas as CanvasImageSource, 0, 0, input.canvasWidth, input.canvasHeight);
+      input.ctx.drawImage(this.canvas as CanvasImageSource, bounds.x, bounds.y, bounds.w, bounds.h);
       input.ctx.restore();
       const endedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
       this.stats = {
@@ -590,11 +678,82 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     }
   }
 
+  drawFrame(input: CompositorFrameDrawInput): ScreenLayerRendererStats {
+    if (this.disposed) {
+      this.stats = { ...this.stats, contextStatus: 'disposed', drawCostMs: null };
+      return this.getDebugStats();
+    }
+    this.usePresentationCanvas(input.presentationCanvas);
+    if (!this.ensureContext() || !this.gl || !this.canvas || !this.parts || !this.texture || !this.positionBuffer || !this.texCoordBuffer || !this.previousTexCoordBuffer || !this.nextTexCoordBuffer || !this.canvasPositionBuffer) {
+      const stats = this.ensureFallback('webgl-context-unavailable').drawFrame(input);
+      this.stats = { ...stats, requestedRendererKind: 'webgl', rendererKind: 'canvas2d', fallbackReason: 'webgl-context-unavailable' };
+      return this.getDebugStats();
+    }
+    if (this.gl.isContextLost()) {
+      const stats = this.ensureFallback('webgl-context-lost').drawFrame(input);
+      this.stats = { ...stats, requestedRendererKind: 'webgl', rendererKind: 'canvas2d', contextStatus: 'context-lost', fallbackReason: 'webgl-context-lost' };
+      return this.getDebugStats();
+    }
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    try {
+      const { canvasWidth, canvasHeight } = input.background;
+      this.resize(canvasWidth, canvasHeight);
+      this.drawBackgroundWebGL(input.background);
+      this.drawWebGL(input.screen, { clear: false });
+      this.drawCursorOverlayWebGL(input.cursor, { clear: false });
+      if (input.camera) {
+        this.drawCameraWebGL({
+          ...input.camera,
+          ctx: input.background.ctx,
+          canvasWidth,
+          canvasHeight,
+        }, { clear: false });
+      }
+      if (!input.presentationCanvas) {
+        input.background.ctx.drawImage(this.canvas as CanvasImageSource, 0, 0, canvasWidth, canvasHeight);
+      }
+      const endedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      this.stats = {
+        requestedRendererKind: 'webgl',
+        rendererKind: 'webgl',
+        contextStatus: 'available',
+        drawCostMs: Math.round((endedAt - startedAt) * 10) / 10,
+        drawCount: this.stats.drawCount + 1,
+        fallbackReason: null,
+      };
+      return this.getDebugStats();
+    } catch {
+      const stats = this.ensureFallback('webgl-frame-draw-failed').drawFrame(input);
+      this.stats = { ...stats, requestedRendererKind: 'webgl', rendererKind: 'canvas2d', contextStatus: 'draw-failed', fallbackReason: 'webgl-frame-draw-failed' };
+      return this.getDebugStats();
+    }
+  }
+
   getDebugStats(): ScreenLayerRendererStats {
     return { ...this.stats };
   }
 
+  preparePresentationCanvas(canvas: HTMLCanvasElement, width: number, height: number): ScreenLayerRendererStats {
+    if (this.disposed) {
+      this.stats = { ...this.stats, contextStatus: 'disposed', drawCostMs: null };
+      return this.getDebugStats();
+    }
+    this.usePresentationCanvas(canvas);
+    if (!this.ensureContext() || !this.gl) {
+      this.stats = { ...this.stats, contextStatus: 'missing-context', fallbackReason: 'webgl-context-unavailable' };
+      return this.getDebugStats();
+    }
+    this.resize(width, height);
+    return this.getDebugStats();
+  }
+
   dispose(): void {
+    if (this.disposed) return;
+    this.log('dispose', {
+      drawCount: this.stats.drawCount,
+      contextStatus: this.stats.contextStatus,
+      fallbackReason: this.stats.fallbackReason,
+    });
     this.disposed = true;
     this.fallback?.dispose();
     this.fallback = null;
@@ -608,6 +767,36 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     this.gl = null;
     this.canvas = null;
     this.stats = { ...this.stats, contextStatus: 'disposed', drawCostMs: null };
+    this.updateRegistry({ disposed: true });
+  }
+
+  private resetContext(reason = 'reset'): void {
+    this.log('context-reset', {
+      reason,
+      hadContext: Boolean(this.gl),
+      canvasKind: describeRendererCanvas(this.canvas),
+    });
+    this.texture = null;
+    this.positionBuffer = null;
+    this.texCoordBuffer = null;
+    this.previousTexCoordBuffer = null;
+    this.nextTexCoordBuffer = null;
+    this.canvasPositionBuffer = null;
+    this.parts = null;
+    this.gl = null;
+    this.canvas = null;
+    this.updateRegistry((entry) => ({ contextResets: entry.contextResets + 1, canvasKind: 'none' }));
+  }
+
+  private usePresentationCanvas(canvas: HTMLCanvasElement | null | undefined): void {
+    if (!canvas || this.canvas === canvas) return;
+    this.resetContext('presentation-canvas-switch');
+    this.canvas = canvas;
+    this.log('presentation-canvas-attached', {
+      width: canvas.width,
+      height: canvas.height,
+    });
+    this.updateRegistry({ canvasKind: 'html-canvas' });
   }
 
   private drawFallback(input: ScreenLayerDrawInput, reason: string, contextStatus: ScreenLayerContextStatus = 'fallback'): ScreenLayerRendererStats {
@@ -624,14 +813,18 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
   }
 
   private ensureFallback(reason: string): Canvas2DScreenLayerRenderer {
-    if (!this.fallback) this.fallback = new Canvas2DScreenLayerRenderer(reason, 'webgl');
+    if (!this.fallback) {
+      this.log('fallback-created', { reason });
+      this.fallback = new Canvas2DScreenLayerRenderer(reason, 'webgl');
+    }
+    this.updateRegistry({ fallbackReason: reason });
     return this.fallback;
   }
 
   private ensureContext(): boolean {
     if (this.disposed) return false;
     if (this.gl && this.parts && this.texture && this.positionBuffer && this.texCoordBuffer && this.previousTexCoordBuffer && this.nextTexCoordBuffer && this.canvasPositionBuffer) return !this.gl.isContextLost();
-    const canvas = createRendererCanvas();
+    const canvas = this.canvas ?? createRendererCanvas();
     const gl = canvas.getContext('webgl', {
       alpha: true,
       antialias: false,
@@ -642,6 +835,8 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     }) as WebGLRenderingContext | null;
     if (!gl) {
       this.stats = { ...this.stats, contextStatus: 'missing-context', fallbackReason: 'webgl-context-unavailable' };
+      this.log('context-create-failed', { canvasKind: describeRendererCanvas(canvas) }, 'warn');
+      this.updateRegistry({ fallbackReason: 'webgl-context-unavailable', canvasKind: describeRendererCanvas(canvas) });
       return false;
     }
     const parts = createProgram(gl);
@@ -670,10 +865,67 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     this.nextTexCoordBuffer = nextTexCoordBuffer;
     this.canvasPositionBuffer = canvasPositionBuffer;
     this.stats = { ...this.stats, contextStatus: 'available', fallbackReason: null };
+    this.log('context-created', {
+      canvasKind: describeRendererCanvas(canvas),
+      width: canvas.width,
+      height: canvas.height,
+      activeInstances: Object.keys(readWebGLRendererRegistry()).length,
+    });
+    this.updateRegistry((entry) => ({
+      contextCreates: entry.contextCreates + 1,
+      fallbackReason: null,
+      canvasKind: describeRendererCanvas(canvas),
+    }));
     return true;
   }
 
-  private drawWebGL(input: ScreenLayerDrawInput): void {
+  private log(event: string, detail: Record<string, unknown> = {}, level: 'debug' | 'warn' = 'debug'): void {
+    const payload = {
+      id: this.id,
+      disposed: this.disposed,
+      drawCount: this.stats.drawCount,
+      contextStatus: this.stats.contextStatus,
+      fallbackReason: this.stats.fallbackReason,
+      ...detail,
+    };
+    if (typeof window !== 'undefined') {
+      const target = window as WebGLRendererDebugWindow;
+      const log = Array.isArray(target.__roughCutWebglRendererLog) ? target.__roughCutWebglRendererLog : [];
+      log.push({
+        atMs: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+        event,
+        payload,
+      });
+      target.__roughCutWebglRendererLog = log.slice(-160);
+    }
+    if (typeof console === 'undefined') return;
+    if (level === 'warn') console.warn(WEBGL_RENDERER_LOG_PREFIX, event, JSON.stringify(payload));
+    else console.debug(WEBGL_RENDERER_LOG_PREFIX, event, JSON.stringify(payload));
+  }
+
+  private updateRegistry(
+    patch: Partial<NonNullable<WebGLRendererDebugWindow['__roughCutWebglRendererInstances']>[number]> |
+      ((entry: NonNullable<WebGLRendererDebugWindow['__roughCutWebglRendererInstances']>[number]) => Partial<NonNullable<WebGLRendererDebugWindow['__roughCutWebglRendererInstances']>[number]>),
+  ): void {
+    if (typeof window === 'undefined') return;
+    const registry = readWebGLRendererRegistry();
+    const existing = registry[this.id] ?? {
+      id: this.id,
+      createdAtMs: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+      disposed: false,
+      contextCreates: 0,
+      contextResets: 0,
+      fallbackReason: null,
+      canvasKind: 'none' as const,
+    };
+    registry[this.id] = {
+      ...existing,
+      ...(typeof patch === 'function' ? patch(existing) : patch),
+    };
+    (window as WebGLRendererDebugWindow).__roughCutWebglRendererInstances = registry;
+  }
+
+  private drawWebGL(input: ScreenLayerDrawInput, options: { clear?: boolean } = {}): void {
     const gl = this.gl;
     const parts = this.parts;
     if (!gl || !parts || !this.texture || !this.positionBuffer || !this.texCoordBuffer || !this.previousTexCoordBuffer || !this.nextTexCoordBuffer || !this.canvasPositionBuffer) throw new Error('Missing WebGL state.');
@@ -725,8 +977,10 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     });
 
     gl.viewport(0, 0, input.canvasWidth, input.canvasHeight);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    if (options.clear !== false) {
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
     gl.useProgram(parts.program);
     gl.uniform2f(parts.resolutionUniform, input.canvasWidth, input.canvasHeight);
     gl.uniform1i(parts.textureUniform, 0);
@@ -768,7 +1022,7 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  private drawCameraWebGL(input: CameraLayerDrawInput): void {
+  private drawCameraWebGL(input: CameraLayerDrawInput, options: { clear?: boolean } = {}): void {
     const gl = this.gl;
     const parts = this.parts;
     if (!gl || !parts || !this.texture || !this.positionBuffer || !this.texCoordBuffer || !this.previousTexCoordBuffer || !this.nextTexCoordBuffer || !this.canvasPositionBuffer) throw new Error('Missing WebGL state.');
@@ -798,8 +1052,10 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
       u1, v1,
     ]);
     gl.viewport(0, 0, input.canvasWidth, input.canvasHeight);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    if (options.clear !== false) {
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
     gl.useProgram(parts.program);
     gl.uniform2f(parts.resolutionUniform, input.canvasWidth, input.canvasHeight);
     gl.uniform1i(parts.textureUniform, 0);
@@ -833,15 +1089,17 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  private drawCursorOverlayWebGL(input: CursorLayerDrawInput): void {
+  private drawCursorOverlayWebGL(input: CursorLayerDrawInput, options: { clear?: boolean } = {}): void {
     const gl = this.gl;
     const parts = this.parts;
     if (!gl || !parts || !this.positionBuffer || !this.texCoordBuffer || !this.previousTexCoordBuffer || !this.nextTexCoordBuffer || !this.canvasPositionBuffer) throw new Error('Missing WebGL state.');
     const canvasWidth = Math.max(1, Math.round(input.canvasWidth));
     const canvasHeight = Math.max(1, Math.round(input.canvasHeight));
     gl.viewport(0, 0, canvasWidth, canvasHeight);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    if (options.clear !== false) {
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
     gl.useProgram(parts.program);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -1002,6 +1260,20 @@ function resolveWebGLMotionBlurEnabled(): boolean {
   } catch {
     return false;
   }
+}
+
+function readWebGLRendererRegistry(): NonNullable<WebGLRendererDebugWindow['__roughCutWebglRendererInstances']> {
+  if (typeof window === 'undefined') return {};
+  const target = window as WebGLRendererDebugWindow;
+  if (!target.__roughCutWebglRendererInstances) target.__roughCutWebglRendererInstances = {};
+  return target.__roughCutWebglRendererInstances;
+}
+
+function describeRendererCanvas(canvas: HTMLCanvasElement | OffscreenCanvas | null): 'html-canvas' | 'offscreen-canvas' | 'none' {
+  if (!canvas) return 'none';
+  return typeof HTMLCanvasElement !== 'undefined' && canvas instanceof HTMLCanvasElement
+    ? 'html-canvas'
+    : 'offscreen-canvas';
 }
 
 function createRendererCanvas(): HTMLCanvasElement | OffscreenCanvas {
@@ -1235,6 +1507,46 @@ function addRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, wid
   ctx.lineTo(x, y + r);
   ctx.quadraticCurveTo(x, y, x + r, y);
   ctx.closePath();
+}
+
+function resolveCursorOverlayBounds(input: CursorLayerDrawInput): ScreenLayerCameraFrame | null {
+  const boxes: ScreenLayerCameraFrame[] = [];
+  const addBox = (x: number, y: number, w: number, h: number) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
+    const x0 = Math.max(0, Math.floor(x));
+    const y0 = Math.max(0, Math.floor(y));
+    const x1 = Math.min(input.canvasWidth, Math.ceil(x + w));
+    const y1 = Math.min(input.canvasHeight, Math.ceil(y + h));
+    if (x1 <= x0 || y1 <= y0) return;
+    boxes.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  };
+
+  const clickEffect = input.clickEffect ?? 'ring';
+  if (clickEffect !== 'none') {
+    for (const ring of activeClickEmphasisAtFrame(input.cursorEvents, input.cursorFrame)) {
+      const projected = projectCursorSourcePoint(input, ring.x, ring.y);
+      const radius = ring.radius * projected.scale;
+      const pad = Math.max(6, 6 * projected.scale);
+      addBox(projected.x - radius - pad, projected.y - radius - pad, radius * 2 + pad * 2, radius * 2 + pad * 2);
+    }
+  }
+
+  if (input.cursorPosition && input.visible !== false && input.cursorInside) {
+    const rawSize = Number.isFinite(input.sizePercent) ? Number(input.sizePercent) : 100;
+    const scale = Math.max(0.5, Math.min(1.5, rawSize / 100));
+    const projected = projectCursorSourcePoint(input, input.cursorPosition.x, input.cursorPosition.y);
+    const drawScale = scale * projected.scale;
+    const spotlightPad = input.style === 'spotlight' ? 56 * drawScale : 0;
+    const pad = Math.max(10, 12 * drawScale, spotlightPad);
+    addBox(projected.x - pad, projected.y - pad, 32 * drawScale + pad * 2, 40 * drawScale + pad * 2);
+  }
+
+  if (boxes.length === 0) return null;
+  const x0 = Math.min(...boxes.map((box) => box.x));
+  const y0 = Math.min(...boxes.map((box) => box.y));
+  const x1 = Math.max(...boxes.map((box) => box.x + box.w));
+  const y1 = Math.max(...boxes.map((box) => box.y + box.h));
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
 function projectCursorSourcePoint(input: CursorLayerDrawInput, sourceX: number, sourceY: number): { x: number; y: number; scale: number } {

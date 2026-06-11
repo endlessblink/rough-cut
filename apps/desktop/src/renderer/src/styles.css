@@ -2189,7 +2189,8 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   z-index: 0;
 }
 
-.styledPreviewCanvas {
+.styledPreviewCanvas,
+.styledPreviewWebglCanvas {
   align-self: center;
   background: linear-gradient(135deg, #10131a 0%, #1c2030 100%);
   border-radius: 22px;
@@ -2204,6 +2205,25 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   width: auto;
   touch-action: none;
   z-index: 1;
+}
+
+.styledPreviewWebglCanvas {
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.styledPreviewWebglCanvas.isActive {
+  opacity: 1;
+}
+
+.styledPreviewOverlayCanvas {
+  z-index: 2;
+}
+
+.styledPreviewOverlayCanvas.isWebglPresentationOverlay {
+  background: transparent;
+  box-shadow: none;
 }
 
 .styledPreviewCanvas.draggingCamera,
@@ -3344,7 +3364,8 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   .editorShell { border: 0; border-radius: 0; min-height: 100vh; }
   .topBar, .projectHeader { align-items: start; display: flex; flex-direction: column; height: auto; padding-bottom: 0.7rem; padding-top: 0.7rem; }
   .stateBanner { grid-template-columns: 1fr; }
-  .styledPreviewCanvas { max-width: min(100% - 1rem, 1040px); width: min(100% - 1rem, 1040px); }
+  .styledPreviewCanvas,
+  .styledPreviewWebglCanvas { max-width: min(100% - 1rem, 1040px); width: min(100% - 1rem, 1040px); }
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -5572,7 +5593,8 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   height: 100%;
   width: 100%;
 }
-.nleProgramMonitor .styledPreviewCanvas {
+.nleProgramMonitor .styledPreviewCanvas,
+.nleProgramMonitor .styledPreviewWebglCanvas {
   max-height: calc(100% - 1rem);
   max-width: calc(100% - 1rem);
 }

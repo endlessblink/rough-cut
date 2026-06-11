@@ -30,7 +30,7 @@ test('styled video preview can resolve timeline-time playback through the shared
   assert.match(source, /const parkedTimelineGap = Boolean/);
   assert.match(source, /if \(!parkedTimelineGap && \(video\.seeking \|\| video\.readyState < 2\)\) \{/);
   assert.match(source, /if \(timeMode === 'timeline'\) return;/);
-  assert.match(source, /video\.pause\(\);\n\s+cameraVideo\?\.pause\(\);\n\s+return;/);
+  assert.match(source, /pausePreviewVideo\(video\);\n\s+cameraVideo\?\.pause\(\);\n\s+return;/);
   assert.doesNotMatch(source, /nextTimelineFrame = currentFrame \+ \(sourceFrame - screenLayer\.sourceFrame\)/);
 });
 
@@ -38,7 +38,12 @@ test('styled video preview drives edited timeline playback from decoded rVFC fra
   const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
 
   assert.match(source, /requestVideoFrameCallback drives canvas draws from/);
+  assert.match(source, /const webglTimelinePlaybackClock = timeMode === 'timeline' && isPlaying && screenLayerRenderer\.kind === 'webgl'/);
+  assert.match(source, /if \(!webglTimelinePlaybackClock && timeMode === 'timeline' && isPlaying && activeTimelineSegmentRef\.current && typeof screenVideo\.requestVideoFrameCallback === 'function'\) \{/);
   assert.match(source, /screenVideo\.requestVideoFrameCallback\(\(now, metadata\) => tick\(now, metadata\)\)/);
+  assert.match(source, /rafId = window\.requestAnimationFrame\(\(now\) => tick\(now\)\)/);
+  assert.match(source, /const nextClockTime = Math\.min\(timelineDuration, currentTimeRef\.current \+ tickDeltaSec \* timelineRateRef\.current\)/);
+  assert.match(source, /const timelineDecoded = webglTimelinePlaybackClock && activeClockSegment/);
   assert.match(source, /handleTimelineDecodedFrame\(sourceFrame\)/);
   assert.match(source, /timelineFrameForDecodedSourceFrame\(segment, decodedSourceFrame\)/);
   assert.match(source, /seekTimelineBoundary\(nextSegment\)/);
@@ -54,7 +59,7 @@ test('styled video preview drives edited timeline playback from decoded rVFC fra
   assert.match(source, /if \(timeMode === 'timeline' && isPlaying\) return;\n\s+previewInteractionDirtyRef\.current = true;/);
   assert.match(source, /if \(!activeTimelinePlayback && focalSelection && focalScreenRect\)/);
   assert.match(source, /if \(!activeTimelinePlayback && gapFocal && gapRect\)/);
-  assert.match(source, /className=\{`styledPreviewCanvas\$\{!isPlaying && isDraggingCamera \? ' draggingCamera' : ''\}/);
+  assert.match(source, /className=\{`styledPreviewCanvas styledPreviewOverlayCanvas\$\{experimentalWebglPresentationActive \? ' isWebglPresentationOverlay' : ''\}\$\{!isPlaying && isDraggingCamera \? ' draggingCamera' : ''\}/);
   assert.match(source, /onPointerMove=\{\(event\) => \{\n\s+if \(timeMode === 'timeline' && isPlaying\) return;\n\s+const canvas = canvasRef\.current;/);
   assert.match(source, /onPointerDown=\{\(event\) => \{\n\s+if \(timeMode === 'timeline' && isPlaying\) \{/);
   assert.match(source, /recordPlaybackDebug\('preview-pointerdown-ignored-playing'/);
@@ -118,8 +123,17 @@ test('styled video preview routes screen video drawing through the feature-flagg
   assert.match(source, /roughCutWebglScreenLayer/);
   assert.match(source, /const screenLayerRendererRef = React\.useRef<ScreenLayerRenderer \| null>\(null\)/);
   assert.match(source, /createScreenLayerRenderer\(requestedScreenLayerRendererKind\)/);
-  assert.match(source, /screenLayerRenderer\.resize\(canvasWidth, canvasHeight\)/);
+  assert.match(source, /if \(screenLayerRenderer\.kind !== 'webgl'\) \{\n\s+screenLayerRenderer\.resize\(canvasWidth, canvasHeight\)/);
   assert.match(source, /screenLayerRenderer\.draw\(\{/);
+  assert.match(source, /const webglCanvasRef = React\.useRef<HTMLCanvasElement \| null>\(null\)/);
+  assert.match(source, /className=\{`styledPreviewWebglCanvas\$\{experimentalWebglPresentationActive \? ' isActive' : ''\}`\}/);
+  assert.doesNotMatch(source, /styledPreviewCanvas styledPreviewWebglCanvas/);
+  assert.match(source, /const experimentalWebglPresentationActive = requestedScreenLayerRendererKind === 'webgl' && timeMode === 'timeline' && isPlaying/);
+  assert.match(source, /const webglTimelineFrameCompositor = activeTimelinePlayback && screenLayerRenderer\.kind === 'webgl'/);
+  assert.match(source, /ctx\.clearRect\(0, 0, canvasWidth, canvasHeight\)/);
+  assert.match(source, /screenLayerRenderer\.drawFrame\(\{/);
+  assert.match(source, /presentationCanvas: webglCanvas/);
+  assert.match(source, /markDrawPhase\('webgl-frame'\)/);
   assert.match(source, /previousTransform: previousMotionFrame\.cameraTransform/);
   assert.match(source, /nextTransform: nextMotionFrame\.cameraTransform/);
   assert.match(source, /canvasWidth,/);
@@ -138,6 +152,8 @@ test('styled video preview routes screen video drawing through the feature-flagg
   assert.match(rendererSource, /draw\(input: ScreenLayerDrawInput\): ScreenLayerRendererStats/);
   assert.match(rendererSource, /drawCamera\(input: CameraLayerDrawInput\): ScreenLayerRendererStats/);
   assert.match(rendererSource, /drawCursorOverlay\(input: CursorLayerDrawInput\): ScreenLayerRendererStats/);
+  assert.match(rendererSource, /drawFrame\(input: CompositorFrameDrawInput\): ScreenLayerRendererStats/);
+  assert.match(rendererSource, /preparePresentationCanvas\?\(canvas: HTMLCanvasElement, width: number, height: number\): ScreenLayerRendererStats/);
   assert.match(rendererSource, /getDebugStats\(\): ScreenLayerRendererStats/);
   assert.match(rendererSource, /dispose\(\): void/);
   assert.match(rendererSource, /export class Canvas2DScreenLayerRenderer implements ScreenLayerRenderer/);
@@ -160,15 +176,31 @@ test('styled video preview routes screen video drawing through the feature-flagg
   assert.match(rendererSource, /sampleIfVisible/);
   assert.match(rendererSource, /function uploadVideoTexture\(gl: WebGLRenderingContext, texture: WebGLTexture, video: HTMLVideoElement\): void/);
   assert.match(rendererSource, /gl\.pixelStorei\(gl\.UNPACK_FLIP_Y_WEBGL, false\);\n\s+gl\.texImage2D\(gl\.TEXTURE_2D, 0, gl\.RGBA, gl\.RGBA, gl\.UNSIGNED_BYTE, video\)/);
-  assert.match(rendererSource, /drawWebGL\(input: ScreenLayerDrawInput\)[\s\S]*uploadVideoTexture\(gl, this\.texture, input\.video\)/);
-  assert.match(rendererSource, /drawCameraWebGL\(input: CameraLayerDrawInput\)/);
-  assert.match(rendererSource, /drawCameraWebGL\(input: CameraLayerDrawInput\)[\s\S]*uploadVideoTexture\(gl, this\.texture, input\.video\)/);
+  assert.match(rendererSource, /presentationCanvas\?: HTMLCanvasElement \| null/);
+  assert.match(rendererSource, /private usePresentationCanvas\(canvas: HTMLCanvasElement \| null \| undefined\)/);
+  assert.doesNotMatch(rendererSource, /WEBGL_lose_context/);
+  assert.match(rendererSource, /__roughCutWebglRendererLog/);
+  assert.match(rendererSource, /JSON\.stringify\(payload\)/);
+  assert.match(rendererSource, /this\.usePresentationCanvas\(input\.presentationCanvas\)/);
+  assert.match(rendererSource, /preparePresentationCanvas\(canvas: HTMLCanvasElement, width: number, height: number\): ScreenLayerRendererStats/);
+  assert.ok(source.includes('screenLayerRenderer.preparePresentationCanvas?.(webglCanvas, canvasWidth, canvasHeight)'));
+  assert.match(rendererSource, /if \(!input\.presentationCanvas\) \{\n\s+input\.background\.ctx\.drawImage\(this\.canvas as CanvasImageSource, 0, 0, canvasWidth, canvasHeight\)/);
+  assert.match(rendererSource, /drawWebGL\(input: ScreenLayerDrawInput, options: \{ clear\?: boolean \} = \{\}\)[\s\S]*uploadVideoTexture\(gl, this\.texture, input\.video\)/);
+  assert.match(rendererSource, /const screenWidth = Math\.max\(1, Math\.ceil\(input\.screenSource\.w \* input\.screenDrawScale\)\)/);
+  assert.match(rendererSource, /const motionBlurRenderScale = resolveWebGLMotionBlurRenderScale\(\{/);
+  assert.match(rendererSource, /const targetWidth = Math\.max\(1, Math\.ceil\(screenWidth \* motionBlurRenderScale\)\)/);
+  assert.match(rendererSource, /this\.resize\(targetWidth, targetHeight\)/);
+  assert.match(rendererSource, /screenX: 0,\n\s+screenY: 0/);
+  assert.match(rendererSource, /screenDrawScale: input\.screenDrawScale \* motionBlurRenderScale/);
+  assert.match(rendererSource, /input\.ctx\.drawImage\(this\.canvas as CanvasImageSource, input\.screenX, input\.screenY, screenWidth, screenHeight\)/);
+  assert.match(rendererSource, /drawCameraWebGL\(input: CameraLayerDrawInput, options: \{ clear\?: boolean \} = \{\}\)/);
+  assert.match(rendererSource, /drawCameraWebGL\(input: CameraLayerDrawInput, options: \{ clear\?: boolean \} = \{\}\)[\s\S]*uploadVideoTexture\(gl, this\.texture, input\.video\)/);
   assert.match(rendererSource, /const texCoords = new Float32Array\(\[\n\s+u0, v0,\n\s+u1, v0,\n\s+u0, v1,\n\s+u0, v1,\n\s+u1, v0,\n\s+u1, v1,\n\s+\]\)/);
   assert.match(rendererSource, /u_maskMode/);
   assert.match(rendererSource, /u_maskFrame/);
   assert.match(rendererSource, /u_maskRadius/);
   assert.match(rendererSource, /webgl-camera-draw-failed/);
-  assert.match(rendererSource, /drawCursorOverlayWebGL\(input: CursorLayerDrawInput\)/);
+  assert.match(rendererSource, /drawCursorOverlayWebGL\(input: CursorLayerDrawInput, options: \{ clear\?: boolean \} = \{\}\)/);
   assert.match(rendererSource, /u_renderMode/);
   assert.match(rendererSource, /u_solidColor/);
   assert.match(rendererSource, /u_ringWidth/);
@@ -231,7 +263,11 @@ test('styled video preview routes cursor and click overlays through the preview 
   assert.match(rendererSource, /drawClickEmphasis\(input\.ctx, input\.cursorEvents, input\.cursorFrame, input\.clickEffect \?\? 'ring'\)/);
   assert.match(rendererSource, /drawCursorPath\(input\.ctx, input\.cursorPosition\.x, input\.cursorPosition\.y/);
   assert.match(rendererSource, /WebGLScreenLayerRenderer[\s\S]*drawCursorOverlay\(input: CursorLayerDrawInput\)/);
-  assert.match(rendererSource, /this\.drawCursorOverlayWebGL\(input\)/);
+  assert.match(rendererSource, /this\.drawCursorOverlayWebGL\(\{\n\s+\.\.\.input,\n\s+canvasWidth: bounds\.w,/);
+  assert.match(rendererSource, /const bounds = resolveCursorOverlayBounds\(input\)/);
+  assert.match(rendererSource, /canvasWidth: bounds\.w,\n\s+canvasHeight: bounds\.h,\n\s+screenX: input\.screenX - bounds\.x,\n\s+screenY: input\.screenY - bounds\.y/);
+  assert.match(rendererSource, /input\.ctx\.drawImage\(this\.canvas as CanvasImageSource, bounds\.x, bounds\.y, bounds\.w, bounds\.h\)/);
+  assert.match(rendererSource, /function resolveCursorOverlayBounds\(input: CursorLayerDrawInput\): ScreenLayerCameraFrame \| null/);
   assert.match(rendererSource, /projectCursorSourcePoint\(input, ring\.x, ring\.y\)/);
   assert.match(rendererSource, /projectCursorSourcePoint\(input, input\.cursorPosition\.x, input\.cursorPosition\.y\)/);
   assert.match(rendererSource, /input\.ctx\.setTransform\(1, 0, 0, 1, 0, 0\)/);
@@ -239,6 +275,22 @@ test('styled video preview routes cursor and click overlays through the preview 
   assert.match(rendererSource, /CURSOR_POLYGON_TRIANGLES/);
   assert.match(rendererSource, /gl\.drawArrays\(mode, 0, vertexCount\)/);
   assert.doesNotMatch(rendererSource, /webgl-cursor-overlay-canvas2d/);
+});
+
+test('styled video preview keeps only one audible hidden preview playing', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+
+  assert.match(source, /__roughCutAudiblePreviewVideo\?: HTMLVideoElement \| null/);
+  assert.match(source, /function claimAudiblePreviewVideo\(video: HTMLVideoElement\)/);
+  assert.match(source, /if \(previous && previous !== video\) previous\.pause\(\)/);
+  assert.match(source, /target\.__roughCutAudiblePreviewVideo = video/);
+  assert.match(source, /function releaseAudiblePreviewVideo\(video: HTMLVideoElement \| null \| undefined\)/);
+  assert.match(source, /function pausePreviewVideo\(video: HTMLVideoElement \| null \| undefined\)/);
+  assert.match(source, /releaseAudiblePreviewVideo\(video\)/);
+  assert.match(source, /claimAudiblePreviewVideo\(video\);\n\s+void video\.play\(\)/);
+  assert.match(source, /claimAudiblePreviewVideo\(event\.currentTarget\)/);
+  assert.match(source, /releaseAudiblePreviewVideo\(event\.currentTarget\)/);
+  assert.match(source, /pausePreviewVideo\(video\);\n\s+cameraVideo\?\.pause\(\)/);
 });
 
 test('styled video preview routes camera PiP through the preview compositor boundary', () => {
@@ -249,7 +301,7 @@ test('styled video preview routes camera PiP through the preview compositor boun
   assert.match(source, /source: cameraSource/);
   assert.match(source, /presentation: frame\.cameraPresentation/);
   assert.match(source, /shadow: !activeTimelinePlayback/);
-  assert.match(source, /drawEditorFrameControls\(ctx, cameraFrame, '#f59e0b'/);
+  assert.match(source, /drawEditorFrameControls\(ctx, cameraFrameForDraw, '#f59e0b'/);
   assert.doesNotMatch(source, /ctx\.drawImage\(\n\s+cameraVideo,/);
   assert.doesNotMatch(source, /addCameraShapePath\(ctx, cameraFrame/);
 
@@ -267,19 +319,24 @@ test('zoom motion renderer gates blur and keeps cursor overlays out of the blurr
 
   assert.match(rendererSource, /export function resolveZoomMotionBlurPx/);
   assert.match(rendererSource, /export function resolveWebGLMotionBlurSampleCount/);
+  assert.match(rendererSource, /export function resolveWebGLMotionBlurRenderScale/);
   assert.match(rendererSource, /if \(reducedMotion\) return 0/);
   assert.match(rendererSource, /if \(!Number\.isFinite\(current\.scale\) \|\| current\.scale <= 1\.001\) return 0/);
   assert.match(rendererSource, /if \(velocity <= 1\) return 0/);
   assert.match(rendererSource, /if \(!enabled \|\| reducedMotion \|\| !Number\.isFinite\(blurPx\) \|\| blurPx <= 0\.01\) return 1/);
   assert.match(rendererSource, /return blurPx >= 0\.95 \? 5 : 3/);
+  assert.match(rendererSource, /if \(samples >= 5\) return 0\.72/);
+  assert.match(rendererSource, /if \(samples >= 3\) return 0\.85/);
   assert.match(rendererSource, /ctx\.filter = `blur\(\$\{blurPx\.toFixed\(2\)\}px\)`/);
-  assert.match(previewSource, /reducedMotion: activeTimelinePlayback \|\|/);
+  assert.match(previewSource, /reducedMotion: \(activeTimelinePlayback && !webglTimelineFrameCompositor\) \|\|/);
   assert.match(mainSource, /reducedMotion: !video\.paused \|\|/);
   assert.doesNotMatch(previewSource, /ctx\.filter\s*=/);
   assert.doesNotMatch(mainSource, /ctx\.filter\s*=/);
   assert.match(previewSource, /screenLayerRenderer\.draw\(\{/);
   assert.match(previewSource, /sharpZoom: timeMode !== 'timeline' && !activeTimelinePlayback/);
   assert.match(previewSource, /markDrawPhase\('screen-video'\);\n\s+ctx\.save\(\);\n\s+applyScreenSourceTransform/);
+  assert.match(previewSource, /cameraVideo\.muted = true;\n\s+cameraVideo\.volume = 0/);
+  assert.match(previewSource, /return \(\) => \{\n\s+pausePreviewVideo\(video\);\n\s+cameraVideo\?\.pause\(\);\n\s+\};\n\s+\}, \[src, cameraSrc\]\)/);
   assert.match(mainSource, /drawZoomMotionSource\(ctx, video, \{/);
   assert.match(mainSource, /sharpZoom: video\.paused/);
   assert.match(mainSource, /applyScreenSourceTransform\(ctx, \{/);

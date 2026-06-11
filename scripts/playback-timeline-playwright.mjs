@@ -130,8 +130,16 @@ async function runPlaybackProbe({ view, projectPath }) {
   });
   const electronProcess = app.process();
   let page = null;
+  const webglConsoleLog = [];
   try {
     page = await app.firstWindow();
+    page.on('console', (message) => {
+      const text = message.text();
+      if (text.includes('[rough-cut:webgl-renderer]')) {
+        webglConsoleLog.push({ type: message.type(), text });
+        if (webglConsoleLog.length > 160) webglConsoleLog.shift();
+      }
+    });
     await page.waitForLoadState('domcontentloaded');
     if (view === 'nle') {
       await page.waitForSelector('[data-ui-region="editor-workspace"]', { timeout: 15000 });
@@ -243,6 +251,7 @@ async function runPlaybackProbe({ view, projectPath }) {
       transitionScreenshotPath: transitionScreenshotPath || null,
       clickedZoomRegionDuringPlayback,
       clickedPreviewCanvasDuringPlayback,
+      webglConsoleLog,
       pausedState,
       before,
       after,
@@ -258,12 +267,15 @@ async function runPlaybackProbe({ view, projectPath }) {
       return {
         videos,
         playbackState: typeof window.__roughCutReadPlaybackState === 'function' ? window.__roughCutReadPlaybackState() : null,
+        webglRendererLog: Array.isArray(window.__roughCutWebglRendererLog) ? window.__roughCutWebglRendererLog.slice(-160) : [],
+        webglRendererInstances: window.__roughCutWebglRendererInstances ?? null,
         playButtonLabel: document.querySelector('[data-ui-region="nle-transport"] button')?.getAttribute('aria-label') ?? null,
       };
     }).catch(() => null);
     return {
       ok: false,
       error: err instanceof Error ? err.message : String(err),
+      webglConsoleLog,
       diagnostic,
     };
   } finally {
@@ -449,7 +461,8 @@ function playbackProof(before, after, requiredAdvanceSec = 0.2) {
 }
 
 function readPlaybackState() {
-  const canvas = document.querySelector('canvas.styledPreviewCanvas');
+  const canvas = document.querySelector('canvas.styledPreviewWebglCanvas.isActive')
+    ?? document.querySelector('canvas.styledPreviewCanvas');
   const canvasRect = canvas instanceof HTMLCanvasElement ? canvas.getBoundingClientRect() : null;
   const canvasCameraRect = window.__roughCutCanvasCameraRect && canvasRect
     ? {
@@ -505,6 +518,8 @@ function readPlaybackState() {
       ? window.__roughCutReadPlaybackDebug()
       : { counts: {}, frameGapCount: 0, maxFrameGap: 0, lastFrameGap: null, tail: [] },
     screenLayerRenderer: window.__roughCutScreenLayerRenderer ?? null,
+    webglRendererInstances: window.__roughCutWebglRendererInstances ?? null,
+    webglRendererLog: Array.isArray(window.__roughCutWebglRendererLog) ? window.__roughCutWebglRendererLog.slice(-80) : [],
     canvasCameraRect,
     drawCount: window.__roughCutCanvasDrawCount ?? 0,
     timecode: document.querySelector('.nleTransportTimeCurrent')?.textContent
@@ -553,13 +568,33 @@ function readPlaybackDebug() {
 }
 
 function readCanvasStats() {
-  const canvas = document.querySelector('canvas.styledPreviewCanvas');
+  const webglCanvas = document.querySelector('canvas.styledPreviewWebglCanvas.isActive');
+  const canvas = webglCanvas instanceof HTMLCanvasElement
+    ? webglCanvas
+    : document.querySelector('canvas.styledPreviewCanvas');
   if (!(canvas instanceof HTMLCanvasElement) || canvas.width <= 0 || canvas.height <= 0) {
     return { ok: false, reason: 'missing-canvas', visible: false, saturation: 0, contrast: 0, darkRatio: 1 };
   }
   const rect = canvas.getBoundingClientRect();
   const style = window.getComputedStyle(canvas);
   const visible = rect.width > 20 && rect.height > 20 && style.opacity !== '0' && style.visibility !== 'hidden';
+  const renderer = window.__roughCutScreenLayerRenderer ?? null;
+  if (webglCanvas instanceof HTMLCanvasElement) {
+    return {
+      ok: visible && renderer?.rendererKind === 'webgl' && renderer?.contextStatus === 'available',
+      reason: !visible
+        ? 'webgl-canvas-not-visible'
+        : renderer?.rendererKind === 'webgl' && renderer?.contextStatus === 'available'
+          ? null
+          : 'webgl-renderer-not-active',
+      visible,
+      kind: 'webgl-presentation',
+      saturation: null,
+      contrast: null,
+      darkRatio: null,
+      renderer,
+    };
+  }
   const context = canvas.getContext('2d', { willReadFrequently: true });
   if (!context) return { ok: false, reason: 'missing-context', visible, saturation: 0, contrast: 0, darkRatio: 1 };
   const sampleWidth = Math.min(240, canvas.width);

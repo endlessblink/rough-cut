@@ -76,6 +76,13 @@ export function resolveWebGLMotionBlurSampleCount({
   return blurPx >= 0.95 ? 5 : 3;
 }
 
+export function resolveWebGLMotionBlurRenderScale(options: WebGLMotionBlurSampleOptions): number {
+  const samples = resolveWebGLMotionBlurSampleCount(options);
+  if (samples >= 5) return 0.72;
+  if (samples >= 3) return 0.85;
+  return 1;
+}
+
 export function applyScreenSourceTransform(
   ctx: CanvasRenderingContext2D,
   {
