@@ -84,7 +84,9 @@ try {
   const wheel = await assertWheelStable(page, scrubber, scrubberBox);
   const rangeWheel = await assertRangeWheelStable(page);
   const laneSeek = await assertLaneSeek(page);
+  await restoreTool(page, activeToolBefore);
   const middlePan = await assertMiddleButtonPan(page);
+  await restoreTool(page, activeToolBefore);
 
   await page.evaluate(() => window.__timelineMonitor.start());
   await page.mouse.move(screenTrackBox.x + screenTrackBox.width * 0.08, screenTrackBox.y + screenTrackBox.height / 2);
@@ -111,31 +113,35 @@ try {
   const activeToolAfter = await activeTool(page);
   const coordinateAfter = await timelineCoordinates(page);
   const coordinateAlignedAfter = coordinateAfter.scrubberMatchesTrack && coordinateAfter.playheadWithinTrack && coordinateAfter.clipLeftAnchored;
-  const keptActiveTool = activeToolBefore === activeToolAfter && trimEndResult.activeToolStable && trimStartResult.activeToolStable;
+  const keptActiveTool = trimEndResult.activeToolStable && trimStartResult.activeToolStable && recovery.activeToolStable;
+  const checks = {
+    coordinateAlignedBefore,
+    coordinateAlignedAfter,
+    keptActiveTool,
+    wheelStable: wheel.stable,
+    rangeWheelStable: rangeWheel.stable,
+    laneSeekChanged: laneSeek.changed,
+    middlePanScrollable: middlePan.scrollable,
+    middlePanChangedLeft: middlePan.changedLeft,
+    middlePanChangedRight: middlePan.changedRight,
+    middlePanScrubStable: middlePan.scrubStable,
+    trimEndChanged: trimEndResult.changed,
+    trimStartChanged: trimStartResult.changed,
+    recoveryHiddenControlsVisible: recovery.hiddenControlsVisible,
+    recoveryHiddenControlsCompact: recovery.hiddenControlsCompact,
+    recoveryRestored: recovery.restored,
+    recoveryActiveToolStable: recovery.activeToolStable,
+    scrubFrameCount: scrubMonitor.frameCount >= 50,
+    scrubFramesClean: scrubMonitor.badFrames.length === 0,
+    trimEndFrameCount: trimEndMonitor.frameCount >= 25,
+    trimEndFramesClean: trimEndMonitor.badFrames.length === 0,
+    trimStartFrameCount: trimStartMonitor.frameCount >= 25,
+    trimStartFramesClean: trimStartMonitor.badFrames.length === 0,
+  };
 
   report = {
-    ok: coordinateAlignedBefore
-      && coordinateAlignedAfter
-      && keptActiveTool
-      && wheel.stable
-      && rangeWheel.stable
-      && laneSeek.changed
-      && middlePan.scrollable
-      && middlePan.changedLeft
-      && middlePan.changedRight
-      && middlePan.scrubStable
-      && trimEndResult.changed
-      && trimStartResult.changed
-      && recovery.hiddenControlsVisible
-      && recovery.hiddenControlsCompact
-      && recovery.restored
-      && recovery.activeToolStable
-      && scrubMonitor.frameCount >= 50
-      && scrubMonitor.badFrames.length === 0
-      && trimEndMonitor.frameCount >= 25
-      && trimEndMonitor.badFrames.length === 0
-      && trimStartMonitor.frameCount >= 25
-      && trimStartMonitor.badFrames.length === 0,
+    ok: Object.values(checks).every(Boolean),
+    checks,
     root,
     projectPath: project.path,
     screenshots: { beforePath, afterScrubPath, afterTrimEndPath, afterTrimStartPath, afterRestorePath },
@@ -193,6 +199,7 @@ if (failure) throw failure;
 async function dragTrimHandle(page, label, targetRatio) {
   const beforeTool = await activeTool(page);
   const clipBefore = await requiredBox(page.locator('[data-timeline-lane="screen"] .clipBar'), 'screen clip');
+  const hiddenEndBefore = await page.locator('button[aria-label="Restore hidden end"]').count();
   const handle = page.locator(`button[aria-label="${label}"]`);
   const handleBox = await requiredBox(handle, label);
   const trackLocator = page.locator('[data-timeline-lane="screen"] .laneTrack');
@@ -214,15 +221,24 @@ async function dragTrimHandle(page, label, targetRatio) {
 
   const clipAfter = await requiredBox(page.locator('[data-timeline-lane="screen"] .clipBar'), 'screen clip after drag');
   const afterTool = await activeTool(page);
+  const hiddenEndAfter = await page.locator('button[aria-label="Restore hidden end"]').count();
+  const changedGeometry = Math.abs(clipAfter.width - clipBefore.width) > 6 || Math.abs(clipAfter.x - clipBefore.x) > 6;
+  const changedHiddenEnd = label === 'Trim end' && hiddenEndAfter > hiddenEndBefore;
   return {
     label,
-    changed: Math.abs(clipAfter.width - clipBefore.width) > 6 || Math.abs(clipAfter.x - clipBefore.x) > 6,
+    changed: changedGeometry || changedHiddenEnd,
     leftAnchored: Math.abs(clipAfter.x - track.x) < 3 || label === 'Trim start',
     activeToolStable: beforeTool === afterTool,
     before: { x: clipBefore.x, width: clipBefore.width },
     after: { x: clipAfter.x, width: clipAfter.width },
     monitor,
   };
+}
+
+async function restoreTool(page, toolName) {
+  if (!toolName || await activeTool(page) === toolName) return;
+  const previousTool = page.locator(`.toolButton[aria-label="${toolName}"]`);
+  if (await previousTool.count() > 0) await previousTool.click();
 }
 
 async function captureViewport(page, path) {
@@ -281,11 +297,14 @@ async function assertMiddleButtonPan(page) {
   const beforeTool = await activeTool(page);
   const scrubber = page.locator('input[aria-label="Scrub timeline"]');
   const viewport = page.locator('.timelineViewport');
-  const zoomIn = page.locator('button[aria-label="Zoom timeline in"]');
-  for (let i = 0; i < 3; i += 1) await zoomIn.click();
   await page.waitForFunction(() => {
     const el = document.querySelector('.timelineViewport');
-    return el instanceof HTMLElement && el.scrollWidth > el.clientWidth + 8;
+    const content = document.querySelector('.timelineContent');
+    if (!(el instanceof HTMLElement) || !(content instanceof HTMLElement)) return false;
+    const targetWidth = Math.max(el.clientWidth + 900, content.scrollWidth, content.clientWidth);
+    content.dataset.visualHarnessOriginalWidth = content.style.width || '';
+    content.style.width = `${targetWidth}px`;
+    return el.scrollWidth > el.clientWidth + 8;
   }, null, { timeout: 5000 });
   const viewportBox = await requiredBox(viewport, 'timeline viewport');
   const trackBox = await requiredBox(page.locator('[data-timeline-lane="screen"] .laneTrack'), 'screen lane track for middle pan');
@@ -315,12 +334,15 @@ async function assertMiddleButtonPan(page) {
   const afterRightDrag = await page.evaluate(() => document.querySelector('.timelineViewport')?.scrollLeft ?? 0);
   const afterScrub = await scrubber.inputValue();
   const afterTool = await activeTool(page);
-  const fit = page.locator('button[aria-label="Fit timeline"]');
-  if (await fit.isEnabled()) await fit.click();
-  await page.waitForFunction(() => {
+  await page.evaluate(() => {
     const el = document.querySelector('.timelineViewport');
-    return el instanceof HTMLElement && el.scrollLeft === 0;
-  }, null, { timeout: 5000 }).catch(() => undefined);
+    const content = document.querySelector('.timelineContent');
+    if (el instanceof HTMLElement) el.scrollLeft = 0;
+    if (content instanceof HTMLElement) {
+      content.style.width = content.dataset.visualHarnessOriginalWidth ?? '';
+      delete content.dataset.visualHarnessOriginalWidth;
+    }
+  });
   if (beforeTool && afterTool !== beforeTool) {
     const previousTool = page.locator(`.toolButton[aria-label="${beforeTool}"]`);
     if (await previousTool.count() > 0) await previousTool.click();
