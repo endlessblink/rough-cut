@@ -114,4 +114,7 @@ test('GPU-C experimental headless export smoke stays explicit and fallback-backe
   assert.match(experimentalHeadlessExportSmokeSource, /fallback\?\.to !== 'ffmpeg-styled'/);
   assert.match(experimentalHeadlessExportSmokeSource, /experimental-headless-export-plan/);
   assert.match(experimentalHeadlessExportSmokeSource, /sampledFrames/);
+  assert.match(experimentalHeadlessExportSmokeSource, /styled-baseline\.mp4/);
+  assert.match(experimentalHeadlessExportSmokeSource, /compareRepresentativeFrames/);
+  assert.match(experimentalHeadlessExportSmokeSource, /frameComparisons/);
 });

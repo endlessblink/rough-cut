@@ -7544,7 +7544,7 @@ outside the GPU compositor by design.
 ### TASK-246 Prototype GPU/headless export path from the shared composition plan
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 #### Context
 
@@ -7590,6 +7590,31 @@ Remaining before DONE: replace the fallback-backed prototype with a real
 headless/GPU frame renderer, add preview-vs-export representative frame
 comparison, prove cursor sharpness in zoomed experimental exports, and record
 benchmark speed/quality evidence. Do not make this mode default.
+
+**Slice 2 (2026-06-11):** Strengthened the experimental export smoke into a
+representative-frame parity guard. The smoke now exports a styled baseline,
+exports `experimental-headless`, verifies identical stream metadata, decodes
+the sampled composition frames from both outputs, and fails on pixel deltas
+above the parity budget. This still uses the FFmpeg styled fallback; it is a
+guardrail for the later real renderer swap, not proof that headless/GPU
+rendering exists.
+
+Evidence:
+- `node --test scripts/repo-regression.test.mjs` passes.
+- `pnpm smoke:experimental-headless-export` passes outside the sandbox after
+  the known sandboxed `ffprobe` EPERM boundary; latest root
+  `/tmp/rough-cut-headless-export-DNcjkS`.
+- The passing smoke reports output `/tmp/rough-cut-headless-export-DNcjkS/experimental-headless-export.mp4`,
+  styled baseline `/tmp/rough-cut-headless-export-DNcjkS/styled-baseline.mp4`,
+  `1920x1080`, `30/1`, explicit fallback `{ from: "headless-export", to:
+  "ffmpeg-styled" }`, sampled frames `[0, 15, 29]`, and decoded frame
+  comparisons with `meanAbsDiff: 0`, `changedPixelRatio: 0`, and
+  `maxChannelDiff: 0` for all sampled frames.
+
+Remaining before DONE: replace the fallback-backed prototype with a real
+headless/GPU frame renderer, prove cursor sharpness in zoomed experimental
+exports, and record benchmark speed/quality evidence. Do not make this mode
+default.
 
 ### TASK-247 Make GPU compositor default and retire legacy visual composition logic
 

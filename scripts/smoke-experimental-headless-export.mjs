@@ -7,6 +7,7 @@ import { saveProjectForRecording } from '../apps/desktop/src/main/project-files.
 
 const root = await mkdtemp(join(tmpdir(), 'rough-cut-headless-export-'));
 const mediaPath = join(root, 'source.mp4');
+const styledPath = join(root, 'styled-baseline.mp4');
 const outputPath = join(root, 'experimental-headless-export.mp4');
 
 await mkdir(root, { recursive: true });
@@ -43,31 +44,48 @@ const project = await saveProjectForRecording({
 });
 
 const progress = [];
+const styledResult = await exportProjectToMp4({
+  project: project.document,
+  outputPath: styledPath,
+  mode: 'styled',
+});
 const result = await exportProjectToMp4({
   project: project.document,
   outputPath,
   mode: 'experimental-headless',
   onProgress: (event) => progress.push(event),
 });
-const probe = JSON.parse(runCapture('ffprobe', [
-  '-v',
-  'error',
-  '-select_streams',
-  'v:0',
-  '-show_entries',
-  'stream=width,height,duration,r_frame_rate',
-  '-of',
-  'json',
-  outputPath,
-]));
-const stream = probe.streams?.[0];
+const styledProbe = probeVideo(styledPath);
+const probe = probeVideo(outputPath);
+if (JSON.stringify(styledProbe) !== JSON.stringify(probe)) {
+  throw new Error(`Experimental headless export stream metadata diverged from styled export: ${JSON.stringify({ styledProbe, probe })}`);
+}
+
+const frameComparisons = compareRepresentativeFrames({
+  expectedPath: styledPath,
+  actualPath: outputPath,
+  width: probe.width,
+  height: probe.height,
+  fps: 30,
+  frameIndexes: result.compositionPlan.frames.map((frame) => frame.frameIndex),
+});
+const failedComparison = frameComparisons.find((comparison) => !comparison.ok);
+if (failedComparison) {
+  throw new Error(`Experimental headless export diverged from styled export at a representative frame: ${JSON.stringify({ failedComparison, frameComparisons })}`);
+}
+
+const stream = { width: probe.width, height: probe.height, r_frame_rate: probe.r_frame_rate };
 if (!stream || stream.width !== 1920 || stream.height !== 1080) {
   throw new Error(`Experimental headless export dimensions were wrong: ${JSON.stringify(probe)}`);
 }
 if (stream.r_frame_rate !== '30/1') {
   throw new Error(`Experimental headless export framerate was wrong: ${JSON.stringify(probe)}`);
 }
+const styledBytes = (await readFile(styledPath)).length;
 const bytes = (await readFile(outputPath)).length;
+if (!(styledBytes > 0) || styledResult.byteEqualCandidate) {
+  throw new Error(`Styled baseline export did not produce a rendered artifact: ${JSON.stringify({ styledResult, styledBytes })}`);
+}
 if (!(bytes > 0) || result.byteEqualCandidate) {
   throw new Error(`Experimental headless export did not produce a rendered artifact: ${JSON.stringify({ result, bytes })}`);
 }
@@ -85,14 +103,95 @@ console.info(JSON.stringify({
   ok: true,
   root,
   projectPath: project.path,
+  styledPath,
   outputPath,
   width: stream.width,
   height: stream.height,
   fps: stream.r_frame_rate,
+  styledBytes,
   bytes,
   fallback: result.fallback,
   sampledFrames: result.compositionPlan.frames.map((frame) => frame.frameIndex),
+  frameComparisons,
 }, null, 2));
+
+function probeVideo(videoPath) {
+  const probe = JSON.parse(runCapture('ffprobe', [
+    '-v',
+    'error',
+    '-select_streams',
+    'v:0',
+    '-show_entries',
+    'stream=width,height,duration,r_frame_rate',
+    '-of',
+    'json',
+    videoPath,
+  ]));
+  const stream = probe.streams?.[0];
+  return {
+    width: stream?.width,
+    height: stream?.height,
+    duration: stream?.duration,
+    r_frame_rate: stream?.r_frame_rate,
+  };
+}
+
+function compareRepresentativeFrames({ expectedPath, actualPath, width, height, fps, frameIndexes }) {
+  return frameIndexes.map((frameIndex) => {
+    const timeSeconds = frameIndex / fps;
+    const expected = sampleFrame(expectedPath, { timeSeconds, width, height });
+    const actual = sampleFrame(actualPath, { timeSeconds, width, height });
+    const comparison = comparePixels(expected, actual);
+    return {
+      frameIndex,
+      timeSeconds,
+      ...comparison,
+      ok: comparison.meanAbsDiff <= 2 && comparison.changedPixelRatio <= 0.01,
+    };
+  });
+}
+
+function sampleFrame(videoPath, { timeSeconds, width, height }) {
+  return runBuffer('ffmpeg', [
+    '-v',
+    'error',
+    '-ss',
+    String(Math.max(0, timeSeconds)),
+    '-i',
+    videoPath,
+    '-frames:v',
+    '1',
+    '-f',
+    'rawvideo',
+    '-pix_fmt',
+    'rgb24',
+    '-',
+  ], width * height * 3 + 1024);
+}
+
+function comparePixels(expected, actual) {
+  if (expected.length !== actual.length) {
+    throw new Error(`Representative frame buffers had different sizes: ${JSON.stringify({ expected: expected.length, actual: actual.length })}`);
+  }
+  let totalDiff = 0;
+  let changedPixels = 0;
+  let maxChannelDiff = 0;
+  for (let index = 0; index < expected.length; index += 3) {
+    const redDiff = Math.abs(expected[index] - actual[index]);
+    const greenDiff = Math.abs(expected[index + 1] - actual[index + 1]);
+    const blueDiff = Math.abs(expected[index + 2] - actual[index + 2]);
+    const pixelDiff = redDiff + greenDiff + blueDiff;
+    totalDiff += pixelDiff;
+    maxChannelDiff = Math.max(maxChannelDiff, redDiff, greenDiff, blueDiff);
+    if (pixelDiff > 12) changedPixels += 1;
+  }
+  const pixelCount = expected.length / 3;
+  return {
+    meanAbsDiff: Number((totalDiff / expected.length).toFixed(3)),
+    changedPixelRatio: Number((changedPixels / pixelCount).toFixed(4)),
+    maxChannelDiff,
+  };
+}
 
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: 'inherit' });
@@ -104,6 +203,14 @@ function runCapture(command, args) {
   const result = spawnSync(command, args, { encoding: 'utf8' });
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`${command} failed with exit code ${result.status}`);
+  return result.stdout;
+}
+
+function runBuffer(command, args, maxBuffer) {
+  const result = spawnSync(command, args, { encoding: 'buffer', maxBuffer });
+  if (result.stderr?.length) process.stderr.write(result.stderr);
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} failed with exit code ${result.status}`);
   return result.stdout;
