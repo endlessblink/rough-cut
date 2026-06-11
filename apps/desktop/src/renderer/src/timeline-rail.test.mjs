@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   createAsset,
   createDefaultRecordingPresentation,
@@ -13,6 +16,8 @@ import {
   percentToTime,
   timeToPercent,
 } from './timeline-rail.mjs';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 test('time and percent helpers clamp to the timeline duration', () => {
   assert.equal(clampTimelineTime(-1, 10), 0);
@@ -150,4 +155,30 @@ test('buildTimelineModel assigns overlapping zoom markers to separate layers wit
   assert.equal(model.zoomLayerCount, 2);
   assert.equal(longerRegion.layer, 0);
   assert.equal(shorterRegion.layer, 1);
+});
+
+test('Recording edit timeline exposes zoom controls and +/- shortcuts', async () => {
+  const source = await readFile(join(here, 'main.tsx'), 'utf8');
+  const styles = await readFile(join(here, 'styles.css'), 'utf8');
+
+  assert.match(source, /aria-label="Zoom timeline out"/);
+  assert.match(source, /aria-label="Zoom timeline in"/);
+  assert.match(source, /aria-label="Fit timeline"/);
+  assert.match(source, /event\.key !== '\+'/);
+  assert.match(source, /event\.key !== '-'/);
+  assert.match(source, /isTypingTarget\(event\.target\)/);
+  assert.match(source, /viewport\.addEventListener\('wheel', handleWheel, \{ passive: false \}\)/);
+  assert.match(source, /!event\.ctrlKey && !event\.metaKey/);
+  assert.match(source, /frameAtClientX\(event\.clientX, frameAreaLeft, pixelsPerFrame, timelineDurationFrames\)/);
+  assert.match(styles, /\.timelineViewport\s*\{/);
+  assert.match(styles, /\.timelineContent\s*\{/);
+});
+
+test('Recording edit timeline deletes the selected zoom marker from the timeline key handler', async () => {
+  const source = await readFile(join(here, 'main.tsx'), 'utf8');
+
+  assert.match(source, /if \(!selectedZoomMarkerId\) return;/);
+  assert.match(source, /event\.key === 'Delete' \|\| event\.key === 'Backspace'/);
+  assert.match(source, /onZoomMarkerRemove\(selectedZoomMarkerId\)/);
+  assert.match(source, /isTypingTarget\(event\.target\) \|\| event\.ctrlKey \|\| event\.metaKey \|\| event\.altKey/);
 });

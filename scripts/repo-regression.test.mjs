@@ -100,9 +100,12 @@ test('GPU-C WebGL preview flag is forwarded to the renderer as a runtime query p
   assert.match(desktopMainSource, /ROUGH_CUT_WEBGL_SCREEN_LAYER === '1' \|\| process\.env\.VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER === '1'/);
   assert.match(desktopMainSource, /function webglMotionBlurEnabled\(\)/);
   assert.match(desktopMainSource, /ROUGH_CUT_WEBGL_MOTION_BLUR === '1' \|\| process\.env\.VITE_ROUGH_CUT_WEBGL_MOTION_BLUR === '1'/);
+  assert.match(desktopMainSource, /function experimentalHeadlessExportUiEnabled\(\)/);
+  assert.match(desktopMainSource, /ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT_UI === '1' \|\| process\.env\.VITE_ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT_UI === '1'/);
   assert.match(desktopMainSource, /function applyRendererFeatureFlags\(params\)/);
   assert.match(desktopMainSource, /params\.set\('screenLayerRenderer', 'webgl'\)/);
   assert.match(desktopMainSource, /params\.set\('webglMotionBlur', '1'\)/);
+  assert.match(desktopMainSource, /params\.set\('experimentalHeadlessExportUi', '1'\)/);
   assert.match(desktopMainSource, /applyRendererFeatureFlags\(url\.searchParams\)/);
 });
 
@@ -140,4 +143,13 @@ test('GPU-C experimental headless renderer seam stays opt-in and fallback-backed
   assert.match(headlessExportRendererSource, /experimental-headless-export-disabled/);
   assert.match(headlessExportRendererSource, /electron-runtime-unavailable/);
   assert.match(headlessExportRendererSource, /electron-headless-renderer-not-implemented/);
+});
+
+test('GPU-C experimental export UI stays feature-flagged and fallback-labeled', () => {
+  const rendererSource = readFileSync(join(root, 'apps/desktop/src/renderer/src/main.tsx'), 'utf8');
+  assert.match(rendererSource, /experimentalHeadlessExportUi = searchParams\.get\('experimentalHeadlessExportUi'\) === '1'/);
+  assert.match(rendererSource, /data-export-action="experimental-headless"/);
+  assert.match(rendererSource, /onExportMode\('experimental-headless'\)/);
+  assert.match(rendererSource, /Experimental headless export/);
+  assert.match(rendererSource, /exportResult\?\.fallback\?\.active/);
 });

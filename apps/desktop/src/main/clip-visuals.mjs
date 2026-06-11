@@ -9,9 +9,16 @@ import { mkdir, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 export const FILMSTRIP_HEIGHT = 48;
+// Uniform tile geometry: every sampled frame is cover-cropped to TILE_W×H so
+// strips stay crisp instead of squashing arbitrary aspect ratios into the
+// timeline scale.
+export const FILMSTRIP_TILE_WIDTH = 86;
 export const FILMSTRIP_INTERVAL_SEC = 5;
+export const FILMSTRIP_MIN_TILES = 6;
 export const FILMSTRIP_MAX_TILES = 120;
 export const WAVEFORM_WIDTH = 2048;
+export const WAVEFORM_MIN_WIDTH = 512;
+export const WAVEFORM_MAX_WIDTH = 8192;
 export const WAVEFORM_HEIGHT = 56;
 export const WAVEFORM_COLOR = '4ade80';
 
@@ -19,37 +26,54 @@ export function visualsCacheDir(projectPath) {
   return join(dirname(projectPath), '.roughcut-visuals');
 }
 
-export function visualCacheKey(sourcePath, mtimeMs, kind) {
-  return createHash('sha1').update(`${sourcePath}:${Math.round(mtimeMs)}:${kind}:v1`).digest('hex').slice(0, 20);
+// `variant` distinguishes zoom buckets (tile count / waveform width) so each
+// resolution caches independently.
+export function visualCacheKey(sourcePath, mtimeMs, kind, variant = 0) {
+  return createHash('sha1').update(`${sourcePath}:${Math.round(mtimeMs)}:${kind}:${variant}:v2`).digest('hex').slice(0, 20);
 }
 
-// Tile count adapts so long recordings don't explode: above
-// MAX_TILES * INTERVAL the interval stretches to keep tiles bounded.
-export function filmstripPlan(durationSec) {
+// Tile count follows the requested zoom bucket (renderer asks for roughly
+// one tile per ~86 screen px), bounded so long recordings don't explode.
+export function filmstripPlan(durationSec, targetTiles) {
   const safeDuration = Math.max(1, Number(durationSec) || 1);
-  const rawTiles = Math.ceil(safeDuration / FILMSTRIP_INTERVAL_SEC);
-  const tiles = Math.max(1, Math.min(FILMSTRIP_MAX_TILES, rawTiles));
+  const requested = Number.isFinite(Number(targetTiles)) && Number(targetTiles) > 0
+    ? Number(targetTiles)
+    : Math.ceil(safeDuration / FILMSTRIP_INTERVAL_SEC);
+  const tiles = Math.max(FILMSTRIP_MIN_TILES, Math.min(FILMSTRIP_MAX_TILES, Math.round(requested)));
   const intervalSec = safeDuration / tiles;
   return { tiles, intervalSec, stripSeconds: tiles * intervalSec };
 }
 
-export function buildFilmstripArgs(sourcePath, outPath, durationSec) {
-  const { tiles, intervalSec } = filmstripPlan(durationSec);
+export function buildFilmstripArgs(sourcePath, outPath, durationSec, targetTiles) {
+  const { tiles, intervalSec } = filmstripPlan(durationSec, targetTiles);
+  const cover = `scale=${FILMSTRIP_TILE_WIDTH}:${FILMSTRIP_HEIGHT}:force_original_aspect_ratio=increase,crop=${FILMSTRIP_TILE_WIDTH}:${FILMSTRIP_HEIGHT}`;
   return [
     '-y',
+    // Keyframe-only decode: sampling one frame every few seconds doesn't
+    // need every frame — this turns minutes-long sources into a fast scan.
+    '-skip_frame', 'nokey',
     '-i', sourcePath,
-    '-vf', `fps=1/${intervalSec.toFixed(4)},scale=-2:${FILMSTRIP_HEIGHT},tile=${tiles}x1`,
+    '-vsync', 'vfr',
+    '-vf', `fps=1/${intervalSec.toFixed(4)},${cover},tile=${tiles}x1`,
     '-frames:v', '1',
     outPath,
   ];
 }
 
-export function buildWaveformArgs(sourcePath, outPath) {
+export function waveformPlanWidth(targetWidthPx) {
+  const requested = Number.isFinite(Number(targetWidthPx)) && Number(targetWidthPx) > 0
+    ? Number(targetWidthPx)
+    : WAVEFORM_WIDTH;
+  return Math.max(WAVEFORM_MIN_WIDTH, Math.min(WAVEFORM_MAX_WIDTH, Math.round(requested)));
+}
+
+export function buildWaveformArgs(sourcePath, outPath, targetWidthPx) {
+  const width = waveformPlanWidth(targetWidthPx);
   return [
     '-y',
     '-i', sourcePath,
     '-filter_complex',
-    `aformat=channel_layouts=mono,compand=gain=-6,showwavespic=s=${WAVEFORM_WIDTH}x${WAVEFORM_HEIGHT}:colors=#${WAVEFORM_COLOR}`,
+    `aformat=channel_layouts=mono,compand=gain=-6,showwavespic=s=${width}x${WAVEFORM_HEIGHT}:colors=#${WAVEFORM_COLOR}`,
     '-frames:v', '1',
     outPath,
   ];
@@ -73,16 +97,18 @@ const inFlight = new Map();
 // Returns { path, kind, tiles?, intervalSec?, stripSeconds?, widthPx?, durationSec }.
 // Cache hit = the keyed PNG already exists; concurrent requests for the same
 // visual share one ffmpeg run.
-export async function ensureClipVisual({ projectPath, sourcePath, kind, durationSec, runner = runFfmpeg, statImpl = stat }) {
+export async function ensureClipVisual({ projectPath, sourcePath, kind, durationSec, targetTiles, targetWidthPx, runner = runFfmpeg, statImpl = stat }) {
   if (kind !== 'filmstrip' && kind !== 'waveform') throw new Error(`Unknown clip visual kind: ${kind}`);
   const sourceInfo = await statImpl(sourcePath);
-  const key = visualCacheKey(sourcePath, sourceInfo.mtimeMs, kind);
+  const plan = kind === 'filmstrip' ? filmstripPlan(durationSec, targetTiles) : null;
+  const waveWidth = kind === 'waveform' ? waveformPlanWidth(targetWidthPx) : null;
+  const variant = kind === 'filmstrip' ? plan.tiles : waveWidth;
+  const key = visualCacheKey(sourcePath, sourceInfo.mtimeMs, kind, variant);
   const dir = visualsCacheDir(projectPath);
   const outPath = join(dir, `${key}.png`);
-  const plan = kind === 'filmstrip' ? filmstripPlan(durationSec) : null;
   const meta = kind === 'filmstrip'
     ? { path: outPath, kind, durationSec, ...plan }
-    : { path: outPath, kind, durationSec, widthPx: WAVEFORM_WIDTH };
+    : { path: outPath, kind, durationSec, widthPx: waveWidth };
 
   try {
     await statImpl(outPath);
@@ -96,8 +122,8 @@ export async function ensureClipVisual({ projectPath, sourcePath, kind, duration
     const job = (async () => {
       await mkdir(dir, { recursive: true });
       const args = kind === 'filmstrip'
-        ? buildFilmstripArgs(sourcePath, outPath, durationSec)
-        : buildWaveformArgs(sourcePath, outPath);
+        ? buildFilmstripArgs(sourcePath, outPath, durationSec, targetTiles)
+        : buildWaveformArgs(sourcePath, outPath, targetWidthPx);
       await runner(args);
     })().finally(() => inFlight.delete(flightKey));
     inFlight.set(flightKey, job);

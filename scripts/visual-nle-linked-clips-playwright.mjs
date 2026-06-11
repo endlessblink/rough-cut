@@ -258,6 +258,10 @@ try {
 
   async function playheadState() {
     return page.evaluate(() => {
+      // v2 exposes machine-readable frames on the toolbar status cluster;
+      // the legacy header text is the fallback.
+      const status = document.querySelector('.nleTimelineStatus');
+      const ds = status instanceof HTMLElement ? status.dataset : null;
       const meta = document.querySelector('.nleHeaderMeta')?.textContent ?? '';
       const match = meta.match(/(\d+)\s*\/\s*(\d+)\s*frames/);
       const videos = [...document.querySelectorAll('.nleProgramMonitor video')].map((v) => ({
@@ -266,8 +270,8 @@ try {
         paused: v.paused,
       }));
       return {
-        playheadFrame: match ? Number(match[1]) : null,
-        durationFrames: match ? Number(match[2]) : null,
+        playheadFrame: ds?.playheadFrame !== undefined ? Number(ds.playheadFrame) : match ? Number(match[1]) : null,
+        durationFrames: ds?.durationFrames !== undefined ? Number(ds.durationFrames) : match ? Number(match[2]) : null,
         videos,
       };
     });

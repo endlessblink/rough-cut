@@ -27,6 +27,10 @@ Out of scope for this solidity gate:
 - Trim/cut editing.
 - Webcam PiP acceptance beyond not breaking existing camera plumbing.
 
+Related UI decision record:
+
+- `docs/recording-window-profile.md` documents why the Recording tab must switch the native Electron window to a compact profile. Do not treat the Recording setup surface as a CSS-only layout problem.
+
 ## Environment Gate
 
 The target machine must satisfy all of these before recording quality can be judged:

@@ -26,12 +26,14 @@ export function NleShell({
   onPlayheadFrameChange,
   onProjectChange,
   onGoToProjects,
+  onCreateBlankProject,
 }: {
   project: NleProject | null;
   playheadFrame?: number;
   onPlayheadFrameChange?: (nextFrame: number) => void;
   onProjectChange?: (next: NleProject) => void;
   onGoToProjects: () => void;
+  onCreateBlankProject?: () => void;
 }) {
   // The app owns playheadFrame when both Recording edit and NLE are mounted as
   // sibling tools. Keep a local fallback for standalone tests/embeds.
@@ -58,7 +60,7 @@ export function NleShell({
   }, [isPlayheadControlled, projectPath]);
 
   if (project === null) {
-    return <NleEmptyState onGoToProjects={onGoToProjects} />;
+    return <NleEmptyState onGoToProjects={onGoToProjects} onCreateBlankProject={onCreateBlankProject} />;
   }
 
   const fps = resolveProjectFps(project);
@@ -149,6 +151,46 @@ export function NleShell({
     return () => document.removeEventListener('keydown', handleKey);
   }, [durationFrames, fps, setPlayheadFrame]);
 
+  // TASK-228 — Ctrl+Shift+D writes a state dump next to the project so a
+  // live "this is broken" moment becomes a reproducible report.
+  const [debugDumpNotice, setDebugDumpNotice] = React.useState<string | null>(null);
+  const saveDebugDump = React.useCallback(async () => {
+    const bridge = (window as Window & { roughCut?: { saveDebugDump?: (payload: Record<string, unknown>) => Promise<{ path: string }> } }).roughCut;
+    if (!bridge?.saveDebugDump || !project?.path) return;
+    try {
+      const result = await bridge.saveDebugDump({
+        projectPath: project.path,
+        dump: {
+          capturedAt: new Date().toISOString(),
+          playheadFrame: clampedPlayhead,
+          durationFrames,
+          fps,
+          selectedClipId,
+          editMode,
+          layoutV2,
+          timeline: project.document?.timeline ?? null,
+          playbackDebug: (window as Window & { __roughCutTimelinePlaybackDebug?: unknown }).__roughCutTimelinePlaybackDebug ?? null,
+        },
+      });
+      setDebugDumpNotice(result.path);
+      console.info('[nle:debug-dump] saved', result.path);
+      window.setTimeout(() => setDebugDumpNotice(null), 6000);
+    } catch (error) {
+      console.warn('[nle:debug-dump] failed', String(error));
+    }
+  }, [project, clampedPlayhead, durationFrames, fps, selectedClipId, editMode, layoutV2]);
+
+  React.useEffect(() => {
+    function handleDumpKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault();
+        void saveDebugDump();
+      }
+    }
+    document.addEventListener('keydown', handleDumpKey);
+    return () => document.removeEventListener('keydown', handleDumpKey);
+  }, [saveDebugDump]);
+
   const layoutToggle = (
     <button
       type="button"
@@ -188,6 +230,9 @@ export function NleShell({
               data-playhead-frame={Math.round(clampedPlayhead)}
               data-duration-frames={Math.round(durationFrames)}
             >
+              {debugDumpNotice ? (
+                <span className="nleDebugDumpNotice" title={debugDumpNotice}>Debug dump saved</span>
+              ) : null}
               {layoutToggle}
             </div>
           )}
@@ -249,15 +294,28 @@ export function NleShell({
   );
 }
 
-function NleEmptyState({ onGoToProjects }: { onGoToProjects: () => void }) {
+function NleEmptyState({
+  onGoToProjects,
+  onCreateBlankProject,
+}: {
+  onGoToProjects: () => void;
+  onCreateBlankProject?: () => void;
+}) {
   return (
     <section className="nleEmptyState" data-ui-region="nle-empty" aria-label="NLE editor">
       <p className="eyebrow">Editor</p>
       <h2>No project open</h2>
-      <p>Open a project from Projects, or start a blank one to begin editing.</p>
-      <button type="button" className="primaryAction" onClick={onGoToProjects}>
-        Go to Projects
-      </button>
+      <p>Create an empty timeline or open an existing Rough Cut project.</p>
+      <div className="nleEmptyActions">
+        {onCreateBlankProject ? (
+          <button type="button" className="primaryAction" onClick={onCreateBlankProject}>
+            New empty project
+          </button>
+        ) : null}
+        <button type="button" className="secondary" onClick={onGoToProjects}>
+          Open Projects
+        </button>
+      </div>
     </section>
   );
 }

@@ -45,3 +45,20 @@ test('background helpers return null on degenerate input', () => {
   assert.equal(filmstripBackground({ url: 'x', stripSeconds: 0 }, { sourceInFrames: 0, fps: 30, pixelsPerFrame: 1 }), null);
   assert.equal(waveformBackground({ url: 'x', durationSec: 10 }, { sourceInFrames: 0, fps: 30, pixelsPerFrame: 0 }), null);
 });
+
+test('zoom buckets quantize to powers of two within bounds', async () => {
+  const { filmstripTileBucket, waveformWidthBucket, pickVisual } = await import('./clip-visuals-style.mjs');
+  // 355s * 30fps * 0.156 ppf ≈ 1662px → ~19 tiles desired → bucket 32.
+  assert.equal(filmstripTileBucket(355, 30, 0.156), 32);
+  assert.equal(filmstripTileBucket(355, 30, 4), 128, 'deep zoom caps');
+  assert.equal(waveformWidthBucket(10, 30, 0.1), 512, 'floor');
+  assert.equal(waveformWidthBucket(3600, 30, 4), 8192, 'cap');
+
+  const visuals = {
+    'filmstrip:/a.mp4:16': { url: 'u16' },
+    'filmstrip:/a.mp4:64': { url: 'u64' },
+  };
+  assert.equal(pickVisual(visuals, 'filmstrip', '/a.mp4', 64).url, 'u64', 'exact bucket');
+  assert.equal(pickVisual(visuals, 'filmstrip', '/a.mp4', 32).url, 'u16', 'nearest while regenerating');
+  assert.equal(pickVisual(visuals, 'filmstrip', '/b.mp4', 32), null);
+});

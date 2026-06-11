@@ -111,6 +111,7 @@ export const IPC_CHANNELS = {
   APP_GET_VERSION: 'app:get-version',
   APP_GET_RUNTIME_LOG_PATH: 'app:get-runtime-log-path',
   APP_OPEN_EDITOR: 'app:open-editor',
+  APP_SET_WINDOW_PROFILE: 'app:set-window-profile',
   APP_WRITE_PLAYBACK_DEBUG_REPORT: 'app:write-playback-debug-report',
   SHELL_SHOW_ITEM_IN_FOLDER: 'shell:show-item-in-folder',
   SHELL_OPEN_PATH: 'shell:open-path',
@@ -142,6 +143,9 @@ export const IPC_CHANNELS = {
   // TASK-237 slice 3 — per-source filmstrip/waveform PNG for timeline clips.
   // Returns { url, kind, durationSec, tiles?, intervalSec?, stripSeconds?, widthPx? }.
   CLIP_VISUALS_GET: 'clip-visuals:get',
+  // TASK-228 — write a timestamped editor state dump next to the project so
+  // live-reported bugs become reproducible. Returns { path }.
+  DEBUG_DUMP_SAVE: 'debug:dump-save',
   AI_ASSET_DELETE: 'ai-asset:delete',
   AI_ASSET_TAG: 'ai-asset:tag',
   AI_ASSET_RESOLVE: 'ai-asset:resolve',

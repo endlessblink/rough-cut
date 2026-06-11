@@ -9,7 +9,7 @@ import { isTypingTarget } from './keyboard.mjs';
 import { snapFrameToClipEdges, snapFrameToClipEdgesExcept } from './snap.mjs';
 import { createDragSession, timelineInFromPointerFrame, trackIdFromClientY, updateDragSession } from './drag-session.mjs';
 import { formatTimecode } from './project-shape.mjs';
-import { clipSourceFilePath, filmstripBackground, waveformBackground } from './clip-visuals-style.mjs';
+import { clipSourceFilePath, filmstripBackground, filmstripTileBucket, pickVisual, waveformBackground, waveformWidthBucket } from './clip-visuals-style.mjs';
 import type { ClipVisualMeta } from './clip-visuals-style.mjs';
 import { createTrimSession, updateTrimSession } from './trim-session.mjs';
 import {
@@ -171,6 +171,11 @@ export function NleTimeline({
   // across renders; failures degrade to the flat block (no retry storm).
   const [clipVisuals, setClipVisuals] = React.useState<Record<string, ClipVisualMeta>>({});
   const requestedVisualsRef = React.useRef<Set<string>>(new Set());
+  // Unmount guard only. Edits re-run the fetch effect, and naive per-run
+  // cancellation dropped strips that resolved mid-edit (split during load →
+  // permanently flat clips, since the dedupe set blocked retries).
+  const visualsAliveRef = React.useRef(true);
+  React.useEffect(() => () => { visualsAliveRef.current = false; }, []);
   React.useEffect(() => {
     requestedVisualsRef.current = new Set();
     setClipVisuals({});
@@ -180,28 +185,33 @@ export function NleTimeline({
     if (!projectPath) return;
     const bridge = (window as Window & { roughCut?: { getClipVisual?: (payload: Record<string, unknown>) => Promise<ClipVisualMeta> } }).roughCut;
     if (!bridge?.getClipVisual) return;
-    let cancelled = false;
     for (const track of buildTimelineTracks(project)) {
       const kind = track.kind === 'audio' ? 'waveform' : track.kind === 'video' ? 'filmstrip' : null;
       if (!kind) continue;
       for (const block of track.blocks) {
         const sourcePath = clipSourceFilePath(project, block.mediaId);
         if (!sourcePath) continue;
-        const key = `${kind}:${sourcePath}`;
+        const durationSec = Math.max(1, Number(block.sourceDurationFrames ?? durationFrames) / fps);
+        // Resolution follows the zoom bucket so tiles stay ~screen-sized
+        // (crisp) instead of squashing a fixed strip into the scale.
+        const bucket = kind === 'filmstrip'
+          ? filmstripTileBucket(durationSec, fps, pixelsPerFrame)
+          : waveformWidthBucket(durationSec, fps, pixelsPerFrame);
+        const key = `${kind}:${sourcePath}:${bucket}`;
         if (requestedVisualsRef.current.has(key)) continue;
         requestedVisualsRef.current.add(key);
-        const durationSec = Math.max(1, Number(block.sourceDurationFrames ?? durationFrames) / fps);
-        bridge.getClipVisual({ projectPath, sourcePath, kind, durationSec })
+        const sizing = kind === 'filmstrip' ? { targetTiles: bucket } : { targetWidthPx: bucket };
+        bridge.getClipVisual({ projectPath, sourcePath, kind, durationSec, ...sizing })
           .then((meta) => {
-            if (!cancelled && meta?.url) setClipVisuals((prev) => ({ ...prev, [key]: meta }));
+            if (visualsAliveRef.current && meta?.url) setClipVisuals((prev) => ({ ...prev, [key]: meta }));
           })
-          .catch(() => {
+          .catch((error) => {
             // keep the flat block; the key stays "requested" so we don't loop
+            console.warn('[nle:clip-visuals] failed', key, String(error));
           });
       }
     }
-    return () => { cancelled = true; };
-  }, [project, durationFrames, fps]);
+  }, [project, durationFrames, fps, pixelsPerFrame]);
 
   // Apply anchor-preserving scroll after a zoom re-render, once the content
   // width has actually changed.
@@ -652,7 +662,12 @@ export function NleTimeline({
                         const visualKind = track.kind === 'audio' ? 'waveform' : track.kind === 'video' ? 'filmstrip' : null;
                         if (!visualKind) return null;
                         const sourcePath = clipSourceFilePath(project, block.mediaId);
-                        const meta = sourcePath ? clipVisuals[`${visualKind}:${sourcePath}`] : undefined;
+                        if (!sourcePath) return null;
+                        const blockDurationSec = Math.max(1, Number(block.sourceDurationFrames ?? durationFrames) / fps);
+                        const bucket = visualKind === 'filmstrip'
+                          ? filmstripTileBucket(blockDurationSec, fps, pixelsPerFrame)
+                          : waveformWidthBucket(blockDurationSec, fps, pixelsPerFrame);
+                        const meta = pickVisual(clipVisuals, visualKind, sourcePath, bucket);
                         if (!meta) return null;
                         // Live-slide the strip while trimming the left edge.
                         const liveSourceIn = (trimPreview as { sourceIn?: number } | null)?.sourceIn ?? block.sourceIn ?? 0;

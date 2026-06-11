@@ -235,7 +235,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-225 | Audit + break down current NLE editor: works/broken/ugly ledger | P1 | PLANNED |
 | TASK-226 | NLE layout + visual redesign: stage/timeline proportions, topbar | P1 | PLANNED |
 | ~~TASK-227~~ | Harness fixture: long recording with camera + mic linked clips | P1 | DONE (2026-06-10) |
-| TASK-228 | One-click NLE debug state dump for live bug capture | P1 | PLANNED |
+| ~~TASK-228~~ | One-click NLE debug state dump for live bug capture | P1 | DONE (2026-06-11) |
 | TASK-229 | Wire undo/redo into the NLE view | P1 | PLANNED |
 | TASK-230 | Export parity for NLE-edited timelines (cuts, gaps, moves) | P1 | PLANNED |
 | TASK-231 | Ripple trim engine + Trim mode edge behavior | P2 | PLANNED |
@@ -246,8 +246,8 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-225~~ | Audit + break down current NLE editor: works/broken/ugly ledger | P1 | SUPERSEDED → TASK-236 |
 | ~~TASK-226~~ | NLE layout + visual redesign: stage/timeline proportions, topbar | P1 | SUPERSEDED → TASK-236/237 |
 | TASK-236 | Editor v2 design spec + mockup, user-approved before any code | P1 | IN PROGRESS — mockup direction APPROVED 2026-06-10 |
-| TASK-237 | Build Editor v2 view to approved design on existing plumbing | P1 | IN PROGRESS — slices 1+2 DONE 2026-06-10 |
-| TASK-238 | Program monitor shows stale frame when playhead is in a gap | P1 | PLANNED |
+| TASK-237 | Build Editor v2 view to approved design on existing plumbing | P1 | IN PROGRESS — slices 1–3 DONE 2026-06-11 |
+| ~~TASK-238~~ | Program monitor shows stale frame when playhead is in a gap | P1 | DONE (2026-06-11) |
 | TASK-239 | Compositor migration research note + renderer contract | P0 | DONE (2026-06-10) |
 | TASK-240 | Extract shared composition-frame plan from preview/export inputs | P0 | DONE (2026-06-10) |
 | TASK-241 | Add screen-layer renderer boundary with Canvas2D parity adapter | P0 | DONE (2026-06-10) |
@@ -1405,7 +1405,7 @@ Until preview matches export, every presentation feature ships blind: users add 
 
 **Priority**: P3-LOW
 **Priority:** P1
-**Status:** PLANNED
+**Status:** IN PROGRESS
 **Supersedes-on-completion:** TASK-010 (cursor telemetry recording), TASK-011 (cursor overlay export), and the entire reliable-cursor-overlay architecture
 
 #### Context
@@ -3247,7 +3247,7 @@ The recording-recovery marker existed at `recording-session.mjs:45-69` but no UI
 ### TASK-090 Build AppImage and deb installer with electron-updater
 
 **Priority:** P3
-**Status:** IN PROGRESS
+**Status:** DONE (2026-06-11)
 
 #### Context
 
@@ -7205,6 +7205,23 @@ interaction primitives (viewport math, captured gestures, mode dispatch), and ha
   `data-timeline-in`/`data-timeline-out`; harnesses read clip dataset instead of the removed
   readout. Validated at 1900px width (the earlier misses came from validating only at the narrow
   harness window).
+- Slice 3 (DONE 2026-06-11): filmstrip thumbnails + audio waveforms — main-process
+  `clip-visuals.mjs` service (per-SOURCE cached PNGs under `.roughcut-visuals/`, keyed by mtime;
+  filmstrip via keyframe-only decode `-skip_frame nokey` → 0.25s for a 6-min source; waveform via
+  `showwavespic`), `clip-visuals:get` IPC + preload bridge, renderer `clip-visuals-style.mjs`
+  (pure slice math: strip offset by sourceIn at timeline scale; live-slides during left-edge trim),
+  media spans + name-bar gradient on clip blocks. Bug found via instrumentation: per-run effect
+  cancellation dropped strips resolving mid-edit (split during load → permanently flat clips);
+  fixed with an unmount-only guard. Linked harness updated to read frames from the
+  `.nleTimelineStatus` dataset. Suite 586 pass; both harnesses problems: []; verified visually on
+  the linked camera+mic fixture (camera + screen strips, gap intact).
+- Slice 3.1 (DONE 2026-06-11, user feedback "stretched and blurry" + "buttons look bad"):
+  **zoom-adaptive strips** — filmstrip tiles are uniform cover-cropped 86×48 (never squashed);
+  tile count / waveform width follow power-of-two zoom buckets requested by the renderer
+  (`filmstripTileBucket`/`waveformWidthBucket`), cached per variant (`visualCacheKey` v2), with
+  `pickVisual` serving the nearest generated variant while a sharper one renders. Also fixed the
+  MISSING `.srOnly` rule (screen-reader labels were rendering visibly) and restyled the Generated
+  bin's legacy controls to the v2 vocabulary. Suite 599 pass.
 
 #### Verification
 

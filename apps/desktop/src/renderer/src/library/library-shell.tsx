@@ -11,6 +11,7 @@ import { ContextMenu } from './context-menu';
 import { resolveContextTargets } from './context-targets.mjs';
 import { IMPORT_REJECTION_MESSAGE, isImportableMimeType } from '../../../shared/import-mime.mjs';
 import { TemplatePickerModal } from './template-picker-modal';
+import type { ProjectAspectRatio } from '@rough-cut/project-model';
 
 const SIZE_STEPS: ReadonlyArray<SizeStep> = ['S', 'M', 'L'];
 
@@ -30,6 +31,7 @@ type ProjectStateLike = {
 export function LibraryShell({
   onOpenProjectByPath,
   onOpenProjectDialog,
+  onCreateBlankProject,
   openProjectPath,
   onRenameInFlight,
   onCloseOpenProject,
@@ -37,6 +39,7 @@ export function LibraryShell({
 }: {
   onOpenProjectByPath: (path: string) => void;
   onOpenProjectDialog: () => void;
+  onCreateBlankProject: (payload?: { name?: string; aspectRatio?: ProjectAspectRatio } | null) => Promise<ProjectStateLike>;
   // Path of the currently-loaded project (or null). Used to atomically close
   // the open project when it's deleted, and to swap the editor's state when
   // it's renamed.
@@ -90,6 +93,19 @@ export function LibraryShell({
       setImportError(message);
     }
   }, [onOpenProjectByPath]);
+
+  const handleCreateBlankProject = React.useCallback(async (
+    payload?: { name?: string; aspectRatio?: ProjectAspectRatio } | null,
+  ) => {
+    setImportError(null);
+    try {
+      await onCreateBlankProject(payload ?? null);
+      setRefreshKey((n) => n + 1);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setImportError(message);
+    }
+  }, [onCreateBlankProject]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -387,7 +403,7 @@ export function LibraryShell({
             <SizeSwitcher value={sizeStep} onChange={setSizeStep} />
           ) : null}
           <SelectModeToggle active={selectMode} onToggle={() => setSelectMode((on) => !on)} />
-          <button type="button" className="libraryOpenFile" onClick={onOpenProjectDialog}>Open file…</button>
+          <button type="button" className="libraryOpenFile" onClick={onOpenProjectDialog}>Open project...</button>
           {/* P-AI-C/TASK-166: stub entry points. Handlers wired in TASK-167–170. */}
           <button
             type="button"
@@ -401,19 +417,9 @@ export function LibraryShell({
             type="button"
             className="libraryOpenFile"
             data-testid="library-blank-project"
-            onClick={async () => {
-              setImportError(null);
-              try {
-                const created = await window.roughCut.createBlankProject(null);
-                onOpenProjectByPath(created.path);
-                setRefreshKey((n) => n + 1);
-              } catch (err) {
-                const message = err instanceof Error ? err.message : String(err);
-                setImportError(message);
-              }
-            }}
+            onClick={() => { void handleCreateBlankProject(null); }}
           >
-            Blank project
+            New empty project
           </button>
           <button
             type="button"
@@ -466,10 +472,10 @@ export function LibraryShell({
         />
       ) : null}
       <div className="libraryBody">
-        {state.status === 'loading' ? <LibraryEmptyState eyebrow="Loading" body="Scanning your recordings…" /> : null}
+        {state.status === 'loading' ? <LibraryEmptyState eyebrow="Loading" body="Scanning your projects..." /> : null}
         {state.status === 'error' ? <LibraryEmptyState eyebrow="Couldn’t load projects" body={state.message} tone="error" /> : null}
         {state.status === 'ready' && state.summaries.length === 0 ? (
-          <LibraryEmptyState eyebrow="No projects yet" body="Record a take and it will appear here." />
+          <LibraryEmptyState eyebrow="No projects yet" body="Create an empty project, open a .roughcut file, import media, or record a take." />
         ) : null}
         {state.status === 'ready' && state.summaries.length > 0 ? (
           <LibraryViewport view={activeView} summaries={state.summaries} viewProps={viewProps} onGroupSelectAll={handleGroupSelectAll} />
@@ -517,12 +523,10 @@ export function LibraryShell({
           setTemplatePickerOpen(false);
           setImportError(null);
           try {
-            const created = await window.roughCut.createBlankProject({
+            await handleCreateBlankProject({
               name: template.label,
               aspectRatio: template.aspectRatio,
             });
-            onOpenProjectByPath(created.path);
-            setRefreshKey((n) => n + 1);
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             setImportError(message);
@@ -534,10 +538,10 @@ export function LibraryShell({
 }
 
 function summaryCountLabel(state: LoadState): string {
-  if (state.status !== 'ready') return 'Pick a recording to open';
+  if (state.status !== 'ready') return 'Pick a project to open';
   const n = state.summaries.length;
   if (n === 0) return 'No projects yet';
-  return `${n} recording${n === 1 ? '' : 's'}`;
+  return `${n} project${n === 1 ? '' : 's'}`;
 }
 
 function LibraryEmptyState({ eyebrow, body, tone }: { eyebrow: string; body: string; tone?: 'error' }) {

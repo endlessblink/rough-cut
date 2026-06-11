@@ -124,3 +124,38 @@ test('NLE toolbar stays premium: centered timecode, no noise, dataset clips', ()
   assert.match(source, /data-timeline-in=\{Math\.round\(block\.timelineIn\)\}/);
   assert.match(source, /data-timeline-out=\{Math\.round\(block\.timelineOut\)\}/);
 });
+
+test('NLE clip visuals: media spans wired with edit-safe lifecycle', () => {
+  const source = readFileSync(join(here, 'nle-timeline.tsx'), 'utf8');
+  const clips = readFileSync(join(here, 'timeline-clips.mjs'), 'utf8');
+  const css = readFileSync(join(here, '..', 'styles.css'), 'utf8');
+
+  // Strip/wave spans render inside clip blocks, offset by sourceIn.
+  assert.match(source, /clipSourceFilePath/);
+  assert.match(source, /filmstripBackground/);
+  assert.match(source, /waveformBackground/);
+  assert.match(source, /nleClipMedia/);
+  assert.match(css, /\.nleClipMedia\s*{/);
+  assert.match(css, /\.nleClipNameBar\s*{/);
+  // Blocks expose mediaId so visuals can resolve the source file.
+  assert.match(clips, /\bmediaId,/);
+  // REGRESSION (slice 3): per-run effect cancellation dropped strips that
+  // resolved mid-edit (split during generation → permanently flat clips).
+  // The guard must be unmount-only.
+  assert.match(source, /visualsAliveRef\.current = false; }, \[\]\);/);
+  assert.doesNotMatch(source, /let cancelled = false;[\s\S]{0,800}getClipVisual/);
+  // Failures must warn (not vanish) and never retry-loop.
+  assert.match(source, /\[nle:clip-visuals\] failed/);
+});
+
+test('NLE shell ships the Ctrl+Shift+D debug state dump (TASK-228)', () => {
+  const source = readFileSync(join(here, 'nle-shell.tsx'), 'utf8');
+
+  assert.match(source, /saveDebugDump/);
+  assert.match(source, /e\.shiftKey && \(e\.key === 'd' \|\| e\.key === 'D'\)/);
+  // The dump carries enough to reconstruct the session in a harness.
+  for (const field of ['playheadFrame', 'selectedClipId', 'editMode', 'timeline:', 'playbackDebug']) {
+    assert.ok(source.includes(field), `dump includes ${field}`);
+  }
+  assert.match(source, /nleDebugDumpNotice/);
+});

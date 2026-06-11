@@ -36,3 +36,37 @@ export function waveformBackground(meta, view) {
   if (!meta?.url) return null;
   return sliceBackground(meta.url, Number(meta.durationSec), view);
 }
+
+// Zoom buckets: ~one filmstrip tile per TILE px of screen, quantized to
+// powers of two so zooming doesn't regenerate strips on every wheel step.
+const TILE_SCREEN_PX = 86;
+export function filmstripTileBucket(sourceDurationSec, fps, pixelsPerFrame) {
+  const widthPx = Math.max(1, sourceDurationSec * fps * pixelsPerFrame);
+  const desired = Math.max(1, widthPx / TILE_SCREEN_PX);
+  return Math.min(128, 2 ** Math.ceil(Math.log2(desired)));
+}
+
+export function waveformWidthBucket(sourceDurationSec, fps, pixelsPerFrame) {
+  const widthPx = Math.max(1, sourceDurationSec * fps * pixelsPerFrame);
+  return Math.min(8192, Math.max(512, 2 ** Math.ceil(Math.log2(widthPx))));
+}
+
+// Prefer the exact bucket; otherwise the closest generated variant so the
+// strip never blanks while a sharper one renders.
+export function pickVisual(visuals, kind, sourcePath, bucket) {
+  const exact = visuals[`${kind}:${sourcePath}:${bucket}`];
+  if (exact) return exact;
+  const prefix = `${kind}:${sourcePath}:`;
+  let best = null;
+  let bestDistance = Infinity;
+  for (const [key, meta] of Object.entries(visuals)) {
+    if (!key.startsWith(prefix)) continue;
+    const variant = Number(key.slice(prefix.length));
+    const distance = Math.abs(Math.log2(Math.max(1, variant)) - Math.log2(Math.max(1, bucket)));
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = meta;
+    }
+  }
+  return best;
+}

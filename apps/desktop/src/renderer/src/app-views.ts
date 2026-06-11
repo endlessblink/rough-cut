@@ -6,7 +6,7 @@
 // branch on view id; it consults the registry to render the strip and
 // dispatches to view-specific render blocks in main.tsx via the active id.
 
-export type AppViewId = 'projects' | 'editor' | 'nle' | 'ai';
+export type AppViewId = 'recording' | 'projects' | 'editor' | 'nle' | 'ai';
 
 export type AppView = {
   id: AppViewId;
@@ -18,14 +18,12 @@ export type AppView = {
   hiddenFromStrip?: boolean;
 };
 
-// The main window has three views. Recording is a SEPARATE Electron
-// BrowserWindow (recordingLauncherShell, opened by the top-right Record button),
-// not a tab in here.
 export const APP_VIEWS: ReadonlyArray<AppView> = [
+  { id: 'recording', label: 'Recording', iconName: 'record' },
   { id: 'projects', label: 'Projects', iconName: 'folder' },
   { id: 'editor', label: 'Recording edit', iconName: 'timeline' },
   { id: 'nle', label: 'Editor', iconName: 'sliders' },
   { id: 'ai', label: 'AI', iconName: 'sparkle' },
 ];
 
-export const DEFAULT_APP_VIEW_ID: AppViewId = 'projects';
+export const DEFAULT_APP_VIEW_ID: AppViewId = 'recording';

@@ -14,8 +14,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 //   1. A view id is removed from the AppViewId union but a render branch
 //      in main.tsx still references it — typecheck catches the union
 //      mismatch, but a missed branch in main.tsx remains.
-//   2. APP_VIEWS gets reordered (e.g. someone drops NLE between Projects
-//      and Recording edit) and the bottom strip no longer matches the
+//   2. APP_VIEWS gets reordered (e.g. someone drops NLE before Recording
+//      or between Projects and Recording edit) and the bottom strip no longer matches the
 //      product spec.
 //   3. The URL ?view= allowlist in main.tsx falls out of sync with the
 //      union (a real view id can't be opened via deep-link).
@@ -55,12 +55,13 @@ function extractAppViewEntries(source) {
   return entries;
 }
 
-test('AppViewId union and APP_VIEWS registry agree on the four shipped views', async () => {
+test('AppViewId union and APP_VIEWS registry agree on the five shipped views', async () => {
   const source = await readSource('app-views.ts');
   const ids = extractAppViewIds(source);
   const entries = extractAppViewEntries(source);
 
   const expected = [
+    { id: 'recording', label: 'Recording', iconName: 'record' },
     { id: 'projects', label: 'Projects', iconName: 'folder' },
     { id: 'editor', label: 'Recording edit', iconName: 'timeline' },
     { id: 'nle', label: 'Editor', iconName: 'sliders' },
@@ -100,4 +101,16 @@ test('main.tsx has a render branch for each AppViewId and a URL-allowlist entry'
       `main.tsx URL-allowlist must accept \`?view=${id}\``,
     );
   }
+});
+
+test('recording view switches the native window into the compact profile', async () => {
+  const source = await readSource('main.tsx');
+  assert.ok(
+    source.includes("activeAppView === 'recording' && recording.state !== 'recording' ? 'recording' : 'studio'"),
+    'main.tsx must derive the native window profile from the active Recording view',
+  );
+  assert.ok(
+    source.includes('window.roughCut.setWindowProfile(profile)'),
+    'main.tsx must call the preload bridge that resizes/restores the native BrowserWindow',
+  );
 });

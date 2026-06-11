@@ -82,6 +82,7 @@ let activeRecordingFinalizePromise = null;
 let activeCameraPreview = null;
 let activeAudioPreview = null;
 let activeExportController = null;
+const studioWindowBoundsById = new Map();
 const recordingSession = createRecordingSession({
   recordingsDir,
   markerPath,
@@ -370,9 +371,14 @@ function webglMotionBlurEnabled() {
   return process.env.ROUGH_CUT_WEBGL_MOTION_BLUR === '1' || process.env.VITE_ROUGH_CUT_WEBGL_MOTION_BLUR === '1';
 }
 
+function experimentalHeadlessExportUiEnabled() {
+  return process.env.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT_UI === '1' || process.env.VITE_ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT_UI === '1';
+}
+
 function applyRendererFeatureFlags(params) {
   if (webglScreenLayerEnabled()) params.set('screenLayerRenderer', 'webgl');
   if (webglMotionBlurEnabled()) params.set('webglMotionBlur', '1');
+  if (experimentalHeadlessExportUiEnabled()) params.set('experimentalHeadlessExportUi', '1');
 }
 
 function rendererSearch({ mode = 'editor', projectPath = null } = {}) {
@@ -466,6 +472,7 @@ ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_PATH, (_event, itemPath) => {
 ipcMain.handle(IPC_CHANNELS.APP_OPEN_EDITOR, (event, projectPath = null) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (!senderWindow) return;
+  studioWindowBoundsById.delete(senderWindow.id);
   senderWindow.setResizable(true);
   senderWindow.setMaximizable(true);
   senderWindow.setMinimumSize(860, 560);
@@ -473,6 +480,42 @@ ipcMain.handle(IPC_CHANNELS.APP_OPEN_EDITOR, (event, projectPath = null) => {
   senderWindow.center();
   senderWindow.show();
   loadRenderer(senderWindow, { mode: 'editor', projectPath });
+});
+ipcMain.handle(IPC_CHANNELS.APP_SET_WINDOW_PROFILE, (event, profile = 'studio') => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!senderWindow) return { ok: false, reason: 'missing-window' };
+  if (senderWindow.isDestroyed()) return { ok: false, reason: 'destroyed-window' };
+  if (senderWindow.isFullScreen()) return { ok: false, reason: 'fullscreen' };
+  if (senderWindow.isMaximized()) senderWindow.unmaximize();
+
+  if (profile === 'recording') {
+    if (!studioWindowBoundsById.has(senderWindow.id)) {
+      studioWindowBoundsById.set(senderWindow.id, senderWindow.getBounds());
+    }
+    senderWindow.setResizable(true);
+    senderWindow.setMaximizable(true);
+    senderWindow.setMinimumSize(720, 560);
+    senderWindow.setSize(760, 620);
+    senderWindow.center();
+    return { ok: true, profile, bounds: senderWindow.getBounds() };
+  }
+
+  if (profile === 'studio') {
+    senderWindow.setResizable(true);
+    senderWindow.setMaximizable(true);
+    senderWindow.setMinimumSize(860, 560);
+    const previousBounds = studioWindowBoundsById.get(senderWindow.id);
+    studioWindowBoundsById.delete(senderWindow.id);
+    if (previousBounds && previousBounds.width >= 860 && previousBounds.height >= 560) {
+      senderWindow.setBounds(previousBounds);
+    } else {
+      senderWindow.setSize(1120, 740);
+      senderWindow.center();
+    }
+    return { ok: true, profile, bounds: senderWindow.getBounds() };
+  }
+
+  return { ok: false, reason: 'unknown-profile', profile };
 });
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_MIC_SOURCES, async () => listMicSources());
 ipcMain.handle(IPC_CHANNELS.RECORDING_GET_SYSTEM_AUDIO_SOURCES, async () => listSystemAudioSources());
@@ -882,7 +925,7 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, { document, outputPath, 
   }
 });
 ipcMain.handle(IPC_CHANNELS.CLIP_VISUALS_GET, async (_event, payload = {}) => {
-  const { projectPath, sourcePath, kind, durationSec } = payload;
+  const { projectPath, sourcePath, kind, durationSec, targetTiles, targetWidthPx } = payload;
   if (typeof projectPath !== 'string' || !projectPath) throw new Error('clip-visuals: projectPath required');
   if (typeof sourcePath !== 'string' || !sourcePath) throw new Error('clip-visuals: sourcePath required');
   const resolvedSource = isAbsolute(sourcePath) ? sourcePath : join(dirname(projectPath), sourcePath);
@@ -891,9 +934,22 @@ ipcMain.handle(IPC_CHANNELS.CLIP_VISUALS_GET, async (_event, payload = {}) => {
     sourcePath: resolvedSource,
     kind,
     durationSec: Number(durationSec) || 1,
+    targetTiles,
+    targetWidthPx,
   });
   const { path: visualPath, ...meta } = visual;
   return { ...meta, url: toMediaUrl(visualPath) };
+});
+
+ipcMain.handle(IPC_CHANNELS.DEBUG_DUMP_SAVE, async (_event, payload = {}) => {
+  const { projectPath, dump } = payload;
+  if (typeof projectPath !== 'string' || !projectPath) throw new Error('debug-dump: projectPath required');
+  const dir = join(dirname(projectPath), '.roughcut-debug');
+  await mkdir(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const dumpPath = join(dir, `editor-dump-${stamp}.json`);
+  await writeFile(dumpPath, `${JSON.stringify(dump ?? {}, null, 2)}\n`, 'utf8');
+  return { path: dumpPath };
 });
 
 ipcMain.handle(IPC_CHANNELS.EXPORT_CANCEL, () => {
@@ -1351,19 +1407,38 @@ async function runRendererStartupRecordButtonSmoke(options = {}) {
   try {
     await waitFor(() => document.querySelector('[data-ui-shell="recording-studio"]'), 'studio shell');
     const hasInitialPreRecordPanel = Boolean(await waitFor(() => document.querySelector('[data-ui-region="pre-record-panel"]'), 'startup pre-record panel'));
+    const hasRecordingWorkspace = Boolean(await waitFor(() => document.querySelector('[data-ui-region="recording-workspace"]'), 'recording workspace'));
+    const hasRecordingTab = Boolean(
+      Array.from(document.querySelectorAll('[data-ui-region="app-view-tabstrip"] button[aria-pressed="true"]'))
+        .some((button) => button.textContent?.includes('Recording')),
+    );
+    const compactWindow = await waitFor(() => (
+      window.outerWidth <= 820 && window.outerHeight <= 680
+        ? { width: window.outerWidth, height: window.outerHeight }
+        : null
+    ), 'compact recording window');
     if (options.startupOpenEditor) {
       const openEditorButton = await waitFor(() => document.querySelector('[data-open-editor="pre-record"]:not(:disabled)'), 'pre-record open editor button');
       openEditorButton.click();
-      await waitFor(() => !document.querySelector('[data-ui-region="pre-record-panel"]'), 'pre-record panel closed after opening editor');
+      await waitFor(() => !document.querySelector('[data-ui-region="recording-workspace"]'), 'recording workspace closed after opening editor');
+      const studioWindow = await waitFor(() => (
+        window.outerWidth >= 860 && window.outerHeight >= 700
+          ? { width: window.outerWidth, height: window.outerHeight }
+          : null
+      ), 'restored studio window after leaving recording');
       const hasEditorEmptyState = Boolean(await waitFor(() => document.querySelector('[data-ui-region="editor-empty"]'), 'empty editor state'));
       if (options.startupOpenProjects) {
         const openProjectsButton = await waitFor(() => document.querySelector('[data-ui-region="editor-empty"] button'), 'open projects button');
         openProjectsButton.click();
-        await waitFor(() => !document.querySelector('[data-ui-region="pre-record-panel"]'), 'pre-record panel stays closed after opening projects');
+        await waitFor(() => !document.querySelector('[data-ui-region="recording-workspace"]'), 'recording workspace stays closed after opening projects');
         const hasProjectsView = Boolean(await waitFor(() => document.querySelector('[data-ui-region="project-library"]'), 'project library'));
         return {
-          ok: hasInitialPreRecordPanel && hasEditorEmptyState && hasProjectsView,
+          ok: hasInitialPreRecordPanel && hasRecordingWorkspace && hasRecordingTab && hasEditorEmptyState && hasProjectsView,
           hasInitialPreRecordPanel,
+          hasRecordingWorkspace,
+          hasRecordingTab,
+          compactWindow,
+          studioWindow,
           hasEditorEmptyState,
           hasProjectsView,
           openedEditorFromPanel: true,
@@ -1371,16 +1446,23 @@ async function runRendererStartupRecordButtonSmoke(options = {}) {
         };
       }
       return {
-        ok: hasInitialPreRecordPanel && hasEditorEmptyState,
+        ok: hasInitialPreRecordPanel && hasRecordingWorkspace && hasRecordingTab && hasEditorEmptyState,
         hasInitialPreRecordPanel,
+        hasRecordingWorkspace,
+        hasRecordingTab,
+        compactWindow,
+        studioWindow,
         hasEditorEmptyState,
         openedEditorFromPanel: true,
       };
     }
     if (options.startupPanelOnly) {
       return {
-        ok: hasInitialPreRecordPanel,
+        ok: hasInitialPreRecordPanel && hasRecordingWorkspace && hasRecordingTab,
         hasInitialPreRecordPanel,
+        hasRecordingWorkspace,
+        hasRecordingTab,
+        compactWindow,
         panelOnly: true,
       };
     }
@@ -1392,8 +1474,11 @@ async function runRendererStartupRecordButtonSmoke(options = {}) {
     await window.roughCut.cancelRecording();
     await waitFor(async () => (await window.roughCut.getRecordingStatus())?.state === 'idle', 'idle state after startup smoke cancel');
     return {
-      ok: hasInitialPreRecordPanel && startedFromTopButton,
+      ok: hasInitialPreRecordPanel && hasRecordingWorkspace && hasRecordingTab && startedFromTopButton,
       hasInitialPreRecordPanel,
+      hasRecordingWorkspace,
+      hasRecordingTab,
+      compactWindow,
       startedFromTopButton,
       canceledState: 'idle',
     };
@@ -1527,6 +1612,7 @@ async function runRendererUiSmoke() {
   await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board re-active after camera tab');
   await waitFor(() => document.querySelector('[data-export-action="styled"]'), 'styled review export action');
   const hasReviewExportActions = Boolean(document.querySelector('[data-export-action="styled"]') && document.querySelector('[data-export-action="raw"]'));
+  const hasExperimentalHeadlessExportAction = Boolean(document.querySelector('[data-export-action="experimental-headless"]'));
   const hasRawPresetDetails = document.body.textContent?.includes('Raw export keeps the original recording unchanged.') ?? false;
   const hasStyledPresetDetails = Boolean(
     document.body.textContent?.includes('Styled preset:')
@@ -1761,6 +1847,7 @@ async function runRendererUiSmoke() {
     exportMode: 'styled',
     hasStyledMode: hasReviewExportActions,
     hasReviewExportActions,
+    hasExperimentalHeadlessExportAction,
     hasRawPresetDetails,
     hasStyledPresetDetails,
     hasTemplatePresetSelection,

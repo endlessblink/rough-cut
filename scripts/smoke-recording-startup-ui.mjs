@@ -12,28 +12,28 @@ const scenarios = [
     name: 'startup-panel',
     env: { ROUGH_CUT_UI_SMOKE_STARTUP_PANEL_ONLY: '1' },
     assert(report) {
-      return report.ok && report.hasInitialPreRecordPanel && report.panelOnly && report.hasVisualScreenshot;
+      return report.ok && report.hasInitialPreRecordPanel && report.hasRecordingWorkspace && report.hasRecordingTab && report.compactWindow && report.panelOnly && report.hasVisualScreenshot;
     },
   },
   {
     name: 'top-record-button',
     env: {},
     assert(report) {
-      return report.ok && report.hasInitialPreRecordPanel && report.startedFromTopButton && report.canceledState === 'idle';
+      return report.ok && report.hasInitialPreRecordPanel && report.hasRecordingWorkspace && report.hasRecordingTab && report.compactWindow && report.startedFromTopButton && report.canceledState === 'idle';
     },
   },
   {
     name: 'open-editor',
     env: { ROUGH_CUT_UI_SMOKE_STARTUP_OPEN_EDITOR: '1' },
     assert(report) {
-      return report.ok && report.hasInitialPreRecordPanel && report.openedEditorFromPanel && report.hasEditorEmptyState;
+      return report.ok && report.hasInitialPreRecordPanel && report.hasRecordingWorkspace && report.hasRecordingTab && report.compactWindow && report.studioWindow && report.openedEditorFromPanel && report.hasEditorEmptyState;
     },
   },
   {
     name: 'open-projects',
     env: { ROUGH_CUT_UI_SMOKE_STARTUP_OPEN_EDITOR: '1', ROUGH_CUT_UI_SMOKE_STARTUP_OPEN_PROJECTS: '1' },
     assert(report) {
-      return report.ok && report.hasInitialPreRecordPanel && report.openedEditorFromPanel && report.openedProjectsFromEditor && report.hasProjectsView;
+      return report.ok && report.hasInitialPreRecordPanel && report.hasRecordingWorkspace && report.hasRecordingTab && report.compactWindow && report.studioWindow && report.openedEditorFromPanel && report.openedProjectsFromEditor && report.hasProjectsView;
     },
   },
 ];

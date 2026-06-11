@@ -95,3 +95,18 @@ test('preload IPC_CHANNELS values match shared/ipc-channels.mjs for every shared
     `Preload IPC_CHANNELS drift vs shared/ipc-channels.mjs:\n  - ${mismatches.join('\n  - ')}`,
   );
 });
+
+test('clip visuals channel is part of the IPC contract', async () => {
+  const { IPC_CHANNELS } = await import('./ipc-channels.mjs');
+  assert.equal(IPC_CHANNELS.CLIP_VISUALS_GET, 'clip-visuals:get');
+});
+
+test('debug dump channel is part of the IPC contract', async () => {
+  const { IPC_CHANNELS } = await import('./ipc-channels.mjs');
+  assert.equal(IPC_CHANNELS.DEBUG_DUMP_SAVE, 'debug:dump-save');
+});
+
+test('window profile channel is part of the IPC contract', async () => {
+  const { IPC_CHANNELS } = await import('./ipc-channels.mjs');
+  assert.equal(IPC_CHANNELS.APP_SET_WINDOW_PROFILE, 'app:set-window-profile');
+});

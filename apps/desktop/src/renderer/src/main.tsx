@@ -11,6 +11,7 @@ import {
   FrameCorners as PhosphorFrameCorners,
   GearSix as PhosphorGearSix,
   Icon as PhosphorIconType,
+  MagnifyingGlassMinus as PhosphorMagnifyingGlassMinus,
   MagnifyingGlassPlus as PhosphorMagnifyingGlassPlus,
   Microphone as PhosphorMicrophone,
   Monitor as PhosphorMonitor,
@@ -84,6 +85,8 @@ import { addCutRange, clearCutRanges, listCutRanges, removeCutRange, visibleDura
 import { getRecordingTimelineClip, restoreRecordingFullSource, restoreRecordingSourceEdge, rippleDeleteRecordingRange, selectRecordingEditModel, syncRecordingTimelinePresentation, updateRecordingTimelineTrim } from './recording-timeline.mjs';
 import { appError, errorStateCopy, type AppError } from './app-error-copy.mjs';
 import { EMPTY_EDIT_HISTORY, recordEdit, redoEdit, undoEdit, type EditHistory } from './edit-history.mjs';
+import { contentWidthPx, frameAtClientX, resolvePixelsPerFrame, scrollLeftForAnchor, zoomStep, MAX_PIXELS_PER_FRAME } from './nle/timeline-viewport.mjs';
+import { isTypingTarget } from './nle/keyboard.mjs';
 
 declare global {
   interface Window {
@@ -91,6 +94,7 @@ declare global {
       getVersion: () => Promise<string>;
       getRuntimeLogPath: () => Promise<string>;
       openEditor: (projectPath?: string | null) => Promise<void>;
+      setWindowProfile: (profile: 'recording' | 'studio') => Promise<{ ok: boolean; profile?: string; bounds?: { x: number; y: number; width: number; height: number }; reason?: string }>;
       writePlaybackDebugReport: (report: Record<string, unknown>) => Promise<{ ok?: boolean; skipped?: boolean; path?: string; reason?: string }>;
       showItemInFolder: (path: string) => Promise<void>;
       openPath: (path: string) => Promise<string>;
@@ -220,10 +224,11 @@ type RecordingTemplateOverrideInput = {
   presentation: { screenFrame: NormalizedRect | null; cameraFrame: NormalizedRect | null };
 };
 
-type ExportProgress = { phase: string; progress: number };
-type ExportResult = { outputPath: string; sourcePath: string; bytes: number; byteEqualCandidate: boolean; cancelled?: boolean };
-type ExportMode = 'raw' | 'styled';
+type ExportProgress = { phase: string; progress: number; fallback?: { active: boolean; from: string | null; to: string | null; reason: string | null }; experimentalBackend?: string };
+type ExportResult = { outputPath: string; sourcePath: string; bytes: number; byteEqualCandidate: boolean; cancelled?: boolean; experimentalBackend?: string; fallback?: { active: boolean; from: string | null; to: string | null; reason: string | null } };
+type ExportMode = 'raw' | 'styled' | 'experimental-headless';
 type ExportScope = 'timeline' | 'used-content';
+const TIMELINE_LABEL_WIDTH_PX = 76.8;
 type AiAsset = {
   id: string;
   kind: 'audio' | 'image' | 'video' | 'motion-graphics';
@@ -396,13 +401,14 @@ async function saveProjectGuarded(payload: { path: string; document: ProjectStat
 function App() {
   const searchParams = new URLSearchParams(window.location.search);
   const isRecorderMode = searchParams.get('mode') === 'recorder';
+  const experimentalHeadlessExportUi = searchParams.get('experimentalHeadlessExportUi') === '1';
   // Initial app view: honor ?view= override from the main process. Used when
   // a project is opened from disk (jumps straight to editor) and by smoke
   // harnesses that need the editor surface mounted at boot. Falls back to
   // the registry default (Projects gallery) for a plain launch.
   const initialAppView: AppViewId = (() => {
     const requested = searchParams.get('view');
-    if (requested === 'projects' || requested === 'editor' || requested === 'nle' || requested === 'ai') return requested;
+    if (requested === 'recording' || requested === 'projects' || requested === 'editor' || requested === 'nle' || requested === 'ai') return requested;
     return DEFAULT_APP_VIEW_ID;
   })();
   const initialPreRecordPreferences = React.useMemo(readPreRecordPreferences, []);
@@ -441,10 +447,11 @@ function App() {
   const [captureMode, setCaptureMode] = React.useState<CaptureMode>(initialPreRecordPreferences.captureMode ?? 'display');
   const [captureRegion, setCaptureRegion] = React.useState<CaptureRegion>(initialPreRecordPreferences.captureRegion ?? { mode: 'region', x: 0, y: 0, width: 1280, height: 720 });
   const [recordingActionPending, setRecordingActionPending] = React.useState(false);
-  const [preRecordPanelOpen, setPreRecordPanelOpen] = React.useState(() => isRecorderMode || initialAppView === 'projects');
+  const [preRecordPanelOpen, setPreRecordPanelOpen] = React.useState(() => isRecorderMode);
   const [setupBoardOpen, setSetupBoardOpen] = React.useState(true);
   const [inspectorOpen, setInspectorOpen] = React.useState(true);
   const [activeAppView, setActiveAppView] = React.useState<AppViewId>(initialAppView);
+  const preRecordSetupVisible = isRecorderMode ? preRecordPanelOpen : activeAppView === 'recording';
   const [activeTool, setActiveTool] = React.useState<ActiveTool>('background');
   const [sharedTimelineTimeSec, setSharedTimelineTimeSec] = React.useState(0);
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
@@ -469,6 +476,15 @@ function App() {
       setActiveAppView('editor');
     }
   }, []);
+
+  React.useEffect(() => {
+    if (isRecorderMode) return undefined;
+    const profile = activeAppView === 'recording' && recording.state !== 'recording' ? 'recording' : 'studio';
+    void window.roughCut.setWindowProfile(profile).catch((err) => {
+      console.warn('[renderer:window-profile] failed', err);
+    });
+    return undefined;
+  }, [isRecorderMode, activeAppView, recording.state]);
 
   React.useEffect(() => {
     window.roughCut.getVersion().then(setVersion).catch(() => setVersion('unknown'));
@@ -628,7 +644,7 @@ function App() {
   }), []);
 
   React.useEffect(() => {
-    if (!preRecordPanelOpen || recording.state === 'recording' || !recordMic || !selectedMicSource) {
+    if (!preRecordSetupVisible || recording.state === 'recording' || !recordMic || !selectedMicSource) {
       void stopAudioPreview();
       return undefined;
     }
@@ -640,7 +656,7 @@ function App() {
       cancelled = true;
       void stopAudioPreview();
     };
-  }, [preRecordPanelOpen, recording.state, recordMic, selectedMicSource, micGainPercent]);
+  }, [preRecordSetupVisible, recording.state, recordMic, selectedMicSource, micGainPercent]);
 
   React.useEffect(() => {
     if (recording.state !== 'recording') return undefined;
@@ -665,8 +681,8 @@ function App() {
           setProject(null);
           setEditHistory(EMPTY_EDIT_HISTORY);
           setExportResult(null);
-          setActiveAppView('projects');
-          setPreRecordPanelOpen(true);
+          setActiveAppView('recording');
+          setPreRecordPanelOpen(isRecorderMode);
           return;
         }
         setProject(opened);
@@ -679,8 +695,8 @@ function App() {
           setProject(null);
           setEditHistory(EMPTY_EDIT_HISTORY);
           setExportResult(null);
-          setActiveAppView('projects');
-          setPreRecordPanelOpen(true);
+          setActiveAppView('recording');
+          setPreRecordPanelOpen(isRecorderMode);
           setError(appError('project', err, 'Project open failed.'));
         }
       });
@@ -763,7 +779,7 @@ function App() {
   }, []);
 
   React.useEffect(() => {
-    if (!preRecordPanelOpen || recording.state === 'recording') return;
+    if (!preRecordSetupVisible || recording.state === 'recording') return;
     let cancelled = false;
     const options = buildPreflightOptions({ recordMic, recordSystemAudio, recordCamera, selectedMicSource, selectedSystemAudioSource, selectedCameraSource, captureMode, captureRegion });
     window.roughCut.getRecordingPreflightStatus(options)
@@ -776,7 +792,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [preRecordPanelOpen, recording.state, recordMic, recordSystemAudio, recordCamera, selectedMicSource, selectedSystemAudioSource, selectedCameraSource, captureMode, captureRegion]);
+  }, [preRecordSetupVisible, recording.state, recordMic, recordSystemAudio, recordCamera, selectedMicSource, selectedSystemAudioSource, selectedCameraSource, captureMode, captureRegion]);
 
   const sharedTimelineFps = project?.recording?.fps && project.recording.fps > 0 ? project.recording.fps : 30;
   const sharedTimelineDurationSec = project
@@ -864,11 +880,19 @@ function App() {
   }
 
   function handlePrimaryRecordAction() {
-    if (recording.state === 'recording' || preRecordPanelOpen) {
+    if (recording.state === 'recording') {
       void toggleRecording();
       return;
     }
-    setPreRecordPanelOpen(true);
+    if (isRecorderMode) {
+      setPreRecordPanelOpen(true);
+      return;
+    }
+    if (activeAppView === 'recording') {
+      void toggleRecording();
+      return;
+    }
+    setActiveAppView('recording');
   }
 
   async function togglePauseRecording() {
@@ -1002,7 +1026,22 @@ function App() {
     if (recording.state === 'recording') return;
     setCaptureMode('region');
     setScreenPickerOpen(true);
-    setPreRecordPanelOpen(true);
+    if (isRecorderMode) setPreRecordPanelOpen(true);
+    else setActiveAppView('recording');
+  }
+
+  function isEmptyNleProject(opened: ProjectState): boolean {
+    return !opened.recording
+      && !opened.mediaUrl
+      && Array.isArray(opened.document.assets)
+      && opened.document.assets.length === 0;
+  }
+
+  function openProjectState(opened: ProjectState) {
+    setProject(opened);
+    setEditHistory(EMPTY_EDIT_HISTORY);
+    setExportResult(null);
+    setActiveAppView(isEmptyNleProject(opened) ? 'nle' : 'editor');
   }
 
   async function openProject() {
@@ -1010,10 +1049,7 @@ function App() {
     try {
       const opened = await window.roughCut.openProject();
       if (opened) {
-        setProject(opened);
-        setEditHistory(EMPTY_EDIT_HISTORY);
-        setExportResult(null);
-        setActiveAppView('editor');
+        openProjectState(opened);
       }
     } catch (err) {
       setError(appError('project', err, 'Project open failed.'));
@@ -1025,13 +1061,22 @@ function App() {
     try {
       const opened = await window.roughCut.openProjectPath(path);
       if (opened) {
-        setProject(opened);
-        setEditHistory(EMPTY_EDIT_HISTORY);
-        setExportResult(null);
-        setActiveAppView('editor');
+        openProjectState(opened);
       }
     } catch (err) {
       setError(appError('project', err, 'Project open failed.'));
+    }
+  }
+
+  async function createBlankProject(payload: { name?: string; aspectRatio?: ProjectAspectRatio } | null = null) {
+    setError(null);
+    try {
+      const created = await window.roughCut.createBlankProject(payload);
+      openProjectState(created);
+      return created;
+    } catch (err) {
+      setError(appError('project', err, 'Blank project creation failed.'));
+      throw err;
     }
   }
 
@@ -1109,7 +1154,8 @@ function App() {
     }
     if (error.source === 'recording' || error.source === 'region') {
       setError(null);
-      setPreRecordPanelOpen(true);
+      if (isRecorderMode) setPreRecordPanelOpen(true);
+      else setActiveAppView('recording');
     }
   }
 
@@ -1123,7 +1169,8 @@ function App() {
   }
 
   function startRetake() {
-    setPreRecordPanelOpen(true);
+    if (isRecorderMode) setPreRecordPanelOpen(true);
+    else setActiveAppView('recording');
     setRecording({ state: 'idle' });
     setDismissedCameraFailureForStartedAt(null);
     setExportResult(null);
@@ -1243,9 +1290,11 @@ function App() {
     );
   }
 
+  const recordingViewCompact = activeAppView === 'recording' && recording.state !== 'recording';
+
   return (
-    <main className="shell">
-      <section className="editorShell" data-ui-shell="recording-studio">
+    <main className={`shell ${recordingViewCompact ? 'recordingRoot' : ''}`}>
+      <section className={`editorShell ${activeAppView === 'recording' && recording.state !== 'recording' ? 'recordingShell' : ''}`} data-ui-shell="recording-studio">
         <header className="topBar" data-ui-region="capture-bar">
           <div className="brandCluster">
             <span className="windowDots" aria-hidden="true"><i /><i /><i /></span>
@@ -1300,48 +1349,11 @@ function App() {
             </button>
           </div>
         </header>
-        {preRecordPanelOpen && recording.state !== 'recording' ? (
-          <PreRecordPanel
-            micSources={micSources}
-            systemAudioSources={systemAudioSources}
-            cameraSources={cameraSources}
-            recordMic={recordMic}
-            recordSystemAudio={recordSystemAudio}
-            recordCamera={recordCamera}
-            selectedMicSource={selectedMicSource}
-            selectedSystemAudioSource={selectedSystemAudioSource}
-            micGainPercent={micGainPercent}
-            systemAudioGainPercent={systemAudioGainPercent}
-            selectedCameraSource={selectedCameraSource}
-            audioPreview={audioPreview}
-            captureMode={captureMode}
-            captureRegion={captureRegion}
-            captureDisplays={captureDisplays}
-            selectedCaptureDisplayId={selectedCaptureDisplayId}
-            screenPickerOpen={screenPickerOpen}
-            preflightStatus={preflightStatus}
-            actionPending={recordingActionPending}
-            onClose={openEditorFromRecorder}
-            onStart={toggleRecording}
-            onRecordMicChange={setRecordMic}
-            onRecordSystemAudioChange={setRecordSystemAudio}
-            onRecordCameraChange={setRecordCamera}
-            onSelectedMicSourceChange={setSelectedMicSource}
-            onSelectedSystemAudioSourceChange={setSelectedSystemAudioSource}
-            onMicGainPercentChange={setMicGainPercent}
-            onSystemAudioGainPercentChange={setSystemAudioGainPercent}
-            onSelectedCameraSourceChange={setSelectedCameraSource}
-            onCaptureModeChange={setCaptureMode}
-            onScreenPickerOpenChange={setScreenPickerOpen}
-            onSelectedCaptureDisplayChange={setSelectedCaptureDisplayId}
-            onSelectCaptureRegion={selectScreenRegion}
-          />
-        ) : null}
         {shortcutsOpen ? <ShortcutsDialog onClose={() => setShortcutsOpen(false)} /> : null}
         {/* Recording setup belongs to capture views. Inside the NLE and AI
             views it is dead vertical space — those views start right under
             the top bar (Editor v2 / LANE NLE-R). */}
-        {activeAppView !== 'nle' && activeAppView !== 'ai' ? (
+        {activeAppView !== 'recording' && activeAppView !== 'nle' && activeAppView !== 'ai' ? (
         <div className={setupBoardOpen ? 'recordingStrip' : 'recordingStrip collapsed'} aria-label="Recording setup" data-ui-region="capture-command-area">
           <span className="captureSummary"><Icon name="display" /> {captureStatusLabel(recording, elapsedMs)}</span>
           <div className="sourceGroup">
@@ -1480,10 +1492,50 @@ function App() {
           />
         ) : null}
         <div className="editorContentSlot" data-ui-region="editor-content-slot">
-          {activeAppView === 'projects' ? (
+          {activeAppView === 'recording' ? (
+            <section className="recordingWorkspace" data-ui-region="recording-workspace">
+              <PreRecordPanel
+                variant="workspace"
+                micSources={micSources}
+                systemAudioSources={systemAudioSources}
+                cameraSources={cameraSources}
+                recordMic={recordMic}
+                recordSystemAudio={recordSystemAudio}
+                recordCamera={recordCamera}
+                selectedMicSource={selectedMicSource}
+                selectedSystemAudioSource={selectedSystemAudioSource}
+                micGainPercent={micGainPercent}
+                systemAudioGainPercent={systemAudioGainPercent}
+                selectedCameraSource={selectedCameraSource}
+                audioPreview={audioPreview}
+                captureMode={captureMode}
+                captureRegion={captureRegion}
+                captureDisplays={captureDisplays}
+                selectedCaptureDisplayId={selectedCaptureDisplayId}
+                screenPickerOpen={screenPickerOpen}
+                preflightStatus={preflightStatus}
+                actionPending={recordingActionPending}
+                onClose={openEditorFromRecorder}
+                onStart={toggleRecording}
+                onRecordMicChange={setRecordMic}
+                onRecordSystemAudioChange={setRecordSystemAudio}
+                onRecordCameraChange={setRecordCamera}
+                onSelectedMicSourceChange={setSelectedMicSource}
+                onSelectedSystemAudioSourceChange={setSelectedSystemAudioSource}
+                onMicGainPercentChange={setMicGainPercent}
+                onSystemAudioGainPercentChange={setSystemAudioGainPercent}
+                onSelectedCameraSourceChange={setSelectedCameraSource}
+                onCaptureModeChange={setCaptureMode}
+                onScreenPickerOpenChange={setScreenPickerOpen}
+                onSelectedCaptureDisplayChange={setSelectedCaptureDisplayId}
+                onSelectCaptureRegion={selectScreenRegion}
+              />
+            </section>
+          ) : activeAppView === 'projects' ? (
             <LibraryShell
               onOpenProjectByPath={openProjectByPath}
               onOpenProjectDialog={openProject}
+              onCreateBlankProject={createBlankProject}
               openProjectPath={project?.path ?? null}
               onRenameInFlight={setRenameInFlight}
               onCloseOpenProject={() => {
@@ -1506,6 +1558,7 @@ function App() {
               onPlayheadFrameChange={updateSharedTimelineFrame}
               onProjectChange={(next) => applyProjectChange(next as unknown as ProjectState)}
               onGoToProjects={() => setActiveAppView('projects')}
+              onCreateBlankProject={() => { void createBlankProject(null); }}
             />
           ) : activeAppView === 'ai' ? (
             <AiShell
@@ -1564,6 +1617,7 @@ function App() {
               onRetake={startRetake}
               exportMode={exportMode}
               exportScope={exportScope}
+              experimentalHeadlessExportUi={experimentalHeadlessExportUi}
               onExportScopeChange={setExportScope}
               exportProgress={exportProgress}
               exportResult={exportResult}
@@ -1673,6 +1727,7 @@ function displayPositionLabel(bounds: CaptureDisplay['bounds']) {
 }
 
 function PreRecordPanel({
+  variant = 'dialog',
   micSources,
   systemAudioSources,
   cameraSources,
@@ -1707,6 +1762,7 @@ function PreRecordPanel({
   onSelectedCaptureDisplayChange,
   onSelectCaptureRegion,
 }: {
+  variant?: 'dialog' | 'workspace';
   micSources: MicSource[];
   systemAudioSources: AudioSource[];
   cameraSources: CameraSource[];
@@ -1741,7 +1797,8 @@ function PreRecordPanel({
   onSelectedCaptureDisplayChange: (displayId: string | null) => void;
   onSelectCaptureRegion: (displayId?: string | null) => void;
 }) {
-  const dialogRef = useDialogFocusTrap<HTMLDivElement>(true, onClose);
+  const isDialog = variant === 'dialog';
+  const dialogRef = useDialogFocusTrap<HTMLDivElement>(isDialog, onClose);
   const displayWidth = Math.max(2, Math.round(preflightStatus?.display?.width ?? (captureMode === 'region' ? Math.max(captureRegion.x + captureRegion.width, 1920) : preflightStatus?.capture.width ?? 1920)));
   const displayHeight = Math.max(2, Math.round(preflightStatus?.display?.height ?? (captureMode === 'region' ? Math.max(captureRegion.y + captureRegion.height, 1080) : preflightStatus?.capture.height ?? 1080)));
 
@@ -1760,7 +1817,15 @@ function PreRecordPanel({
   }
 
   return (
-    <div ref={dialogRef} className="preRecordOverlay" data-ui-region="pre-record-panel" role="dialog" aria-modal="true" aria-labelledby="pre-record-title" data-focus-trap="true">
+    <div
+      ref={dialogRef}
+      className={isDialog ? 'preRecordOverlay' : 'preRecordWorkspacePanel'}
+      data-ui-region="pre-record-panel"
+      role={isDialog ? 'dialog' : undefined}
+      aria-modal={isDialog ? 'true' : undefined}
+      aria-labelledby="pre-record-title"
+      data-focus-trap={isDialog ? 'true' : undefined}
+    >
       <section className="preRecordPanel">
         <div className="preRecordHeader">
           <div>
@@ -3513,7 +3578,7 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
 }
 
 
-function PostRecordingReview({ project, recording, exportProgress, exportScope, onExportScopeChange, onExportMode, onCancelExport, onOpenProject, onOpenRecordingFolder, onOpenDiagnostics, onRetake }: { project: ProjectState; recording: RecordingStatus; exportProgress: ExportProgress | null; exportScope: ExportScope; onExportScopeChange: (scope: ExportScope) => void; onExportMode: (mode: ExportMode) => void; onCancelExport: () => void; onOpenProject: () => void; onOpenRecordingFolder: () => void; onOpenDiagnostics: () => void; onRetake: () => void }) {
+function PostRecordingReview({ project, recording, exportProgress, exportScope, experimentalHeadlessExportUi, onExportScopeChange, onExportMode, onCancelExport, onOpenProject, onOpenRecordingFolder, onOpenDiagnostics, onRetake }: { project: ProjectState; recording: RecordingStatus; exportProgress: ExportProgress | null; exportScope: ExportScope; experimentalHeadlessExportUi: boolean; onExportScopeChange: (scope: ExportScope) => void; onExportMode: (mode: ExportMode) => void; onCancelExport: () => void; onOpenProject: () => void; onOpenRecordingFolder: () => void; onOpenDiagnostics: () => void; onRetake: () => void }) {
   const isFreshRecording = recording.state === 'saved' && recording.project?.path === project.path;
   const diagnosticsAvailable = recording.state === 'saved' && Boolean(recording.diagnosticsPath);
   const cameraWarning = recording.state === 'saved' ? recording.cameraError : getProjectCameraWarning(project);
@@ -3535,6 +3600,11 @@ function PostRecordingReview({ project, recording, exportProgress, exportScope, 
         <button type="button" className="primaryAction" data-export-action="styled" onClick={() => onExportMode('styled')} disabled={!project.recording || Boolean(exportProgress)}>
           <Icon name="export" /> Export styled
         </button>
+        {experimentalHeadlessExportUi ? (
+          <button type="button" className="secondary" data-export-action="experimental-headless" onClick={() => onExportMode('experimental-headless')} disabled={!project.recording || Boolean(exportProgress)}>
+            <Icon name="settings" /> Export experimental
+          </button>
+        ) : null}
         <button type="button" className="secondary" data-export-action="raw" onClick={() => onExportMode('raw')} disabled={!project.recording || Boolean(exportProgress)}>
           <Icon name="display" /> Export raw
         </button>
@@ -3575,6 +3645,7 @@ function ProjectPreview({
   exportResult,
   exportMode,
   exportScope,
+  experimentalHeadlessExportUi,
   onExportScopeChange,
   setupBoardOpen,
   inspectorOpen,
@@ -3595,6 +3666,7 @@ function ProjectPreview({
   exportResult: ExportResult | null;
   exportMode: ExportMode;
   exportScope: ExportScope;
+  experimentalHeadlessExportUi: boolean;
   onExportScopeChange: (scope: ExportScope) => void;
   setupBoardOpen: boolean;
   inspectorOpen: boolean;
@@ -4266,6 +4338,7 @@ function ProjectPreview({
           recording={recording}
           exportProgress={exportProgress}
           exportScope={exportScope}
+          experimentalHeadlessExportUi={experimentalHeadlessExportUi}
           onExportScopeChange={onExportScopeChange}
           onExportMode={exportWithResolvedPreviewLayout}
           onCancelExport={onCancelExport}
@@ -4279,6 +4352,7 @@ function ProjectPreview({
           <InspectorActionRow region="export-status-area">
             {exportProgress ? <ExportProgressMeter progress={exportProgress} /> : null}
             {exportResult ? <p className="saved">Exported to: {exportResult.outputPath} ({exportResult.bytes} bytes)</p> : null}
+            {exportResult?.fallback?.active ? <p className="inspectorNotice">Fallback: {exportResult.fallback.from} to {exportResult.fallback.to} ({exportResult.fallback.reason}).</p> : null}
             {!exportProgress && !exportResult ? <p className="inspectorNotice">Choose Styled or Raw from the review actions above.</p> : null}
           </InspectorActionRow>
         </InspectorSection>
@@ -4450,6 +4524,65 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
   const [cutDragPreview, setCutDragPreview] = React.useState<{ startFrame: number; endFrame: number } | null>(null);
   const [trimDragPreview, setTrimDragPreview] = React.useState<{ clipId: string; edge: 'head' | 'tail'; frame: number } | null>(null);
   const [clipDragPreview, setClipDragPreview] = React.useState<{ clipId: string; timelineIn: number; timelineOut: number } | null>(null);
+  const viewportRef = React.useRef<HTMLDivElement | null>(null);
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
+  const pendingScrollLeftRef = React.useRef<number | null>(null);
+  const [timelineZoomPpf, setTimelineZoomPpf] = React.useState<number | null>(null);
+  const [timelineViewWidthPx, setTimelineViewWidthPx] = React.useState(0);
+  const timelineDurationFrames = Math.max(1, Math.round(model.durationSec * fps));
+  const pixelsPerFrame = resolvePixelsPerFrame(timelineZoomPpf, timelineViewWidthPx, timelineDurationFrames);
+  const timelineTrackWidthPx = contentWidthPx(timelineDurationFrames, pixelsPerFrame);
+  const timelineContentWidthPx = TIMELINE_LABEL_WIDTH_PX + timelineTrackWidthPx;
+  const timelineZoomedIn = timelineZoomPpf !== null && timelineTrackWidthPx > timelineViewWidthPx + 1;
+  const timelineZoomInDisabled = pixelsPerFrame >= MAX_PIXELS_PER_FRAME;
+
+  React.useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return undefined;
+    const update = () => setTimelineViewWidthPx(Math.max(0, el.clientWidth - TIMELINE_LABEL_WIDTH_PX));
+    update();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  React.useLayoutEffect(() => {
+    const el = viewportRef.current;
+    if (!el || pendingScrollLeftRef.current === null) return;
+    el.scrollLeft = pendingScrollLeftRef.current;
+    pendingScrollLeftRef.current = null;
+  }, [pixelsPerFrame]);
+
+  React.useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return undefined;
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      const content = contentRef.current;
+      if (!content) return;
+      event.preventDefault();
+      const frameAreaLeft = content.getBoundingClientRect().left + TIMELINE_LABEL_WIDTH_PX;
+      const anchorFrame = frameAtClientX(event.clientX, frameAreaLeft, pixelsPerFrame, timelineDurationFrames);
+      const pointerOffsetPx = event.clientX - viewport.getBoundingClientRect().left;
+      applyTimelineViewportZoom(event.deltaY < 0 ? 1 : -1, anchorFrame, pointerOffsetPx);
+    };
+    viewport.addEventListener('wheel', handleWheel, { passive: false });
+    return () => viewport.removeEventListener('wheel', handleWheel);
+  }, [pixelsPerFrame, timelineDurationFrames, timelineViewWidthPx]);
+
+  function applyTimelineViewportZoom(direction: 1 | -1, anchorFrame = Math.round(model.currentTimeSec * fps), pointerOffsetPx: number | null = null) {
+    const next = zoomStep(pixelsPerFrame, direction, timelineViewWidthPx, timelineDurationFrames);
+    const nextPpf = resolvePixelsPerFrame(next, timelineViewWidthPx, timelineDurationFrames);
+    const offset = pointerOffsetPx ?? Math.max(0, timelineViewWidthPx / 2) + TIMELINE_LABEL_WIDTH_PX;
+    pendingScrollLeftRef.current = next === null ? 0 : scrollLeftForAnchor(anchorFrame, nextPpf, offset - TIMELINE_LABEL_WIDTH_PX);
+    setTimelineZoomPpf(next);
+  }
+
+  function fitTimelineViewport() {
+    pendingScrollLeftRef.current = 0;
+    setTimelineZoomPpf(null);
+  }
 
   // Exit cut mode on Escape.
   React.useEffect(() => {
@@ -4460,6 +4593,18 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [cutModeActive, onCutModeToggle]);
+
+  React.useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.key !== '+' && event.key !== '=' && event.key !== '-' && event.key !== '_') return;
+      event.preventDefault();
+      applyTimelineViewportZoom(event.key === '-' || event.key === '_' ? -1 : 1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pixelsPerFrame, timelineViewWidthPx, timelineDurationFrames, model.currentTimeSec, fps]);
 
   // Deselect the active zoom marker on click-away or Escape so the floating
   // Depth chip can't get stuck over the Screen row. Markers, resize handles,
@@ -4476,7 +4621,16 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
       clear();
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') clear();
+      if (event.key === 'Escape') {
+        clear();
+        return;
+      }
+      if (isTypingTarget(event.target) || event.ctrlKey || event.metaKey || event.altKey) return;
+      if ((event.key === 'Delete' || event.key === 'Backspace') && onZoomMarkerRemove) {
+        event.preventDefault();
+        onZoomMarkerRemove(selectedZoomMarkerId);
+        clear();
+      }
     };
     window.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('keydown', onKey);
@@ -4484,7 +4638,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
       window.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('keydown', onKey);
     };
-  }, [selectedZoomMarkerId, onSelectInspectorContext]);
+  }, [selectedZoomMarkerId, onSelectInspectorContext, onZoomMarkerRemove]);
 
   function handleScreenLaneCutPointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (!cutModeActive || !onAddCutBetween) return;
@@ -4879,48 +5033,81 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
   return (
     <div className="visualTimeline" aria-label="Timeline overview">
       <span className="visuallyHidden" data-ui-region="timeline-live-region" aria-live="polite">Timeline position {formatClock(model.currentTimeSec)}</span>
-      <div className="timelineRuler" aria-hidden="true" onPointerDown={handleHeaderSeekPointerDown} title="Click or drag to seek">
-        <span />
-        {model.ticks.map((tick) => <span key={tick}>{formatClock(tick)}</span>)}
-      </div>
-      <div className="timelineTracks">
-        <div className="timelineTrackOverlay">
-          <input
-            aria-label="Scrub timeline"
-            className="timelineScrubber"
-            type="range"
-            min="0"
-            max={model.durationSec}
-            step="any"
-            value={model.currentTimeSec}
-            aria-valuetext={`Timeline position ${formatClock(model.currentTimeSec)}`}
-            onWheelCapture={preventRangeWheelChange}
-            onPointerDown={onScrubStart}
-            onPointerUp={(event) => commitScrub(event.currentTarget.value)}
-            onPointerCancel={(event) => commitScrub(event.currentTarget.value)}
-            onKeyDown={handleScrubberKeyDown}
-            onKeyUp={(event) => {
-              if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') return;
-              commitScrub(event.currentTarget.value);
-            }}
-            onInput={(event) => scrubFromInput(event.currentTarget.value)}
-            onChange={(event) => scrubFromInput(event.currentTarget.value)}
-          />
-          <span className="playhead" style={{ left: `${model.playheadPercent}%` }} />
-        </div>
-        <div className="timelineToolbar" data-ui-region="timeline-toolbar" onPointerDown={handleHeaderSeekPointerDown} title="Click or drag to seek">
-          <button
-            type="button"
-            className={cutModeActive ? 'timelineToolButton active' : 'timelineToolButton'}
-            aria-label="Cut tool"
-            aria-pressed={cutModeActive}
-            title={cutModeActive ? 'Cut tool active — drag a range on the screen lane. Esc to exit.' : 'Cut tool — drag a range on the screen lane to remove it.'}
-            onClick={() => onCutModeToggle?.()}
-          >
-            <PhosphorScissors size={16} weight="duotone" />
-          </button>
-        </div>
-        <TimelineLane label="Screen" className={`screenLane ${cutModeActive ? 'cutModeActive' : ''}`} onTrackPointerDown={cutModeActive ? handleScreenLaneCutPointerDown : handleTimelineSeekPointerDown} trackTitle={cutModeActive ? 'Drag to mark a cut range' : 'Click or drag to seek'}>
+      <div className="timelineViewport" ref={viewportRef}>
+        <div className="timelineContent" ref={contentRef} style={{ width: `${timelineContentWidthPx}px` }}>
+          <div className="timelineRuler" aria-hidden="true" onPointerDown={handleHeaderSeekPointerDown} title="Click or drag to seek">
+            <span />
+            {model.ticks.map((tick) => <span key={tick}>{formatClock(tick)}</span>)}
+          </div>
+          <div className="timelineTracks">
+            <div className="timelineTrackOverlay">
+              <input
+                aria-label="Scrub timeline"
+                className="timelineScrubber"
+                type="range"
+                min="0"
+                max={model.durationSec}
+                step="any"
+                value={model.currentTimeSec}
+                aria-valuetext={`Timeline position ${formatClock(model.currentTimeSec)}`}
+                onWheelCapture={preventRangeWheelChange}
+                onPointerDown={onScrubStart}
+                onPointerUp={(event) => commitScrub(event.currentTarget.value)}
+                onPointerCancel={(event) => commitScrub(event.currentTarget.value)}
+                onKeyDown={handleScrubberKeyDown}
+                onKeyUp={(event) => {
+                  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') return;
+                  commitScrub(event.currentTarget.value);
+                }}
+                onInput={(event) => scrubFromInput(event.currentTarget.value)}
+                onChange={(event) => scrubFromInput(event.currentTarget.value)}
+              />
+              <span className="playhead" style={{ left: `${model.playheadPercent}%` }} />
+            </div>
+            <div className="timelineToolbar" data-ui-region="timeline-toolbar" onPointerDown={handleHeaderSeekPointerDown} title="Click or drag to seek">
+              <button
+                type="button"
+                className={cutModeActive ? 'timelineToolButton active' : 'timelineToolButton'}
+                aria-label="Cut tool"
+                aria-pressed={cutModeActive}
+                title={cutModeActive ? 'Cut tool active - drag a range on the screen lane. Esc to exit.' : 'Cut tool - drag a range on the screen lane to remove it.'}
+                onClick={() => onCutModeToggle?.()}
+              >
+                <PhosphorScissors size={16} weight="duotone" />
+              </button>
+              <span className="timelineToolbarDivider" aria-hidden="true" />
+              <button
+                type="button"
+                className="timelineToolButton"
+                aria-label="Zoom timeline out"
+                title="Zoom timeline out (-)"
+                disabled={!timelineZoomedIn}
+                onClick={() => applyTimelineViewportZoom(-1)}
+              >
+                <PhosphorMagnifyingGlassMinus size={16} weight="duotone" />
+              </button>
+              <button
+                type="button"
+                className="timelineToolButton"
+                aria-label="Zoom timeline in"
+                title="Zoom timeline in (+)"
+                disabled={timelineZoomInDisabled}
+                onClick={() => applyTimelineViewportZoom(1)}
+              >
+                <PhosphorMagnifyingGlassPlus size={16} weight="duotone" />
+              </button>
+              <button
+                type="button"
+                className="timelineToolButton timelineFitButton"
+                aria-label="Fit timeline"
+                title="Fit timeline"
+                disabled={!timelineZoomedIn}
+                onClick={fitTimelineViewport}
+              >
+                Fit
+              </button>
+            </div>
+            <TimelineLane label="Screen" className={`screenLane ${cutModeActive ? 'cutModeActive' : ''}`} onTrackPointerDown={cutModeActive ? handleScreenLaneCutPointerDown : handleTimelineSeekPointerDown} trackTitle={cutModeActive ? 'Drag to mark a cut range' : 'Click or drag to seek'}>
           {model.lanes.screen.map((region, index) => (
             <div key={region.id} className={`clipBar ${clipDragPreview?.clipId === region.id ? 'dragging' : ''}`} style={screenRegionStyle(region)} data-recording-clip-id={region.id}>
               <button type="button" role="slider" className="trimHandle trimHandleStart" data-recording-trim-edge="head" aria-label={index === 0 ? 'Trim start' : `Trim clip ${index + 1} start`} aria-valuemin={clipTrimBounds(index, 'head')?.minFrame ?? 0} aria-valuemax={clipTrimBounds(index, 'head')?.maxFrame ?? 0} aria-valuenow={Math.round(region.timelineIn ?? 0)} aria-valuetext={`Clip ${index + 1} start ${Math.round(region.timelineIn ?? 0)} frames`} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleClipTrimHandleKey(region, index, 'head', event)} onPointerDown={(event) => beginClipTrimDrag(region, index, 'head', event)} />
@@ -4940,8 +5127,8 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
             const placement = frameRangeToPlacement(range.startFrame - model.trimStartFrame, range.endFrame - model.trimStartFrame, fps, model.durationSec);
             return <button key={range.id} type="button" className="hiddenCutRange" aria-label={`Restore cut ${formatClock((range.startFrame - model.trimStartFrame) / fps)} to ${formatClock((range.endFrame - model.trimStartFrame) / fps)}`} title="Restore this hidden middle range" style={{ left: `${placement.left}%`, width: `${placement.width}%` }} onClick={() => onRestoreCut(range.id)}>Restore cut</button>;
           })}
-        </TimelineLane>
-        <TimelineLane label="Zoom" className="zoomLane" aria-label="Zoom markers" onTrackPointerDown={onAddZoomMarkerAt ? handleZoomLanePointerDown : undefined} trackTitle="Click to add a zoom marker">
+            </TimelineLane>
+            <TimelineLane label="Zoom" className="zoomLane" aria-label="Zoom markers" onTrackPointerDown={onAddZoomMarkerAt ? handleZoomLanePointerDown : undefined} trackTitle="Click to add a zoom marker">
           {model.lanes.zoom.length > 0
             ? model.lanes.zoom.map((region) => {
                 const label = region.label ?? 'Zoom region';
@@ -4995,22 +5182,24 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
               </div>
             );
           })()}
-        </TimelineLane>
-        <TimelineLane label="Clicks" className="clickLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
+            </TimelineLane>
+            <TimelineLane label="Clicks" className="clickLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
           {model.lanes.clicks.length > 0
             ? model.lanes.clicks.map((event) => <button key={event.id} type="button" className="clickMarker" style={{ left: `${event.left}%` }} onClick={() => onSelectInspectorContext({ group: 'cursor', label: 'Click event', detail: 'Click telemetry selected from the timeline.' })} />)
             : <p>No click events yet.</p>}
-        </TimelineLane>
-        <TimelineLane label="Camera" className="cameraLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
+            </TimelineLane>
+            <TimelineLane label="Camera" className="cameraLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
           {model.lanes.camera.length > 0
             ? model.lanes.camera.map((region) => <button key={region.id} type="button" className="presenceRegion" style={{ left: `${region.left}%`, width: `${region.width}%` }} onClick={() => onSelectInspectorContext({ group: 'camera', label: 'Camera track', detail: 'Camera presence selected from the timeline.' })}>Camera</button>)
             : <p>No camera track.</p>}
-        </TimelineLane>
-        <TimelineLane label="Audio" className="audioLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
+            </TimelineLane>
+            <TimelineLane label="Audio" className="audioLane" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
           {model.lanes.audio.length > 0
             ? model.lanes.audio.map((region) => <button key={region.id} type="button" className="presenceRegion" style={{ left: `${region.left}%`, width: `${region.width}%` }} onClick={() => onSelectInspectorContext({ group: 'recording', label: 'Audio track', detail: 'Audio presence selected from the timeline.' })}>Audio</button>)
             : <p>No audio track.</p>}
-        </TimelineLane>
+            </TimelineLane>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -5185,6 +5374,16 @@ function ExportPresetDetails({ mode, exportScope, aspectRatio }: { mode: ExportM
   const rangeLabel = exportScope === 'used-content' ? 'used content only' : 'full timeline';
   if (mode === 'raw') {
     return <p className="exportPreset">Raw export keeps source pixels unchanged when the {rangeLabel} can be stream-copied.</p>;
+  }
+  if (mode === 'experimental-headless') {
+    return (
+      <div className="exportPresetDetails">
+        <p className="exportPreset">
+          Experimental headless export: {rangeLabel}, shared composition plan, FFmpeg styled fallback while the renderer is behind the parity gate.
+        </p>
+        <span className="exportPresetChip" data-active-aspect-ratio={aspectRatio ?? 'auto'}>Experimental</span>
+      </div>
+    );
   }
 
   const activeRatio = aspectRatio ?? 'auto';
