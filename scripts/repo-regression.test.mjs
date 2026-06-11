@@ -10,6 +10,7 @@ const packageLinuxSource = readFileSync(join(root, 'scripts/package-linux.mjs'),
 const desktopMainSource = readFileSync(join(root, 'apps/desktop/src/main/index.mjs'), 'utf8');
 const gpuCompositorProbeSource = readFileSync(join(root, 'scripts/visual-gpu-compositor-parity-playwright.mjs'), 'utf8');
 const experimentalHeadlessExportSmokeSource = readFileSync(join(root, 'scripts/smoke-experimental-headless-export.mjs'), 'utf8');
+const smokeUiSource = readFileSync(join(root, 'scripts/smoke-ui.mjs'), 'utf8');
 const desktopPackage = JSON.parse(readFileSync(join(root, 'apps/desktop/package.json'), 'utf8'));
 const headlessExportRendererSource = readFileSync(join(root, 'apps/desktop/src/main/headless-export-renderer.mjs'), 'utf8');
 const masterPlanSource = readFileSync(join(root, 'MASTER_PLAN.md'), 'utf8');
@@ -148,8 +149,13 @@ test('GPU-C experimental headless renderer seam stays opt-in and fallback-backed
 test('GPU-C experimental export UI stays feature-flagged and fallback-labeled', () => {
   const rendererSource = readFileSync(join(root, 'apps/desktop/src/renderer/src/main.tsx'), 'utf8');
   assert.match(rendererSource, /experimentalHeadlessExportUi = searchParams\.get\('experimentalHeadlessExportUi'\) === '1'/);
+  assert.match(rendererSource, /experimentalHeadlessExportUi \? \(/);
   assert.match(rendererSource, /data-export-action="experimental-headless"/);
   assert.match(rendererSource, /onExportMode\('experimental-headless'\)/);
   assert.match(rendererSource, /Experimental headless export/);
   assert.match(rendererSource, /exportResult\?\.fallback\?\.active/);
+  assert.match(desktopMainSource, /hasExperimentalHeadlessExportAction = Boolean\(document\.querySelector\('\[data-export-action="experimental-headless"\]'\)\)/);
+  assert.match(desktopMainSource, /hasExperimentalHeadlessExportAction,/);
+  assert.match(smokeUiSource, /expectsExperimentalHeadlessExportAction = process\.env\.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT_UI === '1' \|\| process\.env\.VITE_ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT_UI === '1'/);
+  assert.match(smokeUiSource, /expectsExperimentalHeadlessExportAction && !report\.hasExperimentalHeadlessExportAction/);
 });

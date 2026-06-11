@@ -19,6 +19,19 @@ test('experimental headless renderer stays disabled unless explicitly opted in',
   });
 });
 
+test('experimental headless UI flag does not enable the export renderer', async () => {
+  const availability = await resolveExperimentalHeadlessAvailability({
+    env: { ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT_UI: '1' },
+    electronRuntime: { available: true },
+  });
+
+  assert.deepEqual(availability, {
+    enabled: false,
+    available: false,
+    reason: 'experimental-headless-export-disabled',
+  });
+});
+
 test('experimental headless renderer reports missing Electron runtime as fallback reason', async () => {
   const availability = await resolveExperimentalHeadlessAvailability({
     env: { ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT: '1' },
