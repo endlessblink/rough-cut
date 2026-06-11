@@ -50,6 +50,7 @@ const PREVIEW_CANVAS_LONG_EDGE = 1280;
 const PLAYBACK_DEBUG_LOG_LIMIT = 500;
 const PLAYBACK_DRAW_COST_LOG_THRESHOLD_MS = 12;
 const PLAYBACK_EXPECTED_DISPLAY_GAP_THRESHOLD_MS = 50;
+const PLAYBACK_EXPECTED_DISPLAY_GAP_FRAME_MULTIPLIER = 2.25;
 const PLAYBACK_EXPECTED_DISPLAY_WARMUP_SAMPLES = 3;
 
 type PlaybackQualitySnapshot = {
@@ -89,6 +90,33 @@ function recordPlaybackDebug(event: string, detail: Record<string, unknown> = {}
   const counts = target.__roughCutPlaybackDebugCounts ?? {};
   counts[event] = (counts[event] ?? 0) + 1;
   target.__roughCutPlaybackDebugCounts = counts;
+}
+
+function reclassifyPlaybackDebugEvents(
+  fromEvent: string,
+  toEvent: string,
+  predicate: (entry: Record<string, unknown>) => boolean,
+) {
+  if (typeof window === 'undefined') return;
+  const target = window as unknown as {
+    __roughCutPlaybackDebugLog?: Array<Record<string, unknown>>;
+    __roughCutPlaybackDebugCounts?: Record<string, number>;
+  };
+  const log = Array.isArray(target.__roughCutPlaybackDebugLog)
+    ? target.__roughCutPlaybackDebugLog
+    : [];
+  const counts = target.__roughCutPlaybackDebugCounts ?? {};
+  let changed = 0;
+  for (const entry of log) {
+    if (entry?.event !== fromEvent || !predicate(entry)) continue;
+    entry.event = toEvent;
+    changed += 1;
+  }
+  if (changed > 0) {
+    counts[fromEvent] = Math.max(0, (counts[fromEvent] ?? 0) - changed);
+    counts[toEvent] = (counts[toEvent] ?? 0) + changed;
+    target.__roughCutPlaybackDebugCounts = counts;
+  }
 }
 
 function readPlaybackQuality(video: HTMLVideoElement | null | undefined): PlaybackQualitySnapshot {
@@ -150,6 +178,7 @@ function readPlaybackDebugSummary() {
     : [];
   const frameGaps = log.filter((entry) => entry?.event === 'render-frame-gap');
   const expectedDisplayGaps = log.filter((entry) => entry?.event === 'render-expected-display-gap');
+  const mainThreadBlockedExpectedDisplayGaps = log.filter((entry) => entry?.event === 'render-expected-display-gap-main-thread-blocked');
   const drawCosts = log.filter((entry) => entry?.event === 'render-draw-cost');
   const longTasks = log.filter((entry) => entry?.event === 'main-thread-long-task');
   return {
@@ -160,6 +189,9 @@ function readPlaybackDebugSummary() {
     expectedDisplayGapCount: expectedDisplayGaps.length,
     maxExpectedDisplayGap: expectedDisplayGaps.reduce((max, entry) => Math.max(max, Number(entry?.expectedGapMs) || 0), 0),
     lastExpectedDisplayGap: expectedDisplayGaps[expectedDisplayGaps.length - 1] ?? null,
+    mainThreadBlockedExpectedDisplayGapCount: mainThreadBlockedExpectedDisplayGaps.length,
+    maxMainThreadBlockedExpectedDisplayGap: mainThreadBlockedExpectedDisplayGaps.reduce((max, entry) => Math.max(max, Number(entry?.expectedGapMs) || 0), 0),
+    lastMainThreadBlockedExpectedDisplayGap: mainThreadBlockedExpectedDisplayGaps[mainThreadBlockedExpectedDisplayGaps.length - 1] ?? null,
     drawCostCount: drawCosts.length,
     maxDrawCost: drawCosts.reduce((max, entry) => Math.max(max, Number(entry?.totalDrawMs) || 0), 0),
     lastDrawCost: drawCosts[drawCosts.length - 1] ?? null,
@@ -455,11 +487,22 @@ export function StyledVideoPreview({
     try {
       observer = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
+          const startTime = Math.round(entry.startTime * 10) / 10;
+          const duration = Math.round(entry.duration * 10) / 10;
+          const blockedUntilMs = startTime + duration;
           recordPlaybackDebug('main-thread-long-task', {
-            startTime: Math.round(entry.startTime * 10) / 10,
-            duration: Math.round(entry.duration * 10) / 10,
+            startTime,
+            duration,
             name: entry.name,
           });
+          reclassifyPlaybackDebugEvents(
+            'render-expected-display-gap',
+            'render-expected-display-gap-main-thread-blocked',
+            (candidate) => {
+              const atMs = Number(candidate.atMs);
+              return Number.isFinite(atMs) && atMs >= startTime - 20 && atMs <= blockedUntilMs + 120;
+            },
+          );
         }
       });
       observer.observe({ type: 'longtask', buffered: true } as PerformanceObserverInit);
@@ -921,14 +964,7 @@ export function StyledVideoPreview({
     };
 
     const [backgroundStart, backgroundEnd] = getRecordingBackgroundColors(background);
-    const backgroundGradient = ctx.createLinearGradient(0, 0, canvasWidth, canvasHeight);
-    backgroundGradient.addColorStop(0, backgroundStart);
-    backgroundGradient.addColorStop(1, backgroundEnd);
     const snapPlaybackCoord = (value: number) => (timeMode === 'timeline' && isPlaying ? Math.round(value) : value);
-    const fillBackground = () => {
-      ctx.fillStyle = backgroundGradient;
-      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-    };
 
     function resolveCurrentFrame(currentFrame: number): any {
       try {
@@ -1050,10 +1086,15 @@ export function StyledVideoPreview({
         const expectedDisplayWarmedUp = expectedDisplaySampleCount >= PLAYBACK_EXPECTED_DISPLAY_WARMUP_SAMPLES;
         if (lastExpectedDisplayTimeMs !== null && expectedDisplayWarmedUp) {
           const expectedGapMs = metadata.expectedDisplayTime - lastExpectedDisplayTimeMs;
-          if (expectedGapMs > PLAYBACK_EXPECTED_DISPLAY_GAP_THRESHOLD_MS) {
+          const expectedGapThresholdMs = Math.max(
+            PLAYBACK_EXPECTED_DISPLAY_GAP_THRESHOLD_MS,
+            (1000 / Math.max(1, fps)) * PLAYBACK_EXPECTED_DISPLAY_GAP_FRAME_MULTIPLIER,
+          );
+          if (expectedGapMs > expectedGapThresholdMs) {
             recordPlaybackDebug('render-expected-display-gap', {
               renderLoopId,
               expectedGapMs: Math.round(expectedGapMs * 10) / 10,
+              expectedGapThresholdMs: Math.round(expectedGapThresholdMs * 10) / 10,
               mediaTime: metadata.mediaTime ?? null,
               expectedDisplayTime: metadata.expectedDisplayTime,
               presentationTime: metadata.presentationTime ?? null,
@@ -1211,13 +1252,15 @@ export function StyledVideoPreview({
       screenRectRef.current = { x: screenX, y: screenY, w: screenWidth, h: screenHeight };
       screenRadiusRef.current = screenRadius;
       markDrawPhase('resolve-layout');
-      const backgroundImage = backgroundImageRef.current;
-      if (backgroundImage?.complete && backgroundImage.naturalWidth > 0 && backgroundImage.naturalHeight > 0) {
-        fillBackground();
-        ctx.drawImage(backgroundImage, 0, 0, canvasWidth, canvasHeight);
-      } else {
-        fillBackground();
-      }
+      const backgroundLayerStats = screenLayerRenderer.drawBackground({
+        ctx,
+        canvasWidth,
+        canvasHeight,
+        startColor: backgroundStart,
+        endColor: backgroundEnd,
+        image: backgroundImageRef.current,
+      });
+      publishScreenLayerRendererStats(backgroundLayerStats);
       if (!activeTimelinePlayback && editablePreview && alignmentGridVisibleRef.current) {
         drawAlignmentGrid(ctx, canvasWidth, canvasHeight);
       }

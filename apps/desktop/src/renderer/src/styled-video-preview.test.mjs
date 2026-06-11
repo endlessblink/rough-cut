@@ -134,6 +134,7 @@ test('styled video preview routes screen video drawing through the feature-flagg
   assert.match(rendererSource, /readonly kind: ScreenLayerRendererKind/);
   assert.match(rendererSource, /isSupported\(\): boolean/);
   assert.match(rendererSource, /resize\(width: number, height: number\): void/);
+  assert.match(rendererSource, /drawBackground\(input: BackgroundLayerDrawInput\): ScreenLayerRendererStats/);
   assert.match(rendererSource, /draw\(input: ScreenLayerDrawInput\): ScreenLayerRendererStats/);
   assert.match(rendererSource, /drawCamera\(input: CameraLayerDrawInput\): ScreenLayerRendererStats/);
   assert.match(rendererSource, /drawCursorOverlay\(input: CursorLayerDrawInput\): ScreenLayerRendererStats/);
@@ -171,6 +172,30 @@ test('styled video preview routes screen video drawing through the feature-flagg
   assert.match(rendererSource, /contextStatus/);
   assert.match(rendererSource, /drawCostMs/);
   assert.match(rendererSource, /fallbackReason/);
+});
+
+test('styled video preview routes full-canvas background through the preview compositor boundary', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  const rendererSource = readFileSync(join(here, 'screen-layer-renderer.ts'), 'utf8');
+
+  assert.match(source, /screenLayerRenderer\.drawBackground\(\{/);
+  assert.match(source, /startColor: backgroundStart/);
+  assert.match(source, /endColor: backgroundEnd/);
+  assert.match(source, /image: backgroundImageRef\.current/);
+  assert.match(source, /publishScreenLayerRendererStats\(backgroundLayerStats\)/);
+  assert.doesNotMatch(source, /const backgroundGradient = ctx\.createLinearGradient/);
+  assert.doesNotMatch(source, /function fillBackground/);
+
+  assert.match(rendererSource, /export type BackgroundLayerDrawInput/);
+  assert.match(rendererSource, /Canvas2DScreenLayerRenderer[\s\S]*drawBackground\(input: BackgroundLayerDrawInput\)/);
+  assert.match(rendererSource, /input\.ctx\.createLinearGradient\(0, 0, input\.canvasWidth, input\.canvasHeight\)/);
+  assert.match(rendererSource, /WebGLScreenLayerRenderer[\s\S]*drawBackground\(input: BackgroundLayerDrawInput\)/);
+  assert.match(rendererSource, /private drawBackgroundWebGL\(input: BackgroundLayerDrawInput\)/);
+  assert.match(rendererSource, /u_gradientStart/);
+  assert.match(rendererSource, /u_gradientEnd/);
+  assert.match(rendererSource, /cssColorToRgba\(input\.startColor\)/);
+  assert.match(rendererSource, /gl\.texImage2D\(gl\.TEXTURE_2D, 0, gl\.RGBA, gl\.RGBA, gl\.UNSIGNED_BYTE, input\.image\)/);
+  assert.match(rendererSource, /webgl-background-draw-failed/);
 });
 
 test('styled video preview routes cursor and click overlays through the preview compositor boundary', () => {
@@ -435,9 +460,13 @@ test('playback diagnostics log render-loop gaps and preview clicks for stutter a
   const playbackProbe = readFileSync(join(here, '../../../../../scripts/playback-timeline-playwright.mjs'), 'utf8');
 
   assert.match(previewSource, /function recordPlaybackDebug\(event: string/);
+  assert.match(previewSource, /function reclassifyPlaybackDebugEvents\(/);
   assert.match(previewSource, /recordPlaybackDebug\('render-loop-start'/);
   assert.match(previewSource, /recordPlaybackDebug\('render-frame-gap'/);
   assert.match(previewSource, /recordPlaybackDebug\('render-expected-display-gap'/);
+  assert.match(previewSource, /render-expected-display-gap-main-thread-blocked/);
+  assert.match(previewSource, /PLAYBACK_EXPECTED_DISPLAY_GAP_FRAME_MULTIPLIER/);
+  assert.match(previewSource, /expectedGapThresholdMs/);
   assert.match(previewSource, /const PLAYBACK_EXPECTED_DISPLAY_WARMUP_SAMPLES = 3/);
   assert.match(previewSource, /let expectedDisplaySampleCount = 0/);
   assert.match(previewSource, /expectedDisplaySampleCount >= PLAYBACK_EXPECTED_DISPLAY_WARMUP_SAMPLES/);
@@ -452,6 +481,8 @@ test('playback diagnostics log render-loop gaps and preview clicks for stutter a
   assert.match(playbackProbe, /function readPlaybackDebug\(\)/);
   assert.match(playbackProbe, /playbackQuality: quality/);
   assert.match(playbackProbe, /expectedDisplayGapCount/);
+  assert.match(playbackProbe, /expectedDisplayGapOk/);
+  assert.match(playbackProbe, /mainThreadBlockedExpectedDisplayGapCount/);
   assert.match(playbackProbe, /drawCostCount/);
   assert.match(playbackProbe, /longTaskCount/);
   assert.match(playbackProbe, /window\.__roughCutReadPlaybackDebug = \(\$\{readPlaybackDebug\.toString\(\)\}\)/);

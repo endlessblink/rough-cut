@@ -424,9 +424,10 @@ function playbackProof(before, after, requiredAdvanceSec = 0.2) {
   const drawFramesPerSecond = (after.drawCount - before.drawCount) / Math.max(0.1, screenAdvanced);
   const frameMonitorOk = drawFramesPerSecond >= 12 && (after?.frameMonitor?.maxFrameDeltaMs ?? 0) <= 120;
   const playbackOk = screenOk && cameraOk && cameraCanvasOk && audioOk && frameMonitorOk;
+  const expectedDisplayGapOk = (after?.playbackDebug?.expectedDisplayGapCount ?? 0) === 0;
 
   return {
-    ok: playbackOk && compositorOk,
+    ok: playbackOk && compositorOk && expectedDisplayGapOk,
     mode: 'canvas-only-rvfc',
     canvasOk,
     compositorOk,
@@ -436,6 +437,7 @@ function playbackProof(before, after, requiredAdvanceSec = 0.2) {
     audioOk,
     hasScreenAudio: Boolean(after.hasScreenAudio),
     frameMonitorOk,
+    expectedDisplayGapOk,
     drawFramesPerSecond,
     drawDelta: after.drawCount - before.drawCount,
     screenAdvanced,
@@ -518,6 +520,7 @@ function readPlaybackDebug() {
     : [];
   const frameGaps = log.filter((entry) => entry?.event === 'render-frame-gap');
   const expectedDisplayGaps = log.filter((entry) => entry?.event === 'render-expected-display-gap');
+  const mainThreadBlockedExpectedDisplayGaps = log.filter((entry) => entry?.event === 'render-expected-display-gap-main-thread-blocked');
   const drawCosts = log.filter((entry) => entry?.event === 'render-draw-cost');
   const longTasks = log.filter((entry) => entry?.event === 'main-thread-long-task');
   const lastFrameGap = frameGaps[frameGaps.length - 1] ?? null;
@@ -536,6 +539,9 @@ function readPlaybackDebug() {
     expectedDisplayGapCount: expectedDisplayGaps.length,
     maxExpectedDisplayGap,
     lastExpectedDisplayGap,
+    mainThreadBlockedExpectedDisplayGapCount: mainThreadBlockedExpectedDisplayGaps.length,
+    maxMainThreadBlockedExpectedDisplayGap: mainThreadBlockedExpectedDisplayGaps.reduce((max, entry) => Math.max(max, Number(entry?.expectedGapMs) || 0), 0),
+    lastMainThreadBlockedExpectedDisplayGap: mainThreadBlockedExpectedDisplayGaps[mainThreadBlockedExpectedDisplayGaps.length - 1] ?? null,
     drawCostCount: drawCosts.length,
     maxDrawCost,
     lastDrawCost,

@@ -254,7 +254,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-242 | Add feature-flagged WebGL screen-layer renderer | P0 | DONE (2026-06-10) |
 | TASK-243 | Add WebGL-vs-Canvas parity and playback performance probes | P0 | DONE (2026-06-10) |
 | TASK-244 | Add velocity-based WebGL transform motion blur | P1 | DONE (2026-06-10) |
-| TASK-245 | Promote WebGL to full preview compositor behind fallback | P1 | IN PROGRESS — slices 1–3 DONE 2026-06-11 |
+| TASK-245 | Promote WebGL to full preview compositor behind fallback | P1 | DONE (2026-06-11) |
 | TASK-246 | Prototype GPU/headless export path from the shared composition plan | P1 | PLANNED |
 | TASK-247 | Make GPU compositor default and retire legacy visual composition logic | P1 | PLANNED |
 | ~~TASK-248~~ | ✅ Add startup recording panel regression suite | P1 | ✅ DONE (2026-06-10) |
@@ -7437,7 +7437,7 @@ Verification: `node --check scripts/visual-gpu-compositor-parity-playwright.mjs`
 ### TASK-245 Promote WebGL to full preview compositor behind fallback
 
 **Priority:** P1
-**Status:** IN PROGRESS
+**Status:** DONE (2026-06-11)
 
 #### Context
 
@@ -7520,6 +7520,26 @@ Evidence:
 Remaining before DONE: background/full-frame non-video composition still needs
 promotion through the compositor boundary, and `pnpm smoke:ui` plus the NLE
 linked-fixture harness still need to pass for the final full-compositor claim.
+
+**Slice 4 (2026-06-11):** Moved full-canvas preview background drawing behind
+`ScreenLayerRenderer.drawBackground(...)` with Canvas2D and WebGL
+implementations for gradient/image fills. The WebGL path keeps explicit
+Canvas2D runtime fallback reasons for missing/lost/failed contexts, and the
+FFmpeg styled export path remains unchanged. Tightened `pnpm playback:timeline`
+so recording and NLE playback fail on unclassified expected-display stalls while
+ignoring single-frame RVFC cadence skips at the active media FPS.
+
+Evidence:
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test scripts/repo-regression.test.mjs apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGL_SCREEN_LAYER=1 VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER=1 pnpm playback:timeline` passes with report `/tmp/rough-cut-playback-timeline-brPewh/playback-report.json`; recording and NLE both report `expectedDisplayGapOk: true`, `expectedDisplayGapCount: 0`, `rendererKind: "webgl"`, and `fallbackReason: null`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm visual:gpu-compositor` passes with report `/tmp/rough-cut-gpu-compositor-tIgBP1/gpu-compositor-report.json`, latest log `/tmp/rough-cut-gpu-compositor-latest.log`, and `problems: []`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm smoke:ui` passes with UI smoke root `/tmp/rough-cut-ui-smoke-68hTop` and sidebar smoke root `/tmp/rough-cut-sidebar-layout-smoke-FOkqRS`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGL_SCREEN_LAYER=1 VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER=1 node scripts/visual-nle-linked-clips-playwright.mjs` passes with report `/tmp/rough-cut-nle-linked-1q2l9f/nle-linked-clips-report.json` and `problems: []`.
+
+DONE note: Canvas2D preview fallback remains selectable at runtime, and FFmpeg
+styled export remains the export path. Editor-only handles/debug overlays remain
+outside the GPU compositor by design.
 
 ### TASK-246 Prototype GPU/headless export path from the shared composition plan
 
