@@ -254,7 +254,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-242 | Add feature-flagged WebGL screen-layer renderer | P0 | DONE (2026-06-10) |
 | TASK-243 | Add WebGL-vs-Canvas parity and playback performance probes | P0 | DONE (2026-06-10) |
 | TASK-244 | Add velocity-based WebGL transform motion blur | P1 | DONE (2026-06-10) |
-| TASK-245 | Promote WebGL to full preview compositor behind fallback | P1 | PLANNED |
+| TASK-245 | Promote WebGL to full preview compositor behind fallback | P1 | IN PROGRESS |
 | TASK-246 | Prototype GPU/headless export path from the shared composition plan | P1 | PLANNED |
 | TASK-247 | Make GPU compositor default and retire legacy visual composition logic | P1 | PLANNED |
 | ~~TASK-248~~ | ✅ Add startup recording panel regression suite | P1 | ✅ DONE (2026-06-10) |
@@ -7437,7 +7437,7 @@ Verification: `node --check scripts/visual-gpu-compositor-parity-playwright.mjs`
 ### TASK-245 Promote WebGL to full preview compositor behind fallback
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 #### Context
 
@@ -7459,6 +7459,27 @@ into the GPU compositor while keeping edit handles/debug overlays in Canvas2D/DO
 - Recording edit and NLE preview both pass the same visual/performance probes.
 - `pnpm smoke:ui`, `pnpm playback:timeline`, and NLE linked-fixture harness pass.
 - User live-app sign-off before making WebGL the default preview path.
+
+#### Progress
+
+**Slice 1 (2026-06-11):** Moved camera PiP drawing behind the preview compositor
+boundary while preserving the existing Canvas2D renderer path, editor handles,
+runtime fallback, and FFmpeg styled export path. Added source-level regression
+coverage so camera crop, shape mask, shadow, and presentation metadata flow
+through `ScreenLayerRenderer.drawCamera(...)` instead of the preview owning an
+inline `ctx.drawImage(cameraVideo, ...)` path.
+
+Evidence:
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test scripts/repo-regression.test.mjs apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `pnpm visual:gpu-compositor` passes and writes the latest log to `/tmp/rough-cut-gpu-compositor-latest.log`; latest inspected run root: `/tmp/rough-cut-gpu-compositor-mTaBzR`.
+- `ROUGH_CUT_WEBGL_SCREEN_LAYER=1 VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER=1 pnpm playback:timeline` passes; latest run root: `/tmp/rough-cut-playback-timeline-6iUAwt`.
+
+Remaining before DONE: cursor/click and other editor-independent visual layers
+still need promotion through the compositor boundary, and the NLE linked-fixture
+harness plus `pnpm smoke:ui` still need to pass after those later slices. The
+latest WebGL playback run still logs one NLE expected-display-gap event, so do
+not treat this slice as full-compositor completion.
 
 ### TASK-246 Prototype GPU/headless export path from the shared composition plan
 

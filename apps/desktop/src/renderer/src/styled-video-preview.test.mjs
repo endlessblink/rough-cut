@@ -135,6 +135,7 @@ test('styled video preview routes screen video drawing through the feature-flagg
   assert.match(rendererSource, /isSupported\(\): boolean/);
   assert.match(rendererSource, /resize\(width: number, height: number\): void/);
   assert.match(rendererSource, /draw\(input: ScreenLayerDrawInput\): ScreenLayerRendererStats/);
+  assert.match(rendererSource, /drawCamera\(input: CameraLayerDrawInput\): ScreenLayerRendererStats/);
   assert.match(rendererSource, /getDebugStats\(\): ScreenLayerRendererStats/);
   assert.match(rendererSource, /dispose\(\): void/);
   assert.match(rendererSource, /export class Canvas2DScreenLayerRenderer implements ScreenLayerRenderer/);
@@ -155,11 +156,35 @@ test('styled video preview routes screen video drawing through the feature-flagg
   assert.match(rendererSource, /a_nextTexCoord/);
   assert.match(rendererSource, /u_motionBlurSamples/);
   assert.match(rendererSource, /sampleIfVisible/);
+  assert.match(rendererSource, /drawCameraWebGL\(input: CameraLayerDrawInput\)/);
+  assert.match(rendererSource, /u_maskMode/);
+  assert.match(rendererSource, /u_maskFrame/);
+  assert.match(rendererSource, /u_maskRadius/);
+  assert.match(rendererSource, /webgl-camera-draw-failed/);
   assert.match(rendererSource, /requestedRendererKind/);
   assert.match(rendererSource, /rendererKind: 'canvas2d'/);
   assert.match(rendererSource, /contextStatus/);
   assert.match(rendererSource, /drawCostMs/);
   assert.match(rendererSource, /fallbackReason/);
+});
+
+test('styled video preview routes camera PiP through the preview compositor boundary', () => {
+  const source = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  const rendererSource = readFileSync(join(here, 'screen-layer-renderer.ts'), 'utf8');
+
+  assert.match(source, /screenLayerRenderer\.drawCamera\(\{/);
+  assert.match(source, /source: cameraSource/);
+  assert.match(source, /presentation: frame\.cameraPresentation/);
+  assert.match(source, /shadow: !activeTimelinePlayback/);
+  assert.match(source, /drawEditorFrameControls\(ctx, cameraFrame, '#f59e0b'/);
+  assert.doesNotMatch(source, /ctx\.drawImage\(\n\s+cameraVideo,/);
+  assert.doesNotMatch(source, /addCameraShapePath\(ctx, cameraFrame/);
+
+  assert.match(rendererSource, /export type CameraLayerDrawInput/);
+  assert.match(rendererSource, /export type ScreenLayerCameraSource/);
+  assert.match(rendererSource, /Canvas2DScreenLayerRenderer[\s\S]*drawCamera\(input: CameraLayerDrawInput\)/);
+  assert.match(rendererSource, /WebGLScreenLayerRenderer[\s\S]*drawCamera\(input: CameraLayerDrawInput\)/);
+  assert.match(rendererSource, /addCameraShapePath\(ctx, frame, presentation, radius\)/);
 });
 
 test('zoom motion renderer gates blur and keeps cursor overlays out of the blurred source pass', () => {
@@ -289,12 +314,14 @@ test('built-in recording templates apply presentation layout frames', () => {
 
 test('circle camera shape constrains custom camera frames to square preview boxes', () => {
   const previewSource = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+  const rendererSource = readFileSync(join(here, 'screen-layer-renderer.ts'), 'utf8');
   const editorSource = readFileSync(join(here, 'main.tsx'), 'utf8');
 
   assert.match(previewSource, /function constrainCameraShapeFrame/);
   assert.match(previewSource, /presentation\?\.shape !== 'circle'/);
-  assert.match(previewSource, /function addCameraShapePath/);
-  assert.match(previewSource, /ctx\.arc\(frame\.x \+ frame\.w \/ 2/);
+  assert.match(rendererSource, /function addCameraShapePath/);
+  assert.match(rendererSource, /ctx\.arc\(frame\.x \+ frame\.w \/ 2/);
+  assert.match(rendererSource, /u_maskMode > 1\.5/);
   assert.match(editorSource, /function constrainCameraShapeFrame/);
   assert.match(editorSource, /presentation\?\.shape !== 'circle'/);
   assert.match(editorSource, /function addCameraShapePath/);

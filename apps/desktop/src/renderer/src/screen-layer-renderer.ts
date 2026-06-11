@@ -16,6 +16,27 @@ export type ScreenLayerCameraTransform = {
   offsetY: number;
 };
 
+export type ScreenLayerCameraFrame = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+export type ScreenLayerCameraSource = {
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+};
+
+export type ScreenLayerCameraPresentation = {
+  shape?: string;
+  shadowEnabled?: boolean;
+  shadowOpacity?: number;
+  shadowBlur?: number;
+};
+
 export type ScreenLayerDrawInput = {
   ctx: CanvasRenderingContext2D;
   video: HTMLVideoElement;
@@ -34,6 +55,20 @@ export type ScreenLayerDrawInput = {
   sharpZoom: boolean;
 };
 
+export type CameraLayerDrawInput = {
+  ctx: CanvasRenderingContext2D;
+  video: HTMLVideoElement;
+  canvasWidth: number;
+  canvasHeight: number;
+  frame: ScreenLayerCameraFrame;
+  source: ScreenLayerCameraSource;
+  sourceWidth: number;
+  sourceHeight: number;
+  radius: number;
+  presentation?: ScreenLayerCameraPresentation | null;
+  shadow: boolean;
+};
+
 export type ScreenLayerRendererStats = {
   requestedRendererKind: ScreenLayerRendererKind;
   rendererKind: ScreenLayerRendererKind;
@@ -48,6 +83,7 @@ export interface ScreenLayerRenderer {
   isSupported(): boolean;
   resize(width: number, height: number): void;
   draw(input: ScreenLayerDrawInput): ScreenLayerRendererStats;
+  drawCamera(input: CameraLayerDrawInput): ScreenLayerRendererStats;
   getDebugStats(): ScreenLayerRendererStats;
   dispose(): void;
 }
@@ -120,6 +156,40 @@ export class Canvas2DScreenLayerRenderer implements ScreenLayerRenderer {
     return this.getDebugStats();
   }
 
+  drawCamera(input: CameraLayerDrawInput): ScreenLayerRendererStats {
+    if (this.disposed) {
+      this.stats = { ...this.stats, contextStatus: 'disposed', drawCostMs: null };
+      return this.getDebugStats();
+    }
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const { ctx, video, frame, source, presentation, radius } = input;
+    try {
+      ctx.save();
+      if (input.shadow && presentation?.shadowEnabled !== false) {
+        ctx.shadowColor = `rgba(0, 0, 0, ${presentation?.shadowOpacity ?? 0.45})`;
+        ctx.shadowBlur = presentation?.shadowBlur ?? 24;
+        ctx.shadowOffsetY = 8;
+      }
+      addCameraShapePath(ctx, frame, presentation, radius);
+      ctx.clip();
+      ctx.drawImage(video, source.sx, source.sy, source.sw, source.sh, frame.x, frame.y, frame.w, frame.h);
+      ctx.restore();
+      const endedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      this.stats = {
+        rendererKind: 'canvas2d',
+        requestedRendererKind: this.stats.requestedRendererKind,
+        contextStatus: 'available',
+        drawCostMs: Math.round((endedAt - startedAt) * 10) / 10,
+        drawCount: this.stats.drawCount + 1,
+        fallbackReason: this.stats.fallbackReason,
+      };
+    } catch {
+      this.stats = { ...this.stats, contextStatus: 'draw-failed', drawCostMs: null };
+      throw new Error('Canvas2D camera layer draw failed.');
+    }
+    return this.getDebugStats();
+  }
+
   getDebugStats(): ScreenLayerRendererStats {
     return { ...this.stats };
   }
@@ -136,9 +206,13 @@ type WebGLProgramParts = {
   texCoordAttribute: number;
   previousTexCoordAttribute: number;
   nextTexCoordAttribute: number;
+  canvasPositionAttribute: number;
   resolutionUniform: WebGLUniformLocation | null;
   textureUniform: WebGLUniformLocation | null;
   motionBlurSamplesUniform: WebGLUniformLocation | null;
+  maskModeUniform: WebGLUniformLocation | null;
+  maskFrameUniform: WebGLUniformLocation | null;
+  maskRadiusUniform: WebGLUniformLocation | null;
 };
 
 export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
@@ -150,6 +224,7 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
   private texCoordBuffer: WebGLBuffer | null = null;
   private previousTexCoordBuffer: WebGLBuffer | null = null;
   private nextTexCoordBuffer: WebGLBuffer | null = null;
+  private canvasPositionBuffer: WebGLBuffer | null = null;
   private parts: WebGLProgramParts | null = null;
   private fallback: Canvas2DScreenLayerRenderer | null = null;
   private disposed = false;
@@ -211,6 +286,48 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     }
   }
 
+  drawCamera(input: CameraLayerDrawInput): ScreenLayerRendererStats {
+    if (this.disposed) {
+      this.stats = { ...this.stats, contextStatus: 'disposed', drawCostMs: null };
+      return this.getDebugStats();
+    }
+    if (!this.ensureContext() || !this.gl || !this.canvas || !this.parts || !this.texture || !this.positionBuffer || !this.texCoordBuffer || !this.previousTexCoordBuffer || !this.nextTexCoordBuffer || !this.canvasPositionBuffer) {
+      return this.ensureFallback('webgl-context-unavailable').drawCamera(input);
+    }
+    if (this.gl.isContextLost()) {
+      const stats = this.ensureFallback('webgl-context-lost').drawCamera(input);
+      this.stats = { ...stats, requestedRendererKind: 'webgl', rendererKind: 'canvas2d', contextStatus: 'context-lost', fallbackReason: 'webgl-context-lost' };
+      return this.getDebugStats();
+    }
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    try {
+      this.resize(input.canvasWidth, input.canvasHeight);
+      this.drawCameraWebGL(input);
+      input.ctx.save();
+      if (input.shadow && input.presentation?.shadowEnabled !== false) {
+        input.ctx.shadowColor = `rgba(0, 0, 0, ${input.presentation?.shadowOpacity ?? 0.45})`;
+        input.ctx.shadowBlur = input.presentation?.shadowBlur ?? 24;
+        input.ctx.shadowOffsetY = 8;
+      }
+      input.ctx.drawImage(this.canvas as CanvasImageSource, 0, 0, input.canvasWidth, input.canvasHeight);
+      input.ctx.restore();
+      const endedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      this.stats = {
+        requestedRendererKind: 'webgl',
+        rendererKind: 'webgl',
+        contextStatus: 'available',
+        drawCostMs: Math.round((endedAt - startedAt) * 10) / 10,
+        drawCount: this.stats.drawCount + 1,
+        fallbackReason: null,
+      };
+      return this.getDebugStats();
+    } catch {
+      const stats = this.ensureFallback('webgl-camera-draw-failed').drawCamera(input);
+      this.stats = { ...stats, requestedRendererKind: 'webgl', rendererKind: 'canvas2d', contextStatus: 'draw-failed', fallbackReason: 'webgl-camera-draw-failed' };
+      return this.getDebugStats();
+    }
+  }
+
   getDebugStats(): ScreenLayerRendererStats {
     return { ...this.stats };
   }
@@ -224,6 +341,7 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     this.texCoordBuffer = null;
     this.previousTexCoordBuffer = null;
     this.nextTexCoordBuffer = null;
+    this.canvasPositionBuffer = null;
     this.parts = null;
     this.gl = null;
     this.canvas = null;
@@ -250,7 +368,7 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
 
   private ensureContext(): boolean {
     if (this.disposed) return false;
-    if (this.gl && this.parts && this.texture && this.positionBuffer && this.texCoordBuffer && this.previousTexCoordBuffer && this.nextTexCoordBuffer) return !this.gl.isContextLost();
+    if (this.gl && this.parts && this.texture && this.positionBuffer && this.texCoordBuffer && this.previousTexCoordBuffer && this.nextTexCoordBuffer && this.canvasPositionBuffer) return !this.gl.isContextLost();
     const canvas = createRendererCanvas();
     const gl = canvas.getContext('webgl', {
       alpha: true,
@@ -270,7 +388,8 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     const texCoordBuffer = gl.createBuffer();
     const previousTexCoordBuffer = gl.createBuffer();
     const nextTexCoordBuffer = gl.createBuffer();
-    if (!parts || !texture || !positionBuffer || !texCoordBuffer || !previousTexCoordBuffer || !nextTexCoordBuffer) {
+    const canvasPositionBuffer = gl.createBuffer();
+    if (!parts || !texture || !positionBuffer || !texCoordBuffer || !previousTexCoordBuffer || !nextTexCoordBuffer || !canvasPositionBuffer) {
       this.stats = { ...this.stats, contextStatus: 'missing-context', fallbackReason: 'webgl-init-failed' };
       return false;
     }
@@ -287,6 +406,7 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     this.texCoordBuffer = texCoordBuffer;
     this.previousTexCoordBuffer = previousTexCoordBuffer;
     this.nextTexCoordBuffer = nextTexCoordBuffer;
+    this.canvasPositionBuffer = canvasPositionBuffer;
     this.stats = { ...this.stats, contextStatus: 'available', fallbackReason: null };
     return true;
   }
@@ -294,7 +414,7 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
   private drawWebGL(input: ScreenLayerDrawInput): void {
     const gl = this.gl;
     const parts = this.parts;
-    if (!gl || !parts || !this.texture || !this.positionBuffer || !this.texCoordBuffer || !this.previousTexCoordBuffer || !this.nextTexCoordBuffer) throw new Error('Missing WebGL state.');
+    if (!gl || !parts || !this.texture || !this.positionBuffer || !this.texCoordBuffer || !this.previousTexCoordBuffer || !this.nextTexCoordBuffer || !this.canvasPositionBuffer) throw new Error('Missing WebGL state.');
 
     const screenWidth = input.screenSource.w * input.screenDrawScale;
     const screenHeight = input.screenSource.h * input.screenDrawScale;
@@ -310,6 +430,7 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
       x1, y0,
       x1, y1,
     ]);
+    const canvasPositions = positions;
     const texCoords = new Float32Array([
       ...sourceTexCoordForCanvasPoint(input, x0, y0),
       ...sourceTexCoordForCanvasPoint(input, x1, y0),
@@ -348,6 +469,9 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     gl.uniform2f(parts.resolutionUniform, input.canvasWidth, input.canvasHeight);
     gl.uniform1i(parts.textureUniform, 0);
     gl.uniform1f(parts.motionBlurSamplesUniform, motionBlurSamples);
+    gl.uniform1f(parts.maskModeUniform, 0);
+    gl.uniform4f(parts.maskFrameUniform, 0, 0, input.canvasWidth, input.canvasHeight);
+    gl.uniform1f(parts.maskRadiusUniform, 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
@@ -373,6 +497,75 @@ export class WebGLScreenLayerRenderer implements ScreenLayerRenderer {
     gl.enableVertexAttribArray(parts.nextTexCoordAttribute);
     gl.vertexAttribPointer(parts.nextTexCoordAttribute, 2, gl.FLOAT, false, 0, 0);
 
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.canvasPositionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, canvasPositions, gl.STREAM_DRAW);
+    gl.enableVertexAttribArray(parts.canvasPositionAttribute);
+    gl.vertexAttribPointer(parts.canvasPositionAttribute, 2, gl.FLOAT, false, 0, 0);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  private drawCameraWebGL(input: CameraLayerDrawInput): void {
+    const gl = this.gl;
+    const parts = this.parts;
+    if (!gl || !parts || !this.texture || !this.positionBuffer || !this.texCoordBuffer || !this.previousTexCoordBuffer || !this.nextTexCoordBuffer || !this.canvasPositionBuffer) throw new Error('Missing WebGL state.');
+    const { frame, source } = input;
+    const x0 = frame.x;
+    const y0 = frame.y;
+    const x1 = frame.x + frame.w;
+    const y1 = frame.y + frame.h;
+    const positions = new Float32Array([
+      x0, y0,
+      x1, y0,
+      x0, y1,
+      x0, y1,
+      x1, y0,
+      x1, y1,
+    ]);
+    const u0 = source.sx / input.sourceWidth;
+    const u1 = (source.sx + source.sw) / input.sourceWidth;
+    const v0 = source.sy / input.sourceHeight;
+    const v1 = (source.sy + source.sh) / input.sourceHeight;
+    const texCoords = new Float32Array([
+      u0, v1,
+      u1, v1,
+      u0, v0,
+      u0, v0,
+      u1, v1,
+      u1, v0,
+    ]);
+    gl.viewport(0, 0, input.canvasWidth, input.canvasHeight);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(parts.program);
+    gl.uniform2f(parts.resolutionUniform, input.canvasWidth, input.canvasHeight);
+    gl.uniform1i(parts.textureUniform, 0);
+    gl.uniform1f(parts.motionBlurSamplesUniform, 1);
+    gl.uniform1f(parts.maskModeUniform, input.presentation?.shape === 'circle' ? 2 : 1);
+    gl.uniform4f(parts.maskFrameUniform, frame.x, frame.y, frame.w, frame.h);
+    gl.uniform1f(parts.maskRadiusUniform, input.radius);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, input.video);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STREAM_DRAW);
+    gl.enableVertexAttribArray(parts.positionAttribute);
+    gl.vertexAttribPointer(parts.positionAttribute, 2, gl.FLOAT, false, 0, 0);
+    for (const [buffer, attribute] of [
+      [this.texCoordBuffer, parts.texCoordAttribute],
+      [this.previousTexCoordBuffer, parts.previousTexCoordAttribute],
+      [this.nextTexCoordBuffer, parts.nextTexCoordAttribute],
+    ] as const) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, texCoords, gl.STREAM_DRAW);
+      gl.enableVertexAttribArray(attribute);
+      gl.vertexAttribPointer(attribute, 2, gl.FLOAT, false, 0, 0);
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.canvasPositionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STREAM_DRAW);
+    gl.enableVertexAttribArray(parts.canvasPositionAttribute);
+    gl.vertexAttribPointer(parts.canvasPositionAttribute, 2, gl.FLOAT, false, 0, 0);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 }
@@ -403,10 +596,12 @@ function createProgram(gl: WebGLRenderingContext): WebGLProgramParts | null {
     attribute vec2 a_texCoord;
     attribute vec2 a_previousTexCoord;
     attribute vec2 a_nextTexCoord;
+    attribute vec2 a_canvasPosition;
     uniform vec2 u_resolution;
     varying vec2 v_texCoord;
     varying vec2 v_previousTexCoord;
     varying vec2 v_nextTexCoord;
+    varying vec2 v_canvasPosition;
     void main() {
       vec2 zeroToOne = a_position / u_resolution;
       vec2 clipSpace = zeroToOne * 2.0 - 1.0;
@@ -414,21 +609,36 @@ function createProgram(gl: WebGLRenderingContext): WebGLProgramParts | null {
       v_texCoord = a_texCoord;
       v_previousTexCoord = a_previousTexCoord;
       v_nextTexCoord = a_nextTexCoord;
+      v_canvasPosition = a_canvasPosition;
     }
   `);
   const fragment = compileShader(gl, gl.FRAGMENT_SHADER, `
     precision mediump float;
     uniform sampler2D u_texture;
     uniform float u_motionBlurSamples;
+    uniform float u_maskMode;
+    uniform vec4 u_maskFrame;
+    uniform float u_maskRadius;
     varying vec2 v_texCoord;
     varying vec2 v_previousTexCoord;
     varying vec2 v_nextTexCoord;
+    varying vec2 v_canvasPosition;
     vec4 sampleIfVisible(vec2 coord) {
       if (coord.x < 0.0 || coord.x > 1.0 || coord.y < 0.0 || coord.y > 1.0) return vec4(0.0);
       return texture2D(u_texture, coord);
     }
     void main() {
       if (v_texCoord.x < 0.0 || v_texCoord.x > 1.0 || v_texCoord.y < 0.0 || v_texCoord.y > 1.0) discard;
+      if (u_maskMode > 1.5) {
+        vec2 center = u_maskFrame.xy + u_maskFrame.zw * 0.5;
+        if (distance(v_canvasPosition, center) > min(u_maskFrame.z, u_maskFrame.w) * 0.5) discard;
+      } else if (u_maskMode > 0.5) {
+        vec2 halfSize = u_maskFrame.zw * 0.5;
+        vec2 center = u_maskFrame.xy + halfSize;
+        vec2 q = abs(v_canvasPosition - center) - halfSize + vec2(u_maskRadius);
+        float outside = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - u_maskRadius;
+        if (outside > 0.0) discard;
+      }
       vec4 color = texture2D(u_texture, v_texCoord) * 0.44;
       float weight = 0.44;
       if (u_motionBlurSamples >= 3.0) {
@@ -457,9 +667,13 @@ function createProgram(gl: WebGLRenderingContext): WebGLProgramParts | null {
     texCoordAttribute: gl.getAttribLocation(program, 'a_texCoord'),
     previousTexCoordAttribute: gl.getAttribLocation(program, 'a_previousTexCoord'),
     nextTexCoordAttribute: gl.getAttribLocation(program, 'a_nextTexCoord'),
+    canvasPositionAttribute: gl.getAttribLocation(program, 'a_canvasPosition'),
     resolutionUniform: gl.getUniformLocation(program, 'u_resolution'),
     textureUniform: gl.getUniformLocation(program, 'u_texture'),
     motionBlurSamplesUniform: gl.getUniformLocation(program, 'u_motionBlurSamples'),
+    maskModeUniform: gl.getUniformLocation(program, 'u_maskMode'),
+    maskFrameUniform: gl.getUniformLocation(program, 'u_maskFrame'),
+    maskRadiusUniform: gl.getUniformLocation(program, 'u_maskRadius'),
   };
 }
 
@@ -469,6 +683,35 @@ function compileShader(gl: WebGLRenderingContext, type: number, source: string):
   gl.shaderSource(shader, source);
   gl.compileShader(shader);
   return gl.getShaderParameter(shader, gl.COMPILE_STATUS) ? shader : null;
+}
+
+function addCameraShapePath(
+  ctx: CanvasRenderingContext2D,
+  frame: ScreenLayerCameraFrame,
+  presentation: ScreenLayerCameraPresentation | null | undefined,
+  radius: number,
+): void {
+  if (presentation?.shape === 'circle') {
+    ctx.beginPath();
+    ctx.arc(frame.x + frame.w / 2, frame.y + frame.h / 2, Math.min(frame.w, frame.h) / 2, 0, Math.PI * 2);
+    return;
+  }
+  addRoundedRect(ctx, frame.x, frame.y, frame.w, frame.h, radius);
+}
+
+function addRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number): void {
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  ctx.lineTo(x + r, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
 }
 
 function sourceTexCoordForCanvasPoint(

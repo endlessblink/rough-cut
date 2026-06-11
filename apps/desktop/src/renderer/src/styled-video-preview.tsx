@@ -1379,14 +1379,6 @@ export function StyledVideoPreview({
         (window as unknown as Record<string, boolean>).__roughCutCameraFramePresent = true;
         const cameraRadius = resolveCameraRadius(frame.cameraPresentation, cameraFrame);
         cameraRadiusRef.current = cameraRadius;
-        ctx.save();
-        if (!activeTimelinePlayback && frame.cameraPresentation?.shadowEnabled !== false) {
-          ctx.shadowColor = `rgba(0, 0, 0, ${frame.cameraPresentation?.shadowOpacity ?? 0.45})`;
-          ctx.shadowBlur = frame.cameraPresentation?.shadowBlur ?? 24;
-          ctx.shadowOffsetY = 8;
-        }
-        addCameraShapePath(ctx, cameraFrame, frame.cameraPresentation, cameraRadius);
-        ctx.clip();
         const cameraSource = resolveCameraSourceRect(
           cameraVideo.videoWidth,
           cameraVideo.videoHeight,
@@ -1396,24 +1388,26 @@ export function StyledVideoPreview({
         );
         if (cameraSource) {
           try {
-            ctx.drawImage(
-              cameraVideo,
-              cameraSource.sx,
-              cameraSource.sy,
-              cameraSource.sw,
-              cameraSource.sh,
-              cameraFrame.x,
-              cameraFrame.y,
-              cameraFrame.w,
-              cameraFrame.h,
-            );
+            const cameraLayerStats = screenLayerRenderer.drawCamera({
+              ctx,
+              video: cameraVideo,
+              canvasWidth,
+              canvasHeight,
+              frame: cameraFrame,
+              source: cameraSource,
+              sourceWidth: cameraVideo.videoWidth,
+              sourceHeight: cameraVideo.videoHeight,
+              radius: cameraRadius,
+              presentation: frame.cameraPresentation,
+              shadow: !activeTimelinePlayback,
+            });
+            publishScreenLayerRendererStats(cameraLayerStats);
           } catch {
             // The camera element can report seeking while playback is still
             // advancing. Keep the screen frame alive and draw PiP on the next
             // decoded camera frame instead of killing the whole preview loop.
           }
         }
-        ctx.restore();
         if (!activeTimelinePlayback && onCameraFrameChange) drawEditorFrameControls(ctx, cameraFrame, '#f59e0b', frame.cameraPresentation);
       } else {
         cameraRectRef.current = null;
@@ -2355,20 +2349,6 @@ function circleFrameHandles(rect: { x: number; y: number; w: number; h: number }
     { x: cx + d, y: cy + d },
     { x: cx - d, y: cy + d },
   ];
-}
-
-function addCameraShapePath(
-  ctx: CanvasRenderingContext2D,
-  frame: { x: number; y: number; w: number; h: number },
-  presentation: Partial<CameraPresentation> | undefined,
-  radius: number,
-) {
-  if (presentation?.shape === 'circle') {
-    ctx.beginPath();
-    ctx.arc(frame.x + frame.w / 2, frame.y + frame.h / 2, Math.min(frame.w, frame.h) / 2, 0, Math.PI * 2);
-    return;
-  }
-  addRoundedRect(ctx, frame.x, frame.y, frame.w, frame.h, radius);
 }
 
 function resolveCameraSourceRect(
