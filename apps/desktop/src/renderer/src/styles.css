@@ -5786,4 +5786,11 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 }
 .nleEmptyState h2 { font-size: 1.05rem; font-weight: 600; margin: 0; }
 .nleEmptyState p { color: rgb(226 232 240 / 0.6); margin: 0; max-width: 28rem; }
-.nleEmptyState .primaryAction { margin-top: 0.75rem; }
+.nleEmptyActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-top: 0.75rem;
+}
