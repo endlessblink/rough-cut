@@ -205,8 +205,12 @@ test('experimental headless export mode reports a composition plan and falls bac
 
   const prototypeEvent = progress.find((event) => event.phase === 'rendering-headless-prototype');
   assert.equal(prototypeEvent?.experimentalBackend, 'headless-export');
+  assert.equal(prototypeEvent?.headlessRender?.backend, 'electron-headless-compositor');
+  assert.equal(prototypeEvent?.headlessRender?.attempted, false);
+  assert.equal(prototypeEvent?.headlessRender?.reason, 'experimental-headless-export-disabled');
   assert.equal(prototypeEvent?.fallback?.active, true);
   assert.equal(prototypeEvent?.fallback?.to, 'ffmpeg-styled');
+  assert.equal(prototypeEvent?.fallback?.reason, 'experimental-headless-export-disabled');
   assert.equal(prototypeEvent?.compositionPlan?.kind, 'experimental-headless-export-plan');
   assert.equal(prototypeEvent?.compositionPlan?.fallbackBackend, 'ffmpeg-styled');
   assert.equal(prototypeEvent?.compositionPlan?.frames?.length, 3);

@@ -10,6 +10,8 @@ const packageLinuxSource = readFileSync(join(root, 'scripts/package-linux.mjs'),
 const desktopMainSource = readFileSync(join(root, 'apps/desktop/src/main/index.mjs'), 'utf8');
 const gpuCompositorProbeSource = readFileSync(join(root, 'scripts/visual-gpu-compositor-parity-playwright.mjs'), 'utf8');
 const experimentalHeadlessExportSmokeSource = readFileSync(join(root, 'scripts/smoke-experimental-headless-export.mjs'), 'utf8');
+const desktopPackage = JSON.parse(readFileSync(join(root, 'apps/desktop/package.json'), 'utf8'));
+const headlessExportRendererSource = readFileSync(join(root, 'apps/desktop/src/main/headless-export-renderer.mjs'), 'utf8');
 const masterPlanSource = readFileSync(join(root, 'MASTER_PLAN.md'), 'utf8');
 const compositorMigrationPath = join(root, 'docs/architecture/compositor-migration.md');
 
@@ -124,4 +126,13 @@ test('GPU-C experimental headless export smoke stays explicit and fallback-backe
   assert.match(experimentalHeadlessExportSmokeSource, /frameComparisons/);
   assert.match(experimentalHeadlessExportSmokeSource, /createZoomMarker/);
   assert.match(experimentalHeadlessExportSmokeSource, /zoomedCursorSharpness/);
+});
+
+test('GPU-C experimental headless renderer seam stays opt-in and fallback-backed', () => {
+  assert.match(desktopPackage.scripts.test, /src\/main\/headless-export-renderer\.test\.mjs/);
+  assert.match(headlessExportRendererSource, /HEADLESS_EXPORT_BACKEND = 'electron-headless-compositor'/);
+  assert.match(headlessExportRendererSource, /ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT !== '1'/);
+  assert.match(headlessExportRendererSource, /experimental-headless-export-disabled/);
+  assert.match(headlessExportRendererSource, /electron-runtime-unavailable/);
+  assert.match(headlessExportRendererSource, /electron-headless-renderer-not-implemented/);
 });

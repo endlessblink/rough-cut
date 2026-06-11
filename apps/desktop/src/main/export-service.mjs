@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getPrimaryRecording } from './project-files.mjs';
 import { createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
+import { attemptExperimentalHeadlessRender } from './headless-export-renderer.mjs';
 import { canonicalizeProjectDocument, computeTimelineDuration, createDefaultCameraPresentation, getRecordingBackgroundColors, getStyledCanvasResolution } from '@rough-cut/project-model';
 import { getCameraLayoutRect, resolveCompositionFrame } from '@rough-cut/frame-resolver';
 
@@ -84,18 +85,18 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
 
 export async function exportExperimentalHeadlessProjectToMp4({ project, recording, outputPath, onProgress = () => undefined, signal = null } = {}) {
   const compositionPlan = buildExperimentalHeadlessExportPlan({ project, recording });
+  const headlessRender = await attemptExperimentalHeadlessRender({ compositionPlan, outputPath, signal });
   const fallback = {
     active: true,
     from: 'headless-export',
     to: 'ffmpeg-styled',
-    reason: experimentalHeadlessExportEnabled()
-      ? 'headless-renderer-not-implemented'
-      : 'experimental-headless-export-disabled',
+    reason: headlessRender.reason,
   };
   onProgress({
     phase: 'rendering-headless-prototype',
     progress: 0.01,
     experimentalBackend: 'headless-export',
+    headlessRender,
     fallback,
     compositionPlan,
   });
@@ -107,12 +108,14 @@ export async function exportExperimentalHeadlessProjectToMp4({ project, recordin
     onProgress: (event) => onProgress({
       ...event,
       experimentalBackend: 'headless-export',
+      headlessRender,
       fallback,
     }),
   });
   return {
     ...result,
     experimentalBackend: 'headless-export',
+    headlessRender,
     fallback,
     compositionPlan,
   };

@@ -7654,6 +7654,28 @@ Evidence:
 Remaining before DONE: replace the fallback-backed prototype with a real
 headless/GPU frame renderer. Do not make this mode default.
 
+**Slice 5 (2026-06-11):** Added the explicit headless renderer adapter seam.
+`exportExperimentalHeadlessProjectToMp4(...)` now attempts
+`electron-headless-compositor` through `headless-export-renderer.mjs` before
+falling back. The adapter is opt-in via `ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT=1`,
+reports disabled/runtime-unavailable/not-implemented states as structured
+metadata, and keeps FFmpeg styled fallback active when the renderer is not
+available. This is the insertion point for the real hidden-window/GPU renderer;
+it is not the renderer implementation yet.
+
+Evidence:
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `pnpm smoke:experimental-headless-export` passes outside the sandbox; latest
+  root `/tmp/rough-cut-headless-export-b9CGDc`.
+- The smoke still reports explicit fallback `{ from: "headless-export", to:
+  "ffmpeg-styled", reason: "experimental-headless-export-disabled" }`, zero
+  decoded frame delta against the styled baseline, and zoomed cursor sharpness
+  `{ bright: 3039, dark: 2679 }`.
+
+Remaining before DONE: implement the real Electron hidden-window/GPU frame
+renderer behind the adapter. Do not make this mode default.
+
 ### TASK-247 Make GPU compositor default and retire legacy visual composition logic
 
 **Priority:** P1
