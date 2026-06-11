@@ -7693,6 +7693,28 @@ Evidence:
 Remaining before DONE: implement the real Electron hidden-window/GPU frame
 renderer behind the adapter. Do not make this mode default.
 
+**Slice 6 (2026-06-11):** Added hidden-window surface probing behind the
+headless export adapter. When `ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT=1` makes
+the adapter available, it now attempts to create a hidden/offscreen Electron
+render surface, load a minimal canvas probe, report whether script execution
+and page capture are available, close the window, and still returns the
+not-implemented renderer result so FFmpeg styled fallback remains active.
+
+Evidence:
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node --test scripts/repo-regression.test.mjs` passes.
+- `node --test apps/desktop/src/main/export-service.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `pnpm smoke:experimental-headless-export` passes outside the sandbox; latest
+  root `/tmp/rough-cut-headless-export-Yjf733`.
+- The smoke still reports explicit fallback `{ from: "headless-export", to:
+  "ffmpeg-styled", reason: "experimental-headless-export-disabled" }`, zero
+  decoded frame delta against the styled baseline, and zoomed cursor sharpness
+  `{ bright: 3039, dark: 2679 }`.
+
+Remaining before DONE: implement actual frame rendering/capture/encoding in the
+hidden window behind the adapter. Do not make this mode default.
+
 ### TASK-247 Make GPU compositor default and retire legacy visual composition logic
 
 **Priority:** P1

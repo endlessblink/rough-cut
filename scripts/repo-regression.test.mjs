@@ -144,6 +144,9 @@ test('GPU-C experimental headless renderer seam stays opt-in and fallback-backed
   assert.match(headlessExportRendererSource, /experimental-headless-export-disabled/);
   assert.match(headlessExportRendererSource, /electron-runtime-unavailable/);
   assert.match(headlessExportRendererSource, /electron-headless-renderer-not-implemented/);
+  assert.match(headlessExportRendererSource, /probeHiddenRenderSurface/);
+  assert.match(headlessExportRendererSource, /electron-browser-window-unavailable/);
+  assert.match(headlessExportRendererSource, /offscreen: true/);
 });
 
 test('GPU-C experimental export UI stays feature-flagged and fallback-labeled', () => {
