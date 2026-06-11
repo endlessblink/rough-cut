@@ -33,6 +33,11 @@ test('export benchmark keeps profiling and fast-path report coverage', () => {
     assert.match(benchmarkSource, new RegExp(`id: '${caseId}'`));
   }
   assert.match(benchmarkSource, /fastPath: exportResult\.fastPath \?\? null/);
+  assert.match(benchmarkSource, /id: 'experimental-headless-zooms-cursor'/);
+  assert.match(benchmarkSource, /mode: 'experimental-headless'/);
+  assert.match(benchmarkSource, /experimentalBackend: exportResult\.experimentalBackend \?\? null/);
+  assert.match(benchmarkSource, /fallback: exportResult\.fallback \?\? null/);
+  assert.match(benchmarkSource, /compositionSampleFrames: exportResult\.compositionPlan\?\.frames\?\.map/);
   assert.match(benchmarkSource, /profiling: buildProfilingSummary\(results\)/);
   assert.match(benchmarkSource, /optimizationCandidates: rankOptimizationCandidates\(comparisons\)/);
   assert.match(benchmarkSource, /compareTo: 'styled-basic'/);

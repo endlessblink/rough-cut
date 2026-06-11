@@ -126,6 +126,30 @@ const cases = [
     sourceDurationSeconds: sourceProbe.durationSeconds,
   },
   {
+    id: 'experimental-headless-zooms-cursor',
+    label: 'Experimental headless with zooms/cursor',
+    mode: 'experimental-headless',
+    budgetMode: 'styled',
+    profileRole: 'experimental-headless-fallback',
+    compareTo: 'styled-zooms',
+    featureMix: ['experimental-headless', 'styled-fallback', 'zoom-markers', 'cursor'],
+    project: withPrimaryPresentation((await createRecordingProject({
+      mediaPath: sourcePath,
+      cameraPath: null,
+      durationSeconds: 4,
+      cursorEvents: buildCursorEvents({ fps: SOURCE_FPS, durationFrames: 120, width: SOURCE_WIDTH, height: SOURCE_HEIGHT, includeClicks: false }),
+    })).document, {
+      zoom: {
+        markers: [
+          createZoomMarker(24, 72, { strength: 0.85, focalPoint: { x: 0.24, y: 0.35 } }),
+          createZoomMarker(78, 114, { strength: 0.75, focalPoint: { x: 0.76, y: 0.68 } }),
+        ],
+      },
+      cursor: { style: 'default', clickEffect: 'none', sizePercent: 110, clickSoundEnabled: false },
+    }),
+    sourceDurationSeconds: sourceProbe.durationSeconds,
+  },
+  {
     id: 'profile-shadow-off',
     label: 'Profile without screen shadow',
     mode: 'styled',
@@ -287,6 +311,9 @@ async function runBenchmarkCase(benchmarkCase) {
     profileRole: benchmarkCase.profileRole ?? null,
     compareTo: benchmarkCase.compareTo ?? null,
     fastPath: exportResult.fastPath ?? null,
+    experimentalBackend: exportResult.experimentalBackend ?? null,
+    fallback: exportResult.fallback ?? null,
+    compositionSampleFrames: exportResult.compositionPlan?.frames?.map((frame) => frame.frameIndex) ?? null,
     budgetStatus: classifyBudgetStatus({
       mode: benchmarkCase.budgetMode,
       speedMultiplier,

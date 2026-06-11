@@ -7635,6 +7635,25 @@ Remaining before DONE: replace the fallback-backed prototype with a real
 headless/GPU frame renderer and record benchmark speed/quality evidence. Do
 not make this mode default.
 
+**Slice 4 (2026-06-11):** Added experimental export benchmark coverage. The
+benchmark now includes an `experimental-headless-zooms-cursor` case with zoom
+markers and cursor telemetry, records explicit fallback metadata in the JSON
+report, and compares its timing against the existing `styled-zooms` baseline.
+
+Evidence:
+- `node --check scripts/benchmark-export.mjs` passes.
+- `node --test scripts/repo-regression.test.mjs` passes.
+- `pnpm benchmark:export` passes outside the sandbox; report
+  `/tmp/rough-cut-export-benchmark-pX8ba2/export-benchmark-result.json`.
+- The experimental case reports `1920x1080`, `30fps`, `4s` output,
+  `wallClockMs: 2672`, `speedMultiplier: 1.497`, `budgetStatus:
+  "within-budget"`, `experimentalBackend: "headless-export"`, explicit
+  fallback `{ from: "headless-export", to: "ffmpeg-styled" }`, sample frames
+  `[0, 60, 119]`, and `+43ms` versus the `styled-zooms` baseline in this run.
+
+Remaining before DONE: replace the fallback-backed prototype with a real
+headless/GPU frame renderer. Do not make this mode default.
+
 ### TASK-247 Make GPU compositor default and retire legacy visual composition logic
 
 **Priority:** P1
