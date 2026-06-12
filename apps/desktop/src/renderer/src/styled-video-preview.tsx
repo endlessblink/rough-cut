@@ -165,17 +165,53 @@ function publishScreenLayerRendererStats(stats: ScreenLayerRendererStats) {
 
 function resolveRequestedScreenLayerRendererKind(): ScreenLayerRendererKind {
   const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
+  if (typeof window !== 'undefined') {
+    const queryRenderer = new URLSearchParams(window.location.search).get('screenLayerRenderer');
+    if (queryRenderer) return resolveScreenLayerRendererSelection(queryRenderer);
+    const target = window as unknown as { __roughCutWebglScreenLayer?: unknown; __roughCutWebgpuScreenLayer?: unknown; __roughCutScreenLayerRenderer?: unknown };
+    if (typeof target.__roughCutScreenLayerRenderer === 'string') return resolveScreenLayerRendererSelection(target.__roughCutScreenLayerRenderer);
+    if (target.__roughCutWebgpuScreenLayer === true || target.__roughCutWebgpuScreenLayer === '1') return 'webgpu';
+    if (target.__roughCutWebglScreenLayer === true || target.__roughCutWebglScreenLayer === '1') return 'webgl';
+    try {
+      const storedRenderer = window.localStorage?.getItem('roughCutScreenLayerRenderer');
+      if (storedRenderer) return resolveScreenLayerRendererSelection(storedRenderer);
+      if (window.localStorage?.getItem('roughCutWebgpuScreenLayer') === '1') return 'webgpu';
+      if (window.localStorage?.getItem('roughCutWebglScreenLayer') === '1') return 'webgl';
+    } catch {
+      // localStorage can be unavailable in restricted contexts; fall through to env/default.
+    }
+  }
+  const envRenderer = env.ROUGH_CUT_SCREEN_LAYER_RENDERER ?? env.VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER;
+  if (envRenderer) return resolveScreenLayerRendererSelection(envRenderer);
+  if (env.ROUGH_CUT_WEBGPU_SCREEN_LAYER === '1' || env.VITE_ROUGH_CUT_WEBGPU_SCREEN_LAYER === '1') return 'webgpu';
   if (env.ROUGH_CUT_WEBGL_SCREEN_LAYER === '1' || env.VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER === '1') return 'webgl';
+  if (env.ROUGH_CUT_DISABLE_WEBGPU_DEFAULT === '1' || env.VITE_ROUGH_CUT_DISABLE_WEBGPU_DEFAULT === '1') return 'canvas2d';
+  return resolveAutoScreenLayerRendererKind();
+}
+
+function resolveScreenLayerRendererSelection(value: string): ScreenLayerRendererKind {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'webgpu') return 'webgpu';
+  if (normalized === 'webgl') return 'webgl';
+  if (normalized === 'canvas2d') return 'canvas2d';
+  if (normalized === 'auto') return resolveAutoScreenLayerRendererKind();
+  return 'canvas2d';
+}
+
+function resolveAutoScreenLayerRendererKind(): ScreenLayerRendererKind {
   if (typeof window === 'undefined') return 'canvas2d';
-  const target = window as unknown as { __roughCutWebglScreenLayer?: unknown };
-  if (target.__roughCutWebglScreenLayer === true || target.__roughCutWebglScreenLayer === '1') return 'webgl';
-  if (new URLSearchParams(window.location.search).get('screenLayerRenderer') === 'webgl') return 'webgl';
+  if ('gpu' in navigator) return 'webgpu';
+  const canvas = document.createElement('canvas');
   try {
-    if (window.localStorage?.getItem('roughCutWebglScreenLayer') === '1') return 'webgl';
+    if (canvas.getContext('webgl2') || canvas.getContext('webgl')) return 'webgl';
   } catch {
-    // localStorage can be unavailable in restricted contexts; default stays canvas2d.
+    // Some sandboxed contexts throw while probing. Canvas2D remains the safe fallback.
   }
   return 'canvas2d';
+}
+
+function isAcceleratedScreenLayerRenderer(kind: ScreenLayerRendererKind): boolean {
+  return kind === 'webgl' || kind === 'webgpu';
 }
 
 function readPlaybackDebugSummary() {
@@ -552,6 +588,20 @@ export function StyledVideoPreview({
     longEdge: PREVIEW_CANVAS_LONG_EDGE,
   });
   const background = getPrimaryRecordingAsset(project.document as unknown as ProjectDocument)?.presentation?.background ?? DEFAULT_RECORDING_BACKGROUND;
+  const backgroundRenderKey = [
+    background.bgColor,
+    background.bgGradient ?? '',
+    background.bgImage ?? '',
+    background.bgPadding,
+    background.bgCornerRadius,
+    background.bgShadowEnabled ? 1 : 0,
+    background.bgShadowOpacity,
+    background.bgShadowBlur,
+    background.bgShadowOffsetX ?? 0,
+    background.bgShadowOffsetY ?? DEFAULT_RECORDING_BACKGROUND.bgShadowOffsetY ?? 34,
+    background.bgInset,
+    background.bgInsetColor ?? '',
+  ].join('|');
   const metadataSourceDurationSec = Math.max(0.1, (project.recording?.duration ?? 1) / fps);
   const cameraTimelineDurationSec = Number.isFinite(cameraMediaDuration) && cameraMediaDuration !== null && cameraMediaDuration > cameraSourceOffsetSec
     ? Math.max(0.1, cameraMediaDuration - cameraSourceOffsetSec - 1 / fps)
@@ -806,6 +856,7 @@ export function StyledVideoPreview({
     image.src = background.bgImage;
     image.onload = () => {
       backgroundImageRef.current = image;
+      screenLayerRendererRef.current?.prepareBackgroundImage?.(image);
     };
     image.onerror = () => {
       backgroundImageRef.current = null;
@@ -996,10 +1047,11 @@ export function StyledVideoPreview({
       if (webglCanvas.width !== canvasWidth) webglCanvas.width = canvasWidth;
       if (webglCanvas.height !== canvasHeight) webglCanvas.height = canvasHeight;
     }
-    if (screenLayerRenderer.kind !== 'webgl') {
+    if (!isAcceleratedScreenLayerRenderer(screenLayerRenderer.kind)) {
       screenLayerRenderer.resize(canvasWidth, canvasHeight);
     } else if (timeMode === 'timeline' && webglCanvas) {
       screenLayerRenderer.preparePresentationCanvas?.(webglCanvas, canvasWidth, canvasHeight);
+      screenLayerRenderer.prepareBackgroundImage?.(backgroundImageRef.current);
     }
     publishScreenLayerRendererStats(screenLayerRenderer.getDebugStats());
     const screenPadding = Math.max(0, Math.min(background.bgPadding, Math.min(canvasWidth, canvasHeight) / 2 - 2));
@@ -1054,10 +1106,10 @@ export function StyledVideoPreview({
       }
     }
 
-    const webglTimelinePlaybackClock = timeMode === 'timeline' && isPlaying && screenLayerRenderer.kind === 'webgl';
+    const acceleratedTimelinePlaybackClock = timeMode === 'timeline' && isPlaying && isAcceleratedScreenLayerRenderer(screenLayerRenderer.kind);
 
     function scheduleNextDraw() {
-      if (!webglTimelinePlaybackClock && timeMode === 'timeline' && isPlaying && activeTimelineSegmentRef.current && typeof screenVideo.requestVideoFrameCallback === 'function') {
+      if (!acceleratedTimelinePlaybackClock && timeMode === 'timeline' && isPlaying && activeTimelineSegmentRef.current && typeof screenVideo.requestVideoFrameCallback === 'function') {
         videoFrameCallbackId = screenVideo.requestVideoFrameCallback((now, metadata) => tick(now, metadata));
         return;
       }
@@ -1191,7 +1243,7 @@ export function StyledVideoPreview({
         }
       }
       lastTickAtMs = tickAtMs;
-      if (webglTimelinePlaybackClock && timeMode === 'timeline' && isPlaying && lastTickAtMs !== null && tickDeltaSec > 0) {
+      if (acceleratedTimelinePlaybackClock && timeMode === 'timeline' && isPlaying && lastTickAtMs !== null && tickDeltaSec > 0) {
         const nextClockTime = Math.min(timelineDuration, currentTimeRef.current + tickDeltaSec * timelineRateRef.current);
         if (nextClockTime > currentTimeRef.current) {
           updateCurrentTime(nextClockTime);
@@ -1281,14 +1333,14 @@ export function StyledVideoPreview({
         pausePreviewVideo(screenVideo);
         cameraVideo?.pause();
       }
-      const sourceTime = timeMode === 'timeline' && webglTimelinePlaybackClock && activeClockSegment && timelineClockFrame !== null
+      const sourceTime = timeMode === 'timeline' && acceleratedTimelinePlaybackClock && activeClockSegment && timelineClockFrame !== null
         ? Math.max(0, (activeClockSegment.sourceIn + (timelineClockFrame - activeClockSegment.timelineIn)) / fps)
         : timeMode === 'timeline' && Number.isFinite(metadata?.mediaTime)
         ? Number(metadata?.mediaTime)
         : video.currentTime;
       const sourceFrameFloat = Math.max(0, sourceTime * fps);
       const sourceFrame = Math.max(0, Math.round(sourceFrameFloat));
-      if (webglTimelinePlaybackClock && activeClockSegment && !sameTimelinePlaybackSegment(activeTimelineSegmentRef.current, activeClockSegment)) {
+      if (acceleratedTimelinePlaybackClock && activeClockSegment && !sameTimelinePlaybackSegment(activeTimelineSegmentRef.current, activeClockSegment)) {
         startTimelineSegmentPlayback(activeClockSegment, timelineClockFrame ?? activeClockSegment.timelineIn);
         scheduleNextDraw();
         return;
@@ -1315,7 +1367,7 @@ export function StyledVideoPreview({
           return;
         }
       }
-      const timelineDecoded = webglTimelinePlaybackClock && activeClockSegment
+      const timelineDecoded = acceleratedTimelinePlaybackClock && activeClockSegment
         ? {
             segment: activeClockSegment,
             timelineFrame: timelineClockFrame ?? activeClockSegment.timelineIn,
@@ -1413,14 +1465,14 @@ export function StyledVideoPreview({
       const { scale, offsetX, offsetY } = frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 };
       const previousMotionFrame = resolveCurrentFrame(Math.max(0, renderFrame - 1));
       const nextMotionFrame = resolveCurrentFrame(renderFrame + 1);
-      const webglTimelineFrameCompositor = activeTimelinePlayback && screenLayerRenderer.kind === 'webgl';
+      const acceleratedTimelineFrameCompositor = activeTimelinePlayback && isAcceleratedScreenLayerRenderer(screenLayerRenderer.kind);
       const zoomMotionBlurPx = resolveZoomMotionBlurPx({
         previous: previousMotionFrame.cameraTransform,
         current: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
         next: nextMotionFrame.cameraTransform,
         sourceWidth,
         sourceHeight,
-        reducedMotion: (activeTimelinePlayback && !webglTimelineFrameCompositor) || (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches),
+        reducedMotion: (activeTimelinePlayback && !acceleratedTimelineFrameCompositor) || (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches),
       });
       const dragScreenRect = screenDragRef.current;
       const resolvedScreenFrame = dragScreenRect
@@ -1437,7 +1489,7 @@ export function StyledVideoPreview({
       screenRectRef.current = { x: screenX, y: screenY, w: screenWidth, h: screenHeight };
       screenRadiusRef.current = screenRadius;
       markDrawPhase('resolve-layout');
-      if (webglTimelineFrameCompositor) {
+      if (acceleratedTimelineFrameCompositor) {
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
       } else {
         const backgroundLayerStats = screenLayerRenderer.drawBackground({
@@ -1530,7 +1582,7 @@ export function StyledVideoPreview({
         (window as unknown as Record<string, unknown>).__roughCutCanvasCameraRect = null;
         (window as unknown as Record<string, boolean>).__roughCutCameraFramePresent = false;
       }
-      if (webglTimelineFrameCompositor) {
+      if (acceleratedTimelineFrameCompositor) {
         try {
           const frameStats = screenLayerRenderer.drawFrame({
             background: {
@@ -1612,7 +1664,7 @@ export function StyledVideoPreview({
             offsetY,
           });
         }
-        markDrawPhase('webgl-frame');
+        markDrawPhase('accelerated-frame');
         publishResolvedLayout(resolvedScreenFrame, cameraRectRef.current, canvasWidth, canvasHeight);
         markDrawPhase('layout-publish-overlays');
         if (drawTimingEnabled && typeof performance !== 'undefined') {
@@ -1825,8 +1877,8 @@ export function StyledVideoPreview({
       });
       cancelScheduledDraw();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- cutRanges read via stable content key (cutRangesKey) to avoid per-frame loop restarts
-  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, background, cameraSrc, cameraSourceOffsetSec, trimStartSec, effectiveTrimEndSec, cutRangesKey, visibleDuration, timelineDuration, timeMode, isPlaying, requestedScreenLayerRendererKind]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cutRanges/background read via stable content keys to avoid object-identity loop restarts
+  }, [project, sourceWidth, sourceHeight, fps, canvasResolution.width, canvasResolution.height, backgroundRenderKey, cameraSrc, cameraSourceOffsetSec, trimStartSec, effectiveTrimEndSec, cutRangesKey, visibleDuration, timelineDuration, timeMode, isPlaying, requestedScreenLayerRendererKind]);
 
   React.useEffect(() => {
     const cameraVideo = cameraVideoRef.current;
@@ -1946,7 +1998,7 @@ export function StyledVideoPreview({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showControls, visibleDuration, fps, trimStartSec, cutRanges, timeMode, isPlaying, timelineDuration]);
 
-  const experimentalWebglPresentationActive = requestedScreenLayerRendererKind === 'webgl' && timeMode === 'timeline' && isPlaying;
+  const acceleratedPresentationActive = isAcceleratedScreenLayerRenderer(requestedScreenLayerRendererKind) && timeMode === 'timeline' && isPlaying;
 
   return (
     <div className="videoPreview styledPreview">
@@ -2006,13 +2058,13 @@ export function StyledVideoPreview({
       ) : null}
       <canvas
         ref={webglCanvasRef}
-        className={`styledPreviewWebglCanvas${experimentalWebglPresentationActive ? ' isActive' : ''}`}
+        className={`styledPreviewAcceleratedCanvas styledPreviewWebglCanvas${acceleratedPresentationActive ? ' isActive' : ''}`}
         aria-hidden="true"
         style={{ aspectRatio: `${canvasResolution.width} / ${canvasResolution.height}` }}
       />
       <canvas
         ref={canvasRef}
-        className={`styledPreviewCanvas styledPreviewOverlayCanvas${experimentalWebglPresentationActive ? ' isWebglPresentationOverlay' : ''}${!isPlaying && isDraggingCamera ? ' draggingCamera' : ''}${!isPlaying && isDraggingScreen ? ' draggingScreen' : ''}${!isPlaying && isDraggingFocal ? ' draggingFocal' : ''}`}
+        className={`styledPreviewCanvas styledPreviewOverlayCanvas${acceleratedPresentationActive ? ' isAcceleratedPresentationOverlay isWebglPresentationOverlay' : ''}${!isPlaying && isDraggingCamera ? ' draggingCamera' : ''}${!isPlaying && isDraggingScreen ? ' draggingScreen' : ''}${!isPlaying && isDraggingFocal ? ' draggingFocal' : ''}`}
         aria-label="Styled preview"
         data-camera-draggable={onCameraFrameChange ? 'true' : 'false'}
         data-screen-draggable={onScreenFrameChange ? 'true' : 'false'}

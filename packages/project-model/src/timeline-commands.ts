@@ -9,6 +9,7 @@ import type { ProjectDocument } from './types.js';
 
 export type TimelineCommandType =
   | 'trimClipEdge'
+  | 'rippleTrimClipEdge'
   | 'moveClip'
   | 'splitClip'
   | 'deleteClip'
@@ -64,6 +65,48 @@ export function trimClipEdge(
   });
 
   return commitCommand(canonical, 'trimClipEdge', nextTimeline);
+}
+
+export function rippleTrimClipEdge(
+  document: ProjectDocument,
+  input: { readonly clipId: string; readonly edge: TimelineTrimEdge; readonly frame: number },
+): TimelineCommandResult {
+  const canonical = canonicalizeProjectDocument(document);
+  const loc = findClipLocation(canonical.timeline, input.clipId);
+  if (!loc) throw new TimelineCommandError(`Clip not found: ${input.clipId}`);
+  if (loc.track.locked) throw new TimelineCommandError('Cannot ripple trim clips on locked tracks');
+  const frame = finiteInteger(input.frame, 'frame');
+  const edge = normalizeTrimEdge(input.edge);
+  const linked = linkedLocations(canonical.timeline, loc.clip);
+  ensureEditableLocations(linked, 'ripple trim');
+  const delta = edge === 'head' ? frame - loc.clip.timelineIn : frame - loc.clip.timelineOut;
+  if (delta === 0) throw new TimelineCommandError('Ripple trim would not change the clip');
+  const linkedKeys = new Set(linked.map(clipKey));
+  const editedTrackIds = new Set(linked.map((entry) => entry.track.id));
+  const downstreamStartByTrackId = new Map(linked.map((entry) => [entry.track.id, entry.clip.timelineOut]));
+
+  const nextTimeline = {
+    ...canonical.timeline,
+    tracks: canonical.timeline.tracks.map((track, trackIndex) => {
+      if (!editedTrackIds.has(track.id)) return track;
+      const downstreamStart = downstreamStartByTrackId.get(track.id) ?? Infinity;
+      return {
+        ...track,
+        clips: track.clips.map((clip, clipIndex) => {
+          if (linkedKeys.has(`${trackIndex}:${clipIndex}`)) {
+            if (edge === 'head') {
+              return { ...clip, timelineIn: clip.timelineIn + delta, sourceIn: clip.sourceIn + delta };
+            }
+            return { ...clip, timelineOut: clip.timelineOut + delta, sourceOut: clip.sourceOut + delta };
+          }
+          if (clip.timelineIn >= downstreamStart) return shiftClip(clip, delta);
+          return clip;
+        }),
+      };
+    }),
+  };
+
+  return commitCommand(canonical, 'rippleTrimClipEdge', nextTimeline);
 }
 
 export function moveClip(

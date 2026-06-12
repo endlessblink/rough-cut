@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { saveProjectFile, saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
 import { createDefaultRecordingPresentation } from '../packages/project-model/dist/index.js';
+import { acquireGpuPlaywrightLock } from './gpu-playwright-lock.mjs';
 
 const SAMPLE_WIDTH = 320;
 const SAMPLE_HEIGHT = 180;
@@ -89,12 +90,29 @@ let project = await saveProjectForRecording({
 });
 project = await saveProjectFile(project.path, withProbePresentation(project.document));
 
-const canvas2d = await captureRenderer({ kind: 'canvas2d', projectPath: project.path });
-const webgl = await captureRenderer({ kind: 'webgl', projectPath: project.path });
-const comparisons = cases.map((item) => compareCase(item, canvas2d.captures[item.id], webgl.captures[item.id]));
+const gpuHarnessLock = await acquireGpuPlaywrightLock('visual:gpu-compositor');
+let canvas2d;
+let webgl;
+let webgpu;
+try {
+  canvas2d = await captureRenderer({ kind: 'canvas2d', projectPath: project.path });
+  webgl = await captureRenderer({ kind: 'webgl', projectPath: project.path });
+  webgpu = await captureRenderer({ kind: 'webgpu', projectPath: project.path });
+} finally {
+  await gpuHarnessLock.release();
+}
+const comparisons = [
+  ...cases.filter((item) => item.contentExpected).map((item) => (
+    compareCase(item, 'canvas2d', 'webgl', canvas2d.captures[item.id], webgl.captures[item.id])
+  )),
+  ...cases.filter((item) => item.contentExpected).map((item) => (
+    compareCase(item, 'webgl', 'webgpu', webgl.captures[item.id], webgpu.captures[item.id])
+  )),
+];
 const problems = [
   ...canvas2d.problems,
   ...webgl.problems,
+  ...webgpu.problems,
   ...comparisons.flatMap((comparison) => comparison.problems.map((problem) => `${comparison.id}: ${problem}`)),
 ];
 const report = {
@@ -106,6 +124,7 @@ const report = {
   cases,
   canvas2d: summarizeRun(canvas2d),
   webgl: summarizeRun(webgl),
+  webgpu: summarizeRun(webgpu),
   comparisons,
   problems,
 };
@@ -123,6 +142,7 @@ console.info(JSON.stringify({
   forcedBlankWebgl: forceBlankWebgl,
   canvas2d: report.canvas2d,
   webgl: report.webgl,
+  webgpu: report.webgpu,
   comparisons: comparisons.map(({ id, meanAbsDiff, changedPixelRatio, maxChannelDiff, ok }) => ({
     id,
     ok,
@@ -148,7 +168,10 @@ async function captureRenderer({ kind, projectPath }) {
       ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
       ROUGH_CUT_LOAD_BUILT_RENDERER: '1',
       ROUGH_CUT_UI_SMOKE_PROJECT_PATH: projectPath,
+      ROUGH_CUT_SCREEN_LAYER_RENDERER: kind,
+      VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER: kind,
       ...(kind === 'webgl' ? { ROUGH_CUT_WEBGL_SCREEN_LAYER: '1', VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER: '1' } : {}),
+      ...(kind === 'webgpu' ? { ROUGH_CUT_WEBGPU_SCREEN_LAYER: '1', VITE_ROUGH_CUT_WEBGPU_SCREEN_LAYER: '1' } : {}),
     },
   });
   const electronProcess = app.process();
@@ -173,15 +196,27 @@ async function captureRenderer({ kind, projectPath }) {
     }, null, { timeout: 15000 });
 
     for (const item of cases) {
-      await seekRecordingTime(page, item.timeSec);
+      if (kind === 'canvas2d') {
+        await seekRecordingTime(page, item.timeSec);
+        await page.waitForTimeout(350);
+      } else {
+        await seekRecordingTime(page, Math.max(0, item.timeSec - 0.12));
+        await playUntilRecordingTime(page, item.timeSec, kind);
+      }
       const screenshotPath = join(root, `${kind}-${item.id}.png`);
-      await page.screenshot({ path: screenshotPath, fullPage: false, timeout: 15000 });
-      const capture = await page.evaluate(readGpuCompositorProbeFrame, {
+      await screenshotPreviewCanvas(page, kind, screenshotPath);
+      const captureState = await page.evaluate(readGpuCompositorProbeState, {
         label: item.id,
-        forceBlank: kind === 'webgl' && forceBlankWebgl,
-        sampleWidth: SAMPLE_WIDTH,
-        sampleHeight: SAMPLE_HEIGHT,
       });
+      const pixels = kind === 'webgl' && forceBlankWebgl
+        ? new Array(SAMPLE_WIDTH * SAMPLE_HEIGHT * 4).fill(0)
+        : readScreenshotPixels(screenshotPath, SAMPLE_WIDTH, SAMPLE_HEIGHT);
+      const capture = {
+        ...captureState,
+        sampleSize: { width: SAMPLE_WIDTH, height: SAMPLE_HEIGHT },
+        pixels,
+        canvasStats: canvasStatsFromPixels(pixels),
+      };
       captures[item.id] = { ...capture, screenshotPath };
       if (capture.renderer?.requestedRendererKind !== kind) {
         problems.push(`${kind}/${item.id}: requested renderer was ${capture.renderer?.requestedRendererKind ?? 'unknown'}`);
@@ -189,9 +224,13 @@ async function captureRenderer({ kind, projectPath }) {
       if (kind === 'webgl' && capture.renderer?.rendererKind !== 'webgl' && !capture.renderer?.fallbackReason) {
         problems.push(`${kind}/${item.id}: WebGL did not render and no fallback reason was reported`);
       }
+      if (kind === 'webgpu' && capture.renderer?.rendererKind !== 'webgpu' && !capture.renderer?.fallbackReason) {
+        problems.push(`${kind}/${item.id}: WebGPU did not render and no fallback reason was reported`);
+      }
       if (item.contentExpected && !capture.canvasStats.ok) {
         problems.push(`${kind}/${item.id}: content frame looks blank or gray (${JSON.stringify(capture.canvasStats)})`);
       }
+      if (kind !== 'canvas2d') await pausePreviewPlayback(page);
     }
   } catch (err) {
     problems.push(`${kind}: ${err instanceof Error ? err.message : String(err)}`);
@@ -215,27 +254,78 @@ async function seekRecordingTime(page, timeSec) {
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
   }, timeSec);
-  await page.waitForTimeout(350);
+  await page.waitForTimeout(120);
 }
 
-function compareCase(item, canvasCapture, webglCapture) {
+async function playUntilRecordingTime(page, timeSec, kind) {
+  await startPreviewPlayback(page);
+  await page.waitForFunction(({ targetSec, rendererKind }) => {
+    const video = document.querySelector('video');
+    if (!(video instanceof HTMLVideoElement) || video.paused || video.currentTime < targetSec) return false;
+    const renderer = window.__roughCutScreenLayerRenderer;
+    if (rendererKind === 'webgpu') {
+      return renderer?.rendererKind === 'webgpu' && renderer?.contextStatus === 'available';
+    }
+    if (rendererKind === 'webgl') {
+      return renderer?.rendererKind === 'webgl' && renderer?.contextStatus === 'available';
+    }
+    return true;
+  }, { targetSec: timeSec, rendererKind: kind }, { timeout: 5000 });
+  await page.waitForTimeout(50);
+}
+
+async function startPreviewPlayback(page) {
+  const videoPlaying = await page.evaluate(() => {
+    const video = document.querySelector('video');
+    return video instanceof HTMLVideoElement && !video.paused;
+  });
+  if (videoPlaying) return;
+  await page.locator('.videoControls .transportButton').first().click();
+  await page.waitForFunction(() => {
+    const video = document.querySelector('video');
+    return video instanceof HTMLVideoElement && !video.paused;
+  }, null, { timeout: 3000 });
+}
+
+async function pausePreviewPlayback(page) {
+  const videoPlaying = await page.evaluate(() => {
+    const video = document.querySelector('video');
+    return video instanceof HTMLVideoElement && !video.paused;
+  });
+  if (!videoPlaying) return;
+  await page.locator('.videoControls .transportButton').first().click();
+  await page.waitForFunction(() => {
+    const video = document.querySelector('video');
+    return video instanceof HTMLVideoElement && video.paused;
+  }, null, { timeout: 3000 }).catch(() => undefined);
+}
+
+async function screenshotPreviewCanvas(page, kind, screenshotPath) {
+  const selector = kind === 'canvas2d'
+    ? 'canvas.styledPreviewCanvas'
+    : 'canvas.styledPreviewAcceleratedCanvas.isActive, canvas.styledPreviewWebglCanvas.isActive';
+  await page.locator(selector).first().screenshot({ path: screenshotPath, timeout: 15000 });
+}
+
+function compareCase(item, baselineKind, targetKind, baselineCapture, targetCapture) {
   const problems = [];
-  if (!canvasCapture || !webglCapture) {
-    return { id: item.id, ok: false, meanAbsDiff: null, maxChannelDiff: null, changedPixelRatio: null, problems: ['missing capture'] };
+  const id = `${targetKind}/${item.id}`;
+  if (!baselineCapture || !targetCapture) {
+    return { id, targetKind, caseId: item.id, ok: false, meanAbsDiff: null, maxChannelDiff: null, changedPixelRatio: null, problems: ['missing capture'] };
   }
-  const canvasPixels = canvasCapture.pixels ?? [];
-  const webglPixels = webglCapture.pixels ?? [];
-  if (canvasPixels.length !== webglPixels.length || canvasPixels.length === 0) {
-    return { id: item.id, ok: false, meanAbsDiff: null, maxChannelDiff: null, changedPixelRatio: null, problems: ['pixel buffer size mismatch'] };
+  const baselinePixels = baselineCapture.pixels ?? [];
+  const targetPixels = targetCapture.pixels ?? [];
+  if (baselinePixels.length !== targetPixels.length || baselinePixels.length === 0) {
+    return { id, targetKind, caseId: item.id, ok: false, meanAbsDiff: null, maxChannelDiff: null, changedPixelRatio: null, problems: ['pixel buffer size mismatch'] };
   }
   let absTotal = 0;
   let maxChannelDiff = 0;
   let changedPixels = 0;
-  const pixels = canvasPixels.length / 4;
-  for (let index = 0; index < canvasPixels.length; index += 4) {
-    const dr = Math.abs((canvasPixels[index] ?? 0) - (webglPixels[index] ?? 0));
-    const dg = Math.abs((canvasPixels[index + 1] ?? 0) - (webglPixels[index + 1] ?? 0));
-    const db = Math.abs((canvasPixels[index + 2] ?? 0) - (webglPixels[index + 2] ?? 0));
+  const pixels = baselinePixels.length / 4;
+  for (let index = 0; index < baselinePixels.length; index += 4) {
+    const dr = Math.abs((baselinePixels[index] ?? 0) - (targetPixels[index] ?? 0));
+    const dg = Math.abs((baselinePixels[index + 1] ?? 0) - (targetPixels[index + 1] ?? 0));
+    const db = Math.abs((baselinePixels[index + 2] ?? 0) - (targetPixels[index + 2] ?? 0));
     absTotal += dr + dg + db;
     const max = Math.max(dr, dg, db);
     maxChannelDiff = Math.max(maxChannelDiff, max);
@@ -243,20 +333,24 @@ function compareCase(item, canvasCapture, webglCapture) {
   }
   const meanAbsDiff = absTotal / Math.max(1, pixels * 3);
   const changedPixelRatio = changedPixels / Math.max(1, pixels);
-  if (item.contentExpected && !webglCapture.canvasStats.ok) problems.push('WebGL content frame failed canvas visibility stats');
+  const changedPixelRatioLimit = targetKind === 'webgpu' ? 0.6 : 0.35;
+  if (item.contentExpected && !targetCapture.canvasStats.ok) problems.push(`${targetKind} content frame failed canvas visibility stats`);
   if (meanAbsDiff > 30) problems.push(`mean abs diff too high (${meanAbsDiff.toFixed(2)})`);
-  if (changedPixelRatio > 0.35) problems.push(`changed pixel ratio too high (${changedPixelRatio.toFixed(3)})`);
+  if (changedPixelRatio > changedPixelRatioLimit) problems.push(`changed pixel ratio too high (${changedPixelRatio.toFixed(3)})`);
   return {
-    id: item.id,
+    id,
+    baselineKind,
+    targetKind,
+    caseId: item.id,
     ok: problems.length === 0,
     meanAbsDiff: round(meanAbsDiff),
     maxChannelDiff,
     changedPixelRatio: round(changedPixelRatio),
-    canvasStats: canvasCapture.canvasStats,
-    webglStats: webglCapture.canvasStats,
-    canvasScreenshotPath: canvasCapture.screenshotPath,
-    webglScreenshotPath: webglCapture.screenshotPath,
-    renderer: webglCapture.renderer,
+    baselineStats: baselineCapture.canvasStats,
+    targetStats: targetCapture.canvasStats,
+    baselineScreenshotPath: baselineCapture.screenshotPath,
+    targetScreenshotPath: targetCapture.screenshotPath,
+    renderer: targetCapture.renderer,
     problems,
   };
 }
@@ -294,13 +388,13 @@ function renderTextLog(report) {
       `meanAbsDiff=${item.meanAbsDiff}`,
       `changedPixelRatio=${item.changedPixelRatio}`,
       `maxChannelDiff=${item.maxChannelDiff}`,
-      `canvas=${item.canvasScreenshotPath}`,
-      `webgl=${item.webglScreenshotPath}`,
+      `${item.baselineKind}=${item.baselineScreenshotPath}`,
+      `${item.targetKind}=${item.targetScreenshotPath}`,
     ].join(' '));
     for (const problem of item.problems) lines.push(`  problem=${problem}`);
   }
   lines.push('', 'renderer:');
-  for (const [kind, run] of Object.entries({ canvas2d: report.canvas2d, webgl: report.webgl })) {
+  for (const [kind, run] of Object.entries({ canvas2d: report.canvas2d, webgl: report.webgl, webgpu: report.webgpu })) {
     lines.push(`- ${kind} problems=${JSON.stringify(run.problems)}`);
     for (const [id, capture] of Object.entries(run.captures)) {
       lines.push(`  ${id} screenshot=${capture.screenshotPath} stats=${JSON.stringify(capture.canvasStats)} renderer=${JSON.stringify(capture.renderer)}`);
@@ -382,77 +476,21 @@ function withProbePresentation(document) {
   };
 }
 
-function readGpuCompositorProbeFrame({ label, forceBlank = false, sampleWidth = 320, sampleHeight = 180 }) {
-  const canvas = document.querySelector('canvas.styledPreviewCanvas');
+function readGpuCompositorProbeState({ label }) {
+  const gpuCanvas = document.querySelector('canvas.styledPreviewAcceleratedCanvas.isActive, canvas.styledPreviewWebglCanvas.isActive');
+  const canvas = gpuCanvas instanceof HTMLCanvasElement ? gpuCanvas : document.querySelector('canvas.styledPreviewCanvas');
   if (!(canvas instanceof HTMLCanvasElement) || canvas.width <= 0 || canvas.height <= 0) {
     return {
       label,
-      pixels: [],
-      canvasStats: { ok: false, reason: 'missing-canvas', saturation: 0, contrast: 0, darkRatio: 1, grayRatio: 1 },
       renderer: window.__roughCutScreenLayerRenderer ?? null,
       playbackDebug: summarizePlaybackDebug(),
     };
   }
-  const scratch = document.createElement('canvas');
-  scratch.width = sampleWidth;
-  scratch.height = sampleHeight;
-  const context = scratch.getContext('2d', { willReadFrequently: true });
-  if (!context) {
-    return {
-      label,
-      pixels: [],
-      canvasStats: { ok: false, reason: 'missing-context', saturation: 0, contrast: 0, darkRatio: 1, grayRatio: 1 },
-      renderer: window.__roughCutScreenLayerRenderer ?? null,
-      playbackDebug: summarizePlaybackDebug(),
-    };
-  }
-  if (forceBlank) {
-    context.fillStyle = '#000';
-    context.fillRect(0, 0, sampleWidth, sampleHeight);
-  } else {
-    context.drawImage(canvas, 0, 0, sampleWidth, sampleHeight);
-  }
-  const image = context.getImageData(0, 0, sampleWidth, sampleHeight);
-  const pixels = Array.from(image.data);
   return {
     label,
-    sampleSize: { width: sampleWidth, height: sampleHeight },
-    pixels,
-    canvasStats: canvasStatsFromPixels(image.data),
     renderer: window.__roughCutScreenLayerRenderer ?? null,
     playbackDebug: summarizePlaybackDebug(),
   };
-
-  function canvasStatsFromPixels(data) {
-    let saturation = 0;
-    let minLuma = 255;
-    let maxLuma = 0;
-    let dark = 0;
-    let gray = 0;
-    const pixels = data.length / 4;
-    for (let index = 0; index < data.length; index += 4) {
-      const red = data[index] ?? 0;
-      const green = data[index + 1] ?? 0;
-      const blue = data[index + 2] ?? 0;
-      const luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-      const chroma = Math.max(red, green, blue) - Math.min(red, green, blue);
-      saturation += chroma;
-      minLuma = Math.min(minLuma, luma);
-      maxLuma = Math.max(maxLuma, luma);
-      if (luma < 16) dark += 1;
-      if (chroma < 5 && luma > 24 && luma < 232) gray += 1;
-    }
-    const stats = {
-      saturation: saturation / Math.max(1, pixels),
-      contrast: maxLuma - minLuma,
-      darkRatio: dark / Math.max(1, pixels),
-      grayRatio: gray / Math.max(1, pixels),
-    };
-    return {
-      ...stats,
-      ok: stats.saturation > 4 && stats.contrast > 10 && stats.darkRatio < 0.98 && stats.grayRatio < 0.98,
-    };
-  }
 
   function summarizePlaybackDebug() {
     const log = Array.isArray(window.__roughCutPlaybackDebugLog) ? window.__roughCutPlaybackDebugLog : [];
@@ -528,6 +566,55 @@ function run(command, args) {
   const result = spawnSync(command, args, { stdio: 'inherit' });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} failed with exit code ${result.status}`);
+}
+
+function readScreenshotPixels(screenshotPath, width, height) {
+  const result = spawnSync('magick', [
+    screenshotPath,
+    '-resize',
+    `${width}x${height}!`,
+    'rgba:-',
+  ], { encoding: 'buffer', maxBuffer: width * height * 4 + 1024 * 1024 });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`magick failed to decode ${screenshotPath}: ${result.stderr?.toString('utf8') ?? ''}`);
+  }
+  const expectedLength = width * height * 4;
+  if (result.stdout.length !== expectedLength) {
+    throw new Error(`magick returned ${result.stdout.length} bytes for ${screenshotPath}; expected ${expectedLength}`);
+  }
+  return Array.from(result.stdout);
+}
+
+function canvasStatsFromPixels(data) {
+  let saturation = 0;
+  let minLuma = 255;
+  let maxLuma = 0;
+  let dark = 0;
+  let gray = 0;
+  const pixels = data.length / 4;
+  for (let index = 0; index < data.length; index += 4) {
+    const red = data[index] ?? 0;
+    const green = data[index + 1] ?? 0;
+    const blue = data[index + 2] ?? 0;
+    const luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    const chroma = Math.max(red, green, blue) - Math.min(red, green, blue);
+    saturation += chroma;
+    minLuma = Math.min(minLuma, luma);
+    maxLuma = Math.max(maxLuma, luma);
+    if (luma < 16) dark += 1;
+    if (chroma < 5 && luma > 24 && luma < 232) gray += 1;
+  }
+  const stats = {
+    saturation: saturation / Math.max(1, pixels),
+    contrast: maxLuma - minLuma,
+    darkRatio: dark / Math.max(1, pixels),
+    grayRatio: gray / Math.max(1, pixels),
+  };
+  return {
+    ...stats,
+    ok: stats.saturation > 4 && stats.contrast > 10 && stats.darkRatio < 0.98 && stats.grayRatio < 0.98,
+  };
 }
 
 function round(value) {

@@ -11,6 +11,7 @@ import {
   reorderTrack,
   restoreFullSource,
   restoreSourceEdge,
+  rippleTrimClipEdge,
   rippleDeleteRange,
   splitClip,
   TimelineCommandError,
@@ -259,6 +260,49 @@ describe('timeline command service', () => {
       ['c', 70, 130],
     ]);
     expect(result.undoSnapshot.type).toBe('rippleDeleteRange');
+  });
+
+  it('ripple trims a clip tail and shifts downstream same-track clips by the edge delta', () => {
+    const asset = createAsset('video', '/tmp/screen.mp4', { id: 'asset-1' as never, duration: 300 });
+    const project = createProject({
+      assets: [asset],
+      tracks: [track({ clips: [clip('a', asset.id, 0, 50), clip('b', asset.id, 80, 120), clip('c', asset.id, 140, 180)] })],
+    });
+
+    const result = rippleTrimClipEdge(project, { clipId: 'b', edge: 'tail', frame: 100 });
+
+    expect(result.document.timeline.tracks[0]?.clips.map((item) => [item.id, item.timelineIn, item.timelineOut, item.sourceIn, item.sourceOut])).toEqual([
+      ['a', 0, 50, 0, 50],
+      ['b', 80, 100, 0, 20],
+      ['c', 120, 160, 0, 40],
+    ]);
+    expect(result.undoSnapshot.type).toBe('rippleTrimClipEdge');
+    expect(result.undoSnapshot.before).toEqual(project.timeline);
+    assertTimelineInvariants(result.document.timeline);
+  });
+
+  it('ripple trims a clip head and shifts downstream same-track clips by the edge delta', () => {
+    const asset = createAsset('video', '/tmp/screen.mp4', { id: 'asset-1' as never, duration: 300 });
+    const project = createProject({
+      assets: [asset],
+      tracks: [track({ clips: [clip('a', asset.id, 0, 50), clip('b', asset.id, 80, 120), clip('c', asset.id, 140, 180)] })],
+    });
+
+    const result = rippleTrimClipEdge(project, { clipId: 'b', edge: 'head', frame: 90 });
+
+    expect(result.document.timeline.tracks[0]?.clips.map((item) => [item.id, item.timelineIn, item.timelineOut, item.sourceIn, item.sourceOut])).toEqual([
+      ['a', 0, 50, 0, 50],
+      ['b', 90, 120, 10, 40],
+      ['c', 150, 190, 0, 40],
+    ]);
+    assertTimelineInvariants(result.document.timeline);
+  });
+
+  it('rejects ripple trims when the edited track is locked', () => {
+    const project = commandProject();
+    const locked = updateTrackSettings(project, { trackId: 'video-1', locked: true }).document;
+
+    expect(() => rippleTrimClipEdge(locked, { clipId: 'c1', edge: 'tail', frame: 120 })).toThrow(TimelineCommandError);
   });
 
   it('restores a source edge and the full source range', () => {

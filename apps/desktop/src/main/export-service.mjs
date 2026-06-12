@@ -3,10 +3,10 @@ import { existsSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getPrimaryRecording } from './project-files.mjs';
 import { createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
-import { attemptExperimentalHeadlessRender } from './headless-export-renderer.mjs';
+import { HEADLESS_EXPORT_BACKEND, attemptExperimentalHeadlessRender } from './headless-export-renderer.mjs';
 import { canonicalizeProjectDocument, computeTimelineDuration, createDefaultCameraPresentation, getRecordingBackgroundColors, getStyledCanvasResolution } from '@rough-cut/project-model';
 import { getCameraLayoutRect, resolveCompositionFrame } from '@rough-cut/frame-resolver';
 
@@ -85,13 +85,24 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
 
 export async function exportExperimentalHeadlessProjectToMp4({ project, recording, outputPath, onProgress = () => undefined, signal = null } = {}) {
   const compositionPlan = buildExperimentalHeadlessExportPlan({ project, recording });
-  const headlessRender = await attemptExperimentalHeadlessRender({ compositionPlan, outputPath, signal });
-  const fallback = {
+  const renderPlan = experimentalHeadlessExportEnabled()
+    ? buildExperimentalHeadlessExportPlan({ project, recording, frameSelection: 'all' })
+    : compositionPlan;
+  const headlessRender = await attemptExperimentalHeadlessRender({ compositionPlan: renderPlan, outputPath, signal });
+  let fallback = {
     active: true,
     from: 'headless-export',
     to: 'ffmpeg-styled',
     reason: headlessRender.reason,
   };
+  if (headlessRender.ok) {
+    fallback = {
+      active: false,
+      from: 'headless-export',
+      to: 'ffmpeg-styled',
+      reason: null,
+    };
+  }
   onProgress({
     phase: 'rendering-headless-prototype',
     progress: 0.01,
@@ -100,6 +111,42 @@ export async function exportExperimentalHeadlessProjectToMp4({ project, recordin
     fallback,
     compositionPlan,
   });
+  if (headlessRender.ok) {
+    try {
+      const result = await exportHeadlessFrameArtifactsToMp4({
+        headlessRender,
+        compositionPlan: renderPlan,
+        recording,
+        outputPath,
+        signal,
+        onProgress,
+      });
+      return {
+        ...result,
+        experimentalBackend: 'headless-export',
+        headlessRender,
+        fallback,
+        compositionPlan,
+      };
+    } catch (err) {
+      fallback = {
+        active: true,
+        from: 'headless-export',
+        to: 'ffmpeg-styled',
+        reason: 'experimental-headless-encode-failed',
+        error: err instanceof Error ? err.message : String(err),
+      };
+      onProgress({
+        phase: 'rendering-headless-prototype',
+        progress: 0.01,
+        notice: 'Experimental headless export encode failed; falling back to FFmpeg styled export.',
+        experimentalBackend: 'headless-export',
+        headlessRender,
+        fallback,
+        compositionPlan,
+      });
+    }
+  }
   const result = await exportStyledProjectToMp4({
     project,
     recording,
@@ -125,7 +172,7 @@ export function experimentalHeadlessExportEnabled(env = process.env) {
   return env.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT === '1';
 }
 
-export function buildExperimentalHeadlessExportPlan({ project, recording } = {}) {
+export function buildExperimentalHeadlessExportPlan({ project, recording, frameSelection = 'samples' } = {}) {
   const document = canonicalizeProjectDocument(project);
   const fps = Number.isFinite(recording?.fps) && recording.fps > 0 ? recording.fps : 30;
   const durationFrames = Math.max(1, Math.round(recording?.timelineDurationFrames ?? recording?.trimmedDuration ?? recording?.duration ?? fps));
@@ -139,7 +186,11 @@ export function buildExperimentalHeadlessExportPlan({ project, recording } = {})
     Math.floor(durationFrames / 2),
     durationFrames - 1,
   ]);
+  const selectedFrames = frameSelection === 'all'
+    ? Array.from({ length: durationFrames }, (_value, index) => index)
+    : sampleFrames;
   const cursorEvents = Array.isArray(recording?.cursorEvents) ? recording.cursorEvents : [];
+  const assetMap = new Map((document?.assets ?? []).map((asset) => [asset.id, asset]));
   return {
     kind: 'experimental-headless-export-plan',
     version: 1,
@@ -148,15 +199,84 @@ export function buildExperimentalHeadlessExportPlan({ project, recording } = {})
     output: canvas,
     fps,
     durationFrames,
-    frames: sampleFrames.map((frameIndex) => summarizeCompositionFrame(resolveCompositionFrame(document, frameIndex, {
+    sampledFrames: sampleFrames,
+    frameSelection,
+    frames: selectedFrames.map((frameIndex) => summarizeCompositionFrame(resolveCompositionFrame(document, frameIndex, {
       mode: 'timeline',
       includeEditorOverlays: false,
       getCursorPosition: (_assetId, sourceFrame) => cursorPositionAtFrame(cursorEvents, sourceFrame, recording?.width, recording?.height),
-    }))),
+    }), assetMap)),
     audio: {
       sourcePath: recording?.filePath ?? null,
       preservedBy: 'ffmpeg-styled-fallback',
     },
+  };
+}
+
+async function exportHeadlessFrameArtifactsToMp4({ headlessRender, compositionPlan, recording, outputPath, onProgress = () => undefined, signal = null } = {}) {
+  await mkdir(dirname(outputPath), { recursive: true });
+  const fps = Number.isFinite(compositionPlan?.fps) && compositionPlan.fps > 0 ? compositionPlan.fps : 30;
+  const durationFrames = Math.max(1, Math.round(compositionPlan?.durationFrames ?? headlessRender?.frameCount ?? fps));
+  const durationSeconds = durationFrames / fps;
+  const audioInputPath = recording?.filePath && await sourceHasAudioStream(recording.filePath, signal)
+    ? recording.filePath
+    : null;
+  const args = buildHeadlessFrameExportArgs({
+    framePattern: headlessRender?.renderSurface?.framePattern,
+    outputPath,
+    width: compositionPlan?.output?.width,
+    height: compositionPlan?.output?.height,
+    fps,
+    durationSeconds,
+    audioInputPath,
+    timelineAudioSegments: audioInputPath && Array.isArray(recording?.timelineSegments) ? recording.timelineSegments : [],
+  });
+
+  onProgress({
+    phase: 'rendering-headless-export',
+    progress: 0.01,
+    experimentalBackend: 'headless-export',
+    frameCount: headlessRender?.frameCount,
+    audioPreserved: Boolean(audioInputPath),
+  });
+  const result = await run('ffmpeg', args, {
+    signal,
+    onStdout: (chunk) => {
+      const progress = parseFfmpegProgress(chunk, durationSeconds);
+      if (progress !== null) {
+        onProgress({
+          phase: 'rendering-headless-export',
+          progress: 0.01 + progress * 0.98,
+          experimentalBackend: 'headless-export',
+          frameCount: headlessRender?.frameCount,
+          audioPreserved: Boolean(audioInputPath),
+        });
+      }
+    },
+  });
+  if (result.cancelled) {
+    await rm(outputPath, { force: true });
+    return createCancelledExportResult({ outputPath, sourcePath: recording?.filePath });
+  }
+  if (result.code !== 0) {
+    throw new Error(`Experimental headless export failed: ${result.stderr.trim()}`);
+  }
+  const exported = await stat(outputPath);
+  onProgress({
+    phase: 'complete',
+    progress: 1,
+    experimentalBackend: 'headless-export',
+    frameCount: headlessRender?.frameCount,
+    audioPreserved: Boolean(audioInputPath),
+  });
+  return {
+    outputPath,
+    sourcePath: recording?.filePath ?? null,
+    bytes: exported.size,
+    byteEqualCandidate: false,
+    rendererBackend: HEADLESS_EXPORT_BACKEND,
+    frameArtifacts: headlessRender?.frameArtifacts ?? [],
+    audioPreserved: Boolean(audioInputPath),
   };
 }
 
@@ -580,7 +700,12 @@ function cursorPositionAtFrame(cursorEvents, sourceFrame, sourceWidth, sourceHei
   };
 }
 
-function summarizeCompositionFrame(frame) {
+function summarizeCompositionFrame(frame, assetMap = new Map()) {
+  const [backgroundStart, backgroundEnd] = getRecordingBackgroundColors(frame.backgroundLayer.style);
+  const backgroundImagePath = resolveRendererPublicAsset(frame.backgroundLayer.style?.bgImage);
+  const screenLayout = frame.screenLayer ? resolveHeadlessScreenLayout(frame) : null;
+  const cameraLayout = frame.cameraLayer ? resolveHeadlessCameraLayout(frame) : null;
+  const screenStyle = normalizePresentationStyle(frame.backgroundLayer.style);
   return {
     frameIndex: frame.frameIndex,
     timeSec: frame.timeSec,
@@ -591,16 +716,36 @@ function summarizeCompositionFrame(frame) {
     sourceFrame: frame.sourceFrame,
     background: {
       color: frame.backgroundLayer.color,
+      startColor: backgroundStart,
+      endColor: backgroundEnd,
+      gradient: frame.backgroundLayer.style?.bgGradient ?? null,
+      image: frame.backgroundLayer.style?.bgImage ?? null,
+      imagePath: backgroundImagePath,
+      imageUrl: backgroundImagePath ? pathToFileURL(backgroundImagePath).href : null,
       styleKind: frame.backgroundLayer.style?.bgGradient ? 'gradient' : 'color',
     },
     screen: frame.screenLayer
       ? {
           assetId: frame.screenLayer.assetId,
+          sourcePath: assetSourcePath(assetMap.get(frame.screenLayer.assetId)),
+          sourceUrl: assetSourceUrl(assetMap.get(frame.screenLayer.assetId)),
           sourceFrame: frame.screenLayer.sourceFrame,
+          fps: frame.fps,
           sourceSize: frame.screenLayer.sourceSize,
+          sourceViewport: frame.screenLayer.sourceViewport ?? null,
+          crop: frame.screenLayer.crop ?? null,
           hasSourceViewport: Boolean(frame.screenLayer.sourceViewport),
           hasCrop: Boolean(frame.screenLayer.crop),
-          frame: frame.screenLayer.frame ?? null,
+          frame: screenLayout?.frame ?? frame.screenLayer.frame ?? null,
+          frameSource: screenLayout?.source ?? (frame.screenLayer.frame ? 'manual' : 'unknown'),
+          style: {
+            cornerRadius: screenStyle.screenCornerRadius,
+            shadowEnabled: screenStyle.screenShadowEnabled,
+            shadowBlur: screenStyle.screenShadowBlur,
+            shadowOpacity: screenStyle.screenShadowOpacity,
+            shadowOffsetX: screenStyle.screenShadowOffsetX,
+            shadowOffsetY: screenStyle.screenShadowOffsetY,
+          },
           zoomTransform: frame.screenLayer.zoomTransform,
           reducedMotion: frame.screenLayer.reducedMotion,
         }
@@ -608,10 +753,19 @@ function summarizeCompositionFrame(frame) {
     camera: frame.cameraLayer
       ? {
           assetId: frame.cameraLayer.assetId,
+          sourcePath: assetSourcePath(assetMap.get(frame.cameraLayer.assetId)),
+          sourceUrl: assetSourceUrl(assetMap.get(frame.cameraLayer.assetId)),
           sourceFrame: frame.cameraLayer.sourceFrame,
+          fps: frame.fps,
           sourceSize: frame.cameraLayer.sourceSize,
+          sourceViewport: frame.cameraLayer.sourceViewport ?? null,
+          crop: frame.cameraLayer.crop ?? null,
           visible: frame.cameraLayer.visible,
-          frame: frame.cameraLayer.frame ?? null,
+          frame: cameraLayout?.frame ?? frame.cameraLayer.frame ?? null,
+          frameSource: cameraLayout?.source ?? (frame.cameraLayer.frame ? 'manual' : 'presentation'),
+          radius: cameraLayout?.radius ?? 0,
+          presentation: cameraLayout?.presentation ?? frame.cameraLayer.presentation ?? null,
+          style: cameraLayout?.style ?? null,
           hasCrop: Boolean(frame.cameraLayer.crop),
         }
       : null,
@@ -632,6 +786,101 @@ function summarizeCompositionFrame(frame) {
     },
     motion: frame.motion,
   };
+}
+
+function resolveHeadlessScreenLayout(frame) {
+  const outputWidth = Number.isFinite(frame?.output?.width) && frame.output.width > 0 ? frame.output.width : 1920;
+  const outputHeight = Number.isFinite(frame?.output?.height) && frame.output.height > 0 ? frame.output.height : 1080;
+  const style = normalizePresentationStyle(frame.backgroundLayer?.style);
+  const safePadding = clampNumber(style.screenPadding, 0, Math.min(outputWidth, outputHeight) / 2 - 2);
+  const maxFrame = resolveHeadlessScreenMaxFrame({
+    outputWidth,
+    outputHeight,
+    maxWidth: outputWidth - safePadding * 2,
+    maxHeight: outputHeight - safePadding * 2,
+    normalizedFrame: frame.screenLayer?.frame ?? null,
+  });
+  const viewport = frame.screenLayer?.sourceViewport?.enabled === true ? frame.screenLayer.sourceViewport : null;
+  const sourceSize = frame.screenLayer?.sourceSize ?? {};
+  const sourceWidth = viewport?.width ?? sourceSize.width ?? maxFrame.w;
+  const sourceHeight = viewport?.height ?? sourceSize.height ?? maxFrame.h;
+  const contained = resolveContainedSize(sourceWidth, sourceHeight, maxFrame.w, maxFrame.h);
+  const x = maxFrame.x + (maxFrame.w - contained.w) / 2;
+  const y = maxFrame.y + (maxFrame.h - contained.h) / 2;
+  return {
+    source: frame.screenLayer?.frame ? 'manual' : 'background-padding',
+    frame: {
+      x: roundUnit(x / outputWidth),
+      y: roundUnit(y / outputHeight),
+      w: roundUnit(contained.w / outputWidth),
+      h: roundUnit(contained.h / outputHeight),
+    },
+  };
+}
+
+function resolveHeadlessScreenMaxFrame({ outputWidth, outputHeight, maxWidth, maxHeight, normalizedFrame = null }) {
+  if (normalizedFrame && Number.isFinite(normalizedFrame.x) && Number.isFinite(normalizedFrame.y) && Number.isFinite(normalizedFrame.w) && Number.isFinite(normalizedFrame.h)) {
+    const w = Math.max(2, Math.min(outputWidth, normalizedFrame.w * outputWidth));
+    const h = Math.max(2, Math.min(outputHeight, normalizedFrame.h * outputHeight));
+    return {
+      x: Math.max(0, Math.min(outputWidth - w, normalizedFrame.x * outputWidth)),
+      y: Math.max(0, Math.min(outputHeight - h, normalizedFrame.y * outputHeight)),
+      w,
+      h,
+    };
+  }
+  return {
+    x: safeCenter(outputWidth, maxWidth),
+    y: safeCenter(outputHeight, maxHeight),
+    w: maxWidth,
+    h: maxHeight,
+  };
+}
+
+function safeCenter(total, size) {
+  return Math.max(0, (total - size) / 2);
+}
+
+function roundUnit(value) {
+  return Math.round(clampNumber(value, 0, 1) * 1_000_000) / 1_000_000;
+}
+
+function resolveHeadlessCameraLayout(frame) {
+  const outputWidth = Number.isFinite(frame?.output?.width) && frame.output.width > 0 ? frame.output.width : 1920;
+  const outputHeight = Number.isFinite(frame?.output?.height) && frame.output.height > 0 ? frame.output.height : 1080;
+  const presentation = {
+    ...createDefaultCameraPresentation(),
+    ...(frame.cameraLayer?.presentation ?? {}),
+  };
+  const pixelFrame = resolveCameraOverlayFrame(presentation, outputWidth, outputHeight, frame.cameraLayer?.frame ?? null);
+  const radius = resolveCameraOverlayRadius(presentation, pixelFrame);
+  return {
+    source: frame.cameraLayer?.frame ? 'manual' : 'presentation',
+    frame: {
+      x: roundUnit(pixelFrame.x / outputWidth),
+      y: roundUnit(pixelFrame.y / outputHeight),
+      w: roundUnit(pixelFrame.w / outputWidth),
+      h: roundUnit(pixelFrame.h / outputHeight),
+    },
+    radius: Math.round(radius * 100) / 100,
+    presentation,
+    style: {
+      shape: presentation.shape,
+      roundness: presentation.roundness,
+      shadowEnabled: presentation.shadowEnabled !== false,
+      shadowBlur: Number.isFinite(presentation.shadowBlur) ? presentation.shadowBlur : 24,
+      shadowOpacity: Number.isFinite(presentation.shadowOpacity) ? presentation.shadowOpacity : 0.45,
+    },
+  };
+}
+
+function assetSourcePath(asset) {
+  return typeof asset?.filePath === 'string' && asset.filePath.length > 0 ? asset.filePath : null;
+}
+
+function assetSourceUrl(asset) {
+  const sourcePath = assetSourcePath(asset);
+  return sourcePath ? pathToFileURL(sourcePath).href : null;
 }
 
 export function buildStyledExportArgs({
@@ -917,6 +1166,62 @@ export function buildSimpleStyledExportArgs({
   ];
 }
 
+export function buildHeadlessFrameExportArgs({
+  framePattern,
+  outputPath,
+  width = 1920,
+  height = 1080,
+  fps = 30,
+  durationSeconds = null,
+  audioInputPath = null,
+  timelineAudioSegments = [],
+  videoEncoder = STYLED_VIDEO_ENCODERS.CPU,
+} = {}) {
+  if (!framePattern || typeof framePattern !== 'string') {
+    throw new Error('Headless frame export requires a frame pattern');
+  }
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
+  const safeDuration = Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null;
+  const safeWidth = Number.isFinite(width) && width > 0 ? Math.round(width) : 1920;
+  const safeHeight = Number.isFinite(height) && height > 0 ? Math.round(height) : 1080;
+  const normalizedTimelineAudioSegments = normalizeTimelineSegments(timelineAudioSegments);
+  const useTimelineAudio = Boolean(audioInputPath) && normalizedTimelineAudioSegments.length > 0 && safeDuration !== null;
+  const audioFilters = useTimelineAudio
+    ? buildTimelineAudioFilters({
+        segments: normalizedTimelineAudioSegments,
+        fps: safeFps,
+        durationFrames: Math.max(1, Math.round(safeDuration * safeFps)),
+        audioInputLabel: '1:a',
+      })
+    : [];
+  return [
+    '-y',
+    '-progress',
+    'pipe:1',
+    '-nostats',
+    '-framerate',
+    formatFilterNumber(safeFps),
+    '-start_number',
+    '0',
+    '-i',
+    framePattern,
+    ...(audioInputPath ? ['-i', audioInputPath] : []),
+    ...(audioFilters.length > 0 ? ['-filter_complex', audioFilters.join(';')] : []),
+    ...(safeDuration ? ['-t', formatFilterNumber(safeDuration)] : []),
+    '-map',
+    '0:v',
+    ...(useTimelineAudio ? ['-map', '[a]'] : audioInputPath ? ['-map', '1:a?'] : ['-an']),
+    ...buildStyledVideoOutputArgs(videoEncoder),
+    ...(audioInputPath ? ['-c:a', 'aac', '-b:a', '192k'] : []),
+    ...(audioInputPath && !useTimelineAudio ? ['-shortest'] : []),
+    '-movflags',
+    '+faststart',
+    '-metadata',
+    `rough_cut_style=experimental-headless:${safeWidth}x${safeHeight}:studio-demo`,
+    outputPath,
+  ];
+}
+
 function buildStaticLoopFilter(fps = 30, durationSeconds = null) {
   const fpsValue = Number.isFinite(fps) && fps > 0 ? fps : 30;
   const duration = Number.isFinite(durationSeconds) && durationSeconds > 0 ? `,trim=duration=${formatFilterNumber(durationSeconds)}` : '';
@@ -1061,7 +1366,7 @@ function buildTimelineVideoBaseFilters({ segments, sourceWidth, sourceHeight, fp
   return filters;
 }
 
-function buildTimelineAudioFilters({ segments, fps, durationFrames }) {
+function buildTimelineAudioFilters({ segments, fps, durationFrames, audioInputLabel = '0:a' }) {
   const durationSeconds = formatFilterNumber(Math.max(1, Math.round(durationFrames || 1)) / fps);
   const filters = [`anullsrc=channel_layout=stereo:sample_rate=48000:d=${durationSeconds}[audio_blank]`];
   const labels = ['[audio_blank]'];
@@ -1070,7 +1375,7 @@ function buildTimelineAudioFilters({ segments, fps, durationFrames }) {
     const start = formatFilterNumber(segment.sourceIn / fps);
     const end = formatFilterNumber(segment.sourceOut / fps);
     const delayMs = Math.max(0, Math.round((segment.timelineIn / fps) * 1000));
-    filters.push(`[0:a]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS,adelay=${delayMs}:all=1[${label}]`);
+    filters.push(`[${audioInputLabel}]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS,adelay=${delayMs}:all=1[${label}]`);
     labels.push(`[${label}]`);
   });
   filters.push(`${labels.join('')}amix=inputs=${labels.length}:duration=first:dropout_transition=0[a]`);

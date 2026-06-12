@@ -7,14 +7,23 @@ export interface TrimRange {
   sourceOut: number;
 }
 
+export interface TrimPreviewRange {
+  timelineIn: number;
+  timelineOut: number;
+  sourceIn?: number;
+  sourceOut?: number;
+}
+
 export interface TrimSession {
   clipId: string;
   edge: TrimEdge;
   original: TrimRange;
+  downstream: Array<{ id: string; timelineIn: number; timelineOut: number }>;
   bounds: { start: number; end: number };
   durationFrames: number;
   startFrame: number;
   preview: TrimRange;
+  previews: Record<string, TrimPreviewRange>;
   snapFrame: number | null;
   invalidReason: string | null;
 }

@@ -9,11 +9,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 test('NLE timeline exposes selected-clip trim handles wired to trim mutation', () => {
   const source = readFileSync(join(here, 'nle-timeline.tsx'), 'utf8');
 
-  assert.match(source, /trimClipById/);
+  assert.match(source, /rippleTrimClipById/);
   assert.match(source, /createTrimSession/);
   assert.match(source, /updateTrimSession/);
   assert.match(source, /setTrimSession\(latestSession\)/);
   assert.match(source, /setTrimSession\(null\)/);
+  assert.match(source, /trimSession\?\.previews\?\.\[block\.id\]/);
+  assert.match(source, /commitOrSurface\(rippleTrimClipById\(project, blockId, edge, commitFrame\)\)/);
   assert.match(source, /nleClipTrimHandle left/);
   assert.match(source, /nleClipTrimHandle right/);
   assert.match(source, /aria-label="Trim selected clip start"/);
@@ -48,7 +50,7 @@ test('NLE program monitor gives vertical recordings real editing space', () => {
 
   assert.match(css, /\.nleProgramMonitor\s*{[^}]*height: clamp\(340px, 52vh, 560px\);/s);
   assert.doesNotMatch(css, /\.nleProgramMonitor\s*{[^}]*aspect-ratio: 16 \/ 9;/s);
-  assert.match(css, /\.nleProgramMonitor \.styledPreviewCanvas\s*{[^}]*max-height: calc\(100% - 1rem\);/s);
+  assert.match(css, /\.nleProgramMonitor \.styledPreviewCanvas[\s\S]{0,120}max-height: calc\(100% - 1rem\);/);
 });
 
 test('NLE timeline wires local drag sessions and compact track controls', () => {
@@ -158,4 +160,39 @@ test('NLE shell ships the Ctrl+Shift+D debug state dump (TASK-228)', () => {
     assert.ok(source.includes(field), `dump includes ${field}`);
   }
   assert.match(source, /nleDebugDumpNotice/);
+});
+
+test('NLE shell wires undo and redo through shared edit history controls (TASK-229)', () => {
+  const shell = readFileSync(join(here, 'nle-shell.tsx'), 'utf8');
+  const main = readFileSync(join(here, '..', 'main.tsx'), 'utf8');
+  const css = readFileSync(join(here, '..', 'styles.css'), 'utf8');
+
+  assert.match(shell, /canUndo = false/);
+  assert.match(shell, /canRedo = false/);
+  assert.match(shell, /import \{ EMPTY_EDIT_HISTORY, recordEdit, redoEdit, undoEdit \} from '\.\.\/edit-history\.mjs'/);
+  assert.match(shell, /const \[timelineHistory, setTimelineHistory\] = React\.useState<NleEditHistory>/);
+  assert.match(shell, /setTimelineHistory\(\(history\) => recordEdit\(history, project\) as NleEditHistory\)/);
+  assert.match(shell, /onProjectChange\(next, \{ history: true, previous: project \}\)/);
+  assert.match(shell, /const result = undoEdit\(timelineHistory, project\)/);
+  assert.match(shell, /onProjectChange\(result\.snapshot, \{ history: false \}\)/);
+  assert.match(shell, /const result = redoEdit\(timelineHistory, project\)/);
+  assert.match(shell, /const historyControls = \(/);
+  assert.match(shell, /aria-label="Undo timeline edit"/);
+  assert.match(shell, /aria-label="Redo timeline edit"/);
+  assert.match(shell, /<ArrowCounterClockwise aria-hidden="true" \/>/);
+  assert.match(shell, /<ArrowClockwise aria-hidden="true" \/>/);
+  assert.match(shell, /if \(\(e\.ctrlKey \|\| e\.metaKey\) && e\.key\.toLowerCase\(\) === 'z'\)/);
+  assert.match(shell, /e\.shiftKey \? requestRedo\(\) : requestUndo\(\)/);
+
+  assert.match(main, /onProjectChange=\{\(next, options\) => applyProjectChange\(/);
+  assert.match(main, /options\?\.history \? \{ history: true, previous: \(options\.previous as unknown as ProjectState \| null\) \?\? project \?\? undefined \} : \{\}/);
+  assert.match(main, /canUndo=\{editHistory\.undo\.length > 0\}/);
+  assert.match(main, /canRedo=\{editHistory\.redo\.length > 0\}/);
+  assert.match(main, /onUndo=\{undoProjectEdit\}/);
+  assert.match(main, /onRedo=\{redoProjectEdit\}/);
+
+  assert.match(css, /\.nleHistoryControls\s*{/);
+  assert.match(css, /\.nleHistoryButton:disabled\s*{/);
+  assert.doesNotMatch(shell, />Undo</);
+  assert.doesNotMatch(shell, />Redo</);
 });

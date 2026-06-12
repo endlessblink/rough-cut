@@ -32,6 +32,8 @@ import {
 
 const runtimeLogPath = installRuntimeLog();
 
+configurePreviewGpuCommandLine();
+
 if (process.platform === 'linux' && !isXdotoolAvailable()) {
   console.warn(
     '[main] xdotool is not available. Cursor tracking will fall back to ' +
@@ -387,6 +389,53 @@ function webglScreenLayerEnabled() {
   return process.env.ROUGH_CUT_WEBGL_SCREEN_LAYER === '1' || process.env.VITE_ROUGH_CUT_WEBGL_SCREEN_LAYER === '1';
 }
 
+function webgpuScreenLayerEnabled() {
+  return process.env.ROUGH_CUT_WEBGPU_SCREEN_LAYER === '1' || process.env.VITE_ROUGH_CUT_WEBGPU_SCREEN_LAYER === '1';
+}
+
+function screenLayerRendererSelection() {
+  const value = process.env.ROUGH_CUT_SCREEN_LAYER_RENDERER || process.env.VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER || '';
+  const normalized = value.trim().toLowerCase();
+  if (['auto', 'webgpu', 'webgl', 'canvas2d'].includes(normalized)) return normalized;
+  return '';
+}
+
+function webgpuPreviewDefaultDisabled() {
+  return process.env.ROUGH_CUT_DISABLE_WEBGPU_DEFAULT === '1' || process.env.VITE_ROUGH_CUT_DISABLE_WEBGPU_DEFAULT === '1';
+}
+
+function previewGpuCommandLineFlagsEnabled() {
+  const renderer = screenLayerRendererSelection();
+  return (
+    webgpuScreenLayerEnabled() ||
+    renderer === 'auto' ||
+    renderer === 'webgpu' ||
+    webgpuPreviewDefaultEnabled() ||
+    process.env.ROUGH_CUT_WEBGPU_PREVIEW_FLAGS === '1' ||
+    process.env.VITE_ROUGH_CUT_WEBGPU_PREVIEW_FLAGS === '1'
+  );
+}
+
+function webgpuPreviewDefaultEnabled() {
+  return (
+    !webgpuPreviewDefaultDisabled() &&
+    !screenLayerRendererSelection() &&
+    !webglScreenLayerEnabled() &&
+    !webgpuScreenLayerEnabled()
+  );
+}
+
+function configurePreviewGpuCommandLine() {
+  if (!previewGpuCommandLineFlagsEnabled()) return;
+  app.commandLine.appendSwitch('enable-unsafe-webgpu');
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
+  app.commandLine.appendSwitch('enable-zero-copy');
+  app.commandLine.appendSwitch(
+    'enable-features',
+    'Vulkan,AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiVideoDecoder,VaapiIgnoreDriverChecks',
+  );
+}
+
 function webglMotionBlurEnabled() {
   return process.env.ROUGH_CUT_WEBGL_MOTION_BLUR === '1' || process.env.VITE_ROUGH_CUT_WEBGL_MOTION_BLUR === '1';
 }
@@ -396,7 +445,11 @@ function experimentalHeadlessExportUiEnabled() {
 }
 
 function applyRendererFeatureFlags(params) {
+  const renderer = screenLayerRendererSelection();
+  if (renderer) params.set('screenLayerRenderer', renderer);
+  if (webgpuPreviewDefaultEnabled()) params.set('screenLayerRenderer', 'auto');
   if (webglScreenLayerEnabled()) params.set('screenLayerRenderer', 'webgl');
+  if (webgpuScreenLayerEnabled()) params.set('screenLayerRenderer', 'webgpu');
   if (webglMotionBlurEnabled()) params.set('webglMotionBlur', '1');
   if (experimentalHeadlessExportUiEnabled()) params.set('experimentalHeadlessExportUi', '1');
 }
@@ -984,11 +1037,62 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_CANCEL, () => {
   return { cancelled: true };
 });
 
+async function runMainProcessHeadlessExportSmoke() {
+  const resultPath = process.env.ROUGH_CUT_HEADLESS_EXPORT_SMOKE_RESULT_PATH;
+  const projectPath = process.env.ROUGH_CUT_HEADLESS_EXPORT_SMOKE_PROJECT_PATH;
+  const outputPath = process.env.ROUGH_CUT_HEADLESS_EXPORT_SMOKE_OUTPUT_PATH;
+  if (!resultPath || !projectPath || !outputPath) return false;
+
+  const progress = [];
+  const writeReport = async (report) => {
+    await mkdir(dirname(resultPath), { recursive: true });
+    await writeFile(resultPath, `${JSON.stringify(report, null, 2)}\n`);
+  };
+
+  try {
+    const opened = await openProjectFile(projectPath);
+    const startedAt = Date.now();
+    const result = await exportProjectToMp4({
+      project: opened.document,
+      outputPath,
+      mode: 'experimental-headless',
+      onProgress: (event) => progress.push(event),
+    });
+    await writeReport({
+      ok: true,
+      projectPath,
+      outputPath,
+      durationMs: Date.now() - startedAt,
+      result,
+      progress,
+    });
+    console.info(`[headless-export-smoke] wrote ${resultPath}`);
+  } catch (err) {
+    process.exitCode = 1;
+    await writeReport({
+      ok: false,
+      projectPath,
+      outputPath,
+      error: err instanceof Error ? err.message : String(err),
+      progress,
+    });
+    console.error('[headless-export-smoke] failed', err);
+  } finally {
+    app.quit();
+    setTimeout(() => app.exit(process.exitCode ?? 0), 1000).unref?.();
+  }
+  return true;
+}
+
 app.whenReady().then(() => {
   registerMediaProtocol();
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === 'media');
   });
+  if (process.env.ROUGH_CUT_HEADLESS_EXPORT_SMOKE_RESULT_PATH) {
+    void runMainProcessHeadlessExportSmoke();
+    return;
+  }
   const startupProjectPath = process.env.ROUGH_CUT_PLAYBACK_PROJECT_PATH || process.env.ROUGH_CUT_UI_SMOKE_PROJECT_PATH || null;
   const startupMode = process.env.ROUGH_CUT_UI_SMOKE_FORCE_EDITOR === '1' ? 'editor' : startupProjectPath ? 'editor' : 'recorder';
   createMainWindow({ mode: startupMode, projectPath: startupProjectPath });

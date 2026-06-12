@@ -1,4 +1,5 @@
 import React from 'react';
+import { ArrowClockwise, ArrowCounterClockwise } from '@phosphor-icons/react';
 import { NleTimeline } from './nle-timeline';
 import { AssetPanel } from './asset-panel';
 import { NleProgramMonitor } from './program-monitor';
@@ -7,10 +8,21 @@ import { resolveProjectFps, resolveCompositionDurationFrames } from './project-s
 import { clampFrame, isTypingTarget } from './keyboard.mjs';
 import { canSplitClipById, rightClipIdAfterSplit, splitClipById } from './clip-mutations.mjs';
 import { EditorV2Layout } from '../editor-v2/editor-v2-layout';
+import { EMPTY_EDIT_HISTORY, recordEdit, redoEdit, undoEdit } from '../edit-history.mjs';
 import type { NleEditMode } from './mode-toolbar';
 import type { NleProject } from './types';
 
 const EDITOR_V2_STORAGE_KEY = 'roughCutEditorV2';
+
+type NleProjectChangeOptions = {
+  history?: boolean;
+  previous?: NleProject | null;
+};
+
+type NleEditHistory = {
+  undo: NleProject[];
+  redo: NleProject[];
+};
 
 function readEditorV2Preference(): boolean {
   try {
@@ -25,13 +37,21 @@ export function NleShell({
   playheadFrame: controlledPlayheadFrame,
   onPlayheadFrameChange,
   onProjectChange,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
   onGoToProjects,
   onCreateBlankProject,
 }: {
   project: NleProject | null;
   playheadFrame?: number;
   onPlayheadFrameChange?: (nextFrame: number) => void;
-  onProjectChange?: (next: NleProject) => void;
+  onProjectChange?: (next: NleProject, options?: NleProjectChangeOptions) => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
   onGoToProjects: () => void;
   onCreateBlankProject?: () => void;
 }) {
@@ -41,6 +61,7 @@ export function NleShell({
   const [isPlaying, setIsPlaying] = React.useState(false);
   const [selectedClipId, setSelectedClipId] = React.useState<string | null>(null);
   const [editMode, setEditMode] = React.useState<NleEditMode>('select');
+  const [timelineHistory, setTimelineHistory] = React.useState<NleEditHistory>(EMPTY_EDIT_HISTORY as NleEditHistory);
   // Editor v2 layout (TASK-237). Default ON; "Legacy" escape hatch persists.
   const [layoutV2, setLayoutV2] = React.useState<boolean>(readEditorV2Preference);
   const projectPath = project?.path ?? null;
@@ -57,6 +78,7 @@ export function NleShell({
     setIsPlaying(false);
     setSelectedClipId(null);
     setEditMode('select');
+    setTimelineHistory(EMPTY_EDIT_HISTORY as NleEditHistory);
   }, [isPlayheadControlled, projectPath]);
 
   if (project === null) {
@@ -74,6 +96,14 @@ export function NleShell({
   const clampedPlayhead = Math.max(0, Math.min(durationFrames, playheadFrame));
   const canSplit = selectedClipId !== null && canSplitClipById(project, selectedClipId, clampedPlayhead);
   const selectedState = selectedClipId ? 'Clip selected' : 'No clip selected';
+  const canUndoTimeline = timelineHistory.undo.length > 0 || canUndo;
+  const canRedoTimeline = timelineHistory.redo.length > 0 || canRedo;
+
+  function commitProjectChange(next: NleProject) {
+    if (!onProjectChange || next === project) return;
+    setTimelineHistory((history) => recordEdit(history, project) as NleEditHistory);
+    onProjectChange(next, { history: true, previous: project });
+  }
 
   React.useEffect(() => {
     if (!isPlaying) return undefined;
@@ -104,15 +134,45 @@ export function NleShell({
     if (!selectedClipId || !onProjectChange) return;
     const next = splitClipById(project, selectedClipId, clampedPlayhead);
     if (next !== project) {
-      onProjectChange(next as unknown as NleProject);
+      commitProjectChange(next as unknown as NleProject);
       setSelectedClipId(rightClipIdAfterSplit(next, selectedClipId, clampedPlayhead));
     }
+  }
+
+  function requestUndo() {
+    if (!onProjectChange) return;
+    setIsPlaying(false);
+    setSelectedClipId(null);
+    const result = undoEdit(timelineHistory, project);
+    if (result.snapshot) {
+      setTimelineHistory(result.history as NleEditHistory);
+      onProjectChange(result.snapshot, { history: false });
+      return;
+    }
+    if (canUndo && onUndo) onUndo();
+  }
+
+  function requestRedo() {
+    if (!onProjectChange) return;
+    setIsPlaying(false);
+    setSelectedClipId(null);
+    const result = redoEdit(timelineHistory, project);
+    if (result.snapshot) {
+      setTimelineHistory(result.history as NleEditHistory);
+      onProjectChange(result.snapshot, { history: false });
+      return;
+    }
+    if (canRedo && onRedo) onRedo();
   }
 
   React.useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (isTypingTarget(e.target)) return;
-      if (e.key === ' ') {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.shiftKey ? requestRedo() : requestUndo();
+      } else if (e.key === ' ') {
         e.preventDefault();
         setIsPlaying((playing) => !playing);
       } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -149,7 +209,7 @@ export function NleShell({
     }
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
-  }, [durationFrames, fps, setPlayheadFrame]);
+  }, [durationFrames, fps, setPlayheadFrame, canUndo, canRedo, onUndo, onRedo]);
 
   // TASK-228 — Ctrl+Shift+D writes a state dump next to the project so a
   // live "this is broken" moment becomes a reproducible report.
@@ -203,6 +263,31 @@ export function NleShell({
     </button>
   );
 
+  const historyControls = (
+    <div className="nleHistoryControls" role="group" aria-label="Timeline history">
+      <button
+        type="button"
+        className="nleHistoryButton"
+        aria-label="Undo timeline edit"
+        title="Undo timeline edit"
+        disabled={!canUndoTimeline}
+        onClick={requestUndo}
+      >
+        <ArrowCounterClockwise aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="nleHistoryButton"
+        aria-label="Redo timeline edit"
+        title="Redo timeline edit"
+        disabled={!canRedoTimeline}
+        onClick={requestRedo}
+      >
+        <ArrowClockwise aria-hidden="true" />
+      </button>
+    </div>
+  );
+
   return (
     <section className="nleShell" data-ui-region="nle-workspace" aria-label="NLE editor">
       {/* v2 has no header row — the view starts at the panes (approved mockup);
@@ -217,6 +302,7 @@ export function NleShell({
           <span>{selectedState}</span>
           <span>{Math.round(clampedPlayhead)} / {Math.round(durationFrames)} frames</span>
           <span>{fps} fps</span>
+          {historyControls}
           {layoutToggle}
         </div>
       </header>
@@ -233,6 +319,7 @@ export function NleShell({
               {debugDumpNotice ? (
                 <span className="nleDebugDumpNotice" title={debugDumpNotice}>Debug dump saved</span>
               ) : null}
+              {historyControls}
               {layoutToggle}
             </div>
           )}
@@ -249,7 +336,7 @@ export function NleShell({
           onPlayheadFrameChange={setPlayheadFrame}
           onPlayingChange={setIsPlaying}
           onSelectedClipChange={setSelectedClipId}
-          onProjectChange={onProjectChange}
+          onProjectChange={commitProjectChange}
         />
       ) : (
         <div className="nleBody">
@@ -283,7 +370,7 @@ export function NleShell({
               onEditModeChange={setEditMode}
               onPlayheadFrameChange={setPlayheadFrame}
               onSelectedClipChange={setSelectedClipId}
-              onProjectChange={onProjectChange}
+              onProjectChange={commitProjectChange}
               onSplit={splitSelectedClip}
             />
           </div>

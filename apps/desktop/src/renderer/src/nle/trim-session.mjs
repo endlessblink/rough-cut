@@ -9,15 +9,18 @@ export function createTrimSession(project, clipId, edge, startFrame, durationFra
   const timelineOut = Number(clip.timelineOut);
   const sourceIn = Number(clip.sourceIn ?? 0);
   const sourceOut = Number(clip.sourceOut ?? sourceIn + (timelineOut - timelineIn));
+  const sourceDuration = sourceDurationForClip(project, clip) ?? Math.max(sourceOut, durationFrames);
   if (![timelineIn, timelineOut, sourceIn, sourceOut].every(Number.isFinite)) return null;
   return updateTrimSession({
     clipId,
     edge: normalizedEdge,
     original: { timelineIn, timelineOut, sourceIn, sourceOut },
-    bounds: trimBounds(loc.track.clips, loc.clipIndex, timelineIn, timelineOut, sourceIn, Math.max(1, Math.round(Number(durationFrames) || 1))),
+    downstream: downstreamClips(loc.track.clips, loc.clipIndex, timelineOut),
+    bounds: trimBounds(loc.track.clips, loc.clipIndex, timelineIn, timelineOut, sourceIn, sourceOut, sourceDuration, Math.max(1, Math.round(Number(durationFrames) || 1))),
     durationFrames: Math.max(1, Math.round(Number(durationFrames) || 1)),
     startFrame: Math.round(Number(startFrame) || 0),
     preview: { timelineIn, timelineOut, sourceIn, sourceOut },
+    previews: { [clipId]: { timelineIn, timelineOut, sourceIn, sourceOut } },
     snapFrame: null,
     invalidReason: null,
   }, startFrame);
@@ -37,29 +40,32 @@ export function updateTrimSession(session, frame) {
 
   if (session.edge === 'left') {
     const delta = clampedFrame - timelineIn;
+    const preview = { timelineIn: clampedFrame, timelineOut, sourceIn: sourceIn + delta, sourceOut };
     return {
       ...session,
-      preview: { timelineIn: clampedFrame, timelineOut, sourceIn: sourceIn + delta, sourceOut },
+      preview,
+      previews: previewMap(session, preview, delta),
       snapFrame: clampedFrame,
       invalidReason,
     };
   }
 
   const delta = clampedFrame - timelineOut;
+  const preview = { timelineIn, timelineOut: clampedFrame, sourceIn, sourceOut: sourceOut + delta };
   return {
     ...session,
-    preview: { timelineIn, timelineOut: clampedFrame, sourceIn, sourceOut: sourceOut + delta },
+    preview,
+    previews: previewMap(session, preview, delta),
     snapFrame: clampedFrame,
     invalidReason,
   };
 }
 
-function trimBounds(clips, clipIndex, timelineIn, timelineOut, sourceIn, durationFrames) {
+function trimBounds(clips, clipIndex, timelineIn, timelineOut, sourceIn, sourceOut, sourceDuration, durationFrames) {
   const previousClip = nearestPreviousClip(clips, clipIndex, timelineIn);
-  const nextClip = nearestNextClip(clips, clipIndex, timelineOut);
   return {
     start: Math.max(0, Number(previousClip?.timelineOut ?? 0), timelineIn - sourceIn),
-    end: Math.min(durationFrames, Number(nextClip?.timelineIn ?? Number.POSITIVE_INFINITY)),
+    end: Math.min(durationFrames, timelineOut + Math.max(0, sourceDuration - sourceOut)),
   };
 }
 
@@ -73,6 +79,39 @@ function nearestNextClip(clips, clipIndex, currentOut) {
   return (clips ?? [])
     .filter((clip, index) => index !== clipIndex && Number.isFinite(Number(clip?.timelineIn)) && Number(clip.timelineIn) >= currentOut)
     .sort((a, b) => Number(a.timelineIn) - Number(b.timelineIn))[0] ?? null;
+}
+
+function downstreamClips(clips, clipIndex, currentOut) {
+  return (clips ?? [])
+    .filter((clip, index) => index !== clipIndex && Number.isFinite(Number(clip?.timelineIn)) && Number(clip.timelineIn) >= currentOut)
+    .map((clip) => ({
+      id: clip.id,
+      timelineIn: Number(clip.timelineIn),
+      timelineOut: Number(clip.timelineOut),
+    }))
+    .filter((clip) => clip.id && Number.isFinite(clip.timelineOut));
+}
+
+function previewMap(session, editedPreview, delta) {
+  const previews = {
+    [session.clipId]: editedPreview,
+  };
+  for (const clip of session.downstream ?? []) {
+    previews[clip.id] = {
+      timelineIn: clip.timelineIn + delta,
+      timelineOut: clip.timelineOut + delta,
+    };
+  }
+  return previews;
+}
+
+function sourceDurationForClip(project, clip) {
+  const document = project?.document ? canonicalizeProjectDocument(project.document) : null;
+  const sourceId = clip?.mediaId ?? (clip?.source?.id ? `source:${clip.source.id}` : null);
+  if (!sourceId) return null;
+  const source = document?.timeline?.sources?.find((item) => item.id === sourceId || item.assetId === clip.source?.id);
+  const duration = Number(source?.duration);
+  return Number.isFinite(duration) && duration > 0 ? duration : null;
 }
 
 function findClipLocation(project, clipId) {

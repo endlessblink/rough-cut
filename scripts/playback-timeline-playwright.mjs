@@ -1,10 +1,11 @@
 import { createRequire } from 'node:module';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { saveProjectFile, saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
 import { createDefaultRecordingPresentation } from '../packages/project-model/dist/index.js';
+import { acquireGpuPlaywrightLock } from './gpu-playwright-lock.mjs';
 
 const root = await mkdtemp(join(tmpdir(), 'rough-cut-playback-timeline-'));
 const mediaPath = join(root, 'playback-source.mp4');
@@ -15,6 +16,10 @@ const requiredAdvanceSec = Math.max(0.2, Number(process.env.ROUGH_CUT_PLAYBACK_A
 const seekStartSec = Math.max(0, Number(process.env.ROUGH_CUT_PLAYBACK_SEEK_SEC ?? 0));
 const probeView = process.env.ROUGH_CUT_PLAYBACK_VIEW || 'both';
 const playbackScreenshotPath = process.env.ROUGH_CUT_PLAYBACK_SCREENSHOT_PATH || '';
+const stressPlaybackFixture = process.env.ROUGH_CUT_PLAYBACK_STRESS === '1';
+const expectedScreenLayerRenderer = normalizeExpectedRenderer(process.env.ROUGH_CUT_EXPECT_SCREEN_LAYER_RENDERER || '');
+const expectWebgpuMotionBlur = process.env.ROUGH_CUT_EXPECT_WEBGPU_MOTION_BLUR === '1' || stressPlaybackFixture;
+const playbackCorrectnessOnly = process.env.ROUGH_CUT_PLAYBACK_CORRECTNESS_ONLY === '1';
 
 await mkdir(root, { recursive: true });
 let projectPath = externalProjectPath;
@@ -86,12 +91,19 @@ if (!projectPath) {
 const projectDocument = JSON.parse(await readFile(projectPath, 'utf8'));
 const expectedHasScreenAudio = projectHasScreenAudio(projectDocument);
 
-const recordingResult = probeView === 'nle'
-  ? { ok: true, skipped: true, reason: 'ROUGH_CUT_PLAYBACK_VIEW=nle' }
-  : await runPlaybackProbe({ view: 'recording', projectPath });
-const nleResult = probeView === 'recording'
-  ? { ok: true, skipped: true, reason: 'ROUGH_CUT_PLAYBACK_VIEW=recording' }
-  : await runPlaybackProbe({ view: 'nle', projectPath });
+const gpuHarnessLock = await acquireGpuPlaywrightLock('playback:timeline');
+let recordingResult;
+let nleResult;
+try {
+  recordingResult = probeView === 'nle'
+    ? { ok: true, skipped: true, reason: 'ROUGH_CUT_PLAYBACK_VIEW=nle' }
+    : await runPlaybackProbe({ view: 'recording', projectPath });
+  nleResult = probeView === 'recording'
+    ? { ok: true, skipped: true, reason: 'ROUGH_CUT_PLAYBACK_VIEW=recording' }
+    : await runPlaybackProbe({ view: 'nle', projectPath });
+} finally {
+  await gpuHarnessLock.release();
+}
 const report = {
   ok: recordingResult.ok && nleResult.ok,
   root,
@@ -126,11 +138,14 @@ async function runPlaybackProbe({ view, projectPath }) {
       ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
       ROUGH_CUT_LOAD_BUILT_RENDERER: '1',
       ROUGH_CUT_UI_SMOKE_PROJECT_PATH: projectPath,
+      ROUGH_CUT_WEBGL_MOTION_BLUR: expectWebgpuMotionBlur ? '1' : process.env.ROUGH_CUT_WEBGL_MOTION_BLUR,
+      VITE_ROUGH_CUT_WEBGL_MOTION_BLUR: expectWebgpuMotionBlur ? '1' : process.env.VITE_ROUGH_CUT_WEBGL_MOTION_BLUR,
     },
   });
   const electronProcess = app.process();
   let page = null;
   const webglConsoleLog = [];
+  const webgpuConsoleLog = [];
   try {
     page = await app.firstWindow();
     page.on('console', (message) => {
@@ -138,6 +153,10 @@ async function runPlaybackProbe({ view, projectPath }) {
       if (text.includes('[rough-cut:webgl-renderer]')) {
         webglConsoleLog.push({ type: message.type(), text });
         if (webglConsoleLog.length > 160) webglConsoleLog.shift();
+      }
+      if (text.includes('[rough-cut:webgpu-renderer]')) {
+        webgpuConsoleLog.push({ type: message.type(), text });
+        if (webgpuConsoleLog.length > 160) webgpuConsoleLog.shift();
       }
     });
     await page.waitForLoadState('domcontentloaded');
@@ -149,18 +168,32 @@ async function runPlaybackProbe({ view, projectPath }) {
       await dismissPreRecordOverlay(page);
       await page.waitForSelector('[data-ui-region="editor-workspace"]', { timeout: 15000 });
     }
+    await page.evaluate(() => {
+      window.__roughCutPlaybackProbeStartedAtMs = performance.now();
+    });
     await page.waitForSelector('canvas.styledPreviewCanvas', { timeout: 15000 });
     await page.addScriptTag({ content: `
+      window.__roughCutSelectPlaybackVideos = (${selectPlaybackVideoElements.toString()});
+      window.__roughCutSelectPlaybackVideoElement = (${selectPlaybackVideoElement.toString()});
       window.__roughCutReadCanvasStats = (${readCanvasStats.toString()});
       window.__roughCutReadPlaybackDebug = (${readPlaybackDebug.toString()});
       window.__roughCutReadPlaybackState = (${readPlaybackState.toString()});
       window.__roughCutCreatePlaybackMonitor = (${createPlaybackMonitor.toString()});
       window.__roughCutPlaybackProof = (${playbackProof.toString()});
       window.__roughCutPlaybackRequiredAdvanceSec = ${JSON.stringify(requiredAdvanceSec)};
+      window.__roughCutPlaybackCorrectnessOnly = ${JSON.stringify(playbackCorrectnessOnly)};
       window.__roughCutExpectedHasScreenAudio = ${JSON.stringify(expectedHasScreenAudio)};
     ` });
     await page.waitForFunction(() => {
-      const video = document.querySelector('video');
+      const videos = Array.from(document.querySelectorAll('video'));
+      const hiddenSources = videos.filter((item) => String(item.className ?? '').split(/\s+/).includes('hiddenSource'));
+      const programVideos = hiddenSources.length > 0
+        ? hiddenSources
+        : videos.filter((item) => {
+          const classNames = String(item.className ?? '').split(/\s+/);
+          return !classNames.includes('ev2MediaThumbVideo') && !classNames.includes('ev2SourceVideo');
+        });
+      const video = programVideos[0] ?? videos[0] ?? null;
       return video instanceof HTMLVideoElement && video.readyState >= 2 && Number.isFinite(video.duration) && video.duration > 0;
     }, null, { timeout: 15000 });
     await page.waitForFunction(() => {
@@ -180,13 +213,13 @@ async function runPlaybackProbe({ view, projectPath }) {
         input.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
       }, seekStartSec);
       await page.waitForFunction((value) => {
-        const video = document.querySelector('video');
+        const video = window.__roughCutSelectPlaybackVideoElement?.() ?? document.querySelector('video');
         return video instanceof HTMLVideoElement && Math.abs(video.currentTime - value) < 1;
       }, seekStartSec, { timeout: 7000 });
     }
     if (view === 'nle' && seekStartSec > 0) {
       const ratio = await page.evaluate((value) => {
-        const video = document.querySelector('video');
+        const video = window.__roughCutSelectPlaybackVideoElement?.() ?? document.querySelector('video');
         const duration = video instanceof HTMLVideoElement && Number.isFinite(video.duration) && video.duration > 0 ? video.duration : value;
         return Math.max(0, Math.min(1, value / Math.max(0.1, duration)));
       }, seekStartSec);
@@ -195,8 +228,11 @@ async function runPlaybackProbe({ view, projectPath }) {
       if (!box) throw new Error('Missing NLE time ruler for seek probe.');
       await page.mouse.click(box.x + box.width * ratio, box.y + box.height / 2);
       await page.waitForFunction((value) => {
-        const video = document.querySelector('video');
-        return video instanceof HTMLVideoElement && Math.abs(video.currentTime - value) < 1;
+        const video = window.__roughCutSelectPlaybackVideoElement?.() ?? document.querySelector('video');
+        return video instanceof HTMLVideoElement
+          && video.readyState >= 2
+          && video.currentTime >= Math.max(0, value - 1)
+          && video.currentTime <= value + 3;
       }, seekStartSec, { timeout: 7000 });
     }
 
@@ -235,6 +271,12 @@ async function runPlaybackProbe({ view, projectPath }) {
       await mkdir(dirname(screenshotPath), { recursive: true });
       await page.screenshot({ path: screenshotPath });
     }
+    const screenshotArtifacts = await collectScreenshotArtifacts({
+      active: screenshotPath,
+      paused: pausedScreenshotPath,
+      transition: transitionScreenshotPath,
+    });
+    const screenshotProof = screenshotArtifactProof(screenshotArtifacts);
     const after = await page.evaluate(() => {
       const stopped = window.__roughCutPlaybackMonitor?.stop();
       const latest = stopped?.latest ?? window.__roughCutReadPlaybackState();
@@ -242,16 +284,32 @@ async function runPlaybackProbe({ view, projectPath }) {
       if (best && window.__roughCutPlaybackProof(window.__roughCutPlaybackInitialState, best, window.__roughCutPlaybackRequiredAdvanceSec).ok) return best;
       return latest;
     });
+    const proof = windowPlaybackProof(before, after, requiredAdvanceSec);
+    const cameraGeometry = cameraGeometryProof(pausedState, after);
+    const rendererExpectation = rendererExpectationProof(after);
+    const activePlaybackDebug = activePlaybackDebugProof(after);
+    const probeStartedAtMs = typeof after?.probeStartedAtMs === 'number' ? after.probeStartedAtMs : 0;
+    const webgpuLifecycle = webgpuLifecycleProof(after, webgpuConsoleLog, probeStartedAtMs);
+    const webgpuBackgroundUploads = webgpuBackgroundUploadProof(before, after, webgpuConsoleLog, probeStartedAtMs);
+    const webgpuMotionBlur = webgpuMotionBlurProof(after, webgpuConsoleLog, probeStartedAtMs);
     return {
-      ok: windowPlaybackProof(before, after, requiredAdvanceSec).ok && cameraGeometryProof(pausedState, after).ok,
-      proof: windowPlaybackProof(before, after, requiredAdvanceSec),
-      cameraGeometry: cameraGeometryProof(pausedState, after),
+      ok: proof.ok && cameraGeometry.ok && rendererExpectation.ok && activePlaybackDebug.ok && webgpuLifecycle.ok && webgpuBackgroundUploads.ok && webgpuMotionBlur.ok && screenshotProof.ok,
+      proof,
+      cameraGeometry,
+      rendererExpectation,
+      activePlaybackDebug,
+      webgpuLifecycle,
+      webgpuBackgroundUploads,
+      webgpuMotionBlur,
+      screenshotProof,
+      screenshotArtifacts,
       screenshotPath: screenshotPath || null,
       pausedScreenshotPath: pausedScreenshotPath || null,
       transitionScreenshotPath: transitionScreenshotPath || null,
       clickedZoomRegionDuringPlayback,
       clickedPreviewCanvasDuringPlayback,
       webglConsoleLog,
+      webgpuConsoleLog,
       pausedState,
       before,
       after,
@@ -259,16 +317,21 @@ async function runPlaybackProbe({ view, projectPath }) {
   } catch (err) {
     const diagnostic = await page?.evaluate(() => {
       const videos = Array.from(document.querySelectorAll('video')).map((video) => ({
+        className: video.className,
         currentTime: video.currentTime,
         duration: video.duration,
         paused: video.paused,
         readyState: video.readyState,
+        muted: video.muted,
+        visible: video.getBoundingClientRect().width > 20 && video.getBoundingClientRect().height > 20,
       }));
       return {
         videos,
         playbackState: typeof window.__roughCutReadPlaybackState === 'function' ? window.__roughCutReadPlaybackState() : null,
         webglRendererLog: Array.isArray(window.__roughCutWebglRendererLog) ? window.__roughCutWebglRendererLog.slice(-160) : [],
+        webgpuRendererLog: Array.isArray(window.__roughCutWebgpuRendererLog) ? window.__roughCutWebgpuRendererLog.slice(-160) : [],
         webglRendererInstances: window.__roughCutWebglRendererInstances ?? null,
+        webgpuRendererInstances: window.__roughCutWebgpuRendererInstances ?? null,
         playButtonLabel: document.querySelector('[data-ui-region="nle-transport"] button')?.getAttribute('aria-label') ?? null,
       };
     }).catch(() => null);
@@ -276,6 +339,7 @@ async function runPlaybackProbe({ view, projectPath }) {
       ok: false,
       error: err instanceof Error ? err.message : String(err),
       webglConsoleLog,
+      webgpuConsoleLog,
       diagnostic,
     };
   } finally {
@@ -337,10 +401,10 @@ function withPlaybackZoomMarker(asset) {
             startFrame: 42,
             endFrame: 132,
             kind: 'manual',
-            strength: 0.82,
+            strength: stressPlaybackFixture ? 0.95 : 0.82,
             focalPoint: { x: 0.62, y: 0.58 },
-            zoomInDuration: 24,
-            zoomOutDuration: 24,
+            zoomInDuration: stressPlaybackFixture ? 54 : 24,
+            zoomOutDuration: stressPlaybackFixture ? 54 : 24,
             followCursor: false,
           },
         ],
@@ -354,10 +418,29 @@ function createPlaybackMonitor() {
   let running = false;
   let best = null;
   let latest = null;
+  let startAtMs = 0;
+  let endAtMs = null;
   let lastMs = 0;
   let frames = 0;
   let slowFrames = 0;
   let maxFrameDeltaMs = 0;
+
+  function activePlaybackDebug() {
+    return window.__roughCutReadPlaybackDebug?.({
+      sinceAtMs: startAtMs,
+      untilAtMs: endAtMs ?? performance.now(),
+    }) ?? null;
+  }
+
+  function withMonitorState(state) {
+    if (!state) return state;
+    return {
+      ...state,
+      frameMonitor: { frames, slowFrames, maxFrameDeltaMs },
+      activePlaybackWindow: { startAtMs, endAtMs },
+      activePlaybackDebug: activePlaybackDebug(),
+    };
+  }
 
   function sample(nowMs = performance.now()) {
     if (lastMs > 0) {
@@ -378,24 +461,34 @@ function createPlaybackMonitor() {
   return {
     start() {
       if (running) return;
+      startAtMs = performance.now();
+      endAtMs = null;
+      window.__roughCutPlaybackActiveProbeWindow = { startAtMs, endAtMs: null };
       running = true;
       sample();
     },
     inspect() {
-      return { best, latest: latest ? { ...latest, frameMonitor: { frames, slowFrames, maxFrameDeltaMs } } : latest };
+      return { best: withMonitorState(best), latest: withMonitorState(latest) };
     },
     stop() {
       running = false;
+      endAtMs = performance.now();
+      window.__roughCutPlaybackActiveProbeWindow = { startAtMs, endAtMs };
       if (rafId) window.cancelAnimationFrame(rafId);
+      latest = window.__roughCutReadPlaybackState();
       return {
-        best: best ? { ...best, frameMonitor: { frames, slowFrames, maxFrameDeltaMs } } : best,
-        latest: latest ? { ...latest, frameMonitor: { frames, slowFrames, maxFrameDeltaMs } } : latest,
+        best: withMonitorState(best),
+        latest: withMonitorState(latest),
       };
     },
   };
 }
 
-function playbackProof(before, after, requiredAdvanceSec = 0.2) {
+function playbackProof(before, after, requiredAdvanceSec = 0.2, options = {}) {
+  const correctnessOnly = Boolean(
+    options.correctnessOnly
+      || (typeof globalThis !== 'undefined' && globalThis.__roughCutPlaybackCorrectnessOnly === true),
+  );
   function isProgramPlaybackVideo(video) {
     const classNames = String(video?.className ?? '').split(/\s+/);
     return !classNames.includes('ev2MediaThumbVideo') && !classNames.includes('ev2SourceVideo');
@@ -435,12 +528,13 @@ function playbackProof(before, after, requiredAdvanceSec = 0.2) {
   const audioOk = !after.hasScreenAudio || Boolean(screen?.audioDecodedByteCount === null || screen.audioDecodedByteCount > (initialScreen?.audioDecodedByteCount ?? -1));
   const drawFramesPerSecond = (after.drawCount - before.drawCount) / Math.max(0.1, screenAdvanced);
   const frameMonitorOk = drawFramesPerSecond >= 12 && (after?.frameMonitor?.maxFrameDeltaMs ?? 0) <= 120;
-  const playbackOk = screenOk && cameraOk && cameraCanvasOk && audioOk && frameMonitorOk;
-  const expectedDisplayGapOk = (after?.playbackDebug?.expectedDisplayGapCount ?? 0) === 0;
+  const playbackOk = screenOk && cameraOk && cameraCanvasOk && audioOk && (correctnessOnly || frameMonitorOk);
+  const expectedDisplayGapOk = correctnessOnly || (after?.playbackDebug?.expectedDisplayGapCount ?? 0) === 0;
 
   return {
     ok: playbackOk && compositorOk && expectedDisplayGapOk,
     mode: 'canvas-only-rvfc',
+    correctnessOnly,
     canvasOk,
     compositorOk,
     screenOk,
@@ -460,8 +554,181 @@ function playbackProof(before, after, requiredAdvanceSec = 0.2) {
   };
 }
 
+function webgpuLifecycleProof(state, consoleLog = [], minAtMs = 0) {
+  const renderer = state?.screenLayerRenderer ?? null;
+  const requestedWebGPU = renderer?.requestedRendererKind === 'webgpu' || renderer?.rendererKind === 'webgpu';
+  const combined = collectWebgpuRendererEvents([state], consoleLog, minAtMs);
+  const contextCreated = combined.filter((entry) => entry.event === 'context-created');
+  const disposedContextCreated = contextCreated.filter((entry) => entry.payload?.disposed === true);
+  const staleFallbackContextCreated = contextCreated.filter((entry) => entry.payload?.fallbackReason !== null);
+  const activeRegistryContextCreated = Object.values(state?.webgpuRendererInstances ?? {}).filter((entry) => (
+    entry?.disposed === false &&
+    Number(entry?.contextCreates) > 0 &&
+    entry?.fallbackReason === null
+  ));
+  const activeRendererOk = !requestedWebGPU || (
+    renderer?.rendererKind === 'webgpu' &&
+    renderer?.contextStatus === 'available' &&
+    renderer?.fallbackReason === null
+  );
+  const contextCreatedOk = !requestedWebGPU || contextCreated.length > 0 || activeRegistryContextCreated.length > 0;
+  return {
+    ok: activeRendererOk && contextCreatedOk && disposedContextCreated.length === 0 && staleFallbackContextCreated.length === 0,
+    requestedWebGPU,
+    activeRendererOk,
+    contextCreatedOk,
+    contextCreatedCount: contextCreated.length,
+    activeRegistryContextCreatedCount: activeRegistryContextCreated.length,
+    disposedContextCreatedCount: disposedContextCreated.length,
+    staleFallbackContextCreatedCount: staleFallbackContextCreated.length,
+    renderer,
+  };
+}
+
+function webgpuBackgroundUploadProof(before, after, consoleLog = [], minAtMs = 0) {
+  const renderer = after?.screenLayerRenderer ?? null;
+  const requestedWebGPU = renderer?.requestedRendererKind === 'webgpu' || renderer?.rendererKind === 'webgpu';
+  const combined = collectWebgpuRendererEvents([before, after], consoleLog, minAtMs);
+  const uploads = combined.filter((entry) => entry.event === 'background-image-texture-uploaded');
+  const drawUploads = uploads.filter((entry) => entry.payload?.reason === 'draw');
+  const prewarmUploads = uploads.filter((entry) => entry.payload?.reason === 'prewarm' || entry.payload?.reason === 'post-init-prewarm');
+  const missedDownscaleUploads = uploads.filter((entry) => {
+    const width = Number(entry.payload?.width);
+    const height = Number(entry.payload?.height);
+    const sourceWidth = Number(entry.payload?.sourceWidth);
+    const sourceHeight = Number(entry.payload?.sourceHeight);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || !Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight)) return false;
+    return (sourceWidth > width || sourceHeight > height) && entry.payload?.downscaled !== true;
+  });
+  return {
+    ok: !requestedWebGPU || (drawUploads.length === 0 && missedDownscaleUploads.length === 0),
+    requestedWebGPU,
+    uploadCount: uploads.length,
+    prewarmUploadCount: prewarmUploads.length,
+    drawUploadCount: drawUploads.length,
+    missedDownscaleUploadCount: missedDownscaleUploads.length,
+    uploads: uploads.slice(-12).map((entry) => ({
+      source: entry.source,
+      reason: entry.payload?.reason ?? null,
+      rendererId: entry.payload?.rendererId ?? entry.payload?.id ?? null,
+      width: entry.payload?.width ?? null,
+      height: entry.payload?.height ?? null,
+      sourceWidth: entry.payload?.sourceWidth ?? null,
+      sourceHeight: entry.payload?.sourceHeight ?? null,
+      downscaled: entry.payload?.downscaled ?? null,
+      uploadMs: entry.payload?.uploadMs ?? null,
+    })),
+  };
+}
+
+function activePlaybackDebugProof(state) {
+  const renderer = state?.screenLayerRenderer ?? null;
+  const requestedWebGPU = renderer?.requestedRendererKind === 'webgpu' || renderer?.rendererKind === 'webgpu';
+  const active = state?.activePlaybackDebug ?? null;
+  if (!requestedWebGPU) return { ok: true, skipped: true, reason: 'webgpu-not-requested' };
+  if (!active) return { ok: false, reason: 'missing-active-playback-debug' };
+  const expectedDisplayGapCount = Number(active.expectedDisplayGapCount) || 0;
+  const mainThreadBlockedExpectedDisplayGapCount = Number(active.mainThreadBlockedExpectedDisplayGapCount) || 0;
+  const longTaskCount = Number(active.longTaskCount) || 0;
+  const maxLongTask = Number(active.maxLongTask) || 0;
+  return {
+    ok: expectedDisplayGapCount === 0 && mainThreadBlockedExpectedDisplayGapCount === 0 && maxLongTask <= 80,
+    expectedDisplayGapCount,
+    mainThreadBlockedExpectedDisplayGapCount,
+    longTaskCount,
+    maxLongTask,
+    window: state?.activePlaybackWindow ?? null,
+    active,
+  };
+}
+
+function webgpuMotionBlurProof(state, consoleLog = [], minAtMs = 0) {
+  if (!expectWebgpuMotionBlur) return { ok: true, skipped: true, reason: 'motion-blur-not-required' };
+  const renderer = state?.screenLayerRenderer ?? null;
+  const requestedWebGPU = renderer?.requestedRendererKind === 'webgpu' || renderer?.rendererKind === 'webgpu';
+  if (!requestedWebGPU) return { ok: true, skipped: true, reason: 'webgpu-not-requested' };
+  const activeRegistryEntries = Object.values(state?.webgpuRendererInstances ?? {}).filter((entry) => entry?.disposed === false);
+  const maxMotionBlurSamples = activeRegistryEntries.reduce((max, entry) => Math.max(max, Number(entry?.maxMotionBlurSamples) || 0), 0);
+  const motionBlurFrameCount = activeRegistryEntries.reduce((sum, entry) => sum + (Number(entry?.motionBlurFrameCount) || 0), 0);
+  const combined = collectWebgpuRendererEvents([state], consoleLog, minAtMs);
+  const activeEvents = combined.filter((entry) => entry.event === 'motion-blur-active');
+  return {
+    ok: maxMotionBlurSamples >= 3 && motionBlurFrameCount > 0,
+    required: true,
+    maxMotionBlurSamples,
+    motionBlurFrameCount,
+    activeEventCount: activeEvents.length,
+    activeEvents: activeEvents.slice(-8).map((entry) => ({
+      source: entry.source,
+      rendererId: entry.payload?.rendererId ?? entry.payload?.id ?? null,
+      samples: entry.payload?.samples ?? null,
+      blurPx: entry.payload?.blurPx ?? null,
+      motionBlurFrameCount: entry.payload?.motionBlurFrameCount ?? null,
+    })),
+  };
+}
+
+function collectWebgpuRendererEvents(states, consoleLog = [], minAtMs = 0) {
+  const seen = new Set();
+  const events = [];
+  for (const state of states) {
+    const rendererLog = Array.isArray(state?.webgpuRendererLog) ? state.webgpuRendererLog : [];
+    for (const entry of rendererLog) {
+      if (Number.isFinite(minAtMs) && minAtMs > 0 && Number(entry?.atMs) < minAtMs) continue;
+      const normalized = { source: 'window', event: entry?.event ?? null, payload: entry?.payload ?? {} };
+      const key = `${normalized.event}:${JSON.stringify(normalized.payload)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      events.push(normalized);
+    }
+  }
+  for (const entry of consoleLog) {
+    const payload = parseRendererConsolePayload(entry?.text);
+    if (Number.isFinite(minAtMs) && minAtMs > 0 && Number(payload?.atMs) < minAtMs) continue;
+    const normalized = { source: 'console', event: parseRendererConsoleEvent(entry?.text), payload };
+    const key = `${normalized.event}:${JSON.stringify(normalized.payload)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    events.push(normalized);
+  }
+  return events;
+}
+
+function parseRendererConsoleEvent(text = '') {
+  const match = String(text).match(/\[rough-cut:webgpu-renderer\]\s+([^\s]+)/);
+  return match?.[1] ?? null;
+}
+
+function parseRendererConsolePayload(text = '') {
+  const start = String(text).indexOf('{');
+  if (start < 0) return {};
+  try {
+    return JSON.parse(String(text).slice(start));
+  } catch {
+    return {};
+  }
+}
+
+function selectPlaybackVideoElements() {
+  const videos = Array.from(document.querySelectorAll('video'));
+  const hiddenPreviewSources = videos.filter((video) => String(video.className ?? '').split(/\s+/).includes('hiddenSource'));
+  if (hiddenPreviewSources.length > 0) return hiddenPreviewSources;
+  return videos.filter((video) => {
+    const classNames = String(video.className ?? '').split(/\s+/);
+    return !classNames.includes('ev2MediaThumbVideo') && !classNames.includes('ev2SourceVideo');
+  });
+}
+
+function selectPlaybackVideoElement() {
+  const selector = window.__roughCutSelectPlaybackVideos;
+  const videos = typeof selector === 'function'
+    ? selector()
+    : Array.from(document.querySelectorAll('video'));
+  return videos[0] ?? null;
+}
+
 function readPlaybackState() {
-  const canvas = document.querySelector('canvas.styledPreviewWebglCanvas.isActive')
+  const canvas = document.querySelector('canvas.styledPreviewAcceleratedCanvas.isActive, canvas.styledPreviewWebglCanvas.isActive')
     ?? document.querySelector('canvas.styledPreviewCanvas');
   const canvasRect = canvas instanceof HTMLCanvasElement ? canvas.getBoundingClientRect() : null;
   const canvasCameraRect = window.__roughCutCanvasCameraRect && canvasRect
@@ -502,24 +769,34 @@ function readPlaybackState() {
       rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
     };
   });
-  const video = videos[0];
+  const videoElements = Array.from(document.querySelectorAll('video'));
+  const playbackVideoElements = typeof window.__roughCutSelectPlaybackVideos === 'function'
+    ? window.__roughCutSelectPlaybackVideos()
+    : videoElements;
+  const playbackIndexes = new Set(playbackVideoElements.map((video) => videoElements.indexOf(video)));
+  const playbackVideos = videos.filter((video) => playbackIndexes.has(video.index));
+  const video = playbackVideos[0] ?? videos[0];
   return {
     videoTime: video ? video.currentTime : -1,
     videoPaused: video ? video.paused : null,
     videos,
-    hasCamera: videos.length > 1,
+    playbackVideos,
+    hasCamera: playbackVideos.length > 1,
     hasScreenAudio: typeof window.__roughCutExpectedHasScreenAudio === 'boolean'
       ? window.__roughCutExpectedHasScreenAudio
-      : Boolean(videos[0] && videos[0].muted === false),
+      : Boolean(playbackVideos[0] && playbackVideos[0].muted === false),
     nativeActive: Boolean(document.querySelector('.nativePlaybackActive')),
     nativePhase: Array.from(document.querySelector('.styledPreview')?.classList ?? []).find((name) => name.startsWith('nativePlaybackPhase-')) ?? null,
     timelinePlaybackDebug: window.__roughCutTimelinePlaybackDebug ?? null,
     playbackDebug: typeof window.__roughCutReadPlaybackDebug === 'function'
       ? window.__roughCutReadPlaybackDebug()
       : { counts: {}, frameGapCount: 0, maxFrameGap: 0, lastFrameGap: null, tail: [] },
+    probeStartedAtMs: typeof window.__roughCutPlaybackProbeStartedAtMs === 'number' ? window.__roughCutPlaybackProbeStartedAtMs : null,
     screenLayerRenderer: window.__roughCutScreenLayerRenderer ?? null,
     webglRendererInstances: window.__roughCutWebglRendererInstances ?? null,
     webglRendererLog: Array.isArray(window.__roughCutWebglRendererLog) ? window.__roughCutWebglRendererLog.slice(-80) : [],
+    webgpuRendererInstances: window.__roughCutWebgpuRendererInstances ?? null,
+    webgpuRendererLog: Array.isArray(window.__roughCutWebgpuRendererLog) ? window.__roughCutWebgpuRendererLog.slice(-80) : [],
     canvasCameraRect,
     drawCount: window.__roughCutCanvasDrawCount ?? 0,
     timecode: document.querySelector('.nleTransportTimeCurrent')?.textContent
@@ -529,15 +806,24 @@ function readPlaybackState() {
   };
 }
 
-function readPlaybackDebug() {
+function readPlaybackDebug(range = null) {
   const log = Array.isArray(window.__roughCutPlaybackDebugLog)
     ? window.__roughCutPlaybackDebugLog
     : [];
-  const frameGaps = log.filter((entry) => entry?.event === 'render-frame-gap');
-  const expectedDisplayGaps = log.filter((entry) => entry?.event === 'render-expected-display-gap');
-  const mainThreadBlockedExpectedDisplayGaps = log.filter((entry) => entry?.event === 'render-expected-display-gap-main-thread-blocked');
-  const drawCosts = log.filter((entry) => entry?.event === 'render-draw-cost');
-  const longTasks = log.filter((entry) => entry?.event === 'main-thread-long-task');
+  const sinceAtMs = Number(range?.sinceAtMs);
+  const untilAtMs = Number(range?.untilAtMs);
+  const filteredLog = log.filter((entry) => {
+    const atMs = Number(entry?.atMs);
+    if (!Number.isFinite(atMs)) return !Number.isFinite(sinceAtMs) && !Number.isFinite(untilAtMs);
+    if (Number.isFinite(sinceAtMs) && atMs < sinceAtMs) return false;
+    if (Number.isFinite(untilAtMs) && atMs > untilAtMs) return false;
+    return true;
+  });
+  const frameGaps = filteredLog.filter((entry) => entry?.event === 'render-frame-gap');
+  const expectedDisplayGaps = filteredLog.filter((entry) => entry?.event === 'render-expected-display-gap');
+  const mainThreadBlockedExpectedDisplayGaps = filteredLog.filter((entry) => entry?.event === 'render-expected-display-gap-main-thread-blocked');
+  const drawCosts = filteredLog.filter((entry) => entry?.event === 'render-draw-cost');
+  const longTasks = filteredLog.filter((entry) => entry?.event === 'main-thread-long-task');
   const lastFrameGap = frameGaps[frameGaps.length - 1] ?? null;
   const maxFrameGap = frameGaps.reduce((max, entry) => Math.max(max, Number(entry?.deltaMs) || 0), 0);
   const lastExpectedDisplayGap = expectedDisplayGaps[expectedDisplayGaps.length - 1] ?? null;
@@ -547,7 +833,15 @@ function readPlaybackDebug() {
   const lastLongTask = longTasks[longTasks.length - 1] ?? null;
   const maxLongTask = longTasks.reduce((max, entry) => Math.max(max, Number(entry?.duration) || 0), 0);
   return {
-    counts: window.__roughCutPlaybackDebugCounts ?? {},
+    counts: range
+      ? filteredLog.reduce((counts, entry) => {
+          const event = String(entry?.event ?? '');
+          if (event) counts[event] = (counts[event] ?? 0) + 1;
+          return counts;
+        }, {})
+      : window.__roughCutPlaybackDebugCounts ?? {},
+    sinceAtMs: Number.isFinite(sinceAtMs) ? sinceAtMs : null,
+    untilAtMs: Number.isFinite(untilAtMs) ? untilAtMs : null,
     frameGapCount: frameGaps.length,
     maxFrameGap,
     lastFrameGap,
@@ -563,14 +857,14 @@ function readPlaybackDebug() {
     longTaskCount: longTasks.length,
     maxLongTask,
     lastLongTask,
-    tail: log.slice(-80),
+    tail: filteredLog.slice(-80),
   };
 }
 
 function readCanvasStats() {
-  const webglCanvas = document.querySelector('canvas.styledPreviewWebglCanvas.isActive');
-  const canvas = webglCanvas instanceof HTMLCanvasElement
-    ? webglCanvas
+  const acceleratedCanvas = document.querySelector('canvas.styledPreviewAcceleratedCanvas.isActive, canvas.styledPreviewWebglCanvas.isActive');
+  const canvas = acceleratedCanvas instanceof HTMLCanvasElement
+    ? acceleratedCanvas
     : document.querySelector('canvas.styledPreviewCanvas');
   if (!(canvas instanceof HTMLCanvasElement) || canvas.width <= 0 || canvas.height <= 0) {
     return { ok: false, reason: 'missing-canvas', visible: false, saturation: 0, contrast: 0, darkRatio: 1 };
@@ -579,16 +873,17 @@ function readCanvasStats() {
   const style = window.getComputedStyle(canvas);
   const visible = rect.width > 20 && rect.height > 20 && style.opacity !== '0' && style.visibility !== 'hidden';
   const renderer = window.__roughCutScreenLayerRenderer ?? null;
-  if (webglCanvas instanceof HTMLCanvasElement) {
+  if (acceleratedCanvas instanceof HTMLCanvasElement) {
+    const rendererActive = renderer?.contextStatus === 'available' && (renderer?.rendererKind === 'webgl' || renderer?.rendererKind === 'webgpu');
     return {
-      ok: visible && renderer?.rendererKind === 'webgl' && renderer?.contextStatus === 'available',
+      ok: visible && rendererActive,
       reason: !visible
-        ? 'webgl-canvas-not-visible'
-        : renderer?.rendererKind === 'webgl' && renderer?.contextStatus === 'available'
+        ? 'accelerated-canvas-not-visible'
+        : rendererActive
           ? null
-          : 'webgl-renderer-not-active',
+          : 'gpu-renderer-not-active',
       visible,
-      kind: 'webgl-presentation',
+      kind: renderer?.rendererKind === 'webgpu' ? 'webgpu-presentation' : 'webgl-presentation',
       saturation: null,
       contrast: null,
       darkRatio: null,
@@ -641,13 +936,77 @@ function summarizeResult(result) {
     afterDrawCount: result.after?.drawCount,
     afterCanvas: result.after?.canvas,
     screenLayerRenderer: result.after?.screenLayerRenderer,
+    webgpuRendererInstances: result.after?.webgpuRendererInstances ?? null,
+    webgpuRendererLog: Array.isArray(result.after?.webgpuRendererLog) ? result.after.webgpuRendererLog.slice(-12) : [],
+    webgpuLifecycle: result.webgpuLifecycle,
+    webgpuBackgroundUploads: result.webgpuBackgroundUploads,
+    webgpuMotionBlur: result.webgpuMotionBlur,
+    screenshotProof: result.screenshotProof,
+    screenshotArtifacts: result.screenshotArtifacts,
+    rendererExpectation: result.rendererExpectation,
     proof: result.proof,
     playbackDebug: result.after?.playbackDebug,
+    activePlaybackDebug: result.activePlaybackDebug,
     cameraGeometry: result.cameraGeometry,
     screenshotPath: result.screenshotPath,
     pausedScreenshotPath: result.pausedScreenshotPath,
     transitionScreenshotPath: result.transitionScreenshotPath,
     timecode: result.after?.timecode,
+  };
+}
+
+function normalizeExpectedRenderer(value) {
+  if (value === 'canvas2d' || value === 'webgl' || value === 'webgpu') return value;
+  return '';
+}
+
+function rendererExpectationProof(state) {
+  if (!expectedScreenLayerRenderer) return { ok: true, skipped: true, reason: 'renderer-not-pinned' };
+  const renderer = state?.screenLayerRenderer ?? null;
+  const actual = renderer?.rendererKind ?? null;
+  const contextStatus = renderer?.contextStatus ?? null;
+  const fallbackReason = renderer?.fallbackReason ?? null;
+  return {
+    ok: actual === expectedScreenLayerRenderer && contextStatus === 'available',
+    expected: expectedScreenLayerRenderer,
+    actual,
+    contextStatus,
+    fallbackReason,
+    renderer,
+  };
+}
+
+async function collectScreenshotArtifacts(pathsByState) {
+  const entries = await Promise.all(Object.entries(pathsByState)
+    .filter(([, filePath]) => Boolean(filePath))
+    .map(async ([state, filePath]) => {
+      try {
+        const info = await stat(filePath);
+        return [state, { path: filePath, bytes: info.size }];
+      } catch (err) {
+        return [state, {
+          path: filePath,
+          bytes: 0,
+          error: err instanceof Error ? err.message : String(err),
+        }];
+      }
+    }));
+  return Object.fromEntries(entries);
+}
+
+function screenshotArtifactProof(screenshotArtifacts) {
+  const artifacts = Object.values(screenshotArtifacts ?? {});
+  if (!playbackScreenshotPath) return { ok: true, skipped: true, reason: 'screenshots-not-requested' };
+  const missing = artifacts.filter((artifact) => !artifact || Number(artifact.bytes) <= 1000);
+  return {
+    ok: artifacts.length > 0 && missing.length === 0,
+    requested: true,
+    count: artifacts.length,
+    missingOrTinyCount: missing.length,
+    minBytes: artifacts.length > 0
+      ? artifacts.reduce((min, artifact) => Math.min(min, Number(artifact?.bytes) || 0), Number.POSITIVE_INFINITY)
+      : 0,
+    artifacts: screenshotArtifacts,
   };
 }
 
@@ -665,8 +1024,8 @@ function screenshotPathForView(view) {
 function screenshotPathForViewState(view, state) {
   const activePath = screenshotPathForView(view);
   if (!activePath) return '';
-  if (state === 'active') return activePath;
   if (activePath.includes('{state}')) return activePath.replaceAll('{state}', state);
+  if (state === 'active') return activePath;
   return activePath.replace(/\.png$/i, `-${state}.png`);
 }
 
@@ -691,7 +1050,7 @@ function playbackWaitTimeoutMs(requiredSeconds) {
 }
 
 function windowPlaybackProof(before, after, requiredAdvanceSec) {
-  return playbackProof(before, after, requiredAdvanceSec);
+  return playbackProof(before, after, requiredAdvanceSec, { correctnessOnly: playbackCorrectnessOnly });
 }
 
 async function clickZoomRegionDuringPlayback(page, view) {
@@ -730,12 +1089,15 @@ function projectHasScreenAudio(document) {
 
 function buildPlaybackFilter() {
   const font = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
+  const width = stressPlaybackFixture ? 1920 : 960;
+  const height = stressPlaybackFixture ? 1080 : 540;
+  const scale = stressPlaybackFixture ? 2 : 1;
   return [
-    'testsrc2=size=960x540:rate=30',
-    `drawtext=fontfile=${font}:text='TIMELINE CLOCK':fontcolor=white:fontsize=44:x=40:y=40:box=1:boxcolor=0x00000099`,
-    'drawbox=x=40:y=410:w=140:h=90:color=0xff0000:t=fill',
-    'drawbox=x=410:y=410:w=140:h=90:color=0x00ff00:t=fill',
-    'drawbox=x=780:y=410:w=140:h=90:color=0x0000ff:t=fill',
+    `testsrc2=size=${width}x${height}:rate=30`,
+    `drawtext=fontfile=${font}:text='TIMELINE CLOCK':fontcolor=white:fontsize=${44 * scale}:x=${40 * scale}:y=${40 * scale}:box=1:boxcolor=0x00000099`,
+    `drawbox=x=${40 * scale}:y=${410 * scale}:w=${140 * scale}:h=${90 * scale}:color=0xff0000:t=fill`,
+    `drawbox=x=${410 * scale}:y=${410 * scale}:w=${140 * scale}:h=${90 * scale}:color=0x00ff00:t=fill`,
+    `drawbox=x=${780 * scale}:y=${410 * scale}:w=${140 * scale}:h=${90 * scale}:color=0x0000ff:t=fill`,
   ].join(',');
 }
 

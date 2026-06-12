@@ -62,7 +62,7 @@ test('createTrimSession ignores stale top-level and composition mirrors', () => 
   assert.equal(session.original.sourceIn, 50);
 });
 
-test('updateTrimSession clamps preview against neighboring clips', () => {
+test('updateTrimSession clamps left edge against previous clips and ripples right edge through next clips', () => {
   const projectWithNeighbors = makeProject([
     clip({ id: 'c0', timelineIn: 0, timelineOut: 80, sourceIn: 0, sourceOut: 80 }),
     clip({ id: 'c1', timelineIn: 100, timelineOut: 250, sourceIn: 100, sourceOut: 250 }),
@@ -74,8 +74,34 @@ test('updateTrimSession clamps preview against neighboring clips', () => {
   assert.equal(left.invalidReason, 'clamped');
 
   const right = createTrimSession(projectWithNeighbors, 'c1', 'right', 360, 500);
-  assert.equal(right.preview.timelineOut, 300);
-  assert.equal(right.invalidReason, 'clamped');
+  assert.equal(right.preview.timelineOut, 360);
+  assert.deepEqual(right.previews.c2, { timelineIn: 410, timelineOut: 530 });
+  assert.equal(right.invalidReason, null);
+});
+
+test('updateTrimSession previews ripple shifts for downstream clips', () => {
+  const projectWithDownstream = makeProject([
+    clip({ id: 'c1', timelineIn: 50, timelineOut: 250, sourceIn: 50, sourceOut: 250 }),
+    clip({ id: 'c2', timelineIn: 300, timelineOut: 420, sourceIn: 0, sourceOut: 120 }),
+  ], 600);
+
+  const session = createTrimSession(projectWithDownstream, 'c1', 'right', 220, 600);
+
+  assert.deepEqual(session.preview, { timelineIn: 50, timelineOut: 220, sourceIn: 50, sourceOut: 220 });
+  assert.deepEqual(session.previews.c2, { timelineIn: 270, timelineOut: 390 });
+});
+
+test('updateTrimSession lets ripple tail trims extend past the next clip by shifting it', () => {
+  const projectWithDownstream = makeProject([
+    clip({ id: 'c1', timelineIn: 50, timelineOut: 250, sourceIn: 50, sourceOut: 250 }),
+    clip({ id: 'c2', timelineIn: 300, timelineOut: 420, sourceIn: 0, sourceOut: 120 }),
+  ], 600);
+
+  const session = createTrimSession(projectWithDownstream, 'c1', 'right', 330, 600);
+
+  assert.equal(session.preview.timelineOut, 330);
+  assert.deepEqual(session.previews.c2, { timelineIn: 380, timelineOut: 500 });
+  assert.equal(session.invalidReason, null);
 });
 
 test('updateTrimSession clamps left edge to source bounds and minimum span', () => {

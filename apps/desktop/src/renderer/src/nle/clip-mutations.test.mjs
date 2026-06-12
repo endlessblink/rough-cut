@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAsset, createProject } from '@rough-cut/project-model';
-import { addGeneratedAssetToTrack, canSplitClipById, moveClipById, removeClipById, reorderTrackById, rightClipIdAfterSplit, splitClipById, trimClipById, updateTrackById } from './clip-mutations.mjs';
+import { addGeneratedAssetToTrack, canSplitClipById, moveClipById, removeClipById, reorderTrackById, rightClipIdAfterSplit, rippleTrimClipById, splitClipById, trimClipById, updateTrackById } from './clip-mutations.mjs';
 
 const asset = createAsset('video', '/tmp/a1.mp4', { id: 'a1', duration: 600 });
 const cameraAsset = createAsset('video', '/tmp/cam.mp4', { id: 'cam1', duration: 600 });
@@ -131,6 +131,21 @@ test('trimClipById ignores stale mirrors and mutates the canonical timeline', ()
 
   assert.equal(next.document.timeline.tracks[0].clips[0].timelineIn, 80);
   assert.equal(next.document.tracks[0].clips[0].timelineIn, 50, 'legacy mirror remains stale and ignored');
+});
+
+test('rippleTrimClipById trims an edge and shifts downstream canonical clips', () => {
+  const project = makeProject([track({ clips: [
+    { ...baseClip, id: 'c1', timelineIn: 0, timelineOut: 100, sourceIn: 0, sourceOut: 100 },
+    { ...baseClip, id: 'c2', timelineIn: 140, timelineOut: 220, sourceIn: 0, sourceOut: 80 },
+  ] })]);
+
+  const next = rippleTrimClipById(project, 'c1', 'right', 80);
+
+  assert.notEqual(next, project);
+  assert.deepEqual(next.document.timeline.tracks[0].clips.map((item) => [item.id, item.timelineIn, item.timelineOut, item.sourceIn, item.sourceOut]), [
+    ['c1', 0, 80, 0, 80],
+    ['c2', 120, 200, 0, 80],
+  ]);
 });
 
 test('moveClipById moves clips across same-kind canonical tracks', () => {

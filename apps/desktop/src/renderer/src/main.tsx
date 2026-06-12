@@ -82,7 +82,7 @@ import { cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFra
 import type { PreviewDragOrigin } from './styled-preview.mjs';
 import { aspectRatioDims, moveFrameToCameraPosition, resizeFrameToAspect, resizeFrameToCameraSize, shouldCropAspectResizeFrame } from './camera-frame.mjs';
 import { addCutRange, clearCutRanges, listCutRanges, removeCutRange, visibleDurationFrames, visibleFrameToSourceFrame } from './cut-ranges.mjs';
-import { getRecordingTimelineClip, restoreRecordingFullSource, restoreRecordingSourceEdge, rippleDeleteRecordingRange, selectRecordingEditModel, syncRecordingTimelinePresentation, updateRecordingTimelineTrim } from './recording-timeline.mjs';
+import { restoreRecordingFullSource, restoreRecordingSourceEdge, rippleDeleteRecordingRange, selectRecordingEditModel, syncRecordingTimelinePresentation, updateRecordingTimelineTrim } from './recording-timeline.mjs';
 import { appError, errorStateCopy, type AppError } from './app-error-copy.mjs';
 import { EMPTY_EDIT_HISTORY, recordEdit, redoEdit, undoEdit, type EditHistory } from './edit-history.mjs';
 import { contentWidthPx, frameAtClientX, resolvePixelsPerFrame, scrollLeftForAnchor, zoomStep, MAX_PIXELS_PER_FRAME } from './nle/timeline-viewport.mjs';
@@ -252,7 +252,6 @@ type RecordingPreflightCheck = { id: string; label: string; severity: 'ok' | 'wa
 type RecordingPreflightStatus = { status: 'ok' | 'warn' | 'critical'; checkedAt: string; recordingsDir: string; display?: { x?: number; y?: number; width?: number; height?: number }; capture: { mode: CaptureMode; width: number; height: number; fps: number }; disk?: { freeBytes: number | null; severity: RecordingPreflightCheck['severity']; detail: string }; checks: RecordingPreflightCheck[] };
 type InspectorGroupId = 'canvas' | 'recording' | 'screen' | 'zoom' | 'cursor' | 'camera' | 'export' | 'diagnostics';
 type InspectorSelection = { group: InspectorGroupId; label: string; detail?: string; markerId?: string };
-type PrimaryClip = { assetId?: string; timelineIn?: number; timelineOut?: number; sourceIn?: number; sourceOut?: number } & Record<string, unknown>;
 type TrimInfo = { startFrame: number; endFrame: number; startSec: number; endSec: number; durationSec: number; isTrimmed: boolean };
 type CutRange = { id: string; startFrame: number; endFrame: number };
 
@@ -1556,7 +1555,14 @@ function App() {
               project={project as unknown as Parameters<typeof NleShell>[0]['project']}
               playheadFrame={sharedTimelineFrame}
               onPlayheadFrameChange={updateSharedTimelineFrame}
-              onProjectChange={(next) => applyProjectChange(next as unknown as ProjectState)}
+              onProjectChange={(next, options) => applyProjectChange(
+                next as unknown as ProjectState,
+                options?.history ? { history: true, previous: (options.previous as unknown as ProjectState | null) ?? project ?? undefined } : {},
+              )}
+              canUndo={editHistory.undo.length > 0}
+              canRedo={editHistory.redo.length > 0}
+              onUndo={undoProjectEdit}
+              onRedo={redoProjectEdit}
               onGoToProjects={() => setActiveAppView('projects')}
               onCreateBlankProject={() => { void createBlankProject(null); }}
             />
@@ -3707,8 +3713,7 @@ function ProjectPreview({
   );
   const recordingAsset = getPrimaryRecordingAsset(project.document);
   const recordingEditModel = selectRecordingEditModel({ document: project.document as unknown as ProjectDocument, recordingAssetId: recordingAsset?.id ?? null });
-  const primaryClip = getPrimaryRecordingClip(project.document, recordingAsset?.id);
-  const trimInfo = resolveTrimInfo(primaryClip, effectiveRecording?.duration ?? project.document.composition.duration, effectiveRecording?.fps ?? 30);
+  const trimInfo = resolveRecordingEditTrimInfo(recordingEditModel.trimInfo, effectiveRecording?.duration ?? project.document.composition.duration, effectiveRecording?.fps ?? 30);
   const cutRanges = recordingAsset?.id && effectiveRecording ? listCutRanges(project.document as unknown as ProjectDocument, recordingAsset.id, effectiveRecording.duration) as CutRange[] : [];
   const activeCutRanges = clipCutRangesToTrim(cutRanges, trimInfo);
   const background = recordingAsset?.presentation?.background ?? DEFAULT_RECORDING_BACKGROUND;
@@ -4419,18 +4424,15 @@ function normalizePreviewLayoutRect(rect: NormalizedRect): NormalizedRect {
   };
 }
 
-function getPrimaryRecordingClip(document: ProjectState['document'], assetId?: string | null): PrimaryClip | null {
-  if (!assetId) return null;
-  const timelineClip = getRecordingTimelineClip(document, assetId) as PrimaryClip | null;
-  if (timelineClip) return timelineClip;
-  return null;
-}
-
-function resolveTrimInfo(clip: PrimaryClip | null, totalFrames: number, fps: number): TrimInfo {
+function resolveRecordingEditTrimInfo(
+  modelTrimInfo: { startFrame?: number; endFrame?: number } | null | undefined,
+  totalFrames: number,
+  fps: number,
+): TrimInfo {
   const safeTotalFrames = Math.max(1, Math.round(totalFrames || 1));
   const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
-  const startFrame = Math.max(0, Math.min(safeTotalFrames - 1, Math.round(clip?.sourceIn ?? 0)));
-  const endFrame = Math.max(startFrame + 1, Math.min(safeTotalFrames, Math.round(clip?.sourceOut ?? safeTotalFrames)));
+  const startFrame = Math.max(0, Math.min(safeTotalFrames - 1, Math.round(modelTrimInfo?.startFrame ?? 0)));
+  const endFrame = Math.max(startFrame + 1, Math.min(safeTotalFrames, Math.round(modelTrimInfo?.endFrame ?? safeTotalFrames)));
   return {
     startFrame,
     endFrame,

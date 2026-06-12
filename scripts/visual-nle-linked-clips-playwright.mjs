@@ -4,12 +4,11 @@
 // video track at index 1 ABOVE the screen track, and the canonical timeline
 // links screen/camera/mic sources into a `linked:<assetId>` recording group.
 //
-// Hypothesis under test (masking): resolveTimelineFrame picks the TOPMOST
-// enabled video clip per frame with no camera exclusion, so a full-length
-// camera clip on track index 1 keeps `isGap === false` across a gap cut into
-// the screen track — "playback ignores my cuts". buildTimelinePlaybackSegments
-// (transport) DOES exclude camera clips, so transport may skip while the
-// resolver/canvas disagree. This script observes, it does not fix.
+// Gap behavior under test: a full-length camera clip on track index 1 must not
+// mask a gap cut into the screen track. Timeline gaps are real timeline time:
+// playback should dwell in the empty section, draw black/background, and then
+// continue to the next clip without playing deleted source or full-frame
+// camera material.
 //
 // Camera fixture is SOLID MAGENTA so canvas pixel stats can prove whether
 // camera content is drawn in the gap.
@@ -374,8 +373,9 @@ try {
   await page.screenshot({ path: shots.beforePlay, fullPage: false });
   await page.keyboard.press(' ');
 
+  const sampleCount = Math.min(420, Math.max(60, Math.ceil((((gapEndFrame - startFrame) / FPS) + 6) * 10)));
   const samples = [];
-  for (let i = 0; i < 60; i += 1) {
+  for (let i = 0; i < sampleCount; i += 1) {
     const state = await playheadState();
     samples.push({
       t: i * 0.1,
@@ -439,8 +439,8 @@ try {
       ...(linkedDeleteTogether
         ? []
         : [`linked group did NOT delete together: deleting the middle screen clip left the camera lane at ${cameraClipsAfterDelete} clip(s) spanning the gap (camera ${cameraClipsBeforeDelete}→${cameraClipsAfterDelete})`]),
-      ...(playheadInGap.length > 1
-        ? [`playhead dwelled INSIDE the deleted gap for ${playheadInGap.length}/60 samples — playback did not skip the cut (frames ${gapStartFrame}–${gapEndFrame})`]
+      ...(playheadInGap.length < 3
+        ? [`playhead did not play through the deleted gap (${playheadInGap.length}/60 in-gap samples, frames ${gapStartFrame}–${gapEndFrame})`]
         : []),
       ...(deletedSourcePlayed.length > 0
         ? [`screen <video> played ${deletedSourcePlayed.length} samples of DELETED source material (${gapStartSec.toFixed(1)}s–${gapEndSec.toFixed(1)}s)`]

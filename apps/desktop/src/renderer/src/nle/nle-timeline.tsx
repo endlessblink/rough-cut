@@ -1,6 +1,6 @@
 import React from 'react';
 import { buildTimelineTracks } from './timeline-clips.mjs';
-import { addGeneratedAssetToNewTrack, addGeneratedAssetToTrack, canSplitClipById, consumeLastCommandError, moveClipById, removeClipById, reorderTrackById, rightClipIdAfterSplit, splitClipById, trimClipById, updateTrackById } from './clip-mutations.mjs';
+import { addGeneratedAssetToNewTrack, addGeneratedAssetToTrack, canSplitClipById, consumeLastCommandError, moveClipById, removeClipById, reorderTrackById, rightClipIdAfterSplit, rippleTrimClipById, splitClipById, updateTrackById } from './clip-mutations.mjs';
 import { TimelineRuler } from './timeline-ruler';
 import { NleModeToolbar } from './mode-toolbar';
 import { ArrowsVertical, CaretDown, CaretUp, CornersIn, Eye, EyeSlash, LockSimple, Minus, Plus, SpeakerSimpleSlash } from '@phosphor-icons/react';
@@ -68,6 +68,28 @@ export function NleTimeline({
   // Surfaced command failure (a rejected trim/move used to be silent).
   const [commandError, setCommandError] = React.useState<string | null>(null);
   const commandErrorTimerRef = React.useRef<number | null>(null);
+  const pendingPlayheadFrameRef = React.useRef<number | null>(null);
+  const pendingPlayheadRafRef = React.useRef<number | null>(null);
+
+  function scheduleGesturePlayheadFrameChange(frame: number) {
+    pendingPlayheadFrameRef.current = Math.max(0, frame);
+    if (pendingPlayheadRafRef.current !== null) return;
+    pendingPlayheadRafRef.current = window.requestAnimationFrame(() => {
+      pendingPlayheadRafRef.current = null;
+      const nextFrame = pendingPlayheadFrameRef.current;
+      pendingPlayheadFrameRef.current = null;
+      if (nextFrame !== null) onPlayheadFrameChange(nextFrame);
+    });
+  }
+
+  function flushGesturePlayheadFrameChange(frame: number | null = pendingPlayheadFrameRef.current) {
+    if (pendingPlayheadRafRef.current !== null) {
+      window.cancelAnimationFrame(pendingPlayheadRafRef.current);
+      pendingPlayheadRafRef.current = null;
+    }
+    pendingPlayheadFrameRef.current = null;
+    if (frame !== null) onPlayheadFrameChange(Math.max(0, frame));
+  }
 
   function flashCommandError(message: string) {
     if (commandErrorTimerRef.current !== null) window.clearTimeout(commandErrorTimerRef.current);
@@ -79,6 +101,7 @@ export function NleTimeline({
   }
   React.useEffect(() => () => {
     if (commandErrorTimerRef.current !== null) window.clearTimeout(commandErrorTimerRef.current);
+    if (pendingPlayheadRafRef.current !== null) window.cancelAnimationFrame(pendingPlayheadRafRef.current);
   }, []);
 
   // Commit helper: a same-reference result is either a benign no-op or a
@@ -165,6 +188,7 @@ export function NleTimeline({
   const pixelsPerFrame = resolvePixelsPerFrame(zoomPpf, viewWidthPx, durationFrames);
   const timelineContentWidth = contentWidthPx(durationFrames, pixelsPerFrame);
   const zoomedIn = zoomPpf !== null && timelineContentWidth > viewWidthPx + 1;
+  const trackRows = React.useMemo(() => project ? buildTimelineTracks(project) : [], [project]);
 
   // Clip media visuals (filmstrips / waveforms) — one cached strip per
   // source, fetched once and sliced per clip in CSS. Requests are deduped
@@ -185,7 +209,7 @@ export function NleTimeline({
     if (!projectPath) return;
     const bridge = (window as Window & { roughCut?: { getClipVisual?: (payload: Record<string, unknown>) => Promise<ClipVisualMeta> } }).roughCut;
     if (!bridge?.getClipVisual) return;
-    for (const track of buildTimelineTracks(project)) {
+    for (const track of trackRows) {
       const kind = track.kind === 'audio' ? 'waveform' : track.kind === 'video' ? 'filmstrip' : null;
       if (!kind) continue;
       for (const block of track.blocks) {
@@ -211,7 +235,7 @@ export function NleTimeline({
           });
       }
     }
-  }, [project, durationFrames, fps, pixelsPerFrame]);
+  }, [project?.path, trackRows, durationFrames, fps, pixelsPerFrame]);
 
   // Apply anchor-preserving scroll after a zoom re-render, once the content
   // width has actually changed.
@@ -288,14 +312,18 @@ export function NleTimeline({
         latestFrame = frameFromClientX(ev.clientX, true);
         latestSession = updateTrimSession(latestSession, latestFrame);
         setTrimSession(latestSession);
-        onPlayheadFrameChange(latestFrame);
+        scheduleGesturePlayheadFrameChange(latestFrame);
       },
       onEnd: () => {
         setTrimSession(null);
         const commitFrame = latestSession?.snapFrame ?? latestFrame;
-        commitOrSurface(trimClipById(project, blockId, edge, commitFrame));
+        flushGesturePlayheadFrameChange(commitFrame);
+        commitOrSurface(rippleTrimClipById(project, blockId, edge, commitFrame));
       },
-      onAbort: () => setTrimSession(null),
+      onAbort: () => {
+        setTrimSession(null);
+        flushGesturePlayheadFrameChange(null);
+      },
     });
   }
 
@@ -347,11 +375,12 @@ export function NleTimeline({
         const targetTrackId = trackIdFromClientY(ev.clientY) ?? latestSession.targetTrackId;
         latestSession = updateDragSession(latestSession, project, { timelineIn: snappedTimelineIn, targetTrackId });
         setDragSession(latestSession);
-        onPlayheadFrameChange(Math.max(0, snappedTimelineIn));
+        scheduleGesturePlayheadFrameChange(snappedTimelineIn);
       },
       onEnd: () => {
         setDragSession(null);
         if (!latestSession) return; // pure click — selection already happened
+        flushGesturePlayheadFrameChange(latestSession.preview.timelineIn);
         if (!latestSession.valid) {
           if (latestSession.invalidReason) flashCommandError(`Cannot drop clip here (${latestSession.invalidReason}).`);
           return;
@@ -359,7 +388,10 @@ export function NleTimeline({
         commitOrSurface(moveClipById(project, blockId, latestSession.preview.timelineIn, latestSession.preview.trackId));
         onSelectedClipChange(blockId);
       },
-      onAbort: () => setDragSession(null),
+      onAbort: () => {
+        setDragSession(null);
+        flushGesturePlayheadFrameChange(null);
+      },
     });
   }
 
@@ -471,7 +503,6 @@ export function NleTimeline({
 
   const playheadPct =
     durationFrames > 0 ? Math.max(0, Math.min(100, (playheadFrame / durationFrames) * 100)) : 0;
-  const trackRows = project ? buildTimelineTracks(project) : [];
   // Resolve-style track tags: video numbered bottom-up (V1 is the bottom
   // video lane), other kinds top-down. Rows arrive top-track-first.
   const trackTags = React.useMemo(() => {
@@ -622,7 +653,7 @@ export function NleTimeline({
               ) : (
                 track.blocks.map((block, index) => {
                   const selected = block.id !== null && block.id === selectedClipId;
-                  const trimPreview = block.id !== null && block.id === trimSession?.clipId ? trimSession.preview : null;
+                  const trimPreview = block.id !== null ? (trimSession?.previews?.[block.id] ?? null) : null;
                   const dragPreview = block.id !== null && block.id === dragSession?.clipId ? dragSession.preview : null;
                   const activePreview = trimPreview ?? (dragPreview?.trackId === track.id ? dragPreview : null);
                   const isDraggingSource = dragPreview && dragPreview.trackId !== track.id;
@@ -639,7 +670,7 @@ export function NleTimeline({
                       data-timeline-in={Math.round(block.timelineIn)}
                       data-timeline-out={Math.round(block.timelineOut)}
                       data-selected={selected ? 'true' : undefined}
-                      data-trim-edge={trimPreview ? trimSession?.edge : undefined}
+                      data-trim-edge={block.id === trimSession?.clipId ? trimSession?.edge : undefined}
                       style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
                       title={block.name ?? undefined}
                       onPointerDown={(e) => startClipDrag(e, block.id)}

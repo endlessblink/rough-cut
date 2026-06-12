@@ -150,6 +150,32 @@ const cases = [
     sourceDurationSeconds: sourceProbe.durationSeconds,
   },
   {
+    id: 'experimental-headless-full-composition',
+    label: 'Experimental headless full composition',
+    mode: 'experimental-headless',
+    budgetMode: 'styled',
+    profileRole: 'experimental-headless-full-composition',
+    compareTo: 'styled-basic',
+    featureMix: ['experimental-headless', 'background-image', 'camera-pip', 'zoom-markers', 'cursor', 'clicks'],
+    project: withPrimaryPresentation((await createRecordingProject({
+      mediaPath: sourcePath,
+      cameraPath,
+      durationSeconds: 4,
+      cursorEvents: buildCursorEvents({ fps: SOURCE_FPS, durationFrames: 120, width: SOURCE_WIDTH, height: SOURCE_HEIGHT, includeClicks: true }),
+    })).document, {
+      background: applyRecordingBackgroundPreset(createDefaultRecordingPresentation().background, 'soft-blur'),
+      camera: { visible: true, shape: 'circle', aspectRatio: '1:1', position: 'corner-br', size: 118, roundness: 100 },
+      cursor: { style: 'spotlight', clickEffect: 'ripple', sizePercent: 115, clickSoundEnabled: false },
+      zoom: {
+        markers: [
+          createZoomMarker(24, 72, { strength: 0.85, focalPoint: { x: 0.24, y: 0.35 } }),
+          createZoomMarker(78, 114, { strength: 0.75, focalPoint: { x: 0.76, y: 0.68 } }),
+        ],
+      },
+    }),
+    sourceDurationSeconds: sourceProbe.durationSeconds,
+  },
+  {
     id: 'profile-shadow-off',
     label: 'Profile without screen shadow',
     mode: 'styled',
@@ -313,6 +339,14 @@ async function runBenchmarkCase(benchmarkCase) {
     fastPath: exportResult.fastPath ?? null,
     experimentalBackend: exportResult.experimentalBackend ?? null,
     fallback: exportResult.fallback ?? null,
+    fallbackActive: exportResult.fallback?.active ?? null,
+    headlessRenderOk: exportResult.headlessRender?.ok ?? null,
+    headlessRenderReason: exportResult.headlessRender?.reason ?? null,
+    headlessFrameCount: exportResult.headlessRender?.frameCount ?? null,
+    headlessFrameArtifacts: exportResult.headlessRender?.frameArtifacts?.length ?? null,
+    headlessWebglFrameCount: countHeadlessRendererFrames(exportResult.headlessRender, 'webgl'),
+    headlessCanvas2dFrameCount: countHeadlessRendererFrames(exportResult.headlessRender, 'canvas2d'),
+    headlessAudioPreserved: exportResult.audioPreserved ?? null,
     compositionSampleFrames: exportResult.compositionPlan?.frames?.map((frame) => frame.frameIndex) ?? null,
     budgetStatus: classifyBudgetStatus({
       mode: benchmarkCase.budgetMode,
@@ -325,6 +359,12 @@ async function runBenchmarkCase(benchmarkCase) {
     projectPath: benchmarkCase.projectPath ?? null,
     bytes: outputProbe.bytes,
   };
+}
+
+function countHeadlessRendererFrames(headlessRender, rendererKind) {
+  const frames = headlessRender?.renderSurface?.renderResults;
+  if (!Array.isArray(frames)) return null;
+  return frames.filter((frame) => frame?.rendererKind === rendererKind).length;
 }
 
 function buildProfilingSummary(items) {

@@ -7,6 +7,7 @@ import {
   deleteClip,
   moveClip,
   reorderTrack,
+  rippleTrimClipEdge,
   splitClip,
   trimClipEdge,
   updateTrackSettings,
@@ -113,6 +114,14 @@ export function trimClipById(project, clipId, edge, frame) {
   if (!normalizedEdge || !Number.isFinite(nextFrame)) return project;
   if (!findClipLocation(project, clipId)) return project;
   return withCommandResult(project, (document) => trimClipEdge(document, { clipId, edge: normalizedEdge, frame: nextFrame }));
+}
+
+export function rippleTrimClipById(project, clipId, edge, frame) {
+  const normalizedEdge = edge === 'left' || edge === 'right' ? edge : null;
+  const nextFrame = Math.round(Number(frame));
+  if (!normalizedEdge || !Number.isFinite(nextFrame)) return project;
+  if (!findClipLocation(project, clipId)) return project;
+  return withCommandResult(project, (document) => rippleTrimClipEdge(document, { clipId, edge: normalizedEdge, frame: nextFrame }));
 }
 
 export function moveClipById(project, clipId, timelineIn, targetTrackId) {

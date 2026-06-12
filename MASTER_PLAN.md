@@ -236,9 +236,9 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-226 | NLE layout + visual redesign: stage/timeline proportions, topbar | P1 | PLANNED |
 | ~~TASK-227~~ | Harness fixture: long recording with camera + mic linked clips | P1 | DONE (2026-06-10) |
 | ~~TASK-228~~ | One-click NLE debug state dump for live bug capture | P1 | DONE (2026-06-11) |
-| TASK-229 | Wire undo/redo into the NLE view | P1 | PLANNED |
-| TASK-230 | Export parity for NLE-edited timelines (cuts, gaps, moves) | P1 | PLANNED |
-| TASK-231 | Ripple trim engine + Trim mode edge behavior | P2 | PLANNED |
+| ~~TASK-229~~ | Wire undo/redo into the NLE view | P1 | DONE (2026-06-12) |
+| ~~TASK-230~~ | Export parity for NLE-edited timelines (cuts, gaps, moves) | P1 | DONE (2026-06-11) |
+| TASK-231 | Ripple trim engine + Trim mode edge behavior | P2 | IN PROGRESS — live `T` shortcut bug |
 | TASK-232 | Drag clips past same-track neighbors | P2 | PLANNED |
 | TASK-233 | Multi-select: shift-click, marquee, group move/delete | P2 | PLANNED |
 | TASK-234 | Playhead auto-follow and auto-scroll during zoomed playback | P2 | PLANNED |
@@ -255,9 +255,10 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-243 | Add WebGL-vs-Canvas parity and playback performance probes | P0 | DONE (2026-06-10) |
 | TASK-244 | Add velocity-based WebGL transform motion blur | P1 | DONE (2026-06-10) |
 | TASK-245 | Promote WebGL to full preview compositor behind fallback | P1 | DONE (2026-06-11) |
-| TASK-246 | Prototype GPU/headless export path from the shared composition plan | P1 | IN PROGRESS — slice 1 DONE 2026-06-11 |
+| TASK-246 | Prototype GPU/headless export path from the shared composition plan | P1 | IN PROGRESS — runtime non-fallback proof pending |
 | TASK-247 | Make GPU compositor default and retire legacy visual composition logic | P1 | PLANNED |
 | ~~TASK-248~~ | ✅ Add startup recording panel regression suite | P1 | ✅ DONE (2026-06-10) |
+| ~~TASK-249~~ | WebGPU-first preview renderer with WebGL/Canvas2D fallback ladder | P0 | DONE (2026-06-11) |
 
 ## Recently Verified
 
@@ -503,7 +504,7 @@ LANE NLE-R RULE — a task in this lane is DONE only when ALL of:
 
 14. **LANE GPU-C — Full compositor migration: WebGL/OffscreenCanvas preview + export parity**:
 Depends-on: LANE NLE-R
-Sequence: TASK-239, TASK-240, TASK-241, TASK-242, TASK-243, TASK-244, TASK-245, TASK-246, TASK-247
+Sequence: TASK-239, TASK-240, TASK-241, TASK-242, TASK-243, TASK-244, TASK-245, TASK-249, TASK-246, TASK-247
 
 Lane goal: the end state is a full GPU-backed compositor for preview and export parity. The safe
 path is staged: first define a shared composition plan, then replace only the screen video layer,
@@ -1405,7 +1406,7 @@ Until preview matches export, every presentation feature ships blind: users add 
 
 **Priority**: P3-LOW
 **Priority:** P1
-**Status:** IN PROGRESS
+**Status:** IN PROGRESS — slice 32 DONE 2026-06-11
 **Supersedes-on-completion:** TASK-010 (cursor telemetry recording), TASK-011 (cursor overlay export), and the entire reliable-cursor-overlay architecture
 
 #### Context
@@ -3267,7 +3268,7 @@ The Linux artifact today is a tar of Electron plus `run.sh`. There is no install
 ### TASK-091 Add opt-in crash reporting and error telemetry
 
 **Priority:** P3
-**Status:** IN PROGRESS
+**Status:** DONE (2026-06-11)
 
 #### Context
 
@@ -6975,10 +6976,10 @@ Live-reported bugs ("it disregards my cuts") could not be reproduced headlessly 
 
 - Trigger dump in live app; file contains enough state to reconstruct the session in the harness.
 
-### TASK-229 Wire undo/redo into the NLE view
+### ~~TASK-229~~ Wire undo/redo into the NLE view
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** DONE (2026-06-12)
 
 #### Context
 
@@ -6991,12 +6992,26 @@ Every timeline command already returns `{document, undoSnapshot}` (`timeline-com
 
 #### Verification
 
-- Harness undo/redo entry passes; user sign-off.
+- NLE shell now owns a synchronous timeline edit-history stack for command snapshots, while normal NLE commits
+  still feed the shared app edit history.
+- Ctrl+Z / Ctrl+Shift+Z and compact timeline toolbar icon buttons restore local NLE snapshots without re-recording
+  restore operations as new edits.
+- Added source regressions in `apps/desktop/src/renderer/src/nle/nle-timeline.test.mjs` and repo guards in
+  `scripts/repo-regression.test.mjs`.
+- Extended `scripts/visual-nle-clips-playwright.mjs` with drag undo/redo and blade undo coverage.
+- Verification passed on 2026-06-12:
+  - `node apps/desktop/src/renderer/src/nle/nle-timeline.test.mjs`
+  - `node --test --test-name-pattern "NLE visual harness|timeline gaps as black timeline time" scripts/repo-regression.test.mjs apps/desktop/src/renderer/src/styled-video-preview.test.mjs`
+  - `pnpm --filter @rough-cut/desktop typecheck`
+  - `pnpm --filter @rough-cut/desktop build`
+  - `xvfb-run -a node scripts/visual-nle-clips-playwright.mjs`
+- Latest harness report: `/tmp/rough-cut-nle-clips-rSDqOW/nle-clips-report.json`, `problems: []`;
+  drag undo restored `5159 -> 4709 -> 5159`, redo restored `4709`, and blade undo rejoined `3 -> 2` clips.
 
-### TASK-230 Export parity for NLE-edited timelines (cuts, gaps, moves)
+### ~~TASK-230~~ Export parity for NLE-edited timelines (cuts, gaps, moves)
 
 **Priority:** P1
-**Status:** PLANNED
+**Status:** DONE (2026-06-11)
 
 #### Context
 
@@ -7009,12 +7024,19 @@ Every timeline command already returns `{document, undoSnapshot}` (`timeline-com
 
 #### Verification
 
-- Visual export parity run on an NLE-edited project; gaps/cuts land at identical frames in preview and MP4.
+- Added `scripts/visual-nle-export-parity.mjs` and `pnpm run visual:nle-export-parity`.
+- Harness generates a deterministic six-color MP4, rewrites the canonical NLE timeline into a leading gap,
+  moved blue segment, internal gap, moved red segment, late magenta segment, and trailing gap, then exports
+  through styled MP4 export.
+- Visual export parity run passed on 2026-06-11:
+  `/tmp/rough-cut-nle-export-parity-SUzLzV/nle-export-parity-report.json`.
+  Export was 1920x1080 at 30 fps, duration 5.000000s, `fastPath: null`, with max sampled RGB diff 2.
+  Representative frames were opened as `/tmp/rough-cut-nle-export-parity-SUzLzV/contact.png`.
 
 ### TASK-231 Ripple trim engine + Trim mode edge behavior
 
 **Priority:** P2
-**Status:** PLANNED
+**Status:** IN PROGRESS — implementation + automated gates pass 2026-06-12; live app reports `T` does not activate Trim mode
 
 #### Context
 
@@ -7029,6 +7051,15 @@ Trim mode (T) currently behaves like Selection on edges. The missing primitive i
 #### Verification
 
 - Command unit tests (invariants, locked tracks, undo) + harness entry + user sign-off.
+- Automated evidence (2026-06-12):
+  - `pnpm --filter @rough-cut/project-model test -- timeline-commands.test.ts` → 15/15 pass.
+  - `node --test apps/desktop/src/renderer/src/nle/clip-mutations.test.mjs apps/desktop/src/renderer/src/nle/trim-session.test.mjs apps/desktop/src/renderer/src/nle/nle-timeline.test.mjs` → pass.
+  - `pnpm --filter @rough-cut/project-model typecheck` and `pnpm --filter @rough-cut/desktop typecheck` → pass.
+  - `pnpm --filter @rough-cut/desktop build` → pass.
+  - `node --test --test-name-pattern "NLE visual harnesses require|TASK-231|NLE visual harness keeps TASK-231" scripts/repo-regression.test.mjs` → pass.
+  - `ROUGH_CUT_UI_SMOKE_WINDOW_WIDTH=1920 ROUGH_CUT_UI_SMOKE_WINDOW_HEIGHT=1080 xvfb-run -a -s "-screen 0 1920x1080x24" node scripts/visual-nle-clips-playwright.mjs` → `problems: []`, report `/tmp/rough-cut-nle-clips-N8qEsm/nle-clips-report.json`.
+- Ripple-trim harness proof: left tail moved `-509` frames, downstream clip moved `-509` frames, `closedPairBoundary: true`, `downstreamShiftedWithTail: true`. Wide screenshot reviewed at `/tmp/rough-cut-nle-clips-N8qEsm/03-after-ripple-trim.png` (`1919x1079`).
+- Live blocker found by user after automation (2026-06-12): pressing `T` in the live Editor does nothing, so Trim mode cannot be entered from the expected keyboard path. Next instance should start by debugging NLE keyboard mode routing/focus handling before re-running the TASK-231 live sign-off.
 
 ### TASK-232 Drag clips past same-track neighbors
 
@@ -7093,7 +7124,8 @@ Trim mode (T) currently behaves like Selection on edges. The missing primitive i
 ### TASK-236 Editor v2 design spec + mockup, user-approved before any code
 
 **Priority:** P1
-**Status:** IN PROGRESS — visual mockup direction APPROVED by user (2026-06-10)
+**Status:** READY FOR USER SIGN-OFF — visual mockup direction APPROVED by user (2026-06-10);
+interaction/playback spec added 2026-06-11
 
 #### Approved artifact
 
@@ -7112,9 +7144,7 @@ Trim mode (T) currently behaves like Selection on edges. The missing primitive i
 
 #### Remaining for TASK-236
 
-- Interaction + keyboard spec (per tool mode, drag/trim/blade semantics, insert/overwrite flow).
-- Playback wiring decision (fix timeline-mode vs drive the proven Recording-edit preview path) —
-  blocked on the TASK-227 linked-fixture diagnostic (first run died on session limit; re-run).
+- User sign-off on the completed design/spec package.
 
 #### Context
 
@@ -7142,6 +7172,20 @@ component is written.
   drive the proven Recording-edit preview path from the canonical timeline. Decision recorded with
   evidence from TASK-227/230.
 - **Gate: the user approves the mockup BEFORE TASK-237 starts.**
+
+#### Interaction/playback spec
+
+- Added `docs/editor-v2-interaction-spec.md` (2026-06-11): mode semantics for Select/Trim/Blade,
+  insert/overwrite/replace flow, keyboard map, focus/accessibility rules, and harness gates.
+- Playback decision: keep `StyledVideoPreview timeMode="timeline"` for Editor v2 as long as the
+  linked fixture, gap playback, and export parity harnesses remain green. If a live debug dump proves
+  divergence, either fix that path against the fixture or replace it with a canonical-timeline adapter
+  over the proven Recording edit preview path. Do not add a second NLE-only playback model.
+- Evidence: `xvfb-run -a node scripts/visual-nle-linked-clips-playwright.mjs` passed on 2026-06-11
+  with report `/tmp/rough-cut-nle-linked-hxyZhR/nle-linked-clips-report.json`, `problems: []`,
+  `playheadInGapSampleCount: 261`, `deletedSourcePlayedCount: 0`, `crossedToSecondClip: true`, and
+  black gap canvas. `xvfb-run -a node scripts/visual-nle-clips-playwright.mjs` also passed with
+  report `/tmp/rough-cut-nle-clips-NtdbpZ/nle-clips-report.json`, `problems: []`.
 
 #### Verification
 
@@ -7558,6 +7602,732 @@ DONE note: Canvas2D preview fallback remains selectable at runtime, and FFmpeg
 styled export remains the export path. Editor-only handles/debug overlays remain
 outside the GPU compositor by design.
 
+### TASK-249 WebGPU-first preview renderer with WebGL/Canvas2D fallback ladder
+
+**Priority:** P0
+**Status:** DONE (2026-06-11)
+
+#### Context
+
+Live testing showed the WebGL DOM-video upload path can still stall under
+1080p zoom/motion-blur playback even after WebGL compositor promotion. The new
+target is WebGPU `importExternalTexture` for the screen/camera video path on
+machines that pass a real Electron capability probe, with WebGL and Canvas2D
+remaining as explicit runtime fallbacks.
+
+#### Scope
+
+- Keep the current Canvas2D preview and FFmpeg styled export path intact.
+- Add Electron WebGPU/Vulkan/zero-copy launch flags only when the WebGPU-first
+  default or an explicit accelerated preview selector is active.
+- Select `webgpu` as a first-class preview renderer kind without weakening the
+  existing `webgl` or `canvas2d` paths.
+- Prove capability with a headed Electron probe against a real 1920x1080 source.
+- Implement true WebGPU shader composition incrementally while keeping WebGL and
+  Canvas2D as runtime fallbacks.
+
+#### Progress
+
+**Slice 1 (2026-06-11):** Added app-level WebGPU preview flags, `webgpu`
+renderer-kind selection, and a fallback-safe `WebGPUScreenLayerRenderer` wrapper
+that delegates to the existing WebGL/Canvas2D chain while reporting explicit
+`webgpu-*-delegated-to-webgl` fallback reasons. Fixed the WebGPU probe report so
+successful renderer probes set both outer and inner `ok: true`.
+
+Evidence:
+- `node --check scripts/probe-webgpu-capability.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/renderer/src/screen-layer-renderer-capabilities.test.mjs apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_SCREEN_LAYER=1 ROUGH_CUT_WEBGPU_PROBE_TIMEOUT_MS=30000 ROUGH_CUT_WEBGPU_PROBE_STEP_TIMEOUT_MS=5000 ROUGH_CUT_WEBGPU_PROBE_VIDEO='/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.mp4' pnpm probe:webgpu` passes; report `/tmp/rough-cut-webgpu-probe-latest.json` has `ok: true`, `supported: true`, `requestAdapter.ok: true`, `requestDevice.ok: true`, `importExternalTextureVideo.ok: true`, and `importExternalTextureVideoFrame.ok: true`.
+
+**Slice 2 (2026-06-11):** Replaced the active playback `drawFrame` path with a
+real WebGPU compositor for gradient/image background, screen video,
+camera PiP, cursor, and click primitives. Screen and camera videos use
+`device.importExternalTexture(...)` in the WebGPU presentation path; failed or
+unsupported initialization still delegates to the existing WebGL/Canvas2D
+fallback chain without weakening Canvas2D preview or FFmpeg styled export.
+Extended `pnpm visual:gpu-compositor` so it captures the actual GPU
+presentation canvas via screenshot pixels, compares Canvas2D-to-WebGL for the
+legacy parity guard, and compares active WebGPU-to-WebGL for the WebGPU guard.
+
+Evidence:
+- `pnpm --filter @rough-cut/desktop typecheck` passed through `pnpm visual:gpu-compositor`.
+- `node --check scripts/visual-gpu-compositor-parity-playwright.mjs` passes.
+- `node --test apps/desktop/src/renderer/src/screen-layer-renderer-capabilities.test.mjs apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `node scripts/repo-regression.test.mjs` still fails only on the unrelated root `HANDOFF.md` guard; all GPU-C/WebGPU assertions pass.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_SCREEN_LAYER=1 VITE_ROUGH_CUT_WEBGPU_SCREEN_LAYER=1 pnpm playback:timeline` passed earlier in this slice with report `/tmp/rough-cut-playback-timeline-ktNeuv/playback-report.json`; Recording edit and NLE reported `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `maxFrameDeltaMs: 16.8`, and `slowFrames: 0`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm visual:gpu-compositor` passes; latest artifacts are in `/tmp/rough-cut-gpu-compositor-uSxV3o`, report `/tmp/rough-cut-gpu-compositor-uSxV3o/gpu-compositor-report.json`, latest log `/tmp/rough-cut-gpu-compositor-latest.log`, and `problems: []`. WebGPU captures report `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, and nonblank content stats for cut, zoom, cursor, and camera PiP frames.
+
+**Slice 3 (2026-06-11):** Added WebGPU renderer lifecycle diagnostics and made
+the playback harness surface the WebGPU instance registry/log tail in both
+recording-edit and NLE result summaries. This keeps live lag reports actionable:
+the report now shows whether WebGPU initialized, how many renderer instances
+exist, whether contexts were recreated/reset, and whether any fallback reason
+was active.
+
+Evidence:
+- `node --check scripts/playback-timeline-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm visual:gpu-compositor` passes; latest artifacts are in `/tmp/rough-cut-gpu-compositor-D6hr40`, report `/tmp/rough-cut-gpu-compositor-D6hr40/gpu-compositor-report.json`, latest log `/tmp/rough-cut-gpu-compositor-latest.log`, and `problems: []`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_SCREEN_LAYER=1 VITE_ROUGH_CUT_WEBGPU_SCREEN_LAYER=1 pnpm playback:timeline` passes; latest report `/tmp/rough-cut-playback-timeline-5lPVne/playback-report.json` has Recording edit and NLE `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `expectedDisplayGapCount: 0`, `slowFrames: 0`, `maxFrameDeltaMs: 16.8`, and visible `webgpuRendererInstances` / `webgpuRendererLog` summaries. Recording edit reported `drawFramesPerSecond: 76.92`; NLE reported `drawFramesPerSecond: 28.45`.
+
+**Slice 4 (2026-06-11):** Reduced active WebGPU playback allocations by moving
+vertex and uniform uploads onto reusable per-renderer buffer pools. Each frame
+resets pool indices and writes into stable buffer slots instead of creating new
+GPU buffers for every layer/draw. Buffers are destroyed on renderer disposal or
+presentation-canvas reset, preserving fallback behavior.
+
+Evidence:
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/renderer/src/screen-layer-renderer-capabilities.test.mjs apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_SCREEN_LAYER=1 VITE_ROUGH_CUT_WEBGPU_SCREEN_LAYER=1 pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-6PhWV1/playback-report.json` has WebGPU active, `fallbackReason: null`, `slowFrames: 0`, `maxFrameDeltaMs: 16.8`, Recording edit `drawFramesPerSecond: 77.10`, and NLE `drawFramesPerSecond: 24.42`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm visual:gpu-compositor` passes; report `/tmp/rough-cut-gpu-compositor-w9HMcC/gpu-compositor-report.json`, latest log `/tmp/rough-cut-gpu-compositor-latest.log`, and `problems: []`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_SCREEN_LAYER=1 VITE_ROUGH_CUT_WEBGPU_SCREEN_LAYER=1 ROUGH_CUT_PLAYBACK_STRESS=1 pnpm playback:timeline` passes with 1920x1080/high-blur fixture; report `/tmp/rough-cut-playback-timeline-wYtJXP/playback-report.json`, WebGPU active, `fallbackReason: null`, `slowFrames: 0`, `maxFrameDeltaMs: 16.8`, Recording edit `drawFramesPerSecond: 77.11`, and NLE `drawFramesPerSecond: 25.39`.
+
+**Slice 5 (2026-06-11):** Added an explicit `auto` preview renderer selection
+path. `auto` chooses WebGPU first when `navigator.gpu` is present, then WebGL,
+then Canvas2D, while explicit `webgpu`, `webgl`, and `canvas2d` selections
+remain available. The main process now treats
+`ROUGH_CUT_SCREEN_LAYER_RENDERER=auto` /
+`VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto` as the safe WebGPU-first launch
+surface, enabling the WebGPU/Vulkan/zero-copy command-line flags and passing
+`screenLayerRenderer=auto` into the renderer. Older direct WebGPU/WebGL flags
+still work and override auto when set.
+
+Evidence:
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/renderer/src/screen-layer-renderer-capabilities.test.mjs apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-QRPDQ8/playback-report.json` has Recording edit and NLE `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `expectedDisplayGapCount: 0`, `slowFrames: 0`, `maxFrameDeltaMs: 16.8`, Recording edit `drawFramesPerSecond: 76.62`, and NLE `drawFramesPerSecond: 26.94`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto ROUGH_CUT_PLAYBACK_STRESS=1 pnpm playback:timeline` passes with the 1920x1080/high-blur fixture; report `/tmp/rough-cut-playback-timeline-0VNNdl/playback-report.json` has Recording edit and NLE `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `expectedDisplayGapCount: 0`, `slowFrames: 0`, `maxFrameDeltaMs: 16.8`, Recording edit `drawFramesPerSecond: 77.07`, and NLE `drawFramesPerSecond: 28.30`.
+
+**Slice 6 (2026-06-11):** Renamed the active timeline compositor path from
+WebGL-specific local naming to accelerated/WebGPU-aware naming. The DOM now
+adds `styledPreviewAcceleratedCanvas` and
+`isAcceleratedPresentationOverlay` while preserving the existing
+`styledPreviewWebglCanvas` / `isWebglPresentationOverlay` compatibility classes
+for CSS and older harness selectors. Playback and visual harnesses now prefer
+the accelerated selector and fall back to the legacy selector.
+
+Evidence:
+- `node --test apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `node --check scripts/playback-timeline-playwright.mjs` passes.
+- `node --check scripts/visual-gpu-compositor-parity-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C compositor parity|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto pnpm playback:timeline` passes after one sandbox launch failure and one fixed harness-local stale variable. Final report `/tmp/rough-cut-playback-timeline-YrcOgE/playback-report.json` has Recording edit and NLE `kind: "webgpu-presentation"`, `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `expectedDisplayGapCount: 0`, `slowFrames: 0`, `maxFrameDeltaMs: 16.8`, Recording edit `drawFramesPerSecond: 76.96`, and NLE `drawFramesPerSecond: 26.36`.
+
+**Slice 7 (2026-06-11):** Hardened async WebGPU initialization so a renderer
+that is disposed or moved to a different presentation canvas while
+`requestAdapter()` / `requestDevice()` is pending cannot publish a stale
+`context-created` event, mutate active stats, or hold an unused device. Device
+loss handlers now ignore stale devices, and successful init clears fallback
+state before logging `context-created` so live reports no longer show old
+delegated fallback reasons on active WebGPU instances.
+
+Evidence:
+- `node --test apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-WRys5b/playback-report.json` has Recording edit and NLE `kind: "webgpu-presentation"`, `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `expectedDisplayGapCount: 0`, `slowFrames: 0`, `maxFrameDeltaMs: 16.8`, Recording edit `drawFramesPerSecond: 76.90`, and NLE `drawFramesPerSecond: 27.38`.
+- Report log check over `/tmp/rough-cut-playback-timeline-WRys5b/playback-report.json` found `badContextCreatedAfterDispose: 0` for both Recording edit and NLE. Recording edit logged `context-created` for `disposed:false` with `fallbackReason:null`; NLE logged `context-created` only for live renderer id 2 with `disposed:false` and `fallbackReason:null`.
+
+**Slice 8 (2026-06-11):** Promoted the WebGPU lifecycle log check into the
+playback regression harness. `pnpm playback:timeline` now records
+`webgpuLifecycle` in each view result and fails when WebGPU is active but the
+active renderer is not `rendererKind: "webgpu"` / `contextStatus: "available"` /
+`fallbackReason: null`, when no `context-created` event is observed, when any
+`context-created` payload belongs to a disposed renderer, or when a
+`context-created` payload still carries a stale fallback reason.
+
+Evidence:
+- `node --check scripts/playback-timeline-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto pnpm playback:timeline` passes with the new lifecycle invariant active; report `/tmp/rough-cut-playback-timeline-aK63UZ/playback-report.json` has Recording edit and NLE `webgpuLifecycle.ok: true`, `activeRendererOk: true`, `contextCreatedOk: true`, `disposedContextCreatedCount: 0`, `staleFallbackContextCreatedCount: 0`, `kind: "webgpu-presentation"`, `rendererKind: "webgpu"`, `fallbackReason: null`, `slowFrames: 0`, and `maxFrameDeltaMs: 16.8`.
+
+**Slice 9 (2026-06-11):** Removed the hidden WebGL hop from WebGPU
+non-presentation paused/editor layer calls. WebGPU still uses the existing
+WebGL-to-Canvas2D ladder when an active presentation frame cannot initialize or
+draw, but `drawBackground`, `draw`, `drawCursorOverlay`, `drawCamera`, and
+`drawFrame` without a presentation canvas now delegate directly to a
+`Canvas2DScreenLayerRenderer` with explicit
+`webgpu-*-without-presentation-canvas2d-fallback` reasons. This keeps the
+active timeline path WebGPU-first while making the paused/editor fallback
+boundary cheaper, clearer, and independent of WebGL context availability.
+
+Evidence:
+- `node --test apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-iVwzLF/playback-report.json` has Recording edit and NLE `kind: "webgpu-presentation"`, `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, `disposedContextCreatedCount: 0`, `staleFallbackContextCreatedCount: 0`, and `slowFrames: 0`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm visual:gpu-compositor` passes; report `/tmp/rough-cut-gpu-compositor-RDgvbw/gpu-compositor-report.json`, latest log `/tmp/rough-cut-gpu-compositor-latest.log`, and `problems: []`. WebGPU captures report `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, and nonblank content stats for cut, zoom, cursor, and camera PiP frames.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto ROUGH_CUT_PLAYBACK_STRESS=1 pnpm playback:timeline` passes with the 1920x1080/high-blur fixture; report `/tmp/rough-cut-playback-timeline-yvD5S9/playback-report.json` has Recording edit and NLE `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, and `slowFrames: 0`.
+
+**Slice 10 (2026-06-11):** Reduced active WebGPU bind-group churn by caching
+uniform-only bind groups per reusable uniform-buffer slot and pipeline. This
+keeps external video bind groups per frame because `GPUExternalTexture` is
+short-lived, but avoids recreating bind groups for gradient and cursor/click
+solid primitive draws once the buffer slots are established. Runtime fallback
+behavior is unchanged: active WebGPU failures still use the WebGL-to-Canvas2D
+ladder, non-presentation WebGPU calls still use direct Canvas2D fallback, and
+the FFmpeg styled export path remains untouched.
+
+Evidence:
+- `node --test apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-QpfHzJ/playback-report.json` has Recording edit and NLE `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, and `slowFrames: 0`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto ROUGH_CUT_PLAYBACK_STRESS=1 pnpm playback:timeline` passes with the 1920x1080/high-blur fixture; report `/tmp/rough-cut-playback-timeline-Th9sMt/playback-report.json` has Recording edit and NLE `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, and `slowFrames: 0`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm visual:gpu-compositor` initially failed while running in parallel with the headed stress test because renderer selection leaked/interfered across concurrent Electron runs (`canvas2d` captured `requestedRendererKind: "webgpu"` and WebGL timed out). Rerunning the visual gate alone passes; report `/tmp/rough-cut-gpu-compositor-Ss6DL6/gpu-compositor-report.json`, latest log `/tmp/rough-cut-gpu-compositor-latest.log`, and `problems: []`.
+
+**Slice 11 (2026-06-11):** Reduced WebGPU background/image composition churn by
+caching the `GPUTexture.createView()` result for the current background image
+texture. The cache is invalidated when the image source/dimensions change, when
+the presentation state resets, and on disposal. External video textures remain
+per-frame because `GPUExternalTexture` is short-lived. Runtime fallback behavior
+is unchanged: active WebGPU failures still use the WebGL-to-Canvas2D ladder,
+non-presentation WebGPU calls still use direct Canvas2D fallback, and the
+FFmpeg styled export path remains untouched.
+
+Evidence:
+- `node --test apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-0cvQvc/playback-report.json` has Recording edit and NLE `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, and `slowFrames: 0`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm visual:gpu-compositor` passes; report `/tmp/rough-cut-gpu-compositor-CrnoSe/gpu-compositor-report.json`, latest log `/tmp/rough-cut-gpu-compositor-latest.log`, and `problems: []`.
+
+**Slice 12 (2026-06-11):** Hardened the headed GPU verification harnesses so
+their evidence remains trustworthy while WebGPU is opt-in/defaulting. Added a
+shared atomic `/tmp` lock for `pnpm playback:timeline` and
+`pnpm visual:gpu-compositor` Electron sections, with timeout and stale-lock
+cleanup. Also fixed renderer selection precedence so runtime
+`screenLayerRenderer=` query params and window controls override baked Vite env
+defaults. This prevents a build made under `VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto`
+from forcing WebGPU during explicit Canvas2D/WebGL parity captures. Runtime
+fallback behavior is unchanged: Canvas2D remains selectable, WebGL remains the
+active WebGPU fallback, and FFmpeg styled export remains untouched.
+
+Evidence:
+- The first concurrent proof reproduced the bug before the precedence fix:
+  `/tmp/rough-cut-gpu-compositor-FCxkE4/gpu-compositor-report.json` failed
+  because Canvas2D captures reported `requestedRendererKind: "webgpu"` and the
+  WebGL capture timed out.
+- `node --check scripts/gpu-playwright-lock.mjs` passes.
+- `node --check scripts/playback-timeline-playwright.mjs` passes.
+- `node --check scripts/visual-gpu-compositor-parity-playwright.mjs` passes.
+- `node --test apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto pnpm visual:gpu-compositor` passes; report `/tmp/rough-cut-gpu-compositor-aBI38j/gpu-compositor-report.json` has `ok: true`, `problems: []`, and explicit Canvas2D/WebGL/WebGPU captures each report the requested renderer kind.
+- Concurrent headed verification now passes:
+  `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto pnpm playback:timeline & DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto pnpm visual:gpu-compositor & wait`.
+  Visual report `/tmp/rough-cut-gpu-compositor-u5tEhz/gpu-compositor-report.json`
+  has `ok: true`, `problems: []`; playback report
+  `/tmp/rough-cut-playback-timeline-s8yTHd/playback-report.json` has `ok: true`,
+  Recording edit and NLE `webgpuLifecycle.ok: true`,
+  `rendererKind: "webgpu"`, `contextStatus: "available"`,
+  `fallbackReason: null`, and `slowFrames: 0`.
+
+**Slice 13 (2026-06-11):** Promoted real-project WebGPU playback validation
+into the headed playback harness. The harness now selects hidden compositor
+playback sources instead of Editor v2 thumbnail/source-preview videos, records
+video class/visibility diagnostics on failures, and tolerates edited NLE
+timeline/source offsets when seeking into long projects. WebGPU now exposes a
+`prepareBackgroundImage` renderer hook; Canvas2D remains a no-op fallback,
+WebGL prewarms its cached image texture, and WebGPU uploads the current
+background image texture after device initialization or image load instead of
+letting large saved backgrounds copy during the hot playback frame. Runtime
+fallback behavior is unchanged: Canvas2D preview remains selectable, active
+WebGPU failures still fall back through WebGL/Canvas2D, and the FFmpeg styled
+export path remains untouched.
+
+Evidence:
+- First real-project run on `herdr_1.roughcut` exposed the harness selector bug:
+  `/tmp/rough-cut-playback-timeline-MoNUKn/playback-report.json` had Recording
+  edit WebGPU playback passing, while NLE waited on the visible thumbnail video
+  instead of hidden playback sources.
+- First real-project run at the reported `rough-cut-2026-06-02T15-49-33-067Z`
+  1:17 area exposed a true WebGPU hot-frame cost:
+  `/tmp/rough-cut-playback-timeline-4jowGq/playback-report.json` showed
+  `background-image: 209.4ms` / `drawCostMs: 211.8` for a 6000x4000 background.
+- `node --check scripts/playback-timeline-playwright.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto ROUGH_CUT_PLAYBACK_PROJECT_PATH='/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut' ROUGH_CUT_PLAYBACK_SEEK_SEC=77 ROUGH_CUT_PLAYBACK_ADVANCE_SEC=2 pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-bDjfQB/playback-report.json` has Recording edit and NLE `ok: true`, `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, `expectedDisplayGapCount: 0`, and `background-image-texture-uploaded` with `reason: "post-init-prewarm"` before active playback.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto ROUGH_CUT_PLAYBACK_PROJECT_PATH='/home/endlessblink/Documents/Rough Cut MVP/recordings/herdr_1.roughcut' ROUGH_CUT_PLAYBACK_SEEK_SEC=4 ROUGH_CUT_PLAYBACK_ADVANCE_SEC=2 pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-PMOlNI/playback-report.json` has Recording edit and NLE `ok: true`, `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, and `slowFrames: 0`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto pnpm visual:gpu-compositor` passes; report `/tmp/rough-cut-gpu-compositor-ktkGP7/gpu-compositor-report.json`, latest log `/tmp/rough-cut-gpu-compositor-latest.log`, and `problems: []`.
+
+**Slice 14 (2026-06-11):** Promoted the WebGPU background-image prewarm fix
+into the headed playback regression harness. `pnpm playback:timeline` now
+records `webgpuBackgroundUploads` for each view and fails active WebGPU playback
+if any `background-image-texture-uploaded` event reports `reason: "draw"`.
+This locks the previous 6000x4000 saved-background stall into a durable gate:
+large background uploads must happen during renderer/device prewarm, not in the
+hot playback draw path. Runtime fallback behavior is unchanged: Canvas2D preview
+remains selectable, active WebGPU failures still fall back through
+WebGL/Canvas2D, and the FFmpeg styled export path remains untouched.
+
+Evidence:
+- `node --check scripts/playback-timeline-playwright.mjs` passes.
+- `node --test apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto ROUGH_CUT_PLAYBACK_PROJECT_PATH='/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut' ROUGH_CUT_PLAYBACK_SEEK_SEC=77 ROUGH_CUT_PLAYBACK_ADVANCE_SEC=2 pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-F8jxXb/playback-report.json` has Recording edit and NLE `ok: true`, `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, `webgpuBackgroundUploads.ok: true`, `uploadCount: 1`, `prewarmUploadCount: 1`, `drawUploadCount: 0`, and `expectedDisplayGapCount: 0`.
+
+**Slice 15 (2026-06-11):** Reduced WebGPU preview startup/prewarm cost for
+large saved backgrounds by caching the preview background texture at the active
+presentation canvas size instead of the original asset size. The source image
+file, Canvas2D preview path, WebGL fallback, and FFmpeg styled export path are
+unchanged; this is only the WebGPU presentation texture cache used to draw the
+background stretched across the preview canvas. The playback harness now reports
+`sourceWidth`, `sourceHeight`, `downscaled`, and `uploadMs` for WebGPU
+background uploads, and fails if a large source upload is not marked as
+downscaled.
+
+Evidence:
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `node --check scripts/playback-timeline-playwright.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto ROUGH_CUT_PLAYBACK_PROJECT_PATH='/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut' ROUGH_CUT_PLAYBACK_SEEK_SEC=77 ROUGH_CUT_PLAYBACK_ADVANCE_SEC=2 pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-PlcNqH/playback-report.json` has Recording edit and NLE `ok: true`, `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, `webgpuBackgroundUploads.ok: true`, `drawUploadCount: 0`, `missedDownscaleUploadCount: 0`, `width: 1280`, `height: 720`, `sourceWidth: 6000`, `sourceHeight: 4000`, `downscaled: true`, and playback `slowFrames: 0`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto pnpm visual:gpu-compositor` passes; report `/tmp/rough-cut-gpu-compositor-wd7k8r/gpu-compositor-report.json`, latest log `/tmp/rough-cut-gpu-compositor-latest.log`, and `problems: []`.
+
+**Slice 16 (2026-06-11):** Moved the large-background resize step for WebGPU
+preview prewarm onto an async `createImageBitmap` path. WebGPU now prepares a
+presentation-sized `ImageBitmap`, uploads that prepared bitmap to the preview
+texture, and defers drawing the image layer instead of performing a blocking
+draw-time upload if the bitmap is not ready yet. The Canvas2D preview fallback,
+WebGL fallback, and FFmpeg styled export path remain unchanged.
+
+Evidence:
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto ROUGH_CUT_PLAYBACK_PROJECT_PATH='/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut' ROUGH_CUT_PLAYBACK_SEEK_SEC=77 ROUGH_CUT_PLAYBACK_ADVANCE_SEC=2 pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-1FblYU/playback-report.json` has Recording edit and NLE `ok: true`, `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `background-image-bitmap-prepared` before `background-image-texture-uploaded`, `uploadMs: 1.9`, `drawUploadCount: 0`, `missedDownscaleUploadCount: 0`, and playback `slowFrames: 0`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto pnpm visual:gpu-compositor` passes; report `/tmp/rough-cut-gpu-compositor-TuHi7X/gpu-compositor-report.json`, latest log `/tmp/rough-cut-gpu-compositor-latest.log`, and `problems: []`.
+
+**Slice 17 (2026-06-11):** Promoted main-UI visual evidence into the headed
+playback regression harness. When `ROUGH_CUT_PLAYBACK_SCREENSHOT_PATH` is set,
+`pnpm playback:timeline` now captures paused, transition, and active screenshots
+for each probed view, records their byte sizes in the JSON report, and fails the
+run if any requested screenshot is missing or tiny. This makes the real main UI
+proof visible and durable while leaving runtime renderer selection, Canvas2D
+fallback, WebGL fallback, and FFmpeg styled export behavior unchanged.
+
+Evidence:
+- `node --check scripts/playback-timeline-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto ROUGH_CUT_PLAYBACK_PROJECT_PATH='/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut' ROUGH_CUT_PLAYBACK_SEEK_SEC=77 ROUGH_CUT_PLAYBACK_ADVANCE_SEC=2 ROUGH_CUT_PLAYBACK_SCREENSHOT_PATH='/tmp/rough-cut-webgpu-main-ui-{view}-{state}.png' pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-IsDh6W/playback-report.json` has Recording edit and NLE `ok: true`, `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, `webgpuBackgroundUploads.ok: true`, `drawUploadCount: 0`, `missedDownscaleUploadCount: 0`, `expectedDisplayGapCount: 0`, and `screenshotProof.ok: true` for both views.
+- Visual artifacts were inspected: `/tmp/rough-cut-webgpu-main-ui-recording-active.png` and `/tmp/rough-cut-webgpu-main-ui-nle-active.png` show the real main UI WebGPU preview with the camera upright, preview content visible, and the playhead around the requested zoom-heavy section.
+
+**Slice 18 (2026-06-11):** Added an explicit renderer-expectation gate to the
+headed playback harness. `ROUGH_CUT_EXPECT_SCREEN_LAYER_RENDERER=webgpu|webgl|canvas2d`
+now records a `rendererExpectation` proof for each view and fails if the active
+renderer kind or context status does not match. This prevents `auto` from
+silently falling back while still preserving explicit WebGL and Canvas2D runtime
+selection paths. The default smooth-playback gate is unchanged.
+
+Evidence:
+- `node --check scripts/playback-timeline-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto ROUGH_CUT_EXPECT_SCREEN_LAYER_RENDERER=webgpu ROUGH_CUT_PLAYBACK_PROJECT_PATH='/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut' ROUGH_CUT_PLAYBACK_SEEK_SEC=77 ROUGH_CUT_PLAYBACK_ADVANCE_SEC=2 ROUGH_CUT_PLAYBACK_SCREENSHOT_PATH='/tmp/rough-cut-webgpu-main-ui-{view}-{state}.png' pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-VW15KU/playback-report.json` has Recording edit and NLE `rendererExpectation.ok: true`, `expected: "webgpu"`, `actual: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, `webgpuBackgroundUploads.ok: true`, `drawUploadCount: 0`, `missedDownscaleUploadCount: 0`, `expectedDisplayGapCount: 0`, and `screenshotProof.ok: true`.
+
+**Slice 19 (2026-06-11):** Scoped WebGPU lifecycle/upload proof in the headed
+playback harness to the target view after navigation. The NLE probe necessarily
+opens the project in Recording edit first, then clicks into Editor; prior reports
+included the pre-navigation Recording edit renderer in the NLE log tail, making
+it look like the active NLE monitor had created and disposed an initializing
+renderer. The report still keeps the raw log tail for debugging, but
+`webgpuLifecycle` and `webgpuBackgroundUploads` now filter by
+`probeStartedAtMs` so the pass/fail proof applies only to events from the active
+view under test. Runtime renderer behavior, Canvas2D/WebGL fallback, and FFmpeg
+styled export remain unchanged.
+
+Evidence:
+- `node --check scripts/playback-timeline-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto ROUGH_CUT_EXPECT_SCREEN_LAYER_RENDERER=webgpu ROUGH_CUT_PLAYBACK_PROJECT_PATH='/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut' ROUGH_CUT_PLAYBACK_SEEK_SEC=77 ROUGH_CUT_PLAYBACK_ADVANCE_SEC=2 ROUGH_CUT_PLAYBACK_SCREENSHOT_PATH='/tmp/rough-cut-webgpu-main-ui-{view}-{state}.png' pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-enAvPx/playback-report.json` has Recording edit and NLE `ok: true`, `rendererExpectation.ok: true`, `expected: "webgpu"`, `actual: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, `contextCreatedCount: 1`, `disposedContextCreatedCount: 0`, `staleFallbackContextCreatedCount: 0`, `webgpuBackgroundUploads.ok: true`, `drawUploadCount: 0`, `missedDownscaleUploadCount: 0`, `expectedDisplayGapCount: 0`, and `screenshotProof.ok: true`.
+
+**Slice 20 (2026-06-11):** Added active-playback-window debug proof to the
+headed playback harness. The raw `playbackDebug` log still reports startup and
+seek/prewarm long tasks, but the WebGPU pass/fail gate now also records
+`activePlaybackDebug` from the actual play interval and fails if active WebGPU
+playback has expected-display gaps, main-thread-blocked expected-display gaps,
+or a long task over the smoothness threshold. This keeps startup diagnostics
+visible while preventing them from being confused with active zoom playback
+smoothness. Runtime renderer behavior, Canvas2D/WebGL fallback, and FFmpeg
+styled export remain unchanged.
+
+Evidence:
+- `node --check scripts/playback-timeline-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto ROUGH_CUT_EXPECT_SCREEN_LAYER_RENDERER=webgpu ROUGH_CUT_PLAYBACK_PROJECT_PATH='/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut' ROUGH_CUT_PLAYBACK_SEEK_SEC=77 ROUGH_CUT_PLAYBACK_ADVANCE_SEC=2 ROUGH_CUT_PLAYBACK_SCREENSHOT_PATH='/tmp/rough-cut-webgpu-main-ui-{view}-{state}.png' pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-Gdi74i/playback-report.json` has Recording edit and NLE `ok: true`, `rendererExpectation.ok: true`, `actual: "webgpu"`, `webgpuLifecycle.ok: true`, `webgpuBackgroundUploads.ok: true`, `drawUploadCount: 0`, `missedDownscaleUploadCount: 0`, `screenshotProof.ok: true`, active playback `expectedDisplayGapCount: 0`, `mainThreadBlockedExpectedDisplayGapCount: 0`, `longTaskCount: 0`, `maxLongTask: 0`, Recording edit `drawFramesPerSecond: 56.36`, NLE `drawFramesPerSecond: 60.07`, and both views `slowFrames: 0` / `maxFrameDeltaMs: 16.8`.
+
+**Slice 21 (2026-06-11):** Scoped WebGPU console fallback events with renderer
+timestamps. WebGPU renderer console payloads now include the same page
+`performance.now()` timestamp as the in-page debug log, and the playback harness
+filters console-derived lifecycle/upload events by `probeStartedAtMs`. The
+lifecycle proof also accepts an already-created active renderer from the
+instance registry, so Recording edit does not fail merely because WebGPU
+initialized before the scoped probe window. This prevents NLE proof from
+counting pre-navigation Recording edit console events while keeping valid
+already-ready Recording edit contexts acceptable.
+
+Evidence:
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --check scripts/playback-timeline-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto ROUGH_CUT_EXPECT_SCREEN_LAYER_RENDERER=webgpu ROUGH_CUT_PLAYBACK_PROJECT_PATH='/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut' ROUGH_CUT_PLAYBACK_SEEK_SEC=77 ROUGH_CUT_PLAYBACK_ADVANCE_SEC=2 ROUGH_CUT_PLAYBACK_SCREENSHOT_PATH='/tmp/rough-cut-webgpu-main-ui-{view}-{state}.png' pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-SsCqqZ/playback-report.json` has Recording edit and NLE `ok: true`, `webgpuLifecycle.ok: true`, `contextCreatedCount: 1`, `activeRegistryContextCreatedCount: 1`, `disposedContextCreatedCount: 0`, `staleFallbackContextCreatedCount: 0`, `webgpuBackgroundUploads.ok: true`, `uploadCount: 1`, `drawUploadCount: 0`, `missedDownscaleUploadCount: 0`, active playback `expectedDisplayGapCount: 0`, `longTaskCount: 0`, Recording edit `drawFramesPerSecond: 53.21`, NLE `drawFramesPerSecond: 59.97`, and both views `slowFrames: 0` / `maxFrameDeltaMs: 16.8`.
+
+**Slice 22 (2026-06-11):** Added a WebGPU motion-blur execution proof for the
+high-blur stress playback gate. The WebGPU renderer now records
+`maxMotionBlurSamples`, `motionBlurFrameCount`, and a first
+`motion-blur-active` debug event when the external-texture shader uses the
+multi-sample blur branch. `pnpm playback:timeline` now enables the existing
+runtime motion-blur flag when `ROUGH_CUT_PLAYBACK_STRESS=1` or
+`ROUGH_CUT_EXPECT_WEBGPU_MOTION_BLUR=1` is set, and fails WebGPU stress playback
+unless the active renderer proves at least 3 samples and at least one
+motion-blur frame. Canvas2D/WebGL fallbacks and FFmpeg styled export remain
+unchanged.
+
+Evidence:
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --check scripts/playback-timeline-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_SCREEN_LAYER_RENDERER=auto VITE_ROUGH_CUT_SCREEN_LAYER_RENDERER=auto ROUGH_CUT_EXPECT_SCREEN_LAYER_RENDERER=webgpu ROUGH_CUT_EXPECT_WEBGPU_MOTION_BLUR=1 ROUGH_CUT_PLAYBACK_STRESS=1 ROUGH_CUT_PLAYBACK_ADVANCE_SEC=2 ROUGH_CUT_PLAYBACK_SCREENSHOT_PATH='/tmp/rough-cut-webgpu-stress-{view}-{state}.png' pnpm playback:timeline` passes; report `/tmp/rough-cut-playback-timeline-yohQYb/playback-report.json` has Recording edit and NLE `ok: true`, `rendererKind: "webgpu"`, `webgpuMotionBlur.ok: true`, `maxMotionBlurSamples: 5`, Recording edit `motionBlurFrameCount: 126`, NLE `motionBlurFrameCount: 8`, active playback `expectedDisplayGapCount: 0`, `mainThreadBlockedExpectedDisplayGapCount: 0`, `longTaskCount: 0`, `screenshotProof.ok: true`, Recording edit `drawFramesPerSecond: 73.04`, NLE `drawFramesPerSecond: 24.66`, and both views `slowFrames: 0` / `maxFrameDeltaMs: 16.8`.
+
+**Slice 23 (2026-06-11):** Added a first-class `pnpm visual:webgpu-main-ui`
+entrypoint for real-preview WebGPU validation. The wrapper prefers
+`ROUGH_CUT_WEBGPU_MAIN_UI_PROJECT_PATH` / `ROUGH_CUT_PLAYBACK_PROJECT_PATH`,
+then known local real recordings, and falls back to the generated stress fixture
+when no real project exists. It delegates to `pnpm playback:timeline` with
+`ROUGH_CUT_EXPECT_SCREEN_LAYER_RENDERER=webgpu` and screenshot capture, so the
+existing active-playback gap, WebGPU lifecycle, draw-time background upload,
+renderer expectation, and screenshot gates stay centralized. Canvas2D/WebGL
+fallbacks and FFmpeg styled export remain unchanged.
+
+Evidence:
+- `node --check scripts/visual-webgpu-main-ui-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU main UI|GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm visual:webgpu-main-ui` passes against `/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut`; report `/tmp/rough-cut-playback-timeline-J6QbsK/playback-report.json` has Recording edit and NLE `ok: true`, `rendererExpectation.ok: true`, `expected: "webgpu"`, `actual: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, `webgpuBackgroundUploads.ok: true`, `drawUploadCount: 0`, `missedDownscaleUploadCount: 0`, active playback `expectedDisplayGapCount: 0`, `mainThreadBlockedExpectedDisplayGapCount: 0`, `longTaskCount: 0`, `screenshotProof.ok: true`, Recording edit `drawFramesPerSecond: 59.98`, NLE `drawFramesPerSecond: 59.62`, and both views `slowFrames: 0` / `maxFrameDeltaMs: 16.8`.
+- Visual artifacts inspected: `/tmp/rough-cut-webgpu-main-ui-recording-active.png` and `/tmp/rough-cut-webgpu-main-ui-nle-active.png` show the real main UI WebGPU preview with the camera upright, content visible, and the timeline/editor state active.
+
+**Slice 24 (2026-06-11):** Reduced avoidable preview render-loop restarts from
+background object identity churn. `StyledVideoPreview` now keys the compositor
+loop on the concrete background fields used for rendering instead of depending
+on the whole background object, matching the earlier `cutRangesKey` strategy.
+This keeps Canvas2D/WebGL/WebGPU output and fallback behavior unchanged while
+preventing parent object recreation from restarting the render loop.
+
+Evidence:
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm visual:webgpu-main-ui` passes against `/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut`; report `/tmp/rough-cut-playback-timeline-wEO4gS/playback-report.json` has Recording edit and NLE `ok: true`, `rendererExpectation.ok: true`, `expected: "webgpu"`, `actual: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, `webgpuBackgroundUploads.ok: true`, `drawUploadCount: 0`, `missedDownscaleUploadCount: 0`, active playback `expectedDisplayGapCount: 0`, `mainThreadBlockedExpectedDisplayGapCount: 0`, `longTaskCount: 0`, `screenshotProof.ok: true`, Recording edit `drawFramesPerSecond: 59.73`, NLE `drawFramesPerSecond: 59.84`, and both views `slowFrames: 0` / `maxFrameDeltaMs: 16.8`.
+- Startup/prewarm diagnostics remain visible rather than hidden. In this run Recording edit raw startup dropped to `longTaskCount: 1`, `maxFrameGap: 187.4`; NLE still showed pre-playback startup/prewarm work (`longTaskCount: 4`, `maxFrameGap: 260.9`), while the active playback window stayed clean.
+
+**Slice 25 (2026-06-11):** Strengthened the real main-UI WebGPU probe so it can
+run both the stable default two-view playback check and a targeted real-project
+motion-blur proof at a known zoom marker. `pnpm visual:webgpu-main-ui` still
+defaults to Recording edit + NLE at the stable real-project seek, while
+`ROUGH_CUT_WEBGPU_MAIN_UI_MOTION_BLUR=1 pnpm visual:webgpu-main-ui` seeks the
+known zoom segment and requires the WebGPU shader motion-blur branch to execute.
+The wrapper now prints the selected playback view, and regression coverage locks
+the default real-project seek plus the targeted blur seek. Canvas2D/WebGL
+fallbacks and FFmpeg styled export remain unchanged.
+
+Evidence:
+- `node --check scripts/visual-webgpu-main-ui-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU main UI|GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm visual:webgpu-main-ui` passes against `/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut`; report `/tmp/rough-cut-playback-timeline-jfaADd/playback-report.json` has Recording edit and NLE `ok: true`, `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuBackgroundUploads.ok: true`, `drawUploadCount: 0`, `missedDownscaleUploadCount: 0`, active playback `expectedDisplayGapCount: 0`, `mainThreadBlockedExpectedDisplayGapCount: 0`, `longTaskCount: 0`, and both views `slowFrames: 0` / `maxFrameDeltaMs: 16.8`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_MAIN_UI_MOTION_BLUR=1 ROUGH_CUT_PLAYBACK_VIEW=recording ROUGH_CUT_PLAYBACK_SEEK_SEC=86 pnpm visual:webgpu-main-ui` passes after the trim-range fix; report `/tmp/rough-cut-playback-timeline-cFcHp0/playback-report.json` has Recording edit `ok: true`, `beforeVideoTime: 86.017835`, `afterVideoTime: 88.151079`, `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuMotionBlur.ok: true`, `maxMotionBlurSamples: 5`, `motionBlurFrameCount: 60`, active playback `expectedDisplayGapCount: 0`, `mainThreadBlockedExpectedDisplayGapCount: 0`, `longTaskCount: 0`, and `drawFramesPerSecond: 60.47`.
+
+**Slice 26 (2026-06-11):** Fixed Recording edit timeline preview clamping at the
+first screen clip. Recording edit now derives preview trim from
+`selectRecordingEditModel().trimInfo`, which spans the first through last
+recording clip, instead of deriving trim from `primaryClip`/the first clip only.
+This makes later split-clip sections playable in Recording edit and lets the
+real-project 86s WebGPU motion-blur segment validate in both Recording edit and
+NLE. Canvas2D/WebGL fallbacks and FFmpeg styled export remain unchanged.
+
+Evidence:
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --check scripts/visual-webgpu-main-ui-playwright.mjs` passes.
+- `node --test --test-name-pattern='Recording edit preview trim|GPU-C WebGPU main UI|GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_MAIN_UI_MOTION_BLUR=1 pnpm visual:webgpu-main-ui` passes against `/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut`; report `/tmp/rough-cut-playback-timeline-yarg2i/playback-report.json` has `playbackView: "both"`, Recording edit and NLE `ok: true`, `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuMotionBlur.ok: true`, `maxMotionBlurSamples: 5`, Recording edit `motionBlurFrameCount: 57`, NLE `motionBlurFrameCount: 75`, active playback `expectedDisplayGapCount: 0`, `mainThreadBlockedExpectedDisplayGapCount: 0`, `longTaskCount: 0`, and both views `slowFrames: 0` / `maxFrameDeltaMs: 16.8`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm visual:webgpu-main-ui` passes against the same real project after the trim fix; report `/tmp/rough-cut-playback-timeline-Q8M2wK/playback-report.json` has Recording edit and NLE `ok: true`, `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, active playback `expectedDisplayGapCount: 0`, `mainThreadBlockedExpectedDisplayGapCount: 0`, `longTaskCount: 0`, Recording edit `drawFramesPerSecond: 58.95`, NLE `drawFramesPerSecond: 59.96`, and both views `slowFrames: 0` / `maxFrameDeltaMs: 16.8`.
+- Visual artifact inspected: `/tmp/rough-cut-webgpu-main-ui-recording-active.png` shows Recording edit playing the later timeline section with correct orientation, visible content, and upright camera.
+
+**Slice 27 (2026-06-11):** Added an opt-in all-known-real-projects WebGPU main
+UI probe mode. `pnpm visual:webgpu-main-ui` keeps its default single real
+project behavior, while
+`ROUGH_CUT_WEBGPU_MAIN_UI_ALL_REAL_PROJECTS=1 pnpm visual:webgpu-main-ui`
+runs every known real project path that exists on the machine, records isolated
+per-project screenshot artifacts, and preserves the existing Recording edit/NLE
+active-playback gates. This makes regression validation cover both the June 2
+long zoom-heavy project and `herdr_1.roughcut` without changing runtime
+fallback selection. Canvas2D/WebGL fallbacks and FFmpeg styled export remain
+unchanged.
+
+Evidence:
+- `node --check scripts/visual-webgpu-main-ui-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU main UI|Recording edit preview trim|GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_MAIN_UI_ALL_REAL_PROJECTS=1 pnpm visual:webgpu-main-ui` passes against two available real projects. Run 1 report `/tmp/rough-cut-playback-timeline-vYMTvu/playback-report.json` covers `/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut`; Recording edit and NLE are `ok: true`, `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, active playback `expectedDisplayGapCount: 0`, `mainThreadBlockedExpectedDisplayGapCount: 0`, `longTaskCount: 0`, both views `slowFrames: 0` / `maxFrameDeltaMs: 16.8`, and active draw rate is about 52.34 fps Recording edit / 59.64 fps NLE.
+- Run 2 report `/tmp/rough-cut-playback-timeline-YIvpvJ/playback-report.json` covers `/home/endlessblink/Documents/Rough Cut MVP/recordings/herdr_1.roughcut`; Recording edit and NLE are `ok: true`, `rendererKind: "webgpu"`, `contextStatus: "available"`, `fallbackReason: null`, active playback `expectedDisplayGapCount: 0`, `mainThreadBlockedExpectedDisplayGapCount: 0`, `longTaskCount: 0`, both views `slowFrames: 0` / `maxFrameDeltaMs: 16.8`, and active draw rate is about 60.20 fps Recording edit / 60.24 fps NLE.
+- Screenshot artifacts were written under `/tmp/rough-cut-webgpu-main-ui-real-1-*` and `/tmp/rough-cut-webgpu-main-ui-real-2-*` for Recording edit and NLE active/paused/transition states.
+
+**Slice 28 (2026-06-11):** Added a WebGPU capability preflight to the real
+main-UI visual probe. When `pnpm visual:webgpu-main-ui` expects WebGPU and can
+derive a sibling real MP4 from the selected `.roughcut` project, it now runs
+`pnpm probe:webgpu` first with GPU flags and the real video path. The playback
+probe only runs after Electron proves `navigator.gpu`, adapter/device creation,
+`device.importExternalTexture({ source: video })`, and
+`device.importExternalTexture({ source: VideoFrame })`. Non-WebGPU/fallback
+validation can skip the preflight with `ROUGH_CUT_WEBGPU_MAIN_UI_SKIP_PROBE=1`
+or by setting a non-WebGPU renderer expectation. Runtime Canvas2D/WebGL fallback
+selection and FFmpeg styled export remain unchanged.
+
+Evidence:
+- `node --check scripts/visual-webgpu-main-ui-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU main UI|Recording edit preview trim|GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_MAIN_UI_ALL_REAL_PROJECTS=1 pnpm visual:webgpu-main-ui` passes with the new preflight. Capability report `/tmp/rough-cut-webgpu-probe-latest.json` has `ok: true`, `supported: true`, `navigatorGpu.ok: true`, `requestAdapter.ok: true`, `requestDevice.ok: true`, `importExternalTextureVideo.ok: true`, and `importExternalTextureVideoFrame.ok: true` against `/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.mp4`.
+- Run 1 report `/tmp/rough-cut-playback-timeline-xtpyvT/playback-report.json` covers `/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut`; Recording edit and NLE are `ok: true`, active playback gates are clean, and active draw rate is about 58.68 fps Recording edit / 59.71 fps NLE.
+- Run 2 report `/tmp/rough-cut-playback-timeline-opKXQF/playback-report.json` covers `/home/endlessblink/Documents/Rough Cut MVP/recordings/herdr_1.roughcut`; Recording edit and NLE are `ok: true`, active playback gates are clean, and active draw rate is about 59.79 fps Recording edit / 60.12 fps NLE.
+- Visual artifacts inspected: `/tmp/rough-cut-webgpu-main-ui-real-1-recording-active.png` and `/tmp/rough-cut-webgpu-main-ui-real-2-nle-active.png` show upright camera, visible screen content, and active main UI playback/editor state.
+
+**Slice 29 (2026-06-11):** Added a fallback-matrix mode to the real main-UI
+visual probe. `ROUGH_CUT_WEBGPU_MAIN_UI_FALLBACK_MATRIX=1 pnpm
+visual:webgpu-main-ui` now runs WebGPU, WebGL, and Canvas2D selections on the
+same project with renderer-specific screenshot artifacts. WebGPU and WebGL keep
+the full playback advance gate; Canvas2D uses a shorter correctness fallback
+gate inside the matrix so the test proves the runtime fallback still renders and
+advances without pretending Canvas2D is the performance target. WebGPU
+capability preflight still runs before the WebGPU leg.
+
+Evidence:
+- `node --check scripts/visual-webgpu-main-ui-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU main UI|Recording edit preview trim|GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_MAIN_UI_FALLBACK_MATRIX=1 ROUGH_CUT_PLAYBACK_VIEW=recording pnpm visual:webgpu-main-ui` passes. Capability report `/tmp/rough-cut-webgpu-probe-latest.json` remains `ok: true` / `supported: true` with WebGPU video and VideoFrame external texture imports passing.
+- WebGPU leg report `/tmp/rough-cut-playback-timeline-44jofC/playback-report.json`: Recording edit `ok: true`, expected/actual renderer `webgpu`, `contextStatus: "available"`, `fallbackReason: null`, active draw rate about 56.94 fps, `slowFrames: 0`, and active screenshot `/tmp/rough-cut-webgpu-main-ui-webgpu-recording-active.png`.
+- WebGL fallback leg report `/tmp/rough-cut-playback-timeline-4wJuYx/playback-report.json`: Recording edit `ok: true`, expected/actual renderer `webgl`, `contextStatus: "available"`, `fallbackReason: null`, active draw rate about 53.10 fps, and active screenshot `/tmp/rough-cut-webgpu-main-ui-webgl-recording-active.png`.
+- Canvas2D fallback leg report `/tmp/rough-cut-playback-timeline-igWva1/playback-report.json`: Recording edit `ok: true`, expected/actual renderer `canvas2d`, `contextStatus: "available"`, `fallbackReason: null`, fallback correctness playback advanced, and active screenshot `/tmp/rough-cut-webgpu-main-ui-canvas2d-recording-active.png`.
+- Visual artifacts inspected for WebGL and Canvas2D fallback legs; both show upright camera, visible screen content, and the main UI Recording edit preview rendered.
+
+**Slice 30 (2026-06-11):** Extended the fallback matrix to the Editor/NLE
+surface and made the Canvas2D matrix proof explicitly correctness-only. WebGPU
+and WebGL matrix legs still keep the frame-monitor performance gate. Canvas2D
+fallback matrix legs now set `ROUGH_CUT_PLAYBACK_CORRECTNESS_ONLY=1`, so the
+test proves the legacy fallback renders, advances screen/camera media, and
+captures screenshots without claiming Canvas2D is the smooth high-motion target
+for this migration. Canvas2D/WebGL runtime fallback selection and the FFmpeg
+styled export path remain unchanged.
+
+Evidence:
+- `node --check scripts/playback-timeline-playwright.mjs` passes.
+- `node --check scripts/visual-webgpu-main-ui-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU main UI|Recording edit preview trim|GPU-C WebGPU|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_MAIN_UI_FALLBACK_MATRIX=1 ROUGH_CUT_PLAYBACK_VIEW=nle pnpm visual:webgpu-main-ui` passes.
+- WebGPU NLE leg report `/tmp/rough-cut-playback-timeline-6reuC1/playback-report.json`: Editor/NLE `ok: true`, expected/actual renderer `webgpu`, `contextStatus: "available"`, `fallbackReason: null`, active draw rate about 60.04 fps, `slowFrames: 0`, `maxFrameDeltaMs: 16.8`, screen advanced 2.18s, camera advanced 2.17s, and active screenshot `/tmp/rough-cut-webgpu-main-ui-webgpu-nle-active.png`.
+- WebGL NLE fallback leg report `/tmp/rough-cut-playback-timeline-jaAptW/playback-report.json`: Editor/NLE `ok: true`, expected/actual renderer `webgl`, `contextStatus: "available"`, `fallbackReason: null`, active draw rate about 52.06 fps, `slowFrames: 2`, screen advanced 2.23s, camera advanced 2.21s, and active screenshot `/tmp/rough-cut-webgpu-main-ui-webgl-nle-active.png`.
+- Canvas2D NLE fallback leg report `/tmp/rough-cut-playback-timeline-wC6mi5/playback-report.json`: Editor/NLE `ok: true`, expected/actual renderer `canvas2d`, `contextStatus: "available"`, `fallbackReason: null`, `correctnessOnly: true`, screen advanced 7.79s, camera advanced 7.78s, and active screenshot `/tmp/rough-cut-webgpu-main-ui-canvas2d-nle-active.png`.
+- Visual artifact inspected: `/tmp/rough-cut-webgpu-main-ui-canvas2d-nle-active.png` shows the Editor view, populated timeline, visible monitor, upright camera, screen content, and active playback state.
+
+**Slice 31 (2026-06-11):** Added an explicit default-promotion candidate path.
+`ROUGH_CUT_WEBGPU_PREVIEW_FLAGS=1` / `VITE_ROUGH_CUT_WEBGPU_PREVIEW_FLAGS=1`
+now enables the Electron WebGPU/Vulkan/zero-copy launch flags and, when no
+renderer was explicitly selected, passes `screenLayerRenderer=auto` into the
+renderer. Explicit `ROUGH_CUT_SCREEN_LAYER_RENDERER`, `ROUGH_CUT_WEBGL_SCREEN_LAYER`,
+and `ROUGH_CUT_WEBGPU_SCREEN_LAYER` selections still override this, so Canvas2D
+and WebGL fallback validation remain available. The real main-UI visual wrapper
+can now exercise this boundary with
+`ROUGH_CUT_WEBGPU_MAIN_UI_DEFAULT_CANDIDATE=1` without setting
+`ROUGH_CUT_SCREEN_LAYER_RENDERER` directly.
+
+Evidence:
+- `node --check scripts/visual-webgpu-main-ui-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU main UI|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_MAIN_UI_DEFAULT_CANDIDATE=1 pnpm visual:webgpu-main-ui` passes. The wrapper reports `defaultCandidate: true`, WebGPU capability preflight passes, and playback report `/tmp/rough-cut-playback-timeline-jpjwx5/playback-report.json` has Recording edit and Editor/NLE `ok: true`, expected/actual renderer `webgpu`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, `webgpuBackgroundUploads.ok: true`, `drawUploadCount: 0`, `missedDownscaleUploadCount: 0`, active playback `expectedDisplayGapOk: true`, `slowFrames: 0`, and `maxFrameDeltaMs: 16.8`.
+- Recording edit in that run drew about 50.29 fps at the sampled real-project segment; Editor/NLE drew about 60.06 fps. Active screenshots were written to `/tmp/rough-cut-webgpu-main-ui-recording-active.png` and `/tmp/rough-cut-webgpu-main-ui-nle-active.png`.
+- Visual artifact inspected: `/tmp/rough-cut-webgpu-main-ui-nle-active.png` shows the Editor view, populated timeline, visible monitor, upright camera, screen content, and active playback state.
+
+**Slice 32 (2026-06-11):** Promoted default-candidate validation from a single
+project smoke to the real-project and motion-blur gates. The harness now proves
+the same no-direct-renderer-selector path (`ROUGH_CUT_WEBGPU_PREVIEW_FLAGS=1`
+driving main-process `screenLayerRenderer=auto`) across both available real
+projects and across the known high-motion zoom segment that originally exposed
+the WebGL upload bottleneck.
+
+Evidence:
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_MAIN_UI_DEFAULT_CANDIDATE=1 ROUGH_CUT_WEBGPU_MAIN_UI_ALL_REAL_PROJECTS=1 pnpm visual:webgpu-main-ui` passes with WebGPU capability preflight and two real projects.
+- Run 1 report `/tmp/rough-cut-playback-timeline-EKIzi0/playback-report.json` covers `/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut`; Recording edit and Editor/NLE are `ok: true`, expected/actual renderer `webgpu`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, `activePlaybackDebug.ok: true`, `slowFrames: 0`, `maxFrameDeltaMs: 16.8`, and draw rates about 58.52 fps Recording edit / 59.81 fps Editor.
+- Run 2 report `/tmp/rough-cut-playback-timeline-SSCP8z/playback-report.json` covers `/home/endlessblink/Documents/Rough Cut MVP/recordings/herdr_1.roughcut`; Recording edit and Editor/NLE are `ok: true`, expected/actual renderer `webgpu`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, `activePlaybackDebug.ok: true`, `slowFrames: 0`, `maxFrameDeltaMs: 16.8`, and draw rates about 60.16 fps Recording edit / 60.10 fps Editor.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_MAIN_UI_DEFAULT_CANDIDATE=1 ROUGH_CUT_WEBGPU_MAIN_UI_MOTION_BLUR=1 pnpm visual:webgpu-main-ui` passes against the known 86s zoom segment. Report `/tmp/rough-cut-playback-timeline-02iY4N/playback-report.json` has Recording edit and Editor/NLE `ok: true`, expected/actual renderer `webgpu`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuMotionBlur.ok: true`, `maxMotionBlurSamples: 5`, `motionBlurFrameCount: 58` Recording edit / `69` Editor, active playback `slowFrames: 0`, `maxFrameDeltaMs: 16.8`, and draw rates about 59.77 fps Recording edit / 60.01 fps Editor.
+- Visual artifact inspected: `/tmp/rough-cut-webgpu-main-ui-nle-active.png` shows the Editor during the high-motion blur segment with visible blur, upright camera, populated timeline, and active playback state.
+
+Remaining before DONE: continue reducing transient startup/prewarm jank where
+profiling shows it matters, and keep adding regression coverage for each
+successfully promoted layer. Explicit Canvas2D selection still renders, but it
+does not meet the accelerated smooth-playback gate on the large 1080p real
+project; keep treating Canvas2D as a correctness fallback, not the performance
+target.
+
+**Slice 33 (2026-06-11):** Promoted WebGPU-first `auto` selection from a
+candidate flag to the actual app default on supported runtime paths. When no
+explicit renderer selector is present, the main process now enables the guarded
+WebGPU/Vulkan/zero-copy launch flags and passes `screenLayerRenderer=auto`.
+The renderer resolves `auto` as WebGPU when `navigator.gpu` exists, then WebGL,
+then Canvas2D. Explicit `ROUGH_CUT_SCREEN_LAYER_RENDERER`,
+`ROUGH_CUT_WEBGPU_SCREEN_LAYER`, `ROUGH_CUT_WEBGL_SCREEN_LAYER`, and
+`ROUGH_CUT_DISABLE_WEBGPU_DEFAULT=1` remain available so runtime fallback is
+preserved. FFmpeg styled export remains untouched.
+
+Evidence:
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_MAIN_UI_USE_APP_DEFAULT=1 pnpm visual:webgpu-main-ui` passes without setting a direct renderer env or `ROUGH_CUT_WEBGPU_PREVIEW_FLAGS`. Report `/tmp/rough-cut-playback-timeline-WG8ZBv/playback-report.json` covers `/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut`; Recording edit and Editor/NLE are `ok: true`, expected/actual renderer `webgpu`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, `activePlaybackDebug.ok: true`, active playback `slowFrames: 0`, and `maxFrameDeltaMs: 16.8`. Recording edit drew about 56.83 fps; Editor/NLE drew about 59.95 fps.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_DISABLE_WEBGPU_DEFAULT=1 VITE_ROUGH_CUT_DISABLE_WEBGPU_DEFAULT=1 ROUGH_CUT_EXPECT_SCREEN_LAYER_RENDERER=canvas2d ROUGH_CUT_PLAYBACK_PROJECT_PATH='/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut' ROUGH_CUT_PLAYBACK_SEEK_SEC=77 ROUGH_CUT_PLAYBACK_CORRECTNESS_ONLY=1 ROUGH_CUT_PLAYBACK_ADVANCE_SEC=0.5 ROUGH_CUT_PLAYBACK_VIEW=recording pnpm playback:timeline` passes. Report `/tmp/rough-cut-playback-timeline-0H8GKR/playback-report.json` proves expected/actual renderer `canvas2d`, `requestedWebGPU: false`, zero WebGPU contexts, visible canvas, advancing screen/camera playback, and `expectedDisplayGapOk: true`.
+- Focused source regression guards cover the app-default harness path, removal of direct renderer env for app-default proof, the disable-default env, main-process `webgpuPreviewDefaultEnabled`/`webgpuPreviewDefaultDisabled`, renderer-side default resolution, WebGPU launch flags, and Canvas2D fallback.
+
+Remaining before DONE: keep validating the app default on more hardware/driver
+combinations, continue startup/prewarm reduction where measurements show it
+matters, and do not retire Canvas2D/WebGL fallback or FFmpeg styled export.
+
+**Slice 34 (2026-06-11):** Made the routine real-main-UI WebGPU probe validate
+the actual app default instead of silently injecting
+`ROUGH_CUT_SCREEN_LAYER_RENDERER=auto`. `pnpm visual:webgpu-main-ui` now removes
+direct renderer/default-toggle env vars when no explicit renderer expectation
+or fallback matrix is requested, so the normal command proves the same
+main-process default path a user gets in the app. Explicit renderer expectations
+still select that renderer, and fallback matrix mode still explicitly exercises
+WebGPU, WebGL, and Canvas2D.
+
+Evidence:
+- `node --check scripts/visual-webgpu-main-ui-playwright.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU main UI|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm visual:webgpu-main-ui` passes. The wrapper prints `appDefault: true` with no direct renderer selector. Report `/tmp/rough-cut-playback-timeline-ka9Zng/playback-report.json` covers `/home/endlessblink/Documents/Rough Cut MVP/recordings/rough-cut-2026-06-02T15-49-33-067Z.roughcut`; Recording edit and Editor/NLE are `ok: true`, expected/actual renderer `webgpu`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, `activePlaybackDebug.ok: true`, `expectedDisplayGapCount: 0`, `mainThreadBlockedExpectedDisplayGapCount: 0`, active `longTaskCount: 0`, active `slowFrames: 0`, and `maxFrameDeltaMs: 16.8`. Recording edit drew about 52.11 fps; Editor/NLE drew about 59.93 fps.
+- The same report proves background image work stayed off the hot draw path: each view has one `post-init-prewarm` upload, `drawUploadCount: 0`, and `missedDownscaleUploadCount: 0`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_MAIN_UI_ALL_REAL_PROJECTS=1 pnpm visual:webgpu-main-ui` passes through the same app-default path on both available real projects. Reports `/tmp/rough-cut-playback-timeline-Rzmp9k/playback-report.json` and `/tmp/rough-cut-playback-timeline-c9tCzP/playback-report.json` both have Recording edit and Editor/NLE `ok: true`, expected/actual renderer `webgpu`, `fallbackReason: null`, `activePlaybackDebug.ok: true`, `slowFrames: 0`, and `maxFrameDeltaMs: 16.8`.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs ROUGH_CUT_WEBGPU_MAIN_UI_MOTION_BLUR=1 pnpm visual:webgpu-main-ui` passes through the same app-default path on the known high-motion zoom segment. Report `/tmp/rough-cut-playback-timeline-vNjsHV/playback-report.json` has Recording edit and Editor/NLE `ok: true`, expected/actual renderer `webgpu`, `fallbackReason: null`, `webgpuMotionBlur.ok: true`, `maxMotionBlurSamples: 5`, Recording edit `motionBlurFrameCount: 50`, Editor/NLE `motionBlurFrameCount: 71`, active `longTaskCount: 0`, active `slowFrames: 0`, and `maxFrameDeltaMs: 16.8`.
+
+Remaining before DONE: validate this default on additional hardware/driver
+combinations and continue reducing startup/prewarm work only where measurements
+show user-visible impact. Canvas2D/WebGL fallback and FFmpeg styled export stay
+intact.
+
+**Slice 35 (2026-06-11):** Hardened WebGPU initialization so the renderer proves
+`GPUDevice.importExternalTexture` support before configuring the WebGPU
+presentation context. If a future Electron/Linux GPU stack exposes
+`navigator.gpu` but cannot import external video textures, initialization now
+fails with `webgpu-init-failed:external-texture-unavailable` and the runtime
+fallback chain continues through WebGL/Canvas2D without claiming a partial
+WebGPU context. Updated the focused playback diagnostics regression to match
+the current active-window `readPlaybackDebug(range = null)` harness contract.
+
+Evidence:
+- `node --test apps/desktop/src/renderer/src/screen-layer-renderer-capabilities.test.mjs apps/desktop/src/renderer/src/styled-video-preview.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU main UI|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- apps/desktop/src/renderer/src/screen-layer-renderer.ts apps/desktop/src/renderer/src/styled-video-preview.test.mjs scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm visual:webgpu-main-ui` passes through the real app-default path. The preflight probe reports `importExternalTextureVideo.ok: true` and `importExternalTextureVideoFrame.ok: true`; report `/tmp/rough-cut-playback-timeline-WftSex/playback-report.json` has Recording edit and Editor/NLE `ok: true`, expected/actual renderer `webgpu`, `contextStatus: "available"`, `fallbackReason: null`, `webgpuLifecycle.ok: true`, `activePlaybackDebug.ok: true`, active `slowFrames: 0`, and `maxFrameDeltaMs: 16.8`. Recording edit drew about 53.47 fps; Editor/NLE drew about 59.97 fps.
+
+Remaining before DONE: validate this default on additional hardware/driver
+combinations and continue reducing startup/prewarm work only where measurements
+show user-visible impact. Canvas2D/WebGL fallback and FFmpeg styled export stay
+intact.
+
+**Slice 36 (2026-06-11):** Added a discoverable fallback-ladder proof command.
+`pnpm visual:webgpu-fallback-matrix` now runs the existing real main-UI fallback
+matrix without requiring callers to remember
+`ROUGH_CUT_WEBGPU_MAIN_UI_FALLBACK_MATRIX=1`. The command exercises explicit
+WebGPU, WebGL, and Canvas2D renderer selections through the same playback,
+renderer-expectation, screenshot, and media-advance gates. WebGPU remains the
+performance target; Canvas2D remains a correctness fallback inside the matrix.
+Runtime fallback behavior and FFmpeg styled export are unchanged.
+
+Evidence:
+- `node --test --test-name-pattern='GPU-C WebGPU main UI|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- package.json scripts/repo-regression.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm visual:webgpu-fallback-matrix` passes. WebGPU preflight report `/tmp/rough-cut-webgpu-probe-latest.json` reports `ok: true`, `supported: true`, `importExternalTextureVideo.ok: true`, and `importExternalTextureVideoFrame.ok: true`.
+- WebGPU matrix report `/tmp/rough-cut-playback-timeline-iLhcC3/playback-report.json`: Recording edit and Editor/NLE are `ok: true`, expected/actual renderer `webgpu`, `contextStatus: "available"`, `fallbackReason: null`, `correctnessOnly: false`, active playback proof `ok: true`, active `slowFrames: 0`, `maxFrameDeltaMs: 16.8`, draw rate about 55.62 fps Recording edit / 59.80 fps Editor/NLE, with active screenshots `/tmp/rough-cut-webgpu-main-ui-webgpu-recording-active.png` and `/tmp/rough-cut-webgpu-main-ui-webgpu-nle-active.png`.
+- WebGL matrix report `/tmp/rough-cut-playback-timeline-4KrupK/playback-report.json`: Recording edit and Editor/NLE are `ok: true`, expected/actual renderer `webgl`, `contextStatus: "available"`, `fallbackReason: null`, `correctnessOnly: false`, draw rate about 49.77 fps Recording edit / 55.29 fps Editor/NLE, and active screenshots `/tmp/rough-cut-webgpu-main-ui-webgl-recording-active.png` and `/tmp/rough-cut-webgpu-main-ui-webgl-nle-active.png`.
+- Canvas2D matrix report `/tmp/rough-cut-playback-timeline-SkCITL/playback-report.json`: Recording edit and Editor/NLE are `ok: true`, expected/actual renderer `canvas2d`, `contextStatus: "available"`, `fallbackReason: null`, `correctnessOnly: true`, media advanced in both views, and active screenshots `/tmp/rough-cut-webgpu-main-ui-canvas2d-recording-active.png` and `/tmp/rough-cut-webgpu-main-ui-canvas2d-nle-active.png`.
+
+Remaining before DONE: validate this default on additional hardware/driver
+combinations and continue reducing startup/prewarm work only where measurements
+show user-visible impact. Canvas2D/WebGL fallback and FFmpeg styled export stay
+intact.
+
+**Slice 37 (2026-06-11):** Added a single WebGPU preview readiness gate.
+`pnpm verify:webgpu-preview` now runs the real app-default WebGPU main-UI
+proof, the real-project WebGPU motion-blur proof, and the explicit
+WebGPU/WebGL/Canvas2D fallback matrix in sequence. The wrapper prints a JSON
+summary of phase status and fails on the first failing phase, making the
+current readiness claim reproducible without manually remembering several env
+var combinations. It also supports
+`ROUGH_CUT_WEBGPU_READINESS_ALL_REAL_PROJECTS=1` for an expanded local
+real-project sweep. Runtime fallback behavior and FFmpeg styled export are
+unchanged.
+
+Evidence:
+- `node --check scripts/verify-webgpu-preview-readiness.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU main UI|GPU-C WebGPU preview readiness|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- package.json scripts/repo-regression.test.mjs scripts/verify-webgpu-preview-readiness.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm verify:webgpu-preview` passes. The wrapper summary reports three passing phases: `app-default` in 26.474s, `motion-blur` in 26.798s, and `fallback-matrix` in 76.512s.
+- App-default report `/tmp/rough-cut-playback-timeline-X0SpdS/playback-report.json`: Recording edit and Editor/NLE are `ok: true`, expected/actual renderer `webgpu`, `contextStatus: "available"`, `fallbackReason: null`, `correctnessOnly: false`, active playback proof `ok: true`, `slowFrames: 0`, `maxFrameDeltaMs: 16.8`, and draw rates about 58.01 fps Recording edit / 59.93 fps Editor/NLE.
+- Motion-blur report `/tmp/rough-cut-playback-timeline-uEfArw/playback-report.json`: Recording edit and Editor/NLE are `ok: true`, expected/actual renderer `webgpu`, `fallbackReason: null`, `webgpuMotionBlur.ok: true`, `maxMotionBlurSamples: 5`, `motionBlurFrameCount: 56` Recording edit / `76` Editor/NLE, `slowFrames: 0`, and `maxFrameDeltaMs: 16.8`.
+- Fallback matrix WebGPU report `/tmp/rough-cut-playback-timeline-VNePcf/playback-report.json`: both views expected/actual `webgpu`, `fallbackReason: null`, `slowFrames: 0`, and `maxFrameDeltaMs: 16.8`.
+- Fallback matrix WebGL report `/tmp/rough-cut-playback-timeline-UWDgS6/playback-report.json`: both views expected/actual `webgl`, `contextStatus: "available"`, `fallbackReason: null`, screenshots present, media advanced, and draw rates about 55 fps.
+- Fallback matrix Canvas2D report `/tmp/rough-cut-playback-timeline-3pg4vW/playback-report.json`: both views expected/actual `canvas2d`, `contextStatus: "available"`, `fallbackReason: null`, `correctnessOnly: true`, screenshots present, and media advanced.
+
+Remaining before DONE: run a final completion audit against TASK-249 scope and
+separate machine-specific risk from product requirements. Additional
+hardware/driver validation is still desirable before broader rollout, but it is
+not a code-path blocker on this machine. Canvas2D/WebGL fallback and FFmpeg
+styled export stay intact.
+
+**Slice 38 (2026-06-11):** Folded the synthetic compositor parity proof into
+the routine WebGPU preview readiness gate. `pnpm verify:webgpu-preview` now
+runs four phases by default: app-default WebGPU main UI, real-project WebGPU
+motion blur, synthetic Canvas2D/WebGL/WebGPU compositor parity, and the
+explicit WebGPU/WebGL/Canvas2D fallback matrix. This closes the readiness gap
+where the command proved real UI playback and fallback selection but did not
+also prove visual parity cases in the same reproducible gate.
+
+Evidence:
+- `node --check scripts/verify-webgpu-preview-readiness.mjs` passes.
+- `node --test --test-name-pattern='GPU-C WebGPU main UI|GPU-C WebGPU preview readiness|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- MASTER_PLAN.md package.json scripts/repo-regression.test.mjs scripts/verify-webgpu-preview-readiness.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm verify:webgpu-preview` passes. The wrapper summary reports four passing phases: `app-default` in 26.699s, `motion-blur` in 26.486s, `compositor-parity` in 24.208s, and `fallback-matrix` in 76.488s.
+- App-default report `/tmp/rough-cut-playback-timeline-16qVrU/playback-report.json`: Recording edit and Editor/NLE are `ok: true`, expected/actual renderer `webgpu`, `fallbackReason: null`, `correctnessOnly: false`, active playback proof `ok: true`, `slowFrames: 0`, `maxFrameDeltaMs: 16.8`, and draw rates about 58.74 fps Recording edit / 59.95 fps Editor/NLE.
+- Motion-blur report `/tmp/rough-cut-playback-timeline-B4PL8Y/playback-report.json`: Recording edit and Editor/NLE are `ok: true`, expected/actual renderer `webgpu`, `fallbackReason: null`, `webgpuMotionBlur.ok: true`, `maxMotionBlurSamples: 5`, `motionBlurFrameCount: 53` Recording edit, `slowFrames: 0`, and `maxFrameDeltaMs: 16.8`.
+- Compositor parity report `/tmp/rough-cut-gpu-compositor-dXqcZP/gpu-compositor-report.json`: `ok: true`, `problems: []`, ten parity comparisons accepted, and latest log at `/tmp/rough-cut-gpu-compositor-latest.log`.
+- Fallback matrix WebGPU report `/tmp/rough-cut-playback-timeline-oJCNwC/playback-report.json`: both views expected/actual `webgpu`, `contextStatus: "available"`, `fallbackReason: null`, `slowFrames: 0`, and `maxFrameDeltaMs: 16.8`.
+- Fallback matrix WebGL report `/tmp/rough-cut-playback-timeline-VFJkyf/playback-report.json`: both views expected/actual `webgl`, `contextStatus: "available"`, `fallbackReason: null`, screenshots present, media advanced, and draw rates about 50-53 fps. This remains fallback validation, not the performance target.
+- Fallback matrix Canvas2D report `/tmp/rough-cut-playback-timeline-r7znj2/playback-report.json`: both views expected/actual `canvas2d`, `contextStatus: "available"`, `fallbackReason: null`, `correctnessOnly: true`, screenshots present, and media advanced.
+
+**Completion audit (2026-06-11):** TASK-249 is DONE for this machine/setup.
+The implementation meets the task scope: Canvas2D preview and FFmpeg styled
+export remain intact, WebGPU/Vulkan/zero-copy launch flags are scoped to
+WebGPU-first/default or accelerated preview selection, `webgpu` is a first-class
+renderer kind alongside explicit `webgl` and `canvas2d`, the headed Electron
+probe passes against a real 1920x1080 source, and true WebGPU shader composition
+now covers background/screen/camera/cursor/click/motion-blur preview paths with
+runtime fallback preserved.
+
+Completion evidence:
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm verify:webgpu-preview` passes with four phases: `app-default`, `motion-blur`, `compositor-parity`, and `fallback-matrix`.
+- WebGPU app-default and motion-blur reports have Recording edit and Editor/NLE expected/actual `webgpu`, `contextStatus: "available"`, `fallbackReason: null`, active playback `slowFrames: 0`, and `maxFrameDeltaMs: 16.8`.
+- Compositor parity report `/tmp/rough-cut-gpu-compositor-dXqcZP/gpu-compositor-report.json` has `ok: true`, `problems: []`, and ten accepted parity comparisons across Canvas2D/WebGL/WebGPU cases.
+- Fallback matrix reports prove explicit WebGPU (`/tmp/rough-cut-playback-timeline-oJCNwC/playback-report.json`), WebGL (`/tmp/rough-cut-playback-timeline-VFJkyf/playback-report.json`), and Canvas2D (`/tmp/rough-cut-playback-timeline-r7znj2/playback-report.json`) selections still render, advance media, and report expected renderer telemetry. Canvas2D remains a correctness fallback, not a performance target.
+- `pnpm smoke:styled-export` passes after rerun outside the sandbox boundary. The first sandboxed attempt built and exported but hit `spawnSync ffprobe EPERM`; the escalated verifier produced styled outputs under `/tmp/rough-cut-styled-export-IH5K9q`, including `styled-export.mp4`, `styled-export-zoom.mp4`, and `styled-export-camera.mp4`, each probed as 1920x1080 at 30 fps.
+
+Residual risk: broader hardware/driver validation remains a rollout risk. The
+code path is proven on this machine and retains WebGL/Canvas2D runtime
+fallbacks for unsupported or failing WebGPU environments.
+
 ### TASK-246 Prototype GPU/headless export path from the shared composition plan
 
 **Priority:** P1
@@ -7714,6 +8484,614 @@ Evidence:
 
 Remaining before DONE: implement actual frame rendering/capture/encoding in the
 hidden window behind the adapter. Do not make this mode default.
+
+**Slice 7 (2026-06-12):** Replaced the not-implemented hidden-window seam with
+the first real frame-artifact export branch. When the opt-in adapter is
+available, it now expands the shared composition plan to every output frame,
+renders those frames in a hidden/offscreen Electron canvas, writes an
+FFmpeg-ready PNG sequence, and the experimental export service can encode that
+sequence into an MP4 with optional source-audio preservation. The hidden page
+now receives screen/camera `sourceUrl` metadata and seeks/draws source video
+frames before falling back to synthetic placeholders. The normal
+`experimental-headless` smoke still runs with the renderer disabled and falls
+back to the existing FFmpeg styled export path; styled export remains the
+default and fallback.
+
+Evidence:
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs apps/desktop/src/renderer/src/nle/clip-mutations.test.mjs apps/desktop/src/renderer/src/nle/trim-session.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `pnpm smoke:experimental-headless-export` passes outside the sandbox; latest
+  root `/tmp/rough-cut-headless-export-2tSN72`, fallback `{ from:
+  "headless-export", to: "ffmpeg-styled", reason:
+  "experimental-headless-export-disabled" }`, zero decoded pixel delta against
+  the styled baseline, and zoomed cursor sharpness `{ bright: 3039, dark:
+  2679 }`.
+- `pnpm smoke:styled-export` passes outside the sandbox; latest root
+  `/tmp/rough-cut-styled-export-JOiILo`.
+
+Remaining before DONE: add a reliable Electron-runtime smoke that enables
+`ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT=1` and proves the hidden renderer
+produces/encodes the experimental MP4 in the real app runtime; then compare its
+representative frames against styled export, verify cursor sharpness on the
+non-fallback experimental MP4, preserve timeline audio/cuts/gaps beyond the
+single-source audio branch, and record benchmark speed/quality evidence. Do
+not make this mode default.
+
+**Slice 8 (2026-06-12):** Added a real app-runtime smoke entrypoint for the
+non-fallback experimental headless export path. The desktop main process now
+honors `ROUGH_CUT_HEADLESS_EXPORT_SMOKE_*` env vars, opens a project, runs
+`exportProjectToMp4(..., mode: "experimental-headless")` inside the actual
+Electron app process, writes a JSON report, and exits without creating the
+normal UI window. The new `smoke:experimental-headless-runtime-export` script
+generates a red MP4 fixture with AAC audio, launches the desktop app with
+`ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT=1`, expects no fallback, verifies 30
+frame artifacts, checks a sampled rendered frame contains the red source video,
+and asserts the output has video plus audio streams. The first runtime run
+reached the app hook and found a real adapter bug: `BrowserWindow` was resolved
+during availability detection but discarded before frame rendering, causing
+`electron-browser-window-unavailable` and fallback. Fixed that seam and locked
+it with a unit regression.
+
+Evidence:
+- `node --check scripts/smoke-experimental-headless-runtime-export.mjs` passes.
+- `node --check apps/desktop/src/main/index.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- Runtime smoke before the seam fix wrote
+  `/tmp/rough-cut-headless-runtime-export-yddr6z/headless-runtime-result.json`
+  and correctly failed on fallback `{ reason: "electron-browser-window-unavailable" }`.
+
+Verification boundary:
+- After the seam fix, this sandbox refused the escalated Electron smoke command
+  and the un-escalated run hit Electron/`ffprobe` sandbox `EPERM`; the
+  non-fallback MP4 proof still needs a successful unsandboxed
+  `pnpm smoke:experimental-headless-runtime-export` run.
+- The existing fallback smokes generated exports in sandbox but could not finish
+  `ffprobe` checks because of the same sandbox `EPERM` boundary in this turn.
+
+Remaining before DONE: run the new runtime smoke outside the sandbox and fix any
+new real-renderer failures it exposes; add non-fallback preview-vs-export frame
+comparison, cursor sharpness, timeline cuts/gaps, and benchmark evidence. Do
+not make this mode default.
+
+**Slice 9 (2026-06-12):** Tightened the non-fallback runtime smoke contract so
+file creation alone is no longer accepted as proof. The hidden renderer now
+returns per-frame `renderResults` from the browser-side canvas render function,
+including whether the screen/camera source video actually drew. The runtime
+smoke fails if any frame reports `drewScreen !== true`, which protects against
+silently encoding synthetic placeholder frames while still claiming a successful
+experimental export. This also fixed a browser-side scope bug where
+`drewCamera` was returned outside the block that declared it.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node --check scripts/smoke-experimental-headless-runtime-export.mjs` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs scripts/smoke-experimental-headless-runtime-export.mjs apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.mjs apps/desktop/src/main/export-service.test.mjs apps/desktop/src/main/index.mjs scripts/repo-regression.test.mjs package.json MASTER_PLAN.md` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm smoke:experimental-headless-runtime-export` builds both packages and generates the FFmpeg fixture in this sandbox, then fails only at Electron spawn with `EPERM`:
+  `Electron headless runtime export smoke could not launch Electron: spawnSync .../apps/desktop/node_modules/.bin/electron EPERM`.
+- Retrying the same smoke through the escalated command runner was rejected
+  before execution by the runner with a command/setup failure, so the
+  non-fallback runtime proof remains uncollected in this turn.
+
+Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
+pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix any
+real hidden-renderer failures it exposes, then add non-fallback
+preview-vs-export frame comparison, cursor sharpness, timeline cuts/gaps, and
+benchmark evidence. Do not make this mode default.
+
+**Slice 10 (2026-06-12):** Promoted the app-runtime smoke from existence proof
+to parity proof. Before launching Electron, the smoke now exports the same
+project through the existing FFmpeg styled path into `styled-baseline.mp4`.
+After a non-fallback experimental runtime export, it verifies video stream
+metadata matches the styled baseline and decodes representative frames
+`[0, 15, 29]` from both MP4s. The smoke now fails if the hidden renderer
+produces a non-fallback MP4 whose pixels diverge from styled export beyond the
+runtime parity budget. This keeps FFmpeg styled export as the reference and
+default while making the experimental path prove it can match that behavior.
+
+Evidence:
+- `node --check scripts/smoke-experimental-headless-runtime-export.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs node scripts/smoke-experimental-headless-runtime-export.mjs` now creates the FFmpeg fixture and the styled baseline before the known sandbox Electron boundary; artifact directory `/tmp/rough-cut-headless-runtime-export-A2dHFg` contains `red-source-with-audio.mp4`, `red-source-with-audio.roughcut`, and `styled-baseline.mp4`.
+- The same direct smoke still fails at Electron spawn in this sandbox with
+  `spawnSync .../apps/desktop/node_modules/.bin/electron EPERM`, so the
+  non-fallback runtime parity proof remains pending.
+
+Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
+pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the
+first real runtime failure it exposes (likely compositor parity, not smoke
+wiring), then add cursor-sharpness, timeline cuts/gaps, and benchmark evidence.
+Do not make this mode default.
+
+**Slice 11 (2026-06-12):** Fixed the hidden export renderer's first timeline
+gap bug. The shared composition plan already marks empty timeline frames with
+`timelineGap: true` and `screen: null`, but the hidden renderer always invented
+a fallback screen rectangle when `screen` was missing. Gap frames now render as
+background-only frames, report `timelineGap: true`, and return
+`drewScreen: null` instead of drawing synthetic screen placeholders. The
+renderer also no longer draws debug frame labels/top bars into export frames,
+which would break parity with FFmpeg styled export. The runtime smoke fixture
+now persists an edited timeline with clips at frames `0-10` and `20-30`, so
+frame 15 is a real gap; the smoke checks that non-gap frames draw source video
+while the gap frame remains black/background-only and participates in styled
+baseline pixel comparison.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node --check scripts/smoke-experimental-headless-runtime-export.mjs` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/export-service.test.mjs scripts/smoke-experimental-headless-runtime-export.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs node scripts/smoke-experimental-headless-runtime-export.mjs` reaches the known sandbox Electron boundary after creating the edited project and styled baseline; artifact directory `/tmp/rough-cut-headless-runtime-export-A2UCyU` contains `red-source-with-audio.roughcut`, `.bak`, and `styled-baseline.mp4`.
+- Fixture inspection confirms the persisted runtime-smoke project has
+  `screen-before-gap` at `timelineIn: 0, timelineOut: 10, sourceIn: 0,
+  sourceOut: 10` and `screen-after-gap` at `timelineIn: 20, timelineOut: 30,
+  sourceIn: 20, sourceOut: 30`.
+
+Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
+pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the
+first real runtime failure it exposes, then add cursor-sharpness and benchmark
+evidence for the non-fallback experimental MP4. Do not make this mode default.
+
+**Slice 12 (2026-06-12):** Fixed the hidden renderer's cursor coordinate
+contract and staged non-fallback cursor sharpness proof. The shared composition
+plan passes cursor positions as normalized source coordinates, but the hidden
+renderer was dividing those values by source width/height again, which would
+place the export cursor near the top-left instead of on the intended source
+point. The renderer now treats `0..1` positions as normalized coordinates while
+retaining compatibility for absolute pixel positions. It also reports the
+rounded rendered cursor point in per-frame `renderResults`. The runtime smoke
+now validates frame 25 cursor placement, samples a 96x96 crop around the
+reported cursor point, and fails if bright/dark cursor pixels are not present.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node --check scripts/smoke-experimental-headless-runtime-export.mjs` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs scripts/smoke-experimental-headless-runtime-export.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs node scripts/smoke-experimental-headless-runtime-export.mjs` still reaches the known sandbox Electron boundary after creating the edited project and styled baseline; artifact directory `/tmp/rough-cut-headless-runtime-export-gBKN5F` contains `red-source-with-audio.roughcut`, `.bak`, and `styled-baseline.mp4`.
+
+Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
+pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the
+first real runtime failure it exposes, then record benchmark evidence for the
+non-fallback experimental MP4. Do not make this mode default.
+
+**Slice 13 (2026-06-12):** Made the experimental frame-sequence encoder
+timeline-audio aware. The non-fallback hidden renderer already encodes a PNG
+sequence for the edited timeline, but its MP4 mux step previously mapped the
+entire source audio stream when audio existed. That was wrong for timeline cuts
+and gaps. `buildHeadlessFrameExportArgs(...)` now accepts
+`timelineAudioSegments` and, when present, builds the same kind of
+blank-plus-trimmed-segment audio graph used by FFmpeg styled export, but against
+headless input `1:a` while the frame sequence remains input `0:v`. Simple
+single-source audio still maps `1:a?` with `-shortest`; edited timeline audio
+maps `[a]` and omits `-shortest`.
+
+Evidence:
+- `node --check apps/desktop/src/main/export-service.mjs` passes.
+- `node --check scripts/smoke-experimental-headless-runtime-export.mjs` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- apps/desktop/src/main/export-service.mjs apps/desktop/src/main/export-service.test.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md scripts/smoke-experimental-headless-runtime-export.mjs apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs node scripts/smoke-experimental-headless-runtime-export.mjs` still reaches the known sandbox Electron boundary after creating the edited project and styled baseline; artifact directory `/tmp/rough-cut-headless-runtime-export-fjqkJ2` contains `red-source-with-audio.roughcut`, `.bak`, and `styled-baseline.mp4`.
+
+Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
+pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the
+first real runtime failure it exposes, then record benchmark evidence for the
+non-fallback experimental MP4. Do not make this mode default.
+
+**Slice 14 (2026-06-12):** Tightened export benchmark reporting so future speed
+evidence can distinguish real headless rendering from FFmpeg styled fallback.
+The existing `experimental-headless-zooms-cursor` benchmark case now records
+`fallbackActive`, `headlessRenderOk`, `headlessRenderReason`,
+`headlessFrameCount`, `headlessFrameArtifacts`, and `headlessAudioPreserved`
+alongside existing fallback/composition metadata. This does not make the
+experimental path default and does not change fallback behavior; it makes the
+benchmark report proof-bearing once the runtime smoke can run outside the
+sandbox.
+
+Evidence:
+- `node --check scripts/benchmark-export.mjs` passes.
+- `node --test --test-name-pattern='export benchmark keeps profiling|GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- scripts/benchmark-export.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md apps/desktop/src/main/export-service.mjs apps/desktop/src/main/export-service.test.mjs scripts/smoke-experimental-headless-runtime-export.mjs apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+
+Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
+pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the
+first real runtime failure it exposes, then run `pnpm benchmark:export` and
+confirm the experimental case reports `fallbackActive: false`,
+`headlessRenderOk: true`, nonzero `headlessFrameArtifacts`, and acceptable
+speed/quality. Do not make this mode default.
+
+**Slice 15 (2026-06-12):** Hardened the runtime smoke's Electron launch for
+Linux sandbox/CI environments. The smoke now launches Electron with
+`--no-sandbox`, `--disable-setuid-sandbox`, `--disable-gpu-sandbox`,
+`--disable-dev-shm-usage`, and `ELECTRON_DISABLE_SANDBOX=1`, and includes the
+exact argv in launch errors. This does not change app runtime defaults; it only
+improves the proof harness.
+
+Evidence:
+- `node --check scripts/smoke-experimental-headless-runtime-export.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- scripts/smoke-experimental-headless-runtime-export.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md scripts/benchmark-export.mjs apps/desktop/src/main/export-service.mjs apps/desktop/src/main/export-service.test.mjs apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs node scripts/smoke-experimental-headless-runtime-export.mjs` still reaches the same host sandbox boundary after fixture + styled baseline creation:
+  `spawnSync .../apps/desktop/node_modules/.bin/electron EPERM` with args
+  `["--no-sandbox","--disable-setuid-sandbox","--disable-gpu-sandbox","--disable-dev-shm-usage","--force-color-profile=srgb","--user-data-dir=...","." ]`.
+
+Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
+pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the
+first real runtime failure it exposes, then run `pnpm benchmark:export` and
+confirm the experimental case reports `fallbackActive: false`,
+`headlessRenderOk: true`, nonzero `headlessFrameArtifacts`, and acceptable
+speed/quality. Do not make this mode default.
+
+**Slice 16 (2026-06-12):** Hardened hidden-window frame capture timing. The
+browser-side renderer now waits for two animation frames after drawing each
+composition frame before Electron captures the page, reducing the risk that the
+PNG sequence captures a stale/partially-painted canvas even when video seeking
+and overlay drawing completed. The renderer contract tests and repo guard now
+lock the `flushCanvasFrame()` call in the hidden page. This keeps the
+experimental renderer opt-in and leaves FFmpeg styled export as the default
+fallback.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.mjs apps/desktop/src/main/export-service.test.mjs scripts/repo-regression.test.mjs scripts/smoke-experimental-headless-runtime-export.mjs scripts/benchmark-export.mjs MASTER_PLAN.md apps/desktop/src/main/index.mjs package.json` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs node scripts/smoke-experimental-headless-runtime-export.mjs` still reaches the host sandbox Electron boundary after generating the FFmpeg fixture:
+  `Electron headless runtime export smoke could not launch Electron: spawnSync .../apps/desktop/node_modules/.bin/electron EPERM`.
+  Current artifact directory: `/tmp/rough-cut-headless-runtime-export-tzvcCv`.
+
+Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
+pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the
+first real runtime failure it exposes, then run `pnpm benchmark:export` and
+confirm the experimental case reports `fallbackActive: false`,
+`headlessRenderOk: true`, nonzero `headlessFrameArtifacts`, and acceptable
+speed/quality. Do not make this mode default.
+
+**Slice 17 (2026-06-12):** Carried manual source viewports into the real
+headless renderer path. The experimental composition plan now preserves the
+actual `screenLayer.sourceViewport`/`crop` and `cameraLayer.sourceViewport`/`crop`
+objects instead of only boolean `hasCrop` metadata. The hidden renderer samples
+screen and camera videos through `sourceViewportRect(...)` before cover/zoom
+scaling, so manual screen crop and camera crop are represented in the
+non-fallback frame sequence. The FFmpeg styled export path remains unchanged
+and remains the default/fallback reference.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node --check apps/desktop/src/main/export-service.mjs` passes.
+- `node apps/desktop/src/main/export-service.test.mjs` passes, including the
+  new manual screen/camera viewport plan regression.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.mjs apps/desktop/src/main/export-service.test.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs node scripts/smoke-experimental-headless-runtime-export.mjs` still reaches the host sandbox Electron boundary after generating the FFmpeg fixture:
+  `Electron headless runtime export smoke could not launch Electron: spawnSync .../apps/desktop/node_modules/.bin/electron EPERM`.
+  Current artifact directory: `/tmp/rough-cut-headless-runtime-export-oETsgx`.
+
+Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
+pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the
+first real runtime failure it exposes, then run `pnpm benchmark:export` and
+confirm the experimental case reports `fallbackActive: false`,
+`headlessRenderOk: true`, nonzero `headlessFrameArtifacts`, and acceptable
+speed/quality. Do not make this mode default.
+
+**Slice 18 (2026-06-12):** Carried background gradient colors into the real
+headless renderer path. The experimental composition plan now records
+`background.startColor`, `background.endColor`, `background.gradient`, and
+`background.image` from the shared `backgroundLayer.style`. The hidden canvas
+renderer now draws a diagonal linear gradient using those start/end colors
+before video/cursor/camera layers, matching the existing Canvas2D preview and
+FFmpeg styled export gradient contract for color backgrounds. Background image
+URLs are preserved in metadata but not loaded in the hidden `data:` page yet.
+The FFmpeg styled export path remains unchanged and remains the default/fallback
+reference.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node --check apps/desktop/src/main/export-service.mjs` passes.
+- `node apps/desktop/src/main/export-service.test.mjs` passes, including the
+  new background-gradient plan regression.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.mjs apps/desktop/src/main/export-service.test.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs node scripts/smoke-experimental-headless-runtime-export.mjs` still reaches the host sandbox Electron boundary after generating the FFmpeg fixture:
+  `Electron headless runtime export smoke could not launch Electron: spawnSync .../apps/desktop/node_modules/.bin/electron EPERM`.
+  Current artifact directory: `/tmp/rough-cut-headless-runtime-export-vMUyTV`.
+
+Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
+pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the
+first real runtime failure it exposes, then run `pnpm benchmark:export` and
+confirm the experimental case reports `fallbackActive: false`,
+`headlessRenderOk: true`, nonzero `headlessFrameArtifacts`, and acceptable
+speed/quality. Do not make this mode default.
+
+**Slice 19 (2026-06-12):** Carried resolved background image assets into the
+real headless renderer path. The experimental composition plan now resolves
+`background.bgImage` through the same renderer-public asset lookup used by
+FFmpeg styled export, records `background.imagePath`, and exposes a `file://`
+`background.imageUrl` to the hidden renderer. The hidden canvas page now caches
+image elements, waits for image load/error before capture, draws the background
+image over the gradient when available, and reports `drewBackgroundImage` from
+the actual draw result. If image loading fails, the gradient fallback remains.
+The FFmpeg styled export path remains unchanged and remains the default/fallback
+reference.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node --check apps/desktop/src/main/export-service.mjs` passes.
+- `node apps/desktop/src/main/export-service.test.mjs` passes, including the
+  background image path/URL regression against checked-in `dark-waves.png`.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.mjs apps/desktop/src/main/export-service.test.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs node scripts/smoke-experimental-headless-runtime-export.mjs` still reaches the host sandbox Electron boundary after generating the FFmpeg fixture:
+  `Electron headless runtime export smoke could not launch Electron: spawnSync .../apps/desktop/node_modules/.bin/electron EPERM`.
+  Current artifact directory: `/tmp/rough-cut-headless-runtime-export-OmR0pF`.
+
+Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
+pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the
+first real runtime failure it exposes, then run `pnpm benchmark:export` and
+confirm the experimental case reports `fallbackActive: false`,
+`headlessRenderOk: true`, nonzero `headlessFrameArtifacts`, and acceptable
+speed/quality. Do not make this mode default.
+
+**Slice 20 (2026-06-12):** Aligned hidden-renderer screen geometry and styling
+with the styled export contract. The experimental plan now resolves a concrete
+screen draw rectangle from background padding, output aspect, source/crop
+aspect, and optional manual `screenFrame`, then stores it as the screen layer
+frame consumed by the hidden renderer. It also carries screen corner radius and
+shadow settings from the same background style object used by styled export.
+The hidden renderer now accepts both `{ width, height }` and normalized
+`{ w, h }` frame shapes, draws screen video edge-to-edge inside the resolved
+rounded rect instead of applying an extra hardcoded 6px inset, and uses the
+configured shadow/radius values. FFmpeg styled export remains unchanged and
+the default/fallback reference.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node --check apps/desktop/src/main/export-service.mjs` passes.
+- `node apps/desktop/src/main/export-service.test.mjs` passes, including
+  resolved default/custom screen-frame and style regressions.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.mjs apps/desktop/src/main/export-service.test.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs node scripts/smoke-experimental-headless-runtime-export.mjs` still reaches the host sandbox Electron boundary after generating the FFmpeg fixture:
+  `Electron headless runtime export smoke could not launch Electron: spawnSync .../apps/desktop/node_modules/.bin/electron EPERM`.
+  Current artifact directory: `/tmp/rough-cut-headless-runtime-export-rejHnX`.
+
+Slice 21 update: camera PiP presentation parity is now part of the experimental
+headless plan/renderer contract. The plan resolves the camera frame through the
+same shape-constrained frame helper used by styled FFmpeg export, carries the
+resolved pixel radius and camera style, and the hidden renderer consumes that
+radius/style instead of using the old hardcoded `Math.min(26, width * 0.12)`
+corner. This locks circle/square/rounded PiP behavior to the styled-export
+contract while keeping FFmpeg styled export as the fallback/default path.
+
+Evidence:
+- `node --check apps/desktop/src/main/export-service.mjs` passes.
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node apps/desktop/src/main/export-service.test.mjs` passes, including the
+  new circle camera frame/radius/style regression.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes,
+  including the hidden-renderer camera style/radius guard.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs node scripts/smoke-experimental-headless-runtime-export.mjs` still reaches the host sandbox Electron boundary after generating the FFmpeg fixture:
+  `Electron headless runtime export smoke could not launch Electron: spawnSync .../apps/desktop/node_modules/.bin/electron EPERM`.
+  Current artifact directory: `/tmp/rough-cut-headless-runtime-export-hqf8Jc`.
+
+Slice 22 update: camera PiP circle masks now use the same shape-path contract
+as the active preview renderer. The hidden headless renderer now calls a
+dedicated `cameraShapePath(...)` helper and uses an actual `ctx.arc(...)` for
+`shape: "circle"` instead of relying on a rounded-rectangle path with radius
+half the frame. Square and rounded camera shapes still use the existing rounded
+rect helper. This keeps the experimental renderer closer to the Canvas2D/WebGPU
+preview contract without touching FFmpeg styled export fallback/defaults.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs node scripts/smoke-experimental-headless-runtime-export.mjs` still reaches the host sandbox Electron boundary after generating the FFmpeg fixture:
+  `Electron headless runtime export smoke could not launch Electron: spawnSync .../apps/desktop/node_modules/.bin/electron EPERM`.
+  Current artifact directory: `/tmp/rough-cut-headless-runtime-export-y1Fq15`.
+
+Slice 23 update: cursor/click presentation parity is now more complete in the
+hidden headless renderer. The experimental plan is covered by a regression that
+proves cursor style, size percent, click effect, click sound flag, and normalized
+source positions flow into headless frames. The hidden renderer now projects
+`cursor.sourcePosition` and `click.sourcePosition` independently through the
+resolved screen frame, draws cursor `subtle/default/spotlight` styles with
+`sizePercent`, and renders click `ring` vs `ripple` effects at the click source
+point instead of always drawing a fixed blue ring at the cursor point. FFmpeg
+styled export remains unchanged and remains the fallback/default.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node apps/desktop/src/main/export-service.test.mjs` passes, including the
+  new headless cursor style/click effect plan regression.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs node scripts/smoke-experimental-headless-runtime-export.mjs` still reaches the host sandbox Electron boundary after generating the FFmpeg fixture:
+  `Electron headless runtime export smoke could not launch Electron: spawnSync .../apps/desktop/node_modules/.bin/electron EPERM`.
+  Current artifact directory: `/tmp/rough-cut-headless-runtime-export-dwwzV9`.
+
+Slice 24 update: the hidden experimental export renderer now has a real WebGL
+presentation branch for the first safe subset of frames: simple screen-only
+compositions with no camera PiP and no background image. The hidden page owns a
+separate `gpu-frame` canvas, probes `webgl`, uploads the resolved screen video
+source rect into a texture, draws through a shader-backed quad, and returns
+`rendererKind: "webgl"` for frames that used the GPU branch. Unsupported or
+complex frames still render through the existing Canvas2D hidden renderer, and
+the branch clears/falls back instead of weakening Canvas2D or the FFmpeg styled
+export default/fallback path.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm smoke:experimental-headless-runtime-export` builds project-model and desktop, generates the FFmpeg fixture, then still reaches the host sandbox Electron boundary:
+  `Electron headless runtime export smoke could not launch Electron: spawnSync .../apps/desktop/node_modules/.bin/electron EPERM`.
+  Current artifact directory: `/tmp/rough-cut-headless-runtime-export-JCg2lw`.
+
+Slice 25 update: the WebGL hidden-renderer branch now draws simple background
+gradients on the GPU instead of only clearing to the start color. The shader
+accepts `u_gradientEnd` and `u_useGradient`, `drawGpuBackground(...)` maps the
+same headless `background.startColor`/`endColor`/`gradient` metadata used by the
+Canvas2D hidden renderer, and background-image frames still stay out of the GPU
+subset so they use the existing Canvas2D fallback. FFmpeg styled export remains
+unchanged and remains the default/fallback reference.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+
+Slice 26 update: the WebGL hidden-renderer branch now applies the resolved
+screen corner radius in shader space. The fragment shader receives `u_rect`,
+`u_radius`, and `u_useRoundedMask`, discards pixels outside the rounded screen
+shape, and `drawGpuScreenLayer(...)` feeds the same `screenStyle(...)` radius
+that the Canvas2D hidden path uses. This moves the GPU subset closer to styled
+export parity for simple screen-only frames while keeping background-image,
+camera, and unavailable-WebGL cases on the Canvas2D fallback. FFmpeg styled
+export remains unchanged and remains the default/fallback reference.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+
+Slice 27 update: hidden export renderer reporting is now tied to actual GPU draw
+success, not only GPU eligibility. A simple screen-only frame now reports
+`rendererKind: "webgl"` only after `drawGpuScreenLayer(...)` succeeds. If the
+WebGL video draw fails, the hidden page clears the GPU canvas, restores the
+Canvas2D background path, draws the Canvas2D fallback screen, and reports
+`rendererKind: "canvas2d"`. This makes the runtime smoke/benchmark evidence
+honest when evaluating non-fallback experimental export frames. FFmpeg styled
+export remains unchanged and remains the default/fallback reference.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+
+Slice 28 update: the TASK-246 runtime/benchmark harnesses now require and
+surface actual WebGL frame evidence. The runtime smoke computes
+`webglFrameCount` from `headlessRender.renderSurface.renderResults`, fails if
+the experimental export produces zero `rendererKind: "webgl"` frames, and
+includes the WebGL frame count in the success report. The export benchmark now
+records `headlessWebglFrameCount` and `headlessCanvas2dFrameCount` for each
+case, so benchmark output can distinguish non-fallback GPU frames from Canvas2D
+fallback frames. This does not change export defaults: FFmpeg styled export
+remains the default/fallback reference.
+
+Evidence:
+- `node --check scripts/smoke-experimental-headless-runtime-export.mjs` passes.
+- `node --check scripts/benchmark-export.mjs` passes.
+- `node --test --test-name-pattern='export benchmark keeps profiling|GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `git diff --check -- scripts/smoke-experimental-headless-runtime-export.mjs scripts/benchmark-export.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+
+Slice 29 update: camera PiP is now part of the real WebGL hidden-renderer
+subset for frames without background images. `useGpuFrame(...)` no longer
+excludes `frame.camera`; the hidden page now factors camera cover sampling into
+`coverSourceRect(...)`, reuses it for both Canvas2D and WebGL camera draws, and
+adds `drawGpuCameraLayer(...)` with the same `cameraStyle(...)` radius contract
+used by the Canvas2D path. If camera WebGL upload/draw fails after a GPU screen
+draw, the frame is downgraded to Canvas2D reporting and fallback visuals, so
+`rendererKind: "webgl"` still means the GPU composition path actually survived.
+Background-image frames remain on the Canvas2D fallback. FFmpeg styled export
+remains unchanged and remains the default/fallback reference.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+
+Slice 30 update: cursor and click overlays now have GPU primitives in the
+hidden WebGL renderer. WebGL frames enable alpha blending, draw cursor
+spotlight/default/subtle primitives through `drawGpuCursor(...)`, draw click
+ring/ripple primitives through `drawGpuClick(...)`, and keep the existing
+Canvas2D cursor/click path for frames that were downgraded to Canvas2D. This
+means simple screen/camera/cursor/click frames can now stay on the WebGL
+composition canvas instead of requiring the 2D overlay for cursor/click
+presentation. Background-image and failed-GPU frames still fall back safely, and
+FFmpeg styled export remains unchanged as the default/fallback reference.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+
+Slice 31 update: background images are now eligible for the real WebGL hidden
+renderer path. `useGpuFrame(...)` no longer excludes `background.imageUrl`, and
+the hidden page now draws the gradient first, then attempts
+`drawGpuBackgroundImage(...)` by waiting for the same cached image element used
+by the Canvas2D path and uploading it as a WebGL texture. If the image does not
+load or upload, the frame keeps the GPU gradient and continues rather than
+breaking export. This expands the GPU composition subset to include image
+background + screen/camera/cursor/click frames while keeping Canvas2D fallback
+available for unavailable WebGL or failed video layer draws. FFmpeg styled
+export remains unchanged and remains the default/fallback reference.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+
+Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
+pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the
+first real runtime failure it exposes, then run `pnpm benchmark:export` and
+confirm the experimental case reports `fallbackActive: false`,
+`headlessRenderOk: true`, nonzero `headlessFrameArtifacts`, and acceptable
+speed/quality. Do not make this mode default.
 
 ### TASK-247 Make GPU compositor default and retire legacy visual composition logic
 

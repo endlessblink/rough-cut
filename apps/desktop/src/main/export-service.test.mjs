@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
-import { buildBackgroundExpression, buildCursorAss, buildExperimentalHeadlessExportPlan, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveTimelineExportRecording } from './export-service.mjs';
+import { buildBackgroundExpression, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveTimelineExportRecording } from './export-service.mjs';
 
 test('unedited export copies source mp4 byte-for-byte', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-'));
@@ -241,8 +241,310 @@ test('experimental headless export plan samples shared composition frames', () =
   assert.deepEqual(plan.frames.map((frame) => frame.frameIndex), [0, 45, 89]);
   assert(plan.frames.every((frame) => frame.output.width > 0 && frame.output.height > 0));
   assert(plan.frames.every((frame) => frame.background.color));
+  assert(plan.frames.every((frame) => frame.background.startColor && frame.background.endColor));
   assert(plan.frames.some((frame) => frame.screen?.zoomTransform));
+  assert.equal(plan.frames[0].screen.sourcePath, '/tmp/source.mp4');
+  assert.match(plan.frames[0].screen.sourceUrl, /^file:\/\/\/tmp\/source\.mp4$/);
+  assert.equal(plan.frames[0].screen.fps, 30);
+  assert.equal(plan.frames[0].screen.frameSource, 'background-padding');
+  assert.deepEqual(plan.frames[0].screen.frame, { x: 0.133203, y: 0.133333, w: 0.733594, h: 0.733333 });
+  assert.equal(plan.frames[0].screen.style.cornerRadius, 32);
+  assert.equal(plan.frames[0].screen.style.shadowBlur, 58);
   assert.equal(plan.audio.preservedBy, 'ffmpeg-styled-fallback');
+});
+
+test('experimental headless export plan carries background gradient colors', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:03.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+    },
+  });
+  project.assets[0].presentation = {
+    ...project.assets[0].presentation,
+    background: {
+      ...project.assets[0].presentation.background,
+      bgColor: '#101010',
+      bgGradient: 'linear-gradient(135deg, #112233 0%, #445566 45%, #778899 100%)',
+      bgImage: 'backgrounds/dark-waves.png',
+    },
+  };
+
+  const plan = buildExperimentalHeadlessExportPlan({ project, recording: getPrimaryRecording(project) });
+
+  assert.equal(plan.frames[0].background.color, '#101010');
+  assert.equal(plan.frames[0].background.startColor, '#112233');
+  assert.equal(plan.frames[0].background.endColor, '#778899');
+  assert.equal(plan.frames[0].background.gradient, 'linear-gradient(135deg, #112233 0%, #445566 45%, #778899 100%)');
+  assert.equal(plan.frames[0].background.image, 'backgrounds/dark-waves.png');
+  assert.match(plan.frames[0].background.imagePath, /apps\/desktop\/src\/renderer\/public\/backgrounds\/dark-waves\.png$|dist\/renderer\/backgrounds\/dark-waves\.png$/);
+  assert.match(plan.frames[0].background.imageUrl, /^file:\/\//);
+  assert.match(plan.frames[0].background.imageUrl, /backgrounds\/dark-waves\.png$/);
+  assert.equal(plan.frames[0].background.styleKind, 'gradient');
+});
+
+test('experimental headless export plan carries cursor style and click effect', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:03.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      cursorEvents: [{ frame: 0, x: 640, y: 360, type: 'down', button: 0 }],
+    },
+  });
+  project.assets[0].presentation = {
+    ...project.assets[0].presentation,
+    cursor: {
+      style: 'spotlight',
+      clickEffect: 'ripple',
+      sizePercent: 125,
+      clickSoundEnabled: true,
+    },
+  };
+
+  const plan = buildExperimentalHeadlessExportPlan({ project, recording: getPrimaryRecording(project) });
+
+  assert.deepEqual(plan.frames[0].cursor.sourcePosition, { x: 0.5, y: 0.5 });
+  assert.equal(plan.frames[0].cursor.style, 'spotlight');
+  assert.equal(plan.frames[0].cursor.sizePercent, 125);
+  assert.deepEqual(plan.frames[0].click.sourcePosition, { x: 0.5, y: 0.5 });
+  assert.equal(plan.frames[0].click.visible, true);
+  assert.equal(plan.frames[0].click.effect, 'ripple');
+  assert.equal(plan.frames[0].click.soundEnabled, true);
+});
+
+test('experimental headless export plan carries manual screen and camera source viewports', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:03.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      camera: {
+        outputPath: '/tmp/camera.mp4',
+        width: 640,
+        height: 480,
+      },
+    },
+  });
+  const recordingAsset = project.assets[0];
+  recordingAsset.presentation = {
+    ...recordingAsset.presentation,
+    screenCrop: { enabled: true, x: 120, y: 40, width: 640, height: 360, aspectRatio: '16:9' },
+    cameraCrop: { enabled: true, x: 20, y: 30, width: 320, height: 240, aspectRatio: '4:3' },
+  };
+
+  const plan = buildExperimentalHeadlessExportPlan({ project, recording: getPrimaryRecording(project) });
+
+  assert.deepEqual(plan.frames[0].screen.sourceViewport, { enabled: true, x: 120, y: 40, width: 640, height: 360, aspectRatio: '16:9' });
+  assert.deepEqual(plan.frames[0].screen.crop, { enabled: true, x: 120, y: 40, width: 640, height: 360, aspectRatio: '16:9' });
+  assert.equal(plan.frames[0].screen.hasSourceViewport, true);
+  assert.deepEqual(plan.frames[0].camera.sourceViewport, { enabled: true, x: 20, y: 30, width: 320, height: 240, aspectRatio: '4:3' });
+  assert.deepEqual(plan.frames[0].camera.crop, { enabled: true, x: 20, y: 30, width: 320, height: 240, aspectRatio: '4:3' });
+  assert.equal(plan.frames[0].camera.hasCrop, true);
+});
+
+test('experimental headless export plan resolves custom screen frame and background screen style', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:03.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+    },
+  });
+  project.assets[0].presentation = {
+    ...project.assets[0].presentation,
+    screenFrame: { x: 0.1, y: 0.1, w: 0.8, h: 0.4 },
+    background: {
+      ...project.assets[0].presentation.background,
+      bgCornerRadius: 44,
+      bgShadowEnabled: true,
+      bgShadowBlur: 72,
+      bgShadowOpacity: 0.31,
+      bgShadowOffsetX: -12,
+      bgShadowOffsetY: 24,
+    },
+  };
+
+  const plan = buildExperimentalHeadlessExportPlan({ project, recording: getPrimaryRecording(project) });
+
+  assert.equal(plan.frames[0].screen.frameSource, 'manual');
+  assert.deepEqual(plan.frames[0].screen.frame, { x: 0.3, y: 0.1, w: 0.4, h: 0.4 });
+  assert.deepEqual(plan.frames[0].screen.style, {
+    cornerRadius: 44,
+    shadowEnabled: true,
+    shadowBlur: 72,
+    shadowOpacity: 0.31,
+    shadowOffsetX: -12,
+    shadowOffsetY: 24,
+  });
+});
+
+test('experimental headless export plan resolves camera shape frame radius and style', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:03.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      camera: {
+        outputPath: '/tmp/camera.mp4',
+        width: 640,
+        height: 480,
+      },
+    },
+  });
+  project.assets[0].presentation = {
+    ...project.assets[0].presentation,
+    camera: {
+      ...project.assets[0].presentation.camera,
+      shape: 'circle',
+      roundness: 50,
+      shadowEnabled: true,
+      shadowBlur: 32,
+      shadowOpacity: 0.37,
+    },
+    cameraFrame: { x: 0.1, y: 0.2, w: 0.25, h: 0.4 },
+  };
+
+  const plan = buildExperimentalHeadlessExportPlan({ project, recording: getPrimaryRecording(project) });
+
+  assert.equal(plan.frames[0].camera.frameSource, 'manual');
+  assert.deepEqual(plan.frames[0].camera.frame, { x: 0.1125, y: 0.2, w: 0.225, h: 0.4 });
+  assert.equal(plan.frames[0].camera.radius, 144);
+  assert.equal(plan.frames[0].camera.presentation.shape, 'circle');
+  assert.deepEqual(plan.frames[0].camera.style, {
+    shape: 'circle',
+    roundness: 50,
+    shadowEnabled: true,
+    shadowBlur: 32,
+    shadowOpacity: 0.37,
+  });
+});
+
+test('experimental headless export plan can expand to every output frame for real rendering', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:01.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+    },
+  });
+
+  const plan = buildExperimentalHeadlessExportPlan({
+    project,
+    recording: getPrimaryRecording(project),
+    frameSelection: 'all',
+  });
+
+  assert.equal(plan.frameSelection, 'all');
+  assert.equal(plan.durationFrames, 30);
+  assert.deepEqual(plan.sampledFrames, [0, 15, 29]);
+  assert.equal(plan.frames.length, 30);
+  assert.deepEqual(plan.frames.slice(0, 4).map((frame) => frame.frameIndex), [0, 1, 2, 3]);
+  assert.deepEqual(plan.frames.slice(-3).map((frame) => frame.frameIndex), [27, 28, 29]);
+});
+
+test('experimental headless export plan preserves timeline gaps and cut source frames', () => {
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:01.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+    },
+  });
+  const split = withPrimaryTimelineClips(project, [
+    { id: 'screen-before-gap', timelineIn: 0, timelineOut: 10, sourceIn: 0, sourceOut: 10 },
+    { id: 'screen-after-gap', timelineIn: 20, timelineOut: 30, sourceIn: 20, sourceOut: 30 },
+  ], 30);
+  const recording = resolveTimelineExportRecording(split, getPrimaryRecording(split));
+
+  const plan = buildExperimentalHeadlessExportPlan({
+    project: split,
+    recording,
+    frameSelection: 'all',
+  });
+
+  assert.equal(plan.durationFrames, 30);
+  assert.equal(plan.frames[5].timelineGap, false);
+  assert.equal(plan.frames[5].screen.sourceFrame, 5);
+  assert.equal(plan.frames[15].timelineGap, true);
+  assert.equal(plan.frames[15].screen, null);
+  assert.equal(plan.frames[15].sourceFrame, null);
+  assert.equal(plan.frames[25].timelineGap, false);
+  assert.equal(plan.frames[25].screen.sourceFrame, 25);
+});
+
+test('headless frame export args encode a captured image sequence and preserve source audio when present', () => {
+  const args = buildHeadlessFrameExportArgs({
+    framePattern: '/tmp/rendered/frame-%06d.png',
+    outputPath: '/tmp/export.mp4',
+    width: 1920,
+    height: 1080,
+    fps: 30,
+    durationSeconds: 2,
+    audioInputPath: '/tmp/source.mp4',
+  });
+
+  assert.deepEqual(args.slice(0, 10), [
+    '-y',
+    '-progress',
+    'pipe:1',
+    '-nostats',
+    '-framerate',
+    '30',
+    '-start_number',
+    '0',
+    '-i',
+    '/tmp/rendered/frame-%06d.png',
+  ]);
+  assert(args.includes('/tmp/source.mp4'));
+  assert(args.includes('-map'));
+  assert(args.includes('1:a?'));
+  assert(args.includes('-shortest'));
+  assert(args.includes('rough_cut_style=experimental-headless:1920x1080:studio-demo'));
+  assert.equal(args.at(-1), '/tmp/export.mp4');
+});
+
+test('headless frame export args can mux timeline audio segments over rendered frames', () => {
+  const args = buildHeadlessFrameExportArgs({
+    framePattern: '/tmp/rendered/frame-%06d.png',
+    outputPath: '/tmp/export.mp4',
+    width: 1920,
+    height: 1080,
+    fps: 30,
+    durationSeconds: 3,
+    audioInputPath: '/tmp/source.mp4',
+    timelineAudioSegments: [{ timelineIn: 30, timelineOut: 90, sourceIn: 15, sourceOut: 75 }],
+  });
+  const joined = args.join(' ');
+
+  assert(joined.includes('anullsrc=channel_layout=stereo:sample_rate=48000:d=3[audio_blank]'));
+  assert(joined.includes('[1:a]atrim=start=0.5:end=2.5,asetpts=PTS-STARTPTS,adelay=1000:all=1[audio_seg_0]'));
+  assert(joined.includes('[audio_blank][audio_seg_0]amix=inputs=2:duration=first:dropout_transition=0[a]'));
+  assert.deepEqual(args.slice(args.indexOf('-map'), args.indexOf('-map') + 4), ['-map', '0:v', '-map', '[a]']);
+  assert(!args.includes('-shortest'));
+  assert(args.includes('aac'));
 });
 
 test('styled export mode uses the ffmpeg styled canvas path', async () => {

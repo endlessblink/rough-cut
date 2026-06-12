@@ -21,14 +21,18 @@ const reportPath = join(root, 'nle-clips-report.json');
 const shots = {
   editorOpen: join(root, '01-editor-open.png'),
   afterSplit: join(root, '02-after-split.png'),
-  afterTrim: join(root, '03-after-trim.png'),
-  afterClick: join(root, '04-after-click-select.png'),
-  afterJitter: join(root, '05-after-jitter-click.png'),
-  afterDrag: join(root, '06-after-drag.png'),
-  afterCancel: join(root, '07-after-pointercancel.png'),
-  afterZoom: join(root, '08-after-zoom.png'),
-  afterFit: join(root, '09-after-fit.png'),
-  afterBlade: join(root, '10-after-blade.png'),
+  afterRippleTrim: join(root, '03-after-ripple-trim.png'),
+  afterTrim: join(root, '04-after-trim.png'),
+  afterClick: join(root, '05-after-click-select.png'),
+  afterJitter: join(root, '06-after-jitter-click.png'),
+  afterDrag: join(root, '07-after-drag.png'),
+  afterDragUndo: join(root, '08-after-drag-undo.png'),
+  afterDragRedo: join(root, '09-after-drag-redo.png'),
+  afterCancel: join(root, '10-after-pointercancel.png'),
+  afterZoom: join(root, '11-after-zoom.png'),
+  afterFit: join(root, '12-after-fit.png'),
+  afterBlade: join(root, '13-after-blade.png'),
+  afterBladeUndo: join(root, '14-after-blade-undo.png'),
 };
 
 await mkdir(root, { recursive: true });
@@ -106,7 +110,41 @@ try {
 
   // Identify the right-hand video clip (post-split) for the rest of the tests.
   const videoClips = page.locator('.nleTrackLaneBody[data-track-kind="video"] .nleClipBlock');
+  const leftClip = videoClips.first();
   const rightClip = videoClips.nth((await videoClips.count()) - 1);
+
+  // --- Ripple trim: shortening the left segment's tail should pull the right
+  // segment left by the same delta, with no gap/overlap between the pair.
+  await leftClip.click();
+  await page.waitForTimeout(200);
+  const leftClipId = await leftClip.getAttribute('data-clip-id');
+  const rightClipId = await rightClip.getAttribute('data-clip-id');
+  const leftBeforeRipple = leftClipId ? await clipRange(page, leftClipId) : null;
+  const rightBeforeRipple = rightClipId ? await clipRange(page, rightClipId) : null;
+  const leftRightHandle = page.locator('.nleClipTrimHandle.right');
+  const leftRightHandleBox = await requiredBox(leftRightHandle, 'left clip right trim handle');
+  const rippleTargetX = leftRightHandleBox.x + leftRightHandleBox.width / 2 - Math.max(40, bodies.width * 0.05);
+  await page.mouse.move(leftRightHandleBox.x + leftRightHandleBox.width / 2, leftRightHandleBox.y + leftRightHandleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(rippleTargetX, leftRightHandleBox.y + leftRightHandleBox.height / 2, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const leftAfterRipple = leftClipId ? await clipRange(page, leftClipId) : null;
+  const rightAfterRipple = rightClipId ? await clipRange(page, rightClipId) : null;
+  await page.screenshot({ path: shots.afterRippleTrim, fullPage: false });
+  const rippleTrimDelta = leftBeforeRipple && leftAfterRipple ? leftAfterRipple.outFrame - leftBeforeRipple.outFrame : null;
+  const rippleTrim = {
+    leftClipId,
+    rightClipId,
+    leftBefore: leftBeforeRipple,
+    rightBefore: rightBeforeRipple,
+    leftAfter: leftAfterRipple,
+    rightAfter: rightAfterRipple,
+    tailDeltaFrames: rippleTrimDelta,
+    downstreamDeltaFrames: rightBeforeRipple && rightAfterRipple ? rightAfterRipple.inFrame - rightBeforeRipple.inFrame : null,
+    closedPairBoundary: Boolean(leftAfterRipple && rightAfterRipple && leftAfterRipple.outFrame === rightAfterRipple.inFrame),
+    downstreamShiftedWithTail: rippleTrimDelta !== null && rightBeforeRipple !== null && rightAfterRipple !== null && rightAfterRipple.inFrame - rightBeforeRipple.inFrame === rippleTrimDelta,
+  };
 
   // --- Trim: open a gap by dragging the right clip's LEFT handle rightward ---
   await rightClip.click();
@@ -172,6 +210,7 @@ try {
   const dragY = dragStart.y + dragStart.height / 2;
   const dragDeltaPx = -Math.max(40, bodies.width * 0.05);
   const dragBefore = await selectedClipState(page, rightClip);
+  const draggedClipId = await rightClip.getAttribute('data-clip-id');
   await page.mouse.move(dragFromX, dragY);
   await page.mouse.down();
   await page.mouse.move(dragFromX + dragDeltaPx, dragY, { steps: 12 });
@@ -188,6 +227,27 @@ try {
     snapThresholdFrames,
     dragWorked: Math.abs(dragAfter.inFrame - dragBefore.inFrame) > 0,
   };
+
+  let dragUndo = { available: Boolean(draggedClipId) };
+  if (draggedClipId) {
+    await page.keyboard.press('Control+Z');
+    await page.waitForTimeout(350);
+    const undoInFrame = await clipTimelineIn(page, draggedClipId);
+    await page.screenshot({ path: shots.afterDragUndo, fullPage: false });
+    await page.keyboard.press('Control+Shift+Z');
+    await page.waitForTimeout(350);
+    const redoInFrame = await clipTimelineIn(page, draggedClipId);
+    await page.screenshot({ path: shots.afterDragRedo, fullPage: false });
+    dragUndo = {
+      available: true,
+      beforeInFrame: dragBefore.inFrame,
+      afterDragInFrame: dragAfter.inFrame,
+      undoInFrame,
+      redoInFrame,
+      undoRestoredPosition: undoInFrame === dragBefore.inFrame,
+      redoRestoredMove: redoInFrame === dragAfter.inFrame,
+    };
+  }
 
   // --- pointercancel mid-drag: does the UI get stuck in dragging state? ---
   const cancelStart = await requiredBox(rightClip, 'right clip before cancel test');
@@ -264,7 +324,9 @@ try {
     await page.mouse.click(content2.x + (preRollFrame / gapBounds.total) * content2.width, ruler2.y + ruler2.height / 2);
     await page.waitForTimeout(400);
     await page.keyboard.press(' ');
-    const samples = await page.evaluate(async () => {
+    const targetFrame = gapBounds.gapEnd;
+    const sampleCount = Math.min(360, Math.max(90, Math.ceil((((gapBounds.gapEnd - preRollFrame) / FPS) + 6) * 10)));
+    const samples = await page.evaluate(async ({ sampleCount, gapStart, gapEnd, targetFrame }) => {
       const out = [];
       const read = () => {
         const statusEl = document.querySelector('.nleTimelineStatus');
@@ -275,12 +337,15 @@ try {
         const match = meta.match(/(\d+)\s*\/\s*\d+\s*f(?:rames)?/);
         return match ? Number(match[1]) : null;
       };
-      for (let i = 0; i < 60; i += 1) {
-        out.push(read());
+      const hasEnoughGapSamples = () => out.filter((frame) => frame !== null && frame > gapStart + 10 && frame < gapEnd - 10).length >= 3;
+      for (let i = 0; i < sampleCount; i += 1) {
+        const frame = read();
+        out.push(frame);
+        if (frame !== null && frame >= targetFrame && hasEnoughGapSamples()) break;
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
       return out;
-    });
+    }, { sampleCount, gapStart: gapBounds.gapStart, gapEnd: gapBounds.gapEnd, targetFrame });
     await page.keyboard.press(' ');
     await page.waitForTimeout(200);
     const inGap = samples.filter((frame) => frame !== null && frame > gapBounds.gapStart + 10 && frame < gapBounds.gapEnd - 10);
@@ -294,7 +359,7 @@ try {
       samples,
       samplesInsideGap: inGap.length,
       reachedAfterGap,
-      skippedGap: inGap.length <= 2 && reachedAfterGap,
+      playedThroughGap: inGap.length >= 3 && reachedAfterGap,
       playbackDebug,
     };
   }
@@ -420,12 +485,20 @@ try {
     await page.waitForTimeout(150);
     const selectActive = await page.evaluate(() => document.querySelector('button[aria-label="Selection mode"]')?.getAttribute('aria-pressed') === 'true');
     const handlesBack = await page.locator('.nleClipTrimHandle').count();
+    await page.keyboard.press('Control+Z');
+    await page.waitForTimeout(350);
+    const bladeClipCountAfterUndo = await page.locator('.nleClipBlock').count();
+    await page.screenshot({ path: shots.afterBladeUndo, fullPage: false });
+    await page.keyboard.press('Control+Shift+Z');
+    await page.waitForTimeout(350);
     blade = {
       available: true,
       bladeActive,
       clipCountBefore: bladeClipCountBefore,
       clipCountAfter: bladeClipCountAfter,
+      clipCountAfterUndo: bladeClipCountAfterUndo,
       cutHappened: bladeClipCountAfter > bladeClipCountBefore,
+      undoRejoinedClip: bladeClipCountAfterUndo === bladeClipCountBefore,
       expectedCutFrame,
       observedCutFrame: cutState.inFrame,
       cutErrorFrames: cutState.inFrame !== null && expectedCutFrame !== null ? cutState.inFrame - expectedCutFrame : null,
@@ -459,7 +532,9 @@ try {
     trim,
     clickSelect,
     jitterClick,
+    rippleTrim,
     drag,
+    dragUndo,
     cancel,
     gapPlayback,
     zoom,
@@ -471,10 +546,17 @@ try {
   if (!report.geometry.frameAddressable && !zoom.available) problems.push(`precision: 1px = ${framesPerPx.toFixed(1)} frames — individual frames unaddressable, snap reach ±${snapThresholdFrames.toFixed(0)} frames`);
   if (!split.splitWorked) problems.push('split: S at playhead did not produce a new clip');
   if (!trim.trimWorked) problems.push('trim: left-handle drag did not trim the clip');
+  if (!rippleTrim.downstreamShiftedWithTail) problems.push(`ripple-trim: downstream moved ${rippleTrim.downstreamDeltaFrames} frames, expected ${rippleTrim.tailDeltaFrames}`);
+  if (!rippleTrim.closedPairBoundary) problems.push('ripple-trim: trimmed clip and downstream clip did not stay edge-contiguous');
   if (!clickSelect.cleanSelect) problems.push(`click-select: pure click moved clip by ${clickSelect.movedFrames} frames (or failed to select)`);
   if (!jitterClick.noPhantomMove) problems.push(`jitter-click: 2px jitter moved clip by ${jitterClick.movedFrames} frames`);
   if (!drag.dragWorked) problems.push('drag: deliberate drag did not move the clip');
   else if (Math.abs(drag.errorFrames) > snapThresholdFrames) problems.push(`drag accuracy: landed ${drag.errorFrames} frames off target (beyond snap reach)`);
+  if (!dragUndo.available) problems.push('undo: drag target clip id was unavailable');
+  else {
+    if (!dragUndo.undoRestoredPosition) problems.push(`undo: drag undo restored ${dragUndo.undoInFrame}, expected ${dragUndo.beforeInFrame}`);
+    if (!dragUndo.redoRestoredMove) problems.push(`redo: drag redo restored ${dragUndo.redoInFrame}, expected ${dragUndo.afterDragInFrame}`);
+  }
   if (!cancel.cancelHandled) problems.push('pointercancel: drag session stuck (clip stays in dragging state, listeners leaked)');
   if (cancel.committedMoveAfterCancelFrames !== 0) problems.push(`pointercancel: cancelled gesture still committed a ${cancel.committedMoveAfterCancelFrames}-frame move on cleanup`);
   if (zoom.available) {
@@ -488,10 +570,11 @@ try {
     problems.push('zoom: controls not present (Phase 1 pending)');
   }
   if (!gapPlayback.gapFound) problems.push('gap-playback: no gap found on the video lane to test');
-  else if (!gapPlayback.skippedGap) problems.push(`gap-playback: playback did NOT skip the gap (${gapPlayback.samplesInsideGap} samples inside gap, reachedAfterGap=${gapPlayback.reachedAfterGap}) — edits are disregarded during playback`);
+  else if (!gapPlayback.playedThroughGap) problems.push(`gap-playback: playback did not continue through the timeline gap (${gapPlayback.samplesInsideGap} samples inside gap, reachedAfterGap=${gapPlayback.reachedAfterGap})`);
   if (blade.available) {
     if (!blade.bladeActive) problems.push('blade: B key did not activate blade mode');
     if (!blade.cutHappened) problems.push('blade: click did not cut the clip');
+    if (!blade.undoRejoinedClip) problems.push(`undo: blade undo left ${blade.clipCountAfterUndo} clips, expected ${blade.clipCountBefore}`);
     if (blade.cutErrorFrames === null || Math.abs(blade.cutErrorFrames) > 2) problems.push(`blade: cut landed ${blade.cutErrorFrames} frames from the cursor`);
     if (!blade.selectModeRestored) problems.push('blade: A key did not restore selection mode');
     if (!blade.handlesBackInSelectMode) problems.push('blade: trim handles missing after returning to selection mode');
@@ -525,6 +608,26 @@ async function selectedClipState(page, clipLocator) {
       : null;
     return { inFrame, selected: selected !== null };
   });
+}
+
+async function clipTimelineIn(page, clipId) {
+  return page.evaluate((clipId) => {
+    const escaped = CSS.escape(clipId);
+    const clip = document.querySelector(`.nleClipBlock[data-clip-id="${escaped}"]`);
+    return clip instanceof HTMLElement && clip.dataset.timelineIn !== undefined ? Number(clip.dataset.timelineIn) : null;
+  }, clipId);
+}
+
+async function clipRange(page, clipId) {
+  return page.evaluate((clipId) => {
+    const escaped = CSS.escape(clipId);
+    const clip = document.querySelector(`.nleClipBlock[data-clip-id="${escaped}"]`);
+    if (!(clip instanceof HTMLElement)) return null;
+    return {
+      inFrame: Number(clip.dataset.timelineIn),
+      outFrame: Number(clip.dataset.timelineOut),
+    };
+  }, clipId);
 }
 
 async function zoomGeometry(page) {
