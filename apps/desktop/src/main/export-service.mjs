@@ -83,12 +83,19 @@ export async function exportProjectToMp4({ project, outputPath, mode = EXPORT_MO
   };
 }
 
-export async function exportExperimentalHeadlessProjectToMp4({ project, recording, outputPath, onProgress = () => undefined, signal = null } = {}) {
+export async function exportExperimentalHeadlessProjectToMp4({
+  project,
+  recording,
+  outputPath,
+  onProgress = () => undefined,
+  signal = null,
+  attemptHeadlessRender = attemptExperimentalHeadlessRender,
+} = {}) {
   const compositionPlan = buildExperimentalHeadlessExportPlan({ project, recording });
   const renderPlan = experimentalHeadlessExportEnabled()
     ? buildExperimentalHeadlessExportPlan({ project, recording, frameSelection: 'all' })
     : compositionPlan;
-  const headlessRender = await attemptExperimentalHeadlessRender({ compositionPlan: renderPlan, outputPath, signal });
+  const headlessRender = await attemptHeadlessRender({ compositionPlan: renderPlan, outputPath, signal });
   let fallback = {
     active: true,
     from: 'headless-export',

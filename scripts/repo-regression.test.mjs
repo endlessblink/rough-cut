@@ -18,7 +18,9 @@ const experimentalHeadlessRuntimeExportSmokeSource = readFileSync(join(root, 'sc
 const smokeUiSource = readFileSync(join(root, 'scripts/smoke-ui.mjs'), 'utf8');
 const desktopPackage = JSON.parse(readFileSync(join(root, 'apps/desktop/package.json'), 'utf8'));
 const headlessExportRendererSource = readFileSync(join(root, 'apps/desktop/src/main/headless-export-renderer.mjs'), 'utf8');
+const headlessExportRendererTestSource = readFileSync(join(root, 'apps/desktop/src/main/headless-export-renderer.test.mjs'), 'utf8');
 const exportServiceSource = readFileSync(join(root, 'apps/desktop/src/main/export-service.mjs'), 'utf8');
+const exportServiceTestSource = readFileSync(join(root, 'apps/desktop/src/main/export-service.test.mjs'), 'utf8');
 const masterPlanSource = readFileSync(join(root, 'MASTER_PLAN.md'), 'utf8');
 const screenLayerRendererCapabilitiesSource = readFileSync(join(root, 'apps/desktop/src/renderer/src/screen-layer-renderer-capabilities.ts'), 'utf8');
 const screenLayerRendererSource = readFileSync(join(root, 'apps/desktop/src/renderer/src/screen-layer-renderer.ts'), 'utf8');
@@ -518,6 +520,9 @@ test('GPU-C experimental headless renderer seam stays opt-in and fallback-backed
   assert.match(headlessExportRendererSource, /layer&&\(layer\.sourceViewport\|\|layer\.crop\)/);
   assert.match(headlessExportRendererSource, /const base=sourceViewportRect\(layer,vw,vh\)/);
   assert.match(headlessExportRendererSource, /function sourcePoint\(frame,screen,source\)/);
+  assert.match(headlessExportRendererSource, /const sourceRect=screenSourceRect\(\{videoWidth:size\.width,videoHeight:size\.height\},frame\.screen,screen\)/);
+  assert.match(headlessExportRendererSource, /\(Math\.abs\(source\.x\)>1\?source\.x:source\.x\*size\.width\)-sourceRect\.x/);
+  assert.match(headlessExportRendererSource, /screen\.x\+\(sourceX\/sourceRect\.width\)\*screen\.width/);
   assert.match(headlessExportRendererSource, /function clickPoint\(frame, screen\)/);
   assert.match(headlessExportRendererSource, /\(frame\.click&&frame\.click\.sourcePosition\)\|\|\(frame\.cursor&&frame\.cursor\.sourcePosition\)/);
   assert.match(headlessExportRendererSource, /function cursorStyle\(frame\)/);
@@ -538,7 +543,6 @@ test('GPU-C experimental headless renderer seam stays opt-in and fallback-backed
   assert.match(headlessExportRendererSource, /renderResults/);
   assert.match(headlessExportRendererSource, /timelineGap/);
   assert.match(headlessExportRendererSource, /frame&&frame\.screen&&!timelineGap/);
-  assert.match(headlessExportRendererSource, /Math\.abs\(source\.x\)>1\?source\.x\/size\.width:source\.x/);
   assert.match(headlessExportRendererSource, /drewScreen/);
   assert.match(headlessExportRendererSource, /drewCamera/);
   assert.match(headlessExportRendererSource, /if\(point\)\{if\(usedGpu\)drawGpuCursor\(point,cursorStyle\(frame\)\);else drawCursor\(point,cursorStyle\(frame\)\)\}/);
@@ -551,6 +555,20 @@ test('GPU-C experimental headless renderer seam stays opt-in and fallback-backed
   assert.match(headlessExportRendererSource, /electron-browser-window-unavailable/);
   assert.match(headlessExportRendererSource, /electron-hidden-window-render-failed/);
   assert.match(headlessExportRendererSource, /offscreen: true/);
+  assert.match(headlessExportRendererTestSource, /experimental headless renderer script reports WebGL only after executing GPU frame path/);
+  assert.match(headlessExportRendererTestSource, /experimental headless renderer script downgrades to Canvas2D when GPU video draw fails/);
+  assert.match(headlessExportRendererTestSource, /experimental headless renderer script maps cursor positions through the zoomed screen source rect/);
+  assert.match(headlessExportRendererTestSource, /function executeHiddenRendererScript\(loadedUrl, options = \{\}\)/);
+  assert.match(headlessExportRendererTestSource, /vm\.runInNewContext\(script, sandbox\)/);
+  assert.match(headlessExportRendererTestSource, /executeHiddenRendererScript\(loadedUrl, \{ throwOnVideoUpload: true \}\)/);
+  assert.match(headlessExportRendererTestSource, /if \(options\.throwOnVideoUpload && source\?\.videoWidth\)/);
+  assert.match(headlessExportRendererTestSource, /assert\.equal\(renderResult\.rendererKind, 'webgl'\)/);
+  assert.match(headlessExportRendererTestSource, /assert\.equal\(renderResult\.rendererKind, 'canvas2d'\)/);
+  assert.match(headlessExportRendererTestSource, /assert\.equal\(renderResult\.drewScreen, true\)/);
+  assert.match(headlessExportRendererTestSource, /assert\.equal\(renderResult\.drewScreen, false\)/);
+  assert.match(headlessExportRendererTestSource, /zoomTransform: \{ scale: 2, offsetX: 80, offsetY: -30 \}/);
+  assert.match(headlessExportRendererTestSource, /assert\.equal\(renderResult\.cursorPoint\?\.x, 192\)/);
+  assert.match(headlessExportRendererTestSource, /assert\.equal\(renderResult\.clickPoint\?\.x, 320\)/);
   assert.match(exportServiceSource, /buildHeadlessFrameExportArgs/);
   assert.match(exportServiceSource, /const \[backgroundStart, backgroundEnd\] = getRecordingBackgroundColors\(frame\.backgroundLayer\.style\)/);
   assert.match(exportServiceSource, /startColor: backgroundStart/);
@@ -572,6 +590,8 @@ test('GPU-C experimental headless renderer seam stays opt-in and fallback-backed
   assert.match(exportServiceSource, /radius: cameraLayout\?\.radius \?\? 0/);
   assert.match(exportServiceSource, /presentation: cameraLayout\?\.presentation \?\? frame\.cameraLayer\.presentation \?\? null/);
   assert.match(exportServiceSource, /shape: presentation\.shape/);
+  assert.match(exportServiceSource, /attemptHeadlessRender = attemptExperimentalHeadlessRender/);
+  assert.match(exportServiceSource, /const headlessRender = await attemptHeadlessRender\(\{ compositionPlan: renderPlan, outputPath, signal \}\)/);
   assert.match(exportServiceSource, /rendering-headless-export/);
   assert.match(exportServiceSource, /experimental-headless-encode-failed/);
   assert.match(exportServiceSource, /frameSelection: 'all'/);
@@ -601,6 +621,17 @@ test('GPU-C experimental headless renderer seam stays opt-in and fallback-backed
   assert.match(experimentalHeadlessRuntimeExportSmokeSource, /compareRepresentativeFrames/);
   assert.match(experimentalHeadlessRuntimeExportSmokeSource, /frameComparisons/);
   assert.match(experimentalHeadlessRuntimeExportSmokeSource, /Experimental runtime export diverged from styled baseline/);
+  assert.match(exportServiceTestSource, /experimental headless export encodes successful rendered frame artifacts without styled fallback/);
+  assert.match(exportServiceTestSource, /attemptHeadlessRender: async \(\{ compositionPlan, outputPath: attemptedOutputPath \}\) =>/);
+  assert.match(exportServiceTestSource, /fallback\.active, false/);
+  assert.match(exportServiceTestSource, /rendererBackend, 'electron-headless-compositor'/);
+  assert.match(exportServiceTestSource, /rendererKind: 'webgl'/);
+  assert.match(exportServiceTestSource, /successful headless render must not use styled fallback/);
+  assert.match(exportServiceTestSource, /experimental headless export falls back to styled export when artifact encode fails/);
+  assert.match(exportServiceTestSource, /headless-encode-failed/);
+  assert.match(exportServiceTestSource, /experimental-headless-encode-failed/);
+  assert.match(exportServiceTestSource, /Experimental headless export encode failed; falling back to FFmpeg styled export\./);
+  assert.match(exportServiceTestSource, /rough_cut_style=canvas:1920x1080:studio-demo-fast/);
 });
 
 test('GPU-C experimental export UI stays feature-flagged and fallback-labeled', () => {

@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
-import { buildBackgroundExpression, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveTimelineExportRecording } from './export-service.mjs';
+import { buildBackgroundExpression, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveTimelineExportRecording } from './export-service.mjs';
 
 test('unedited export copies source mp4 byte-for-byte', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-'));
@@ -216,6 +216,196 @@ test('experimental headless export mode reports a composition plan and falls bac
   assert.equal(prototypeEvent?.compositionPlan?.frames?.length, 3);
   assert(prototypeEvent?.compositionPlan?.frames?.some((frame) => frame.cursor.sourcePosition), 'prototype plan should carry cursor placement from the shared frame resolver');
   assert(progress.some((event) => event.phase === 'rendering-styled' && event.fallback?.to === 'ffmpeg-styled'), 'fallback styled progress should stay visible');
+});
+
+test('experimental headless export encodes successful rendered frame artifacts without styled fallback', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-headless-success-'));
+  const binDir = join(root, 'bin');
+  const frameDir = join(root, 'frames');
+  const fakeFfmpegPath = join(binDir, 'ffmpeg');
+  const outputPath = join(root, 'headless-success.mp4');
+  const previousPath = process.env.PATH;
+  const previousFlag = process.env.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT;
+  await mkdir(binDir, { recursive: true });
+  await mkdir(frameDir, { recursive: true });
+  await writeFile(join(frameDir, 'frame-000000.png'), Buffer.from('fake-png'));
+  await writeFile(fakeFfmpegPath, `#!/usr/bin/env bash
+out="${'$'}{@: -1}"
+printf headless-mp4 > "${'$'}out"
+`);
+  await chmod(fakeFfmpegPath, 0o755);
+  process.env.PATH = `${binDir}:${previousPath ?? ''}`;
+  process.env.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT = '1';
+
+  try {
+    const progress = [];
+    const project = createProjectForRecording({
+      recording: {
+        startedAt: '2026-04-28T12:00:00.000Z',
+        stoppedAt: '2026-04-28T12:00:01.000Z',
+        outputPath: '/tmp/source-for-headless-success.mp4',
+        width: 640,
+        height: 360,
+        fps: 30,
+      },
+    });
+    const recording = {
+      ...getPrimaryRecording(project),
+      filePath: null,
+    };
+    const frameArtifact = {
+      frameIndex: 0,
+      path: join(frameDir, 'frame-000000.png'),
+      bytes: 8,
+    };
+    const result = await exportExperimentalHeadlessProjectToMp4({
+      project,
+      recording,
+      outputPath,
+      onProgress: (event) => progress.push(event),
+      attemptHeadlessRender: async ({ compositionPlan, outputPath: attemptedOutputPath }) => ({
+        backend: 'electron-headless-compositor',
+        attempted: true,
+        available: true,
+        ok: true,
+        reason: null,
+        outputPath: attemptedOutputPath,
+        frameCount: compositionPlan.frames.length,
+        output: compositionPlan.output,
+        frameArtifacts: [frameArtifact],
+        renderSurface: {
+          ok: true,
+          frameCount: compositionPlan.frames.length,
+          framePattern: join(frameDir, 'frame-%06d.png'),
+          frameArtifacts: [frameArtifact],
+          renderResults: [{ frameIndex: 0, rendererKind: 'webgl', drewScreen: true }],
+        },
+      }),
+    });
+
+    assert.equal(result.outputPath, outputPath);
+    assert.equal(result.experimentalBackend, 'headless-export');
+    assert.equal(result.rendererBackend, 'electron-headless-compositor');
+    assert.equal(result.fallback.active, false);
+    assert.equal(result.fallback.to, 'ffmpeg-styled');
+    assert.equal(result.headlessRender.ok, true);
+    assert.equal(result.headlessRender.renderSurface.renderResults[0].rendererKind, 'webgl');
+    assert.deepEqual(result.frameArtifacts, [frameArtifact]);
+    assert.equal(result.audioPreserved, false);
+    assert.equal(await readFile(outputPath, 'utf8'), 'headless-mp4');
+    assert(progress.some((event) => event.phase === 'rendering-headless-export' && event.experimentalBackend === 'headless-export'));
+    assert(!progress.some((event) => event.phase === 'rendering-styled'), 'successful headless render must not use styled fallback');
+  } finally {
+    process.env.PATH = previousPath;
+    if (previousFlag === undefined) {
+      delete process.env.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT;
+    } else {
+      process.env.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT = previousFlag;
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('experimental headless export falls back to styled export when artifact encode fails', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-headless-encode-fallback-'));
+  const binDir = join(root, 'bin');
+  const frameDir = join(root, 'frames');
+  const fakeFfmpegPath = join(binDir, 'ffmpeg');
+  const outputPath = join(root, 'headless-fallback.mp4');
+  const sourcePath = join(root, 'source.mp4');
+  const logPath = join(root, 'ffmpeg-calls.log');
+  const previousPath = process.env.PATH;
+  const previousFlag = process.env.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT;
+  const previousEncoder = process.env.ROUGH_CUT_STYLED_VIDEO_ENCODER;
+  await mkdir(binDir, { recursive: true });
+  await mkdir(frameDir, { recursive: true });
+  await writeFile(sourcePath, Buffer.from('source-mp4'));
+  await writeFile(join(frameDir, 'frame-000000.png'), Buffer.from('fake-png'));
+  await writeFile(fakeFfmpegPath, `#!/usr/bin/env bash
+printf '%s\\n' "${'$'}*" >> "${logPath}"
+out="${'$'}{@: -1}"
+if printf '%s\\n' "${'$'}*" | grep -q 'rough_cut_style=experimental-headless'; then
+  printf headless-encode-failed >&2
+  exit 1
+fi
+printf styled-fallback-mp4 > "${'$'}out"
+`);
+  await chmod(fakeFfmpegPath, 0o755);
+  process.env.PATH = `${binDir}:${previousPath ?? ''}`;
+  process.env.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT = '1';
+  process.env.ROUGH_CUT_STYLED_VIDEO_ENCODER = 'libx264';
+
+  try {
+    const progress = [];
+    const project = createProjectForRecording({
+      recording: {
+        startedAt: '2026-04-28T12:00:00.000Z',
+        stoppedAt: '2026-04-28T12:00:01.000Z',
+        outputPath: sourcePath,
+        width: 640,
+        height: 360,
+        fps: 30,
+      },
+    });
+    const recording = getPrimaryRecording(project);
+    const frameArtifact = {
+      frameIndex: 0,
+      path: join(frameDir, 'frame-000000.png'),
+      bytes: 8,
+    };
+    const result = await exportExperimentalHeadlessProjectToMp4({
+      project,
+      recording,
+      outputPath,
+      onProgress: (event) => progress.push(event),
+      attemptHeadlessRender: async ({ compositionPlan, outputPath: attemptedOutputPath }) => ({
+        backend: 'electron-headless-compositor',
+        attempted: true,
+        available: true,
+        ok: true,
+        reason: null,
+        outputPath: attemptedOutputPath,
+        frameCount: compositionPlan.frames.length,
+        output: compositionPlan.output,
+        frameArtifacts: [frameArtifact],
+        renderSurface: {
+          ok: true,
+          frameCount: compositionPlan.frames.length,
+          framePattern: join(frameDir, 'frame-%06d.png'),
+          frameArtifacts: [frameArtifact],
+          renderResults: [{ frameIndex: 0, rendererKind: 'webgl', drewScreen: true }],
+        },
+      }),
+    });
+
+    const fallbackEvent = progress.find((event) => event.fallback?.reason === 'experimental-headless-encode-failed');
+    assert.equal(result.outputPath, outputPath);
+    assert.equal(result.experimentalBackend, 'headless-export');
+    assert.equal(result.fallback.active, true);
+    assert.equal(result.fallback.reason, 'experimental-headless-encode-failed');
+    assert.match(result.fallback.error, /Experimental headless export failed: headless-encode-failed/);
+    assert.equal(result.headlessRender.ok, true);
+    assert.equal(result.fastPath, 'simple-styled');
+    assert.equal(await readFile(outputPath, 'utf8'), 'styled-fallback-mp4');
+    assert.equal(fallbackEvent?.notice, 'Experimental headless export encode failed; falling back to FFmpeg styled export.');
+    assert(progress.some((event) => event.phase === 'rendering-styled' && event.experimentalBackend === 'headless-export'));
+    const calls = await readFile(logPath, 'utf8');
+    assert.match(calls, /rough_cut_style=experimental-headless/);
+    assert.match(calls, /rough_cut_style=canvas:1920x1080:studio-demo-fast/);
+  } finally {
+    process.env.PATH = previousPath;
+    if (previousFlag === undefined) {
+      delete process.env.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT;
+    } else {
+      process.env.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT = previousFlag;
+    }
+    if (previousEncoder === undefined) {
+      delete process.env.ROUGH_CUT_STYLED_VIDEO_ENCODER;
+    } else {
+      process.env.ROUGH_CUT_STYLED_VIDEO_ENCODER = previousEncoder;
+    }
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('experimental headless export plan samples shared composition frames', () => {

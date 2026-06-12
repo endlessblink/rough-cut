@@ -9103,6 +9103,112 @@ Evidence:
 - `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
 - `git diff --check -- scripts/benchmark-export.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
 
+Slice 33 update: the hidden-renderer unit coverage now executes the generated
+browser script instead of only source-guarding it. The test extracts the
+`data:` page script from the fake BrowserWindow, runs it in a VM with fake DOM,
+Canvas2D, WebGL, video, and `requestAnimationFrame` objects, calls
+`window.__roughCutRenderHeadlessFrame(...)`, and proves the script reports
+`rendererKind: "webgl"` only after a real GPU-path execution. It also verifies
+the rendered cursor/click source mapping in the executed script result. This
+does not replace the required Electron smoke, but it catches generated-script
+runtime errors before the external runtime gate. FFmpeg styled export remains
+unchanged and remains the default/fallback reference.
+
+Evidence:
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.test.mjs MASTER_PLAN.md` passes.
+
+Slice 34 update: hidden-renderer VM coverage now also executes the generated
+GPU-failure path. The fake WebGL context can throw on video texture upload, and
+the executed `window.__roughCutRenderHeadlessFrame(...)` result proves the
+renderer downgrades that frame to `rendererKind: "canvas2d"` with
+`drewScreen: false` instead of falsely reporting WebGL. This locks the runtime
+fallback rule from Slice 27 with an executed generated-script test, while
+leaving FFmpeg styled export unchanged as the default/fallback reference.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+
+Slice 35 update: repo-regression now guards the executed hidden-renderer VM
+coverage itself. The repo-level TASK-246 seam test reads
+`headless-export-renderer.test.mjs` and requires the WebGL success execution
+test, the GPU-upload-failure Canvas2D downgrade test, the VM script execution
+helper, and the concrete `rendererKind`/`drewScreen` assertions. This prevents
+future source-only rewrites from silently deleting the runtime-script coverage
+that backs Slices 33 and 34. FFmpeg styled export remains unchanged and remains
+the default/fallback reference.
+
+Evidence:
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `git diff --check -- apps/desktop/src/main/headless-export-renderer.test.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+
+Slice 36 update: export-service coverage now proves the successful
+experimental path after hidden rendering. `exportExperimentalHeadlessProjectToMp4`
+accepts an injectable render attempt for tests while production
+`exportProjectToMp4` still uses the real `attemptExperimentalHeadlessRender`.
+The regression test feeds successful WebGL render metadata and frame artifacts,
+uses a fake `ffmpeg`, and verifies the result encodes the artifact sequence with
+`fallback.active: false`, `rendererBackend: "electron-headless-compositor"`,
+preserved frame artifact metadata, and no `rendering-styled` fallback progress.
+Repo-regression guards both the injection seam and the successful non-fallback
+test. FFmpeg styled export remains unchanged as the default/fallback reference.
+
+Evidence:
+- `node --check apps/desktop/src/main/export-service.mjs` passes.
+- `node --check apps/desktop/src/main/export-service.test.mjs` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `env DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm run smoke:experimental-headless-runtime-export` builds project-model and desktop, generates the FFmpeg fixture, then still reaches the host sandbox Electron boundary:
+  `Electron headless runtime export smoke could not launch Electron: spawnSync .../apps/desktop/node_modules/.bin/electron EPERM`.
+  Current artifact directory: `/tmp/rough-cut-headless-runtime-export-y0vBiQ`.
+
+Slice 37 update: export-service coverage now also protects the encode-failure
+fallback branch after a successful headless render. A fake `ffmpeg` fails only
+the experimental artifact-sequence encode, then succeeds the styled export
+fallback. The test verifies `fallback.reason:
+"experimental-headless-encode-failed"`, the explicit fallback notice, retained
+successful headless render metadata, styled fallback progress annotated with the
+experimental backend, and a final styled output file. Repo-regression guards
+this branch and the styled fallback metadata. FFmpeg styled export remains
+unchanged as the default/fallback reference.
+
+Evidence:
+- `node --check apps/desktop/src/main/export-service.test.mjs` passes.
+- `node apps/desktop/src/main/export-service.test.mjs` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+
+Slice 38 update: the experimental hidden renderer now maps cursor and click
+overlays through the same zoomed/cropped screen source rectangle used for the
+video texture. Previously, the screen video used `screenSourceRect(...)` while
+cursor/click positions were projected against the full source frame, so zoomed
+experimental exports could place overlays at the wrong visual location. The
+executed hidden-renderer VM test now renders a zoomed screen frame and verifies
+the remapped cursor/click coordinates. Repo-regression guards the
+`screenSourceRect(...)` projection formula and the executed zoomed overlay test.
+Canvas2D preview and FFmpeg styled export remain unchanged; this only aligns
+the experimental headless renderer with the shared composition plan.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node --check apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+
 Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
 pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the
 first real runtime failure it exposes, then run `pnpm benchmark:export` and

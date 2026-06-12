@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import vm from 'node:vm';
 import {
   attemptExperimentalHeadlessRender,
   HEADLESS_EXPORT_BACKEND,
@@ -265,6 +266,186 @@ test('experimental headless renderer uses the resolved Electron BrowserWindow ru
   assert.deepEqual(await readFile(attempt.frameArtifacts[0].path), png);
 });
 
+test('experimental headless renderer script reports WebGL only after executing GPU frame path', async () => {
+  let loadedUrl = null;
+  const attempt = await attemptExperimentalHeadlessRender({
+    env: { ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT: '1' },
+    electronRuntime: { available: true },
+    outputPath: '/tmp/rough-cut-headless-render-test/webgl-exec-headless.mp4',
+    compositionPlan: {
+      output: { width: 320, height: 180 },
+      frames: [{ frameIndex: 0 }],
+    },
+    createRenderWindow() {
+      return {
+        webContents: {
+          async executeJavaScript() {
+            return { ok: true };
+          },
+          async capturePage() {
+            return { toPNG: () => Buffer.from('webgl-exec-png-frame') };
+          },
+        },
+        async loadURL(url) {
+          loadedUrl = url;
+        },
+        close() {},
+      };
+    },
+  });
+  assert.equal(attempt.ok, true);
+  assert.ok(loadedUrl);
+
+  const hiddenWindow = executeHiddenRendererScript(loadedUrl);
+  const renderResult = await hiddenWindow.__roughCutRenderHeadlessFrame({
+    frameIndex: 0,
+    background: { startColor: '#112233', endColor: '#334455' },
+    screen: {
+      sourceUrl: 'file:///tmp/source.mp4',
+      sourceFrame: 0,
+      fps: 30,
+      sourceSize: { width: 640, height: 360 },
+      frame: { x: 32, y: 24, width: 256, height: 120 },
+      style: { cornerRadius: 18 },
+    },
+    cursor: {
+      visible: true,
+      sourcePosition: { x: 0.5, y: 0.5 },
+      style: 'spotlight',
+      sizePercent: 120,
+    },
+    click: {
+      visible: true,
+      sourcePosition: { x: 0.55, y: 0.5 },
+      effect: 'ripple',
+    },
+  }, 0);
+
+  assert.equal(renderResult.ok, true);
+  assert.equal(renderResult.rendererKind, 'webgl');
+  assert.equal(renderResult.drewScreen, true);
+  assert.equal(renderResult.drewCamera, null);
+  assert.equal(renderResult.cursorPoint?.x, 160);
+  assert.equal(renderResult.cursorPoint?.y, 84);
+  assert.equal(renderResult.clickPoint?.x, 172.8);
+  assert.equal(renderResult.clickPoint?.y, 84);
+});
+
+test('experimental headless renderer script downgrades to Canvas2D when GPU video draw fails', async () => {
+  let loadedUrl = null;
+  const attempt = await attemptExperimentalHeadlessRender({
+    env: { ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT: '1' },
+    electronRuntime: { available: true },
+    outputPath: '/tmp/rough-cut-headless-render-test/webgl-fallback-headless.mp4',
+    compositionPlan: {
+      output: { width: 320, height: 180 },
+      frames: [{ frameIndex: 0 }],
+    },
+    createRenderWindow() {
+      return {
+        webContents: {
+          async executeJavaScript() {
+            return { ok: true };
+          },
+          async capturePage() {
+            return { toPNG: () => Buffer.from('webgl-fallback-png-frame') };
+          },
+        },
+        async loadURL(url) {
+          loadedUrl = url;
+        },
+        close() {},
+      };
+    },
+  });
+  assert.equal(attempt.ok, true);
+  assert.ok(loadedUrl);
+
+  const hiddenWindow = executeHiddenRendererScript(loadedUrl, { throwOnVideoUpload: true });
+  const renderResult = await hiddenWindow.__roughCutRenderHeadlessFrame({
+    frameIndex: 0,
+    background: { startColor: '#112233', endColor: '#334455' },
+    screen: {
+      sourceUrl: 'file:///tmp/source.mp4',
+      sourceFrame: 0,
+      fps: 30,
+      sourceSize: { width: 640, height: 360 },
+      frame: { x: 32, y: 24, width: 256, height: 120 },
+      style: { cornerRadius: 18 },
+    },
+  }, 0);
+
+  assert.equal(renderResult.ok, true);
+  assert.equal(renderResult.rendererKind, 'canvas2d');
+  assert.equal(renderResult.drewScreen, false);
+  assert.equal(renderResult.drewCamera, null);
+});
+
+test('experimental headless renderer script maps cursor positions through the zoomed screen source rect', async () => {
+  let loadedUrl = null;
+  const attempt = await attemptExperimentalHeadlessRender({
+    env: { ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT: '1' },
+    electronRuntime: { available: true },
+    outputPath: '/tmp/rough-cut-headless-render-test/webgl-zoom-cursor-headless.mp4',
+    compositionPlan: {
+      output: { width: 320, height: 180 },
+      frames: [{ frameIndex: 0 }],
+    },
+    createRenderWindow() {
+      return {
+        webContents: {
+          async executeJavaScript() {
+            return { ok: true };
+          },
+          async capturePage() {
+            return { toPNG: () => Buffer.from('webgl-zoom-cursor-png-frame') };
+          },
+        },
+        async loadURL(url) {
+          loadedUrl = url;
+        },
+        close() {},
+      };
+    },
+  });
+  assert.equal(attempt.ok, true);
+  assert.ok(loadedUrl);
+
+  const hiddenWindow = executeHiddenRendererScript(loadedUrl);
+  const renderResult = await hiddenWindow.__roughCutRenderHeadlessFrame({
+    frameIndex: 0,
+    background: { startColor: '#112233', endColor: '#334455' },
+    screen: {
+      sourceUrl: 'file:///tmp/source.mp4',
+      sourceFrame: 0,
+      fps: 30,
+      sourceSize: { width: 640, height: 360 },
+      frame: { x: 32, y: 24, width: 256, height: 120 },
+      style: { cornerRadius: 18 },
+      zoomTransform: { scale: 2, offsetX: 80, offsetY: -30 },
+    },
+    cursor: {
+      visible: true,
+      sourcePosition: { x: 0.5, y: 0.5 },
+      style: 'spotlight',
+      sizePercent: 120,
+    },
+    click: {
+      visible: true,
+      sourcePosition: { x: 0.75, y: 0.5 },
+      effect: 'ripple',
+    },
+  }, 0);
+
+  assert.equal(renderResult.ok, true);
+  assert.equal(renderResult.rendererKind, 'webgl');
+  assert.equal(renderResult.drewScreen, true);
+  assert.equal(renderResult.cursorPoint?.x, 192);
+  assert.equal(renderResult.cursorPoint?.y, 74);
+  assert.equal(renderResult.clickPoint?.x, 320);
+  assert.equal(renderResult.clickPoint?.y, 74);
+});
+
 test('experimental headless renderer script maps normalized cursor positions directly', async () => {
   const windows = [];
   const png = Buffer.from('cursor-png-frame');
@@ -313,8 +494,177 @@ test('experimental headless renderer script maps normalized cursor positions dir
   });
 
   assert.equal(attempt.ok, true);
-  assert.match(decodeURIComponent(windows[0].loadedUrl), /Math\.abs\(source\.x\)>1\?source\.x\/size\.width:source\.x/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /const sourceRect=screenSourceRect\(\{videoWidth:size\.width,videoHeight:size\.height\},frame\.screen,screen\)/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /source\.x\*size\.width\)-sourceRect\.x/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /cursorPoint:point\?\{x:Math\.round\(point\.x\*100\)\/100,y:Math\.round\(point\.y\*100\)\/100\}:null/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /clickPoint:clicked\?\{x:Math\.round\(clicked\.x\*100\)\/100,y:Math\.round\(clicked\.y\*100\)\/100\}:null/);
   assert.deepEqual(attempt.renderSurface.renderResults[0].cursorPoint, { x: 1051.2, y: 526.33 });
 });
+
+function executeHiddenRendererScript(loadedUrl, options = {}) {
+  const html = decodeURIComponent(loadedUrl.replace(/^data:text\/html;charset=utf-8,/, ''));
+  const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+  assert.ok(script, 'hidden renderer script should be present');
+  const hiddenWindow = {};
+  const canvases = createFakeCanvases(options);
+  const sandbox = {
+    window: hiddenWindow,
+    document: {
+      getElementById(id) {
+        return canvases[id];
+      },
+      createElement(tagName) {
+        if (tagName === 'video') {
+          return createFakeVideo();
+        }
+        throw new Error(`Unexpected element ${tagName}`);
+      },
+    },
+    Image: class FakeImage {},
+    requestAnimationFrame(callback) {
+      callback();
+    },
+    Float32Array,
+    Math,
+    Number,
+    Promise,
+    Error,
+  };
+  vm.runInNewContext(script, sandbox);
+  return hiddenWindow;
+}
+
+function createFakeCanvases(options = {}) {
+  const canvas = {
+    width: 320,
+    height: 180,
+    getContext(kind) {
+      if (kind === '2d') return createFakeCanvas2d();
+      return null;
+    },
+  };
+  const gpuCanvas = {
+    width: 320,
+    height: 180,
+    getContext(kind) {
+      if (kind === 'webgl') return createFakeWebgl(options);
+      return null;
+    },
+  };
+  return {
+    frame: canvas,
+    'gpu-frame': gpuCanvas,
+  };
+}
+
+function createFakeCanvas2d() {
+  const noop = () => undefined;
+  return {
+    clearRect: noop,
+    fillRect: noop,
+    drawImage: noop,
+    createLinearGradient() {
+      return { addColorStop: noop };
+    },
+    beginPath: noop,
+    moveTo: noop,
+    lineTo: noop,
+    quadraticCurveTo: noop,
+    closePath: noop,
+    save: noop,
+    restore: noop,
+    clip: noop,
+    fill: noop,
+    stroke: noop,
+    arc: noop,
+    set fillStyle(_value) {},
+    set strokeStyle(_value) {},
+    set lineWidth(_value) {},
+    set shadowColor(_value) {},
+    set shadowBlur(_value) {},
+    set shadowOffsetX(_value) {},
+    set shadowOffsetY(_value) {},
+    set globalAlpha(_value) {},
+  };
+}
+
+function createFakeVideo() {
+  return {
+    readyState: 2,
+    currentTime: 0,
+    videoWidth: 640,
+    videoHeight: 360,
+    muted: true,
+    preload: 'auto',
+    playsInline: true,
+    addEventListener() {},
+    removeEventListener() {},
+    load() {},
+  };
+}
+
+function createFakeWebgl(options = {}) {
+  const noop = () => undefined;
+  const texImage2D = (...args) => {
+    const source = args.at(-1);
+    if (options.throwOnVideoUpload && source?.videoWidth) {
+      throw new Error('fake-video-upload-failed');
+    }
+  };
+  return {
+    VERTEX_SHADER: 0x8b31,
+    FRAGMENT_SHADER: 0x8b30,
+    COMPILE_STATUS: 0x8b81,
+    LINK_STATUS: 0x8b82,
+    TEXTURE_2D: 0x0de1,
+    TEXTURE_WRAP_S: 0x2802,
+    TEXTURE_WRAP_T: 0x2803,
+    CLAMP_TO_EDGE: 0x812f,
+    TEXTURE_MIN_FILTER: 0x2801,
+    TEXTURE_MAG_FILTER: 0x2800,
+    LINEAR: 0x2601,
+    UNPACK_FLIP_Y_WEBGL: 0x9240,
+    COLOR_BUFFER_BIT: 0x4000,
+    RGBA: 0x1908,
+    UNSIGNED_BYTE: 0x1401,
+    BLEND: 0x0be2,
+    SRC_ALPHA: 0x0302,
+    ONE_MINUS_SRC_ALPHA: 0x0303,
+    ARRAY_BUFFER: 0x8892,
+    STREAM_DRAW: 0x88e0,
+    FLOAT: 0x1406,
+    TRIANGLES: 0x0004,
+    TRIANGLE_FAN: 0x0006,
+    createShader: () => ({}),
+    shaderSource: noop,
+    compileShader: noop,
+    getShaderParameter: () => true,
+    createProgram: () => ({}),
+    attachShader: noop,
+    linkProgram: noop,
+    getProgramParameter: () => true,
+    getAttribLocation: () => 0,
+    getUniformLocation: () => ({}),
+    createBuffer: () => ({}),
+    createTexture: () => ({}),
+    enable: noop,
+    blendFunc: noop,
+    bindTexture: noop,
+    texParameteri: noop,
+    pixelStorei: noop,
+    viewport: noop,
+    clearColor: noop,
+    clear: noop,
+    texImage2D,
+    useProgram: noop,
+    uniform2f: noop,
+    uniform4fv: noop,
+    uniform4f: noop,
+    uniform1f: noop,
+    bindBuffer: noop,
+    bufferData: noop,
+    enableVertexAttribArray: noop,
+    vertexAttribPointer: noop,
+    drawArrays: noop,
+  };
+}
