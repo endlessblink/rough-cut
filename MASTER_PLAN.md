@@ -9086,6 +9086,23 @@ Evidence:
 - `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
 - `git diff --check -- apps/desktop/src/main/headless-export-renderer.mjs apps/desktop/src/main/headless-export-renderer.test.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
 
+Slice 32 update: the export benchmark now includes a fuller experimental
+headless composition case. `experimental-headless-full-composition` renders an
+experimental-headless project with background image, camera PiP, zoom markers,
+cursor, and click effects, and the benchmark already reports
+`headlessWebglFrameCount` / `headlessCanvas2dFrameCount` for that case. This
+keeps the runtime smoke stable for timeline-gap/pixel-diff proof while ensuring
+the benchmark can measure whether the broader WebGL hidden renderer subset
+actually produces non-fallback frames. FFmpeg styled export remains unchanged
+and remains the default/fallback reference.
+
+Evidence:
+- `node --check scripts/benchmark-export.mjs` passes.
+- `node --test --test-name-pattern='export benchmark keeps profiling|GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm --filter @rough-cut/desktop typecheck` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `git diff --check -- scripts/benchmark-export.mjs scripts/repo-regression.test.mjs MASTER_PLAN.md` passes.
+
 Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
 pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the
 first real runtime failure it exposes, then run `pnpm benchmark:export` and
