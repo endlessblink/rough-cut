@@ -446,6 +446,80 @@ test('experimental headless renderer script maps cursor positions through the zo
   assert.equal(renderResult.clickPoint?.y, 74);
 });
 
+test('experimental headless renderer script draws GPU screen and camera shadows', async () => {
+  let loadedUrl = null;
+  const attempt = await attemptExperimentalHeadlessRender({
+    env: { ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT: '1' },
+    electronRuntime: { available: true },
+    outputPath: '/tmp/rough-cut-headless-render-test/webgl-shadows-headless.mp4',
+    compositionPlan: {
+      output: { width: 320, height: 180 },
+      frames: [{ frameIndex: 0 }],
+    },
+    createRenderWindow() {
+      return {
+        webContents: {
+          async executeJavaScript() {
+            return { ok: true };
+          },
+          async capturePage() {
+            return { toPNG: () => Buffer.from('webgl-shadows-png-frame') };
+          },
+        },
+        async loadURL(url) {
+          loadedUrl = url;
+        },
+        close() {},
+      };
+    },
+  });
+  assert.equal(attempt.ok, true);
+  assert.ok(loadedUrl);
+
+  const hiddenWindow = executeHiddenRendererScript(loadedUrl);
+  const renderResult = await hiddenWindow.__roughCutRenderHeadlessFrame({
+    frameIndex: 0,
+    background: { startColor: '#112233', endColor: '#334455' },
+    screen: {
+      sourceUrl: 'file:///tmp/source.mp4',
+      sourceFrame: 0,
+      fps: 30,
+      sourceSize: { width: 640, height: 360 },
+      frame: { x: 32, y: 24, width: 256, height: 120 },
+      style: {
+        cornerRadius: 18,
+        shadowEnabled: true,
+        shadowBlur: 42,
+        shadowOpacity: 0.24,
+        shadowOffsetX: -8,
+        shadowOffsetY: 18,
+      },
+    },
+    camera: {
+      sourceUrl: 'file:///tmp/camera.mp4',
+      sourceFrame: 0,
+      fps: 30,
+      sourceSize: { width: 640, height: 360 },
+      visible: true,
+      frame: { x: 230, y: 88, width: 58, height: 58 },
+      style: {
+        shape: 'circle',
+        roundness: 100,
+        shadowEnabled: true,
+        shadowBlur: 24,
+        shadowOpacity: 0.36,
+      },
+    },
+  }, 0);
+
+  assert.equal(renderResult.ok, true);
+  assert.equal(renderResult.rendererKind, 'webgl');
+  assert.equal(renderResult.drewScreen, true);
+  assert.equal(renderResult.drewCamera, true);
+  assert.equal(renderResult.drewScreenShadow, true);
+  assert.equal(renderResult.drewCameraShadow, true);
+});
+
 test('experimental headless renderer script maps normalized cursor positions directly', async () => {
   const windows = [];
   const png = Buffer.from('cursor-png-frame');
