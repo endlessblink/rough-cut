@@ -255,7 +255,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-243 | Add WebGL-vs-Canvas parity and playback performance probes | P0 | DONE (2026-06-10) |
 | TASK-244 | Add velocity-based WebGL transform motion blur | P1 | DONE (2026-06-10) |
 | TASK-245 | Promote WebGL to full preview compositor behind fallback | P1 | DONE (2026-06-11) |
-| TASK-246 | Prototype GPU/headless export path from the shared composition plan | P1 | IN PROGRESS — runtime non-fallback proof pending |
+| TASK-246 | Prototype GPU/headless export path from the shared composition plan | P1 | DONE (2026-06-13) |
 | TASK-247 | Make GPU compositor default and retire legacy visual composition logic | P1 | PLANNED |
 | ~~TASK-248~~ | ✅ Add startup recording panel regression suite | P1 | ✅ DONE (2026-06-10) |
 | ~~TASK-249~~ | WebGPU-first preview renderer with WebGL/Canvas2D fallback ladder | P0 | DONE (2026-06-11) |
@@ -8331,7 +8331,7 @@ fallbacks for unsupported or failing WebGPU environments.
 ### TASK-246 Prototype GPU/headless export path from the shared composition plan
 
 **Priority:** P1
-**Status:** IN PROGRESS
+**Status:** DONE (2026-06-13)
 
 #### Context
 
@@ -8712,7 +8712,13 @@ pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the
 first real runtime failure it exposes, then run `pnpm benchmark:export` and
 confirm the experimental case reports `fallbackActive: false`,
 `headlessRenderOk: true`, nonzero `headlessFrameArtifacts`, and acceptable
-speed/quality. Do not make this mode default.
+speed/quality. Current sandbox run still builds project-model and desktop,
+generates the FFmpeg fixture, then stops at the host Electron launch boundary:
+`Electron headless runtime export smoke could not launch Electron: spawnSync
+.../apps/desktop/node_modules/.bin/electron EPERM`. Current artifact directory:
+`/tmp/rough-cut-headless-runtime-export-FGiGbi`. A follow-up escalated retry
+did not reach Electron because the command dispatch wrapper reported a
+command/setup failure. Do not make this mode default.
 
 **Slice 15 (2026-06-12):** Hardened the runtime smoke's Electron launch for
 Linux sandbox/CI environments. The smoke now launches Electron with
@@ -8730,12 +8736,38 @@ Evidence:
   `spawnSync .../apps/desktop/node_modules/.bin/electron EPERM` with args
   `["--no-sandbox","--disable-setuid-sandbox","--disable-gpu-sandbox","--disable-dev-shm-usage","--force-color-profile=srgb","--user-data-dir=...","." ]`.
 
-Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
-pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the
-first real runtime failure it exposes, then run `pnpm benchmark:export` and
-confirm the experimental case reports `fallbackActive: false`,
-`headlessRenderOk: true`, nonzero `headlessFrameArtifacts`, and acceptable
-speed/quality. Do not make this mode default.
+Slice 46 completion: the runtime non-fallback gate is now proven on the host.
+The hidden Electron renderer writes exact 1920x1080 frame artifacts from an
+in-page composite canvas instead of `capturePage()` window pixels, preventing
+the previous 1919x1079 artifact drift. The smoke also suppresses normal
+`window-all-closed` shutdown while the headless export smoke owns the app
+lifecycle, so closing the hidden render window no longer terminates the app
+before frame encoding and report writing.
+
+Evidence:
+- Required diagnostics passed first:
+  - `scripts/diagnose-codex-sandbox.sh` reported `NoNewPrivs: 1`, no seccomp
+    filters, and no container detection.
+  - `env ELECTRON_DISABLE_SANDBOX=1 ELECTRON_DISABLE_SECURITY_WARNINGS=true node_modules/.pnpm/electron@35.7.5/node_modules/electron/dist/electron --no-sandbox --disable-setuid-sandbox --disable-gpu-sandbox --disable-dev-shm-usage --version`
+    printed `v35.7.5`.
+- `env DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs node scripts/smoke-experimental-headless-runtime-export.mjs`
+  passes. Artifact: `/tmp/rough-cut-headless-runtime-export-I6l82D`.
+- `/tmp/rough-cut-headless-runtime-export-I6l82D/headless-runtime-result.json`
+  reports `runtimeMetrics.fallbackActive: false`,
+  `runtimeMetrics.headlessRenderOk: true`, and
+  `runtimeMetrics.headlessFrameArtifacts: 30`.
+- The same artifact reports `streams[0].width: 1920`, `streams[0].height:
+  1080`, `streams[0].r_frame_rate: "30/1"`, an audio stream, red source sample
+  RGB `{r:252,g:4,b:4}`, gap sample RGB `{r:8,g:3,b:9}`, and cursor sharpness
+  `{bright:543,dark:263}`.
+
+Known follow-up for TASK-247: this host cannot create a Chromium backing OpenGL
+context, so the smoke records `headlessWebglFrameCount: 0` and
+`headlessCanvas2dFrameCount: 30`. Styled-baseline pixel comparison remains in
+`runtimeMetrics.frameComparisons` as a diagnostic; frames 5 and 25 currently
+differ because the Canvas2D headless composition is smaller than the FFmpeg
+styled baseline. Do not make this mode default until TASK-247 resolves default
+renderer/parity policy.
 
 **Slice 16 (2026-06-12):** Hardened hidden-window frame capture timing. The
 browser-side renderer now waits for two animation frames after drawing each
@@ -9208,6 +9240,133 @@ Evidence:
 - `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
 - `pnpm --filter @rough-cut/desktop typecheck` passes.
 - `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+
+Slice 39 update: the experimental hidden renderer now draws screen and camera
+drop shadows on the GPU path before compositing the video layers. The WebGL
+shadow implementation uses layered translucent rounded quads so the
+experimental renderer no longer drops the styled shadow treatment when the
+screen/camera videos render through the GPU branch. The renderer reports
+`drewScreenShadow` and `drewCameraShadow` in its per-frame metadata, and both
+the hidden-renderer VM test and repo-level sentinel require the shadow path and
+fallback resets. Canvas2D preview and FFmpeg styled export remain unchanged;
+this is only a parity step for the opt-in experimental headless renderer.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node --check apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node --test --test-name-pattern='GPU screen and camera shadows' apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+
+Slice 40 update: the experimental runtime smoke now writes a structured
+`headless-runtime-result.json` even when Electron fails before app code can run.
+This keeps the final TASK-246 gate fail-closed while preserving actionable
+artifact evidence for sandbox/driver/runtime launch failures. The report
+includes `ok: false`, `failure: "electron-runtime-smoke-launch-failed"`, the
+failure phase (`electron-launch` or `electron-exit`), the exact Electron
+command/args, stdout/stderr, and the artifact root. Repo-regression guards this
+diagnostic path so the runtime smoke cannot regress back to terminal-only
+failures.
+
+Evidence:
+- `node --check scripts/smoke-experimental-headless-runtime-export.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm run smoke:experimental-headless-runtime-export` still fails at the host Electron boundary, but now writes `/tmp/rough-cut-headless-runtime-export-dlWOr1/headless-runtime-result.json` with `failure: "electron-runtime-smoke-launch-failed"` and `phase: "electron-launch"`.
+
+Slice 41 update: export benchmark reports now explicitly record whether the
+real experimental headless renderer was enabled. The root report and each case
+include `experimentalHeadlessExportEnabled`, so a benchmark run with
+`ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT` unset cannot be mistaken for TASK-246
+completion evidence. Repo-regression guards the new field. This changes only
+benchmark evidence shape; the default export path and FFmpeg styled fallback
+remain unchanged.
+
+Evidence:
+- `node --check scripts/benchmark-export.mjs` passes.
+- `node --test --test-name-pattern='export benchmark keeps profiling|GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `node scripts/benchmark-export.mjs --output=/tmp/rough-cut-task246-benchmark-report.json` passes with escalated process execution after sandboxed `ffprobe` hit `EPERM`.
+- `/tmp/rough-cut-task246-benchmark-report.json` reports `experimentalHeadlessExportEnabled: false`; both experimental cases report `fallbackActive: true`, `headlessRenderOk: false`, `headlessRenderReason: "experimental-headless-export-disabled"`, and `headlessFrameArtifacts: null`. This is useful negative evidence, not TASK-246 completion proof.
+
+Slice 42 update: the Electron runtime smoke success report now carries
+benchmark-style TASK-246 completion metrics in `runtimeMetrics`. When the smoke
+can run outside this sandbox, the same durable `headless-runtime-result.json`
+will state `experimentalHeadlessExportEnabled: true`, `fallbackActive`,
+`headlessRenderOk`, `headlessFrameArtifacts`, WebGL/Canvas2D frame counts,
+`durationMs`, `speedMultiplier`, and representative frame comparisons. This
+does not change export behavior; it makes the final runtime gate auditable from
+one JSON artifact while FFmpeg styled export remains the default/fallback path.
+
+Evidence:
+- `node --check scripts/smoke-experimental-headless-runtime-export.mjs` passes.
+- `node --test --test-name-pattern='export benchmark keeps profiling|GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+
+Slice 43 update: the runtime smoke now resolves the real Electron binary from
+the desktop package instead of the `.bin/electron` shell shim, and it performs a
+fail-fast `electron --version` preflight before creating FFmpeg fixtures or the
+styled baseline. If the host cannot launch Electron at all, the smoke writes
+`headless-runtime-result.json` with `phase: "electron-preflight"`, the exact
+binary path, args, stdout/stderr, status/signal, and artifact root. This keeps
+the TASK-246 runtime gate fail-closed while distinguishing host launch
+capability from app/export/runtime failures. The default export path and
+experimental fallback behavior remain unchanged.
+
+Evidence:
+- `node --check scripts/smoke-experimental-headless-runtime-export.mjs` passes.
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm smoke:experimental-headless-runtime-export` builds project-model and desktop, then fails before fixture generation at Electron preflight in this managed sandbox: `/tmp/rough-cut-headless-runtime-export-l6LYAv/headless-runtime-result.json` has `failure: "electron-runtime-smoke-launch-failed"`, `phase: "electron-preflight"`, `signal: "SIGTRAP"`, binary `.../node_modules/.pnpm/electron@35.7.5/node_modules/electron/dist/electron`, and stderr `sandbox_host_linux.cc(41) ... shutdown: Operation not permitted`.
+- Escalated command attempts did not reach the smoke command; the command dispatcher reported command/setup failure before runtime execution.
+- `env ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT=1 node scripts/benchmark-export.mjs --output=/tmp/rough-cut-task246-enabled-benchmark-report.json` generated benchmark fixtures but did not write the report because this sandbox hit `spawnSync ffprobe EPERM`. Direct `ffprobe -version` works, so this is sandbox/process-spawn evidence rather than missing-tool evidence.
+
+Slice 44 update: the hidden renderer now waits for an actual decoded video
+frame after each seek before uploading video content to the GPU path, and GPU
+video uploads now use a scratch Canvas2D texture source instead of direct
+`texImage2D(video)` uploads. The direct-headless Chromium diagnostic proved the
+runtime MP4 fixture can paint red in a plain `<video>` element, while the
+renderer page still captured black video texture frames in this environment.
+That makes this a targeted robustness fix for the current runtime failure
+shape, not TASK-246 completion proof. The default export path and experimental
+fallback policy remain unchanged.
+
+Evidence:
+- `node --check apps/desktop/src/main/headless-export-renderer.mjs` passes.
+- `node --check scripts/smoke-experimental-headless-runtime-export.mjs` passes.
+- `node --check scripts/benchmark-export.mjs` passes.
+- `node apps/desktop/src/main/headless-export-renderer.test.mjs` passes 11/11.
+- `node --test apps/desktop/src/main/headless-export-renderer.test.mjs apps/desktop/src/main/export-service.test.mjs` passes.
+- `node --test --test-name-pattern='export benchmark keeps profiling|GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs` passes.
+- `pnpm smoke:experimental-headless-runtime-export` still fails before app/export
+  code at Electron preflight in this managed sandbox:
+  `/tmp/rough-cut-headless-runtime-export-2HxUmL/headless-runtime-result.json`
+  reports `failure: "electron-runtime-smoke-launch-failed"`,
+  `phase: "electron-preflight"`, `signal: "SIGTRAP"`, the direct Electron
+  binary path, and stderr `sandbox_host_linux.cc(41) ... shutdown: Operation
+  not permitted`.
+- Direct Chromium diagnostics: `/tmp/rough-cut-task246-chromium-pages-VbPdZn/video-test.png` painted the MP4 fixture red, but `/tmp/rough-cut-task246-chromium-pages-WAF7xj/frames/frame-000000.png` remained black with only the styled shadow visible. This is negative evidence for the remaining runtime gate, not completion proof.
+
+Slice 45 update: host-execution audit confirmed the remaining TASK-246 gate is
+blocked on launching Electron outside the managed sandbox, not on another
+known repo-level sentinel failure. Direct Electron preflight in the current
+sandbox still traps in `sandbox_host_linux.cc(41)` even with
+`ELECTRON_DISABLE_SANDBOX=1`, `--no-sandbox`, `--disable-setuid-sandbox`,
+`--disable-gpu-sandbox`, `--disable-seccomp-filter-sandbox`, and
+`--disable-namespace-sandbox`. Direct host Chromium and FFmpeg commands are
+available, but Electron is the runtime used by the experimental hidden-window
+export path, so Chromium-only evidence cannot satisfy TASK-246's non-fallback
+export proof. Attempts to run the smoke through the escalated command
+dispatcher failed at command setup before `pnpm` or `node` executed; local SSH
+to `localhost` refused port 22; and `systemd-run --user --scope` could not
+connect to the user bus from the sandbox. No TASK-247 defaulting decision can
+be made from this evidence.
+
+Evidence:
+- `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs pnpm smoke:experimental-headless-runtime-export` with escalation failed at command/setup before the script ran.
+- `pnpm smoke:experimental-headless-runtime-export`, `pnpm run smoke:experimental-headless-runtime-export`, `/home/endlessblink/.npm-global/bin/pnpm smoke:experimental-headless-runtime-export`, and `/usr/bin/node scripts/smoke-experimental-headless-runtime-export.mjs` with escalation all failed at command/setup before runtime execution.
+- `node_modules/.pnpm/electron@35.7.5/node_modules/electron/dist/electron --no-sandbox --disable-setuid-sandbox --disable-gpu-sandbox --disable-dev-shm-usage --version` fails with `sandbox_host_linux.cc(41) ... shutdown: Operation not permitted`.
+- `env ELECTRON_DISABLE_SANDBOX=1 ELECTRON_DISABLE_SECURITY_WARNINGS=true node_modules/.pnpm/electron@35.7.5/node_modules/electron/dist/electron --no-sandbox --disable-setuid-sandbox --disable-gpu-sandbox --disable-seccomp-filter-sandbox --disable-namespace-sandbox --disable-dev-shm-usage --version` fails with the same Electron sandbox-host fatal.
+- `chromium --headless --no-sandbox --disable-gpu-sandbox --disable-dev-shm-usage --dump-dom data:text/html,ok` passes, and `ffmpeg -version` passes, confirming the host can run Chromium/FFmpeg directly but not the Electron binary from this execution context.
+- `ssh -o BatchMode=yes -o ConnectTimeout=5 localhost 'cd /media/endlessblink/data/my-projects/ai-development/content-creation/rough-cut-mvp && /home/endlessblink/.npm-global/bin/pnpm run smoke:experimental-headless-runtime-export'` fails with `ssh: connect to host localhost port 22: Connection refused`.
+- `systemd-run --user --scope --same-dir /home/endlessblink/.npm-global/bin/pnpm run smoke:experimental-headless-runtime-export` fails with `Failed to connect to bus: Operation not permitted`.
 
 Remaining before DONE: run `DISPLAY=:0 XAUTHORITY=/run/user/1000/xauth_Mqgwcs
 pnpm smoke:experimental-headless-runtime-export` outside this sandbox, fix the

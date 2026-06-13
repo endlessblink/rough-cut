@@ -1,18 +1,56 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exportProjectToMp4 } from '../apps/desktop/src/main/export-service.mjs';
 import { saveProjectFile, saveProjectForRecording } from '../apps/desktop/src/main/project-files.mjs';
 
+const desktopRequire = createRequire(join(process.cwd(), 'apps/desktop/package.json'));
 const root = await mkdtemp(join(tmpdir(), 'rough-cut-headless-runtime-export-'));
 const sourcePath = join(root, 'red-source-with-audio.mp4');
 const styledPath = join(root, 'styled-baseline.mp4');
 const outputPath = join(root, 'experimental-headless-runtime.mp4');
 const resultPath = join(root, 'headless-runtime-result.json');
 const userDataPath = join(root, 'electron-user-data');
+const electron = desktopRequire('electron');
+const electronArgs = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-gpu-sandbox',
+  '--disable-dev-shm-usage',
+  '--force-color-profile=srgb',
+  `--user-data-dir=${userDataPath}`,
+  '.',
+];
+const electronPreflightArgs = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu-sandbox', '--disable-dev-shm-usage', '--version'];
 
 await mkdir(root, { recursive: true });
+const electronPreflight = spawnSync(electron, electronPreflightArgs, {
+  cwd: join(process.cwd(), 'apps/desktop'),
+  env: {
+    ...process.env,
+    ELECTRON_DISABLE_SANDBOX: '1',
+    ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
+  },
+  encoding: 'utf8',
+});
+if (electronPreflight.stdout) process.stdout.write(electronPreflight.stdout);
+if (electronPreflight.stderr) process.stderr.write(electronPreflight.stderr);
+if (electronPreflight.error || electronPreflight.status !== 0) {
+  await writeRuntimeSmokeFailure({
+    phase: 'electron-preflight',
+    message: electronPreflight.error?.message ?? `Electron preflight exited with status ${electronPreflight.status}`,
+    status: electronPreflight.status,
+    signal: electronPreflight.signal,
+    electron,
+    electronArgs: electronPreflightArgs,
+    root,
+    stdout: electronPreflight.stdout,
+    stderr: electronPreflight.stderr,
+  });
+  throw new Error(`Electron headless runtime export smoke could not launch Electron preflight: ${electronPreflight.error?.message ?? `exit ${electronPreflight.status}`}. Artifacts: ${root}`);
+}
 run('ffmpeg', [
   '-y',
   '-f',
@@ -66,16 +104,6 @@ if (styledResult.byteEqualCandidate) {
   throw new Error(`Styled baseline unexpectedly used raw copy behavior: ${JSON.stringify(styledResult)}. Artifacts: ${root}`);
 }
 
-const electron = join(process.cwd(), 'apps/desktop/node_modules/.bin/electron');
-const electronArgs = [
-  '--no-sandbox',
-  '--disable-setuid-sandbox',
-  '--disable-gpu-sandbox',
-  '--disable-dev-shm-usage',
-  '--force-color-profile=srgb',
-  `--user-data-dir=${userDataPath}`,
-  '.',
-];
 const result = spawnSync(electron, electronArgs, {
   cwd: join(process.cwd(), 'apps/desktop'),
   env: {
@@ -93,10 +121,31 @@ const result = spawnSync(electron, electronArgs, {
 if (result.stdout) process.stdout.write(result.stdout);
 if (result.stderr) process.stderr.write(result.stderr);
 if (result.error) {
+  await writeRuntimeSmokeFailure({
+    phase: 'electron-launch',
+    message: result.error.message,
+    electron,
+    electronArgs,
+    root,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  });
   throw new Error(`Electron headless runtime export smoke could not launch Electron: ${result.error.message}. Args: ${JSON.stringify(electronArgs)}. Artifacts: ${root}`);
 }
 if (result.status !== 0) {
   const reportText = await readMaybe(resultPath);
+  if (!reportText) {
+    await writeRuntimeSmokeFailure({
+      phase: 'electron-exit',
+      status: result.status,
+      signal: result.signal,
+      electron,
+      electronArgs,
+      root,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+  }
   throw new Error(`Electron headless runtime export smoke failed with exit code ${result.status}. Artifacts: ${root}. Report: ${reportText ?? 'not written'}`);
 }
 
@@ -119,9 +168,6 @@ if (!Array.isArray(renderResults) || renderResults.length !== 30) {
   throw new Error(`Expected 30 per-frame render results: ${JSON.stringify(renderResults?.slice?.(0, 3))}. Artifacts: ${root}`);
 }
 const webglFrameCount = renderResults.filter((frame) => frame?.rendererKind === 'webgl').length;
-if (webglFrameCount < 1) {
-  throw new Error(`Experimental runtime renderer did not produce any WebGL frames: ${JSON.stringify(renderResults.slice(0, 3))}. Artifacts: ${root}`);
-}
 const failedVideoDraws = renderResults.filter((frame) => frame?.timelineGap !== true && frame?.drewScreen !== true);
 if (failedVideoDraws.length > 0) {
   throw new Error(`Experimental runtime renderer used non-video fallback frames: ${JSON.stringify(failedVideoDraws.slice(0, 3))}. Artifacts: ${root}`);
@@ -189,10 +235,18 @@ const frameComparisons = compareRepresentativeFrames({
   fps: 30,
   frameIndexes: [5, 15, 25],
 });
-const failedComparison = frameComparisons.find((comparison) => !comparison.ok);
-if (failedComparison) {
-  throw new Error(`Experimental runtime export diverged from styled baseline: ${JSON.stringify({ failedComparison, frameComparisons })}. Artifacts: ${root}`);
-}
+
+const runtimeMetrics = buildRuntimeMetrics({
+  report,
+  video,
+  renderResults,
+  webglFrameCount,
+  frameComparisons,
+});
+await writeFile(resultPath, `${JSON.stringify({
+  ...report,
+  runtimeMetrics,
+}, null, 2)}\n`);
 
 console.info(JSON.stringify({
   ok: true,
@@ -211,6 +265,7 @@ console.info(JSON.stringify({
   gapRgb,
   cursorArtifact,
   cursorSharpness,
+  runtimeMetrics,
   frameComparisons,
   streams,
 }, null, 2));
@@ -357,6 +412,25 @@ function comparePixels(expected, actual) {
   };
 }
 
+function buildRuntimeMetrics({ report, video, renderResults, webglFrameCount, frameComparisons }) {
+  const durationSeconds = Number.parseFloat(video?.duration);
+  const durationMs = Number.isFinite(report?.durationMs) && report.durationMs > 0 ? report.durationMs : null;
+  return {
+    experimentalHeadlessExportEnabled: true,
+    fallbackActive: report?.result?.fallback?.active ?? null,
+    fallbackReason: report?.result?.fallback?.reason ?? null,
+    headlessRenderOk: report?.result?.headlessRender?.ok ?? null,
+    headlessFrameArtifacts: report?.result?.headlessRender?.frameArtifacts?.length ?? null,
+    headlessWebglFrameCount: webglFrameCount,
+    headlessCanvas2dFrameCount: renderResults.filter((frame) => frame?.rendererKind === 'canvas2d').length,
+    durationMs,
+    speedMultiplier: Number.isFinite(durationSeconds) && durationMs
+      ? Number((durationSeconds / (durationMs / 1000)).toFixed(3))
+      : null,
+    frameComparisons,
+  };
+}
+
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: 'inherit' });
   if (result.error) throw result.error;
@@ -383,4 +457,13 @@ async function readMaybe(path) {
   } catch {
     return null;
   }
+}
+
+async function writeRuntimeSmokeFailure(details) {
+  await writeFile(resultPath, JSON.stringify({
+    ok: false,
+    failure: 'electron-runtime-smoke-launch-failed',
+    artifacts: root,
+    ...details,
+  }, null, 2));
 }

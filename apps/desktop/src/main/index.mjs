@@ -1103,6 +1103,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  if (process.env.ROUGH_CUT_HEADLESS_EXPORT_SMOKE_RESULT_PATH) return;
   if (process.platform !== 'darwin') app.quit();
 });
 

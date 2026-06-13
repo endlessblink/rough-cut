@@ -31,6 +31,7 @@ const reportPath = outputArg
 const realProjectPath = projectArg ? resolve(projectArg.slice('--project='.length)) : null;
 const cpuEncoder = process.env.ROUGH_CUT_STYLED_VIDEO_ENCODER ?? process.env.ROUGH_CUT_STYLED_ENCODER;
 if (!cpuEncoder) process.env.ROUGH_CUT_STYLED_VIDEO_ENCODER = 'libx264';
+const experimentalHeadlessExportEnabled = process.env.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT === '1';
 
 await mkdir(root, { recursive: true });
 const sourcePath = join(root, 'source-1080p.mp4');
@@ -299,6 +300,7 @@ const report = {
     resolution: { width: sourceProbe.width, height: sourceProbe.height },
     fps: sourceProbe.fps,
   },
+  experimentalHeadlessExportEnabled,
   budgets: EXPORT_BENCHMARK_BUDGETS,
   cases: results,
   profiling: buildProfilingSummary(results),
@@ -340,6 +342,7 @@ async function runBenchmarkCase(benchmarkCase) {
     experimentalBackend: exportResult.experimentalBackend ?? null,
     fallback: exportResult.fallback ?? null,
     fallbackActive: exportResult.fallback?.active ?? null,
+    experimentalHeadlessExportEnabled,
     headlessRenderOk: exportResult.headlessRender?.ok ?? null,
     headlessRenderReason: exportResult.headlessRender?.reason ?? null,
     headlessFrameCount: exportResult.headlessRender?.frameCount ?? null,

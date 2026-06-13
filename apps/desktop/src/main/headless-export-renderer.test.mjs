@@ -123,6 +123,12 @@ test('experimental headless renderer captures frame artifacts from a hidden rend
   assert.match(windows[0].loadedUrl, /^data:text\/html/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /<canvas id="gpu-frame"/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /gpuCanvas\.getContext\('webgl'/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /const captureCanvas=document\.createElement\('canvas'\)/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /captureCanvas\.width=1280/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /captureCanvas\.height=720/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /window\.__roughCutCaptureHeadlessPng=\(\)=>/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /captureCtx\.drawImage\(gpuCanvas,0,0,captureCanvas\.width,captureCanvas\.height\)/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /captureCtx\.drawImage\(canvas,0,0,captureCanvas\.width,captureCanvas\.height\)/);
   assert.equal(attempt.renderSurface.attempted, true);
   assert.equal(attempt.renderSurface.ok, true);
   assert.equal(attempt.renderSurface.reason, null);
@@ -144,6 +150,12 @@ test('experimental headless renderer captures frame artifacts from a hidden rend
   assert.match(decodeURIComponent(windows[0].loadedUrl), /function drawGpuVideo\(video,rect,source\)/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /function drawGpuScreenLayer\(layer,screen\)/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /function drawGpuCameraLayer\(layer,camera\)/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /const videoTextureCanvas=document\.createElement\('canvas'\)/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /function videoTextureSource\(video,rect\)/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /function drawGpuShadow\(rect,style\)/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /const steps=6/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /function waitForVideoFrame\(video\)/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /await waitForVideoFrame\(video\)/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /uniform vec4 u_gradientEnd/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /uniform vec4 u_rect/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /uniform float u_radius/);
@@ -161,7 +173,7 @@ test('experimental headless renderer captures frame artifacts from a hidden rend
   assert.match(decodeURIComponent(windows[0].loadedUrl), /function drawGpuSolidPolygon\(points,colorValue\)/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /gl\.drawArrays\(gl\.TRIANGLE_FAN,0,points\.length\)/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /let usedGpu=false/);
-  assert.match(decodeURIComponent(windows[0].loadedUrl), /if\(drewScreen\)usedGpu=true;else\{clearGpu\('#000000'\);drewBackgroundImage=await drawBackground\(frame\);fallbackScreen\(screen\)\}/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /if\(drewScreen\)usedGpu=true;else\{clearGpu\('#000000'\);drewBackgroundImage=await drawBackground\(frame\);fallbackScreen\(screen\);drewScreenShadow=false\}/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /rendererKind:usedGpu\?'webgl':'canvas2d'/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /const images=new Map\(\)/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /function imageFor\(url\)/);
@@ -190,9 +202,9 @@ test('experimental headless renderer captures frame artifacts from a hidden rend
   assert.match(decodeURIComponent(windows[0].loadedUrl), /const style=screenStyle\(layer,screen\);return drawGpuVideo\(video,\{\.\.\.screen,radius:style\.radius\},screenSourceRect\(video,layer,screen\)\)/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /const style=cameraStyle\(layer,camera\);return drawGpuVideo\(video,\{\.\.\.camera,radius:style\.radius\},coverSourceRect\(video,layer,camera\)\)/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /const useGpu=useGpuFrame\(frame\)/);
-  assert.match(decodeURIComponent(windows[0].loadedUrl), /if\(screen&&useGpu\)\{drewScreen=await drawGpuScreenLayer\(frame\.screen,screen\)/);
-  assert.match(decodeURIComponent(windows[0].loadedUrl), /if\(camera&&useGpu&&usedGpu\)\{drewCamera=await drawGpuCameraLayer\(frame\.camera,camera\)/);
-  assert.match(decodeURIComponent(windows[0].loadedUrl), /if\(!drewCamera\)\{usedGpu=false;clearGpu\('#000000'\);drewBackgroundImage=await drawBackground\(frame\);fallbackScreen\(screen\);fallbackCamera\(camera\)\}/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /if\(screen&&useGpu\)\{const style=screenStyle\(frame\.screen,screen\);drewScreenShadow=drawGpuShadow\(screen,style\);drewScreen=await drawGpuScreenLayer\(frame\.screen,screen\)/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /if\(camera&&useGpu&&usedGpu\)\{const style=cameraStyle\(frame\.camera,camera\);drewCameraShadow=drawGpuShadow\(camera,\{\.\.\.style,shadowOffsetX:0,shadowOffsetY:0\}\);drewCamera=await drawGpuCameraLayer\(frame\.camera,camera\)/);
+  assert.match(decodeURIComponent(windows[0].loadedUrl), /if\(!drewCamera\)\{usedGpu=false;clearGpu\('#000000'\);drewBackgroundImage=await drawBackground\(frame\);fallbackScreen\(screen\);fallbackCamera\(camera\);drewScreenShadow=false;drewCameraShadow=false\}/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /function flushCanvasFrame\(\)\{return new Promise/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /await flushCanvasFrame\(\)/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /function sourceViewportRect\(layer,vw,vh\)/);
@@ -215,6 +227,42 @@ test('experimental headless renderer captures frame artifacts from a hidden rend
   assert.match(decodeURIComponent(windows[0].loadedUrl), /if\(point\)\{if\(usedGpu\)drawGpuCursor\(point,cursorStyle\(frame\)\);else drawCursor\(point,cursorStyle\(frame\)\)\}/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /const clicked=screen&&frame&&frame\.click&&frame\.click\.visible\?clickPoint\(frame,screen\):null/);
   assert.match(decodeURIComponent(windows[0].loadedUrl), /if\(clicked\)\{if\(usedGpu\)drawGpuClick\(clicked,frame\);else drawClick\(clicked,frame\)\}/);
+  assert.deepEqual(await readFile(attempt.frameArtifacts[0].path), png);
+});
+
+test('experimental headless renderer prefers exact-size in-page canvas captures', async () => {
+  const png = Buffer.from('exact-canvas-png-frame');
+  const dataUrl = `data:image/png;base64,${png.toString('base64')}`;
+  let capturePageCalled = false;
+  const attempt = await attemptExperimentalHeadlessRender({
+    env: { ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT: '1' },
+    electronRuntime: { available: true },
+    outputPath: '/tmp/rough-cut-headless-render-test/exact-capture-headless.mp4',
+    compositionPlan: {
+      output: { width: 1920, height: 1080 },
+      frames: [{ frameIndex: 0 }],
+    },
+    createRenderWindow() {
+      return {
+        webContents: {
+          async executeJavaScript(script) {
+            if (script === 'window.__roughCutHeadlessExportProbe') return { ok: true };
+            if (script === 'window.__roughCutCaptureHeadlessPng && window.__roughCutCaptureHeadlessPng()') return dataUrl;
+            return { ok: true, rendererKind: 'webgl', drewScreen: true };
+          },
+          async capturePage() {
+            capturePageCalled = true;
+            return { toPNG: () => Buffer.from('offscreen-window-png') };
+          },
+        },
+        async loadURL() {},
+        close() {},
+      };
+    },
+  });
+
+  assert.equal(attempt.ok, true);
+  assert.equal(capturePageCalled, false);
   assert.deepEqual(await readFile(attempt.frameArtifacts[0].path), png);
 });
 
@@ -361,7 +409,7 @@ test('experimental headless renderer script downgrades to Canvas2D when GPU vide
   assert.equal(attempt.ok, true);
   assert.ok(loadedUrl);
 
-  const hiddenWindow = executeHiddenRendererScript(loadedUrl, { throwOnVideoUpload: true });
+  const hiddenWindow = executeHiddenRendererScript(loadedUrl, { throwOnTextureUpload: true });
   const renderResult = await hiddenWindow.__roughCutRenderHeadlessFrame({
     frameIndex: 0,
     background: { startColor: '#112233', endColor: '#334455' },
@@ -591,6 +639,16 @@ function executeHiddenRendererScript(loadedUrl, options = {}) {
         if (tagName === 'video') {
           return createFakeVideo();
         }
+        if (tagName === 'canvas') {
+          return {
+            width: 0,
+            height: 0,
+            getContext(kind) {
+              if (kind === '2d') return createFakeCanvas2d();
+              return null;
+            },
+          };
+        }
         throw new Error(`Unexpected element ${tagName}`);
       },
     },
@@ -681,8 +739,8 @@ function createFakeWebgl(options = {}) {
   const noop = () => undefined;
   const texImage2D = (...args) => {
     const source = args.at(-1);
-    if (options.throwOnVideoUpload && source?.videoWidth) {
-      throw new Error('fake-video-upload-failed');
+    if (options.throwOnTextureUpload) {
+      throw new Error('fake-texture-upload-failed');
     }
   };
   return {
