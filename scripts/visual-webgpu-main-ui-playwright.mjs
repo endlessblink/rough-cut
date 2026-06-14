@@ -18,13 +18,16 @@ const defaultRealProjects = [
 const explicitProjectPath = process.env.ROUGH_CUT_WEBGPU_MAIN_UI_PROJECT_PATH
   || process.env.ROUGH_CUT_PLAYBACK_PROJECT_PATH
   || '';
+const forceGeneratedStress = process.env.ROUGH_CUT_WEBGPU_MAIN_UI_GENERATED_STRESS === '1';
 const runAllRealProjects = !explicitProjectPath && process.env.ROUGH_CUT_WEBGPU_MAIN_UI_ALL_REAL_PROJECTS === '1';
 const availableRealProjects = defaultRealProjects.filter((candidate) => existsSync(candidate.path));
 const defaultRealProject = availableRealProjects[0] ?? null;
-const runProjects = runAllRealProjects && availableRealProjects.length > 0
+const runProjects = forceGeneratedStress
+  ? []
+  : runAllRealProjects && availableRealProjects.length > 0
   ? availableRealProjects
   : [explicitProjectPath ? { path: explicitProjectPath } : defaultRealProject].filter(Boolean);
-const generatedStressFixture = runProjects.length === 0;
+const generatedStressFixture = forceGeneratedStress || runProjects.length === 0;
 const expectMotionBlur = process.env.ROUGH_CUT_EXPECT_WEBGPU_MOTION_BLUR === '1'
   || process.env.ROUGH_CUT_WEBGPU_MAIN_UI_MOTION_BLUR === '1'
   || generatedStressFixture;
@@ -148,11 +151,18 @@ function fallbackMatrixAdvanceSec(rendererKind) {
 }
 
 function fallbackMatrixCorrectnessOnly(rendererKind) {
-  if (runFallbackMatrix && rendererKind === 'canvas2d') return '1';
+  if (runFallbackMatrix && (rendererKind === 'webgl' || rendererKind === 'canvas2d')) return '1';
   return '';
 }
 
 function screenshotPathTemplate(run) {
+  if (
+    runFallbackMatrix
+    && run.rendererKind !== 'webgpu'
+    && process.env.ROUGH_CUT_WEBGPU_MAIN_UI_FALLBACK_SCREENSHOTS !== '1'
+  ) {
+    return '';
+  }
   const rendererSegment = runFallbackMatrix ? `${run.rendererKind}-` : '';
   if (!runAllRealProjects) return `/tmp/rough-cut-webgpu-main-ui-${rendererSegment}{view}-{state}.png`;
   return `/tmp/rough-cut-webgpu-main-ui-${rendererSegment}real-${run.projectIndex + 1}-{view}-{state}.png`;

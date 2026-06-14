@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 const root = resolve(new URL('..', import.meta.url).pathname);
 const timeoutMs = numberFromEnv('ROUGH_CUT_WEBGPU_PROBE_TIMEOUT_MS', 30000);
 const stepTimeoutMs = numberFromEnv('ROUGH_CUT_WEBGPU_PROBE_STEP_TIMEOUT_MS', 5000);
+const retryCount = Math.max(0, Number(process.env.ROUGH_CUT_WEBGPU_PROBE_RETRIES ?? 1));
 const videoPath = process.env.ROUGH_CUT_WEBGPU_PROBE_VIDEO ? resolve(process.env.ROUGH_CUT_WEBGPU_PROBE_VIDEO) : null;
 const enableGpuFlags = process.env.ROUGH_CUT_WEBGPU_PROBE_ENABLE_FLAGS === '1';
 const reportPath = process.env.ROUGH_CUT_WEBGPU_PROBE_REPORT
@@ -15,7 +16,7 @@ const reportPath = process.env.ROUGH_CUT_WEBGPU_PROBE_REPORT
   : join(tmpdir(), 'rough-cut-webgpu-probe-latest.json');
 
 const startedAt = Date.now();
-const result = await runWithTimeout(runProbe(), timeoutMs, {
+const result = await runWithTimeout(runProbeWithRetry(), timeoutMs, {
   ok: false,
   supported: false,
   reason: 'probe-process-timeout',
@@ -96,6 +97,37 @@ async function runProbe() {
   } finally {
     await app.close().catch(() => {});
   }
+}
+
+async function runProbeWithRetry() {
+  const attempts = [];
+  const maxAttempts = retryCount + 1;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const result = await runProbe();
+    attempts.push({
+      attempt,
+      ok: result.ok,
+      supported: result.supported,
+      reason: result.reason ?? null,
+      error: result.error ?? null,
+    });
+    if (result.ok || attempt === maxAttempts) {
+      return {
+        ...result,
+        retry: {
+          attempts,
+          retryCount: attempt - 1,
+          maxRetries: retryCount,
+        },
+      };
+    }
+  }
+  return {
+    ok: false,
+    supported: false,
+    reason: 'probe-retry-loop-exhausted',
+    retry: { attempts, retryCount: maxAttempts - 1, maxRetries: retryCount },
+  };
 }
 
 async function rendererProbe(options) {

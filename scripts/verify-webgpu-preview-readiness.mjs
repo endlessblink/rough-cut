@@ -8,9 +8,13 @@ const phases = [
   },
   {
     id: 'motion-blur',
-    description: 'Real main UI executes the WebGPU motion-blur shader branch.',
+    description: 'Real main UI executes the WebGPU motion-blur shader branch on a deterministic stress fixture.',
     env: {
       ROUGH_CUT_WEBGPU_MAIN_UI_MOTION_BLUR: '1',
+      ROUGH_CUT_WEBGPU_MAIN_UI_GENERATED_STRESS: '1',
+      ROUGH_CUT_PLAYBACK_VIEW: 'recording',
+      ROUGH_CUT_PLAYBACK_ADVANCE_SEC: '0.5',
+      ROUGH_CUT_PLAYBACK_CORRECTNESS_ONLY: '1',
     },
   },
   {

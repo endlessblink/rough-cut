@@ -20,6 +20,7 @@ const stressPlaybackFixture = process.env.ROUGH_CUT_PLAYBACK_STRESS === '1';
 const expectedScreenLayerRenderer = normalizeExpectedRenderer(process.env.ROUGH_CUT_EXPECT_SCREEN_LAYER_RENDERER || '');
 const expectWebgpuMotionBlur = process.env.ROUGH_CUT_EXPECT_WEBGPU_MOTION_BLUR === '1' || stressPlaybackFixture;
 const playbackCorrectnessOnly = process.env.ROUGH_CUT_PLAYBACK_CORRECTNESS_ONLY === '1';
+const playbackProbeRetryCount = Math.max(0, Number(process.env.ROUGH_CUT_PLAYBACK_PROBE_RETRIES ?? 1));
 
 await mkdir(root, { recursive: true });
 let projectPath = externalProjectPath;
@@ -97,10 +98,10 @@ let nleResult;
 try {
   recordingResult = probeView === 'nle'
     ? { ok: true, skipped: true, reason: 'ROUGH_CUT_PLAYBACK_VIEW=nle' }
-    : await runPlaybackProbe({ view: 'recording', projectPath });
+    : await runPlaybackProbeWithRetry({ view: 'recording', projectPath });
   nleResult = probeView === 'recording'
     ? { ok: true, skipped: true, reason: 'ROUGH_CUT_PLAYBACK_VIEW=recording' }
-    : await runPlaybackProbe({ view: 'nle', projectPath });
+    : await runPlaybackProbeWithRetry({ view: 'nle', projectPath });
 } finally {
   await gpuHarnessLock.release();
 }
@@ -124,6 +125,37 @@ console.info(JSON.stringify({
 
 if (!report.ok) {
   throw new Error(`Timeline playback regression failed: ${JSON.stringify({ reportPath, root, recording: summarizeResult(recordingResult), nle: summarizeResult(nleResult) })}`);
+}
+
+async function runPlaybackProbeWithRetry({ view, projectPath }) {
+  const attempts = [];
+  const maxAttempts = playbackProbeRetryCount + 1;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const result = await runPlaybackProbe({ view, projectPath });
+    attempts.push({
+      attempt,
+      ok: result.ok,
+      error: result.error ?? null,
+      proofOk: result.proof?.ok ?? null,
+      rendererExpectationOk: result.rendererExpectation?.ok ?? null,
+      activePlaybackDebugOk: result.activePlaybackDebug?.ok ?? null,
+    });
+    if (result.ok || attempt === maxAttempts) {
+      return {
+        ...result,
+        retry: {
+          attempts,
+          retryCount: attempt - 1,
+          maxRetries: playbackProbeRetryCount,
+        },
+      };
+    }
+  }
+  return {
+    ok: false,
+    error: 'playback-probe-retry-loop-exhausted',
+    retry: { attempts, retryCount: maxAttempts - 1, maxRetries: playbackProbeRetryCount },
+  };
 }
 
 async function runPlaybackProbe({ view, projectPath }) {

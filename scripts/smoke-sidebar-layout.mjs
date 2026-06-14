@@ -84,7 +84,8 @@ function runLayoutSmoke({ name, projectPath }) {
   const resultPath = join(root, `${name}-layout-result.json`);
   const screenshotPath = join(root, `${name}-layout.png`);
   const sidebarScreenshotDir = join(root, `${name}-sidebar-tabs`);
-  const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb', '.'], {
+  const userDataPath = join(root, `${name}-electron-user-data`);
+  const result = spawnSync(electron, ['--no-sandbox', '--force-color-profile=srgb', `--user-data-dir=${userDataPath}`, '.'], {
     cwd: join(process.cwd(), 'apps/desktop'),
     env: {
       ...process.env,
@@ -121,7 +122,7 @@ function runLayoutSmoke({ name, projectPath }) {
   if (requiresSidebarAssertions && (Object.keys(sidebarScreenshotBytes).length !== 4 || Object.values(sidebarScreenshotBytes).some((bytes) => bytes <= 1000))) {
     throw new Error(`${name} sidebar visual snapshots were missing or empty: ${JSON.stringify({ sidebarScreenshotBytes, report }, null, 2)}. Artifacts: ${root}`);
   }
-  return { ...report, screenshotPath, screenshotBytes, sidebarScreenshotDir, sidebarScreenshotBytes };
+  return { ...report, screenshotPath, screenshotBytes, sidebarScreenshotDir, sidebarScreenshotBytes, userDataPath };
 }
 
 function run(command, args) {

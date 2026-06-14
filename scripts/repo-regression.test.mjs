@@ -16,6 +16,9 @@ const webgpuPreviewReadinessSource = readFileSync(join(root, 'scripts/verify-web
 const experimentalHeadlessExportSmokeSource = readFileSync(join(root, 'scripts/smoke-experimental-headless-export.mjs'), 'utf8');
 const experimentalHeadlessRuntimeExportSmokeSource = readFileSync(join(root, 'scripts/smoke-experimental-headless-runtime-export.mjs'), 'utf8');
 const smokeUiSource = readFileSync(join(root, 'scripts/smoke-ui.mjs'), 'utf8');
+const smokeSidebarLayoutSource = readFileSync(join(root, 'scripts/smoke-sidebar-layout.mjs'), 'utf8');
+const smokePackagedAppSource = readFileSync(join(root, 'scripts/smoke-packaged-app.mjs'), 'utf8');
+const hostReadinessRunnerSource = readFileSync(join(root, 'scripts/host-readiness-runner.sh'), 'utf8');
 const desktopPackage = JSON.parse(readFileSync(join(root, 'apps/desktop/package.json'), 'utf8'));
 const headlessExportRendererSource = readFileSync(join(root, 'apps/desktop/src/main/headless-export-renderer.mjs'), 'utf8');
 const headlessExportRendererTestSource = readFileSync(join(root, 'apps/desktop/src/main/headless-export-renderer.test.mjs'), 'utf8');
@@ -154,6 +157,10 @@ test('GPU-C compositor parity probe stays wired as a visual evidence command', (
   assert.match(gpuCompositorProbeSource, /styledPreviewAcceleratedCanvas\.isActive, canvas\.styledPreviewWebglCanvas\.isActive/);
   assert.match(gpuCompositorProbeSource, /readScreenshotPixels/);
   assert.match(gpuCompositorProbeSource, /rgba:-/);
+  assert.match(gpuCompositorProbeSource, /async function screenshotPreviewCanvas/);
+  assert.match(gpuCompositorProbeSource, /canvas\.boundingBox\(\)/);
+  assert.match(gpuCompositorProbeSource, /page\.screenshot\(\{/);
+  assert.match(gpuCompositorProbeSource, /clip: \{/);
   for (const caseId of ['gap-start', 'cut-boundary', 'zoom-in', 'zoom-hold-cursor-visible', 'zoom-out-cursor-offscreen', 'camera-pip-present']) {
     assert.match(gpuCompositorProbeSource, new RegExp(`id: '${caseId}'`));
   }
@@ -181,6 +188,8 @@ test('GPU-C WebGPU main UI playback probe stays wired as a real-preview evidence
   assert.match(webgpuMainUiProbeSource, /appDefault: useAppDefault/);
   assert.match(webgpuMainUiProbeSource, /Documents\/Rough Cut MVP\/recordings/);
   assert.match(webgpuMainUiProbeSource, /availableRealProjects = defaultRealProjects\.filter/);
+  assert.match(webgpuMainUiProbeSource, /ROUGH_CUT_WEBGPU_MAIN_UI_GENERATED_STRESS/);
+  assert.match(webgpuMainUiProbeSource, /forceGeneratedStress \|\| runProjects\.length === 0/);
   assert.match(webgpuMainUiProbeSource, /seekSec: '77'/);
   assert.match(webgpuMainUiProbeSource, /motionBlurSeekSec: '86'/);
   assert.doesNotMatch(webgpuMainUiProbeSource, /motionBlurView: 'nle'/);
@@ -194,11 +203,12 @@ test('GPU-C WebGPU main UI playback probe stays wired as a real-preview evidence
   assert.match(webgpuMainUiProbeSource, /return '2'/);
   assert.match(webgpuMainUiProbeSource, /ROUGH_CUT_PLAYBACK_CORRECTNESS_ONLY: process\.env\.ROUGH_CUT_PLAYBACK_CORRECTNESS_ONLY \|\| fallbackMatrixCorrectnessOnly\(rendererKind\)/);
   assert.match(webgpuMainUiProbeSource, /function fallbackMatrixCorrectnessOnly\(rendererKind\)/);
-  assert.match(webgpuMainUiProbeSource, /if \(runFallbackMatrix && rendererKind === 'canvas2d'\) return '1'/);
+  assert.match(webgpuMainUiProbeSource, /if \(runFallbackMatrix && \(rendererKind === 'webgl' \|\| rendererKind === 'canvas2d'\)\) return '1'/);
   assert.match(webgpuMainUiProbeSource, /playbackView: env\.ROUGH_CUT_PLAYBACK_VIEW \|\| 'both'/);
   assert.match(webgpuMainUiProbeSource, /run: index \+ 1/);
   assert.match(webgpuMainUiProbeSource, /runCount: runs\.length/);
-  assert.match(webgpuMainUiProbeSource, /generatedStressFixture = runProjects\.length === 0/);
+  assert.match(webgpuMainUiProbeSource, /ROUGH_CUT_WEBGPU_MAIN_UI_FALLBACK_SCREENSHOTS/);
+  assert.match(webgpuMainUiProbeSource, /runFallbackMatrix\s+&& run\.rendererKind !== 'webgpu'/);
   assert.match(webgpuMainUiProbeSource, /ROUGH_CUT_PLAYBACK_STRESS = '1'/);
   assert.match(webgpuMainUiProbeSource, /ROUGH_CUT_EXPECT_SCREEN_LAYER_RENDERER: rendererKind/);
   assert.match(webgpuMainUiProbeSource, /applyRendererSelectionEnv\(env, rendererKind\)/);
@@ -252,6 +262,10 @@ test('GPU-C WebGPU preview readiness gate covers default, blur, parity, and fall
   assert.match(webgpuPreviewReadinessSource, /id: 'app-default'/);
   assert.match(webgpuPreviewReadinessSource, /id: 'motion-blur'/);
   assert.match(webgpuPreviewReadinessSource, /ROUGH_CUT_WEBGPU_MAIN_UI_MOTION_BLUR: '1'/);
+  assert.match(webgpuPreviewReadinessSource, /ROUGH_CUT_WEBGPU_MAIN_UI_GENERATED_STRESS: '1'/);
+  assert.match(webgpuPreviewReadinessSource, /ROUGH_CUT_PLAYBACK_VIEW: 'recording'/);
+  assert.match(webgpuPreviewReadinessSource, /ROUGH_CUT_PLAYBACK_ADVANCE_SEC: '0\.5'/);
+  assert.match(webgpuPreviewReadinessSource, /ROUGH_CUT_PLAYBACK_CORRECTNESS_ONLY: '1'/);
   assert.match(webgpuPreviewReadinessSource, /id: 'compositor-parity'/);
   assert.match(webgpuPreviewReadinessSource, /\['pnpm', 'visual:gpu-compositor'\]/);
   assert.match(webgpuPreviewReadinessSource, /id: 'fallback-matrix'/);
@@ -274,6 +288,9 @@ test('GPU-C WebGPU capability probe is timeout-safe and report-backed', () => {
   assert.match(rootPackage.scripts['probe:webgpu'], /probe-webgpu-capability\.mjs/);
   assert.match(webgpuCapabilityProbeSource, /ROUGH_CUT_WEBGPU_PROBE_TIMEOUT_MS/);
   assert.match(webgpuCapabilityProbeSource, /ROUGH_CUT_WEBGPU_PROBE_STEP_TIMEOUT_MS/);
+  assert.match(webgpuCapabilityProbeSource, /ROUGH_CUT_WEBGPU_PROBE_RETRIES/);
+  assert.match(webgpuCapabilityProbeSource, /async function runProbeWithRetry/);
+  assert.match(webgpuCapabilityProbeSource, /retry: \{/);
   assert.match(webgpuCapabilityProbeSource, /probe-process-timeout/);
   assert.match(webgpuCapabilityProbeSource, /ROUGH_CUT_WEBGPU_PROBE_VIDEO/);
   assert.match(webgpuCapabilityProbeSource, /navigator\.gpu/);
@@ -325,6 +342,10 @@ test('GPU-C renderer capability ladder keeps WebGPU opt-in and fallback-safe', (
   assert.match(playbackTimelineSource, /sourceWidth > width \|\| sourceHeight > height/);
   assert.match(playbackTimelineSource, /webgpuBackgroundUploads\.ok/);
   assert.match(playbackTimelineSource, /ROUGH_CUT_PLAYBACK_SCREENSHOT_PATH/);
+  assert.match(playbackTimelineSource, /ROUGH_CUT_PLAYBACK_PROBE_RETRIES/);
+  assert.match(playbackTimelineSource, /async function runPlaybackProbeWithRetry/);
+  assert.match(playbackTimelineSource, /retry: \{/);
+  assert.match(playbackTimelineSource, /attempts,/);
   assert.match(playbackTimelineSource, /function screenshotArtifactProof\(screenshotArtifacts\)/);
   assert.match(playbackTimelineSource, /async function collectScreenshotArtifacts\(pathsByState\)/);
   assert.match(playbackTimelineSource, /missingOrTinyCount/);
@@ -446,6 +467,126 @@ test('GPU-C experimental headless export smoke stays explicit and fallback-backe
   assert.match(experimentalHeadlessExportSmokeSource, /frameComparisons/);
   assert.match(experimentalHeadlessExportSmokeSource, /createZoomMarker/);
   assert.match(experimentalHeadlessExportSmokeSource, /zoomedCursorSharpness/);
+});
+
+test('TASK-247 Slice 1 keeps preview default policy separate from export default policy', () => {
+  assert.match(masterPlanSource, /### TASK-247 Make GPU compositor default and retire legacy visual composition logic/);
+  assert.match(masterPlanSource, /TASK-247 Slice 1/);
+  assert.match(masterPlanSource, /Do not flip the export default in this slice/);
+  assert.match(masterPlanSource, /TASK-246 proves the experimental\s+headless path can complete as an opt-in backend/);
+  assert.match(masterPlanSource, /`headlessWebglFrameCount: 0`/);
+  assert.match(masterPlanSource, /styled-baseline parity still has known frame deltas/);
+
+  assert.match(desktopMainSource, /function webgpuPreviewDefaultEnabled\(\)/);
+  assert.match(desktopMainSource, /if \(webgpuPreviewDefaultEnabled\(\)\) params\.set\('screenLayerRenderer', 'auto'\)/);
+  assert.match(desktopMainSource, /function experimentalHeadlessExportUiEnabled\(\)/);
+  assert.match(desktopMainSource, /if \(experimentalHeadlessExportUiEnabled\(\)\) params\.set\('experimentalHeadlessExportUi', '1'\)/);
+  assert.doesNotMatch(desktopMainSource, /ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT[^_UI]/);
+
+  assert.match(exportServiceSource, /export const EXPORT_MODES = Object\.freeze\(\{\n\s+RAW: 'raw',\n\s+STYLED: 'styled',\n\s+EXPERIMENTAL_HEADLESS: 'experimental-headless'/);
+  assert.match(exportServiceSource, /export function normalizeExportMode\(mode = EXPORT_MODES\.RAW\)/);
+  assert.match(exportServiceSource, /if \(exportMode === EXPORT_MODES\.EXPERIMENTAL_HEADLESS\) \{\n\s+return exportExperimentalHeadlessProjectToMp4/);
+  assert.match(exportServiceSource, /export function experimentalHeadlessExportEnabled\(env = process\.env\) \{\n\s+return env\.ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT === '1';\n\}/);
+  assert.match(exportServiceTestSource, /normalizeExportMode\('experimental-headless'\)/);
+  assert.match(headlessExportRendererTestSource, /experimental headless UI flag does not enable the export renderer/);
+  assert.match(headlessExportRendererTestSource, /ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT_UI: '1'/);
+});
+
+test('TASK-247 Slice 4 keeps experimental runtime export opt-in until true speed and parity proof', () => {
+  assert.match(masterPlanSource, /TASK-247 Slice 4 - Export default readiness audit/);
+  assert.match(masterPlanSource, /Export default decision: keep the experimental runtime export opt-in/);
+  assert.match(masterPlanSource, /do not\s+claim the runtime export is faster\s+yet/);
+  assert.match(masterPlanSource, /rough-cut-task247-slice4-default-benchmark\.json/);
+  assert.match(masterPlanSource, /rough-cut-task247-slice4-enabled-benchmark\.json/);
+  assert.match(masterPlanSource, /rough-cut-headless-runtime-export-1rxQRj\/headless-runtime-result\.json/);
+  assert.match(masterPlanSource, /`durationMs: 2050`/);
+  assert.match(masterPlanSource, /`speedMultiplier: 0\.488`/);
+  assert.match(masterPlanSource, /`headlessWebglFrameCount: 0`/);
+  assert.match(masterPlanSource, /Styled\s+parity still failed on frame indexes 5 and 25/);
+  assert.match(masterPlanSource, /A future default flip requires a true Electron-runtime benchmark/);
+
+  assert.match(exportServiceSource, /export function normalizeExportMode\(mode = EXPORT_MODES\.RAW\)/);
+  assert.match(headlessExportRendererSource, /ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT !== '1'/);
+  assert.doesNotMatch(desktopMainSource, /ROUGH_CUT_EXPERIMENTAL_HEADLESS_EXPORT[^_UI]/);
+});
+
+test('UI smoke re-queries the export aspect chip after template-driven rerenders', () => {
+  assert.match(desktopMainSource, /const activeAspectRatio = \(\) => document\.querySelector\('\.exportPresetChip\[data-active-aspect-ratio\]'\)\?\.getAttribute\('data-active-aspect-ratio'\) \?\? null/);
+  assert.match(desktopMainSource, /const waitForButtonEnabled = \(button, label\) => waitFor\(\(\) => button instanceof HTMLButtonElement && !button\.disabled, `\$\{label\} enabled`\)/);
+  assert.match(desktopMainSource, /const readCameraRectMatching = \(label, predicate, timeoutMs = 5000\) => waitFor/);
+  assert.match(desktopMainSource, /waitForButtonEnabled\(split16Template, 'FocuSee split 16:9 template preset'\)/);
+  assert.match(desktopMainSource, /waitForButtonEnabled\(youtube16Template, 'FocuSee YouTube 16:9 template preset'\)/);
+  assert.match(desktopMainSource, /waitForButtonEnabled\(mobileTemplate, 'mobile template preset'\)/);
+  assert.match(desktopMainSource, /activeAspectRatio\(\) === '16:9', 'FocuSee split aspect ratio value'/);
+  assert.match(desktopMainSource, /activeAspectRatio\(\) === '16:9', 'FocuSee YouTube aspect ratio value'/);
+  assert.match(desktopMainSource, /activeAspectRatio\(\) === '9:16', 'vertical aspect ratio value'/);
+  assert.match(desktopMainSource, /readCameraRectMatching\('FocuSee split template camera rect', split16Bounds, 15000\)/);
+  assert.match(desktopMainSource, /readCameraRectMatching\('FocuSee YouTube template camera rect', youtube16Bounds, 15000\)/);
+  assert.match(desktopMainSource, /readCameraRectMatching\('mobile template camera rect', mobileTemplateBounds, 15000\)/);
+  assert.ok(
+    desktopMainSource.indexOf("readCameraRectMatching('mobile template camera rect', mobileTemplateBounds, 15000)") <
+      desktopMainSource.indexOf("document.querySelector('button[aria-label=\"Soft blur\"]'), 'background preset'"),
+    'template geometry proof should run before background preset mutation',
+  );
+  assert.doesNotMatch(desktopMainSource, /aspectRatioChip\.getAttribute\('data-active-aspect-ratio'\)/);
+});
+
+test('built-in template application does not save stale template overrides', () => {
+  assert.match(rendererMainSource, /const pendingTemplatePresetApplyRef = React\.useRef<string \| null>\(null\)/);
+  assert.match(rendererMainSource, /pendingTemplatePresetApplyRef\.current = templateId/);
+  assert.match(rendererMainSource, /const pendingTemplatePresetApply = pendingTemplatePresetApplyRef\.current/);
+  assert.match(rendererMainSource, /if \(pendingTemplatePresetApply === appliedTemplatePresetId\) \{\s+pendingTemplatePresetApplyRef\.current = null;\s+\}/);
+  assert.match(rendererMainSource, /if \(pendingTemplatePresetApply\) \{\s+if \(pendingTemplatePresetApply === appliedTemplatePresetId\)[\s\S]+?return;\s+\}/);
+});
+
+test('sidebar layout smoke isolates Electron user data between empty and loaded runs', () => {
+  assert.match(smokeSidebarLayoutSource, /const userDataPath = join\(root, `\$\{name\}-electron-user-data`\)/);
+  assert.match(smokeSidebarLayoutSource, /`--user-data-dir=\$\{userDataPath\}`/);
+  assert.match(smokeSidebarLayoutSource, /userDataPath/);
+});
+
+test('UI smoke force-exits after writing artifacts so packaged smoke cannot hang', () => {
+  assert.match(desktopMainSource, /function quitSmokeApp\(exitCode = process\.exitCode \?\? 0\)/);
+  assert.match(desktopMainSource, /app\.quit\(\);\s+setTimeout\(\(\) => app\.exit\(exitCode\), 1000\);\s+setTimeout\(\(\) => process\.exit\(exitCode\), 2500\);/);
+  assert.match(desktopMainSource, /finally \{\s+quitSmokeApp\(\);\s+\}/);
+});
+
+test('packaged app smoke can finish from verified artifacts if smoke-mode Electron hangs', () => {
+  assert.match(smokePackagedAppSource, /async function runPackagedSmokeApp\(command, args, options\)/);
+  assert.match(smokePackagedAppSource, /const userDataPath = join\(smokeRoot, 'electron-user-data'\)/);
+  assert.match(smokePackagedAppSource, /`--user-data-dir=\$\{userDataPath\}`/);
+  assert.match(smokePackagedAppSource, /artifactsReady = await smokeArtifactsReady\(\)/);
+  assert.match(smokePackagedAppSource, /report\?\.ok === true && report\.hasVisualScreenshot === true && screenshotInfo\.size > 1000/);
+  assert.match(smokePackagedAppSource, /child\.kill\('SIGTERM'\)/);
+  assert.match(smokePackagedAppSource, /child\.kill\('SIGKILL'\)/);
+  assert.match(smokePackagedAppSource, /!report\.hasFocuSeeSplitCameraLayoutBounds/);
+  assert.match(smokePackagedAppSource, /!report\.hasFocuSeeYouTubeCameraLayoutBounds/);
+  assert.match(smokePackagedAppSource, /!report\.hasTemplateCameraLayoutBounds/);
+});
+
+test('NLE linked-clips deleted-source assertion is scoped to actual gap playback', () => {
+  assert.match(visualNleLinkedClipsSource, /const playheadInGap = samples\.filter/);
+  assert.match(visualNleLinkedClipsSource, /const deletedSourcePlayed = playheadInGap\.filter/);
+  assert.doesNotMatch(visualNleLinkedClipsSource, /const deletedSourcePlayed = samples\.filter/);
+});
+
+test('host readiness runner exposes only named readiness gates', () => {
+  for (const gate of [
+    'smoke-ui',
+    'playback-timeline',
+    'nle-linked',
+    'nle-export-parity',
+    'smoke-styled-export',
+    'smoke-package',
+    'canvas2d-fallback',
+    'full-readiness',
+  ]) {
+    assert.match(hostReadinessRunnerSource, new RegExp(`${gate}\\)`));
+  }
+  assert.match(hostReadinessRunnerSource, /REQUEST_FILE="\$\{ROUGH_CUT_HOST_READINESS_REQUEST_FILE:-\/tmp\/rough-cut-host-readiness-runner\.request\}"/);
+  assert.match(hostReadinessRunnerSource, /STATUS_FILE="\$\{ROUGH_CUT_HOST_READINESS_STATUS_FILE:-\/tmp\/rough-cut-host-readiness-runner\.status\.json\}"/);
+  assert.match(hostReadinessRunnerSource, /LOG_FILE="\$\{ROUGH_CUT_HOST_READINESS_LOG_FILE:-\/tmp\/rough-cut-host-readiness-runner\.log\}"/);
+  assert.match(hostReadinessRunnerSource, /Unknown readiness gate/);
 });
 
 test('GPU-C experimental headless renderer seam stays opt-in and fallback-backed', () => {

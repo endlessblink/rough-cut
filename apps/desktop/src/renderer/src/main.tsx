@@ -3695,6 +3695,7 @@ function ProjectPreview({
   const [recordingTemplateOverrides, setRecordingTemplateOverrides] = React.useState<Record<string, RecordingTemplateOverride>>({});
   const [appliedTemplatePresetId, setAppliedTemplatePresetId] = React.useState<string | null>(null);
   const [appliedUserTemplateId, setAppliedUserTemplateId] = React.useState<string | null>(null);
+  const pendingTemplatePresetApplyRef = React.useRef<string | null>(null);
   const resolvedPreviewLayoutRef = React.useRef<ResolvedPreviewLayout | null>(null);
   const aspectRatio = project.document.settings?.aspectRatio ?? 'auto';
   const effectiveRecording = React.useMemo(() => {
@@ -4005,35 +4006,41 @@ function ProjectPreview({
         }
       : applyRecordingTemplatePreset(background, templateId);
     if (!applied) return;
-    await persist({
-      ...project.document,
-      settings: {
-        ...project.document.settings,
-        aspectRatio: applied.aspectRatio,
-      },
-      assets: project.document.assets?.map((asset) => {
-        if (asset.id !== recordingAsset?.id) return asset;
-        const presentation = withDefaultPresentation(asset.presentation) as unknown as Record<string, unknown>;
-        // Built-in templates apply a full composition: aspect, background,
-        // camera style, and frame geometry.
-        const nextPresentation: Record<string, unknown> = {
-          ...presentation,
-          background: applied.background,
-          camera: {
-            ...DEFAULT_CAMERA_PRESENTATION,
-            ...((presentation.camera as Partial<CameraPresentation> | undefined) ?? {}),
-            ...applied.camera,
-          },
-          ...(applied.screenFrame ? { screenFrame: applied.screenFrame } : {}),
-          ...(applied.cameraFrame ? { cameraFrame: applied.cameraFrame } : {}),
-        };
-        if (!applied.screenFrame) delete nextPresentation.screenFrame;
-        if (!applied.cameraFrame) delete nextPresentation.cameraFrame;
-        return { ...asset, presentation: nextPresentation };
-      }),
-    });
-    setAppliedTemplatePresetId(templateId);
-    setAppliedUserTemplateId(null);
+    pendingTemplatePresetApplyRef.current = templateId;
+    try {
+      await persist({
+        ...project.document,
+        settings: {
+          ...project.document.settings,
+          aspectRatio: applied.aspectRatio,
+        },
+        assets: project.document.assets?.map((asset) => {
+          if (asset.id !== recordingAsset?.id) return asset;
+          const presentation = withDefaultPresentation(asset.presentation) as unknown as Record<string, unknown>;
+          // Built-in templates apply a full composition: aspect, background,
+          // camera style, and frame geometry.
+          const nextPresentation: Record<string, unknown> = {
+            ...presentation,
+            background: applied.background,
+            camera: {
+              ...DEFAULT_CAMERA_PRESENTATION,
+              ...((presentation.camera as Partial<CameraPresentation> | undefined) ?? {}),
+              ...applied.camera,
+            },
+            ...(applied.screenFrame ? { screenFrame: applied.screenFrame } : {}),
+            ...(applied.cameraFrame ? { cameraFrame: applied.cameraFrame } : {}),
+          };
+          if (!applied.screenFrame) delete nextPresentation.screenFrame;
+          if (!applied.cameraFrame) delete nextPresentation.cameraFrame;
+          return { ...asset, presentation: nextPresentation };
+        }),
+      });
+      setAppliedTemplatePresetId(templateId);
+      setAppliedUserTemplateId(null);
+    } catch (err) {
+      if (pendingTemplatePresetApplyRef.current === templateId) pendingTemplatePresetApplyRef.current = null;
+      throw err;
+    }
   }
 
   React.useEffect(() => {
@@ -4059,6 +4066,13 @@ function ProjectPreview({
 
   React.useEffect(() => {
     if (!appliedTemplatePresetId || appliedUserTemplateId || !recordingAsset?.id) return;
+    const pendingTemplatePresetApply = pendingTemplatePresetApplyRef.current;
+    if (pendingTemplatePresetApply) {
+      if (pendingTemplatePresetApply === appliedTemplatePresetId) {
+        pendingTemplatePresetApplyRef.current = null;
+      }
+      return;
+    }
     const timeout = window.setTimeout(() => {
       window.roughCut.saveRecordingTemplateOverride({
         templateId: appliedTemplatePresetId,

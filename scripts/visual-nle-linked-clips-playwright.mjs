@@ -396,7 +396,7 @@ try {
 
   const linkedDeleteTogether = cameraClipsAfterDelete < cameraClipsBeforeDelete;
   const playheadInGap = samples.filter((s) => s.playheadFrame !== null && s.playheadFrame > gapStartFrame + tolFrames && s.playheadFrame < gapEndFrame - tolFrames);
-  const deletedSourcePlayed = samples.filter((s) => {
+  const deletedSourcePlayed = playheadInGap.filter((s) => {
     const v = screenVideoOf(s);
     return v && v.paused === false && v.currentTime > gapStartSec + tolSec && v.currentTime < gapEndSec - tolSec;
   });

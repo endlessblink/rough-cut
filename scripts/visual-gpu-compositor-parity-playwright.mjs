@@ -304,7 +304,29 @@ async function screenshotPreviewCanvas(page, kind, screenshotPath) {
   const selector = kind === 'canvas2d'
     ? 'canvas.styledPreviewCanvas'
     : 'canvas.styledPreviewAcceleratedCanvas.isActive, canvas.styledPreviewWebglCanvas.isActive';
-  await page.locator(selector).first().screenshot({ path: screenshotPath, timeout: 15000 });
+  const canvas = page.locator(selector).first();
+  await canvas.waitFor({ state: 'visible', timeout: 15000 });
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      await canvas.screenshot({ path: screenshotPath, timeout: 8000 });
+      return;
+    } catch (error) {
+      if (attempt === 2) break;
+      await page.waitForTimeout(120);
+    }
+  }
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error(`Missing preview canvas bounds for ${kind}`);
+  await page.screenshot({
+    path: screenshotPath,
+    clip: {
+      x: Math.max(0, box.x),
+      y: Math.max(0, box.y),
+      width: Math.max(1, box.width),
+      height: Math.max(1, box.height),
+    },
+    timeout: 8000,
+  });
 }
 
 function compareCase(item, baselineKind, targetKind, baselineCapture, targetCapture) {

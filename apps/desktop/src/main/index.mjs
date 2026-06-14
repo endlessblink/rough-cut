@@ -50,6 +50,12 @@ protocol.registerSchemesAsPrivileged([
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const recordingsDir = join(app.getPath('documents'), 'Rough Cut MVP', 'recordings');
 
+function quitSmokeApp(exitCode = process.exitCode ?? 0) {
+  app.quit();
+  setTimeout(() => app.exit(exitCode), 1000);
+  setTimeout(() => process.exit(exitCode), 2500);
+}
+
 function buildAllowedProjectRoots() {
   const roots = [recordingsDir];
   // Tests / smokes write fixtures to a tmp dir and pass it via ROUGH_CUT_UI_SMOKE_PROJECT_PATH.
@@ -183,8 +189,7 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
       } catch (err) {
         console.error('[visual-smoke] failed', err);
       } finally {
-        app.quit();
-        setTimeout(() => app.exit(process.exitCode ?? 0), 1000).unref?.();
+        quitSmokeApp();
       }
     });
   }
@@ -300,8 +305,7 @@ function createMainWindow({ mode = 'editor', projectPath = null } = {}) {
         );
         process.exitCode = 1;
       } finally {
-        app.quit();
-        setTimeout(() => app.exit(process.exitCode ?? 0), 1000).unref?.();
+        quitSmokeApp();
       }
     });
   }
@@ -1798,15 +1802,6 @@ async function runRendererUiSmoke() {
       && document.body.textContent?.includes('selected aspect ratio'),
   );
 
-  document.querySelector('button[aria-label="Background"]')?.click();
-  const backgroundPreset = await waitFor(() => document.querySelector('button[aria-label="Soft blur"]'), 'background preset');
-  backgroundPreset.click();
-  await waitFor(() => backgroundPreset.getAttribute('aria-pressed') === 'true', 'background preset selected');
-  const hasBackgroundPresetSelection = true;
-  const hasNoInactiveBackgroundTabs = !Array.from(document.querySelectorAll('button')).some((button) => button.textContent === 'Image' || button.textContent === 'Video');
-  const hasBackgroundShadowControls = ['Enable shadow', 'Strength', 'Softness', 'Distance'].every((text) => document.body.textContent?.includes(text));
-  const hasScreenCropControls = ['Manual screen crop', 'Crop aspect', 'Crop zoom', 'Crop X', 'Crop Y'].every((text) => document.body.textContent?.includes(text));
-
   const selectByLabel = (text) => {
     const label = Array.from(document.querySelectorAll('label')).find((label) => label.textContent?.includes(text));
     return label?.querySelector('select') ?? null;
@@ -1834,6 +1829,7 @@ async function runRendererUiSmoke() {
     }
   };
   const waitForEnabled = (control, label) => waitFor(() => !control.disabled, `${label} enabled`);
+  const waitForButtonEnabled = (button, label) => waitFor(() => button instanceof HTMLButtonElement && !button.disabled, `${label} enabled`);
 
   // Templates + Padding/Radius/Softness all live on Background now. The
   // standalone aspect-ratio dropdown was removed — aspect ratio is now
@@ -1841,56 +1837,78 @@ async function runRendererUiSmoke() {
   // `data-active-aspect-ratio` attribute instead.
   document.querySelector('button[aria-label="Background"]')?.click();
   await waitFor(() => document.querySelector('[aria-label="Background board"]'), 'background board re-active');
-  const aspectRatioChip = await waitFor(() => document.querySelector('.exportPresetChip[data-active-aspect-ratio]'), 'aspect ratio chip');
+  await waitFor(() => document.querySelector('.exportPresetChip[data-active-aspect-ratio]'), 'aspect ratio chip');
+  const activeAspectRatio = () => document.querySelector('.exportPresetChip[data-active-aspect-ratio]')?.getAttribute('data-active-aspect-ratio') ?? null;
   const readCameraRect = (label) => waitFor(() => {
     const rect = window.__roughCutCanvasCameraRect;
     return rect && Number.isFinite(rect.x) && Number.isFinite(rect.y) && Number.isFinite(rect.w) && Number.isFinite(rect.h)
       ? { x: rect.x, y: rect.y, w: rect.w, h: rect.h }
       : null;
   }, label);
+  const readCameraRectMatching = (label, predicate, timeoutMs = 5000) => waitFor(() => {
+    const rect = window.__roughCutCanvasCameraRect;
+    const value = rect && Number.isFinite(rect.x) && Number.isFinite(rect.y) && Number.isFinite(rect.w) && Number.isFinite(rect.h)
+      ? { x: rect.x, y: rect.y, w: rect.w, h: rect.h }
+      : null;
+    return value && predicate(value) ? value : null;
+  }, label, timeoutMs);
   const split16Template = await waitFor(() => document.querySelector('[data-template-id="tutorial-16-9"]'), 'FocuSee split 16:9 template preset');
+  await waitForButtonEnabled(split16Template, 'FocuSee split 16:9 template preset');
   split16Template.click();
-  await waitFor(() => aspectRatioChip.getAttribute('data-active-aspect-ratio') === '16:9', 'FocuSee split aspect ratio value', 15000);
+  await waitFor(() => activeAspectRatio() === '16:9', 'FocuSee split aspect ratio value', 15000);
   await waitFor(() => split16Template.getAttribute('aria-pressed') === 'true', 'FocuSee split template selected');
-  const split16TemplateCameraRect = await readCameraRect('FocuSee split template camera rect');
-  const hasFocuSeeSplitCameraLayoutBounds =
-    split16TemplateCameraRect.x >= 0.1
-      && split16TemplateCameraRect.x <= 0.11
-      && split16TemplateCameraRect.y >= 0.16
-      && split16TemplateCameraRect.y <= 0.18
-      && split16TemplateCameraRect.w >= 0.24
-      && split16TemplateCameraRect.w <= 0.25
-      && split16TemplateCameraRect.h >= 0.65
-      && split16TemplateCameraRect.h <= 0.67;
+  const split16Bounds = (rect) =>
+    rect.x >= 0.1
+      && rect.x <= 0.11
+      && rect.y >= 0.16
+      && rect.y <= 0.18
+      && rect.w >= 0.24
+      && rect.w <= 0.25
+      && rect.h >= 0.65
+      && rect.h <= 0.67;
+  const split16TemplateCameraRect = await readCameraRectMatching('FocuSee split template camera rect', split16Bounds, 15000);
+  const hasFocuSeeSplitCameraLayoutBounds = true;
   const youtube16Template = await waitFor(() => document.querySelector('[data-template-id="youtube-16-9"]'), 'FocuSee YouTube 16:9 template preset');
+  await waitForButtonEnabled(youtube16Template, 'FocuSee YouTube 16:9 template preset');
   youtube16Template.click();
-  await waitFor(() => aspectRatioChip.getAttribute('data-active-aspect-ratio') === '16:9', 'FocuSee YouTube aspect ratio value', 15000);
+  await waitFor(() => activeAspectRatio() === '16:9', 'FocuSee YouTube aspect ratio value', 15000);
   await waitFor(() => youtube16Template.getAttribute('aria-pressed') === 'true', 'FocuSee YouTube template selected');
-  const youtube16TemplateCameraRect = await readCameraRect('FocuSee YouTube template camera rect');
-  const hasFocuSeeYouTubeCameraLayoutBounds =
-    youtube16TemplateCameraRect.x >= 0.1
-      && youtube16TemplateCameraRect.x <= 0.11
-      && youtube16TemplateCameraRect.y >= 0.52
-      && youtube16TemplateCameraRect.y <= 0.54
-      && youtube16TemplateCameraRect.w >= 0.2
-      && youtube16TemplateCameraRect.w <= 0.21
-      && youtube16TemplateCameraRect.h >= 0.36
-      && youtube16TemplateCameraRect.h <= 0.37;
+  const youtube16Bounds = (rect) =>
+    rect.x >= 0.1
+      && rect.x <= 0.11
+      && rect.y >= 0.52
+      && rect.y <= 0.54
+      && rect.w >= 0.2
+      && rect.w <= 0.21
+      && rect.h >= 0.36
+      && rect.h <= 0.37;
+  const youtube16TemplateCameraRect = await readCameraRectMatching('FocuSee YouTube template camera rect', youtube16Bounds, 15000);
+  const hasFocuSeeYouTubeCameraLayoutBounds = true;
   const mobileTemplate = await waitFor(() => document.querySelector('[data-template-id="mobile-9-16"]'), 'mobile template preset');
+  await waitForButtonEnabled(mobileTemplate, 'mobile template preset');
   mobileTemplate.click();
-  await waitFor(() => aspectRatioChip.getAttribute('data-active-aspect-ratio') === '9:16', 'vertical aspect ratio value', 15000);
+  await waitFor(() => activeAspectRatio() === '9:16', 'vertical aspect ratio value', 15000);
   await waitFor(() => mobileTemplate.getAttribute('aria-pressed') === 'true', 'mobile template selected');
-  const mobileTemplateCameraRect = await readCameraRect('mobile template camera rect');
-  const hasTemplateCameraLayoutBounds =
-    mobileTemplateCameraRect.x >= 0.07
-      && mobileTemplateCameraRect.y >= 0.67
-      && mobileTemplateCameraRect.w >= 0.82
-      && mobileTemplateCameraRect.w <= 0.86
-      && mobileTemplateCameraRect.h >= 0.25
-      && mobileTemplateCameraRect.h <= 0.28
-      && mobileTemplateCameraRect.x + mobileTemplateCameraRect.w <= 0.94
-      && mobileTemplateCameraRect.y + mobileTemplateCameraRect.h <= 0.98;
+  const mobileTemplateBounds = (rect) =>
+    rect.x >= 0.07
+      && rect.y >= 0.67
+      && rect.w >= 0.82
+      && rect.w <= 0.86
+      && rect.h >= 0.25
+      && rect.h <= 0.28
+      && rect.x + rect.w <= 0.94
+      && rect.y + rect.h <= 0.98;
+  const mobileTemplateCameraRect = await readCameraRectMatching('mobile template camera rect', mobileTemplateBounds, 15000);
+  const hasTemplateCameraLayoutBounds = true;
   const hasTemplatePresetSelection = true;
+
+  const backgroundPreset = await waitFor(() => document.querySelector('button[aria-label="Soft blur"]'), 'background preset');
+  backgroundPreset.click();
+  await waitFor(() => backgroundPreset.getAttribute('aria-pressed') === 'true', 'background preset selected', 15000);
+  const hasBackgroundPresetSelection = true;
+  const hasNoInactiveBackgroundTabs = !Array.from(document.querySelectorAll('button')).some((button) => button.textContent === 'Image' || button.textContent === 'Video');
+  const hasBackgroundShadowControls = ['Enable shadow', 'Strength', 'Softness', 'Distance'].every((text) => document.body.textContent?.includes(text));
+  const hasScreenCropControls = ['Manual screen crop', 'Crop aspect', 'Crop zoom', 'Crop X', 'Crop Y'].every((text) => document.body.textContent?.includes(text));
 
   const paddingInput = await waitFor(() => inputByLabel('Padding'), 'padding control');
   await waitForEnabled(paddingInput, 'padding control');
@@ -2085,7 +2103,7 @@ async function runRendererUiSmoke() {
     hasExportProgressMeter,
     hasExportResult: document.body.textContent?.includes('Exported to:') ?? false,
     canvasRenderFps,
-    aspectRatio: aspectRatioChip.getAttribute('data-active-aspect-ratio'),
+    aspectRatio: activeAspectRatio(),
     padding: Number(paddingInput.value),
     cornerRadius: Number(radiusInput.value),
     shadowSize: Number(shadowInput.value),
