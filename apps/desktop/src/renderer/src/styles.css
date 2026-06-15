@@ -2739,6 +2739,16 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
   z-index: 15;
 }
 
+.zoomSelectionMarquee {
+  background: rgb(91 143 214 / 0.16);
+  border: 1px solid rgb(143 194 255 / 0.72);
+  bottom: 0.22rem;
+  pointer-events: none;
+  position: absolute;
+  top: 0.22rem;
+  z-index: 12;
+}
+
 /* Legacy overlapping markers (data may still have these) — inset the back
  * pill 4 px and dim it instead of stacking two cards. */
 .timelineRegion[data-layer="1"] {
@@ -2793,6 +2803,25 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 .zoomEditorChip__depthLabel { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.04em; text-transform: uppercase; }
 .zoomEditorChip__slider { accent-color: var(--accent); cursor: pointer; height: 0.85rem; margin: 0; width: 8rem; }
 .zoomEditorChip__value { color: var(--text); font-variant-numeric: tabular-nums; min-width: 2.5em; text-align: right; }
+.zoomEditorChip--multi { gap: 0.45rem; }
+.zoomEditorChip__delete {
+  align-items: center;
+  background: rgb(239 68 68 / 0.1);
+  border: 1px solid rgb(239 68 68 / 0.34);
+  border-radius: 7px;
+  color: #fecaca;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 700;
+  gap: 0.25rem;
+  min-height: 1.45rem;
+  padding: 0 0.48rem;
+}
+.zoomEditorChip__delete:hover {
+  background: rgb(239 68 68 / 0.18);
+  border-color: rgb(239 68 68 / 0.48);
+}
 
 /* Per-pill delete affordance — quiet by default, revealed on hover or focus.
  * Restrained chrome tone (not a second accent) so it reads as a tool button,

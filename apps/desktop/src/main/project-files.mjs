@@ -8,7 +8,6 @@ import {
   createTrack,
   validateProject,
 } from '../../../../packages/project-model/dist/index.js';
-import { generateAutoZoomMarkers } from '@rough-cut/timeline-engine';
 import { migrate } from '../../../../packages/project-model/dist/migrations.js';
 import { PROJECT_SIBLING_SPECS } from './project-sibling-specs.mjs';
 
@@ -21,7 +20,7 @@ export function createProjectForRecording({ recording, now = new Date() }) {
   );
   const durationFrames = Math.max(1, Math.round(recording.sync?.syncedDurationFrames ?? wallClockDurationFrames));
   const name = basename(recording.outputPath).replace(/\.mp4$/i, '');
-  const presentation = createRecordingPresentationForRecording(recording, fps, durationFrames);
+  const presentation = createRecordingPresentationForRecording();
   const asset = createAsset('recording', recording.outputPath, {
     duration: durationFrames,
     presentation,
@@ -114,47 +113,8 @@ export function createProjectForRecording({ recording, now = new Date() }) {
   );
 }
 
-function createRecordingPresentationForRecording(recording, fps, durationFrames) {
-  const presentation = createDefaultRecordingPresentation();
-  const cursorEvents = Array.isArray(recording.cursorEvents) ? recording.cursorEvents : [];
-  const normalizedCursorEvents = normalizeCursorEventsForAutoZoom(cursorEvents);
-  const width = Number.isFinite(recording.width) && recording.width > 0 ? recording.width : 1920;
-  const height = Number.isFinite(recording.height) && recording.height > 0 ? recording.height : 1080;
-  const markers = clampZoomMarkersToDuration(generateAutoZoomMarkers(
-    normalizedCursorEvents,
-    presentation.zoom.autoIntensity,
-    fps,
-    width,
-    height,
-  ), durationFrames);
-  return {
-    ...presentation,
-    zoom: {
-      ...presentation.zoom,
-      markers,
-    },
-  };
-}
-
-function clampZoomMarkersToDuration(markers, durationFrames) {
-  const maxFrame = Math.max(1, Math.round(durationFrames || 1));
-  return markers
-    .map((marker) => ({
-      ...marker,
-      startFrame: Math.max(0, Math.min(maxFrame - 1, Math.round(marker.startFrame))),
-      endFrame: Math.max(0, Math.min(maxFrame, Math.round(marker.endFrame))),
-    }))
-    .filter((marker) => marker.endFrame > marker.startFrame);
-}
-
-function normalizeCursorEventsForAutoZoom(cursorEvents) {
-  return cursorEvents.map((event) => {
-    if (!event || typeof event !== 'object') return event;
-    if (event.button === 0 || event.button === 'left' || event.button === 1) {
-      return { ...event, button: 0 };
-    }
-    return event;
-  });
+function createRecordingPresentationForRecording() {
+  return createDefaultRecordingPresentation();
 }
 
 export const PROJECT_FILE_EXTENSION = '.roughcut';

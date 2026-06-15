@@ -47,34 +47,42 @@ test('returns empty result on a degenerate document with no recording asset', ()
   assert.deepEqual(result.existingManual, []);
 });
 
-test('generates auto-kind candidates from teleport-style move data', () => {
-  // Simulate a cursor that sits in one region, then jumps far across the screen
-  // (teleport), settles, and jumps again. The engine's teleport fallback
-  // should pick up these jumps as activity sessions.
-  const cursorEvents = [];
-  // Settled in upper-left.
-  for (let f = 0; f <= 30; f += 3) cursorEvents.push({ frame: f, timeMs: f * 33, x: 100, y: 100, type: 'move', button: 0 });
-  // Big jump to bottom-right.
-  cursorEvents.push({ frame: 33, timeMs: 1100, x: 1700, y: 900, type: 'move', button: 0 });
-  for (let f = 36; f <= 60; f += 3) cursorEvents.push({ frame: f, timeMs: f * 33, x: 1700, y: 900, type: 'move', button: 0 });
-  // Big jump to mid-screen.
-  cursorEvents.push({ frame: 90, timeMs: 3000, x: 900, y: 500, type: 'move', button: 0 });
-  for (let f = 93; f <= 120; f += 3) cursorEvents.push({ frame: f, timeMs: f * 33, x: 900, y: 500, type: 'move', button: 0 });
+test('generates auto-kind candidates from repeated local click activity', () => {
+  const cursorEvents = [
+    { frame: 30, timeMs: 1000, x: 900, y: 500, type: 'down', button: 0 },
+    { frame: 32, timeMs: 1066, x: 900, y: 500, type: 'up', button: 0 },
+    { frame: 48, timeMs: 1600, x: 920, y: 510, type: 'down', button: 0 },
+    { frame: 50, timeMs: 1666, x: 920, y: 510, type: 'up', button: 0 },
+  ];
 
   const project = buildProject({ cursorEvents });
   const result = generateSuggestionsForProject(project);
-  assert.ok(result.candidates.length > 0, 'expected non-empty candidates from teleport-derived data');
+  assert.ok(result.candidates.length > 0, 'expected non-empty candidates from repeated local click data');
   for (const marker of result.candidates) {
     assert.equal(marker.kind, 'auto');
   }
 });
 
-test('filters out candidates that overlap existing manual markers', () => {
-  const manual = createZoomMarker(0, 90, { strength: 1, focalPoint: { x: 0.5, y: 0.5 } });
+test('does not generate candidates from move-only teleport data', () => {
   const cursorEvents = [];
   for (let f = 0; f <= 30; f += 3) cursorEvents.push({ frame: f, timeMs: f * 33, x: 100, y: 100, type: 'move', button: 0 });
   cursorEvents.push({ frame: 33, timeMs: 1100, x: 1700, y: 900, type: 'move', button: 0 });
   for (let f = 36; f <= 60; f += 3) cursorEvents.push({ frame: f, timeMs: f * 33, x: 1700, y: 900, type: 'move', button: 0 });
+
+  const project = buildProject({ cursorEvents });
+  const result = generateSuggestionsForProject(project);
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.filtered, []);
+});
+
+test('filters out candidates that overlap existing manual markers', () => {
+  const manual = createZoomMarker(0, 90, { strength: 1, focalPoint: { x: 0.5, y: 0.5 } });
+  const cursorEvents = [
+    { frame: 30, timeMs: 1000, x: 900, y: 500, type: 'down', button: 0 },
+    { frame: 32, timeMs: 1066, x: 900, y: 500, type: 'up', button: 0 },
+    { frame: 48, timeMs: 1600, x: 920, y: 510, type: 'down', button: 0 },
+    { frame: 50, timeMs: 1666, x: 920, y: 510, type: 'up', button: 0 },
+  ];
 
   const project = buildProject({ cursorEvents, markers: [manual] });
   const result = generateSuggestionsForProject(project);
@@ -89,10 +97,12 @@ test('filters out candidates that overlap existing manual markers', () => {
 });
 
 test('intensity option overrides the project autoIntensity', () => {
-  const cursorEvents = [];
-  for (let f = 0; f <= 30; f += 3) cursorEvents.push({ frame: f, timeMs: f * 33, x: 100, y: 100, type: 'move', button: 0 });
-  cursorEvents.push({ frame: 33, timeMs: 1100, x: 1700, y: 900, type: 'move', button: 0 });
-  for (let f = 36; f <= 60; f += 3) cursorEvents.push({ frame: f, timeMs: f * 33, x: 1700, y: 900, type: 'move', button: 0 });
+  const cursorEvents = [
+    { frame: 30, timeMs: 1000, x: 900, y: 500, type: 'down', button: 0 },
+    { frame: 32, timeMs: 1066, x: 900, y: 500, type: 'up', button: 0 },
+    { frame: 48, timeMs: 1600, x: 920, y: 510, type: 'down', button: 0 },
+    { frame: 50, timeMs: 1666, x: 920, y: 510, type: 'up', button: 0 },
+  ];
 
   const project = buildProject({ cursorEvents, autoIntensity: 0.2 });
   const low = generateSuggestionsForProject(project);
@@ -106,10 +116,12 @@ test('intensity option overrides the project autoIntensity', () => {
 });
 
 test('result is deterministic — same project produces same output', () => {
-  const cursorEvents = [];
-  for (let f = 0; f <= 30; f += 3) cursorEvents.push({ frame: f, timeMs: f * 33, x: 100, y: 100, type: 'move', button: 0 });
-  cursorEvents.push({ frame: 33, timeMs: 1100, x: 1700, y: 900, type: 'move', button: 0 });
-  for (let f = 36; f <= 60; f += 3) cursorEvents.push({ frame: f, timeMs: f * 33, x: 1700, y: 900, type: 'move', button: 0 });
+  const cursorEvents = [
+    { frame: 30, timeMs: 1000, x: 900, y: 500, type: 'down', button: 0 },
+    { frame: 32, timeMs: 1066, x: 900, y: 500, type: 'up', button: 0 },
+    { frame: 48, timeMs: 1600, x: 920, y: 510, type: 'down', button: 0 },
+    { frame: 50, timeMs: 1666, x: 920, y: 510, type: 'up', button: 0 },
+  ];
 
   const project = buildProject({ cursorEvents });
   const a = generateSuggestionsForProject(project);

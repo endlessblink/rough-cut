@@ -72,6 +72,7 @@ import {
   listMarkers,
   patchZoomPresentation,
   removeMarker,
+  removeMarkers,
   updateMarkerFocalPoint,
   updateMarkerRange,
   updateMarkerStrength,
@@ -85,7 +86,7 @@ import { addCutRange, clearCutRanges, listCutRanges, removeCutRange, visibleDura
 import { restoreRecordingFullSource, restoreRecordingSourceEdge, rippleDeleteRecordingRange, selectRecordingEditModel, syncRecordingTimelinePresentation, updateRecordingTimelineTrim } from './recording-timeline.mjs';
 import { appError, errorStateCopy, type AppError } from './app-error-copy.mjs';
 import { EMPTY_EDIT_HISTORY, recordEdit, redoEdit, undoEdit, type EditHistory } from './edit-history.mjs';
-import { contentWidthPx, frameAtClientX, resolvePixelsPerFrame, scrollLeftForAnchor, zoomStep, MAX_PIXELS_PER_FRAME } from './nle/timeline-viewport.mjs';
+import { contentWidthPx, frameAtClientX, resolvePixelsPerFrame, scrollLeftForAnchor, scrollLeftForPlayheadFollow, zoomStep, MAX_PIXELS_PER_FRAME } from './nle/timeline-viewport.mjs';
 import { isTypingTarget } from './nle/keyboard.mjs';
 
 declare global {
@@ -3685,6 +3686,7 @@ function ProjectPreview({
     onCurrentTimeSecChange(typeof next === 'function' ? next(currentTimeSec) : next);
   }, [currentTimeSec, onCurrentTimeSecChange]);
   const [timelineSeekSec, setTimelineSeekSec] = React.useState(currentTimeSec);
+  const [previewPlaying, setPreviewPlaying] = React.useState(false);
   const [inspectorSelection, setInspectorSelection] = React.useState<InspectorSelection>(DEFAULT_INSPECTOR_SELECTION);
   const [cutModeActive, setCutModeActive] = React.useState(false);
   const [sourceMediaDurationSec, setSourceMediaDurationSec] = React.useState<number | null>(null);
@@ -3755,6 +3757,10 @@ function ProjectPreview({
     setCurrentTimeSec((value) => Math.min(value, maxTimeSec));
     setTimelineSeekSec((value) => Math.min(value, maxTimeSec));
   }, [effectiveRecording]);
+
+  React.useEffect(() => {
+    setPreviewPlaying(false);
+  }, [project.path]);
 
   async function persist(nextDocument: ProjectState['document']) {
     const previous = project;
@@ -4236,6 +4242,12 @@ function ProjectPreview({
     await persist(nextDocument);
   }
 
+  async function removeZoomMarkers(markerIds: string[]) {
+    const nextDocument = removeMarkers(project.document as unknown as ProjectDocument, markerIds) as unknown as ProjectState['document'];
+    if (nextDocument === project.document) return;
+    await persist(nextDocument);
+  }
+
   async function addZoomMarkerAtTime(sourceTimeSec: number) {
     if (!effectiveRecording) return;
     const fps = effectiveRecording.fps;
@@ -4328,7 +4340,7 @@ function ProjectPreview({
           ) : null}
         </div>
         {project.mediaUrl ? (
-          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" onCurrentTimeChange={setCurrentTimeSec} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} />
+          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} />
         ) : (
           // P-AI-C/TASK-169 — empty-state for blank projects (no assets). The
           // NLE Editor view will be the proper home for blank projects once it
@@ -4344,7 +4356,7 @@ function ProjectPreview({
           <p className="eyebrow"><Icon name="timeline" /> Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-          {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onRestoreTrimStart={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'head' }) as ProjectState['document']) : undefined} onRestoreTrimEnd={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'tail' }) as ProjectState['document']) : undefined} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} /> : null}
+          {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onRestoreTrimStart={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'head' }) as ProjectState['document']) : undefined} onRestoreTrimEnd={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'tail' }) as ProjectState['document']) : undefined} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} /> : null}
         </div>
       </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
@@ -4524,7 +4536,7 @@ function preventRangeWheelChange(event: React.WheelEvent<HTMLInputElement>) {
   event.currentTarget.blur();
 }
 
-function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext }: { project: ProjectState; currentTimeSec: number; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void }) {
+function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkersRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext }: { project: ProjectState; currentTimeSec: number; isPlaying?: boolean; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkersRemove?: (markerIds: string[]) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void }) {
   const model = buildTimelineModel({
     document: project.document as unknown as ProjectDocument,
     recording: project.recording,
@@ -4537,6 +4549,8 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
   const hasHiddenStart = model.trimStartFrame > 0;
   const hasHiddenEnd = model.trimEndFrame < sourceFrameDuration;
   const [zoomDragPreview, setZoomDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number } | null>(null);
+  const [zoomSelectionPreview, setZoomSelectionPreview] = React.useState<{ left: number; width: number } | null>(null);
+  const [selectedZoomMarkerIds, setSelectedZoomMarkerIds] = React.useState<string[]>([]);
   const [cutDragPreview, setCutDragPreview] = React.useState<{ startFrame: number; endFrame: number } | null>(null);
   const [trimDragPreview, setTrimDragPreview] = React.useState<{ clipId: string; edge: 'head' | 'tail'; frame: number } | null>(null);
   const [clipDragPreview, setClipDragPreview] = React.useState<{ clipId: string; timelineIn: number; timelineOut: number } | null>(null);
@@ -4552,6 +4566,9 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
   const timelineContentWidthPx = TIMELINE_LABEL_WIDTH_PX + timelineTrackWidthPx;
   const timelineZoomedIn = timelineZoomPpf !== null && timelineTrackWidthPx > timelineViewWidthPx + 1;
   const timelineZoomInDisabled = pixelsPerFrame >= MAX_PIXELS_PER_FRAME;
+  const zoomSelectionAnchorRef = React.useRef<string | null>(null);
+  const selectedZoomMarkerIdSet = React.useMemo(() => new Set(selectedZoomMarkerIds), [selectedZoomMarkerIds]);
+  const selectedZoomMarkerCount = selectedZoomMarkerIds.length;
 
   React.useEffect(() => {
     const el = viewportRef.current;
@@ -4564,12 +4581,29 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     return () => observer.disconnect();
   }, []);
 
+  React.useEffect(() => {
+    setSelectedZoomMarkerIds((current) => {
+      if (!selectedZoomMarkerId) return current;
+      return current.includes(selectedZoomMarkerId) ? current : [selectedZoomMarkerId];
+    });
+    if (selectedZoomMarkerId) zoomSelectionAnchorRef.current = selectedZoomMarkerId;
+  }, [selectedZoomMarkerId]);
+
   React.useLayoutEffect(() => {
     const el = viewportRef.current;
     if (!el || pendingScrollLeftRef.current === null) return;
     el.scrollLeft = pendingScrollLeftRef.current;
     pendingScrollLeftRef.current = null;
   }, [pixelsPerFrame]);
+
+  React.useLayoutEffect(() => {
+    const el = viewportRef.current;
+    if (!isPlaying || timelinePanning || !el) return;
+    const playheadFrame = Math.max(0, Math.min(timelineDurationFrames, Math.round(model.currentTimeSec * fps)));
+    const playheadContentX = TIMELINE_LABEL_WIDTH_PX + playheadFrame * pixelsPerFrame;
+    const nextScrollLeft = scrollLeftForPlayheadFollow(playheadContentX, el.scrollLeft, el.clientWidth, timelineContentWidthPx);
+    if (Math.abs(nextScrollLeft - el.scrollLeft) >= 1) el.scrollLeft = nextScrollLeft;
+  }, [isPlaying, timelinePanning, model.currentTimeSec, fps, pixelsPerFrame, timelineDurationFrames, timelineContentWidthPx]);
 
   React.useEffect(() => {
     const viewport = viewportRef.current;
@@ -4666,11 +4700,15 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
   // exempt: clicking it reframes the selected zoom's focus point, which must
   // not deselect the marker.
   React.useEffect(() => {
-    if (!selectedZoomMarkerId) return;
-    const clear = () => onSelectInspectorContext(DEFAULT_INSPECTOR_SELECTION);
+    if (selectedZoomMarkerCount === 0 && !selectedZoomMarkerId) return;
+    const clear = () => {
+      zoomSelectionAnchorRef.current = null;
+      setSelectedZoomMarkerIds([]);
+      onSelectInspectorContext(DEFAULT_INSPECTOR_SELECTION);
+    };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.closest('.zoomEditorChip, .timelineRegion, .zoomResizeHandle, .zoomRegionDelete, .styledPreviewCanvas')) return;
+      if (target?.closest('.zoomEditorChip, .zoomSelectionMarquee, .timelineRegion, .zoomResizeHandle, .zoomRegionDelete, .styledPreviewCanvas')) return;
       clear();
     };
     const onKey = (event: KeyboardEvent) => {
@@ -4679,10 +4717,9 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
         return;
       }
       if (isTypingTarget(event.target) || event.ctrlKey || event.metaKey || event.altKey) return;
-      if ((event.key === 'Delete' || event.key === 'Backspace') && onZoomMarkerRemove) {
+      if (event.key === 'Delete' || event.key === 'Backspace') {
         event.preventDefault();
-        onZoomMarkerRemove(selectedZoomMarkerId);
-        clear();
+        deleteSelectedZoomMarkers();
       }
     };
     window.addEventListener('pointerdown', onPointerDown);
@@ -4691,7 +4728,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
       window.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('keydown', onKey);
     };
-  }, [selectedZoomMarkerId, onSelectInspectorContext, onZoomMarkerRemove]);
+  }, [selectedZoomMarkerCount, selectedZoomMarkerId, selectedZoomMarkerIds, onSelectInspectorContext, onZoomMarkerRemove, onZoomMarkersRemove]);
 
   function handleScreenLaneCutPointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (!cutModeActive || !onAddCutBetween) return;
@@ -4722,8 +4759,96 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     window.addEventListener('pointercancel', up, { once: true });
   }
 
+  function zoomIdsInTimelineOrder() {
+    return Array.from(new Set(model.lanes.zoom.map((region) => region.id)));
+  }
+
+  function applyZoomSelection(ids: string[], focusId: string | null) {
+    const validIds = zoomIdsInTimelineOrder();
+    const validIdSet = new Set(validIds);
+    const nextIds = Array.from(new Set(ids.filter((id) => validIdSet.has(id))));
+    setSelectedZoomMarkerIds(nextIds);
+    if (focusId && validIdSet.has(focusId) && nextIds.length === 1) {
+      const region = model.lanes.zoom.find((item) => item.id === focusId);
+      onSelectInspectorContext({
+        group: 'zoom',
+        label: region?.label ?? 'Zoom region',
+        detail: `${region?.kind ?? 'manual'} zoom region selected.`,
+        markerId: focusId,
+      });
+      return;
+    }
+    if (nextIds.length === 1) {
+      const region = model.lanes.zoom.find((item) => item.id === nextIds[0]);
+      onSelectInspectorContext({
+        group: 'zoom',
+        label: region?.label ?? 'Zoom region',
+        detail: `${region?.kind ?? 'manual'} zoom region selected.`,
+        markerId: nextIds[0],
+      });
+      return;
+    }
+    if (nextIds.length > 1) {
+      onSelectInspectorContext({
+        group: 'zoom',
+        label: 'Zoom markers',
+        detail: `${nextIds.length} zoom regions selected.`,
+      });
+      return;
+    }
+    onSelectInspectorContext(DEFAULT_INSPECTOR_SELECTION);
+  }
+
+  function selectZoomRegion(region: { id: string; label?: string; kind?: string }, event: React.MouseEvent<HTMLElement>) {
+    event.stopPropagation();
+    const orderedIds = zoomIdsInTimelineOrder();
+    const currentIds = selectedZoomMarkerIds.filter((id) => orderedIds.includes(id));
+    let nextIds = [region.id];
+
+    if (event.shiftKey) {
+      const anchorId = zoomSelectionAnchorRef.current ?? selectedZoomMarkerId ?? currentIds[0] ?? region.id;
+      const anchorIndex = orderedIds.indexOf(anchorId);
+      const clickedIndex = orderedIds.indexOf(region.id);
+      if (anchorIndex >= 0 && clickedIndex >= 0) {
+        const rangeIds = orderedIds.slice(Math.min(anchorIndex, clickedIndex), Math.max(anchorIndex, clickedIndex) + 1);
+        nextIds = (event.ctrlKey || event.metaKey) ? [...currentIds, ...rangeIds] : rangeIds;
+      }
+    } else if (event.ctrlKey || event.metaKey) {
+      nextIds = currentIds.includes(region.id)
+        ? currentIds.filter((id) => id !== region.id)
+        : [...currentIds, region.id];
+    }
+
+    zoomSelectionAnchorRef.current = region.id;
+    applyZoomSelection(nextIds, nextIds.length === 1 ? nextIds[0] ?? null : null);
+  }
+
+  function deleteSelectedZoomMarkers() {
+    const selectedIds = selectedZoomMarkerIds.filter((id) => model.lanes.zoom.some((region) => region.id === id));
+    if (selectedIds.length === 0 && selectedZoomMarkerId) selectedIds.push(selectedZoomMarkerId);
+    if (selectedIds.length === 0) return;
+    if (selectedIds.length === 1 && selectedIds[0]) onZoomMarkerRemove?.(selectedIds[0]);
+    else if (onZoomMarkersRemove) onZoomMarkersRemove(selectedIds);
+    else selectedIds.forEach((id) => onZoomMarkerRemove?.(id));
+    zoomSelectionAnchorRef.current = null;
+    setSelectedZoomMarkerIds([]);
+    onSelectInspectorContext(DEFAULT_INSPECTOR_SELECTION);
+  }
+
+  function deleteZoomRegion(regionId: string) {
+    if (selectedZoomMarkerIdSet.has(regionId) && selectedZoomMarkerCount > 1) {
+      deleteSelectedZoomMarkers();
+      return;
+    }
+    onZoomMarkerRemove?.(regionId);
+    if (selectedZoomMarkerId === regionId || selectedZoomMarkerIdSet.has(regionId)) {
+      zoomSelectionAnchorRef.current = null;
+      setSelectedZoomMarkerIds([]);
+      onSelectInspectorContext(DEFAULT_INSPECTOR_SELECTION);
+    }
+  }
+
   function handleZoomLanePointerDown(event: React.PointerEvent<HTMLDivElement>) {
-    if (!onAddZoomMarkerAt) return;
     if (event.button !== 0) return;
     // Skip if the press landed on an existing region (don't add inside markers).
     if ((event.target as HTMLElement).closest('.timelineRegion, .zoomResizeHandle, .zoomRegionDelete')) return;
@@ -4732,18 +4857,97 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     if (downFrame === null) return;
     event.preventDefault();
     track.setPointerCapture(event.pointerId);
+    const startClientX = event.clientX;
+    const hadSelectionAtPointerDown = selectedZoomMarkerCount > 0 || Boolean(selectedZoomMarkerId);
+    let latestClientX = event.clientX;
+    let edgeScrollRaf = 0;
+    let dragged = false;
+    const updatePreview = (clientX: number) => {
+      const trackRect = track.getBoundingClientRect();
+      const startX = Math.max(trackRect.left, Math.min(trackRect.right, startClientX));
+      const currentX = Math.max(trackRect.left, Math.min(trackRect.right, clientX));
+      const leftPx = Math.min(startX, currentX) - trackRect.left;
+      const widthPx = Math.abs(currentX - startX);
+      setZoomSelectionPreview({
+        left: trackRect.width > 0 ? (leftPx / trackRect.width) * 100 : 0,
+        width: trackRect.width > 0 ? (widthPx / trackRect.width) * 100 : 0,
+      });
+    };
+    const stopEdgeScroll = () => {
+      if (edgeScrollRaf) window.cancelAnimationFrame(edgeScrollRaf);
+      edgeScrollRaf = 0;
+    };
+    const tickEdgeScroll = () => {
+      edgeScrollRaf = 0;
+      if (!dragged) return;
+      const viewport = viewportRef.current;
+      if (!viewport) return;
+      const rect = viewport.getBoundingClientRect();
+      const edgeSize = Math.min(96, Math.max(48, rect.width * 0.16));
+      const leftPressure = latestClientX < rect.left + edgeSize ? (rect.left + edgeSize - latestClientX) / edgeSize : 0;
+      const rightPressure = latestClientX > rect.right - edgeSize ? (latestClientX - (rect.right - edgeSize)) / edgeSize : 0;
+      const pressure = Math.max(-1, Math.min(1, rightPressure > 0 ? rightPressure : -leftPressure));
+      if (pressure !== 0) {
+        const maxStepPx = 14;
+        viewport.scrollLeft += Math.sign(pressure) * maxStepPx * Math.min(1, Math.abs(pressure)) ** 2;
+        updatePreview(latestClientX);
+      }
+      edgeScrollRaf = window.requestAnimationFrame(tickEdgeScroll);
+    };
+    const startEdgeScroll = () => {
+      if (!edgeScrollRaf) edgeScrollRaf = window.requestAnimationFrame(tickEdgeScroll);
+    };
+    const move = (moveEvent: PointerEvent) => {
+      latestClientX = moveEvent.clientX;
+      if (!dragged && Math.abs(moveEvent.clientX - startClientX) < 4) return;
+      dragged = true;
+      updatePreview(moveEvent.clientX);
+      startEdgeScroll();
+    };
     const up = (upEvent: PointerEvent) => {
+      latestClientX = upEvent.clientX;
+      stopEdgeScroll();
+      window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
+      window.removeEventListener('pointercancel', cancel);
       const upFrame = sourceFrameFromClient(track, upEvent.clientX);
-      if (upFrame === null) return;
+      if (upFrame === null) {
+        setZoomSelectionPreview(null);
+        return;
+      }
+      if (dragged) {
+        setZoomSelectionPreview(null);
+        const startFrame = Math.min(downFrame, upFrame);
+        const endFrame = Math.max(downFrame, upFrame);
+        const marqueeIds = model.lanes.zoom
+          .filter((region) => Number.isFinite(region.startFrame) && Number.isFinite(region.endFrame))
+          .filter((region) => Math.round(region.endFrame ?? 0) >= startFrame && Math.round(region.startFrame ?? 0) <= endFrame)
+          .map((region) => region.id)
+          .filter((id): id is string => typeof id === 'string');
+        const nextIds = (event.ctrlKey || event.metaKey || event.shiftKey)
+          ? [...selectedZoomMarkerIds, ...marqueeIds]
+          : marqueeIds;
+        zoomSelectionAnchorRef.current = marqueeIds[marqueeIds.length - 1] ?? zoomSelectionAnchorRef.current;
+        applyZoomSelection(nextIds, nextIds.length === 1 ? nextIds[0] ?? null : null);
+        return;
+      }
       // Mirror cut tool's click-vs-drag gate: only fire on a low-movement
       // release so accidental drags don't drop phantom markers.
       if (Math.abs(upFrame - downFrame) >= 2) return;
+      if (hadSelectionAtPointerDown && !event.ctrlKey && !event.metaKey && !event.shiftKey) return;
+      if (!onAddZoomMarkerAt || event.ctrlKey || event.metaKey || event.shiftKey) return;
       onAddZoomMarkerAt(downFrame / fps);
     };
+    const cancel = () => {
+      stopEdgeScroll();
+      setZoomSelectionPreview(null);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+    };
+    window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up, { once: true });
-    window.addEventListener('pointercancel', up, { once: true });
+    window.addEventListener('pointercancel', cancel, { once: true });
   }
 
   function scrubFromInput(value: string) {
@@ -4966,6 +5170,7 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
   }
 
   function beginZoomDrag(region: { id: string; startFrame?: number; endFrame?: number }, mode: 'move' | 'start' | 'end', event: React.PointerEvent<HTMLElement>) {
+    if (mode === 'move' && (event.shiftKey || event.ctrlKey || event.metaKey)) return;
     if (!Number.isFinite(region.startFrame) || !Number.isFinite(region.endFrame)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -5049,7 +5254,8 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
     if (event.key === 'Delete' && mode === 'move' && onZoomMarkerRemove) {
       event.preventDefault();
       event.stopPropagation();
-      onZoomMarkerRemove(region.id);
+      if (selectedZoomMarkerIdSet.has(region.id) && selectedZoomMarkerCount > 1) deleteSelectedZoomMarkers();
+      else onZoomMarkerRemove(region.id);
       return;
     }
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
@@ -5187,15 +5393,16 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
           })}
             </TimelineLane>
             <TimelineLane label="Zoom" className="zoomLane" aria-label="Zoom markers" onTrackPointerDown={onAddZoomMarkerAt ? handleZoomLanePointerDown : undefined} trackTitle="Click to add a zoom marker">
+          {zoomSelectionPreview ? <div className="zoomSelectionMarquee" style={{ left: `${zoomSelectionPreview.left}%`, width: `${zoomSelectionPreview.width}%` }} aria-hidden="true" /> : null}
           {model.lanes.zoom.length > 0
             ? model.lanes.zoom.map((region) => {
                 const label = region.label ?? 'Zoom region';
                 const kind = region.kind ?? 'manual';
-                const selected = selectedZoomMarkerId === region.id;
+                const selected = selectedZoomMarkerIdSet.has(region.id) || selectedZoomMarkerId === region.id;
                 const strength = Math.max(0, Math.min(1, region.strength ?? 0.5));
                 const depthPct = Math.round(strength * 100);
                 return (
-                  <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker. Delete to remove.`} className={`timelineRegion ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} data-layer={region.layer ?? 0} title={`${label} · ${depthPct}% · Click × to delete`} style={zoomRegionStyle(region)} onClick={() => onSelectInspectorContext({ group: 'zoom', label, detail: `${kind} zoom region selected.`, markerId: region.id })} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
+                  <div key={region.id} role="button" tabIndex={0} aria-label={`${label}. Arrow keys move marker. Delete to remove.`} className={`timelineRegion ${kind === 'auto' ? 'autoRegion' : 'manualRegion'} ${selected ? 'selectedRegion' : ''}`} data-layer={region.layer ?? 0} data-zoom-marker-id={region.id} title={`${label} · ${depthPct}% · Click × to delete`} style={zoomRegionStyle(region)} onClick={(event) => selectZoomRegion(region, event)} onKeyDown={(event) => handleZoomKeyboard(region, 'move', event)} onPointerDown={(event) => beginZoomDrag(region, 'move', event)}>
                     <span className="zoomClipLabel"><Icon name={kind === 'auto' ? 'sparkle' : 'zoom'} /> Zoom</span>
                     <span role="slider" tabIndex={0} aria-label={`${label} start boundary`} aria-valuemin={0} aria-valuemax={Math.max(0, Math.round((region.endFrame ?? 15) - 15))} aria-valuenow={Math.round(region.startFrame ?? 0)} className="zoomResizeHandle zoomResizeStart" onKeyDown={(event) => handleZoomKeyboard(region, 'start', event)} onPointerDown={(event) => beginZoomDrag(region, 'start', event)} />
                     <span role="slider" tabIndex={0} aria-label={`${label} end boundary`} aria-valuemin={Math.round((region.startFrame ?? 0) + 15)} aria-valuemax={sourceFrameDuration} aria-valuenow={Math.round(region.endFrame ?? 15)} className="zoomResizeHandle zoomResizeEnd" onKeyDown={(event) => handleZoomKeyboard(region, 'end', event)} onPointerDown={(event) => beginZoomDrag(region, 'end', event)} />
@@ -5204,8 +5411,8 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
                         type="button"
                         className="zoomRegionDelete"
                         aria-label={`Delete ${label}`}
-                        title="Delete this zoom"
-                        onClick={(event) => { event.stopPropagation(); onZoomMarkerRemove(region.id); }}
+                        title={selected && selectedZoomMarkerCount > 1 ? 'Delete selected zooms' : 'Delete this zoom'}
+                        onClick={(event) => { event.stopPropagation(); deleteZoomRegion(region.id); }}
                         onPointerDown={(event) => { event.stopPropagation(); }}
                       >×</button>
                     ) : null}
@@ -5214,7 +5421,9 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
               })
             : null}
           {(() => {
-            const selectedRegion = model.lanes.zoom.find((r) => r.id === selectedZoomMarkerId);
+            const selectedRegion = selectedZoomMarkerCount === 1
+              ? model.lanes.zoom.find((r) => r.id === selectedZoomMarkerIds[0])
+              : null;
             if (!selectedRegion || !onZoomMarkerStrengthChange) return null;
             const startSec = (selectedRegion.startFrame ?? 0) / fps;
             const endSec = (selectedRegion.endFrame ?? 0) / fps;
@@ -5237,6 +5446,21 @@ function VisualTimeline({ project, currentTimeSec, selectedZoomMarkerId = null, 
                   onChange={(event) => onZoomMarkerStrengthChange(selectedRegion.id, Number(event.currentTarget.value) / 100)}
                 />
                 <span className="zoomEditorChip__value">{depthPct}%</span>
+              </div>
+            );
+          })()}
+          {(() => {
+            if (selectedZoomMarkerCount <= 1) return null;
+            const selectedRegions = model.lanes.zoom.filter((region) => selectedZoomMarkerIdSet.has(region.id));
+            if (selectedRegions.length <= 1) return null;
+            const left = Math.min(...selectedRegions.map((region) => region.left ?? 0));
+            const right = Math.max(...selectedRegions.map((region) => (region.left ?? 0) + (region.width ?? 0)));
+            return (
+              <div className="zoomEditorChip zoomEditorChip--multi" style={{ left: `${left + (right - left) / 2}%` }} role="group" aria-label={`${selectedRegions.length} selected zoom markers`} onPointerDown={(event) => event.stopPropagation()}>
+                <span className="zoomEditorChip__range">{selectedRegions.length} zooms selected</span>
+                <button type="button" className="zoomEditorChip__delete" onClick={deleteSelectedZoomMarkers}>
+                  <PhosphorTrash size={14} weight="duotone" /> Delete
+                </button>
               </div>
             );
           })()}

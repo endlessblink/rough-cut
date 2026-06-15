@@ -78,3 +78,21 @@ export function zoomStep(currentPpf, direction, viewWidthPx, durationFrames) {
 export function scrollLeftForAnchor(anchorFrame, pixelsPerFrame, pointerOffsetPx) {
   return Math.max(0, Number(anchorFrame) * Number(pixelsPerFrame) - Number(pointerOffsetPx));
 }
+
+export function scrollLeftForPlayheadFollow(playheadContentX, currentScrollLeft, viewWidthPx, contentWidthPx, options = {}) {
+  const playheadX = Number(playheadContentX);
+  const scrollLeft = Number(currentScrollLeft);
+  const viewWidth = Number(viewWidthPx);
+  const contentWidth = Number(contentWidthPx);
+  if (!Number.isFinite(playheadX) || !Number.isFinite(scrollLeft) || !Number.isFinite(viewWidth) || !Number.isFinite(contentWidth)) return scrollLeft || 0;
+  if (viewWidth <= 0 || contentWidth <= viewWidth) return 0;
+  const maxScrollLeft = Math.max(0, contentWidth - viewWidth);
+  const leadingRatio = Number.isFinite(Number(options.leadingRatio)) ? Number(options.leadingRatio) : 0.35;
+  const trailingRatio = Number.isFinite(Number(options.trailingRatio)) ? Number(options.trailingRatio) : 0.65;
+  const leadingPx = Math.max(0, Math.min(viewWidth, viewWidth * leadingRatio));
+  const trailingPx = Math.max(leadingPx, Math.min(viewWidth, viewWidth * trailingRatio));
+  const visibleX = playheadX - scrollLeft;
+  if (visibleX < leadingPx) return Math.max(0, Math.min(maxScrollLeft, playheadX - leadingPx));
+  if (visibleX > trailingPx) return Math.max(0, Math.min(maxScrollLeft, playheadX - trailingPx));
+  return Math.max(0, Math.min(maxScrollLeft, scrollLeft));
+}

@@ -17,6 +17,7 @@ import {
   frameAtClientX,
   resolvePixelsPerFrame,
   scrollLeftForAnchor,
+  scrollLeftForPlayheadFollow,
   snapThresholdFrames,
   zoomStep,
 } from './timeline-viewport.mjs';
@@ -28,6 +29,7 @@ export function NleTimeline({
   playheadFrame,
   durationFrames,
   fps,
+  isPlaying = false,
   selectedClipId,
   editMode,
   onEditModeChange,
@@ -41,6 +43,7 @@ export function NleTimeline({
   playheadFrame: number;
   durationFrames: number;
   fps: number;
+  isPlaying?: boolean;
   selectedClipId: string | null;
   editMode: NleEditMode;
   onEditModeChange: (mode: NleEditMode) => void;
@@ -245,6 +248,15 @@ export function NleTimeline({
     el.scrollLeft = pendingScrollLeftRef.current;
     pendingScrollLeftRef.current = null;
   }, [pixelsPerFrame]);
+
+  React.useLayoutEffect(() => {
+    const el = bodiesRef.current;
+    if (!isPlaying || !el) return;
+    const clampedPlayheadFrame = Math.max(0, Math.min(durationFrames, playheadFrame));
+    const playheadContentX = clampedPlayheadFrame * pixelsPerFrame;
+    const nextScrollLeft = scrollLeftForPlayheadFollow(playheadContentX, el.scrollLeft, el.clientWidth, timelineContentWidth);
+    if (Math.abs(nextScrollLeft - el.scrollLeft) >= 1) el.scrollLeft = nextScrollLeft;
+  }, [isPlaying, playheadFrame, durationFrames, pixelsPerFrame, timelineContentWidth]);
 
   function applyZoom(direction: 1 | -1, anchorFrame: number, pointerOffsetPx: number | null) {
     const next = zoomStep(pixelsPerFrame, direction, viewWidthPx, durationFrames);

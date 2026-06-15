@@ -39,18 +39,13 @@ describe('generateAutoZoomMarkers', () => {
     expect(generateAutoZoomMarkers([], 0.5, 30, 1920, 1080)).toEqual([]);
   });
 
-  it('produces one marker for one click', () => {
+  it('ignores one isolated click', () => {
     const events: CursorEvent[] = [click(60, 960, 540)];
     const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
-    expect(markers).toHaveLength(1);
-    expect(markers[0].kind).toBe('auto');
-    expect(markers[0].startFrame).toBeLessThan(60);
-    expect(markers[0].endFrame).toBeGreaterThan(60);
-    expect(markers[0].focalPoint.x).toBeCloseTo(0.5, 2);
-    expect(markers[0].focalPoint.y).toBeCloseTo(0.5, 2);
+    expect(markers).toEqual([]);
   });
 
-  it('clusters nearby clicks into a single marker', () => {
+  it('clusters nearby repeated clicks into a single marker', () => {
     const events: CursorEvent[] = [
       click(60, 500, 400),
       click(75, 520, 410),
@@ -59,13 +54,13 @@ describe('generateAutoZoomMarkers', () => {
     expect(markers).toHaveLength(1);
   });
 
-  it('produces two markers for clicks far apart', () => {
+  it('ignores isolated clicks far apart', () => {
     const events: CursorEvent[] = [
       click(30, 100, 100),
       click(300, 1800, 900),
     ];
     const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
-    expect(markers).toHaveLength(2);
+    expect(markers).toEqual([]);
   });
 
   it('markers never overlap after merging', () => {
@@ -80,10 +75,10 @@ describe('generateAutoZoomMarkers', () => {
     }
   });
 
-  it('computes correct focal point centroid', () => {
+  it('computes correct focal point centroid for repeated local activity', () => {
     const events: CursorEvent[] = [
-      click(60, 0, 0),
-      click(70, 1920, 1080),
+      click(60, 920, 520),
+      click(70, 1000, 560),
     ];
     const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
     expect(markers[0].focalPoint.x).toBeCloseTo(0.5, 2);
@@ -91,44 +86,45 @@ describe('generateAutoZoomMarkers', () => {
   });
 
   it('scales frame counts for 60fps', () => {
-    const ev: CursorEvent[] = [click(120, 960, 540)];
-    const m30 = generateAutoZoomMarkers(ev, 0.5, 30, 1920, 1080);
-    const m60 = generateAutoZoomMarkers(ev, 0.5, 60, 1920, 1080);
+    const m30 = generateAutoZoomMarkers([click(60, 960, 540), click(75, 980, 540)], 0.5, 30, 1920, 1080);
+    const m60 = generateAutoZoomMarkers([click(120, 960, 540), click(150, 980, 540)], 0.5, 60, 1920, 1080);
     const span30 = m30[0].endFrame - m30[0].startFrame;
     const span60 = m60[0].endFrame - m60[0].startFrame;
     expect(span60).toBeCloseTo(span30 * 2, -1); // roughly 2x
   });
 
   it('intense produces higher strength than subtle', () => {
-    const ev: CursorEvent[] = [click(60, 960, 540)];
+    const ev: CursorEvent[] = [click(60, 960, 540), click(75, 980, 540)];
     const subtle = generateAutoZoomMarkers(ev, 0.15, 30, 1920, 1080);
     const intense = generateAutoZoomMarkers(ev, 0.85, 30, 1920, 1080);
     expect(intense[0].strength).toBeGreaterThan(subtle[0].strength);
   });
 
-  it('falls back to teleport detection when no clicks', () => {
+  it('ignores move-only teleport data', () => {
     const moves: CursorEvent[] = [
       move(10, 0, 0),
       move(11, 1800, 900), // big teleport
     ];
     const markers = generateAutoZoomMarkers(moves, 0.5, 30, 1920, 1080);
-    expect(markers.length).toBeGreaterThan(0);
+    expect(markers).toEqual([]);
   });
 
   it('all markers have kind auto', () => {
     const events: CursorEvent[] = [
-      click(30, 100, 100),
+      click(30, 900, 500),
+      click(45, 920, 510),
       click(200, 1000, 500),
-      click(400, 1800, 900),
+      click(215, 1020, 510),
     ];
     const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
+    expect(markers.length).toBeGreaterThan(0);
     for (const m of markers) {
       expect(m.kind).toBe('auto');
     }
   });
 
   it('all markers have valid zoom durations', () => {
-    const events: CursorEvent[] = [click(100, 500, 500)];
+    const events: CursorEvent[] = [click(100, 500, 500), click(112, 520, 500)];
     const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
     for (const m of markers) {
       expect(m.zoomInDuration).toBeGreaterThan(0);
@@ -160,26 +156,24 @@ describe('generateAutoZoomMarkers', () => {
 
   it('does not emit a drag trigger for a short click (down→up < min duration)', () => {
     // Identical positions and only 2 frames apart — this is a normal click,
-    // not a drag. Should yield exactly one marker (the click itself), not
-    // double-count via a synthetic drag trigger at a different focal.
+    // not a drag, and isolated clicks should not create an auto zoom.
     const events: CursorEvent[] = [
       click(60, 960, 540),
       release(62, 960, 540),
     ];
     const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
-    expect(markers).toHaveLength(1);
-    expect(markers[0].focalPoint.x).toBeCloseTo(0.5, 2);
+    expect(markers).toEqual([]);
   });
 
   it('does not emit a drag trigger for a small displacement', () => {
     // Long duration but tiny movement — the user is just holding the button.
-    // Should not produce a separate drag cluster from the click.
+    // Should not produce a marker from an isolated click or tiny hold.
     const events: CursorEvent[] = [
       click(60, 960, 540),
       release(120, 970, 545),
     ];
     const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
-    expect(markers).toHaveLength(1);
+    expect(markers).toEqual([]);
   });
 
   it('creates a pinned auto marker for a typing run', () => {
@@ -238,18 +232,16 @@ describe('generateAutoZoomMarkers', () => {
 
 describe('filterAutoMarkersAgainstExisting', () => {
   it('returns all candidates when there are no existing markers', () => {
-    const events: CursorEvent[] = [click(60, 960, 540)];
+    const events: CursorEvent[] = [click(60, 960, 540), click(75, 980, 540)];
     const candidates = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
     expect(filterAutoMarkersAgainstExisting(candidates, [])).toHaveLength(candidates.length);
   });
 
-  it('single isolated click → 1 marker, centroid matches click pos', () => {
+  it('single isolated click → no marker', () => {
     const events: CursorEvent[] = [click(60, 960, 540)];
     const markers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
     const filtered = filterAutoMarkersAgainstExisting(markers, []);
-    expect(filtered).toHaveLength(1);
-    expect(filtered[0].focalPoint.x).toBeCloseTo(0.5, 2);
-    expect(filtered[0].focalPoint.y).toBeCloseTo(0.5, 2);
+    expect(filtered).toEqual([]);
   });
 
   it('two clicks 0.5 s apart → 1 merged marker', () => {
@@ -263,7 +255,7 @@ describe('filterAutoMarkersAgainstExisting', () => {
     expect(filtered).toHaveLength(1);
   });
 
-  it('two clicks 3 s apart → 2 markers', () => {
+  it('two isolated clicks 3 s apart → no markers', () => {
     // 3s × 30fps = 90 frames apart (> clusterGapFrames at intensity 0.5 = 30)
     const events: CursorEvent[] = [
       click(30, 100, 100),
@@ -271,13 +263,13 @@ describe('filterAutoMarkersAgainstExisting', () => {
     ];
     const candidates = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
     const filtered = filterAutoMarkersAgainstExisting(candidates, []);
-    expect(filtered).toHaveLength(2);
+    expect(filtered).toEqual([]);
   });
 
-  it('cluster with clicks at varying positions → centroid is the mean', () => {
+  it('cluster with local clicks at varying positions → centroid is the mean', () => {
     const events: CursorEvent[] = [
-      click(60, 0, 0),
-      click(70, 1920, 1080),
+      click(60, 920, 520),
+      click(70, 1000, 560),
     ];
     const candidates = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
     const filtered = filterAutoMarkersAgainstExisting(candidates, []);
@@ -287,7 +279,7 @@ describe('filterAutoMarkersAgainstExisting', () => {
   });
 
   it('manual marker overlapping cluster → auto marker is skipped', () => {
-    const events: CursorEvent[] = [click(60, 960, 540)];
+    const events: CursorEvent[] = [click(60, 960, 540), click(75, 980, 540)];
     const autoMarkers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
     expect(autoMarkers).toHaveLength(1);
     const { startFrame, endFrame } = autoMarkers[0];
@@ -299,7 +291,7 @@ describe('filterAutoMarkersAgainstExisting', () => {
   });
 
   it('manual marker non-overlapping → auto marker is kept', () => {
-    const events: CursorEvent[] = [click(60, 960, 540)];
+    const events: CursorEvent[] = [click(60, 960, 540), click(75, 980, 540)];
     const autoMarkers = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
     expect(autoMarkers).toHaveLength(1);
     const { endFrame } = autoMarkers[0];
@@ -311,7 +303,7 @@ describe('filterAutoMarkersAgainstExisting', () => {
   });
 
   it('auto markers in existing list also block overlapping candidates', () => {
-    const events: CursorEvent[] = [click(60, 960, 540)];
+    const events: CursorEvent[] = [click(60, 960, 540), click(75, 980, 540)];
     const candidates = generateAutoZoomMarkers(events, 0.5, 30, 1920, 1080);
     expect(candidates).toHaveLength(1);
     const { startFrame, endFrame } = candidates[0];

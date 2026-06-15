@@ -136,12 +136,19 @@ export function addManualMarkerAtFrame(document, atFrame, fps, options = {}) {
 }
 
 export function removeMarker(document, markerId) {
+  return removeMarkers(document, [markerId]);
+}
+
+export function removeMarkers(document, markerIds) {
   const asset = getPrimaryRecordingAsset(document);
   if (!asset || !asset.presentation) return document;
 
+  const removeIds = new Set(Array.isArray(markerIds) ? markerIds.filter(Boolean) : []);
+  if (removeIds.size === 0) return document;
+
   const presentation = withDefaultPresentation(asset.presentation);
   const markers = listMarkers(document);
-  const nextMarkers = markers.filter((marker) => marker.id !== markerId);
+  const nextMarkers = markers.filter((marker) => !removeIds.has(marker.id));
   if (nextMarkers.length === markers.length) return document;
 
   const nextAsset = {

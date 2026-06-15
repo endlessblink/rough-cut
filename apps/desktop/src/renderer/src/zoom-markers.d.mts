@@ -30,6 +30,8 @@ export function addManualMarkerAtFrame(
 
 export function removeMarker(document: ProjectDocument, markerId: string): ProjectDocument;
 
+export function removeMarkers(document: ProjectDocument, markerIds: readonly string[]): ProjectDocument;
+
 export function updateMarkerRange(
   document: ProjectDocument,
   markerId: string,

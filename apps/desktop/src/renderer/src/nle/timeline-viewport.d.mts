@@ -9,3 +9,10 @@ export function frameToContentX(frame: number, pixelsPerFrame: number): number;
 export function snapThresholdFrames(pixelsPerFrame: number): number;
 export function zoomStep(currentPpf: number | null, direction: 1 | -1, viewWidthPx: number, durationFrames: number): number | null;
 export function scrollLeftForAnchor(anchorFrame: number, pixelsPerFrame: number, pointerOffsetPx: number): number;
+export function scrollLeftForPlayheadFollow(
+  playheadContentX: number,
+  currentScrollLeft: number,
+  viewWidthPx: number,
+  contentWidthPx: number,
+  options?: { leadingRatio?: number; trailingRatio?: number },
+): number;

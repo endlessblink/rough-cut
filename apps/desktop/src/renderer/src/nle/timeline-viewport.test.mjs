@@ -9,6 +9,7 @@ import {
   frameToContentX,
   resolvePixelsPerFrame,
   scrollLeftForAnchor,
+  scrollLeftForPlayheadFollow,
   snapThresholdFrames,
   zoomStep,
 } from './timeline-viewport.mjs';
@@ -85,4 +86,25 @@ test('scrollLeftForAnchor keeps the anchor frame under the pointer', () => {
   // from container left → scrollLeft 600 keeps it under the pointer.
   assert.equal(scrollLeftForAnchor(4500, 0.2, 300), 600);
   assert.equal(scrollLeftForAnchor(10, 0.1, 300), 0, 'never negative');
+});
+
+test('scrollLeftForPlayheadFollow does nothing while the playhead is in the follow zone', () => {
+  assert.equal(scrollLeftForPlayheadFollow(500, 100, 800, 2400), 100);
+});
+
+test('scrollLeftForPlayheadFollow scrolls right when the playhead exits the trailing zone', () => {
+  assert.equal(scrollLeftForPlayheadFollow(900, 100, 800, 2400), 380);
+});
+
+test('scrollLeftForPlayheadFollow scrolls left when the playhead exits the leading zone', () => {
+  assert.equal(scrollLeftForPlayheadFollow(250, 100, 800, 2400), 0);
+});
+
+test('scrollLeftForPlayheadFollow clamps at the timeline ends', () => {
+  assert.equal(scrollLeftForPlayheadFollow(10, 300, 800, 2400), 0);
+  assert.equal(scrollLeftForPlayheadFollow(3000, 300, 800, 2400), 1600);
+});
+
+test('scrollLeftForPlayheadFollow resets to start when content fits the viewport', () => {
+  assert.equal(scrollLeftForPlayheadFollow(500, 100, 800, 700), 0);
 });

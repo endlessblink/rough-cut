@@ -16,6 +16,7 @@ import {
   getPrimaryRecordingAsset,
   listMarkers,
   removeMarker,
+  removeMarkers,
   updateMarkerFocalPoint,
   updateMarkerRange,
   updateMarkerStrength,
@@ -218,6 +219,28 @@ test('removeMarker removes only the matching id and preserves order', () => {
   assert.equal(remaining[1].id, markers[2].id);
 });
 
+test('removeMarkers removes multiple ids and keeps shared timeline zoom markers synced', () => {
+  let project = projectWithRecording();
+  project = addManualMarkerAt(project, 1.0, 30);
+  project = addManualMarkerAt(project, 4.0, 30);
+  project = addManualMarkerAt(project, 7.0, 30);
+  const markers = listMarkers(project);
+  const next = removeMarkers(project, [markers[0].id, markers[2].id]);
+  const remaining = listMarkers(next);
+
+  assert.equal(remaining.length, 1);
+  assert.equal(remaining[0].id, markers[1].id);
+  assert.equal(next.timeline.markers.some((marker) => marker.id === markers[0].id), false);
+  assert.equal(next.timeline.markers.some((marker) => marker.id === markers[2].id), false);
+  assert.equal(next.timeline.markers.some((marker) => marker.id === markers[1].id), true);
+});
+
+test('removeMarkers is a no-op when no ids match', () => {
+  const project = addManualMarkerAt(projectWithRecording(), 2.0, 30);
+  assert.equal(removeMarkers(project, ['missing-a', 'missing-b']), project);
+  assert.equal(removeMarkers(project, []), project);
+});
+
 test('removeMarker is a no-op when id does not match', () => {
   let project = projectWithRecording();
   project = addManualMarkerAt(project, 2.0, 30);
@@ -336,6 +359,9 @@ test('addAutoZoomMarkersFromTelemetry creates auto markers from recorded click t
     cursorEvents: [
       { type: 'move', frame: 22, x: 960, y: 540 },
       { type: 'down', frame: 30, x: 960, y: 540, button: 'left' },
+      { type: 'up', frame: 32, x: 960, y: 540, button: 'left' },
+      { type: 'down', frame: 45, x: 980, y: 550, button: 'left' },
+      { type: 'up', frame: 47, x: 980, y: 550, button: 'left' },
     ],
   });
 
@@ -347,14 +373,19 @@ test('addAutoZoomMarkersFromTelemetry creates auto markers from recorded click t
   assert.equal(markers[0].kind, 'auto');
   assert.ok(markers[0].startFrame <= 30);
   assert.ok(markers[0].endFrame > 30);
-  assert.equal(markers[0].focalPoint.x, 0.5);
-  assert.equal(markers[0].focalPoint.y, 0.5);
+  assert.ok(Math.abs(markers[0].focalPoint.x - 0.5) < 0.01);
+  assert.ok(Math.abs(markers[0].focalPoint.y - 0.5) < 0.01);
   assert.doesNotThrow(() => validateProject(next));
 });
 
 test('addAutoZoomMarkersFromTelemetry mirrors generated markers into the shared timeline', () => {
   const project = projectWithRecording({
-    cursorEvents: [{ type: 'down', frame: 90, x: 480, y: 270, button: 0 }],
+    cursorEvents: [
+      { type: 'down', frame: 90, x: 480, y: 270, button: 0 },
+      { type: 'up', frame: 92, x: 480, y: 270, button: 0 },
+      { type: 'down', frame: 105, x: 500, y: 280, button: 0 },
+      { type: 'up', frame: 107, x: 500, y: 280, button: 0 },
+    ],
   });
   const asset = project.assets[0];
 
@@ -375,7 +406,13 @@ test('addAutoZoomMarkersFromTelemetry preserves manual markers and skips overlap
   let project = projectWithRecording({
     cursorEvents: [
       { type: 'down', frame: 90, x: 960, y: 540, button: 0 },
+      { type: 'up', frame: 92, x: 960, y: 540, button: 0 },
+      { type: 'down', frame: 105, x: 980, y: 550, button: 0 },
+      { type: 'up', frame: 107, x: 980, y: 550, button: 0 },
       { type: 'down', frame: 240, x: 1200, y: 640, button: 0 },
+      { type: 'up', frame: 242, x: 1200, y: 640, button: 0 },
+      { type: 'down', frame: 255, x: 1220, y: 650, button: 0 },
+      { type: 'up', frame: 257, x: 1220, y: 650, button: 0 },
     ],
   });
   project = addManualMarkerAt(project, 2.5, 30);
@@ -391,7 +428,12 @@ test('addAutoZoomMarkersFromTelemetry preserves manual markers and skips overlap
 
 test('addAutoZoomMarkersFromTelemetry is repeat-safe for existing recordings', () => {
   const project = projectWithRecording({
-    cursorEvents: [{ type: 'down', frame: 90, x: 960, y: 540, button: 1 }],
+    cursorEvents: [
+      { type: 'down', frame: 90, x: 960, y: 540, button: 1 },
+      { type: 'up', frame: 92, x: 960, y: 540, button: 1 },
+      { type: 'down', frame: 105, x: 980, y: 550, button: 1 },
+      { type: 'up', frame: 107, x: 980, y: 550, button: 1 },
+    ],
   });
 
   const once = addAutoZoomMarkersFromTelemetry(project);

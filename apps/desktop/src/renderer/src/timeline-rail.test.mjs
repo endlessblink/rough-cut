@@ -174,6 +174,26 @@ test('Recording edit timeline exposes zoom controls and +/- shortcuts', async ()
   assert.match(styles, /\.timelineContent\s*\{/);
 });
 
+test('Recording edit timeline supports desktop-style zoom multi-select', async () => {
+  const source = await readFile(join(here, 'main.tsx'), 'utf8');
+  const styles = await readFile(join(here, 'styles.css'), 'utf8');
+
+  assert.match(source, /selectedZoomMarkerIds/);
+  assert.match(source, /zoomSelectionPreview/);
+  assert.match(source, /hadSelectionAtPointerDown/);
+  assert.match(source, /tickEdgeScroll/);
+  assert.match(source, /viewport\.scrollLeft \+=/);
+  assert.match(source, /const maxStepPx = 14/);
+  assert.match(source, /event\.shiftKey/);
+  assert.match(source, /event\.ctrlKey \|\| event\.metaKey/);
+  assert.match(source, /onZoomMarkersRemove/);
+  assert.match(source, /function deleteZoomRegion\(regionId: string\)/);
+  assert.match(source, /Delete selected zooms/);
+  assert.match(source, /event\.key === 'Backspace'/);
+  assert.match(styles, /\.zoomSelectionMarquee\s*\{/);
+  assert.match(styles, /\.zoomEditorChip--multi\s*\{/);
+});
+
 test('Recording edit timeline supports middle-button drag panning', async () => {
   const source = await readFile(join(here, 'main.tsx'), 'utf8');
   const styles = await readFile(join(here, 'styles.css'), 'utf8');
@@ -189,11 +209,12 @@ test('Recording edit timeline supports middle-button drag panning', async () => 
   assert.match(styles, /user-select: none;/);
 });
 
-test('Recording edit timeline deletes the selected zoom marker from the timeline key handler', async () => {
+test('Recording edit timeline deletes selected zoom markers from the timeline key handler', async () => {
   const source = await readFile(join(here, 'main.tsx'), 'utf8');
 
-  assert.match(source, /if \(!selectedZoomMarkerId\) return;/);
+  assert.match(source, /selectedZoomMarkerCount === 0 && !selectedZoomMarkerId/);
   assert.match(source, /event\.key === 'Delete' \|\| event\.key === 'Backspace'/);
-  assert.match(source, /onZoomMarkerRemove\(selectedZoomMarkerId\)/);
+  assert.match(source, /deleteSelectedZoomMarkers\(\)/);
+  assert.match(source, /onZoomMarkersRemove\(selectedIds\)/);
   assert.match(source, /isTypingTarget\(event\.target\) \|\| event\.ctrlKey \|\| event\.metaKey \|\| event\.altKey/);
 });

@@ -55,7 +55,7 @@ function deriveConfig(intensity: number, frameRate: number): ZoomConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1: Extract trigger events (clicks, or teleports as fallback)
+// Step 1: Extract deliberate trigger events
 // ---------------------------------------------------------------------------
 
 // Minimum drag duration in frames before we treat a button-down/up pair as a
@@ -80,23 +80,7 @@ function extractTriggerEvents(
     return [...clicks, ...drags].sort((a, b) => a.frame - b.frame);
   }
 
-  // Fallback when the recording predates click capture: detect large cursor
-  // teleports as a proxy for "user moved attention here."
-  const moves = cursorEvents.filter((e) => e.type === 'move');
-  const teleports: CursorEvent[] = [];
-
-  for (let i = 1; i < moves.length; i++) {
-    const prev = moves[i - 1]!;
-    const curr = moves[i]!;
-    const dx = Math.abs(curr.x - prev.x) / sourceWidth;
-    const dy = Math.abs(curr.y - prev.y) / sourceHeight;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist > config.teleportThreshold) {
-      teleports.push(curr);
-    }
-  }
-
-  return teleports;
+  return [];
 }
 
 // Pair button-down with the following button-up of the same button and emit a
@@ -149,6 +133,9 @@ interface ActivitySession {
   lastFrame: Frame;
 }
 
+const MIN_CLICK_SESSION_EVENTS = 2;
+const MAX_CLICK_SESSION_SPREAD = 0.18;
+
 function clusterIntoSessions(
   triggers: readonly CursorEvent[],
   config: ZoomConfig,
@@ -176,6 +163,34 @@ function clusterIntoSessions(
   sessions.push(current);
 
   return sessions;
+}
+
+function isDragTrigger(event: CursorEvent): boolean {
+  return event.type === 'move' && event.button !== undefined;
+}
+
+function isClickSessionUseful(
+  session: ActivitySession,
+  sourceWidth: number,
+  sourceHeight: number,
+): boolean {
+  if (session.events.some(isDragTrigger)) return true;
+  if (session.events.length < MIN_CLICK_SESSION_EVENTS) return false;
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const event of session.events) {
+    minX = Math.min(minX, event.x);
+    maxX = Math.max(maxX, event.x);
+    minY = Math.min(minY, event.y);
+    maxY = Math.max(maxY, event.y);
+  }
+
+  const xSpread = (maxX - minX) / sourceWidth;
+  const ySpread = (maxY - minY) / sourceHeight;
+  return Math.sqrt(xSpread * xSpread + ySpread * ySpread) <= MAX_CLICK_SESSION_SPREAD;
 }
 
 // ---------------------------------------------------------------------------
@@ -372,7 +387,9 @@ export function generateAutoZoomMarkers(
   );
   if (triggers.length === 0 && typingTriggers.length === 0) return [];
 
-  const sessions = clusterIntoSessions(triggers, config);
+  const sessions = clusterIntoSessions(triggers, config).filter((session) =>
+    isClickSessionUseful(session, sourceWidth, sourceHeight),
+  );
   const typingSessions = clusterIntoSessions(typingTriggers, config);
 
   const rawMarkers = sessions.map((s) => {

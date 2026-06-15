@@ -16,7 +16,7 @@ run('ffmpeg', [
   '-i',
   buildFilter(),
   '-t',
-  '6',
+  '20',
   '-c:v',
   'libx264',
   '-pix_fmt',
@@ -29,7 +29,7 @@ run('ffmpeg', [
 const startedAt = new Date('2026-01-01T00:00:00.000Z');
 const project = await saveProjectForRecording({
   startedAt: startedAt.toISOString(),
-  stoppedAt: new Date(startedAt.getTime() + 6000).toISOString(),
+  stoppedAt: new Date(startedAt.getTime() + 20000).toISOString(),
   rawPath: mediaPath,
   outputPath: mediaPath,
   width: 960,
@@ -68,16 +68,24 @@ try {
 
   await openRecordingEdit(page);
   const recordingAfterNle = await readRecordingPlayhead(page);
+  const recordingFollow = await proveRecordingTimelineFollow(page);
+
+  await openNle(page);
+  const nleFollow = await proveNleTimelineFollow(page);
 
   report = {
     ok: ratioMatches(recordingBeforeNle, nleAfterRecording)
-      && ratioMatches(nleBeforeRecording, recordingAfterNle),
+      && ratioMatches(nleBeforeRecording, recordingAfterNle)
+      && recordingFollow.ok
+      && nleFollow.ok,
     root,
     projectPath: project.path,
     recordingBeforeNle,
     nleAfterRecording,
     nleBeforeRecording,
     recordingAfterNle,
+    recordingFollow,
+    nleFollow,
   };
 } finally {
   await Promise.race([
@@ -152,6 +160,72 @@ async function readNlePlayhead(page) {
   });
 }
 
+async function proveRecordingTimelineFollow(page) {
+  await openRecordingEdit(page);
+  await seekRecordingRatio(page, 0.6);
+  await clickZoomIn(page, '[data-ui-region="editor-workspace"] button[aria-label="Zoom timeline in"]', 5);
+  const before = await resetTimelineScrollAndRead(page, '.timelineViewport', '.timelineTrackOverlay .playhead');
+  await page.locator('[data-ui-region="editor-workspace"] .videoControls button[title="Play or pause (Space)"]').click();
+  const after = await waitForTimelineFollow(page, '.timelineViewport', '.timelineTrackOverlay .playhead', before.scrollLeft + 20);
+  await page.locator('[data-ui-region="editor-workspace"] .videoControls button[title="Play or pause (Space)"]').click().catch(() => undefined);
+  return {
+    view: 'recording',
+    ok: after.scrollLeft > before.scrollLeft + 20 && after.playheadVisible,
+    before,
+    after,
+  };
+}
+
+async function proveNleTimelineFollow(page) {
+  await openNle(page);
+  await seekNleRatio(page, 0.6);
+  await clickZoomIn(page, '[data-ui-region="nle-timeline"] button[aria-label="Zoom timeline in"]', 5);
+  const before = await resetTimelineScrollAndRead(page, '[data-ui-region="nle-lane-bodies"]', '.nlePlayhead');
+  await page.locator('section[aria-label="Timeline viewer"] button[aria-label="Play"]').click();
+  const after = await waitForTimelineFollow(page, '[data-ui-region="nle-lane-bodies"]', '.nlePlayhead', before.scrollLeft + 20);
+  await page.locator('section[aria-label="Timeline viewer"] button[aria-label="Pause"]').click().catch(() => undefined);
+  return {
+    view: 'nle',
+    ok: after.scrollLeft > before.scrollLeft + 20 && after.playheadVisible,
+    before,
+    after,
+  };
+}
+
+async function clickZoomIn(page, selector, count) {
+  const button = page.locator(selector).first();
+  for (let i = 0; i < count; i += 1) {
+    if (await button.isDisabled().catch(() => false)) return;
+    await button.click();
+    await page.waitForTimeout(80);
+  }
+}
+
+async function resetTimelineScrollAndRead(page, viewportSelector, playheadSelector) {
+  await installTimelineFollowReader(page);
+  return page.evaluate(({ viewportSelector, playheadSelector }) => {
+    const viewport = document.querySelector(viewportSelector);
+    if (!(viewport instanceof HTMLElement)) throw new Error(`Missing viewport ${viewportSelector}`);
+    viewport.scrollLeft = 0;
+    return window.__roughCutReadTimelineFollowState(viewportSelector, playheadSelector);
+  }, { viewportSelector, playheadSelector });
+}
+
+async function waitForTimelineFollow(page, viewportSelector, playheadSelector, minScrollLeft) {
+  await installTimelineFollowReader(page);
+  await page.waitForFunction(({ viewportSelector, playheadSelector, minScrollLeft }) => {
+    const state = window.__roughCutReadTimelineFollowState(viewportSelector, playheadSelector);
+    return state.scrollLeft >= minScrollLeft && state.playheadVisible;
+  }, { viewportSelector, playheadSelector, minScrollLeft }, { timeout: 5000 });
+  return page.evaluate(({ viewportSelector, playheadSelector }) => window.__roughCutReadTimelineFollowState(viewportSelector, playheadSelector), { viewportSelector, playheadSelector });
+}
+
+async function installTimelineFollowReader(page) {
+  await page.evaluate((readerSource) => {
+    window.__roughCutReadTimelineFollowState = (0, eval)(`(${readerSource})`);
+  }, readTimelineFollowState.toString());
+}
+
 function ratioMatches(left, right, tolerance = 0.025) {
   return Number.isFinite(left?.ratio)
     && Number.isFinite(right?.ratio)
@@ -167,6 +241,24 @@ function buildFilter() {
     'drawbox=x=410:y=410:w=140:h=90:color=0x00ff00:t=fill',
     'drawbox=x=780:y=410:w=140:h=90:color=0x0000ff:t=fill',
   ].join(',');
+}
+
+function readTimelineFollowState(viewportSelector, playheadSelector) {
+  const viewport = document.querySelector(viewportSelector);
+  const playhead = document.querySelector(playheadSelector);
+  if (!(viewport instanceof HTMLElement)) throw new Error(`Missing viewport ${viewportSelector}`);
+  if (!(playhead instanceof HTMLElement)) throw new Error(`Missing playhead ${playheadSelector}`);
+  const viewportRect = viewport.getBoundingClientRect();
+  const playheadRect = playhead.getBoundingClientRect();
+  const playheadCenterX = playheadRect.left + playheadRect.width / 2;
+  return {
+    scrollLeft: viewport.scrollLeft,
+    scrollWidth: viewport.scrollWidth,
+    clientWidth: viewport.clientWidth,
+    playheadVisible: playheadCenterX >= viewportRect.left && playheadCenterX <= viewportRect.right,
+    viewport: { left: viewportRect.left, right: viewportRect.right, width: viewportRect.width },
+    playhead: { left: playheadRect.left, right: playheadRect.right, width: playheadRect.width, centerX: playheadCenterX },
+  };
 }
 
 function loadPlaywright() {

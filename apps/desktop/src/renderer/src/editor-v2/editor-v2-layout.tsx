@@ -152,6 +152,7 @@ export function EditorV2Layout({
           playheadFrame={playheadFrame}
           durationFrames={durationFrames}
           fps={fps}
+          isPlaying={isPlaying}
           selectedClipId={selectedClipId}
           editMode={editMode}
           onEditModeChange={onEditModeChange}
