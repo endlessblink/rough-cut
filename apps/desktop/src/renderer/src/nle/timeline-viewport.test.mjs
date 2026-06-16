@@ -11,6 +11,7 @@ import {
   scrollLeftForAnchor,
   scrollLeftForPlayheadFollow,
   snapThresholdFrames,
+  stepScrollLeftTowardTarget,
   zoomStep,
 } from './timeline-viewport.mjs';
 
@@ -107,4 +108,27 @@ test('scrollLeftForPlayheadFollow clamps at the timeline ends', () => {
 
 test('scrollLeftForPlayheadFollow resets to start when content fits the viewport', () => {
   assert.equal(scrollLeftForPlayheadFollow(500, 100, 800, 700), 0);
+});
+
+test('stepScrollLeftTowardTarget eases toward the target without overshooting', () => {
+  const first = stepScrollLeftTowardTarget(0, 300, { viewWidthPx: 800 });
+  const second = stepScrollLeftTowardTarget(first, 300, { viewWidthPx: 800 });
+  assert.ok(first > 0 && first < 300, `first step ${first} moves partially`);
+  assert.ok(second > first && second < 300, `second step ${second} keeps moving toward target`);
+});
+
+test('stepScrollLeftTowardTarget moves monotonically left toward smaller targets', () => {
+  const first = stepScrollLeftTowardTarget(300, 40, { viewWidthPx: 800 });
+  const second = stepScrollLeftTowardTarget(first, 40, { viewWidthPx: 800 });
+  assert.ok(first < 300 && first > 40, `first step ${first} moves left without overshoot`);
+  assert.ok(second < first && second > 40, `second step ${second} keeps moving left`);
+});
+
+test('stepScrollLeftTowardTarget snaps on large discontinuities', () => {
+  assert.equal(stepScrollLeftTowardTarget(0, 1200, { viewWidthPx: 800 }), 1200);
+  assert.equal(stepScrollLeftTowardTarget(1400, 0, { snapDistancePx: 1000 }), 0);
+});
+
+test('stepScrollLeftTowardTarget settles at the target for tiny deltas', () => {
+  assert.equal(stepScrollLeftTowardTarget(99.75, 100, { settlePx: 0.5 }), 100);
 });

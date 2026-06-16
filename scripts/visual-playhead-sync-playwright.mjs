@@ -166,13 +166,15 @@ async function proveRecordingTimelineFollow(page) {
   await clickZoomIn(page, '[data-ui-region="editor-workspace"] button[aria-label="Zoom timeline in"]', 5);
   const before = await resetTimelineScrollAndRead(page, '.timelineViewport', '.timelineTrackOverlay .playhead');
   await page.locator('[data-ui-region="editor-workspace"] .videoControls button[title="Play or pause (Space)"]').click();
-  const after = await waitForTimelineFollow(page, '.timelineViewport', '.timelineTrackOverlay .playhead', before.scrollLeft + 20);
+  const samples = await collectTimelineFollowSamples(page, '.timelineViewport', '.timelineTrackOverlay .playhead', before.scrollLeft + 20);
+  const after = samples.at(-1);
   await page.locator('[data-ui-region="editor-workspace"] .videoControls button[title="Play or pause (Space)"]').click().catch(() => undefined);
   return {
     view: 'recording',
-    ok: after.scrollLeft > before.scrollLeft + 20 && after.playheadVisible,
+    ok: after.scrollLeft > before.scrollLeft + 20 && after.playheadVisible && timelineFollowIsFluent(samples),
     before,
     after,
+    sampleSummary: summarizeFollowSamples(samples),
   };
 }
 
@@ -182,13 +184,15 @@ async function proveNleTimelineFollow(page) {
   await clickZoomIn(page, '[data-ui-region="nle-timeline"] button[aria-label="Zoom timeline in"]', 5);
   const before = await resetTimelineScrollAndRead(page, '[data-ui-region="nle-lane-bodies"]', '.nlePlayhead');
   await page.locator('section[aria-label="Timeline viewer"] button[aria-label="Play"]').click();
-  const after = await waitForTimelineFollow(page, '[data-ui-region="nle-lane-bodies"]', '.nlePlayhead', before.scrollLeft + 20);
+  const samples = await collectTimelineFollowSamples(page, '[data-ui-region="nle-lane-bodies"]', '.nlePlayhead', before.scrollLeft + 20);
+  const after = samples.at(-1);
   await page.locator('section[aria-label="Timeline viewer"] button[aria-label="Pause"]').click().catch(() => undefined);
   return {
     view: 'nle',
-    ok: after.scrollLeft > before.scrollLeft + 20 && after.playheadVisible,
+    ok: after.scrollLeft > before.scrollLeft + 20 && after.playheadVisible && timelineFollowIsFluent(samples),
     before,
     after,
+    sampleSummary: summarizeFollowSamples(samples),
   };
 }
 
@@ -211,19 +215,52 @@ async function resetTimelineScrollAndRead(page, viewportSelector, playheadSelect
   }, { viewportSelector, playheadSelector });
 }
 
-async function waitForTimelineFollow(page, viewportSelector, playheadSelector, minScrollLeft) {
+async function collectTimelineFollowSamples(page, viewportSelector, playheadSelector, minScrollLeft) {
   await installTimelineFollowReader(page);
-  await page.waitForFunction(({ viewportSelector, playheadSelector, minScrollLeft }) => {
-    const state = window.__roughCutReadTimelineFollowState(viewportSelector, playheadSelector);
-    return state.scrollLeft >= minScrollLeft && state.playheadVisible;
-  }, { viewportSelector, playheadSelector, minScrollLeft }, { timeout: 5000 });
-  return page.evaluate(({ viewportSelector, playheadSelector }) => window.__roughCutReadTimelineFollowState(viewportSelector, playheadSelector), { viewportSelector, playheadSelector });
+  return page.evaluate(({ viewportSelector, playheadSelector, minScrollLeft }) => new Promise((resolve) => {
+    const samples = [];
+    let frame = 0;
+    const sample = () => {
+      const state = window.__roughCutReadTimelineFollowState(viewportSelector, playheadSelector);
+      samples.push({ ...state, frame });
+      frame += 1;
+      if ((state.scrollLeft >= minScrollLeft && state.playheadVisible && samples.length >= 4) || samples.length >= 36) {
+        resolve(samples);
+        return;
+      }
+      window.requestAnimationFrame(sample);
+    };
+    window.requestAnimationFrame(sample);
+  }), { viewportSelector, playheadSelector, minScrollLeft });
 }
 
 async function installTimelineFollowReader(page) {
   await page.evaluate((readerSource) => {
     window.__roughCutReadTimelineFollowState = (0, eval)(`(${readerSource})`);
   }, readTimelineFollowState.toString());
+}
+
+function timelineFollowIsFluent(samples) {
+  const scrolls = samples.map((sample) => Math.round(sample.scrollLeft));
+  const unique = [...new Set(scrolls)];
+  if (unique.length < 3) return false;
+  const total = Math.max(...scrolls) - Math.min(...scrolls);
+  if (total <= 20) return false;
+  const largestDelta = scrolls.slice(1).reduce((max, value, index) => Math.max(max, Math.abs(value - scrolls[index])), 0);
+  return largestDelta < total * 0.9;
+}
+
+function summarizeFollowSamples(samples) {
+  const scrolls = samples.map((sample) => Math.round(sample.scrollLeft));
+  const deltas = scrolls.slice(1).map((value, index) => value - scrolls[index]);
+  return {
+    count: samples.length,
+    uniqueScrollCount: new Set(scrolls).size,
+    firstScrollLeft: scrolls[0] ?? null,
+    lastScrollLeft: scrolls.at(-1) ?? null,
+    largestDelta: deltas.reduce((max, value) => Math.max(max, Math.abs(value)), 0),
+    scrolls: scrolls.slice(0, 12),
+  };
 }
 
 function ratioMatches(left, right, tolerance = 0.025) {

@@ -86,7 +86,7 @@ import { addCutRange, clearCutRanges, listCutRanges, removeCutRange, visibleDura
 import { restoreRecordingFullSource, restoreRecordingSourceEdge, rippleDeleteRecordingRange, selectRecordingEditModel, syncRecordingTimelinePresentation, updateRecordingTimelineTrim } from './recording-timeline.mjs';
 import { appError, errorStateCopy, type AppError } from './app-error-copy.mjs';
 import { EMPTY_EDIT_HISTORY, recordEdit, redoEdit, undoEdit, type EditHistory } from './edit-history.mjs';
-import { contentWidthPx, frameAtClientX, resolvePixelsPerFrame, scrollLeftForAnchor, scrollLeftForPlayheadFollow, zoomStep, MAX_PIXELS_PER_FRAME } from './nle/timeline-viewport.mjs';
+import { contentWidthPx, frameAtClientX, resolvePixelsPerFrame, scrollLeftForAnchor, scrollLeftForPlayheadFollow, stepScrollLeftTowardTarget, zoomStep, MAX_PIXELS_PER_FRAME } from './nle/timeline-viewport.mjs';
 import { isTypingTarget } from './nle/keyboard.mjs';
 
 declare global {
@@ -4566,9 +4566,11 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   const timelineContentWidthPx = TIMELINE_LABEL_WIDTH_PX + timelineTrackWidthPx;
   const timelineZoomedIn = timelineZoomPpf !== null && timelineTrackWidthPx > timelineViewWidthPx + 1;
   const timelineZoomInDisabled = pixelsPerFrame >= MAX_PIXELS_PER_FRAME;
+  const playheadFollowContentXRef = React.useRef(0);
   const zoomSelectionAnchorRef = React.useRef<string | null>(null);
   const selectedZoomMarkerIdSet = React.useMemo(() => new Set(selectedZoomMarkerIds), [selectedZoomMarkerIds]);
   const selectedZoomMarkerCount = selectedZoomMarkerIds.length;
+  playheadFollowContentXRef.current = TIMELINE_LABEL_WIDTH_PX + Math.max(0, Math.min(timelineDurationFrames, Math.round(model.currentTimeSec * fps))) * pixelsPerFrame;
 
   React.useEffect(() => {
     const el = viewportRef.current;
@@ -4596,14 +4598,22 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
     pendingScrollLeftRef.current = null;
   }, [pixelsPerFrame]);
 
-  React.useLayoutEffect(() => {
+  React.useEffect(() => {
     const el = viewportRef.current;
     if (!isPlaying || timelinePanning || !el) return;
-    const playheadFrame = Math.max(0, Math.min(timelineDurationFrames, Math.round(model.currentTimeSec * fps)));
-    const playheadContentX = TIMELINE_LABEL_WIDTH_PX + playheadFrame * pixelsPerFrame;
-    const nextScrollLeft = scrollLeftForPlayheadFollow(playheadContentX, el.scrollLeft, el.clientWidth, timelineContentWidthPx);
-    if (Math.abs(nextScrollLeft - el.scrollLeft) >= 1) el.scrollLeft = nextScrollLeft;
-  }, [isPlaying, timelinePanning, model.currentTimeSec, fps, pixelsPerFrame, timelineDurationFrames, timelineContentWidthPx]);
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    let rafId = 0;
+    const tick = () => {
+      const target = scrollLeftForPlayheadFollow(playheadFollowContentXRef.current, el.scrollLeft, el.clientWidth, timelineContentWidthPx);
+      const next = reducedMotion
+        ? target
+        : stepScrollLeftTowardTarget(el.scrollLeft, target, { viewWidthPx: el.clientWidth });
+      if (Math.abs(next - el.scrollLeft) >= 0.5) el.scrollLeft = next;
+      rafId = window.requestAnimationFrame(tick);
+    };
+    rafId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [isPlaying, timelinePanning, timelineContentWidthPx]);
 
   React.useEffect(() => {
     const viewport = viewportRef.current;

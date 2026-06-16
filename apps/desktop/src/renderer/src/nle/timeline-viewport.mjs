@@ -96,3 +96,25 @@ export function scrollLeftForPlayheadFollow(playheadContentX, currentScrollLeft,
   if (visibleX > trailingPx) return Math.max(0, Math.min(maxScrollLeft, playheadX - trailingPx));
   return Math.max(0, Math.min(maxScrollLeft, scrollLeft));
 }
+
+export function stepScrollLeftTowardTarget(currentScrollLeft, targetScrollLeft, options = {}) {
+  const current = Number(currentScrollLeft);
+  const target = Number(targetScrollLeft);
+  if (!Number.isFinite(current) || !Number.isFinite(target)) return Number.isFinite(current) ? current : 0;
+  const delta = target - current;
+  const distance = Math.abs(delta);
+  const settlePx = Number.isFinite(Number(options.settlePx)) ? Math.max(0, Number(options.settlePx)) : 0.5;
+  if (distance <= settlePx) return target;
+  const viewWidth = Number(options.viewWidthPx);
+  const snapDistancePx = Number.isFinite(Number(options.snapDistancePx))
+    ? Math.max(0, Number(options.snapDistancePx))
+    : Number.isFinite(viewWidth) && viewWidth > 0
+      ? viewWidth * 1.25
+      : 1200;
+  if (distance >= snapDistancePx) return target;
+  const easing = Number.isFinite(Number(options.easing)) ? Math.max(0.01, Math.min(1, Number(options.easing))) : 0.18;
+  const minStepPx = Number.isFinite(Number(options.minStepPx)) ? Math.max(0, Number(options.minStepPx)) : 1.5;
+  const maxStepPx = Number.isFinite(Number(options.maxStepPx)) ? Math.max(minStepPx, Number(options.maxStepPx)) : 72;
+  const step = Math.min(distance, Math.max(minStepPx, Math.min(maxStepPx, distance * easing)));
+  return current + Math.sign(delta) * step;
+}

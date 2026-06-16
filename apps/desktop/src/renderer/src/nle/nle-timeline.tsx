@@ -19,6 +19,7 @@ import {
   scrollLeftForAnchor,
   scrollLeftForPlayheadFollow,
   snapThresholdFrames,
+  stepScrollLeftTowardTarget,
   zoomStep,
 } from './timeline-viewport.mjs';
 import type { NleProject } from './types';
@@ -192,6 +193,8 @@ export function NleTimeline({
   const timelineContentWidth = contentWidthPx(durationFrames, pixelsPerFrame);
   const zoomedIn = zoomPpf !== null && timelineContentWidth > viewWidthPx + 1;
   const trackRows = React.useMemo(() => project ? buildTimelineTracks(project) : [], [project]);
+  const playheadFollowContentXRef = React.useRef(0);
+  playheadFollowContentXRef.current = Math.max(0, Math.min(durationFrames, playheadFrame)) * pixelsPerFrame;
 
   // Clip media visuals (filmstrips / waveforms) — one cached strip per
   // source, fetched once and sliced per clip in CSS. Requests are deduped
@@ -249,14 +252,22 @@ export function NleTimeline({
     pendingScrollLeftRef.current = null;
   }, [pixelsPerFrame]);
 
-  React.useLayoutEffect(() => {
+  React.useEffect(() => {
     const el = bodiesRef.current;
     if (!isPlaying || !el) return;
-    const clampedPlayheadFrame = Math.max(0, Math.min(durationFrames, playheadFrame));
-    const playheadContentX = clampedPlayheadFrame * pixelsPerFrame;
-    const nextScrollLeft = scrollLeftForPlayheadFollow(playheadContentX, el.scrollLeft, el.clientWidth, timelineContentWidth);
-    if (Math.abs(nextScrollLeft - el.scrollLeft) >= 1) el.scrollLeft = nextScrollLeft;
-  }, [isPlaying, playheadFrame, durationFrames, pixelsPerFrame, timelineContentWidth]);
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    let rafId = 0;
+    const tick = () => {
+      const target = scrollLeftForPlayheadFollow(playheadFollowContentXRef.current, el.scrollLeft, el.clientWidth, timelineContentWidth);
+      const next = reducedMotion
+        ? target
+        : stepScrollLeftTowardTarget(el.scrollLeft, target, { viewWidthPx: el.clientWidth });
+      if (Math.abs(next - el.scrollLeft) >= 0.5) el.scrollLeft = next;
+      rafId = window.requestAnimationFrame(tick);
+    };
+    rafId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [isPlaying, timelineContentWidth]);
 
   function applyZoom(direction: 1 | -1, anchorFrame: number, pointerOffsetPx: number | null) {
     const next = zoomStep(pixelsPerFrame, direction, viewWidthPx, durationFrames);

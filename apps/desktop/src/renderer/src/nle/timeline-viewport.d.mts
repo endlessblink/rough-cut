@@ -16,3 +16,15 @@ export function scrollLeftForPlayheadFollow(
   contentWidthPx: number,
   options?: { leadingRatio?: number; trailingRatio?: number },
 ): number;
+export function stepScrollLeftTowardTarget(
+  currentScrollLeft: number,
+  targetScrollLeft: number,
+  options?: {
+    viewWidthPx?: number;
+    snapDistancePx?: number;
+    easing?: number;
+    minStepPx?: number;
+    maxStepPx?: number;
+    settlePx?: number;
+  },
+): number;
