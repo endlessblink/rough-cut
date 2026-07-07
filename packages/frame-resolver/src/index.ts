@@ -1,6 +1,11 @@
 export { resolveFrame, resolveTimelinePreviewFrame } from './resolve-frame.js';
 export { resolveTimelineFrame } from './timeline-frame.js';
 export { resolveCompositionFrame } from './composition-frame.js';
+export {
+  normalizeCompositionPresentationStyle,
+  resolveHeadlessCameraLayout,
+  resolveHeadlessScreenLayout,
+} from './composition-layout.js';
 export type { ResolveFrameOptions } from './resolve-frame.js';
 export type {
   CompositionBackgroundLayer,
@@ -16,6 +21,15 @@ export type {
   ResolveCompositionFrameOptions,
   ResolvedCompositionFrame,
 } from './composition-frame.js';
+export type {
+  CompositionLayoutCameraLayer,
+  CompositionLayoutFrame,
+  CompositionLayoutOutput,
+  CompositionLayoutScreenLayer,
+  CompositionPresentationStyle,
+  ResolvedHeadlessCameraLayout,
+  ResolvedHeadlessScreenLayout,
+} from './composition-layout.js';
 export {
   getCameraAspectRatioCss,
   getCameraAspectRatioValue,

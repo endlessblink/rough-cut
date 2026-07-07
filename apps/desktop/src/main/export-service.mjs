@@ -8,7 +8,13 @@ import { getPrimaryRecording } from './project-files.mjs';
 import { createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
 import { HEADLESS_EXPORT_BACKEND, attemptExperimentalHeadlessRender } from './headless-export-renderer.mjs';
 import { canonicalizeProjectDocument, computeTimelineDuration, createDefaultCameraPresentation, getRecordingBackgroundColors, getStyledCanvasResolution } from '@rough-cut/project-model';
-import { getCameraLayoutRect, resolveCompositionFrame } from '@rough-cut/frame-resolver';
+import {
+  getCameraLayoutRect,
+  normalizeCompositionPresentationStyle as normalizePresentationStyle,
+  resolveCompositionFrame,
+  resolveHeadlessCameraLayout,
+  resolveHeadlessScreenLayout,
+} from '@rough-cut/frame-resolver';
 
 export const EXPORT_MODES = Object.freeze({
   RAW: 'raw',
@@ -795,92 +801,6 @@ function summarizeCompositionFrame(frame, assetMap = new Map()) {
   };
 }
 
-function resolveHeadlessScreenLayout(frame) {
-  const outputWidth = Number.isFinite(frame?.output?.width) && frame.output.width > 0 ? frame.output.width : 1920;
-  const outputHeight = Number.isFinite(frame?.output?.height) && frame.output.height > 0 ? frame.output.height : 1080;
-  const style = normalizePresentationStyle(frame.backgroundLayer?.style);
-  const safePadding = clampNumber(style.screenPadding, 0, Math.min(outputWidth, outputHeight) / 2 - 2);
-  const maxFrame = resolveHeadlessScreenMaxFrame({
-    outputWidth,
-    outputHeight,
-    maxWidth: outputWidth - safePadding * 2,
-    maxHeight: outputHeight - safePadding * 2,
-    normalizedFrame: frame.screenLayer?.frame ?? null,
-  });
-  const viewport = frame.screenLayer?.sourceViewport?.enabled === true ? frame.screenLayer.sourceViewport : null;
-  const sourceSize = frame.screenLayer?.sourceSize ?? {};
-  const sourceWidth = viewport?.width ?? sourceSize.width ?? maxFrame.w;
-  const sourceHeight = viewport?.height ?? sourceSize.height ?? maxFrame.h;
-  const contained = resolveContainedSize(sourceWidth, sourceHeight, maxFrame.w, maxFrame.h);
-  const x = maxFrame.x + (maxFrame.w - contained.w) / 2;
-  const y = maxFrame.y + (maxFrame.h - contained.h) / 2;
-  return {
-    source: frame.screenLayer?.frame ? 'manual' : 'background-padding',
-    frame: {
-      x: roundUnit(x / outputWidth),
-      y: roundUnit(y / outputHeight),
-      w: roundUnit(contained.w / outputWidth),
-      h: roundUnit(contained.h / outputHeight),
-    },
-  };
-}
-
-function resolveHeadlessScreenMaxFrame({ outputWidth, outputHeight, maxWidth, maxHeight, normalizedFrame = null }) {
-  if (normalizedFrame && Number.isFinite(normalizedFrame.x) && Number.isFinite(normalizedFrame.y) && Number.isFinite(normalizedFrame.w) && Number.isFinite(normalizedFrame.h)) {
-    const w = Math.max(2, Math.min(outputWidth, normalizedFrame.w * outputWidth));
-    const h = Math.max(2, Math.min(outputHeight, normalizedFrame.h * outputHeight));
-    return {
-      x: Math.max(0, Math.min(outputWidth - w, normalizedFrame.x * outputWidth)),
-      y: Math.max(0, Math.min(outputHeight - h, normalizedFrame.y * outputHeight)),
-      w,
-      h,
-    };
-  }
-  return {
-    x: safeCenter(outputWidth, maxWidth),
-    y: safeCenter(outputHeight, maxHeight),
-    w: maxWidth,
-    h: maxHeight,
-  };
-}
-
-function safeCenter(total, size) {
-  return Math.max(0, (total - size) / 2);
-}
-
-function roundUnit(value) {
-  return Math.round(clampNumber(value, 0, 1) * 1_000_000) / 1_000_000;
-}
-
-function resolveHeadlessCameraLayout(frame) {
-  const outputWidth = Number.isFinite(frame?.output?.width) && frame.output.width > 0 ? frame.output.width : 1920;
-  const outputHeight = Number.isFinite(frame?.output?.height) && frame.output.height > 0 ? frame.output.height : 1080;
-  const presentation = {
-    ...createDefaultCameraPresentation(),
-    ...(frame.cameraLayer?.presentation ?? {}),
-  };
-  const pixelFrame = resolveCameraOverlayFrame(presentation, outputWidth, outputHeight, frame.cameraLayer?.frame ?? null);
-  const radius = resolveCameraOverlayRadius(presentation, pixelFrame);
-  return {
-    source: frame.cameraLayer?.frame ? 'manual' : 'presentation',
-    frame: {
-      x: roundUnit(pixelFrame.x / outputWidth),
-      y: roundUnit(pixelFrame.y / outputHeight),
-      w: roundUnit(pixelFrame.w / outputWidth),
-      h: roundUnit(pixelFrame.h / outputHeight),
-    },
-    radius: Math.round(radius * 100) / 100,
-    presentation,
-    style: {
-      shape: presentation.shape,
-      roundness: presentation.roundness,
-      shadowEnabled: presentation.shadowEnabled !== false,
-      shadowBlur: Number.isFinite(presentation.shadowBlur) ? presentation.shadowBlur : 24,
-      shadowOpacity: Number.isFinite(presentation.shadowOpacity) ? presentation.shadowOpacity : 0.45,
-    },
-  };
-}
-
 function assetSourcePath(asset) {
   return typeof asset?.filePath === 'string' && asset.filePath.length > 0 ? asset.filePath : null;
 }
@@ -1487,18 +1407,6 @@ export function parseFfmpegProgress(chunk, durationSeconds) {
   const elapsedSeconds = Number(match[1]) / 1_000_000;
   if (!Number.isFinite(elapsedSeconds)) return null;
   return clampNumber(elapsedSeconds / durationSeconds, 0, 1);
-}
-
-function normalizePresentationStyle(background = null) {
-  return {
-    screenPadding: Number.isFinite(background?.bgPadding) ? background.bgPadding : 96,
-    screenCornerRadius: Number.isFinite(background?.bgCornerRadius) ? background.bgCornerRadius : 32,
-    screenShadowEnabled: typeof background?.bgShadowEnabled === 'boolean' ? background.bgShadowEnabled : true,
-    screenShadowBlur: Number.isFinite(background?.bgShadowBlur) ? background.bgShadowBlur : 58,
-    screenShadowOpacity: Number.isFinite(background?.bgShadowOpacity) ? background.bgShadowOpacity : 0.2,
-    screenShadowOffsetY: Number.isFinite(background?.bgShadowOffsetY) ? background.bgShadowOffsetY : 34,
-    screenShadowOffsetX: Number.isFinite(background?.bgShadowOffsetX) ? background.bgShadowOffsetX : 0,
-  };
 }
 
 export function buildBackgroundExpression(startColor = '#e8ebf0', endColor = '#f0e8e8') {

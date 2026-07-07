@@ -246,7 +246,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-225~~ | Audit + break down current NLE editor: works/broken/ugly ledger | P1 | SUPERSEDED → TASK-236 |
 | ~~TASK-226~~ | NLE layout + visual redesign: stage/timeline proportions, topbar | P1 | SUPERSEDED → TASK-236/237 |
 | TASK-236 | Editor v2 design spec + mockup, user-approved before any code | P1 | IN PROGRESS — mockup direction APPROVED 2026-06-10 |
-| TASK-237 | Build Editor v2 view to approved design on existing plumbing | P1 | IN PROGRESS — slices 1–3 DONE 2026-06-11 |
+| TASK-237 | Build Editor v2 view to approved design on existing plumbing | P1 | PAUSED — resume after TASK-247 cleanup/zoom-quality gates |
 | ~~TASK-238~~ | Program monitor shows stale frame when playhead is in a gap | P1 | DONE (2026-06-11) |
 | TASK-239 | Compositor migration research note + renderer contract | P0 | DONE (2026-06-10) |
 | TASK-240 | Extract shared composition-frame plan from preview/export inputs | P0 | DONE (2026-06-10) |
@@ -497,6 +497,17 @@ because the live-vs-harness gap — green suites while the real app misbehaves w
 recordings — is the most dangerous unknown and must shape the rebuild. Leading hypothesis for
 TASK-227: preview resolves the topmost enabled video clip, so a camera clip spanning above the screen
 track can mask screen-track cuts during playback.
+
+Promotion timing update (2026-06-16): do not return to making the editing
+section feel "better" until the current presentation/export foundation has less
+moving ground under it. Resume TASK-237 after TASK-247 Cleanup Lane 1 has locked
+one source of truth for composition geometry and the zoom-quality changes remain
+green in focused unit, typecheck, UI smoke, and playhead/timeline visual gates.
+Exception: if a real client-demo workflow is blocked by the Editor tab itself
+before those gates are done, take one narrow Editor v2 slice that fixes that
+blocking workflow and verify it against the linked fixture plus live app. Do not
+start broad editing polish while composition/export/zoom rules are still being
+cleaned up.
 
 LANE NLE-R RULE — a task in this lane is DONE only when ALL of:
 (1) a behavioral entry in the Playwright NLE harness (`scripts/visual-nle-clips-playwright.mjs` or a sibling script) exercises it with real pointer/playback events — on the camera+mic linked fixture — and passes;
@@ -9763,6 +9774,67 @@ Go/no-go decision:
 - The next lane should begin with a deletion plan and regression locks for the
   exact legacy composition math being removed; this slice did not remove legacy
   paths.
+
+Product direction update (2026-06-16):
+- Do not start a "true WebGPU export" lane next. Current export proof shows the
+  hidden renderer is not actually a WebGPU pipeline, and the latest useful
+  speed evidence still showed `headlessWebglFrameCount: 0`,
+  `headlessCanvas2dFrameCount: 30`, and `speedMultiplier: 0.488`.
+- Keep the experimental headless export hidden/opt-in and keep normal raw/styled
+  export as the user-facing path.
+- If export speed becomes the confirmed bottleneck later, first run a
+  diagnostic slice that proves exactly why hidden export falls back, where time
+  is spent (video seek, PNG frame artifacts, encode, renderer draw), and whether
+  hidden/offscreen Electron can create the required GPU/WebGPU surface.
+- Only promote a WebGPU export lane after preview/export parity, zoom quality,
+  cancellation/progress behavior, packaged-app smoke, and representative
+  Electron-runtime benchmark evidence are already green. This is a medium-to-
+  large lane, not a toggle flip.
+- Until then, spend the next product foundation work on TASK-247 cleanup: remove
+  duplicated authoritative visual math while preserving Canvas2D diagnostics and
+  FFmpeg/raw/styled fallback surfaces.
+
+#### TASK-247 Cleanup Lane 1 - Headless layout authority
+
+**Status:** SLICE 1 DONE (2026-06-16)
+
+Goal: start the cleanup/removal lane by moving one duplicated composition
+geometry seam out of the main-process export service and into the shared frame
+resolver package, without changing FFmpeg styled export behavior or exposing the
+experimental headless exporter.
+
+Changes:
+- Added `packages/frame-resolver/src/composition-layout.ts` as the shared home
+  for headless screen layout, headless camera layout, and recording
+  presentation-style defaults.
+- Added `packages/frame-resolver/src/composition-layout.test.ts` to lock the
+  existing normalized screen frame, manual crop/aspect behavior, camera
+  presentation frame/radius/style metadata, and manual circular camera
+  constraints.
+- Updated `apps/desktop/src/main/export-service.mjs` to consume
+  `resolveHeadlessScreenLayout`, `resolveHeadlessCameraLayout`, and
+  `normalizeCompositionPresentationStyle` from `@rough-cut/frame-resolver`.
+- Deleted the duplicated headless-only layout helpers from `export-service.mjs`.
+  The FFmpeg styled-export helpers (`resolveContainedSize`,
+  `resolveCameraOverlayFrame`, `resolveCameraOverlayRadius`, and related filter
+  graph math) remain in place for this slice because they still serve the
+  required raw/styled fallback surface.
+- Updated `scripts/repo-regression.test.mjs` so the source sentinel now protects
+  the shared helper and its tests instead of requiring the old local helper body
+  in `export-service.mjs`.
+
+Verification:
+- `pnpm --filter @rough-cut/frame-resolver test`
+- `pnpm --filter @rough-cut/frame-resolver typecheck`
+- `pnpm --filter @rough-cut/frame-resolver build`
+- `node --check apps/desktop/src/main/export-service.mjs`
+- `node --test apps/desktop/src/main/export-service.test.mjs apps/desktop/src/main/headless-export-renderer.test.mjs`
+- `node --test --test-name-pattern='GPU-C experimental headless|GPU-C renderer capability' scripts/repo-regression.test.mjs`
+- `pnpm --filter @rough-cut/desktop typecheck`
+
+Next cleanup slice: move or collapse the next duplicated preview/export geometry
+seam only after adding the same kind of focused regression lock. Do not delete
+Canvas2D diagnostics or FFmpeg/raw/styled fallback paths.
 
 #### Scope
 
