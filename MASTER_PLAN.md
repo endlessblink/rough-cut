@@ -259,6 +259,8 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | TASK-247 | Make GPU compositor default and retire legacy visual composition logic | P1 | READINESS DONE — cleanup lane GO (2026-06-14) |
 | ~~TASK-248~~ | ✅ Add startup recording panel regression suite | P1 | ✅ DONE (2026-06-10) |
 | ~~TASK-249~~ | WebGPU-first preview renderer with WebGL/Canvas2D fallback ladder | P0 | DONE (2026-06-11) |
+| ~~TASK-250~~ | Refresh camera sources when pre-record setup opens | P1 | DONE (2026-07-05) |
+| TASK-251 | Add host real-camera source refresh smoke | P2 | PLANNED |
 
 ## Recently Verified
 
@@ -9806,3 +9808,68 @@ panel to reach Editor or Projects could trap the user away from previous recordi
   - top Record starts real Electron/FFmpeg capture and cancels to idle,
   - Open editor loads the editor empty state,
   - Open Projects loads the project library without the recording panel overlay.
+
+### ~~TASK-250~~ Refresh camera sources when pre-record setup opens
+
+**Priority:** P1
+**Status:** DONE (2026-07-05)
+
+#### Context
+
+The pre-record panel could stay on the ambiguous `No camera` state after a
+camera device was released by another app. Host probes showed `/dev/video0`
+available and Rough Cut's V4L2 detector returned the Lenovo webcam, but the
+renderer had fetched camera sources only once during startup, so the stale
+empty list could survive until the app reloaded.
+
+#### Scope
+
+- Reuse one `refreshCameraSources()` renderer callback for initial source load
+  and later recovery.
+- Refresh camera sources whenever the pre-record setup becomes visible.
+- Refresh camera sources again when the Rough Cut window regains focus while
+  pre-record setup is visible.
+- Preserve the existing safe default: camera stays off until the user selects a
+  source, but the dropdown can recover and show `/dev/video0`.
+
+#### Regression Lock
+
+- `scripts/repo-regression.test.mjs` guards that `main.tsx` keeps
+  `refreshCameraSources`, invokes it on initial load, invokes it when
+  `preRecordSetupVisible`, and registers a focus refresh listener.
+
+#### Verification
+
+- Host probe: `listV4l2CameraSources()` returned
+  `Lenovo FHD Webcam Audio: Lenovo (/dev/video0)`.
+- Host lock probe: `fuser -v /dev/video0 /dev/video1` returned no holder after
+  closing Zen.
+- Live UI: focusing/opening Rough Cut refreshed the camera dropdown; selecting
+  the Lenovo source showed the Camera PiP preview.
+- `pnpm --filter @rough-cut/desktop typecheck`
+
+### TASK-251 Add host real-camera source refresh smoke
+
+**Priority:** P2
+**Status:** PLANNED
+
+#### Context
+
+The source-level guard prevents accidental removal of the refresh path, but it
+does not prove the host V4L2 camera path with a real `/dev/video*` device.
+
+#### Scope
+
+- Add a host-runner gate that starts Rough Cut with a real camera device
+  available, opens the pre-record setup, and verifies the camera dropdown can
+  recover after the first source check is empty or stale.
+- Use `/dev/video0` only when it is a `Video Capture` node; ignore metadata-only
+  nodes such as `/dev/video1`.
+- Record artifacts: selected camera label, preview-card visibility, and a
+  screenshot of the pre-record camera setup.
+
+#### Verification
+
+- Run through `scripts/host-readiness-runner.sh` or a sibling constrained
+  host-runner gate, because managed Codex sandbox may not expose `/dev/video*`
+  reliably.

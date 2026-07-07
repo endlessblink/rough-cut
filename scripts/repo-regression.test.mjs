@@ -819,6 +819,16 @@ test('GPU-C experimental export UI stays feature-flagged and fallback-labeled', 
   assert.match(smokeUiSource, /expectsExperimentalHeadlessExportAction && !report\.hasExperimentalHeadlessExportAction/);
 });
 
+test('pre-record camera sources refresh when setup becomes visible or focused', () => {
+  assert.match(rendererMainSource, /const refreshCameraSources = React\.useCallback/);
+  assert.match(rendererMainSource, /window\.roughCut\.getCameraSources\(\)/);
+  assert.match(rendererMainSource, /void refreshCameraSources\(\{ disableMissingPreferred: true \}\)/);
+  assert.match(rendererMainSource, /if \(!preRecordSetupVisible \|\| recording\.state === 'recording'\) return undefined/);
+  assert.match(rendererMainSource, /void refreshCameraSources\(\);\n\s+const handleFocus = \(\) => \{/);
+  assert.match(rendererMainSource, /window\.addEventListener\('focus', handleFocus\)/);
+  assert.match(rendererMainSource, /window\.removeEventListener\('focus', handleFocus\)/);
+});
+
 test('NLE visual harnesses require playable timeline gaps instead of skipped cuts', () => {
   assert.match(visualNleClipsSource, /playedThroughGap: inGap\.length >= 3 && reachedAfterGap/);
   assert.match(visualNleClipsSource, /gap-playback: playback did not continue through the timeline gap/);

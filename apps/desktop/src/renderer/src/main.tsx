@@ -477,6 +477,18 @@ function App() {
     }
   }, []);
 
+  const refreshCameraSources = React.useCallback(({ disableMissingPreferred = false }: { disableMissingPreferred?: boolean } = {}) => {
+    return window.roughCut.getCameraSources()
+      .then((sources) => {
+        setCameraSources(sources);
+        const preferred = initialPreRecordPreferences.cameraSource;
+        const nextSource = preferred && sources.some((source) => source.name === preferred) ? preferred : sources[0]?.name || '';
+        setSelectedCameraSource((current) => (sources.some((source) => source.name === current) ? current : nextSource));
+        if (disableMissingPreferred && initialPreRecordPreferences.recordCamera && !sources.some((source) => source.name === preferred)) setRecordCamera(false);
+      })
+      .catch(() => setCameraSources([]));
+  }, [initialPreRecordPreferences.cameraSource, initialPreRecordPreferences.recordCamera]);
+
   React.useEffect(() => {
     if (isRecorderMode) return undefined;
     const profile = activeAppView === 'recording' && recording.state !== 'recording' ? 'recording' : 'studio';
@@ -508,15 +520,7 @@ function App() {
         if (initialPreRecordPreferences.recordSystemAudio && !sources.some((source) => source.name === preferred)) setRecordSystemAudio(false);
       })
       .catch(() => setSystemAudioSources([]));
-    window.roughCut.getCameraSources()
-      .then((sources) => {
-        setCameraSources(sources);
-        const preferred = initialPreRecordPreferences.cameraSource;
-        const nextSource = preferred && sources.some((source) => source.name === preferred) ? preferred : sources[0]?.name || '';
-        setSelectedCameraSource((current) => (sources.some((source) => source.name === current) ? current : nextSource));
-        if (initialPreRecordPreferences.recordCamera && !sources.some((source) => source.name === preferred)) setRecordCamera(false);
-      })
-      .catch(() => setCameraSources([]));
+    void refreshCameraSources({ disableMissingPreferred: true });
     window.roughCut.getDisplays()
       .then((displays) => {
         setCaptureDisplays(displays);
@@ -534,7 +538,17 @@ function App() {
       .then((state) => setRecoveryState({ available: Boolean(state?.available), marker: state?.marker ?? null }))
       .catch(() => setRecoveryState(null));
     return window.roughCut.onExportProgress(setExportProgress);
-  }, [adoptRecordingStatus]);
+  }, [adoptRecordingStatus, refreshCameraSources]);
+
+  React.useEffect(() => {
+    if (!preRecordSetupVisible || recording.state === 'recording') return undefined;
+    void refreshCameraSources();
+    const handleFocus = () => {
+      void refreshCameraSources();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [preRecordSetupVisible, recording.state, refreshCameraSources]);
 
   const handleRecover = React.useCallback(async () => {
     if (recoveryActionPending) return;
