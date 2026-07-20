@@ -1288,3 +1288,200 @@ test('terminateChildren records a kill error without throwing', async () => {
   await session.stop();
   await rm(root, { recursive: true, force: true });
 });
+
+// Companion to the anchoring regression guard above: events stay raw on the
+// telemetry clock, and the signed telemetry-vs-video gap is REPORTED as
+// cursorAnchors (stop result + sidecar) for one-time alignment at project
+// ingestion (shared/cursor-alignment.mjs).
+test('stop() reports signed cursorAnchors without touching raw cursor events', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-cursor-anchors-'));
+  const startedAt = Date.parse('2026-05-04T12:00:00.000Z');
+  let tick = 0;
+  let firstFrameCallback = null;
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date(startedAt + tick++ * 100),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 }),
+    getCursorPoint: () => ({ x: 100 + tick, y: 200 + tick }),
+    sampleIntervalMs: 5,
+    captureFactory: (options) => {
+      firstFrameCallback = options.onFirstFrame;
+      return { outputPath: options.outputPath, stop: async () => options.outputPath };
+    },
+    buttonListenerFactory: null,
+  });
+
+  await session.start();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  if (firstFrameCallback) firstFrameCallback(startedAt + 1500);
+  const stopped = await session.stop();
+
+  assert.equal(stopped.state, 'saved');
+  assert.equal(stopped.cursorAnchors.length, 1);
+  assert.equal(stopped.cursorAnchors[0].baseTimeMs, 0);
+  const offset = stopped.cursorAnchors[0].anchorOffsetMs;
+  assert.ok(Number.isFinite(offset) && offset > 0 && offset <= 1500,
+    `anchorOffsetMs should be firstFrameMs minus the segment start, got ${offset}`);
+
+  // Raw events stay anchored to the telemetry clock (same invariant as the
+  // regression guard above).
+  for (const ev of stopped.cursorEvents) {
+    assert.equal(ev.frame, Math.round((ev.timeMs / 1000) * stopped.fps));
+  }
+
+  // The sidecar carries the same anchors so external tools can align too.
+  const sidecar = JSON.parse(await readFile(stopped.cursorTelemetryPath, 'utf8'));
+  assert.deepEqual(sidecar.cursorAnchors, stopped.cursorAnchors);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+// Unified capture: the banner anchor is the camera input's first-packet
+// wall-clock, but the muxed file's t=0 is the first *retained* packet — a
+// race (see stopCurrentSegment). The session must translate the anchor onto
+// the file timeline by subtracting the camera stream's start offset probed
+// from the finished file. Regression guard for the 2026-07-19 recording
+// where cursor telemetry ran ~9 frames (300 ms) ahead of the video.
+test('unified capture corrects the banner anchor by the camera stream start offset', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-anchor-correction-'));
+  const startedAt = Date.parse('2026-07-19T12:00:00.000Z');
+  const probeCalls = [];
+  let firstFrameCallback = null;
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date(startedAt),
+    isCaptureAvailable: () => true,
+    cameraWarmupMs: 0,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 }),
+    getCursorPoint: () => ({ x: 100, y: 200 }),
+    sampleIntervalMs: 5,
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+    cameraCaptureFactory: undefined,
+    unifiedCaptureFactory: (options) => {
+      firstFrameCallback = options.onFirstFrame;
+      return { outputPath: options.outputPath, stop: async () => options.outputPath };
+    },
+    buttonListenerFactory: null,
+    videoStreamStartProbe: async (rawPath) => {
+      probeCalls.push(rawPath);
+      return [
+        { index: 0, startTimeSeconds: 0 },
+        { index: 1, startTimeSeconds: 0.3 },
+      ];
+    },
+  });
+
+  await session.start({ cameraDevicePath: '/dev/video2' });
+  // Camera input opened 1500 ms after the telemetry clock started; the file
+  // itself starts 300 ms earlier (retained pre-camera screen frame).
+  firstFrameCallback(startedAt + 1500, { source: 'banner', epochStartCount: 2 });
+  const stopped = await session.stop();
+
+  assert.equal(stopped.state, 'saved');
+  assert.equal(probeCalls.length, 1);
+  assert.equal(stopped.cursorAnchors.length, 1);
+  assert.equal(stopped.cursorAnchors[0].anchorOffsetMs, 1200,
+    'banner anchor (1500) minus camera stream start (300) minus segment start');
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('screen-only banner anchor never triggers the camera stream probe', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-anchor-no-probe-'));
+  const startedAt = Date.parse('2026-07-19T12:00:00.000Z');
+  const probeCalls = [];
+  let firstFrameCallback = null;
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date(startedAt),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 }),
+    getCursorPoint: () => ({ x: 100, y: 200 }),
+    sampleIntervalMs: 5,
+    captureFactory: (options) => {
+      firstFrameCallback = options.onFirstFrame;
+      return { outputPath: options.outputPath, stop: async () => options.outputPath };
+    },
+    buttonListenerFactory: null,
+    videoStreamStartProbe: async (rawPath) => {
+      probeCalls.push(rawPath);
+      return [{ index: 0, startTimeSeconds: 0 }];
+    },
+  });
+
+  await session.start();
+  firstFrameCallback(startedAt + 60, { source: 'banner', epochStartCount: 1 });
+  const stopped = await session.stop();
+
+  assert.equal(probeCalls.length, 0, 'screen-only capture must not probe');
+  assert.equal(stopped.cursorAnchors[0].anchorOffsetMs, 60);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('anchor correction probe failure keeps the uncorrected banner anchor', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-anchor-probe-fail-'));
+  const startedAt = Date.parse('2026-07-19T12:00:00.000Z');
+  let firstFrameCallback = null;
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date(startedAt),
+    isCaptureAvailable: () => true,
+    cameraWarmupMs: 0,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 }),
+    getCursorPoint: () => ({ x: 100, y: 200 }),
+    sampleIntervalMs: 5,
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+    cameraCaptureFactory: undefined,
+    unifiedCaptureFactory: (options) => {
+      firstFrameCallback = options.onFirstFrame;
+      return { outputPath: options.outputPath, stop: async () => options.outputPath };
+    },
+    buttonListenerFactory: null,
+    videoStreamStartProbe: async () => {
+      throw new Error('ffprobe unavailable');
+    },
+  });
+
+  await session.start({ cameraDevicePath: '/dev/video2' });
+  firstFrameCallback(startedAt + 1500, { source: 'banner', epochStartCount: 2 });
+  const stopped = await session.stop();
+
+  assert.equal(stopped.cursorAnchors[0].anchorOffsetMs, 1500,
+    'probe failure must fall back to the uncorrected banner anchor');
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('stop() reports a zero anchor offset when ffmpeg never signals a first frame', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-mvp-cursor-anchors-none-'));
+  const startedAt = Date.parse('2026-05-04T12:00:00.000Z');
+  let tick = 0;
+
+  const session = createRecordingSession({
+    recordingsDir: join(root, 'recordings'),
+    markerPath: join(root, 'recovery.json'),
+    now: () => new Date(startedAt + tick++ * 100),
+    isCaptureAvailable: () => true,
+    getDisplayInfo: () => ({ display: ':99.0+0,0', originX: 0, originY: 0, scaleFactor: 1, width: 1920, height: 1080 }),
+    getCursorPoint: () => ({ x: 100, y: 200 }),
+    sampleIntervalMs: 5,
+    captureFactory: (options) => ({ outputPath: options.outputPath, stop: async () => options.outputPath }),
+    buttonListenerFactory: null,
+  });
+
+  await session.start();
+  const stopped = await session.stop();
+  assert.deepEqual(stopped.cursorAnchors, [{ baseTimeMs: 0, anchorOffsetMs: 0 }]);
+
+  await rm(root, { recursive: true, force: true });
+});

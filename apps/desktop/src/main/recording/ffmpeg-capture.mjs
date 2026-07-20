@@ -111,17 +111,20 @@ export function startFfmpegCapture({
     logProcessOutput('[ffmpeg-capture:stdout]', chunk.toString());
   });
 
-  // Wall-clock anchor for cursor sync. The first few `-progress pipe:1`
-  // blocks let us bound when FFmpeg actually muxed frame 0; see
-  // createFirstFrameDetector for the math. Fires at most once.
+  // Wall-clock anchor for cursor sync. Primary source: ffmpeg's stderr
+  // banner, where the x11grab input's `start:` is the exact wall-clock of
+  // the first captured frame (see createInputBannerAnchorParser). Fallback: the
+  // `-progress pipe:1` upper-bound detector, which is loose by the encoder
+  // pipeline depth. Fires at most once, banner preferred.
   if (typeof onFirstFrame === 'function') {
+    const fireFirstFrame = makeFirstFrameEmitter(onFirstFrame, '[ffmpeg-capture]');
+    const banner = createInputBannerAnchorParser({
+      onStart: (ms, meta) => fireFirstFrame(ms, { source: 'banner', ...meta }),
+    });
+    proc.stderr?.on('data', (chunk) => banner.observe(chunk.toString()));
     const detector = createFirstFrameDetector({
       onFirstFrame: (ms) => {
-        try {
-          onFirstFrame(ms);
-        } catch (err) {
-          console.warn('[ffmpeg-capture] onFirstFrame callback threw:', err?.message ?? err);
-        }
+        if (!banner.anchored) fireFirstFrame(ms, { source: 'progress' });
       },
     });
     proc.stdout?.on('data', (chunk) => detector.observe(chunk.toString(), Date.now()));
@@ -314,13 +317,14 @@ export function startFfmpegUnifiedCapture({
   proc.stdout?.on('data', (chunk) => logProcessOutput('[ffmpeg-unified:stdout]', chunk.toString()));
 
   if (typeof onFirstFrame === 'function') {
+    const fireFirstFrame = makeFirstFrameEmitter(onFirstFrame, '[ffmpeg-unified]');
+    const banner = createInputBannerAnchorParser({
+      onStart: (ms, meta) => fireFirstFrame(ms, { source: 'banner', ...meta }),
+    });
+    proc.stderr?.on('data', (chunk) => banner.observe(chunk.toString()));
     const detector = createFirstFrameDetector({
       onFirstFrame: (ms) => {
-        try {
-          onFirstFrame(ms);
-        } catch (err) {
-          console.warn('[ffmpeg-unified] onFirstFrame callback threw:', err?.message ?? err);
-        }
+        if (!banner.anchored) fireFirstFrame(ms, { source: 'progress' });
       },
     });
     proc.stdout?.on('data', (chunk) => detector.observe(chunk.toString(), Date.now()));
@@ -965,6 +969,93 @@ function createStderrDropWatcher(tag) {
  *   maxWindowMs?: number,
  * }} options
  */
+/**
+ * Wrap an onFirstFrame callback so it fires at most once across multiple
+ * anchor sources (stderr banner + progress detector) and never throws into
+ * the stream handlers.
+ */
+function makeFirstFrameEmitter(onFirstFrame, logPrefix) {
+  let fired = false;
+  return (ms, meta) => {
+    if (fired) return;
+    fired = true;
+    try {
+      onFirstFrame(ms, meta);
+    } catch (err) {
+      console.warn(`${logPrefix} onFirstFrame callback threw:`, err?.message ?? err);
+    }
+  };
+}
+
+/**
+ * Parse ffmpeg's stderr input banners for the recording's first-frame
+ * wall-clock:
+ *
+ *     Input #0, x11grab, from ':0+0,0':
+ *       Duration: N/A, start: 1784052450.873226, bitrate: ...
+ *
+ * x11grab, and v4l2/pulse under `-use_wallclock_as_timestamps 1`, stamp
+ * packets with av_gettime() (epoch microseconds), so each input's `start:`
+ * is the exact wall-clock of its first captured packet. The anchor fired is
+ * the LATEST epoch-plausible input start (the camera in unified capture).
+ * NOTE: the muxed file's t=0 is the first *retained* packet, which is NOT
+ * reliably the latest input's start — whether ffmpeg keeps any pre-camera
+ * screen frames is a race (2026-07-14: none kept, file started at the
+ * camera's start; 2026-07-19: one kept, file started 300 ms earlier at the
+ * x11grab start and cursor telemetry ran ~9 frames ahead). The recording
+ * session therefore corrects the anchor after stop by subtracting the
+ * camera stream's start offset measured from the finished file
+ * (probeVideoStreamStartOffsets), which pins file t=0 exactly no matter
+ * which way the race went. onStart receives { epochStartCount } so the
+ * session only applies that correction when the camera's epoch start was
+ * actually seen (count >= 2).
+ *
+ * This is the preferred cursor-sync anchor: the `-progress`-based detector's
+ * estimate is an upper bound loose by the whole encoder pipeline depth
+ * (~1.5 s for libx264 superfast with lookahead), vs ~1 frame of error for
+ * the banner value — both measured with a color-flip ground-truth harness.
+ *
+ * Waits for the `Output #`/`Stream mapping:` line (which follows all input
+ * banners) before firing so no input is missed. Fires `onStart(epochMs)` at
+ * most once; if no input has an epoch-plausible start, fires nothing and
+ * leaves `anchored` false so the detector fallback stays live.
+ */
+export function createInputBannerAnchorParser({ onStart, maxBufferChars = 65536 }) {
+  let buffer = '';
+  let done = false;
+  let anchored = false;
+  return {
+    observe(chunk) {
+      if (done) return;
+      buffer = (buffer + chunk).slice(-maxBufferChars);
+      if (!/\n(?:Output #|Stream mapping:)/.test(buffer)) return;
+      done = true;
+      // The trailing comma is part of the match so a chunk split mid-number
+      // can't yield a truncated value ("start: 178405245" + "0.873226," across
+      // two chunks) — and by this point the full banner block is buffered.
+      const re = /Input #\d+, [^\n]*\n[\s\S]{0,500}?start:\s*(\d+(?:\.\d+)?)\s*,/g;
+      let best = null;
+      let epochStartCount = 0;
+      let match;
+      while ((match = re.exec(buffer)) !== null) {
+        const seconds = Number(match[1]);
+        // Epoch-plausible only (> 2001-09-09): inputs without wallclock
+        // timestamps report ~0 or monotonic-clock values and can't anchor.
+        if (seconds > 1e9) {
+          epochStartCount += 1;
+          if (best === null || seconds > best) best = seconds;
+        }
+      }
+      if (best === null) return;
+      anchored = true;
+      onStart(best * 1000, { epochStartCount });
+    },
+    get anchored() {
+      return anchored;
+    },
+  };
+}
+
 export function createFirstFrameDetector({
   onFirstFrame,
   maxBlocks = 5,

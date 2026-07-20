@@ -10,6 +10,7 @@ import {
 } from '../../../../packages/project-model/dist/index.js';
 import { migrate } from '../../../../packages/project-model/dist/migrations.js';
 import { PROJECT_SIBLING_SPECS } from './project-sibling-specs.mjs';
+import { alignCursorEvents, deriveCursorAnchorsFromEventsLog } from '../shared/cursor-alignment.mjs';
 
 export function createProjectForRecording({ recording, now = new Date() }) {
   const fps = recording.fps || 30;
@@ -34,7 +35,15 @@ export function createProjectForRecording({ recording, now = new Date() }) {
       display: recording.display ?? null,
       capture: recording.capture ?? recording.captureRegion ?? null,
       cursorTelemetryPath: recording.cursorTelemetryPath,
-      cursorEvents: Array.isArray(recording.cursorEvents) ? recording.cursorEvents : [],
+      // Aligned onto the video clock exactly once at ingestion; consumers
+      // must not shift these again (see shared/cursor-alignment.mjs).
+      cursorEvents: alignCursorEvents(
+        Array.isArray(recording.cursorEvents) ? recording.cursorEvents : [],
+        recording.cursorAnchors,
+        fps,
+      ),
+      cursorAnchors: Array.isArray(recording.cursorAnchors) ? recording.cursorAnchors : null,
+      cursorEventsAligned: Array.isArray(recording.cursorAnchors),
       audio: recording.audio ?? null,
       cameraError: recording.cameraError ?? null,
       sync: recording.sync ?? null,
@@ -235,6 +244,7 @@ export async function openProjectFile(projectPath) {
     recoveredFromBackup = true;
   }
   document = await resolveProjectAssetPaths(projectPath, document);
+  await migrateCursorEventAlignment(document);
   return {
     path: projectPath,
     document,
@@ -246,6 +256,31 @@ export async function openProjectFile(projectPath) {
       ? { path: backupPath, size: backupInfo.size, modifiedAt: backupInfo.mtime.toISOString() }
       : null,
   };
+}
+
+// One-time migration for projects saved before cursor events were aligned
+// onto the video clock at ingestion. The signed telemetry-vs-video gap is
+// recovered from the recording's `.events.log` diagnostic sidecar; if that
+// log is missing (moved/deleted) the project is left as-is and retried on
+// the next open. Aligned assets are flagged so the shift never compounds.
+async function migrateCursorEventAlignment(document) {
+  for (const asset of document?.assets ?? []) {
+    if (asset?.type !== 'recording') continue;
+    const metadata = asset.metadata;
+    if (!metadata || metadata.cursorEventsAligned) continue;
+    if (!Array.isArray(metadata.cursorEvents) || metadata.cursorEvents.length === 0) continue;
+    let anchors = Array.isArray(metadata.cursorAnchors) ? metadata.cursorAnchors : null;
+    if (!anchors && typeof metadata.cursorTelemetryPath === 'string' && metadata.cursorTelemetryPath.endsWith('.cursor.json')) {
+      const logPath = metadata.cursorTelemetryPath.replace(/\.cursor\.json$/, '.events.log');
+      const logText = await readFile(logPath, 'utf8').catch(() => null);
+      if (logText) anchors = deriveCursorAnchorsFromEventsLog(logText);
+    }
+    if (!anchors) continue;
+    const fps = Number.isFinite(metadata.fps) && metadata.fps > 0 ? metadata.fps : 30;
+    metadata.cursorEvents = alignCursorEvents(metadata.cursorEvents, anchors, fps);
+    metadata.cursorAnchors = anchors;
+    metadata.cursorEventsAligned = true;
+  }
 }
 
 function prepareProjectForSave(projectPath, project) {

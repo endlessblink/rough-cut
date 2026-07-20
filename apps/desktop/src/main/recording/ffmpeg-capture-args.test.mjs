@@ -9,6 +9,7 @@ import {
   buildFfmpegUnifiedCaptureArgs,
   createAudioLevelParser,
   createMjpegFrameParser,
+  createInputBannerAnchorParser,
   FFMPEG_SIGINT_TIMEOUT_MS,
   FFMPEG_SIGTERM_TIMEOUT_MS,
   FFMPEG_STOP_TIMEOUT_MS,
@@ -297,4 +298,50 @@ test('camera capture stop cascade is short so v4l2-stuck ffmpeg falls back fast'
   assert.ok(FFMPEG_CAMERA_STOP_TIMEOUT_MS <= FFMPEG_STOP_TIMEOUT_MS);
   assert.ok(FFMPEG_CAMERA_SIGINT_TIMEOUT_MS <= FFMPEG_SIGINT_TIMEOUT_MS);
   assert.ok(FFMPEG_CAMERA_SIGTERM_TIMEOUT_MS <= FFMPEG_SIGTERM_TIMEOUT_MS);
+});
+
+
+// createInputBannerAnchorParser: exact first-frame wall-clock from ffmpeg's
+// stderr input banners (preferred cursor-sync anchor over the -progress
+// upper-bound detector). Fires the LATEST epoch-plausible input start once
+// the Output/Stream-mapping line confirms all input banners were seen.
+test('banner anchor parser fires the latest epoch input start, once, across chunk splits', () => {
+  const fired = [];
+  const metas = [];
+  const parser = createInputBannerAnchorParser({ onStart: (ms, meta) => { fired.push(ms); metas.push(meta); } });
+  parser.observe("Input #0, x11grab, from ':0+0,0':\n");
+  parser.observe('  Duration: N/A, start: 178405245');
+  parser.observe('0.873226, bitrate: 1990656 kb/s\n');
+  assert.equal(parser.anchored, false, 'must wait for the output banner');
+  parser.observe("Input #1, v4l2, from '/dev/video0':\n  Duration: N/A, start: 1784052451.303226, bitrate: N/A\n");
+  parser.observe('Output #0, matroska, to \'/tmp/out.mkv\':\n');
+  assert.equal(parser.anchored, true);
+  assert.equal(fired.length, 1);
+  // Camera opened later than the screen -> camera start wins.
+  assert.ok(Math.abs(fired[0] - 1784052451303.226) < 0.01);
+  // Both inputs had epoch starts -> the stop-time file-offset correction
+  // (recording-session) is allowed to subtract the camera stream start.
+  assert.equal(metas[0].epochStartCount, 2);
+  parser.observe("Input #2, x11grab, from ':0+0,0':\n  Duration: N/A, start: 9999999999.0, bitrate: 1 kb/s\nOutput #0\n");
+  assert.equal(fired.length, 1, 'fires at most once');
+});
+
+test('banner anchor parser ignores non-epoch input starts and stays unanchored without any', () => {
+  const fired = [];
+  const parser = createInputBannerAnchorParser({ onStart: (ms) => fired.push(ms) });
+  // Monotonic-clock v4l2 start (no wallclock flag) and a zero-start input
+  // must not anchor; the -progress detector fallback handles this case.
+  parser.observe("Input #0, v4l2, from '/dev/video0':\n  Duration: N/A, start: 8123.456, bitrate: N/A\n");
+  parser.observe("Input #1, pulse, from 'mic':\n  Duration: N/A, start: 0.000000, bitrate: 1536 kb/s\n");
+  parser.observe('Stream mapping:\n');
+  assert.equal(parser.anchored, false);
+  assert.equal(fired.length, 0);
+});
+
+test('banner anchor parser handles the single-input screen-only banner', () => {
+  const fired = [];
+  const parser = createInputBannerAnchorParser({ onStart: (ms) => fired.push(ms) });
+  parser.observe("Input #0, x11grab, from ':0+0,0':\n  Duration: N/A, start: 1784052450.500000, bitrate: 1990656 kb/s\nOutput #0, matroska, to '/tmp/x.mkv':\n");
+  assert.equal(parser.anchored, true);
+  assert.ok(Math.abs(fired[0] - 1784052450500) < 0.01);
 });

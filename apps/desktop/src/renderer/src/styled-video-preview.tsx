@@ -52,6 +52,10 @@ const PLAYBACK_DRAW_COST_LOG_THRESHOLD_MS = 12;
 const PLAYBACK_EXPECTED_DISPLAY_GAP_THRESHOLD_MS = 50;
 const PLAYBACK_EXPECTED_DISPLAY_GAP_FRAME_MULTIPLIER = 2.25;
 const PLAYBACK_EXPECTED_DISPLAY_WARMUP_SAMPLES = 3;
+// rVFC-scheduled draws get a timeout fallback so a decode stall or media end
+// can't park the render loop forever (2026-07-19 wedge: isPlaying stuck true,
+// frozen frame, dead loop).
+const PLAYBACK_DRAW_WATCHDOG_MS = 250;
 
 type PlaybackQualitySnapshot = {
   creationTime: number;
@@ -1065,6 +1069,7 @@ export function StyledVideoPreview({
 
     let rafId = 0;
     let videoFrameCallbackId: number | null = null;
+    let watchdogId: number | null = null;
     let lastTickAtMs: number | null = null;
     let lastExpectedDisplayTimeMs: number | null = null;
     let expectedDisplaySampleCount = 0;
@@ -1110,14 +1115,38 @@ export function StyledVideoPreview({
 
     function scheduleNextDraw() {
       if (!acceleratedTimelinePlaybackClock && timeMode === 'timeline' && isPlaying && activeTimelineSegmentRef.current && typeof screenVideo.requestVideoFrameCallback === 'function') {
-        videoFrameCallbackId = screenVideo.requestVideoFrameCallback((now, metadata) => tick(now, metadata));
+        videoFrameCallbackId = screenVideo.requestVideoFrameCallback((now, metadata) => {
+          clearDrawWatchdog();
+          tick(now, metadata);
+        });
+        // rVFC fires only while the video presents new frames. A decode
+        // stall or media end would otherwise leave the loop parked forever
+        // with isPlaying stuck true (2026-07-19: playback wedged mid-video
+        // and at the tail of every camera recording). The watchdog re-enters
+        // tick so hold/boundary logic still runs and the loop survives.
+        watchdogId = window.setTimeout(() => {
+          watchdogId = null;
+          if (videoFrameCallbackId !== null && typeof screenVideo.cancelVideoFrameCallback === 'function') {
+            screenVideo.cancelVideoFrameCallback(videoFrameCallbackId);
+          }
+          videoFrameCallbackId = null;
+          tick();
+        }, PLAYBACK_DRAW_WATCHDOG_MS);
         return;
       }
       rafId = window.requestAnimationFrame((now) => tick(now));
     }
 
+    function clearDrawWatchdog() {
+      if (watchdogId !== null) {
+        window.clearTimeout(watchdogId);
+        watchdogId = null;
+      }
+    }
+
     function cancelScheduledDraw() {
       if (rafId) window.cancelAnimationFrame(rafId);
+      clearDrawWatchdog();
       if (videoFrameCallbackId !== null && typeof screenVideo.cancelVideoFrameCallback === 'function') {
         screenVideo.cancelVideoFrameCallback(videoFrameCallbackId);
       }
@@ -1138,6 +1167,10 @@ export function StyledVideoPreview({
       seekingRef.current = true;
       screenVideo.currentTime = sourceTime;
       syncCameraTime(sourceTime);
+      // After media `ended` the element is paused; a boundary seek must
+      // resume playback or the next segment would freeze on its first frame.
+      if (screenVideo.paused) void screenVideo.play().catch(() => undefined);
+      if (cameraVideo && cameraVideo.paused) void cameraVideo.play().catch(() => undefined);
       updateCurrentTime(nextSegment.timelineIn / fps, { immediate: true });
       lastExpectedDisplayTimeMs = null;
       expectedDisplaySampleCount = 0;
@@ -1244,7 +1277,16 @@ export function StyledVideoPreview({
       }
       lastTickAtMs = tickAtMs;
       if (acceleratedTimelinePlaybackClock && timeMode === 'timeline' && isPlaying && lastTickAtMs !== null && tickDeltaSec > 0) {
-        const nextClockTime = Math.min(timelineDuration, currentTimeRef.current + tickDeltaSec * timelineRateRef.current);
+        let nextClockTime = Math.min(timelineDuration, currentTimeRef.current + tickDeltaSec * timelineRateRef.current);
+        // Never let the free-running clock outrun the decoder: on a stall the
+        // cursor/zoom would glide over a frozen frame. Park the clock at most
+        // ~2 frames ahead of the video element's actual position instead.
+        const clampSegment = activeTimelineSegmentRef.current;
+        if (clampSegment && !video.paused && !video.ended && !video.seeking) {
+          const videoTimelineSec = (clampSegment.timelineIn + (video.currentTime * fps - clampSegment.sourceIn)) / fps;
+          const maxClockTime = videoTimelineSec + 2 / fps;
+          if (nextClockTime > maxClockTime) nextClockTime = Math.max(currentTimeRef.current, maxClockTime);
+        }
         if (nextClockTime > currentTimeRef.current) {
           updateCurrentTime(nextClockTime);
           timelineFrameFallbackRef.current = Math.max(0, Math.round(nextClockTime * fps));
@@ -1367,7 +1409,15 @@ export function StyledVideoPreview({
           return;
         }
       }
-      const timelineDecoded = acceleratedTimelinePlaybackClock && activeClockSegment
+      // Media `ended` mid-timeline (camera recordings run ~0.5-1 s shorter
+      // than the wall-clock timeline length): force the boundary logic so
+      // playback holds/advances instead of wedging with isPlaying stuck true.
+      const endedTimelineSegment = timeMode === 'timeline' && isPlaying && screenVideo.ended && timelineClockGapFrame === null
+        ? activeClockSegment ?? activeTimelineSegmentRef.current
+        : null;
+      const timelineDecoded = endedTimelineSegment
+        ? handleTimelineDecodedFrame(endedTimelineSegment.sourceOut)
+        : acceleratedTimelinePlaybackClock && activeClockSegment
         ? {
             segment: activeClockSegment,
             timelineFrame: timelineClockFrame ?? activeClockSegment.timelineIn,

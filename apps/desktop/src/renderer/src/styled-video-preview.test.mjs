@@ -40,10 +40,21 @@ test('styled video preview drives edited timeline playback from decoded rVFC fra
   assert.match(source, /requestVideoFrameCallback drives canvas draws from/);
   assert.match(source, /const acceleratedTimelinePlaybackClock = timeMode === 'timeline' && isPlaying && isAcceleratedScreenLayerRenderer\(screenLayerRenderer\.kind\)/);
   assert.match(source, /if \(!acceleratedTimelinePlaybackClock && timeMode === 'timeline' && isPlaying && activeTimelineSegmentRef\.current && typeof screenVideo\.requestVideoFrameCallback === 'function'\) \{/);
-  assert.match(source, /screenVideo\.requestVideoFrameCallback\(\(now, metadata\) => tick\(now, metadata\)\)/);
+  assert.match(source, /screenVideo\.requestVideoFrameCallback\(\(now, metadata\) => \{/);
   assert.match(source, /rafId = window\.requestAnimationFrame\(\(now\) => tick\(now\)\)/);
-  assert.match(source, /const nextClockTime = Math\.min\(timelineDuration, currentTimeRef\.current \+ tickDeltaSec \* timelineRateRef\.current\)/);
-  assert.match(source, /const timelineDecoded = acceleratedTimelinePlaybackClock && activeClockSegment/);
+  assert.match(source, /let nextClockTime = Math\.min\(timelineDuration, currentTimeRef\.current \+ tickDeltaSec \* timelineRateRef\.current\)/);
+  // rVFC watchdog: a decode stall or media end must not park the loop with
+  // isPlaying stuck true (2026-07-19 playback wedge).
+  assert.match(source, /watchdogId = window\.setTimeout\(/);
+  assert.match(source, /PLAYBACK_DRAW_WATCHDOG_MS = 250/);
+  assert.match(source, /clearDrawWatchdog\(\);\n\s+tick\(now, metadata\);/);
+  // The accelerated free-running clock is clamped to the decoder's actual
+  // position so cursor/zoom can never glide over a frozen frame.
+  assert.match(source, /const maxClockTime = videoTimelineSec \+ 2 \/ fps/);
+  // Media `ended` forces the boundary/hold logic instead of wedging.
+  assert.match(source, /const endedTimelineSegment = timeMode === 'timeline' && isPlaying && screenVideo\.ended/);
+  assert.match(source, /handleTimelineDecodedFrame\(endedTimelineSegment\.sourceOut\)/);
+  assert.match(source, /const timelineDecoded = endedTimelineSegment/);
   assert.match(source, /handleTimelineDecodedFrame\(sourceFrame\)/);
   assert.match(source, /timelineFrameForDecodedSourceFrame\(segment, decodedSourceFrame\)/);
   assert.match(source, /seekTimelineBoundary\(nextSegment\)/);

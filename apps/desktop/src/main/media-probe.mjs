@@ -126,6 +126,31 @@ export async function probeVideoStreamsTiming(filePath, { fps = 30, runner = run
   });
 }
 
+// Lightweight per-video-stream start offsets (no -count_frames, so it does
+// not decode the file). Used by the recording session to translate the
+// banner wall-clock anchor onto the muxed file's own timeline.
+export async function probeVideoStreamStartOffsets(filePath, { runner = run } = {}) {
+  const result = await runner('ffprobe', [
+    '-v', 'error',
+    '-select_streams', 'v',
+    '-show_entries', 'stream=index,start_time',
+    '-of', 'json',
+    filePath,
+  ]);
+  if (result.code !== 0) {
+    throw new Error(`ffprobe failed for ${filePath}: ${result.stderr.trim()}`);
+  }
+  const parsed = JSON.parse(result.stdout);
+  const streams = Array.isArray(parsed.streams) ? parsed.streams : [];
+  return streams.map((stream, ordinal) => {
+    const startTime = Number(stream.start_time);
+    return {
+      index: Number.isFinite(Number(stream.index)) ? Number(stream.index) : ordinal,
+      startTimeSeconds: Number.isFinite(startTime) ? startTime : null,
+    };
+  });
+}
+
 export function computeSyncedRecordingTiming({ screen, camera = null, cameraSourceInFrames = 0, fps = 30 }) {
   const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
   const screenFrames = Math.max(1, Math.round(screen?.durationFrames ?? 1));

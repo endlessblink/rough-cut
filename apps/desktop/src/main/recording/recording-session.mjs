@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { isFfmpegCaptureAvailable, startFfmpegCameraCapture, startFfmpegCapture, startFfmpegUnifiedCapture } from './ffmpeg-capture.mjs';
 import { createXinputButtonListener } from './xinput-button-listener.mjs';
+import { probeVideoStreamStartOffsets } from '../media-probe.mjs';
 import { createEventLogger, NULL_EVENT_LOGGER } from './event-logger.mjs';
 
 const DEFAULT_FPS = 30;
@@ -38,6 +39,7 @@ export function createRecordingSession({
   buttonListenerFactory = createXinputButtonListener,
   eventLoggerFactory = createEventLogger,
   enableDiagnosticLogging = DIAGNOSTIC_LOGGING_DEFAULT,
+  videoStreamStartProbe = probeVideoStreamStartOffsets,
 }) {
   let active = null;
   let stopping = null;
@@ -156,6 +158,7 @@ export function createRecordingSession({
       pauseStartedAt: null,
       paused: false,
       cursorEvents: [],
+      cursorAnchors: [],
       cursorTimer: null,
       buttonListener: null,
       latestCursorPoint: null,
@@ -303,7 +306,7 @@ export function createRecordingSession({
     stopTelemetry(session);
     if (session.eventLogger) session.eventLogger.event('recording-stop');
     if (!session.paused) {
-      await stopCurrentSegment(session, 'stop', now);
+      await stopCurrentSegment(session, 'stop', now, { videoStreamStartProbe });
     }
     const rawPath = session.segments.length > 1 ? session.rawPath : session.segments[0]?.rawPath ?? session.rawPath;
     let cameraRawPath = session.unifiedCapture ? rawPath : session.cameraSegments[0]?.rawPath ?? null;
@@ -312,14 +315,14 @@ export function createRecordingSession({
     if (cameraRawSegments.length > 1) cameraRawPath = session.cameraRawPath;
     const isUnifiedCapture = Boolean(cameraRawPath && cameraRawPath === rawPath);
 
-    // The firstFrameMs anchor is captured but no longer used to re-anchor
-    // cursor events. Earlier today we tried shifting cursor frames backward
-    // by (firstFrameMs - startedAt) on the theory that the cursor overlay
-    // was offset ahead of the video. That clamped many pre-ffmpeg events to
-    // frame 0 with stale positions and the user reported the result as
-    // "cursor lag — wrong place". Reverted to the pre-today behavior:
-    // cursor frames stay anchored to recording-start, matching what
-    // yesterday's recordings produced.
+    // Cursor events stay RAW on the telemetry clock here and in the sidecar
+    // (regression-guarded). The signed telemetry-vs-video gap per segment is
+    // reported as `cursorAnchors`; alignment onto the video clock happens
+    // exactly once at project ingestion (see shared/cursor-alignment.mjs for
+    // the clock model — the gap's sign depends on the capture path). The
+    // 2026-05-04 attempt to shift events in stop() clamped pre-ffmpeg events
+    // to frame 0 AND assumed the wrong sign for unified capture; do not
+    // re-anchor events here.
 
     await writeCursorTelemetrySidecar(session);
     await clearRecoveryMarker();
@@ -360,6 +363,7 @@ export function createRecordingSession({
       cursorTelemetryPath: session.cursorTelemetryPath,
       eventsLogPath: session.eventsLogPath,
       cursorEvents: session.cursorEvents,
+      cursorAnchors: session.cursorAnchors,
       audio: buildAudioMetadata(session),
       capture: session.captureRegion,
     };
@@ -382,7 +386,7 @@ export function createRecordingSession({
   async function pauseActiveSession(session, now) {
     if (session.paused) return;
     session.eventLogger?.event('recording-pause');
-    await stopCurrentSegment(session, 'pause', now);
+    await stopCurrentSegment(session, 'pause', now, { videoStreamStartProbe });
     session.paused = true;
     session.pauseStartedAt = now().toISOString();
   }
@@ -424,6 +428,25 @@ async function startActiveSegment(session, {
   let unifiedCapture = null;
   let capture = null;
   let cameraStartedAtDate = null;
+  // The unified capture path awaits the ffmpeg spawn, so onFirstFrame can
+  // fire BEFORE session.currentSegment exists — buffer the anchor locally
+  // and attach it when the segment record is created below.
+  let pendingFirstFrameMs = null;
+  let pendingFirstFrameMeta = null;
+  const noteFirstFrame = (firstFrameMs, meta = null) => {
+    session.eventLogger?.event('first-frame-anchor', { firstFrameMs, segmentIndex: session.segmentIndex, ...(meta ?? {}) });
+    if (!Number.isFinite(firstFrameMs)) return;
+    if (pendingFirstFrameMs === null) {
+      pendingFirstFrameMs = firstFrameMs;
+      pendingFirstFrameMeta = meta;
+    }
+    if (session.currentSegment
+      && session.currentSegment.index === session.segmentIndex
+      && !Number.isFinite(session.currentSegment.firstFrameMs)) {
+      session.currentSegment.firstFrameMs = pendingFirstFrameMs;
+      session.currentSegment.firstFrameMeta = pendingFirstFrameMeta;
+    }
+  };
 
   if (session.cameraDevicePath && !canUseUnifiedCapture) {
     try {
@@ -468,9 +491,7 @@ async function startActiveSegment(session, {
         micGainPercent: session.micGainPercent,
         systemAudioSource: session.systemAudioSource,
         systemAudioGainPercent: session.systemAudioGainPercent,
-        onFirstFrame: (firstFrameMs) => {
-          session.eventLogger?.event('first-frame-anchor', { firstFrameMs, segmentIndex: session.segmentIndex });
-        },
+        onFirstFrame: noteFirstFrame,
         maxAttempts: 6,
         earlyExitWindowMs: 1500,
         backoffMs: 500,
@@ -495,9 +516,7 @@ async function startActiveSegment(session, {
       micGainPercent: session.micGainPercent,
       systemAudioSource: session.systemAudioSource,
       systemAudioGainPercent: session.systemAudioGainPercent,
-      onFirstFrame: (firstFrameMs) => {
-        session.eventLogger?.event('first-frame-anchor', { firstFrameMs, segmentIndex: session.segmentIndex });
-      },
+      onFirstFrame: noteFirstFrame,
     });
   }
 
@@ -517,6 +536,8 @@ async function startActiveSegment(session, {
     cameraRawPath: unifiedCapture ? paths.rawPath : cameraCapture ? paths.cameraRawPath : null,
     startedAtMs: segmentStartedAtDate.getTime(),
     startedRecordedDurationMs: session.recordedDurationMs,
+    firstFrameMs: pendingFirstFrameMs,
+    firstFrameMeta: pendingFirstFrameMeta,
   };
   session.currentSegmentStartedAtMs = segmentStartedAtDate.getTime();
   registerChild(session, 'ffmpeg-screen', capture);
@@ -525,10 +546,11 @@ async function startActiveSegment(session, {
   startTelemetryAfterIpcReturn(session, { getCursorPoint, now, sampleIntervalMs, buttonListenerFactory });
 }
 
-async function stopCurrentSegment(session, reason, now) {
+async function stopCurrentSegment(session, reason, now, { videoStreamStartProbe = probeVideoStreamStartOffsets } = {}) {
   if (!session.currentSegment || !session.capture) return;
   stopTelemetry(session);
   const segment = session.currentSegment;
+  const wasUnifiedCapture = Boolean(session.unifiedCapture);
   console.info(`[recording-session] phase=screen-capture-${reason}-begin`);
   const rawPath = await session.capture.stop();
   console.info(`[recording-session] phase=screen-capture-${reason}-done`);
@@ -549,8 +571,45 @@ async function stopCurrentSegment(session, reason, now) {
   }
 
   const stoppedAtMs = now().getTime();
+
+  // Unified capture: the banner anchor is the CAMERA input's first-packet
+  // wall-clock, but the muxed file's t=0 is the first *retained* packet.
+  // Whether ffmpeg keeps any pre-camera screen frames is a race (2026-07-19:
+  // one kept, so the file started 300 ms before the camera and cursor
+  // telemetry ran ~9 frames ahead). The camera stream's start offset inside
+  // the finished file measures exactly where the banner anchor sits on the
+  // file timeline, so subtracting it pins the wall-clock of file t=0
+  // regardless of which way the race went. Only valid when the banner saw
+  // the camera's epoch start (epochStartCount >= 2).
+  if (wasUnifiedCapture
+    && Number.isFinite(segment.firstFrameMs)
+    && segment.firstFrameMeta?.source === 'banner'
+    && (segment.firstFrameMeta?.epochStartCount ?? 0) >= 2) {
+    try {
+      const streams = await videoStreamStartProbe(rawPath);
+      const cameraStream = streams.length > 1 ? streams[streams.length - 1] : null;
+      if (cameraStream && Number.isFinite(cameraStream.startTimeSeconds) && cameraStream.startTimeSeconds > 0) {
+        const correctionMs = cameraStream.startTimeSeconds * 1000;
+        segment.firstFrameMs -= correctionMs;
+        session.eventLogger?.event('first-frame-anchor-correction', {
+          correctionMs,
+          firstFrameMs: segment.firstFrameMs,
+          segmentIndex: segment.index,
+        });
+      }
+    } catch (err) {
+      console.warn('[recording-session] anchor correction probe failed; keeping banner anchor:', err?.message ?? err);
+    }
+  }
+
   const durationMs = Math.max(0, stoppedAtMs - segment.startedAtMs);
   session.recordedDurationMs += durationMs;
+  // Signed telemetry-vs-video clock gap for this segment. Consumed by
+  // alignCursorEvents at project ingestion; events themselves stay raw here.
+  session.cursorAnchors.push({
+    baseTimeMs: segment.startedRecordedDurationMs,
+    anchorOffsetMs: Number.isFinite(segment.firstFrameMs) ? segment.firstFrameMs - segment.startedAtMs : 0,
+  });
   session.segments.push({ ...segment, rawPath, durationMs });
   if (cameraRawPath && !session.cameraError) session.cameraSegments.push({ index: segment.index, rawPath: cameraRawPath, durationMs });
   session.capture = null;
@@ -1087,6 +1146,7 @@ async function writeCursorTelemetrySidecar(session) {
           fps: session.fps,
           width: session.width,
           height: session.height,
+          cursorAnchors: session.cursorAnchors,
           events: session.cursorEvents,
         },
         null,

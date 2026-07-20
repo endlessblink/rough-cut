@@ -1065,3 +1065,60 @@ test("saveBlankProject writes a unique .roughcut and round-trips through openPro
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('createProjectForRecording aligns cursor events onto the video clock when the recorder reports anchors', () => {
+  const project = createProjectForRecording({
+    recording: {
+      ...recording,
+      cursorEvents: [
+        { frame: 0, timeMs: 9, x: 1, y: 2, type: 'move', button: 0 },
+        { frame: 174, timeMs: 5815, x: 785, y: 481, type: 'down', button: 0 },
+      ],
+      cursorAnchors: [{ baseTimeMs: 0, anchorOffsetMs: -1107 }],
+    },
+    now: new Date('2026-04-28T12:00:11.000Z'),
+  });
+
+  const metadata = project.assets[0].metadata;
+  assert.equal(metadata.cursorEventsAligned, true);
+  assert.deepEqual(metadata.cursorAnchors, [{ baseTimeMs: 0, anchorOffsetMs: -1107 }]);
+  assert.deepEqual(metadata.cursorEvents.map((event) => event.timeMs), [1116, 6922]);
+  assert.equal(metadata.cursorEvents[1].frame, Math.round((6922 / 1000) * 30));
+  assert.equal(metadata.cursorEvents[1].type, 'down');
+});
+
+test('openProjectFile migrates legacy cursor events from the recording events log, exactly once', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rough-cut-cursor-migrate-'));
+  try {
+    const outputPath = join(root, 'capture.mp4');
+    const cursorTelemetryPath = join(root, 'capture.cursor.json');
+    // Legacy log: telemetry clock zero = 1001510 - 10 = 1001500ms, first
+    // video frame at 1000400ms -> signed gap -1100ms (cursor was drawn 1.1s
+    // ahead of the video).
+    await writeFile(join(root, 'capture.events.log'), [
+      JSON.stringify({ t: 1000.0, kind: 'recording-start', startedAt: '2026-04-28T12:00:00.000Z' }),
+      JSON.stringify({ t: 1000.4, kind: 'first-frame-anchor', firstFrameMs: 1000400, segmentIndex: 1 }),
+      JSON.stringify({ t: 1001.51, kind: 'cursor-sample-end', ok: true, elapsedMs: 10 }),
+      '',
+    ].join('\n'), 'utf8');
+
+    // Saved by a build that predates cursorAnchors: raw events, no flag.
+    const saved = await saveProjectForRecording({ ...recording, outputPath, cursorTelemetryPath });
+
+    const opened = await openProjectFile(saved.path);
+    const metadata = opened.document.assets[0].metadata;
+    assert.equal(metadata.cursorEventsAligned, true);
+    assert.deepEqual(metadata.cursorAnchors, [{ baseTimeMs: 0, anchorOffsetMs: -1100 }]);
+    assert.deepEqual(metadata.cursorEvents.map((event) => [event.timeMs, event.frame]), [[1200, 36]]);
+
+    // Saving the migrated document and reopening must not shift again.
+    await saveProjectFile(saved.path, opened.document);
+    const reopened = await openProjectFile(saved.path);
+    assert.deepEqual(
+      reopened.document.assets[0].metadata.cursorEvents.map((event) => event.timeMs),
+      [1200],
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
