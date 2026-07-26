@@ -284,6 +284,14 @@ const migrations: readonly Migration[] = [
       };
     },
   },
+  {
+    // v15 → v16: bump version only. `RecordingPresentation.censorRegions` is
+    // optional and its absence means "no censors", so existing documents need no
+    // backfill. Added by TASK-252.
+    fromVersion: 15,
+    toVersion: 16,
+    migrate: (doc) => ({ ...doc, version: 16 }),
+  },
 ];
 
 function backfillNleTrack(track: unknown): unknown {

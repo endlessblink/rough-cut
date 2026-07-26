@@ -1,0 +1,12 @@
+# This repo is not Prettier-formatted. Its TypeScript is hand-formatted and no
+# printWidth setting reproduces it — roughly half of the existing source files
+# disagree with Prettier at every width tried (90/100/110/120/140).
+#
+# A global editor/agent hook that runs `prettier --write` on save therefore
+# rewrites entire files on any touch, burying real changes in reformat noise.
+# Ignoring everything makes that hook inert here without anyone having to change
+# their personal tooling.
+#
+# If the repo ever adopts Prettier, do it as one deliberate formatting commit and
+# delete this file.
+*

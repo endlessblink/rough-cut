@@ -12,7 +12,7 @@ import type {
   RecordingVisibility,
   RecordingVisibilitySegment,
 } from '@rough-cut/project-model';
-import { normalizeRegionCrop } from '@rough-cut/project-model';
+import { activeCensorRegionsAt, normalizeRegionCrop } from '@rough-cut/project-model';
 import { resolveTimelineFrame } from './timeline-frame.js';
 import { selectActiveClipsAtFrame, getZoomTransformAtFrame } from '@rough-cut/timeline-engine';
 import { evaluateKeyframeTracks, getDefaultParams } from '@rough-cut/effect-registry';
@@ -320,6 +320,10 @@ export function resolveFrame(
     ? { ...baseCameraPresentation, visible: recordingVisibility.cameraVisible && baseCameraPresentation.visible }
     : undefined;
   const cameraFrame = activeCameraLayout?.cameraFrame ?? presentation?.cameraFrame;
+  const censorRegions = activeCensorRegionsAt(
+    presentation?.censorRegions,
+    activeRecordingSourceFrame,
+  );
 
   return {
     frame,
@@ -336,6 +340,7 @@ export function resolveFrame(
     cameraPresentation,
     screenFrame,
     cameraFrame,
+    censorRegions,
   };
 }
 
@@ -358,6 +363,8 @@ export function resolveTimelinePreviewFrame(
       transitions: [],
       cameraTransform: DEFAULT_CAMERA_TRANSFORM,
       cursor: { ...DEFAULT_CURSOR_PRESENTATION, visible: false, clickEffect: 'none', clickSoundEnabled: false, clicksVisible: false, overlaysVisible: false },
+      // A gap renders no recording, so there is nothing to censor.
+      censorRegions: [],
     };
   }
 
@@ -433,6 +440,10 @@ export function resolveTimelinePreviewFrame(
     cameraPresentation,
     screenFrame: presentation?.screenFrame,
     cameraFrame: activeCameraLayout?.cameraFrame ?? presentation?.cameraFrame,
+    censorRegions: activeCensorRegionsAt(
+      presentation?.censorRegions,
+      activeRecordingSourceFrame,
+    ),
   };
 }
 

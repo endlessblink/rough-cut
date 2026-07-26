@@ -1,5 +1,10 @@
 import { createDefaultRecordingVisibility } from './factories.js';
-import type { Clip, RecordingVisibility, RecordingVisibilitySegment } from './types.js';
+import type {
+  CensorRegion,
+  Clip,
+  RecordingVisibility,
+  RecordingVisibilitySegment,
+} from './types.js';
 
 /**
  * Convert a frame number to seconds at the given FPS.
@@ -77,4 +82,27 @@ export function resolveRecordingVisibility(
   sourceFrame: number,
 ): RecordingVisibility {
   return getActiveRecordingVisibilitySegment(segments, sourceFrame) ?? createDefaultRecordingVisibility();
+}
+
+/**
+ * Censor regions covering `sourceFrame`, in document order. (TASK-252)
+ *
+ * Start-inclusive, end-exclusive, so two back-to-back regions never both draw on
+ * the seam frame. Lives here rather than in a renderer so the frame resolver and
+ * both renderers cannot disagree about which regions are active — a censor that
+ * is active in the preview but not the export would ship the thing it was meant
+ * to hide.
+ */
+export function activeCensorRegionsAt(
+  regions: readonly CensorRegion[] | null | undefined,
+  sourceFrame: number,
+): readonly CensorRegion[] {
+  if (!regions || regions.length === 0) return [];
+  if (!Number.isFinite(sourceFrame)) return [];
+  return regions.filter((region) => {
+    if (!region || typeof region !== 'object') return false;
+    const { startFrame, endFrame } = region;
+    if (!Number.isFinite(startFrame) || !Number.isFinite(endFrame)) return false;
+    return sourceFrame >= startFrame && sourceFrame < endFrame;
+  });
 }

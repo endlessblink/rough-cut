@@ -195,6 +195,26 @@ export const CutRangeSchema = z.object({
   path: ['endFrame'],
 });
 
+export const CensorModeSchema = z.enum(['solid', 'pixelate']);
+
+export const CensorRegionSchema = z.object({
+  id: z.string().min(1),
+  startFrame: nonNegativeInt,
+  endFrame: nonNegativeInt,
+  rect: NormalizedRectSchema,
+  mode: CensorModeSchema,
+  blockSize: z.number().positive().max(512).default(24),
+  soften: z.boolean().default(true),
+  fillColor: hexColor.optional(),
+  label: z.string().optional(),
+}).refine((region) => region.endFrame > region.startFrame, {
+  message: 'Censor region endFrame must be greater than startFrame',
+  path: ['endFrame'],
+}).refine((region) => region.rect.w > 0 && region.rect.h > 0, {
+  message: 'Censor region rect must have non-zero width and height',
+  path: ['rect'],
+});
+
 export const RecordingBackgroundStyleSchema = z.object({
   bgColor: hexColor,
   bgGradient: z.string().nullable(),
@@ -225,6 +245,7 @@ export const RecordingPresentationSchema = z.object({
   cameraFrame: NormalizedRectSchema.optional(),
   screenCrop: RegionCropSchema.optional(),
   cameraCrop: RegionCropSchema.optional(),
+  censorRegions: z.array(CensorRegionSchema).optional(),
 });
 
 export const AssetSchema = z.object({

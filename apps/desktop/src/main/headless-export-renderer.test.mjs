@@ -800,3 +800,40 @@ function createFakeWebgl(options = {}) {
     drawArrays: noop,
   };
 }
+
+test('headless export renderer censors the screen before drawing the cursor', async () => {
+  const source = await readFile(new URL('./headless-export-renderer.mjs', import.meta.url), 'utf8');
+
+  // Same order as the preview: the censor covers the screen, the cursor stays on
+  // top of it.
+  assert.match(source, /const censoredCount=screen\?drawCensorRegionsExport\(frame,screen\):0;\n\s*const point=/);
+  assert.match(source, /function drawCensorRegionsExport\(frame,screen\)/);
+});
+
+test('headless export renderer takes the Canvas2D path for censored frames', async () => {
+  const source = await readFile(new URL('./headless-export-renderer.mjs', import.meta.url), 'utf8');
+
+  // The GPU path composites into its own canvas, so a 2D censor pass would never
+  // reach it. Censored frames must fall back rather than export uncensored.
+  assert.match(source, /function useGpuFrame\(frame\)\{return !!gpu&&frame&&frame\.screen&&censorRegionsFor\(frame\)\.length===0\}/);
+});
+
+test('headless export renderer fails closed to a solid fill when no mosaic is possible', async () => {
+  const source = await readFile(new URL('./headless-export-renderer.mjs', import.meta.url), 'utf8');
+
+  assert.match(source, /let destroyed=false;/);
+  assert.match(source, /if\(!destroyed\)\{const fill=/);
+  assert.match(source, /ctx\.fillRect\(dest\.x,dest\.y,dest\.w,dest\.h\)/);
+});
+
+test('headless export renderer reports how many censors it painted', async () => {
+  const source = await readFile(new URL('./headless-export-renderer.mjs', import.meta.url), 'utf8');
+  // Surfaced per frame so a silent skip is visible in export diagnostics instead
+  // of only showing up in the finished video.
+  assert.match(source, /censoredCount,/);
+});
+
+test('export payload passes the resolver-filtered censor list through untouched', async () => {
+  const source = await readFile(new URL('./export-service.mjs', import.meta.url), 'utf8');
+  assert.match(source, /censorRegions: frame\.renderFrame\?\.censorRegions \?\? \[\],/);
+});

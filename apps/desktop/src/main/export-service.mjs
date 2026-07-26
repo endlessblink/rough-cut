@@ -406,6 +406,9 @@ export async function exportStyledProjectToMp4({ project, recording, outputPath,
       cameraCrop: recording.presentation?.cameraCrop ?? null,
       screenFrame: recording.presentation?.screenFrame ?? null,
       screenCrop: recording.presentation?.screenCrop ?? null,
+      // The whole list with its source frame ranges — the filter chain time-gates
+      // each region itself, unlike the canvas renderers which get a per-frame list.
+      censorRegions: recording.presentation?.censorRegions ?? [],
       cutRanges: recording.cutRanges ?? [],
       outputDurationSeconds: durationSeconds,
     };
@@ -782,6 +785,10 @@ function summarizeCompositionFrame(frame, assetMap = new Map()) {
           hasCrop: Boolean(frame.cameraLayer.crop),
         }
       : null,
+    // Taken straight off the resolved render frame, already filtered to this
+    // frame. The export must never do its own filtering, or it could disagree with
+    // the preview about what is hidden.
+    censorRegions: frame.renderFrame?.censorRegions ?? [],
     cursor: {
       sourceFrame: frame.cursorLayer.sourceFrame,
       sourcePosition: frame.cursorLayer.sourcePosition,
@@ -810,6 +817,110 @@ function assetSourceUrl(asset) {
   return sourcePath ? pathToFileURL(sourcePath).href : null;
 }
 
+/**
+ * Censor filters for the styled (FFmpeg) export. (TASK-252)
+ *
+ * Inserted into the screen chain while the stream is still at SOURCE resolution,
+ * BEFORE the zoom crop and before the cursor burn-in. That ordering is what makes
+ * censors survive zoom and pan for free — the zoom filter crops the already-
+ * censored frame — and keeps the cursor drawn on top of a censor, matching the
+ * preview.
+ *
+ * Time gating uses `enable='between(t,start/fps,end/fps)'`, the same
+ * source-frame-over-fps convention `buildZoomSendcmd` uses for its command
+ * timestamps. If that convention is ever wrong under trims, zoom and censor are
+ * wrong together and get fixed together, rather than drifting apart.
+ *
+ * ## Every censor exports as a solid block, including `pixelate`
+ *
+ * The mosaic needs `split` + `overlay` because FFmpeg has no region-limited mosaic
+ * filter. That shape **deadlocks** whenever zoom is active: the zoom
+ * `sendcmd`/`crop` downstream pulls frames in a pattern that starves one split
+ * branch, and ffmpeg parks at 0% CPU with an empty output file, forever. Measured
+ * directly (2026-07-26): zoom + mosaic hangs, zoom + `drawbox` completes, zoom with
+ * no censor completes. `fifo` on the split branches does not help — it is a no-op in
+ * modern ffmpeg. A single-filter `geq` mosaic avoids the deadlock but has to round
+ * trip through `gbrp`, which shifted colour across roughly 4% of the whole frame.
+ *
+ * So the export draws one `drawbox` per region regardless of mode: no extra streams,
+ * no deadlock, and a solid block is the strongest redaction available anyway. The
+ * editor still previews the mosaic; the exported file gets a block. What is hidden is
+ * identical, only the look differs, and the UI says so.
+ *
+ * Restoring the mosaic here needs a shape that neither splits the stream nor
+ * converts colour space. Do not reintroduce split+overlay without re-running
+ * `scripts/smoke-censor-export.mjs`, which covers the zoomed case specifically
+ * because that is the one that hangs.
+ */
+export function buildCensorSourceFilters({
+  censorRegions = [],
+  sourceWidth,
+  sourceHeight,
+  fps,
+  inputLabel = '[base]',
+  outputPrefix = 'censored',
+} = {}) {
+  const usable = (Array.isArray(censorRegions) ? censorRegions : [])
+    .map((region) => {
+      const rect = region?.rect;
+      if (!rect) return null;
+      if (!(sourceWidth > 0) || !(sourceHeight > 0)) return null;
+      const x1 = clampNumber(Number(rect.x), 0, 1);
+      const y1 = clampNumber(Number(rect.y), 0, 1);
+      const x2 = clampNumber(Number(rect.x) + Number(rect.w), 0, 1);
+      const y2 = clampNumber(Number(rect.y) + Number(rect.h), 0, 1);
+      // Drop degenerate regions BEFORE the even-pixel floor below. Applying the
+      // floor first would turn a zero-area rect into a 2px censor, so a stray
+      // click would leave a phantom box in the export.
+      const rawW = Math.abs(x2 - x1) * sourceWidth;
+      const rawH = Math.abs(y2 - y1) * sourceHeight;
+      if (rawW < 2 || rawH < 2) return null;
+      // Even pixel dimensions: odd crop sizes break some encoders and make the
+      // mosaic downscale/upscale round unevenly.
+      const x = Math.max(0, Math.round(Math.min(x1, x2) * sourceWidth));
+      const y = Math.max(0, Math.round(Math.min(y1, y2) * sourceHeight));
+      const w = Math.max(2, Math.round(rawW / 2) * 2);
+      const h = Math.max(2, Math.round(rawH / 2) * 2);
+      const clampedW = Math.min(w, sourceWidth - x);
+      const clampedH = Math.min(h, sourceHeight - y);
+      if (clampedW < 2 || clampedH < 2) return null;
+      const startFrame = Math.max(0, Math.round(Number(region.startFrame) || 0));
+      const endFrame = Math.max(startFrame + 1, Math.round(Number(region.endFrame) || 0));
+      return {
+        id: region.id,
+        mode: region.mode === 'solid' ? 'solid' : 'pixelate',
+        blockSize: Number.isFinite(region.blockSize) && region.blockSize > 0 ? region.blockSize : 24,
+        soften: region.soften !== false,
+        fillColor: typeof region.fillColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(region.fillColor)
+          ? region.fillColor
+          : '#0b0f14',
+        x,
+        y,
+        w: clampedW,
+        h: clampedH,
+        startSec: startFrame / (fps > 0 ? fps : 30),
+        endSec: endFrame / (fps > 0 ? fps : 30),
+      };
+    })
+    .filter(Boolean);
+
+  if (usable.length === 0) return { filters: [], outputLabel: inputLabel, count: 0 };
+
+  const filters = [];
+  let current = inputLabel;
+  usable.forEach((region, index) => {
+    const enable = `enable='between(t,${formatFilterNumber(region.startSec)},${formatFilterNumber(region.endSec)})'`;
+    const next = `[${outputPrefix}_${index}]`;
+    // One drawbox per region, for both modes. See the note above for why the mosaic
+    // is not used here.
+    const hex = region.fillColor.replace('#', '0x');
+    filters.push(`${current}drawbox=x=${region.x}:y=${region.y}:w=${region.w}:h=${region.h}:color=${hex}@1:t=fill:${enable}${next}`);
+    current = next;
+  });
+
+  return { filters, outputLabel: current, count: usable.length };
+}
+
 export function buildStyledExportArgs({
   inputPath,
   outputPath,
@@ -834,6 +945,7 @@ export function buildStyledExportArgs({
   backgroundStart = '#e8ebf0',
   backgroundEnd = '#f0e8e8',
   backgroundImagePath = null,
+  censorRegions = [],
   zoomCropFilter = null,
   zoomSendcmdPath = null,
   cameraInputPath = null,
@@ -886,7 +998,16 @@ export function buildStyledExportArgs({
     : null;
   const normalizedCutRanges = normalizeCutRanges(cutRanges, trimStartFrame, trimEndFrame);
   const cutFilter = buildCutSelectFilter(normalizedCutRanges, trimStartFrame);
-  const screenInput = cursorAssPath ? '[with_cursor]' : '[base]';
+  // Censors go on before the cursor burn-in and before the zoom crop, so the
+  // cursor stays on top and the zoom carries the censor with the content.
+  const censorLayer = buildCensorSourceFilters({
+    censorRegions,
+    sourceWidth,
+    sourceHeight,
+    fps,
+    inputLabel: '[base]',
+  });
+  const screenInput = cursorAssPath ? '[with_cursor]' : censorLayer.outputLabel;
   const zoomActive = Boolean(zoomCropFilter && zoomSendcmdPath);
   const screenFrame = resolveScreenOverlayFrame(width, height, maxVideoWidth, maxVideoHeight, screenFrameOverride);
   const screenManualCropStep = buildCameraManualCropStep(screenCrop, sourceWidth, sourceHeight);
@@ -950,7 +1071,8 @@ export function buildStyledExportArgs({
     ...sourceBaseFilters,
     ...cameraBaseFilters,
     ...audioFilters,
-    ...(cursorAssPath ? [`[base]subtitles=${escapeFilterPath(cursorAssPath)}[with_cursor]`] : []),
+    ...censorLayer.filters,
+    ...(cursorAssPath ? [`${censorLayer.outputLabel}subtitles=${escapeFilterPath(cursorAssPath)}[with_cursor]`] : []),
     ...screenCompositeFilters,
     ...(cameraFrame
       ? [
@@ -991,6 +1113,7 @@ export function buildStyledExportArgs({
 
 export function canUseSimpleStyledExportFastPath({
   backgroundImagePath = null,
+  censorRegions = [],
   zoomCropFilter = null,
   zoomSendcmdPath = null,
   cameraInputPath = null,
@@ -1004,6 +1127,10 @@ export function canUseSimpleStyledExportFastPath({
   cutRanges = [],
 } = {}) {
   if (backgroundImagePath) return false;
+  // The fast path skips the screen chain the censor filters live in. Rather than
+  // maintain a second censor implementation there, censored projects take the full
+  // path — slower, and it actually hides what the user asked to hide.
+  if (Array.isArray(censorRegions) && censorRegions.length > 0) return false;
   if (zoomCropFilter || zoomSendcmdPath) return false;
   if (cameraInputPath || cameraFrame || cameraCrop) return false;
   if (screenFrame || screenCrop) return false;

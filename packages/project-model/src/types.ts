@@ -75,6 +75,7 @@ export type RecordingVisibilitySegmentId = string & {
   readonly __brand: 'RecordingVisibilitySegmentId';
 };
 export type CutRangeId = string & { readonly __brand: 'CutRangeId' };
+export type CensorRegionId = string & { readonly __brand: 'CensorRegionId' };
 
 export interface ZoomFocalPoint {
   readonly x: number; // normalized 0–1 within source frame
@@ -208,6 +209,50 @@ export interface RegionCrop {
   readonly aspectRatio: CropAspectRatio;
 }
 
+/**
+ * How a censor region destroys the pixels underneath it.
+ *
+ * - `solid` fills the region with an opaque colour. Nothing of the original
+ *   content survives, and no source pixels are ever read back.
+ * - `pixelate` replaces the region with a coarse mosaic sampled from the source
+ *   video.
+ *
+ * Both are irreversible. A cosmetic blur may be layered on top via
+ * `CensorRegion.soften`, but only ever over pixels that are already destroyed —
+ * blur alone is recoverable and is never the censor itself.
+ */
+export type CensorMode = 'solid' | 'pixelate';
+
+/**
+ * A rectangular area of the screen recording that is hidden for a span of the
+ * timeline.
+ *
+ * Coordinate basis: `rect` is normalized 0–1 within the FULL source recording
+ * frame, before `screenCrop` is applied. That keeps it resolution-independent and
+ * matches the `ZoomFocalPoint` basis. Renderers draw censors inside the same
+ * canvas transform the cursor overlay uses, where source-pixel coordinates land
+ * correctly whatever the zoom, pan and crop are doing.
+ *
+ * Frame basis: `startFrame`/`endFrame` are source-recording frames, the same space
+ * as `ZoomMarker` and `CutRange`, so trims, cut ranges and ripple deletes treat
+ * censors exactly as they already treat zoom markers. Start-inclusive,
+ * end-exclusive.
+ */
+export interface CensorRegion {
+  readonly id: CensorRegionId;
+  readonly startFrame: Frame;
+  readonly endFrame: Frame;
+  readonly rect: NormalizedRect;
+  readonly mode: CensorMode;
+  /** Mosaic block size in source pixels. Pixelate only. */
+  readonly blockSize: number;
+  /** Cosmetic blur over the already-destroyed pixels. */
+  readonly soften: boolean;
+  /** Solid only. Defaults to opaque near-black when omitted. */
+  readonly fillColor?: string;
+  readonly label?: string;
+}
+
 export interface RecordingPresentation {
   readonly templateId: string;
   readonly zoom: ZoomPresentation;
@@ -221,6 +266,7 @@ export interface RecordingPresentation {
   readonly cameraFrame?: NormalizedRect;
   readonly screenCrop?: RegionCrop;
   readonly cameraCrop?: RegionCrop;
+  readonly censorRegions?: readonly CensorRegion[];
   // highlights, titles to be added later
 }
 

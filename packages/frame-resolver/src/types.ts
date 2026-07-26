@@ -14,6 +14,7 @@ import type {
   CursorStyle,
   ClickEffect,
   RegionCrop,
+  CensorRegion,
 } from '@rough-cut/project-model';
 import type { ResolvedParams } from '@rough-cut/effect-registry';
 
@@ -137,6 +138,12 @@ export interface RenderFrame {
   screenFrame?: NormalizedRect;
   /** Exact camera frame resolved in Record tab (normalized 0-1 canvas rect) */
   cameraFrame?: NormalizedRect;
+  /**
+   * Censor regions active at this frame, already filtered against the recording's
+   * source frame. Renderers must draw exactly these and never re-filter, so the
+   * preview and the export can never disagree about what is hidden.
+   */
+  censorRegions?: readonly CensorRegion[];
 }
 
 export interface ResolvedTimelineClip {

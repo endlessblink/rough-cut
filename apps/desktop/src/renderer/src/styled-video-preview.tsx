@@ -30,6 +30,8 @@ import { getCursorEvents } from './cursor-data.mjs';
 import { getPrimaryRecordingAsset } from './zoom-markers.mjs';
 import { createScreenLayerRenderer, type ScreenLayerRenderer, type ScreenLayerRendererKind, type ScreenLayerRendererStats } from './screen-layer-renderer';
 import { applyScreenSourceTransform, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
+import { drawCensorRegions } from './censor-overlay';
+import { canvasPointToSourceNormalized, type CensorPointerMapping } from '../../shared/screen-source-transform.mjs';
 import {
   cameraCoversSourceTime,
   clampedCameraTime,
@@ -442,6 +444,8 @@ export function StyledVideoPreview({
   onResolvedLayoutChange,
   selectedZoomFocal = null,
   onZoomFocalChange,
+  censorDrawArmed = false,
+  onCensorDraw,
 }: {
   project: StyledPreviewProject;
   seekTimeSec?: number;
@@ -459,6 +463,9 @@ export function StyledVideoPreview({
   onResolvedLayoutChange?: (layout: ResolvedPreviewLayout) => void;
   selectedZoomFocal?: { id: string; x: number; y: number } | null;
   onZoomFocalChange?: (markerId: string, x: number, y: number) => void;
+  /** Censor tool is armed: the next drag on the preview draws a censor rectangle. */
+  censorDrawArmed?: boolean;
+  onCensorDraw?: (rect: { x: number; y: number; w: number; h: number }) => void;
 }) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -485,6 +492,11 @@ export function StyledVideoPreview({
   const screenDragOriginRef = React.useRef<PreviewDragOrigin | null>(null);
   const lastResolvedLayoutKeyRef = React.useRef('');
   const [isDraggingCamera, setIsDraggingCamera] = React.useState(false);
+  // Captured every draw so the censor pointer handlers invert exactly the
+  // transform that produced the frame the user is looking at.
+  const censorMappingRef = React.useRef<CensorPointerMapping | null>(null);
+  const censorDraftRef = React.useRef<{ pointerId: number; from: { x: number; y: number }; to: { x: number; y: number } } | null>(null);
+  const [censorDraftRect, setCensorDraftRect] = React.useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [isDraggingScreen, setIsDraggingScreen] = React.useState(false);
   const [isDraggingFocal, setIsDraggingFocal] = React.useState(false);
   const [alignmentGridVisible, setAlignmentGridVisible] = React.useState(true);
@@ -1632,6 +1644,19 @@ export function StyledVideoPreview({
         (window as unknown as Record<string, unknown>).__roughCutCanvasCameraRect = null;
         (window as unknown as Record<string, boolean>).__roughCutCameraFramePresent = false;
       }
+      // Recorded on every draw so a pointer press inverts the transform that
+      // actually produced the visible frame, not a stale one from before a zoom.
+      const publishCensorMapping = () => {
+        censorMappingRef.current = {
+          screenX,
+          screenY,
+          screenDrawScale: effectiveScreenDrawScale,
+          screenSource,
+          transform: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
+          sourceWidth,
+          sourceHeight,
+        };
+      };
       if (acceleratedTimelineFrameCompositor) {
         try {
           const frameStats = screenLayerRenderer.drawFrame({
@@ -1700,6 +1725,28 @@ export function StyledVideoPreview({
           scheduleNextDraw();
           return;
         }
+        // Censors must be painted on every path that can reach the screen. This is
+        // the accelerated compositor path; the Canvas2D path below has its own
+        // call. Both are asserted by styled-video-preview.test.mjs — if you add a
+        // third draw path, it needs a censor draw too.
+        drawCensorRegions({
+          ctx,
+          video,
+          regions: frame.censorRegions,
+          draftRect: censorDraftRect,
+          sourceWidth,
+          sourceHeight,
+          screenX,
+          screenY,
+          screenWidth,
+          screenHeight,
+          screenRadius,
+          screenDrawScale: effectiveScreenDrawScale,
+          screenSource,
+          transform: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
+        });
+        publishCensorMapping();
+        markDrawPhase('censor');
         if (nextOffscreen) {
           drawCursorOffscreenMarker(ctx, nextOffscreen, cursorPos, {
             screenX,
@@ -1794,6 +1841,27 @@ export function StyledVideoPreview({
         return;
       }
       markDrawPhase('screen-video');
+      // Censors go on before the cursor, so the cursor stays visible on top of a
+      // censored area. The accelerated compositor path above has its own call —
+      // both are asserted by styled-video-preview.test.mjs.
+      drawCensorRegions({
+        ctx,
+        video,
+        regions: frame.censorRegions,
+        draftRect: censorDraftRect,
+        sourceWidth,
+        sourceHeight,
+        screenX,
+        screenY,
+        screenWidth,
+        screenHeight,
+        screenRadius,
+        screenDrawScale: effectiveScreenDrawScale,
+        screenSource,
+        transform: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
+      });
+      publishCensorMapping();
+      markDrawPhase('censor');
       ctx.save();
       applyScreenSourceTransform(ctx, {
         screenX,
@@ -2114,10 +2182,11 @@ export function StyledVideoPreview({
       />
       <canvas
         ref={canvasRef}
-        className={`styledPreviewCanvas styledPreviewOverlayCanvas${acceleratedPresentationActive ? ' isAcceleratedPresentationOverlay isWebglPresentationOverlay' : ''}${!isPlaying && isDraggingCamera ? ' draggingCamera' : ''}${!isPlaying && isDraggingScreen ? ' draggingScreen' : ''}${!isPlaying && isDraggingFocal ? ' draggingFocal' : ''}`}
+        className={`styledPreviewCanvas styledPreviewOverlayCanvas${acceleratedPresentationActive ? ' isAcceleratedPresentationOverlay isWebglPresentationOverlay' : ''}${!isPlaying && isDraggingCamera ? ' draggingCamera' : ''}${!isPlaying && isDraggingScreen ? ' draggingScreen' : ''}${!isPlaying && isDraggingFocal ? ' draggingFocal' : ''}${censorDrawArmed ? ' censorDrawArmed' : ''}`}
         aria-label="Styled preview"
         data-camera-draggable={onCameraFrameChange ? 'true' : 'false'}
         data-screen-draggable={onScreenFrameChange ? 'true' : 'false'}
+        data-censor-draw-armed={censorDrawArmed ? 'true' : 'false'}
         style={{ aspectRatio: `${canvasResolution.width} / ${canvasResolution.height}` }}
         onPointerMove={(event) => {
           if (timeMode === 'timeline' && isPlaying) return;
@@ -2126,6 +2195,21 @@ export function StyledVideoPreview({
           const rect = canvas.getBoundingClientRect();
           const xCanvas = ((event.clientX - rect.left) * canvas.width) / rect.width;
           const yCanvas = ((event.clientY - rect.top) * canvas.height) / rect.height;
+          const censorDraft = censorDraftRef.current;
+          if (censorDraft && censorDraft.pointerId === event.pointerId) {
+            const to = canvasPointToSourceNormalized(censorMappingRef.current, xCanvas, yCanvas);
+            if (to) {
+              censorDraft.to = to;
+              setCensorDraftRect({
+                x: censorDraft.from.x,
+                y: censorDraft.from.y,
+                w: to.x - censorDraft.from.x,
+                h: to.y - censorDraft.from.y,
+              });
+              previewInteractionDirtyRef.current = true;
+            }
+            return;
+          }
           const focalOrigin = focalDragOriginRef.current;
           if (focalOrigin && focalOrigin.pointerId === event.pointerId) {
             const sRect = screenRectRef.current;
@@ -2182,10 +2266,23 @@ export function StyledVideoPreview({
             return;
           }
           const canvas = canvasRef.current;
-          if (!canvas || (!onCameraFrameChange && !onScreenFrameChange && !onZoomFocalChange)) return;
+          if (!canvas) return;
           const rect = canvas.getBoundingClientRect();
           const xCanvas = ((event.clientX - rect.left) * canvas.width) / rect.width;
           const yCanvas = ((event.clientY - rect.top) * canvas.height) / rect.height;
+          // The censor tool owns the whole preview while armed, ahead of camera
+          // and frame dragging: the user explicitly asked to draw a rectangle.
+          if (censorDrawArmed && onCensorDraw) {
+            const start = canvasPointToSourceNormalized(censorMappingRef.current, xCanvas, yCanvas);
+            if (!start) return;
+            event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            censorDraftRef.current = { pointerId: event.pointerId, from: start, to: start };
+            setCensorDraftRect({ x: start.x, y: start.y, w: 0, h: 0 });
+            previewInteractionDirtyRef.current = true;
+            return;
+          }
+          if (!onCameraFrameChange && !onScreenFrameChange && !onZoomFocalChange) return;
           // Focus target wins over screen/camera drag since it sits inside them.
           if (isPointNearFocalTarget(xCanvas, yCanvas, screenRectRef.current, selectedZoomFocal, onZoomFocalChange, canvas.width, canvas.height) && selectedZoomFocal) {
             event.preventDefault();
@@ -2309,6 +2406,23 @@ export function StyledVideoPreview({
             });
             event.preventDefault();
             event.stopPropagation();
+            return;
+          }
+          const censorDraft = censorDraftRef.current;
+          if (censorDraft && censorDraft.pointerId === event.pointerId) {
+            censorDraftRef.current = null;
+            setCensorDraftRect(null);
+            previewInteractionDirtyRef.current = true;
+            try { event.currentTarget.releasePointerCapture(event.pointerId); } catch {}
+            // A stray click with no drag is not a censor. The document layer
+            // rejects a zero-area rect too; bailing here keeps the preview from
+            // flashing an empty selection.
+            onCensorDraw?.({
+              x: censorDraft.from.x,
+              y: censorDraft.from.y,
+              w: censorDraft.to.x - censorDraft.from.x,
+              h: censorDraft.to.y - censorDraft.from.y,
+            });
             return;
           }
           const focalOrigin = focalDragOriginRef.current;

@@ -475,6 +475,113 @@ describe('resolveFrame', () => {
       });
     });
 
+    it('no censor regions on the recording → empty list, never undefined-by-surprise', () => {
+      const asset = createAsset('recording', '/test.webm', {
+        presentation: {
+          zoom: {
+            autoIntensity: 0,
+            followCursor: true,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+        },
+      });
+      const project = createProject({ assets: [asset] });
+
+      expect(resolveFrame(project, 0).censorRegions).toEqual([]);
+    });
+
+    it('censor regions are filtered to the frames they cover', () => {
+      const asset = createAsset('recording', '/test.webm', {
+        duration: 300,
+        presentation: {
+          zoom: {
+            autoIntensity: 0,
+            followCursor: true,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+          censorRegions: [
+            {
+              id: 'early',
+              startFrame: 0,
+              endFrame: 60,
+              rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+              mode: 'solid',
+              blockSize: 24,
+              soften: false,
+            },
+            {
+              id: 'late',
+              startFrame: 60,
+              endFrame: 120,
+              rect: { x: 0.5, y: 0.5, w: 0.2, h: 0.2 },
+              mode: 'pixelate',
+              blockSize: 24,
+              soften: true,
+            },
+          ],
+        },
+      });
+      const project = createProject({ assets: [asset] });
+
+      const ids = (frame: number) =>
+        (resolveFrame(project, frame).censorRegions ?? []).map((region) => region.id);
+
+      expect(ids(0)).toEqual(['early']);
+      expect(ids(59)).toEqual(['early']);
+      // Start-inclusive / end-exclusive: the seam frame belongs to exactly one region.
+      expect(ids(60)).toEqual(['late']);
+      expect(ids(119)).toEqual(['late']);
+      expect(ids(120)).toEqual([]);
+    });
+
+    it('overlapping censor regions all resolve, so one cannot silently hide another', () => {
+      const asset = createAsset('recording', '/test.webm', {
+        duration: 300,
+        presentation: {
+          zoom: {
+            autoIntensity: 0,
+            followCursor: true,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+          censorRegions: [
+            {
+              id: 'a',
+              startFrame: 0,
+              endFrame: 90,
+              rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+              mode: 'solid',
+              blockSize: 24,
+              soften: false,
+            },
+            {
+              id: 'b',
+              startFrame: 30,
+              endFrame: 120,
+              rect: { x: 0.15, y: 0.15, w: 0.2, h: 0.2 },
+              mode: 'solid',
+              blockSize: 24,
+              soften: false,
+            },
+          ],
+        },
+      });
+      const project = createProject({ assets: [asset] });
+
+      expect((resolveFrame(project, 45).censorRegions ?? []).map((region) => region.id)).toEqual([
+        'a',
+        'b',
+      ]);
+    });
+
     it('recording with auto zoom intensity and no markers → scale = 1 (no background zoom)', () => {
       const asset = createAsset('recording', '/test.webm', {
         presentation: {

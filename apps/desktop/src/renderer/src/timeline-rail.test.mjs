@@ -16,6 +16,39 @@ import {
   percentToTime,
   timeToPercent,
 } from './timeline-rail.mjs';
+import { addCensorRegionAt } from './censor-markers.mjs';
+
+/** Minimal recording project with one full-length screen clip. */
+function recordingDocument(duration = 300) {
+  const base = createProject();
+  const asset = createAsset('recording', '/tmp/recording.mp4', {
+    duration,
+    presentation: createDefaultRecordingPresentation(),
+  });
+  const track = {
+    id: 'track-1',
+    type: 'video',
+    name: 'Video',
+    index: 0,
+    locked: false,
+    visible: true,
+    volume: 1,
+    clips: [{
+      id: 'clip-1',
+      assetId: asset.id,
+      trackId: 'track-1',
+      enabled: true,
+      timelineIn: 0,
+      timelineOut: duration,
+      sourceIn: 0,
+      sourceOut: duration,
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0.5, anchorY: 0.5, opacity: 1 },
+      effects: [],
+      keyframes: [],
+    }],
+  };
+  return createProject({ assets: [asset], composition: { ...base.composition, duration, tracks: [track] } });
+}
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -217,4 +250,52 @@ test('Recording edit timeline deletes selected zoom markers from the timeline ke
   assert.match(source, /deleteSelectedZoomMarkers\(\)/);
   assert.match(source, /onZoomMarkersRemove\(selectedIds\)/);
   assert.match(source, /isTypingTarget\(event\.target\) \|\| event\.ctrlKey \|\| event\.metaKey \|\| event\.altKey/);
+});
+
+test('censor lane places regions through the screen clips like zoom markers do', () => {
+  const document = addCensorRegionAt(recordingDocument(), {
+    id: 'c1',
+    rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+    startFrame: 30,
+    endFrame: 90,
+  });
+
+  const model = buildTimelineModel({
+    document,
+    recording: { duration: 300, fps: 30 },
+    currentTimeSec: 0,
+  });
+
+  assert.equal(model.lanes.censor.length, 1);
+  assert.equal(model.lanes.censor[0].id, 'c1');
+  assert.equal(model.lanes.censor[0].startFrame, 30);
+  assert.equal(model.lanes.censor[0].endFrame, 90);
+  assert.ok(model.lanes.censor[0].width > 0);
+});
+
+test('censor lane exposes the mode so the chip can show solid vs pixelated', () => {
+  const document = addCensorRegionAt(recordingDocument(), {
+    id: 'c1',
+    rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+    startFrame: 0,
+    mode: 'solid',
+  });
+
+  const model = buildTimelineModel({
+    document,
+    recording: { duration: 300, fps: 30 },
+    currentTimeSec: 0,
+  });
+
+  assert.equal(model.lanes.censor[0].kind, 'solid');
+  assert.match(model.lanes.censor[0].label, /Solid/);
+});
+
+test('censor lane is empty when the recording has no censors', () => {
+  const model = buildTimelineModel({
+    document: recordingDocument(),
+    recording: { duration: 300, fps: 30 },
+    currentTimeSec: 0,
+  });
+  assert.deepEqual(model.lanes.censor, []);
 });

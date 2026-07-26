@@ -1,4 +1,5 @@
 import { listMarkers } from './zoom-markers.mjs';
+import { listCensorRegions } from './censor-markers.mjs';
 import { selectRecordingEditModel } from './recording-timeline.mjs';
 
 const DEFAULT_TICK_COUNT = 7;
@@ -82,6 +83,27 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
       }];
     }));
 
+  // Censor regions are placed the same way zoom markers are — source range mapped
+  // through the screen clips — so a censor keeps covering the same content after a
+  // trim or a cut, rather than sliding onto whatever now sits at those frames.
+  const censorRegions = listCensorRegions(document)
+    .filter((region) => region.endFrame >= trimStartFrame && region.startFrame <= trimEndFrame)
+    .flatMap((region) => {
+      const pieces = sourceRangeToTimelinePlacements(adapter.screenClips, region.startFrame, region.endFrame, fps, durationSec);
+      if (pieces.length === 0) return [];
+      const left = Math.min(...pieces.map((piece) => piece.left));
+      const right = Math.max(...pieces.map((piece) => piece.left + piece.width));
+      return [{
+        id: region.id,
+        kind: region.mode === 'solid' ? 'solid' : 'pixelate',
+        startFrame: region.startFrame,
+        endFrame: region.endFrame,
+        label: region.label ?? (region.mode === 'solid' ? 'Solid censor' : 'Pixelated censor'),
+        left,
+        width: Math.max(0, right - left),
+      }];
+    });
+
   return {
     durationSec,
     visibleDurationSec,
@@ -104,6 +126,7 @@ export function buildTimelineModel({ document, recording, currentTimeSec, camera
           }))
         : [{ id: 'screen', left: 0, width: 100, sourceIn: 0, sourceOut: frameDuration, timelineIn: 0, timelineOut: adapter.timelineDurationFrames }],
       zoom: zoomRegions,
+      censor: censorRegions,
       clicks: clickEvents,
       camera: recording?.camera || cameraMediaUrl ? [{ id: 'camera', left: 0, width: 100 }] : [],
       audio: recording?.audio ? [{ id: 'audio', left: 0, width: 100 }] : [],

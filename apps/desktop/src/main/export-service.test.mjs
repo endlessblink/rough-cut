@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectForRecording, getPrimaryRecording } from './project-files.mjs';
-import { buildBackgroundExpression, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveTimelineExportRecording } from './export-service.mjs';
+import { buildBackgroundExpression, buildCensorSourceFilters, buildCursorAss, buildExperimentalHeadlessExportPlan, buildHeadlessFrameExportArgs, buildRawTrimExportArgs, buildSimpleStyledExportArgs, buildStyledExportArgs, canUseSimpleStyledExportFastPath, DEFAULT_MAX_CURSOR_ASS_EVENTS, exportExperimentalHeadlessProjectToMp4, exportProjectToMp4, isSingleTrimmedRecording, isSingleTrimmedTimelineRecording, isSingleUneditedRecording, isSingleUneditedRecordingWithCamera, isSingleUneditedTimelineRecording, normalizeExportMode, normalizeExportScope, parseFfmpegProgress, resolveTimelineExportRecording } from './export-service.mjs';
 
 test('unedited export copies source mp4 byte-for-byte', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rough-cut-export-'));
@@ -1651,3 +1651,148 @@ function withPrimaryTimelineClips(project, clipPatches, compositionDuration) {
     },
   };
 }
+
+test('buildCensorSourceFilters is a no-op passthrough when there are no censors', () => {
+  const result = buildCensorSourceFilters({ censorRegions: [], sourceWidth: 1920, sourceHeight: 1080, fps: 30 });
+  assert.deepEqual(result.filters, []);
+  assert.equal(result.outputLabel, '[base]');
+  assert.equal(result.count, 0);
+});
+
+test('buildCensorSourceFilters renders a solid censor as one time-gated drawbox', () => {
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1',
+      rect: { x: 0.25, y: 0.5, w: 0.25, h: 0.25 },
+      mode: 'solid',
+      blockSize: 24,
+      soften: false,
+      startFrame: 30,
+      endFrame: 90,
+    }],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+
+  assert.equal(result.count, 1);
+  assert.equal(result.filters.length, 1);
+  assert.match(result.filters[0], /^\[base\]drawbox=x=480:y=540:w=480:h=270:color=0x0b0f14@1:t=fill:enable='between\(t,1,3\)'\[censored_0\]$/);
+  assert.equal(result.outputLabel, '[censored_0]');
+});
+
+test('buildCensorSourceFilters exports pixelate as a solid drawbox too', () => {
+  // The mosaic needs split+overlay, which deadlocks whenever zoom is active
+  // (measured: 0% CPU, empty output, forever). A solid block hides the same pixels
+  // and cannot hang, so the export uses it for both modes.
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1',
+      rect: { x: 0, y: 0, w: 0.25, h: 0.25 },
+      mode: 'pixelate',
+      blockSize: 48,
+      soften: true,
+      startFrame: 0,
+      endFrame: 60,
+    }],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+
+  assert.equal(result.filters.length, 1);
+  assert.match(result.filters[0], /^\[base\]drawbox=x=0:y=0:w=480:h=270:color=0x0b0f14@1:t=fill:enable='between\(t,0,2\)'\[censored_0\]$/);
+});
+
+test('the export never emits split or overlay for a censor', () => {
+  // Guards the deadlock directly: split+overlay in the screen chain is what hung.
+  const result = buildCensorSourceFilters({
+    censorRegions: [
+      { id: 'a', rect: { x: 0, y: 0, w: 0.2, h: 0.2 }, mode: 'pixelate', blockSize: 24, soften: true, startFrame: 0, endFrame: 60 },
+      { id: 'b', rect: { x: 0.4, y: 0.4, w: 0.2, h: 0.2 }, mode: 'solid', blockSize: 24, soften: false, startFrame: 0, endFrame: 60 },
+    ],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+  const joined = result.filters.join(';');
+  assert.doesNotMatch(joined, /split=/);
+  assert.doesNotMatch(joined, /overlay=/);
+  assert.doesNotMatch(joined, /flags=neighbor/);
+});
+
+test('buildCensorSourceFilters chains multiple censors so each one is applied', () => {
+  const result = buildCensorSourceFilters({
+    censorRegions: [
+      { id: 'a', rect: { x: 0, y: 0, w: 0.2, h: 0.2 }, mode: 'solid', blockSize: 24, soften: false, startFrame: 0, endFrame: 30 },
+      { id: 'b', rect: { x: 0.5, y: 0.5, w: 0.2, h: 0.2 }, mode: 'solid', blockSize: 24, soften: false, startFrame: 0, endFrame: 30 },
+    ],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+
+  assert.equal(result.count, 2);
+  assert.match(result.filters[0], /^\[base\]drawbox/);
+  // The second reads the first's output, so neither is dropped.
+  assert.match(result.filters[1], /^\[censored_0\]drawbox/);
+  assert.equal(result.outputLabel, '[censored_1]');
+});
+
+test('buildCensorSourceFilters clamps a censor that overhangs the frame edge', () => {
+  const result = buildCensorSourceFilters({
+    censorRegions: [{ id: 'c1', rect: { x: 0.9, y: 0.9, w: 0.4, h: 0.4 }, mode: 'solid', blockSize: 24, soften: false, startFrame: 0, endFrame: 30 }],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+  assert.match(result.filters[0], /x=1728:y=972:w=192:h=108/);
+});
+
+test('buildCensorSourceFilters drops regions with no usable area', () => {
+  const result = buildCensorSourceFilters({
+    censorRegions: [
+      { id: 'zero', rect: { x: 0.5, y: 0.5, w: 0, h: 0.2 }, mode: 'solid', startFrame: 0, endFrame: 30 },
+      { id: 'noRect', mode: 'solid', startFrame: 0, endFrame: 30 },
+    ],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+  assert.equal(result.count, 0);
+  assert.equal(result.outputLabel, '[base]');
+});
+
+test('styled export chain applies censors before the cursor burn-in and the zoom crop', () => {
+  const args = buildStyledExportArgs({
+    inputPath: '/tmp/source.mp4',
+    outputPath: '/tmp/export.mp4',
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+    cursorAssPath: '/tmp/cursor.ass',
+    censorRegions: [{ id: 'c1', rect: { x: 0.25, y: 0.25, w: 0.25, h: 0.25 }, mode: 'solid', blockSize: 24, soften: false, startFrame: 0, endFrame: 60 }],
+  });
+  const filter = args[args.indexOf('-filter_complex') + 1];
+
+  // Censor reads [base]; the cursor subtitles step then reads the censored label,
+  // so the cursor lands on top of the censor exactly as it does in the preview.
+  assert.match(filter, /\[base\]drawbox=[^;]*\[censored_0\]/);
+  assert.match(filter, /\[censored_0\]subtitles=/);
+  assert.ok(
+    filter.indexOf('drawbox') < filter.indexOf('subtitles='),
+    'censor must be applied before the cursor is burned in',
+  );
+});
+
+test('a censored project cannot take the simple styled fast path', () => {
+  // The fast path skips the screen chain the censor filters live in, so taking it
+  // would export the thing the user asked to hide.
+  assert.equal(canUseSimpleStyledExportFastPath({ censorRegions: [] }), true);
+  assert.equal(
+    canUseSimpleStyledExportFastPath({
+      censorRegions: [{ id: 'c1', rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 }, mode: 'solid', startFrame: 0, endFrame: 30 }],
+    }),
+    false,
+  );
+});

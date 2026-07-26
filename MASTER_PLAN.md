@@ -261,6 +261,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-249~~ | WebGPU-first preview renderer with WebGL/Canvas2D fallback ladder | P0 | DONE (2026-06-11) |
 | ~~TASK-250~~ | Refresh camera sources when pre-record setup opens | P1 | DONE (2026-07-05) |
 | TASK-251 | Add host real-camera source refresh smoke | P2 | PLANNED |
+| TASK-252 | Add timeline-controlled censor regions that survive zoom | P1 | IN PROGRESS (slices 1-3 done; UI pending) |
 
 ## Recently Verified
 
@@ -9945,3 +9946,87 @@ does not prove the host V4L2 camera path with a real `/dev/video*` device.
 - Run through `scripts/host-readiness-runner.sh` or a sibling constrained
   host-runner gate, because managed Codex sandbox may not expose `/dev/video*`
   reliably.
+
+### TASK-252 Add timeline-controlled censor regions that survive zoom
+
+**Priority:** P1
+**Status:** FEATURE COMPLETE for v1 — data model, frame resolution, preview rendering,
+timeline censor lane, draw-on-preview creation, and the user-facing styled export all
+work and are covered. Exports render censors as a solid block in both modes (the
+mosaic deadlocks under zoom); the editor previews the mosaic and says so. Remaining:
+cut-range interaction (slice 7) and a manual pass on a real recording.
+
+#### Goal
+
+Let the user hide any rectangular area of the screen for a chosen span of the
+timeline, so passwords, emails, API keys, notifications, and faces never reach an
+export. The censor must stay locked to the content it covers while zoom, pan, and
+crop move that content around, and it must work on recordings that already exist
+without re-recording them.
+
+#### Context
+
+`applyScreenSourceTransform` already sets up a canvas transform in which drawing at
+source-recording pixel coordinates lands correctly on the composited canvas, and the
+cursor overlay draws inside it. Censors draw in the same scope, so there is no
+source-to-canvas mapping to write and none to drift. The preview has four renderer
+tiers and the export a fifth, but all of them have composited the zoomed screen onto
+a 2D context by the time that overlay pass runs, so one 2D implementation covers
+every path.
+
+#### Scope
+
+- v1 styles: solid fill and pixelate, with an optional cosmetic softening blur
+  applied only to already-destroyed pixels (never to the original frame).
+- Static rectangle per region. No keyframes, no tracking.
+- Dedicated censor lane in the timeline with draggable range chips.
+- Create by dragging a box on the preview; new regions default to
+  playhead → end of recording, because under-censoring is the dangerous failure.
+- Stored on the recording presentation beside zoom markers; source frames and
+  source-normalized coordinates, so trims, cut ranges, and ripple deletes behave
+  exactly as they already do for zoom markers.
+- Full plan, slice breakdown, and risks: `docs/censor-regions-plan.md`.
+
+#### Verification
+
+- DONE: `censor-regions.test.mjs` (18 cases) covers range boundaries, resolution
+  independence, edge clamping, null-instead-of-fallback on unusable rects, zoom
+  scale, the mosaic buffer cap, and soften radius bounds.
+- DONE: `migrations.test.ts` covers the 15→16 bump, censor preservation, and schema
+  rejection of inverted ranges and zero-area rects.
+- DONE: `resolve-frame.test.ts` and `frame-utils.test.ts` cover per-frame filtering,
+  the seam frame between back-to-back regions, overlap ordering, and gap frames.
+- DONE: `styled-video-preview.test.mjs` covers the censor draw on both preview
+  compositor paths, ordering after the screen and before the cursor, no canvas
+  readback, failing closed to solid when a mosaic cannot be built, and skipping
+  zero-area regions instead of substituting a default rect.
+- DONE: `censor-overlay.test.mjs` round-trips the canvas→source pointer inverse
+  against the real forward transform, so a drawn box lands where it was drawn.
+  (The inverse and the forward transform were moved into
+  `shared/screen-source-transform.mjs` because the Node 20 test runner cannot
+  import `.ts` — left in TypeScript, this test skipped silently.)
+- DONE: `censor-markers.test.mjs` covers the document ops, including that a
+  collapsed resize keeps the previous rect instead of uncovering the area.
+- DONE: UI smoke screenshot opened. It caught a real layout bug: the censor tool
+  button had been added as a fourth child of `.stageColumn`, a fixed three-row
+  grid, which stole the preview's row. Moved into the header's spare cell.
+- DONE: censors reach the real (styled/FFmpeg) export. `scripts/smoke-censor-export.mjs`
+  exports the same project clean and censored and compares pixels, with and without
+  zoom: 69% of the censored area changes, 0.3% elsewhere, and the censor still applies
+  under a zoom marker.
+- Two real bugs this caught, both invisible to unit tests:
+  1. The censor pass first landed only on the canvas headless backend, while the
+     Export button uses the FFmpeg one — exports shipped the secret while the editor
+     showed it hidden.
+  2. The mosaic (`split`+`overlay`) **deadlocks** whenever zoom is active: ffmpeg
+     parks at 0% CPU with an empty file, indefinitely. Exports therefore render a
+     solid block for both modes; the editor still previews the mosaic and the censor
+     chip says so. `docs/censor-regions-plan.md` §7a has the measurements and the two
+     rejected fixes.
+- TODO: manual pass on an existing recording to confirm no re-record is needed.
+
+#### Notes
+
+- Added `.prettierignore` (`*`). This repo is not Prettier-formatted — no printWidth
+  reproduces its hand-formatted style, so a global format-on-save hook rewrote whole
+  files on every touch and buried real changes in reformat noise.

@@ -439,7 +439,12 @@ test('zoom motion renderer gates blur and keeps cursor overlays out of the blurr
   assert.doesNotMatch(mainSource, /ctx\.filter\s*=/);
   assert.match(previewSource, /screenLayerRenderer\.draw\(\{/);
   assert.match(previewSource, /sharpZoom: timeMode !== 'timeline' && !activeTimelinePlayback/);
-  assert.match(previewSource, /markDrawPhase\('screen-video'\);\n\s+ctx\.save\(\);\n\s+applyScreenSourceTransform/);
+  // The censor draw sits between the screen video and the cursor transform: after
+  // the screen so it covers it, before the cursor so the cursor stays on top.
+  assert.match(
+    previewSource,
+    /markDrawPhase\('screen-video'\);\n(?:.*\n)*?\s+drawCensorRegions\(\{\n(?:.*\n)*?\s+markDrawPhase\('censor'\);\n\s+ctx\.save\(\);\n\s+applyScreenSourceTransform/,
+  );
   assert.match(previewSource, /cameraVideo\.muted = true;\n\s+cameraVideo\.volume = 0/);
   assert.match(previewSource, /return \(\) => \{\n\s+pausePreviewVideo\(video\);\n\s+cameraVideo\?\.pause\(\);\n\s+\};\n\s+\}, \[src, cameraSrc\]\)/);
   assert.match(mainSource, /drawZoomMotionSource\(ctx, video, \{/);
@@ -660,4 +665,57 @@ test('playback diagnostics log render-loop gaps and preview clicks for stutter a
   assert.match(playbackProbe, /window\.__roughCutReadPlaybackDebug = \(\$\{readPlaybackDebug\.toString\(\)\}\)/);
   assert.match(playbackProbe, /window\.__roughCutReadPlaybackDebug\(\)/);
   assert.match(playbackProbe, /playbackDebug: result\.after\?\.playbackDebug/);
+});
+
+test('censor regions are painted on every preview draw path', () => {
+  const previewSource = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+
+  // Two compositor paths reach the screen: the accelerated one and the Canvas2D
+  // one. A censor that is skipped on either path shows the user a censored preview
+  // in one mode and an uncensored one in the other.
+  const callSites = previewSource.match(/drawCensorRegions\(\{/g) ?? [];
+  assert.equal(
+    callSites.length,
+    2,
+    'expected a censor draw on both the accelerated and Canvas2D preview paths',
+  );
+
+  // Both call sites must be fed the resolver's already-filtered list — never a
+  // re-filtered or locally derived one, which could disagree with the export.
+  const regionArgs = previewSource.match(/regions: frame\.censorRegions,/g) ?? [];
+  assert.equal(regionArgs.length, 2);
+});
+
+test('censor overlay draws inside the source transform and never reads the canvas back', () => {
+  const overlaySource = readFileSync(join(here, 'censor-overlay.ts'), 'utf8');
+
+  // Source-pixel coordinates only work inside this transform. Outside it the censor
+  // would drift off its target under zoom, which is a leak rather than a glitch.
+  assert.match(overlaySource, /applyScreenSourceTransform\(ctx, \{/);
+
+  // Reading the presentation canvas back would pull in whatever else was
+  // composited there, and would make the result depend on draw order.
+  assert.doesNotMatch(overlaySource, /getImageData/);
+  assert.doesNotMatch(overlaySource, /drawImage\(\s*ctx\.canvas/);
+
+  // The mosaic samples the video element directly.
+  assert.match(overlaySource, /mosaic\.ctx\.drawImage\(input\.video,/);
+});
+
+test('censor overlay fails closed when a mosaic cannot be built', () => {
+  const overlaySource = readFileSync(join(here, 'censor-overlay.ts'), 'utf8');
+
+  // `destroyed` is only set once the mosaic has actually been drawn; anything else
+  // falls through to the solid fill. Failing open would expose the very thing the
+  // user asked to hide.
+  assert.match(overlaySource, /let destroyed = false;/);
+  assert.match(overlaySource, /destroyed = true;/);
+  assert.match(overlaySource, /if \(!destroyed\) \{[\s\S]*?ctx\.fillRect\(rect\.x, rect\.y, rect\.w, rect\.h\);/);
+});
+
+test('censor overlay skips a region with no visible area instead of substituting one', () => {
+  const overlaySource = readFileSync(join(here, 'censor-overlay.ts'), 'utf8');
+
+  assert.match(overlaySource, /const rect = censorRectToSourceRect\(/);
+  assert.match(overlaySource, /if \(!rect\) continue;/);
 });

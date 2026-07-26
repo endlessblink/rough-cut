@@ -1,3 +1,5 @@
+import { applyScreenSourceTransform } from '../../shared/screen-source-transform.mjs';
+
 export interface ZoomMotionTransform {
   readonly scale: number;
   readonly offsetX: number;
@@ -83,31 +85,11 @@ export function resolveWebGLMotionBlurRenderScale(options: WebGLMotionBlurSample
   return 1;
 }
 
-export function applyScreenSourceTransform(
-  ctx: CanvasRenderingContext2D,
-  {
-    screenX,
-    screenY,
-    screenDrawScale,
-    screenSource,
-    transform,
-  }: {
-    readonly screenX: number;
-    readonly screenY: number;
-    readonly screenDrawScale: number;
-    readonly screenSource: ZoomMotionSourceViewport;
-    readonly transform: ZoomMotionTransform;
-  },
-): void {
-  const scale = Number.isFinite(transform.scale) && transform.scale > 0 ? transform.scale : 1;
-  const offsetX = finite(transform.offsetX);
-  const offsetY = finite(transform.offsetY);
-  ctx.translate(screenX, screenY);
-  ctx.scale(screenDrawScale, screenDrawScale);
-  ctx.translate(screenSource.w / 2 + offsetX, screenSource.h / 2 + offsetY);
-  ctx.scale(scale, scale);
-  ctx.translate(-(screenSource.x + screenSource.w / 2), -(screenSource.y + screenSource.h / 2));
-}
+// The transform and its inverse live in plain JS so the Node 20 test runner can
+// round-trip them against each other; see screen-source-transform.mjs.
+export { canvasPointToSourceNormalized } from '../../shared/screen-source-transform.mjs';
+export type { CensorPointerMapping } from '../../shared/screen-source-transform.mjs';
+export { applyScreenSourceTransform };
 
 export function drawZoomMotionSource(
   ctx: CanvasRenderingContext2D,

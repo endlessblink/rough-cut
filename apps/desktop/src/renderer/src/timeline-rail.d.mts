@@ -41,6 +41,7 @@ export type TimelineModel = {
   lanes: {
     screen: readonly TimelineRegion[];
     zoom: readonly TimelineRegion[];
+    censor: readonly TimelineRegion[];
     clicks: readonly TimelineEventMarker[];
     camera: readonly TimelineRegion[];
     audio: readonly TimelineRegion[];

@@ -6,9 +6,10 @@ import {
   timecodeToFrames,
   clipDurationFrames,
   clipSourceDurationFrames,
+  activeCensorRegionsAt,
 } from './frame-utils.js';
 import { createClip } from './factories.js';
-import type { AssetId, TrackId, Clip } from './types.js';
+import type { AssetId, TrackId, Clip, CensorRegion } from './types.js';
 
 describe('frame-utils', () => {
   describe('frameToSeconds', () => {
@@ -110,6 +111,51 @@ describe('frame-utils', () => {
         sourceOut: 35,
       });
       expect(clipSourceDurationFrames(clip)).toBe(30);
+    });
+  });
+
+  describe('activeCensorRegionsAt', () => {
+    const region = (overrides: Partial<CensorRegion>): CensorRegion =>
+      ({
+        id: 'censor',
+        startFrame: 30,
+        endFrame: 90,
+        rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+        mode: 'solid',
+        blockSize: 24,
+        soften: false,
+        ...overrides,
+      }) as CensorRegion;
+
+    it('is start-inclusive and end-exclusive', () => {
+      const regions = [region({})];
+      expect(activeCensorRegionsAt(regions, 29)).toHaveLength(0);
+      expect(activeCensorRegionsAt(regions, 30)).toHaveLength(1);
+      expect(activeCensorRegionsAt(regions, 89)).toHaveLength(1);
+      expect(activeCensorRegionsAt(regions, 90)).toHaveLength(0);
+    });
+
+    it('gives the seam frame to exactly one of two back-to-back regions', () => {
+      const regions = [
+        region({ id: 'a' as CensorRegion['id'], startFrame: 0, endFrame: 60 }),
+        region({ id: 'b' as CensorRegion['id'], startFrame: 60, endFrame: 120 }),
+      ];
+      expect(activeCensorRegionsAt(regions, 60).map((entry) => entry.id)).toEqual(['b']);
+    });
+
+    it('preserves document order for overlapping regions', () => {
+      const regions = [
+        region({ id: 'a' as CensorRegion['id'], startFrame: 0, endFrame: 90 }),
+        region({ id: 'b' as CensorRegion['id'], startFrame: 30, endFrame: 120 }),
+      ];
+      expect(activeCensorRegionsAt(regions, 45).map((entry) => entry.id)).toEqual(['a', 'b']);
+    });
+
+    it('returns an empty list for missing, empty, or non-finite input', () => {
+      expect(activeCensorRegionsAt(undefined, 10)).toEqual([]);
+      expect(activeCensorRegionsAt(null, 10)).toEqual([]);
+      expect(activeCensorRegionsAt([], 10)).toEqual([]);
+      expect(activeCensorRegionsAt([region({})], Number.NaN)).toEqual([]);
     });
   });
 });

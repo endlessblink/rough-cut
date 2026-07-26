@@ -458,7 +458,87 @@ describe('migrations', () => {
     expect(marker?.zoomOutDuration).toBe(18);
   });
 
-  it('migrates a v12 document through v15 with generalized NLE tracks and shared timeline', () => {
+  function v15RecordingProject(censorRegions?: unknown): Record<string, unknown> {
+    const recording = createAsset('recording', '/tmp/take.mkv', {
+      presentation: createDefaultRecordingPresentation(),
+    });
+    const asset = censorRegions
+      ? { ...recording, presentation: { ...recording.presentation, censorRegions } }
+      : recording;
+    const project = createProject({ assets: [asset as typeof recording] });
+    return { ...(project as ProjectDocument & Record<string, unknown>), version: 15 };
+  }
+
+  it('migrates a v15 document to v16 without inventing censor regions', () => {
+    const result = migrate(v15RecordingProject());
+
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    // Absence means "no censors" — the migration must not backfill an empty array.
+    expect(result.assets[0]?.presentation?.censorRegions).toBeUndefined();
+  });
+
+  it('preserves censor regions already present on a v15 recording presentation', () => {
+    const result = migrate(
+      v15RecordingProject([
+        {
+          id: 'censor-1',
+          startFrame: 30,
+          endFrame: 90,
+          rect: { x: 0.1, y: 0.2, w: 0.3, h: 0.15 },
+          mode: 'pixelate',
+          blockSize: 24,
+          soften: true,
+        },
+      ]),
+    );
+
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
+    const regions = result.assets[0]?.presentation?.censorRegions;
+    expect(regions).toHaveLength(1);
+    expect(regions?.[0]).toMatchObject({
+      id: 'censor-1',
+      startFrame: 30,
+      endFrame: 90,
+      mode: 'pixelate',
+      rect: { x: 0.1, y: 0.2, w: 0.3, h: 0.15 },
+    });
+  });
+
+  it('rejects a censor region whose range is inverted or whose rect has no area', () => {
+    expect(() =>
+      migrate(
+        v15RecordingProject([
+          {
+            id: 'censor-bad-range',
+            startFrame: 90,
+            endFrame: 30,
+            rect: { x: 0.1, y: 0.2, w: 0.3, h: 0.15 },
+            mode: 'solid',
+            blockSize: 24,
+            soften: false,
+          },
+        ]),
+      ),
+    ).toThrow();
+
+    expect(() =>
+      migrate(
+        v15RecordingProject([
+          {
+            id: 'censor-zero-area',
+            startFrame: 30,
+            endFrame: 90,
+            rect: { x: 0.1, y: 0.2, w: 0, h: 0.15 },
+            mode: 'solid',
+            blockSize: 24,
+            soften: false,
+          },
+        ]),
+      ),
+    ).toThrow();
+  });
+
+  it('migrates a v12 document through to the current version with generalized NLE tracks and shared timeline', () => {
     // Build a realistic v12 fixture by taking a current-version project, then
     // stripping the optional AI fields and rewinding `version` to 12.
     const project = createProject();
@@ -472,7 +552,7 @@ describe('migrations', () => {
 
     const result = migrate(legacy);
 
-    expect(result.version).toBe(15);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
     expect(result.transcript).toBeUndefined();
     expect(result.captionTracks).toBeUndefined();
     expect(result.tracks).toHaveLength(project.composition.tracks.length);
@@ -622,14 +702,14 @@ describe('migrations', () => {
 
     const result = migrate(legacy);
 
-    expect(result.version).toBe(15);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
     expect(result.transcript).toEqual({ words: [], paragraphs: [], nonSpeech: [] });
     expect(result.captionTracks).toHaveLength(1);
     expect(result.captionTracks?.[0]?.id).toBe('ct-pre');
     expect(result.tracks?.[0]?.id).toBe('nle-pre');
   });
 
-  it('chains v1 → v15 end-to-end for an ancient document', () => {
+  it('chains v1 → current end-to-end for an ancient document', () => {
     // Reuse the existing v1 fixture shape (zoom-marker backfill case) but
     // verify it ends at the current version and includes the shared timeline.
     const project = createProject();
@@ -679,7 +759,7 @@ describe('migrations', () => {
 
     const result = migrate(legacy);
 
-    expect(result.version).toBe(15);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
     expect(result.transcript).toBeUndefined();
     expect(result.captionTracks).toBeUndefined();
     expect(result.tracks).toHaveLength(project.composition.tracks.length);
@@ -692,7 +772,7 @@ describe('migrations', () => {
 
     const result = migrate(legacy);
 
-    expect(result.version).toBe(15);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
     expect(result.tracks).toEqual([]);
     expect(result.timeline.tracks).toEqual([]);
   });
@@ -714,7 +794,7 @@ describe('migrations', () => {
 
     const result = migrate(withoutTimeline);
 
-    expect(result.version).toBe(15);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
     expect(result.timeline.markers).toContainEqual({
       id: 'cut-1',
       kind: 'cut',
@@ -746,7 +826,7 @@ describe('migrations', () => {
     const result = migrate(legacy);
     const timelineClip = result.timeline.tracks[0]?.clips[0];
 
-    expect(result.version).toBe(15);
+    expect(result.version).toBe(CURRENT_SCHEMA_VERSION);
     expect(timelineClip).toMatchObject({
       id: clip.id,
       timelineIn: 0,
