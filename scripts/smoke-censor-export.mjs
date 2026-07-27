@@ -46,10 +46,12 @@ const mediaPath = join(root, 'source.mp4');
 const cleanPath = join(root, 'clean.mp4');
 const censoredPath = join(root, 'censored.mp4');
 
-// A busy, high-contrast source so a mosaic is unmistakable.
+// A finely detailed source, deliberately NOT flat colour bars: a mosaic over large
+// flat areas barely changes any pixels, which would let a broken mosaic pass. Real
+// screen recordings are full of text-scale detail, so the fixture should be too.
 run('ffmpeg', [
-  '-y', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30',
-  '-t', '2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', mediaPath,
+  '-y', '-f', 'lavfi', '-i', 'mandelbrot=size=1280x720:rate=30',
+  '-t', '2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-movflags', '+faststart', mediaPath,
 ]);
 
 const startedAt = new Date('2026-01-01T00:00:00.000Z');
@@ -182,8 +184,33 @@ for (let y = 0; y < height; y += 4) {
 }
 const zoomRatio = zoomChanged / Math.max(1, zoomTotal);
 
+// Prove it is a MOSAIC and not just "some pixels changed": mosaicing collapses each
+// block to a flat colour, so the censored frame must contain far more locally-flat
+// patches inside the region than the clean one does. Measured in output geometry on
+// both frames, so it needs no knowledge of how the styled layout scales and pads —
+// only that the two frames are measured identically.
+function flatPatchRatio(buf) {
+  const px = (x, y) => { const i = (y * width + x) * 3; return [buf[i], buf[i + 1], buf[i + 2]]; };
+  const near = (p, q) => Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]) <= 24;
+  let patches = 0;
+  let flat = 0;
+  const S = 8;
+  for (let y = Math.round(height * 0.35); y + S < Math.round(height * 0.65); y += S) {
+    for (let x = Math.round(width * 0.35); x + S < Math.round(width * 0.65); x += S) {
+      patches += 1;
+      const c = [px(x, y), px(x + S - 1, y), px(x, y + S - 1), px(x + S - 1, y + S - 1)];
+      if (c.every((p) => near(p, c[0]))) flat += 1;
+    }
+  }
+  return patches > 0 ? flat / patches : 0;
+}
+const cleanFlat = flatPatchRatio(cleanFrame);
+const censoredFlat = flatPatchRatio(censoredFrame);
+
 const report = {
-  ok: insideRatio > 0.2 && outsideRatio < 0.05 && zoomRatio > 0.05,
+  ok: insideRatio > 0.2 && outsideRatio < 0.05 && zoomRatio > 0.05 && censoredFlat > cleanFlat + 0.2,
+  flatPatchesClean: Math.round(cleanFlat * 1000) / 1000,
+  flatPatchesCensored: Math.round(censoredFlat * 1000) / 1000,
   cleanPath,
   censoredPath,
   zoomedCensoredPath,
@@ -200,6 +227,6 @@ console.log(JSON.stringify(report, null, 2));
 
 if (!report.ok) {
   throw new Error(
-    `censor did not reach the export as expected: inside=${report.changedInsideRatio} (want > 0.2), outside=${report.changedOutsideRatio} (want < 0.05), zoomed=${report.changedWithZoomRatio} (want > 0.05)`,
+    `censor did not reach the export as expected: inside=${report.changedInsideRatio} (want > 0.2), outside=${report.changedOutsideRatio} (want < 0.05), zoomed=${report.changedWithZoomRatio} (want > 0.05), flatPatches ${report.flatPatchesClean} -> ${report.flatPatchesCensored} (want +0.2)`,
   );
 }

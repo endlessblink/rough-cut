@@ -284,35 +284,40 @@ ever wrong under trims, zoom and censor are wrong together rather than drifting 
 the screen chain the censor filters live in, so taking it would export the thing the
 user asked to hide.
 
-### Why the export is a solid block even in Pixelate mode
+### The mosaic must be one `geq`, never `split` + `overlay`
 
-The first attempt built a real mosaic: `split`, `crop`, downscale to block
-resolution, `scale=...:flags=neighbor` back up, `overlay`, plus a `boxblur` after the
-upscale for softening. It worked, and passed the no-zoom check.
+`solid` is one `drawbox`. `pixelate` is one `geq` that quantizes the sample
+coordinate inside the region — a real mosaic, every block a flat colour.
 
-**With zoom active it deadlocked.** ffmpeg parked at 0% CPU with a 48-byte output
-file and stayed there for 13 minutes before being killed. Measured on the real arg
-builder, three variants:
+The obvious mosaic (`split`, `crop`, downscale, `scale=...:flags=neighbor` back up,
+`overlay`) works fine without zoom and **deadlocks with zoom**: ffmpeg parked at 0%
+CPU with a 48-byte output file and stayed there for 13 minutes before being killed.
+Measured on the real arg builder:
 
 | chain | result |
 |---|---|
-| zoom + mosaic (`split`+`overlay`) | **hangs forever** |
-| zoom + `drawbox` | completes |
+| zoom + mosaic via `split`+`overlay` | **hangs forever** |
+| zoom + single-filter censor | completes |
 | zoom, no censor | completes |
 
 The zoom `sendcmd`/`crop` downstream pulls frames in a pattern that starves one split
-branch. Two fixes were tried and rejected: `fifo` on the split branches (a no-op in
-modern ffmpeg — still hung), and a single-filter `geq` region mosaic (no deadlock, but
-the required `gbrp` round trip shifted colour across ~4% of the whole frame).
+branch. `fifo` on the split branches does not help — it is a no-op in modern ffmpeg.
 
-So the export draws a solid block for both modes. It is the strongest redaction
-available, it cannot hang, and the block covers exactly the same pixels the mosaic
-would have. The editor still previews the mosaic, and the censor editor chip says
-"Exports use a solid block" so a user picking Pixelate is not surprised by the file.
+`geq` also has to run on native yuv420p. An earlier attempt routed it through `gbrp`
+so a single expression could cover all planes; that shifted colour across ~4% of the
+**whole frame**. The luma and chroma expressions are therefore written separately,
+with the chroma region bounds and block size halved because yuv420p chroma planes are
+half resolution. A `format=yuv420p` is pinned first, because the timeline-segment path
+hands the chain rgba, where `lum`/`cb`/`cr` do not exist and the mosaic would silently
+do nothing.
 
-Restoring the mosaic needs a shape that neither splits the stream nor converts colour
-space. Anyone trying must re-run `scripts/smoke-censor-export.mjs`, which covers the
-zoomed case specifically because that is the one that hangs.
+Cost: roughly 30ms per 1080p frame, only on projects that have censors.
+
+Anyone changing this must re-run `scripts/smoke-censor-export.mjs`. It covers the
+zoomed case specifically, because that is the one that hangs, and it asserts the
+result is genuinely blocky rather than merely different — the fixture is a detailed
+`mandelbrot` rather than colour bars, because a mosaic over flat bars barely changes
+any pixels and would let a broken mosaic pass.
 
 **Lesson for the next effect:** a feature that must appear in an exported file is not
 done when unit tests pass. It is done when a script has exported the file and

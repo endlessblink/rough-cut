@@ -831,26 +831,28 @@ function assetSourceUrl(asset) {
  * timestamps. If that convention is ever wrong under trims, zoom and censor are
  * wrong together and get fixed together, rather than drifting apart.
  *
- * ## Every censor exports as a solid block, including `pixelate`
+ * ## The mosaic is a single `geq`, and must stay that way
  *
- * The mosaic needs `split` + `overlay` because FFmpeg has no region-limited mosaic
- * filter. That shape **deadlocks** whenever zoom is active: the zoom
- * `sendcmd`/`crop` downstream pulls frames in a pattern that starves one split
- * branch, and ffmpeg parks at 0% CPU with an empty output file, forever. Measured
- * directly (2026-07-26): zoom + mosaic hangs, zoom + `drawbox` completes, zoom with
- * no censor completes. `fifo` on the split branches does not help — it is a no-op in
- * modern ffmpeg. A single-filter `geq` mosaic avoids the deadlock but has to round
- * trip through `gbrp`, which shifted colour across roughly 4% of the whole frame.
+ * `solid` is one `drawbox`. `pixelate` is one `geq` that quantizes the sample
+ * coordinate inside the region — a real mosaic, every block a flat colour.
  *
- * So the export draws one `drawbox` per region regardless of mode: no extra streams,
- * no deadlock, and a solid block is the strongest redaction available anyway. The
- * editor still previews the mosaic; the exported file gets a block. What is hidden is
- * identical, only the look differs, and the UI says so.
+ * The obvious mosaic (`split` → `crop` → downscale → nearest-neighbour upscale →
+ * `overlay`) **deadlocks** whenever zoom is active: the zoom `sendcmd`/`crop`
+ * downstream pulls frames in a pattern that starves one split branch, and ffmpeg
+ * parks at 0% CPU with an empty output file, forever. Measured directly: zoom +
+ * split-mosaic hangs, zoom + single-filter completes, zoom with no censor completes.
+ * `fifo` on the split branches does not help — it is a no-op in modern ffmpeg.
  *
- * Restoring the mosaic here needs a shape that neither splits the stream nor
- * converts colour space. Do not reintroduce split+overlay without re-running
- * `scripts/smoke-censor-export.mjs`, which covers the zoomed case specifically
- * because that is the one that hangs.
+ * `geq` also has to run on native yuv420p. Routing it through `gbrp` so one
+ * expression could cover all planes shifted colour across ~4% of the whole frame, so
+ * the luma and chroma expressions are written separately here: chroma planes are
+ * half resolution in yuv420p, so their region bounds and block size are halved.
+ *
+ * Cost: roughly 30ms per 1080p frame, and only on projects that have censors.
+ *
+ * Do not replace this with split+overlay, and do not add a format conversion,
+ * without re-running `scripts/smoke-censor-export.mjs` — it covers the zoomed case
+ * specifically, because that is the one that hangs.
  */
 export function buildCensorSourceFilters({
   censorRegions = [],
@@ -908,13 +910,42 @@ export function buildCensorSourceFilters({
 
   const filters = [];
   let current = inputLabel;
+  // geq's lum/cb/cr expressions only mean anything on planar YUV. The timeline-
+  // segment path hands us rgba, where those planes do not exist and the mosaic
+  // would silently do nothing, so pin the format first. The chain converts back to
+  // rgba downstream for the rounded-corner alpha, and the file encodes to yuv420p
+  // regardless, so this costs nothing on the common path.
+  if (usable.some((region) => region.mode === 'pixelate')) {
+    const pinned = `[${outputPrefix}_yuv]`;
+    filters.push(`${current}format=yuv420p${pinned}`);
+    current = pinned;
+  }
   usable.forEach((region, index) => {
     const enable = `enable='between(t,${formatFilterNumber(region.startSec)},${formatFilterNumber(region.endSec)})'`;
     const next = `[${outputPrefix}_${index}]`;
-    // One drawbox per region, for both modes. See the note above for why the mosaic
-    // is not used here.
-    const hex = region.fillColor.replace('#', '0x');
-    filters.push(`${current}drawbox=x=${region.x}:y=${region.y}:w=${region.w}:h=${region.h}:color=${hex}@1:t=fill:${enable}${next}`);
+    if (region.mode === 'solid') {
+      const hex = region.fillColor.replace('#', '0x');
+      filters.push(`${current}drawbox=x=${region.x}:y=${region.y}:w=${region.w}:h=${region.h}:color=${hex}@1:t=fill:${enable}${next}`);
+    } else {
+      // Quantize the sample coordinate to the block grid inside the region, and
+      // sample the untouched pixel outside it. Chroma planes are half resolution.
+      const block = Math.max(2, Math.round(region.blockSize / 2) * 2);
+      const cx = Math.round(region.x / 2);
+      const cy = Math.round(region.y / 2);
+      const cw = Math.max(1, Math.round(region.w / 2));
+      const ch = Math.max(1, Math.round(region.h / 2));
+      const cblock = Math.max(1, Math.round(block / 2));
+      const insideLuma = `between(X,${region.x},${region.x + region.w - 1})*between(Y,${region.y},${region.y + region.h - 1})`;
+      const insideChroma = `between(X,${cx},${cx + cw - 1})*between(Y,${cy},${cy + ch - 1})`;
+      const snap = (plane, ox, oy, size) =>
+        `${plane}(${ox}+floor((X-${ox})/${size})*${size}+${size}/2,${oy}+floor((Y-${oy})/${size})*${size}+${size}/2)`;
+      const expr = [
+        `lum='if(${insideLuma},${snap('lum', region.x, region.y, block)},lum(X,Y))'`,
+        `cb='if(${insideChroma},${snap('cb', cx, cy, cblock)},cb(X,Y))'`,
+        `cr='if(${insideChroma},${snap('cr', cx, cy, cblock)},cr(X,Y))'`,
+      ].join(':');
+      filters.push(`${current}geq=${expr}:${enable}${next}`);
+    }
     current = next;
   });
 

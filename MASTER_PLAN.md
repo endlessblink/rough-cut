@@ -9952,8 +9952,7 @@ does not prove the host V4L2 camera path with a real `/dev/video*` device.
 **Priority:** P1
 **Status:** FEATURE COMPLETE for v1 — data model, frame resolution, preview rendering,
 timeline censor lane, draw-on-preview creation, and the user-facing styled export all
-work and are covered. Exports render censors as a solid block in both modes (the
-mosaic deadlocks under zoom); the editor previews the mosaic and says so. Remaining:
+work and are covered, including a real pixelated mosaic in exported files. Remaining:
 cut-range interaction (slice 7) and a manual pass on a real recording.
 
 #### Goal
@@ -10018,11 +10017,14 @@ every path.
   1. The censor pass first landed only on the canvas headless backend, while the
      Export button uses the FFmpeg one — exports shipped the secret while the editor
      showed it hidden.
-  2. The mosaic (`split`+`overlay`) **deadlocks** whenever zoom is active: ffmpeg
-     parks at 0% CPU with an empty file, indefinitely. Exports therefore render a
-     solid block for both modes; the editor still previews the mosaic and the censor
-     chip says so. `docs/censor-regions-plan.md` §7a has the measurements and the two
-     rejected fixes.
+  2. The obvious mosaic (`split`+`overlay`) **deadlocks** whenever zoom is active:
+     ffmpeg parks at 0% CPU with an empty file, indefinitely. The export uses a single
+     `geq` on native yuv420p instead — a real mosaic, no fork, no colour conversion.
+     `docs/censor-regions-plan.md` §7a has the measurements and the rejected fixes.
+- The export smoke fixture is a detailed `mandelbrot`, not colour bars: a mosaic over
+  large flat areas barely changes any pixels, so flat fixtures let a broken mosaic
+  pass. It also asserts the censored frame is genuinely blockier than the clean one,
+  not merely different.
 - TODO: manual pass on an existing recording to confirm no re-record is needed.
 
 #### Notes

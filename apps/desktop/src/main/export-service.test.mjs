@@ -1681,10 +1681,7 @@ test('buildCensorSourceFilters renders a solid censor as one time-gated drawbox'
   assert.equal(result.outputLabel, '[censored_0]');
 });
 
-test('buildCensorSourceFilters exports pixelate as a solid drawbox too', () => {
-  // The mosaic needs split+overlay, which deadlocks whenever zoom is active
-  // (measured: 0% CPU, empty output, forever). A solid block hides the same pixels
-  // and cannot hang, so the export uses it for both modes.
+test('buildCensorSourceFilters exports pixelate as a single geq mosaic', () => {
   const result = buildCensorSourceFilters({
     censorRegions: [{
       id: 'c1',
@@ -1700,12 +1697,34 @@ test('buildCensorSourceFilters exports pixelate as a solid drawbox too', () => {
     fps: 30,
   });
 
-  assert.equal(result.filters.length, 1);
-  assert.match(result.filters[0], /^\[base\]drawbox=x=0:y=0:w=480:h=270:color=0x0b0f14@1:t=fill:enable='between\(t,0,2\)'\[censored_0\]$/);
+  // Format pinned first, then one geq. geq's planes only exist on planar YUV.
+  assert.equal(result.filters.length, 2);
+  assert.match(result.filters[0], /^\[base\]format=yuv420p\[censored_yuv\]$/);
+  assert.match(result.filters[1], /^\[censored_yuv\]geq=lum='if\(between\(X,0,479\)\*between\(Y,0,269\)/);
+  assert.match(result.filters[1], /enable='between\(t,0,2\)'\[censored_0\]$/);
+});
+
+test('the pixelate mosaic halves the region and block for the chroma planes', () => {
+  // yuv420p chroma is half resolution. Using luma coordinates there would mosaic
+  // the wrong area and bleed colour outside the censor.
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1', rect: { x: 0.25, y: 0.25, w: 0.25, h: 0.25 },
+      mode: 'pixelate', blockSize: 48, soften: true, startFrame: 0, endFrame: 60,
+    }],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+  const geq = result.filters[1];
+  assert.match(geq, /lum='if\(between\(X,480,959\)\*between\(Y,270,539\)/);
+  assert.match(geq, /cb='if\(between\(X,240,479\)\*between\(Y,135,269\)/);
+  assert.match(geq, /cr='if\(between\(X,240,479\)\*between\(Y,135,269\)/);
 });
 
 test('the export never emits split or overlay for a censor', () => {
-  // Guards the deadlock directly: split+overlay in the screen chain is what hung.
+  // Guards the deadlock directly: split+overlay in the screen chain is what hung
+  // ffmpeg indefinitely whenever zoom was active.
   const result = buildCensorSourceFilters({
     censorRegions: [
       { id: 'a', rect: { x: 0, y: 0, w: 0.2, h: 0.2 }, mode: 'pixelate', blockSize: 24, soften: true, startFrame: 0, endFrame: 60 },
@@ -1718,7 +1737,17 @@ test('the export never emits split or overlay for a censor', () => {
   const joined = result.filters.join(';');
   assert.doesNotMatch(joined, /split=/);
   assert.doesNotMatch(joined, /overlay=/);
-  assert.doesNotMatch(joined, /flags=neighbor/);
+});
+
+test('a solid-only censor set does not pay for the yuv format pin', () => {
+  const result = buildCensorSourceFilters({
+    censorRegions: [{ id: 'a', rect: { x: 0, y: 0, w: 0.2, h: 0.2 }, mode: 'solid', blockSize: 24, soften: false, startFrame: 0, endFrame: 60 }],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+  assert.equal(result.filters.length, 1);
+  assert.doesNotMatch(result.filters[0], /format=yuv420p/);
 });
 
 test('buildCensorSourceFilters chains multiple censors so each one is applied', () => {
