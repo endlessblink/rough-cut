@@ -31,7 +31,8 @@ import { getPrimaryRecordingAsset } from './zoom-markers.mjs';
 import { createScreenLayerRenderer, type ScreenLayerRenderer, type ScreenLayerRendererKind, type ScreenLayerRendererStats } from './screen-layer-renderer';
 import { applyScreenSourceTransform, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import { drawCensorRegions } from './censor-overlay';
-import { canvasPointToSourceNormalized, type CensorPointerMapping } from '../../shared/screen-source-transform.mjs';
+import { canvasPointToSourceNormalized, sourceRectToCanvasRect, type CensorPointerMapping } from '../../shared/screen-source-transform.mjs';
+import { moveCensorRect, resizeCensorRect } from '../../shared/censor-regions.mjs';
 import {
   cameraCoversSourceTime,
   clampedCameraTime,
@@ -446,6 +447,8 @@ export function StyledVideoPreview({
   onZoomFocalChange,
   censorDrawArmed = false,
   onCensorDraw,
+  selectedCensor = null,
+  onCensorRectChange,
 }: {
   project: StyledPreviewProject;
   seekTimeSec?: number;
@@ -466,6 +469,9 @@ export function StyledVideoPreview({
   /** Censor tool is armed: the next drag on the preview draws a censor rectangle. */
   censorDrawArmed?: boolean;
   onCensorDraw?: (rect: { x: number; y: number; w: number; h: number }) => void;
+  /** Censor selected on the timeline; gets move/resize handles on the preview. */
+  selectedCensor?: { id: string; rect: { x: number; y: number; w: number; h: number } } | null;
+  onCensorRectChange?: (censorId: string, rect: { x: number; y: number; w: number; h: number }) => void;
 }) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -497,6 +503,21 @@ export function StyledVideoPreview({
   const censorMappingRef = React.useRef<CensorPointerMapping | null>(null);
   const censorDraftRef = React.useRef<{ pointerId: number; from: { x: number; y: number }; to: { x: number; y: number } } | null>(null);
   const [censorDraftRect, setCensorDraftRect] = React.useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  // Canvas-space rect of the selected censor, refreshed each draw. Handles are drawn
+  // and hit-tested here rather than inside the source transform, where their fixed
+  // pixel size would scale with the zoom.
+  const censorHandleRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const censorEditRef = React.useRef<{
+    pointerId: number;
+    mode: 'move' | 'resize';
+    handle: string | null;
+    startRect: { x: number; y: number; w: number; h: number };
+    grabX: number;
+    grabY: number;
+  } | null>(null);
+  const [isEditingCensor, setIsEditingCensor] = React.useState(false);
+  /** Live source-space rect during a censor drag, so handles and fill track the pointer. */
+  const censorDragRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const [isDraggingScreen, setIsDraggingScreen] = React.useState(false);
   const [isDraggingFocal, setIsDraggingFocal] = React.useState(false);
   const [alignmentGridVisible, setAlignmentGridVisible] = React.useState(true);
@@ -1657,6 +1678,19 @@ export function StyledVideoPreview({
           sourceHeight,
         };
       };
+      // Handles for the selected censor, in CANVAS space and outside the source
+      // transform, so they keep a constant on-screen size at any zoom. Hidden during
+      // playback, matching the camera and screen frame controls.
+      const publishCensorHandles = () => {
+        // While dragging, follow the live rect so the handles track the pointer
+        // instead of lagging a document round-trip behind.
+        const sourceRect = censorDragRectRef.current ?? selectedCensor?.rect ?? null;
+        const rect = sourceRect ? sourceRectToCanvasRect(censorMappingRef.current, sourceRect) : null;
+        censorHandleRectRef.current = rect;
+        if (rect && !activeTimelinePlayback && onCensorRectChange) {
+          drawEditorFrameControls(ctx, rect, '#93c5fd');
+        }
+      };
       if (acceleratedTimelineFrameCompositor) {
         try {
           const frameStats = screenLayerRenderer.drawFrame({
@@ -1746,6 +1780,7 @@ export function StyledVideoPreview({
           transform: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
         });
         publishCensorMapping();
+        publishCensorHandles();
         markDrawPhase('censor');
         if (nextOffscreen) {
           drawCursorOffscreenMarker(ctx, nextOffscreen, cursorPos, {
@@ -1861,6 +1896,7 @@ export function StyledVideoPreview({
         transform: frame.cameraTransform ?? { scale: 1, offsetX: 0, offsetY: 0 },
       });
       publishCensorMapping();
+      publishCensorHandles();
       markDrawPhase('censor');
       ctx.save();
       applyScreenSourceTransform(ctx, {
@@ -2182,7 +2218,7 @@ export function StyledVideoPreview({
       />
       <canvas
         ref={canvasRef}
-        className={`styledPreviewCanvas styledPreviewOverlayCanvas${acceleratedPresentationActive ? ' isAcceleratedPresentationOverlay isWebglPresentationOverlay' : ''}${!isPlaying && isDraggingCamera ? ' draggingCamera' : ''}${!isPlaying && isDraggingScreen ? ' draggingScreen' : ''}${!isPlaying && isDraggingFocal ? ' draggingFocal' : ''}${censorDrawArmed ? ' censorDrawArmed' : ''}`}
+        className={`styledPreviewCanvas styledPreviewOverlayCanvas${acceleratedPresentationActive ? ' isAcceleratedPresentationOverlay isWebglPresentationOverlay' : ''}${!isPlaying && isDraggingCamera ? ' draggingCamera' : ''}${!isPlaying && isDraggingScreen ? ' draggingScreen' : ''}${!isPlaying && isDraggingFocal ? ' draggingFocal' : ''}${censorDrawArmed ? ' censorDrawArmed' : ''}${isEditingCensor ? ' editingCensor' : ''}`}
         aria-label="Styled preview"
         data-camera-draggable={onCameraFrameChange ? 'true' : 'false'}
         data-screen-draggable={onScreenFrameChange ? 'true' : 'false'}
@@ -2195,6 +2231,17 @@ export function StyledVideoPreview({
           const rect = canvas.getBoundingClientRect();
           const xCanvas = ((event.clientX - rect.left) * canvas.width) / rect.width;
           const yCanvas = ((event.clientY - rect.top) * canvas.height) / rect.height;
+          const censorEdit = censorEditRef.current;
+          if (censorEdit && censorEdit.pointerId === event.pointerId) {
+            const point = canvasPointToSourceNormalized(censorMappingRef.current, xCanvas, yCanvas);
+            if (point) {
+              censorDragRectRef.current = censorEdit.mode === 'move'
+                ? moveCensorRect(censorEdit.startRect, point.x - censorEdit.grabX, point.y - censorEdit.grabY)
+                : resizeCensorRect(censorEdit.startRect, censorEdit.handle, point.x, point.y);
+              previewInteractionDirtyRef.current = true;
+            }
+            return;
+          }
           const censorDraft = censorDraftRef.current;
           if (censorDraft && censorDraft.pointerId === event.pointerId) {
             const to = canvasPointToSourceNormalized(censorMappingRef.current, xCanvas, yCanvas);
@@ -2252,7 +2299,14 @@ export function StyledVideoPreview({
           // With a zoom selected, the screen body sets the focus point → crosshair.
           const overScreenForFocal = !!onZoomFocalChange && !!selectedZoomFocal && !!screenRect && !overCamera && !cameraHandle && !screenHandle
             && xCanvas >= screenRect.x && xCanvas <= screenRect.x + screenRect.w && yCanvas >= screenRect.y && yCanvas <= screenRect.y + screenRect.h;
-          event.currentTarget.style.cursor = cameraHandle ? cursorForResizeHandle(cameraHandle) : screenHandle ? cursorForResizeHandle(screenHandle) : overScreenForFocal ? 'crosshair' : overCamera || overScreen ? 'grab' : '';
+          const censorRectNow = selectedCensor && onCensorRectChange ? censorHandleRectRef.current : null;
+          const censorHandleNow = censorRectNow ? resizeHandleAtPoint(xCanvas, yCanvas, censorRectNow) : null;
+          const overCensorNow = Boolean(censorRectNow) && !overCamera
+            && xCanvas >= censorRectNow!.x && xCanvas <= censorRectNow!.x + censorRectNow!.w
+            && yCanvas >= censorRectNow!.y && yCanvas <= censorRectNow!.y + censorRectNow!.h;
+          event.currentTarget.style.cursor = censorHandleNow && !overCamera
+            ? cursorForResizeHandle(censorHandleNow)
+            : cameraHandle ? cursorForResizeHandle(cameraHandle) : screenHandle ? cursorForResizeHandle(screenHandle) : overScreenForFocal ? 'crosshair' : overCensorNow || overCamera || overScreen ? 'grab' : '';
         }}
         onPointerDown={(event) => {
           if (timeMode === 'timeline' && isPlaying) {
@@ -2281,6 +2335,41 @@ export function StyledVideoPreview({
             setCensorDraftRect({ x: start.x, y: start.y, w: 0, h: 0 });
             previewInteractionDirtyRef.current = true;
             return;
+          }
+          // Selected censor sits between the camera PiP and the screen frame: it beats
+          // the frame because the frame is the backdrop, and loses to the PiP because
+          // the PiP is a small distinct object on top. Only active while selected, so
+          // it cannot steal drags the rest of the time.
+          if (selectedCensor && onCensorRectChange) {
+            const handleRect = censorHandleRectRef.current;
+            const censorHandle = handleRect ? resizeHandleAtPoint(xCanvas, yCanvas, handleRect) : null;
+            const insideCensor = Boolean(handleRect)
+              && xCanvas >= handleRect!.x && xCanvas <= handleRect!.x + handleRect!.w
+              && yCanvas >= handleRect!.y && yCanvas <= handleRect!.y + handleRect!.h;
+            const cameraRectNow = cameraRectRef.current;
+            const overCameraNow = Boolean(onCameraFrameChange && cameraRectNow
+              && xCanvas >= cameraRectNow.x && xCanvas <= cameraRectNow.x + cameraRectNow.w
+              && yCanvas >= cameraRectNow.y && yCanvas <= cameraRectNow.y + cameraRectNow.h);
+            if ((censorHandle || insideCensor) && !overCameraNow) {
+              event.preventDefault();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              const grab = canvasPointToSourceNormalized(censorMappingRef.current, xCanvas, yCanvas);
+              if (grab) {
+                censorEditRef.current = {
+                  pointerId: event.pointerId,
+                  mode: censorHandle ? 'resize' : 'move',
+                  handle: censorHandle,
+                  startRect: { ...selectedCensor.rect },
+                  grabX: grab.x,
+                  grabY: grab.y,
+                };
+                censorDragRectRef.current = { ...selectedCensor.rect };
+                setIsEditingCensor(true);
+                previewInteractionDirtyRef.current = true;
+                event.currentTarget.style.cursor = censorHandle ? cursorForResizeHandle(censorHandle) : 'grabbing';
+              }
+              return;
+            }
           }
           if (!onCameraFrameChange && !onScreenFrameChange && !onZoomFocalChange) return;
           // Focus target wins over screen/camera drag since it sits inside them.
@@ -2406,6 +2495,18 @@ export function StyledVideoPreview({
             });
             event.preventDefault();
             event.stopPropagation();
+            return;
+          }
+          const censorEdit = censorEditRef.current;
+          if (censorEdit && censorEdit.pointerId === event.pointerId) {
+            const finalRect = censorDragRectRef.current;
+            censorEditRef.current = null;
+            censorDragRectRef.current = null;
+            setIsEditingCensor(false);
+            event.currentTarget.style.cursor = '';
+            try { event.currentTarget.releasePointerCapture(event.pointerId); } catch {}
+            previewInteractionDirtyRef.current = true;
+            if (finalRect && selectedCensor) onCensorRectChange?.(selectedCensor.id, finalRect);
             return;
           }
           const censorDraft = censorDraftRef.current;

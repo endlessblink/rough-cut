@@ -3020,6 +3020,27 @@ h3 { color: var(--text); font-size: 0.88rem; margin: 0; }
 
 /* Preview overlay: the drag-to-draw affordance while the tool is armed. */
 .styledPreviewCanvas.censorDrawArmed { cursor: crosshair; }
+.styledPreviewCanvas.editingCensor { cursor: grabbing; }
+
+/* Live span while dragging a range on the Censor lane, before the censor exists.
+ * Mirrors the zoom lane's marquee so the gesture reads the same. */
+.censorSpanPreview {
+  background: rgb(147 197 253 / 0.18);
+  border: 1px solid var(--censor-draft-stroke);
+  border-radius: 8px;
+  bottom: 0.25rem;
+  pointer-events: none;
+  position: absolute;
+  top: 0.25rem;
+  z-index: 6;
+}
+
+.censorPanelHint {
+  color: var(--subtle);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  margin: 0.1rem 0 0;
+}
 
 .previewCensorHint {
   align-items: center;

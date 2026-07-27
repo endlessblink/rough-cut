@@ -207,10 +207,65 @@ function flatPatchRatio(buf) {
 const cleanFlat = flatPatchRatio(cleanFrame);
 const censoredFlat = flatPatchRatio(censoredFrame);
 
+// Softness must actually change the exported pixels. Export the same censor crisp and
+// fully softened and diff them inside the region.
+//
+// Deliberately NOT measured as "fewer hard edges" or "flatter patches": the styled
+// layout scales the source region up into a padded canvas, and that scaling smooths
+// everything, so edge and flatness metrics are almost insensitive in output geometry.
+// A direct crisp-vs-soft diff is valid in any geometry. That the blur only reads
+// already-destroyed pixels is proven by the unit tests on the clipped taps, which is
+// the right place for that claim.
+function regionDiffRatio(a, b) {
+  let changed = 0;
+  let total = 0;
+  for (let y = Math.round(height * 0.36); y < Math.round(height * 0.64); y += 2) {
+    for (let x = Math.round(width * 0.36); x < Math.round(width * 0.64); x += 2) {
+      const i = (y * width + x) * 3;
+      total += 1;
+      const d = Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
+      if (d > 12) changed += 1;
+    }
+  }
+  return total > 0 ? changed / total : 0;
+}
+
+const withSoftness = (value) => ({
+  ...censoredDocument,
+  assets: censoredDocument.assets.map((asset) => (
+    asset.presentation?.censorRegions
+      ? {
+          ...asset,
+          presentation: {
+            ...asset.presentation,
+            censorRegions: asset.presentation.censorRegions.map((region) => ({ ...region, soften: value > 0, softness: value })),
+          },
+        }
+      : asset
+  )),
+});
+
+const crispPath = join(root, 'crisp.mp4');
+const softPath = join(root, 'soft.mp4');
+await exportProjectToMp4({ project: withSoftness(0), outputPath: crispPath, mode: 'styled' });
+await exportProjectToMp4({ project: withSoftness(1), outputPath: softPath, mode: 'styled' });
+const crispFrame = ppmPixels(crispPath);
+const softFrame = ppmPixels(softPath);
+const softVsCrisp = regionDiffRatio(crispFrame, softFrame);
+// The crisp export is the one whose mosaic signature is measurable: softening breaks
+// the blocks up on purpose, so flatness is compared against crisp, not the default.
+const crispFlat = flatPatchRatio(crispFrame);
+
 const report = {
-  ok: insideRatio > 0.2 && outsideRatio < 0.05 && zoomRatio > 0.05 && censoredFlat > cleanFlat + 0.2,
+  ok: insideRatio > 0.2
+    && outsideRatio < 0.05
+    && zoomRatio > 0.05
+    && crispFlat > cleanFlat + 0.2
+    && softVsCrisp > 0.02,
   flatPatchesClean: Math.round(cleanFlat * 1000) / 1000,
-  flatPatchesCensored: Math.round(censoredFlat * 1000) / 1000,
+  flatPatchesCrispMosaic: Math.round(crispFlat * 1000) / 1000,
+  flatPatchesDefaultSoftened: Math.round(censoredFlat * 1000) / 1000,
+  softVsCrispChangedRatio: Math.round(softVsCrisp * 1000) / 1000,
   cleanPath,
   censoredPath,
   zoomedCensoredPath,
@@ -227,6 +282,6 @@ console.log(JSON.stringify(report, null, 2));
 
 if (!report.ok) {
   throw new Error(
-    `censor did not reach the export as expected: inside=${report.changedInsideRatio} (want > 0.2), outside=${report.changedOutsideRatio} (want < 0.05), zoomed=${report.changedWithZoomRatio} (want > 0.05), flatPatches ${report.flatPatchesClean} -> ${report.flatPatchesCensored} (want +0.2)`,
+    `censor did not reach the export as expected: inside=${report.changedInsideRatio} (want > 0.2), outside=${report.changedOutsideRatio} (want < 0.05), zoomed=${report.changedWithZoomRatio} (want > 0.05), flatPatches ${report.flatPatchesClean} -> ${report.flatPatchesCrispMosaic} (want +0.2), softVsCrisp=${report.softVsCrispChangedRatio} (want > 0.02)`,
   );
 }

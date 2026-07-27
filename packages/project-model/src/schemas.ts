@@ -205,6 +205,9 @@ export const CensorRegionSchema = z.object({
   mode: CensorModeSchema,
   blockSize: z.number().positive().max(512).default(24),
   soften: z.boolean().default(true),
+  // Optional with a default, so v16 documents saved before softness existed parse
+  // unchanged and need no migration.
+  softness: z.number().min(0).max(1).optional(),
   fillColor: hexColor.optional(),
   label: z.string().optional(),
 }).refine((region) => region.endFrame > region.startFrame, {

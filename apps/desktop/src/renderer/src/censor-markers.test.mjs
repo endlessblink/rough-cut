@@ -8,7 +8,9 @@ import {
   listCensorRegions,
   normalizeCensorRect,
   removeCensorRegion,
+  DEFAULT_CENSOR_RECT,
   setCensorRegionMode,
+  setCensorRegionSoftness,
   updateCensorRegionRange,
   updateCensorRegionRect,
 } from './censor-markers.mjs';
@@ -172,4 +174,81 @@ test('censor edits survive schema validation', async () => {
     endFrame: 120,
   });
   assert.doesNotThrow(() => validateProject(document));
+});
+
+test('two censors created at the same frame get different ids', () => {
+  // Timeline-first creation uses one fixed default box, so an id derived from the
+  // frame plus the rect would collide and the second censor would overwrite the first.
+  let document = addCensorRegionAt(projectDocument(300), {
+    rect: DEFAULT_CENSOR_RECT,
+    startFrame: 60,
+  });
+  document = addCensorRegionAt(document, {
+    rect: DEFAULT_CENSOR_RECT,
+    startFrame: 60,
+  });
+  const regions = listCensorRegions(document);
+  assert.equal(regions.length, 2);
+  assert.notEqual(regions[0].id, regions[1].id);
+});
+
+test('the default timeline box is visible but not full-frame', () => {
+  // Full-frame reads as alarming; invisible leaves an unpositioned censor lying
+  // around. A centred box that obviously wants dragging is the middle ground.
+  assert.ok(DEFAULT_CENSOR_RECT.w > 0.1 && DEFAULT_CENSOR_RECT.w < 0.6);
+  assert.ok(DEFAULT_CENSOR_RECT.h > 0.1 && DEFAULT_CENSOR_RECT.h < 0.6);
+  const centreX = DEFAULT_CENSOR_RECT.x + DEFAULT_CENSOR_RECT.w / 2;
+  const centreY = DEFAULT_CENSOR_RECT.y + DEFAULT_CENSOR_RECT.h / 2;
+  assert.ok(Math.abs(centreX - 0.5) < 0.02, 'expected horizontally centred');
+  assert.ok(Math.abs(centreY - 0.5) < 0.02, 'expected vertically centred');
+});
+
+test('a censor created from a dragged lane span uses that span, not playhead-to-end', () => {
+  const document = addCensorRegionAt(projectDocument(300), {
+    rect: DEFAULT_CENSOR_RECT,
+    startFrame: 45,
+    endFrame: 150,
+  });
+  const [region] = listCensorRegions(document);
+  assert.equal(region.startFrame, 45);
+  assert.equal(region.endFrame, 150);
+});
+
+test('a softness edit survives schema validation and round-trips', async () => {
+  const { validateProject } = await import('@rough-cut/project-model');
+  let document = addCensorRegionAt(projectDocument(300), {
+    id: 'c1',
+    rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+    startFrame: 30,
+    endFrame: 120,
+  });
+  document = setCensorRegionSoftness(document, 'c1', 0.75);
+  assert.equal(listCensorRegions(document)[0].softness, 0.75);
+  const validated = validateProject(document);
+  assert.equal(validated.assets[0].presentation.censorRegions[0].softness, 0.75);
+});
+
+test('raising softness clears a legacy soften:false so the new value takes effect', () => {
+  let document = addCensorRegionAt(projectDocument(300), {
+    id: 'c1',
+    rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+    startFrame: 0,
+    soften: false,
+  });
+  assert.equal(listCensorRegions(document)[0].soften, false);
+  document = setCensorRegionSoftness(document, 'c1', 0.6);
+  const region = listCensorRegions(document)[0];
+  // Otherwise the old flag would keep forcing softness to 0 and the slider would
+  // appear to do nothing.
+  assert.equal(region.soften, true);
+  assert.equal(region.softness, 0.6);
+});
+
+test('setting the same softness twice is a no-op so undo stays clean', () => {
+  let document = addCensorRegionAt(projectDocument(300), {
+    id: 'c1', rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 }, startFrame: 0,
+  });
+  document = setCensorRegionSoftness(document, 'c1', 0.4);
+  assert.equal(setCensorRegionSoftness(document, 'c1', 0.4), document);
+  assert.equal(setCensorRegionSoftness(document, 'missing', 0.4), document);
 });

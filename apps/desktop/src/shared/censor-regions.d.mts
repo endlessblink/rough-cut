@@ -27,6 +27,25 @@ export function resolveCensorSourceScale(input?: {
   readonly transform?: { readonly scale?: number } | null;
 }): number;
 
+export const DEFAULT_CENSOR_SOFTNESS: number;
+
+export function resolveCensorSoftness(region: unknown): number;
+
+export function moveCensorRect(
+  rect: CensorSourceRect | null | undefined,
+  deltaX: number,
+  deltaY: number,
+): CensorSourceRect | null;
+
+export function resizeCensorRect(
+  rect: CensorSourceRect | null | undefined,
+  handle: string | null,
+  pointerX: number,
+  pointerY: number,
+): CensorSourceRect | null;
+
+export function resolveCensorBlurSpacing(region: unknown): number;
+
 export function resolveCensorBlockSize(region: unknown): number;
 
 export function resolveCensorMosaicGrid(

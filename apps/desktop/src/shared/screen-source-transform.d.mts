@@ -30,6 +30,11 @@ export function applyScreenSourceTransform(
   input: ScreenSourceTransformInput,
 ): void;
 
+export function sourceRectToCanvasRect(
+  mapping: CensorPointerMapping | null,
+  rect: { readonly x: number; readonly y: number; readonly w: number; readonly h: number } | null,
+): { x: number; y: number; w: number; h: number } | null;
+
 export function canvasPointToSourceNormalized(
   mapping: CensorPointerMapping | null,
   canvasX: number,

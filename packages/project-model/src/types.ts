@@ -246,8 +246,17 @@ export interface CensorRegion {
   readonly mode: CensorMode;
   /** Mosaic block size in source pixels. Pixelate only. */
   readonly blockSize: number;
-  /** Cosmetic blur over the already-destroyed pixels. */
+  /**
+   * Legacy on/off for the cosmetic blur. Superseded by `softness`; `false` still
+   * forces softness to 0 so old projects keep the look they were saved with.
+   */
   readonly soften: boolean;
+  /**
+   * How much the mosaic is smoothed: 0 leaves crisp blocks, 1 is fully softened.
+   * The blur only ever samples pixels the mosaic already destroyed, so raising this
+   * cannot bring detail back. Optional; absent means the default.
+   */
+  readonly softness?: number;
   /** Solid only. Defaults to opaque near-black when omitted. */
   readonly fillColor?: string;
   readonly label?: string;

@@ -2,6 +2,9 @@ import type { CensorMode, CensorRegion, ProjectDocument } from '@rough-cut/proje
 
 export const DEFAULT_CENSOR_BLOCK_SIZE: number;
 
+/** Starting box for a censor created from the timeline, before it is positioned. */
+export const DEFAULT_CENSOR_RECT: { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
+
 export interface CensorRectInput {
   readonly x: number;
   readonly y: number;
@@ -41,6 +44,12 @@ export function updateCensorRegionRect(
   document: ProjectDocument,
   regionId: string,
   rect: unknown,
+): ProjectDocument;
+
+export function setCensorRegionSoftness(
+  document: ProjectDocument,
+  regionId: string,
+  softness: number,
 ): ProjectDocument;
 
 export function setCensorRegionMode(

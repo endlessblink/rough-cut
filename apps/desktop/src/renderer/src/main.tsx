@@ -79,12 +79,16 @@ import {
   updateMarkerStrength,
   withDefaultPresentation,
 } from './zoom-markers.mjs';
+import { resolveCensorSoftness } from '../../shared/censor-regions.mjs';
 import {
+  DEFAULT_CENSOR_RECT,
   addCensorRegionAt,
   listCensorRegions,
   removeCensorRegion,
   setCensorRegionMode,
+  setCensorRegionSoftness,
   updateCensorRegionRange,
+  updateCensorRegionRect,
 } from './censor-markers.mjs';
 import { buildTimelineModel, frameRangeToPlacement } from './timeline-rail.mjs';
 import { cameraCoversSourceTime, clampedCameraTime, coverSourceRect, cursorAtFrame, cursorForResizeHandle, drawClickEmphasis, drawCursorPath, frameResizeHandles, moveRectFromPointer, resizeHandleAtPoint, resizeRectFromPointer } from './styled-preview.mjs';
@@ -3281,7 +3285,7 @@ function InspectorActionRow({ children, region }: { children: React.ReactNode; r
   return <div className="actionsArea inspectorActionRow" data-ui-region={region}>{children}</div>;
 }
 
-function EditorToolBoard({ activeTool, project, fps, background, cameraPresentation, screenFrame = null, cameraFrame = null, cameraCrop = null, cameraSourceSize = { width: 1280, height: 720 }, screenCrop = null, screenSourceSize = { width: 1280, height: 720 }, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, trimInfo, timelineWarning = null, cutRanges = [], userTemplates = [], recordingTemplateOverrides = {}, appliedTemplatePresetId = null, appliedUserTemplateId = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraPresentationAndFrameChange, onCameraCropAndFrameChange, onCameraCropChange, onScreenCropChange, onCursorPresentationChange, onScreenFrameChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onApplyUserTemplate, onSaveUserTemplate, onRenameUserTemplate, onDeleteUserTemplate, onResetTrim, onRemoveCutRange, onClearCutRanges, censorCount = 0, censorDrawArmed = false, onCensorDrawArmedChange }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; screenFrame?: NormalizedRect | null; cameraFrame?: NormalizedRect | null; cameraCrop?: RegionCrop | null; cameraSourceSize?: { width: number; height: number }; screenCrop?: RegionCrop | null; screenSourceSize?: { width: number; height: number }; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; timelineWarning?: string | null; cutRanges?: CutRange[]; userTemplates?: UserRecordingTemplate[]; recordingTemplateOverrides?: Record<string, RecordingTemplateOverride>; appliedTemplatePresetId?: string | null; appliedUserTemplateId?: string | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraPresentationAndFrameChange?: (patch: Partial<CameraPresentation>, frame: { x: number; y: number; w: number; h: number }) => void; onCameraCropAndFrameChange?: (crop: RegionCrop, frame: { x: number; y: number; w: number; h: number }, patch: Partial<CameraPresentation>) => void; onCameraCropChange?: (crop: RegionCrop | null) => void; onScreenCropChange?: (crop: RegionCrop | null) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onScreenFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onApplyUserTemplate?: (template: UserRecordingTemplate) => void; onSaveUserTemplate?: (label: string) => Promise<void> | void; onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void; onDeleteUserTemplate?: (id: string) => Promise<void> | void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void; censorCount?: number; censorDrawArmed?: boolean; onCensorDrawArmedChange?: (armed: boolean) => void }) {
+function EditorToolBoard({ activeTool, project, fps, background, cameraPresentation, screenFrame = null, cameraFrame = null, cameraCrop = null, cameraSourceSize = { width: 1280, height: 720 }, screenCrop = null, screenSourceSize = { width: 1280, height: 720 }, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, trimInfo, timelineWarning = null, cutRanges = [], userTemplates = [], recordingTemplateOverrides = {}, appliedTemplatePresetId = null, appliedUserTemplateId = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraPresentationAndFrameChange, onCameraCropAndFrameChange, onCameraCropChange, onScreenCropChange, onCursorPresentationChange, onScreenFrameChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onApplyUserTemplate, onSaveUserTemplate, onRenameUserTemplate, onDeleteUserTemplate, onResetTrim, onRemoveCutRange, onClearCutRanges, censorCount = 0, censorDrawArmed = false, onCensorDrawArmedChange, selectedCensorId = null, selectedCensorSoftness = 0, onCensorSoftnessChange }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; screenFrame?: NormalizedRect | null; cameraFrame?: NormalizedRect | null; cameraCrop?: RegionCrop | null; cameraSourceSize?: { width: number; height: number }; screenCrop?: RegionCrop | null; screenSourceSize?: { width: number; height: number }; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; timelineWarning?: string | null; cutRanges?: CutRange[]; userTemplates?: UserRecordingTemplate[]; recordingTemplateOverrides?: Record<string, RecordingTemplateOverride>; appliedTemplatePresetId?: string | null; appliedUserTemplateId?: string | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraPresentationAndFrameChange?: (patch: Partial<CameraPresentation>, frame: { x: number; y: number; w: number; h: number }) => void; onCameraCropAndFrameChange?: (crop: RegionCrop, frame: { x: number; y: number; w: number; h: number }, patch: Partial<CameraPresentation>) => void; onCameraCropChange?: (crop: RegionCrop | null) => void; onScreenCropChange?: (crop: RegionCrop | null) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onScreenFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onApplyUserTemplate?: (template: UserRecordingTemplate) => void; onSaveUserTemplate?: (label: string) => Promise<void> | void; onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void; onDeleteUserTemplate?: (id: string) => Promise<void> | void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void; censorCount?: number; censorDrawArmed?: boolean; onCensorDrawArmedChange?: (armed: boolean) => void; selectedCensorId?: string | null; selectedCensorSoftness?: number; onCensorSoftnessChange?: (censorId: string, softness: number) => void }) {
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const cursor = cursorPresentation ?? DEFAULT_CURSOR_PRESENTATION;
@@ -3324,6 +3328,17 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
                   </button>
                 </InspectorActionRow>
                 {censorDrawArmed ? <p className="censorPanelHint">Drag a box on the preview. Escape cancels.</p> : null}
+                {/* Kept present and disabled with nothing selected, rather than
+                    appearing and shifting the panel — DESIGN.md prefers stable layout. */}
+                <InspectorSlider
+                  label="Softness"
+                  value={Math.round(selectedCensorSoftness * 100)}
+                  min={0}
+                  max={100}
+                  step={5}
+                  disabled={disabled || !selectedCensorId}
+                  onChange={(value) => { if (selectedCensorId) onCensorSoftnessChange?.(selectedCensorId, value / 100); }}
+                />
               </div>
             </InspectorSection>
             <InspectorSection id="cuts" title="Cuts" description="Drag a range on the screen lane to remove it from the shared timeline. Use Undo to restore the last cut.">
@@ -4312,6 +4327,41 @@ function ProjectPreview({
     await persist(nextDocument);
   }
 
+
+  const selectedCensorRegion = selectedCensorId
+    ? listCensorRegions(project.document as unknown as ProjectDocument).find((region) => region.id === selectedCensorId) ?? null
+    : null;
+
+
+
+  async function createCensorForRange(startFrame: number, endFrame: number) {
+    const before = listCensorRegions(project.document as unknown as ProjectDocument);
+    const nextDocument = addCensorRegionAt(project.document as unknown as ProjectDocument, {
+      rect: DEFAULT_CENSOR_RECT,
+      startFrame,
+      endFrame,
+    }) as unknown as ProjectState['document'];
+    if (nextDocument === project.document) return;
+    // Select the new one so its handles appear on the preview straight away — the box
+    // still needs positioning, and an unselected censor gives no affordance for that.
+    const after = listCensorRegions(nextDocument as unknown as ProjectDocument);
+    const created = after.find((region) => !before.some((existing) => existing.id === region.id));
+    if (created) setSelectedCensorId(created.id);
+    await persist(nextDocument);
+  }
+
+  async function updateCensorRect(censorId: string, rect: { x: number; y: number; w: number; h: number }) {
+    const nextDocument = updateCensorRegionRect(project.document as unknown as ProjectDocument, censorId, rect) as unknown as ProjectState['document'];
+    if (nextDocument === project.document) return;
+    await persist(nextDocument);
+  }
+
+  async function updateCensorSoftness(censorId: string, softness: number) {
+    const nextDocument = setCensorRegionSoftness(project.document as unknown as ProjectDocument, censorId, softness) as unknown as ProjectState['document'];
+    if (nextDocument === project.document) return;
+    await persist(nextDocument);
+  }
+
   async function updateCensorRange(censorId: string, startFrame: number, endFrame: number) {
     const nextDocument = updateCensorRegionRange(project.document as unknown as ProjectDocument, censorId, startFrame, endFrame) as unknown as ProjectState['document'];
     if (nextDocument === project.document) return;
@@ -4415,7 +4465,7 @@ function ProjectPreview({
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
       <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} background={background} cameraPresentation={cameraPresentation} screenFrame={templateScreenFrame} cameraFrame={templateCameraFrame} cameraCrop={cameraCrop} cameraSourceSize={cameraSourceSize} screenCrop={screenCrop} screenSourceSize={screenSourceSize} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} trimInfo={trimInfo} timelineWarning={recordingEditModel.warning} cutRanges={activeCutRanges} userTemplates={userTemplates} recordingTemplateOverrides={recordingTemplateOverrides} appliedTemplatePresetId={appliedTemplatePresetId} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraPresentationAndFrameChange={updateCameraPresentationAndFrame} onCameraCropAndFrameChange={updateCameraCropAndFrame} onCameraCropChange={updateCameraCrop} onScreenCropChange={updateScreenCrop} onCursorPresentationChange={updateCursorPresentation} onScreenFrameChange={updateScreenFrame} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onResetTrim={resetTrim} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} censorCount={listCensorRegions(project.document as unknown as ProjectDocument).length} censorDrawArmed={censorDrawArmed} onCensorDrawArmedChange={setCensorDrawArmed} />
+      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} background={background} cameraPresentation={cameraPresentation} screenFrame={templateScreenFrame} cameraFrame={templateCameraFrame} cameraCrop={cameraCrop} cameraSourceSize={cameraSourceSize} screenCrop={screenCrop} screenSourceSize={screenSourceSize} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} trimInfo={trimInfo} timelineWarning={recordingEditModel.warning} cutRanges={activeCutRanges} userTemplates={userTemplates} recordingTemplateOverrides={recordingTemplateOverrides} appliedTemplatePresetId={appliedTemplatePresetId} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraPresentationAndFrameChange={updateCameraPresentationAndFrame} onCameraCropAndFrameChange={updateCameraCropAndFrame} onCameraCropChange={updateCameraCrop} onScreenCropChange={updateScreenCrop} onCursorPresentationChange={updateCursorPresentation} onScreenFrameChange={updateScreenFrame} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onResetTrim={resetTrim} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} censorCount={listCensorRegions(project.document as unknown as ProjectDocument).length} censorDrawArmed={censorDrawArmed} onCensorDrawArmedChange={setCensorDrawArmed} selectedCensorId={selectedCensorId} selectedCensorSoftness={resolveCensorSoftness(listCensorRegions(project.document as unknown as ProjectDocument).find((region) => region.id === selectedCensorId))} onCensorSoftnessChange={updateCensorSoftness} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>
@@ -4448,7 +4498,7 @@ function ProjectPreview({
           ) : null}
         </div>
         {project.mediaUrl ? (
-          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} />
+          <VideoPreview project={effectiveProject} seekTimeSec={timelineSeekSec} trimStartSec={trimInfo.startSec} trimEndSec={trimInfo.endSec} cutRanges={toTrimRelativeCutRanges(activeCutRanges, trimInfo)} timeMode="timeline" onCurrentTimeChange={setCurrentTimeSec} onPlayingChange={setPreviewPlaying} onCameraFrameChange={updateCameraFrame} onScreenFrameChange={updateScreenFrame} onSourceMediaDurationChange={setSourceMediaDurationSec} onResolvedLayoutChange={(layout) => { resolvedPreviewLayoutRef.current = layout; }} selectedZoomFocal={selectedZoomMarker ? { id: selectedZoomMarker.id, x: selectedZoomMarker.focalPoint.x, y: selectedZoomMarker.focalPoint.y } : null} onZoomFocalChange={updateZoomMarkerFocalPoint} censorDrawArmed={censorDrawArmed} onCensorDraw={addCensorAtRect} selectedCensor={selectedCensorRegion} onCensorRectChange={updateCensorRect} />
         ) : (
           // P-AI-C/TASK-169 — empty-state for blank projects (no assets). The
           // NLE Editor view will be the proper home for blank projects once it
@@ -4464,7 +4514,7 @@ function ProjectPreview({
           <p className="eyebrow"><Icon name="timeline" /> Timeline</p>
             <span>{formatClock(currentTimeSec)}</span>
           </div>
-          {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onRestoreTrimStart={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'head' }) as ProjectState['document']) : undefined} onRestoreTrimEnd={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'tail' }) as ProjectState['document']) : undefined} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} /> : null}
+          {effectiveRecording ? <VisualTimeline project={effectiveProject} currentTimeSec={currentTimeSec} isPlaying={previewPlaying} selectedZoomMarkerId={selectedZoomMarker?.id ?? null} cutRanges={activeCutRanges} cutModeActive={cutModeActive} onCutModeToggle={() => setCutModeActive((v) => !v)} onScrub={handleTimelineScrub} onScrubStart={handleTimelineScrubStart} onScrubEnd={handleTimelineScrubEnd} onTrimClipEdge={updateTimelineClipTrim} onMoveClip={updateTimelineClipPosition} onRestoreTrimStart={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'head' }) as ProjectState['document']) : undefined} onRestoreTrimEnd={() => recordingAsset?.id ? void persist(restoreRecordingSourceEdge(project.document, { assetId: recordingAsset.id, edge: 'tail' }) as ProjectState['document']) : undefined} onRestoreCut={restoreCut} onZoomMarkerRangeChange={updateZoomMarkerRange} onZoomMarkerRemove={removeZoomMarker} onZoomMarkersRemove={removeZoomMarkers} onZoomMarkerStrengthChange={updateZoomMarkerStrength} onAddZoomMarkerAt={addZoomMarkerAtTime} onAddCutBetween={addCutBetween} onSelectInspectorContext={focusInspectorContext} selectedCensorId={selectedCensorId} onSelectCensor={setSelectedCensorId} onCensorRangeChange={updateCensorRange} onCensorRemove={removeCensor} onCensorModeToggle={toggleCensorMode} onCensorCreateRange={createCensorForRange} /> : null}
         </div>
       </div>
       <aside className="inspector" aria-label="Export settings" data-ui-region="right-inspector">
@@ -4644,7 +4694,7 @@ function preventRangeWheelChange(event: React.WheelEvent<HTMLInputElement>) {
   event.currentTarget.blur();
 }
 
-function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkersRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext, selectedCensorId = null, onSelectCensor, onCensorRangeChange, onCensorRemove, onCensorModeToggle }: { project: ProjectState; currentTimeSec: number; isPlaying?: boolean; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkersRemove?: (markerIds: string[]) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void; selectedCensorId?: string | null; onSelectCensor?: (censorId: string | null) => void; onCensorRangeChange?: (censorId: string, startFrame: number, endFrame: number) => void; onCensorRemove?: (censorId: string) => void; onCensorModeToggle?: (censorId: string) => void }) {
+function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZoomMarkerId = null, cutRanges = [], cutModeActive = false, onCutModeToggle, onScrub, onScrubStart, onScrubEnd, onTrimClipEdge, onMoveClip, onRestoreTrimStart, onRestoreTrimEnd, onRestoreCut, onZoomMarkerRangeChange, onZoomMarkerRemove, onZoomMarkersRemove, onZoomMarkerStrengthChange, onAddZoomMarkerAt, onAddCutBetween, onSelectInspectorContext, selectedCensorId = null, onSelectCensor, onCensorRangeChange, onCensorRemove, onCensorModeToggle, onCensorCreateRange }: { project: ProjectState; currentTimeSec: number; isPlaying?: boolean; selectedZoomMarkerId?: string | null; cutRanges?: CutRange[]; cutModeActive?: boolean; onCutModeToggle?: () => void; onScrub: (timeSec: number) => void; onScrubStart: () => void; onScrubEnd: (timeSec: number) => void; onTrimClipEdge: (clipId: string, edge: 'head' | 'tail', frame: number) => void; onMoveClip?: (clipId: string, timelineIn: number) => void; onRestoreTrimStart: () => void; onRestoreTrimEnd: () => void; onRestoreCut: (cutRangeId: string) => void; onZoomMarkerRangeChange: (markerId: string, startFrame: number, endFrame: number) => void; onZoomMarkerRemove?: (markerId: string) => void; onZoomMarkersRemove?: (markerIds: string[]) => void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onAddZoomMarkerAt?: (sourceTimeSec: number) => void; onAddCutBetween?: (startFrame: number, endFrame: number) => void; onSelectInspectorContext: (selection: InspectorSelection) => void; selectedCensorId?: string | null; onSelectCensor?: (censorId: string | null) => void; onCensorRangeChange?: (censorId: string, startFrame: number, endFrame: number) => void; onCensorRemove?: (censorId: string) => void; onCensorModeToggle?: (censorId: string) => void; onCensorCreateRange?: (startFrame: number, endFrame: number) => void }) {
   const model = buildTimelineModel({
     document: project.document as unknown as ProjectDocument,
     recording: project.recording,
@@ -4660,6 +4710,7 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
   const [zoomSelectionPreview, setZoomSelectionPreview] = React.useState<{ left: number; width: number } | null>(null);
   const [selectedZoomMarkerIds, setSelectedZoomMarkerIds] = React.useState<string[]>([]);
   const [censorDragPreview, setCensorDragPreview] = React.useState<{ id: string; startFrame: number; endFrame: number } | null>(null);
+  const [censorSpanPreview, setCensorSpanPreview] = React.useState<{ left: number; width: number } | null>(null);
   const [cutDragPreview, setCutDragPreview] = React.useState<{ startFrame: number; endFrame: number } | null>(null);
   const [trimDragPreview, setTrimDragPreview] = React.useState<{ clipId: string; edge: 'head' | 'tail'; frame: number } | null>(null);
   const [clipDragPreview, setClipDragPreview] = React.useState<{ clipId: string; timelineIn: number; timelineOut: number } | null>(null);
@@ -5064,6 +5115,66 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
     };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up, { once: true });
+    window.addEventListener('pointercancel', cancel, { once: true });
+  }
+
+  /**
+   * Drag a span on the Censor lane to create a censor covering those frames.
+   *
+   * Deliberately the same gesture as the Zoom lane, including the trim clamp and the
+   * click-versus-drag gate, so a low-movement release does not drop a phantom censor.
+   * The box lands centred and selected; you position it on the preview afterwards.
+   */
+  function handleCensorLanePointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    if (!onCensorCreateRange) return;
+    if ((event.target as HTMLElement).closest('.timelineRegion, .zoomResizeHandle, .zoomRegionDelete, .zoomEditorChip')) return;
+    const track = event.currentTarget;
+    const downFrame = sourceFrameFromClient(track, event.clientX);
+    if (downFrame === null) return;
+    event.preventDefault();
+    track.setPointerCapture(event.pointerId);
+    const startClientX = event.clientX;
+    let dragged = false;
+
+    const updatePreview = (clientX: number) => {
+      const trackRect = track.getBoundingClientRect();
+      const startX = Math.max(trackRect.left, Math.min(trackRect.right, startClientX));
+      const currentX = Math.max(trackRect.left, Math.min(trackRect.right, clientX));
+      const leftPx = Math.min(startX, currentX) - trackRect.left;
+      const widthPx = Math.abs(currentX - startX);
+      setCensorSpanPreview({
+        left: trackRect.width > 0 ? (leftPx / trackRect.width) * 100 : 0,
+        width: trackRect.width > 0 ? (widthPx / trackRect.width) * 100 : 0,
+      });
+    };
+
+    const move = (moveEvent: PointerEvent) => {
+      if (!dragged && Math.abs(moveEvent.clientX - startClientX) < 4) return;
+      dragged = true;
+      updatePreview(moveEvent.clientX);
+    };
+    const finish = (upEvent: PointerEvent | null) => {
+      setCensorSpanPreview(null);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+      if (!upEvent) return;
+      const upFrame = sourceFrameFromClient(track, upEvent.clientX);
+      if (upFrame === null) return;
+      const minFrame = Math.max(0, model.trimStartFrame);
+      const maxFrame = Math.max(minFrame + 1, Math.min(sourceFrameDuration, model.trimEndFrame));
+      const rawStart = Math.max(minFrame, Math.min(maxFrame, Math.min(downFrame, upFrame)));
+      const rawEnd = Math.max(minFrame, Math.min(maxFrame, Math.max(downFrame, upFrame)));
+      // A click rather than a drag still creates something useful: a censor running
+      // from here to the end, matching what the Censor button does.
+      const endFrame = rawEnd - rawStart >= MIN_CENSOR_SPAN_FRAMES ? rawEnd : maxFrame;
+      onCensorCreateRange(rawStart, endFrame);
+    };
+    const up = (upEvent: PointerEvent) => finish(upEvent);
+    const cancel = () => finish(null);
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up, { once: true });
     window.addEventListener('pointercancel', cancel, { once: true });
@@ -5676,7 +5787,8 @@ function VisualTimeline({ project, currentTimeSec, isPlaying = false, selectedZo
             );
           })()}
             </TimelineLane>
-            <TimelineLane label="Censor" className="censorLane" aria-label="Censor regions" onTrackPointerDown={handleTimelineSeekPointerDown} trackTitle="Click or drag to seek">
+            <TimelineLane label="Censor" className="censorLane" aria-label="Censor regions" onTrackPointerDown={onCensorCreateRange ? handleCensorLanePointerDown : handleTimelineSeekPointerDown} trackTitle={onCensorCreateRange ? 'Drag to censor part of the screen for this span' : 'Click or drag to seek'}>
+          {censorSpanPreview ? <div className="censorSpanPreview" style={{ left: `${censorSpanPreview.left}%`, width: `${censorSpanPreview.width}%` }} aria-hidden="true" /> : null}
           {model.lanes.censor.length > 0
             ? model.lanes.censor.map((region) => {
                 const solid = region.kind === 'solid';

@@ -284,10 +284,27 @@ ever wrong under trims, zoom and censor are wrong together rather than drifting 
 the screen chain the censor filters live in, so taking it would export the thing the
 user asked to hide.
 
-### The mosaic must be one `geq`, never `split` + `overlay`
+### The mosaic must be `geq`, never `split` + `overlay`
 
-`solid` is one `drawbox`. `pixelate` is one `geq` that quantizes the sample
-coordinate inside the region — a real mosaic, every block a flat colour.
+`solid` is one `drawbox`. `pixelate` is a `geq` that quantizes the sample coordinate
+inside the region — a real mosaic, every block a flat colour — plus, when softness is
+above 0, a second `geq` that box-averages inside the region to soften the block edges.
+Blocks stay visible; that is "blur over the pixelation" rather than smoothing the
+pixelation away.
+
+Every tap in the smoothing pass is `clip()`-ed to the region bounds. That is the
+safety property, not a style choice: an unclipped average would read real pixels just
+outside the boundary, pulling detail in and smearing the censor outward. Measured by
+comparing the crisp mosaic against the blurred one through an identical format path:
+**zero pixels outside the region changed**, while 64% inside did.
+
+Softness 0 skips the second pass entirely rather than emitting a zero-spacing average,
+which would cost a whole extra pass for an identical image: 39ms/frame crisp versus
+99ms/frame blurred at 1080p.
+
+An earlier attempt used bilinear interpolation between block centres. Rendered and
+compared side by side, that removes the blockiness completely — a different effect from
+the one asked for — so it was rejected in favour of the clamped box average.
 
 The obvious mosaic (`split`, `crop`, downscale, `scale=...:flags=neighbor` back up,
 `overlay`) works fine without zoom and **deadlocks with zoom**: ffmpeg parked at 0%
@@ -322,6 +339,38 @@ any pixels and would let a broken mosaic pass.
 **Lesson for the next effect:** a feature that must appear in an exported file is not
 done when unit tests pass. It is done when a script has exported the file and
 measured the pixels.
+
+## 7b. Creating and positioning a censor
+
+Two creation gestures, both landing in `addCensorRegionAt`:
+
+- **Drag a span on the Censor lane** (primary). Mirrors `handleZoomLanePointerDown`,
+  including the trim clamp and the click-versus-drag gate. The censor lands as a
+  centred 30% box, selected, ready to position. A click rather than a drag still
+  creates one running to the end, matching the Censor button.
+- **Draw a box on the preview** with the Censor tool armed, for when the area is known
+  first.
+
+`addCensorRegionAt` uniquifies ids. Deriving the id from the frame plus the rect was
+fine while every rect was hand-drawn, but timeline creation uses one fixed default box,
+so two censors created at the same frame collided and the second overwrote the first.
+
+Moving and resizing the selected censor reuses the camera/screen frame machinery —
+`resizeHandleAtPoint`, `cursorForResizeHandle`, `drawEditorFrameControls` — so it looks
+and feels like the frame editing already in the app. The rect maths runs in **source**
+space (`moveCensorRect`, `resizeCensorRect` in `censor-regions.mjs`), not the
+canvas-normalized space the frame helpers return, because a censor rect is normalized
+to the source frame.
+
+Handles are drawn in **canvas** space at their own call site, outside
+`applyScreenSourceTransform`. Drawing them inside the censor pass, which runs in source
+space, would scale the handles with the zoom. `sourceRectToCanvasRect` provides the
+canvas rect and is round-trip tested against the pointer inverse.
+
+Pointer priority: armed-draw → focal target → camera PiP → **selected censor** →
+screen frame. The censor only participates while selected, so it cannot steal drags the
+rest of the time; it beats the screen frame because the frame is the backdrop, and
+loses to the PiP because the PiP is a small distinct object on top.
 
 ## 8. Risks
 

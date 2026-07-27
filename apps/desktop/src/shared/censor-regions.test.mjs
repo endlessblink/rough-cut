@@ -11,6 +11,10 @@ import {
   resolveCensorSoftenRadiusPx,
   resolveCensorSourceScale,
   mapCensorSourceRectToDest,
+  resolveCensorSoftness,
+  resolveCensorBlurSpacing,
+  moveCensorRect,
+  resizeCensorRect,
 } from './censor-regions.mjs';
 
 function region(overrides = {}) {
@@ -219,4 +223,78 @@ test('mapCensorSourceRectToDest refuses degenerate rects instead of dividing by 
   assert.equal(mapCensorSourceRectToDest(censor, source, null), null);
   assert.equal(mapCensorSourceRectToDest(censor, { ...source, width: 0 }, dest), null);
   assert.equal(mapCensorSourceRectToDest(censor, source, { ...dest, height: 0 }), null);
+});
+
+test('resolveCensorSoftness defaults when absent and honours legacy soften:false', () => {
+  assert.equal(resolveCensorSoftness({ soften: true }), 0.5);
+  assert.equal(resolveCensorSoftness({ soften: true, softness: 0.8 }), 0.8);
+  // A project saved with softening explicitly off keeps crisp blocks even though
+  // softness now has a default.
+  assert.equal(resolveCensorSoftness({ soften: false }), 0);
+  assert.equal(resolveCensorSoftness({ soften: false, softness: 1 }), 0);
+  assert.equal(resolveCensorSoftness(null), 0);
+  assert.equal(resolveCensorSoftness({ soften: true, softness: 5 }), 1);
+});
+
+test('resolveCensorBlurSpacing returns 0 at softness 0 so the export skips the pass', () => {
+  // Emitting a zero-spacing average would cost a whole extra geq pass (39 -> 99
+  // ms/frame at 1080p) to produce an identical image.
+  assert.equal(resolveCensorBlurSpacing({ soften: false, blockSize: 48 }), 0);
+  assert.equal(resolveCensorBlurSpacing({ soften: true, softness: 0, blockSize: 48 }), 0);
+  assert.ok(resolveCensorBlurSpacing({ soften: true, softness: 1, blockSize: 48 }) > 0);
+});
+
+test('blur spacing stays under a quarter block so blocks remain visible as blocks', () => {
+  // That is the difference between "blur over the pixelation" and smoothing the
+  // pixelation away entirely.
+  for (const block of [16, 24, 48, 96]) {
+    const spacing = resolveCensorBlurSpacing({ soften: true, softness: 1, blockSize: block });
+    assert.ok(spacing <= Math.ceil(block / 4), `block ${block}: spacing ${spacing} too wide`);
+    assert.ok(spacing >= 1);
+  }
+});
+
+test('preview soften radius scales with softness and is 0 for solid', () => {
+  const region = { mode: 'pixelate', blockSize: 48, soften: true };
+  const low = resolveCensorSoftenRadiusPx({ ...region, softness: 0.25 }, 1);
+  const high = resolveCensorSoftenRadiusPx({ ...region, softness: 1 }, 1);
+  assert.ok(high > low);
+  assert.equal(resolveCensorSoftenRadiusPx({ ...region, softness: 0 }, 1), 0);
+  assert.equal(resolveCensorSoftenRadiusPx({ mode: 'solid', blockSize: 48, soften: true, softness: 1 }, 1), 0);
+});
+
+test('moveCensorRect keeps its size and stays inside the frame', () => {
+  // Clamping the position rather than squashing the box matters: shrinking on a corner
+  // drag would silently uncover content.
+  const rect = { x: 0.4, y: 0.4, w: 0.2, h: 0.2 };
+  assert.deepEqual(moveCensorRect(rect, 0.1, -0.1), { x: 0.5, y: 0.30000000000000004, w: 0.2, h: 0.2 });
+  const pinned = moveCensorRect(rect, 5, 5);
+  assert.deepEqual(pinned, { x: 0.8, y: 0.8, w: 0.2, h: 0.2 });
+  const pinnedStart = moveCensorRect(rect, -5, -5);
+  assert.deepEqual(pinnedStart, { x: 0, y: 0, w: 0.2, h: 0.2 });
+  assert.equal(moveCensorRect({ x: 0, y: 0, w: 0, h: 0.2 }, 0.1, 0), null);
+});
+
+test('resizeCensorRect moves only the grabbed edges', () => {
+  const rect = { x: 0.4, y: 0.4, w: 0.2, h: 0.2 };
+  const east = resizeCensorRect(rect, 'e', 0.8, 0.9);
+  assert.equal(east.x, 0.4);
+  assert.equal(east.y, 0.4);
+  assert.ok(Math.abs(east.w - 0.4) < 1e-9);
+  assert.ok(Math.abs(east.h - 0.2) < 1e-9);
+
+  const northWest = resizeCensorRect(rect, 'nw', 0.1, 0.2);
+  assert.ok(Math.abs(northWest.x - 0.1) < 1e-9);
+  assert.ok(Math.abs(northWest.y - 0.2) < 1e-9);
+  assert.ok(Math.abs(northWest.x + northWest.w - 0.6) < 1e-9);
+});
+
+test('resizeCensorRect cannot invert or collapse the censor', () => {
+  const rect = { x: 0.4, y: 0.4, w: 0.2, h: 0.2 };
+  // Drag the west edge far past the east edge.
+  const crossed = resizeCensorRect(rect, 'w', 0.95, 0.5);
+  assert.ok(crossed.w >= 0.02, `expected a minimum width, got ${crossed.w}`);
+  assert.ok(crossed.x < rect.x + rect.w);
+  const crossedNorth = resizeCensorRect(rect, 'n', 0.5, 0.95);
+  assert.ok(crossedNorth.h >= 0.02);
 });

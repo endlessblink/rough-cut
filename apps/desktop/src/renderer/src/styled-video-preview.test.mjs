@@ -719,3 +719,38 @@ test('censor overlay skips a region with no visible area instead of substituting
   assert.match(overlaySource, /const rect = censorRectToSourceRect\(/);
   assert.match(overlaySource, /if \(!rect\) continue;/);
 });
+
+test('censor handles are drawn in canvas space, outside the source transform', () => {
+  const previewSource = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+
+  // drawEditorFrameControls sizes its handles in fixed pixels from the rect it is
+  // given. Called inside applyScreenSourceTransform the handles would scale with the
+  // zoom, so the censor rect is converted to canvas space first and drawn separately
+  // from the censor fill.
+  assert.match(previewSource, /const publishCensorHandles = \(\) => \{/);
+  assert.match(previewSource, /sourceRectToCanvasRect\(censorMappingRef\.current,/);
+  assert.match(previewSource, /drawEditorFrameControls\(ctx, rect, '#93c5fd'\)/);
+  // Both draw paths publish them, same as the censor fill itself.
+  assert.equal((previewSource.match(/publishCensorHandles\(\);/g) ?? []).length, 2);
+});
+
+test('a selected censor outranks the screen frame but yields to the camera PiP', () => {
+  const previewSource = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+
+  // Order matters: the screen frame is the backdrop so the censor must win there, but
+  // the PiP is a small distinct object on top so it must keep its own drags.
+  const censorAt = previewSource.indexOf('if (selectedCensor && onCensorRectChange) {');
+  const screenGuardAt = previewSource.indexOf('if (!onCameraFrameChange && !onScreenFrameChange && !onZoomFocalChange) return;');
+  assert.ok(censorAt > -1 && screenGuardAt > -1);
+  assert.ok(censorAt < screenGuardAt, 'censor must be considered before screen-frame dragging');
+  assert.match(previewSource, /if \(\(censorHandle \|\| insideCensor\) && !overCameraNow\)/);
+});
+
+test('censor rect edits are computed in source space, not canvas-normalized space', () => {
+  const previewSource = readFileSync(join(here, 'styled-video-preview.tsx'), 'utf8');
+
+  // moveRectFromPointer/resizeRectFromPointer normalize to the CANVAS; a censor rect is
+  // normalized to the source frame, so using them here would misplace the censor.
+  assert.match(previewSource, /moveCensorRect\(censorEdit\.startRect,/);
+  assert.match(previewSource, /resizeCensorRect\(censorEdit\.startRect, censorEdit\.handle,/);
+});

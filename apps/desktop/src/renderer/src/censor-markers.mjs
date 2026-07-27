@@ -18,6 +18,14 @@ const MIN_SPAN_FRAMES = 6;
 const MIN_RECT_SIZE = 0.005;
 export const DEFAULT_CENSOR_BLOCK_SIZE = 24;
 
+/**
+ * Box a timeline-created censor starts with: a clearly visible rectangle in the
+ * middle of the frame, obviously wanting to be dragged into place. Not full-frame,
+ * which reads as alarming, and not invisible, which leaves an unpositioned censor
+ * lying around.
+ */
+export const DEFAULT_CENSOR_RECT = { x: 0.35, y: 0.35, w: 0.3, h: 0.3 };
+
 function withDefaultPresentation(presentation) {
   return { ...createDefaultRecordingPresentation(), ...(presentation ?? {}) };
 }
@@ -53,6 +61,17 @@ export function normalizeCensorRect(rect) {
   const height = Math.abs(y2 - y1);
   if (width < MIN_RECT_SIZE || height < MIN_RECT_SIZE) return null;
   return { x: roundUnit(left), y: roundUnit(top), w: roundUnit(width), h: roundUnit(height) };
+}
+
+function nextCensorId(existing, startFrame) {
+  const taken = new Set((existing ?? []).map((region) => region?.id));
+  const base = `censor-${startFrame}`;
+  if (!taken.has(base)) return base;
+  for (let suffix = 2; suffix < 10_000; suffix += 1) {
+    const candidate = `${base}-${suffix}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${base}-${taken.size + 1}`;
 }
 
 export function listCensorRegions(document) {
@@ -95,7 +114,12 @@ export function addCensorRegionAt(document, options = {}) {
   const endFrame = Math.max(startFrame + MIN_SPAN_FRAMES, Math.min(rawEnd, asset.duration));
   if (endFrame <= startFrame) return document;
 
-  const id = typeof options.id === 'string' && options.id ? options.id : `censor-${startFrame}-${Math.round(rect.x * 1e4)}-${Math.round(rect.y * 1e4)}`;
+  // Uniquify against what already exists. Deriving the id purely from the frame and
+  // the rect collides the moment two censors are created at the same frame with the
+  // same default box, which is exactly what timeline-first creation does.
+  const id = typeof options.id === 'string' && options.id
+    ? options.id
+    : nextCensorId(listCensorRegions(document), startFrame);
   const region = {
     id,
     startFrame,
@@ -137,6 +161,21 @@ export function updateCensorRegionRect(document, regionId, rect) {
   const next = regions.slice();
   next[index] = { ...regions[index], rect: nextRect };
   return writeCensorRegions(document, next);
+}
+
+export function setCensorRegionSoftness(document, regionId, softness) {
+  const next = Math.max(0, Math.min(1, Number(softness)));
+  if (!Number.isFinite(next)) return document;
+  const regions = listCensorRegions(document);
+  const index = regions.findIndex((region) => region.id === regionId);
+  if (index < 0) return document;
+  const current = regions[index];
+  if (current.softness === next && current.soften !== false) return document;
+  const updated = regions.slice();
+  // Clear the legacy `soften: false` when the user raises softness, otherwise the
+  // old flag would keep overriding the new value to 0.
+  updated[index] = { ...current, softness: next, soften: next > 0 ? true : current.soften };
+  return writeCensorRegions(document, updated);
 }
 
 export function setCensorRegionMode(document, regionId, mode) {

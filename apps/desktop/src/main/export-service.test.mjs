@@ -1681,7 +1681,7 @@ test('buildCensorSourceFilters renders a solid censor as one time-gated drawbox'
   assert.equal(result.outputLabel, '[censored_0]');
 });
 
-test('buildCensorSourceFilters exports pixelate as a single geq mosaic', () => {
+test('buildCensorSourceFilters exports a crisp pixelate as one geq', () => {
   const result = buildCensorSourceFilters({
     censorRegions: [{
       id: 'c1',
@@ -1689,6 +1689,7 @@ test('buildCensorSourceFilters exports pixelate as a single geq mosaic', () => {
       mode: 'pixelate',
       blockSize: 48,
       soften: true,
+      softness: 0,
       startFrame: 0,
       endFrame: 60,
     }],
@@ -1698,10 +1699,82 @@ test('buildCensorSourceFilters exports pixelate as a single geq mosaic', () => {
   });
 
   // Format pinned first, then one geq. geq's planes only exist on planar YUV.
+  // Softness 0 must skip the smoothing pass entirely rather than emit a
+  // zero-spacing average, which would cost a full extra pass for the same image.
   assert.equal(result.filters.length, 2);
   assert.match(result.filters[0], /^\[base\]format=yuv420p\[censored_yuv\]$/);
   assert.match(result.filters[1], /^\[censored_yuv\]geq=lum='if\(between\(X,0,479\)\*between\(Y,0,269\)/);
   assert.match(result.filters[1], /enable='between\(t,0,2\)'\[censored_0\]$/);
+});
+
+test('a softened pixelate adds a second geq that averages inside the region', () => {
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1',
+      rect: { x: 0, y: 0, w: 0.25, h: 0.25 },
+      mode: 'pixelate',
+      blockSize: 48,
+      soften: true,
+      softness: 1,
+      startFrame: 0,
+      endFrame: 60,
+    }],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+
+  assert.equal(result.filters.length, 3);
+  // Mosaic first, then the blur reads the mosaic's output — not the original.
+  assert.match(result.filters[1], /\[censored_m0\]$/);
+  assert.match(result.filters[2], /^\[censored_m0\]geq=/);
+  assert.match(result.filters[2], /\[censored_0\]$/);
+  // Nine taps, averaged.
+  assert.equal((result.filters[2].match(/clip\(X\+\(/g) ?? []).length, 9 * 3);
+  assert.match(result.filters[2], /\)\/9/);
+});
+
+test('every blur tap is clipped inside the censor so it cannot read past the edge', () => {
+  // This is the safety property, not a style choice: an unclipped average would pull
+  // real detail in from outside the boundary and smear the censor outward. Measured
+  // with the clips in place: zero pixels outside the region change.
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1',
+      rect: { x: 0.25, y: 0.25, w: 0.25, h: 0.25 },
+      mode: 'pixelate',
+      blockSize: 48,
+      soften: true,
+      softness: 1,
+      startFrame: 0,
+      endFrame: 60,
+    }],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+  const blur = result.filters[2];
+
+  // Luma taps clamp to the luma region, chroma taps to the halved chroma region.
+  assert.equal((blur.match(/clip\(X\+\([^)]*\),480,959\)/g) ?? []).length, 9);
+  assert.equal((blur.match(/clip\(Y\+\([^)]*\),270,539\)/g) ?? []).length, 9);
+  assert.equal((blur.match(/clip\(X\+\([^)]*\),240,479\)/g) ?? []).length, 18);
+  // No tap may reference a bare coordinate inside the averaged expression.
+  assert.doesNotMatch(blur, /\+lum\(X,Y\)\+/);
+});
+
+test('a solid censor never gets a blur pass', () => {
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1', rect: { x: 0, y: 0, w: 0.2, h: 0.2 },
+      mode: 'solid', blockSize: 48, soften: true, softness: 1, startFrame: 0, endFrame: 60,
+    }],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+  assert.equal(result.filters.length, 1);
+  assert.doesNotMatch(result.filters[0], /geq=/);
 });
 
 test('the pixelate mosaic halves the region and block for the chroma planes', () => {
