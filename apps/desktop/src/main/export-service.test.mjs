@@ -1845,14 +1845,15 @@ test('the pixelate mosaic halves the region and block for the chroma planes', ()
   assert.match(geq, /cr='if\(between\(X,240,479\)\*between\(Y,135,269\)/);
 });
 
-test('a censor that follows moving content animates its drawbox instead of standing still', () => {
+test('a censor that follows moving content animates its mosaic instead of standing still', () => {
   const result = buildCensorSourceFilters({
     censorRegions: [{
       id: 'c1',
       rect: { x: 0, y: 0, w: 0.25, h: 0.25 },
-      mode: 'solid',
-      blockSize: 24,
-      soften: false,
+      mode: 'pixelate',
+      blockSize: 48,
+      soften: true,
+      softness: 0,
       startFrame: 0,
       endFrame: 60,
       keyframes: [
@@ -1865,13 +1866,11 @@ test('a censor that follows moving content animates its drawbox instead of stand
     fps: 30,
   });
 
-  assert.equal(result.filters.length, 1);
-  // drawbox reads time as lowercase t, in both the geometry and the gate.
-  assert.match(result.filters[0], /drawbox=x='\(0\+\(960\)\*clip\(\(t-0\)\/2,0,1\)\)'/);
-  assert.match(result.filters[0], /enable='between\(t,0,2\)'/);
-  // The size did not change across the keyframes, so it stays a plain number
-  // rather than paying for an expression that always evaluates to the same value.
-  assert.match(result.filters[0], /:w=480:h=270:/);
+  // Format pin, then one geq carrying the whole span: geq evaluates per pixel per
+  // frame, so a time expression there really does move the mosaic.
+  assert.equal(result.filters.length, 2);
+  assert.match(result.filters[1], /\(0\+\(960\)\*clip\(\(T-0\)\/2,0,1\)\)/);
+  assert.match(result.filters[1], /enable='between\(t,0,2\)'/);
 });
 
 test('a moving pixelate reads time as uppercase T, which is the only form geq accepts', () => {
@@ -1912,9 +1911,10 @@ test('a moving censor emits one filter per keyframe span, tiling its lifetime ex
     censorRegions: [{
       id: 'c1',
       rect: { x: 0, y: 0, w: 0.25, h: 0.25 },
-      mode: 'solid',
-      blockSize: 24,
-      soften: false,
+      mode: 'pixelate',
+      blockSize: 48,
+      soften: true,
+      softness: 0,
       startFrame: 0,
       endFrame: 90,
       keyframes: [
@@ -1929,8 +1929,9 @@ test('a moving censor emits one filter per keyframe span, tiling its lifetime ex
     fps: 30,
   });
 
-  assert.equal(result.filters.length, 3);
-  const windows = result.filters.map((filter) => {
+  // The format pin, then one geq per span.
+  assert.equal(result.filters.length, 4);
+  const windows = result.filters.slice(1).map((filter) => {
     const match = filter.match(/enable='between\(t,([^,]+),([^)]+)\)'/);
     return [Number(match[1]), Number(match[2])];
   });
@@ -1945,9 +1946,10 @@ test('a moving censor still counts as one censor for the caller', () => {
       {
         id: 'moving',
         rect: { x: 0, y: 0, w: 0.2, h: 0.2 },
-        mode: 'solid',
-        blockSize: 24,
-        soften: false,
+        mode: 'pixelate',
+        blockSize: 48,
+        soften: true,
+        softness: 0,
         startFrame: 0,
         endFrame: 60,
         keyframes: [
@@ -1963,7 +1965,8 @@ test('a moving censor still counts as one censor for the caller', () => {
     fps: 30,
   });
   assert.equal(result.count, 2);
-  assert.equal(result.filters.length, 3);
+  // Format pin, two spans for the moving one, one box for the still one.
+  assert.equal(result.filters.length, 4);
   // Every filter feeds the next, so no span can be dropped from the chain.
   assert.equal(result.outputLabel, '[censored_2]');
 });
@@ -2144,7 +2147,7 @@ test('a moving censor spanning a cut keeps its two halves in step', () => {
   const result = buildCensorSourceFilters({
     censorRegions: [{
       id: 'c1', rect: { x: 0, y: 0, w: 0.2, h: 0.2 },
-      mode: 'solid', blockSize: 24, soften: false, startFrame: 0, endFrame: 120,
+      mode: 'pixelate', blockSize: 48, soften: true, softness: 0, startFrame: 0, endFrame: 120,
       keyframes: [
         { frame: 0, rect: { x: 0, y: 0, w: 0.2, h: 0.2 } },
         { frame: 120, rect: { x: 0.6, y: 0, w: 0.2, h: 0.2 } },
@@ -2155,9 +2158,51 @@ test('a moving censor spanning a cut keeps its two halves in step', () => {
   });
 
   // One span each side of the cut, tiling the compacted 60-frame output exactly.
-  const windows = result.filters.map((filter) => {
+  const windows = result.filters.slice(1).map((filter) => {
     const match = filter.match(/enable='between\(t,([^,]+),([^)]+)\)'/);
     return [Number(match[1]), Number(match[2])];
   });
   assert.deepEqual(windows, [[0, 1], [1, 2]]);
+});
+
+test('a moving solid censor is emitted one box per frame, because drawbox cannot animate', () => {
+  // Measured against ffmpeg 6.1: drawbox evaluates x/y/w/h ONCE, and has no
+  // eval=frame option, so a time expression there leaves the box parked at a single
+  // position for the whole span — the censor stops covering its target while
+  // appearing to work. geq (the pixelate path) evaluates per pixel per frame and is
+  // not affected, which is exactly why this went unnoticed: the smoke covers
+  // pixelate. A box per frame is the only per-frame geometry drawbox offers.
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1', rect: { x: 0, y: 0, w: 0.25, h: 0.25 },
+      mode: 'solid', blockSize: 24, soften: false, startFrame: 0, endFrame: 5,
+      keyframes: [
+        { frame: 0, rect: { x: 0, y: 0, w: 0.25, h: 0.25 } },
+        { frame: 5, rect: { x: 0.5, y: 0, w: 0.25, h: 0.25 } },
+      ],
+    }],
+    sourceWidth: 1920, sourceHeight: 1080, fps: 30,
+  });
+
+  assert.equal(result.filters.length, 5, 'expected one drawbox per frame of the span');
+  // No time expression survives: every box is a plain number.
+  for (const filter of result.filters) {
+    assert.doesNotMatch(filter, /clip\(\(t-/, `a drawbox still carries a time expression: ${filter}`);
+  }
+  // Each box is gated to its own single frame, and they step across the span.
+  const xs = result.filters.map((filter) => Number(filter.match(/drawbox=x=(\d+)/)[1]));
+  assert.deepEqual(xs, [0, 192, 384, 576, 768]);
+});
+
+test('a still solid censor is still one drawbox for its whole span', () => {
+  // The per-frame expansion must not apply to censors that do not move: a minute of
+  // static censor would otherwise become eighteen hundred filters.
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1', rect: { x: 0.25, y: 0.5, w: 0.25, h: 0.25 },
+      mode: 'solid', blockSize: 24, soften: false, startFrame: 30, endFrame: 90,
+    }],
+    sourceWidth: 1920, sourceHeight: 1080, fps: 30,
+  });
+  assert.equal(result.filters.length, 1);
 });

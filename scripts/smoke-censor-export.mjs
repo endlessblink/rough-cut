@@ -332,6 +332,38 @@ const earlySpan = changedSpanX(ppmPixels(cleanPath, 0.1), ppmPixels(movingPath, 
 const lateSpan = changedSpanX(ppmPixels(cleanPath, 1.8), ppmPixels(movingPath, 1.8));
 const movedDistance = lateSpan.centerX - earlySpan.centerX;
 
+// The same motion as a SOLID censor, sampled twice INSIDE one keyframe span.
+//
+// Solid and pixelate take different filters through the export, and only pixelate
+// was ever checked against pixels — which is how a solid censor that silently
+// stopped moving got shipped. drawbox evaluates its geometry once, so a time
+// expression there freezes the box for the whole span while the target walks out
+// from under it. Two samples inside a single span is what distinguishes "moves
+// smoothly" from "jumps once per span": under the frozen bug these two frames are
+// identical, and the whole-clip travel check above still passes.
+const movingSolidPath = join(root, 'moving-solid.mp4');
+await exportProjectToMp4({
+  project: {
+    ...movingDocument,
+    assets: movingDocument.assets.map((asset) => (
+      asset.presentation?.censorRegions
+        ? {
+            ...asset,
+            presentation: {
+              ...asset.presentation,
+              censorRegions: asset.presentation.censorRegions.map((region) => ({ ...region, mode: 'solid', soften: false })),
+            },
+          }
+        : asset
+    )),
+  },
+  outputPath: movingSolidPath,
+  mode: 'styled',
+});
+const solidEarly = changedSpanX(ppmPixels(cleanPath, 0.3), ppmPixels(movingSolidPath, 0.3));
+const solidLater = changedSpanX(ppmPixels(cleanPath, 0.9), ppmPixels(movingSolidPath, 0.9));
+const solidWithinSpanTravel = solidLater.centerX - solidEarly.centerX;
+
 // Same censor again with zoom active. The screen chain is the one place a censor
 // filter can deadlock ffmpeg outright, and animation adds many more filter
 // instances to it, so the zoomed path is re-proven rather than assumed.
@@ -371,7 +403,11 @@ const report = {
     && earlySpan.ratio < 0.35
     && lateSpan.ratio < 0.35
     && movedDistance > 0.15
+    // A solid censor must move BETWEEN two frames of the same span, not only
+    // between spans.
+    && solidWithinSpanTravel > 0.02
     && movingZoomRatio > 0.05,
+  movingSolidWithinSpanTravel: Math.round(solidWithinSpanTravel * 1000) / 1000,
   movingCensorEarlyCenterX: Math.round(earlySpan.centerX * 1000) / 1000,
   movingCensorLateCenterX: Math.round(lateSpan.centerX * 1000) / 1000,
   movingCensorTravelled: Math.round(movedDistance * 1000) / 1000,
@@ -401,6 +437,6 @@ console.log(JSON.stringify(report, null, 2));
 
 if (!report.ok) {
   throw new Error(
-    `censor did not reach the export as expected: inside=${report.changedInsideRatio} (want > 0.2), outside=${report.changedOutsideRatio} (want < 0.05), zoomed=${report.changedWithZoomRatio} (want > 0.05), flatPatches ${report.flatPatchesClean} -> ${report.flatPatchesCrispMosaic} (want +0.2), softVsCrisp=${report.softVsCrispChangedRatio} (want > 0.02), moving censor centre ${report.movingCensorEarlyCenterX} -> ${report.movingCensorLateCenterX} (travelled ${report.movingCensorTravelled}, want > 0.15) at ratios ${report.movingCensorEarlyRatio}/${report.movingCensorLateRatio} (want each in 0.03..0.35), moving+zoom=${report.movingCensorZoomedRatio} (want > 0.05)`,
+    `censor did not reach the export as expected: inside=${report.changedInsideRatio} (want > 0.2), outside=${report.changedOutsideRatio} (want < 0.05), zoomed=${report.changedWithZoomRatio} (want > 0.05), flatPatches ${report.flatPatchesClean} -> ${report.flatPatchesCrispMosaic} (want +0.2), softVsCrisp=${report.softVsCrispChangedRatio} (want > 0.02), moving censor centre ${report.movingCensorEarlyCenterX} -> ${report.movingCensorLateCenterX} (travelled ${report.movingCensorTravelled}, want > 0.15) at ratios ${report.movingCensorEarlyRatio}/${report.movingCensorLateRatio} (want each in 0.03..0.35), moving+zoom=${report.movingCensorZoomedRatio} (want > 0.05), solid movement within one span=${report.movingSolidWithinSpanTravel} (want > 0.02)`,
   );
 }

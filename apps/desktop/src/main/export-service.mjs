@@ -1003,6 +1003,19 @@ export function buildCensorSourceFilters({
         // A span is only usable if BOTH ends are: interpolating from or to a
         // degenerate box would sweep the censor through nothing.
         if (!from || !to) continue;
+        if (style.mode === 'solid' && (from.x !== to.x || from.y !== to.y || from.w !== to.w || from.h !== to.h)) {
+          // drawbox evaluates its geometry ONCE — there is no eval=frame for it — so
+          // a time expression leaves the box parked while the target walks out from
+          // under it. One box per frame is the only per-frame geometry it offers.
+          // This also matches the preview exactly, which resolves per whole frame.
+          for (let frame = pieceStart; frame < pieceEnd; frame += 1) {
+            const box = toPixelBox(resolveCensorRectAtFrame(region, frame));
+            if (!box) continue;
+            const at = outStart + (frame - pieceStart);
+            usable.push({ ...style, from: box, to: box, startSec: at / effectiveFps, endSec: (at + 1) / effectiveFps });
+          }
+          continue;
+        }
         usable.push({
           ...style,
           from,
