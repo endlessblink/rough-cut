@@ -266,6 +266,121 @@ export function mapCensorSourceRectToDest(censorRect, sourceRect, destRect) {
   };
 }
 
+/**
+ * Sorted, validated keyframes for a region, or an empty array when it has none.
+ *
+ * Malformed entries are dropped rather than throwing: a censor whose keyframe list
+ * is partly corrupt must still censor. Dropping one keyframe widens the interval
+ * around it, which keeps the region covered; refusing to resolve at all would
+ * uncover the content the region exists to hide.
+ */
+function normalizeCensorKeyframes(region) {
+  const raw = region?.keyframes;
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const valid = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (!Number.isFinite(entry.frame)) continue;
+    const rect = entry.rect;
+    if (!rect || typeof rect !== 'object') continue;
+    if (!Number.isFinite(rect.x) || !Number.isFinite(rect.y)) continue;
+    if (!Number.isFinite(rect.w) || !Number.isFinite(rect.h)) continue;
+    if (!(rect.w > 0) || !(rect.h > 0)) continue;
+    valid.push(entry);
+  }
+  // Stored order is not trusted: the tracker appends as it walks the clip, but a
+  // user dragging an existing keyframe earlier would otherwise invert a segment.
+  return valid.sort((a, b) => a.frame - b.frame);
+}
+
+function lerpRect(from, to, t) {
+  return {
+    x: from.x + (to.x - from.x) * t,
+    y: from.y + (to.y - from.y) * t,
+    w: from.w + (to.w - from.w) * t,
+    h: from.h + (to.h - from.h) * t,
+  };
+}
+
+/**
+ * Where a censor sits at a given source frame.
+ *
+ * A region without keyframes is static and answers with its own `rect`, so every
+ * caller can route through this and stay correct for both kinds. With keyframes the
+ * rect moves linearly between them and holds flat outside the first and last — a
+ * censor must never stop covering its target just because the tracked span ended.
+ *
+ * `frame` may be fractional: preview playback runs on an accelerated clock that
+ * lands between frames.
+ */
+export function resolveCensorRectAtFrame(region, frame) {
+  const keyframes = normalizeCensorKeyframes(region);
+  if (keyframes.length === 0) return region?.rect ?? null;
+
+  const at = finite(frame, Number.NaN);
+  if (!Number.isFinite(at)) return keyframes[0].rect;
+  if (at <= keyframes[0].frame) return keyframes[0].rect;
+  const last = keyframes[keyframes.length - 1];
+  if (at >= last.frame) return last.rect;
+
+  for (let i = 0; i < keyframes.length - 1; i += 1) {
+    const from = keyframes[i];
+    const to = keyframes[i + 1];
+    if (at < from.frame || at > to.frame) continue;
+    const span = to.frame - from.frame;
+    if (!(span > 0)) return to.rect;
+    return lerpRect(from.rect, to.rect, (at - from.frame) / span);
+  }
+  return last.rect;
+}
+
+/**
+ * A region's lifetime split into spans over which its rect moves linearly.
+ *
+ * This exists for the export: FFmpeg pays for a moving censor per *pixel*, so one
+ * expression carrying every keyframe is quadratic in practice (measured: 40
+ * keyframes took 65s to render 2s of 1080p, against 2.2s for one). Emitting one
+ * short two-keyframe filter per span, each switched on only for its own span, is
+ * flat instead — 600 spans cost the same as 40.
+ *
+ * Boundaries are the keyframes that fall strictly inside the region, so the spans
+ * tile `[startFrame, endFrame)` exactly with no gap and no overlap. Endpoint rects
+ * are resolved through `resolveCensorRectAtFrame`, which is what keeps the file and
+ * the preview showing the same thing: within a span the underlying function is
+ * already linear, so re-anchoring it to the span's own ends is exact, not an
+ * approximation.
+ */
+export function censorKeyframeSegments(region) {
+  const startFrame = finite(region?.startFrame, Number.NaN);
+  const endFrame = finite(region?.endFrame, Number.NaN);
+  if (!Number.isFinite(startFrame) || !Number.isFinite(endFrame)) return [];
+  if (!(endFrame > startFrame)) return [];
+
+  const boundaries = [startFrame];
+  for (const keyframe of normalizeCensorKeyframes(region)) {
+    if (keyframe.frame <= startFrame || keyframe.frame >= endFrame) continue;
+    if (keyframe.frame === boundaries[boundaries.length - 1]) continue;
+    boundaries.push(keyframe.frame);
+  }
+  boundaries.push(endFrame);
+
+  const segments = [];
+  for (let i = 0; i < boundaries.length - 1; i += 1) {
+    segments.push({
+      startFrame: boundaries[i],
+      endFrame: boundaries[i + 1],
+      fromRect: resolveCensorRectAtFrame(region, boundaries[i]),
+      toRect: resolveCensorRectAtFrame(region, boundaries[i + 1]),
+    });
+  }
+  return segments;
+}
+
+/** True when a region's rect changes over its lifetime. */
+export function censorRegionIsAnimated(region) {
+  return normalizeCensorKeyframes(region).length > 1;
+}
+
 export function resolveCensorFillColor(region) {
   const color = region?.fillColor;
   return typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color : DEFAULT_CENSOR_FILL_COLOR;

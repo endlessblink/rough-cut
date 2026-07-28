@@ -44,6 +44,14 @@ export function updateCensorRegionRect(
   document: ProjectDocument,
   regionId: string,
   rect: unknown,
+  options?: { readonly frame?: number | null },
+): ProjectDocument;
+
+export function setCensorRegionKeyframes(
+  document: ProjectDocument,
+  regionId: string,
+  keyframes: readonly { readonly frame: number; readonly rect: unknown }[] | null | undefined,
+  options?: { readonly frame?: number | null },
 ): ProjectDocument;
 
 export function setCensorRegionSoftness(

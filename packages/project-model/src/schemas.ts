@@ -197,6 +197,14 @@ export const CutRangeSchema = z.object({
 
 export const CensorModeSchema = z.enum(['solid', 'pixelate']);
 
+export const CensorKeyframeSchema = z.object({
+  frame: nonNegativeInt,
+  rect: NormalizedRectSchema,
+}).refine((keyframe) => keyframe.rect.w > 0 && keyframe.rect.h > 0, {
+  message: 'Censor keyframe rect must have non-zero width and height',
+  path: ['rect'],
+});
+
 export const CensorRegionSchema = z.object({
   id: z.string().min(1),
   startFrame: nonNegativeInt,
@@ -210,6 +218,9 @@ export const CensorRegionSchema = z.object({
   softness: z.number().min(0).max(1).optional(),
   fillColor: hexColor.optional(),
   label: z.string().optional(),
+  // Optional for the same reason as `softness`: a v16 document written before a
+  // censor could follow anything parses unchanged, and absent means "static".
+  keyframes: z.array(CensorKeyframeSchema).optional(),
 }).refine((region) => region.endFrame > region.startFrame, {
   message: 'Censor region endFrame must be greater than startFrame',
   path: ['endFrame'],

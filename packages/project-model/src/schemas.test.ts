@@ -13,6 +13,7 @@ import {
   NleTrackClipSchema,
   SharedTimelineSchema,
   TimelineSourceSchema,
+  CensorRegionSchema,
 } from './schemas.js';
 import {
   createProject,
@@ -242,6 +243,57 @@ describe('ZoomMarker', () => {
   it('rejects non-integer zoomInDuration', () => {
     const marker = { ...createZoomMarker(30, 90), zoomInDuration: 1.5 };
     expect(ZoomMarkerSchema.safeParse(marker).success).toBe(false);
+  });
+});
+
+describe('CensorRegion', () => {
+  function censorRegion(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'censor-1',
+      startFrame: 30,
+      endFrame: 90,
+      rect: { x: 0.25, y: 0.5, w: 0.25, h: 0.25 },
+      mode: 'pixelate',
+      blockSize: 24,
+      soften: true,
+      ...overrides,
+    };
+  }
+
+  it('accepts a region saved before keyframes existed', () => {
+    const parsed = CensorRegionSchema.parse(censorRegion());
+    expect(parsed.keyframes).toBeUndefined();
+  });
+
+  it('accepts a region that follows moving content', () => {
+    const parsed = CensorRegionSchema.parse(
+      censorRegion({
+        keyframes: [
+          { frame: 30, rect: { x: 0, y: 0, w: 0.2, h: 0.2 } },
+          { frame: 90, rect: { x: 0.4, y: 0.1, w: 0.2, h: 0.2 } },
+        ],
+      }),
+    );
+    expect(parsed.keyframes).toHaveLength(2);
+    expect(parsed.keyframes?.[1].frame).toBe(90);
+  });
+
+  it('rejects a keyframe with a degenerate rect', () => {
+    const bad = censorRegion({ keyframes: [{ frame: 30, rect: { x: 0, y: 0, w: 0, h: 0.2 } }] });
+    expect(CensorRegionSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('rejects a keyframe on a fractional or negative frame', () => {
+    expect(
+      CensorRegionSchema.safeParse(
+        censorRegion({ keyframes: [{ frame: 12.5, rect: { x: 0, y: 0, w: 0.2, h: 0.2 } }] }),
+      ).success,
+    ).toBe(false);
+    expect(
+      CensorRegionSchema.safeParse(
+        censorRegion({ keyframes: [{ frame: -1, rect: { x: 0, y: 0, w: 0.2, h: 0.2 } }] }),
+      ).success,
+    ).toBe(false);
   });
 });
 

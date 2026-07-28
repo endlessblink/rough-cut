@@ -144,6 +144,15 @@ export interface RenderFrame {
    * preview and the export can never disagree about what is hidden.
    */
   censorRegions?: readonly CensorRegion[];
+  /**
+   * The recording source frame those regions were filtered against.
+   *
+   * Keyframed censors are positioned in recording frames, so renderers must resolve
+   * their rect against this rather than against `frame`: after a trim or a cut the
+   * two diverge, and using the timeline frame would slide a moving censor off the
+   * content it exists to hide.
+   */
+  censorSourceFrame?: number;
 }
 
 export interface ResolvedTimelineClip {

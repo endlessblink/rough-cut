@@ -56,3 +56,41 @@ export function resolveCensorMosaicGrid(
 export function resolveCensorSoftenRadiusPx(region: unknown, sourceScale: number): number;
 
 export function resolveCensorFillColor(region: unknown): string;
+
+export interface CensorNormalizedRect {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+export interface CensorKeyframeSegment {
+  readonly startFrame: number;
+  readonly endFrame: number;
+  readonly fromRect: CensorNormalizedRect;
+  readonly toRect: CensorNormalizedRect;
+}
+
+/**
+ * Only the parts of a censor that determine where it sits. Deliberately structural:
+ * the preview overlay carries its own lighter region shape, and both must resolve
+ * position through this one function rather than each interpolating for itself.
+ */
+export interface CensorPositionable {
+  readonly rect?: CensorNormalizedRect;
+  readonly keyframes?: readonly {
+    readonly frame: number;
+    readonly rect: CensorNormalizedRect;
+  }[];
+}
+
+export function resolveCensorRectAtFrame(
+  region: CensorPositionable | null | undefined,
+  frame: number,
+): CensorNormalizedRect | null;
+
+export function censorKeyframeSegments(
+  region: CensorRegion | null | undefined,
+): readonly CensorKeyframeSegment[];
+
+export function censorRegionIsAnimated(region: CensorRegion | null | undefined): boolean;

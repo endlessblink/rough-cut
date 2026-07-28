@@ -32,8 +32,9 @@ function run(command, args) {
   return result;
 }
 
-function ppmPixels(path) {
-  const result = spawnSync('ffmpeg', ['-v', 'error', '-i', path, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], {
+function ppmPixels(path, atSeconds = null) {
+  const seek = atSeconds === null ? [] : ['-ss', String(atSeconds)];
+  const result = spawnSync('ffmpeg', ['-v', 'error', ...seek, '-i', path, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], {
     maxBuffer: 1024 * 1024 * 256,
   });
   if (result.status !== 0) throw new Error(`frame extract failed: ${result.stderr}`);
@@ -256,12 +257,130 @@ const softVsCrisp = regionDiffRatio(crispFrame, softFrame);
 // the blocks up on purpose, so flatness is compared against crisp, not the default.
 const crispFlat = flatPatchRatio(crispFrame);
 
+// --- a censor that FOLLOWS moving content ---
+//
+// The one thing unit tests cannot show: that the exported censor is in a different
+// place at the end of the clip than at the start. FFmpeg evaluates the animated
+// geometry per frame, so this is also the only check that the emitted expressions
+// are accepted at all — the wrong spelling of the time variable (`t` where geq
+// wants `T`) fails the render outright rather than mispositioning anything.
+const MOVING_START = { x: 0.08, y: 0.35, w: 0.25, h: 0.3 };
+const MOVING_END = { x: 0.67, y: 0.35, w: 0.25, h: 0.3 };
+const movingPath = join(root, 'moving.mp4');
+const movingDocument = {
+  ...project.document,
+  assets: project.document.assets.map((asset) => (
+    asset.type === 'recording' && asset.presentation
+      ? {
+          ...asset,
+          presentation: {
+            ...asset.presentation,
+            censorRegions: [{
+              id: 'censor-moving',
+              startFrame: 0,
+              endFrame: Math.max(12, asset.duration),
+              rect: MOVING_START,
+              mode: 'pixelate',
+              blockSize: 48,
+              soften: true,
+              keyframes: [
+                { frame: 0, rect: MOVING_START },
+                { frame: Math.max(12, asset.duration), rect: MOVING_END },
+              ],
+            }],
+          },
+        }
+      : asset
+  )),
+};
+const moving = await exportProjectToMp4({ project: movingDocument, outputPath: movingPath, mode: 'styled' });
+
+/**
+ * Where the censored area sits horizontally, as a fraction of the output width, and
+ * how much of the strip it covers.
+ *
+ * Deliberately measured rather than predicted: the styled layout scales and pads the
+ * recording into the canvas, so a source-normalized rect does NOT land at the same
+ * normalized position in the output. Hardcoding an expected band here would be
+ * asserting the layout maths, not the censor, and would break on any padding change.
+ * The centre of mass of the changed pixels needs no knowledge of the layout at all.
+ */
+function changedSpanX(a, b) {
+  let changed = 0;
+  let total = 0;
+  let weighted = 0;
+  for (let y = Math.round(height * 0.38); y < Math.round(height * 0.62); y += 2) {
+    for (let x = 0; x < width; x += 2) {
+      const i = (y * width + x) * 3;
+      total += 1;
+      const d = Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
+      if (d > 24) {
+        changed += 1;
+        weighted += x / width;
+      }
+    }
+  }
+  return {
+    ratio: total > 0 ? changed / total : 0,
+    centerX: changed > 0 ? weighted / changed : 0,
+  };
+}
+
+// Sampled a little inside each end so the comparison is never taken exactly on a
+// keyframe boundary, where a one-frame seek difference could flip the answer.
+const earlySpan = changedSpanX(ppmPixels(cleanPath, 0.1), ppmPixels(movingPath, 0.1));
+const lateSpan = changedSpanX(ppmPixels(cleanPath, 1.8), ppmPixels(movingPath, 1.8));
+const movedDistance = lateSpan.centerX - earlySpan.centerX;
+
+// Same censor again with zoom active. The screen chain is the one place a censor
+// filter can deadlock ffmpeg outright, and animation adds many more filter
+// instances to it, so the zoomed path is re-proven rather than assumed.
+const movingZoomedPath = join(root, 'moving-zoomed.mp4');
+const movingZoomed = await exportProjectToMp4({
+  project: withZoom(movingDocument),
+  outputPath: movingZoomedPath,
+  mode: 'styled',
+});
+const movingZoomedFrame = ppmPixels(movingZoomedPath, 1.8);
+let movingZoomChanged = 0;
+let movingZoomTotal = 0;
+for (let y = 0; y < height; y += 4) {
+  for (let x = 0; x < width; x += 4) {
+    const i = (y * width + x) * 3;
+    const d = Math.abs(zoomedCleanFrame[i] - movingZoomedFrame[i])
+      + Math.abs(zoomedCleanFrame[i + 1] - movingZoomedFrame[i + 1])
+      + Math.abs(zoomedCleanFrame[i + 2] - movingZoomedFrame[i + 2]);
+    movingZoomTotal += 1;
+    if (d > 24) movingZoomChanged += 1;
+  }
+}
+const movingZoomRatio = movingZoomChanged / Math.max(1, movingZoomTotal);
+
 const report = {
   ok: insideRatio > 0.2
     && outsideRatio < 0.05
     && zoomRatio > 0.05
     && crispFlat > cleanFlat + 0.2
-    && softVsCrisp > 0.02,
+    && softVsCrisp > 0.02
+    // Something is censored at both ends, it is a localized box rather than the
+    // whole frame, and it is somewhere else at the end than at the start. The last
+    // condition is the feature; the first two stop a smeared or empty export from
+    // passing as "it moved".
+    && earlySpan.ratio > 0.03
+    && lateSpan.ratio > 0.03
+    && earlySpan.ratio < 0.35
+    && lateSpan.ratio < 0.35
+    && movedDistance > 0.15
+    && movingZoomRatio > 0.05,
+  movingCensorEarlyCenterX: Math.round(earlySpan.centerX * 1000) / 1000,
+  movingCensorLateCenterX: Math.round(lateSpan.centerX * 1000) / 1000,
+  movingCensorTravelled: Math.round(movedDistance * 1000) / 1000,
+  movingCensorEarlyRatio: Math.round(earlySpan.ratio * 1000) / 1000,
+  movingCensorLateRatio: Math.round(lateSpan.ratio * 1000) / 1000,
+  movingCensorZoomedRatio: Math.round(movingZoomRatio * 1000) / 1000,
+  movingPath,
+  movingBytes: moving.bytes,
+  movingZoomedBytes: movingZoomed.bytes,
   flatPatchesClean: Math.round(cleanFlat * 1000) / 1000,
   flatPatchesCrispMosaic: Math.round(crispFlat * 1000) / 1000,
   flatPatchesDefaultSoftened: Math.round(censoredFlat * 1000) / 1000,
@@ -282,6 +401,6 @@ console.log(JSON.stringify(report, null, 2));
 
 if (!report.ok) {
   throw new Error(
-    `censor did not reach the export as expected: inside=${report.changedInsideRatio} (want > 0.2), outside=${report.changedOutsideRatio} (want < 0.05), zoomed=${report.changedWithZoomRatio} (want > 0.05), flatPatches ${report.flatPatchesClean} -> ${report.flatPatchesCrispMosaic} (want +0.2), softVsCrisp=${report.softVsCrispChangedRatio} (want > 0.02)`,
+    `censor did not reach the export as expected: inside=${report.changedInsideRatio} (want > 0.2), outside=${report.changedOutsideRatio} (want < 0.05), zoomed=${report.changedWithZoomRatio} (want > 0.05), flatPatches ${report.flatPatchesClean} -> ${report.flatPatchesCrispMosaic} (want +0.2), softVsCrisp=${report.softVsCrispChangedRatio} (want > 0.02), moving censor centre ${report.movingCensorEarlyCenterX} -> ${report.movingCensorLateCenterX} (travelled ${report.movingCensorTravelled}, want > 0.15) at ratios ${report.movingCensorEarlyRatio}/${report.movingCensorLateRatio} (want each in 0.03..0.35), moving+zoom=${report.movingCensorZoomedRatio} (want > 0.05)`,
   );
 }

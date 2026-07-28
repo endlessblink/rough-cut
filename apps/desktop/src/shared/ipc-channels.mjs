@@ -35,6 +35,10 @@ export const IPC_CHANNELS = {
   RECORDING_TEMPLATE_OVERRIDE_LIST: 'recording-template-override:list',
   RECORDING_TEMPLATE_OVERRIDE_SAVE: 'recording-template-override:save',
 
+  // Censor regions — analysing a recording so a censor can follow moving content.
+  // Main-process work: it reads frames out of the recording with ffmpeg.
+  CENSOR_TRACK: 'censor:track',
+
   // Export
   EXPORT_START: 'export:start',
   EXPORT_CANCEL: 'export:cancel',

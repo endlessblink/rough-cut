@@ -4,6 +4,7 @@ import {
   resolveCensorSoftenRadiusPx,
   resolveCensorSourceScale,
   censorRectToSourceRect,
+  resolveCensorRectAtFrame,
 } from '../../shared/censor-regions.mjs';
 import {
   applyScreenSourceTransform,
@@ -41,6 +42,11 @@ export type CensorOverlayRegion = {
   readonly blockSize: number;
   readonly soften: boolean;
   readonly fillColor?: string;
+  /** Positions the censor follows over time. Absent means a static rect. */
+  readonly keyframes?: readonly {
+    readonly frame: number;
+    readonly rect: { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
+  }[];
 };
 
 export type CensorOverlayDrawInput = {
@@ -48,6 +54,11 @@ export type CensorOverlayDrawInput = {
   /** Screen recording element the mosaic samples from. */
   readonly video: CanvasImageSource | null;
   readonly regions: readonly CensorOverlayRegion[] | null | undefined;
+  /**
+   * Source-recording frame being drawn. Keyframed censors are positioned from this,
+   * so a caller that omits it pins every censor to its first tracked position.
+   */
+  readonly frame: number;
   readonly sourceWidth: number;
   readonly sourceHeight: number;
   readonly screenX: number;
@@ -151,7 +162,14 @@ export function drawCensorRegions(input: CensorOverlayDrawInput): number {
   });
 
   for (const region of regions ?? []) {
-    const rect = censorRectToSourceRect(region?.rect, input.sourceWidth, input.sourceHeight);
+    // Position comes from the shared resolver, never from `region.rect` directly:
+    // the export reads the same helper, so a keyframed censor cannot end up in one
+    // place on screen and another in the file.
+    const rect = censorRectToSourceRect(
+      resolveCensorRectAtFrame(region, input.frame),
+      input.sourceWidth,
+      input.sourceHeight,
+    );
     // No visible area: draw nothing. Never substitute a default rect — that would
     // paint over the wrong part of the screen and hide the wrong thing.
     if (!rect) continue;

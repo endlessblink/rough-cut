@@ -408,6 +408,56 @@ printf styled-fallback-mp4 > "${'$'}out"
   }
 });
 
+test('the headless export plan hands each frame a censor rect already resolved for that frame', () => {
+  // There are two export backends and they have silently disagreed before. The
+  // canvas one has no keyframe logic at all, so the plan resolves the position for
+  // it — one resolver, both backends, no second copy of the interpolation to drift.
+  const project = createProjectForRecording({
+    recording: {
+      startedAt: '2026-04-28T12:00:00.000Z',
+      stoppedAt: '2026-04-28T12:00:03.000Z',
+      outputPath: '/tmp/source.mp4',
+      width: 1280,
+      height: 720,
+      fps: 30,
+      cursorEvents: [{ frame: 0, x: 320, y: 180, type: 'move' }],
+    },
+  });
+  const withCensor = {
+    ...project,
+    assets: project.assets.map((asset) => (
+      asset.type === 'recording' && asset.presentation
+        ? {
+            ...asset,
+            presentation: {
+              ...asset.presentation,
+              censorRegions: [{
+                id: 'moving',
+                startFrame: 0,
+                endFrame: 90,
+                rect: { x: 0, y: 0, w: 0.2, h: 0.2 },
+                mode: 'solid',
+                blockSize: 24,
+                soften: false,
+                keyframes: [
+                  { frame: 0, rect: { x: 0, y: 0, w: 0.2, h: 0.2 } },
+                  { frame: 90, rect: { x: 0.8, y: 0, w: 0.2, h: 0.2 } },
+                ],
+              }],
+            },
+          }
+        : asset
+    )),
+  };
+
+  const plan = buildExperimentalHeadlessExportPlan({ project: withCensor, recording: getPrimaryRecording(withCensor) });
+  const rectAt = (frameIndex) => plan.frames.find((frame) => frame.frameIndex === frameIndex)?.censorRegions?.[0]?.rect;
+
+  assert.ok(Math.abs(rectAt(0).x - 0) < 1e-9, `expected the censor at the left on frame 0, got ${rectAt(0).x}`);
+  assert.ok(Math.abs(rectAt(45).x - 0.4) < 1e-9, `expected the censor halfway on frame 45, got ${rectAt(45).x}`);
+  assert.ok(rectAt(89).x > 0.78, `expected the censor near the right on frame 89, got ${rectAt(89).x}`);
+});
+
 test('experimental headless export plan samples shared composition frames', () => {
   const project = createProjectForRecording({
     recording: {
@@ -1795,6 +1845,150 @@ test('the pixelate mosaic halves the region and block for the chroma planes', ()
   assert.match(geq, /cr='if\(between\(X,240,479\)\*between\(Y,135,269\)/);
 });
 
+test('a censor that follows moving content animates its drawbox instead of standing still', () => {
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1',
+      rect: { x: 0, y: 0, w: 0.25, h: 0.25 },
+      mode: 'solid',
+      blockSize: 24,
+      soften: false,
+      startFrame: 0,
+      endFrame: 60,
+      keyframes: [
+        { frame: 0, rect: { x: 0, y: 0, w: 0.25, h: 0.25 } },
+        { frame: 60, rect: { x: 0.5, y: 0, w: 0.25, h: 0.25 } },
+      ],
+    }],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+
+  assert.equal(result.filters.length, 1);
+  // drawbox reads time as lowercase t, in both the geometry and the gate.
+  assert.match(result.filters[0], /drawbox=x='\(0\+\(960\)\*clip\(\(t-0\)\/2,0,1\)\)'/);
+  assert.match(result.filters[0], /enable='between\(t,0,2\)'/);
+  // The size did not change across the keyframes, so it stays a plain number
+  // rather than paying for an expression that always evaluates to the same value.
+  assert.match(result.filters[0], /:w=480:h=270:/);
+});
+
+test('a moving pixelate reads time as uppercase T, which is the only form geq accepts', () => {
+  // geq exposes time as T; drawbox exposes it as t. Using the wrong one is not a
+  // silent mispositioning — ffmpeg rejects the filter outright.
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1',
+      rect: { x: 0, y: 0, w: 0.25, h: 0.25 },
+      mode: 'pixelate',
+      blockSize: 48,
+      soften: true,
+      softness: 0,
+      startFrame: 0,
+      endFrame: 60,
+      keyframes: [
+        { frame: 0, rect: { x: 0, y: 0, w: 0.25, h: 0.25 } },
+        { frame: 60, rect: { x: 0.5, y: 0.5, w: 0.25, h: 0.25 } },
+      ],
+    }],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+
+  const geq = result.filters[1];
+  const expression = geq.slice(0, geq.indexOf(":enable='"));
+  assert.match(expression, /clip\(\(T-0\)\/2,0,1\)/);
+  assert.doesNotMatch(expression, /clip\(\(t-/);
+  assert.match(geq, /enable='between\(t,0,2\)'/);
+});
+
+test('a moving censor emits one filter per keyframe span, tiling its lifetime exactly', () => {
+  // One expression carrying every keyframe is evaluated per PIXEL, and measured
+  // quadratic in practice: 40 keyframes took 65s to render 2s of 1080p against 2.2s
+  // for one. Per-span filters, each gated to its own window, stay flat instead.
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1',
+      rect: { x: 0, y: 0, w: 0.25, h: 0.25 },
+      mode: 'solid',
+      blockSize: 24,
+      soften: false,
+      startFrame: 0,
+      endFrame: 90,
+      keyframes: [
+        { frame: 0, rect: { x: 0, y: 0, w: 0.25, h: 0.25 } },
+        { frame: 30, rect: { x: 0.2, y: 0, w: 0.25, h: 0.25 } },
+        { frame: 60, rect: { x: 0.5, y: 0, w: 0.25, h: 0.25 } },
+        { frame: 90, rect: { x: 0.7, y: 0, w: 0.25, h: 0.25 } },
+      ],
+    }],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+
+  assert.equal(result.filters.length, 3);
+  const windows = result.filters.map((filter) => {
+    const match = filter.match(/enable='between\(t,([^,]+),([^)]+)\)'/);
+    return [Number(match[1]), Number(match[2])];
+  });
+  assert.deepEqual(windows, [[0, 1], [1, 2], [2, 3]]);
+  // One region, however many spans it took to express.
+  assert.equal(result.count, 1);
+});
+
+test('a moving censor still counts as one censor for the caller', () => {
+  const result = buildCensorSourceFilters({
+    censorRegions: [
+      {
+        id: 'moving',
+        rect: { x: 0, y: 0, w: 0.2, h: 0.2 },
+        mode: 'solid',
+        blockSize: 24,
+        soften: false,
+        startFrame: 0,
+        endFrame: 60,
+        keyframes: [
+          { frame: 0, rect: { x: 0, y: 0, w: 0.2, h: 0.2 } },
+          { frame: 30, rect: { x: 0.3, y: 0, w: 0.2, h: 0.2 } },
+          { frame: 60, rect: { x: 0.6, y: 0, w: 0.2, h: 0.2 } },
+        ],
+      },
+      { id: 'still', rect: { x: 0.5, y: 0.5, w: 0.2, h: 0.2 }, mode: 'solid', blockSize: 24, soften: false, startFrame: 0, endFrame: 60 },
+    ],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+  assert.equal(result.count, 2);
+  assert.equal(result.filters.length, 3);
+  // Every filter feeds the next, so no span can be dropped from the chain.
+  assert.equal(result.outputLabel, '[censored_2]');
+});
+
+test('a single keyframe pins a censor rather than animating it', () => {
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1',
+      rect: { x: 0, y: 0, w: 0.25, h: 0.25 },
+      mode: 'solid',
+      blockSize: 24,
+      soften: false,
+      startFrame: 0,
+      endFrame: 60,
+      keyframes: [{ frame: 30, rect: { x: 0.5, y: 0.25, w: 0.25, h: 0.25 } }],
+    }],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    fps: 30,
+  });
+  assert.equal(result.filters.length, 1);
+  // The keyframe wins over the region's own rect, and nothing is animated.
+  assert.match(result.filters[0], /^\[base\]drawbox=x=960:y=270:w=480:h=270:/);
+});
+
 test('the export never emits split or overlay for a censor', () => {
   // Guards the deadlock directly: split+overlay in the screen chain is what hung
   // ffmpeg indefinitely whenever zoom was active.
@@ -1897,4 +2091,73 @@ test('a censored project cannot take the simple styled fast path', () => {
     }),
     false,
   );
+});
+
+test('a censor after a cut is gated on when it actually plays, not on its source time', () => {
+  // The cut runs BEFORE the censor filters in the chain and recompacts timestamps.
+  // Gating on source time would fire the censor a second late in a cut export —
+  // which means the thing it hides is on screen, uncensored, until it does.
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1', rect: { x: 0.25, y: 0.5, w: 0.25, h: 0.25 },
+      mode: 'solid', blockSize: 24, soften: false, startFrame: 90, endFrame: 150,
+    }],
+    // 30 frames removed before the censor: it now plays a second earlier.
+    cutRanges: [{ startFrame: 30, endFrame: 60 }],
+    sourceWidth: 1920, sourceHeight: 1080, fps: 30,
+  });
+
+  assert.equal(result.filters.length, 1);
+  assert.match(result.filters[0], /enable='between\(t,2,4\)'/);
+});
+
+test('a censor is gated relative to the trim, not the original recording', () => {
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1', rect: { x: 0.25, y: 0.5, w: 0.25, h: 0.25 },
+      mode: 'solid', blockSize: 24, soften: false, startFrame: 90, endFrame: 150,
+    }],
+    trimStartFrame: 60,
+    sourceWidth: 1920, sourceHeight: 1080, fps: 30,
+  });
+
+  assert.match(result.filters[0], /enable='between\(t,1,3\)'/);
+});
+
+test('a censor swallowed whole by a cut emits nothing', () => {
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1', rect: { x: 0.25, y: 0.5, w: 0.25, h: 0.25 },
+      mode: 'solid', blockSize: 24, soften: false, startFrame: 40, endFrame: 50,
+    }],
+    cutRanges: [{ startFrame: 30, endFrame: 60 }],
+    sourceWidth: 1920, sourceHeight: 1080, fps: 30,
+  });
+
+  assert.deepEqual(result.filters, []);
+  assert.equal(result.count, 0);
+});
+
+test('a moving censor spanning a cut keeps its two halves in step', () => {
+  // The frames inside the cut never play, so the censor must jump across the cut
+  // rather than sliding through positions the viewer never sees.
+  const result = buildCensorSourceFilters({
+    censorRegions: [{
+      id: 'c1', rect: { x: 0, y: 0, w: 0.2, h: 0.2 },
+      mode: 'solid', blockSize: 24, soften: false, startFrame: 0, endFrame: 120,
+      keyframes: [
+        { frame: 0, rect: { x: 0, y: 0, w: 0.2, h: 0.2 } },
+        { frame: 120, rect: { x: 0.6, y: 0, w: 0.2, h: 0.2 } },
+      ],
+    }],
+    cutRanges: [{ startFrame: 30, endFrame: 90 }],
+    sourceWidth: 1920, sourceHeight: 1080, fps: 30,
+  });
+
+  // One span each side of the cut, tiling the compacted 60-frame output exactly.
+  const windows = result.filters.map((filter) => {
+    const match = filter.match(/enable='between\(t,([^,]+),([^)]+)\)'/);
+    return [Number(match[1]), Number(match[2])];
+  });
+  assert.deepEqual(windows, [[0, 1], [1, 2]]);
 });

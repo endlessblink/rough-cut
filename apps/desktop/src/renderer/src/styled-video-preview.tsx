@@ -31,6 +31,7 @@ import { getPrimaryRecordingAsset } from './zoom-markers.mjs';
 import { createScreenLayerRenderer, type ScreenLayerRenderer, type ScreenLayerRendererKind, type ScreenLayerRendererStats } from './screen-layer-renderer';
 import { applyScreenSourceTransform, resolveZoomMotionBlurPx } from './zoom-motion-renderer';
 import { drawCensorRegions } from './censor-overlay';
+import { resolveCensorRectAtFrame } from '../../shared/censor-regions.mjs';
 import { canvasPointToSourceNormalized, sourceRectToCanvasRect, type CensorPointerMapping } from '../../shared/screen-source-transform.mjs';
 import { moveCensorRect, resizeCensorRect } from '../../shared/censor-regions.mjs';
 import {
@@ -470,8 +471,21 @@ export function StyledVideoPreview({
   censorDrawArmed?: boolean;
   onCensorDraw?: (rect: { x: number; y: number; w: number; h: number }) => void;
   /** Censor selected on the timeline; gets move/resize handles on the preview. */
-  selectedCensor?: { id: string; rect: { x: number; y: number; w: number; h: number } } | null;
-  onCensorRectChange?: (censorId: string, rect: { x: number; y: number; w: number; h: number }) => void;
+  selectedCensor?: {
+    id: string;
+    rect: { x: number; y: number; w: number; h: number };
+    keyframes?: readonly { frame: number; rect: { x: number; y: number; w: number; h: number } }[];
+  } | null;
+  /**
+   * `frame` is the recording frame the drag ended on. A censor that follows moving
+   * content needs it: the edit applies to a whole tracked path, and which position
+   * the user was correcting is the only thing that says by how much.
+   */
+  onCensorRectChange?: (
+    censorId: string,
+    rect: { x: number; y: number; w: number; h: number },
+    frame: number,
+  ) => void;
 }) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -507,6 +521,9 @@ export function StyledVideoPreview({
   // and hit-tested here rather than inside the source transform, where their fixed
   // pixel size would scale with the zoom.
   const censorHandleRectRef = React.useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  // Recording frame of the last draw, so a censor edit can say which position along a
+  // tracked path the user was correcting.
+  const censorSourceFrameRef = React.useRef(0);
   const censorEditRef = React.useRef<{
     pointerId: number;
     mode: 'move' | 'resize';
@@ -1683,8 +1700,14 @@ export function StyledVideoPreview({
       // playback, matching the camera and screen frame controls.
       const publishCensorHandles = () => {
         // While dragging, follow the live rect so the handles track the pointer
-        // instead of lagging a document round-trip behind.
-        const sourceRect = censorDragRectRef.current ?? selectedCensor?.rect ?? null;
+        // instead of lagging a document round-trip behind. Otherwise take the
+        // resolved position: for a censor that follows moving content, its own
+        // `rect` is not where it is drawn, and handles parked away from the box
+        // would grab nothing.
+        censorSourceFrameRef.current = frame.censorSourceFrame ?? 0;
+        const sourceRect = censorDragRectRef.current
+          ?? resolveCensorRectAtFrame(selectedCensor, censorSourceFrameRef.current)
+          ?? null;
         const rect = sourceRect ? sourceRectToCanvasRect(censorMappingRef.current, sourceRect) : null;
         censorHandleRectRef.current = rect;
         if (rect && !activeTimelinePlayback && onCensorRectChange) {
@@ -1767,6 +1790,9 @@ export function StyledVideoPreview({
           ctx,
           video,
           regions: frame.censorRegions,
+          // Recording frame, not the timeline frame: keyframed censors are
+          // positioned in recording frames and the two diverge after a cut.
+          frame: frame.censorSourceFrame ?? 0,
           draftRect: censorDraftRect,
           sourceWidth,
           sourceHeight,
@@ -1883,6 +1909,9 @@ export function StyledVideoPreview({
         ctx,
         video,
         regions: frame.censorRegions,
+        // Recording frame, not the timeline frame: keyframed censors are
+        // positioned in recording frames and the two diverge after a cut.
+        frame: frame.censorSourceFrame ?? 0,
         draftRect: censorDraftRect,
         sourceWidth,
         sourceHeight,
@@ -2355,15 +2384,20 @@ export function StyledVideoPreview({
               event.currentTarget.setPointerCapture(event.pointerId);
               const grab = canvasPointToSourceNormalized(censorMappingRef.current, xCanvas, yCanvas);
               if (grab) {
+                // Where the censor actually is on this frame, which for a tracked
+                // one is not `rect`. Starting the drag from `rect` would make the
+                // box jump to its untracked position the moment it was grabbed.
+                const startRect = resolveCensorRectAtFrame(selectedCensor, censorSourceFrameRef.current)
+                  ?? selectedCensor.rect;
                 censorEditRef.current = {
                   pointerId: event.pointerId,
                   mode: censorHandle ? 'resize' : 'move',
                   handle: censorHandle,
-                  startRect: { ...selectedCensor.rect },
+                  startRect: { ...startRect },
                   grabX: grab.x,
                   grabY: grab.y,
                 };
-                censorDragRectRef.current = { ...selectedCensor.rect };
+                censorDragRectRef.current = { ...startRect };
                 setIsEditingCensor(true);
                 previewInteractionDirtyRef.current = true;
                 event.currentTarget.style.cursor = censorHandle ? cursorForResizeHandle(censorHandle) : 'grabbing';
@@ -2506,7 +2540,9 @@ export function StyledVideoPreview({
             event.currentTarget.style.cursor = '';
             try { event.currentTarget.releasePointerCapture(event.pointerId); } catch {}
             previewInteractionDirtyRef.current = true;
-            if (finalRect && selectedCensor) onCensorRectChange?.(selectedCensor.id, finalRect);
+            if (finalRect && selectedCensor) {
+              onCensorRectChange?.(selectedCensor.id, finalRect, censorSourceFrameRef.current);
+            }
             return;
           }
           const censorDraft = censorDraftRef.current;

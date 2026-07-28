@@ -684,6 +684,27 @@ test('censor regions are painted on every preview draw path', () => {
   // re-filtered or locally derived one, which could disagree with the export.
   const regionArgs = previewSource.match(/regions: frame\.censorRegions,/g) ?? [];
   assert.equal(regionArgs.length, 2);
+
+  // A keyframed censor only lands on its target if the draw knows which frame it is
+  // drawing, and specifically the RECORDING frame — the timeline frame diverges from
+  // it after a trim or a cut. Omitting this on one path pins that path to the
+  // region's first position while the other follows.
+  const frameArgs = previewSource.match(/frame: frame\.censorSourceFrame \?\? 0,/g) ?? [];
+  assert.equal(
+    frameArgs.length,
+    2,
+    'expected both censor draws to be told the current frame so keyframed censors follow',
+  );
+});
+
+test('censor overlay resolves each region position from the shared frame resolver', () => {
+  const overlaySource = readFileSync(join(here, 'censor-overlay.ts'), 'utf8');
+
+  // The preview must not do its own interpolation: the export renders from the same
+  // helper, and two implementations of "where is this censor now" would drift into a
+  // preview that hides something the exported file does not.
+  assert.match(overlaySource, /resolveCensorRectAtFrame\(region, input\.frame\)/);
+  assert.doesNotMatch(overlaySource, /censorRectToSourceRect\(region\?\.rect/);
 });
 
 test('censor overlay draws inside the source transform and never reads the canvas back', () => {

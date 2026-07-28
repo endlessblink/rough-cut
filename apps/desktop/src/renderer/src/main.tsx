@@ -87,6 +87,7 @@ import {
   removeCensorRegion,
   setCensorRegionMode,
   setCensorRegionSoftness,
+  setCensorRegionKeyframes,
   updateCensorRegionRange,
   updateCensorRegionRect,
 } from './censor-markers.mjs';
@@ -142,6 +143,11 @@ declare global {
       pickExportOutputPath: (projectName: string) => Promise<string | null>;
       exportProject: (payload: { document: ProjectState['document']; outputPath: string; mode: ExportMode; exportScope?: ExportScope }) => Promise<ExportResult>;
       cancelExport: () => Promise<{ cancelled: boolean }>;
+      trackCensorRegion: (payload: { document: ProjectState['document']; regionId: string }) => Promise<{
+        keyframes: { frame: number; rect: { x: number; y: number; w: number; h: number } }[];
+        analyzedFrames: number;
+        trackedFrames: number;
+      }>;
       onExportProgress: (callback: (progress: ExportProgress) => void) => () => void;
       listRecentProjects: () => Promise<Array<{
         path: string;
@@ -3285,7 +3291,7 @@ function InspectorActionRow({ children, region }: { children: React.ReactNode; r
   return <div className="actionsArea inspectorActionRow" data-ui-region={region}>{children}</div>;
 }
 
-function EditorToolBoard({ activeTool, project, fps, background, cameraPresentation, screenFrame = null, cameraFrame = null, cameraCrop = null, cameraSourceSize = { width: 1280, height: 720 }, screenCrop = null, screenSourceSize = { width: 1280, height: 720 }, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, trimInfo, timelineWarning = null, cutRanges = [], userTemplates = [], recordingTemplateOverrides = {}, appliedTemplatePresetId = null, appliedUserTemplateId = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraPresentationAndFrameChange, onCameraCropAndFrameChange, onCameraCropChange, onScreenCropChange, onCursorPresentationChange, onScreenFrameChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onApplyUserTemplate, onSaveUserTemplate, onRenameUserTemplate, onDeleteUserTemplate, onResetTrim, onRemoveCutRange, onClearCutRanges, censorCount = 0, censorDrawArmed = false, onCensorDrawArmedChange, selectedCensorId = null, selectedCensorSoftness = 0, onCensorSoftnessChange }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; screenFrame?: NormalizedRect | null; cameraFrame?: NormalizedRect | null; cameraCrop?: RegionCrop | null; cameraSourceSize?: { width: number; height: number }; screenCrop?: RegionCrop | null; screenSourceSize?: { width: number; height: number }; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; timelineWarning?: string | null; cutRanges?: CutRange[]; userTemplates?: UserRecordingTemplate[]; recordingTemplateOverrides?: Record<string, RecordingTemplateOverride>; appliedTemplatePresetId?: string | null; appliedUserTemplateId?: string | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraPresentationAndFrameChange?: (patch: Partial<CameraPresentation>, frame: { x: number; y: number; w: number; h: number }) => void; onCameraCropAndFrameChange?: (crop: RegionCrop, frame: { x: number; y: number; w: number; h: number }, patch: Partial<CameraPresentation>) => void; onCameraCropChange?: (crop: RegionCrop | null) => void; onScreenCropChange?: (crop: RegionCrop | null) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onScreenFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onApplyUserTemplate?: (template: UserRecordingTemplate) => void; onSaveUserTemplate?: (label: string) => Promise<void> | void; onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void; onDeleteUserTemplate?: (id: string) => Promise<void> | void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void; censorCount?: number; censorDrawArmed?: boolean; onCensorDrawArmedChange?: (armed: boolean) => void; selectedCensorId?: string | null; selectedCensorSoftness?: number; onCensorSoftnessChange?: (censorId: string, softness: number) => void }) {
+function EditorToolBoard({ activeTool, project, fps, background, cameraPresentation, screenFrame = null, cameraFrame = null, cameraCrop = null, cameraSourceSize = { width: 1280, height: 720 }, screenCrop = null, screenSourceSize = { width: 1280, height: 720 }, cursorPresentation, hasCamera = false, aspectRatio = 'auto', disabled = false, trimInfo, timelineWarning = null, cutRanges = [], userTemplates = [], recordingTemplateOverrides = {}, appliedTemplatePresetId = null, appliedUserTemplateId = null, onProjectChange, onBackgroundChange, onCameraPresentationChange, onCameraPresentationAndFrameChange, onCameraCropAndFrameChange, onCameraCropChange, onScreenCropChange, onCursorPresentationChange, onScreenFrameChange, onCameraFrameChange, onAspectRatioChange, onTemplatePresetSelect, onApplyUserTemplate, onSaveUserTemplate, onRenameUserTemplate, onDeleteUserTemplate, onResetTrim, onRemoveCutRange, onClearCutRanges, censorCount = 0, censorDrawArmed = false, onCensorDrawArmedChange, selectedCensorId = null, selectedCensorSoftness = 0, onCensorSoftnessChange, selectedCensorFollows = false, censorTrackBusy = false, censorTrackStatus = null, onCensorTrack, onCensorClearTrack }: { activeTool: ActiveTool; project?: ProjectState; fps?: number; currentTimeSec?: number; background?: RecordingBackgroundStyle; cameraPresentation?: CameraPresentation; screenFrame?: NormalizedRect | null; cameraFrame?: NormalizedRect | null; cameraCrop?: RegionCrop | null; cameraSourceSize?: { width: number; height: number }; screenCrop?: RegionCrop | null; screenSourceSize?: { width: number; height: number }; cursorPresentation?: CursorPresentation; hasCamera?: boolean; aspectRatio?: ProjectAspectRatio; disabled?: boolean; selectedZoomMarker?: ZoomMarker | null; trimInfo?: TrimInfo; timelineWarning?: string | null; cutRanges?: CutRange[]; userTemplates?: UserRecordingTemplate[]; recordingTemplateOverrides?: Record<string, RecordingTemplateOverride>; appliedTemplatePresetId?: string | null; appliedUserTemplateId?: string | null; onProjectChange?: (next: ProjectState, options?: ProjectChangeOptions) => void; onBackgroundChange?: (patch: Partial<RecordingBackgroundStyle>) => void; onCameraPresentationChange?: (patch: Partial<CameraPresentation>) => void; onCameraPresentationAndFrameChange?: (patch: Partial<CameraPresentation>, frame: { x: number; y: number; w: number; h: number }) => void; onCameraCropAndFrameChange?: (crop: RegionCrop, frame: { x: number; y: number; w: number; h: number }, patch: Partial<CameraPresentation>) => void; onCameraCropChange?: (crop: RegionCrop | null) => void; onScreenCropChange?: (crop: RegionCrop | null) => void; onCursorPresentationChange?: (patch: Partial<CursorPresentation>) => void; onScreenFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onCameraFrameChange?: (frame: { x: number; y: number; w: number; h: number } | null) => void; onAspectRatioChange?: (ratio: ProjectAspectRatio) => void; onTemplatePresetSelect?: (templateId: string) => void; onApplyUserTemplate?: (template: UserRecordingTemplate) => void; onSaveUserTemplate?: (label: string) => Promise<void> | void; onRenameUserTemplate?: (id: string, label: string) => Promise<void> | void; onDeleteUserTemplate?: (id: string) => Promise<void> | void; onZoomMarkerStrengthChange?: (markerId: string, strength: number) => void; onResetTrim?: () => void; onRemoveCutRange?: (cutRangeId: string) => void; onClearCutRanges?: () => void; censorCount?: number; censorDrawArmed?: boolean; onCensorDrawArmedChange?: (armed: boolean) => void; selectedCensorId?: string | null; selectedCensorSoftness?: number; onCensorSoftnessChange?: (censorId: string, softness: number) => void; selectedCensorFollows?: boolean; censorTrackBusy?: boolean; censorTrackStatus?: string | null; onCensorTrack?: (censorId: string) => void; onCensorClearTrack?: (censorId: string) => void }) {
   const bg = background ?? DEFAULT_RECORDING_BACKGROUND;
   const camera = cameraPresentation ?? DEFAULT_CAMERA_PRESENTATION;
   const cursor = cursorPresentation ?? DEFAULT_CURSOR_PRESENTATION;
@@ -3328,6 +3334,32 @@ function EditorToolBoard({ activeTool, project, fps, background, cameraPresentat
                   </button>
                 </InspectorActionRow>
                 {censorDrawArmed ? <p className="censorPanelHint">Drag a box on the preview. Escape cancels.</p> : null}
+                {/* One toggle rather than an action plus a permanently-present
+                    "stop" twin, matching the Draw censor button directly above:
+                    the panel already says start-and-cancel this way. */}
+                <InspectorActionRow>
+                  <button
+                    type="button"
+                    className="secondary compact"
+                    aria-pressed={selectedCensorFollows}
+                    disabled={disabled || !selectedCensorId || censorTrackBusy}
+                    onClick={() => {
+                      if (!selectedCensorId) return;
+                      if (selectedCensorFollows) onCensorClearTrack?.(selectedCensorId);
+                      else onCensorTrack?.(selectedCensorId);
+                    }}
+                  >
+                    {censorTrackBusy ? 'Following…' : selectedCensorFollows ? 'Stop following' : 'Follow content'}
+                  </button>
+                </InspectorActionRow>
+                {/* Always rendered, even when empty, so finishing a track does not
+                    shove the controls below it down the panel. */}
+                <p className="censorPanelHint" data-censor-track-status="true">
+                  {censorTrackStatus
+                    ?? (selectedCensorFollows
+                      ? 'This censor follows the content under it. Drag it to correct the whole path.'
+                      : ' ')}
+                </p>
                 {/* Kept present and disabled with nothing selected, rather than
                     appearing and shifting the panel — DESIGN.md prefers stable layout. */}
                 <InspectorSlider
@@ -3747,6 +3779,8 @@ function ProjectPreview({
   const [inspectorSelection, setInspectorSelection] = React.useState<InspectorSelection>(DEFAULT_INSPECTOR_SELECTION);
   const [cutModeActive, setCutModeActive] = React.useState(false);
   const [censorDrawArmed, setCensorDrawArmed] = React.useState(false);
+  const [censorTrackBusy, setCensorTrackBusy] = React.useState(false);
+  const [censorTrackStatus, setCensorTrackStatus] = React.useState<string | null>(null);
   const [selectedCensorId, setSelectedCensorId] = React.useState<string | null>(null);
 
   // Escape leaves the censor tool. An armed tool swallows preview drags that
@@ -4350,8 +4384,44 @@ function ProjectPreview({
     await persist(nextDocument);
   }
 
-  async function updateCensorRect(censorId: string, rect: { x: number; y: number; w: number; h: number }) {
-    const nextDocument = updateCensorRegionRect(project.document as unknown as ProjectDocument, censorId, rect) as unknown as ProjectState['document'];
+  async function updateCensorRect(censorId: string, rect: { x: number; y: number; w: number; h: number }, frame?: number) {
+    // The frame says which position along a tracked path the drag was correcting;
+    // for a still censor it is ignored.
+    const nextDocument = updateCensorRegionRect(project.document as unknown as ProjectDocument, censorId, rect, { frame: frame ?? null }) as unknown as ProjectState['document'];
+    if (nextDocument === project.document) return;
+    await persist(nextDocument);
+  }
+
+  async function trackCensor(censorId: string) {
+    setCensorTrackBusy(true);
+    setCensorTrackStatus('Reading the recording…');
+    try {
+      const result = await window.roughCut.trackCensorRegion({ document: project.document, regionId: censorId });
+      const keyframes = result?.keyframes ?? [];
+      if (keyframes.length < 2) {
+        // One keyframe means the matcher held still the whole way: it never found
+        // the target. Saying so is better than leaving a censor that looks tracked
+        // but is not, which the user would only discover in the exported file.
+        setCensorTrackStatus('Could not find anything to follow here. The censor is unchanged.');
+        return;
+      }
+      const nextDocument = setCensorRegionKeyframes(
+        project.document as unknown as ProjectDocument,
+        censorId,
+        keyframes,
+      ) as unknown as ProjectState['document'];
+      if (nextDocument !== project.document) await persist(nextDocument);
+      setCensorTrackStatus(`Following the content — ${keyframes.length} points over ${result.analyzedFrames} frames.`);
+    } catch (error) {
+      setCensorTrackStatus(error instanceof Error ? error.message : 'Could not follow the content.');
+    } finally {
+      setCensorTrackBusy(false);
+    }
+  }
+
+  async function clearCensorTrack(censorId: string) {
+    const nextDocument = setCensorRegionKeyframes(project.document as unknown as ProjectDocument, censorId, []) as unknown as ProjectState['document'];
+    setCensorTrackStatus(null);
     if (nextDocument === project.document) return;
     await persist(nextDocument);
   }
@@ -4465,7 +4535,7 @@ function ProjectPreview({
   return (
     <section className={`projectEditor ${setupBoardOpen ? '' : 'setupClosed'} ${inspectorOpen ? '' : 'inspectorClosed'}`} aria-label="Project editor" data-ui-region="editor-workspace">
       <ToolRail active={activeTool} onSelect={onActiveToolChange} />
-      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} background={background} cameraPresentation={cameraPresentation} screenFrame={templateScreenFrame} cameraFrame={templateCameraFrame} cameraCrop={cameraCrop} cameraSourceSize={cameraSourceSize} screenCrop={screenCrop} screenSourceSize={screenSourceSize} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} trimInfo={trimInfo} timelineWarning={recordingEditModel.warning} cutRanges={activeCutRanges} userTemplates={userTemplates} recordingTemplateOverrides={recordingTemplateOverrides} appliedTemplatePresetId={appliedTemplatePresetId} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraPresentationAndFrameChange={updateCameraPresentationAndFrame} onCameraCropAndFrameChange={updateCameraCropAndFrame} onCameraCropChange={updateCameraCrop} onScreenCropChange={updateScreenCrop} onCursorPresentationChange={updateCursorPresentation} onScreenFrameChange={updateScreenFrame} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onResetTrim={resetTrim} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} censorCount={listCensorRegions(project.document as unknown as ProjectDocument).length} censorDrawArmed={censorDrawArmed} onCensorDrawArmedChange={setCensorDrawArmed} selectedCensorId={selectedCensorId} selectedCensorSoftness={resolveCensorSoftness(listCensorRegions(project.document as unknown as ProjectDocument).find((region) => region.id === selectedCensorId))} onCensorSoftnessChange={updateCensorSoftness} />
+      <EditorToolBoard activeTool={activeTool} project={effectiveProject} fps={effectiveRecording?.fps} background={background} cameraPresentation={cameraPresentation} screenFrame={templateScreenFrame} cameraFrame={templateCameraFrame} cameraCrop={cameraCrop} cameraSourceSize={cameraSourceSize} screenCrop={screenCrop} screenSourceSize={screenSourceSize} cursorPresentation={cursorPresentation} hasCamera={hasCamera} aspectRatio={aspectRatio} disabled={isSaving} trimInfo={trimInfo} timelineWarning={recordingEditModel.warning} cutRanges={activeCutRanges} userTemplates={userTemplates} recordingTemplateOverrides={recordingTemplateOverrides} appliedTemplatePresetId={appliedTemplatePresetId} appliedUserTemplateId={appliedUserTemplateId} onProjectChange={onProjectChange} onBackgroundChange={updateBackground} onCameraPresentationChange={updateCameraPresentation} onCameraPresentationAndFrameChange={updateCameraPresentationAndFrame} onCameraCropAndFrameChange={updateCameraCropAndFrame} onCameraCropChange={updateCameraCrop} onScreenCropChange={updateScreenCrop} onCursorPresentationChange={updateCursorPresentation} onScreenFrameChange={updateScreenFrame} onCameraFrameChange={updateCameraFrame} onAspectRatioChange={updateAspectRatio} onTemplatePresetSelect={applyTemplatePreset} onApplyUserTemplate={applyUserTemplate} onSaveUserTemplate={saveUserTemplate} onRenameUserTemplate={renameUserTemplate} onDeleteUserTemplate={deleteUserTemplate} onResetTrim={resetTrim} onRemoveCutRange={restoreCut} onClearCutRanges={clearCuts} censorCount={listCensorRegions(project.document as unknown as ProjectDocument).length} censorDrawArmed={censorDrawArmed} onCensorDrawArmedChange={setCensorDrawArmed} selectedCensorId={selectedCensorId} selectedCensorSoftness={resolveCensorSoftness(listCensorRegions(project.document as unknown as ProjectDocument).find((region) => region.id === selectedCensorId))} onCensorSoftnessChange={updateCensorSoftness} selectedCensorFollows={Boolean((listCensorRegions(project.document as unknown as ProjectDocument).find((region) => region.id === selectedCensorId)?.keyframes?.length ?? 0) > 1)} censorTrackBusy={censorTrackBusy} censorTrackStatus={censorTrackStatus} onCensorTrack={trackCensor} onCensorClearTrack={clearCensorTrack} />
       <div className="stageColumn" aria-label="Central stage" data-ui-region="central-stage">
         <div className="projectHeader">
           <div>

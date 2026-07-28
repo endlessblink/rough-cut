@@ -13,6 +13,7 @@ import {
   setCensorRegionSoftness,
   updateCensorRegionRange,
   updateCensorRegionRect,
+  setCensorRegionKeyframes,
 } from './censor-markers.mjs';
 
 function projectDocument(duration = 300) {
@@ -133,6 +134,90 @@ test('moving a censor rect writes the new normalized rect', () => {
   });
   const moved = updateCensorRegionRect(withRegion, 'c1', { x: 0.4, y: 0.35, w: 0.25, h: 0.15 });
   assert.deepEqual(listCensorRegions(moved)[0].rect, { x: 0.4, y: 0.35, w: 0.25, h: 0.15 });
+});
+
+test('nudging a censor that follows moving content shifts its whole path', () => {
+  // Without this the drag looks broken: the keyframes still decide where the censor
+  // is, so writing only the region rect would move nothing on screen.
+  const withRegion = addCensorRegionAt(projectDocument(300), {
+    id: 'c1',
+    rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+    startFrame: 0,
+    endFrame: 120,
+  });
+  const tracked = setCensorRegionKeyframes(withRegion, 'c1', [
+    { frame: 0, rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } },
+    { frame: 120, rect: { x: 0.5, y: 0.1, w: 0.2, h: 0.2 } },
+  ]);
+
+  // Drag at frame 60, where the censor currently sits at x=0.3, over to x=0.35.
+  const nudged = updateCensorRegionRect(tracked, 'c1', { x: 0.35, y: 0.2, w: 0.2, h: 0.2 }, { frame: 60 });
+  const keyframes = listCensorRegions(nudged)[0].keyframes;
+
+  assert.equal(keyframes.length, 2);
+  // Every keyframe moved by the same delta, so the tracked path is preserved.
+  assert.ok(Math.abs(keyframes[0].rect.x - 0.15) < 1e-9, `first keyframe x: ${keyframes[0].rect.x}`);
+  assert.ok(Math.abs(keyframes[1].rect.x - 0.55) < 1e-9, `last keyframe x: ${keyframes[1].rect.x}`);
+  assert.ok(Math.abs(keyframes[0].rect.y - 0.2) < 1e-9, `first keyframe y: ${keyframes[0].rect.y}`);
+});
+
+test('resizing a censor that follows moving content resizes every keyframe', () => {
+  const withRegion = addCensorRegionAt(projectDocument(300), {
+    id: 'c1',
+    rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+    startFrame: 0,
+    endFrame: 120,
+  });
+  const tracked = setCensorRegionKeyframes(withRegion, 'c1', [
+    { frame: 0, rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } },
+    { frame: 120, rect: { x: 0.5, y: 0.1, w: 0.2, h: 0.2 } },
+  ]);
+
+  // Grow the box at frame 0. A tracked censor that only got bigger on one frame
+  // would shrink back to the old size everywhere else and uncover the target.
+  const grown = updateCensorRegionRect(tracked, 'c1', { x: 0.1, y: 0.1, w: 0.3, h: 0.25 }, { frame: 0 });
+  const keyframes = listCensorRegions(grown)[0].keyframes;
+
+  assert.ok(keyframes.every((keyframe) => Math.abs(keyframe.rect.w - 0.3) < 1e-9), 'every keyframe takes the new width');
+  assert.ok(keyframes.every((keyframe) => Math.abs(keyframe.rect.h - 0.25) < 1e-9), 'every keyframe takes the new height');
+});
+
+test('a shifted censor path stays inside the frame', () => {
+  const withRegion = addCensorRegionAt(projectDocument(300), {
+    id: 'c1',
+    rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+    startFrame: 0,
+    endFrame: 120,
+  });
+  const tracked = setCensorRegionKeyframes(withRegion, 'c1', [
+    { frame: 0, rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } },
+    { frame: 120, rect: { x: 0.75, y: 0.1, w: 0.2, h: 0.2 } },
+  ]);
+
+  const shoved = updateCensorRegionRect(tracked, 'c1', { x: 0.5, y: 0.1, w: 0.2, h: 0.2 }, { frame: 0 });
+  for (const keyframe of listCensorRegions(shoved)[0].keyframes) {
+    assert.ok(keyframe.rect.x >= 0 && keyframe.rect.x + keyframe.rect.w <= 1 + 1e-9, `x out of frame: ${keyframe.rect.x}`);
+    assert.ok(keyframe.rect.y >= 0 && keyframe.rect.y + keyframe.rect.h <= 1 + 1e-9, `y out of frame: ${keyframe.rect.y}`);
+  }
+});
+
+test('clearing the keyframes turns a tracked censor back into a still one', () => {
+  const withRegion = addCensorRegionAt(projectDocument(300), {
+    id: 'c1',
+    rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+    startFrame: 0,
+    endFrame: 120,
+  });
+  const tracked = setCensorRegionKeyframes(withRegion, 'c1', [
+    { frame: 0, rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } },
+    { frame: 120, rect: { x: 0.5, y: 0.1, w: 0.2, h: 0.2 } },
+  ]);
+  const cleared = setCensorRegionKeyframes(tracked, 'c1', []);
+  const region = listCensorRegions(cleared)[0];
+
+  assert.equal(region.keyframes, undefined);
+  // It parks where it was when tracking was dropped, not back at its original spot.
+  assert.deepEqual(region.rect, { x: 0.1, y: 0.1, w: 0.2, h: 0.2 });
 });
 
 test('switching mode toggles between pixelate and solid without touching timing', () => {

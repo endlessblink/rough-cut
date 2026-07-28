@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc-channels.mjs';
 import { isImportableMimeType, mimeForExtension } from '../shared/import-mime.mjs';
 import { exportProjectToMp4 } from './export-service.mjs';
+import { trackCensorRegion } from './censor-tracking.mjs';
 import { assertReadableMp4, computeSyncedRecordingTiming, probeImportedMedia, probeVideoStreamsTiming, probeVideoTiming } from './media-probe.mjs';
 import { duplicateProjectFile, getLinkedCameraAsset, getPrimaryRecording, openProjectFile, renameProjectFile, saveBlankProject, saveProjectFile, saveProjectForImport, saveProjectForRecording, validateProjectPath } from './project-files.mjs';
 import { stopRecordingAndCreateProject } from './recording-stop-handler.mjs';
@@ -90,6 +91,7 @@ let activeRecordingFinalizePromise = null;
 let activeCameraPreview = null;
 let activeAudioPreview = null;
 let activeExportController = null;
+let activeCensorTrackController = null;
 const studioWindowBoundsById = new Map();
 const recordingSession = createRecordingSession({
   recordingsDir,
@@ -1005,6 +1007,32 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, { document, outputPath, 
     });
   } finally {
     if (activeExportController === controller) activeExportController = null;
+  }
+});
+ipcMain.handle(IPC_CHANNELS.CENSOR_TRACK, async (_event, payload = {}) => {
+  const { document, regionId } = payload;
+  const recording = getPrimaryRecording(document);
+  const sourcePath = recording?.filePath;
+  if (!sourcePath) throw new Error('censor:track needs a recording to analyse');
+  const region = (recording?.presentation?.censorRegions ?? []).find((entry) => entry.id === regionId);
+  if (!region) throw new Error(`censor:track could not find the censor ${regionId}`);
+
+  // Cancels with the export controller pattern: analysis spawns ffmpeg, so an
+  // abandoned window must not leave it running.
+  const controller = new AbortController();
+  activeCensorTrackController?.abort();
+  activeCensorTrackController = controller;
+  try {
+    return await trackCensorRegion({
+      sourcePath,
+      region,
+      fps: document?.settings?.fps ?? 30,
+      sourceWidth: recording?.metadata?.width ?? recording?.width,
+      sourceHeight: recording?.metadata?.height ?? recording?.height,
+      signal: controller.signal,
+    });
+  } finally {
+    if (activeCensorTrackController === controller) activeCensorTrackController = null;
   }
 });
 ipcMain.handle(IPC_CHANNELS.CLIP_VISUALS_GET, async (_event, payload = {}) => {

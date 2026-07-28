@@ -238,6 +238,20 @@ export type CensorMode = 'solid' | 'pixelate';
  * censors exactly as they already treat zoom markers. Start-inclusive,
  * end-exclusive.
  */
+/**
+ * One sampled position of a censor along its lifetime, so the region can follow
+ * something that moves instead of covering a fixed box.
+ *
+ * `frame` is a source-recording frame, the same basis as `CensorRegion.startFrame`.
+ * `rect` shares the region's normalized basis. Between keyframes the rect moves
+ * linearly; outside the first and last it holds, so a censor never uncovers its
+ * target merely because tracking stopped early.
+ */
+export interface CensorKeyframe {
+  readonly frame: Frame;
+  readonly rect: NormalizedRect;
+}
+
 export interface CensorRegion {
   readonly id: CensorRegionId;
   readonly startFrame: Frame;
@@ -260,6 +274,11 @@ export interface CensorRegion {
   /** Solid only. Defaults to opaque near-black when omitted. */
   readonly fillColor?: string;
   readonly label?: string;
+  /**
+   * Positions this censor follows over time. Absent or shorter than two entries
+   * means the region is static and `rect` alone applies.
+   */
+  readonly keyframes?: readonly CensorKeyframe[];
 }
 
 export interface RecordingPresentation {

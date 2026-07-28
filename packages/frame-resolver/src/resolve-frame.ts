@@ -341,6 +341,7 @@ export function resolveFrame(
     screenFrame,
     cameraFrame,
     censorRegions,
+    censorSourceFrame: activeRecordingSourceFrame,
   };
 }
 
@@ -444,6 +445,7 @@ export function resolveTimelinePreviewFrame(
       presentation?.censorRegions,
       activeRecordingSourceFrame,
     ),
+    censorSourceFrame: activeRecordingSourceFrame,
   };
 }
 

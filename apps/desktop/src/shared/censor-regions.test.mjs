@@ -15,6 +15,8 @@ import {
   resolveCensorBlurSpacing,
   moveCensorRect,
   resizeCensorRect,
+  resolveCensorRectAtFrame,
+  censorKeyframeSegments,
 } from './censor-regions.mjs';
 
 function region(overrides = {}) {
@@ -297,4 +299,141 @@ test('resizeCensorRect cannot invert or collapse the censor', () => {
   assert.ok(crossed.x < rect.x + rect.w);
   const crossedNorth = resizeCensorRect(rect, 'n', 0.5, 0.95);
   assert.ok(crossedNorth.h >= 0.02);
+});
+
+// --- keyframed censors (a censor that follows moving content) ---
+
+function assertRectClose(actual, expected, message) {
+  for (const key of ['x', 'y', 'w', 'h']) {
+    assert.ok(
+      Math.abs(actual[key] - expected[key]) < 1e-9,
+      `${message ?? 'rect'}: expected ${key}=${expected[key]}, got ${actual[key]}`,
+    );
+  }
+}
+
+test('resolveCensorRectAtFrame returns the static rect when a region has no keyframes', () => {
+  const staticRegion = region();
+  assertRectClose(resolveCensorRectAtFrame(staticRegion, 45), staticRegion.rect);
+  assertRectClose(resolveCensorRectAtFrame(staticRegion, 0), staticRegion.rect);
+  assertRectClose(resolveCensorRectAtFrame({ ...staticRegion, keyframes: [] }, 45), staticRegion.rect);
+});
+
+test('resolveCensorRectAtFrame interpolates linearly between two keyframes', () => {
+  const moving = region({
+    keyframes: [
+      { frame: 30, rect: { x: 0, y: 0, w: 0.2, h: 0.2 } },
+      { frame: 90, rect: { x: 0.4, y: 0.8, w: 0.4, h: 0.1 } },
+    ],
+  });
+  assertRectClose(resolveCensorRectAtFrame(moving, 30), { x: 0, y: 0, w: 0.2, h: 0.2 }, 'start');
+  assertRectClose(resolveCensorRectAtFrame(moving, 60), { x: 0.2, y: 0.4, w: 0.3, h: 0.15 }, 'midpoint');
+  assertRectClose(resolveCensorRectAtFrame(moving, 45), { x: 0.1, y: 0.2, w: 0.25, h: 0.175 }, 'quarter');
+});
+
+test('resolveCensorRectAtFrame holds the first and last keyframe outside their range', () => {
+  const moving = region({
+    keyframes: [
+      { frame: 40, rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } },
+      { frame: 80, rect: { x: 0.5, y: 0.1, w: 0.2, h: 0.2 } },
+    ],
+  });
+  assertRectClose(resolveCensorRectAtFrame(moving, 0), { x: 0.1, y: 0.1, w: 0.2, h: 0.2 }, 'before');
+  assertRectClose(resolveCensorRectAtFrame(moving, 999), { x: 0.5, y: 0.1, w: 0.2, h: 0.2 }, 'after');
+});
+
+test('resolveCensorRectAtFrame pins the rect when there is a single keyframe', () => {
+  const pinned = region({ keyframes: [{ frame: 55, rect: { x: 0.3, y: 0.3, w: 0.1, h: 0.1 } }] });
+  assertRectClose(resolveCensorRectAtFrame(pinned, 30), { x: 0.3, y: 0.3, w: 0.1, h: 0.1 });
+  assertRectClose(resolveCensorRectAtFrame(pinned, 89), { x: 0.3, y: 0.3, w: 0.1, h: 0.1 });
+});
+
+test('resolveCensorRectAtFrame tolerates keyframes stored out of order', () => {
+  const shuffled = region({
+    keyframes: [
+      { frame: 90, rect: { x: 0.4, y: 0, w: 0.2, h: 0.2 } },
+      { frame: 30, rect: { x: 0, y: 0, w: 0.2, h: 0.2 } },
+    ],
+  });
+  assertRectClose(resolveCensorRectAtFrame(shuffled, 60), { x: 0.2, y: 0, w: 0.2, h: 0.2 });
+});
+
+test('resolveCensorRectAtFrame falls back to the static rect when every keyframe is malformed', () => {
+  const broken = region({
+    keyframes: [
+      { frame: Number.NaN, rect: { x: 0, y: 0, w: 0.2, h: 0.2 } },
+      { frame: 50, rect: { x: 0, y: 0, w: 0, h: 0.2 } },
+      { frame: 60 },
+      null,
+    ],
+  });
+  assertRectClose(resolveCensorRectAtFrame(broken, 45), broken.rect);
+});
+
+test('resolveCensorRectAtFrame drops only the malformed keyframes when some are valid', () => {
+  const partly = region({
+    keyframes: [
+      { frame: 30, rect: { x: 0, y: 0, w: 0.2, h: 0.2 } },
+      { frame: 60, rect: { x: 0, y: 0, w: -1, h: 0.2 } },
+      { frame: 90, rect: { x: 0.6, y: 0, w: 0.2, h: 0.2 } },
+    ],
+  });
+  // The bad middle keyframe is ignored, so 60 sits halfway between 30 and 90.
+  assertRectClose(resolveCensorRectAtFrame(partly, 60), { x: 0.3, y: 0, w: 0.2, h: 0.2 });
+});
+
+test('censorKeyframeSegments covers a static region with one flat segment', () => {
+  const staticRegion = region();
+  const segments = censorKeyframeSegments(staticRegion);
+  assert.equal(segments.length, 1);
+  assert.equal(segments[0].startFrame, 30);
+  assert.equal(segments[0].endFrame, 90);
+  assertRectClose(segments[0].fromRect, staticRegion.rect, 'from');
+  assertRectClose(segments[0].toRect, staticRegion.rect, 'to');
+});
+
+test('censorKeyframeSegments splits at every keyframe inside the region and covers it exactly', () => {
+  const moving = region({
+    startFrame: 30,
+    endFrame: 90,
+    keyframes: [
+      { frame: 10, rect: { x: 0, y: 0, w: 0.2, h: 0.2 } },
+      { frame: 50, rect: { x: 0.2, y: 0, w: 0.2, h: 0.2 } },
+      { frame: 70, rect: { x: 0.5, y: 0.5, w: 0.2, h: 0.2 } },
+      { frame: 200, rect: { x: 0.7, y: 0.5, w: 0.2, h: 0.2 } },
+    ],
+  });
+  const segments = censorKeyframeSegments(moving);
+  assert.deepEqual(
+    segments.map((segment) => [segment.startFrame, segment.endFrame]),
+    [[30, 50], [50, 70], [70, 90]],
+  );
+});
+
+test('censorKeyframeSegments interpolation matches resolveCensorRectAtFrame on every frame', () => {
+  const moving = region({
+    startFrame: 12,
+    endFrame: 97,
+    keyframes: [
+      { frame: 5, rect: { x: 0.05, y: 0.9, w: 0.2, h: 0.05 } },
+      { frame: 40, rect: { x: 0.3, y: 0.2, w: 0.31, h: 0.22 } },
+      { frame: 41, rect: { x: 0.31, y: 0.19, w: 0.31, h: 0.22 } },
+      { frame: 88, rect: { x: 0.7, y: 0.05, w: 0.1, h: 0.6 } },
+      { frame: 300, rect: { x: 0.9, y: 0.05, w: 0.1, h: 0.6 } },
+    ],
+  });
+  const segments = censorKeyframeSegments(moving);
+  for (let frame = moving.startFrame; frame < moving.endFrame; frame += 1) {
+    const segment = segments.find((entry) => frame >= entry.startFrame && frame < entry.endFrame);
+    assert.ok(segment, `no segment covers frame ${frame}`);
+    const span = segment.endFrame - segment.startFrame;
+    const t = span > 0 ? (frame - segment.startFrame) / span : 0;
+    const lerped = {
+      x: segment.fromRect.x + (segment.toRect.x - segment.fromRect.x) * t,
+      y: segment.fromRect.y + (segment.toRect.y - segment.fromRect.y) * t,
+      w: segment.fromRect.w + (segment.toRect.w - segment.fromRect.w) * t,
+      h: segment.fromRect.h + (segment.toRect.h - segment.fromRect.h) * t,
+    };
+    assertRectClose(lerped, resolveCensorRectAtFrame(moving, frame), `frame ${frame}`);
+  }
 });

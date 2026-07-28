@@ -14,6 +14,7 @@ const IPC_CHANNELS = {
   LIBRARY_PICK_IMPORT_FILE: 'library:pick-import-file',
   LIBRARY_CREATE_FROM_IMPORT: 'library:create-from-import',
   LIBRARY_CREATE_BLANK_PROJECT: 'library:create-blank-project',
+  CENSOR_TRACK: 'censor:track',
   EXPORT_PICK_OUTPUT_PATH: 'export:pick-output-path',
   EXPORT_START: 'export:start',
   EXPORT_CANCEL: 'export:cancel',
@@ -127,6 +128,7 @@ contextBridge.exposeInMainWorld('roughCut', {
   createProjectFromImport: (payload) => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_CREATE_FROM_IMPORT, payload),
   createBlankProject: (payload) => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_CREATE_BLANK_PROJECT, payload ?? null),
   pickExportOutputPath: (projectName) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PICK_OUTPUT_PATH, projectName),
+  trackCensorRegion: (payload) => ipcRenderer.invoke(IPC_CHANNELS.CENSOR_TRACK, payload),
   exportProject: (payload) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_START, payload),
   cancelExport: () => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_CANCEL),
   onExportProgress: (callback) => {

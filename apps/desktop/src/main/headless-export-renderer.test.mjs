@@ -833,7 +833,20 @@ test('headless export renderer reports how many censors it painted', async () =>
   assert.match(source, /censoredCount,/);
 });
 
-test('export payload passes the resolver-filtered censor list through untouched', async () => {
+test('export payload takes the censor list from the resolver and never re-filters it', async () => {
   const source = await readFile(new URL('./export-service.mjs', import.meta.url), 'utf8');
-  assert.match(source, /censorRegions: frame\.renderFrame\?\.censorRegions \?\? \[\],/);
+  // Which regions are active is the resolver's answer, not the export's. Re-deriving
+  // it here is how the file could end up hiding something different from the preview.
+  assert.match(source, /censorRegions: \(frame\.renderFrame\?\.censorRegions \?\? \[\]\)/);
+});
+
+test('export payload resolves a moving censor position for the canvas renderer', async () => {
+  const source = await readFile(new URL('./export-service.mjs', import.meta.url), 'utf8');
+  // The canvas backend draws a plain rect and has no keyframe logic. Resolving here,
+  // through the same helper the preview uses, is what keeps it from needing one —
+  // a second copy of the interpolation is how the two backends would drift apart.
+  assert.match(source, /resolveCensorRectAtFrame\(region, frame\.renderFrame\?\.censorSourceFrame \?\? 0\)/);
+
+  const renderer = await readFile(new URL('./headless-export-renderer.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(renderer, /keyframes/);
 });

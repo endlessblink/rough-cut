@@ -540,6 +540,40 @@ describe('resolveFrame', () => {
       expect(ids(120)).toEqual([]);
     });
 
+    it('reports the recording frame censors are positioned in', () => {
+      const asset = createAsset('recording', '/test.webm', {
+        duration: 300,
+        presentation: {
+          zoom: {
+            autoIntensity: 0,
+            followCursor: true,
+            followAnimation: 'focused',
+            followPadding: 0.18,
+            markers: [],
+          },
+          cursor: { style: 'default', clickEffect: 'none', sizePercent: 100, clickSoundEnabled: false },
+          censorRegions: [
+            {
+              id: 'early',
+              startFrame: 0,
+              endFrame: 120,
+              rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+              mode: 'solid',
+              blockSize: 24,
+              soften: false,
+            },
+          ],
+        },
+      });
+      const project = createProject({ assets: [asset] });
+
+      // A keyframed censor is positioned in recording frames, so renderers need the
+      // recording frame — not the timeline frame, which drifts from it after a trim
+      // or a cut and would slide the censor off its target.
+      expect(resolveFrame(project, 45).censorSourceFrame).toBe(45);
+      expect(resolveFrame(project, 0).censorSourceFrame).toBe(0);
+    });
+
     it('overlapping censor regions all resolve, so one cannot silently hide another', () => {
       const asset = createAsset('recording', '/test.webm', {
         duration: 300,

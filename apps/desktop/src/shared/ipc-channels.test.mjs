@@ -110,3 +110,8 @@ test('window profile channel is part of the IPC contract', async () => {
   const { IPC_CHANNELS } = await import('./ipc-channels.mjs');
   assert.equal(IPC_CHANNELS.APP_SET_WINDOW_PROFILE, 'app:set-window-profile');
 });
+
+test('censor tracking channel is part of the IPC contract', async () => {
+  const { IPC_CHANNELS } = await import('./ipc-channels.mjs');
+  assert.equal(IPC_CHANNELS.CENSOR_TRACK, 'censor:track');
+});

@@ -7,7 +7,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getPrimaryRecording } from './project-files.mjs';
 import { createZoomSendcmdLayer } from './zoom-sendcmd.mjs';
 import { HEADLESS_EXPORT_BACKEND, attemptExperimentalHeadlessRender } from './headless-export-renderer.mjs';
-import { resolveCensorBlurSpacing } from '../shared/censor-regions.mjs';
+import {
+  resolveCensorBlurSpacing,
+  resolveCensorRectAtFrame,
+  censorKeyframeSegments,
+  censorRegionIsAnimated,
+} from '../shared/censor-regions.mjs';
 import { canonicalizeProjectDocument, computeTimelineDuration, createDefaultCameraPresentation, getRecordingBackgroundColors, getStyledCanvasResolution } from '@rough-cut/project-model';
 import {
   getCameraLayoutRect,
@@ -789,7 +794,17 @@ function summarizeCompositionFrame(frame, assetMap = new Map()) {
     // Taken straight off the resolved render frame, already filtered to this
     // frame. The export must never do its own filtering, or it could disagree with
     // the preview about what is hidden.
-    censorRegions: frame.renderFrame?.censorRegions ?? [],
+    //
+    // The position is resolved here too, so the canvas renderer downstream can stay
+    // a plain "draw this rect" and needs no keyframe logic of its own — a second
+    // implementation of the interpolation is exactly how the two export backends
+    // would drift apart again.
+    censorRegions: (frame.renderFrame?.censorRegions ?? []).map((region) => {
+      const rect = resolveCensorRectAtFrame(region, frame.renderFrame?.censorSourceFrame ?? 0);
+      if (!rect || rect === region.rect) return region;
+      const { keyframes: _resolved, ...rest } = region;
+      return { ...rest, rect };
+    }),
     cursor: {
       sourceFrame: frame.cursorLayer.sourceFrame,
       sourcePosition: frame.cursorLayer.sourcePosition,
@@ -868,55 +883,137 @@ export function buildCensorSourceFilters({
   sourceWidth,
   sourceHeight,
   fps,
+  cutRanges = [],
+  trimStartFrame = 0,
   inputLabel = '[base]',
   outputPrefix = 'censored',
 } = {}) {
-  const usable = (Array.isArray(censorRegions) ? censorRegions : [])
-    .map((region) => {
-      const rect = region?.rect;
-      if (!rect) return null;
-      if (!(sourceWidth > 0) || !(sourceHeight > 0)) return null;
-      const x1 = clampNumber(Number(rect.x), 0, 1);
-      const y1 = clampNumber(Number(rect.y), 0, 1);
-      const x2 = clampNumber(Number(rect.x) + Number(rect.w), 0, 1);
-      const y2 = clampNumber(Number(rect.y) + Number(rect.h), 0, 1);
-      // Drop degenerate regions BEFORE the even-pixel floor below. Applying the
-      // floor first would turn a zero-area rect into a 2px censor, so a stray
-      // click would leave a phantom box in the export.
-      const rawW = Math.abs(x2 - x1) * sourceWidth;
-      const rawH = Math.abs(y2 - y1) * sourceHeight;
-      if (rawW < 2 || rawH < 2) return null;
-      // Even pixel dimensions: odd crop sizes break some encoders and make the
-      // mosaic downscale/upscale round unevenly.
-      const x = Math.max(0, Math.round(Math.min(x1, x2) * sourceWidth));
-      const y = Math.max(0, Math.round(Math.min(y1, y2) * sourceHeight));
-      const w = Math.max(2, Math.round(rawW / 2) * 2);
-      const h = Math.max(2, Math.round(rawH / 2) * 2);
-      const clampedW = Math.min(w, sourceWidth - x);
-      const clampedH = Math.min(h, sourceHeight - y);
-      if (clampedW < 2 || clampedH < 2) return null;
-      const startFrame = Math.max(0, Math.round(Number(region.startFrame) || 0));
-      const endFrame = Math.max(startFrame + 1, Math.round(Number(region.endFrame) || 0));
-      return {
-        id: region.id,
-        mode: region.mode === 'solid' ? 'solid' : 'pixelate',
-        blockSize: Number.isFinite(region.blockSize) && region.blockSize > 0 ? region.blockSize : 24,
-        soften: region.soften !== false,
-        fillColor: typeof region.fillColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(region.fillColor)
-          ? region.fillColor
-          : '#0b0f14',
-        x,
-        y,
-        w: clampedW,
-        h: clampedH,
-        // Resolved through the shared helper, not derived here, so the export and the
-        // preview cannot soften by different amounts.
-        blurSpacing: resolveCensorBlurSpacing(region),
-        startSec: startFrame / (fps > 0 ? fps : 30),
-        endSec: endFrame / (fps > 0 ? fps : 30),
-      };
-    })
-    .filter(Boolean);
+  const effectiveFps = fps > 0 ? fps : 30;
+  const trimStart = Math.max(0, Math.round(Number(trimStartFrame) || 0));
+  const cuts = (Array.isArray(cutRanges) ? cutRanges : [])
+    .map((range) => ({
+      startFrame: Math.round(Number(range?.startFrame) || 0),
+      endFrame: Math.round(Number(range?.endFrame) || 0),
+    }))
+    .filter((range) => range.endFrame > range.startFrame)
+    .sort((left, right) => left.startFrame - right.startFrame);
+
+  /**
+   * A source frame's position in the stream these filters actually see.
+   *
+   * The chain trims and then `select`s cut frames away, re-stamping timestamps,
+   * *before* the censor filters run. Gating on raw source time therefore fires a
+   * censor at the wrong moment in any trimmed or cut export — and a censor that
+   * arrives late is a censor that shows the thing it exists to hide. Returns null
+   * for a frame that was cut away and so never plays at all.
+   */
+  const toOutputFrame = (sourceFrame) => {
+    if (sourceFrame < trimStart) return 0;
+    let removed = 0;
+    for (const range of cuts) {
+      if (sourceFrame <= range.startFrame) break;
+      if (sourceFrame < range.endFrame) return null;
+      removed += range.endFrame - Math.max(range.startFrame, trimStart);
+    }
+    return Math.max(0, sourceFrame - trimStart - removed);
+  };
+  /** Same mapping for a span's exclusive end, which may land inside a cut. */
+  const toOutputEnd = (sourceFrame) => {
+    const direct = toOutputFrame(sourceFrame);
+    if (direct !== null) return direct;
+    // Ends inside a cut: it lasts until the cut swallows it.
+    const range = cuts.find((entry) => sourceFrame > entry.startFrame && sourceFrame < entry.endFrame);
+    return toOutputFrame(range.startFrame);
+  };
+
+  /**
+   * Normalized rect → the integer source-pixel box the filters actually use.
+   * Returns null for anything with no usable area.
+   */
+  const toPixelBox = (rect) => {
+    if (!rect) return null;
+    if (!(sourceWidth > 0) || !(sourceHeight > 0)) return null;
+    const x1 = clampNumber(Number(rect.x), 0, 1);
+    const y1 = clampNumber(Number(rect.y), 0, 1);
+    const x2 = clampNumber(Number(rect.x) + Number(rect.w), 0, 1);
+    const y2 = clampNumber(Number(rect.y) + Number(rect.h), 0, 1);
+    // Drop degenerate regions BEFORE the even-pixel floor below. Applying the
+    // floor first would turn a zero-area rect into a 2px censor, so a stray
+    // click would leave a phantom box in the export.
+    const rawW = Math.abs(x2 - x1) * sourceWidth;
+    const rawH = Math.abs(y2 - y1) * sourceHeight;
+    if (rawW < 2 || rawH < 2) return null;
+    // Even pixel dimensions: odd crop sizes break some encoders and make the
+    // mosaic downscale/upscale round unevenly.
+    const x = Math.max(0, Math.round(Math.min(x1, x2) * sourceWidth));
+    const y = Math.max(0, Math.round(Math.min(y1, y2) * sourceHeight));
+    const w = Math.min(Math.max(2, Math.round(rawW / 2) * 2), sourceWidth - x);
+    const h = Math.min(Math.max(2, Math.round(rawH / 2) * 2), sourceHeight - y);
+    if (w < 2 || h < 2) return null;
+    return { x, y, w, h };
+  };
+
+  // One entry per *span* of constant motion, not per region: see the note above on
+  // why a moving censor is many short filters rather than one long expression.
+  const usable = [];
+  let regionCount = 0;
+  for (const region of Array.isArray(censorRegions) ? censorRegions : []) {
+    const style = {
+      id: region?.id,
+      mode: region?.mode === 'solid' ? 'solid' : 'pixelate',
+      blockSize: Number.isFinite(region?.blockSize) && region.blockSize > 0 ? region.blockSize : 24,
+      soften: region?.soften !== false,
+      fillColor: typeof region?.fillColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(region.fillColor)
+        ? region.fillColor
+        : '#0b0f14',
+      // Resolved through the shared helper, not derived here, so the export and the
+      // preview cannot soften by different amounts.
+      blurSpacing: resolveCensorBlurSpacing(region),
+    };
+    const startFrame = Math.max(0, Math.round(Number(region?.startFrame) || 0));
+    const endFrame = Math.max(startFrame + 1, Math.round(Number(region?.endFrame) || 0));
+    const before = usable.length;
+
+    // Spans are split at cut boundaries as well as at keyframes. A span that
+    // straddled a cut would otherwise interpolate across frames the viewer never
+    // sees, so the censor would arrive at the far side already out of position.
+    const spans = censorRegionIsAnimated(region)
+      // Static, including the one-keyframe case: the resolver answers with the
+      // keyframe's rect there, so a pinned censor lands where the preview shows it.
+      ? censorKeyframeSegments({ ...region, startFrame, endFrame })
+      : [{ startFrame, endFrame, fromRect: resolveCensorRectAtFrame(region, startFrame), toRect: resolveCensorRectAtFrame(region, startFrame) }];
+
+    for (const segment of spans) {
+      const pieces = [];
+      let cursor = segment.startFrame;
+      for (const cut of cuts) {
+        if (cut.endFrame <= cursor || cut.startFrame >= segment.endFrame) continue;
+        if (cut.startFrame > cursor) pieces.push([cursor, cut.startFrame]);
+        cursor = Math.max(cursor, cut.endFrame);
+      }
+      if (cursor < segment.endFrame) pieces.push([cursor, segment.endFrame]);
+
+      for (const [pieceStart, pieceEnd] of pieces) {
+        const outStart = toOutputFrame(pieceStart);
+        const outEnd = toOutputEnd(pieceEnd);
+        // Wholly inside a cut: it never plays, so it needs no filter at all.
+        if (outStart === null || outEnd === null || outEnd <= outStart) continue;
+        const from = toPixelBox(resolveCensorRectAtFrame(region, pieceStart));
+        const to = toPixelBox(resolveCensorRectAtFrame(region, pieceEnd));
+        // A span is only usable if BOTH ends are: interpolating from or to a
+        // degenerate box would sweep the censor through nothing.
+        if (!from || !to) continue;
+        usable.push({
+          ...style,
+          from,
+          to,
+          startSec: outStart / effectiveFps,
+          endSec: outEnd / effectiveFps,
+        });
+      }
+    }
+    if (usable.length > before) regionCount += 1;
+  }
 
   if (usable.length === 0) return { filters: [], outputLabel: inputLabel, count: 0 };
 
@@ -935,26 +1032,71 @@ export function buildCensorSourceFilters({
   usable.forEach((region, index) => {
     const enable = `enable='between(t,${formatFilterNumber(region.startSec)},${formatFilterNumber(region.endSec)})'`;
     const next = `[${outputPrefix}_${index}]`;
+
+    // Geometry is a plain number while the censor is still, and a time expression
+    // while it moves. Keeping the still case numeric is not just tidiness: geq
+    // evaluates these per pixel, so an expression that always answers the same
+    // number is paid for on every pixel of every frame for nothing.
+    const span = region.endSec - region.startSec;
+    const axis = (timeVar, from, to) => {
+      if (from === to || !(span > 0)) return String(from);
+      return `(${formatFilterNumber(from)}+(${formatFilterNumber(to - from)})*clip((${timeVar}-${formatFilterNumber(region.startSec)})/${formatFilterNumber(span)},0,1))`;
+    };
+    const moves = region.from.x !== region.to.x
+      || region.from.y !== region.to.y
+      || region.from.w !== region.to.w
+      || region.from.h !== region.to.h;
+
     if (region.mode === 'solid') {
       const hex = region.fillColor.replace('#', '0x');
-      filters.push(`${current}drawbox=x=${region.x}:y=${region.y}:w=${region.w}:h=${region.h}:color=${hex}@1:t=fill:${enable}${next}`);
+      // drawbox reads time as lowercase `t`. geq below reads it as uppercase `T`,
+      // and each rejects the other's spelling outright.
+      const box = ['x', 'y', 'w', 'h'].map((key) => {
+        const value = axis('t', region.from[key], region.to[key]);
+        return `${key}=${value.startsWith('(') ? `'${value}'` : value}`;
+      }).join(':');
+      filters.push(`${current}drawbox=${box}:color=${hex}@1:t=fill:${enable}${next}`);
     } else {
       // Quantize the sample coordinate to the block grid inside the region, and
       // sample the untouched pixel outside it. Chroma planes are half resolution.
       const block = Math.max(2, Math.round(region.blockSize / 2) * 2);
-      const cx = Math.round(region.x / 2);
-      const cy = Math.round(region.y / 2);
-      const cw = Math.max(1, Math.round(region.w / 2));
-      const ch = Math.max(1, Math.round(region.h / 2));
       const cblock = Math.max(1, Math.round(block / 2));
-      const insideLuma = `between(X,${region.x},${region.x + region.w - 1})*between(Y,${region.y},${region.y + region.h - 1})`;
-      const insideChroma = `between(X,${cx},${cx + cw - 1})*between(Y,${cy},${cy + ch - 1})`;
+      // Luma bounds, then the same box in half-resolution chroma coordinates. Both
+      // are strings so a moving censor can substitute an expression wherever a
+      // still one substitutes a number, with no second copy of this algebra.
+      const x = axis('T', region.from.x, region.to.x);
+      const y = axis('T', region.from.y, region.to.y);
+      const w = axis('T', region.from.w, region.to.w);
+      const h = axis('T', region.from.h, region.to.h);
+      const bounds = moves
+        ? {
+            loX: x,
+            hiX: `((${x})+(${w})-1)`,
+            loY: y,
+            hiY: `((${y})+(${h})-1)`,
+            cLoX: `((${x})/2)`,
+            cHiX: `(((${x})+(${w}))/2-1)`,
+            cLoY: `((${y})/2)`,
+            cHiY: `(((${y})+(${h}))/2-1)`,
+          }
+        : {
+            loX: String(region.from.x),
+            hiX: String(region.from.x + region.from.w - 1),
+            loY: String(region.from.y),
+            hiY: String(region.from.y + region.from.h - 1),
+            cLoX: String(Math.round(region.from.x / 2)),
+            cHiX: String(Math.round(region.from.x / 2) + Math.max(1, Math.round(region.from.w / 2)) - 1),
+            cLoY: String(Math.round(region.from.y / 2)),
+            cHiY: String(Math.round(region.from.y / 2) + Math.max(1, Math.round(region.from.h / 2)) - 1),
+          };
+      const insideLuma = `between(X,${bounds.loX},${bounds.hiX})*between(Y,${bounds.loY},${bounds.hiY})`;
+      const insideChroma = `between(X,${bounds.cLoX},${bounds.cHiX})*between(Y,${bounds.cLoY},${bounds.cHiY})`;
       const snap = (plane, ox, oy, size) =>
         `${plane}(${ox}+floor((X-${ox})/${size})*${size}+${size}/2,${oy}+floor((Y-${oy})/${size})*${size}+${size}/2)`;
       const expr = [
-        `lum='if(${insideLuma},${snap('lum', region.x, region.y, block)},lum(X,Y))'`,
-        `cb='if(${insideChroma},${snap('cb', cx, cy, cblock)},cb(X,Y))'`,
-        `cr='if(${insideChroma},${snap('cr', cx, cy, cblock)},cr(X,Y))'`,
+        `lum='if(${insideLuma},${snap('lum', bounds.loX, bounds.loY, block)},lum(X,Y))'`,
+        `cb='if(${insideChroma},${snap('cb', bounds.cLoX, bounds.cLoY, cblock)},cb(X,Y))'`,
+        `cr='if(${insideChroma},${snap('cr', bounds.cLoX, bounds.cLoY, cblock)},cr(X,Y))'`,
       ].join(':');
 
       const spacing = region.blurSpacing;
@@ -965,21 +1107,25 @@ export function buildCensorSourceFilters({
         // and it cannot smear the censor outward.
         const mosaicLabel = `[${outputPrefix}_m${index}]`;
         filters.push(`${current}geq=${expr}:${enable}${mosaicLabel}`);
-        const average = (plane, ox, oy, extent, step) => {
-          const clip = (axis, delta, origin, size) => `clip(${axis}+(${delta}),${origin},${origin + size - 1})`;
+        const average = (plane, lo, hi, step) => {
+          const clip = (coord, delta, low, high) => `clip(${coord}+(${delta}),${low},${high})`;
           const taps = [];
           for (const dx of [-step, 0, step]) {
             for (const dy of [-step, 0, step]) {
-              taps.push(`${plane}(${clip('X', dx, ox, extent.w)},${clip('Y', dy, oy, extent.h)})`);
+              taps.push(`${plane}(${clip('X', dx, lo.x, hi.x)},${clip('Y', dy, lo.y, hi.y)})`);
             }
           }
           return `(${taps.join('+')})/9`;
         };
         const chromaStep = Math.max(1, Math.round(spacing / 2));
+        const lumaLo = { x: bounds.loX, y: bounds.loY };
+        const lumaHi = { x: bounds.hiX, y: bounds.hiY };
+        const chromaLo = { x: bounds.cLoX, y: bounds.cLoY };
+        const chromaHi = { x: bounds.cHiX, y: bounds.cHiY };
         const blurExpr = [
-          `lum='if(${insideLuma},${average('lum', region.x, region.y, { w: region.w, h: region.h }, spacing)},lum(X,Y))'`,
-          `cb='if(${insideChroma},${average('cb', cx, cy, { w: cw, h: ch }, chromaStep)},cb(X,Y))'`,
-          `cr='if(${insideChroma},${average('cr', cx, cy, { w: cw, h: ch }, chromaStep)},cr(X,Y))'`,
+          `lum='if(${insideLuma},${average('lum', lumaLo, lumaHi, spacing)},lum(X,Y))'`,
+          `cb='if(${insideChroma},${average('cb', chromaLo, chromaHi, chromaStep)},cb(X,Y))'`,
+          `cr='if(${insideChroma},${average('cr', chromaLo, chromaHi, chromaStep)},cr(X,Y))'`,
         ].join(':');
         filters.push(`${mosaicLabel}geq=${blurExpr}:${enable}${next}`);
       } else {
@@ -989,7 +1135,9 @@ export function buildCensorSourceFilters({
     current = next;
   });
 
-  return { filters, outputLabel: current, count: usable.length };
+  // Censors, not filters: a moving censor is many filters and the caller reports
+  // this to the user as "how much is hidden".
+  return { filters, outputLabel: current, count: regionCount };
 }
 
 export function buildStyledExportArgs({
@@ -1076,6 +1224,11 @@ export function buildStyledExportArgs({
     sourceWidth,
     sourceHeight,
     fps,
+    // The trim and the cut both run upstream of these filters and renumber the
+    // frames, so the censor gates have to be expressed in the stream they will
+    // actually see rather than in recording time.
+    cutRanges: normalizedCutRanges,
+    trimStartFrame,
     inputLabel: '[base]',
   });
   const screenInput = cursorAssPath ? '[with_cursor]' : censorLayer.outputLabel;

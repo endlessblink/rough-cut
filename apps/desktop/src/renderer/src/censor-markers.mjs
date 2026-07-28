@@ -1,6 +1,7 @@
 import { createDefaultRecordingPresentation } from '@rough-cut/project-model';
 
 import { getPrimaryRecordingAsset } from './zoom-markers.mjs';
+import { resolveCensorRectAtFrame } from '../../shared/censor-regions.mjs';
 
 /**
  * Document operations for censor regions. (TASK-252)
@@ -150,7 +151,17 @@ export function updateCensorRegionRange(document, regionId, startFrame, endFrame
   return writeCensorRegions(document, next);
 }
 
-export function updateCensorRegionRect(document, regionId, rect) {
+/**
+ * Move or resize a censor.
+ *
+ * `frame` matters only for a censor that follows moving content: there the drag is
+ * a correction to a whole tracked path, not to one box. Every keyframe shifts by the
+ * same delta and takes the new size, so nudging a track that sits slightly off its
+ * target fixes it everywhere instead of putting one frame right and the rest wrong.
+ * Without this the drag would appear to do nothing at all, because the keyframes —
+ * not `rect` — decide where a tracked censor is drawn.
+ */
+export function updateCensorRegionRect(document, regionId, rect, { frame = null } = {}) {
   const regions = listCensorRegions(document);
   const index = regions.findIndex((region) => region.id === regionId);
   if (index < 0) return document;
@@ -158,8 +169,73 @@ export function updateCensorRegionRect(document, regionId, rect) {
   // A drag that collapses the rect to nothing must not delete the censor by
   // accident — keep the previous rect and let the user delete deliberately.
   if (!nextRect) return document;
+
+  const current = regions[index];
   const next = regions.slice();
-  next[index] = { ...regions[index], rect: nextRect };
+  const keyframes = Array.isArray(current.keyframes) ? current.keyframes : null;
+
+  if (keyframes && keyframes.length > 0 && Number.isFinite(frame)) {
+    const at = resolveCensorRectAtFrame(current, frame);
+    const deltaX = at ? nextRect.x - at.x : 0;
+    const deltaY = at ? nextRect.y - at.y : 0;
+    next[index] = {
+      ...current,
+      rect: nextRect,
+      keyframes: keyframes.map((keyframe) => {
+        const w = nextRect.w;
+        const h = nextRect.h;
+        return {
+          frame: keyframe.frame,
+          rect: {
+            // Clamped per keyframe rather than by clamping the delta once: a path
+            // that runs to the edge of the frame should slide along it, not drag
+            // the rest of the path back with it.
+            x: Math.max(0, Math.min(1 - w, keyframe.rect.x + deltaX)),
+            y: Math.max(0, Math.min(1 - h, keyframe.rect.y + deltaY)),
+            w,
+            h,
+          },
+        };
+      }),
+    };
+  } else {
+    next[index] = { ...current, rect: nextRect };
+  }
+  return writeCensorRegions(document, next);
+}
+
+/**
+ * Replace the positions a censor follows.
+ *
+ * An empty list drops tracking entirely and leaves the censor still, parked at
+ * wherever it was last drawn rather than snapping back to where it was first placed
+ * — a censor that jumps somewhere else when tracking is cleared has uncovered its
+ * target for as long as it takes the user to notice.
+ */
+export function setCensorRegionKeyframes(document, regionId, keyframes, { frame = null } = {}) {
+  const regions = listCensorRegions(document);
+  const index = regions.findIndex((region) => region.id === regionId);
+  if (index < 0) return document;
+  const current = regions[index];
+
+  const usable = (Array.isArray(keyframes) ? keyframes : [])
+    .map((keyframe) => {
+      const rect = normalizeCensorRect(keyframe?.rect);
+      if (!rect || !Number.isFinite(keyframe?.frame)) return null;
+      return { frame: Math.max(0, Math.round(keyframe.frame)), rect };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.frame - b.frame);
+
+  const next = regions.slice();
+  if (usable.length === 0) {
+    if (!current.keyframes) return document;
+    const { keyframes: _dropped, ...rest } = current;
+    const parked = resolveCensorRectAtFrame(current, Number.isFinite(frame) ? frame : current.startFrame);
+    next[index] = { ...rest, rect: parked ?? current.rect };
+  } else {
+    next[index] = { ...current, keyframes: usable, rect: usable[0].rect };
+  }
   return writeCensorRegions(document, next);
 }
 
