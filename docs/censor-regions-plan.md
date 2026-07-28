@@ -384,8 +384,12 @@ loses to the PiP because the PiP is a small distinct object on top.
   fall back to solid fill while scrubbing and pixelate on pause/export.
 - **Soften leaking detail.** Structurally prevented: the blur pass reads only from inside the
   already-destroyed rect, never the original frame. This must stay true and is worth a test.
-- **Regions on cut boundaries.** Handled in slice 7; until then a censor spanning a cut may
-  mis-time.
+- **Regions on cut boundaries.** Done. The trim and the cut both renumber frames upstream of
+  the censor filters, so the gates are built in the stream those filters actually see rather
+  than in recording time — a censor after a cut used to fire late, showing the thing it hides.
+  Spans are also split at cut boundaries, so a tracked censor jumps across a cut instead of
+  interpolating through frames that never play, and a censor swallowed whole by a cut emits
+  nothing.
 
 ## 9. Not in v1
 
