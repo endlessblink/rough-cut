@@ -214,3 +214,43 @@ test('createRectTracker holds no reference to the frames it has seen', () => {
   assert.equal(tracker.retainedFrames(), 1);
   assert.equal(tracker.keyframes().length, 30);
 });
+
+test('the tracker reports how confident it was, so a hold can be told from a follow', () => {
+  // A tracker that loses its target holds position, which looks identical to a
+  // target that never moved — and both were reported as "following the content".
+  // The caller cannot tell the user what happened without these.
+  const moving = [];
+  for (let i = 0; i < 10; i += 1) moving.push(frameWithPatch(40 + i * 2, 30));
+  const followed = createRectTracker({
+    width: W, height: H, startFrame: 0,
+    startRect: { x: 40 / W, y: 30 / H, w: 20 / W, h: 20 / H },
+  });
+  for (const frame of moving) followed.push(frame);
+
+  assert.ok(followed.confidence() > 0.9, `expected a confident follow, got ${followed.confidence()}`);
+  assert.ok(followed.movedBy() > 0.05, `expected real movement, got ${followed.movedBy()}`);
+
+  // Target gone after the first two frames: it holds, and says it was not confident.
+  const lost = createRectTracker({
+    width: W, height: H, startFrame: 0,
+    startRect: { x: 40 / W, y: 30 / H, w: 20 / W, h: 20 / H },
+  });
+  lost.push(frameWithPatch(40, 30));
+  for (let i = 0; i < 9; i += 1) lost.push(frameWithPatch(-100, -100));
+
+  assert.ok(lost.confidence() < 0.2, `expected low confidence, got ${lost.confidence()}`);
+  assert.ok(lost.movedBy() < 0.01, `expected it to have held still, got ${lost.movedBy()}`);
+});
+
+test('a target that never moves reports high confidence and no movement', () => {
+  // The other way a censor legitimately stays put: it found the target every frame
+  // and the target simply did not move. That must not read as a failure.
+  const tracker = createRectTracker({
+    width: W, height: H, startFrame: 0,
+    startRect: { x: 40 / W, y: 30 / H, w: 20 / W, h: 20 / H },
+  });
+  for (let i = 0; i < 10; i += 1) tracker.push(frameWithPatch(40, 30));
+
+  assert.ok(tracker.confidence() > 0.9, `expected confident, got ${tracker.confidence()}`);
+  assert.ok(tracker.movedBy() < 0.01);
+});

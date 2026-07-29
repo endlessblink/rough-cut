@@ -147,6 +147,8 @@ declare global {
         keyframes: { frame: number; rect: { x: number; y: number; w: number; h: number } }[];
         analyzedFrames: number;
         trackedFrames: number;
+        confidence: number;
+        movedBy: number;
       }>;
       onCensorTrackProgress: (
         callback: (progress: { analyzedFrames: number; totalFrames: number }) => void,
@@ -4427,11 +4429,18 @@ function ProjectPreview({
         regionId: censorId,
       });
       const keyframes = result?.keyframes ?? [];
-      if (keyframes.length < 2) {
-        // One keyframe means the matcher held still the whole way: it never found
-        // the target. Saying so is better than leaving a censor that looks tracked
-        // but is not, which the user would only discover in the exported file.
-        setCensorTrackStatus('Could not find anything to follow here. The censor is unchanged.');
+      // A censor that ends up exactly where it started is not a success worth
+      // reporting as one — and it happens two very different ways. Saying which is
+      // the difference between the user retrying usefully and the user believing a
+      // censor follows something when it does not, which they would otherwise
+      // discover in the finished video.
+      const barelyMoved = (result?.movedBy ?? 0) < 0.01;
+      if (keyframes.length < 2 || barelyMoved) {
+        setCensorTrackStatus(
+          (result?.confidence ?? 0) < 0.5
+            ? 'Lost track of what is under the censor, so it stayed put. Try a box with more detail in it, or one that stays put for longer.'
+            : 'Nothing under this censor moved, so it stayed where it is.',
+        );
         return;
       }
       // The newest document, NOT the one this run started from. Analysis takes tens
@@ -4449,7 +4458,11 @@ function ProjectPreview({
         return;
       }
       await persist(nextDocument);
-      setCensorTrackStatus(`Following the content — ${keyframes.length} points over ${result.analyzedFrames} frames.`);
+      setCensorTrackStatus(
+        result.confidence < 0.7
+          ? `Following, but it lost the target for part of the time — check it before exporting.`
+          : `Following the content — ${keyframes.length} points over ${result.analyzedFrames} frames.`,
+      );
     } catch (error) {
       setCensorTrackStatus(error instanceof Error ? error.message : 'Could not follow the content.');
     } finally {

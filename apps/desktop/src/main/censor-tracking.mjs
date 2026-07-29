@@ -212,6 +212,8 @@ export function createRectTracker({
   let template = null;
   let current = box ? { x: box.x, y: box.y } : null;
   let index = 0;
+  let matched = 0;
+  let compared = 0;
   const keyframes = [];
 
   return {
@@ -232,7 +234,9 @@ export function createRectTracker({
           searchRadius,
         });
         // Held, not moved, when the match is weak: see the note at the top of the file.
+        compared += 1;
         if (match.score >= minScore) {
+          matched += 1;
           current = {
             x: clampInt(current.x + match.dx, 0, width - box.w),
             y: clampInt(current.y + match.dy, 0, height - box.h),
@@ -248,6 +252,19 @@ export function createRectTracker({
     keyframes: () => keyframes,
     /** How many frames the tracker is holding on to. Always the template, only. */
     retainedFrames: () => (template === null ? 0 : 1),
+    /**
+     * Fraction of frames where the target was actually recognised.
+     *
+     * A tracker that loses its target holds position, which looks exactly like a
+     * target that never moved. Without this the caller cannot tell the user which
+     * happened, and both were being reported as "following the content".
+     */
+    confidence: () => (compared === 0 ? 1 : matched / compared),
+    /** Furthest the rect ever got from where it started, in normalized units. */
+    movedBy: () => keyframes.reduce((worst, keyframe) => Math.max(
+      worst,
+      Math.hypot(keyframe.rect.x - keyframes[0].rect.x, keyframe.rect.y - keyframes[0].rect.y),
+    ), 0),
   };
 }
 
@@ -472,5 +489,7 @@ export async function trackCensorRegion({
     // Reported so the caller can tell "it followed the target" from "it held still
     // the whole way because it never found one".
     trackedFrames: tracked.length,
+    confidence: tracker.confidence(),
+    movedBy: tracker.movedBy(),
   };
 }
