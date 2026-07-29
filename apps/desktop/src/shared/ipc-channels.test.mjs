@@ -115,3 +115,8 @@ test('censor tracking channel is part of the IPC contract', async () => {
   const { IPC_CHANNELS } = await import('./ipc-channels.mjs');
   assert.equal(IPC_CHANNELS.CENSOR_TRACK, 'censor:track');
 });
+
+test('censor tracking progress channel is part of the IPC contract', async () => {
+  const { IPC_CHANNELS } = await import('./ipc-channels.mjs');
+  assert.equal(IPC_CHANNELS.CENSOR_TRACK_PROGRESS, 'censor:track-progress');
+});

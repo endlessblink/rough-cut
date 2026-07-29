@@ -38,6 +38,9 @@ export const IPC_CHANNELS = {
   // Censor regions — analysing a recording so a censor can follow moving content.
   // Main-process work: it reads frames out of the recording with ffmpeg.
   CENSOR_TRACK: 'censor:track',
+  // Emitted while an analysis runs. A censor covering minutes takes tens of seconds,
+  // and without this the button is indistinguishable from one that has hung.
+  CENSOR_TRACK_PROGRESS: 'censor:track-progress',
 
   // Export
   EXPORT_START: 'export:start',

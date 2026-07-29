@@ -5,6 +5,7 @@ import {
   matchTemplateOffset,
   trackRectAcrossFrames,
   simplifyCensorKeyframes,
+  createRectTracker,
 } from './censor-tracking.mjs';
 
 const W = 160;
@@ -179,4 +180,37 @@ test('simplifyCensorKeyframes never returns fewer than the endpoints', () => {
     { frame: 30, rect: { x: 0.1, y: 0.1, w: 0.1, h: 0.1 } },
   ], 0.002);
   assert.equal(simplified.length, 2);
+});
+
+test('createRectTracker fed one frame at a time matches tracking the whole array', () => {
+  // The whole-array form is convenient for tests but cannot be what runs on a real
+  // recording: a censor covering five minutes is 9000 analysis frames, which held
+  // 1.2GB and peaked the process at 2.4GB when measured. The streaming form must
+  // agree with it exactly, or "it is cheaper" would mean "it is a different tracker".
+  const frames = [];
+  for (let i = 0; i < 12; i += 1) frames.push(frameWithPatch(40 + i * 3, 30 + (i % 4)));
+
+  const startRect = { x: 40 / W, y: 30 / H, w: 20 / W, h: 20 / H };
+  const wholeArray = trackRectAcrossFrames({ frames, width: W, height: H, startFrame: 7, startRect });
+
+  const tracker = createRectTracker({ width: W, height: H, startFrame: 7, startRect });
+  for (const frame of frames) tracker.push(frame);
+
+  assert.deepEqual(tracker.keyframes(), wholeArray);
+});
+
+test('createRectTracker holds no reference to the frames it has seen', () => {
+  // The point of the streaming form. If it kept them, it would be the array form
+  // with extra steps and would still exhaust memory on a long censor.
+  const tracker = createRectTracker({
+    width: W,
+    height: H,
+    startFrame: 0,
+    startRect: { x: 40 / W, y: 30 / H, w: 20 / W, h: 20 / H },
+  });
+  for (let i = 0; i < 30; i += 1) tracker.push(frameWithPatch(40 + i, 30));
+
+  // One template, whatever the length of the clip.
+  assert.equal(tracker.retainedFrames(), 1);
+  assert.equal(tracker.keyframes().length, 30);
 });

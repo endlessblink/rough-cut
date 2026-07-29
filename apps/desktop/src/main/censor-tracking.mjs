@@ -42,11 +42,17 @@ const MIN_MATCH_SCORE = 0.8;
 /**
  * Width the recording is scaled to for analysis.
  *
- * Small enough that a whole clip's matching runs in seconds, large enough that a
- * censor-sized region still carries texture to match on. The scaler low-passes on
- * the way down, which is also what keeps single-pixel patterns from aliasing.
+ * Matching cost is per pixel, so this is the main speed dial. Measured against a
+ * clip with known motion: 480 wide costs 10.0ms a frame for 2 source px of error,
+ * 320 costs 4.6ms for 4px, 240 costs 3.2ms for 6px. 320 is the pick — a few pixels
+ * of error is invisible on a censor box hundreds of pixels across, and a censor
+ * covering five minutes is 9000 frames, where the difference is half a minute of
+ * the user waiting.
+ *
+ * The scaler low-passes on the way down, which is also what keeps single-pixel
+ * patterns from aliasing into a flat, unmatchable patch.
  */
-const ANALYSIS_WIDTH = 480;
+const ANALYSIS_WIDTH = 320;
 
 /**
  * Every template pixel is compared — no subsampling stride.
@@ -60,6 +66,20 @@ const ANALYSIS_WIDTH = 480;
 
 /** How far the target may move between frames, in analysis pixels. */
 const DEFAULT_SEARCH_RADIUS = 12;
+
+/**
+ * The frame size the analysis runs at, from the recording's shape.
+ *
+ * Shared so the caller can build a tracker before the first frame arrives without a
+ * second copy of this arithmetic — a tracker sized differently from the frames it is
+ * fed would read every row at the wrong offset and match nothing.
+ */
+export function resolveAnalysisSize({ sourceWidth, sourceHeight, analysisWidth = ANALYSIS_WIDTH } = {}) {
+  const aspect = sourceWidth > 0 && sourceHeight > 0 ? sourceHeight / sourceWidth : 9 / 16;
+  const width = Math.max(2, Math.round(analysisWidth / 2) * 2);
+  const height = Math.max(2, Math.round((width * aspect) / 2) * 2);
+  return { width, height };
+}
 
 function clampInt(value, low, high) {
   if (!Number.isFinite(value)) return low;
@@ -157,16 +177,21 @@ export function matchTemplateOffset({
 }
 
 /**
- * Follow a rect through a sequence of greyscale frames.
+ * A tracker you feed one frame at a time.
  *
- * `frames[0]` is the reference: the template is taken from it at `startRect`, and
- * the first keyframe is that position at `startFrame`. Every later frame is matched
- * against that same original template, searched around the previous position —
- * matching against the previous frame instead would let small per-frame errors
- * accumulate into a slow slide off the target.
+ * Streaming rather than taking an array is not an optimisation — it is what makes
+ * the feature usable on a real recording. Holding the frames costs 130KB each, so a
+ * censor covering five minutes retains 1.2GB and peaks the process at 2.4GB
+ * (measured), and a censor running to the end of a half-hour recording is several
+ * times that. This keeps exactly one frame: the template.
+ *
+ * The first frame pushed is the reference — the template is cut from it at
+ * `startRect`, and the first keyframe is that position at `startFrame`. Every later
+ * frame is matched against that same original template, searched around the previous
+ * position. Matching against the previous frame instead would let small per-frame
+ * errors accumulate into a slow slide off the target.
  */
-export function trackRectAcrossFrames({
-  frames = [],
+export function createRectTracker({
   width,
   height,
   startFrame = 0,
@@ -174,55 +199,70 @@ export function trackRectAcrossFrames({
   searchRadius = DEFAULT_SEARCH_RADIUS,
   minScore = MIN_MATCH_SCORE,
 } = {}) {
-  if (!Array.isArray(frames) || frames.length === 0) return [];
-  if (!(width > 0) || !(height > 0) || !startRect) return [];
-
-  const box = {
-    x: clampInt(startRect.x * width, 0, width - 1),
-    y: clampInt(startRect.y * height, 0, height - 1),
-    w: Math.max(1, Math.round(startRect.w * width)),
-    h: Math.max(1, Math.round(startRect.h * height)),
-  };
-  const template = frames[0];
-  const normalizedW = box.w / width;
-  const normalizedH = box.h / height;
-
-  const keyframes = [];
-  let current = { x: box.x, y: box.y };
-  for (let index = 0; index < frames.length; index += 1) {
-    if (index > 0) {
-      const match = matchTemplateOffset({
-        template,
-        frame: frames[index],
-        width,
-        height,
-        // Template stays anchored to where the user drew it; only the search
-        // window follows the target. Re-cutting the template from the current
-        // position each frame is how a tracker drifts: every small error becomes
-        // part of what it looks for next.
-        rect: box,
-        searchOrigin: current,
-        searchRadius,
-      });
-      // Held, not moved, when the match is weak: see the note at the top of the file.
-      if (match.score >= minScore) {
-        current = {
-          x: clampInt(current.x + match.dx, 0, width - box.w),
-          y: clampInt(current.y + match.dy, 0, height - box.h),
-        };
+  const usable = width > 0 && height > 0 && Boolean(startRect);
+  const box = usable
+    ? {
+        x: clampInt(startRect.x * width, 0, width - 1),
+        y: clampInt(startRect.y * height, 0, height - 1),
+        w: Math.max(1, Math.round(startRect.w * width)),
+        h: Math.max(1, Math.round(startRect.h * height)),
       }
-    }
-    keyframes.push({
-      frame: startFrame + index,
-      rect: {
-        x: current.x / width,
-        y: current.y / height,
-        w: normalizedW,
-        h: normalizedH,
-      },
-    });
-  }
-  return keyframes;
+    : null;
+
+  let template = null;
+  let current = box ? { x: box.x, y: box.y } : null;
+  let index = 0;
+  const keyframes = [];
+
+  return {
+    push(frame) {
+      if (!usable || !frame) return;
+      if (template === null) {
+        template = frame;
+      } else {
+        const match = matchTemplateOffset({
+          template,
+          frame,
+          width,
+          height,
+          // Template stays anchored to where the user drew it; only the search
+          // window follows the target.
+          rect: box,
+          searchOrigin: current,
+          searchRadius,
+        });
+        // Held, not moved, when the match is weak: see the note at the top of the file.
+        if (match.score >= minScore) {
+          current = {
+            x: clampInt(current.x + match.dx, 0, width - box.w),
+            y: clampInt(current.y + match.dy, 0, height - box.h),
+          };
+        }
+      }
+      keyframes.push({
+        frame: startFrame + index,
+        rect: { x: current.x / width, y: current.y / height, w: box.w / width, h: box.h / height },
+      });
+      index += 1;
+    },
+    keyframes: () => keyframes,
+    /** How many frames the tracker is holding on to. Always the template, only. */
+    retainedFrames: () => (template === null ? 0 : 1),
+  };
+}
+
+/**
+ * Follow a rect through a sequence of greyscale frames already in memory.
+ *
+ * Convenience over `createRectTracker` for tests and short sequences. Anything that
+ * reads a real recording must use the streaming form: see the note there on what
+ * holding the frames costs.
+ */
+export function trackRectAcrossFrames({ frames = [], ...options } = {}) {
+  if (!Array.isArray(frames) || frames.length === 0) return [];
+  const tracker = createRectTracker(options);
+  for (const frame of frames) tracker.push(frame);
+  return tracker.keyframes();
 }
 
 /**
@@ -281,7 +321,13 @@ export function simplifyCensorKeyframes(keyframes, tolerance = 0.002) {
  * bytes. Scaled down because the matching cost is per pixel and the analysis does
  * not need detail the scaler would only have to average away again.
  *
- * Yields `{ width, height, frames }`. Frames are plain `Uint8Array` planes.
+ * Pass `onFrame` to consume each frame as it arrives and keep memory flat — that is
+ * the only form anything reading a real recording should use. Without it every frame
+ * is collected into `frames`, which is fine for a short fixture and ruinous for a
+ * long censor: 130KB a frame, so five minutes is 1.2GB.
+ *
+ * Resolves `{ width, height, frames, frameCount }`; `frames` is empty when `onFrame`
+ * was supplied.
  */
 export function readAnalysisFrames({
   sourcePath,
@@ -293,6 +339,7 @@ export function readAnalysisFrames({
   sourceHeight,
   ffmpegPath = 'ffmpeg',
   signal = null,
+  onFrame = null,
 } = {}) {
   return new Promise((resolve, reject) => {
     if (!sourcePath) {
@@ -300,9 +347,7 @@ export function readAnalysisFrames({
       return;
     }
     const effectiveFps = fps > 0 ? fps : 30;
-    const aspect = sourceWidth > 0 && sourceHeight > 0 ? sourceHeight / sourceWidth : 9 / 16;
-    const width = Math.max(2, Math.round(analysisWidth / 2) * 2);
-    const height = Math.max(2, Math.round((width * aspect) / 2) * 2);
+    const { width, height } = resolveAnalysisSize({ sourceWidth, sourceHeight, analysisWidth });
     const frameBytes = width * height;
 
     const args = [
@@ -318,6 +363,7 @@ export function readAnalysisFrames({
 
     const child = spawn(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const frames = [];
+    let produced = 0;
     let pending = Buffer.alloc(0);
     let stderr = '';
 
@@ -332,19 +378,25 @@ export function readAnalysisFrames({
       // A frame is only whole once frameBytes have arrived; the pipe splits wherever
       // it likes, so partial frames are carried over rather than analysed as-is.
       while (pending.length >= frameBytes) {
-        frames.push(new Uint8Array(pending.subarray(0, frameBytes)));
+        // Copied out of the pipe buffer: `subarray` is a view, and the consumer may
+        // keep the frame (the tracker keeps the first one as its template) long
+        // after this chunk has been reused.
+        const frame = new Uint8Array(pending.subarray(0, frameBytes));
         pending = pending.subarray(frameBytes);
+        produced += 1;
+        if (onFrame) onFrame(frame);
+        else frames.push(frame);
       }
     });
     child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
     child.on('error', (error) => reject(error));
     child.on('close', (code) => {
       if (signal) signal.removeEventListener('abort', abort);
-      if (code !== 0 && frames.length === 0) {
+      if (code !== 0 && produced === 0) {
         reject(new Error(`frame read failed (${code}): ${stderr.trim()}`));
         return;
       }
-      resolve({ width, height, frames });
+      resolve({ width, height, frames, frameCount: produced });
     });
   });
 }
@@ -365,13 +417,28 @@ export async function trackCensorRegion({
   ffmpegPath = 'ffmpeg',
   signal = null,
   tolerance = 0.002,
+  onProgress = null,
 } = {}) {
   const startFrame = Math.max(0, Math.round(Number(region?.startFrame) || 0));
   const endFrame = Math.max(startFrame + 1, Math.round(Number(region?.endFrame) || 0));
   const rect = region?.rect;
   if (!rect) throw new Error('censor tracking needs a region rect');
 
-  const { width, height, frames } = await readAnalysisFrames({
+  // The analysis frame size is fixed by the source aspect, so the tracker can be
+  // built before the first frame arrives and fed straight off the pipe. Nothing here
+  // ever holds more than one frame: a censor running to the end of a long recording
+  // is tens of thousands of frames, and collecting them first exhausted memory.
+  const expectedFrames = endFrame - startFrame;
+  let analysed = 0;
+  let lastReport = 0;
+  const size = resolveAnalysisSize({ sourceWidth, sourceHeight });
+  const tracker = createRectTracker({
+    width: size.width,
+    height: size.height,
+    startFrame,
+    startRect: rect,
+  });
+  const { width, height, frameCount } = await readAnalysisFrames({
     sourcePath,
     startFrame,
     frameCount: endFrame - startFrame,
@@ -380,20 +447,26 @@ export async function trackCensorRegion({
     sourceHeight,
     ffmpegPath,
     signal,
+    onFrame: (frame) => {
+      tracker.push(frame);
+      // Throttled to a few a second. A censor covering minutes takes tens of
+      // seconds to analyse, and with no sign of life a button that says
+      // "Following…" is indistinguishable from one that has hung.
+      if (!onProgress) return;
+      analysed += 1;
+      const now = Date.now();
+      if (now - lastReport < 250) return;
+      lastReport = now;
+      onProgress({ analyzedFrames: analysed, totalFrames: expectedFrames });
+    },
   });
-  if (frames.length === 0) throw new Error('censor tracking read no frames from the recording');
+  if (frameCount === 0) throw new Error('censor tracking read no frames from the recording');
 
-  const tracked = trackRectAcrossFrames({
-    frames,
-    width,
-    height,
-    startFrame,
-    startRect: rect,
-  });
+  const tracked = tracker.keyframes();
   const keyframes = simplifyCensorKeyframes(tracked, tolerance);
   return {
     keyframes,
-    analyzedFrames: frames.length,
+    analyzedFrames: frameCount,
     analysisWidth: width,
     analysisHeight: height,
     // Reported so the caller can tell "it followed the target" from "it held still

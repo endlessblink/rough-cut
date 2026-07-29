@@ -1009,7 +1009,7 @@ ipcMain.handle(IPC_CHANNELS.EXPORT_START, async (event, { document, outputPath, 
     if (activeExportController === controller) activeExportController = null;
   }
 });
-ipcMain.handle(IPC_CHANNELS.CENSOR_TRACK, async (_event, payload = {}) => {
+ipcMain.handle(IPC_CHANNELS.CENSOR_TRACK, async (event, payload = {}) => {
   const { document, regionId } = payload;
   const recording = getPrimaryRecording(document);
   const sourcePath = recording?.filePath;
@@ -1030,6 +1030,7 @@ ipcMain.handle(IPC_CHANNELS.CENSOR_TRACK, async (_event, payload = {}) => {
       sourceWidth: recording?.metadata?.width ?? recording?.width,
       sourceHeight: recording?.metadata?.height ?? recording?.height,
       signal: controller.signal,
+      onProgress: (progress) => event.sender.send(IPC_CHANNELS.CENSOR_TRACK_PROGRESS, progress),
     });
   } finally {
     if (activeCensorTrackController === controller) activeCensorTrackController = null;

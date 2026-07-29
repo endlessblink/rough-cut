@@ -148,6 +148,9 @@ declare global {
         analyzedFrames: number;
         trackedFrames: number;
       }>;
+      onCensorTrackProgress: (
+        callback: (progress: { analyzedFrames: number; totalFrames: number }) => void,
+      ) => () => void;
       onExportProgress: (callback: (progress: ExportProgress) => void) => () => void;
       listRecentProjects: () => Promise<Array<{
         path: string;
@@ -3780,8 +3783,15 @@ function ProjectPreview({
   const [cutModeActive, setCutModeActive] = React.useState(false);
   const [censorDrawArmed, setCensorDrawArmed] = React.useState(false);
   const [censorTrackBusy, setCensorTrackBusy] = React.useState(false);
-  const [censorTrackStatus, setCensorTrackStatus] = React.useState<string | null>(null);
+  // Keyed to the censor it describes: the status is about ONE censor, and left
+  // unkeyed it reports the last censor tracked while a different one is selected,
+  // which reads as "this censor is already following" when it is not.
+  const [censorTrack, setCensorTrack] = React.useState<{ censorId: string; message: string } | null>(null);
   const [selectedCensorId, setSelectedCensorId] = React.useState<string | null>(null);
+  const censorTrackStatus = censorTrack && censorTrack.censorId === selectedCensorId ? censorTrack.message : null;
+  const setCensorTrackStatus = (message: string | null) => {
+    setCensorTrack(message && selectedCensorId ? { censorId: selectedCensorId, message } : null);
+  };
 
   // Escape leaves the censor tool. An armed tool swallows preview drags that
   // normally move the camera or screen frame, so there has to be an obvious way
@@ -4395,6 +4405,12 @@ function ProjectPreview({
   async function trackCensor(censorId: string) {
     setCensorTrackBusy(true);
     setCensorTrackStatus('Reading the recording…');
+    // A censor covering minutes takes tens of seconds to analyse. Without a sign of
+    // life the button looks hung, which is exactly how this read the first time.
+    const stopProgress = window.roughCut.onCensorTrackProgress(({ analyzedFrames, totalFrames }) => {
+      const percent = totalFrames > 0 ? Math.min(99, Math.round((analyzedFrames / totalFrames) * 100)) : 0;
+      setCensorTrackStatus(`Following the content — ${percent}%`);
+    });
     try {
       const result = await window.roughCut.trackCensorRegion({ document: project.document, regionId: censorId });
       const keyframes = result?.keyframes ?? [];
@@ -4415,6 +4431,7 @@ function ProjectPreview({
     } catch (error) {
       setCensorTrackStatus(error instanceof Error ? error.message : 'Could not follow the content.');
     } finally {
+      stopProgress();
       setCensorTrackBusy(false);
     }
   }
