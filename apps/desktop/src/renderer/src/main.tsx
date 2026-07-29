@@ -3788,6 +3788,13 @@ function ProjectPreview({
   // which reads as "this censor is already following" when it is not.
   const [censorTrack, setCensorTrack] = React.useState<{ censorId: string; message: string } | null>(null);
   const [selectedCensorId, setSelectedCensorId] = React.useState<string | null>(null);
+  // Always the newest document, for handlers that await something slow before
+  // writing. Following a censor takes tens of seconds, and the captured `project`
+  // of the render that started it is stale by the time it finishes — writing that
+  // back silently undoes everything done in the meantime, including deleting a
+  // censor, which then reappears.
+  const latestProjectRef = React.useRef(project);
+  latestProjectRef.current = project;
   const censorTrackStatus = censorTrack && censorTrack.censorId === selectedCensorId ? censorTrack.message : null;
   const setCensorTrackStatus = (message: string | null) => {
     setCensorTrack(message && selectedCensorId ? { censorId: selectedCensorId, message } : null);
@@ -3878,13 +3885,16 @@ function ProjectPreview({
   }, [project.path]);
 
   async function persist(nextDocument: ProjectState['document']) {
-    const previous = project;
-    const optimistic = { ...project, document: nextDocument };
+    // Read through the ref rather than the captured `project`: a handler that
+    // awaited something slow would otherwise carry the rest of the project state
+    // back to how it was when that handler started.
+    const previous = latestProjectRef.current;
+    const optimistic = { ...previous, document: nextDocument };
     setSaveError(null);
     setIsSaving(true);
     onProjectChange(optimistic, { history: true, previous });
     try {
-      const saved = await saveProjectGuarded({ path: project.path, document: nextDocument });
+      const saved = await saveProjectGuarded({ path: previous.path, document: nextDocument });
       onProjectChange(saved);
     } catch (err) {
       onProjectChange(previous);
@@ -4412,7 +4422,10 @@ function ProjectPreview({
       setCensorTrackStatus(`Following the content — ${percent}%`);
     });
     try {
-      const result = await window.roughCut.trackCensorRegion({ document: project.document, regionId: censorId });
+      const result = await window.roughCut.trackCensorRegion({
+        document: latestProjectRef.current.document,
+        regionId: censorId,
+      });
       const keyframes = result?.keyframes ?? [];
       if (keyframes.length < 2) {
         // One keyframe means the matcher held still the whole way: it never found
@@ -4421,12 +4434,21 @@ function ProjectPreview({
         setCensorTrackStatus('Could not find anything to follow here. The censor is unchanged.');
         return;
       }
+      // The newest document, NOT the one this run started from. Analysis takes tens
+      // of seconds; writing back the snapshot it began with would undo every edit
+      // made while it ran. If the censor was deleted meanwhile this is a no-op, and
+      // the deletion stands — rather than the censor coming back from the dead.
+      const current = latestProjectRef.current;
       const nextDocument = setCensorRegionKeyframes(
-        project.document as unknown as ProjectDocument,
+        current.document as unknown as ProjectDocument,
         censorId,
         keyframes,
       ) as unknown as ProjectState['document'];
-      if (nextDocument !== project.document) await persist(nextDocument);
+      if (nextDocument === current.document) {
+        setCensorTrackStatus('That censor is gone, so there was nothing to apply the tracking to.');
+        return;
+      }
+      await persist(nextDocument);
       setCensorTrackStatus(`Following the content — ${keyframes.length} points over ${result.analyzedFrames} frames.`);
     } catch (error) {
       setCensorTrackStatus(error instanceof Error ? error.message : 'Could not follow the content.');

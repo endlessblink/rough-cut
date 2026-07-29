@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { createAsset, createDefaultRecordingPresentation, createProject } from '@rough-cut/project-model';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 import {
   addCensorRegionAt,
@@ -336,4 +342,46 @@ test('setting the same softness twice is a no-op so undo stays clean', () => {
   document = setCensorRegionSoftness(document, 'c1', 0.4);
   assert.equal(setCensorRegionSoftness(document, 'c1', 0.4), document);
   assert.equal(setCensorRegionSoftness(document, 'missing', 0.4), document);
+});
+
+test('tracking a censor writes to the newest project, never the one it started from', () => {
+  // Following a censor takes tens of seconds. If the write used the document
+  // captured when it started, every edit made while it ran would be silently
+  // undone — including deleting a censor, which then came back from the dead.
+  // Reported from real use on 2026-07-29.
+  const source = readFileSync(join(here, 'main.tsx'), 'utf8');
+  const trackCensor = source.slice(
+    source.indexOf('async function trackCensor('),
+    source.indexOf('async function clearCensorTrack('),
+  );
+  assert.ok(trackCensor.length > 0, 'expected to find the follow-content handler');
+
+  // Everything after the await must read through the ref.
+  const afterAwait = trackCensor.slice(trackCensor.indexOf('await window.roughCut.trackCensorRegion'));
+  assert.doesNotMatch(
+    afterAwait,
+    /\bproject\.document\b/,
+    'the follow-content handler reads the stale captured document after awaiting',
+  );
+  assert.match(afterAwait, /latestProjectRef\.current/);
+});
+
+test('deleting a censor that is being followed cannot be undone by the tracking finishing', () => {
+  // The document-level half of the same guarantee: applying keyframes to a censor
+  // that is no longer there must change nothing, so a late-arriving track cannot
+  // resurrect it.
+  const withRegion = addCensorRegionAt(projectDocument(300), {
+    id: 'c1',
+    rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+    startFrame: 0,
+    endFrame: 120,
+  });
+  const deleted = removeCensorRegion(withRegion, 'c1');
+  const lateTrack = setCensorRegionKeyframes(deleted, 'c1', [
+    { frame: 0, rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } },
+    { frame: 120, rect: { x: 0.5, y: 0.1, w: 0.2, h: 0.2 } },
+  ]);
+
+  assert.equal(lateTrack, deleted, 'a late track must leave the document untouched');
+  assert.equal(listCensorRegions(lateTrack).length, 0);
 });
