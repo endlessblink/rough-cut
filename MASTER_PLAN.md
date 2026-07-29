@@ -261,7 +261,7 @@ This repo is focused on becoming a Screen Studio-style Linux app for recording c
 | ~~TASK-249~~ | WebGPU-first preview renderer with WebGL/Canvas2D fallback ladder | P0 | DONE (2026-06-11) |
 | ~~TASK-250~~ | Refresh camera sources when pre-record setup opens | P1 | DONE (2026-07-05) |
 | TASK-251 | Add host real-camera source refresh smoke | P2 | PLANNED |
-| TASK-252 | Add timeline-controlled censor regions that survive zoom | P1 | IN PROGRESS (slices 1-3 done; UI pending) |
+| ~~TASK-252~~ | ✅ Add timeline-controlled censor regions that survive zoom | P1 | ✅ **DONE** (2026-07-29) — incl. cut ranges and follow-the-content tracking |
 
 ## Recently Verified
 
@@ -9950,10 +9950,29 @@ does not prove the host V4L2 camera path with a real `/dev/video*` device.
 ### TASK-252 Add timeline-controlled censor regions that survive zoom
 
 **Priority:** P1
-**Status:** FEATURE COMPLETE for v1 — data model, frame resolution, preview rendering,
+**Status:** ✅ DONE (2026-07-29). Data model, frame resolution, preview rendering,
 timeline censor lane, draw-on-preview creation, and the user-facing styled export all
-work and are covered, including a real pixelated mosaic in exported files. Remaining:
-cut-range interaction (slice 7) and a manual pass on a real recording.
+work and are covered, including a real pixelated mosaic in exported files. Cut ranges
+(slice 7) are done, and a censor can now follow moving content — either from tracking
+or from hand-placed positions — in the preview and in both export backends. Confirmed
+on a real recording by the user.
+
+Four defects were found by testing exported pixels rather than filter graphs, and all
+are guarded by tests that were verified to fail without their fix:
+
+- a censor placed after a cut fired a second late, showing what it was meant to hide;
+- solid-colour censors froze in place while appearing to follow, because the box
+  filter evaluates its geometry once and has no per-frame option;
+- following a censor longer than a few minutes exhausted memory (1.2GB retained,
+  2.4GB peak) because every analysed frame was collected before any was matched;
+- a censor deleted while an analysis was running came back, because the analysis
+  wrote back the document it had captured when it started.
+
+**Open follow-up:** on one real recording a second censor lost its target and held
+position. Not reproduced — a synthetic dark, low-contrast sliding target tracks
+correctly — and it now reports honestly when that happens instead of claiming to
+follow. Needs the actual footage to tune against. Separately, zoom timing appears to
+have the same cut/trim flaw the censor gates had, and is untouched.
 
 #### Goal
 
